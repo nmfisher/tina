@@ -14,9 +14,6 @@ This doc explains where things live and why they're split the way they are.
 tina/
   bin/
     tina.dart              — entry point: parse flags, wire deps, run
-    check_graph.dart         — validate tina_index graph integrity
-    generate_summaries.dart  — batch LLM summary generation
-    example_summaries.dart   — example summary output
   lib/
     config.dart              — CLI + env parsing → Config
     repl.dart                — interactive loop, slash commands
