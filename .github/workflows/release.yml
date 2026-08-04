@@ -1,0 +1,119 @@
+# Builds the tina CLI bundle for each staged target and publishes a GitHub
+# Release with per-target tarballs.
+#
+# Targets build via tool/build_bundle.sh (Linux inside tool/docker/linux.Dockerfile,
+# macOS native) — this workflow only wires up prerequisites, packaging, and
+# release publishing. Native notcurses libs are pre-staged under
+# packages/dart_notcurses/native/lib/<os>_<arch>/ and built into the bundle by
+# the dart build hook.
+#
+# Triggers:
+#   - push tag v*            → published release on that tag (make_latest)
+#   - workflow_dispatch      → draft release (tag = input or 0.0.0-dev.<run>)
+#
+# Each target runs on a native runner (no QEMU): linux-arm64 on the free
+# public arm64 Ubuntu runner.
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (defaults to 0.0.0-dev.<run_number>)'
+        required: false
+
+# TAG resolves the same way for every job: explicit dispatch input → the pushed
+# tag → a dev fallback. tag-push => published; dispatch => draft.
+env:
+  TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || format('0.0.0-dev.{0}', github.run_number) }}
+
+# Release creation/tagging needs write access to contents.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-arm64
+            runner: macos-latest
+            os_dir: macos_arm64
+          - target: linux-x64
+            runner: ubuntu-latest
+            os_dir: linux_x64
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+            os_dir: linux_arm64
+    steps:
+      - name: Checkout (with submodules for staged native libs + build hook)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Only macOS builds natively on the host and needs a local Dart SDK
+      # (>=3.12, per pubspec). Linux builds run inside the dart:3.12 Docker
+      # image, so no host Dart is required there.
+      - name: Set up Dart (macOS only)
+        if: runner.os == 'macOS'
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.12
+
+      - name: Build bundle
+        run: ./tool/build_bundle.sh ${{ matrix.target }}
+
+      - name: Verify bundle contents
+        run: find build/cli/${{ matrix.os_dir }}/bundle -type f -exec ls -lh {} \;
+
+      - name: Package tarball
+        run: |
+          tar -czf "tina-${{ env.TAG }}-${{ matrix.target }}.tar.gz" \
+            -C "build/cli/${{ matrix.os_dir }}" bundle
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tina-${{ env.TAG }}-${{ matrix.target }}
+          path: tina-${{ env.TAG }}-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: tina-${{ env.TAG }}-*
+          merge-multiple: false
+          path: artifacts
+
+      - name: Collect tarballs
+        run: |
+          mkdir -p assets
+          find artifacts -name '*.tar.gz' -exec cp {} assets/ \;
+          echo "## Release artifacts" > body.md
+          echo "" >> body.md
+          ( cd assets && find . -name '*.tar.gz' | sed 's#^\./#- #' ) >> body.md
+          echo "---"; find assets -name '*.tar.gz' -exec ls -lh {} \;
+
+      - name: Create / attach release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.TAG }}
+          body_path: body.md
+          draft: ${{ github.event_name == 'workflow_dispatch' }}
+          make_latest: ${{ github.event_name != 'workflow_dispatch' }}
+          files: assets/*.tar.gz
+          fail_on_unmatched_files: true
