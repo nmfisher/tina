@@ -1,0 +1,3 @@
+[submodule "packages/dart_notcurses"]
+	path = packages/dart_notcurses
+	url = https://github.com/nmfisher/dart_notcurses.git

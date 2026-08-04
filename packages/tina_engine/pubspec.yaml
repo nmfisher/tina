@@ -1,0 +1,14 @@
+name: tina_engine
+description: The tina coding-agent engine — agent runtime, LLM providers/registry, tools, permissions, and session storage. UI-agnostic; consumed by the TUI shell and the headless runner.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.0.0
+dependencies:
+  tina_index: { path: ../tina_index }
+  html: ^0.15.0
+  http: ^1.2.0
+  logging: ^1.3.0
+  path: ^1.9.0
+dev_dependencies:
+  test: ^1.25.0

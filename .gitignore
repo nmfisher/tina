@@ -1,0 +1,14 @@
+# Dart / Pub
+.dart_tool/
+build/
+
+# Claude Code local state
+.claude/settings.local.json
+
+# Tina index cache
+.tina/
+
+# Cross-platform hygiene
+.DS_Store
+._*
+**/._*

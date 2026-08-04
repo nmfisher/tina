@@ -1,0 +1,171 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:tina/composition/agent_composition.dart';
+import 'package:tina/composition/app_composition.dart';
+import 'package:tina/config.dart';
+import 'package:tina/platform/environment.dart';
+import 'package:tina_engine/tina_engine.dart';
+
+import 'sidecar_repo.dart';
+
+/// Drives the per-directory summary fleet: a headless orchestrator agent that
+/// fans out one `summarizer` per stale directory, each writing its summary to
+/// the sidecar via [WriteSummaryTool]. After the run, the sidecar manifest is
+/// updated and a commit records the change.
+///
+/// Reuses the live agent fleet (`buildAppComposition` + `buildAgent` + a real
+/// [SubAgentScheduler] + [DelegateTool]) rather than a bespoke loop, so the
+/// summarizer role's permissions, model tier, and tool gating are exactly the
+/// shipped ones. The orchestrator gets a summarization-specific `system:`
+/// prompt (overriding its code-change choreography identity) while keeping the
+/// `orchestrator` role's `canDelegate` capability — local to this run, not
+/// altering the interactive role.
+class SummaryRunner {
+  SummaryRunner({
+    required this.config,
+    required this.registry,
+    this.environment,
+    this.projectRoot,
+    this.dryRun = false,
+    this.repartition = false,
+  });
+
+  final Config config;
+  final ProviderRegistry registry;
+  final Environment? environment;
+
+  /// The main repo root to summarize. Defaults to the process cwd at [run]
+  /// time (matching `bin/tina.dart`'s convention). Overridable so tests can
+  /// point at a temp repo without mutating the process-wide cwd (which would
+  /// race with concurrent tests).
+  final String? projectRoot;
+  final bool dryRun;
+  final bool repartition;
+
+  /// Run the summary fleet against [projectRoot]. Returns the stale set that
+  /// was (or would be) regenerated.
+  Future<StaleSet> run() async {
+    // The sidecar repo root is `<projectRoot>/.tina`, so its `summaries/`
+    // dir lands at `<projectRoot>/.tina/summaries` — the same path
+    // `configureToolSandbox` sets as the `write_summary` tool's sidecarRoot.
+    // Keeping the two in sync is what lets the summarizer children write into
+    // the very repo this driver commits.
+    final project = projectRoot ?? _projectRoot();
+    final repo = SidecarSummaryRepo(
+      root: Directory('$project/.tina'),
+      projectRoot: Directory(project),
+    );
+    repo.init();
+    var manifest = repo.loadManifest();
+    if (repartition) {
+      manifest = SummaryManifest.empty();
+    }
+    final partition = repo.defaultPartition();
+    final stale = repo.staleDirs(partition, manifest);
+
+    if (dryRun) {
+      return stale;
+    }
+    if (stale.isEmpty && !repartition) {
+      return stale;
+    }
+
+    // buildAppComposition (below) re-sets the shared registry's `decorator` to a
+    // fresh ephemeral MeteringProvider/SpendLedger. When this runner is driven
+    // in-process (e.g. /index inside a live session), that mutation would leak
+    // to the caller's registry and silently break /spend metering on later
+    // /spawn /model builds. Save/restore here — at the layer that owns the
+    // mutation — so every caller is protected, and so the save/restore is
+    // testable via the summary_runner harness without standing up the caller.
+    final savedDecorator = registry.decorator;
+    try {
+      // Build the composition — this configures the shared tool singletons,
+      // including _writeSummary.sidecarRoot (via configureToolSandbox, which uses
+      // Directory.current.path). Re-configure with the runner's explicit
+      // [projectRoot] so the write_summary tool targets this repo regardless of
+      // the process cwd (configureToolSandbox is idempotent).
+      final app = await buildAppComposition(
+        config: config,
+        registry: registry,
+        environment: environment,
+      );
+      if (projectRoot != null) {
+        configureToolSandbox(
+          projectRoot: project,
+          env: (environment ?? const PlatformEnvironment()).env,
+        );
+      }
+
+      final host = HeadlessHost();
+      // The top agent is the orchestrator with a summarization identity: it has
+      // only `delegate` + channels (no file tools, structurally — see
+      // buildAgent's withSubAgents path), which is exactly the shape we want.
+      final agent = buildAgent(
+        pipeline: app.pipeline,
+        scheduler: app.scheduler,
+        conversationId: app.initialConversationId,
+        provider: app.provider,
+        host: host,
+        policy: app.policy,
+        config: config,
+        withSubAgents: true,
+        system: _orchestratorPrompt(stale.toRegenerate),
+      );
+
+      final history = <Message>[];
+      try {
+        await agent.run(
+          history: history,
+          userInput: _userPrompt(stale.toRegenerate),
+        );
+      } finally {
+        await host.dispose();
+        await app.scheduler.dispose();
+        app.provider.close();
+      }
+
+      // After the fleet ran, record the regenerated + deleted dirs and commit.
+      final updated = repo.record(
+        manifest: manifest,
+        regenerated: stale.toRegenerate,
+        deleted: stale.deleted,
+      );
+      repo.saveManifest(updated);
+      final commitSha = repo.headCommit();
+      repo.commit(
+        regenerated: stale.toRegenerate,
+        deleted: stale.deleted,
+        commitSha: commitSha,
+      );
+    } finally {
+      registry.decorator = savedDecorator;
+    }
+
+    return stale;
+  }
+
+  String _projectRoot() => Directory.current.path;
+
+  String _userPrompt(List<String> staleDirs) {
+    if (staleDirs.isEmpty) {
+      return 'No directories are stale. Nothing to summarize.';
+    }
+    final lines = StringBuffer()
+      ..writeln('Regenerate per-directory summaries for the following stale '
+          'directories. For each, delegate to the `summarizer` agent with the '
+          'task "read and summarize <dir>". Batch at most 8 per `delegate` '
+          'call.\n');
+    for (final dir in staleDirs) {
+      lines.writeln('- $dir');
+    }
+    return lines.toString();
+  }
+
+  String _orchestratorPrompt(List<String> staleDirs) => '''
+You are the summarization orchestrator for a code repository. Your sole job is to fan out `summarizer` sub-agents — one per stale directory — so each writes its directory's prose summary into the sidecar store.
+
+For each directory listed in the user message, delegate to the `summarizer` agent with the task "read and summarize <dir>". Batch at most 8 delegations per `delegate` call (the tool caps it); if there are more, make multiple calls. Do not summarize directories yourself — always delegate. Do not write plans or run review loops; this is a pure fan-out.
+
+When every directory has been delegated, stop. Your final answer is a one-line confirmation of how many directories you summarized.''';
+}

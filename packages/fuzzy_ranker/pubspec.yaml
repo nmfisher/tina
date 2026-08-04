@@ -1,0 +1,10 @@
+name: fuzzy_ranker
+description: Subsequence-fuzzy matching/ranking helpers and a pluggable completion-provider interface. Pure Dart, with no terminal or engine dependencies — the neutral seam shared by the TUI toolkit and application-level completion providers.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.0.0
+
+dev_dependencies:
+  test: ^1.25.0

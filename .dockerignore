@@ -1,0 +1,18 @@
+# Keep the Docker build context lean. Root-level patterns (no trailing slash,
+# no **) are the reliably-honored form; explicit nested paths cover the
+# dart_notcurses submodule. Mirrors .gitignore + VCS/metadata.
+.git
+build
+.dart_tool
+.tina
+.cache
+.claude
+packages/dart_notcurses/.git
+packages/dart_notcurses/.dart_tool
+packages/dart_notcurses/build
+
+# macOS metadata — the T7 volume recreates these ._ sidecars, and Docker's
+# context sender errors setting their xattrs.
+.DS_Store
+._*
+**/._*

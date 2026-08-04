@@ -1,0 +1,461 @@
+import 'dart:io';
+
+import 'package:tina/config/user_config.dart';
+import 'package:tina_console/tina_console.dart';
+import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
+
+void main() {
+  group('UserConfig.fromMap', () {
+    test('parses default, tiers, and providers tables', () {
+      final c = UserConfig.fromMap({
+        'default': {'provider': 'anthropic', 'model': 'claude-sonnet-4-6'},
+        'tiers': {
+          'heavy': 'anthropic/claude-sonnet-4-6',
+          'light': 'anthropic/claude-haiku-4-5',
+        },
+        'providers': {
+          'anthropic': {
+            'api_key': 'sk-ant-x',
+            'base_url': 'https://example.test',
+          },
+        },
+      });
+      expect(c.defaultProvider, 'anthropic');
+      expect(c.defaultModel, 'claude-sonnet-4-6');
+      expect(c.tiers, {
+        'heavy': 'anthropic/claude-sonnet-4-6',
+        'light': 'anthropic/claude-haiku-4-5',
+      });
+      expect(c.providers['anthropic']?.apiKey, 'sk-ant-x');
+      expect(c.providers['anthropic']?.baseUrl, 'https://example.test');
+    });
+
+    test('empty map → empty config', () {
+      final c = UserConfig.fromMap({});
+      expect(c.isEmpty, isTrue);
+    });
+
+    test('ignores unknown keys and non-string tier values', () {
+      final c = UserConfig.fromMap({
+        'unknown': 42,
+        'tiers': {'good': 'a/b', 'bad': 7},
+      });
+      expect(c.tiers, {'good': 'a/b'});
+      expect(c.isEmpty, isFalse);
+    });
+
+    test('parses a [theme] table', () {
+      final c = UserConfig.fromMap({
+        'theme': {
+          'chat': {'user_bar': '92;100'},
+          'border': {
+            'focus': '35',
+            'busy': {
+              'rail': '38;2;11;22;33',
+              'head': '1;38;2;44;55;66',
+            },
+          },
+        },
+      });
+      expect(c.theme, isNotNull);
+      expect(c.theme!.chat.userBar, '92;100');
+      expect(c.theme!.border.focus, '35');
+      expect(c.theme!.border.busy.rail, '38;2;11;22;33');
+      expect(c.theme!.border.busy.headRgb, [44, 55, 66]);
+      expect(c.isEmpty, isFalse);
+    });
+
+    test('parses a [limits] table', () {
+      final c = UserConfig.fromMap({
+        'limits': {
+          'max_global_tokens': 5000,
+          'max_sub_agent_tokens': 1000,
+          'requests_per_minute': 30,
+          'max_turn_tokens': 7,
+          'max_session_tokens': 8,
+          'max_request_tokens': 9,
+        },
+      });
+      expect(c.limits?.maxGlobalTokens, 5000);
+      expect(c.limits?.maxSubAgentTokens, 1000);
+      expect(c.limits?.requestsPerMinute, 30);
+      expect(c.limits?.maxTurnTokens, 7);
+      expect(c.limits?.maxSessionTokens, 8);
+      expect(c.limits?.maxRequestTokens, 9);
+      expect(c.isEmpty, isFalse);
+    });
+
+    test('parses a [prompts.<role>] table into role→identity', () {
+      final c = UserConfig.fromMap({
+        'prompts': {
+          'main': {'identity': 'You are a bespoke main agent.'},
+          'research': {'identity': 'line one\nline two'},
+        },
+      });
+      expect(c.prompts, {
+        'main': 'You are a bespoke main agent.',
+        'research': 'line one\nline two',
+      });
+      expect(c.isEmpty, isFalse);
+    });
+
+    test('skips a prompt role whose identity is absent or empty', () {
+      final c = UserConfig.fromMap({
+        'prompts': {
+          'main': {'identity': 'kept'},
+          'research': {'identity': ''},
+          'tester': {'not_identity': 'dropped'},
+        },
+      });
+      expect(c.prompts, {'main': 'kept'});
+    });
+  });
+
+  group('buildEnvOverlay', () {
+    test('maps each provider field to <PREFIX>_*', () {
+      final overlay = buildEnvOverlay(UserConfig(providers: {
+        'anthropic': ProviderConfig(
+            apiKey: 'sk-ant', authToken: 'tok', baseUrl: 'https://x.test'),
+        'glm': ProviderConfig(apiKey: 'glm-key'),
+      }));
+      expect(overlay, {
+        'ANTHROPIC_API_KEY': 'sk-ant',
+        'ANTHROPIC_AUTH_TOKEN': 'tok',
+        'ANTHROPIC_BASE_URL': 'https://x.test',
+        'GLM_API_KEY': 'glm-key',
+      });
+    });
+
+    test('empty config → empty overlay', () {
+      expect(buildEnvOverlay(UserConfig.empty), isEmpty);
+    });
+
+    test('omits null fields', () {
+      final overlay = buildEnvOverlay(UserConfig(providers: {
+        'openai': ProviderConfig(authToken: 'only-token'),
+      }));
+      expect(overlay, {'OPENAI_AUTH_TOKEN': 'only-token'});
+    });
+  });
+
+  group('loadUserConfig', () {
+    late Directory tmp;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('tina_config_');
+    });
+    tearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+
+    File writeConfig(String contents) {
+      final file = File(p.join(tmp.path, 'config'));
+      file.writeAsStringSync(contents);
+      return file;
+    }
+
+    test('missing file → empty', () {
+      final c = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(c.isEmpty, isTrue);
+    });
+
+    test('parses a real TOML file end-to-end', () {
+      writeConfig('''
+[default]
+provider = "anthropic"
+model = "claude-sonnet-4-6"
+
+[tiers]
+heavy = "anthropic/claude-sonnet-4-6"
+light = "anthropic/claude-haiku-4-5"
+
+[providers.anthropic]
+api_key = "sk-ant-x"
+base_url = "https://example.test"
+''');
+      final c = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(c.defaultProvider, 'anthropic');
+      expect(c.defaultModel, 'claude-sonnet-4-6');
+      expect(c.tiers['heavy'], 'anthropic/claude-sonnet-4-6');
+      expect(c.providers['anthropic']?.apiKey, 'sk-ant-x');
+      expect(buildEnvOverlay(c), containsPair('ANTHROPIC_API_KEY', 'sk-ant-x'));
+    });
+
+    test('malformed TOML → empty (and does not throw)', () {
+      writeConfig('this is = = not [valid toml');
+      final c = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(c.isEmpty, isTrue);
+    });
+
+    test('explicit version = 1 loads', () {
+      writeConfig('''
+version = 1
+[default]
+provider = "anthropic"
+''');
+      final c = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(c.version, 1);
+      expect(c.defaultProvider, 'anthropic');
+    });
+
+    test('unsupported version → empty (refused, not mis-parsed)', () {
+      writeConfig('''
+version = 99
+[default]
+provider = "anthropic"
+''');
+      final c = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(c.isEmpty, isTrue);
+    });
+
+    test('unknown top-level key warns but still loads the valid sections', () {
+      // [setttings] is a typo for [default]; it must not silently disable the
+      // rest of the file.
+      writeConfig('''
+version = 1
+[setttings]
+provider = "typo"
+
+[default]
+model = "claude-sonnet-4-6"
+
+[tiers]
+heavy = "anthropic/claude-sonnet-4-6"
+''');
+      final c = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(c.isEmpty, isFalse, reason: 'valid sections still load');
+      expect(c.defaultModel, 'claude-sonnet-4-6');
+      expect(c.tiers, {'heavy': 'anthropic/claude-sonnet-4-6'});
+    });
+
+    test('unknown provider key warns but the provider still loads', () {
+      writeConfig('''
+version = 1
+[providers.anthropic]
+api_key = "sk-x"
+key = "typo"
+''');
+      final c = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(c.providers['anthropic']?.apiKey, 'sk-x');
+    });
+
+    test('userConfigToToml round-trips through loadUserConfig', () {
+      final original = UserConfig(
+        defaultProvider: 'anthropic',
+        defaultModel: 'claude-sonnet-4-6',
+        tiers: {
+          'heavy': 'anthropic/claude-sonnet-4-6',
+          'light': 'anthropic/claude-haiku-4-5',
+        },
+        providers: {'anthropic': ProviderConfig(apiKey: 'sk-ant-x')},
+      );
+      writeUserConfig(original, env: {}, tinaDir: tmp);
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.defaultProvider, 'anthropic');
+      expect(loaded.defaultModel, 'claude-sonnet-4-6');
+      expect(loaded.tiers, {
+        'heavy': 'anthropic/claude-sonnet-4-6',
+        'light': 'anthropic/claude-haiku-4-5',
+      });
+      expect(loaded.providers['anthropic']?.apiKey, 'sk-ant-x');
+    });
+
+    test('[theme] round-trips through loadUserConfig', () {
+      const theme = Theme(
+        chat: ChatTheme(userBar: '92;100'),
+        border: BorderTheme(
+          focus: '35',
+          busy: BusyBorderTheme(
+            rail: '38;2;11;22;33',
+            head: '1;38;2;44;55;66',
+            railRgb: [11, 22, 33],
+            headRgb: [44, 55, 66],
+            tailLength: 5,
+          ),
+        ),
+      );
+      writeUserConfig(
+        UserConfig(theme: theme),
+        env: {},
+        tinaDir: tmp,
+      );
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.theme, isNotNull);
+      expect(loaded.theme!.chat.userBar, '92;100');
+      expect(loaded.theme!.border.focus, '35');
+      expect(loaded.theme!.border.busy.rail, '38;2;11;22;33');
+      expect(loaded.theme!.border.busy.headRgb, [44, 55, 66]);
+      expect(loaded.theme!.border.busy.tailLength, 5);
+    });
+
+    test('[theme] TOML file with chat overrides loads correctly', () {
+      writeConfig('''
+version = 1
+[theme]
+[theme.chat]
+user_bar = "93;41"
+agent_text = "34"
+[theme.border]
+focus = "32"
+''');
+      final c = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(c.theme, isNotNull);
+      expect(c.theme!.chat.userBar, '93;41');
+      expect(c.theme!.chat.agentText, '34');
+      expect(c.theme!.border.focus, '32');
+      // Defaults preserved for unset keys:
+      expect(c.theme!.chat.dim, '2');
+      expect(c.theme!.border.busy.rail, '38;2;30;110;130');
+    });
+
+    test('an empty theme is omitted from the written file', () {
+      writeUserConfig(const UserConfig(tiers: {'heavy': 'a/b'}), env: {}, tinaDir: tmp);
+      final raw = File(p.join(tmp.path, 'config')).readAsStringSync();
+      expect(raw, isNot(contains('[theme')));
+    });
+
+    test('themeVariant round-trips through TOML as [theme] variant key', () {
+      writeUserConfig(
+        UserConfig(themeVariant: 'dark'),
+        env: {},
+        tinaDir: tmp,
+      );
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.themeVariant, 'dark');
+      final raw = File(p.join(tmp.path, 'config')).readAsStringSync();
+      expect(raw, contains('[theme]'));
+      // TOML variant value round-trips (the quote style is TOML-lib specific).
+      expect(loaded.themeVariant, 'dark');
+    });
+
+    test('themeVariant = null omits [theme] section entirely', () {
+      writeUserConfig(
+        const UserConfig(tiers: {'heavy': 'a/b'}),
+        env: {},
+        tinaDir: tmp,
+      );
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.themeVariant, isNull);
+      final raw = File(p.join(tmp.path, 'config')).readAsStringSync();
+      expect(raw, isNot(contains('[theme]')));
+    });
+
+    test('themeVariant coexists with explicit per-key theme overrides', () {
+      const theme = Theme(chat: ChatTheme(userBar: '44;40'));
+      writeUserConfig(
+        const UserConfig(theme: theme, themeVariant: 'light'),
+        env: {},
+        tinaDir: tmp,
+      );
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.themeVariant, 'light');
+      expect(loaded.theme, isNotNull);
+      expect(loaded.theme!.chat.userBar, '44;40');
+      final raw = File(p.join(tmp.path, 'config')).readAsStringSync();
+      expect(raw, contains('[theme.chat]'));
+      expect(raw, contains('user_bar'));
+    });
+
+    test('UserConfig.fromMap parses variant from [theme] table', () {
+      final c = UserConfig.fromMap({
+        'theme': {'variant': 'light'},
+      });
+      expect(c.themeVariant, 'light');
+      // Theme.fromMap parses the map; variant alone returns a Theme with all
+      // defaults (not null).
+      expect(c.theme, isNotNull);
+    });
+
+    test('userConfigToToml omits empty sections', () {
+      writeUserConfig(const UserConfig(tiers: {'heavy': 'a/b'}), env: {}, tinaDir: tmp);
+      final raw = File(p.join(tmp.path, 'config')).readAsStringSync();
+      expect(raw, contains('[tiers]'));
+      expect(raw, isNot(contains('[default]')));
+      expect(raw, isNot(contains('[providers')));
+    });
+
+    test('userConfigToToml preserves special characters in a key', () {
+      const key = 'sk "with" \n special';
+      writeUserConfig(
+        const UserConfig(providers: {'anthropic': ProviderConfig(apiKey: key)}),
+        env: {},
+        tinaDir: tmp,
+      );
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.providers['anthropic']?.apiKey, key);
+    });
+
+    test('[limits] round-trips through loadUserConfig', () {
+      writeUserConfig(
+        const UserConfig(limits: LimitsConfig(
+          maxGlobalTokens: 12345,
+          maxSubAgentTokens: 678,
+          requestsPerMinute: 12,
+          maxTurnTokens: 111,
+          maxSessionTokens: 222,
+          maxRequestTokens: 333,
+        )),
+        env: {},
+        tinaDir: tmp,
+      );
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.limits?.maxGlobalTokens, 12345);
+      expect(loaded.limits?.maxSubAgentTokens, 678);
+      expect(loaded.limits?.requestsPerMinute, 12);
+      expect(loaded.limits?.maxTurnTokens, 111);
+      expect(loaded.limits?.maxSessionTokens, 222);
+      expect(loaded.limits?.maxRequestTokens, 333);
+    });
+
+    test('unknown [limits] key warns but the valid keys still load', () {
+      writeConfig('''
+version = 1
+[limits]
+max_global_tokens = 999
+max_tokns = 5
+''');
+      final c = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(c.limits?.maxGlobalTokens, 999);
+    });
+
+    test('[prompts.<role>] round-trips through loadUserConfig (incl. multiline)',
+        () {
+      const identity = 'You are a custom main agent.\n\nBe terse.\nCite paths.';
+      writeUserConfig(
+        const UserConfig(prompts: {'main': identity, 'research': 'short'}),
+        env: {},
+        tinaDir: tmp,
+      );
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.prompts, {'main': identity, 'research': 'short'});
+    });
+
+    test('an empty prompts map is omitted from the written file', () {
+      writeUserConfig(const UserConfig(tiers: {'heavy': 'a/b'}), env: {}, tinaDir: tmp);
+      final raw = File(p.join(tmp.path, 'config')).readAsStringSync();
+      expect(raw, isNot(contains('[prompts')));
+    });
+
+    test('unknown key inside [prompts.<role>] warns but the identity loads', () {
+      writeConfig('''
+version = 1
+[prompts.main]
+identity = "kept"
+identiy = "typo"
+''');
+      final c = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(c.prompts, {'main': 'kept'});
+    });
+  });
+
+  group('UserConfig.fromMap version', () {
+    test('absent version defaults to current', () {
+      expect(UserConfig.fromMap({}).version, kCurrentConfigVersion);
+    });
+
+    test('declared version is preserved', () {
+      expect(UserConfig.fromMap({'version': 2}).version, 2);
+    });
+  });
+}
