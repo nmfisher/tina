@@ -169,7 +169,13 @@ class SessionCommandHandlers {
         await ctx.newSession(providerId: providerId, model: model);
       case 'switch':
         if (parts.length < 3) {
-          ctx.active.host.showMessage('usage: /session switch <id>\n');
+          // No id given — open the picker if the TUI wired one, else usage.
+          final open = ctx.openSessionPicker;
+          if (open != null) {
+            await open();
+          } else {
+            ctx.active.host.showMessage('usage: /session switch <id>\n');
+          }
           return;
         }
         final id = _resolveLiveId(parts[2]);
@@ -185,10 +191,36 @@ class SessionCommandHandlers {
           return;
         }
         _closeSession(parts[2]);
+      case 'rename':
+        if (parts.length < 4) {
+          ctx.active.host.showMessage(
+              'usage: /session rename <id> <new-label>\n');
+          return;
+        }
+        _renameSession(parts[2], parts.sublist(3).join(' '));
       default:
         ctx.active.host.showMessage('usage: /session '
-            '[list | new [provider:model] | switch <id> | close <id>]\n');
+            '[list | new [provider:model] | switch <id> | close <id> | '
+            'rename <id> <label>]\n');
     }
+  }
+
+  void _renameSession(String token, String newLabel) {
+    if (newLabel.isEmpty) {
+      ctx.active.host.showMessage('label cannot be empty\n',
+          style: HostMessageStyle.error);
+      return;
+    }
+    final id = _resolveLiveId(token);
+    if (id == null) {
+      ctx.active.host.showMessage('no unique session matching "$token"\n',
+          style: HostMessageStyle.error);
+      return;
+    }
+    ctx.sessionManager.all.firstWhere((x) => x.id == id).label = newLabel;
+    ctx.active.host.showMessage('(renamed ${_shortId(id)} to "$newLabel")\n',
+        style: HostMessageStyle.dim);
+    ctx.onSessionsChanged?.call();
   }
 
   void _closeSession(String token) {
@@ -398,38 +430,12 @@ class SessionCommandHandlers {
   }
 
   Future<void> _handleResume(String line) async {
-    final s = ctx.active;
-    final rec = s.recorder;
-    if (ctx.sessionStore == null || rec == null) {
-      ctx.active.host.showMessage('(persistence disabled — cannot resume)\n',
-          style: HostMessageStyle.dim);
-      return;
-    }
     final parts = line.split(RegExp(r'\s+'));
     if (parts.length < 2 || parts[1].isEmpty) {
       ctx.active.host.showMessage('usage: /resume <id>  (see /sessions)\n');
       return;
     }
-    final id = parts[1];
-    final String activeCid;
-    final List<Message> loaded;
-    try {
-      final manifest = await ctx.sessionStore!.loadSession(id);
-      activeCid = manifest.activeConversationId;
-      loaded = await ctx.sessionStore!.loadConversation(id, activeCid);
-    } catch (e) {
-      ctx.active.host.showMessage('cannot resume: $e\n',
-          style: HostMessageStyle.error);
-      return;
-    }
-    s.history
-      ..clear()
-      ..addAll(loaded);
-    rec.switchTo(id, activeCid);
-    s.host.clear();
-    replayHistory(s.host, loaded);
-    ctx.active.host.showMessage('resumed: $id (${loaded.length} messages)\n',
-        style: HostMessageStyle.dim);
+    await ctx.resumeIntoActive(parts[1]);
   }
 
   Future<void> _handleModel(String line) async {

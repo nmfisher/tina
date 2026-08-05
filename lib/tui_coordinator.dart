@@ -25,6 +25,8 @@ import 'package:tina/tui/tree_order.dart';
 import 'package:tina/tui/panel_manager.dart';
 import 'package:tina/tui/conversation_panel_coordinator.dart';
 import 'package:tina/tui/resize_coordinator.dart';
+import 'package:tina/tui/session_bar.dart';
+import 'package:tina/tui/session_picker_overlay.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_console/src/backend/notcurses_backend.dart';
@@ -155,6 +157,10 @@ class TuiCoordinator {
   /// it via this field so the order lives in one place.
   late final ResizeCoordinator _resizeCoordinator;
 
+  /// The tmux-style session list rendered into the info column when no side
+  /// panels are open. Refreshed on every session change and on resize.
+  final SessionBar _sessionBar;
+
   /// The spawned (side-panel) conversations currently tiled in the right
   /// column. Exposed so tests can drive a real focus change through the focus
   /// ring without running the REPL.
@@ -205,12 +211,14 @@ class TuiCoordinator {
     required Future<UserConfig?> Function() setupOverlay,
     required SpawnTree tree,
     required ResizeCoordinator resizeCoordinator,
+    required SessionBar sessionBar,
   })  : _warning = warning,
         _refreshSessionMenu = refreshSessionMenu,
         _setupOverlay = setupOverlay,
         _tree = tree,
         _contentCoordinator = contentCoordinator,
-        _resizeCoordinator = resizeCoordinator;
+        _resizeCoordinator = resizeCoordinator,
+        _sessionBar = sessionBar;
 
   static Future<TuiCoordinator> create({
     required AppComposition app,
@@ -288,6 +296,19 @@ class TuiCoordinator {
     late final MenuBar menuBar;
     late final SessionController controller;
 
+    // Session bar lives in the info column; hidden when side panels are open.
+    // The side-panel check is a late closure (assigned once [panelManager]
+    // exists below) so [refreshSessionMenu] — declared before panelManager —
+    // can call it without a forward reference.
+    final sessionBar = SessionBar(screen);
+    late bool Function() hasSidePanels;
+
+    // Background-activity handler. Declared up here (nullable) so [hostFactory]
+    // and the initial host can capture it; assigned once [refreshSessionMenu]
+    // exists below. Invoked only long after [create] returns (when a background
+    // conversation emits output), so it is always assigned by then.
+    void Function(String)? handleBackgroundActivity;
+
     // Constructs the per-conversation terminal host. A background conversation
     // gets a fresh, detached chat region (so its output buffers until it is
     // switched to) and a no-op spinner; [TuiConversationHost.setActive] routes
@@ -297,15 +318,19 @@ class TuiCoordinator {
     HostInterface hostFactory({
       required String conversationId,
       required bool isActive,
-    }) =>
-        TuiConversationHost(
-          conversationId: conversationId,
-          chat: ScrollingTextRegion(screen)..detach(),
-          spinner: Spinner(enabled: false),
-          screen: screen,
-          editor: editor,
-          active: isActive,
-        );
+    }) {
+      final host = TuiConversationHost(
+        conversationId: conversationId,
+        chat: ScrollingTextRegion(screen)..detach(),
+        spinner: Spinner(enabled: false),
+        screen: screen,
+        editor: editor,
+        active: isActive,
+      );
+      host.onBackgroundActivity =
+          () => handleBackgroundActivity?.call(conversationId);
+      return host;
+    }
 
     // Tools, the sub-agent catalog, the scheduler, and the per-conversation
     // Agent builder live in agent_composition.dart — app-level composition
@@ -330,6 +355,7 @@ class TuiCoordinator {
         store, initialSessionId, initialConversationId,
         providerId: config.provider,
         baseUrl: config.baseUrl,
+        cwd: Directory.current.path,
         meta: ConversationMetaInput.primary(
           providerId: config.provider,
           provider: provider,
@@ -345,6 +371,8 @@ class TuiCoordinator {
       editor: editor,
       active: true,
     );
+    initialHost.onBackgroundActivity =
+        () => handleBackgroundActivity?.call(initialConversationId);
     final initialAgent = buildAgent(
       pipeline: pipeline,
       scheduler: scheduler,
@@ -372,6 +400,7 @@ class TuiCoordinator {
       initialApiKey: config.apiKey,
       initialBaseUrl: config.baseUrl,
       initialSessionId: initialSessionId,
+      cwd: Directory.current.path,
       providerFactory: providerFactory,
       hostFactory: hostFactory,
       agentBuilder: ({
@@ -470,7 +499,33 @@ class TuiCoordinator {
         ..clear()
         ..addAll(items);
       menuBar.render();
+      // Refresh the session bar too (same data, persistent form). Hidden when
+      // side panels own the info column or there's just one session.
+      sessionBar.refresh(
+        sessions: sessionManager
+            .listSessions()
+            .map((s) => (id: s.id, label: s.label, isActive: s.isActive,
+                  isRunning: s.isRunning, unread: s.unread))
+            .toList(),
+        hasSidePanels: hasSidePanels(),
+      );
     }
+
+    /// A background conversation produced output: bump its session's unread
+    /// badge and refresh the session chrome (menu, and the session bar once it
+    /// is wired). [SessionManager.markBackgroundActivity] returns the session id
+    /// only on the 0→1 transition, so this (and the optional bell) fires once
+    /// per background burst rather than per streamed chunk. Local to [create]
+    /// so it can close over [sessionManager] and [refreshSessionMenu].
+    handleBackgroundActivity = (String conversationId) {
+      final changed = sessionManager.markBackgroundActivity(conversationId);
+      if (changed == null) return;
+      refreshSessionMenu();
+      if (const bool.fromEnvironment('TINA_BELL') ||
+          Platform.environment['TINA_BELL'] == '1') {
+        stdout.write('\x07'); // BEL
+      }
+    };
 
     menuBar = MenuBar(screen, [
       Menu(label: 'File', shortcut: 0x66, items: [
@@ -504,6 +559,29 @@ class TuiCoordinator {
       ]),
     ]);
     editor.menuBar = menuBar;
+
+    // Session hotkeys: Alt+1..9 switches to session N, Alt+N creates a new
+    // session, Alt+S opens the session picker. (n = 0x6e, s = 0x73; '1'..'9' are
+    // 0x31..0x39.) Return true to consume so the editor ignores the key.
+    editor.onAltKey = (AltKey key) {
+      final sessions = sessionManager.listSessions();
+      final digit = key.letter - 0x30; // '1' => 1 .. '9' => 9
+      if (digit >= 1 && digit <= 9) {
+        if (digit <= sessions.length) {
+          controller.switchSession(sessions[digit - 1].id);
+        }
+        return true;
+      }
+      switch (key.letter) {
+        case 0x6e /* n */ :
+          unawaited(controller.newSession());
+          return true;
+        case 0x73 /* s */ :
+          unawaited(controller.openSessionPicker?.call());
+          return true;
+      }
+      return false;
+    };
 
     // Moves the shared input line onto whichever panel owns the active
     // conversation. Forward-declared as a no-op here because the real body
@@ -549,6 +627,55 @@ class TuiCoordinator {
       autoCompactThreshold: config.autoCompactThreshold,
       environment: app.environment,
     );
+    // Per-session draft input: a half-typed prompt survives switching to
+    // another session and back. A command being typed isn't a draft — only
+    // real prompt text is preserved.
+    controller.saveInput = () {
+      if (!editor.isEditing) return null;
+      final state = editor.editState;
+      if (state.buffer.trimLeft().startsWith('/')) {
+        return (buffer: '', cursor: 0);
+      }
+      return state;
+    };
+    controller.restoreInput = (buffer, cursor) {
+      editor.loadEditState(buffer, cursor);
+    };
+    // Session picker (Alt+S): switch among live sessions or resume a saved one.
+    controller.openSessionPicker = () async {
+      final live = sessionManager.listSessions()
+          .map((s) => (
+                id: s.id,
+                label: s.label,
+                isActive: s.isActive,
+                isRunning: s.isRunning,
+                unread: s.unread,
+              ))
+          .toList();
+      List<({String id, String title, int messageCount})> disk;
+      try {
+        final metas = await store.listSessions();
+        disk = metas
+            .map((m) =>
+                (id: m.id, title: m.title, messageCount: m.messageCount))
+            .toList();
+      } catch (_) {
+        disk = const [];
+      }
+      final entry = await runSessionPickerOverlay(
+        screen: screen,
+        editor: editor,
+        live: live,
+        disk: disk,
+      );
+      if (entry == null) return;
+      if (entry.live) {
+        controller.switchSession(entry.id);
+      } else {
+        await controller.resumeIntoActive(entry.id);
+        refreshSessionMenu();
+      }
+    };
     // `/settings`: open the index menu of independently-saved subpanels
     // (providers/models, tiers/roles, token quota, theme) pre-filled with the
     // current config. Each panel writes its own slice on exit; the message
@@ -704,6 +831,7 @@ class TuiCoordinator {
       menuBarEnabled: _menuBarEnabled,
       tree: tree,
     );
+    hasSidePanels = () => panelManager.spawnedFrames.isNotEmpty;
 
     // The single place that knows about both panels and conversations: the
     // conversation→frame mapping, content relay, focus→active wiring, and the
@@ -1389,6 +1517,7 @@ class TuiCoordinator {
                 env: app.environment.env,
               ),
       resizeCoordinator: resizeCoordinator,
+      sessionBar: sessionBar,
     );
 
     // `/index`: the per-directory summary sidecar. The service holds the live
@@ -1414,6 +1543,20 @@ class TuiCoordinator {
     return coordinator;
   }
 
+  /// Repaint the session bar from current state. Called on resize (the info
+  /// region's bounds change) — the per-change refresh happens inside
+  /// [refreshSessionMenu] in [create].
+  void _refreshSessionBar() {
+    _sessionBar.refresh(
+      sessions: sessionManager
+          .listSessions()
+          .map((s) => (id: s.id, label: s.label, isActive: s.isActive,
+                isRunning: s.isRunning, unread: s.unread))
+          .toList(),
+      hasSidePanels: panelManager.hasSpawnedFrames,
+    );
+  }
+
   Future<RunOutcome> run({bool setupMode = false}) async {
     _sigintSub = ProcessSignal.sigint.watch().listen((_) {
       // Delegate to the line editor so it can clear the buffer or confirm quit.
@@ -1427,6 +1570,8 @@ class TuiCoordinator {
         split: panelManager.hasSpawnedFrames,
         drawInfoFrame: !panelManager.hasSpawnedFrames,
       );
+      // The info region's bounds changed; repaint the session bar into them.
+      _refreshSessionBar();
     });
 
     try {
@@ -1480,7 +1625,7 @@ class TuiCoordinator {
       drawInfoFrame: !panelManager.hasSpawnedFrames,
     );
     if (_warning != null) {
-      await _showFallbackOverlay(screen, _warning!);
+      await _showFallbackOverlay(screen, _warning);
     }
     _refreshSessionMenu();
 
@@ -1555,6 +1700,7 @@ class TuiCoordinator {
   Future<void> _teardownUi() async {
     editor.disposeInput();
     menuBar.dispose();
+    _sessionBar.hide();
     progressSub.cancel();
     pauseSub.cancel();
     panelManager.dispose();
@@ -1567,6 +1713,8 @@ class TuiCoordinator {
       stdin.lineMode = true;
     } catch (_) {}
     screen.leaveAltScreen();
+    // Terminal is restored; a later crash no longer needs the screen ref.
+    _guardedScreen = null;
   }
 
   void _teardownEditor() {
@@ -1616,6 +1764,42 @@ class BackendUnavailableError implements Exception {
   String toString() => message;
 }
 
+/// The live [Screen], tracked for [emergencyTerminalRestore]. The crash path
+/// (a zone-level unhandled error, a signal) has no other way to reach the
+/// backend that owns the terminal — and notcurses stop() is the only thing
+/// that restores the exact termios it captured at init. Set in
+/// [_createScreen] the moment the backend may own the tty; cleared in
+/// [_teardownUi] once the screen has been torn down normally.
+Screen? _guardedScreen;
+
+/// Restore the terminal after an unexpected exit: an unhandled error caught by
+/// the entrypoint's zone guard, or SIGTERM/SIGHUP mid-TUI.
+///
+/// The TUI flips the tty into raw mode (echo/line mode off, plus notcurses'
+/// own termios), and a crash path that skips [_teardownUi] would leave it that
+/// way — a dead shell where backspace prints junk and ^C is a literal byte.
+/// This stops the live backend (notcurses restores its saved termios + leaves
+/// the alt screen), then force-restores the mode flags (the ANSI backend
+/// touches nothing but stdio flags, so this is what resets it there).
+/// Idempotent and safe to call at any point.
+void emergencyTerminalRestore() {
+  final screen = _guardedScreen;
+  if (screen != null) {
+    try {
+      screen.leaveAltScreen(); // no-op when never entered / already stopped
+    } catch (_) {}
+  }
+  try {
+    stdin.echoMode = true;
+  } catch (_) {}
+  try {
+    stdin.lineMode = true;
+  } catch (_) {}
+  // Exit the alt screen + reset SGR when no backend was live (crash before
+  // the TUI took over). Harmless no-op on a healthy terminal.
+  stdout.write('\x1b[?1049l\x1b[0m');
+}
+
 /// Build a [Screen] per the configured backend ([Config.backend]).
 ///
 /// Returns a record of (screen, warning?).
@@ -1629,10 +1813,9 @@ class BackendUnavailableError implements Exception {
 ) {
   switch (config.backend) {
     case BackendChoice.ansi:
-      return (
-        screen: Screen(io: io, layout: layout, theme: config.theme),
-        warning: null,
-      );
+      final screen = Screen(io: io, layout: layout, theme: config.theme);
+      _guardedScreen = screen;
+      return (screen: screen, warning: null);
 
     case BackendChoice.notcurses:
       // Explicit selection — never fall back to ANSI. If notcurses can't
@@ -1643,12 +1826,23 @@ class BackendUnavailableError implements Exception {
       // create() succeeds.
       try {
         final nc = NotcursesBackend.create(io: io);
-        final effTheme = _resolveNcTheme(nc, config.theme);
-        return (
-          screen: Screen.withBackend(
-              backend: nc, io: io, layout: layout, theme: effTheme),
-          warning: null,
-        );
+        try {
+          final effTheme = _resolveNcTheme(nc, config.theme);
+          final screen = Screen.withBackend(
+              backend: nc, io: io, layout: layout, theme: effTheme);
+          _guardedScreen = screen;
+          return (screen: screen, warning: null);
+        } catch (_) {
+          // create() already put the tty in raw mode + alt screen, but the
+          // backend's _inAltScreen flag is false until enterAltScreen tracks
+          // it — mark it so leaveAltScreen() runs the platform stop() that
+          // restores the terminal before the failure propagates.
+          try {
+            nc.enterAltScreen();
+            nc.leaveAltScreen();
+          } catch (_) {}
+          rethrow;
+        }
       } catch (e) {
         throw BackendUnavailableError(
             '--backend notcurses: notcurses could not initialize\n  $e');

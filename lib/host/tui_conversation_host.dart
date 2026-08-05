@@ -71,6 +71,12 @@ class TuiConversationHost implements HostInterface {
   /// brief construction gap before the coordinator binds it).
   void Function(bool busy)? onBusyChanged;
 
+  /// Fired when this conversation produces visible output ([text]/[notice])
+  /// while in the background (not routed to the screen). The coordinator uses it
+  /// to bump the owning session's unread badge (and optionally ring the bell).
+  /// null on hosts that don't care (e.g. tests).
+  void Function()? onBackgroundActivity;
+
   bool _active;
 
   /// Whether this conversation is currently routed to the screen (and thus
@@ -118,7 +124,10 @@ class TuiConversationHost implements HostInterface {
   // --- AgentSink: delegate to the composing sink --------------------------
 
   @override
-  void text(String s) => _sink.text(s);
+  void text(String s) {
+    _sink.text(s);
+    if (!_active) onBackgroundActivity?.call();
+  }
 
   @override
   void newline() => _sink.newline();
@@ -133,8 +142,10 @@ class TuiConversationHost implements HostInterface {
   void toolComplete(ToolCompleteEvent event) => _sink.toolComplete(event);
 
   @override
-  void notice(String message, {NoticeKind kind = NoticeKind.info}) =>
-      _sink.notice(message, kind: kind);
+  void notice(String message, {NoticeKind kind = NoticeKind.info}) {
+    _sink.notice(message, kind: kind);
+    if (!_active) onBackgroundActivity?.call();
+  }
 
   @override
   void activityStart() => _sink.activityStart();

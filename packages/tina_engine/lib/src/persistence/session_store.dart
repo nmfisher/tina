@@ -11,6 +11,11 @@ class SessionMeta {
   final int messageCount;
   final int conversationCount;
 
+  /// Working directory the session was started in (recorded in the manifest).
+  /// Null for sessions created before [cwd] was tracked, or legacy flat-file
+  /// sessions. Used to scope `--continue` to the current folder.
+  final String? cwd;
+
   const SessionMeta({
     required this.id,
     required this.title,
@@ -18,6 +23,7 @@ class SessionMeta {
     required this.updatedAt,
     required this.messageCount,
     required this.conversationCount,
+    this.cwd,
   });
 }
 
@@ -275,12 +281,19 @@ class SessionManifest {
   final String activeConversationId;
   final List<ConversationMeta> conversations;
 
+  /// Working directory the session was started in. Null for sessions created
+  /// before this field existed (old manifests parse with null) — treated as
+  /// "unknown folder" so `--continue` still matches them. Never written for
+  /// legacy flat-file sessions (migrated with null).
+  final String? cwd;
+
   const SessionManifest({
     required this.id,
     required this.providerId,
     this.baseUrl,
     required this.activeConversationId,
     required this.conversations,
+    this.cwd,
   });
 
   Map<String, dynamic> toJson() => {
@@ -289,6 +302,7 @@ class SessionManifest {
         'id': id,
         'providerId': providerId,
         'baseUrl': baseUrl,
+        if (cwd != null) 'cwd': cwd,
         'activeConversationId': activeConversationId,
         'conversations': conversations.map((c) => c.toJson()).toList(),
       };
@@ -298,6 +312,7 @@ class SessionManifest {
         providerId:
             (j['providerId'] ?? j['providerKind'] ?? 'anthropic') as String,
         baseUrl: j['baseUrl'] as String?,
+        cwd: j['cwd'] as String?,
         activeConversationId: (j['activeConversationId'] ?? '') as String,
         conversations: ((j['conversations'] ?? const []) as List)
             .map((c) => ConversationMeta.fromJson(c as Map<String, dynamic>))
@@ -314,10 +329,13 @@ abstract class SessionStore {
   /// Create a new empty session and return its id.
   ///
   /// [providerId] identifies the account/registry provider (e.g. "anthropic").
-  /// [baseUrl] is an optional override endpoint. The API key is never stored.
+  /// [baseUrl] is an optional override endpoint. [cwd] records the working
+  /// directory the session was started in, used to scope `--continue` to the
+  /// current folder. The API key is never stored.
   Future<String> createSession({
     required String providerId,
     String? baseUrl,
+    String? cwd,
   });
 
   /// Add a new (empty) conversation to [sessionId] and return its id. Writes a
@@ -399,6 +417,11 @@ class SessionRecorder {
   /// Optional base URL recorded in the session manifest on first write.
   final String? _baseUrl;
 
+  /// Working directory recorded in the session manifest on first write, so
+  /// `--continue` can scope to the current folder. Null for tests / headless
+  /// paths that don't care about folder scoping.
+  final String? _cwd;
+
   /// Full conversation identity captured at creation time, written into the
   /// manifest when this recorder creates its FIRST conversation. Null sites
   /// fall back to the legacy model-only meta.
@@ -412,9 +435,13 @@ class SessionRecorder {
   bool _initialized = false;
 
   SessionRecorder(this.store, this._sessionId, this._conversationId,
-      {required String providerId, String? baseUrl, ConversationMetaInput? meta})
+      {required String providerId,
+      String? baseUrl,
+      String? cwd,
+      ConversationMetaInput? meta})
       : _providerId = providerId,
         _baseUrl = baseUrl,
+        _cwd = cwd,
         _meta = meta;
 
   String get sessionId => _sessionId;
@@ -445,7 +472,7 @@ class SessionRecorder {
       await store.loadSession(_sessionId);
     } on StateError {
       _sessionId = await store.createSession(
-          providerId: _providerId, baseUrl: _baseUrl);
+          providerId: _providerId, baseUrl: _baseUrl, cwd: _cwd);
       // Only create a conversation when the created the session too (brand-new
       // session). On resume/switchTo/attach the conversation already exists.
       _conversationId = await store.createConversationWithMeta(

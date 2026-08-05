@@ -105,6 +105,13 @@ class LineEditor {
   /// cancels or opens the menu — it just arms the double-ESC window.
   bool Function()? onEscape;
 
+  /// Called for an Alt+key event the editor doesn't bind internally (anything
+  /// other than Alt+b/d/f word editing). Return `true` to consume the event,
+  /// `false` to let it fall through and be ignored. Lets the app layer bind
+  /// Alt+number / Alt+letter shortcuts (e.g. session switching) without adding
+  /// app-specific keys to the editor's core dispatch.
+  bool Function(AltKey key)? onAltKey;
+
   /// Timestamp of the last standalone ESC at the prompt, for double-Esc
   /// detection. Null after a double completes or the window elapses.
   DateTime? _lastEsc;
@@ -656,6 +663,7 @@ class LineEditor {
           }
         }
       case AltKey(:final letter):
+        if (onAltKey?.call(AltKey(letter)) ?? false) return;
         switch (letter) {
           case 0x62 /* b */ :
             _edit = _edit.moveWordLeft();

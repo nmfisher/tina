@@ -123,6 +123,11 @@ class Config {
   /// AGENTS.md headless.
   final TrustDefault trustDefault;
 
+  /// Whether to force-acquire the per-session lock (`--force`). Only set when
+  /// the user explicitly opts in; otherwise the second process on a session
+  /// refuses to start.
+  final bool forceLock;
+
   const Config({
     required this.provider,
     required this.apiKey,
@@ -158,6 +163,7 @@ class Config {
     this.safeMode = false,
     this.trustOverride,
     this.trustDefault = TrustDefault.ask,
+    this.forceLock = false,
   });
 
   bool get nonInteractive => prompt != null;
@@ -274,7 +280,13 @@ class Config {
         help: 'Override the project-trust gate. --trust loads this '
             'directory\'s AGENTS.md without asking; --no-trust withholds it. '
             'By default tina asks (TUI) or skips (headless) for an untrusted '
-            'project. See [trust] default in ~/.tina/config.');
+            'project. See [trust] default in ~/.tina/config.')
+    ..addFlag('force',
+        negatable: false,
+        help: 'Force-acquire the per-session lock even if another process '
+            'appears to hold it. Use only when that process is gone but its '
+            'lock lingers (e.g. after a reboot) — concurrent access to one '
+            'session corrupts its history.');
 
   static String get usage => 'tina — terminal coding agent\n\n${_parser.usage}';
 
@@ -320,6 +332,7 @@ class Config {
         modelTiers: const <String, String>{},
         trustOverride: null,
         trustDefault: TrustDefault.ask,
+        forceLock: false,
       );
 
   factory Config.parse(List<String> argv,
@@ -485,6 +498,7 @@ class Config {
       trustOverride:
           res.wasParsed('trust') ? res['trust'] as bool : null,
       trustDefault: _parseTrustDefault(userConfig?.trustDefault),
+      forceLock: res['force'] as bool,
     );
   }
 

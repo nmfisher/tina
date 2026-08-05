@@ -18,6 +18,11 @@ class Session {
   final String apiKey;
   final String? baseUrl;
 
+  /// Count of unread activity events produced while this session was in the
+  /// background. Reset to 0 when the session is switched to (foregrounded).
+  /// Drives the background-activity badge in the session bar.
+  int unread = 0;
+
   final Map<String, Conversation> _conversations = {};
   String _activeConversationId;
 

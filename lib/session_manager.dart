@@ -53,6 +53,11 @@ class SessionManager {
   final HostFactory _hostFactory;
   final AgentBuilder _agentBuilder;
 
+  /// Working directory this process is operating in, stamped into the manifest
+  /// of any session created in-REPL so `--continue` can scope to the current
+  /// folder. Supplied by the app layer; null disables folder scoping.
+  final String? cwd;
+
   final Map<String, Session> _sessions = {};
   late String _activeSessionId;
 
@@ -67,6 +72,7 @@ class SessionManager {
     required HostFactory hostFactory,
     required AgentBuilder agentBuilder,
     this.sessionStore,
+    this.cwd,
   })  : _providerFactory = providerFactory,
         _hostFactory = hostFactory,
         _agentBuilder = agentBuilder {
@@ -119,6 +125,8 @@ class SessionManager {
     }
     _present(old: activeConversation, next: _sessions[id]!.activeConversation);
     _activeSessionId = id;
+    // Foregrounding clears the unread badge for the now-visible session.
+    active.unread = 0;
     return active;
   }
 
@@ -178,7 +186,8 @@ class SessionManager {
     final url = baseUrl ?? current.baseUrl;
 
     final sid = sessionStore != null
-        ? await sessionStore!.createSession(providerId: pid, baseUrl: url)
+        ? await sessionStore!.createSession(
+            providerId: pid, baseUrl: url, cwd: cwd)
         : _generateId();
 
     final conversation = await _buildConversation(
@@ -262,7 +271,7 @@ class SessionManager {
         : _generateId();
     final recorder = sessionStore != null
         ? SessionRecorder(sessionStore!, sessionId, conversationId,
-            providerId: providerId, baseUrl: baseUrl, meta: meta)
+            providerId: providerId, baseUrl: baseUrl, cwd: cwd, meta: meta)
         : null;
 
     // The host is built by the app layer (a terminal host wraps a fresh,
@@ -338,8 +347,14 @@ class SessionManager {
   }
 
   /// List sessions with metadata for display.
-  List<({String id, String label, bool isActive, bool isRunning, int msgCount})>
-      listSessions() {
+  List<({
+    String id,
+    String label,
+    bool isActive,
+    bool isRunning,
+    int msgCount,
+    int unread
+  })> listSessions() {
     return _sessions.values
         .map((s) => (
               id: s.id,
@@ -347,8 +362,27 @@ class SessionManager {
               isActive: s.id == _activeSessionId,
               isRunning: s.isRunning,
               msgCount: s.conversations.fold(0, (n, c) => n + c.history.length),
+              unread: s.unread,
             ))
         .toList();
+  }
+
+  /// Record that [conversationId] produced output while in the background,
+  /// bumping its session's unread counter. No-op for the active session (its
+  /// output is on screen) and for unknown conversations. Returns the session
+  /// id only on the 0→1 transition (the first background event since it was
+  /// last foregrounded) so callers can refresh a badge once per burst instead
+  /// of on every streamed chunk.
+  String? markBackgroundActivity(String conversationId) {
+    for (final s in _sessions.values) {
+      if (s.id == _activeSessionId) continue;
+      if (s.conversationById(conversationId) != null) {
+        final wasZero = s.unread == 0;
+        s.unread++;
+        return wasZero ? s.id : null;
+      }
+    }
+    return null;
   }
 
   /// Forward resize to every conversation's host (across all sessions). A

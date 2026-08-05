@@ -18,7 +18,34 @@ import 'package:logging/logging.dart';
 
 final _log = Logger('tina.cli');
 
-Future<void> main(List<String> argv) async {
+/// The per-session lock acquired on resume/continue, if any. Module-level so
+/// the SIGTERM/SIGHUP reaper and the zone-guard crash path can release it
+/// (synchronously) before exit — mirroring [_guardedScreen]. Normal exits
+/// release it via the `finally` in [_run]. A leaked lock (catastrophic exit
+/// with no cleanup) is reclaimed next start via its PID-liveness check.
+SessionLock? _activeSessionLock;
+
+void main(List<String> argv) {
+  // A zone guard so ANY unhandled error — including async ones that bypass
+  // _run's try/finally entirely (e.g. a failed log-file open in initLogging
+  // surfaces on the event loop, not through main's await chain) — restores
+  // the terminal before the process dies. Without this a mid-TUI crash leaves
+  // the tty in raw mode: backspace/delete print junk and ^C is a literal byte.
+  runZonedGuarded(
+    () async {
+      await _run(argv);
+    },
+    (Object error, StackTrace stack) {
+      _activeSessionLock?.releaseSync();
+      _activeSessionLock = null;
+      emergencyTerminalRestore();
+      stderr.writeln('tina crashed: $error\n$stack');
+      exit(1);
+    },
+  );
+}
+
+Future<void> _run(List<String> argv) async {
   final environment = const PlatformEnvironment();
 
   // Reap tracked subprocesses when killed externally so a backgrounded command
@@ -79,6 +106,14 @@ Future<void> main(List<String> argv) async {
 
       final app = await buildAppComposition(config: config, registry: registry);
 
+      // Acquire the per-session lock when resuming/continuing an on-disk
+      // session, so a second process can't corrupt this session's history
+      // (concurrent appends to one .jsonl / racing manifest rewrites). Fresh
+      // sessions have nothing on disk yet — no other process can know their id
+      // — so they need no lock. initialManifest is non-null exactly when a
+      // real session was loaded (resume, or --continue that found a match).
+      await _acquireSessionLock(app, config);
+
       // Logging inits after config parses (so a parse error still goes to the
       // pre-logging stderr path) and before any service runs. Idempotent, so a
       // relaunch after setup re-enters harmlessly. Verbose via --verbose or the
@@ -101,7 +136,12 @@ Future<void> main(List<String> argv) async {
       final isTty = stdioType(stdin) == StdioType.terminal;
       final setupMode = config.setup || (config.apiKey.isEmpty && isTty);
       final outcome = await _runInteractive(app, setupMode: setupMode);
-      if (outcome == RunOutcome.setupWrote) continue; // relaunch
+      if (outcome == RunOutcome.setupWrote) {
+        // Relaunch: release the lock so the next iteration re-acquires cleanly
+        // (the lockfile still carries our PID, which is alive).
+        await _releaseSessionLock();
+        continue;
+      }
       if (outcome == RunOutcome.setupCancelled) {
         stderr.writeln(
             'Setup cancelled. Re-run with --setup or set ANTHROPIC_API_KEY.');
@@ -113,10 +153,22 @@ Future<void> main(List<String> argv) async {
     // Explicit backend couldn't init — quit nonzero with a clean message.
     stderr.writeln(e.message);
     exit(1);
+  } catch (e, st) {
+    // Any other error propagating through the run path: restore the terminal
+    // (the tty may be in raw mode mid-TUI) and quit nonzero with the trace.
+    // Zone-level errors that bypass this chain entirely (e.g. a failed
+    // log-file open) are caught by main's runZonedGuarded handler, which
+    // restores the terminal the same way.
+    emergencyTerminalRestore();
+    stderr.writeln('tina crashed: $e\n$st');
+    exit(1);
   } finally {
     // Reap any tool subprocess still alive (a leaked backgrounded child), then
-    // close logging. Covers every normal exit path (interactive /quit, headless
-    // completion, setup relaunch).
+    // release the session lock and close logging. Covers every normal exit path
+    // (interactive /quit, headless completion, setup relaunch). exit(0) here
+    // also guarantees prompt termination: without it, pending background work
+    // (the models dev catalog fetch) would keep the isolate alive indefinitely.
+    await _releaseSessionLock();
     await ChildProcessRegistry.instance.reapAll();
     await closeLogging();
     exit(0);
@@ -134,9 +186,45 @@ void _installShutdownReaper() {
       } catch (e, st) {
         _log.warning('shutdown reap failed', e, st);
       }
+      // Drop the session lock synchronously before exit (the finally won't run
+      // once we call exit). A leaked lock is reclaimable via PID liveness, but
+      // releasing here avoids littering on a normal SIGTERM.
+      _activeSessionLock?.releaseSync();
+      _activeSessionLock = null;
+      // The tty may be mid-TUI raw mode — restore it before the process dies.
+      emergencyTerminalRestore();
       exit(1);
     });
   }
+}
+
+/// Acquire the per-session lock when [app] is resuming/continuing an on-disk
+/// session. On conflict (another live process holds it) the user is told and
+/// the process exits — unless `--force` overrode the lock. Sets
+/// [_activeSessionLock] so every exit path can release it. No-op for fresh
+/// sessions (no manifest on disk) and non-file-backed stores.
+Future<void> _acquireSessionLock(AppComposition app, Config config) async {
+  if (app.initialManifest == null) return; // fresh session — nothing to guard
+  final store = app.store;
+  if (store is! JsonlSessionStore) return; // tests / non-file backends
+  final sid = app.initialSessionId;
+  if (sid.isEmpty) return;
+  final lock = SessionLock(store.directoryFor(sid));
+  final conflict = await lock.acquire(force: config.forceLock);
+  if (conflict != null) {
+    stderr.writeln(conflict.toMessage());
+    exit(1);
+  }
+  _activeSessionLock = lock;
+}
+
+/// Release the held session lock (if any) and clear the module-level handle.
+/// Idempotent.
+Future<void> _releaseSessionLock() async {
+  final lock = _activeSessionLock;
+  if (lock == null) return;
+  _activeSessionLock = null;
+  await lock.release();
 }
 
 Future<RunOutcome> _runInteractive(AppComposition app,
@@ -198,6 +286,7 @@ Future<void> _runNonInteractive(AppComposition app) async {
     app.initialConversationId,
     providerId: app.config.provider,
     baseUrl: app.config.baseUrl,
+    cwd: Directory.current.path,
   );
   final preLen = history.length;
 

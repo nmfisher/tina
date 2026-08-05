@@ -183,8 +183,14 @@ Future<ResolvedSession> resolveSession(
   }
   if (config.continueLatest) {
     final list = await store.listSessions();
-    if (list.isNotEmpty) {
-      final sid = list.first.id;
+    // Scope to the current folder: a session matches if it recorded no cwd
+    // (pre-dates folder tracking — treat as unknown, still eligible) or if its
+    // recorded cwd is this directory. `list` is already sorted most-recent
+    // first, so the first match is the latest session in this folder.
+    final cwd = Directory.current.path;
+    final inFolder = list.where((s) => s.cwd == null || s.cwd == cwd).toList();
+    if (inFolder.isNotEmpty) {
+      final sid = inFolder.first.id;
       final manifest = await store.loadSession(sid);
       final loaded =
           await store.loadConversation(sid, manifest.activeConversationId);
@@ -195,7 +201,8 @@ Future<ResolvedSession> resolveSession(
         manifest: manifest,
       );
     }
-    stderr.writeln('--continue: no saved sessions found; starting fresh.');
+    stderr.writeln(
+        '--continue: no saved sessions found in this folder; starting fresh.');
   }
   // Fresh session — generate IDs locally; the SessionRecorder creates the
   // store entries lazily on the first append. No manifest yet.

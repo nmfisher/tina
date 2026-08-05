@@ -27,6 +27,7 @@ class MemorySessionStore implements SessionStore {
   Future<String> createSession({
     required String providerId,
     String? baseUrl,
+    String? cwd,
     DateTime? updatedAt,
   }) async {
     final id = 's${++_sessionCounter}';
@@ -35,6 +36,7 @@ class MemorySessionStore implements SessionStore {
       id: id,
       providerId: providerId,
       baseUrl: baseUrl,
+      cwd: cwd,
       activeConversationId: '',
       conversations: const [],
     );
@@ -74,6 +76,7 @@ class MemorySessionStore implements SessionStore {
       id: manifest.id,
       providerId: manifest.providerId,
       baseUrl: manifest.baseUrl,
+      cwd: manifest.cwd,
       activeConversationId: manifest.activeConversationId.isEmpty
           ? id
           : manifest.activeConversationId,
@@ -122,6 +125,7 @@ class MemorySessionStore implements SessionStore {
       id: manifest.id,
       providerId: manifest.providerId,
       baseUrl: manifest.baseUrl,
+      cwd: manifest.cwd,
       activeConversationId: conversationId,
       conversations: manifest.conversations,
     );
@@ -145,6 +149,7 @@ class MemorySessionStore implements SessionStore {
         updatedAt: updated,
         messageCount: totalCount,
         conversationCount: manifest.conversations.length,
+        cwd: manifest.cwd,
       ));
     }
     out.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -173,6 +178,7 @@ class MemorySessionStore implements SessionStore {
       id: manifest.id,
       providerId: manifest.providerId,
       baseUrl: manifest.baseUrl,
+      cwd: manifest.cwd,
       activeConversationId: active,
       conversations: remaining,
     );

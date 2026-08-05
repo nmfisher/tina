@@ -161,6 +161,37 @@ void main() {
       expect(manifest.baseUrl, 'https://example.com/v1');
     });
 
+    test('createSession cwd round-trips through loadSession and listSessions',
+        () async {
+      final sid = await store.createSession(
+          providerId: 'anthropic', cwd: '/home/me/project');
+      final manifest = await store.loadSession(sid);
+      expect(manifest.cwd, '/home/me/project');
+      // And it surfaces on the listed SessionMeta.
+      final list = await store.listSessions();
+      expect(list.single.cwd, '/home/me/project');
+    });
+
+    test('cwd defaults to null and is preserved across manifest rewrites',
+        () async {
+      final sid = await store.createSession(
+          providerId: 'anthropic', cwd: '/proj');
+      // Each of these rewrites the manifest; cwd must survive.
+      await store.createConversationWithMeta(
+          sid, const ConversationMetaInput(model: 'anthropic/m'));
+      final manifest = await store.loadSession(sid);
+      expect(manifest.cwd, '/proj');
+      // Old manifests without cwd parse to null.
+      final raw = jsonDecode(
+              await File('${tmp.path}${Platform.pathSeparator}$sid${Platform.pathSeparator}session.json')
+                  .readAsString())
+          as Map<String, dynamic>;
+      raw.remove('cwd');
+      await File('${tmp.path}${Platform.pathSeparator}$sid${Platform.pathSeparator}session.json')
+          .writeAsString(jsonEncode(raw));
+      expect((await store.loadSession(sid)).cwd, isNull);
+    });
+
     test('list returns metadata sorted newest-first', () async {
       final (olderSid, olderCid) = await newConversation();
       await store.append(olderSid, olderCid,

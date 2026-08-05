@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:tina/composition/app_composition.dart';
 import 'package:tina/config.dart';
 import 'package:tina_engine/tina_engine.dart';
@@ -136,6 +138,81 @@ void main() {
       expect(resolved.sessionId, isNotEmpty);
       expect(resolved.activeConversationId, isNotEmpty);
       expect(resolved.activeHistory, isEmpty);
+    });
+
+    test('scopes to the current folder (ignores newer sessions elsewhere)',
+        () async {
+      final here = Directory.current.path;
+      final store = MemorySessionStore();
+      // A session in THIS folder, older.
+      final hereSid = await store.createSession(
+          providerId: 'anthropic', cwd: here, updatedAt: DateTime(2026, 1, 1));
+      final hereCid = await store.createConversation(hereSid);
+      await store.append(hereSid, hereCid,
+          Message(role: Role.user, content: [TextBlock('here')]));
+
+      // A session in ANOTHER folder, NEWER — must be ignored.
+      final awaySid = await store.createSession(
+          providerId: 'anthropic',
+          cwd: '/some/other/folder',
+          updatedAt: DateTime(2026, 6, 1));
+      final awayCid = await store.createConversation(awaySid);
+      await store.append(awaySid, awayCid,
+          Message(role: Role.user, content: [TextBlock('away')]));
+
+      final cfg = Config.parse(
+        const ['--continue'],
+        env: const {'ANTHROPIC_API_KEY': 'sk'},
+        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
+      );
+
+      final resolved = await resolveSession(cfg, store);
+      expect(resolved.sessionId, hereSid);
+      expect((resolved.activeHistory.first.content.first as TextBlock).text,
+          'here');
+    });
+
+    test('falls back to fresh when no session matches the current folder',
+        () async {
+      final store = MemorySessionStore();
+      // Only a session in another folder exists.
+      final awaySid = await store.createSession(
+          providerId: 'anthropic',
+          cwd: '/some/other/folder',
+          updatedAt: DateTime(2026, 6, 1));
+      final awayCid = await store.createConversation(awaySid);
+      await store.append(awaySid, awayCid,
+          Message(role: Role.user, content: [TextBlock('away')]));
+
+      final cfg = Config.parse(
+        const ['--continue'],
+        env: const {'ANTHROPIC_API_KEY': 'sk'},
+        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
+      );
+
+      final resolved = await resolveSession(cfg, store);
+      expect(resolved.sessionId, isNot(awaySid));
+      expect(resolved.activeHistory, isEmpty);
+    });
+  });
+
+  group('--force flag', () {
+    test('parses --force into forceLock', () {
+      final cfg = Config.parse(
+        const ['--force'],
+        env: const {'ANTHROPIC_API_KEY': 'sk'},
+        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
+      );
+      expect(cfg.forceLock, isTrue);
+    });
+
+    test('forceLock is false by default', () {
+      final cfg = Config.parse(
+        const [],
+        env: const {'ANTHROPIC_API_KEY': 'sk'},
+        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
+      );
+      expect(cfg.forceLock, isFalse);
     });
   });
 

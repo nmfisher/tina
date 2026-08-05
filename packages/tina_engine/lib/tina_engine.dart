@@ -45,6 +45,7 @@ export 'src/permissions/policy.dart';
 export 'src/permissions/preview.dart';
 export 'src/permissions/prompt.dart';
 export 'src/persistence/jsonl_session_store.dart';
+export 'src/persistence/session_lock.dart';
 export 'src/persistence/session_store.dart';
 export 'src/platform/paths.dart';
 export 'src/tools/atomic_write.dart';

@@ -49,6 +49,20 @@ class SessionController implements CommandContext {
   /// boundaries, which don't move focus.
   final void Function()? onActiveFocusChanged;
 
+  /// Capture the line editor's current draft (buffer + cursor) for the session
+  /// being switched away from. Returns null when nothing is being edited. Wired
+  /// by the TUI coordinator; null in headless.
+  ({String buffer, int cursor})? Function()? saveInput;
+
+  /// Restore a saved draft (or clear it) into the line editor for the session
+  /// being switched to. Wired by the TUI coordinator; null in headless.
+  void Function(String buffer, int cursor)? restoreInput;
+
+  /// Per-session draft input saved across switches, keyed by session id. Lets a
+  /// half-typed prompt survive switching to another session and back — tmux-
+  /// style independent input per session.
+  final Map<String, ({String buffer, int cursor})> _sessionInput = {};
+
   /// Hooks for built-in commands, keyed by command word (e.g. `/clear`). When
   /// a recognized command is entered, its hook — if any — is awaited *before*
   /// the default behavior runs (after the echoed prompt and separator), so the
@@ -81,6 +95,11 @@ class SessionController implements CommandContext {
   /// conversation's provider/model. Wired by the TUI coordinator; null in headless.
   @override
   Future<void> Function()? openModelPicker;
+
+  /// Open the session-picker overlay (Alt+S or `/session switch` with no arg).
+  /// Wired by the TUI coordinator; null in headless.
+  @override
+  Future<void> Function()? openSessionPicker;
 
   /// Display the image at [path] in the focused panel (`/image`). Wired by the
   /// TUI coordinator; null in headless.
@@ -359,11 +378,13 @@ class SessionController implements CommandContext {
   /// Create a new session and switch to it.
   @override
   Future<void> newSession({String? providerId, String? model}) async {
+    final fromId = sessionManager.activeId;
     final s = await sessionManager.createSession(
       providerId: providerId,
       model: model,
     );
     sessionManager.switchSession(s.id);
+    _swapInput(fromId, s.id);
     active.host.showMessage(
         '(new session ${_shortId(s.id)} — '
         '${s.activeConversation.provider.model})\n',
@@ -376,12 +397,60 @@ class SessionController implements CommandContext {
   @override
   void switchSession(String id) {
     if (id == sessionManager.activeId) return;
+    final fromId = sessionManager.activeId;
     sessionManager.switchSession(id);
+    _swapInput(fromId, id);
     active.host.showMessage(
         '(switched to ${_shortId(id)} — ${active.provider.model})\n',
         style: HostMessageStyle.dim);
     onSessionsChanged?.call();
     onActiveFocusChanged?.call();
+  }
+
+  /// Save the outgoing session's draft input and restore the incoming
+  /// session's saved draft (or clear it). No-ops when the TUI hasn't wired
+  /// [saveInput]/[restoreInput] (headless).
+  void _swapInput(String fromId, String toId) {
+    final save = saveInput;
+    if (save != null) {
+      final saved = save();
+      if (saved != null) _sessionInput[fromId] = saved;
+    }
+    final incoming = _sessionInput.remove(toId);
+    restoreInput?.call(incoming?.buffer ?? '', incoming?.cursor ?? 0);
+  }
+
+  /// Load a saved session [id] from disk into the active conversation,
+  /// replacing its history and replaying it onto the host. Returns true on
+  /// success, false (with a host message) when persistence is disabled, the id
+  /// is unknown, or the load fails. Shared by `/resume` and the session picker.
+  Future<bool> resumeIntoActive(String id) async {
+    final s = active;
+    final rec = s.recorder;
+    if (sessionStore == null || rec == null) {
+      s.host.showMessage('(persistence disabled — cannot resume)\n',
+          style: HostMessageStyle.dim);
+      return false;
+    }
+    final String activeCid;
+    final List<Message> loaded;
+    try {
+      final manifest = await sessionStore!.loadSession(id);
+      activeCid = manifest.activeConversationId;
+      loaded = await sessionStore!.loadConversation(id, activeCid);
+    } catch (e) {
+      s.host.showMessage('cannot resume: $e\n', style: HostMessageStyle.error);
+      return false;
+    }
+    s.history
+      ..clear()
+      ..addAll(loaded);
+    rec.switchTo(id, activeCid);
+    s.host.clear();
+    replayHistory(s.host, loaded);
+    s.host.showMessage('resumed: $id (${loaded.length} messages)\n',
+        style: HostMessageStyle.dim);
+    return true;
   }
 
   static String _shortId(String id) =>

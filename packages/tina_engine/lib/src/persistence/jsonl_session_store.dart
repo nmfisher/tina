@@ -48,12 +48,18 @@ class JsonlSessionStore implements SessionStore {
   File _manifestFile(String sid) => File(p.join(root.path, sid, _manifestName));
   File _legacyFile(String sid) => File(p.join(root.path, '$sid.jsonl'));
 
+  /// The on-disk directory backing [sessionId] (where the manifest, history
+  /// files, and a per-session `.lock` live). Exposed so callers can place a
+  /// [SessionLock] without reaching into the private layout.
+  Directory directoryFor(String sessionId) => _sessionDir(sessionId);
+
   // -- Session / conversation creation -----------------------------------
 
   @override
   Future<String> createSession({
     required String providerId,
     String? baseUrl,
+    String? cwd,
   }) async {
     await root.create(recursive: true);
     final id = _newId();
@@ -62,6 +68,7 @@ class JsonlSessionStore implements SessionStore {
       id: id,
       providerId: providerId,
       baseUrl: baseUrl,
+      cwd: cwd,
       activeConversationId: '',
       conversations: const [],
     ));
@@ -90,6 +97,7 @@ class JsonlSessionStore implements SessionStore {
       id: manifest.id,
       providerId: manifest.providerId,
       baseUrl: manifest.baseUrl,
+      cwd: manifest.cwd,
       activeConversationId: manifest.activeConversationId.isEmpty
           ? cid
           : manifest.activeConversationId,
@@ -208,6 +216,7 @@ class JsonlSessionStore implements SessionStore {
       id: manifest.id,
       providerId: manifest.providerId,
       baseUrl: manifest.baseUrl,
+      cwd: manifest.cwd,
       activeConversationId: conversationId,
       conversations: manifest.conversations,
     ));
@@ -251,6 +260,7 @@ class JsonlSessionStore implements SessionStore {
           updatedAt: await _newestConversationMtime(entity),
           messageCount: totalCount,
           conversationCount: manifest.conversations.length,
+          cwd: manifest.cwd,
         ));
       } else if (entity is File && entity.path.endsWith('.jsonl')) {
         // Legacy flat file (pre-multi-conversation). Read in place without
@@ -318,6 +328,7 @@ class JsonlSessionStore implements SessionStore {
         id: manifest.id,
         providerId: manifest.providerId,
         baseUrl: manifest.baseUrl,
+        cwd: manifest.cwd,
         activeConversationId: active,
         conversations: remaining,
       ));

@@ -90,6 +90,10 @@ abstract class CommandContext {
   /// conversation's provider/model. Wired by the TUI; null in headless.
   Future<void> Function()? get openModelPicker;
 
+  /// Open the session-picker overlay (Alt+S or `/session switch` with no arg)
+  /// to switch to or resume a session. Wired by the TUI; null in headless.
+  Future<void> Function()? get openSessionPicker;
+
   /// Display the image at [path] in the focused panel (`/image`). Wired by the
   /// TUI; null in headless (no surface to render onto).
   Future<void> Function(String path)? get openImage;
@@ -112,4 +116,8 @@ abstract class CommandContext {
 
   /// Switch to an existing session by id (`/session switch`).
   void switchSession(String id);
+
+  /// Load a saved session from disk into the active conversation (`/resume`
+  /// and the session picker). Returns true on success.
+  Future<bool> resumeIntoActive(String id);
 }
