@@ -36,12 +36,28 @@ void initLogging({
   Logger.root.level = level;
   final file = logFile ?? _defaultLogFile();
   // ~/.tina may not exist yet (the session store creates it lazily), and
-  // openWrite does not create parent dirs.
-  if (!file.parent.existsSync()) file.parent.createSync(recursive: true);
-  _sink = file.openWrite(mode: FileMode.append);
+  // openWrite does not create parent dirs. A log file must NEVER crash the
+  // app: openWrite opens asynchronously, so a failure (missing/unwritable
+  // dir, read-only mount) would otherwise surface as an unhandled zone error
+  // mid-TUI and kill the process without terminal teardown. Degrade to
+  // stderr-only logging instead.
+  try {
+    if (!file.parent.existsSync()) file.parent.createSync(recursive: true);
+    final sink = file.openWrite(mode: FileMode.append);
+    // The open (and later writes) fail asynchronously on sink.done — handle
+    // that by dropping the file sink, never by dying. Attached synchronously
+    // after openWrite returns, so the error can't escape before this handler.
+    sink.done.catchError((Object _) {
+      _sink = null;
+    });
+    _sink = sink;
+  } on FileSystemException catch (e) {
+    _sink = null;
+    stderr.writeln('tina: warning: cannot open log file ${file.path}: $e');
+  }
   _sub = Logger.root.onRecord.listen((r) {
     final line = _format(r);
-    _sink!.writeln(line);
+    _sink?.writeln(line);
     if (mirrorToStderr ?? _isNonInteractive) stderr.writeln(line);
   });
 }

@@ -51,6 +51,36 @@ void main() {
     expect(await nested.exists(), isTrue);
     expect(await nested.readAsString(), contains('deep'));
   });
+
+  test('degrades to stderr-only when the log file cannot be opened', () async {
+    // Regression guard: openWrite opens asynchronously, so an unwritable path
+    // used to surface as an unhandled zone error mid-TUI — killing the process
+    // without terminal teardown (raw tty left behind). A blocker FILE in the
+    // parent slot makes the open fail while initLogging itself stays sync.
+    final blocker = File('${tempDir.path}/blocker');
+    await blocker.writeAsString('x');
+    final impossible = File('${blocker.path}/tina.log');
+    initLogging(level: Level.INFO, logFile: impossible, mirrorToStderr: false);
+    Logger('tina.test').info('still logging');
+    await _drain();
+    await closeLogging();
+    // No crash, no log file — the sink was dropped instead of dying.
+    expect(await impossible.exists(), isFalse);
+  });
+
+  test('degrades when the parent directory cannot be created', () async {
+    // createSync throws synchronously (e.g. read-only HOME): the parent dir
+    // creation must be caught, not propagated. A FILE in the ancestor slot
+    // makes the recursive create fail.
+    final blocker = File('${tempDir.path}/blocker');
+    await blocker.writeAsString('x');
+    final impossible = File('${blocker.path}/missing/tina.log');
+    initLogging(level: Level.INFO, logFile: impossible, mirrorToStderr: false);
+    Logger('tina.test').info('still logging');
+    await _drain();
+    await closeLogging();
+    expect(await impossible.exists(), isFalse);
+  });
 }
 
 /// onRecord delivery is asynchronous, so pump the event loop before flushing so

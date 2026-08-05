@@ -92,6 +92,35 @@ void main() {
     );
   });
 
+  test('emergencyTerminalRestore leaves the alt screen via the live backend',
+      () async {
+    // Regression guard for the crash-path terminal restore: when an unhandled
+    // error kills tina mid-TUI, the entrypoint's zone guard calls
+    // emergencyTerminalRestore() — it must tear down the tracked screen (here
+    // the fake io's ANSI backend) so the shell isn't left raw. The screen is
+    // tracked from create() onward, so restore works before run() too.
+    final io = FakeStdio()..hasTerminalValue = false;
+    final config = Config.parse(const ['--backend', 'ansi']);
+    final app = await buildAppComposition(
+      config: config,
+      registry: builtinRegistry(),
+      provider: FakeProvider.done(),
+      store: MemorySessionStore(),
+    );
+    final coordinator = await TuiCoordinator.create(
+      app: app,
+      io: io,
+      terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
+    );
+
+    coordinator.screen.enterAltScreen();
+    emergencyTerminalRestore(); // must not throw
+
+    final out = io.written.toString();
+    expect(out, contains('\x1b[?1049l'),
+        reason: 'crash path must emit the leave-alt-screen escape');
+  });
+
   test('setup mode: overlay writes → setupWrote and the REPL is skipped',
       () async {
     final io = FakeStdio()..hasTerminalValue = false;
