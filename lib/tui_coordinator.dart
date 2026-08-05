@@ -555,14 +555,23 @@ class TuiCoordinator {
     // reflects whether the last-opened panel changed anything.
     controller.openSettings = () async {
       final envMap = app.environment.env;
-      final wrote = await runSettingsPanel(
-        screen: screen,
-        editor: editor,
-        registry: scheduler.registry,
-        pipeline: pipeline,
-        env: envMap,
-      );
       final host = sessionManager.activeConversation.host;
+      UserConfig? wrote;
+      try {
+        wrote = await runSettingsPanel(
+          screen: screen,
+          editor: editor,
+          registry: scheduler.registry,
+          pipeline: pipeline,
+          env: envMap,
+        );
+      } on ConfigWriteException catch (e) {
+        // Backstop: most subpanels surface write errors in-modal, but a panel
+        // that writes after its overlay closes (e.g. theme) escapes here. Never
+        // let a read-only config crash the app over a settings edit.
+        host.showMessage('$e\n', style: HostMessageStyle.warning);
+        return;
+      }
       if (wrote != null) {
         host.showMessage(
           'Settings saved to ~/.tina/config — restart tina to apply '
@@ -578,14 +587,20 @@ class TuiCoordinator {
     // overrides. Writes on close if anything changed; applies on restart.
     controller.openPrompts = () async {
       final envMap = app.environment.env;
-      final wrote = await runPromptsOverlay(
-        screen: screen,
-        editor: editor,
-        pipeline: pipeline,
-        env: envMap,
-        initial: loadUserConfig(env: envMap),
-      );
       final host = sessionManager.activeConversation.host;
+      UserConfig? wrote;
+      try {
+        wrote = await runPromptsOverlay(
+          screen: screen,
+          editor: editor,
+          pipeline: pipeline,
+          env: envMap,
+          initial: loadUserConfig(env: envMap),
+        );
+      } on ConfigWriteException catch (e) {
+        host.showMessage('$e\n', style: HostMessageStyle.warning);
+        return;
+      }
       if (wrote != null) {
         host.showMessage(
           'Prompts saved to ~/.tina/config — restart tina to apply '

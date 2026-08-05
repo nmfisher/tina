@@ -507,19 +507,46 @@ String userConfigToToml(UserConfig config) {
 /// Write [config] to `<tinaDir>/config` as TOML (best-effort chmod 600, since
 /// the file may hold API keys). Creates the directory if needed. Returns the
 /// path written. [tinaDir] is injectable for tests.
+///
+/// Throws [ConfigWriteException] (not a raw [FileSystemException]) when the
+/// write fails — e.g. when the config is on a read-only mount (the sandbox
+/// binds `~/.tina/config` as `:ro`). Callers surface this as an in-modal error
+/// or a host warning instead of letting it crash the app.
 String writeUserConfig(
   UserConfig config, {
   required Map<String, String> env,
   Directory? tinaDir,
 }) {
   final file = userConfigFile(env, tinaDir: tinaDir);
-  if (!file.parent.existsSync()) file.parent.createSync(recursive: true);
-  file.writeAsStringSync(userConfigToToml(config));
-  // Best-effort 0600 — no-op on non-Unix / if chmod is unavailable.
+  try {
+    if (!file.parent.existsSync()) file.parent.createSync(recursive: true);
+    file.writeAsStringSync(userConfigToToml(config));
+  } on FileSystemException catch (e) {
+    throw ConfigWriteException(file.path, e.osError?.message ?? e.message);
+  }
+  // Best-effort 0600 — no-op on non-Unix / if chmod is unavailable. A failed
+  // chmod (e.g. read-only mount where the write above already threw) is not a
+  // ConfigWriteException: the file content landed or didn't, and chmod failing
+  // to tighten perms is a separate, non-fatal concern.
   try {
     Process.runSync('chmod', ['600', file.path]);
   } catch (_) {}
   return file.path;
+}
+
+/// Raised by [writeUserConfig] when the config file can't be written. Carries
+/// the target path and the OS message so overlays can render a precise error
+/// (e.g. "Read-only file system") instead of dumping a stack trace.
+class ConfigWriteException implements Exception {
+  final String path;
+  final String message;
+  ConfigWriteException(this.path, this.message);
+
+  @override
+  String toString() {
+    final m = message.isEmpty ? 'write failed' : message;
+    return 'Could not write $path: $m';
+  }
 }
 
 const _kConfigTemplate = '''# tina user config (~/.tina/config).

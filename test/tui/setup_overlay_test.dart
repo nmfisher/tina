@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:tina/config/user_config.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/tui/setup_overlay.dart';
@@ -347,6 +349,42 @@ void main() {
       output,
       contains('⚠ Catalog proxy warning'),
     );
+  });
+  test('read-only config: write failure is surfaced in-modal, not thrown', () async {
+    // A read-only config file (as the sandbox's :ro mount produces) makes the
+    // confirm-time write fail. The overlay must stay open, show the error, and
+    // let the user back out — not throw an unhandled FileSystemException.
+    final io = FakeStdio()..hasTerminalValue = false;
+    final layout = ScreenLayout.fromSize(80, 24, hasMenuBar: false);
+    final screen = Screen(io: io, layout: layout);
+
+    final cfgFile = File('${tmp.dir.path}/config');
+    cfgFile.writeAsStringSync('version = 1\n');
+    Process.runSync('chmod', ['444', cfgFile.path]);
+    addTearDown(() => Process.runSync('chmod', ['644', cfgFile.path]));
+
+    canned.events = [
+      CharInput(' '),                    // check alpha
+      ArrowKey(ArrowDirection.right),    // expand alpha
+      ArrowKey(ArrowDirection.down),     // alpha/key
+      CharInput('k'),                    // type key
+      ControlKey(ControlCode.enter),     // tree → heavy
+      ControlKey(ControlCode.enter),     // heavy select alpha/a1 → light
+      ControlKey(ControlCode.enter),     // light skip → theme
+      ControlKey(ControlCode.enter),     // theme (system) → confirm
+      ControlKey(ControlCode.enter),     // confirm → write FAILS, stays open
+      EscapeKey(), // confirm → theme
+      EscapeKey(), // theme → light
+      EscapeKey(), // light → heavy
+      EscapeKey(), // heavy → providers
+      EscapeKey(), // providers → cancel
+    ];
+
+    final cfg = await run(screen).timeout(overlayTimeout);
+
+    expect(cfg, isNull, reason: 'cancelled after the write failed');
+    expect(io.written.toString(), contains('Could not write'),
+        reason: 'the write error is shown in the modal');
   });
 }
 

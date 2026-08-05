@@ -72,6 +72,7 @@ class _PromptsForm {
 
   _Step _step = _Step.roles;
   int _focus = 0; // focused role index in the roles step
+  String? _writeError; // set when a close-time write failed (e.g. read-only)
 
   // Editor-step state.
   TextBuffer? _buffer;
@@ -98,12 +99,26 @@ class _PromptsForm {
       if (ev is EscapeKey ||
           (ev is ControlKey && ev.code == ControlCode.ctrlC)) {
         if (!_back()) {
+          // Top level: close. If a prior close attempt already failed the
+          // write (e.g. config on a read-only mount), discard the buffered
+          // overrides and close without retrying — the error is on screen.
+          if (_writeError != null) {
+            _dispose();
+            return null;
+          }
+          final r = _closeResult();
+          if (r.error != null) {
+            _writeError = r.error;
+            _render(); // show error in the roles list, stay open
+            continue;
+          }
           _dispose();
-          return _closeResult();
+          return r.config;
         }
         _render();
         continue;
       }
+      _writeError = null; // any other key clears a stale write error
       _dispatch(ev);
       _render();
     }
@@ -258,11 +273,11 @@ class _PromptsForm {
     _overrides.remove(role.name);
   }
 
-  UserConfig? _closeResult() {
+  ({UserConfig? config, String? error}) _closeResult() {
     if (_overrides.length == _initial.prompts.length &&
         _overrides.entries.every(
             (e) => _initial.prompts[e.key] == e.value)) {
-      return null; // no net change
+      return (config: null, error: null); // no net change
     }
     final cfg = UserConfig(
       defaultProvider: _initial.defaultProvider,
@@ -272,8 +287,12 @@ class _PromptsForm {
       limits: _initial.limits,
       prompts: Map<String, String>.from(_overrides),
     );
-    writeUserConfig(cfg, env: _env, tinaDir: _tinaDir);
-    return cfg;
+    try {
+      writeUserConfig(cfg, env: _env, tinaDir: _tinaDir);
+      return (config: cfg, error: null);
+    } on ConfigWriteException catch (e) {
+      return (config: null, error: e.toString());
+    }
   }
 
   // -- render -------------------------------------------------------------
@@ -292,6 +311,7 @@ class _PromptsForm {
 
   List<String> _rolesBody() {
     final rows = <String>[];
+    if (_writeError != null) rows.add('⚠ $_writeError');
     final roles = _roles;
     for (var i = 0; i < roles.length; i++) {
       final role = roles[i];
@@ -302,8 +322,9 @@ class _PromptsForm {
     return rows;
   }
 
-  String _rolesFooter() =>
-      '↑↓ move · enter edit · r reset · esc done    (● = overridden)';
+  String _rolesFooter() => _writeError != null
+      ? 'esc discard changes (write failed) · keep editing to retry'
+      : '↑↓ move · enter edit · r reset · esc done    (● = overridden)';
 
   String _editorTitle() {
     final role = _editingRole;

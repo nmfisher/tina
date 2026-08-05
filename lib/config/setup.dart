@@ -158,16 +158,24 @@ bool runSetupWizard({
     return false;
   }
 
-  final path = writeUserConfig(
-    buildSetupConfig(
-      tiers: tierRefs,
-      keys: keys,
-      defaultProvider: defaultProvider,
-      defaultModel: defaultModel,
-    ),
-    env: env,
-    tinaDir: tinaDir,
-  );
+  final path;
+  try {
+    path = writeUserConfig(
+      buildSetupConfig(
+        tiers: tierRefs,
+        keys: keys,
+        defaultProvider: defaultProvider,
+        defaultModel: defaultModel,
+      ),
+      env: env,
+      tinaDir: tinaDir,
+    );
+  } on ConfigWriteException catch (e) {
+    stderr.writeln('error: $e');
+    stderr.writeln('       (is the config on a read-only mount? '
+        'e.g. the sandbox binds ~/.tina/config as :ro)');
+    return false;
+  }
   stdout.writeln('Wrote $path');
   return true;
 }

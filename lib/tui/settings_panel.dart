@@ -319,6 +319,7 @@ class _ProvidersForm {
   final _disabledModels = <String>{};
   int _focus = 0;
   int _scrollOffset = 0;
+  String? _writeError; // set when a save-time write failed (e.g. read-only)
 
   List<String> get _providerIds => _registry.providerIds;
 
@@ -341,15 +342,28 @@ class _ProvidersForm {
         _dispose();
         return null; // cancel: write nothing
       }
-      switch (_dispatch(ev)) {
+      final result = _dispatch(ev);
+      if (result == _ProvidersResult.wrote) {
+        // Write before disposing so a read-only config surfaces an error in
+        // the modal instead of escaping as an unhandled exception.
+        try {
+          final cfg = _write();
+          _dispose();
+          return cfg;
+        } on ConfigWriteException catch (e) {
+          _writeError = e.toString();
+          _render();
+          continue;
+        }
+      }
+      switch (result) {
         case _ProvidersResult.changed:
           _render();
-        case _ProvidersResult.wrote:
-          _dispose();
-          return _write();
         case _ProvidersResult.cancelled:
           _dispose();
           return null;
+        case _ProvidersResult.wrote:
+          break; // handled above
       }
     }
   }
@@ -360,6 +374,7 @@ class _ProvidersForm {
   }
 
   _ProvidersResult _dispatch(InputEvent ev) {
+    _writeError = null; // any input clears a stale write error
     final rows = _computeRows();
     if (rows.isEmpty) return _ProvidersResult.changed;
 
@@ -622,6 +637,9 @@ class _ProvidersForm {
     if (warning != null) {
       lines.add(_row(false, ' ⚠ $warning'));
     }
+    if (_writeError != null) {
+      lines.add(_row(false, '⚠ $_writeError'));
+    }
     return lines;
   }
 
@@ -685,6 +703,7 @@ class _TiersForm {
   String? _heavy; // "provider/model"
   String? _light;
   int _focus = 0; // 0 = heavy, 1 = light, 2 = save
+  String? _writeError; // set when a save-time write failed (e.g. read-only)
 
   /// All `"provider/model"` refs from providers configured in [UserConfig].
   late final List<String> _candidates = [
@@ -715,12 +734,21 @@ class _TiersForm {
         _dispose();
         return null;
       }
-      switch (_dispatch(ev)) {
+      final result = _dispatch(ev);
+      if (result == _TiersResult.wrote) {
+        try {
+          final cfg = _write();
+          _dispose();
+          return cfg;
+        } on ConfigWriteException catch (e) {
+          _writeError = e.toString();
+          _render();
+          continue;
+        }
+      }
+      switch (result) {
         case _TiersResult.changed:
           _render();
-        case _TiersResult.wrote:
-          _dispose();
-          return _write();
         case _TiersResult.cancelled:
           _dispose();
           return null;
@@ -730,6 +758,8 @@ class _TiersForm {
         case _TiersResult.pickLight:
           await _openPicker(isHeavy: false);
           _render();
+        case _TiersResult.wrote:
+          break; // handled above
       }
     }
   }
@@ -740,6 +770,7 @@ class _TiersForm {
   }
 
   _TiersResult _dispatch(InputEvent ev) {
+    _writeError = null; // any input clears a stale write error
     if (ev is ArrowKey) {
       switch (ev.direction) {
         case ArrowDirection.up:
@@ -814,6 +845,7 @@ class _TiersForm {
       for (final r in _roles)
         '  ${r.name} → ${r.modelTier ?? "(inherits)"}',
     ];
+    if (_writeError != null) lines.add(_row(false, '⚠ $_writeError'));
     return lines;
   }
 
@@ -916,6 +948,7 @@ class _QuotaForm {
   final _limitLabels = <String>[];
   final _limitValues = <String, int>{};
   int _focus = 0;
+  String? _writeError; // set when a save-time write failed (e.g. read-only)
 
   Future<UserConfig?> run() async {
     final layout = _screen.layout;
@@ -936,15 +969,26 @@ class _QuotaForm {
         _dispose();
         return null;
       }
-      switch (_dispatch(ev)) {
+      final result = _dispatch(ev);
+      if (result == _QuotaResult.wrote) {
+        try {
+          final cfg = _write();
+          _dispose();
+          return cfg;
+        } on ConfigWriteException catch (e) {
+          _writeError = e.toString();
+          _render();
+          continue;
+        }
+      }
+      switch (result) {
         case _QuotaResult.changed:
           _render();
-        case _QuotaResult.wrote:
-          _dispose();
-          return _write();
         case _QuotaResult.cancelled:
           _dispose();
           return null;
+        case _QuotaResult.wrote:
+          break; // handled above
       }
     }
   }
@@ -955,6 +999,7 @@ class _QuotaForm {
   }
 
   _QuotaResult _dispatch(InputEvent ev) {
+    _writeError = null; // any input clears a stale write error
     if (ev is ControlKey && ev.code == ControlCode.enter) {
       return _QuotaResult.wrote;
     }
@@ -1009,6 +1054,7 @@ class _QuotaForm {
         'Token limits (enter saves, esc cancels):',
         for (var i = 0; i < _limitIds.length; i++)
           _row(i == _focus, '${_limitLabels[i]}: ${_limitValues[_limitIds[i]]}'),
+        if (_writeError != null) _row(false, '⚠ $_writeError'),
       ];
 
   String _footer() => '↑↓ move · digits edit · backspace del · enter save';

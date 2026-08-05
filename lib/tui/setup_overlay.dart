@@ -138,6 +138,7 @@ class _SetupForm {
 
   _Step _step = _Step.providers;
   UserConfig? _written;
+  String? _writeError; // set when a confirm-time write failed (e.g. read-only)
 
   List<String> get _providerIds => _registry.providerIds;
 
@@ -422,6 +423,7 @@ class _SetupForm {
 
   void _enterConfirmOrLimits() {
     _focus = 0;
+    _writeError = null;
     if (_showLimits) {
       _enterLimitsStep();
     } else {
@@ -545,7 +547,14 @@ class _SetupForm {
 
   _Result _onConfirm(InputEvent ev) {
     if (ev is ControlKey && ev.code == ControlCode.enter) {
-      _written = _write();
+      final r = _write();
+      if (r.error != null) {
+        // Stay on the confirm step and show why the write failed (e.g. config
+        // is on a read-only mount). The user can Esc back or cancel.
+        _writeError = r.error;
+        return _Result.changed;
+      }
+      _written = r.config;
       return _Result.wrote;
     }
     return _Result.changed;
@@ -624,7 +633,7 @@ class _SetupForm {
 
   // -- Write ----------------------------------------------------------------
 
-  UserConfig _write() {
+  ({UserConfig? config, String? error}) _write() {
     final tiers = <String, String>{};
     if (_heavy != null) tiers['heavy'] = _heavy!;
     if (_light != null) tiers['light'] = _light!;
@@ -664,8 +673,12 @@ class _SetupForm {
       disabledModels: dis,
       themeVariant: _themeVariant,
     );
-    writeUserConfig(cfg, env: _env, tinaDir: _tinaDir);
-    return cfg;
+    try {
+      writeUserConfig(cfg, env: _env, tinaDir: _tinaDir);
+      return (config: cfg, error: null);
+    } on ConfigWriteException catch (e) {
+      return (config: null, error: e.toString());
+    }
   }
 
   // -- Render ---------------------------------------------------------------
@@ -732,6 +745,7 @@ class _SetupForm {
 
   List<String> _confirmBody() {
     return [
+      if (_writeError != null) _row(false, '⚠ $_writeError'),
       _row(false, 'default:  ${_heavy ?? "(none)"}'),
       _row(false, 'light:    ${_light ?? "(none)"}'),
       _row(false, 'theme:    $_themeLabel'),
