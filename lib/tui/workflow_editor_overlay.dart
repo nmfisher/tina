@@ -109,6 +109,9 @@ class _WorkflowEditor {
         if (ev is ControlKey && ev.code == ControlCode.ctrlC) return false;
         if (ev is ArrowKey) {
           moveSelection(ev.direction);
+          // Re-render: `last` carries the selection border, so a stale render
+          // would leave the highlight on the previously selected node.
+          last = _render();
           paint();
           continue;
         }
@@ -139,6 +142,7 @@ class _WorkflowEditor {
           paint();
         } else if (ev is ControlKey && ev.code == ControlCode.tab) {
           _cycleSelection();
+          last = _render();
           paint();
         }
       }
