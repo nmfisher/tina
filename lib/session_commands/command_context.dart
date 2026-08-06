@@ -131,4 +131,12 @@ abstract class CommandContext {
   /// the TUI and the headless runner; null when no pipeline runner is wired.
   Future<void> Function({required String workflowName, String? input})?
       get runWorkflow;
+
+  /// Open the visual graph viewer for a saved workflow (`/workflow show`).
+  /// Wired by the TUI; null in headless (no screen).
+  Future<void> Function(String name)? get openWorkflowViewer;
+
+  /// Open the visual node editor (`/workflow new` / `/workflow edit`). Wired by
+  /// the TUI; null in headless.
+  Future<void> Function({String? name, bool isNew})? get openWorkflowEditor;
 }

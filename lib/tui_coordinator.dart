@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:attractor/attractor.dart';
 
 import 'package:tina/completion/git_file_provider.dart';
 import 'package:tina/completion/command_completion_provider.dart';
@@ -16,6 +17,8 @@ import 'package:tina/config/user_config.dart';
 import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina/persistence/session_restore.dart';
 import 'package:tina/pipeline/pipeline_runner.dart';
+import 'package:tina/tui/workflow_editor_overlay.dart';
+import 'package:tina/tui/workflow_viewer_overlay.dart';
 import 'package:tina/platform/terminal_geometry.dart';
 import 'package:tina/session_controller.dart';
 import 'package:tina/summaries/summary_index.dart';
@@ -714,6 +717,50 @@ class TuiCoordinator {
                 : HostMessageStyle.error,
           );
         },
+      );
+    };
+    // `/workflow show` — visual graph viewer.
+    controller.openWorkflowViewer = (name) async {
+      try {
+        final source = await PipelineRunner.readWorkflow(workflowsDir, name);
+        final graph = parseDot(source);
+        await runWorkflowViewer(
+            screen: screen, editor: editor, graph: graph, title: name);
+      } catch (e) {
+        controller.active.host
+            .showMessage('$e\n', style: HostMessageStyle.error);
+      }
+    };
+    // `/workflow new` + `/workflow edit` — visual node editor.
+    controller.openWorkflowEditor = ({name, isNew = false}) async {
+      Graph graph;
+      if (isNew) {
+        // Seed a minimal runnable skeleton: start → exit, ready to insert into.
+        graph = Graph(name: 'workflow', nodes: {
+          'start': PipelineNode(id: 'start', attrs: {'shape': 'Mdiamond', 'label': 'Start'}),
+          'exit': PipelineNode(id: 'exit', attrs: {'shape': 'Msquare', 'label': 'Done'}),
+        }, edges: [
+          PipelineEdge(from: 'start', to: 'exit'),
+        ]);
+      } else {
+        final n = name;
+        if (n == null) return;
+        try {
+          graph = parseDot(await PipelineRunner.readWorkflow(workflowsDir, n));
+        } catch (e) {
+          controller.active.host
+              .showMessage('$e\n', style: HostMessageStyle.error);
+          return;
+        }
+      }
+      await runWorkflowEditor(
+        screen: screen,
+        editor: editor,
+        graph: graph,
+        name: name,
+        pipeline: pipeline,
+        workflowsDir: workflowsDir,
+        isNew: isNew,
       );
     };
     // `/settings`: open the index menu of independently-saved subpanels

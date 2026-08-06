@@ -23,5 +23,8 @@ export 'src/node_handler.dart';
 export 'src/handlers/handlers.dart';
 export 'src/condition.dart';
 export 'src/dot_parser.dart';
+export 'src/dot_writer.dart';
+export 'src/render/layout.dart';
+export 'src/render/ascii_render.dart';
 export 'src/engine.dart';
 export 'src/validator.dart';

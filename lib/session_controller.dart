@@ -149,6 +149,14 @@ class SessionController implements CommandContext {
   Future<void> Function({required String workflowName, String? input})?
       runWorkflow;
 
+  /// Open the visual graph viewer. Wired by the TUI.
+  @override
+  Future<void> Function(String name)? openWorkflowViewer;
+
+  /// Open the visual node editor. Wired by the TUI.
+  @override
+  Future<void> Function({String? name, bool isNew})? openWorkflowEditor;
+
   SessionController({
     required this.sessionManager,
     required this.readLine,
