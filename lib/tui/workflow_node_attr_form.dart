@@ -74,10 +74,12 @@ Future<bool> runNodeAttrEditor({
     final tFit = titleSeg.length > rect.width - 2
         ? titleSeg.substring(0, rect.width - 2)
         : titleSeg;
+    const footer = 'ctrl-s save · esc cancel · ↑↓←→ move · enter newline';
+    final footerFit = footer.substring(0, math.min(innerW, footer.length));
     final lines = <String>[
       '┌$tFit${'─' * (rect.width - 2 - tFit.length)}┐',
       for (final b in body()) '│ ${b.padRight(innerW).substring(0, innerW)} │',
-      '│ ${'ctrl-s save · esc cancel · ↑↓←→ move · enter newline'.substring(0, math.min(innerW, 56)).padRight(innerW)} │',
+      '│ ${footerFit.padRight(innerW)} │',
       '└${'─' * (rect.width - 2)}┘',
     ];
     overlay.show(lines);
