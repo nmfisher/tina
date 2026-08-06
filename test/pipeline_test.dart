@@ -3,9 +3,42 @@ import 'dart:io';
 import 'package:attractor/attractor.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:tina_engine/tina_engine.dart';
 
 import '../lib/pipeline/file_run_store.dart';
 import '../lib/pipeline/tina_codergen_backend.dart';
+import 'helpers/fake_agent_sink.dart';
+
+/// A scheduler stub that records the model reference it was asked to run with
+/// instead of actually spawning an agent.
+class _RecordingScheduler extends SubAgentScheduler {
+  String? seenModelReference;
+  int calls = 0;
+
+  _RecordingScheduler()
+      : super(
+          registry: ProviderRegistry(env: const {}),
+          pipeline: defaultPipeline,
+          maxTokens: 1000,
+          streamIdleTimeout: const Duration(seconds: 10),
+          requestTimeout: const Duration(seconds: 10),
+        );
+
+  @override
+  Future<RunAgentResult> runStandalone({
+    required AgentRole role,
+    required String task,
+    String parentReference = '',
+    String? modelReference,
+    List<Message>? seedHistory,
+    Future<void>? cancelSignal,
+    required AgentSink sink,
+  }) async {
+    calls++;
+    seenModelReference = modelReference;
+    return const RunAgentResult('done');
+  }
+}
 
 void main() {
   group('TinaCodergenBackend.parseVerdict', () {
@@ -25,6 +58,49 @@ void main() {
 
     test('returns null when there is no verdict line', () {
       expect(TinaCodergenBackend.parseVerdict('just a normal response'), isNull);
+    });
+  });
+
+  group('TinaCodergenBackend model attribute', () {
+    test('a node model attr overrides the role tier', () async {
+      final scheduler = _RecordingScheduler();
+      final backend = TinaCodergenBackend(
+        scheduler: scheduler,
+        pipeline: defaultPipeline,
+        sink: FakeAgentSink(),
+      );
+      final node = PipelineNode(id: 'review', attrs: {
+        'role': 'verifier',
+        'model': 'deepseek/deepseek-chat',
+      });
+      final result = await backend.run(
+        node: node,
+        role: 'verifier',
+        prompt: 'review it',
+        preamble: '',
+        context: Context(),
+      );
+      expect(result.outcome, isNull); // not an error result
+      expect(scheduler.calls, 1);
+      expect(scheduler.seenModelReference, 'deepseek/deepseek-chat');
+    });
+
+    test('a node without a model attr passes null (tier wins)', () async {
+      final scheduler = _RecordingScheduler();
+      final backend = TinaCodergenBackend(
+        scheduler: scheduler,
+        pipeline: defaultPipeline,
+        sink: FakeAgentSink(),
+      );
+      final node = PipelineNode(id: 'plan', attrs: {'role': 'orchestrator'});
+      await backend.run(
+        node: node,
+        role: 'orchestrator',
+        prompt: 'plan it',
+        preamble: '',
+        context: Context(),
+      );
+      expect(scheduler.seenModelReference, isNull);
     });
   });
 

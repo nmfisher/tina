@@ -776,10 +776,15 @@ class SubAgentScheduler {
   /// Depth is 0 (a top-level pipeline node). [sink] streams the turn's text
   /// (e.g. into the conversation host); [cancelSignal] aborts it. [seedHistory]
   /// is reserved for the `full`-fidelity phase.
+  ///
+  /// [modelReference] is a `"provider/model"` string that bypasses the role's
+  /// tier resolution entirely (a workflow node's `model` attribute); when null
+  /// the role's tier maps through [modelTiers] as usual.
   Future<RunAgentResult> runStandalone({
     required AgentRole role,
     required String task,
     String parentReference = '',
+    String? modelReference,
     List<Message>? seedHistory,
     Future<void>? cancelSignal,
     required AgentSink sink,
@@ -787,7 +792,8 @@ class SubAgentScheduler {
     final LlmProvider provider;
     final String reference;
     try {
-      reference = _resolvedReference(role) ?? parentReference;
+      reference =
+          modelReference ?? _resolvedReference(role) ?? parentReference;
       provider = registry.build(
         reference,
         maxTokens: maxTokens,

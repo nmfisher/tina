@@ -52,6 +52,8 @@ class TinaCodergenBackend implements CodergenBackend {
       task: task,
       sink: sink,
       cancelSignal: cancelSignal,
+      // A node-level `model="provider/model"` attr overrides the role's tier.
+      modelReference: node.model.isEmpty ? null : node.model,
     );
     if (result.isError) return CodergenResult.error(result.text);
 

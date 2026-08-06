@@ -28,6 +28,19 @@ void main() {
       expect(g.nodes['start']!.shape, 'Mdiamond');
     });
 
+    test('exposes a node model override and defaults to empty', () {
+      final g = parseDot('''
+        digraph M {
+          start [shape=Mdiamond]
+          plan [shape=box, model="deepseek/deepseek-chat"]
+          exit [shape=Msquare]
+          start -> plan -> exit
+        }
+      ''');
+      expect(g.node('plan')!.model, 'deepseek/deepseek-chat');
+      expect(g.node('start')!.model, '');
+    });
+
     test('parses typed attribute values', () {
       final g = parseDot('''
         digraph T {

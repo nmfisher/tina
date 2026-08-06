@@ -35,6 +35,11 @@ class PipelineNode {
   /// Empty means "use the host's default role".
   String get role => (attrs['role'] as String?) ?? '';
 
+  /// A `"provider/model"` override for this node's agent (a tina extension —
+  /// the host's backend maps it onto a model reference). Empty means "use the
+  /// role's tier model".
+  String get model => (attrs['model'] as String?) ?? '';
+
   /// Whether this node must reach success before the pipeline can exit.
   bool get goalGate => _bool(attrs['goal_gate'], false);
 

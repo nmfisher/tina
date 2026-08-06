@@ -1748,6 +1748,26 @@ void main() {
       await scheduler.dispose();
     });
 
+    test('modelReference overrides the role tier', () async {
+      final scheduler = testScheduler(
+        scriptedRegistry(
+            {'a': answerEvents('from-a'), 'b': answerEvents('from-b')}),
+        pipeline: pipeline,
+        modelTiers: {'heavy': 'a/a-model'},
+      );
+      final result = await scheduler.runStandalone(
+        role: const AgentRole(name: 'x', description: 'x', modelTier: 'heavy'),
+        task: 'go',
+        parentReference: 'a/a-model',
+        modelReference: 'b/b-model',
+        sink: FakeAgentSink(),
+      );
+      // 'b' answers, not 'a' (the tier's model) — the workflow node's `model`
+      // attr won.
+      expect(result.text, 'from-b');
+      await scheduler.dispose();
+    });
+
     test('surfaces a provider-build failure as an error result', () async {
       final scheduler = testScheduler(
         scriptedRegistry({'a': answerEvents('ok')}),

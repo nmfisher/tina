@@ -14,6 +14,7 @@ import 'spawn_overlay.dart';
 /// shape = box
 /// goal_gate = false
 /// max_retries =
+/// model = deepseek/deepseek-chat   (optional "provider/model" override)
 /// prompt =
 /// <free-form prompt — everything after the `prompt =` line>
 /// ```
@@ -166,6 +167,7 @@ String _serialize(PipelineNode n) {
   buf.writeln('shape = ${n.shape}');
   buf.writeln('goal_gate = ${n.goalGate}');
   buf.writeln('max_retries = ${n.maxRetries ?? ''}');
+  buf.writeln('model = ${n.model}');
   buf.writeln('retry_target = ${n.retryTarget}');
   buf.writeln('prompt =');
   buf.write(n.prompt.isNotEmpty ? n.prompt : '');
@@ -208,6 +210,12 @@ void _apply(PipelineNode n, String text) {
         } else {
           final parsed = int.tryParse(value);
           if (parsed != null) n.attrs['max_retries'] = parsed;
+        }
+      case 'model':
+        if (value.isEmpty) {
+          n.attrs.remove('model');
+        } else {
+          n.attrs['model'] = value;
         }
       case 'retry_target':
         if (value.isEmpty) {

@@ -221,6 +221,11 @@ the plain main-agent loop, while `~/.tina/workflows/default.dot` exists.
   `orchestrator` (canDelegate) splits the work and delegates to 1..N
   `implementer` sub-agents via the existing `delegate` tool — no engine-level
   parallel/fan-in (still deferred).
+- **Per-node model**: a node may set `model="provider/model"` (e.g.
+  `review [role="verifier", model="deepseek/deepseek-chat"]`) to override the
+  role's tier model for that node only. Threaded through
+  `TinaCodergenBackend` → `runStandalone(modelReference:)`, bypassing
+  `_resolvedReference`. Editable in the node-attr form (`/workflow edit`).
 - **Edit / disable**: `/workflow edit default` opens the visual node editor;
   delete `default.dot` or set `[default] workflow = "none"` to go back to the
   plain single-agent path.
