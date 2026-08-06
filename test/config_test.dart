@@ -64,6 +64,26 @@ void main() {
   });
 
   group('user config precedence (file > env > default)', () {
+    test('[default] workflow surfaces as Config.defaultWorkflow', () {
+      final cfg = Config.parse(
+        const [],
+        env: const {},
+        registry: testRegistry(const {}),
+        userConfig: const UserConfig(defaultWorkflow: 'default'),
+      );
+      expect(cfg.defaultWorkflow, 'default');
+    });
+
+    test('no [default] workflow means null (presence-based routing)', () {
+      final cfg = Config.parse(
+        const [],
+        env: const {},
+        registry: testRegistry(const {}),
+        userConfig: const UserConfig(),
+      );
+      expect(cfg.defaultWorkflow, isNull);
+    });
+
     test('file defaultProvider beats the built-in default', () {
       final cfg = Config.parse(
         const [],

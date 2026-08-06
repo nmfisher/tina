@@ -24,7 +24,7 @@ class CodergenHandler implements NodeHandler {
   }) async {
     // 1. Resolve + expand the prompt (falls back to label).
     final rawPrompt = node.prompt.isNotEmpty ? node.prompt : node.label;
-    final prompt = _expandGoal(rawPrompt, graph.goal);
+    final prompt = expandTemplate(rawPrompt, context);
 
     // 2. Assemble carryover context from prior nodes.
     final preamble = buildPreamble(context);
@@ -98,8 +98,24 @@ String buildPreamble(Context context) {
   return buf.toString().trimRight();
 }
 
-String _expandGoal(String prompt, String goal) =>
-    goal.isEmpty ? prompt : prompt.replaceAll('\$goal', goal);
+/// Expand `$<key>` tokens in [template] against the run [context]. `$goal`
+/// aliases the graph goal (`graph.goal`); any other context key (`$input`,
+/// `$history`, node ids, ...) resolves from the context. Unknown or empty
+/// tokens are left verbatim, so templates stay safe for prompt text that
+/// legitimately contains `$`. A token ends at a non-identifier char — a
+/// trailing period in prose (`...for: $input.`) is NOT part of the key, while
+/// dotted identifiers (`$node.section`) are.
+String expandTemplate(String template, Context context) {
+  return template.replaceAllMapped(
+    RegExp(r'\$([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)'),
+    (m) {
+      final key = m.group(1)!;
+      final value =
+          key == 'goal' ? context.getString('graph.goal') : context.getString(key);
+      return value.isEmpty ? m.group(0)! : value;
+    },
+  );
+}
 
 String _truncate(String s, int max) =>
     s.length <= max ? s : '${s.substring(0, max)}…';

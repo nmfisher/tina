@@ -44,6 +44,11 @@ class Config {
   /// A DOT pipeline to run to completion in headless mode (`--workflow <name>`).
   final String? workflow;
 
+  /// DOT workflow every normal chat turn routes through (`[default] workflow`
+  /// in ~/.tina/config). `"none"` disables the presence-based `default.dot`
+  /// routing; null/absent means "use `default.dot` when it exists".
+  final String? defaultWorkflow;
+
   /// Token budgets — 0 means "no cap".
   final int maxTurnTokens;
   final int maxSessionTokens;
@@ -145,6 +150,7 @@ class Config {
     required this.continueLatest,
     required this.listSessions,
     this.workflow,
+    this.defaultWorkflow,
     required this.maxTurnTokens,
     required this.maxSessionTokens,
     required this.maxRequestTokens,
@@ -470,6 +476,7 @@ class Config {
       continueLatest: continueLatest,
       listSessions: false,
       workflow: res['workflow'] as String?,
+      defaultWorkflow: userConfig?.defaultWorkflow,
       maxTurnTokens:
           parseLimit('max-turn-tokens', fileLimits?.maxTurnTokens, 1000000),
       maxSessionTokens: parseLimit(

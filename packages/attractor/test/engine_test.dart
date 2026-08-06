@@ -61,6 +61,7 @@ Future<(Outcome, MemoryRunStore)> _run(
   required _FakeBackend backend,
   _FakeInterviewer? interviewer,
   String? input,
+  Map<String, String>? seedContext,
 }) async {
   final store = MemoryRunStore();
   final engine = PipelineEngine(
@@ -71,7 +72,8 @@ Future<(Outcome, MemoryRunStore)> _run(
     workflowName: g.name,
     backoffFor: (_) => Duration.zero,
   );
-  final outcome = await engine.run(input: input);
+  final outcome =
+      await engine.run(input: input, seedContext: seedContext);
   return (outcome, store);
 }
 
@@ -102,6 +104,45 @@ void main() {
           backend.calls.firstWhere((c) => c.nodeId == 'build').preamble;
       expect(buildPreamble, contains('--- plan ---'));
       expect(buildPreamble, contains('response for plan'));
+    });
+
+    test('expands any \$<key> token from the run context', () async {
+      final g = parseDot('''
+        digraph Expand {
+          graph [goal="the goal"]
+          start [shape=Mdiamond]
+          plan [shape=box, role="orchestrator",
+                prompt="plan: \$goal | \$input | \$history | \$missing"]
+          exit [shape=Msquare]
+          start -> plan -> exit
+        }
+      ''');
+      final backend = _FakeBackend({});
+      final (outcome, _) = await _run(g,
+          backend: backend,
+          input: 'user message',
+          seedContext: {'history': 'user: hi\\nassistant: hello'});
+      expect(outcome.status, StageStatus.success);
+      // $goal aliases the graph goal; $input/$history come from the context;
+      // unknown tokens stay verbatim.
+      expect(backend.calls.first.prompt,
+          'plan: the goal | user message | user: hi\\nassistant: hello | \$missing');
+    });
+
+    test('a trailing period after \$<key> is not part of the token', () async {
+      final g = parseDot('''
+        digraph Dot {
+          start [shape=Mdiamond]
+          plan [shape=box, role="orchestrator",
+                prompt="implement \$input. then \$input."]
+          exit [shape=Msquare]
+          start -> plan -> exit
+        }
+      ''');
+      final backend = _FakeBackend({});
+      final (outcome, _) = await _run(g, backend: backend, input: 'the fix');
+      expect(outcome.status, StageStatus.success);
+      expect(backend.calls.first.prompt, 'implement the fix. then the fix.');
     });
 
     test('follows a verdict back-edge loop then approves', () async {

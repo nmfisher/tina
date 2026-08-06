@@ -686,6 +686,14 @@ class TuiCoordinator {
     final workflowsDir = Directory(p.join(tinaDataDir.path, 'workflows'));
     final runsRoot = Directory(p.join(tinaDataDir.path, 'runs'));
     controller.workflowsDir = workflowsDir;
+    PipelineRunner buildRunner() => PipelineRunner(
+          scheduler: scheduler,
+          pipeline: pipeline,
+          workflowsDir: workflowsDir,
+          runsRoot: runsRoot,
+          screen: screen,
+          editor: editor,
+        );
     controller.runWorkflow = ({required workflowName, input}) async {
       final host = controller.active.host;
       await controller.runCancellableTurn(
@@ -693,15 +701,7 @@ class TuiCoordinator {
             ? '/workflow run $workflowName'
             : '/workflow run $workflowName $input',
         body: (cancel) async {
-          final runner = PipelineRunner(
-            scheduler: scheduler,
-            pipeline: pipeline,
-            workflowsDir: workflowsDir,
-            runsRoot: runsRoot,
-            screen: screen,
-            editor: editor,
-          );
-          final outcome = await runner.run(
+          final outcome = await buildRunner().run(
             workflowName: workflowName,
             sink: host,
             input: input,
@@ -717,6 +717,21 @@ class TuiCoordinator {
                 : HostMessageStyle.error,
           );
         },
+      );
+    };
+    // Default turn routing: while a default DOT workflow resolves, normal chat
+    // turns run through it (see pipeline/default_workflow.dart). Wired as a raw
+    // callback — NOT runCancellableTurn — because _runTurn owns the turn's
+    // cancel completer and persistence.
+    controller.defaultWorkflow = app.config.defaultWorkflow;
+    controller.runPipelineTurn =
+        ({required workflowName, required sink, input, history, cancelSignal}) {
+      return buildRunner().run(
+        workflowName: workflowName,
+        sink: sink,
+        input: input,
+        history: history,
+        cancelSignal: cancelSignal,
       );
     };
     // `/workflow show` — visual graph viewer.

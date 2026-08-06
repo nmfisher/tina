@@ -9,7 +9,11 @@ void main() {
   group('UserConfig.fromMap', () {
     test('parses default, tiers, and providers tables', () {
       final c = UserConfig.fromMap({
-        'default': {'provider': 'anthropic', 'model': 'claude-sonnet-4-6'},
+        'default': {
+          'provider': 'anthropic',
+          'model': 'claude-sonnet-4-6',
+          'workflow': 'default',
+        },
         'tiers': {
           'heavy': 'anthropic/claude-sonnet-4-6',
           'light': 'anthropic/claude-haiku-4-5',
@@ -23,6 +27,7 @@ void main() {
       });
       expect(c.defaultProvider, 'anthropic');
       expect(c.defaultModel, 'claude-sonnet-4-6');
+      expect(c.defaultWorkflow, 'default');
       expect(c.tiers, {
         'heavy': 'anthropic/claude-sonnet-4-6',
         'light': 'anthropic/claude-haiku-4-5',
@@ -244,6 +249,7 @@ key = "typo"
       final original = UserConfig(
         defaultProvider: 'anthropic',
         defaultModel: 'claude-sonnet-4-6',
+        defaultWorkflow: 'default',
         tiers: {
           'heavy': 'anthropic/claude-sonnet-4-6',
           'light': 'anthropic/claude-haiku-4-5',
@@ -254,6 +260,7 @@ key = "typo"
       final loaded = loadUserConfig(env: {}, tinaDir: tmp);
       expect(loaded.defaultProvider, 'anthropic');
       expect(loaded.defaultModel, 'claude-sonnet-4-6');
+      expect(loaded.defaultWorkflow, 'default');
       expect(loaded.tiers, {
         'heavy': 'anthropic/claude-sonnet-4-6',
         'light': 'anthropic/claude-haiku-4-5',

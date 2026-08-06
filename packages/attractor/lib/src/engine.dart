@@ -54,11 +54,19 @@ class PipelineEngine {
   });
 
   /// Run the pipeline to completion (or failure). [input] is recorded in the
-  /// manifest and available as `context.input`.
-  Future<Outcome> run({String? input}) async {
+  /// manifest and available as `context.input`; [seedContext] values are
+  /// pre-seeded into the run context (e.g. `history` for a chat turn) and are
+  /// expandable in prompts as `$<key>`.
+  Future<Outcome> run(
+      {String? input, Map<String, String>? seedContext}) async {
     final context = Context();
     context.set('graph.goal', graph.goal);
     if (input != null && input.isNotEmpty) context.set('input', input);
+    if (seedContext != null) {
+      for (final e in seedContext.entries) {
+        context.set(e.key, e.value);
+      }
+    }
 
     await runStore.init(
       runId: runId,

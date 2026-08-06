@@ -192,6 +192,44 @@ A pre-Part-II cleanup of the agent layer, in three commits:
 
 ---
 
+## Default DOT workflow routing (2026-08-06)
+
+Since v0.1.3-ish, **every normal chat turn routes through an editable DOT
+workflow by default** — a planner → reviewer → executor pipeline — instead of
+the plain main-agent loop, while `~/.tina/workflows/default.dot` exists.
+
+- **Seed**: first launch (and `--init-config`) writes `default.dot`
+  (`lib/pipeline/default_workflow.dart`, `kDefaultWorkflowDotSource`): a
+  `start(Mdiamond) → plan(orchestrator) → review(verifier) ⇄ plan → execute
+  (orchestrator) → done(Msquare)` graph with `VERDICT:` routing (`submit` /
+  `approve` / `revise` back-edge).
+- **Routing rule** (`resolveDefaultWorkflowName`): the turn runs through the
+  workflow when `default.dot` exists — unless `[default] workflow = "none"`
+  in `~/.tina/config` disables routing, or the config names a different
+  workflow (`[default] workflow = "foo"` → `foo.dot`).
+- **Fallbacks**: a missing, unparseable, or invalid `default.dot` shows a
+  warning and falls back to the plain agent (chat never bricks); an
+  explicitly-configured workflow that's missing on disk warns + falls back;
+  a workflow that fails at runtime ends the turn like any failed turn.
+- **Prompt expansion**: node prompts can reference `$input` (the user's
+  message), `$history` (the truncated chat transcript, 60k chars, newest
+  kept), and `$goal` (the graph goal) — expanded by `expandTemplate`
+  (`packages/attractor/lib/src/handlers/codergen_handler.dart`). `history`
+  is an engine-managed context key, so it only surfaces where a prompt
+  explicitly asks for it.
+- **"One or more executors"** comes from the `execute` node's role:
+  `orchestrator` (canDelegate) splits the work and delegates to 1..N
+  `implementer` sub-agents via the existing `delegate` tool — no engine-level
+  parallel/fan-in (still deferred).
+- **Edit / disable**: `/workflow edit default` opens the visual node editor;
+  delete `default.dot` or set `[default] workflow = "none"` to go back to the
+  plain single-agent path.
+- **Known limitation**: a pipeline turn streams its output into the chat but
+  does not append to session history, so `$history` on later turns only
+  accumulates user messages until the runner surfaces the final node text.
+
+---
+
 ## Context
 
 Today every chat turn runs through one `Agent` (`lib/agent/agent.dart`) — a tool-calling

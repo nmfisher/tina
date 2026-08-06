@@ -16,7 +16,7 @@ const int kCurrentConfigVersion = 1;
 /// Top-level keys [loadUserConfig] recognizes. Anything else is reported as a
 /// likely typo (e.g. `[tier]` for `[tiers]`) rather than silently ignored.
 const _knownTopLevelKeys = {'version', 'default', 'tiers', 'providers', 'limits', 'prompts', 'theme', 'trust'};
-const _knownDefaultKeys = {'provider', 'model'};
+const _knownDefaultKeys = {'provider', 'model', 'workflow'};
 const _knownProviderKeys = {'api_key', 'auth_token', 'base_url', 'wire', 'name', 'disabled_models'};
 const _knownPromptKeys = {'identity'};
 const _knownLimitsKeys = {
@@ -212,6 +212,13 @@ class LimitsConfig {
 class UserConfig {
   final String? defaultProvider;
   final String? defaultModel;
+
+  /// DOT workflow to route every normal turn through, from `[default] workflow`.
+  /// `"none"` explicitly disables the presence-based `default.dot` routing; any
+  /// other value names a workflow in `~/.tina/workflows`; null/absent means
+  /// "use `default.dot` when it exists".
+  final String? defaultWorkflow;
+
   final Map<String, String> tiers;
   final Map<String, ProviderConfig> providers;
   final LimitsConfig? limits;
@@ -242,6 +249,7 @@ class UserConfig {
   const UserConfig({
     this.defaultProvider,
     this.defaultModel,
+    this.defaultWorkflow,
     this.tiers = const {},
     this.providers = const {},
     this.limits,
@@ -257,6 +265,7 @@ class UserConfig {
   bool get isEmpty =>
       defaultProvider == null &&
       defaultModel == null &&
+      defaultWorkflow == null &&
       tiers.isEmpty &&
       providers.isEmpty &&
       (limits == null || limits!.isEmpty) &&
@@ -301,6 +310,7 @@ class UserConfig {
     return UserConfig(
       defaultProvider: def?['provider'] as String?,
       defaultModel: def?['model'] as String?,
+      defaultWorkflow: def?['workflow'] as String?,
       tiers: tiers,
       providers: providers,
       limits: limitsRaw == null ? null : LimitsConfig.fromMap(limitsRaw),
@@ -452,10 +462,14 @@ void writeConfigTemplate({
 String userConfigToToml(UserConfig config) {
   final map = <String, dynamic>{
     'version': config.version,
-    if (config.defaultProvider != null || config.defaultModel != null)
+    if (config.defaultProvider != null ||
+        config.defaultModel != null ||
+        config.defaultWorkflow != null)
       'default': {
         if (config.defaultProvider != null) 'provider': config.defaultProvider,
         if (config.defaultModel != null) 'model': config.defaultModel,
+        if (config.defaultWorkflow != null)
+          'workflow': config.defaultWorkflow,
       },
     if (config.tiers.isNotEmpty) 'tiers': config.tiers,
     if (config.providers.isNotEmpty)
@@ -563,6 +577,12 @@ version = 1
 # provider offers (use `/model <name>` in the REPL to list them).
 provider = "anthropic"
 model    = "claude-sonnet-4-6"
+
+# Optional: route every normal chat turn through a DOT workflow instead of the
+# main agent. Name a workflow in ~/.tina/workflows (the seeded file is
+# "default", edited with `/workflow edit default`), or "none" to disable the
+# presence-based default.dot routing and use the plain single-agent path.
+# workflow = "default"
 
 # Sub-agent model tiers — a spec's modelTier resolves through this map. These
 # two are the built-in defaults (applied when the table is absent); edit to

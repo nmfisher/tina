@@ -8,6 +8,7 @@ import 'package:tina/config/setup.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina/composition/config_providers.dart';
 import 'package:tina/logging.dart';
+import 'package:tina/pipeline/default_workflow.dart';
 import 'package:tina/pipeline/pipeline_runner.dart';
 import 'package:tina/platform/environment.dart';
 import 'package:tina/session_commands/session_command_handlers.dart';
@@ -91,12 +92,18 @@ Future<void> _run(List<String> argv) async {
       }
       if (config.initConfig) {
         writeConfigTemplate(env: environment.env);
+        _seedDefaultWorkflowQuietly(environment.env);
         return;
       }
       if (config.listSessions) {
         await _listSessions();
         return;
       }
+
+      // First-run seeding of the default DOT workflow (idempotent; also runs
+      // for interactive launches so `default.dot` exists before any chat turn
+      // routes through it).
+      _seedDefaultWorkflowQuietly(environment.env);
 
       // Project-trust gate: decide once, before any agent is built, whether this
       // cwd's AGENTS.md may enter system prompts. Withholds it for an untrusted
@@ -236,6 +243,24 @@ Future<RunOutcome> _runInteractive(AppComposition app,
   return result;
 }
 
+/// `~/.tina/workflows`.
+Directory _workflowsDir(Map<String, String> env) =>
+    Directory(p.join(tinaDirFromEnv(env).path, 'workflows'));
+
+/// Seed `~/.tina/workflows/default.dot` on first run. Failures (e.g. a
+/// read-only `~/.tina`) warn on stderr and never block startup.
+void _seedDefaultWorkflowQuietly(Map<String, String> env) {
+  try {
+    if (seedDefaultWorkflow(_workflowsDir(env))) {
+      stdout.writeln('seeded ~/.tina/workflows/default.dot — normal turns now '
+          'route through it. Edit with /workflow edit default; delete it (or '
+          'set [default] workflow = "none") to go back to the plain agent.');
+    }
+  } catch (e) {
+    stderr.writeln('warning: could not seed the default workflow: $e');
+  }
+}
+
 Future<void> _runNonInteractive(AppComposition app) async {
   // HeadlessHost is a UI-agnostic HostInterface: agent prose and tool lifecycle
   // to stdout, notices to stderr, and permission `ask`s refused with a flag
@@ -295,6 +320,54 @@ Future<void> _runNonInteractive(AppComposition app) async {
       await closeLogging();
     }
     return;
+  }
+
+  // Default-workflow routing: while a default DOT workflow resolves, headless
+  // turns run through it too — the same rule as the interactive path. An
+  // unusable workflow falls back to the plain agent with a warning; a run that
+  // fails at runtime exits non-zero (mirroring `--workflow`).
+  final workflowsDir = _workflowsDir(app.environment.env);
+  final wfName = resolveDefaultWorkflowName(
+      configured: app.config.defaultWorkflow, workflowsDir: workflowsDir);
+  if (wfName != null) {
+    var usable = true;
+    try {
+      await ensureDefaultWorkflowUsable(workflowsDir, wfName);
+    } on DefaultWorkflowUnusable catch (e) {
+      // Unusable file: warn and fall through to the plain agent below.
+      usable = false;
+      host.notice('default workflow skipped: ${e.message}',
+          kind: NoticeKind.warning);
+    }
+    if (usable) {
+      final runner = PipelineRunner(
+        scheduler: app.scheduler,
+        pipeline: app.pipeline,
+        workflowsDir: workflowsDir,
+        runsRoot:
+            Directory(p.join(tinaDirFromEnv(app.environment.env).path, 'runs')),
+      );
+      final rawInput = prompt.trim();
+      final outcome = await runner.run(
+        workflowName: wfName,
+        sink: host,
+        input: rawInput.isEmpty ? null : rawInput,
+        history: formatChatHistory(app.initialHistory),
+      );
+      if (!outcome.status.isOk) exit(1);
+      await host.dispose();
+      await app.store.close();
+      app.provider.close();
+      await closeLogging();
+      return;
+    }
+  }
+  if (app.config.defaultWorkflow != null &&
+      app.config.defaultWorkflow != 'none') {
+    host.notice(
+        'default workflow "${app.config.defaultWorkflow}" not found — '
+        'running a normal turn',
+        kind: NoticeKind.warning);
   }
 
   // The headless agent runs one turn with the base tools and the un-widened

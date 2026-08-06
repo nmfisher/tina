@@ -66,6 +66,7 @@ class Context {
     'last_stage',
     'last_response',
     'graph.goal',
+    'history',
   };
 
   /// Merge a batch of updates (an [Outcome]'s `context_updates`).
