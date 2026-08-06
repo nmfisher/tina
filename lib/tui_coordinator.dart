@@ -15,6 +15,7 @@ import 'package:tina/config/spawn_mru.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina/persistence/session_restore.dart';
+import 'package:tina/pipeline/pipeline_runner.dart';
 import 'package:tina/platform/terminal_geometry.dart';
 import 'package:tina/session_controller.dart';
 import 'package:tina/summaries/summary_index.dart';
@@ -675,6 +676,45 @@ class TuiCoordinator {
         await controller.resumeIntoActive(entry.id);
         refreshSessionMenu();
       }
+    };
+    // DOT-pipeline workflows (`/workflow run`). Workflows live in
+    // ~/.tina/workflows/*.dot; each run is audited under ~/.tina/runs/<id>.
+    final tinaDataDir = tinaDirFromEnv(app.environment.env);
+    final workflowsDir = Directory(p.join(tinaDataDir.path, 'workflows'));
+    final runsRoot = Directory(p.join(tinaDataDir.path, 'runs'));
+    controller.workflowsDir = workflowsDir;
+    controller.runWorkflow = ({required workflowName, input}) async {
+      final host = controller.active.host;
+      await controller.runCancellableTurn(
+        echo: input == null
+            ? '/workflow run $workflowName'
+            : '/workflow run $workflowName $input',
+        body: (cancel) async {
+          final runner = PipelineRunner(
+            scheduler: scheduler,
+            pipeline: pipeline,
+            workflowsDir: workflowsDir,
+            runsRoot: runsRoot,
+            screen: screen,
+            editor: editor,
+          );
+          final outcome = await runner.run(
+            workflowName: workflowName,
+            sink: host,
+            input: input,
+            cancelSignal: cancel,
+          );
+          host.showSeparator();
+          host.showMessage(
+            outcome.status.isOk
+                ? 'workflow complete.\n'
+                : 'workflow failed: ${outcome.failureReason}\n',
+            style: outcome.status.isOk
+                ? HostMessageStyle.success
+                : HostMessageStyle.error,
+          );
+        },
+      );
     };
     // `/settings`: open the index menu of independently-saved subpanels
     // (providers/models, tiers/roles, token quota, theme) pre-filled with the

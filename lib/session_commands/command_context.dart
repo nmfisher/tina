@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:tina_engine/tina_engine.dart';
 
@@ -120,4 +121,14 @@ abstract class CommandContext {
   /// Load a saved session from disk into the active conversation (`/resume`
   /// and the session picker). Returns true on success.
   Future<bool> resumeIntoActive(String id);
+
+  /// The directory holding workflow `.dot` files (`~/.tina/workflows`). Null
+  /// when workflows aren't configured. Read by `/workflow list|show`.
+  Directory? get workflowsDir;
+
+  /// Run a workflow as a cancellable turn on the active session (`/workflow
+  /// run`). Renders progress and the final outcome to the active host. Wired by
+  /// the TUI and the headless runner; null when no pipeline runner is wired.
+  Future<void> Function({required String workflowName, String? input})?
+      get runWorkflow;
 }

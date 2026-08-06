@@ -41,6 +41,9 @@ class Config {
   final bool continueLatest;
   final bool listSessions;
 
+  /// A DOT pipeline to run to completion in headless mode (`--workflow <name>`).
+  final String? workflow;
+
   /// Token budgets — 0 means "no cap".
   final int maxTurnTokens;
   final int maxSessionTokens;
@@ -141,6 +144,7 @@ class Config {
     required this.resumeSessionId,
     required this.continueLatest,
     required this.listSessions,
+    this.workflow,
     required this.maxTurnTokens,
     required this.maxSessionTokens,
     required this.maxRequestTokens,
@@ -166,7 +170,7 @@ class Config {
     this.forceLock = false,
   });
 
-  bool get nonInteractive => prompt != null;
+  bool get nonInteractive => prompt != null || workflow != null;
 
   static final _parser = ArgParser()
     ..addOption('base-url')
@@ -200,6 +204,9 @@ class Config {
         abbr: 'l',
         negatable: false,
         help: 'List saved sessions and exit.')
+    ..addOption('workflow',
+        help: 'Run a DOT pipeline from ~/.tina/workflows/<name>.dot to '
+            'completion (non-interactive). Pair with --prompt for its input.')
     ..addOption('max-turn-tokens',
         defaultsTo: '1000000',
         help: 'Abort a user turn if input+output exceeds this many tokens. '
@@ -462,6 +469,7 @@ class Config {
       resumeSessionId: resumeId,
       continueLatest: continueLatest,
       listSessions: false,
+      workflow: res['workflow'] as String?,
       maxTurnTokens:
           parseLimit('max-turn-tokens', fileLimits?.maxTurnTokens, 1000000),
       maxSessionTokens: parseLimit(

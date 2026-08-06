@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:tina_engine/tina_engine.dart';
 
@@ -138,6 +139,16 @@ class SessionController implements CommandContext {
   /// the second Esc actually cancels. Cleared when the turn ends naturally.
   bool _cancelArmed = false;
 
+  /// The directory holding workflow `.dot` files. Wired by the TUI/headless
+  /// runner; null when unavailable.
+  @override
+  Directory? workflowsDir;
+
+  /// Run a workflow as a cancellable turn. Wired by the TUI/headless runner.
+  @override
+  Future<void> Function({required String workflowName, String? input})?
+      runWorkflow;
+
   SessionController({
     required this.sessionManager,
     required this.readLine,
@@ -231,6 +242,33 @@ class SessionController implements CommandContext {
     _cancelArmed = false;
     s.cancelCompleter?.complete();
     return true;
+  }
+
+  /// Run a long-lived operation as a cancellable "turn" on the active session:
+  /// echoes [echo], arms the active conversation's cancel completer (so the
+  /// two-press [cancelActiveTurn] / ESC cancels it via [body]'s cancel future),
+  /// marks the host active, then clears state in a finally. Returns [body]'s
+  /// result. Used by `/workflow run`.
+  Future<T> runCancellableTurn<T>({
+    required String echo,
+    required Future<T> Function(Future<void> cancelSignal) body,
+  }) async {
+    final s = active;
+    s.host.showMessage('$echo\n', style: HostMessageStyle.user);
+    s.host.showSeparator();
+    final cancel = Completer<void>();
+    s.cancelCompleter = cancel;
+    final wasActive = identical(s, active);
+    if (wasActive) s.host.setActivity(true);
+    onSessionsChanged?.call();
+    try {
+      return await body(cancel.future);
+    } finally {
+      s.cancelCompleter = null;
+      _cancelArmed = false;
+      if (identical(s, active)) s.host.setActivity(false);
+      onSessionsChanged?.call();
+    }
   }
 
   // -- Agent turns --------------------------------------------------------

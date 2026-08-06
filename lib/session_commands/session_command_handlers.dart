@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:tina_engine/tina_engine.dart';
 
 import '../summaries/summary_index.dart';
+import '../pipeline/pipeline_commands.dart';
 import 'command_context.dart';
 
 /// The slash-command handlers, lifted out of [SessionController] so they can be
@@ -20,7 +21,7 @@ class SessionCommandHandlers {
   static const List<String> allCommands = [
     '/exit', '/quit', '/help', '/clear', '/compact', '/auto-compact',
     '/permissions', '/sessions', '/session', '/resume', '/model', '/settings',
-    '/prompts', '/spawn', '/branch', '/image', '/index',
+    '/prompts', '/spawn', '/branch', '/image', '/index', '/workflow',
   ];
 
   Future<CmdResult> dispatch(String trimmed) async {
@@ -79,6 +80,8 @@ class SessionCommandHandlers {
         await _handleImage(trimmed);
       case '/index':
         return await _handleIndex();
+      case '/workflow':
+        await handleWorkflowCommand(ctx, trimmed);
     }
     return const CmdHandled();
   }
@@ -366,6 +369,8 @@ class SessionCommandHandlers {
         '  /image <path>  render an image in the focused panel\n'
         '  /index         refresh the per-directory summary index '
         '(staleness-aware)\n'
+        '  /workflow      list/show/run a DOT pipeline '
+        '(/workflow run <name> [input])\n'
         '  /permissions   show current permission rules\n'
         '  /sessions      list saved (on-disk) sessions\n'
         '  /session       list live sessions; new/switch/close\n'

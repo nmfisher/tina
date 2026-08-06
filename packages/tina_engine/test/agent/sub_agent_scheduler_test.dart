@@ -1710,4 +1710,58 @@ void main() {
       await scheduler.dispose();
     });
   });
+
+  group('runStandalone (attractor seam)', () {
+    test('returns the role final answer text', () async {
+      final scheduler = testScheduler(
+        scriptedRegistry({'a': answerEvents('hello from the role')}),
+        pipeline: pipeline,
+      );
+      final sink = FakeAgentSink();
+      final result = await scheduler.runStandalone(
+        role: const AgentRole(name: 'a', description: 'a'),
+        task: 'do the thing',
+        parentReference: 'a/a-model',
+        sink: sink,
+      );
+      expect(result.isError, isFalse);
+      expect(result.text, 'hello from the role');
+      // The streamed text reached the sink (the host would render it).
+      expect(sink.texts.join(), contains('hello from the role'));
+      await scheduler.dispose();
+    });
+
+    test('resolves the role model tier via the registry', () async {
+      final scheduler = testScheduler(
+        scriptedRegistry(
+            {'a': answerEvents('from-a'), 'b': answerEvents('from-b')}),
+        pipeline: pipeline,
+        modelTiers: {'heavy': 'b/b-model'},
+      );
+      final result = await scheduler.runStandalone(
+        role: const AgentRole(name: 'x', description: 'x', modelTier: 'heavy'),
+        task: 'go',
+        parentReference: 'a/a-model',
+        sink: FakeAgentSink(),
+      );
+      expect(result.text, 'from-b');
+      await scheduler.dispose();
+    });
+
+    test('surfaces a provider-build failure as an error result', () async {
+      final scheduler = testScheduler(
+        scriptedRegistry({'a': answerEvents('ok')}),
+        pipeline: pipeline,
+        modelTiers: const {},
+      );
+      final result = await scheduler.runStandalone(
+        role: const AgentRole(name: 'x', description: 'x', modelTier: 'ghost'),
+        task: 'go',
+        sink: FakeAgentSink(),
+      );
+      expect(result.isError, isTrue);
+      expect(result.text, contains('unknown model tier'));
+      await scheduler.dispose();
+    });
+  });
 }

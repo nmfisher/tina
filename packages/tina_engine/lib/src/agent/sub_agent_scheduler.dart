@@ -42,6 +42,16 @@ class DelegationResult {
       DelegationResult(message, isError: true);
 }
 
+/// The result of [SubAgentScheduler.runStandalone]: the role's final answer
+/// text, or an error.
+class RunAgentResult {
+  final String text;
+  final bool isError;
+  const RunAgentResult(this.text, {this.isError = false});
+  factory RunAgentResult.error(String message) =>
+      RunAgentResult(message, isError: true);
+}
+
 /// The shared configuration every spawning tool (`delegate`, `dispatch`,
 /// `continue`) runs with: which scheduler to spawn on, the agent pipeline, the
 /// parent agent's `"provider/model"` reference and policy for a sub-agent to
@@ -754,6 +764,78 @@ class SubAgentScheduler {
     }
 
     return _extractResult(role.name, history);
+  }
+
+  /// Run a single agent turn for [role] with [task] as the user message,
+  /// returning the role's final answer text. This is the public seam for the
+  /// attractor pipeline's `CodergenBackend`: it reuses the scheduler's model
+  /// resolution (`role.modelTier` via the registry, already metered), tool/policy
+  /// derivation, and system-prompt assembly — without a [SubAgentJob], quota, or
+  /// panel/session.
+  ///
+  /// Depth is 0 (a top-level pipeline node). [sink] streams the turn's text
+  /// (e.g. into the conversation host); [cancelSignal] aborts it. [seedHistory]
+  /// is reserved for the `full`-fidelity phase.
+  Future<RunAgentResult> runStandalone({
+    required AgentRole role,
+    required String task,
+    String parentReference = '',
+    List<Message>? seedHistory,
+    Future<void>? cancelSignal,
+    required AgentSink sink,
+  }) async {
+    final LlmProvider provider;
+    final String reference;
+    try {
+      reference = _resolvedReference(role) ?? parentReference;
+      provider = registry.build(
+        reference,
+        maxTokens: maxTokens,
+        streamIdleTimeout: streamIdleTimeout,
+        requestTimeout: requestTimeout,
+      );
+    } catch (e) {
+      return RunAgentResult.error('failed to build provider: $e');
+    }
+
+    final ctx = AgentToolContext(
+      scheduler: this,
+      pipeline: pipeline,
+      parentReference: reference,
+      parentPolicy: _policyFor(role, PermissionPolicy()),
+      originConversationId: '',
+      depth: 0,
+    );
+    final tools = _toolsFor(role, ctx, 0);
+    final system = resolveSystemPrompt(role,
+        overrides: promptOverrides,
+        safeMode: safeMode,
+        loadProjectContext: pipeline.loadProjectContext);
+    final agent = Agent(
+      provider: provider,
+      tools: tools,
+      sink: sink,
+      policy: ctx.parentPolicy,
+      asker: _autoDenyAsker,
+      maxSteps: role.maxSteps ?? defaultMaxSteps,
+      budget: subAgentBudgetLimit == 0
+          ? null
+          : TokenBudget(perSessionLimit: subAgentBudgetLimit),
+      pauseGate: pauseGate,
+      system: system,
+    );
+
+    final history =
+        seedHistory != null ? List<Message>.from(seedHistory) : <Message>[];
+    await agent.run(
+      history: history,
+      userInput: task,
+      cancelSignal: cancelSignal,
+    );
+
+    final extracted = _extractResult(role.name, history);
+    if (extracted.isError) return RunAgentResult.error(extracted.content);
+    return RunAgentResult(extracted.content);
   }
 
   /// Inline, telemetry-only Agent build used when the job has no panel host

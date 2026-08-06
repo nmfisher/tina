@@ -8,6 +8,7 @@ import 'package:tina/config/setup.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina/composition/config_providers.dart';
 import 'package:tina/logging.dart';
+import 'package:tina/pipeline/pipeline_runner.dart';
 import 'package:tina/platform/environment.dart';
 import 'package:tina/session_commands/session_command_handlers.dart';
 import 'package:tina/summaries/summary_index.dart';
@@ -15,6 +16,7 @@ import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/project/project_trust.dart';
 import 'package:tina/tui_coordinator.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 
 final _log = Logger('tina.cli');
 
@@ -241,6 +243,36 @@ Future<void> _runNonInteractive(AppComposition app) async {
   // type — no Screen, ChatRegion, or Spinner reaches the non-interactive path.
   final host = HeadlessHost();
 
+  // `--workflow <name>` headless: run a DOT pipeline to completion. Each `box`
+  // node runs as a real agent turn via the scheduler (headless auto-approves at
+  // any human gate). Input comes from `--prompt`. The run is audited under
+  // ~/.tina/runs/<id>; a non-success outcome exits non-zero.
+  final workflow = app.config.workflow;
+  if (workflow != null) {
+    final tinaDataDir = tinaDirFromEnv(app.environment.env);
+    final runner = PipelineRunner(
+      scheduler: app.scheduler,
+      pipeline: app.pipeline,
+      workflowsDir: Directory(p.join(tinaDataDir.path, 'workflows')),
+      runsRoot: Directory(p.join(tinaDataDir.path, 'runs')),
+    );
+    final rawInput = app.config.prompt?.trim();
+    try {
+      final outcome = await runner.run(
+        workflowName: workflow,
+        sink: host,
+        input: (rawInput == null || rawInput.isEmpty) ? null : rawInput,
+      );
+      if (!outcome.status.isOk) exit(1);
+    } finally {
+      await host.dispose();
+      await app.store.close();
+      app.provider.close();
+      await closeLogging();
+    }
+    return;
+  }
+
   // `/index` headless: run the staleness dance directly (no agent turn). The
   // summary fleet runs via SummaryIndex.refresh (its own ephemeral composition),
   // so the non-interactive agent isn't needed — the dance's notices stream to
@@ -327,6 +359,8 @@ bool _shouldRunStdinSetup(List<String> argv, Environment environment) {
   final nonInteractive = argv.any((a) =>
       a == '--prompt' ||
       a.startsWith('--prompt=') ||
+      a == '--workflow' ||
+      a.startsWith('--workflow=') ||
       a == '--help' ||
       a == '-h' ||
       a == '--list' ||

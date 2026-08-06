@@ -1,0 +1,36 @@
+// Example tina workflow — a plan → review → execute loop with an autonomous
+// reviewer that can send the plan back with comments.
+//
+// Copy to ~/.tina/workflows/plan_review_execute.dot and run:
+//   tina --workflow plan_review_execute -p "add a /status command"
+// or inside the REPL:  /workflow run plan_review_execute add a /status command
+//
+// The `review` node (role "verifier") ends its response with a
+// `VERDICT: approve` or `VERDICT: revise` line. tina parses that into a routing
+// label, so the reviewer decides which edge to take:
+//   approve → executor implements the plan
+//   revise  → back to the planner, carrying the review comments as context
+
+digraph plan_review_execute {
+  graph [goal="Implement the user's request, reviewed before any code changes."]
+  rankdir=TB
+
+  start   [shape=Mdiamond, label="Start"]
+
+  plan    [shape=box, role="orchestrator", label="Plan",
+           prompt="Produce a concrete implementation plan for: $goal. Number the steps with file paths. If reviewer comments are provided below, revise the plan to address them."]
+
+  review  [shape=box, role="verifier", label="Review",
+           prompt="Review the plan for correctness, completeness, and ordering. Check that each step references specific files and that dependencies are respected. End your response with a line VERDICT: approve when the plan is sound, or VERDICT: revise when it needs changes, followed by your comments."]
+
+  execute [shape=box, role="implementer", goal_gate=true, label="Execute",
+           prompt="Implement the approved plan step by step. Read each file before editing it."]
+
+  done    [shape=Msquare, label="Done"]
+
+  start -> plan
+  plan   -> review  [label="submit"]
+  review -> execute [label="approve"]
+  review -> plan    [label="revise"]
+  execute -> done
+}
