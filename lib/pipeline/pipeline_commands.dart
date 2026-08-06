@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:tina_engine/tina_engine.dart';
 
 import '../session_commands/command_context.dart';
+import 'default_workflow.dart';
 import 'pipeline_runner.dart';
 
 /// The `/workflow` slash command: `list`, `show`, `new`, `edit`, `run`.
@@ -15,7 +16,9 @@ Future<void> handleWorkflowCommand(CommandContext ctx, String line) async {
 
   switch (sub) {
     case 'list':
-      await _list(ctx);
+      // A bare `/workflow` also prints usage hints; an explicit `list` stays
+      // terse (the names are all it's for).
+      await _list(ctx, hints: parts.length < 2);
     case 'show':
       await _show(ctx, parts);
     case 'new':
@@ -32,7 +35,7 @@ Future<void> handleWorkflowCommand(CommandContext ctx, String line) async {
   }
 }
 
-Future<void> _list(CommandContext ctx) async {
+Future<void> _list(CommandContext ctx, {bool hints = false}) async {
   final dir = ctx.workflowsDir;
   if (dir == null) {
     ctx.active.host
@@ -44,12 +47,52 @@ Future<void> _list(CommandContext ctx) async {
     ctx.active.host.showMessage(
         '(no workflows in ${dir.path} — add a .dot file)\n',
         style: HostMessageStyle.dim);
+    if (hints) _showHints(ctx);
     return;
   }
+  // Which workflow, if any, is the one every normal turn routes through?
+  final defaultName = resolveDefaultWorkflowName(
+      configured: ctx.defaultWorkflow, workflowsDir: dir);
   ctx.active.host.showMessage('workflows:\n');
   for (final n in names) {
-    ctx.active.host.showMessage('  $n\n', style: HostMessageStyle.dim);
+    final isDefault = n == defaultName;
+    ctx.active.host.showMessage(
+        '  $n${isDefault ? '   ← default (runs on every turn)' : ''}\n',
+        style: HostMessageStyle.dim);
   }
+  if (hints) _showHints(ctx);
+}
+
+/// The usage/hints block a bare `/workflow` prints under the list.
+void _showHints(CommandContext ctx) {
+  final host = ctx.active.host;
+  host.showMessage('\nusage:\n');
+  host.showMessage(
+      '  /workflow run <name> [input...]   run a workflow to completion\n',
+      style: HostMessageStyle.dim);
+  host.showMessage(
+      '  /workflow edit <name>             visual node editor (e/n/c/d/s keys)\n',
+      style: HostMessageStyle.dim);
+  host.showMessage('  /workflow new                     start a new skeleton\n',
+      style: HostMessageStyle.dim);
+  host.showMessage('  /workflow show <name>             view the graph\n',
+      style: HostMessageStyle.dim);
+
+  host.showMessage('\nhints:\n');
+  host.showMessage(
+      '  • default.dot runs on every normal turn while it exists — delete it\n'
+      '    (or set [default] workflow = "none" in ~/.tina/config) for the\n'
+      '    plain agent path\n',
+      style: HostMessageStyle.dim);
+  host.showMessage(
+      '  • a node runs as its `role` (default: orchestrator). role="verifier",\n'
+      '    role="implementer", ... swap the tools; model="provider/model" picks\n'
+      '    the model for one node\n',
+      style: HostMessageStyle.dim);
+  host.showMessage(
+      '  • end a node\'s response with VERDICT: <label> to route on edge labels,\n'
+      '    e.g. review -> execute [label="approve"] / review -> plan [label="revise"]\n',
+      style: HostMessageStyle.dim);
 }
 
 Future<void> _show(CommandContext ctx, List<String> parts) async {

@@ -126,6 +126,12 @@ abstract class CommandContext {
   /// when workflows aren't configured. Read by `/workflow list|show`.
   Directory? get workflowsDir;
 
+  /// The `[default] workflow` config value (`"none"` = disabled, a name =
+  /// explicit, null/empty = presence-based `default.dot`). Null when the config
+  /// sets nothing. Used by `/workflow` to mark which workflow every turn routes
+  /// through.
+  String? get defaultWorkflow;
+
   /// Run a workflow as a cancellable turn on the active session (`/workflow
   /// run`). Renders progress and the final outcome to the active host. Wired by
   /// the TUI and the headless runner; null when no pipeline runner is wired.

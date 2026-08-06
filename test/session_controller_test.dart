@@ -622,6 +622,32 @@ void main() {
       expect(hostOf(controller).sink.texts.any((t) => t.contains('ok')), isTrue);
     });
 
+    test('bare /workflow lists workflows with hints and marks the default',
+        () async {
+      workflows.createSync(recursive: true);
+      await writeDot(kDefaultWorkflowDotSource);
+      final rl = FakeReadLine();
+      final controller = _buildController(
+        readLine: rl,
+        provider: FakeProvider.done(),
+        workflowsDir: workflows,
+      );
+
+      rl.enqueue('/workflow');
+      final runFuture = controller.run();
+      await _pumpUntil(() => hostOf(controller)
+          .messages
+          .any((m) => m.contains('usage:')));
+      rl.close();
+      await runFuture;
+
+      final msgs = hostOf(controller).messages.join('\n');
+      expect(msgs, contains('default   ← default (runs on every turn)'));
+      expect(msgs, contains('usage:'));
+      expect(msgs, contains('VERDICT: <label>'));
+      expect(msgs, contains('model="provider/model"'));
+    });
+
     test('"none" disables routing even with default.dot present', () async {
       workflows.createSync(recursive: true);
       await writeDot(kDefaultWorkflowDotSource);
