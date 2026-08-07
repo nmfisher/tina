@@ -4,19 +4,13 @@ import 'package:tina_engine/tina_engine.dart';
 
 import 'user_config.dart';
 
-/// The tiers the wizard configures, in order. The first (`heavy`) also seeds
-/// the `[default]` provider/model.
-const _tiers = ['heavy', 'light'];
-
 /// Assemble a [UserConfig] from collected setup answers — shared by the stdin
-/// wizard ([runSetupWizard]) and the TUI overlay form. [tiers] maps tier name →
-/// `"provider/model"`; [keys] maps provider id → api key. The default
-/// provider/model is taken from the explicit args when given, else derived from
-/// the `heavy` tier's `"provider/model"`. [limits] (the `/settings` path only)
-/// is written to the `[limits]` table; null omits it so first-run keeps the
+/// wizard ([runSetupWizard]) and the TUI overlay form. [keys] maps provider id
+/// → api key. The default provider/model come from the explicit args (the model
+/// the user picked as the default). [limits] (the `/settings` path only) is
+/// written to the `[limits]` table; null omits it so first-run keeps the
 /// shipped defaults.
 UserConfig buildSetupConfig({
-  required Map<String, String> tiers,
   required Map<String, String> keys,
   String? defaultProvider,
   String? defaultModel,
@@ -47,14 +41,6 @@ UserConfig buildSetupConfig({
   /// and resolved to a built-in [Theme] preset at startup.
   String? themeVariant,
 }) {
-  if (defaultProvider == null && tiers.containsKey('heavy')) {
-    final ref = tiers['heavy']!;
-    final slash = ref.indexOf('/');
-    if (slash > 0) {
-      defaultProvider = ref.substring(0, slash);
-      defaultModel ??= ref.substring(slash + 1);
-    }
-  }
   String? resolvedBaseUrl(String id) {
     if (baseUrls?.containsKey(id) == true) {
       final v = baseUrls![id]!;
@@ -66,7 +52,6 @@ UserConfig buildSetupConfig({
   return UserConfig(
     defaultProvider: defaultProvider,
     defaultModel: defaultModel,
-    tiers: Map.of(tiers),
     providers: {
       for (final id in keys.keys)
         id: ProviderConfig(
@@ -83,11 +68,10 @@ UserConfig buildSetupConfig({
   );
 }
 
-/// Run the first-run setup wizard. For each tier in [_tiers], prompt for a
-/// provider and a model, collecting the API key the first time each provider is
-/// used (skipped for auth-optional providers like local servers). Writes
-/// `~/.tina/config` (chmod 600) and returns true; returns false if the user
-/// skipped every tier or declined the confirm (nothing written).
+/// Run the first-run setup wizard. Prompt for a default provider and model,
+/// collecting the provider's API key (skipped for auth-optional providers like
+/// local servers). Writes `~/.tina/config` (chmod 600) and returns true; returns
+/// false if the user skipped or declined the confirm (nothing written).
 ///
 /// Never throws — an empty answer or EOF at any prompt skips/cancels. [prompt]
 /// defaults to `stdout.write` + `stdin.readLineSync`; tests inject a queued
@@ -99,55 +83,39 @@ bool runSetupWizard({
   String? Function(String)? prompt,
 }) {
   final ask = prompt ?? _stdinPrompt;
-  stdout.writeln('No ~/.tina/config found — this sets up providers/models for '
-      'your agent tiers so launches become zero-arg.');
+  stdout.writeln('No ~/.tina/config found — this sets up a default '
+      'provider/model so launches become zero-arg.');
   stdout.writeln('Press Enter to skip a prompt, Ctrl-C to cancel.\n');
 
   final providerIds = registry.providerIds;
   final keys = <String, String>{}; // provider id → api key
-  final tierRefs = <String, String>{}; // tier → "provider/model"
   String? defaultProvider;
   String? defaultModel;
 
-  for (final tier in _tiers) {
-    final provider =
-        _pick(ask, 'Provider for the "$tier" tier', providerIds);
-    if (provider == null) {
-      stdout.writeln('  (skipped "$tier")\n');
-      continue;
-    }
-    final modelOptions =
-        registry.modelsFor(provider).map((m) => m.id).toList();
-    final model = _pick(ask, 'Model for "$tier" tier', modelOptions,
-        allowArbitrary: true);
-    if (model == null) {
-      stdout.writeln('  (skipped "$tier")\n');
-      continue;
-    }
-    tierRefs[tier] = '$provider/$model';
-    defaultProvider ??= provider;
-    defaultModel ??= model;
-    // Collect the key once per provider, unless auth is optional.
-    if (!keys.containsKey(provider)) {
-      final desc = registry.descriptor(provider);
-      if (desc != null && !registry.isAuthOptional(desc)) {
-        final key = ask('API key for $provider: ');
-        if (key != null && key.isNotEmpty) keys[provider] = key;
-      }
-    }
-    stdout.writeln('');
-  }
-
-  if (tierRefs.isEmpty) {
-    stdout.writeln('No tiers configured; nothing written. Re-run with --setup.');
+  final provider = _pick(ask, 'Default provider', providerIds);
+  if (provider == null) {
+    stdout.writeln('  (skipped — no default provider chosen)\n');
     return false;
   }
+  final modelOptions = registry.modelsFor(provider).map((m) => m.id).toList();
+  final model =
+      _pick(ask, 'Default model for $provider', modelOptions, allowArbitrary: true);
+  if (model == null) {
+    stdout.writeln('  (skipped — no default model chosen)\n');
+    return false;
+  }
+  defaultProvider = provider;
+  defaultModel = model;
+  // Collect the key unless auth is optional.
+  final desc = registry.descriptor(provider);
+  if (desc != null && !registry.isAuthOptional(desc)) {
+    final key = ask('API key for $provider: ');
+    if (key != null && key.isNotEmpty) keys[provider] = key;
+  }
+  stdout.writeln('');
 
   stdout.writeln('Writing ~/.tina/config:');
   stdout.writeln('  [default] $defaultProvider/$defaultModel');
-  for (final e in tierRefs.entries) {
-    stdout.writeln('  [tiers] ${e.key} = ${e.value}');
-  }
   for (final id in keys.keys) {
     stdout.writeln('  [providers.$id] api_key = '
         '${keys[id]!.isEmpty ? "" : "…"}');
@@ -162,7 +130,6 @@ bool runSetupWizard({
   try {
     path = writeUserConfig(
       buildSetupConfig(
-        tiers: tierRefs,
         keys: keys,
         defaultProvider: defaultProvider,
         defaultModel: defaultModel,

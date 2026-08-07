@@ -15,13 +15,11 @@ void main() {
   setUp(() => tmp.setUp('tina_setup_'));
   tearDown(tmp.tearDown);
 
-  test(
-      'two tiers, two providers: writes both tiers + each key, default = heavy',
-      () {
+  test('writes the default provider/model + key', () {
     final registry = ProviderRegistry(env: {})
       ..register(fakeProviderDescriptor('alpha', models: ['a1', 'a2']))
       ..register(fakeProviderDescriptor('beta', models: ['b1']));
-    answers = ['1', '1', 'key-alpha', '2', '1', 'key-beta', ''];
+    answers = ['1', '1', 'key-alpha', '']; // provider, model, key, confirm
 
     final wrote = runSetupWizard(
       env: {},
@@ -34,27 +32,6 @@ void main() {
     final c = loadUserConfig(env: {}, tinaDir: tmp.dir);
     expect(c.defaultProvider, 'alpha');
     expect(c.defaultModel, 'a1');
-    expect(c.tiers, {'heavy': 'alpha/a1', 'light': 'beta/b1'});
-    expect(c.providers['alpha']?.apiKey, 'key-alpha');
-    expect(c.providers['beta']?.apiKey, 'key-beta');
-  });
-
-  test('same provider for both tiers: key collected once', () {
-    final registry = ProviderRegistry(env: {})
-      ..register(fakeProviderDescriptor('alpha', models: ['a1', 'a2']));
-    answers = ['1', '1', 'key-alpha', '1', '2', ''];
-
-    final wrote = runSetupWizard(
-      env: {},
-      registry: registry,
-      tinaDir: tmp.dir,
-      prompt: prompt,
-    );
-
-    expect(wrote, isTrue);
-    final c = loadUserConfig(env: {}, tinaDir: tmp.dir);
-    expect(c.tiers, {'heavy': 'alpha/a1', 'light': 'alpha/a2'});
-    expect(c.providers.keys, ['alpha']);
     expect(c.providers['alpha']?.apiKey, 'key-alpha');
   });
 
@@ -73,14 +50,15 @@ void main() {
 
     expect(wrote, isTrue);
     final c = loadUserConfig(env: {}, tinaDir: tmp.dir);
-    expect(c.tiers, {'heavy': 'local/m1'});
+    expect(c.defaultProvider, 'local');
+    expect(c.defaultModel, 'm1');
     expect(c.providers, isEmpty); // no key collected
   });
 
-  test('skipping every tier writes nothing and returns false', () {
+  test('skipping the provider writes nothing and returns false', () {
     final registry = ProviderRegistry(env: {})
       ..register(fakeProviderDescriptor('alpha', models: ['a1']));
-    answers = ['', '']; // skip heavy provider, skip light provider
+    answers = ['']; // skip the default provider
 
     final wrote = runSetupWizard(
       env: {},
@@ -103,27 +81,29 @@ void main() {
         maxSessionTokens: 5,
         maxRequestTokens: 6,
       );
-      final cfg = buildSetupConfig(tiers: {}, keys: {}, limits: limits);
+      final cfg =
+          buildSetupConfig(keys: {}, limits: limits, defaultProvider: 'a');
       expect(cfg.limits, limits);
     });
 
     test('limits default to null (omitted) — the first-run wizard path', () {
-      final cfg = buildSetupConfig(tiers: {}, keys: {});
+      final cfg = buildSetupConfig(keys: {});
       expect(cfg.limits, isNull,
           reason: 'the stdin wizard passes no limits → no [limits] section');
     });
 
     test('themeVariant is threaded through to UserConfig', () {
       final cfg = buildSetupConfig(
-        tiers: {'heavy': 'a/b'},
         keys: {},
+        defaultProvider: 'a',
+        defaultModel: 'b',
         themeVariant: 'dark',
       );
       expect(cfg.themeVariant, 'dark');
     });
 
     test('themeVariant defaults to null (omitted)', () {
-      final cfg = buildSetupConfig(tiers: {}, keys: {});
+      final cfg = buildSetupConfig(keys: {});
       expect(cfg.themeVariant, isNull);
     });
   });

@@ -7,16 +7,12 @@ import 'package:test/test.dart';
 
 void main() {
   group('UserConfig.fromMap', () {
-    test('parses default, tiers, and providers tables', () {
+    test('parses default and providers tables', () {
       final c = UserConfig.fromMap({
         'default': {
           'provider': 'anthropic',
           'model': 'claude-sonnet-4-6',
           'workflow': 'default',
-        },
-        'tiers': {
-          'heavy': 'anthropic/claude-sonnet-4-6',
-          'light': 'anthropic/claude-haiku-4-5',
         },
         'providers': {
           'anthropic': {
@@ -28,10 +24,6 @@ void main() {
       expect(c.defaultProvider, 'anthropic');
       expect(c.defaultModel, 'claude-sonnet-4-6');
       expect(c.defaultWorkflow, 'default');
-      expect(c.tiers, {
-        'heavy': 'anthropic/claude-sonnet-4-6',
-        'light': 'anthropic/claude-haiku-4-5',
-      });
       expect(c.providers['anthropic']?.apiKey, 'sk-ant-x');
       expect(c.providers['anthropic']?.baseUrl, 'https://example.test');
     });
@@ -41,12 +33,12 @@ void main() {
       expect(c.isEmpty, isTrue);
     });
 
-    test('ignores unknown keys and non-string tier values', () {
+    test('ignores unknown top-level keys', () {
       final c = UserConfig.fromMap({
         'unknown': 42,
-        'tiers': {'good': 'a/b', 'bad': 7},
+        'default': {'provider': 'a'},
       });
-      expect(c.tiers, {'good': 'a/b'});
+      expect(c.defaultProvider, 'a');
       expect(c.isEmpty, isFalse);
     });
 
@@ -171,10 +163,6 @@ void main() {
 provider = "anthropic"
 model = "claude-sonnet-4-6"
 
-[tiers]
-heavy = "anthropic/claude-sonnet-4-6"
-light = "anthropic/claude-haiku-4-5"
-
 [providers.anthropic]
 api_key = "sk-ant-x"
 base_url = "https://example.test"
@@ -182,7 +170,6 @@ base_url = "https://example.test"
       final c = loadUserConfig(env: {}, tinaDir: tmp);
       expect(c.defaultProvider, 'anthropic');
       expect(c.defaultModel, 'claude-sonnet-4-6');
-      expect(c.tiers['heavy'], 'anthropic/claude-sonnet-4-6');
       expect(c.providers['anthropic']?.apiKey, 'sk-ant-x');
       expect(buildEnvOverlay(c), containsPair('ANTHROPIC_API_KEY', 'sk-ant-x'));
     });
@@ -225,13 +212,13 @@ provider = "typo"
 [default]
 model = "claude-sonnet-4-6"
 
-[tiers]
-heavy = "anthropic/claude-sonnet-4-6"
+[providers.anthropic]
+api_key = "sk-x"
 ''');
       final c = loadUserConfig(env: {}, tinaDir: tmp);
       expect(c.isEmpty, isFalse, reason: 'valid sections still load');
       expect(c.defaultModel, 'claude-sonnet-4-6');
-      expect(c.tiers, {'heavy': 'anthropic/claude-sonnet-4-6'});
+      expect(c.providers['anthropic']?.apiKey, 'sk-x');
     });
 
     test('unknown provider key warns but the provider still loads', () {
@@ -250,10 +237,6 @@ key = "typo"
         defaultProvider: 'anthropic',
         defaultModel: 'claude-sonnet-4-6',
         defaultWorkflow: 'default',
-        tiers: {
-          'heavy': 'anthropic/claude-sonnet-4-6',
-          'light': 'anthropic/claude-haiku-4-5',
-        },
         providers: {'anthropic': ProviderConfig(apiKey: 'sk-ant-x')},
       );
       writeUserConfig(original, env: {}, tinaDir: tmp);
@@ -261,10 +244,6 @@ key = "typo"
       expect(loaded.defaultProvider, 'anthropic');
       expect(loaded.defaultModel, 'claude-sonnet-4-6');
       expect(loaded.defaultWorkflow, 'default');
-      expect(loaded.tiers, {
-        'heavy': 'anthropic/claude-sonnet-4-6',
-        'light': 'anthropic/claude-haiku-4-5',
-      });
       expect(loaded.providers['anthropic']?.apiKey, 'sk-ant-x');
     });
 
@@ -317,7 +296,7 @@ focus = "32"
     });
 
     test('an empty theme is omitted from the written file', () {
-      writeUserConfig(const UserConfig(tiers: {'heavy': 'a/b'}), env: {}, tinaDir: tmp);
+      writeUserConfig(const UserConfig(defaultProvider: 'a', defaultModel: 'b'), env: {}, tinaDir: tmp);
       final raw = File(p.join(tmp.path, 'config')).readAsStringSync();
       expect(raw, isNot(contains('[theme')));
     });
@@ -338,7 +317,7 @@ focus = "32"
 
     test('themeVariant = null omits [theme] section entirely', () {
       writeUserConfig(
-        const UserConfig(tiers: {'heavy': 'a/b'}),
+        const UserConfig(defaultProvider: 'a', defaultModel: 'b'),
         env: {},
         tinaDir: tmp,
       );
@@ -375,11 +354,14 @@ focus = "32"
     });
 
     test('userConfigToToml omits empty sections', () {
-      writeUserConfig(const UserConfig(tiers: {'heavy': 'a/b'}), env: {}, tinaDir: tmp);
+      writeUserConfig(
+          const UserConfig(providers: {'a': ProviderConfig(apiKey: 'k')}),
+          env: {},
+          tinaDir: tmp);
       final raw = File(p.join(tmp.path, 'config')).readAsStringSync();
-      expect(raw, contains('[tiers]'));
+      expect(raw, contains('[providers'));
       expect(raw, isNot(contains('[default]')));
-      expect(raw, isNot(contains('[providers')));
+      expect(raw, isNot(contains('[limits]')));
     });
 
     test('userConfigToToml preserves special characters in a key', () {
@@ -439,7 +421,7 @@ max_tokns = 5
     });
 
     test('an empty prompts map is omitted from the written file', () {
-      writeUserConfig(const UserConfig(tiers: {'heavy': 'a/b'}), env: {}, tinaDir: tmp);
+      writeUserConfig(const UserConfig(defaultProvider: 'a', defaultModel: 'b'), env: {}, tinaDir: tmp);
       final raw = File(p.join(tmp.path, 'config')).readAsStringSync();
       expect(raw, isNot(contains('[prompts')));
     });

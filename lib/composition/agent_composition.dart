@@ -21,7 +21,6 @@ SubAgentScheduler createScheduler({
     maxTokens: config.maxTokens,
     streamIdleTimeout: config.streamIdleTimeout,
     requestTimeout: config.requestTimeout,
-    modelTiers: config.modelTiers,
     subAgentBudgetLimit: config.maxSubAgentTokens,
     pauseGate: pauseGate,
     safeMode: config.safeMode,
@@ -55,6 +54,14 @@ Agent buildAgent({
 }) {
   final ToolRegistry agentTools;
   final PermissionPolicy effectivePolicy;
+  // The entry agent's resolved system prompt — also the identity a delegated
+  // sub-agent inherits. Resolved once so the agent and the delegation context
+  // can't drift (and the recorder's captured prompt matches the live one).
+  final resolvedSystem = system ??
+      resolveMainPrompt(pipeline,
+          overrides: config.promptOverrides,
+          safeMode: config.safeMode,
+          loadProjectContext: pipeline.loadProjectContext);
   if (withSubAgents) {
     // Interactive main delegates — no file tools. Its policy widens to allow
     // `delegate` plus the channel surface (send/receive/close) on top of the
@@ -79,6 +86,8 @@ Agent buildAgent({
       parentPolicy: mainPolicy,
       originConversationId: conversationId,
       depth: 0,
+      // A sub-agent main delegates to inherits this identity verbatim.
+      parentSystemPrompt: resolvedSystem,
     );
     // Interactive main delegates — no file tools — but can render images via the
     // shared /image path (RenderTool is a no-op in headless, where it isn't
@@ -102,10 +111,6 @@ Agent buildAgent({
     budget: config.buildTokenBudget(),
     pauseGate: scheduler.pauseGate,
     maxSteps: config.maxSteps,
-    system: system ??
-        resolveSystemPrompt(pipeline.mainRole,
-            overrides: config.promptOverrides,
-            safeMode: config.safeMode,
-            loadProjectContext: pipeline.loadProjectContext),
+    system: resolvedSystem,
   );
 }

@@ -416,6 +416,7 @@ void main() {
         parentPolicy: PermissionPolicy(),
         originConversationId: 'c',
         depth: 0,
+        parentSystemPrompt: 'parent',
       ));
     }
 
@@ -427,7 +428,7 @@ void main() {
       final tool = _tool();
       final input = {
         'delegations': List<Map<String, dynamic>>.generate(
-            kMaxDelegations + 1, (i) => {'agent': 'research', 'task': 't$i'}),
+            kMaxDelegations + 1, (i) => {'task': 't$i'}),
       };
       final out = tool.resolve(input);
       expect(out.error, isNotNull);
@@ -439,7 +440,7 @@ void main() {
       final tool = _tool();
       final input = {
         'delegations': List<Map<String, dynamic>>.generate(
-            kMaxDelegations, (i) => {'agent': 'research', 'task': 't$i'}),
+            kMaxDelegations, (i) => {'task': 't$i'}),
       };
       final out = tool.resolve(input);
       expect(out.error, isNull);

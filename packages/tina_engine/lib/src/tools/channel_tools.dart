@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../agent/agent_pipeline.dart';
 import '../agent/sub_agent_scheduler.dart';
 import 'tool.dart';
 
@@ -19,8 +20,8 @@ import 'tool.dart';
 ///
 /// - If [target] is an existing channel id, appends [text] to that channel's
 ///   conversation and re-runs it (the channel must be idle).
-/// - If [target] is an agent name, opens a new channel with [text] as its first
-///   task.
+/// - Otherwise opens a NEW read-only channel: [text] is its first task and
+///   [target] its label. The sub-agent runs under the parent's identity.
 ///
 /// Either way the channel id is returned; collect the reply with `receive`.
 class SendTool implements Tool {
@@ -34,17 +35,17 @@ class SendTool implements Tool {
         name: 'send',
         description: 'Send a message to a sub-agent and return its channel id '
             'immediately (does NOT wait). If `target` is an existing channel '
-            'id, appends to that conversation (the channel must be idle); if '
-            'it\'s an agent name, opens a new channel with `text` as the first '
-            'task. Get the reply later with `receive`. One in-flight turn per '
-            'channel.',
+            'id, appends to that conversation (the channel must be idle); '
+            'otherwise opens a new read-only channel with `text` as its first '
+            'task (the sub-agent inherits your identity). Get the reply later '
+            'with `receive`. One in-flight turn per channel.',
         inputSchema: {
           'type': 'object',
           'properties': {
             'target': {
               'type': 'string',
-              'description': 'A channel id (to continue) or an agent name (to '
-                  'open a new channel).',
+              'description': 'A channel id (to continue) or a label for a new '
+                  'channel (to open one with `text` as its task).',
             },
             'text': {
               'type': 'string',
@@ -66,7 +67,7 @@ class SendTool implements Tool {
     if (target.isEmpty) return ToolResult.error('send: `target` is required.');
     if (text.isEmpty) return ToolResult.error('send: `text` is required.');
 
-    // Existing channel?
+    // Existing channel → continue it.
     final job =
         scheduler.jobById(target, conversation: ctx.originConversationId);
     if (job != null) {
@@ -76,22 +77,20 @@ class SendTool implements Tool {
           'Sent to channel ${job.id} ${job.label}. Get its reply with `receive`.');
     }
 
-    // Otherwise treat `target` as an agent name and open a new channel.
-    final spec = ctx.pipeline.role(target);
-    if (spec == null) {
-      return ToolResult.error(
-          'send: unknown channel id or agent "$target".');
-    }
+    // Otherwise open a new read-only channel: `text` is the task, `target` the
+    // label. The sub-agent inherits the parent's identity.
     final newJob = scheduler.spawn(
-      target: spec,
       task: text,
+      toolProfile: ToolProfile.readOnly,
+      parentSystemPrompt: ctx.parentSystemPrompt,
       parentReference: ctx.parentReference,
       parentPolicy: ctx.parentPolicy,
       originConversationId: ctx.originConversationId,
       depth: ctx.depth,
+      label: target,
     );
     return ToolResult(
-        'Opened channel ${newJob.id} ${spec.name}. Get its reply with `receive`.');
+        'Opened channel ${newJob.id} ${newJob.label}. Get its reply with `receive`.');
   }
 }
 

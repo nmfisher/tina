@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:tina_engine/tina_engine.dart';
@@ -46,52 +45,10 @@ ProviderRegistry _multiProviderRegistry() {
   return r;
 }
 
-/// A minimal [Tool] fake: never executed in these tests (the restored agent is
-/// never run), it only needs a [ToolSchema.name] so a role's tool set is
-/// inspectable after rehydration.
-class _RoleTool implements Tool {
-  _RoleTool(this.name);
-
-  final String name;
-
-  @override
-  ToolSchema get schema => ToolSchema(
-        name: name,
-        description: 'fake $name',
-        inputSchema: const {'type': 'object', 'properties': {}},
-      );
-
-  @override
-  Future<ToolResult> execute(Map<String, dynamic> input,
-          {Future<void>? cancelSignal, ToolOutputCallback? onOutput}) =>
-      Future.value(ToolResult('ok'));
-}
-
-/// A two-role pipeline: `scout` (read-only) and `implementer` (can delegate).
-/// Restored sub-agent/spawn metas rebuild their tools from these declarations.
-final _pipeline = AgentPipeline(
-  mainRole: const AgentRole(
-    name: 'main',
-    description: 'primary conversation, delegates only',
-    promptIdentity: 'You are the main agent.',
-    canDelegate: true,
-  ),
-  roles: [
-    AgentRole(
-      name: 'scout',
-      description: 'read-only researcher',
-      promptIdentity: 'You research.',
-      tools: {_RoleTool('read')},
-    ),
-    AgentRole(
-      name: 'implementer',
-      description: 'read/write implementer',
-      promptIdentity: 'You implement.',
-      canDelegate: true,
-      tools: {_RoleTool('read'), _RoleTool('edit')},
-    ),
-  ],
-);
+/// A minimal pipeline: just the entry identity. Restored sub-agent/spawn
+/// metas rebuild their tools from their stored policy's allow-list, so no role
+/// declarations are needed.
+final _pipeline = AgentPipeline(mainIdentity: 'You are the main agent.');
 
 void main() {
   group('ConversationMeta serialization', () {
@@ -421,11 +378,13 @@ void main() {
       // Spawn a real delegate job; the factory mints a `subAgent` conversation
       // and the job's completion persists its full transcript there.
       final job = scheduler.spawn(
-        target: const AgentRole(name: 'scout', description: 'research'),
         task: 'investigate',
+        toolProfile: ToolProfile.readOnly,
+        parentSystemPrompt: 'You research.',
         parentReference: 'anthropic/anthropic-small',
         parentPolicy: PermissionPolicy(),
         originConversationId: 'placeholder',
+        label: 'scout',
       );
       final result = await job.result;
       expect(result.isError, isFalse);
@@ -582,8 +541,9 @@ void main() {
       };
 
       final job = scheduler.spawn(
-        target: const AgentRole(name: 'scout', description: 'research'),
         task: 'investigate',
+        toolProfile: ToolProfile.readOnly,
+        parentSystemPrompt: 'You research.',
         parentReference: 'anthropic/anthropic-small',
         parentPolicy: PermissionPolicy(),
         originConversationId: 'origin',
@@ -623,7 +583,12 @@ void main() {
           ConversationMetaInput.subAgent(
             model: 'anthropic/anthropic-large',
             providerId: 'anthropic',
-            policy: PermissionPolicy(),
+            policy: PermissionPolicy(defaults: const {
+              'read': PermissionDecision.allow,
+              'search': PermissionDecision.allow,
+              'grep': PermissionDecision.allow,
+              'glob': PermissionDecision.allow,
+            }),
             systemPrompt: 'You research.',
             targetName: 'scout',
             parentConversationId: primaryId,
@@ -633,7 +598,12 @@ void main() {
           ConversationMetaInput.spawn(
             providerId: 'openai',
             providerModel: 'openai-large',
-            policy: PermissionPolicy(),
+            policy: PermissionPolicy(defaults: const {
+              'read': PermissionDecision.allow,
+              'write': PermissionDecision.allow,
+              'edit': PermissionDecision.allow,
+              'bash': PermissionDecision.allow,
+            }),
             systemPrompt: 'You implement.',
             targetName: 'implementer',
             parentConversationId: primaryId,
@@ -682,8 +652,8 @@ void main() {
       expect(conv.recorder, isNotNull);
       expect(conv.recorder!.conversationId, scoutId);
       expect(conv.recorder!.isInitialized, isTrue);
-      // Sub-agent tools come from the role's own declaration (+ delegate).
-      expect(conv.agent.tools.all, isNotEmpty);
+      // Sub-agent tools come from the stored policy's allow-list (+ delegate).
+      expect(conv.agent.tools.all.map((t) => t.schema.name), contains('read'));
 
       await conv.host.dispose();
     });
@@ -696,8 +666,8 @@ void main() {
       // The spawn ran under openai/openai-large, rebuilt from the meta ref.
       expect(conv.provider.model, 'openai-large');
       expect(conv.history, hasLength(2));
-      // Implementer's tools come from its role declaration; no nested delegate
-      // for spawns.
+      // The spawn's tools come from its stored policy's allow-list; no nested
+      // delegate for spawns.
       expect(conv.agent.tools.all.map((t) => t.schema.name),
           containsAll(['read', 'edit']));
 
@@ -723,14 +693,17 @@ void main() {
       await conv.host.dispose();
     });
 
-    test('an unknown role falls back to a read-only agent', () async {
+    test('a spawn with an empty policy restores with no tools', () async {
+      // A spawn whose stored policy allows nothing (e.g. a legacy or stripped
+      // meta) reconstructs an empty tool set — still rehydrated and replayable.
       final orphanId = await store.createConversationWithMeta(
           sessionId,
-          ConversationMetaInput.subAgent(
-            model: 'anthropic/anthropic-small',
-            policy: PermissionPolicy(),
+          ConversationMetaInput.spawn(
+            providerId: 'anthropic',
+            providerModel: 'anthropic-small',
+            policy: PermissionPolicy(defaults: const {}),
             systemPrompt: 'ghost',
-            targetName: 'no-such-role',
+            targetName: 'no-tools',
             parentConversationId: primaryId,
           ));
       final meta = store.metaFor(sessionId, orphanId)!;
@@ -739,7 +712,7 @@ void main() {
       // Still rehydrated and replayable; provider resolves from the ref.
       expect(conv.id, orphanId);
       expect(conv.provider.model, 'anthropic-small');
-      // Unknown role → empty (read-only) tool set.
+      // Empty policy → empty tool set (spawns get no nested delegate).
       expect(conv.agent.tools.all, isEmpty);
 
       await conv.host.dispose();

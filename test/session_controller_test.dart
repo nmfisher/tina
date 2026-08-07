@@ -645,7 +645,7 @@ void main() {
       expect(msgs, contains('default   ← default (runs on every turn)'));
       expect(msgs, contains('usage:'));
       expect(msgs, contains('VERDICT: <label>'));
-      expect(msgs, contains('model="provider/model"'));
+      expect(msgs, contains('llm_model + llm_provider'));
     });
 
     test('"none" disables routing even with default.dot present', () async {

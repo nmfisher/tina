@@ -4,9 +4,10 @@ import 'package:tina_engine/tina_engine.dart';
 /// The tina implementation of attractor's [CodergenBackend]. Each `box`/LLM
 /// node is run as a real agent turn via [SubAgentScheduler.runStandalone],
 /// building the agent from the node's own attributes: its `system_prompt`
-/// (identity), and its `llm_model`/`llm_provider` (model). A node no longer
-/// resolves an [AgentRole] for its identity (tin-80ll); sub-agents it delegates
-/// to still come from the pipeline's role catalog.
+/// (identity), and its `llm_model`/`llm_provider` (model). A node resolves no
+/// catalog identity (tin-80ll); sub-agents it delegates inherit the node's
+/// identity plus the delegation's task, with a tool profile (read-only/full)
+/// and optional model — there is no sub-agent catalog.
 ///
 /// Autonomous gating — a reviewer node approving or rejecting — works via a
 /// verdict-line convention: a node prompt may instruct the agent to end its
@@ -82,4 +83,4 @@ class TinaCodergenBackend implements CodergenBackend {
 /// Identity used when a node omits `system_prompt`. Nodes normally carry their
 /// own identity; this is a safe fallback so a minimal node still runs.
 const String _defaultNodeIdentity = '''
-You are a coding agent running as one node of a workflow. Do the task described in the prompt using your tools. Where the task calls for it, delegate to specialist sub-agents (research, implementer, verifier, tester) with the delegate tool and act on their results. Read files before editing them, keep changes minimal, and report what you did.''';
+You are a coding agent running as one node of a workflow. Do the task described in the prompt using your tools. Where the task calls for it, delegate sub-agents with the delegate tool (each gets a task plus an optional tool profile — "read-only" for exploration/review, "full" for changes — and an optional model) and act on their results. Read files before editing them, keep changes minimal, and report what you did.''';

@@ -85,9 +85,10 @@ void _showHints(CommandContext ctx) {
       '    plain agent path\n',
       style: HostMessageStyle.dim);
   host.showMessage(
-      '  • a node runs as its `role` (default: orchestrator). role="verifier",\n'
-      '    role="implementer", ... swap the tools; model="provider/model" picks\n'
-      '    the model for one node\n',
+      '  • a node carries its own system_prompt (identity) and optional\n'
+      '    llm_model + llm_provider (model). Omit the model attrs to inherit\n'
+      '    the conversation model. A node delegates sub-agents with the\n'
+      '    delegate tool (a task + an optional tool profile + model)\n',
       style: HostMessageStyle.dim);
   host.showMessage(
       '  • end a node\'s response with VERDICT: <label> to route on edge labels,\n'

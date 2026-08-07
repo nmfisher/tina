@@ -65,19 +65,6 @@ void main() {
   final tmp = TempTinaDir();
   final canned = CannedEvents();
 
-  AgentPipeline pipeline() => AgentPipeline(
-        mainRole: const AgentRole(
-            name: 'main', description: 'talks to the user', modelTier: 'heavy'),
-        roles: const [
-          AgentRole(
-              name: 'research',
-              description: 'investigates',
-              modelTier: 'light'),
-          AgentRole(
-              name: 'implementer', description: 'codes', modelTier: 'heavy'),
-        ],
-      );
-
   setUp(() {
     tmp.setUp('tina_settings_');
     canned.clear();
@@ -95,7 +82,6 @@ void main() {
       screen: screen,
       editor: LineEditor(screen: screen),
       registry: reg ?? setupRegistry(),
-      pipeline: pipeline(),
       env: const {},
       tinaDir: tmp.dir,
       readEvent: canned.readEvent,
@@ -148,10 +134,9 @@ void main() {
     expect(userConfigFile(const {}, tinaDir: tmp.dir).existsSync(), isFalse);
   });
 
-  test('providers: writes [providers] only — tiers/limits untouched', () async {
+  test('providers: writes [providers] only — limits untouched', () async {
     final screen = fakeScreen();
     final initial = UserConfig(
-      tiers: {'heavy': 'alpha/a1'},
       limits: const LimitsConfig(maxGlobalTokens: 12345),
     );
     canned.events = [
@@ -167,7 +152,6 @@ void main() {
     final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
     expect(loaded.providers['alpha']?.apiKey, 'ka');
     // Untouched slices preserved.
-    expect(loaded.tiers, {'heavy': 'alpha/a1'});
     expect(loaded.limits?.maxGlobalTokens, 12345);
   });
 
@@ -177,12 +161,10 @@ void main() {
     final screen = fakeScreen();
     final initial = UserConfig(
       providers: const {'alpha': ProviderConfig(apiKey: 'ka')},
-      tiers: {'heavy': 'alpha/a1'},
     );
     canned.events = [
-      // Index: move to "Token quota" (index 2) then Enter.
-      ArrowKey(ArrowDirection.down), // 0 → 1
-      ArrowKey(ArrowDirection.down), // 1 → 2 (quota)
+      // Index: move to "Token quota" (index 1) then Enter.
+      ArrowKey(ArrowDirection.down), // 0 → 1 (quota)
       ControlKey(ControlCode.enter), // open quota
       // Focus on first field (session tokens). Navigate down to
       // requests_per_minute (index 5).
@@ -198,54 +180,8 @@ void main() {
     await runIndex(screen, initial: initial).timeout(overlayTimeout);
     final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
     expect(loaded.limits?.requestsPerMinute, 30);
-    // Independent save: providers/tiers untouched.
+    // Independent save: providers untouched.
     expect(loaded.providers['alpha']?.apiKey, 'ka');
-    expect(loaded.tiers, {'heavy': 'alpha/a1'});
-  });
-
-  // -- tiers panel ----------------------------------------------------------
-
-  test('tiers: save writes [tiers] and re-derives [default] from heavy',
-      () async {
-    final screen = fakeScreen();
-    final initial = UserConfig(
-      providers: const {'alpha': ProviderConfig(apiKey: 'ka')},
-    );
-    canned.events = [
-      // Index: move to "Tiers & roles" (index 1) then Enter.
-      ArrowKey(ArrowDirection.down), // 0 → 1 (tiers)
-      ControlKey(ControlCode.enter), // open tiers
-      // Focus 0 = heavy. Enter opens the heavy picker.
-      ControlKey(ControlCode.enter),
-      // Picker: candidates [alpha/a1, alpha/a2]; pick alpha/a2 (down, enter).
-      ArrowKey(ArrowDirection.down), // alpha/a1 → alpha/a2
-      ControlKey(ControlCode.enter), // select alpha/a2
-      // Back in tiers: move focus to Save (index 2) and save.
-      ArrowKey(ArrowDirection.down), // 0 → 1
-      ArrowKey(ArrowDirection.down), // 1 → 2 (save)
-      ControlKey(ControlCode.enter), // save tiers
-      EscapeKey(), // close index
-    ];
-    await runIndex(screen, initial: initial).timeout(overlayTimeout);
-    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
-    expect(loaded.tiers['heavy'], 'alpha/a2');
-    // [default] re-derived from the new heavy tier.
-    expect(loaded.defaultProvider, 'alpha');
-    expect(loaded.defaultModel, 'a2');
-  });
-
-  test('tiers: read-only role→tier map is surfaced (rendered)', () async {
-    final screen = fakeScreen();
-    // Open tiers and immediately cancel — the body must render the role map.
-    canned.events = [
-      ArrowKey(ArrowDirection.down), // 0 → 1 (tiers)
-      ControlKey(ControlCode.enter), // open tiers
-      EscapeKey(), // cancel tiers
-      EscapeKey(), // close index
-    ];
-    await runIndex(screen).timeout(overlayTimeout);
-    // Nothing written on cancel.
-    expect(userConfigFile(const {}, tinaDir: tmp.dir).existsSync(), isFalse);
   });
 
   // -- theme panel ----------------------------------------------------------
@@ -253,10 +189,9 @@ void main() {
   test('theme: selecting dark writes [theme] variant', () async {
     final screen = fakeScreen();
     canned.events = [
-      // Index: move to "Theme" (index 3) then Enter.
+      // Index: move to "Theme" (index 2) then Enter.
       ArrowKey(ArrowDirection.down), // 0 → 1
-      ArrowKey(ArrowDirection.down), // 1 → 2
-      ArrowKey(ArrowDirection.down), // 2 → 3 (theme)
+      ArrowKey(ArrowDirection.down), // 1 → 2 (theme)
       ControlKey(ControlCode.enter), // open theme
       // Picker: [System, Dark, Light]; pick Dark (down, enter).
       ArrowKey(ArrowDirection.down), // System → Dark
@@ -287,8 +222,7 @@ void main() {
       ),
     );
     canned.events = [
-      ArrowKey(ArrowDirection.down),
-      ArrowKey(ArrowDirection.down), // index 2 (quota)
+      ArrowKey(ArrowDirection.down), // index 1 (quota)
       ControlKey(ControlCode.enter), // open quota
       ControlKey(ControlCode.enter), // save (no edit)
       EscapeKey(), // close index
@@ -304,8 +238,7 @@ void main() {
       () async {
     final screen = fakeScreen();
     canned.events = [
-      // Open quota (index 2).
-      ArrowKey(ArrowDirection.down),
+      // Open quota (index 1).
       ArrowKey(ArrowDirection.down),
       ControlKey(ControlCode.enter),
       // Edit requests_per_minute → "7".
@@ -316,10 +249,9 @@ void main() {
       ArrowKey(ArrowDirection.down),
       CharInput('7'),
       ControlKey(ControlCode.enter), // save quota
-      // Back at index (focus reset to 0): open theme (index 3).
+      // Back at index (focus reset to 0): open theme (index 2).
       ArrowKey(ArrowDirection.down), // 0 → 1
-      ArrowKey(ArrowDirection.down), // 1 → 2
-      ArrowKey(ArrowDirection.down), // 2 → 3 (theme)
+      ArrowKey(ArrowDirection.down), // 1 → 2 (theme)
       ControlKey(ControlCode.enter),
       // Pick Light (down, down, enter).
       ArrowKey(ArrowDirection.down),
@@ -353,7 +285,6 @@ void main() {
         screen: screen,
         editor: setup.editor,
         registry: setupRegistry(),
-        pipeline: pipeline(),
         env: const {},
         tinaDir: tmp.dir,
         readEvent: canned.readEvent,
@@ -378,7 +309,6 @@ void main() {
         screen: screen,
         editor: setup.editor,
         registry: setupRegistry(),
-        pipeline: pipeline(),
         env: const {},
         tinaDir: tmp.dir,
         readEvent: canned.readEvent,

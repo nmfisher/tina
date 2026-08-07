@@ -4,7 +4,7 @@ import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('resolveSystemPrompt', () {
+  group('resolveMainPrompt', () {
     late Directory tmp;
 
     setUp(() {
@@ -16,7 +16,7 @@ void main() {
     });
 
     test('returns the identity + environment block when no AGENTS.md exists', () {
-      final s = resolveSystemPrompt(defaultPipeline.mainRole, cwd: tmp.path);
+      final s = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
       expect(s, contains('coding assistant'));
       expect(s, contains('<environment>'));
       expect(s, contains('cwd:'));
@@ -26,7 +26,7 @@ void main() {
     test('injects AGENTS.md content found in cwd', () {
       File('${tmp.path}/AGENTS.md')
           .writeAsStringSync('# project rules\n- always run dart format\n');
-      final s = resolveSystemPrompt(defaultPipeline.mainRole, cwd: tmp.path);
+      final s = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
       expect(s, contains('<project-context>'));
       expect(s, contains('always run dart format'));
       expect(s, contains('AGENTS.md'));
@@ -36,8 +36,7 @@ void main() {
       final inner = Directory('${tmp.path}/sub')..createSync();
       File('${tmp.path}/AGENTS.md').writeAsStringSync('OUTER RULE\n');
       File('${inner.path}/AGENTS.md').writeAsStringSync('INNER RULE\n');
-      final s =
-          resolveSystemPrompt(defaultPipeline.mainRole, cwd: inner.path);
+      final s = resolveMainPrompt(defaultPipeline, cwd: inner.path);
       final outerIdx = s.indexOf('OUTER RULE');
       final innerIdx = s.indexOf('INNER RULE');
       expect(outerIdx, isNonNegative);
@@ -47,7 +46,7 @@ void main() {
     });
   });
 
-  group('resolveSystemPrompt overrides', () {
+  group('resolveMainPrompt overrides', () {
     late Directory tmp;
 
     setUp(() {
@@ -58,10 +57,10 @@ void main() {
       tmp.deleteSync(recursive: true);
     });
 
-    test('uses the override identity when one is set for the role', () {
+    test('uses the [prompts.main] override when one is set', () {
       const identity = 'You are a totally bespoke agent. Squawk like a parrot.';
-      final s = resolveSystemPrompt(
-        defaultPipeline.mainRole,
+      final s = resolveMainPrompt(
+        defaultPipeline,
         overrides: {'main': identity},
         cwd: tmp.path,
       );
@@ -72,34 +71,23 @@ void main() {
       expect(s, contains('cwd:'));
     });
 
-    test('an empty override falls back to the role identity', () {
-      final research = defaultPipeline.role('research')!;
-      final withEmpty = resolveSystemPrompt(
-        research,
-        overrides: {'research': ''},
+    test('an empty override falls back to the main identity', () {
+      final withEmpty = resolveMainPrompt(
+        defaultPipeline,
+        overrides: {'main': ''},
         cwd: tmp.path,
       );
-      final withNone = resolveSystemPrompt(research, cwd: tmp.path);
+      final withNone = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
       expect(withEmpty, equals(withNone));
-      expect(withEmpty, contains('read, search, grep, and glob'));
-    });
-
-    test('a role absent from the override map uses its identity', () {
-      final verifier = defaultPipeline.role('verifier')!;
-      final s = resolveSystemPrompt(
-        verifier,
-        overrides: {'main': 'unrelated'},
-        cwd: tmp.path,
-      );
-      expect(s, contains('code-review agent'));
+      expect(withEmpty, contains('coding assistant'));
     });
 
     test('the override only replaces identity; the AGENTS.md wrapper survives',
         () {
       File('${tmp.path}/AGENTS.md').writeAsStringSync('PROJECT RULE\n');
       const identity = 'Custom identity with no AGENTS mention.';
-      final s = resolveSystemPrompt(
-        defaultPipeline.mainRole,
+      final s = resolveMainPrompt(
+        defaultPipeline,
         overrides: {'main': identity},
         cwd: tmp.path,
       );
@@ -108,7 +96,7 @@ void main() {
     });
   });
 
-  group('resolveSystemPrompt safe-mode', () {
+  group('resolveMainPrompt safe-mode', () {
     late Directory tmp;
 
     setUp(() {
@@ -120,8 +108,8 @@ void main() {
     });
 
     test('prepends the <safe-mode> block when safeMode is true', () {
-      final s = resolveSystemPrompt(defaultPipeline.mainRole,
-          cwd: tmp.path, safeMode: true);
+      final s =
+          resolveMainPrompt(defaultPipeline, cwd: tmp.path, safeMode: true);
       expect(s, contains('<safe-mode>'));
       expect(s, contains('READ-ONLY'));
       expect(s, contains('write, edit'));
@@ -131,14 +119,13 @@ void main() {
     });
 
     test('omits the preamble when safeMode is false (default)', () {
-      final s =
-          resolveSystemPrompt(defaultPipeline.mainRole, cwd: tmp.path);
+      final s = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
       expect(s, isNot(contains('<safe-mode>')));
     });
 
     test('preamble survives an override identity', () {
-      final s = resolveSystemPrompt(
-        defaultPipeline.mainRole,
+      final s = resolveMainPrompt(
+        defaultPipeline,
         overrides: {'main': 'Custom identity.'},
         cwd: tmp.path,
         safeMode: true,
@@ -148,7 +135,7 @@ void main() {
     });
   });
 
-  group('resolveSystemPrompt project-trust gating', () {
+  group('resolveMainPrompt project-trust gating', () {
     late Directory tmp;
 
     setUp(() {
@@ -162,7 +149,7 @@ void main() {
     });
 
     test('withholds AGENTS.md when loadProjectContext is false', () {
-      final s = resolveSystemPrompt(defaultPipeline.mainRole,
+      final s = resolveMainPrompt(defaultPipeline,
           cwd: tmp.path, loadProjectContext: false);
       expect(s, isNot(contains('<project-context>')));
       expect(s, isNot(contains('UNTRUSTED PROJECT RULE')));
@@ -172,37 +159,29 @@ void main() {
     });
 
     test('loads AGENTS.md when loadProjectContext is true (default)', () {
-      final s = resolveSystemPrompt(defaultPipeline.mainRole, cwd: tmp.path);
+      final s = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
       expect(s, contains('<project-context>'));
       expect(s, contains('UNTRUSTED PROJECT RULE'));
     });
   });
 
-  group('defaultPipeline identities', () {
-    test('every role carries a non-empty identity, sans wrapper', () {
-      for (final role in [defaultPipeline.mainRole, ...defaultPipeline.roles]) {
-        expect(role.promptIdentity, isNotEmpty, reason: role.name);
-        expect(role.promptIdentity, isNot(contains('<environment>')));
-        expect(role.promptIdentity, isNot(contains('<project-context>')));
-      }
+  group('defaultPipeline main identity', () {
+    test('carries a non-empty identity, sans wrapper', () {
+      expect(defaultPipeline.mainIdentity, isNotEmpty);
+      expect(defaultPipeline.mainIdentity, isNot(contains('<environment>')));
+      expect(defaultPipeline.mainIdentity, isNot(contains('<project-context>')));
     });
 
-    test('each role identity carries its distinctive marker', () {
-      final markers = {
-        'main': 'coding assistant',
-        'research': 'find files that are relevant',
-        'implementer': 'implementation agent',
-        'verifier': 'code-review agent',
-        'tester': 'test-writing agent',
-        'orchestrator': 'orchestrate a fleet',
-        'scout': 'scout agent',
-      };
-      for (final entry in markers.entries) {
-        final role = entry.key == 'main'
-            ? defaultPipeline.mainRole
-            : defaultPipeline.role(entry.key)!;
-        expect(role.promptIdentity, contains(entry.value), reason: entry.key);
-      }
+    test('the identity carries its distinctive marker', () {
+      expect(defaultPipeline.mainIdentity, contains('coding assistant'));
+    });
+  });
+
+  group('resolveIdentityPrompt (node identity)', () {
+    test('wraps a bare identity with the environment block', () {
+      final s = resolveIdentityPrompt('NODE-IDENTITY');
+      expect(s, contains('NODE-IDENTITY'));
+      expect(s, contains('<environment>'));
     });
   });
 }

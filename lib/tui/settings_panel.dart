@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:tina/config/setup.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
@@ -31,7 +30,6 @@ Future<UserConfig?> runSettingsPanel({
   required Screen screen,
   required LineEditor editor,
   required ProviderRegistry registry,
-  required AgentPipeline pipeline,
   required Map<String, String> env,
   Directory? tinaDir,
   Future<InputEvent> Function()? readEvent,
@@ -43,7 +41,7 @@ Future<UserConfig?> runSettingsPanel({
   // the whole session.
   final grabbed = modalTakeFocus(editor);
   try {
-    await _runSettingsSession(screen, editor, registry, pipeline, env, tinaDir,
+    await _runSettingsSession(screen, editor, registry, env, tinaDir,
         readEvent, (w) => lastWritten = w);
     return lastWritten;
   } finally {
@@ -57,19 +55,17 @@ Future<void> _runSettingsSession(
   Screen screen,
   LineEditor editor,
   ProviderRegistry registry,
-  AgentPipeline pipeline,
   Map<String, String> env,
   Directory? tinaDir,
   Future<InputEvent> Function()? readEvent,
   void Function(UserConfig) onWrote,
 ) async {
   // Reload from disk before each pick so a subpanel's own write is visible to
-  // the next (e.g. enable a provider, then pick Tiers and see it in the
-  // candidate list). The panel always starts from the on-disk config — there
-  // is no in-memory seed, mirroring how `/settings` reflects real edits.
+  // the next (e.g. enable a provider, then pick a model and see it). The panel
+  // always starts from the on-disk config — there is no in-memory seed,
+  // mirroring how `/settings` reflects real edits.
   const entries = [
     (display: 'Providers & models', value: 'providers'),
-    (display: 'Tiers & roles', value: 'tiers'),
     (display: 'Token quota', value: 'quota'),
     (display: 'Theme', value: 'theme'),
   ];
@@ -93,17 +89,6 @@ Future<void> _runSettingsSession(
           screen: screen,
           editor: editor,
           registry: registry,
-          env: env,
-          tinaDir: tinaDir,
-          initial: initial,
-          readEvent: readEvent,
-        );
-      case 'tiers':
-        wrote = await runTiersPanel(
-          screen: screen,
-          editor: editor,
-          registry: registry,
-          pipeline: pipeline,
           env: env,
           tinaDir: tinaDir,
           initial: initial,
@@ -133,11 +118,10 @@ Future<void> _runSettingsSession(
 }
 
 /// Read-modify-write one config slice: load the existing [UserConfig], replace
-/// only the supplied slice(s) (threading the untouched fields forward), re-derive
-/// `[default]` from the heavy tier exactly as [buildSetupConfig] does when tiers
-/// change, and [writeUserConfig]. Returns the written config on a real change,
-/// or `null` when the supplied slice(s) equal what's already on disk (so the
-/// caller can show an "unchanged" message instead of a spurious "saved").
+/// only the supplied slice(s) (threading the untouched fields forward) and
+/// [writeUserConfig]. Returns the written config on a real change, or `null`
+/// when the supplied slice(s) equal what's already on disk (so the caller can
+/// show an "unchanged" message instead of a spurious "saved").
 ///
 /// Each slice arg is null when the panel didn't touch it; comparing the
 /// assembled config against the loaded one then isolates the panel's own edit.
@@ -145,43 +129,25 @@ UserConfig? writeUserConfigPatch({
   required Map<String, String> env,
   Directory? tinaDir,
   Map<String, ProviderConfig>? providers,
-  Map<String, String>? tiers,
   LimitsConfig? limits,
   String? themeVariant,
 }) {
   final loaded = loadUserConfig(env: env, tinaDir: tinaDir);
 
   final nextProviders = providers ?? loaded.providers;
-  final nextTiers = tiers ?? loaded.tiers;
   final nextLimits = limits ?? loaded.limits;
   final nextThemeVariant = themeVariant ?? loaded.themeVariant;
 
   // Nothing actually changed — skip the write.
   if (_mapsEqual(nextProviders, loaded.providers) &&
-      _mapsEqual(nextTiers, loaded.tiers) &&
       nextLimits == loaded.limits &&
       nextThemeVariant == loaded.themeVariant) {
     return null;
   }
 
-  // Re-derive [default] from the (possibly new) heavy tier, mirroring
-  // buildSetupConfig: when a heavy tier exists its provider/model becomes the
-  // default; otherwise keep the loaded default.
-  String? defaultProvider = loaded.defaultProvider;
-  String? defaultModel = loaded.defaultModel;
-  final heavy = nextTiers['heavy'];
-  if (heavy != null) {
-    final slash = heavy.indexOf('/');
-    if (slash > 0) {
-      defaultProvider = heavy.substring(0, slash);
-      defaultModel = heavy.substring(slash + 1);
-    }
-  }
-
   final built = UserConfig(
-    defaultProvider: defaultProvider,
-    defaultModel: defaultModel,
-    tiers: nextTiers,
+    defaultProvider: loaded.defaultProvider,
+    defaultModel: loaded.defaultModel,
     providers: nextProviders,
     limits: nextLimits,
     theme: loaded.theme,
@@ -647,211 +613,6 @@ class _ProvidersForm {
       '↑↓ move · → expand · ← collapse · space toggle · enter save · esc cancel';
 }
 
-// =============================================================================
-// Subpanel: Tiers & roles
-// =============================================================================
-
-/// Tier selection (heavy/light `"provider/model"` pickers) plus a READ-ONLY
-/// map of each declared role to its tier capability. The tier set itself stays
-/// code-declared (see [AgentPipeline]); this panel only chooses which model
-/// backs each tier. Pressing Enter on a tier row delegates the actual selection
-/// to [runModelPickerOverlay]; Enter on the Save row writes `[tiers]` (and
-/// re-derives `[default]` from heavy). Esc cancels without writing.
-Future<UserConfig?> runTiersPanel({
-  required Screen screen,
-  required LineEditor editor,
-  required ProviderRegistry registry,
-  required AgentPipeline pipeline,
-  required Map<String, String> env,
-  Directory? tinaDir,
-  required UserConfig initial,
-  Future<InputEvent> Function()? readEvent,
-}) {
-  return _TiersForm(screen, editor, registry, pipeline, env, tinaDir,
-      readEvent ?? editor.readKey, initial).run();
-}
-
-enum _TiersResult { changed, wrote, cancelled, pickHeavy, pickLight }
-
-class _TiersForm {
-  _TiersForm(
-    this._screen,
-    this._editor,
-    this._registry,
-    this._pipeline,
-    this._env,
-    this._tinaDir,
-    this._readEvent,
-    this._initial,
-  ) {
-    _heavy = _initial.tiers['heavy'];
-    _light = _initial.tiers['light'];
-  }
-
-  final Screen _screen;
-  final LineEditor _editor;
-  final ProviderRegistry _registry;
-  final AgentPipeline _pipeline;
-  final Map<String, String> _env;
-  final Directory? _tinaDir;
-  final Future<InputEvent> Function() _readEvent;
-  final UserConfig _initial;
-
-  late final OverlayRegion _overlay;
-  late final Rect _rect;
-
-  String? _heavy; // "provider/model"
-  String? _light;
-  int _focus = 0; // 0 = heavy, 1 = light, 2 = save
-  String? _writeError; // set when a save-time write failed (e.g. read-only)
-
-  /// All `"provider/model"` refs from providers configured in [UserConfig].
-  late final List<String> _candidates = [
-    for (final id in _registry.providerIds)
-      if (_initial.providers.containsKey(id))
-        for (final m in _registry.modelsFor(id)) '$id/${m.id}',
-  ];
-
-  // Read-only role list: every declarable role (main + sub-agents) → its tier.
-  late final List<AgentRole> _roles = [_pipeline.mainRole, ..._pipeline.roles];
-
-  Future<UserConfig?> run() async {
-    final layout = _screen.layout;
-    final w = (layout.width - 4).clamp(50, 78);
-    final h = (layout.height ~/ 2).clamp(12, layout.height - 4);
-    _rect = Rect(
-      row: (layout.height - h) ~/ 2,
-      col: (layout.width - w) ~/ 2,
-      width: w,
-      height: h,
-    );
-    _overlay = OverlayRegion(_screen, _rect);
-    _render();
-    while (true) {
-      final ev = await _readEvent();
-      if (ev is EscapeKey ||
-          (ev is ControlKey && ev.code == ControlCode.ctrlC)) {
-        _dispose();
-        return null;
-      }
-      final result = _dispatch(ev);
-      if (result == _TiersResult.wrote) {
-        try {
-          final cfg = _write();
-          _dispose();
-          return cfg;
-        } on ConfigWriteException catch (e) {
-          _writeError = e.toString();
-          _render();
-          continue;
-        }
-      }
-      switch (result) {
-        case _TiersResult.changed:
-          _render();
-        case _TiersResult.cancelled:
-          _dispose();
-          return null;
-        case _TiersResult.pickHeavy:
-          await _openPicker(isHeavy: true);
-          _render();
-        case _TiersResult.pickLight:
-          await _openPicker(isHeavy: false);
-          _render();
-        case _TiersResult.wrote:
-          break; // handled above
-      }
-    }
-  }
-
-  void _dispose() {
-    _overlay.hide();
-    _overlay.dispose();
-  }
-
-  _TiersResult _dispatch(InputEvent ev) {
-    _writeError = null; // any input clears a stale write error
-    if (ev is ArrowKey) {
-      switch (ev.direction) {
-        case ArrowDirection.up:
-          _focus = (_focus - 1).clamp(0, 2);
-          return _TiersResult.changed;
-        case ArrowDirection.down:
-          _focus = (_focus + 1).clamp(0, 2);
-          return _TiersResult.changed;
-        case ArrowDirection.pageUp:
-        case ArrowDirection.pageDown:
-        case ArrowDirection.left:
-        case ArrowDirection.right:
-          return _TiersResult.changed;
-      }
-    }
-    if (ev is ControlKey && ev.code == ControlCode.enter) {
-      if (_focus == 0) return _TiersResult.pickHeavy;
-      if (_focus == 1) return _TiersResult.pickLight;
-      return _TiersResult.wrote; // focus == 2 (save)
-    }
-    return _TiersResult.changed;
-  }
-
-  Future<void> _openPicker({required bool isHeavy}) async {
-    // Light tier may be skipped — a leading skip candidate maps to null.
-    final opts = isHeavy
-        ? _candidates
-        : ['(skip — no light tier)', ..._candidates];
-    final ref = await runModelPickerOverlay(
-      screen: _screen,
-      editor: _editor,
-      modelRefs: opts,
-      title: isHeavy ? 'Heavy tier' : 'Light tier',
-      readEvent: _readEvent,
-      accent: activeAccent(_screen),
-    );
-    if (ref == null) return; // cancelled picker
-    if (!isHeavy && ref == '(skip — no light tier)') {
-      _light = null;
-    } else {
-      if (isHeavy) {
-        _heavy = ref;
-      } else {
-        _light = ref;
-      }
-    }
-  }
-
-  UserConfig? _write() {
-    final tiers = <String, String>{};
-    if (_heavy != null) tiers['heavy'] = _heavy!;
-    if (_light != null) tiers['light'] = _light!;
-    return writeUserConfigPatch(
-      env: _env,
-      tinaDir: _tinaDir,
-      tiers: tiers,
-    );
-  }
-
-  void _render() => _overlay.show(
-      _box('Tiers & roles', _body(), _footer(), _rect, _screen,
-          accent: activeAccent(_screen)));
-
-  List<String> _body() {
-    final lines = <String>[
-      _row(_focus == 0, 'Heavy tier:  ${_heavy ?? "(none)"}'),
-      _row(_focus == 1, 'Light tier:  ${_light ?? "(skipped)"}'),
-      '  ─────────────────────────────',
-      _row(_focus == 2, 'Save tiers'),
-      '',
-      'Roles (read-only):',
-      for (final r in _roles)
-        '  ${r.name} → ${r.modelTier ?? "(inherits)"}',
-    ];
-    if (_writeError != null) lines.add(_row(false, '⚠ $_writeError'));
-    return lines;
-  }
-
-  String _footer() =>
-      '↑↓ move · enter pick tier / save · esc cancel';
-}
 
 // =============================================================================
 // Subpanel: Token quota

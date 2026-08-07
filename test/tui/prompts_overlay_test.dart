@@ -44,7 +44,7 @@ void main() {
     expect(cfg!.prompts.containsKey('main'), isTrue);
     expect(cfg.prompts['main']!, contains('MINE'));
     expect(cfg.prompts['main']!,
-        isNot(equals(defaultPipeline.mainRole.promptIdentity)));
+        isNot(equals(defaultPipeline.mainIdentity)));
     // Round-trips through the file.
     final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
     expect(loaded.prompts['main'], cfg.prompts['main']);
@@ -60,16 +60,15 @@ void main() {
 
   test('reset clears an existing override', () async {
     final screen = fakeScreen(columns: 90, lines: 28);
-    final initial = const UserConfig(prompts: {'research': 'custom research'});
-    // research is at index 1 (after main): down once, then 'r' to reset, Esc.
+    final initial = const UserConfig(prompts: {'main': 'custom main'});
+    // main is the only entry (focused at index 0): 'r' resets it, then Esc.
     canned.events = [
-      ArrowKey(ArrowDirection.down),
       CharInput('r'),
       EscapeKey(),
     ];
     final cfg = await run(screen, initial: initial).timeout(overlayTimeout);
     expect(cfg, isNotNull);
-    expect(cfg!.prompts.containsKey('research'), isFalse);
+    expect(cfg!.prompts.containsKey('main'), isFalse);
     final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
     expect(loaded.prompts, isEmpty);
   });
@@ -101,31 +100,11 @@ void main() {
     expect(cfg, isNull);
   });
 
-  test('multiple roles edited in one session all write', () async {
-    final screen = fakeScreen(columns: 90, lines: 28);
-    // main (index 0): edit + save. Then down to research (1): edit + save. Esc.
-    canned.events = [
-      ControlKey(ControlCode.enter), // edit main
-      CharInput(' MAINX'),
-      ControlKey(ControlCode.ctrlS),
-      ArrowKey(ArrowDirection.down), // to research
-      ControlKey(ControlCode.enter), // edit research
-      CharInput(' RESX'),
-      ControlKey(ControlCode.ctrlS),
-      EscapeKey(),
-    ];
-    final cfg = await run(screen).timeout(overlayTimeout);
-    expect(cfg, isNotNull);
-    expect(cfg!.prompts['main']!, contains('MAINX'));
-    expect(cfg.prompts['research']!, contains('RESX'));
-  });
-
   test('preserves the rest of the config when writing prompts', () async {
     final screen = fakeScreen(columns: 90, lines: 28);
     final initial = const UserConfig(
       defaultProvider: 'anthropic',
       defaultModel: 'claude-sonnet-4-6',
-      tiers: {'heavy': 'anthropic/claude-sonnet-4-6'},
     );
     canned.events = [
       ControlKey(ControlCode.enter), // edit main
@@ -138,7 +117,6 @@ void main() {
     // Unrelated sections survive the prompts write.
     expect(cfg!.defaultProvider, 'anthropic');
     expect(cfg.defaultModel, 'claude-sonnet-4-6');
-    expect(cfg.tiers, {'heavy': 'anthropic/claude-sonnet-4-6'});
     expect(cfg.prompts['main']!, contains(' X'));
   });
 }

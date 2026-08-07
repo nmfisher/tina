@@ -45,6 +45,11 @@ not from the role catalog.
   `verifier`, …). Roles are removed only from *nodes*; a node agent reaches the
   catalog through `delegate`. Two clean paths: node agents built from node attrs,
   sub-agents built from the catalog.
+  *(Follow-up, no ticket: this was later reversed on the same branch/PR — the
+  delegate `AgentRole` catalog was removed too. A sub-agent now inherits the
+  parent's resolved system prompt plus a task, picks a fixed tool profile
+  (`read-only`/`full`), and may override the model via `llm_provider`/
+  `llm_model`. One path: every agent is built from a prompt + task + profile.)*
 - **Seed workflow.** A single `main` node with its own `system_prompt`, edge
   `start -> main -> done`. `main`'s prompt tells it to plan and delegate to
   specialist sub-agents (research/implementer/verifier/tester) via `delegate`.

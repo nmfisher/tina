@@ -10,17 +10,16 @@ import 'package:tina_engine/tina_engine.dart';
 import 'sidecar_repo.dart';
 
 /// Drives the per-directory summary fleet: a headless orchestrator agent that
-/// fans out one `summarizer` per stale directory, each writing its summary to
-/// the sidecar via [WriteSummaryTool]. After the run, the sidecar manifest is
+/// fans out one sub-agent per stale directory, each writing its summary to the
+/// sidecar via [WriteSummaryTool]. After the run, the sidecar manifest is
 /// updated and a commit records the change.
 ///
 /// Reuses the live agent fleet (`buildAppComposition` + `buildAgent` + a real
-/// [SubAgentScheduler] + [DelegateTool]) rather than a bespoke loop, so the
-/// summarizer role's permissions, model tier, and tool gating are exactly the
-/// shipped ones. The orchestrator gets a summarization-specific `system:`
-/// prompt (overriding its code-change choreography identity) while keeping the
-/// `orchestrator` role's `canDelegate` capability — local to this run, not
-/// altering the interactive role.
+/// [SubAgentScheduler] + [DelegateTool]) rather than a bespoke loop. The
+/// orchestrator is the entry agent with a summarization-specific `system:`
+/// prompt; each delegated sub-agent inherits that identity and runs read-only
+/// (read/search/grep/glob + `write_summary`), so it can read the directory and
+/// capture its summary but cannot touch source files.
 class SummaryRunner {
   SummaryRunner({
     required this.config,
@@ -153,9 +152,9 @@ class SummaryRunner {
     }
     final lines = StringBuffer()
       ..writeln('Regenerate per-directory summaries for the following stale '
-          'directories. For each, delegate to the `summarizer` agent with the '
-          'task "read and summarize <dir>". Batch at most 8 per `delegate` '
-          'call.\n');
+          'directories. For each, delegate a sub-agent with the task "read '
+          '<dir> and write its summary with write_summary". Batch at most 8 '
+          'per `delegate` call.\n');
     for (final dir in staleDirs) {
       lines.writeln('- $dir');
     }
@@ -163,9 +162,9 @@ class SummaryRunner {
   }
 
   String _orchestratorPrompt(List<String> staleDirs) => '''
-You are the summarization orchestrator for a code repository. Your sole job is to fan out `summarizer` sub-agents — one per stale directory — so each writes its directory's prose summary into the sidecar store.
+You are the summarization orchestrator for a code repository. Your sole job is to fan out sub-agents — one per stale directory — so each reads its directory and writes a prose summary into the sidecar store.
 
-For each directory listed in the user message, delegate to the `summarizer` agent with the task "read and summarize <dir>". Batch at most 8 delegations per `delegate` call (the tool caps it); if there are more, make multiple calls. Do not summarize directories yourself — always delegate. Do not write plans or run review loops; this is a pure fan-out.
+For each directory listed in the user message, delegate a sub-agent with the task: "Read <dir> and write a markdown summary of it by calling write_summary("<dir>", <content>). Do not include a tracking header — write_summary stamps it." The sub-agents run read-only (they get read, search, grep, glob, and write_summary). Batch at most 8 delegations per `delegate` call (the tool caps it); if there are more, make multiple calls. Do not summarize directories yourself — always delegate. Do not write plans or run review loops; this is a pure fan-out.
 
 When every directory has been delegated, stop. Your final answer is a one-line confirmation of how many directories you summarized.''';
 }

@@ -695,17 +695,16 @@ void main() {
         environment: environment,
       );
 
-      // The role the live fork would have picked from the overlay — a real
-      // AgentRole from the shipped pipeline so resolveSystemPrompt + tool
-      // resolution succeed. The model ref resolves against the anthropic
-      // descriptor the registry was built with.
-      final pickedRole = defaultPipeline.roles.first;
+      // The tool profile the live fork would have picked from the overlay. The
+      // model ref resolves against the anthropic descriptor the registry was
+      // built with.
+      const pickedProfile = ToolProfile.full;
       final coordinator = await TuiCoordinator.create(
         app: app,
         io: io,
         terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 24),
         spawnTargetPicker: () async =>
-            (ref: 'anthropic/claude-sonnet-4-6', role: pickedRole),
+            (ref: 'anthropic/claude-sonnet-4-6', profile: pickedProfile),
       );
 
       final primary = coordinator.sessionManager.activeConversation;
@@ -822,7 +821,9 @@ void main() {
       final job = SubAgentJob(
         id: 'j-test',
         label: 'scout',
-        target: const AgentRole(name: 'scout', description: 'scout'),
+        systemPrompt: 'scout identity',
+        toolProfile: ToolProfile.readOnly,
+        modelReference: 'anthropic/claude-haiku-4-5',
         originConversationId: coordinator.sessionManager.active.activeConversationId,
         parentReference: 'anthropic/claude-haiku-4-5',
         parentPolicy: PermissionPolicy(),

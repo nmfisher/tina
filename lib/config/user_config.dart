@@ -14,8 +14,8 @@ import 'package:tina_console/tina_console.dart';
 const int kCurrentConfigVersion = 1;
 
 /// Top-level keys [loadUserConfig] recognizes. Anything else is reported as a
-/// likely typo (e.g. `[tier]` for `[tiers]`) rather than silently ignored.
-const _knownTopLevelKeys = {'version', 'default', 'tiers', 'providers', 'limits', 'prompts', 'theme', 'trust'};
+/// likely typo (e.g. `[limit]` for `[limits]`) rather than silently ignored.
+const _knownTopLevelKeys = {'version', 'default', 'providers', 'limits', 'prompts', 'theme', 'trust'};
 const _knownDefaultKeys = {'provider', 'model', 'workflow'};
 const _knownProviderKeys = {'api_key', 'auth_token', 'base_url', 'wire', 'name', 'disabled_models'};
 const _knownPromptKeys = {'identity'};
@@ -204,8 +204,8 @@ class LimitsConfig {
       maxRequestTokens);
 }
 
-/// The parsed `~/.tina/config`. [defaultProvider]/[defaultModel]/[tiers] flow
-/// into `Config.parse` as a precedence layer (CLI > file > env); [providers]
+/// The parsed `~/.tina/config`. [defaultProvider]/[defaultModel] flow into
+/// `Config.parse` as a precedence layer (CLI > file > env); [providers]
 /// becomes a synthetic env overlay via [buildEnvOverlay] so its keys reach every
 /// agent — the startup provider AND sub-agents, which resolve keys through the
 /// registry's env scan rather than the startup override.
@@ -219,7 +219,6 @@ class UserConfig {
   /// "use `default.dot` when it exists".
   final String? defaultWorkflow;
 
-  final Map<String, String> tiers;
   final Map<String, ProviderConfig> providers;
   final LimitsConfig? limits;
 
@@ -231,10 +230,10 @@ class UserConfig {
   /// per-key overrides are present. One of `"light"` or `"dark"`.
   final String? themeVariant;
 
-  /// Per-role system-prompt identity overrides from a `[prompts.<role>]` table
-  /// (`identity = "..."`). role → identity prose. Flows into `Config.parse` as
+  /// The entry agent's system-prompt identity override from a `[prompts.main]`
+  /// table (`identity = "..."`). Flows into `Config.parse` as
   /// [Config.promptOverrides]; an empty/absent entry means "use the built-in
-  /// default identity for that role".
+  /// default identity".
   final Map<String, String> prompts;
 
   /// Default project-trust behavior from `[trust] default` (`ask`/`always`/
@@ -250,7 +249,6 @@ class UserConfig {
     this.defaultProvider,
     this.defaultModel,
     this.defaultWorkflow,
-    this.tiers = const {},
     this.providers = const {},
     this.limits,
     this.theme,
@@ -266,7 +264,6 @@ class UserConfig {
       defaultProvider == null &&
       defaultModel == null &&
       defaultWorkflow == null &&
-      tiers.isEmpty &&
       providers.isEmpty &&
       (limits == null || limits!.isEmpty) &&
       theme == null &&
@@ -274,10 +271,9 @@ class UserConfig {
       trustDefault == null;
 
   /// Builds a [UserConfig] from the `toml` package's `toMap()` output. Unknown
-  /// keys are ignored; non-string tier values are skipped (defensive).
+  /// keys are ignored.
   factory UserConfig.fromMap(Map<String, dynamic> m) {
     final def = (m['default'] as Map?)?.cast<String, dynamic>();
-    final tiersRaw = (m['tiers'] as Map?)?.cast<String, dynamic>();
     final providersRaw = (m['providers'] as Map?)?.cast<String, dynamic>();
     final limitsRaw = (m['limits'] as Map?)?.cast<String, dynamic>();
     final themeRaw = (m['theme'] as Map?)?.cast<String, dynamic>();
@@ -287,10 +283,6 @@ class UserConfig {
     final promptsRaw = (m['prompts'] as Map?)?.cast<String, dynamic>();
     final trustRaw = (m['trust'] as Map?)?.cast<String, dynamic>();
     final trustDefault = trustRaw?['default'] as String?;
-    final tiers = <String, String>{};
-    for (final e in (tiersRaw ?? const <String, dynamic>{}).entries) {
-      if (e.value is String) tiers[e.key] = e.value as String;
-    }
     final providers = <String, ProviderConfig>{};
     for (final e in (providersRaw ?? const <String, dynamic>{}).entries) {
       if (e.value is Map) {
@@ -298,8 +290,9 @@ class UserConfig {
             ProviderConfig.fromMap((e.value as Map).cast<String, dynamic>());
       }
     }
-    // [prompts.<role>] tables: each holds an `identity` string. A role whose
-    // identity is absent or empty is skipped (treated as "use the default").
+    // [prompts.main] (and any [prompts.<name>]) tables: each holds an `identity`
+    // string. An entry whose identity is absent or empty is skipped (treated as
+    // "use the default"). Only `main` is consulted at runtime.
     final prompts = <String, String>{};
     for (final e in (promptsRaw ?? const <String, dynamic>{}).entries) {
       if (e.value is Map) {
@@ -311,7 +304,6 @@ class UserConfig {
       defaultProvider: def?['provider'] as String?,
       defaultModel: def?['model'] as String?,
       defaultWorkflow: def?['workflow'] as String?,
-      tiers: tiers,
       providers: providers,
       limits: limitsRaw == null ? null : LimitsConfig.fromMap(limitsRaw),
       theme: theme,
@@ -471,7 +463,6 @@ String userConfigToToml(UserConfig config) {
         if (config.defaultWorkflow != null)
           'workflow': config.defaultWorkflow,
       },
-    if (config.tiers.isNotEmpty) 'tiers': config.tiers,
     if (config.providers.isNotEmpty)
       'providers': {
         for (final e in config.providers.entries)
@@ -583,13 +574,6 @@ model    = "claude-sonnet-4-6"
 # "default", edited with `/workflow edit default`), or "none" to disable the
 # presence-based default.dot routing and use the plain single-agent path.
 # workflow = "default"
-
-# Sub-agent model tiers — a spec's modelTier resolves through this map. These
-# two are the built-in defaults (applied when the table is absent); edit to
-# override per key, e.g. point `light` at a cheaper provider.
-[tiers]
-heavy = "anthropic/claude-sonnet-4-6"
-light = "anthropic/claude-haiku-4-5"
 
 # Per-provider credentials / base URL. api_key   -> <PROVIDER>_API_KEY,
 # auth_token -> <PROVIDER>_AUTH_TOKEN (bearer), base_url -> <PROVIDER>_BASE_URL.

@@ -1,12 +1,13 @@
 // Shared scaffolding for the summary-fleet tests: a temp committed project,
-// a scripted [LlmProvider] that drives the orchestrator→delegate→summarizer→
-// write_summary turn sequence, and the registry/config wiring to serve both
-// tiers from one scripted provider. Extracted so both [SummaryRunner] and
-// [SummaryIndex] tests can drive the real fleet without duplicating ~80 lines.
+// a scripted [LlmProvider] that drives the orchestrator → delegate →
+// summarizer-sub-agent → write_summary turn sequence, and the registry/config
+// wiring to serve both the orchestrator and its sub-agents from one scripted
+// provider. Extracted so both [SummaryRunner] and [SummaryIndex] tests can
+// drive the real fleet without duplicating ~80 lines.
 //
-// Both the orchestrator (heavy tier) and summarizer (light tier) resolve to
-// `anthropic` in the default config's tier map, so one scripted `anthropic`
-// provider serves both turns.
+// The orchestrator and its delegated sub-agents all inherit the conversation
+// model (no per-agent tier anymore), so one scripted `anthropic` provider
+// serves every turn.
 
 import 'dart:io';
 
@@ -28,10 +29,10 @@ import 'package:tina_engine/tina_engine.dart';
   return (project: project, sidecarRoot: sidecarRoot, tempRoot: tempRoot);
 }
 
-/// The default config's tier map is anthropic/claude-sonnet-4-6 (heavy) +
-/// anthropic/claude-haiku-4-5 (light), so both tiers resolve to `anthropic`.
-/// We register one scripted `anthropic` provider to serve both turns. The API
-/// key resolves via the registry's authFor against TEST_KEY.
+/// The orchestrator and its delegated sub-agents all inherit the conversation
+/// model (the entry model, anthropic/claude-sonnet-4-6), so one scripted
+/// `anthropic` provider serves every turn. The API key resolves via the
+/// registry's authFor against TEST_KEY.
 Config testFleetConfig(ProviderRegistry registry) => Config.parse(
       const ['--backend', 'ansi'],
       env: const {'TEST_KEY': 'k', 'ANTHROPIC_API_KEY': 'k'},
@@ -58,13 +59,13 @@ ProviderRegistry anthropicRegistry(ScriptedFleetProvider provider) {
   return r;
 }
 
-/// A provider that scripts the fleet turn-by-turn. Both the orchestrator and
-/// the summarizer resolve to this one instance, so the call sequence is shared
-/// and we key the script off the monotonic [callCount]:
+/// A provider that scripts the fleet turn-by-turn. The orchestrator and its
+/// delegated sub-agent all resolve to this one instance, so the call sequence
+/// is shared and we key the script off the monotonic [callCount]:
 ///
-///   1. orchestrator  → `delegate` to summarizer for lib (tool_use)
-///   2. summarizer    → `write_summary` lib (tool_use)
-///   3. summarizer    → final answer (end_turn)
+///   1. orchestrator  → `delegate` a sub-agent for lib (tool_use)
+///   2. sub-agent     → `write_summary` lib (tool_use)
+///   3. sub-agent     → final answer (end_turn)
 ///   4. orchestrator  → final answer (end_turn)
 ///
 /// Each [send] yields exactly ONE [MessageComplete]: the stream consumer keeps
@@ -83,7 +84,8 @@ class ScriptedFleetProvider extends LlmProvider {
     callCount++;
     switch (callCount) {
       case 1:
-        // Orchestrator: delegate to summarizer for lib.
+        // Orchestrator: delegate a sub-agent for lib (no `agent` name — the
+        // sub-agent inherits the orchestrator's identity + this task).
         yield MessageComplete(
           content: [
             ToolUseBlock(
@@ -91,7 +93,7 @@ class ScriptedFleetProvider extends LlmProvider {
               name: 'delegate',
               input: {
                 'delegations': [
-                  {'agent': 'summarizer', 'task': 'read and summarize lib'},
+                  {'task': 'read and summarize lib'},
                 ],
               },
             ),

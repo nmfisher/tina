@@ -11,6 +11,9 @@ import '../helpers/overlay_fixtures.dart';
 
 /// Drives [runSetupOverlay] with canned [InputEvent]s against a Screen over
 /// [FakeStdio] (no real terminal). Asserts the written config, not the pixels.
+///
+/// Flow: providers (tree) → default model → theme → limits (/settings only)
+/// → confirm.
 void main() {
   final tmp = TempTinaDir();
   final canned = CannedEvents();
@@ -35,13 +38,9 @@ void main() {
 
   // -- Tests ----------------------------------------------------------------
 
-  test('full flow: tree, heavy, light, confirm', () async {
+  test('full flow: tree, default model, theme, confirm', () async {
     final screen = fakeScreen();
     // Tree step: expand alpha, type key, expand beta, type key.
-    // Rows after alpha expanded: alpha/p, alpha/key, alpha/url,
-    //   alpha/sep, alpha/a1, alpha/a2.
-    // Then beta/provider, expand beta:
-    //   beta/p, beta/key, beta/url, beta/sep, beta/b1.
     canned.events = [
       // --- Provider tree ---
       CharInput(' '), // check alpha
@@ -59,14 +58,9 @@ void main() {
       CharInput('k'), CharInput('b'), // type "kb"
       // Enter from tree (any row) advances when _checked is non-empty.
       ControlKey(ControlCode.enter),
-      // --- Heavy step: models [alpha/a1, alpha/a2, beta/b1] ---
+      // --- Default-model step: models [alpha/a1, alpha/a2, beta/b1] ---
       // Focus is at index 0 (alpha/a1) — Enter selects it.
       ControlKey(ControlCode.enter),
-      // --- Light step: options [skip, alpha/a1, alpha/a2, beta/b1] ---
-      ArrowKey(ArrowDirection.down), // skip → alpha/a1
-      ArrowKey(ArrowDirection.down), // alpha/a1 → alpha/a2
-      ArrowKey(ArrowDirection.down), // alpha/a2 → beta/b1
-      ControlKey(ControlCode.enter), // select beta/b1
       // --- Theme step (first-run → no limits) ---
       ControlKey(ControlCode.enter), // theme (system) → confirm
       // --- Confirm ---
@@ -78,38 +72,14 @@ void main() {
     expect(cfg, isNotNull);
     expect(cfg!.defaultProvider, 'alpha');
     expect(cfg.defaultModel, 'a1');
-    expect(cfg.tiers, {'heavy': 'alpha/a1', 'light': 'beta/b1'});
     expect(cfg.providers['alpha']?.apiKey, 'ka');
     expect(cfg.providers['beta']?.apiKey, 'kb');
     // Round-trips through the file.
     final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
-    expect(loaded.tiers, {'heavy': 'alpha/a1', 'light': 'beta/b1'});
+    expect(loaded.defaultProvider, 'alpha');
+    expect(loaded.defaultModel, 'a1');
     expect(loaded.providers['alpha']?.apiKey, 'ka');
     expect(loaded.providers['beta']?.apiKey, 'kb');
-  });
-
-  test('skip the light tier', () async {
-    final screen = fakeScreen();
-    canned.events = [
-      CharInput(' '), // check alpha
-      ArrowKey(ArrowDirection.right), // expand alpha
-      ArrowKey(ArrowDirection.down), // alpha/key
-      CharInput('k'), // type key
-      // Enter from tree → heavy.
-      ControlKey(ControlCode.enter),
-      // Heavy: select alpha/a1.
-      ControlKey(ControlCode.enter),
-      // Light: focus is on "skip" (index 0), Enter skips it.
-      ControlKey(ControlCode.enter),
-      // Theme: system theme (default), Enter continues.
-      ControlKey(ControlCode.enter),
-      // Confirm (first-run → no limits).
-      ControlKey(ControlCode.enter), // write
-    ];
-    final cfg = await run(screen).timeout(overlayTimeout);
-    expect(cfg, isNotNull);
-    expect(cfg!.tiers, {'heavy': 'alpha/a1'});
-    expect(cfg.tiers.containsKey('light'), isFalse);
   });
 
   test('Esc at the providers step cancels (nothing written)', () async {
@@ -133,22 +103,20 @@ void main() {
     final initial = UserConfig(
       defaultProvider: 'alpha',
       defaultModel: 'a1',
-      tiers: {'heavy': 'alpha/a1', 'light': 'beta/b1'},
       providers: {
         'alpha': const ProviderConfig(apiKey: 'pre-key-alpha'),
         'beta': const ProviderConfig(apiKey: 'pre-key-beta'),
       },
     );
-    // Providers (Enter) → heavy (Enter) → light (Enter) → theme (Enter) →
-    // limits (Enter) → confirm (Enter). Pre-filled values auto-focus.
-    canned.events = List.filled(6, ControlKey(ControlCode.enter));
+    // Providers (Enter) → default model (Enter) → theme (Enter) → limits
+    // (Enter) → confirm (Enter). Pre-filled values auto-focus.
+    canned.events = List.filled(5, ControlKey(ControlCode.enter));
 
     final cfg = await run(screen, initial: initial).timeout(overlayTimeout);
 
     expect(cfg, isNotNull);
     expect(cfg!.defaultProvider, 'alpha');
     expect(cfg.defaultModel, 'a1');
-    expect(cfg.tiers, {'heavy': 'alpha/a1', 'light': 'beta/b1'});
     expect(cfg.providers['alpha']?.apiKey, 'pre-key-alpha');
     expect(cfg.providers['beta']?.apiKey, 'pre-key-beta');
     expect(cfg.limits, isNotNull);
@@ -160,7 +128,6 @@ void main() {
     final initial = UserConfig(
       defaultProvider: 'alpha',
       defaultModel: 'a1',
-      tiers: {'heavy': 'alpha/a1', 'light': 'beta/b1'},
       providers: {
         'alpha': const ProviderConfig(apiKey: 'ka'),
         'beta': const ProviderConfig(apiKey: 'kb'),
@@ -175,8 +142,7 @@ void main() {
       ),
     );
     canned.events = [
-      // Providers → heavy → light → theme → limits.
-      ControlKey(ControlCode.enter),
+      // Providers → default model → theme → limits.
       ControlKey(ControlCode.enter),
       ControlKey(ControlCode.enter),
       ControlKey(ControlCode.enter), // theme (system) → limits
@@ -213,9 +179,8 @@ void main() {
       ArrowKey(ArrowDirection.right), // expand alpha
       ArrowKey(ArrowDirection.down), // alpha/key
       CharInput('k'), // type key
-      ControlKey(ControlCode.enter), // tree → heavy
-      ControlKey(ControlCode.enter), // heavy → light (select alpha/a1)
-      ControlKey(ControlCode.enter), // light skip → theme
+      ControlKey(ControlCode.enter), // tree → default model
+      ControlKey(ControlCode.enter), // default model (alpha/a1) → theme
       ControlKey(ControlCode.enter), // theme (system) → confirm
       ControlKey(ControlCode.enter), // confirm → write
     ];
@@ -237,15 +202,15 @@ void main() {
       // Rows: local/p, local/sep, local/m1
       ArrowKey(ArrowDirection.down), // local/sep
       ArrowKey(ArrowDirection.down), // local/m1
-      ControlKey(ControlCode.enter), // tree → heavy
-      ControlKey(ControlCode.enter), // heavy → light (select local/m1)
-      ControlKey(ControlCode.enter), // light skip → theme
+      ControlKey(ControlCode.enter), // tree → default model
+      ControlKey(ControlCode.enter), // default model (local/m1) → theme
       ControlKey(ControlCode.enter), // theme (system) → confirm
       ControlKey(ControlCode.enter), // confirm → write
     ];
     final cfg = await run(screen).timeout(overlayTimeout);
     expect(cfg, isNotNull);
-    expect(cfg!.tiers, {'heavy': 'local/m1'});
+    expect(cfg!.defaultProvider, 'local');
+    expect(cfg.defaultModel, 'm1');
     expect(cfg.providers, isEmpty);
   });
 
@@ -258,9 +223,8 @@ void main() {
       ArrowKey(ArrowDirection.right), // expand alpha
       ArrowKey(ArrowDirection.down), // alpha/key
       CharInput('k'), // type key
-      ControlKey(ControlCode.enter), // tree → heavy
-      ControlKey(ControlCode.enter), // heavy → light (select alpha/a1)
-      ControlKey(ControlCode.enter), // light skip → theme
+      ControlKey(ControlCode.enter), // tree → default model
+      ControlKey(ControlCode.enter), // default model (alpha/a1) → theme
       ArrowKey(ArrowDirection.down), // System theme → Dark theme
       ControlKey(ControlCode.enter), // select "Dark theme"
       ControlKey(ControlCode.enter), // confirm → write
@@ -277,9 +241,8 @@ void main() {
       ArrowKey(ArrowDirection.right), // expand alpha
       ArrowKey(ArrowDirection.down), // alpha/key
       CharInput('k'), // type key
-      ControlKey(ControlCode.enter), // tree → heavy
-      ControlKey(ControlCode.enter), // heavy → light (select alpha/a1)
-      ControlKey(ControlCode.enter), // light skip → theme
+      ControlKey(ControlCode.enter), // tree → default model
+      ControlKey(ControlCode.enter), // default model (alpha/a1) → theme
       ArrowKey(ArrowDirection.down), // System theme → Dark theme
       ArrowKey(ArrowDirection.down), // Dark theme → Light theme
       ControlKey(ControlCode.enter), // select "Light theme"
@@ -295,30 +258,28 @@ void main() {
     final initial = UserConfig(
       defaultProvider: 'alpha',
       defaultModel: 'a1',
-      tiers: {'heavy': 'alpha/a1'},
       providers: {'alpha': const ProviderConfig(apiKey: 'ka')},
       themeVariant: 'dark',
     );
-    // Providers → heavy → light → theme (pre-filled "Dark") → limits → confirm.
-    canned.events = List.filled(6, ControlKey(ControlCode.enter));
+    // Providers → default model → theme (pre-filled "Dark") → limits → confirm.
+    canned.events = List.filled(5, ControlKey(ControlCode.enter));
     final cfg = await run(screen, initial: initial).timeout(overlayTimeout);
     expect(cfg, isNotNull);
     expect(cfg!.themeVariant, 'dark',
         reason: 'pre-filled dark should survive Enter-through');
   });
 
-  test('Esc from theme goes back to light step', () async {
+  test('Esc from theme goes back to the default-model step', () async {
     final screen = fakeScreen();
     canned.events = [
       CharInput(' '), // check alpha
       ArrowKey(ArrowDirection.right), // expand alpha
       ArrowKey(ArrowDirection.down), // alpha/key
       CharInput('k'), // type key
-      ControlKey(ControlCode.enter), // tree → heavy
-      ControlKey(ControlCode.enter), // heavy → light (select a1)
-      ControlKey(ControlCode.enter), // light skip → theme
-      EscapeKey(), // back to light
-      ControlKey(ControlCode.enter), // light skip → theme (again)
+      ControlKey(ControlCode.enter), // tree → default model
+      ControlKey(ControlCode.enter), // default model → theme
+      EscapeKey(), // back to default model
+      ControlKey(ControlCode.enter), // default model → theme (again)
       ControlKey(ControlCode.enter), // theme (system) → confirm
       ControlKey(ControlCode.enter), // confirm → write
     ];
@@ -350,7 +311,8 @@ void main() {
       contains('⚠ Catalog proxy warning'),
     );
   });
-  test('read-only config: write failure is surfaced in-modal, not thrown', () async {
+  test('read-only config: write failure is surfaced in-modal, not thrown',
+      () async {
     // A read-only config file (as the sandbox's :ro mount produces) makes the
     // confirm-time write fail. The overlay must stay open, show the error, and
     // let the user back out — not throw an unhandled FileSystemException.
@@ -364,19 +326,17 @@ void main() {
     addTearDown(() => Process.runSync('chmod', ['644', cfgFile.path]));
 
     canned.events = [
-      CharInput(' '),                    // check alpha
-      ArrowKey(ArrowDirection.right),    // expand alpha
-      ArrowKey(ArrowDirection.down),     // alpha/key
-      CharInput('k'),                    // type key
-      ControlKey(ControlCode.enter),     // tree → heavy
-      ControlKey(ControlCode.enter),     // heavy select alpha/a1 → light
-      ControlKey(ControlCode.enter),     // light skip → theme
-      ControlKey(ControlCode.enter),     // theme (system) → confirm
-      ControlKey(ControlCode.enter),     // confirm → write FAILS, stays open
+      CharInput(' '), // check alpha
+      ArrowKey(ArrowDirection.right), // expand alpha
+      ArrowKey(ArrowDirection.down), // alpha/key
+      CharInput('k'), // type key
+      ControlKey(ControlCode.enter), // tree → default model
+      ControlKey(ControlCode.enter), // default model → theme
+      ControlKey(ControlCode.enter), // theme (system) → confirm
+      ControlKey(ControlCode.enter), // confirm → write FAILS, stays open
       EscapeKey(), // confirm → theme
-      EscapeKey(), // theme → light
-      EscapeKey(), // light → heavy
-      EscapeKey(), // heavy → providers
+      EscapeKey(), // theme → default model
+      EscapeKey(), // default model → providers
       EscapeKey(), // providers → cancel
     ];
 
