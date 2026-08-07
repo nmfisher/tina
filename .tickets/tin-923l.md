@@ -1,6 +1,6 @@
 ---
 id: tin-923l
-status: started
+status: closed
 deps: []
 links: []
 created: 2026-08-07T10:52:21Z
