@@ -1,6 +1,6 @@
 ---
 id: tin-80ll
-status: started
+status: closed
 deps: [tin-923l, tin-7spm]
 links: [tin-923l, tin-7spm]
 created: 2026-08-07T14:50:00Z
@@ -63,3 +63,18 @@ Nodes no longer use `role`/`model`. A codergen node runs an agent built from its
 when omitted) with the default tool set + `delegate`. The seed workflow is
 `start -> main -> done`. Sub-agents still resolve through the catalog. The
 editor writes the new attrs. Tests pass.
+
+## Result
+
+Implemented in PR #2 (commit `9341944`). Nodes carry `system_prompt` (alias
+`instructions`), `llm_model`, `llm_provider`; the node run builds the agent
+from those via `runStandalone(systemPrompt: …)` + a new `resolveIdentityPrompt`
+wrapper, with the conversation model inherited when the node omits its model.
+`role`/`model` getters, the `role` parameter on `CodergenBackend.run`, and the
+validator's `role_unknown`/`knownRoles` plumbing are removed. The seed is
+`start -> main -> done`. Sub-agents are unchanged (still the role catalog via
+`delegate`). A failing test (`graph_node_identity_test.dart`) was written
+first; all tests touched by the change pass. Pre-existing, unrelated failures
+(search_tool, process_tree, tina_index graph_test, one session_controller
+timing test) were confirmed to also fail on the base code. Status
+`started -> closed`.
