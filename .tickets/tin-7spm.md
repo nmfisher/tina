@@ -1,8 +1,8 @@
 ---
 id: tin-7spm
-status: open
+status: closed
 deps: []
-links: []
+links: [tin-923l]
 created: 2026-08-07T11:20:19Z
 type: chore
 priority: 2
@@ -16,4 +16,13 @@ Follow-up to tin-923l. Design question: we want a system prompt PER NODE in DOT 
 ## Acceptance Criteria
 
 A written proposal covers per-node system prompts and node handoff (hard-coded edges vs system-prompt-directed delegation vs hybrid), with options, trade-offs, and a recommendation. No implementation changes are made.
+
+## Result
+
+Proposal delivered at `docs/proposals/node_handoff_design.md`.
+
+- **Q1 (per-node system prompts):** roles stay the single source of identity truth (Option A, per PR #1/tin-923l); add an optional *additive* node `instructions` attribute (Option C) for per-node framing; reject wholesale `system_prompt` replacement (Option B).
+- **Q2 (node handoff):** hybrid (C) — engine-enforced graph edges for guaranteed structure, `delegate` for dynamic intra-node fan-out, and the existing `Outcome.suggestedNextIds` (engine edge-selection Step 3) as the bounded bridge for agent-chosen next nodes. Keep PR #1's single-`main` delegation as the default chat path; reserve multi-node graphs for workflows needing determinism/audit.
+
+No code or tests changed. Plan only.
 
