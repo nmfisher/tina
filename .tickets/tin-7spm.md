@@ -1,0 +1,19 @@
+---
+id: tin-7spm
+status: open
+deps: []
+links: []
+created: 2026-08-07T11:20:19Z
+type: chore
+priority: 2
+assignee: Nick Fisher
+tags: [workflows, dot, system-prompts, handoff, design, proposal]
+---
+# Explore node handoff design for workflows — propose (no implementation)
+
+Follow-up to tin-923l. Design question: we want a system prompt PER NODE in DOT workflows, and the open question is how one node hands off to another. If a main node must hand off to a reviewer, it can either decide the handoff itself (agent-directed, e.g. via the delegate tool) or follow hard-coded prompts/edges (engine-enforced graph routing, e.g. current VERDICT edge-label routing). Explore: per-node system prompts (where they live — node attrs vs role resolution), hard-coded vs system-prompt-directed handoff vs a hybrid, and what the main→reviewer example implies for routing, determinism, auditability, and flexibility. Deliver a concrete proposal with options, trade-offs, and a recommendation. PLAN ONLY: do not implement. Do not restrict what changes you may consider; just produce the proposal.
+
+## Acceptance Criteria
+
+A written proposal covers per-node system prompts and node handoff (hard-coded edges vs system-prompt-directed delegation vs hybrid), with options, trade-offs, and a recommendation. No implementation changes are made.
+
