@@ -364,3 +364,84 @@ escape hatches PR #1 deliberately left open.
 Both recommendations are additive to PR #1's foundation, require no reversion of tin-923l's
 simplification, and use primitives the engine already provides (`overrides`-style identity layering,
 the `_selectEdge` cascade, `suggestedNextIds`, the `delegate` tool).
+
+---
+
+## 7. Follow-up: nodes vs agents (clarification)
+
+A follow-up question came back on this proposal. What exactly is a "node," and how does it relate to
+an "agent"? This section answers it in plain terms, grounded in the current code. It is **plan only**
+— it changes nothing.
+
+**Words used here.** A *node* is a box in the DOT graph. It holds a `role`, a `prompt`, and edges to
+other nodes (`PipelineNode`, `packages/attractor/lib/src/graph.dart:11`). An *agent* is the runner
+that does one turn of model-and-tool work (`Agent`). The *engine* walks the graph
+(`PipelineEngine`, `engine.dart:27`). The *scheduler* builds agents from roles (`SubAgentScheduler`,
+`sub_agent_scheduler.dart:225`).
+
+### Q1 — Is a node a separate agent, or the same agent with a different prompt?
+
+It is neither, exactly. A node is a **description**. When the engine reaches a node, it asks the
+scheduler to build a **fresh `Agent` for that one turn** and drop it after.
+
+The path is: `engine._executeWithRetry` → `CodergenHandler.execute` (`codergen_handler.dart:18`) →
+`backend.run` → `TinaCodergenBackend.run` (`tina_codergen_backend.dart:34`) →
+`scheduler.runStandalone` (`sub_agent_scheduler.dart:783`). That last call does `Agent(...)`
+(`sub_agent_scheduler.dart:820`), runs `agent.run(...)`, and returns the text. The `Agent` object is
+local to that call.
+
+So a node is not a long-lived agent. It is also not "the same agent re-prompted." It is **the same
+shared machinery (engine + scheduler + role catalog + provider registry) building a new, one-shot
+agent each time**, from that node's `role` (system prompt, tools, model) and `prompt` (the task).
+
+### Q2 — Does each node have its own state, memory, and turn loop, or one shared?
+
+- **Turn loop: its own.** Each node's `Agent` runs its own model-and-tool loop. Nodes do not share a
+  loop.
+- **Memory (chat history): its own, and fresh.** Each node starts with an **empty** message list.
+  The pipeline path calls `runStandalone` with no `seedHistory`, so history starts empty
+  (`sub_agent_scheduler.dart:834`). Node B does **not** see node A's prior messages. The model never
+  "remembers" the last node.
+- **State: one shared store.** The engine makes one `Context` per run (`engine.dart:62`) and passes
+  it to every node. A node writes its output under `context.<nodeId>` (`codergen_handler.dart:59`),
+  and the engine merges it back (`engine.dart:125`). Later nodes can read it.
+
+Then how does data move between nodes if there is no shared memory? **As text.** The handler builds a
+*preamble* from the shared `Context` (`buildPreamble`, `codergen_handler.dart:87`) and puts it in
+front of the next node's prompt (`tina_codergen_backend.dart:49`). Node B sees node A's output only
+because the handler copied it in as text. Chat `history` works the same way: it is seeded into the
+`Context` as a string (`pipeline_runner.dart:97`) and pulled in only where a prompt writes `$history`
+— it is text, not a shared message log.
+
+The engine itself keeps no state between runs (`engine.dart:25`): one engine per run.
+
+### Q3 — When `main` hands off to a reviewer, is the reviewer a new agent, or the same engine with a different role?
+
+It depends on **which** handoff. The two are different.
+
+**Handoff by graph edge (engine-owned).** `main` finishes its one-shot agent. The engine reads its
+`Outcome` — a `VERDICT:` line becomes `preferredLabel`. Then `_selectEdge` picks the `review` edge
+(`engine.dart:229`), and the loop builds **another fresh one-shot agent** for the reviewer, with
+`role=verifier`. This is **the same engine running a different role and prompt** — a new agent, fresh
+empty memory. It is not the same `Agent` instance.
+
+**Handoff by the `delegate` tool (agent-owned).** Inside `main`'s own turn, the model calls
+`delegate(agent="verifier", task=…)` (`delegate_tool.dart:33`). That calls `spawn`
+(`sub_agent_scheduler.dart:381`), which makes a **real sub-agent job** at `depth+1`, runs it as a
+nested agent, waits for it, and folds the answer back into `main`'s turn as a tool result. This **is**
+a new agent instance — tracked, nested, with its own saved transcript when persistence is on —
+running *inside* the parent turn, not as a new graph node.
+
+One-line form: **a graph edge switches role and builds a fresh one-shot agent on shared `Context`;
+`delegate` spawns a nested agent instance inside the current turn.**
+
+### What this proposal implies
+
+The hybrid (§4.4) keeps both handoffs, so it keeps both shapes. Engine edges keep the "fresh
+one-shot agent per node, shared `Context`" model. `delegate` keeps real sub-agents. The proposed
+`suggestedNextIds` bridge is still edge selection, so it is still the first shape, not a new one.
+
+The Q1 recommendation (per-node `instructions`, §3.4) only **adds text to a node's system prompt**.
+It does not make a node a persistent agent, and it does not give a node memory of prior nodes. A node
+stays a one-shot runner whose only link to other nodes is the shared `Context`. So nothing in this
+proposal changes the answers above. It layers on top of them.

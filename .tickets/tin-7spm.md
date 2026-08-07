@@ -26,3 +26,14 @@ Proposal delivered at `docs/proposals/node_handoff_design.md`.
 
 No code or tests changed. Plan only.
 
+## Follow-up (2026-08-07)
+
+Added §7 "Follow-up: nodes vs agents (clarification)" to `docs/proposals/node_handoff_design.md`,
+answering: (1) a node is a fresh one-shot `Agent` built per turn from the node's `role`+`prompt` by
+the scheduler — not a long-lived agent, and not the same agent re-prompted; (2) each node has its own
+turn loop and a fresh empty message history, but all nodes in a run share one `Context` store, with
+data passed forward as preamble text (no shared LLM memory); (3) a graph-edge handoff is the same
+engine building a fresh one-shot agent with a new role, while a `delegate` handoff spawns a real
+nested sub-agent instance inside the parent turn. Status stays `closed`: this is a clarification of
+the delivered proposal, not new implementation.
+
