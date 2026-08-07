@@ -89,6 +89,26 @@ String resolveSystemPrompt(
       identity: identity, cwd: cwd, safeMode: safeMode, loadProjectContext: loadProjectContext);
 }
 
+/// Resolve a system prompt from an explicit [identity] string (a node's
+/// `system_prompt` attribute — tin-80ll), wrapped with the shared
+/// `<environment>` and `<project-context>` blocks. This is the node-run analogue
+/// of [resolveSystemPrompt]: where a sub-agent's identity comes from an
+/// [AgentRole], a node's identity comes from its DOT attribute.
+///
+/// When [loadProjectContext] is false the `<project-context>` (AGENTS.md) block
+/// is omitted.
+String resolveIdentityPrompt(
+  String identity, {
+  String? cwd,
+  bool safeMode = false,
+  bool loadProjectContext = true,
+}) =>
+    _buildAgentPrompt(
+        identity: identity,
+        cwd: cwd,
+        safeMode: safeMode,
+        loadProjectContext: loadProjectContext);
+
 /// Walk from [startDir] up to filesystem root, collecting every AGENTS.md
 /// along the way. Returned root-first → cwd-last so the most specific rules
 /// land at the bottom of the system prompt (where instruction-following is

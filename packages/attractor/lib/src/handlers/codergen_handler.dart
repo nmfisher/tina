@@ -35,7 +35,6 @@ class CodergenHandler implements NodeHandler {
     try {
       result = await backend.run(
         node: node,
-        role: node.role,
         prompt: prompt,
         preamble: preamble,
         context: context,

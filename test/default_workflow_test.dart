@@ -126,20 +126,21 @@ void main() {
       expect(seedDefaultWorkflow(workflows), isFalse);
     });
 
-    test('seed parses and validates cleanly with the known roles', () {
+    test('seed parses and validates cleanly', () {
       seedDefaultWorkflow(workflows);
       final source =
           File(p.join(workflows.path, 'default.dot')).readAsStringSync();
       final graph = parseDot(source);
-      final diags = validate(graph,
-          knownRoles: {'orchestrator', 'verifier', 'implementer'});
+      final diags = validate(graph);
       expect(diags.where((d) => d.severity == Severity.error), isEmpty);
       expect(diags.where((d) => d.severity == Severity.warning), isEmpty);
-      // structure: start -> plan -> review (revise loop) -> execute -> done.
-      expect(graph.nodes.keys,
-          containsAll(['start', 'plan', 'review', 'execute', 'done']));
+      // structure: start -> main -> done. main carries its own system_prompt.
+      expect(graph.nodes.keys, containsAll(['start', 'main', 'done']));
       expect(graph.findStartNode()!.id, 'start');
       expect(graph.isTerminal(graph.node('done')!), isTrue);
+      expect(graph.node('main')!.systemPrompt, isNotEmpty);
+      expect(graph.outgoing('start').single.to, 'main');
+      expect(graph.outgoing('main').single.to, 'done');
     });
   });
 

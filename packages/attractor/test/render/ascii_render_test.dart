@@ -8,7 +8,7 @@ void main() {
         digraph L {
           start [shape=Mdiamond, label="Start"]
           done [shape=Msquare, label="Done"]
-          plan [shape=box, label="Plan", role="orchestrator"]
+          plan [shape=box, label="Plan", llm_model="sonnet", llm_provider="anthropic"]
           start -> plan -> done
         }
       ''');
@@ -20,8 +20,8 @@ void main() {
       expect(canvas, contains('Done'));
       // A forward arrowhead is present.
       expect(canvas, contains('▶'));
-      // The plan node's role is shown.
-      expect(canvas, contains('orchestrator'));
+      // The plan node's model is shown as the sub-line.
+      expect(canvas, contains('sonnet'));
       // Centers are populated for every node.
       expect(r.centers.keys, containsAll(['start', 'plan', 'done']));
     });

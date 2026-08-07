@@ -280,6 +280,7 @@ Future<void> _runNonInteractive(AppComposition app) async {
       pipeline: app.pipeline,
       workflowsDir: Directory(p.join(tinaDataDir.path, 'workflows')),
       runsRoot: Directory(p.join(tinaDataDir.path, 'runs')),
+      defaultModelReference: '${app.config.provider}/${app.config.model}',
     );
     final rawInput = app.config.prompt?.trim();
     try {
@@ -346,6 +347,7 @@ Future<void> _runNonInteractive(AppComposition app) async {
         workflowsDir: workflowsDir,
         runsRoot:
             Directory(p.join(tinaDirFromEnv(app.environment.env).path, 'runs')),
+        defaultModelReference: '${app.config.provider}/${app.config.model}',
       );
       final rawInput = prompt.trim();
       final outcome = await runner.run(

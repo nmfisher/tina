@@ -1712,58 +1712,55 @@ void main() {
   });
 
   group('runStandalone (attractor seam)', () {
-    test('returns the role final answer text', () async {
+    test('runs a node agent from its system prompt and returns the answer', () async {
       final scheduler = testScheduler(
-        scriptedRegistry({'a': answerEvents('hello from the role')}),
+        scriptedRegistry({'a': answerEvents('hello from the node')}),
         pipeline: pipeline,
       );
       final sink = FakeAgentSink();
       final result = await scheduler.runStandalone(
-        role: const AgentRole(name: 'a', description: 'a'),
+        systemPrompt: 'You are a coding agent.',
         task: 'do the thing',
         parentReference: 'a/a-model',
         sink: sink,
       );
       expect(result.isError, isFalse);
-      expect(result.text, 'hello from the role');
+      expect(result.text, 'hello from the node');
       // The streamed text reached the sink (the host would render it).
-      expect(sink.texts.join(), contains('hello from the role'));
+      expect(sink.texts.join(), contains('hello from the node'));
       await scheduler.dispose();
     });
 
-    test('resolves the role model tier via the registry', () async {
+    test('inherits the conversation model when no modelReference is set', () async {
       final scheduler = testScheduler(
-        scriptedRegistry(
-            {'a': answerEvents('from-a'), 'b': answerEvents('from-b')}),
+        scriptedRegistry({'a': answerEvents('from-a')}),
         pipeline: pipeline,
-        modelTiers: {'heavy': 'b/b-model'},
       );
       final result = await scheduler.runStandalone(
-        role: const AgentRole(name: 'x', description: 'x', modelTier: 'heavy'),
+        systemPrompt: 'id',
         task: 'go',
         parentReference: 'a/a-model',
         sink: FakeAgentSink(),
       );
-      expect(result.text, 'from-b');
+      // 'a' answers — the node inherited the parent (conversation) model.
+      expect(result.text, 'from-a');
       await scheduler.dispose();
     });
 
-    test('modelReference overrides the role tier', () async {
+    test('a node modelReference overrides the inherited model', () async {
       final scheduler = testScheduler(
         scriptedRegistry(
             {'a': answerEvents('from-a'), 'b': answerEvents('from-b')}),
         pipeline: pipeline,
-        modelTiers: {'heavy': 'a/a-model'},
       );
       final result = await scheduler.runStandalone(
-        role: const AgentRole(name: 'x', description: 'x', modelTier: 'heavy'),
+        systemPrompt: 'id',
         task: 'go',
         parentReference: 'a/a-model',
         modelReference: 'b/b-model',
         sink: FakeAgentSink(),
       );
-      // 'b' answers, not 'a' (the tier's model) — the workflow node's `model`
-      // attr won.
+      // 'b' answers, not 'a' — the node's llm_model/llm_provider won.
       expect(result.text, 'from-b');
       await scheduler.dispose();
     });
@@ -1772,15 +1769,15 @@ void main() {
       final scheduler = testScheduler(
         scriptedRegistry({'a': answerEvents('ok')}),
         pipeline: pipeline,
-        modelTiers: const {},
       );
       final result = await scheduler.runStandalone(
-        role: const AgentRole(name: 'x', description: 'x', modelTier: 'ghost'),
+        systemPrompt: 'id',
         task: 'go',
+        modelReference: 'ghost/ghost', // no 'ghost' provider registered
         sink: FakeAgentSink(),
       );
       expect(result.isError, isTrue);
-      expect(result.text, contains('unknown model tier'));
+      expect(result.text, contains('failed to build provider'));
       await scheduler.dispose();
     });
   });

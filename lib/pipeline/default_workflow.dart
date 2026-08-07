@@ -107,10 +107,11 @@ Future<void> ensureDefaultWorkflowUsable(
   }
 }
 
-/// The seeded default chat workflow: planner -> reviewer -> executor, with a
-/// revise loop back to the planner. The executor node is an `orchestrator`
-/// that splits the work and delegates to implementer sub-agents via the
-/// `delegate` tool, so "one or more executors" needs no engine parallelism.
+/// The seeded default chat workflow: a single `main` node that plans and
+/// delegates. `main` carries its own `system_prompt` (its identity) and inherits
+/// the conversation's model (no `llm_model`/`llm_provider`), so it works on any
+/// configured provider. It plans the turn, then delegates specialist work to
+/// sub-agents (research, implementer, verifier, tester) via the `delegate` tool.
 /// `$input` is the user's message and `$history` the (truncated) chat
 /// transcript, both expanded by the engine at run time.
 const String kDefaultWorkflowDotSource = '''
@@ -118,26 +119,23 @@ const String kDefaultWorkflowDotSource = '''
 // while this file exists. Edit with /workflow edit default; delete the file
 // (or set [default] workflow = "none" in ~/.tina/config) to fall back to the
 // plain single-agent path.
+//
+// A codergon node carries its own system_prompt (identity) and optional
+// llm_model + llm_provider (model). Omit the model attrs to inherit the
+// conversation's model. main delegates specialist work to sub-agents via the
+// delegate tool.
 
 digraph default {
   start [shape=Mdiamond, label="Start"]
 
-  plan [shape=box, role="orchestrator", label="Plan",
-        prompt="Produce a concrete implementation plan for: \$input.\\nConversation history for context:\\n\$history\\nNumber the steps and reference specific files. End your response with a line VERDICT: submit."]
-
-  review [shape=box, role="verifier", label="Review",
-          prompt="Review the plan above for correctness, completeness, and ordering. Check that each step references specific files and respects dependencies. End your response with VERDICT: approve when the plan is sound, or VERDICT: revise followed by your comments when it needs changes."]
-
-  execute [shape=box, role="orchestrator", label="Execute",
-           prompt="Execute the approved plan. Where the work splits cleanly, delegate pieces to implementer sub-agents with the delegate tool and integrate their results; otherwise make the changes directly. Read each file before editing it. Report what was done."]
+  main [shape=box, label="Main",
+        system_prompt="You are the main coding agent. You talk with the user and turn their request into a plan, then carry it out.\\n\\nYou have file tools (read, write, edit, bash, search, grep, glob) and a delegate tool. For exploration and specialist work, delegate to sub-agents and act on their results: research (read-only codebase exploration), implementer (makes a specific change), verifier (reviews a change), tester (writes and runs tests). Read each file before editing it, keep changes minimal, and report what you did.\\n\\nIf AGENTS.md exists in any directory, follow the instructions specified there.",
+        prompt="User request: \$input\\n\\nConversation history for context:\\n\$history\\n\\nPlan the work, delegate specialist steps to sub-agents with the delegate tool where it helps, and make the rest of the changes directly. Report what you did."]
 
   done [shape=Msquare, label="Done"]
 
-  start -> plan
-  plan   -> review  [label="submit"]
-  review -> execute [label="approve"]
-  review -> plan    [label="revise"]
-  execute -> done
+  start -> main
+  main -> done
 }
 ''';
 

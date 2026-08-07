@@ -691,6 +691,8 @@ class TuiCoordinator {
           pipeline: pipeline,
           workflowsDir: workflowsDir,
           runsRoot: runsRoot,
+          defaultModelReference:
+              '${app.config.provider}/${app.config.model}',
           screen: screen,
           editor: editor,
         );

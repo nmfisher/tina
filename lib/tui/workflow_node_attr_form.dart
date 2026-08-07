@@ -9,12 +9,14 @@ import 'spawn_overlay.dart';
 /// [TextBuffer] for every field, which is far less code than a per-field form
 /// and stays true to the DOT ethos. The block shape is:
 /// ```
-/// label = Plan
-/// role = orchestrator
+/// label = Main
+/// system_prompt = You are the main agent.   (node identity; \n escapes newlines)
 /// shape = box
 /// goal_gate = false
 /// max_retries =
-/// model = deepseek/deepseek-chat   (optional "provider/model" override)
+/// llm_provider = anthropic                  (optional; with llm_model overrides the conversation model)
+/// llm_model = claude-sonnet-4-6
+/// retry_target =
 /// prompt =
 /// <free-form prompt — everything after the `prompt =` line>
 /// ```
@@ -163,11 +165,13 @@ Future<bool> runNodeAttrEditor({
 String _serialize(PipelineNode n) {
   final buf = StringBuffer();
   buf.writeln('label = ${n.label == n.id ? '' : n.label}');
-  buf.writeln('role = ${n.role}');
+  // Newlines are escaped so a multiline system_prompt stays on one form line.
+  buf.writeln('system_prompt = ${_escapeInline(n.systemPrompt)}');
   buf.writeln('shape = ${n.shape}');
   buf.writeln('goal_gate = ${n.goalGate}');
   buf.writeln('max_retries = ${n.maxRetries ?? ''}');
-  buf.writeln('model = ${n.model}');
+  buf.writeln('llm_provider = ${n.llmProvider}');
+  buf.writeln('llm_model = ${n.llmModel}');
   buf.writeln('retry_target = ${n.retryTarget}');
   buf.writeln('prompt =');
   buf.write(n.prompt.isNotEmpty ? n.prompt : '');
@@ -194,11 +198,11 @@ void _apply(PipelineNode n, String text) {
     switch (key) {
       case 'label':
         n.attrs['label'] = value.isEmpty ? n.id : value;
-      case 'role':
+      case 'system_prompt':
         if (value.isEmpty) {
-          n.attrs.remove('role');
+          n.attrs.remove('system_prompt');
         } else {
-          n.attrs['role'] = value;
+          n.attrs['system_prompt'] = _unescapeInline(value);
         }
       case 'shape':
         n.attrs['shape'] = value.isEmpty ? 'box' : value;
@@ -211,11 +215,17 @@ void _apply(PipelineNode n, String text) {
           final parsed = int.tryParse(value);
           if (parsed != null) n.attrs['max_retries'] = parsed;
         }
-      case 'model':
+      case 'llm_provider':
         if (value.isEmpty) {
-          n.attrs.remove('model');
+          n.attrs.remove('llm_provider');
         } else {
-          n.attrs['model'] = value;
+          n.attrs['llm_provider'] = value;
+        }
+      case 'llm_model':
+        if (value.isEmpty) {
+          n.attrs.remove('llm_model');
+        } else {
+          n.attrs['llm_model'] = value;
         }
       case 'retry_target':
         if (value.isEmpty) {
@@ -230,3 +240,12 @@ void _apply(PipelineNode n, String text) {
   if (p.endsWith('\n')) p = p.substring(0, p.length - 1);
   n.attrs['prompt'] = p;
 }
+
+/// Escape newlines/backslashes/quotes so a multiline value renders on one form
+/// line and round-trips through [_unescapeInline].
+String _escapeInline(String s) =>
+    s.replaceAll(r'\', r'\\').replaceAll('\n', r'\n').replaceAll('"', r'\"');
+
+/// Reverse of [_escapeInline].
+String _unescapeInline(String s) =>
+    s.replaceAllMapped(RegExp(r'\\(.)'), (m) => m.group(1) == 'n' ? '\n' : m.group(1)!);

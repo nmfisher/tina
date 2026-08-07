@@ -766,22 +766,23 @@ class SubAgentScheduler {
     return _extractResult(role.name, history);
   }
 
-  /// Run a single agent turn for [role] with [task] as the user message,
-  /// returning the role's final answer text. This is the public seam for the
-  /// attractor pipeline's `CodergenBackend`: it reuses the scheduler's model
-  /// resolution (`role.modelTier` via the registry, already metered), tool/policy
-  /// derivation, and system-prompt assembly — without a [SubAgentJob], quota, or
-  /// panel/session.
+  /// Run a single agent turn for a codergon node with [systemPrompt] as the
+  /// agent's identity and [task] as the user message, returning the agent's
+  /// final answer text. This is the public seam for the attractor pipeline's
+  /// `CodergenBackend`: a node carries its own `system_prompt` + `llm_model`/
+  /// `llm_provider` (tin-80ll), so this builds the agent from those instead of
+  /// resolving an [AgentRole]. It reuses the scheduler's model resolution and
+  /// system-prompt assembly — without a [SubAgentJob], quota, or panel/session.
   ///
   /// Depth is 0 (a top-level pipeline node). [sink] streams the turn's text
   /// (e.g. into the conversation host); [cancelSignal] aborts it. [seedHistory]
   /// is reserved for the `full`-fidelity phase.
   ///
-  /// [modelReference] is a `"provider/model"` string that bypasses the role's
-  /// tier resolution entirely (a workflow node's `model` attribute); when null
-  /// the role's tier maps through [modelTiers] as usual.
+  /// [modelReference] is the node's resolved `"provider/model"` (from
+  /// `llm_model`/`llm_provider`); when null, [parentReference] (the
+  /// conversation's resolved model) is used.
   Future<RunAgentResult> runStandalone({
-    required AgentRole role,
+    required String systemPrompt,
     required String task,
     String parentReference = '',
     String? modelReference,
@@ -792,8 +793,7 @@ class SubAgentScheduler {
     final LlmProvider provider;
     final String reference;
     try {
-      reference =
-          modelReference ?? _resolvedReference(role) ?? parentReference;
+      reference = modelReference ?? parentReference;
       provider = registry.build(
         reference,
         maxTokens: maxTokens,
@@ -804,26 +804,33 @@ class SubAgentScheduler {
       return RunAgentResult.error('failed to build provider: $e');
     }
 
-    final ctx = AgentToolContext(
-      scheduler: this,
-      pipeline: pipeline,
-      parentReference: reference,
-      parentPolicy: _policyFor(role, PermissionPolicy()),
-      originConversationId: '',
-      depth: 0,
-    );
-    final tools = _toolsFor(role, ctx, 0);
-    final system = resolveSystemPrompt(role,
-        overrides: promptOverrides,
-        safeMode: safeMode,
-        loadProjectContext: pipeline.loadProjectContext);
+    // A node agent runs with the full base tool set plus `delegate` (when
+    // nesting is wired), so it can work directly AND reach the sub-agent
+    // catalog. Identity comes from [systemPrompt]; the model from [reference].
+    final base = buildTools(safeMode: safeMode).all;
+    final policy = _nodePolicy(base, PermissionPolicy());
+    final tools = <Tool>[...base];
+    if (delegateToolBuilder != null) {
+      final nestedCtx = AgentToolContext(
+        scheduler: this,
+        pipeline: pipeline,
+        parentReference: reference,
+        parentPolicy: policy,
+        originConversationId: '',
+        depth: 1,
+      );
+      tools.add(delegateToolBuilder!(nestedCtx));
+    }
+
+    final system = resolveIdentityPrompt(systemPrompt,
+        safeMode: safeMode, loadProjectContext: pipeline.loadProjectContext);
     final agent = Agent(
       provider: provider,
-      tools: tools,
+      tools: ToolRegistry(tools),
       sink: sink,
-      policy: ctx.parentPolicy,
+      policy: policy,
       asker: _autoDenyAsker,
-      maxSteps: role.maxSteps ?? defaultMaxSteps,
+      maxSteps: defaultMaxSteps,
       budget: subAgentBudgetLimit == 0
           ? null
           : TokenBudget(perSessionLimit: subAgentBudgetLimit),
@@ -839,10 +846,22 @@ class SubAgentScheduler {
       cancelSignal: cancelSignal,
     );
 
-    final extracted = _extractResult(role.name, history);
+    final extracted = _extractResult('node', history);
     if (extracted.isError) return RunAgentResult.error(extracted.content);
     return RunAgentResult(extracted.content);
   }
+
+  /// A codergen node agent may use exactly the base tool set plus `delegate`
+  /// (when nesting is wired). Derived the same way a role's policy is, so the
+  /// registry and the policy never drift.
+  PermissionPolicy _nodePolicy(Iterable<Tool> base, PermissionPolicy parent) =>
+      PermissionPolicy(
+        defaults: {
+          for (final t in base) t.schema.name: PermissionDecision.allow,
+          if (delegateToolBuilder != null) 'delegate': PermissionDecision.allow,
+        },
+        rules: parent.staticRules,
+      );
 
   /// Inline, telemetry-only Agent build used when the job has no panel host
   /// (or no [subAgentSessionFactory] is wired). Auto-deny asker, no session

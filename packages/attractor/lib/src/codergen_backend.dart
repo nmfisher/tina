@@ -24,9 +24,9 @@ class CodergenResult {
 }
 
 /// The seam a host application implements to turn a `box`/LLM node into a
-/// result. The engine has no LLM dependency; the host (tina) resolves the
-/// node's `role`, builds an agent, runs it, and returns its text (and,
-/// optionally, a verdict-derived outcome).
+/// result. The engine has no LLM dependency; the host (tina) reads the node's
+/// `system_prompt` / `llm_model` / `llm_provider` attributes, builds an agent,
+/// runs it, and returns its text (and, optionally, a verdict-derived outcome).
 ///
 /// [preamble] carries prior-node context (rendered from `context.*`); [prompt]
 /// is this node's task (already `$goal`-expanded). The host typically runs the
@@ -34,7 +34,6 @@ class CodergenResult {
 abstract class CodergenBackend {
   Future<CodergenResult> run({
     required PipelineNode node,
-    required String role,
     required String prompt,
     required String preamble,
     required Context context,
