@@ -9,8 +9,8 @@ import 'spawn_overlay.dart';
 /// [TextBuffer] for every field, which is far less code than a per-field form
 /// and stays true to the DOT ethos. The block shape is:
 /// ```
-/// label = Plan
-/// role = orchestrator
+/// label = Chat
+/// role = main
 /// shape = box
 /// goal_gate = false
 /// max_retries =

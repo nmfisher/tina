@@ -353,6 +353,9 @@ Future<void> _runNonInteractive(AppComposition app) async {
         sink: host,
         input: rawInput.isEmpty ? null : rawInput,
         history: formatChatHistory(app.initialHistory),
+        // Thread the conversation model so a tier-less node (the default
+        // `main` node) runs on the model the user invoked, not a fixed tier.
+        modelReference: '${app.config.provider}/${app.provider.model}',
       );
       if (!outcome.status.isOk) exit(1);
       await host.dispose();

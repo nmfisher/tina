@@ -20,14 +20,24 @@ class TinaCodergenBackend implements CodergenBackend {
   /// pipeline output renders inline like a normal agent turn.
   final AgentSink sink;
 
-  /// The role used when a node omits `role`. Defaults to `orchestrator`.
+  /// The role used when a node omits `role`. Defaults to `main` — the default
+  /// chat experience is one main agent that delegates to research/sub-agents,
+  /// never the repo-overview `orchestrator` flow by surprise.
   final String defaultRole;
+
+  /// Model reference inherited by a node whose role carries no model tier
+  /// (notably `main`, which has none): the live conversation model, threaded in
+  /// from the runner so the default chat agent runs on the model you are
+  /// chatting with rather than a fixed tier. Roles with a tier still resolve
+  /// their own model — this is the fallback, not an override.
+  final String defaultParentReference;
 
   TinaCodergenBackend({
     required this.scheduler,
     required this.pipeline,
     required this.sink,
-    this.defaultRole = 'orchestrator',
+    this.defaultRole = 'main',
+    this.defaultParentReference = '',
   });
 
   @override
@@ -40,10 +50,13 @@ class TinaCodergenBackend implements CodergenBackend {
     Future<void>? cancelSignal,
   }) async {
     final name = role.isNotEmpty ? role : defaultRole;
-    final agentRole = pipeline.role(name);
+    // resolveRole includes `main` (a valid node role, the default) even though
+    // it is never a delegation target — the catalog is the single source of
+    // truth for the identity/tools/model a node runs with.
+    final agentRole = pipeline.resolveRole(name);
     if (agentRole == null) {
       return CodergenResult.error(
-          'unknown role "$name"; known: ${pipeline.roles.map((r) => r.name).join(', ')}');
+          'unknown role "$name"; known: ${pipeline.resolvableRoleNames.join(', ')}');
     }
 
     final task = preamble.isEmpty ? prompt : '$preamble\n\n$prompt';
@@ -52,6 +65,7 @@ class TinaCodergenBackend implements CodergenBackend {
       task: task,
       sink: sink,
       cancelSignal: cancelSignal,
+      parentReference: defaultParentReference,
       // A node-level `model="provider/model"` attr overrides the role's tier.
       modelReference: node.model.isEmpty ? null : node.model,
     );

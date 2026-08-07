@@ -33,18 +33,21 @@ class PipelineRunner {
     this.editor,
   });
 
-  Set<String> get _knownRoles =>
-      pipeline.roles.map((r) => r.name).toSet();
+  Set<String> get _knownRoles => pipeline.resolvableRoleNames;
 
   /// Run `<workflowsDir>/<workflowName>.dot` to completion. [sink] is where the
   /// turn's streamed text + progress notices go — pass the active host.
   /// [history] (a chat transcript, if any) is seeded into the run context and
-  /// expandable as `$history` in node prompts.
+  /// expandable as `$history` in node prompts. [modelReference] is the live
+  /// conversation model inherited by nodes whose role has no model tier (e.g.
+  /// `main`); pass `"provider/model"` so the default chat agent runs on the
+  /// model the user is chatting with.
   Future<Outcome> run({
     required String workflowName,
     required AgentSink sink,
     String? input,
     String? history,
+    String? modelReference,
     Future<void>? cancelSignal,
   }) async {
     final source = await readWorkflow(workflowsDir, workflowName);
@@ -62,8 +65,12 @@ class PipelineRunner {
       sink.notice('$w', kind: NoticeKind.info);
     }
 
-    final backend =
-        TinaCodergenBackend(scheduler: scheduler, pipeline: pipeline, sink: sink);
+    final backend = TinaCodergenBackend(
+      scheduler: scheduler,
+      pipeline: pipeline,
+      sink: sink,
+      defaultParentReference: modelReference ?? '',
+    );
     final interviewer = TinaInterviewer(screen: screen, editor: editor);
 
     final runId = _newRunId();

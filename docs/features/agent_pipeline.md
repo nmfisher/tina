@@ -195,14 +195,33 @@ A pre-Part-II cleanup of the agent layer, in three commits:
 ## Default DOT workflow routing (2026-08-06)
 
 Since v0.1.3-ish, **every normal chat turn routes through an editable DOT
-workflow by default** — a planner → reviewer → executor pipeline — instead of
-the plain main-agent loop, while `~/.tina/workflows/default.dot` exists.
+workflow by default** while `~/.tina/workflows/default.dot` exists. The seeded
+default is **one `main` node** — the same delegating chat agent the plain
+no-workflow path runs — so the DOT-routed default is "one main agent that
+delegates repository exploration to `research` sub-agents (and other work to
+`implementer`/`verifier`/`tester`)" rather than a planner→reviewer→executor
+pipeline.
+
+**Single source of truth for agent identity, prompts, and tools** — no overlap:
+
+- **The `AgentRole` catalog** (`agent_pipeline.dart`) is authoritative for each
+  role's *system prompt* (`promptIdentity`), *tools*, *model tier*, and
+  *delegation capability*. Tools are symbolic references, so they cannot live in
+  a DOT file; one role name = one identity. `AgentPipeline.resolveRole()`
+  resolves a node's `role` (including `main`, the default), while `delegateTargets`
+  still excludes `main` (it is the entry, never delegated to).
+- **DOT workflow files** contribute *only the per-turn task* (a node `prompt`,
+  expanded with `$input`/`$history`/`$goal`) and *graph routing* (which role runs
+  where, `VERDICT:` edge selection). A node never redefines an identity or tool
+  set — that comes from its `role`.
 
 - **Seed**: first launch (and `--init-config`) writes `default.dot`
   (`lib/pipeline/default_workflow.dart`, `kDefaultWorkflowDotSource`): a
-  `start(Mdiamond) → plan(orchestrator) → review(verifier) ⇄ plan → execute
-  (orchestrator) → done(Msquare)` graph with `VERDICT:` routing (`submit` /
-  `approve` / `revise` back-edge).
+  `start(Mdiamond) → main(role=main) → done(Msquare)` graph. A node with no
+  `role` also defaults to `main` (`TinaCodergenBackend.defaultRole`), so the
+  default chat agent is never the repo-overview `orchestrator`/`scout` flow by
+  surprise. `orchestrator`/`scout` remain available as delegatable specialists
+  (and the sidecar-summaries fleet still uses `orchestrator` → `summarizer`).
 - **Routing rule** (`resolveDefaultWorkflowName`): the turn runs through the
   workflow when `default.dot` exists — unless `[default] workflow = "none"`
   in `~/.tina/config` disables routing, or the config names a different
@@ -217,10 +236,14 @@ the plain main-agent loop, while `~/.tina/workflows/default.dot` exists.
   (`packages/attractor/lib/src/handlers/codergen_handler.dart`). `history`
   is an engine-managed context key, so it only surfaces where a prompt
   explicitly asks for it.
-- **"One or more executors"** comes from the `execute` node's role:
-  `orchestrator` (canDelegate) splits the work and delegates to 1..N
-  `implementer` sub-agents via the existing `delegate` tool — no engine-level
-  parallel/fan-in (still deferred).
+- **"One main agent, N sub-agents"** comes from the `main` node's role:
+  `main` (canDelegate) has no file tools and fans out via the `delegate` tool
+  to `research`/`implementer`/`verifier`/`tester`/`orchestrator` — no
+  engine-level parallel/fan-in (still deferred).
+- **Inherited model**: `main` carries no model tier, so the runner threads the
+  live conversation model into the pipeline as the node's parent reference —
+  the default chat agent runs on the model you are chatting with, not a fixed
+  tier. (A node may still override with `model="provider/model"`.)
 - **Per-node model**: a node may set `model="provider/model"` (e.g.
   `review [role="verifier", model="deepseek/deepseek-chat"]`) to override the
   role's tier model for that node only. Threaded through
@@ -323,7 +346,7 @@ signals, detached output), not a new concurrency primitive. The infrastructure f
 
 ```
                 ┌─────────────────────────────────────────┐
-   user ──────▶ │  main agent (orchestrator)              │
+   user ──────▶ │  main agent (delegates)                 │
    (turn N)     │  model A · policy P · tools + delegate  │
                 └─────────┬───────────────────────────────┘
                           │ spawn (detached; not awaited inline)

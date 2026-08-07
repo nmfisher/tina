@@ -13,6 +13,8 @@ import 'helpers/fake_agent_sink.dart';
 /// instead of actually spawning an agent.
 class _RecordingScheduler extends SubAgentScheduler {
   String? seenModelReference;
+  AgentRole? seenRole;
+  String? seenParentReference;
   int calls = 0;
 
   _RecordingScheduler()
@@ -35,6 +37,8 @@ class _RecordingScheduler extends SubAgentScheduler {
     required AgentSink sink,
   }) async {
     calls++;
+    seenRole = role;
+    seenParentReference = parentReference;
     seenModelReference = modelReference;
     return const RunAgentResult('done');
   }
@@ -101,6 +105,86 @@ void main() {
         context: Context(),
       );
       expect(scheduler.seenModelReference, isNull);
+    });
+  });
+
+  group('TinaCodergenBackend role resolution', () {
+    test('a node with no role defaults to main (not orchestrator)', () async {
+      final scheduler = _RecordingScheduler();
+      final backend = TinaCodergenBackend(
+        scheduler: scheduler,
+        pipeline: defaultPipeline,
+        sink: FakeAgentSink(),
+      );
+      final node = PipelineNode(id: 'chat', attrs: {});
+      final result = await backend.run(
+        node: node,
+        role: '', // empty role attr — the engine passes '' for "no role"
+        prompt: 'answer the user',
+        preamble: '',
+        context: Context(),
+      );
+      expect(result.outcome, isNull); // not an error
+      expect(scheduler.seenRole?.name, 'main');
+    });
+
+    test('an explicit role="main" node resolves main', () async {
+      final scheduler = _RecordingScheduler();
+      final backend = TinaCodergenBackend(
+        scheduler: scheduler,
+        pipeline: defaultPipeline,
+        sink: FakeAgentSink(),
+      );
+      final node = PipelineNode(id: 'chat', attrs: {'role': 'main'});
+      await backend.run(
+        node: node,
+        role: 'main',
+        prompt: 'answer the user',
+        preamble: '',
+        context: Context(),
+      );
+      expect(scheduler.seenRole?.name, 'main');
+    });
+
+    test('an unknown role surfaces an error result', () async {
+      final scheduler = _RecordingScheduler();
+      final backend = TinaCodergenBackend(
+        scheduler: scheduler,
+        pipeline: defaultPipeline,
+        sink: FakeAgentSink(),
+      );
+      final node = PipelineNode(id: 'x', attrs: {'role': 'bogus'});
+      final result = await backend.run(
+        node: node,
+        role: 'bogus',
+        prompt: 'go',
+        preamble: '',
+        context: Context(),
+      );
+      expect(result.outcome?.status.isOk, isFalse);
+      expect(scheduler.calls, 0); // never spawned
+    });
+
+    test('a tier-less role inherits defaultParentReference (the conv model)',
+        () async {
+      // main has no modelTier, so it must fall back to the conversation model
+      // threaded in as the backend's defaultParentReference.
+      final scheduler = _RecordingScheduler();
+      final backend = TinaCodergenBackend(
+        scheduler: scheduler,
+        pipeline: defaultPipeline,
+        sink: FakeAgentSink(),
+        defaultParentReference: 'anthropic/claude-sonnet-4-6',
+      );
+      final node = PipelineNode(id: 'chat', attrs: {'role': 'main'});
+      await backend.run(
+        node: node,
+        role: 'main',
+        prompt: 'answer the user',
+        preamble: '',
+        context: Context(),
+      );
+      expect(scheduler.seenParentReference, 'anthropic/claude-sonnet-4-6');
     });
   });
 

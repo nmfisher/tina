@@ -113,6 +113,18 @@ class AgentPipeline {
   AgentRole? role(String name) =>
       roles.cast<AgentRole?>().firstWhere((r) => r?.name == name, orElse: () => null);
 
+  /// Resolve a DOT node's `role` attribute to the [AgentRole] it runs as:
+  /// [mainRole] when the name is main's, else the matching sub-role. Returns
+  /// null for an unknown name. Unlike [role] / [delegateTargets], this includes
+  /// main — main is a valid *node* role (the default; see
+  /// `TinaCodergenBackend.defaultRole`) even though it is never delegated *to*.
+  ///
+  /// This is the single resolution point for "which identity/tools/model does a
+  /// node get": the catalog is the source of truth, and a node contributes only
+  /// its task prompt (see `resolveSystemPrompt`).
+  AgentRole? resolveRole(String name) =>
+      name == mainRole.name ? mainRole : role(name);
+
   /// Look up a workflow by name.
   Workflow? workflow(String name) => workflows
       .cast<Workflow?>()
@@ -129,6 +141,13 @@ class AgentPipeline {
   /// The delegate picker's source of truth: sub-agents + workflows (never main).
   /// The delegate tool's schema enum is generated from this, so it can't drift.
   List<DelegationTarget> get delegateTargets => [...roles, ...workflows];
+
+  /// Every role a DOT node may declare: main plus the delegatable sub-roles.
+  /// The single source of truth for a host's `validate(knownRoles:)` set (so a
+  /// `role="main"` node is not flagged unknown). Wider than [delegateTargets]:
+  /// main is a node role but never a delegation target.
+  Set<String> get resolvableRoleNames =>
+      {mainRole.name, ...roles.map((r) => r.name)};
 }
 
 // ---------------------------------------------------------------------------
@@ -356,13 +375,16 @@ final defaultPipeline = AgentPipeline(
 // ---------------------------------------------------------------------------
 
 const _mainIdentity = '''
-You are a coding assistant. You talk directly with the user, but you do not read, write or edit files directly, or execute any scripts.
+You are tina's main coding assistant. You talk directly with the user and plan how to satisfy their request, but you do not read, write, edit, or run anything yourself — you have no file or shell tools.
 
-Instead, you will communicate with a single orchestrator agent. The orchestrator (and the sub-agents it orchestrates) will have the ability to read/write/edit/execute files.
+Instead, you delegate the concrete work to specialist sub-agents with the `delegate` tool and report their results back to the user:
+- `research` — read-only codebase exploration (finding files, tracing calls, summarizing subsystems). Delegate repository exploration here.
+- `implementer` — make code changes.
+- `verifier` — review a change for correctness.
+- `tester` — write and run tests.
+- `orchestrator` — fan out a repo-wide overview.
 
-Your primary role is planning how to execute the user's instructions (and for how to verify that the user's instructions have been successfully followed) at a high level of abstraction.
-
-You then pass your abstract plan & instruction to the orchestrator.
+Plan at a high level, then delegate each concrete step and synthesize the sub-agents' findings into your reply. Keep the user informed of what you have delegated.
 
 If AGENTS.md exists in any directory, follow the instructions specified in that directory.''';
 

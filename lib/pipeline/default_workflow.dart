@@ -107,37 +107,34 @@ Future<void> ensureDefaultWorkflowUsable(
   }
 }
 
-/// The seeded default chat workflow: planner -> reviewer -> executor, with a
-/// revise loop back to the planner. The executor node is an `orchestrator`
-/// that splits the work and delegates to implementer sub-agents via the
-/// `delegate` tool, so "one or more executors" needs no engine parallelism.
-/// `$input` is the user's message and `$history` the (truncated) chat
-/// transcript, both expanded by the engine at run time.
+/// The seeded default chat workflow: a single `main` node. `main` is one
+/// delegating agent (no file tools, canDelegate) — the same agent the
+/// no-workflow path runs — so the DOT-routed default IS "one main agent that
+/// delegates repository exploration to `research` sub-agents (and other work
+/// to `implementer`/`verifier`/`tester`)". Its identity/tools come from the
+/// `main` role; the node contributes only its task prompt. `$input` is the
+/// user's message and `$history` the (truncated) chat transcript, both expanded
+/// by the engine at run time. (The conversation model is threaded in by the
+/// runner, so `main` runs on the model you are chatting with.)
 const String kDefaultWorkflowDotSource = '''
 // tina's default chat workflow: every normal turn routes through this graph
-// while this file exists. Edit with /workflow edit default; delete the file
-// (or set [default] workflow = "none" in ~/.tina/config) to fall back to the
-// plain single-agent path.
+// while this file exists. The single `main` node IS the chat agent — it plans
+// and delegates (repository exploration to `research`, changes to
+// `implementer`, review to `verifier`, tests to `tester`) just like the
+// no-workflow path. Edit with /workflow edit default; delete the file (or set
+// [default] workflow = "none" in ~/.tina/config) to fall back to the plain
+// single-agent path.
 
 digraph default {
   start [shape=Mdiamond, label="Start"]
 
-  plan [shape=box, role="orchestrator", label="Plan",
-        prompt="Produce a concrete implementation plan for: \$input.\\nConversation history for context:\\n\$history\\nNumber the steps and reference specific files. End your response with a line VERDICT: submit."]
-
-  review [shape=box, role="verifier", label="Review",
-          prompt="Review the plan above for correctness, completeness, and ordering. Check that each step references specific files and respects dependencies. End your response with VERDICT: approve when the plan is sound, or VERDICT: revise followed by your comments when it needs changes."]
-
-  execute [shape=box, role="orchestrator", label="Execute",
-           prompt="Execute the approved plan. Where the work splits cleanly, delegate pieces to implementer sub-agents with the delegate tool and integrate their results; otherwise make the changes directly. Read each file before editing it. Report what was done."]
+  main [shape=box, role="main", label="Chat",
+        prompt="Answer the user's request: \$input.\\n\\nConversation history for context:\\n\$history\\n\\nPlan at a high level, then delegate the concrete work to specialist sub-agents with the delegate tool — repository exploration to research, code changes to implementer, review to verifier, tests to tester. Synthesize the sub-agents' findings into your reply to the user."]
 
   done [shape=Msquare, label="Done"]
 
-  start -> plan
-  plan   -> review  [label="submit"]
-  review -> execute [label="approve"]
-  review -> plan    [label="revise"]
-  execute -> done
+  start -> main
+  main   -> done
 }
 ''';
 

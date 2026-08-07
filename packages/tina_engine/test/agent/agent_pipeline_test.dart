@@ -39,6 +39,21 @@ void main() {
       expect(names, containsAll(['research', 'qa']));
       expect(names, isNot(contains('main')));
     });
+
+    test('resolveRole resolves main (the node default) and sub-roles', () {
+      // main is resolvable as a *node* role even though it is never a
+      // delegation target (role('main') stays null — tested above).
+      expect(pipeline.resolveRole('main'), same(pipeline.mainRole));
+      expect(pipeline.resolveRole('research')?.description, 'explore');
+      expect(pipeline.resolveRole('nope'), isNull);
+    });
+
+    test('resolvableRoleNames is main + sub-roles (the validate known set)', () {
+      // main is a valid node role, so it must be "known" to validation even
+      // though delegateTargets excludes it.
+      expect(pipeline.resolvableRoleNames, containsAll(['main', 'research']));
+      expect(pipeline.resolvableRoleNames, isNot(contains('nope')));
+    });
   });
 
   group('Workflow', () {

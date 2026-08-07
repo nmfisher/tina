@@ -694,6 +694,11 @@ class TuiCoordinator {
           screen: screen,
           editor: editor,
         );
+    // The live conversation model, threaded into the pipeline run so a node
+    // whose role has no model tier (the default `main` node) runs on the model
+    // the user is chatting with — matching the no-workflow interactive agent.
+    String activeModelReference() =>
+        '${app.config.provider}/${controller.active.provider.model}';
     controller.runWorkflow = ({required workflowName, input}) async {
       final host = controller.active.host;
       await controller.runCancellableTurn(
@@ -705,6 +710,7 @@ class TuiCoordinator {
             workflowName: workflowName,
             sink: host,
             input: input,
+            modelReference: activeModelReference(),
             cancelSignal: cancel,
           );
           host.showSeparator();
@@ -731,6 +737,7 @@ class TuiCoordinator {
         sink: sink,
         input: input,
         history: history,
+        modelReference: activeModelReference(),
         cancelSignal: cancelSignal,
       );
     };

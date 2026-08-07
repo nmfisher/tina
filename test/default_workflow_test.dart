@@ -126,20 +126,36 @@ void main() {
       expect(seedDefaultWorkflow(workflows), isFalse);
     });
 
-    test('seed parses and validates cleanly with the known roles', () {
+    test('seed parses and validates cleanly with the resolvable roles', () {
       seedDefaultWorkflow(workflows);
       final source =
           File(p.join(workflows.path, 'default.dot')).readAsStringSync();
       final graph = parseDot(source);
+      // The runner validates against the pipeline's resolvable role names
+      // (main + sub-roles), so the seeded `main` node must be "known" — no
+      // role_unknown warning.
       final diags = validate(graph,
-          knownRoles: {'orchestrator', 'verifier', 'implementer'});
+          knownRoles: defaultPipeline.resolvableRoleNames);
       expect(diags.where((d) => d.severity == Severity.error), isEmpty);
       expect(diags.where((d) => d.severity == Severity.warning), isEmpty);
-      // structure: start -> plan -> review (revise loop) -> execute -> done.
-      expect(graph.nodes.keys,
-          containsAll(['start', 'plan', 'review', 'execute', 'done']));
+      // structure: start -> main -> done (one chat agent that delegates).
+      expect(graph.nodes.keys, containsAll(['start', 'main', 'done']));
       expect(graph.findStartNode()!.id, 'start');
       expect(graph.isTerminal(graph.node('done')!), isTrue);
+    });
+
+    test('seed is one main node that delegates to research (no orchestrator)',
+        () {
+      seedDefaultWorkflow(workflows);
+      final source =
+          File(p.join(workflows.path, 'default.dot')).readAsStringSync();
+      // The default chat experience is one main agent (no file tools,
+      // canDelegate) that delegates repository exploration to research.
+      expect(source, contains('role="main"'));
+      expect(source, contains('research'));
+      // The repo-overview orchestrator/scout flow no longer runs as the default.
+      expect(source, isNot(contains('orchestrator')));
+      expect(source, isNot(contains('scout')));
     });
   });
 

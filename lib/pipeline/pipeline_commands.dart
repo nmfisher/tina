@@ -85,7 +85,7 @@ void _showHints(CommandContext ctx) {
       '    plain agent path\n',
       style: HostMessageStyle.dim);
   host.showMessage(
-      '  • a node runs as its `role` (default: orchestrator). role="verifier",\n'
+      '  • a node runs as its `role` (default: main). role="verifier",\n'
       '    role="implementer", ... swap the tools; model="provider/model" picks\n'
       '    the model for one node\n',
       style: HostMessageStyle.dim);
