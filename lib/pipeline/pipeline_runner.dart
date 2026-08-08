@@ -81,6 +81,10 @@ class PipelineRunner {
       ..register('conditional', ConditionalHandler())
       ..register('codergen', codergen)
       ..register('wait.human', HumanGateHandler(interviewer));
+    // Parallel fan-out (component) + fan-in (tripleoctagon). ParallelHandler
+    // resolves branch nodes through this same registry, so register it last.
+    registry.register('parallel', ParallelHandler(registry));
+    registry.register('parallel.fan_in', ParallelFanInHandler());
     registry.defaultHandler = codergen;
 
     sink.notice('▶ workflow: $workflowName'
