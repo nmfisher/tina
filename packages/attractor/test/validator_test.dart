@@ -34,31 +34,16 @@ void main() {
           isTrue);
     });
 
-    test('warns on an unknown role when knownRoles provided', () {
-      final g = parseDot('''
-        digraph X {
-          start [shape=Mdiamond]
-          exit [shape=Msquare]
-          n [shape=box, role="nonexistent"]
-          start -> n -> exit
-        }
-      ''');
-      final d = validate(g, knownRoles: {'orchestrator', 'implementer'});
-      expect(d.any((e) => e.rule == 'role_unknown' && e.severity == Severity.warning),
-          isTrue);
-    });
-
     test('a valid graph produces no errors', () {
       final g = parseDot('''
         digraph X {
           start [shape=Mdiamond]
           exit [shape=Msquare]
-          a [shape=box, role="implementer"]
+          a [shape=box, system_prompt="you implement", llm_model="m", llm_provider="p"]
           start -> a -> exit
         }
       ''');
-      expect(validate(g, knownRoles: {'implementer'}).where((e) => e.severity == Severity.error),
-          isEmpty);
+      expect(validate(g).where((e) => e.severity == Severity.error), isEmpty);
     });
 
     test('validateOrRaise throws on errors', () {

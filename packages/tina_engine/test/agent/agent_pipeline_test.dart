@@ -4,81 +4,59 @@ import 'package:test/test.dart';
 import '../helpers/fake_tool.dart';
 
 void main() {
-  group('AgentPipeline lookups', () {
-    final research = AgentRole(name: 'research', description: 'explore');
-    final qa = Workflow(
-      name: 'qa',
-      description: 'pipeline',
-      stages: [WorkflowStage(target: research, task: 'go')],
-    );
-    final pipeline = AgentPipeline(
-      mainRole: const AgentRole(name: 'main', description: 'main'),
-      roles: [research],
-      workflows: [qa],
-    );
-
-    test('role() finds a sub-agent role; main is not a role', () {
-      expect(pipeline.role('research')?.description, 'explore');
-      expect(pipeline.role('main'), isNull); // main is mainRole, not in roles
-      expect(pipeline.role('nope'), isNull);
+  group('AgentPipeline', () {
+    test('carries the entry identity and a mutable project-context flag', () {
+      final p = AgentPipeline(mainIdentity: 'the main agent');
+      expect(p.mainIdentity, 'the main agent');
+      expect(p.loadProjectContext, isTrue); // default
+      p.loadProjectContext = false; // mutable (a late startup decision)
+      expect(p.loadProjectContext, isFalse);
     });
 
-    test('workflow() finds a workflow', () {
-      expect(pipeline.workflow('qa')?.description, 'pipeline');
-      expect(pipeline.workflow('research'), isNull); // it's a role
-    });
-
-    test('target() resolves a role or workflow name (runtime lookup)', () {
-      expect(pipeline.target('research')?.name, 'research');
-      expect(pipeline.target('qa')?.name, 'qa');
-      expect(pipeline.target('nope'), isNull);
-    });
-
-    test('delegateTargets lists roles + workflows, never main', () {
-      final names = pipeline.delegateTargets.map((t) => t.name).toSet();
-      expect(names, containsAll(['research', 'qa']));
-      expect(names, isNot(contains('main')));
+    test('defaultPipeline carries the shipped main identity', () {
+      expect(defaultPipeline.mainIdentity, isNotEmpty);
+      expect(defaultPipeline.mainIdentity, contains('coding assistant'));
     });
   });
 
-  group('Workflow', () {
-    final verifier = AgentRole(name: 'verifier', description: 'v');
-
-    test('WorkflowStage carries target, task, id, dependsOn, haltOnFail', () {
-      final stage = WorkflowStage(target: verifier, task: 'review');
-      expect(stage.target, same(verifier));
-      expect(stage.task, 'review');
-      expect(stage.id, isNull);
-      expect(stage.dependsOn, isNull);
-      expect(stage.haltOnFail, isFalse); // defaults off
-
-      final named = WorkflowStage(
-          id: 'v',
-          target: verifier,
-          task: 'review',
-          dependsOn: ['impl'],
-          haltOnFail: true);
-      expect(named.id, 'v');
-      expect(named.dependsOn, ['impl']);
-      expect(named.haltOnFail, isTrue);
+  group('ToolProfile tool sets', () {
+    test('read-only has the read/explore tools + write_summary, no mutations',
+        () {
+      final names = toolSetFor(ToolProfile.readOnly).map((t) => t.schema.name).toSet();
+      expect(names, containsAll(['read', 'search', 'grep', 'glob', 'write_summary']));
+      expect(names, isNot(containsAny(['write', 'edit', 'bash'])));
     });
 
-    test('a workflow is constructible with an ordered stage list', () {
-      final implementer = AgentRole(name: 'implementer', description: 'i');
-      final tester = AgentRole(name: 'tester', description: 't');
-      final workflow = Workflow(
-        name: 'qa',
-        description: 'implement → verify → test',
-        stages: [
-          WorkflowStage(target: implementer, task: 'Implement.'),
-          WorkflowStage(target: verifier, task: 'Review.', haltOnFail: true),
-          WorkflowStage(target: tester, task: 'Test.'),
-        ],
-      );
-      expect(workflow.stages, hasLength(3));
-      // Targets are direct references — order preserved.
-      expect(workflow.stages.map((s) => s.target.name),
-          ['implementer', 'verifier', 'tester']);
+    test('full is a superset of read-only plus the mutating tools', () {
+      final ro = toolSetFor(ToolProfile.readOnly).map((t) => t.schema.name).toSet();
+      final full = toolSetFor(ToolProfile.full).map((t) => t.schema.name).toSet();
+      expect(full, containsAll(['read', 'write', 'edit', 'bash', 'search', 'grep',
+          'glob', 'write_summary']));
+      // read-only's tools are all in full.
+      expect(full.containsAll(ro), isTrue);
+    });
+
+    test('parseToolProfile maps the strings; unknown/empty → read-only', () {
+      expect(parseToolProfile('read-only'), ToolProfile.readOnly);
+      expect(parseToolProfile('full'), ToolProfile.full);
+      expect(parseToolProfile(null), ToolProfile.readOnly);
+      expect(parseToolProfile(''), ToolProfile.readOnly);
+      expect(parseToolProfile('bogus'), ToolProfile.readOnly);
+    });
+
+    test('toolsFromPolicy reconstructs the singletons an allow-list names', () {
+      final policy = PermissionPolicy(defaults: {
+        'read': PermissionDecision.allow,
+        'bash': PermissionDecision.allow,
+        'glob': PermissionDecision.allow,
+        'write': PermissionDecision.deny,
+        'made-up': PermissionDecision.allow, // not a real tool → dropped
+      });
+      final names = toolsFromPolicy(policy).map((t) => t.schema.name).toSet();
+      expect(names, containsAll(['read', 'bash', 'glob']));
+      // Denied / unknown names are not reconstructed.
+      expect(names, isNot(contains('write')));
+      expect(names, isNot(contains('made-up')));
     });
   });
 
@@ -107,40 +85,16 @@ void main() {
       expect(stripped, ['read', 'grep']);
     });
 
-    test('safe-mode drops the shared tool singletons by name', () {
-      // The default pipeline's implementer declares read/write/edit/bash: under
-      // safe-mode only read should survive.
-      final implementer = defaultPipeline.role('implementer')!;
-      final stripped =
-          stripForSafeMode(implementer.tools).map((t) => t.schema.name).toSet();
+    test('safe-mode drops the mutating tools from the full profile', () {
+      final stripped = stripForSafeMode(toolSetFor(ToolProfile.full))
+          .map((t) => t.schema.name)
+          .toSet();
       expect(stripped, contains('read'));
       expect(stripped.intersection(kSafeModeDisabledTools), isEmpty);
     });
   });
-
-  group('AgentRole fields', () {
-    test('modelTier and tools default; canDelegate defaults false', () {
-      const role = AgentRole(name: 'research', description: 'd');
-      expect(role.modelTier, isNull);
-      expect(role.tools, isEmpty);
-      expect(role.canDelegate, isFalse);
-      expect(role.promptIdentity, '');
-    });
-
-    test('carries a model tier, tool set, and canDelegate', () {
-      final read = FakeTool.noOp('read');
-      final bash = FakeTool.noOp('bash');
-      final role = AgentRole(
-        name: 'coder',
-        description: 'd',
-        modelTier: 'heavy',
-        tools: {read, bash},
-        canDelegate: true,
-      );
-      expect(role.modelTier, 'heavy');
-      expect(
-          role.tools.map((t) => t.schema.name), containsAll(['read', 'bash']));
-      expect(role.canDelegate, isTrue);
-    });
-  });
 }
+
+/// Matches when the set contains none of [names].
+Matcher containsAny(Iterable<String> names) =>
+    predicate<Set<String>>((s) => names.any(s.contains), 'contains any of $names');

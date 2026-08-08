@@ -18,7 +18,6 @@ import 'pause_gate.dart';
 import 'sub_agent_sink.dart';
 import 'system_prompt.dart';
 import 'token_budget.dart';
-import 'workflow.dart';
 
 /// Lifecycle of a [SubAgentJob].
 enum SubAgentJobStatus { queued, running, done, errored, cancelled;
@@ -55,9 +54,11 @@ class RunAgentResult {
 /// The shared configuration every spawning tool (`delegate`, `dispatch`,
 /// `continue`) runs with: which scheduler to spawn on, the agent pipeline, the
 /// parent agent's `"provider/model"` reference and policy for a sub-agent to
-/// inherit, the conversation the spawned jobs belong to, and the nesting depth.
-/// Built once by the wiring and threaded through the tools, so the same values
-/// aren't repeated (and allowed to drift) at every construction site.
+/// inherit, the parent's *resolved system prompt* (the identity a sub-agent
+/// inherits — see `delegate`), the conversation the spawned jobs belong to, and
+/// the nesting depth. Built once by the wiring and threaded through the tools,
+/// so the same values aren't repeated (and allowed to drift) at every
+/// construction site.
 class AgentToolContext {
   final SubAgentScheduler scheduler;
   final AgentPipeline pipeline;
@@ -66,6 +67,12 @@ class AgentToolContext {
   final String originConversationId;
   final int depth;
 
+  /// The parent agent's resolved system prompt. A spawned sub-agent runs under
+  /// this verbatim (plus its own task) — there is no per-sub-agent identity
+  /// catalog, so the parent's identity is the single source. Threaded here so
+  /// the scheduler builds the sub-agent without re-resolving it.
+  final String parentSystemPrompt;
+
   const AgentToolContext({
     required this.scheduler,
     required this.pipeline,
@@ -73,6 +80,7 @@ class AgentToolContext {
     required this.parentPolicy,
     required this.originConversationId,
     required this.depth,
+    required this.parentSystemPrompt,
   });
 }
 
@@ -100,9 +108,9 @@ typedef SubAgentPersistenceFactory = Future<(String, SessionRecorder)> Function(
 /// root); the scheduler derives the run primitives (provider, tools, policy,
 /// system prompt, budget) and hands them over, then runs the returned [Agent].
 ///
-/// Returns the built agent for [_runAgent]'s loop. When null (or when the job
+/// Returns the built agent for [_run]'s loop. When null (or when the job
 /// has no panel host) the old inline build is used and the sub-agent stays
-/// telemetry-only. All parameters come from [_runAgent]; see it for semantics.
+/// telemetry-only. All parameters come from [_run]; see it for semantics.
 typedef SubAgentSessionFactory = Agent Function(SubAgentScheduler scheduler,
     SubAgentJob job,
     {required LlmProvider provider,
@@ -127,7 +135,17 @@ typedef SubAgentSessionFactory = Agent Function(SubAgentScheduler scheduler,
 class SubAgentJob {
   final String id;
   final String label;
-  final DelegationTarget target;
+
+  /// The identity the sub-agent runs under — its parent's resolved system
+  /// prompt. Captured at spawn so a later `send` can re-run the channel on the
+  /// same identity under the same model/policy/depth.
+  final String systemPrompt;
+  final ToolProfile toolProfile;
+
+  /// The resolved `"provider/model"` the sub-agent runs under (the delegation's
+  /// `llm_provider`/`llm_model` if given, else inherited from the parent).
+  final String modelReference;
+
   final String originConversationId;
   SubAgentJobStatus status;
 
@@ -147,8 +165,8 @@ class SubAgentJob {
   DelegationResult? get resolvedResult => _resolved;
 
   /// An agent channel's conversation history, retained after `agent.run` so a
-  /// later `send` can continue it. null for workflows and for channels that
-  /// never ran a loop (e.g. provider-build failure).
+  /// later `send` can continue it. null for channels that never ran a loop
+  /// (e.g. provider-build failure).
   List<Message>? _history;
   List<Message>? get history => _history;
 
@@ -165,7 +183,9 @@ class SubAgentJob {
   SubAgentJob({
     required this.id,
     required this.label,
-    required this.target,
+    required this.systemPrompt,
+    required this.toolProfile,
+    required this.modelReference,
     required this.originConversationId,
     required this.parentReference,
     required this.parentPolicy,
@@ -191,14 +211,14 @@ class SubAgentJob {
   AgentEventBus get eventBus => _bus;
 
   /// Panel sink supplied by the coordinator when this job is live-panelized.
-  /// null (the default) → [_runAgent] uses the telemetry-only [SubAgentSink],
+  /// null (the default) → [_run] uses the telemetry-only [SubAgentSink],
   /// so the sub-agent streams into its parent's chat as progress lines.
   AgentSink? panelSink;
 
   /// Panel host built by the persistence hook when this job is live-panelized.
   /// Stored as the abstract [HostInterface] (never the concrete renderer host)
   /// so the agent layer never depends on the terminal UI. When non-null,
-  /// [_runAgent] hands this to [subAgentSessionFactory] to build a first-class
+  /// [_run] hands this to [subAgentSessionFactory] to build a first-class
   /// session; a focused sub-agent panel then becomes the active conversation.
   HostInterface? panelHost;
 
@@ -220,14 +240,15 @@ class SubAgentJob {
 /// Owns long-lived sub-agent jobs for a session. `spawn` kicks off an
 /// [Agent.run] as a detached future and returns immediately; the job churns
 /// independently of the spawning turn. Concurrency is capped by a semaphore;
-/// each job gets its own provider (resolved per-provider via the registry),
-/// a policy derived from its role's tools, the role's tool set, and an event bus.
+/// each job gets its own provider (resolved via the registry), a policy derived
+/// from its tool profile, its profile's tool set, and an event bus.
 class SubAgentScheduler {
   final ProviderRegistry registry;
   final AgentPipeline pipeline;
 
-  /// `[prompts.<role>]` overrides forwarded to [resolveSystemPrompt] so a
-  /// sub-agent's identity can be customized without rebuilding the pipeline.
+  /// `[prompts.main]` override forwarded to [resolveMainPrompt] so the entry
+  /// agent's identity can be customized without rebuilding the pipeline. A
+  /// sub-agent inherits its parent's resolved prompt, so this propagates down.
   final Map<String, String> promptOverrides;
 
   final AgentQuota quota;
@@ -247,14 +268,9 @@ class SubAgentScheduler {
   /// abort) — the headless path leaves this unset.
   final PauseGate? pauseGate;
 
-  /// `tier → "provider/model"` map. A role with [AgentRole.modelTier] resolves
-  /// through this; an unmapped tier is a config error. Empty by default, so a
-  /// role without a tier inherits the parent's resolved model.
-  final Map<String, String> modelTiers;
-
   /// Read-only session (`--safe-mode`): when true, `write`/`edit`/`bash` are
-  /// stripped from every role's registry before the policy is derived, so the
-  /// policy tracks the filtered set automatically.
+  /// stripped from every profile's registry before the policy is derived, so
+  /// the policy tracks the filtered set automatically.
   final bool safeMode;
 
   /// Set by the wiring to enable nested delegation. Null (default) means
@@ -266,7 +282,7 @@ class SubAgentScheduler {
   SubAgentPersistenceFactory? persistence;
 
   /// Set by the wiring to make a live-panelized sub-agent a first-class
-  /// session. [_runAgent] delegates Agent construction + Conversation
+  /// session. [_run] delegates Agent construction + Conversation
   /// registration to it (building the agent with the panel host's asker so a
   /// focused sub-agent panel becomes the active conversation). Null (default) →
   /// old inline, telemetry-only build. Mirrors [NestedDelegateToolBuilder] and
@@ -292,7 +308,6 @@ class SubAgentScheduler {
     this.promptOverrides = const <String, String>{},
     this.defaultMaxSteps = 25,
     this.resultCharCap = 16000,
-    this.modelTiers = const <String, String>{},
     this.subAgentBudgetLimit = 0,
     this.pauseGate,
     this.safeMode = false,
@@ -329,14 +344,11 @@ class SubAgentScheduler {
   /// on the channel's accumulated history under its original context, as a
   /// detached future (non-blocking — `read` the result later). Returns null on
   /// success, or an error string explaining why the send was rejected (still
-  /// running, not an agent, no history). One in-flight turn per channel.
+  /// running, no history). One in-flight turn per channel.
   String? send(SubAgentJob job, String text) {
     if (_disposed) return 'scheduler disposed';
     if (!job.status.isTerminal) {
       return 'channel ${job.id} is still ${job.status.name}; `read` it first';
-    }
-    if (job.target is! AgentRole) {
-      return 'channel ${job.id} runs a workflow (can\'t send to a workflow)';
     }
     if (job.history == null || job.history!.isEmpty) {
       return 'channel ${job.id} has no conversation history to continue';
@@ -355,8 +367,8 @@ class SubAgentScheduler {
     _jobSubs[job.id]?.cancel();
     _jobSubs[job.id] = job._bus.events.listen(_merged.add);
     job.status = SubAgentJobStatus.queued;
-    unawaited(_run(job, job.target, text, job.parentReference,
-        job.parentPolicy, job.depth, job._cancel.future, job.history));
+    unawaited(
+        _run(job, text, cancelSignal: job._cancel.future, seedHistory: job.history));
   }
 
   /// The channel's current state for the `read` tool: its resolved result when
@@ -378,54 +390,62 @@ class SubAgentScheduler {
 
   /// The universal primitive. Starts the sub-agent as a detached future and
   /// returns a [SubAgentJob] immediately.
+  ///
+  /// [parentSystemPrompt] is the identity the sub-agent runs under (its
+  /// parent's resolved prompt). [toolProfile] picks its tools. [modelReference]
+  /// (a `"provider/model"` from the delegation's `llm_provider`/`llm_model`)
+  /// overrides the inherited model; null inherits [parentReference].
   SubAgentJob spawn({
-    required DelegationTarget target,
     required String task,
+    required ToolProfile toolProfile,
+    required String parentSystemPrompt,
     required String parentReference,
     required PermissionPolicy parentPolicy,
     required String originConversationId,
+    String? modelReference,
     int depth = 0,
     Future<void>? sessionCancelSignal,
     List<Message>? seedHistory,
+    String? label,
   }) {
     final id = 'j$_nextId';
     _nextId++;
-    final bus = AgentEventBus();
-    final result = Completer<DelegationResult>();
-    final cancel = Completer<void>();
+    final resolvedReference = modelReference ?? parentReference;
     final job = SubAgentJob(
       id: id,
-      label: target.name,
-      target: target,
+      label: label ?? 'sub-agent',
+      systemPrompt: parentSystemPrompt,
+      toolProfile: toolProfile,
+      modelReference: resolvedReference,
       originConversationId: originConversationId,
       parentReference: parentReference,
       parentPolicy: parentPolicy,
       depth: depth,
-      result: result,
-      bus: bus,
-      cancel: cancel,
+      result: Completer<DelegationResult>(),
+      bus: AgentEventBus(),
+      cancel: Completer<void>(),
     );
 
     // Enforce the depth cap at the single chokepoint so no spawn path (the
-    // delegate tool, dispatch, a workflow stage) can bypass it by passing an
+    // delegate tool, a nested sub-agent) can bypass it by passing an
     // un-incremented depth. The nested delegate tool is *also* withheld from a
-    // maxed-out agent in [_toolsFor], but that's only a UX nicety — this is the
-    // real guard. Return a pre-errored job (not tracked in [_jobs]) so callers
-    // like `delegate` / a workflow stage still resolve cleanly.
+    // maxed-out agent in [_toolsForProfile], but that's only a UX nicety — this
+    // is the real guard. Return a pre-errored job (not tracked in [_jobs]) so
+    // callers like `delegate` still resolve cleanly.
     if (!quota.allowsDepth(depth)) {
       job._bus.emit(JobAgentEvent(job.id, job.label,
           NoticeAgentEvent('depth cap', NoticeKind.error)));
       _finish(
           job,
-          DelegationResult.error('${target.name}: max nesting depth '
-              '(${quota.maxDepth}) exceeded'),
+          DelegationResult.error(
+              'max nesting depth (${quota.maxDepth}) exceeded'),
           SubAgentJobStatus.errored);
       return job;
     }
 
     _jobs.add(job);
     _jobSubs[job.id]?.cancel();
-    _jobSubs[job.id] = bus.events.listen(_merged.add);
+    _jobSubs[job.id] = job.eventBus.events.listen(_merged.add);
     if (sessionCancelSignal != null) {
       sessionCancelSignal.whenComplete(job.cancel);
     }
@@ -433,17 +453,16 @@ class SubAgentScheduler {
     // Mint a persisted conversation for this job (if persistence is wired) and
     // stash its id + recorder on the job so the transcript can be written at the
     // Detached: must not block returning the job, and a store failure must
-    // never fail the spawn. When persistence is wired (agent-role targets),
-    // kick off _persistJob and only *then* start _run — so the coordinator's
-    // persistence hook can mint the conversation, build the live panel, and set
-    // [SubAgentJob.panelSink] before the agent streams into it. spawn() itself
-    // stays synchronous and returns the job immediately (callers use it before
-    // the run starts), matching its pre-panelization contract.
-    final run = () => _run(job, target, task, parentReference, parentPolicy,
-        depth, cancel.future, seedHistory);
-    if (persistence != null && target is AgentRole) {
-      unawaited(_persistJob(job, target, parentReference, parentPolicy,
-              originConversationId)
+    // never fail the spawn. When persistence is wired, kick off _persistJob and
+    // only *then* start _run — so the coordinator's persistence hook can mint
+    // the conversation, build the live panel, and set [SubAgentJob.panelSink]
+    // before the agent streams into it. spawn() itself stays synchronous and
+    // returns the job immediately (callers use it before the run starts),
+    // matching its pre-panelization contract.
+    final run = () => _run(job, task, cancelSignal: job._cancel.future,
+        seedHistory: seedHistory);
+    if (persistence != null) {
+      unawaited(_persistJob(job, originConversationId)
           .then((_) => unawaited(run())));
     } else {
       unawaited(run());
@@ -451,23 +470,17 @@ class SubAgentScheduler {
     return job;
   }
 
-  /// Build the `subAgent` meta for [role] and hand it to the persistence
-  /// factory to mint a conversation + recorder, which are stashed on [job].
+  /// Build the `subAgent` meta for [job] and hand it to the persistence factory
+  /// to mint a conversation + recorder, which are stashed on [job].
   Future<void> _persistJob(
     SubAgentJob job,
-    AgentRole role,
-    String parentReference,
-    PermissionPolicy parentPolicy,
     String originConversationId,
   ) async {
     final factory = persistence;
     if (factory == null) return;
-    final reference = _resolvedReference(role) ?? parentReference;
-    final policy = _policyFor(role, parentPolicy);
-    final system = resolveSystemPrompt(role,
-        overrides: promptOverrides,
-        safeMode: safeMode,
-        loadProjectContext: pipeline.loadProjectContext);
+    final reference = job.modelReference;
+    final policy = _policyForProfile(job.toolProfile, job.parentPolicy);
+    final system = job.systemPrompt;
     // The model ref carries the provider prefix; the stored providerId is just
     // the prefix portion for quick resumption without a registry lookup.
     final providerId = reference.contains('/') ? reference.split('/').first : null;
@@ -476,7 +489,7 @@ class SubAgentScheduler {
       providerId: providerId,
       policy: policy,
       systemPrompt: system,
-      targetName: role.name,
+      targetName: job.label,
       parentConversationId: originConversationId,
     );
     try {
@@ -495,21 +508,11 @@ class SubAgentScheduler {
 
   Future<void> _run(
     SubAgentJob job,
-    DelegationTarget target,
-    String task,
-    String parentReference,
-    PermissionPolicy parentPolicy,
-    int depth,
-    Future<void> cancelSignal,
+    String task, {
+    required Future<void> cancelSignal,
     List<Message>? seedHistory,
-  ) async {
-    // Workflows orchestrate only — no provider, no agent loop, no tools — so
-    // they don't hold a concurrency slot. Only agent jobs consume the
-    // provider/tool resources the semaphore caps. (If a workflow held a slot
-    // while awaiting its stages, maxConcurrent concurrent workflows would each
-    // wait for a stage slot they could never get → deadlock.)
-    final isWorkflow = target is Workflow;
-    if (!isWorkflow) await quota.acquire();
+  }) async {
+    await quota.acquire();
     try {
       if (job.isCancelled || _disposed) {
         _finish(job, DelegationResult.error('cancelled'),
@@ -518,14 +521,12 @@ class SubAgentScheduler {
       }
       job.status = SubAgentJobStatus.running;
       final DelegationResult result;
-      if (target is Workflow) {
-        result = await _runWorkflow(job, target, task, parentReference,
-            parentPolicy, depth, cancelSignal);
-      } else if (target is AgentRole) {
-        result = await _runAgent(job, target, task, parentReference,
-            parentPolicy, depth, cancelSignal, seedHistory);
-      } else {
-        result = DelegationResult.error('unsupported delegation target');
+      try {
+        result = await _runAgent(job, task, cancelSignal, seedHistory);
+      } on _ProviderBuildFailure catch (e) {
+        _finish(job, DelegationResult.error(e.message),
+            SubAgentJobStatus.errored);
+        return;
       }
       if (job.isCancelled) {
         _finish(job, DelegationResult.error('cancelled'),
@@ -542,164 +543,50 @@ class SubAgentScheduler {
       _finish(job, DelegationResult.error(e.toString()),
           SubAgentJobStatus.errored);
     } finally {
-      if (!isWorkflow) quota.release();
+      quota.release();
     }
-  }
-
-  /// Runs a [Workflow] as a DAG. Each stage's [WorkflowStage.target] is a direct
-  /// reference (a role or nested workflow); a stage runs once its
-  /// [WorkflowStage.dependsOn] are satisfied, and its context is its
-  /// dependencies' outputs (or the workflow input for a root). Independent ready
-  /// stages run concurrently each level (bounded by `maxConcurrent` via
-  /// [spawn]'s semaphore). The workflow result is the last stage's output (by
-  /// position). A `haltOnFail` error aborts. A stage whose target is itself a
-  /// workflow recurses (embedding). Cancel is forwarded to in-flight stages via
-  /// [spawn]'s `sessionCancelSignal`.
-  Future<DelegationResult> _runWorkflow(
-    SubAgentJob job,
-    Workflow workflow,
-    String input,
-    String parentReference,
-    PermissionPolicy parentPolicy,
-    int depth,
-    Future<void> cancelSignal,
-  ) async {
-    final stages = workflow.stages;
-    if (stages.isEmpty) {
-      return DelegationResult.error('workflow ${workflow.name}: no stages');
-    }
-
-    // Effective ids (explicit or index), rejecting duplicates.
-    const inputId = ' input'; // sentinel output key for the workflow input
-    final idOf = <int, String>{};
-    final ids = <String>{};
-    for (var i = 0; i < stages.length; i++) {
-      final id = stages[i].id ?? '$i';
-      if (!ids.add(id)) {
-        return DelegationResult.error(
-            'workflow ${workflow.name}: duplicate stage id "$id"');
-      }
-      idOf[i] = id;
-    }
-
-    // Validate dependsOn refs name real stages. (Targets are compile-checked
-    // references, so nothing to validate there.)
-    for (var i = 0; i < stages.length; i++) {
-      final stage = stages[i];
-      final deps = stage.dependsOn;
-      if (deps != null) {
-        for (final ref in deps) {
-          if (!ids.contains(ref)) {
-            return DelegationResult.error('workflow ${workflow.name}: stage '
-                '"${idOf[i]}" depends on unknown stage "$ref"');
-          }
-        }
-      }
-    }
-
-    final outputs = <String, String>{inputId: input};
-
-    // A stage's resolved dependency ids: null → prior stage (chain, {} for the
-    // first); a list → those ids. Roots (empty deps) consume the workflow input.
-    List<String> depsOf(int i) {
-      final d = stages[i].dependsOn;
-      if (d != null) return d;
-      return i == 0 ? const [] : [idOf[i - 1]!];
-    }
-
-    String priorWork(int i) {
-      final deps = depsOf(i);
-      final sources = deps.isEmpty ? const [inputId] : deps;
-      final buf = StringBuffer();
-      for (final d in sources) {
-        buf.write('\n\n--- prior work ---\n${outputs[d]}');
-      }
-      return buf.toString();
-    }
-
-    final remaining = <int>[for (var i = 0; i < stages.length; i++) i];
-    while (remaining.isNotEmpty) {
-      if (job.isCancelled) return DelegationResult.error('cancelled');
-      final ready = remaining
-          .where((i) => depsOf(i).every((d) => outputs.containsKey(d)))
-          .toList();
-      if (ready.isEmpty) {
-        return DelegationResult.error('workflow ${workflow.name}: dependency '
-            'cycle or unsatisfiable dependsOn');
-      }
-      // Spawn every ready stage concurrently; each gets its deps' outputs.
-      final futures = <Future<(int, DelegationResult)>>[];
-      for (final i in ready) {
-        final stage = stages[i];
-        job._bus.emit(JobAgentEvent(job.id, job.label,
-            NoticeAgentEvent('→ ${stage.target.name}', NoticeKind.info)));
-        final stageJob = spawn(
-          target: stage.target,
-          task: '${stage.task}${priorWork(i)}',
-          parentReference: parentReference,
-          parentPolicy: parentPolicy,
-          originConversationId: job.originConversationId,
-          depth: depth + 1,
-          sessionCancelSignal: cancelSignal,
-        );
-        futures.add(stageJob.result.then((r) => (i, r)));
-      }
-      for (final (i, r) in await Future.wait(futures)) {
-        outputs[idOf[i]!] = r.content;
-        remaining.remove(i);
-        if (r.isError && stages[i].haltOnFail) return r;
-      }
-    }
-    return DelegationResult(outputs[idOf[stages.length - 1]!]!);
   }
 
   Future<DelegationResult> _runAgent(
     SubAgentJob job,
-    AgentRole role,
     String task,
-    String parentReference,
-    PermissionPolicy parentPolicy,
-    int depth,
     Future<void> cancelSignal,
     List<Message>? seedHistory,
   ) async {
     final LlmProvider provider;
-    final String reference;
     try {
-      reference = _resolvedReference(role) ?? parentReference;
       provider = registry.build(
-        reference,
+        job.modelReference,
         maxTokens: maxTokens,
         streamIdleTimeout: streamIdleTimeout,
         requestTimeout: requestTimeout,
       );
     } catch (e) {
-      return DelegationResult.error('failed to build provider: $e');
+      throw _ProviderBuildFailure('failed to build provider: $e');
     }
 
-    // One context for the tools + policy this role runs with. The policy is
-    // derived from the role's own tools (plus `delegate` when it can delegate),
-    // so a sub-agent may use exactly what it declares — never the parent's
-    // allow-list.
+    // One context for the tools + policy this sub-agent runs with. The policy
+    // is derived from its tool profile (plus `delegate` when nesting is wired),
+    // so a sub-agent may use exactly what its profile grants — never the
+    // parent's allow-list. The sub-agent inherits the parent's identity
+    // ([parentSystemPrompt]) via the nested context.
     final ctx = AgentToolContext(
       scheduler: this,
       pipeline: pipeline,
-      parentReference: reference,
-      parentPolicy: _policyFor(role, parentPolicy),
+      parentSystemPrompt: job.systemPrompt,
+      parentReference: job.modelReference,
+      parentPolicy: _policyForProfile(job.toolProfile, job.parentPolicy),
       originConversationId: job.originConversationId,
-      depth: depth,
+      depth: job.depth,
     );
-    final tools = _toolsFor(role, ctx, depth);
+    final tools = _toolsForProfile(job.toolProfile, ctx, job.depth);
     // A panelized job has its sink supplied by the coordinator (a BusSink over
     // the panel's host); otherwise fall back to the telemetry-only SubAgentSink
     // that streams progress into the parent's chat.
     final sink = job.panelSink ??
-        SubAgentSink(jobId: job.id, label: job.label, bus: job._bus);
+        SubAgentSink(jobId: job.id, label: job.label, bus: job.eventBus);
 
-    final system = resolveSystemPrompt(role,
-        overrides: promptOverrides,
-        safeMode: safeMode,
-        loadProjectContext: pipeline.loadProjectContext);
+    final system = job.systemPrompt;
     final factory = subAgentSessionFactory;
     // A live-panelized job with a wired factory becomes a first-class session:
     // the coordinator builds its Agent (with the panel host's asker, so tool
@@ -717,7 +604,7 @@ class SubAgentScheduler {
             conversationId: job.conversationId!,
             label: job.label,
             system: system,
-            maxSteps: role.maxSteps ?? defaultMaxSteps,
+            maxSteps: defaultMaxSteps,
             budget: subAgentBudgetLimit == 0
                 ? null
                 : TokenBudget(perSessionLimit: subAgentBudgetLimit),
@@ -729,7 +616,7 @@ class SubAgentScheduler {
             sink: sink,
             policy: ctx.parentPolicy,
             system: system,
-            maxSteps: role.maxSteps ?? defaultMaxSteps,
+            maxSteps: defaultMaxSteps,
             budget: subAgentBudgetLimit == 0
                 ? null
                 : TokenBudget(perSessionLimit: subAgentBudgetLimit),
@@ -763,25 +650,26 @@ class SubAgentScheduler {
       }
     }
 
-    return _extractResult(role.name, history);
+    return _extractResult(job.label, history);
   }
 
-  /// Run a single agent turn for [role] with [task] as the user message,
-  /// returning the role's final answer text. This is the public seam for the
-  /// attractor pipeline's `CodergenBackend`: it reuses the scheduler's model
-  /// resolution (`role.modelTier` via the registry, already metered), tool/policy
-  /// derivation, and system-prompt assembly — without a [SubAgentJob], quota, or
-  /// panel/session.
+  /// Run a single agent turn for a codergen node with [systemPrompt] as the
+  /// agent's identity and [task] as the user message, returning the agent's
+  /// final answer text. This is the public seam for the attractor pipeline's
+  /// `CodergenBackend`: a node carries its own `system_prompt` + `llm_model`/
+  /// `llm_provider` (tin-80ll), so this builds the agent from those instead of
+  /// a catalog identity. It reuses the scheduler's model resolution and
+  /// system-prompt assembly — without a [SubAgentJob], quota, or panel/session.
   ///
   /// Depth is 0 (a top-level pipeline node). [sink] streams the turn's text
   /// (e.g. into the conversation host); [cancelSignal] aborts it. [seedHistory]
   /// is reserved for the `full`-fidelity phase.
   ///
-  /// [modelReference] is a `"provider/model"` string that bypasses the role's
-  /// tier resolution entirely (a workflow node's `model` attribute); when null
-  /// the role's tier maps through [modelTiers] as usual.
+  /// [modelReference] is the node's resolved `"provider/model"` (from
+  /// `llm_model`/`llm_provider`); when null, [parentReference] (the
+  /// conversation's resolved model) is used.
   Future<RunAgentResult> runStandalone({
-    required AgentRole role,
+    required String systemPrompt,
     required String task,
     String parentReference = '',
     String? modelReference,
@@ -792,8 +680,7 @@ class SubAgentScheduler {
     final LlmProvider provider;
     final String reference;
     try {
-      reference =
-          modelReference ?? _resolvedReference(role) ?? parentReference;
+      reference = modelReference ?? parentReference;
       provider = registry.build(
         reference,
         maxTokens: maxTokens,
@@ -804,26 +691,34 @@ class SubAgentScheduler {
       return RunAgentResult.error('failed to build provider: $e');
     }
 
-    final ctx = AgentToolContext(
-      scheduler: this,
-      pipeline: pipeline,
-      parentReference: reference,
-      parentPolicy: _policyFor(role, PermissionPolicy()),
-      originConversationId: '',
-      depth: 0,
-    );
-    final tools = _toolsFor(role, ctx, 0);
-    final system = resolveSystemPrompt(role,
-        overrides: promptOverrides,
-        safeMode: safeMode,
-        loadProjectContext: pipeline.loadProjectContext);
+    // A node agent runs with the full tool profile plus `delegate` (when
+    // nesting is wired), so it can work directly AND reach further sub-agents.
+    // Identity comes from [systemPrompt]; the model from [reference].
+    final base = _effectiveProfileTools(ToolProfile.full).toList();
+    final policy = _policyForProfile(ToolProfile.full, PermissionPolicy());
+    final tools = <Tool>[...base];
+    final system = resolveIdentityPrompt(systemPrompt,
+        safeMode: safeMode, loadProjectContext: pipeline.loadProjectContext);
+    if (delegateToolBuilder != null) {
+      final nestedCtx = AgentToolContext(
+        scheduler: this,
+        pipeline: pipeline,
+        parentSystemPrompt: system,
+        parentReference: reference,
+        parentPolicy: policy,
+        originConversationId: '',
+        depth: 1,
+      );
+      tools.add(delegateToolBuilder!(nestedCtx));
+    }
+
     final agent = Agent(
       provider: provider,
-      tools: tools,
+      tools: ToolRegistry(tools),
       sink: sink,
-      policy: ctx.parentPolicy,
+      policy: policy,
       asker: _autoDenyAsker,
-      maxSteps: role.maxSteps ?? defaultMaxSteps,
+      maxSteps: defaultMaxSteps,
       budget: subAgentBudgetLimit == 0
           ? null
           : TokenBudget(perSessionLimit: subAgentBudgetLimit),
@@ -839,7 +734,7 @@ class SubAgentScheduler {
       cancelSignal: cancelSignal,
     );
 
-    final extracted = _extractResult(role.name, history);
+    final extracted = _extractResult('node', history);
     if (extracted.isError) return RunAgentResult.error(extracted.content);
     return RunAgentResult(extracted.content);
   }
@@ -869,21 +764,27 @@ class SubAgentScheduler {
         system: system,
       );
 
-  /// [AgentRole.tools] minus the safe-mode-disabled tools when `--safe-mode` is
-  /// on. The single source of truth for both the registry and the derived
-  /// policy, so the two never drift.
-  Iterable<Tool> _effectiveTools(AgentRole role) =>
-      safeMode ? stripForSafeMode(role.tools) : role.tools;
+  /// The profile's tool set, minus the safe-mode-disabled tools when
+  /// `--safe-mode` is on. The single source of truth for both the registry and
+  /// the derived policy, so the two never drift.
+  Iterable<Tool> _effectiveProfileTools(ToolProfile profile) {
+    final tools = toolSetFor(profile);
+    return safeMode ? stripForSafeMode(tools) : tools;
+  }
 
-  /// Build the role's tool set directly from [AgentRole.tools], and add a nested
-  /// `delegate` tool when nesting is allowed and the role grants it. No base
-  /// set to filter — each role brings its own tools.
-  ToolRegistry _toolsFor(AgentRole role, AgentToolContext ctx, int depth) {
-    final tools = [..._effectiveTools(role)];
-    if (depth < quota.maxDepth && role.canDelegate && delegateToolBuilder != null) {
+  /// Build the profile's tool set directly, and add a nested `delegate` tool
+  /// when nesting is allowed. No base set to filter — each profile brings its
+  /// own tools.
+  ToolRegistry _toolsForProfile(
+      ToolProfile profile, AgentToolContext ctx, int depth) {
+    final tools = [..._effectiveProfileTools(profile)];
+    if (depth < quota.maxDepth && delegateToolBuilder != null) {
       final nestedCtx = AgentToolContext(
         scheduler: this,
         pipeline: pipeline,
+        // A nested sub-agent inherits this sub-agent's identity (which itself
+        // inherited the parent's) — identity flows down unchanged.
+        parentSystemPrompt: ctx.parentSystemPrompt,
         parentReference: ctx.parentReference,
         parentPolicy: ctx.parentPolicy,
         originConversationId: ctx.originConversationId,
@@ -894,34 +795,21 @@ class SubAgentScheduler {
     return ToolRegistry(tools);
   }
 
-  /// Derive a sub-agent's policy from its role: it may use exactly its declared
-  /// [AgentRole.tools] (plus `delegate` when [AgentRole.canDelegate]). Anything
-  /// else is absent from the policy → `ask` (the unmapped-tool default) → denied
-  /// by the auto-deny asker. The parent's static permission rules carry forward;
-  /// its allow-list does not.
-  PermissionPolicy _policyFor(AgentRole role, PermissionPolicy parent) =>
+  /// Derive a sub-agent's policy from its tool profile: it may use exactly its
+  /// profile's tools plus `delegate` when nesting is wired. Anything else is
+  /// absent from the policy → `ask` (the unmapped-tool default) → denied by the
+  /// auto-deny asker. The parent's static permission rules carry forward; its
+  /// allow-list does not.
+  PermissionPolicy _policyForProfile(
+          ToolProfile profile, PermissionPolicy parent) =>
       PermissionPolicy(
         defaults: {
-          for (final t in _effectiveTools(role))
+          for (final t in _effectiveProfileTools(profile))
             t.schema.name: PermissionDecision.allow,
-          if (role.canDelegate) 'delegate': PermissionDecision.allow,
+          if (delegateToolBuilder != null) 'delegate': PermissionDecision.allow,
         },
         rules: parent.staticRules,
       );
-
-  /// Resolve [role]'s model to a `"provider/model"` reference, or null to
-  /// inherit [parentReference]. A set [AgentRole.modelTier] maps through
-  /// [modelTiers]; an unmapped tier is a config error.
-  String? _resolvedReference(AgentRole role) {
-    final tier = role.modelTier;
-    if (tier == null) return null;
-    final ref = modelTiers[tier];
-    if (ref == null) {
-      throw StateError(
-          'unknown model tier "$tier" (known: ${modelTiers.keys.join(', ')})');
-    }
-    return ref;
-  }
 
   DelegationResult _extractResult(String name, List<Message> history) {
     // A leaf that finished normally ends on an assistant text turn — the agent
@@ -983,4 +871,11 @@ class SubAgentScheduler {
 
   static final PermissionAsker _autoDenyAsker =
       (_) async => PermissionResponse.denyOnce;
+}
+
+/// Internal signal that provider construction failed — surfaced as a clean
+/// [DelegationResult.error] rather than a stack trace.
+class _ProviderBuildFailure {
+  final String message;
+  const _ProviderBuildFailure(this.message);
 }

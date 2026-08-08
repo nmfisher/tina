@@ -62,32 +62,53 @@ date: $today
   return '$base\n${_renderAgentsBlock(agents)}';
 }
 
-/// Resolve the full system prompt for [role]: the override from [overrides]
-/// when one is set for [role.name] (a non-empty string), else [role.promptIdentity];
+/// Resolve the entry agent's full system prompt: the `[prompts.main]` override
+/// from [overrides] when set (a non-empty string), else [pipeline.mainIdentity];
 /// then wrapped with the shared `<environment>` and `<project-context>` blocks.
 ///
-/// [overrides] is typically [Config.promptOverrides]. An empty/absent entry
-/// means "use the role's identity". The wrapper is always applied, so an
-/// override only ever replaces the role's identity prose — never the environment
-/// plumbing or AGENTS.md project context.
+/// This is the root identity the whole fleet descends from — a delegated
+/// sub-agent inherits its parent's *resolved* prompt verbatim, so overriding
+/// `main` here changes every agent that inherits it.
 ///
 /// When [loadProjectContext] is false the `<project-context>` (AGENTS.md) block
 /// is omitted — the project-trust gate's withholding of an untrusted project's
 /// instructions.
-String resolveSystemPrompt(
-  AgentRole role, {
+String resolveMainPrompt(
+  AgentPipeline pipeline, {
   Map<String, String>? overrides,
   String? cwd,
   bool safeMode = false,
   bool loadProjectContext = true,
 }) {
-  final override = overrides?[role.name];
-  final identity = (override != null && override.isNotEmpty)
-      ? override
-      : role.promptIdentity;
+  final override = overrides?['main'];
+  final identity =
+      (override != null && override.isNotEmpty) ? override : pipeline.mainIdentity;
   return _buildAgentPrompt(
-      identity: identity, cwd: cwd, safeMode: safeMode, loadProjectContext: loadProjectContext);
+      identity: identity,
+      cwd: cwd,
+      safeMode: safeMode,
+      loadProjectContext: loadProjectContext);
 }
+
+/// Resolve a system prompt from an explicit [identity] string (a node's
+/// `system_prompt` attribute — tin-80ll), wrapped with the shared
+/// `<environment>` and `<project-context>` blocks. This is the node-run analogue
+/// of [resolveMainPrompt]: where the entry agent's identity comes from
+/// [AgentPipeline.mainIdentity], a node's identity comes from its DOT attribute.
+///
+/// When [loadProjectContext] is false the `<project-context>` (AGENTS.md) block
+/// is omitted.
+String resolveIdentityPrompt(
+  String identity, {
+  String? cwd,
+  bool safeMode = false,
+  bool loadProjectContext = true,
+}) =>
+    _buildAgentPrompt(
+        identity: identity,
+        cwd: cwd,
+        safeMode: safeMode,
+        loadProjectContext: loadProjectContext);
 
 /// Walk from [startDir] up to filesystem root, collecting every AGENTS.md
 /// along the way. Returned root-first → cwd-last so the most specific rules

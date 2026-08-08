@@ -46,14 +46,14 @@ Agent _restoreAgent({
   required RestoreContext ctx,
 }) {
   final system = meta.promptOverride ??
-      resolveSystemPrompt(_roleFor(meta, ctx.pipeline),
+      resolveMainPrompt(ctx.pipeline,
           overrides: ctx.config.promptOverrides,
           safeMode: ctx.config.safeMode,
           loadProjectContext: ctx.pipeline.loadProjectContext);
 
   switch (meta.kind) {
     case ConversationKind.primary:
-      // Primary conversations are the interactive main role — a delegator with
+      // Primary conversations are the interactive main agent — a delegator with
       // no file tools. Restored exactly as the live path builds it.
       return buildAgent(
         pipeline: ctx.pipeline,
@@ -69,30 +69,21 @@ Agent _restoreAgent({
     case ConversationKind.subAgent:
     case ConversationKind.spawn:
     case ConversationKind.branch:
-      // Sub-agents, spawns, and branches run a single role's own tools.
-      // Faithfully rebuild the role (its tool set fully determines the agent)
-      // plus a nested `delegate` tool when the role can delegate (sub-agent
-      // only — branches and spawns are leaves).
-      final role = ctx.pipeline.role(meta.targetName!);
-      if (role == null) {
-        // Unknown role (pipeline changed since the session was saved): fall
-        // back to a read-only agent so the conversation is still replayable.
-        return Agent(
-          provider: provider,
-          tools: ToolRegistry([]),
-          sink: host,
-          policy: policy,
-          asker: host.askPermission,
-          system: system,
-        );
-      }
+      // A sub-agent/spawn/branch conversation's tools are reconstructed from
+      // its stored policy's allow-list (that policy fully determined its tool
+      // set at spawn). An unknown/empty policy yields no tools — the
+      // conversation is still replayable. A sub-agent may continue to delegate
+      // (inheriting its own identity); spawns and branches are leaves.
       final tools = <Tool>[
-        ...(ctx.config.safeMode ? stripForSafeMode(role.tools) : role.tools),
+        ...(ctx.config.safeMode
+            ? stripForSafeMode(toolsFromPolicy(policy))
+            : toolsFromPolicy(policy)),
       ];
-      if (meta.kind == ConversationKind.subAgent && role.canDelegate) {
+      if (meta.kind == ConversationKind.subAgent) {
         final ctx2 = AgentToolContext(
           scheduler: ctx.scheduler,
           pipeline: ctx.pipeline,
+          parentSystemPrompt: system,
           parentReference: meta.model ?? '',
           parentPolicy: policy,
           originConversationId: meta.parentConversationId ?? meta.id,
@@ -106,7 +97,7 @@ Agent _restoreAgent({
         sink: host,
         policy: policy,
         asker: host.askPermission,
-        maxSteps: role.maxSteps ?? 25,
+        maxSteps: 25,
         system: system,
       );
   }
@@ -137,12 +128,6 @@ PermissionPolicy _restorePolicy(ConversationMeta meta, RestoreContext ctx) {
   } catch (_) {
     return ctx.config.buildPolicy();
   }
-}
-
-/// The role a [meta] describes — main for primary, the named role otherwise.
-AgentRole _roleFor(ConversationMeta meta, AgentPipeline pipeline) {
-  if (meta.kind == ConversationKind.primary) return pipeline.mainRole;
-  return pipeline.role(meta.targetName!) ?? pipeline.mainRole;
 }
 
 /// Rebuild a [Conversation] for [meta] with its exact agent and full history,

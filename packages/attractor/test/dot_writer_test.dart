@@ -26,20 +26,21 @@ digraph Simple {
       expect(g2.outgoing('run_tests').single.to, 'exit');
     });
 
-    test('preserves role, goal_gate, and edge condition/label/weight', () {
+    test('preserves system_prompt/llm attrs, goal_gate, and edge condition/label/weight', () {
       const src = '''
 digraph L {
   start [shape=Mdiamond]
   done [shape=Msquare]
-  plan [shape=box, role="orchestrator", goal_gate=true, max_retries=3]
-  review [shape=box, role="verifier"]
+  plan [shape=box, system_prompt="you plan", llm_model="sonnet", llm_provider="anthropic", goal_gate=true, max_retries=3]
+  review [shape=box, system_prompt="you review"]
   start -> plan -> review
   review -> done [label="approve", condition="outcome=success"]
   review -> plan [label="revise", weight=2]
 }
 ''';
       final g2 = parseDot(graphToDot(parseDot(src)));
-      expect(g2.nodes['plan']!.role, 'orchestrator');
+      expect(g2.nodes['plan']!.systemPrompt, 'you plan');
+      expect(g2.nodes['plan']!.modelReference, 'anthropic/sonnet');
       expect(g2.nodes['plan']!.goalGate, isTrue);
       expect(g2.nodes['plan']!.maxRetries, 3);
       final toDone = g2.outgoing('review').firstWhere((e) => e.to == 'done');
@@ -56,7 +57,7 @@ digraph I {
   graph [goal="g"]
   start [shape=Mdiamond]
   exit [shape=Msquare]
-  a [shape=box, role="r", prompt="do it"]
+  a [shape=box, system_prompt="r", prompt="do it"]
   start -> a -> exit
 }
 ''';

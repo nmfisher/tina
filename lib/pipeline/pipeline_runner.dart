@@ -24,17 +24,19 @@ class PipelineRunner {
   final Screen? screen;
   final LineEditor? editor;
 
+  /// The conversation's resolved `"provider/model"`, inherited by nodes that
+  /// omit `llm_model`/`llm_provider`. Threaded to [TinaCodergenBackend].
+  final String defaultModelReference;
+
   PipelineRunner({
     required this.scheduler,
     required this.pipeline,
     required this.workflowsDir,
     required this.runsRoot,
+    required this.defaultModelReference,
     this.screen,
     this.editor,
   });
-
-  Set<String> get _knownRoles =>
-      pipeline.roles.map((r) => r.name).toSet();
 
   /// Run `<workflowsDir>/<workflowName>.dot` to completion. [sink] is where the
   /// turn's streamed text + progress notices go — pass the active host.
@@ -50,7 +52,7 @@ class PipelineRunner {
     final source = await readWorkflow(workflowsDir, workflowName);
     final graph = parseDot(source);
 
-    final diags = validate(graph, knownRoles: _knownRoles);
+    final diags = validate(graph);
     final errors = diags.where((d) => d.severity == Severity.error);
     if (errors.isNotEmpty) {
       final msg = errors.map((d) => '  $d').join('\n');
@@ -62,8 +64,10 @@ class PipelineRunner {
       sink.notice('$w', kind: NoticeKind.info);
     }
 
-    final backend =
-        TinaCodergenBackend(scheduler: scheduler, pipeline: pipeline, sink: sink);
+    final backend = TinaCodergenBackend(
+        scheduler: scheduler,
+        sink: sink,
+        defaultModelReference: defaultModelReference);
     final interviewer = TinaInterviewer(screen: screen, editor: editor);
 
     final runId = _newRunId();
@@ -77,6 +81,10 @@ class PipelineRunner {
       ..register('conditional', ConditionalHandler())
       ..register('codergen', codergen)
       ..register('wait.human', HumanGateHandler(interviewer));
+    // Parallel fan-out (component) + fan-in (tripleoctagon). ParallelHandler
+    // resolves branch nodes through this same registry, so register it last.
+    registry.register('parallel', ParallelHandler(registry));
+    registry.register('parallel.fan_in', ParallelFanInHandler());
     registry.defaultHandler = codergen;
 
     sink.notice('▶ workflow: $workflowName'

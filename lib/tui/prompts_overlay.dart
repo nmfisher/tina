@@ -5,18 +5,18 @@ import 'package:tina/config/user_config.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 
-/// The `/prompts` overlay: a modal that lists every role in the [pipeline] and
-/// lets the user edit each one's prompt identity in a multi-line editor.
-/// Returns the written [UserConfig] on close if anything changed (else null,
-/// including a bare cancel). Mirrors the [runSetupOverlay] modal pattern: an
-/// [OverlayRegion] pumped by [LineEditor.readKey] (the proven exclusive-capture
-/// path), with a canned-[InputEvent] hook for tests.
+/// The `/prompts` overlay: a modal that edits the entry agent's prompt
+/// identity in a multi-line editor. Returns the written [UserConfig] on close
+/// if anything changed (else null, including a bare cancel). Mirrors the
+/// [runSetupOverlay] modal pattern: an [OverlayRegion] pumped by
+/// [LineEditor.readKey] (the proven exclusive-capture path), with a
+/// canned-[InputEvent] hook for tests.
 ///
-/// Edits replace only the role's *identity* prose; the shared `<environment>`
-/// and `<project-context>` (AGENTS.md) wrapper is still applied on top at
-/// resolution time. An override equal to the role's default identity is dropped
-/// on save so the config stays clean. Writes via [writeUserConfig]; applies on
-/// restart.
+/// Edits replace only the entry agent's *identity* prose; the shared
+/// `<environment>` and `<project-context>` (AGENTS.md) wrapper is still applied
+/// on top at resolution time. An override equal to the default identity is
+/// dropped on save so the config stays clean. Writes via [writeUserConfig];
+/// applies on restart.
 Future<UserConfig?> runPromptsOverlay({
   required Screen screen,
   required LineEditor editor,
@@ -41,6 +41,16 @@ enum _Step { roles, editor }
 const _focusMark = '▸';
 const _overriddenMark = '●';
 
+/// One editable identity in the `/prompts` list. The catalog is gone, so the
+/// only editable identity is the entry agent (`main`); this tiny type keeps the
+/// list-driven form (which was built around `AgentRole`) working unchanged.
+class _Identity {
+  final String name;
+  final String description;
+  final String promptIdentity;
+  const _Identity(this.name, this.description, this.promptIdentity);
+}
+
 class _PromptsForm {
   _PromptsForm(
     this._screen,
@@ -58,8 +68,10 @@ class _PromptsForm {
   final Future<InputEvent> Function() _readEvent;
   final UserConfig _initial;
 
-  /// main first, then every sub-agent role — the editable identities.
-  List<AgentRole> get _roles => [_pipeline.mainRole, ..._pipeline.roles];
+  /// The editable identity: just the entry agent (the catalog is gone).
+  List<_Identity> get _roles => [
+        _Identity('main', 'the entry coding agent', _pipeline.mainIdentity),
+      ];
 
   late final OverlayRegion _overlay;
   late final Rect _rect;
@@ -76,7 +88,7 @@ class _PromptsForm {
 
   // Editor-step state.
   TextBuffer? _buffer;
-  AgentRole? _editingRole;
+  _Identity? _editingRole;
   int _scrollLine = 0;
 
   Future<UserConfig?> run() async {
@@ -244,7 +256,7 @@ class _PromptsForm {
     return false; // at the role list → close
   }
 
-  void _enterEditor(AgentRole role) {
+  void _enterEditor(_Identity role) {
     _editingRole = role;
     final effective = _overrides[role.name] ?? role.promptIdentity;
     _buffer = TextBuffer(initial: effective);
@@ -258,7 +270,7 @@ class _PromptsForm {
     if (role == null || buf == null) return;
     final text = buf.text;
     // An override equal to the default identity is dropped — keeps the config
-    // clean and behavior identical (resolveSystemPrompt falls back either way).
+    // clean and behavior identical (resolveMainPrompt falls back either way).
     if (text == role.promptIdentity) {
       _overrides.remove(role.name);
     } else {
@@ -269,7 +281,7 @@ class _PromptsForm {
     _editingRole = null;
   }
 
-  void _resetRole(AgentRole role) {
+  void _resetRole(_Identity role) {
     _overrides.remove(role.name);
   }
 
@@ -282,7 +294,6 @@ class _PromptsForm {
     final cfg = UserConfig(
       defaultProvider: _initial.defaultProvider,
       defaultModel: _initial.defaultModel,
-      tiers: _initial.tiers,
       providers: _initial.providers,
       limits: _initial.limits,
       prompts: Map<String, String>.from(_overrides),

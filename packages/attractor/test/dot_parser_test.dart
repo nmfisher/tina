@@ -28,17 +28,19 @@ void main() {
       expect(g.nodes['start']!.shape, 'Mdiamond');
     });
 
-    test('exposes a node model override and defaults to empty', () {
+    test('exposes a node model from llm_model/llm_provider and defaults empty', () {
       final g = parseDot('''
         digraph M {
           start [shape=Mdiamond]
-          plan [shape=box, model="deepseek/deepseek-chat"]
+          plan [shape=box, llm_model="deepseek-chat", llm_provider="deepseek"]
           exit [shape=Msquare]
           start -> plan -> exit
         }
       ''');
-      expect(g.node('plan')!.model, 'deepseek/deepseek-chat');
-      expect(g.node('start')!.model, '');
+      expect(g.node('plan')!.llmModel, 'deepseek-chat');
+      expect(g.node('plan')!.llmProvider, 'deepseek');
+      expect(g.node('plan')!.modelReference, 'deepseek/deepseek-chat');
+      expect(g.node('start')!.modelReference, '');
     });
 
     test('parses typed attribute values', () {

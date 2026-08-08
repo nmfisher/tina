@@ -118,9 +118,11 @@ A pre-Part-II cleanup of the agent layer, in three commits:
 - **Non-interactive (`--prompt`) delegation** — delegation is wired only in the
   interactive `TuiCoordinator` path (see correction 6).
 - **Structured verdict objects** for `haltOnFail` stages (a stage returns a plain
-  error result today), **parallel-within-pipeline stages** (stages are strictly
-  sequential; parallel fan-out remains `delegate`), **pipeline graph cycle
-  analysis** (only the `maxDepth` backstop ships).
+  error result today), **multi-node parallel branch chains** (the
+  `component`/`tripleoctagon` fan-out/fan-in handlers ship —
+  `handlers/parallel_handler.dart` — but each branch is a single node; a chain
+  of nodes per branch is still modeled as the executor delegating internally),
+  **pipeline graph cycle analysis** (only the `maxDepth` backstop ships).
 
 ### ⚠ Known sharp edges (documented; not yet fixed)
 
@@ -194,33 +196,48 @@ A pre-Part-II cleanup of the agent layer, in three commits:
 
 ## Default DOT workflow routing (2026-08-06)
 
+> **Superseded by the manager-loop model.** Normal chat turns no longer route
+> through a DOT workflow. The main agent runs **outside** the workflow, and a
+> workflow is launched on demand as a background child run (`/workflow run
+> default`, monitorable, stoppable). See
+> [manager_loop.md](manager_loop.md). The graph below is unchanged; only the
+> *when it runs* changed — from "every turn" to "on demand". The historical
+> description follows.
+
 Since v0.1.3-ish, **every normal chat turn routes through an editable DOT
 workflow by default** — a planner → reviewer → executor pipeline — instead of
 the plain main-agent loop, while `~/.tina/workflows/default.dot` exists.
 
 - **Seed**: first launch (and `--init-config`) writes `default.dot`
   (`lib/pipeline/default_workflow.dart`, `kDefaultWorkflowDotSource`): a
-  `start(Mdiamond) → plan(orchestrator) → review(verifier) ⇄ plan → execute
-  (orchestrator) → done(Msquare)` graph with `VERDICT:` routing (`submit` /
-  `approve` / `revise` back-edge).
-- **Routing rule** (`resolveDefaultWorkflowName`): the turn runs through the
-  workflow when `default.dot` exists — unless `[default] workflow = "none"`
-  in `~/.tina/config` disables routing, or the config names a different
-  workflow (`[default] workflow = "foo"` → `foo.dot`).
-- **Fallbacks**: a missing, unparseable, or invalid `default.dot` shows a
-  warning and falls back to the plain agent (chat never bricks); an
-  explicitly-configured workflow that's missing on disk warns + falls back;
-  a workflow that fails at runtime ends the turn like any failed turn.
+  `start → main → plan → plan_review_1 → plan_review_2 → fanout → exec_1/2/3 →
+  fanin → exec_reviewer → done` graph — talk/explore → plan → two fresh review
+  passes of one reviewer identity → parallel fan-out → fan-in → execution
+  review. `VERDICT:` routing (`approve` / `revise` self-loop / `clarify` via a
+  human gate). See [`default_workflow.md`](default_workflow.md) for the full
+  design.
+- **Routing rule (historical)** (`resolveDefaultWorkflowName`): the turn used to
+  run through the workflow when `default.dot` existed — unless
+  `[default] workflow = "none"` in `~/.tina/config` disabled routing, or the
+  config named a different workflow (`[default] workflow = "foo"` → `foo.dot`).
+  Under the manager-loop model this helper only names the launchable default
+  file for `/workflow list`; it no longer drives any turn routing.
+- **Fallbacks (historical)**: a missing, unparseable, or invalid `default.dot`
+  used to warn and fall back to the plain agent (chat never bricks). Under the
+  manager-loop model there is no per-turn routing to fall back from; a launch
+  of an unusable workflow fails the launch with a clear message.
 - **Prompt expansion**: node prompts can reference `$input` (the user's
   message), `$history` (the truncated chat transcript, 60k chars, newest
   kept), and `$goal` (the graph goal) — expanded by `expandTemplate`
   (`packages/attractor/lib/src/handlers/codergen_handler.dart`). `history`
   is an engine-managed context key, so it only surfaces where a prompt
   explicitly asks for it.
-- **"One or more executors"** comes from the `execute` node's role:
-  `orchestrator` (canDelegate) splits the work and delegates to 1..N
-  `implementer` sub-agents via the existing `delegate` tool — no engine-level
-  parallel/fan-in (still deferred).
+- **Parallel execution** is engine-level: the `fanout` (`component`) node fans
+  out to `exec_1/2/3` against cloned contexts, and the `fanin` (`tripleoctagon`)
+  node merges them (`ParallelHandler` / `ParallelFanInHandler` in
+  `packages/attractor/lib/src/handlers/parallel_handler.dart`). The plan splits
+  the work into chunks `[1]`/`[2]`/`[3]` and each executor takes one. See
+  [`default_workflow.md`](default_workflow.md).
 - **Per-node model**: a node may set `model="provider/model"` (e.g.
   `review [role="verifier", model="deepseek/deepseek-chat"]`) to override the
   role's tier model for that node only. Threaded through

@@ -60,7 +60,7 @@ void main() {
       digraph V {
         start [shape=Mdiamond]
         done [shape=Msquare]
-        a [shape=box, label="A", role="r"]
+        a [shape=box, label="A", system_prompt="r"]
         start -> a -> done
       }
     ''');

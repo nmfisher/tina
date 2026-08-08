@@ -6,11 +6,11 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 /// The first-run setup overlay / /settings panel: a modal that collects
-/// provider/model/key configuration via an expandable provider tree, then
-/// separate heavy/light tier model selection, token limits, and confirm.
+/// provider/model/key configuration via an expandable provider tree, then a
+/// default-model selection, theme, token limits, and confirm.
 ///
-/// Flow: providers (tree) → heavy → light → limits (/settings only) → confirm.
-/// Returns the written [UserConfig] on confirm, or `null` on cancel.
+/// Flow: providers (tree) → default model → theme → limits (/settings only)
+/// → confirm. Returns the written [UserConfig] on confirm, or `null` on cancel.
 ///
 /// Driven by [LineEditor.readKey] (the proven exclusive-capture path also used
 /// by the permission modal). [readEvent] is injectable so tests can feed
@@ -36,14 +36,13 @@ Future<UserConfig?> runSetupOverlay({
 
 // -- Step & constants -------------------------------------------------------
 
-enum _Step { providers, heavy, light, limits, theme, confirm }
+enum _Step { providers, heavy, limits, theme, confirm }
 enum _Result { changed, wrote, cancelled }
 
 const _checkOff = '☐';
 const _checkOn = '☑';
 const _focusMark = '▸';
 const _indent = '  '; // 2-space indent for sub-items
-const _skipLabel = '(skip — no light tier)';
 
 // -- Row data model ---------------------------------------------------------
 
@@ -86,8 +85,9 @@ class _SetupForm {
           _disabledModels.add('${e.key}/$mid');
         }
       }
-      _heavy = initial.tiers['heavy'];
-      _light = initial.tiers['light'];
+      _heavy = (initial.defaultProvider != null && initial.defaultModel != null)
+          ? '${initial.defaultProvider}/${initial.defaultModel}'
+          : null;
       _themeVariant = initial.themeVariant;
     }
     _showLimits = initial != null;
@@ -114,13 +114,12 @@ class _SetupForm {
   int _focus = 0;
   int _scrollOffset = 0; // first visible row index in the providers tree
 
-  // -- Tier selection state -------------------------------------------------
+  // -- Default-model selection state ----------------------------------------
 
-  String? _heavy; // "provider/model"
-  String? _light; // null = light tier skipped
+  String? _heavy; // the default "provider/model"
   List<String> _modelOptions = const [];
-  bool _lightSkippable = false;
-  String _skipLabelCurrent = _skipLabel;
+  bool _lightSkippable = false; // a skip row is shown (theme's "System")
+  String _skipLabelCurrent = 'System theme';
 
   // -- Theme variant state ----------------------------------------------------
   String? _themeVariant; // null=system, 'dark', 'light'
@@ -194,12 +193,6 @@ class _SetupForm {
       case _Step.heavy:
         return _onPick(ev, (ref) {
           _heavy = ref;
-          _enterLightStep();
-          return _Result.changed;
-        });
-      case _Step.light:
-        return _onPick(ev, (ref) {
-          _light = ref;
           _enterThemeStep();
           return _Result.changed;
         });
@@ -385,9 +378,8 @@ class _SetupForm {
     _modelOptions = _candidates();
     _lightSkippable = false;
     if (_modelOptions.isEmpty) {
-      // No models from any checked provider — skip tiers entirely.
+      // No models from any checked provider — skip model selection entirely.
       _heavy = null;
-      _light = null;
       _focus = 0;
       _step = _Step.confirm;
     } else {
@@ -395,19 +387,6 @@ class _SetupForm {
       _focus = idx < 0 ? 0 : idx;
       _step = _Step.heavy;
     }
-  }
-
-  void _enterLightStep() {
-    _modelOptions = _candidates();
-    _lightSkippable = true;
-    _skipLabelCurrent = _skipLabel;
-    var idx = 0; // skip row
-    if (_light != null) {
-      final m = _modelOptions.indexOf(_light!);
-      if (m >= 0) idx = m + 1;
-    }
-    _focus = idx;
-    _step = _Step.light;
   }
 
   void _enterThemeStep() {
@@ -569,7 +548,6 @@ class _SetupForm {
       _keys.remove(id);
       _baseUrls.remove(id);
       if (_heavy != null && _heavy!.startsWith('$id/')) _heavy = null;
-      if (_light != null && _light!.startsWith('$id/')) _light = null;
     } else {
       // When a provider is first enabled, all its models start available.
       // Clear any stale disabled entries for this provider.
@@ -608,12 +586,8 @@ class _SetupForm {
         _step = _Step.providers;
         return true;
 
-      case _Step.light:
-        _enterHeavyStep();
-        return true;
-
       case _Step.theme:
-        _enterLightStep();
+        _enterHeavyStep();
         return true;
 
       case _Step.limits:
@@ -634,9 +608,17 @@ class _SetupForm {
   // -- Write ----------------------------------------------------------------
 
   ({UserConfig? config, String? error}) _write() {
-    final tiers = <String, String>{};
-    if (_heavy != null) tiers['heavy'] = _heavy!;
-    if (_light != null) tiers['light'] = _light!;
+    // The default provider/model come from the chosen default model ref.
+    String? defaultProvider;
+    String? defaultModel;
+    final heavy = _heavy;
+    if (heavy != null) {
+      final slash = heavy.indexOf('/');
+      if (slash > 0) {
+        defaultProvider = heavy.substring(0, slash);
+        defaultModel = heavy.substring(slash + 1);
+      }
+    }
     final LimitsConfig? limits = _showLimits && _limitIds.isNotEmpty
         ? LimitsConfig(
             maxSessionTokens: _limitValues['max_session_tokens'],
@@ -665,8 +647,9 @@ class _SetupForm {
       dis.putIfAbsent(pid, () => <String>{}).add(mid);
     }
     final cfg = buildSetupConfig(
-      tiers: tiers,
       keys: filteredKeys,
+      defaultProvider: defaultProvider,
+      defaultModel: defaultModel,
       limits: limits,
       existingProviders: _initialProviders,
       baseUrls: filteredBaseUrls,
@@ -690,9 +673,7 @@ class _SetupForm {
       case _Step.providers:
         return 'Configure providers';
       case _Step.heavy:
-        return 'Choose heavy model';
-      case _Step.light:
-        return 'Choose light model';
+        return 'Choose default model';
       case _Step.limits:
         return 'Token limits';
       case _Step.theme:
@@ -707,12 +688,10 @@ class _SetupForm {
       case _Step.providers:
         return _providersBody();
       case _Step.heavy:
-      case _Step.light:
-        final tier = _step == _Step.heavy ? 'heavy' : 'light';
-        final opts = [..._if(_lightSkippable, _skipLabel), ..._modelOptions];
         return [
-          'Model for the "$tier" tier:',
-          for (var i = 0; i < opts.length; i++) _row(i == _focus, opts[i]),
+          'Default model:',
+          for (var i = 0; i < _modelOptions.length; i++)
+            _row(i == _focus, _modelOptions[i]),
         ];
       case _Step.theme:
         final opts = ['System theme', 'Dark theme', 'Light theme'];
@@ -747,7 +726,6 @@ class _SetupForm {
     return [
       if (_writeError != null) _row(false, '⚠ $_writeError'),
       _row(false, 'default:  ${_heavy ?? "(none)"}'),
-      _row(false, 'light:    ${_light ?? "(none)"}'),
       _row(false, 'theme:    $_themeLabel'),
       for (final id in _checked)
         _row(false, '$id: ${_keys.containsKey(id) ? "key set" : "no key"}'
@@ -838,7 +816,6 @@ class _SetupForm {
       case _Step.providers:
         return '↑↓ move · → expand · ← collapse · space toggle provider/model · enter continue';
       case _Step.heavy:
-      case _Step.light:
       case _Step.theme:
         return '↑↓ move · enter select';
       case _Step.limits:

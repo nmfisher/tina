@@ -6,10 +6,10 @@ import '../session_commands/command_context.dart';
 import 'default_workflow.dart';
 import 'pipeline_runner.dart';
 
-/// The `/workflow` slash command: `list`, `show`, `new`, `edit`, `run`.
-/// Dispatched from [SessionCommandHandlers]. `list` reads directly from
-/// [CommandContext.workflowsDir]; `show`/`new`/`edit`/`run` delegate to the
-/// coordinator-wired slots.
+/// The `/workflow` slash command: `list`, `show`, `new`, `edit`, `run`,
+/// `stop`. Dispatched from [SessionCommandHandlers]. `list` reads directly from
+/// [CommandContext.workflowsDir]; `show`/`new`/`edit`/`run`/`stop` delegate to
+/// the coordinator-wired slots.
 Future<void> handleWorkflowCommand(CommandContext ctx, String line) async {
   final parts = line.split(RegExp(r'\s+'));
   final sub = parts.length < 2 ? 'list' : parts[1];
@@ -27,10 +27,12 @@ Future<void> handleWorkflowCommand(CommandContext ctx, String line) async {
       await _edit(ctx, parts);
     case 'run':
       await _run(ctx, parts);
+    case 'stop':
+      await _stop(ctx, parts);
     default:
       ctx.active.host.showMessage(
           'usage: /workflow [list | show <name> | new | edit <name> | '
-          'run <name> [input...]]\n',
+          'run <name> [input...] | stop [id]]\n',
           style: HostMessageStyle.warning);
   }
 }
@@ -50,14 +52,16 @@ Future<void> _list(CommandContext ctx, {bool hints = false}) async {
     if (hints) _showHints(ctx);
     return;
   }
-  // Which workflow, if any, is the one every normal turn routes through?
+  // Which workflow, if any, is the conventional "default" graph (the seeded
+  // default.dot, or one named by [default] workflow). Normal turns no longer
+  // route through it — it's just the launchable default for /workflow run.
   final defaultName = resolveDefaultWorkflowName(
       configured: ctx.defaultWorkflow, workflowsDir: dir);
   ctx.active.host.showMessage('workflows:\n');
   for (final n in names) {
     final isDefault = n == defaultName;
     ctx.active.host.showMessage(
-        '  $n${isDefault ? '   ← default (runs on every turn)' : ''}\n',
+        '  $n${isDefault ? '   ← default (launch with /workflow run default)' : ''}\n',
         style: HostMessageStyle.dim);
   }
   if (hints) _showHints(ctx);
@@ -68,7 +72,10 @@ void _showHints(CommandContext ctx) {
   final host = ctx.active.host;
   host.showMessage('\nusage:\n');
   host.showMessage(
-      '  /workflow run <name> [input...]   run a workflow to completion\n',
+      '  /workflow run <name> [input...]   launch a workflow in the background\n',
+      style: HostMessageStyle.dim);
+  host.showMessage(
+      '  /workflow stop [id]               stop the running workflow\n',
       style: HostMessageStyle.dim);
   host.showMessage(
       '  /workflow edit <name>             visual node editor (e/n/c/d/s keys)\n',
@@ -80,14 +87,15 @@ void _showHints(CommandContext ctx) {
 
   host.showMessage('\nhints:\n');
   host.showMessage(
-      '  • default.dot runs on every normal turn while it exists — delete it\n'
-      '    (or set [default] workflow = "none" in ~/.tina/config) for the\n'
-      '    plain agent path\n',
+      '  • a workflow runs as a background child run of the chat: launch it with\n'
+      '    /workflow run and keep talking; node events stream into the chat and\n'
+      '    the run reports back when done. /workflow stop cancels it\n',
       style: HostMessageStyle.dim);
   host.showMessage(
-      '  • a node runs as its `role` (default: orchestrator). role="verifier",\n'
-      '    role="implementer", ... swap the tools; model="provider/model" picks\n'
-      '    the model for one node\n',
+      '  • a node carries its own system_prompt (identity) and optional\n'
+      '    llm_model + llm_provider (model). Omit the model attrs to inherit\n'
+      '    the conversation model. A node delegates sub-agents with the\n'
+      '    delegate tool (a task + an optional tool profile + model)\n',
       style: HostMessageStyle.dim);
   host.showMessage(
       '  • end a node\'s response with VERDICT: <label> to route on edge labels,\n'
@@ -162,7 +170,7 @@ Future<void> _run(CommandContext ctx, List<String> parts) async {
   final run = ctx.runWorkflow;
   if (run == null) {
     ctx.active.host.showMessage(
-        '/workflow run needs the pipeline runner (TUI or --workflow)\n',
+        '/workflow run needs the workflow supervisor (TUI or --workflow)\n',
         style: HostMessageStyle.warning);
     return;
   }
@@ -173,7 +181,30 @@ Future<void> _run(CommandContext ctx, List<String> parts) async {
   }
   final name = parts[2];
   final input = parts.length > 3 ? parts.sublist(3).join(' ') : null;
+  // Launches the workflow as a background child run; run() returns once the
+  // run is started (not when it finishes). Node events + the final outcome
+  // stream into the chat host; /workflow stop cancels it.
   await run(workflowName: name, input: input);
+}
+
+Future<void> _stop(CommandContext ctx, List<String> parts) async {
+  final stop = ctx.stopWorkflow;
+  if (stop == null) {
+    ctx.active.host.showMessage(
+        '/workflow stop needs the workflow supervisor (TUI)\n',
+        style: HostMessageStyle.warning);
+    return;
+  }
+  final id = parts.length > 2 ? parts[2] : null;
+  final cancelled = stop(id);
+  ctx.active.host.showMessage(
+      cancelled
+          ? id == null
+              ? 'stopped the running workflow\n'
+              : 'stopped workflow run $id\n'
+          : 'no running workflow to stop\n',
+      style:
+          cancelled ? HostMessageStyle.success : HostMessageStyle.dim);
 }
 
 /// Ensure the workflows directory exists (created lazily on first use). Returns

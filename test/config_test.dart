@@ -110,34 +110,6 @@ void main() {
       expect(cfg.model, 'file-m');
     });
 
-    test('file tiers override the built-in defaults per key', () {
-      final cfg = Config.parse(
-        const [],
-        env: const {'ANTHROPIC_API_KEY': 'sk'},
-        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
-        userConfig: const UserConfig(tiers: {'heavy': 'a/b'}),
-      );
-      // file `heavy` wins; `light` falls back to the built-in default.
-      expect(cfg.modelTiers, {
-        'heavy': 'a/b',
-        'light': 'anthropic/claude-haiku-4-5',
-      });
-    });
-
-    test('tiers default to heavy+light anthropic when the file sets none', () {
-      // A role with modelTier 'light' (scout/tester) must resolve out of the
-      // box rather than throwing `unknown model tier`.
-      final cfg = Config.parse(
-        const [],
-        env: const {'ANTHROPIC_API_KEY': 'sk'},
-        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
-      );
-      expect(cfg.modelTiers, {
-        'heavy': 'anthropic/claude-sonnet-4-6',
-        'light': 'anthropic/claude-haiku-4-5',
-      });
-    });
-
     test('prompt overrides flow from [prompts.<role>] into Config', () {
       final cfg = Config.parse(
         const [],
@@ -159,7 +131,7 @@ void main() {
         const [],
         env: const {'ANTHROPIC_API_KEY': 'sk'},
         registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
-        userConfig: const UserConfig(tiers: {'heavy': 'a/b'}),
+        userConfig: const UserConfig(limits: LimitsConfig(maxGlobalTokens: 1)),
       );
       expect(cfg.promptOverrides, isEmpty);
     });
@@ -386,7 +358,7 @@ void main() {
         const [],
         env: const {'ANTHROPIC_API_KEY': 'sk'},
         registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
-        userConfig: const UserConfig(tiers: {'heavy': 'a/b'}),
+        userConfig: const UserConfig(limits: LimitsConfig(maxGlobalTokens: 1)),
       );
       expect(cfg.theme.chat.userBar, '7');
       expect(cfg.theme.border.focus, '36');

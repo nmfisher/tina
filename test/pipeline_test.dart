@@ -9,10 +9,12 @@ import '../lib/pipeline/file_run_store.dart';
 import '../lib/pipeline/tina_codergen_backend.dart';
 import 'helpers/fake_agent_sink.dart';
 
-/// A scheduler stub that records the model reference it was asked to run with
-/// instead of actually spawning an agent.
+/// A scheduler stub that records the system prompt + model reference it was
+/// asked to run with instead of actually spawning an agent.
 class _RecordingScheduler extends SubAgentScheduler {
   String? seenModelReference;
+  String? seenParentReference;
+  String? seenSystemPrompt;
   int calls = 0;
 
   _RecordingScheduler()
@@ -26,7 +28,7 @@ class _RecordingScheduler extends SubAgentScheduler {
 
   @override
   Future<RunAgentResult> runStandalone({
-    required AgentRole role,
+    required String systemPrompt,
     required String task,
     String parentReference = '',
     String? modelReference,
@@ -36,6 +38,8 @@ class _RecordingScheduler extends SubAgentScheduler {
   }) async {
     calls++;
     seenModelReference = modelReference;
+    seenParentReference = parentReference;
+    seenSystemPrompt = systemPrompt;
     return const RunAgentResult('done');
   }
 }
@@ -61,46 +65,82 @@ void main() {
     });
   });
 
-  group('TinaCodergenBackend model attribute', () {
-    test('a node model attr overrides the role tier', () async {
+  group('TinaCodergenBackend node attributes', () {
+    test('llm_model/llm_provider override the inherited conversation model', () async {
       final scheduler = _RecordingScheduler();
       final backend = TinaCodergenBackend(
         scheduler: scheduler,
-        pipeline: defaultPipeline,
         sink: FakeAgentSink(),
+        defaultModelReference: 'anthropic/claude-sonnet-4-6',
       );
-      final node = PipelineNode(id: 'review', attrs: {
-        'role': 'verifier',
-        'model': 'deepseek/deepseek-chat',
+      final node = PipelineNode(id: 'main', attrs: {
+        'llm_model': 'deepseek-chat',
+        'llm_provider': 'deepseek',
       });
       final result = await backend.run(
         node: node,
-        role: 'verifier',
-        prompt: 'review it',
+        prompt: 'do it',
         preamble: '',
         context: Context(),
       );
       expect(result.outcome, isNull); // not an error result
       expect(scheduler.calls, 1);
       expect(scheduler.seenModelReference, 'deepseek/deepseek-chat');
+      expect(scheduler.seenParentReference, 'anthropic/claude-sonnet-4-6');
     });
 
-    test('a node without a model attr passes null (tier wins)', () async {
+    test('a node without model attrs inherits the conversation model', () async {
       final scheduler = _RecordingScheduler();
       final backend = TinaCodergenBackend(
         scheduler: scheduler,
-        pipeline: defaultPipeline,
         sink: FakeAgentSink(),
+        defaultModelReference: 'anthropic/claude-sonnet-4-6',
       );
-      final node = PipelineNode(id: 'plan', attrs: {'role': 'orchestrator'});
+      final node = PipelineNode(id: 'main', attrs: {});
       await backend.run(
         node: node,
-        role: 'orchestrator',
-        prompt: 'plan it',
+        prompt: 'do it',
         preamble: '',
         context: Context(),
       );
       expect(scheduler.seenModelReference, isNull);
+      expect(scheduler.seenParentReference, 'anthropic/claude-sonnet-4-6');
+    });
+
+    test('a node system_prompt is passed through as the agent identity', () async {
+      final scheduler = _RecordingScheduler();
+      final backend = TinaCodergenBackend(
+        scheduler: scheduler,
+        sink: FakeAgentSink(),
+        defaultModelReference: 'anthropic/claude-sonnet-4-6',
+      );
+      final node = PipelineNode(id: 'main', attrs: {
+        'system_prompt': 'You are the main agent.',
+      });
+      await backend.run(
+        node: node,
+        prompt: 'do it',
+        preamble: '',
+        context: Context(),
+      );
+      expect(scheduler.seenSystemPrompt, 'You are the main agent.');
+    });
+
+    test('a node without a system_prompt gets the default identity', () async {
+      final scheduler = _RecordingScheduler();
+      final backend = TinaCodergenBackend(
+        scheduler: scheduler,
+        sink: FakeAgentSink(),
+        defaultModelReference: 'anthropic/claude-sonnet-4-6',
+      );
+      final node = PipelineNode(id: 'main', attrs: {});
+      await backend.run(
+        node: node,
+        prompt: 'do it',
+        preamble: '',
+        context: Context(),
+      );
+      expect(scheduler.seenSystemPrompt, isNotEmpty);
     });
   });
 

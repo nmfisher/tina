@@ -28,11 +28,10 @@ class Diagnostic {
   }
 }
 
-/// Validate a parsed [Graph]. [knownRoles] (when provided) enables the
-/// `role_unknown` warning so a host can flag codergen nodes that reference a
-/// role it doesn't have — kept as a warning (not error) so DOT files stay
-/// portable across hosts.
-List<Diagnostic> validate(Graph graph, {Set<String>? knownRoles}) {
+/// Validate a parsed [Graph]. Returns diagnostics ordered by severity (errors
+/// first). A codergen node carries its own `system_prompt`/`llm_model`/
+/// `llm_provider` attributes (tin-80ll), so there are no role names to check.
+List<Diagnostic> validate(Graph graph) {
   final diags = <Diagnostic>[];
 
   final start = graph.findStartNode();
@@ -150,28 +149,13 @@ List<Diagnostic> validate(Graph graph, {Set<String>? knownRoles}) {
     }
   }
 
-  // Unknown role (when the host supplied its known role names).
-  if (knownRoles != null) {
-    for (final n in graph.nodes.values) {
-      if (n.handlerType == 'codergen' &&
-          n.role.isNotEmpty &&
-          !knownRoles.contains(n.role)) {
-        diags.add(Diagnostic(
-            rule: 'role_unknown',
-            severity: Severity.warning,
-            nodeId: n.id,
-            message: 'node "${n.id}" references unknown role "${n.role}"'));
-      }
-    }
-  }
-
   return diags;
 }
 
 /// Throw if [validate] produces any error-severity diagnostics.
-void validateOrRaise(Graph graph, {Set<String>? knownRoles}) {
+void validateOrRaise(Graph graph) {
   final errors =
-      validate(graph, knownRoles: knownRoles).where((d) => d.severity == Severity.error);
+      validate(graph).where((d) => d.severity == Severity.error);
   if (errors.isNotEmpty) {
     throw ArgumentError('invalid pipeline:\n'
         '${errors.map((d) => '  $d').join('\n')}');

@@ -26,8 +26,7 @@ class DelegateTool extends DelegationToolBase {
 
   @override
   String get toolDescriptionLead => 'Delegate to sub-agents and return their '
-      'merged answers. Each delegation is {"agent", "task"}; they run '
-      'concurrently.';
+      'merged answers. Each delegation runs concurrently.';
 
   @override
   Future<ToolResult> execute(
@@ -39,7 +38,7 @@ class DelegateTool extends DelegationToolBase {
     final error = resolved.error;
     if (error != null) return ToolResult.error(error);
 
-    final jobs = spawnAll(resolved.targets);
+    final jobs = spawnAll(resolved.delegations);
 
     // A main-turn cancel tears down every spawned job; their results then
     // complete and Future.wait resolves.
@@ -51,9 +50,9 @@ class DelegateTool extends DelegationToolBase {
 
     final results = await Future.wait(jobs.map((j) => j.result));
     final parts = <String>[];
-    for (var i = 0; i < resolved.targets.length; i++) {
+    for (var i = 0; i < resolved.delegations.length; i++) {
       final r = results[i];
-      parts.add('### ${resolved.targets[i].$1}\n${r.content}'
+      parts.add('### ${resolved.delegations[i].label}\n${r.content}'
           '${r.isError ? "\n(error)" : ""}');
     }
     return ToolResult(parts.join('\n\n'),

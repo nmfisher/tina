@@ -114,7 +114,7 @@ RenderResult renderGraph(Graph g, {NodeLayout? layout, String? selectedId}) {
 }
 
 String? _subLine(PipelineNode n) {
-  if (n.role.isNotEmpty) return n.role;
+  if (n.llmModel.isNotEmpty) return n.llmModel;
   if (n.handlerType != 'codergen') return n.handlerType;
   return null;
 }

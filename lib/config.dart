@@ -8,17 +8,6 @@ import 'package:tina_engine/tina_engine.dart';
 import 'config/user_config.dart';
 import 'project/project_trust.dart';
 
-/// Built-in model tiers, seeded into [Config.modelTiers] so a sub-agent role
-/// with a `modelTier` (e.g. scout/tester → `'light'`) resolves out of the box
-/// instead of throwing `unknown model tier`. A `[tiers]` table in the user
-/// config overrides per key. Both are anthropic — the default provider — and
-/// resolve through the prefixed `"provider/model"` path, so the model ids are
-/// forwarded on the wire as-is regardless of catalog membership.
-const _defaultModelTiers = <String, String>{
-  'heavy': 'anthropic/claude-sonnet-4-6',
-  'light': 'anthropic/claude-haiku-4-5',
-};
-
 /// Which rendering backend to use. [BackendChoice.notcurses] is the default and
 /// is required — it fails loudly if notcurses can't initialize. Only
 /// [BackendChoice.ansi] uses the ANSI renderer (opt in via `--backend ansi`).
@@ -99,16 +88,10 @@ class Config {
   /// provider. Stored on [Config] so `main` can read it post-parse.
   final bool setup;
 
-  /// `tier → "provider/model"` map for sub-agent model selection. Seeded with
-  /// [_defaultModelTiers] (heavy + light anthropic) so a role with `modelTier:
-  /// 'light'` (e.g. scout, tester) resolves out of the box; a `[tiers]` table in
-  /// the user config overrides per key.
-  final Map<String, String> modelTiers;
-
-  /// `role → identity` system-prompt overrides from the `[prompts.<role>]`
-  /// config table. An absent role means "use the built-in default identity".
-  /// Threaded into the agent catalog so each role's resolver checks here first.
-  /// Empty by default.
+  /// `name → identity` system-prompt override from the `[prompts.main]` config
+  /// table. The entry agent's identity is overridable here; a sub-agent inherits
+  /// its parent's resolved prompt, so the override propagates down. An absent
+  /// `main` entry means "use the built-in default identity". Empty by default.
   final Map<String, String> promptOverrides;
 
   /// Terminal color theme; carried through to the TUI's [Screen].
@@ -167,7 +150,6 @@ class Config {
     required this.verbose,
     required this.initConfig,
     required this.setup,
-    required this.modelTiers,
     this.promptOverrides = const {},
     this.theme = const Theme.defaults(),
     this.safeMode = false,
@@ -275,13 +257,13 @@ class Config {
     ..addFlag('init-config',
         negatable: false,
         help: 'Write a commented TOML template to ~/.tina/config (chmod 600) '
-            'and exit. Edits there persist provider, model, tiers, and API '
+            'and exit. Edits there persist provider, model, and API '
             'keys so you can stop passing them on the CLI / as env vars.')
     ..addFlag('setup',
         negatable: false,
-        help: 'Run the interactive first-run setup wizard (provider/model per '
-            'tier). Also runs automatically when no config exists and stdin is '
-            'a terminal.')
+        help: 'Run the interactive first-run setup wizard (provider/model '
+            'selection). Also runs automatically when no config exists and '
+            'stdin is a terminal.')
     ..addOption('backend',
         allowed: ['ansi', 'notcurses'],
         defaultsTo: 'notcurses',
@@ -342,7 +324,6 @@ class Config {
         verbose: false,
         initConfig: initConfig,
         setup: false,
-        modelTiers: const <String, String>{},
         trustOverride: null,
         trustDefault: TrustDefault.ask,
         forceLock: false,
@@ -408,14 +389,8 @@ class Config {
         parsePermissionRule(s, PermissionDecision.allow),
     ];
 
-    // Model tiers: built-in defaults (heavy + light anthropic) so a role with
-    // modelTier 'light' (scout, tester) resolves out of the box; a `[tiers]`
-    // table in the user config overrides per key (file wins). See
-    // [_defaultModelTiers].
-    final modelTiers = <String, String>{
-      ..._defaultModelTiers,
-      ...?userConfig?.tiers,
-    };
+    // Model tiers were removed with the delegate catalog (a delegation now
+    // carries its own llm_provider/llm_model). Nothing to parse here.
 
     final resumeId = res['resume'] as String?;
     final continueLatest = res['continue'] as bool;
@@ -506,7 +481,6 @@ class Config {
       verbose: res['verbose'] as bool,
       initConfig: res['init-config'] as bool,
       setup: res['setup'] as bool,
-      modelTiers: modelTiers,
       promptOverrides: userConfig?.prompts ?? const {},
       theme: _resolveTheme(userConfig),
       safeMode: res['safe-mode'] as bool,

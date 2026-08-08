@@ -77,8 +77,6 @@ class _WorkflowEditor {
   })  : currentName = name,
         dirty = isNew;
 
-  Set<String> get _knownRoles => pipeline.roles.map((r) => r.name).toSet();
-
   Future<bool> run() async {
     selectedId = graph.findStartNode()?.id ??
         (graph.nodes.keys.isNotEmpty ? graph.nodes.keys.first : null);
@@ -320,7 +318,7 @@ class _WorkflowEditor {
       if (named == null || named.isEmpty) return;
       currentName = named;
     }
-    final diags = validate(graph, knownRoles: _knownRoles);
+    final diags = validate(graph);
     final errors = diags.where((d) => d.severity == Severity.error).toList();
     if (errors.isNotEmpty) {
       await _inform('Cannot save — ${errors.length} error(s):\n'

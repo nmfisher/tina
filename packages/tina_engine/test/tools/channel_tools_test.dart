@@ -7,10 +7,9 @@ import '../helpers/agent_test_fixtures.dart';
 import '../helpers/fake_provider.dart';
 
 void main() {
-  final pipeline = defaultTestPipeline(rolesHaveModelTiers: true);
+  final pipeline = defaultTestPipeline;
 
-  SubAgentScheduler sched(ProviderRegistry r) =>
-      testScheduler(r, pipeline: pipeline, modelTiers: defaultTestTiers);
+  SubAgentScheduler sched(ProviderRegistry r) => testScheduler(r, pipeline: pipeline);
 
   AgentToolContext ctx(SubAgentScheduler scheduler) =>
       testContext(scheduler, pipeline: pipeline);
@@ -19,7 +18,7 @@ void main() {
     final scheduler = sched(scriptedRegistry({'a': answerEvents('from-a')}));
     final send = SendTool(ctx(scheduler));
 
-    final res = await send.execute({'target': 'a', 'text': 'hi'});
+    final res = await send.execute({'target': 'explorer', 'text': 'hi'});
     expect(res.isError, isFalse);
     expect(res.content, contains('Opened channel'));
 
@@ -102,12 +101,23 @@ void main() {
     await scheduler.dispose();
   });
 
-  test('send on an unknown target errors', () async {
+  test('send with an empty target errors', () async {
     final scheduler = sched(scriptedRegistry({'a': answerEvents('x')}));
     final send = SendTool(ctx(scheduler));
-    final res = await send.execute({'target': 'nope', 'text': 'x'});
+    final res = await send.execute({'target': '', 'text': 'x'});
     expect(res.isError, isTrue);
-    expect(res.content, contains('unknown channel id or agent'));
+    expect(res.content, contains('target` is required'));
+    await scheduler.dispose();
+  });
+
+  test('a non-id target opens a new read-only channel (no catalog lookup)',
+      () async {
+    final scheduler = sched(scriptedRegistry({'a': answerEvents('x')}));
+    final send = SendTool(ctx(scheduler));
+    // 'free-form-label' isn't a channel id or a catalog name — it still opens.
+    final res = await send.execute({'target': 'free-form-label', 'text': 'go'});
+    expect(res.isError, isFalse);
+    expect(res.content, contains('Opened channel'));
     await scheduler.dispose();
   });
 

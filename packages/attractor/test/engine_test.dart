@@ -17,7 +17,6 @@ class _FakeBackend implements CodergenBackend {
   @override
   Future<CodergenResult> run({
     required PipelineNode node,
-    required String role,
     required String prompt,
     required String preamble,
     required Context context,

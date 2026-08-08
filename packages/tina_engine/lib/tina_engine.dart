@@ -11,7 +11,6 @@ export 'src/agent/sub_agent_sink.dart';
 export 'src/agent/summary_generator.dart';
 export 'src/agent/system_prompt.dart';
 export 'src/agent/token_budget.dart';
-export 'src/agent/workflow.dart';
 export 'src/host/headless_host.dart';
 export 'src/host/history_replay.dart';
 export 'src/host/host_interface.dart';

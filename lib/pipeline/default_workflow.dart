@@ -1,11 +1,12 @@
-// Default-workflow routing for normal chat turns. Pure helpers + the seed
-// file — deliberately free of tina_console and PipelineRunner so
-// `session_controller.dart` can use it without crossing the import boundary
-// (see test/import_boundary_test.dart).
+// The default chat workflow + helpers. Pure helpers + the seed file —
+// deliberately free of tina_console and PipelineRunner so other layers can use
+// it without crossing the import boundary (see test/import_boundary_test.dart).
 //
-// Contract: while `~/.tina/workflows/default.dot` exists (or a workflow named
-// by `[default] workflow` in ~/.tina/config), every normal turn routes through
-// that DOT pipeline; otherwise the plain single-agent path runs.
+// Model (manager loop): the main agent runs OUTSIDE any workflow. Normal turns
+// run the plain agent; a workflow is launched on demand as a background child
+// run (`/workflow run default`). This file seeds the launchable default graph
+// and supplies the helpers that name/validate it. See
+// docs/features/manager_loop.md.
 library;
 
 import 'dart:io';
@@ -51,12 +52,15 @@ String formatChatHistory(List<Message> history,
   return kept.reversed.join('\n\n');
 }
 
-/// Resolve the workflow that a normal turn should route through.
+/// Resolve the conventional "default" workflow file.
 ///
-/// Returns null when no default routing applies (fall back to the plain
-/// agent). `configured` is the `[default] workflow` config value: `"none"`
-/// disables routing explicitly; a name requires that `<name>.dot` to exist;
-/// null/empty means the conventional `default.dot` when present.
+/// Returns the name of the default graph (`default.dot`, or the one named by
+/// `[default] workflow`), or null when none applies. Normal turns no longer
+/// route through it — this just names the launchable default for `/workflow
+/// list` display and `/workflow run default`. `configured` is the
+/// `[default] workflow` config value: `"none"` is explicit; a name requires
+/// that `<name>.dot` to exist; null/empty means the conventional `default.dot`
+/// when present.
 String? resolveDefaultWorkflowName({
   required String? configured,
   required Directory? workflowsDir,
@@ -107,37 +111,132 @@ Future<void> ensureDefaultWorkflowUsable(
   }
 }
 
-/// The seeded default chat workflow: planner -> reviewer -> executor, with a
-/// revise loop back to the planner. The executor node is an `orchestrator`
-/// that splits the work and delegates to implementer sub-agents via the
-/// `delegate` tool, so "one or more executors" needs no engine parallelism.
-/// `$input` is the user's message and `$history` the (truncated) chat
+/// The seeded default chat workflow — the launchable default graph. Launched on
+/// demand with `/workflow run default`; it no longer wraps every chat turn (the
+/// main agent runs outside the workflow — see docs/features/manager_loop.md). A
+/// run flows:
+///
+///   main            talk with the user + explore the repo (PLACEHOLDER: the
+///                   main node explores via its file tools and read-only
+///                   delegation; a dedicated explore node/tool is future work)
+///   plan            develop the plan, pass it to the first reviewer
+///   plan_review_1   review the plan: approve / revise / clarify (human gate)
+///   plan_review_2   a FRESH second pass of the same reviewer identity
+///   fanout          on the second approve, fan out to exec_1/2/3 in parallel
+///   fanin           merge the parallel results (tripleoctagon)
+///   exec_reviewer   review the execution result
+///   done
+///
+/// Design notes (see docs for the full write-up):
+/// * **Double review** is two sequential nodes (`plan_review_1`, `plan_review_2`)
+///   sharing one reviewer `system_prompt`. Each node visit is already a fresh
+///   one-shot agent, so the second pass is automatically fresh — no per-node
+///   visit counter or condition is needed.
+/// * **Revise** loops to a fresh pass of the SAME review node (the reviewer
+///   updates the plan itself), not back to the `plan` node. The plan evolves as
+///   a chain of revisions carried forward in each downstream node's preamble;
+///   the most recent revision is the current plan.
+/// * **Parallel fan-out** uses the engine's `component` (fan-out) +
+///   `tripleoctagon` (fan-in) handlers. Each branch is a single executor node
+///   run against a cloned context; the fan-in merges them into one result.
+///
+/// A codergen node (box) carries its own `system_prompt` (identity) and optional
+/// `llm_model` + `llm_provider` (model); omit the model attrs to inherit the
+/// conversation's model. Routing between nodes uses a trailing
+/// `VERDICT: <label>` line, matched against an edge's label. `main` and the
+/// executors can also delegate sub-agents with the `delegate` tool (a task plus
+/// an optional tool profile: read-only for exploration/review, full for
+/// changes). `$input` is the user's message and `$history` the (truncated) chat
 /// transcript, both expanded by the engine at run time.
 const String kDefaultWorkflowDotSource = '''
-// tina's default chat workflow: every normal turn routes through this graph
-// while this file exists. Edit with /workflow edit default; delete the file
-// (or set [default] workflow = "none" in ~/.tina/config) to fall back to the
-// plain single-agent path.
+// tina's default chat workflow: the launchable default graph. Run it on demand
+// with /workflow run default (the main agent runs outside the workflow; see
+// docs/features/manager_loop.md). Edit with /workflow edit default.
+//
+// Flow:
+//   main            talk with the user + explore the repo (placeholder)
+//   plan            develop the plan, pass it to the first reviewer
+//   plan_review_1   review the plan; approve / revise / clarify (human gate)
+//   plan_review_2   a FRESH second pass of the same reviewer identity
+//   fanout          on the second approve, fan out to exec_1/2/3 in parallel
+//   fanin           merge the parallel results
+//   exec_reviewer   review the execution result
+//   done
+//
+// A codergen node (box) carries its own system_prompt (identity) and optional
+// llm_model + llm_provider (model); omit the model attrs to inherit the
+// conversation's model. Routing between nodes uses a trailing VERDICT: <label>
+// line, matched against an edge's label. main and the executors can also
+// delegate sub-agents with the delegate tool (task + optional tool profile:
+// read-only for exploration/review, full for changes).
 
 digraph default {
+  graph [goal="Turn the user request into a reviewed plan, execute it in parallel, then review the result."]
+
   start [shape=Mdiamond, label="Start"]
 
-  plan [shape=box, role="orchestrator", label="Plan",
-        prompt="Produce a concrete implementation plan for: \$input.\\nConversation history for context:\\n\$history\\nNumber the steps and reference specific files. End your response with a line VERDICT: submit."]
+  main [shape=box, label="Main",
+        system_prompt="You are the main coding agent for this session. You talk with the user to understand the request, then explore the repository to ground the work in real code.\\n\\nYou have file tools (read, write, edit, bash, search, grep, glob) and a delegate tool. For exploration, delegate read-only sub-agents and act on what they report; each delegation is a task plus an optional tool profile (read-only for exploration or review, full for changes) and an optional model.\\n\\nDo not write code and do not finalize a plan yourself: hand clear requirements and your findings to the plan node.",
+        prompt="User request: \$input\\n\\nConversation history for context:\\n\$history\\n\\nExplore the repository enough to ground the request (delegate read-only sub-agents where it helps). Then summarize the requirements and your findings. Do not write code yet. The plan node will plan from your summary."]
 
-  review [shape=box, role="verifier", label="Review",
-          prompt="Review the plan above for correctness, completeness, and ordering. Check that each step references specific files and respects dependencies. End your response with VERDICT: approve when the plan is sound, or VERDICT: revise followed by your comments when it needs changes."]
+  plan [shape=box, label="Plan",
+        system_prompt="You are a planning agent. You turn requirements and findings into a concrete plan that other agents can execute. You do not write code; you plan.",
+        prompt="Using the main agent's summary above, write a concrete plan: the files to change, the steps in order, the risks, and how to verify. Because the work runs in parallel across three executors, divide it into up to three independent chunks labeled [1], [2], [3] so each executor takes one. If the work is small, use fewer chunks. Output only the plan."]
 
-  execute [shape=box, role="orchestrator", label="Execute",
-           prompt="Execute the approved plan. Where the work splits cleanly, delegate pieces to implementer sub-agents with the delegate tool and integrate their results; otherwise make the changes directly. Read each file before editing it. Report what was done."]
+  plan_review_1 [shape=box, label="Plan review (1)",
+        system_prompt="You are a careful, independent plan reviewer. You check the plan above for correctness, completeness, and risk. Treat the most recent version of the plan as the current one.",
+        prompt="Review the plan above. If it is sound, end your response with exactly this line:\\nVERDICT: approve\\nIf you can improve it yourself, output the full revised plan and end with:\\nVERDICT: revise\\nIf you need a decision from the user, state the question in one or two sentences and end with:\\nVERDICT: clarify\\nOutput nothing after the VERDICT line."]
+
+  plan_review_2 [shape=box, label="Plan review (2)",
+        system_prompt="You are a careful, independent plan reviewer. You check the plan above for correctness, completeness, and risk. Treat the most recent version of the plan as the current one.",
+        prompt="Review the plan above. If it is sound, end your response with exactly this line:\\nVERDICT: approve\\nIf you can improve it yourself, output the full revised plan and end with:\\nVERDICT: revise\\nIf you need a decision from the user, state the question in one or two sentences and end with:\\nVERDICT: clarify\\nOutput nothing after the VERDICT line."]
+
+  clarify [shape=hexagon, label="The reviewer needs a decision from you before continuing. Pick how to proceed."]
+
+  fanout [shape=component, label="Fan out"]
+
+  exec_1 [shape=box, label="Executor 1",
+        system_prompt="You are an implementation agent. You execute one chunk of an approved plan. You have the full tool set (read, write, edit, bash, search, grep, glob) and a delegate tool. Read each file before editing it, make only the changes your chunk requires, keep changes minimal, and leave other chunks alone.",
+        prompt="The plan above is split into chunks labeled [1], [2], [3]. Execute ONLY chunk [1]. If the plan has no chunk [1], output: no work for executor 1. Otherwise implement chunk [1] now and report exactly what you changed."]
+
+  exec_2 [shape=box, label="Executor 2",
+        system_prompt="You are an implementation agent. You execute one chunk of an approved plan. You have the full tool set (read, write, edit, bash, search, grep, glob) and a delegate tool. Read each file before editing it, make only the changes your chunk requires, keep changes minimal, and leave other chunks alone.",
+        prompt="The plan above is split into chunks labeled [1], [2], [3]. Execute ONLY chunk [2]. If the plan has no chunk [2], output: no work for executor 2. Otherwise implement chunk [2] now and report exactly what you changed."]
+
+  exec_3 [shape=box, label="Executor 3",
+        system_prompt="You are an implementation agent. You execute one chunk of an approved plan. You have the full tool set (read, write, edit, bash, search, grep, glob) and a delegate tool. Read each file before editing it, make only the changes your chunk requires, keep changes minimal, and leave other chunks alone.",
+        prompt="The plan above is split into chunks labeled [1], [2], [3]. Execute ONLY chunk [3]. If the plan has no chunk [3], output: no work for executor 3. Otherwise implement chunk [3] now and report exactly what you changed."]
+
+  fanin [shape=tripleoctagon, label="Fan in"]
+
+  exec_reviewer [shape=box, label="Execution review",
+        system_prompt="You are a results reviewer. The execution results above come from parallel executors that each took one chunk of the plan.",
+        prompt="Review the execution results above. Did the plan get implemented correctly across the chunks? Note any errors, conflicts, or incomplete work. Summarize the outcome for the user in a few sentences and flag anything that needs follow-up."]
 
   done [shape=Msquare, label="Done"]
 
-  start -> plan
-  plan   -> review  [label="submit"]
-  review -> execute [label="approve"]
-  review -> plan    [label="revise"]
-  execute -> done
+  start -> main
+  main -> plan
+  plan -> plan_review_1
+
+  plan_review_1 -> plan_review_2 [label="approve"]
+  plan_review_1 -> plan_review_1 [label="revise"]
+  plan_review_1 -> clarify [label="clarify"]
+
+  clarify -> plan_review_1 [label="[R] Re-review with this in mind"]
+  clarify -> plan_review_2 [label="[A] Approve and continue"]
+
+  plan_review_2 -> fanout [label="approve"]
+  plan_review_2 -> plan_review_2 [label="revise"]
+  plan_review_2 -> clarify [label="clarify"]
+
+  fanout -> exec_1
+  fanout -> exec_2
+  fanout -> exec_3
+  fanout -> fanin
+
+  fanin -> exec_reviewer
+  exec_reviewer -> done
 }
 ''';
 

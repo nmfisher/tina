@@ -31,14 +31,31 @@ class PipelineNode {
   /// (after `$goal` expansion).
   String get prompt => (attrs['prompt'] as String?) ?? '';
 
-  /// The tina role this node runs as (resolved by the host's CodergenBackend).
-  /// Empty means "use the host's default role".
-  String get role => (attrs['role'] as String?) ?? '';
+  /// The node's identity prose — its system prompt. Read from the
+  /// `system_prompt` attribute, with `instructions` accepted as an alias.
+  /// Empty means "the host applies its default identity". A node no longer
+  /// resolves a role for its identity (tin-80ll).
+  String get systemPrompt =>
+      (attrs['system_prompt'] as String?) ??
+      (attrs['instructions'] as String?) ??
+      '';
 
-  /// A `"provider/model"` override for this node's agent (a tina extension —
-  /// the host's backend maps it onto a model reference). Empty means "use the
-  /// role's tier model".
-  String get model => (attrs['model'] as String?) ?? '';
+  /// The node's model id, e.g. `"claude-sonnet-4-6"`. Paired with
+  /// [llmProvider] via [modelReference]. Empty means "inherit the
+  /// conversation's model".
+  String get llmModel => (attrs['llm_model'] as String?) ?? '';
+
+  /// The node's provider id, e.g. `"anthropic"`. Paired with [llmModel] via
+  /// [modelReference]. Empty means "inherit the conversation's model".
+  String get llmProvider => (attrs['llm_provider'] as String?) ?? '';
+
+  /// The combined `"provider/model"` reference for this node's agent, built
+  /// from [llmProvider] + [llmModel]. Empty unless both are set, in which case
+  /// the host inherits the conversation's resolved model.
+  String get modelReference {
+    if (llmProvider.isEmpty || llmModel.isEmpty) return '';
+    return '$llmProvider/$llmModel';
+  }
 
   /// Whether this node must reach success before the pipeline can exit.
   bool get goalGate => _bool(attrs['goal_gate'], false);

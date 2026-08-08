@@ -2,21 +2,6 @@ import 'package:tina_engine/tina_engine.dart';
 
 import 'fake_provider.dart';
 
-/// Standard test tier map covering providers a and b.
-const Map<String, String> defaultTestTiers = {
-  'a': 'a/a-model',
-  'b': 'b/b-model',
-};
-
-/// Extended tier map that also includes c and an intentionally unregistered x,
-/// used by scheduler tests that exercise tier-resolution errors.
-const Map<String, String> defaultTestTiersExtended = {
-  'a': 'a/a-model',
-  'b': 'b/b-model',
-  'c': 'c/c-model',
-  'x': 'x/x-model',
-};
-
 /// A single assistant turn that answers [text].
 List<StreamEvent> answerEvents(String text) => [
       TextDelta(text),
@@ -28,7 +13,7 @@ List<StreamEvent> answerEvents(String text) => [
 ///
 /// This deduplicates the copy-pasted `_scriptedRegistry` helper across
 /// `sub_agent_scheduler_test.dart`, `channel_tools_test.dart`, and
-/// `delegate_tool_test.dart`.
+/// `delegate_task_test.dart`.
 ProviderRegistry scriptedRegistry(
   Map<String, List<StreamEvent>> scripts, {
   Map<String, String> env = const {'TEST_KEY': 'k'},
@@ -51,32 +36,12 @@ ProviderRegistry scriptedRegistry(
   return r;
 }
 
-/// A minimal two-role pipeline (a, b) plus main.
-///
-/// Set [rolesHaveModelTiers] to true when the tests rely on tier resolution
-/// through `role.modelTier`. Extra roles and workflows can be appended.
-AgentPipeline defaultTestPipeline({
-  List<AgentRole> extraRoles = const [],
-  List<Workflow> workflows = const [],
-  bool rolesHaveModelTiers = false,
-}) =>
-    AgentPipeline(
-      mainRole: const AgentRole(name: 'main', description: 'main'),
-      roles: [
-        AgentRole(
-          name: 'a',
-          description: 'agent a',
-          modelTier: rolesHaveModelTiers ? 'a' : null,
-        ),
-        AgentRole(
-          name: 'b',
-          description: 'agent b',
-          modelTier: rolesHaveModelTiers ? 'b' : null,
-        ),
-        ...extraRoles,
-      ],
-      workflows: workflows,
-    );
+/// A minimal pipeline (entry identity only — there is no sub-agent catalog).
+final AgentPipeline defaultTestPipeline = AgentPipeline(mainIdentity: 'main-id');
+
+/// The parent identity threaded into a test [AgentToolContext], so tests can
+/// assert a sub-agent inherited it.
+const String testParentSystemPrompt = 'PARENT-IDENTITY';
 
 /// A standard [AgentToolContext] for tool tests.
 AgentToolContext testContext(
@@ -86,6 +51,7 @@ AgentToolContext testContext(
   PermissionPolicy? parentPolicy,
   String originConversationId = 'c1',
   int depth = 0,
+  String parentSystemPrompt = testParentSystemPrompt,
 }) =>
     AgentToolContext(
       scheduler: scheduler,
@@ -94,6 +60,7 @@ AgentToolContext testContext(
       parentPolicy: parentPolicy ?? PermissionPolicy(),
       originConversationId: originConversationId,
       depth: depth,
+      parentSystemPrompt: parentSystemPrompt,
     );
 
 /// A [SubAgentScheduler] pre-filled with the standard test defaults.
@@ -104,13 +71,13 @@ AgentToolContext testContext(
 SubAgentScheduler testScheduler(
   ProviderRegistry registry, {
   required AgentPipeline pipeline,
-  Map<String, String> modelTiers = defaultTestTiers,
   int maxTokens = 8192,
   Duration streamIdleTimeout = const Duration(seconds: 60),
   AgentQuota? quota,
   int? maxConcurrent,
   int? maxDepth,
   int subAgentBudgetLimit = 0,
+  int defaultMaxSteps = 25,
   PauseGate? pauseGate,
   bool safeMode = false,
 }) =>
@@ -123,8 +90,8 @@ SubAgentScheduler testScheduler(
       quota: quota,
       maxConcurrent: maxConcurrent ?? 6,
       maxDepth: maxDepth ?? 3,
-      modelTiers: modelTiers,
       subAgentBudgetLimit: subAgentBudgetLimit,
+      defaultMaxSteps: defaultMaxSteps,
       pauseGate: pauseGate,
       safeMode: safeMode,
     );

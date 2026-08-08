@@ -77,30 +77,37 @@ Future<String?> runModelPickerOverlay({
   );
 }
 
-/// A role-picker overlay for `/spawn`: shows the declared [AgentRole]s (name +
-/// description) and returns the chosen role, or `null` on cancel. The focused
-/// role's tools are shown in the footer so the user knows what the agent will
-/// be able to do before confirming.
-Future<AgentRole?> runRoleOverlay({
+/// A tool-profile picker overlay for `/spawn`/`/branch`: shows the fixed
+/// [ToolProfile]s (read-only / full) and returns the chosen profile, or `null`
+/// on cancel. The focused profile's tools are shown in the footer so the user
+/// knows what the spawned panel will be able to do before confirming.
+Future<ToolProfile?> runToolProfileOverlay({
   required Screen screen,
   required LineEditor editor,
-  required List<AgentRole> roles,
   Future<InputEvent> Function()? readEvent,
 }) {
-  final entries = roles
-      .map((r) => (display: '${r.name} — ${r.description}', value: r))
+  final profiles = ToolProfile.values;
+  String label(ToolProfile p) => switch (p) {
+        ToolProfile.readOnly =>
+          'read-only — explore the repo (no file or shell mutation)',
+        ToolProfile.full =>
+          'full — read, write, edit, and run shell',
+      };
+  final entries = profiles
+      .map((p) => (display: '${p.name} — ${label(p)}', value: p))
       .toList(growable: false);
-  return runListOverlay<AgentRole>(
+  return runListOverlay<ToolProfile>(
     screen: screen,
     editor: editor,
     entries: entries,
-    title: 'Spawn — pick a role',
-    // Footer reflects the focused role's tools, so re-derive per frame.
+    title: 'Spawn — pick a tool profile',
+    // Footer reflects the focused profile's tools, so re-derive per frame.
     footer: (focus) {
-      final names =
-          roles[focus].tools.map((t) => t.schema.name).toList()..sort();
-      final tools = names.isEmpty ? 'no tools' : names.join(', ');
-      return '↑↓ move · enter select · esc cancel · tools: $tools';
+      final names = toolSetFor(profiles[focus])
+          .map((t) => t.schema.name)
+          .toList()
+        ..sort();
+      return '↑↓ move · enter select · esc cancel · tools: ${names.join(", ")}';
     },
     readEvent: readEvent,
   );

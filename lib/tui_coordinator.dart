@@ -17,6 +17,7 @@ import 'package:tina/config/user_config.dart';
 import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina/persistence/session_restore.dart';
 import 'package:tina/pipeline/pipeline_runner.dart';
+import 'package:tina/pipeline/workflow_supervisor.dart';
 import 'package:tina/tui/workflow_editor_overlay.dart';
 import 'package:tina/tui/workflow_viewer_overlay.dart';
 import 'package:tina/platform/terminal_geometry.dart';
@@ -229,12 +230,12 @@ class TuiCoordinator {
     Stdio? io,
     TerminalGeometry? terminalGeometry,
     Future<UserConfig?> Function()? setupOverlay,
-    // Injectable model+role picker shared by `/spawn` and `/branch`. The real
-    // pickers drive terminal overlays (runSpawnOverlay → runRoleOverlay) which
+    // Injectable model+profile picker shared by `/spawn` and `/branch`. The real
+    // pickers drive terminal overlays (runSpawnOverlay → runToolProfileOverlay) which
     // need a live terminal and so can't run under test. When omitted, the
     // closures capture the in-scope [pickSpawnedTarget] helper; tests pass a
-    // canned (ref, role) to drive the live fork body without the overlays.
-    Future<({String ref, AgentRole role})?> Function()? spawnTargetPicker,
+    // canned (ref, profile) to drive the live fork body without the overlays.
+    Future<({String ref, ToolProfile profile})?> Function()? spawnTargetPicker,
   }) async {
     final config = app.config;
     final reg = app.registry;
@@ -351,7 +352,7 @@ class TuiCoordinator {
     // Resolve the main role's system prompt ONCE so the recorder's captured
     // metadata and the agent's actual prompt can't drift (and aren't compiled
     // twice). Stored in the conversation meta so resume replays the exact prompt.
-    final initialSystem = resolveSystemPrompt(pipeline.mainRole,
+    final initialSystem = resolveMainPrompt(pipeline,
         overrides: config.promptOverrides,
         safeMode: config.safeMode,
         loadProjectContext: pipeline.loadProjectContext);
@@ -463,7 +464,7 @@ class TuiCoordinator {
             restoredPanels.add(conv);
             restoredParentOf[conv.id] = meta.parentConversationId;
             restoredLabelOf[conv.id] = panelLabel(
-              role: meta.targetName ?? pipeline.mainRole.name,
+              role: meta.targetName ?? 'main',
               model: meta.model ?? conv.provider.model,
             );
           } else {
@@ -609,8 +610,7 @@ class TuiCoordinator {
     // [PanelManager.layout] on first paint and resize.
     final primaryPanel = PanelFrame(
       screen: screen,
-      label: panelLabel(
-          role: pipeline.mainRole.name, model: provider.model),
+      label: panelLabel(role: 'main', model: provider.model),
       conversationId: initialConversationId,
     );
 
@@ -680,8 +680,10 @@ class TuiCoordinator {
         refreshSessionMenu();
       }
     };
-    // DOT-pipeline workflows (`/workflow run`). Workflows live in
-    // ~/.tina/workflows/*.dot; each run is audited under ~/.tina/runs/<id>.
+    // DOT-pipeline workflows (`/workflow run` / `/workflow stop`). Workflows
+    // live in ~/.tina/workflows/*.dot; each run is audited under ~/.tina/runs/<id>.
+    // The main agent runs them as background child runs via the manager loop
+    // (WorkflowSupervisor) — launched on demand, never wrapping a chat turn.
     final tinaDataDir = tinaDirFromEnv(app.environment.env);
     final workflowsDir = Directory(p.join(tinaDataDir.path, 'workflows'));
     final runsRoot = Directory(p.join(tinaDataDir.path, 'runs'));
@@ -691,49 +693,39 @@ class TuiCoordinator {
           pipeline: pipeline,
           workflowsDir: workflowsDir,
           runsRoot: runsRoot,
+          defaultModelReference:
+              '${app.config.provider}/${app.config.model}',
           screen: screen,
           editor: editor,
         );
+    // The manager loop: one supervisor owns the background runs. Its runner
+    // seam is PipelineRunner.run, so the engine, the parallel handler, and the
+    // run store are reused unchanged.
+    final supervisor = WorkflowSupervisor(
+      run: ({required workflowName, required sink, input, history, cancelSignal}) {
+        return buildRunner().run(
+          workflowName: workflowName,
+          sink: sink,
+          input: input,
+          history: history,
+          cancelSignal: cancelSignal,
+        );
+      },
+    );
+    // `/workflow run <name> [input]` — launch a background child run. Node
+    // events + the final outcome stream into the active host; the launch
+    // returns immediately so the user can keep chatting.
     controller.runWorkflow = ({required workflowName, input}) async {
-      final host = controller.active.host;
-      await controller.runCancellableTurn(
-        echo: input == null
-            ? '/workflow run $workflowName'
-            : '/workflow run $workflowName $input',
-        body: (cancel) async {
-          final outcome = await buildRunner().run(
-            workflowName: workflowName,
-            sink: host,
-            input: input,
-            cancelSignal: cancel,
-          );
-          host.showSeparator();
-          host.showMessage(
-            outcome.status.isOk
-                ? 'workflow complete.\n'
-                : 'workflow failed: ${outcome.failureReason}\n',
-            style: outcome.status.isOk
-                ? HostMessageStyle.success
-                : HostMessageStyle.error,
-          );
-        },
-      );
-    };
-    // Default turn routing: while a default DOT workflow resolves, normal chat
-    // turns run through it (see pipeline/default_workflow.dart). Wired as a raw
-    // callback — NOT runCancellableTurn — because _runTurn owns the turn's
-    // cancel completer and persistence.
-    controller.defaultWorkflow = app.config.defaultWorkflow;
-    controller.runPipelineTurn =
-        ({required workflowName, required sink, input, history, cancelSignal}) {
-      return buildRunner().run(
-        workflowName: workflowName,
-        sink: sink,
+      supervisor.launch(
+        name: workflowName,
+        sink: controller.active.host,
         input: input,
-        history: history,
-        cancelSignal: cancelSignal,
       );
     };
+    // `/workflow stop [id]` — cancel the running workflow.
+    controller.stopWorkflow = ([id]) => supervisor.stop(id);
+    // Names the default workflow file for /workflow list (no per-turn routing).
+    controller.defaultWorkflow = app.config.defaultWorkflow;
     // `/workflow show` — visual graph viewer.
     controller.openWorkflowViewer = (name) async {
       try {
@@ -791,7 +783,6 @@ class TuiCoordinator {
           screen: screen,
           editor: editor,
           registry: scheduler.registry,
-          pipeline: pipeline,
           env: envMap,
         );
       } on ConfigWriteException catch (e) {
@@ -1162,12 +1153,12 @@ class TuiCoordinator {
       if (conv.history.isNotEmpty) replayHistory(conv.host, conv.history);
     }
 
-    // The shared `/spawn` + `/branch` flow: model-picker then role-picker. Both
-    // commands present the identical overlay sequence (per the "same as spawn"
-    // requirement on `/branch`); they only diverge once a target is chosen.
-    // Returns the chosen (modelRef, role) or null if either overlay is
-    // cancelled — the caller treats null as "no action".
-    Future<({String ref, AgentRole role})?> pickSpawnedTarget() async {
+    // The shared `/spawn` + `/branch` flow: model-picker then tool-profile
+    // picker. Both commands present the identical overlay sequence (per the
+    // "same as spawn" requirement on `/branch`); they only diverge once a
+    // target is chosen. Returns the chosen (modelRef, profile) or null if
+    // either overlay is cancelled — the caller treats null as "no action".
+    Future<({String ref, ToolProfile profile})?> pickSpawnedTarget() async {
       final envMap = app.environment.env;
       final cfg = loadUserConfig(env: envMap);
       final configured = cfg.providers.keys.toSet();
@@ -1195,18 +1186,17 @@ class TuiCoordinator {
       if (selected == null) return null;
       recordSpawnMru(selected, env: envMap);
 
-      // Pick the agent's role — its prompt identity + tool set. Cancel here
-      // aborts the spawn (the model was chosen but no agent yet).
-      final role = await runRoleOverlay(
+      // Pick the panel's tool profile. Cancel here aborts the spawn (the model
+      // was chosen but no agent yet). The panel's identity is the entry agent's.
+      final profile = await runToolProfileOverlay(
         screen: screen,
         editor: editor,
-        roles: defaultPipeline.roles,
       );
-      if (role == null) return null;
-      return (ref: selected, role: role);
+      if (profile == null) return null;
+      return (ref: selected, profile: profile);
     }
 
-    // Resolve the model+role picker once: an injected [spawnTargetPicker]
+    // Resolve the model+profile picker once: an injected [spawnTargetPicker]
     // (tests) short-circuits the terminal overlays; otherwise the real
     // [pickSpawnedTarget] runs the spawn-style overlay sequence. Both `/spawn`
     // and `/branch` capture this local.
@@ -1218,7 +1208,7 @@ class TuiCoordinator {
       final pick = await pickTarget();
       if (pick == null) return;
       final selected = pick.ref;
-      final role = pick.role;
+      final profile = pick.profile;
 
       // The shared helper loaded the user config internally; load it again for
       // the spawn-side provider + prompt assembly below (cheap, reused by the
@@ -1255,20 +1245,22 @@ class TuiCoordinator {
         return;
       }
 
-      // Derive the agent from the chosen role: its tool set and prompt identity
-      // (honoring any [prompts.<role>] override), and a policy that allows
-      // exactly those tools so the side panel never prompts for them.
-      // --safe-mode: drop write/edit/bash from the spawned side panel too, and
-      // tell it the tree is read-only.
-      final eff = config.safeMode ? stripForSafeMode(role.tools) : role.tools.toList();
-      final spawnSystem = resolveSystemPrompt(role,
+      // Derive the agent from the chosen tool profile: its tool set (the
+      // spawned panel runs under the entry agent's identity, honoring any
+      // [prompts.main] override) and a policy that allows exactly those tools so
+      // the side panel never prompts for them. --safe-mode: drop write/edit/bash
+      // from the spawned side panel too.
+      final eff = config.safeMode
+          ? stripForSafeMode(toolSetFor(profile))
+          : toolSetFor(profile);
+      final spawnSystem = resolveMainPrompt(pipeline,
           overrides: cfg.prompts,
           safeMode: config.safeMode,
           loadProjectContext: pipeline.loadProjectContext);
-      final roleToolNames = eff.map((t) => t.schema.name).toList();
+      final profileToolNames = eff.map((t) => t.schema.name).toList();
       final spawnTools = ToolRegistry(eff);
       final spawnPolicy = PermissionPolicy(rules: [
-        for (final n in roleToolNames)
+        for (final n in profileToolNames)
           PermissionRule(
               toolName: n, pattern: '*', decision: PermissionDecision.allow),
       ]);
@@ -1297,14 +1289,14 @@ class TuiCoordinator {
           providerModel: spawnProvider.model,
           policy: spawnPolicy,
           systemPrompt: spawnSystem,
-          targetName: role.name,
+          targetName: profile.name,
           parentConversationId: sessionManager.activeConversationId,
         ),
       );
       // Record the tree edge so the layout can nest this panel under its parent
       // (the focused conversation at spawn time) and indent it by depth.
       tree.parentOf[chatId] = sessionManager.activeConversationId;
-      tree.baseLabel[chatId] = panelLabel(role: role.name, model: selected);
+      tree.baseLabel[chatId] = panelLabel(role: profile.name, model: selected);
       // Bounded chat region for the side column, detached until laid out.
       final host = _makeSpawnedHost(chatId);
       final spawnAgent = Agent(
@@ -1315,7 +1307,7 @@ class TuiCoordinator {
         asker: host.askPermission,
         system: spawnSystem,
         pauseGate: scheduler.pauseGate,
-        maxSteps: role.maxSteps ?? 50,
+        maxSteps: 50,
       );
       // Point a recorder at the already-registered conversation so the side
       // panel's transcript is persisted into the real file. The conversation
@@ -1327,7 +1319,7 @@ class TuiCoordinator {
       spawnRecorder.attach(spawnSessionId, chatId);
       final conv = Conversation(
         id: chatId,
-        label: '${role.name} (${selected})',
+        label: '${profile.name} (${selected})',
         agent: spawnAgent,
         provider: spawnProvider,
         host: host,
@@ -1339,7 +1331,7 @@ class TuiCoordinator {
       // cue) and register it in the tiling list + focus ring. Focus resolves to
       // this conversation (by id) at focus time via the coordinator.
       final panel = contentCoordinator.bindSpawned(
-          host: host, label: panelLabel(role: role.name, model: selected));
+          host: host, label: panelLabel(role: profile.name, model: selected));
 
       panelManager.layout();
       contentCoordinator.relayContent();
@@ -1357,7 +1349,7 @@ class TuiCoordinator {
       final pick = await pickTarget();
       if (pick == null) return;
       final selected = pick.ref;
-      final role = pick.role;
+      final profile = pick.profile;
 
       // Split the layout on the first branched panel, exactly like /spawn. The
       // canonical sequence lives in [ResizeCoordinator.handleResize]; set
@@ -1389,16 +1381,18 @@ class TuiCoordinator {
         return;
       }
 
-      // Derive the agent from the chosen role (mirrors /spawn).
-      final eff = config.safeMode ? stripForSafeMode(role.tools) : role.tools.toList();
-      final branchSystem = resolveSystemPrompt(role,
+      // Derive the agent from the chosen tool profile (mirrors /spawn).
+      final eff = config.safeMode
+          ? stripForSafeMode(toolSetFor(profile))
+          : toolSetFor(profile);
+      final branchSystem = resolveMainPrompt(pipeline,
           overrides: cfg.prompts,
           safeMode: config.safeMode,
           loadProjectContext: pipeline.loadProjectContext);
-      final roleToolNames = eff.map((t) => t.schema.name).toList();
+      final profileToolNames = eff.map((t) => t.schema.name).toList();
       final branchTools = ToolRegistry(eff);
       final branchPolicy = PermissionPolicy(rules: [
-        for (final n in roleToolNames)
+        for (final n in profileToolNames)
           PermissionRule(
               toolName: n, pattern: '*', decision: PermissionDecision.allow),
       ]);
@@ -1417,13 +1411,13 @@ class TuiCoordinator {
         providerModel: branchProvider.model,
         policy: branchPolicy,
         systemPrompt: branchSystem,
-        targetName: role.name,
+        targetName: profile.name,
         parentConversationId: sessionManager.activeConversationId,
       );
       final chatId =
           await store.createConversationWithMeta(branchSessionId, branchMeta);
       tree.parentOf[chatId] = sessionManager.activeConversationId;
-      tree.baseLabel[chatId] = panelLabel(role: role.name, model: selected);
+      tree.baseLabel[chatId] = panelLabel(role: profile.name, model: selected);
 
       // Build the panel + host via the shared spawn/branch helper. The parent
       // is read here (its history) but never mutated — .toList() copies, and the
@@ -1436,7 +1430,7 @@ class TuiCoordinator {
       final panel = _buildSpawnPanel(
         conversationId: chatId,
         parentConversationId: sessionManager.activeConversationId,
-        label: panelLabel(role: role.name, model: selected),
+        label: panelLabel(role: profile.name, model: selected),
         sinkHost: host,
       );
 
@@ -1453,7 +1447,7 @@ class TuiCoordinator {
 
       final conv = Conversation(
         id: chatId,
-        label: '${role.name} (${selected})',
+        label: '${profile.name} (${selected})',
         agent: Agent(
           provider: branchProvider,
           tools: branchTools,
@@ -1462,7 +1456,7 @@ class TuiCoordinator {
           asker: host.askPermission,
           system: branchSystem,
           pauseGate: scheduler.pauseGate,
-          maxSteps: role.maxSteps ?? 50,
+          maxSteps: 50,
         ),
         provider: branchProvider,
         host: host,
@@ -1554,7 +1548,7 @@ class TuiCoordinator {
       // The label is `role (model)`; keep the role, swap only the model.
       final role = prev.contains(' (')
           ? prev.split(' (').first
-          : pipeline.mainRole.name;
+          : 'main';
       conv.provider = nextProvider;
       conv.label = panelLabel(role: role, model: selected);
       final panel = (conv.host as TuiConversationHost).panel;
