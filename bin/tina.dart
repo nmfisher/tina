@@ -101,8 +101,8 @@ Future<void> _run(List<String> argv) async {
       }
 
       // First-run seeding of the default DOT workflow (idempotent; also runs
-      // for interactive launches so `default.dot` exists before any chat turn
-      // routes through it).
+      // for interactive launches so `default.dot` exists before the agent may
+      // launch it via its launch_workflow tool).
       _seedDefaultWorkflowQuietly(environment.env);
 
       // Project-trust gate: decide once, before any agent is built, whether this
@@ -252,9 +252,10 @@ Directory _workflowsDir(Map<String, String> env) =>
 void _seedDefaultWorkflowQuietly(Map<String, String> env) {
   try {
     if (seedDefaultWorkflow(_workflowsDir(env))) {
-      stdout.writeln('seeded ~/.tina/workflows/default.dot — normal turns now '
-          'route through it. Edit with /workflow edit default; delete it (or '
-          'set [default] workflow = "none") to go back to the plain agent.');
+      stdout.writeln('seeded ~/.tina/workflows/default.dot — the default '
+          'graph the agent launches via its launch_workflow tool. Edit with '
+          '/workflow edit default; delete it (or set [default] workflow = '
+          '"none") if you don\'t want a default workflow available.');
     }
   } catch (e) {
     stderr.writeln('warning: could not seed the default workflow: $e');

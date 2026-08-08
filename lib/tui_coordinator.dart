@@ -314,6 +314,12 @@ class TuiCoordinator {
     // conversation emits output), so it is always assigned by then.
     void Function(String)? handleBackgroundActivity;
 
+    // Workflow-completion handler: the supervisor's onComplete hook routes a
+    // finished run here. Same late-field pattern as [handleBackgroundActivity]
+    // — the supervisor is constructed before the controller, so the hook is
+    // assigned once the controller exists (below) and read at fire time.
+    void Function(WorkflowRun)? handleWorkflowComplete;
+
     // Constructs the per-conversation terminal host. A background conversation
     // gets a fresh, detached chat region (so its output buffers until it is
     // switched to) and a no-op spinner; [TuiConversationHost.setActive] routes
@@ -342,6 +348,38 @@ class TuiCoordinator {
     // shared with the headless path. The initial Agent and every later
     // session's Agent are built by buildAgent(); the SessionManager reuses it
     // as its agentBuilder.
+
+    // The workflow supervisor: the main agent launches DOT workflows in the
+    // background via its `launch_workflow` tool (lib/pipeline/launch_workflow_
+    // tool.dart) and stops them with `stop_workflow`. One fresh runner per
+    // launch; node progress streams to the launching conversation's host while
+    // the run churns, and on completion `onComplete` fires the completion-turn
+    // hook (assigned to the controller below) so the agent wakes with the
+    // outcome. Defined here so both the initial Agent and the SessionManager's
+    // agentBuilder can wire it in.
+    final tinaDataDir = tinaDirFromEnv(app.environment.env);
+    final workflowsDir = Directory(p.join(tinaDataDir.path, 'workflows'));
+    final runsRoot = Directory(p.join(tinaDataDir.path, 'runs'));
+    PipelineRunner buildRunner() => PipelineRunner(
+          scheduler: scheduler,
+          pipeline: pipeline,
+          workflowsDir: workflowsDir,
+          runsRoot: runsRoot,
+          defaultModelReference: '${app.config.provider}/${app.config.model}',
+          screen: screen,
+          editor: editor,
+        );
+    final supervisor = WorkflowSupervisor(
+      run: ({required workflowName, required sink, input, history, cancelSignal}) =>
+          buildRunner().run(
+            workflowName: workflowName,
+            sink: sink,
+            input: input,
+            history: history,
+            cancelSignal: cancelSignal,
+          ),
+      onComplete: (run) => handleWorkflowComplete?.call(run),
+    );
 
     // Build the initial session. Its host adopts screen.chat as its (active)
     // region and the shared spinner (bound to the status row), so it is on
@@ -386,6 +424,7 @@ class TuiCoordinator {
       host: initialHost,
       policy: policy,
       config: config,
+      supervisor: supervisor,
       system: initialSystem,
     );
     final initialConversation = Conversation(
@@ -422,6 +461,7 @@ class TuiCoordinator {
         host: host,
         policy: policy,
         config: config,
+        supervisor: supervisor,
       ),
       sessionStore: store,
     );
@@ -631,6 +671,10 @@ class TuiCoordinator {
       autoCompactThreshold: config.autoCompactThreshold,
       environment: app.environment,
     );
+    // Workflow completion → agent turn: the supervisor's onComplete hook wakes
+    // the launching conversation with a synthetic turn carrying the outcome
+    // (auto agent turn on completion), so the agent reports and acts on it.
+    handleWorkflowComplete = controller.injectWorkflowResult;
     // Per-session draft input: a half-typed prompt survives switching to
     // another session and back. A command being typed isn't a draft — only
     // real prompt text is preserved.
@@ -680,50 +724,12 @@ class TuiCoordinator {
         refreshSessionMenu();
       }
     };
-    // DOT-pipeline workflows (`/workflow run` / `/workflow stop`). Workflows
-    // live in ~/.tina/workflows/*.dot; each run is audited under ~/.tina/runs/<id>.
-    // The main agent runs them as background child runs via the manager loop
-    // (WorkflowSupervisor) — launched on demand, never wrapping a chat turn.
-    final tinaDataDir = tinaDirFromEnv(app.environment.env);
-    final workflowsDir = Directory(p.join(tinaDataDir.path, 'workflows'));
-    final runsRoot = Directory(p.join(tinaDataDir.path, 'runs'));
+    // DOT-pipeline workflows. The .dot files live in ~/.tina/workflows; each
+    // run is audited under ~/.tina/runs/<id>. The main agent launches them in
+    // the background via its `launch_workflow` tool (the supervisor wired
+    // above) — never wrapping a chat turn; completion injects a turn with the
+    // outcome. `/workflow list|show|new|edit` remain for browsing/editing.
     controller.workflowsDir = workflowsDir;
-    PipelineRunner buildRunner() => PipelineRunner(
-          scheduler: scheduler,
-          pipeline: pipeline,
-          workflowsDir: workflowsDir,
-          runsRoot: runsRoot,
-          defaultModelReference:
-              '${app.config.provider}/${app.config.model}',
-          screen: screen,
-          editor: editor,
-        );
-    // The manager loop: one supervisor owns the background runs. Its runner
-    // seam is PipelineRunner.run, so the engine, the parallel handler, and the
-    // run store are reused unchanged.
-    final supervisor = WorkflowSupervisor(
-      run: ({required workflowName, required sink, input, history, cancelSignal}) {
-        return buildRunner().run(
-          workflowName: workflowName,
-          sink: sink,
-          input: input,
-          history: history,
-          cancelSignal: cancelSignal,
-        );
-      },
-    );
-    // `/workflow run <name> [input]` — launch a background child run. Node
-    // events + the final outcome stream into the active host; the launch
-    // returns immediately so the user can keep chatting.
-    controller.runWorkflow = ({required workflowName, input}) async {
-      supervisor.launch(
-        name: workflowName,
-        sink: controller.active.host,
-        input: input,
-      );
-    };
-    // `/workflow stop [id]` — cancel the running workflow.
-    controller.stopWorkflow = ([id]) => supervisor.stop(id);
     // Names the default workflow file for /workflow list (no per-turn routing).
     controller.defaultWorkflow = app.config.defaultWorkflow;
     // `/workflow show` — visual graph viewer.

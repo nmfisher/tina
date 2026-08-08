@@ -197,12 +197,14 @@ A pre-Part-II cleanup of the agent layer, in three commits:
 ## Default DOT workflow routing (2026-08-06)
 
 > **Superseded by the manager-loop model.** Normal chat turns no longer route
-> through a DOT workflow. The main agent runs **outside** the workflow, and a
-> workflow is launched on demand as a background child run (`/workflow run
-> default`, monitorable, stoppable). See
+> through a DOT workflow. The main agent runs **outside** the workflow, and
+> launches a workflow on demand via its `launch_workflow` tool (non-blocking:
+> the run churns in the background while the chat stays open, and its
+> completion injects an agent turn carrying the outcome; a running launch is
+> cancelled with the `stop_workflow` tool). See
 > [manager_loop.md](manager_loop.md). The graph below is unchanged; only the
-> *when it runs* changed — from "every turn" to "on demand". The historical
-> description follows.
+> *when it runs* changed — from "every turn" to "on demand, by the agent". The
+> historical description follows.
 
 Since v0.1.3-ish, **every normal chat turn routes through an editable DOT
 workflow by default** — a planner → reviewer → executor pipeline — instead of
@@ -210,8 +212,8 @@ the plain main-agent loop, while `~/.tina/workflows/default.dot` exists.
 
 - **Seed**: first launch (and `--init-config`) writes `default.dot`
   (`lib/pipeline/default_workflow.dart`, `kDefaultWorkflowDotSource`): a
-  `start → main → plan → plan_review_1 → plan_review_2 → fanout → exec_1/2/3 →
-  fanin → exec_reviewer → done` graph — talk/explore → plan → two fresh review
+  `start → intake → plan → plan_review_1 → plan_review_2 → fanout → exec_1/2/3 →
+  fanin → exec_reviewer → done` graph — explore/intake → plan → two fresh review
   passes of one reviewer identity → parallel fan-out → fan-in → execution
   review. `VERDICT:` routing (`approve` / `revise` self-loop / `clarify` via a
   human gate). See [`default_workflow.md`](default_workflow.md) for the full

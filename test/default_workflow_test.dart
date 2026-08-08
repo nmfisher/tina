@@ -234,7 +234,7 @@ void main() {
       expect(
           graph.nodes.keys,
           containsAll([
-            'start', 'main', 'plan',
+            'start', 'intake', 'plan',
             'plan_review_1', 'plan_review_2', 'clarify',
             'fanout', 'exec_1', 'exec_2', 'exec_3', 'fanin',
             'exec_reviewer', 'done',
@@ -242,9 +242,9 @@ void main() {
       expect(graph.findStartNode()!.id, 'start');
       expect(graph.isTerminal(graph.node('done')!), isTrue);
 
-      // Backbone: start -> main -> plan -> first review.
-      expect(graph.outgoing('start').single.to, 'main');
-      expect(graph.outgoing('main').single.to, 'plan');
+      // Backbone: start -> intake -> plan -> first review.
+      expect(graph.outgoing('start').single.to, 'intake');
+      expect(graph.outgoing('intake').single.to, 'plan');
       expect(graph.outgoing('plan').single.to, 'plan_review_1');
 
       // Two fresh passes of the SAME reviewer identity (the double review):
@@ -280,7 +280,7 @@ void main() {
 
       // Every working node carries its own identity.
       for (final id in [
-        'main',
+        'intake',
         'plan',
         'plan_review_1',
         'exec_1',
@@ -299,7 +299,7 @@ void main() {
       final graph = parseDot(source);
 
       final backend = _ScriptedBackend({
-        'main': 'findings: the bug is in foo.dart',
+        'intake': 'findings: the bug is in foo.dart',
         'plan': 'plan with chunks [1] [2] [3]',
         'plan_review_1': 'looks good\nVERDICT: approve',
         'plan_review_2': 'still good\nVERDICT: approve',
@@ -350,8 +350,8 @@ void main() {
               .preamble,
           allOf(contains('did chunk 1'), contains('did chunk 2'),
               contains('did chunk 3')));
-      // $input was expanded into the main node's prompt.
-      expect(backend.calls.firstWhere((c) => c.nodeId == 'main').prompt,
+      // $input was expanded into the intake node's prompt.
+      expect(backend.calls.firstWhere((c) => c.nodeId == 'intake').prompt,
           contains('fix the bug'));
     });
 
@@ -363,7 +363,7 @@ void main() {
       final graph = parseDot(source);
 
       final backend = _ScriptedBackend({
-        'main': 'findings',
+        'intake': 'findings',
         'plan': 'plan [1] [2] [3]',
         'plan_review_1': 'approved\nVERDICT: approve',
         'plan_review_2': 'approved\nVERDICT: approve',

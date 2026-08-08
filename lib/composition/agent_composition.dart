@@ -1,6 +1,8 @@
 import 'package:tina_engine/tina_engine.dart';
 
 import '../config.dart';
+import '../pipeline/launch_workflow_tool.dart';
+import '../pipeline/workflow_supervisor.dart';
 
 /// Build the session-scoped [SubAgentScheduler] over [pipeline], wired to
 /// [registry]. Tool/model/budget settings come from [config]; the shared pause
@@ -32,15 +34,19 @@ SubAgentScheduler createScheduler({
 
 /// Build an [Agent] for one conversation from [pipeline]'s main role.
 ///
-/// [withSubAgents] splits main's two modes:
-/// - **true (interactive):** main is a planner/delegator. Its tool registry is
-///   `delegate` + the channel surface only — NO file tools, structurally, so
-///   main's prompt ("you do not read, write or edit files directly") is a
-///   guarantee, not a hope. `mainRole.tools` is empty.
+/// Both modes share the full file/shell tool set ([buildTools]); what differs
+/// is the orchestration surface layered on top:
+/// - **true (interactive, the default):** main is the manager loop (see
+///   docs/features/manager_loop.md). On top of the file tools it gets the
+///   workflow surface (when a [supervisor] is wired: `launch_workflow` +
+///   `stop_workflow`), `delegate` + the channel surface (send/receive/close),
+///   and image rendering. The shared identity steers it toward launching a
+///   workflow for substantial work and reserving direct file edits for small
+///   changes.
 /// - **false (headless `--prompt`):** main runs as a direct worker with the
-///   full base tool set ([buildTools]) and the un-widened policy — the one mode
-///   where main edits files. Preserves the pre-pipeline behavior (a
-///   non-interactive run does not gain delegate/channel tools).
+///   base tool set (+ the workflow surface when wired) and the un-widened
+///   policy. Preserves the pre-pipeline behavior (a non-interactive run does
+///   not gain delegate/channel tools).
 Agent buildAgent({
   required AgentPipeline pipeline,
   required SubAgentScheduler scheduler,
@@ -50,10 +56,9 @@ Agent buildAgent({
   required PermissionPolicy policy,
   required Config config,
   bool withSubAgents = true,
+  WorkflowSupervisor? supervisor,
   String? system,
 }) {
-  final ToolRegistry agentTools;
-  final PermissionPolicy effectivePolicy;
   // The entry agent's resolved system prompt — also the identity a delegated
   // sub-agent inherits. Resolved once so the agent and the delegation context
   // can't drift (and the recorder's captured prompt matches the live one).
@@ -62,10 +67,28 @@ Agent buildAgent({
           overrides: config.promptOverrides,
           safeMode: config.safeMode,
           loadProjectContext: pipeline.loadProjectContext);
+
+  // Base registry both modes share: the full file/shell tool set (write/edit/
+  // bash are stripped under --safe-mode). Start from a list so the orchestration
+  // tools below can append without re-wrapping the registry.
+  var tools = [...buildTools(safeMode: config.safeMode).all];
+  // The workflow surface, when the host provides a supervisor: launch a DOT
+  // workflow in the background (node progress streams to [host] while it runs)
+  // and stop a running launch. The completion turn is injected by the
+  // supervisor's onComplete hook — not returned by the tool.
+  if (supervisor != null) {
+    tools.add(LaunchWorkflowTool(
+        supervisor: supervisor, conversationId: conversationId, sink: host));
+    tools.add(StopWorkflowTool(supervisor: supervisor));
+  }
+
+  final ToolRegistry agentTools;
+  final PermissionPolicy effectivePolicy;
   if (withSubAgents) {
-    // Interactive main delegates — no file tools. Its policy widens to allow
-    // `delegate` plus the channel surface (send/receive/close) on top of the
-    // config policy; the delegate/channel tools are attached via one context.
+    // Interactive main: widen the policy to allow `delegate`, the channel
+    // surface (send/receive/close), and image rendering on top of the config
+    // policy (which already covers the file tools — read allow, write/edit/bash
+    // ask). The delegate/channel tools are attached via one context.
     final mainPolicy = PermissionPolicy(
       defaults: {
         ...policy.defaults,
@@ -76,6 +99,11 @@ Agent buildAgent({
         // render_image is a pure view-side-effect (paint a local image into the
         // panel); allow it without prompting, like the channel tools.
         'render_image': PermissionDecision.allow,
+        // Cancelling a workflow is harmless and time-sensitive (the agent calls
+        // it mid-run, often on the user's request) — no modal. launch_workflow
+        // itself stays on the default `ask` (a heavyweight autonomous run
+        // deserves the user's approval).
+        'stop_workflow': PermissionDecision.allow,
       },
       rules: policy.staticRules,
     );
@@ -89,16 +117,16 @@ Agent buildAgent({
       // A sub-agent main delegates to inherits this identity verbatim.
       parentSystemPrompt: resolvedSystem,
     );
-    // Interactive main delegates — no file tools — but can render images via the
-    // shared /image path (RenderTool is a no-op in headless, where it isn't
-    // registered).  Delegation + channels are layered on top.
-    agentTools = withChannelTools(
-        withDelegateTool(ToolRegistry([RenderTool()]), ctx), ctx);
+    // Interactive main renders images, delegates, and talks on channels, on top
+    // of the file tools + workflow launcher shared with headless.
+    var reg = ToolRegistry([...tools, RenderTool()]);
+    reg = withChannelTools(withDelegateTool(reg, ctx), ctx);
+    agentTools = reg;
     effectivePolicy = mainPolicy;
   } else {
-    // Headless --prompt: main runs as a direct worker with the full base set
-    // (minus write/edit/bash under --safe-mode).
-    agentTools = buildTools(safeMode: config.safeMode);
+    // Headless --prompt: main runs as a direct worker with the base set (+ the
+    // workflow surface when wired) and the un-widened policy.
+    agentTools = ToolRegistry(tools);
     effectivePolicy = policy;
   }
 

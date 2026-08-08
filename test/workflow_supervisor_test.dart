@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:attractor/attractor.dart';
 import 'package:test/test.dart';
@@ -23,7 +24,7 @@ Future<void> _pumpUntil(bool Function() pred, {int iterations = 200}) async {
 /// assert monitoring), and resolves to either a test-supplied outcome or — when
 /// its cancel signal fires — `Outcome.fail('cancelled')` (mirroring the engine).
 class _ScriptedRunner {
-  final List<({String name, String? input, String? history})> calls = [];
+  final List<({String name, String? input})> calls = [];
   final List<_RunControl> controls = [];
 
   RunWorkflow build() {
@@ -34,7 +35,7 @@ class _ScriptedRunner {
       history,
       cancelSignal,
     }) async {
-      calls.add((name: workflowName, input: input, history: history));
+      calls.add((name: workflowName, input: input));
       final control = _RunControl(sink);
       controls.add(control);
       // Simulate an engine progress event surfacing to the chat host.
@@ -65,10 +66,14 @@ void main() {
       final sink = FakeAgentSink();
 
       final run = supervisor.launch(
-          name: 'default', sink: sink, input: 'fix the bug');
+          name: 'default',
+          conversationId: 'conv-1',
+          sink: sink,
+          input: 'fix the bug');
 
       // The handle is returned BEFORE the run completes (done is still open).
       expect(run.workflowName, 'default');
+      expect(run.conversationId, 'conv-1');
       expect(run.status, WorkflowRunStatus.running);
       expect(supervisor.active, contains(run));
       expect(supervisor.active.single, run);
@@ -86,7 +91,8 @@ void main() {
       final supervisor = WorkflowSupervisor(run: runner.build());
       final sink = FakeAgentSink();
 
-      final run = supervisor.launch(name: 'default', sink: sink);
+      final run =
+          supervisor.launch(name: 'default', conversationId: 'conv-1', sink: sink);
 
       // The scripted runner emits '▶ scripted_node' to the sink — the same sink
       // the chat host would be in the real wiring.
@@ -104,7 +110,10 @@ void main() {
       final sink = FakeAgentSink();
 
       final run = supervisor.launch(
-          name: 'default', sink: sink, goal: 'refactor the auth module');
+          name: 'default',
+          conversationId: 'conv-1',
+          sink: sink,
+          goal: 'refactor the auth module');
 
       // The launch is announced.
       expect(
@@ -126,12 +135,65 @@ void main() {
       expect(supervisor.active, isNot(contains(run)));
     });
 
+    test('a completed run fires onComplete with the finished run', () async {
+      final runner = _ScriptedRunner();
+      WorkflowRun? completed;
+      final supervisor = WorkflowSupervisor(
+        run: runner.build(),
+        onComplete: (run) => completed = run,
+      );
+      final sink = FakeAgentSink();
+
+      final run =
+          supervisor.launch(name: 'default', conversationId: 'conv-1', sink: sink);
+      runner.controls.single.done.complete(const Outcome.success());
+      await _pumpUntil(() => completed != null);
+
+      expect(completed, same(run));
+      expect(completed?.status, WorkflowRunStatus.completed);
+      // Fired AFTER the report notice, so the chat saw the ✔ before the hook.
+      expect(
+          sink.notices.any(
+              (n) => n.message.contains('complete') && n.message.contains('default')),
+          isTrue);
+    });
+
+    test('a runner that throws (e.g. missing workflow file) is reported as a '
+        'failed run and fires onComplete', () async {
+      final sink = FakeAgentSink();
+      WorkflowRun? completed;
+      final supervisor = WorkflowSupervisor(
+        run: ({
+          required workflowName,
+          required sink,
+          input,
+          history,
+          cancelSignal,
+        }) async =>
+            throw FileSystemException('workflow not found', 'ghost.dot'),
+        onComplete: (run) => completed = run,
+      );
+
+      final run = supervisor.launch(
+          name: 'ghost', conversationId: 'conv-1', sink: sink);
+      await _pumpUntil(() => run.status == WorkflowRunStatus.failed);
+
+      expect(run.status, WorkflowRunStatus.failed);
+      expect(run.outcome?.failureReason, contains('workflow not found'));
+      final report = sink.notices.lastWhere((n) => n.message.contains('failed'));
+      expect(report.kind, NoticeKind.error);
+      expect(report.message, contains('workflow not found'));
+      // The completion turn still fires, so the agent can report the failure.
+      expect(completed, same(run));
+    });
+
     test('a failed run reports the failure reason back', () async {
       final runner = _ScriptedRunner();
       final supervisor = WorkflowSupervisor(run: runner.build());
       final sink = FakeAgentSink();
 
-      final run = supervisor.launch(name: 'default', sink: sink);
+      final run =
+          supervisor.launch(name: 'default', conversationId: 'conv-1', sink: sink);
 
       runner.controls.single.done
           .complete(Outcome.fail('goal gate "review" unsatisfied'));
@@ -149,7 +211,8 @@ void main() {
       final supervisor = WorkflowSupervisor(run: runner.build());
       final sink = FakeAgentSink();
 
-      final run = supervisor.launch(name: 'default', sink: sink);
+      final run =
+          supervisor.launch(name: 'default', conversationId: 'conv-1', sink: sink);
       expect(supervisor.stop(run.id), isTrue);
 
       await _pumpUntil(() => run.status == WorkflowRunStatus.cancelled);
@@ -167,8 +230,10 @@ void main() {
 
       final sinkA = FakeAgentSink();
       final sinkB = FakeAgentSink();
-      final runA = supervisor.launch(name: 'default', sink: sinkA);
-      final runB = supervisor.launch(name: 'other', sink: sinkB);
+      final runA = supervisor.launch(
+          name: 'default', conversationId: 'conv-1', sink: sinkA);
+      final runB = supervisor.launch(
+          name: 'other', conversationId: 'conv-2', sink: sinkB);
 
       // stop() targets the newest launch (runB).
       expect(supervisor.stop(), isTrue);
@@ -192,8 +257,10 @@ void main() {
       final runner = _ScriptedRunner();
       final supervisor = WorkflowSupervisor(run: runner.build());
 
-      final a = supervisor.launch(name: 'a', sink: FakeAgentSink());
-      final b = supervisor.launch(name: 'b', sink: FakeAgentSink());
+      final a = supervisor.launch(
+          name: 'a', conversationId: 'conv-1', sink: FakeAgentSink());
+      final b = supervisor.launch(
+          name: 'b', conversationId: 'conv-2', sink: FakeAgentSink());
       supervisor.stopAll();
 
       await _pumpUntil(() => supervisor.active.isEmpty);

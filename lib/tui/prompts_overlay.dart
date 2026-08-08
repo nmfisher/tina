@@ -43,7 +43,7 @@ const _overriddenMark = '●';
 
 /// One editable identity in the `/prompts` list. The catalog is gone, so the
 /// only editable identity is the entry agent (`main`); this tiny type keeps the
-/// list-driven form (which was built around `AgentRole`) working unchanged.
+/// list-driven form working unchanged.
 class _Identity {
   final String name;
   final String description;

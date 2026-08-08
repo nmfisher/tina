@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:tina_engine/tina_engine.dart';
 
 import 'conversation.dart';
+import 'pipeline/workflow_supervisor.dart';
 import 'platform/environment.dart';
 import 'session_commands/command_context.dart';
 import 'session_commands/session_command_handlers.dart';
@@ -144,24 +145,10 @@ class SessionController implements CommandContext {
   @override
   Directory? workflowsDir;
 
-  /// Launch a workflow as a background child run (`/workflow run`). The run
-  /// churns independently of the turn; its node events surface to the active
-  /// host and it reports back on completion. Wired by the TUI coordinator to the
-  /// [WorkflowSupervisor]; null when no supervisor is wired.
-  @override
-  Future<void> Function({required String workflowName, String? input})?
-      runWorkflow;
-
-  /// Stop the running workflow (`/workflow stop`). Returns true when a run was
-  /// cancelled. Wired by the TUI coordinator to the WorkflowSupervisor; null
-  /// when no supervisor is wired.
-  @override
-  bool Function([String? id])? stopWorkflow;
-
   /// The `[default] workflow` config value: names the default workflow file
   /// shown by `/workflow list` (the seeded `default.dot` unless configured
-  /// otherwise; `"none"` is explicit). Normal turns no longer route through it
-  /// — workflows are launched on demand. Wired by the TUI coordinator; null when
+  /// otherwise; `"none"` is explicit). Launched by the main agent's
+  /// `launch_workflow` tool by default. Wired by the TUI coordinator; null when
   /// unset.
   String? defaultWorkflow;
 
@@ -268,33 +255,6 @@ class SessionController implements CommandContext {
     return true;
   }
 
-  /// Run a long-lived operation as a cancellable "turn" on the active session:
-  /// echoes [echo], arms the active conversation's cancel completer (so the
-  /// two-press [cancelActiveTurn] / ESC cancels it via [body]'s cancel future),
-  /// marks the host active, then clears state in a finally. Returns [body]'s
-  /// result. Used by `/workflow run`.
-  Future<T> runCancellableTurn<T>({
-    required String echo,
-    required Future<T> Function(Future<void> cancelSignal) body,
-  }) async {
-    final s = active;
-    s.host.showMessage('$echo\n', style: HostMessageStyle.user);
-    s.host.showSeparator();
-    final cancel = Completer<void>();
-    s.cancelCompleter = cancel;
-    final wasActive = identical(s, active);
-    if (wasActive) s.host.setActivity(true);
-    onSessionsChanged?.call();
-    try {
-      return await body(cancel.future);
-    } finally {
-      s.cancelCompleter = null;
-      _cancelArmed = false;
-      if (identical(s, active)) s.host.setActivity(false);
-      onSessionsChanged?.call();
-    }
-  }
-
   // -- Agent turns --------------------------------------------------------
 
   void _startTurn(Conversation s, String input) =>
@@ -338,9 +298,12 @@ class SessionController implements CommandContext {
       }
     }
 
-    // Normal turns run the plain agent. A workflow is launched on demand as a
-    // background child run by the manager loop (the WorkflowSupervisor wired by
-    // the coordinator) — see `/workflow run`. Workflows never wrap a chat turn.
+    // Normal turns run the plain agent. A workflow is launched on demand by the
+    // agent itself via its `launch_workflow` tool (the supervisor seam wired by
+    // the coordinator) — a fire-and-forget call: the run churns in the
+    // background while the chat stays open, and its completion injects a
+    // follow-up turn (see injectWorkflowResult) carrying the outcome.
+    // Workflows never wrap a chat turn.
     try {
       await s.agent.run(
         history: s.history,
@@ -402,6 +365,64 @@ class SessionController implements CommandContext {
     // Continue the session's backlog, if any.
     final next = s.messageQueue.dequeue();
     if (next != null) _startTurn(s, next);
+  }
+
+  // -- Workflow completion turns ------------------------------------------
+
+  /// Wake the conversation that launched [run] with a synthetic turn carrying
+  /// the run's outcome, so the main agent reports on it and acts (auto agent
+  /// turn on completion). Called by the supervisor's `onComplete` hook. No-op
+  /// when the run was cancelled (that was already communicated via the stop
+  /// path) or its conversation is gone; when the conversation is mid-turn the
+  /// prompt is queued and drained when the turn ends, like any typed message.
+  void injectWorkflowResult(WorkflowRun run) {
+    if (run.status == WorkflowRunStatus.cancelled) return;
+    final conv = _findConversation(run.conversationId);
+    if (conv == null) return;
+    final prompt = _workflowOutcomePrompt(run);
+    if (conv.isRunning) {
+      conv.messageQueue.enqueue(prompt);
+      conv.host.showMessage(
+          '[workflow "${run.workflowName}" finished — result queued]\n',
+          style: HostMessageStyle.dim);
+    } else {
+      _startTurn(conv, prompt);
+    }
+  }
+
+  /// The conversation with id [conversationId] across every session, or null
+  /// when it no longer exists (closed/deleted).
+  Conversation? _findConversation(String conversationId) {
+    for (final session in sessionManager.all) {
+      final conv = session.conversationById(conversationId);
+      if (conv != null) return conv;
+    }
+    return null;
+  }
+
+  /// The synthetic user-role prompt handing [run]'s outcome to the launching
+  /// agent. Goes through the normal turn path ([_startTurn]/[_runTurn]), so it
+  /// is echoed, persisted, and activity-managed like any turn.
+  String _workflowOutcomePrompt(WorkflowRun run) {
+    final name = run.workflowName;
+    switch (run.status) {
+      case WorkflowRunStatus.completed:
+        final notes = run.outcome?.notes.trim() ?? '';
+        return 'Workflow "$name" (run ${run.id}) finished successfully.'
+            '${notes.isEmpty ? '' : ' The result:\n\n$notes\n\n'}'
+            ' Report the outcome to the user and act on anything it leaves '
+            'open (verify the changes, run tests, propose follow-up).';
+      case WorkflowRunStatus.failed:
+        final reason = run.outcome?.failureReason.trim() ?? 'unknown';
+        return 'Workflow "$name" (run ${run.id}) failed.\n'
+            'Reason: $reason\n\n'
+            'Report the failure to the user and decide whether to fix and '
+            'retry.';
+      case WorkflowRunStatus.running:
+      case WorkflowRunStatus.cancelled:
+        // Unreachable: inject only fires on completion; cancelled is skipped.
+        return '';
+    }
   }
 
   /// If the request we're about to send would exceed [autoCompactThreshold]

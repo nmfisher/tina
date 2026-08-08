@@ -2,10 +2,10 @@
 
 > **Routing model changed.** As of the manager-loop work, normal chat turns no
 > longer route through this graph. The main agent runs **outside** the workflow;
-> this file is the **launchable default graph**, run on demand with
-> `/workflow run default` as a background child run. See
-> [manager_loop.md](manager_loop.md) for the launch/monitor/stop model. The graph
-> itself, below, is unchanged.
+> this file is the **launchable default graph**, which the agent runs on demand
+> in the background via its `launch_workflow` tool (the default graph by
+> default) and cancels with `stop_workflow`. See [manager_loop.md](manager_loop.md)
+> for the launch/cancel model. The graph itself, below, is unchanged.
 
 The seeded default graph lives at `~/.tina/workflows/default.dot` (seeded from
 `kDefaultWorkflowDotSource` in `lib/pipeline/default_workflow.dart`). This doc
@@ -18,7 +18,7 @@ A turn walks this graph from `start` to `done`:
 
 ```
 start
-  └─> main                talk with the user + explore the repo
+  └─> intake             explore the repo and summarize the request
         └─> plan          develop the plan, hand it to the first reviewer
               └─> plan_review_1   review: approve / revise / clarify
                     │              (clarify ─> human gate ─> back to a review)
@@ -33,12 +33,12 @@ start
                                                         └─> done
 ```
 
-`main`, `plan`, `plan_review_*`, the executors, and `exec_reviewer` are `box`
+`intake`, `plan`, `plan_review_*`, the executors, and `exec_reviewer` are `box`
 (codergen) nodes that each carry their own `system_prompt` (identity) and
 inherit the conversation's model unless they set `llm_model`/`llm_provider`.
 Routing between nodes is verdict-driven: a reviewer ends its response with a
 `VERDICT: <label>` line, which the engine matches against an outgoing edge's
-`label`. `main` and the executors can also delegate sub-agents with the
+`label`. `intake` and the executors can also delegate sub-agents with the
 `delegate` tool (a task plus an optional tool profile: `read-only` for
 exploration/review, `full` for changes).
 
@@ -145,30 +145,35 @@ executor idles.
 
 ## Explore is a placeholder
 
-`main` explores the repository using its file tools (read, grep, glob, bash,
+`intake` explores the repository using its file tools (read, grep, glob, bash,
 search) and read-only delegation via the `delegate` tool — every node agent
 already runs with the full tool profile plus `delegate`
 (`SubAgentScheduler.runStandalone`). This is the **minimal** explore capability
 for now. A dedicated explore node or a first-class read-only `explore` tool
 (matching the `Explore` agent the host UI exposes) is future refinement; the
-`main` node's `system_prompt` is the place that behaviour is expressed today.
+`intake` node's `system_prompt` is the place that behaviour is expressed today.
 
 ## Editing and running
 
-- **Run:** `/workflow run default [input]` launches the graph as a background
-  child run; `/workflow stop` cancels it. (There is no longer anything to
-  "disable" — the graph never wraps a chat turn.)
+- **Run:** the main agent launches the default graph via its `launch_workflow`
+  tool (the default graph by default). The call returns immediately — the run
+  churns in the background while the chat stays open, node progress streams
+  into the chat, and when it finishes the agent gets a follow-up turn carrying
+  the outcome (it reports and acts on it). A running launch is cancelled with
+  the `stop_workflow` tool. (There is no longer anything to "disable" — the
+  graph never wraps a chat turn.) `/workflow list|show|new|edit` inspect/edit
+  graphs; there is no `/workflow run` command.
 - **Edit:** `/workflow edit default` opens the visual node editor on the seed
   graph. The graph serializes back through `graphToDot`, so hand-edits to the
   `.dot` file round-trip.
 - **Fallbacks:** a missing, unparseable, or invalid workflow file fails the
   launch with a clear message (chat never bricks); a runtime failure ends that
-  run like any failed run and is reported back to the chat.
+  run like any failed run and is reported back in the completion turn.
 
 ## See also
 
-- `docs/features/manager_loop.md` — how the main agent launches a workflow as a
-  background child run (launch, monitor, stop, report back).
+- `docs/features/manager_loop.md` — how the main agent launches a workflow
+  (background launch, `stop_workflow`, the completion turn that reports back).
 - `docs/features/agent_pipeline.md` — the agent/sub-agent model and the
   `delegate` tool.
 - `docs/proposals/node_handoff_design.md` — node vs agent, per-node system

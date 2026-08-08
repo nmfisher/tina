@@ -3,9 +3,9 @@
 // it without crossing the import boundary (see test/import_boundary_test.dart).
 //
 // Model (manager loop): the main agent runs OUTSIDE any workflow. Normal turns
-// run the plain agent; a workflow is launched on demand as a background child
-// run (`/workflow run default`). This file seeds the launchable default graph
-// and supplies the helpers that name/validate it. See
+// run the plain agent; a workflow is launched on demand by the agent's
+// `launch_workflow` tool (the default graph by default). This file seeds the
+// launchable default graph and supplies the helpers that name/validate it. See
 // docs/features/manager_loop.md.
 library;
 
@@ -55,12 +55,11 @@ String formatChatHistory(List<Message> history,
 /// Resolve the conventional "default" workflow file.
 ///
 /// Returns the name of the default graph (`default.dot`, or the one named by
-/// `[default] workflow`), or null when none applies. Normal turns no longer
-/// route through it — this just names the launchable default for `/workflow
-/// list` display and `/workflow run default`. `configured` is the
-/// `[default] workflow` config value: `"none"` is explicit; a name requires
-/// that `<name>.dot` to exist; null/empty means the conventional `default.dot`
-/// when present.
+/// `[default] workflow`), or null when none applies. This names the default the
+/// main agent launches via its `launch_workflow` tool, shown by `/workflow
+/// list`. `configured` is the `[default] workflow` config value: `"none"` is
+/// explicit; a name requires that `<name>.dot` to exist; null/empty means the
+/// conventional `default.dot` when present.
 String? resolveDefaultWorkflowName({
   required String? configured,
   required Directory? workflowsDir,
@@ -111,13 +110,13 @@ Future<void> ensureDefaultWorkflowUsable(
   }
 }
 
-/// The seeded default chat workflow — the launchable default graph. Launched on
-/// demand with `/workflow run default`; it no longer wraps every chat turn (the
-/// main agent runs outside the workflow — see docs/features/manager_loop.md). A
-/// run flows:
+/// The seeded default chat workflow — the launchable default graph, launched on
+/// demand by the main agent's `launch_workflow` tool. It never wraps a chat turn
+/// (the main agent runs outside the workflow — see docs/features/manager_loop.md).
+/// A run flows:
 ///
-///   main            talk with the user + explore the repo (PLACEHOLDER: the
-///                   main node explores via its file tools and read-only
+///   intake          explore the repo and summarize the request (PLACEHOLDER:
+///                   the intake node explores via its file tools and read-only
 ///                   delegation; a dedicated explore node/tool is future work)
 ///   plan            develop the plan, pass it to the first reviewer
 ///   plan_review_1   review the plan: approve / revise / clarify (human gate)
@@ -143,18 +142,18 @@ Future<void> ensureDefaultWorkflowUsable(
 /// A codergen node (box) carries its own `system_prompt` (identity) and optional
 /// `llm_model` + `llm_provider` (model); omit the model attrs to inherit the
 /// conversation's model. Routing between nodes uses a trailing
-/// `VERDICT: <label>` line, matched against an edge's label. `main` and the
+/// `VERDICT: <label>` line, matched against an edge's label. `intake` and the
 /// executors can also delegate sub-agents with the `delegate` tool (a task plus
 /// an optional tool profile: read-only for exploration/review, full for
 /// changes). `$input` is the user's message and `$history` the (truncated) chat
 /// transcript, both expanded by the engine at run time.
 const String kDefaultWorkflowDotSource = '''
-// tina's default chat workflow: the launchable default graph. Run it on demand
-// with /workflow run default (the main agent runs outside the workflow; see
-// docs/features/manager_loop.md). Edit with /workflow edit default.
+// tina's default chat workflow: the launchable default graph, launched on demand
+// by the main agent's launch_workflow tool (the main agent runs outside the
+// workflow; see docs/features/manager_loop.md). Edit with /workflow edit default.
 //
 // Flow:
-//   main            talk with the user + explore the repo (placeholder)
+//   intake          explore the repo and summarize the request
 //   plan            develop the plan, pass it to the first reviewer
 //   plan_review_1   review the plan; approve / revise / clarify (human gate)
 //   plan_review_2   a FRESH second pass of the same reviewer identity
@@ -166,7 +165,7 @@ const String kDefaultWorkflowDotSource = '''
 // A codergen node (box) carries its own system_prompt (identity) and optional
 // llm_model + llm_provider (model); omit the model attrs to inherit the
 // conversation's model. Routing between nodes uses a trailing VERDICT: <label>
-// line, matched against an edge's label. main and the executors can also
+// line, matched against an edge's label. intake and the executors can also
 // delegate sub-agents with the delegate tool (task + optional tool profile:
 // read-only for exploration/review, full for changes).
 
@@ -175,13 +174,13 @@ digraph default {
 
   start [shape=Mdiamond, label="Start"]
 
-  main [shape=box, label="Main",
-        system_prompt="You are the main coding agent for this session. You talk with the user to understand the request, then explore the repository to ground the work in real code.\\n\\nYou have file tools (read, write, edit, bash, search, grep, glob) and a delegate tool. For exploration, delegate read-only sub-agents and act on what they report; each delegation is a task plus an optional tool profile (read-only for exploration or review, full for changes) and an optional model.\\n\\nDo not write code and do not finalize a plan yourself: hand clear requirements and your findings to the plan node.",
+  intake [shape=box, label="Intake",
+        system_prompt="You are the intake step of a coding workflow. A user request and conversation context are provided to you. Explore the repository enough to ground the request in real code; delegate read-only sub-agents where that helps (each delegation is a task plus an optional tool profile: read-only for exploration or review, full for changes — and an optional model). You have file tools (read, write, edit, bash, search, grep, glob) and a delegate tool, but you do not write code and you do not finalize a plan yourself: hand clear requirements and your findings to the plan node.",
         prompt="User request: \$input\\n\\nConversation history for context:\\n\$history\\n\\nExplore the repository enough to ground the request (delegate read-only sub-agents where it helps). Then summarize the requirements and your findings. Do not write code yet. The plan node will plan from your summary."]
 
   plan [shape=box, label="Plan",
         system_prompt="You are a planning agent. You turn requirements and findings into a concrete plan that other agents can execute. You do not write code; you plan.",
-        prompt="Using the main agent's summary above, write a concrete plan: the files to change, the steps in order, the risks, and how to verify. Because the work runs in parallel across three executors, divide it into up to three independent chunks labeled [1], [2], [3] so each executor takes one. If the work is small, use fewer chunks. Output only the plan."]
+        prompt="Using the intake summary above, write a concrete plan: the files to change, the steps in order, the risks, and how to verify. Because the work runs in parallel across three executors, divide it into up to three independent chunks labeled [1], [2], [3] so each executor takes one. If the work is small, use fewer chunks. Output only the plan."]
 
   plan_review_1 [shape=box, label="Plan review (1)",
         system_prompt="You are a careful, independent plan reviewer. You check the plan above for correctness, completeness, and risk. Treat the most recent version of the plan as the current one.",
@@ -215,8 +214,8 @@ digraph default {
 
   done [shape=Msquare, label="Done"]
 
-  start -> main
-  main -> plan
+  start -> intake
+  intake -> plan
   plan -> plan_review_1
 
   plan_review_1 -> plan_review_2 [label="approve"]

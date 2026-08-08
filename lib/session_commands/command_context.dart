@@ -129,20 +129,8 @@ abstract class CommandContext {
   /// The `[default] workflow` config value (`"none"` = explicit, a name =
   /// explicit, null/empty = the conventional `default.dot`). Null when the
   /// config sets nothing. Names the default workflow file shown by `/workflow
-  /// list`; normal turns no longer route through it.
+  /// list` and launched by the main agent's `launch_workflow` tool by default.
   String? get defaultWorkflow;
-
-  /// Launch a workflow as a background child run on the active session
-  /// (`/workflow run`). The run churns independently of the turn; node events
-  /// surface to the active host and the run reports back on completion. Wired by
-  /// the TUI to the WorkflowSupervisor; null when no supervisor is wired.
-  Future<void> Function({required String workflowName, String? input})?
-      get runWorkflow;
-
-  /// Stop the running workflow (`/workflow stop`). Returns true when a run was
-  /// cancelled. Wired by the TUI to the WorkflowSupervisor; null when no
-  /// supervisor is wired.
-  bool Function([String? id])? get stopWorkflow;
 
   /// Open the visual graph viewer for a saved workflow (`/workflow show`).
   /// Wired by the TUI; null in headless (no screen).

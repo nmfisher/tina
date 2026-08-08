@@ -184,11 +184,13 @@ class ConversationMetaInput {
         policy: policy.toJson(),
       );
 
-  /// Capture the identity of a delegated sub-agent job. The job runs a single
-  /// role, so [targetName] (the role name) fully determines its tool set on
-  /// resume, and [parentConversationId] links it to the conversation that
-  /// spawned it. [model] is the full `"provider/model"` reference the job
-  /// actually ran under (resolved from its tier, or inherited from the parent).
+  /// Capture the identity of a delegated sub-agent job. The job carries a
+  /// single identity, so on resume [targetName] (its label) plus the persisted
+  /// [policy] (which encodes the delegation tool profile — read-only vs full)
+  /// reconstruct its tool set, and [parentConversationId] links it to the
+  /// conversation that spawned it. [model] is the full `"provider/model"`
+  /// reference the job actually ran under (inherited from the parent, or
+  /// overridden per delegation).
   factory ConversationMetaInput.subAgent({
     required String model,
     String? providerId,
@@ -209,10 +211,10 @@ class ConversationMetaInput {
         parentConversationId: parentConversationId,
       );
 
-  /// Capture the identity of a `/spawn` side panel. The spawn runs a single
-  /// role, so [targetName] (the role name) fully determines its tool set on
-  /// resume, and [parentConversationId] links it to the conversation that
-  /// spawned it.
+  /// Capture the identity of a `/spawn` side panel. The spawn carries a
+  /// single identity, so on resume [targetName] (its label) plus the persisted
+  /// [policy] reconstruct its tool set, and [parentConversationId] links it to
+  /// the conversation that spawned it.
   factory ConversationMetaInput.spawn({
     required String providerId,
     required String providerModel,
@@ -234,9 +236,10 @@ class ConversationMetaInput {
         parentConversationId: parentConversationId,
       );
 
-  /// Capture the identity of a `/branch` fork. Like a [spawn], a branch runs a
-  /// single role (so [targetName] fully determines its tool set on resume) and
-  /// links back to its [parentConversationId] — but it is its own
+  /// Capture the identity of a `/branch` fork. Like a [spawn], a branch
+  /// carries a single identity (so on resume [targetName] plus the persisted
+  /// [policy] reconstruct its tool set) and links back to its
+  /// [parentConversationId] — but it is its own
   /// [ConversationKind] so the fork lineage is inspectable in the manifest, and
   /// its on-disk `.jsonl` is seeded with a copy of the parent's history (written
   /// separately by the coordinator that creates the branch). Unlike a sub-agent,

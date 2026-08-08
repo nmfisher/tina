@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:attractor/attractor.dart';
 import 'package:tina_engine/tina_engine.dart';
 
-import 'default_workflow.dart' show formatChatHistory;
-
 /// Runs one workflow as a child run. This is the seam the supervisor calls; in
 /// production it is `PipelineRunner.run`, so the supervisor reuses the runner,
 /// the engine, and every handler without owning them. The [sink] is where the
@@ -42,6 +40,11 @@ class WorkflowRun {
   final String id;
   final String workflowName;
 
+  /// The id of the conversation that launched the run. Used to route the
+  /// completion turn (the supervisor's `onComplete` hook) back to the chat
+  /// that asked for the workflow.
+  final String conversationId;
+
   /// The optional per-launch annotation of the run's purpose, surfaced in the
   /// launch/report notices. Does NOT override the graph's own `goal`.
   final String? goal;
@@ -57,6 +60,7 @@ class WorkflowRun {
   WorkflowRun({
     required this.id,
     required this.workflowName,
+    required this.conversationId,
     required this.goal,
     required this.input,
     required Completer<void> cancel,
@@ -76,7 +80,8 @@ class WorkflowRun {
 ///
 /// The main agent (the chat conversation) is the persistent top-level context.
 /// Normal turns run the plain agent; a workflow is launched on demand as a
-/// **background child run**. The supervisor does four things:
+/// **background child run** via the agent's `launch_workflow` tool. The
+/// supervisor does five things:
 ///
 /// 1. **Launch** ([launch]) — start a workflow as a fire-and-forget run, passing
 ///    the chat host as the sink so node progress events surface live. Returns
@@ -86,13 +91,19 @@ class WorkflowRun {
 /// 3. **Stop** ([stop]/[stopAll]) — complete a run's cancel signal so the engine
 ///    aborts the current node with a `cancelled` outcome.
 /// 4. **Report back** — when the run finishes (success, failure, or cancel) the
-///    supervisor posts one final notice to the sink, so the main agent learns
-///    the result in a later turn.
+///    supervisor posts one final notice to the sink.
+/// 5. **Hand off** — the `onComplete` hook fires after the report notice; the
+///    coordinator wires it to the conversation controller, which wakes the
+///    launching agent with a synthetic turn carrying the outcome.
 ///
 /// Because [launch] is fire-and-forget, the main agent's turn never blocks: the
 /// user can keep chatting while the run churns.
 class WorkflowSupervisor {
   final RunWorkflow _run;
+
+  /// Fired after a run finishes and its report notice has been posted. The
+  /// coordinator wires this to the controller's completion-turn injection.
+  final void Function(WorkflowRun run)? onComplete;
 
   /// Active + recently-finished runs keyed by id (newest last). Finished runs
   /// are kept so the main agent can query a result by id; [active] filters to
@@ -101,18 +112,19 @@ class WorkflowSupervisor {
   final List<String> _launchOrder = [];
   int _seq = 0;
 
-  WorkflowSupervisor({required RunWorkflow run}) : _run = run;
+  WorkflowSupervisor({required RunWorkflow run, this.onComplete}) : _run = run;
 
-  /// Launch `<name>` as a background child run. Output and node progress events
-  /// stream to [sink] (the chat host). [input] flows into the run as `$input`;
-  /// [history], when given, is seeded as `$history` (mirroring the old per-turn
-  /// routing). [goal] annotates the run for the launch/report notices. Returns
-  /// immediately with a handle; the run continues after this returns.
+  /// Launch `<name>` as a background child run for the conversation
+  /// [conversationId]. Output and node progress events stream to [sink] (the
+  /// chat host). [input] flows into the run as `$input`; [goal] annotates the
+  /// run for the launch/report notices. Returns immediately with a handle; the
+  /// run continues after this returns. (The run's `history` is always `null` —
+  /// the launching agent crafts [input]; the runner's `history` arg is unused.)
   WorkflowRun launch({
     required String name,
+    required String conversationId,
     required AgentSink sink,
     String? input,
-    List<Message>? history,
     String? goal,
   }) {
     final id = _newId();
@@ -121,14 +133,13 @@ class WorkflowSupervisor {
       workflowName: name,
       sink: sink,
       input: input,
-      history: history == null || history.isEmpty
-          ? null
-          : formatChatHistory(history),
+      history: null,
       cancelSignal: cancel.future,
     );
     final run = WorkflowRun(
       id: id,
       workflowName: name,
+      conversationId: conversationId,
       goal: goal,
       input: input,
       cancel: cancel,
@@ -140,11 +151,24 @@ class WorkflowSupervisor {
         '${goal == null || goal.isEmpty ? '' : ' — $goal'}');
 
     // Fire-and-forget: report back on completion without blocking launch.
-    unawaited(future.then((outcome) {
-      run.outcome = outcome;
-      run.status = _classify(outcome, cancelledByStop: cancel.isCompleted);
-      _reportBack(sink, run);
-    }));
+    unawaited(future.then(
+      (outcome) {
+        run.outcome = outcome;
+        run.status = _classify(outcome, cancelledByStop: cancel.isCompleted);
+        _reportBack(sink, run);
+        onComplete?.call(run);
+      },
+      // A thrown runner error (e.g. the workflow file is missing) never yields
+      // an Outcome — surface it as a failed run so the launch still reports
+      // back and the completion turn still fires, instead of an unhandled
+      // async error.
+      onError: (Object e) {
+        run.outcome = Outcome.fail('$e');
+        run.status = WorkflowRunStatus.failed;
+        _reportBack(sink, run);
+        onComplete?.call(run);
+      },
+    ));
 
     return run;
   }

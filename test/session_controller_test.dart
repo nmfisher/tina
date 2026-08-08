@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:attractor/attractor.dart';
 import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/conversation.dart';
 import 'package:tina/pipeline/default_workflow.dart';
+import 'package:tina/pipeline/workflow_supervisor.dart';
 import 'package:tina/session_controller.dart';
 import 'package:tina/session_manager.dart';
 import 'package:test/test.dart';
@@ -58,9 +60,6 @@ SessionController _buildController({
   String? conversationId,
   Directory? workflowsDir,
   String? defaultWorkflow,
-  Future<void> Function({required String workflowName, String? input})?
-      runWorkflow,
-  bool Function([String? id])? stopWorkflow,
 }) {
   final policy = PermissionPolicy();
   final tools = ToolRegistry(const []);
@@ -126,8 +125,6 @@ SessionController _buildController({
   );
   controller.workflowsDir = workflowsDir;
   controller.defaultWorkflow = defaultWorkflow;
-  controller.runWorkflow = runWorkflow;
-  controller.stopWorkflow = stopWorkflow;
   return controller;
 }
 
@@ -526,14 +523,10 @@ void main() {
       workflows.createSync(recursive: true);
       await writeDot(kDefaultWorkflowDotSource);
       final rl = FakeReadLine();
-      var launched = false;
       final controller = _buildController(
         readLine: rl,
         provider: okProvider(),
         workflowsDir: workflows,
-        runWorkflow: ({required workflowName, input}) async {
-          launched = true;
-        },
       );
 
       rl.enqueue('hello');
@@ -545,147 +538,6 @@ void main() {
 
       // The plain agent ran.
       expect(hostOf(controller).sink.texts.any((t) => t.contains('ok')), isTrue);
-      // No workflow was launched for a plain turn.
-      expect(launched, isFalse);
-    });
-
-    test('/workflow run launches a workflow with its name and input', () async {
-      final calls = <({String workflowName, String? input})>[];
-      final rl = FakeReadLine();
-      final controller = _buildController(
-        readLine: rl,
-        provider: FakeProvider.done(),
-        runWorkflow: ({required workflowName, input}) async {
-          calls.add((workflowName: workflowName, input: input));
-        },
-      );
-
-      rl.enqueue('/workflow run default fix the bug');
-      final runFuture = controller.run();
-      await _pumpUntil(() => calls.isNotEmpty);
-      rl.close();
-      await runFuture;
-
-      expect(calls.single.workflowName, 'default');
-      expect(calls.single.input, 'fix the bug');
-    });
-
-    test('/workflow run with no input passes null', () async {
-      String? seenInput = 'sentinel';
-      final rl = FakeReadLine();
-      final controller = _buildController(
-        readLine: rl,
-        provider: FakeProvider.done(),
-        runWorkflow: ({required workflowName, input}) async {
-          seenInput = input;
-        },
-      );
-
-      rl.enqueue('/workflow run default');
-      final runFuture = controller.run();
-      await _pumpUntil(() => seenInput != 'sentinel');
-      rl.close();
-      await runFuture;
-
-      expect(seenInput, isNull);
-    });
-
-    test('/workflow run without a wired supervisor prints a warning',
-        () async {
-      final rl = FakeReadLine();
-      final controller = _buildController(
-        readLine: rl,
-        provider: FakeProvider.done(),
-        // runWorkflow left null — as in headless.
-      );
-
-      rl.enqueue('/workflow run default');
-      final runFuture = controller.run();
-      await _pumpUntil(() => hostOf(controller)
-          .messages
-          .any((m) => m.contains('workflow supervisor')));
-      rl.close();
-      await runFuture;
-
-      expect(
-          hostOf(controller).messages
-              .any((m) => m.contains('/workflow run needs the workflow supervisor')),
-          isTrue);
-    });
-
-    test('/workflow stop cancels the running workflow', () async {
-      var stopCalls = 0;
-      String? stopped;
-      final rl = FakeReadLine();
-      final controller = _buildController(
-        readLine: rl,
-        provider: FakeProvider.done(),
-        stopWorkflow: ([id]) {
-          stopCalls++;
-          stopped = id;
-          return true;
-        },
-      );
-
-      rl.enqueue('/workflow stop');
-      final runFuture = controller.run();
-      await _pumpUntil(() => stopCalls > 0);
-      rl.close();
-      await runFuture;
-
-      expect(stopped, isNull); // no id → most-recent-active.
-      expect(
-          hostOf(controller).messages
-              .any((m) => m.contains('stopped the running workflow')),
-          isTrue);
-    });
-
-    test('/workflow stop <id> targets that run', () async {
-      String? stopped;
-      final rl = FakeReadLine();
-      final controller = _buildController(
-        readLine: rl,
-        provider: FakeProvider.done(),
-        stopWorkflow: ([id]) {
-          stopped = id;
-          return true;
-        },
-      );
-
-      rl.enqueue('/workflow stop abc');
-      final runFuture = controller.run();
-      await _pumpUntil(() => stopped != null);
-      rl.close();
-      await runFuture;
-
-      expect(stopped, 'abc');
-      expect(
-          hostOf(controller).messages
-              .any((m) => m.contains('stopped workflow run abc')),
-          isTrue);
-    });
-
-    test('/workflow stop with nothing running reports nothing to stop',
-        () async {
-      final rl = FakeReadLine();
-      final controller = _buildController(
-        readLine: rl,
-        provider: FakeProvider.done(),
-        stopWorkflow: ([id]) => false,
-      );
-
-      rl.enqueue('/workflow stop');
-      final runFuture = controller.run();
-      await _pumpUntil(() => hostOf(controller)
-          .messages
-          .any((m) => m.contains('no running workflow')));
-      rl.close();
-      await runFuture;
-
-      expect(
-          hostOf(controller).messages
-              .any((m) => m.contains('no running workflow to stop')),
-          isTrue);
     });
 
     test('bare /workflow lists workflows with hints and marks the default',
@@ -708,13 +560,140 @@ void main() {
       await runFuture;
 
       final msgs = hostOf(controller).messages.join('\n');
-      // The default is now the launchable default graph, not a per-turn router.
-      expect(msgs,
-          contains('default   ← default (launch with /workflow run default)'));
+      // The default is marked; run/stop are gone (the agent launches workflows).
+      expect(msgs, contains('default   ← default'));
       expect(msgs, contains('usage:'));
-      expect(msgs, contains('/workflow stop [id]'));
+      expect(msgs, isNot(contains('/workflow run')));
+      expect(msgs, isNot(contains('/workflow stop')));
       expect(msgs, contains('VERDICT: <label>'));
       expect(msgs, contains('llm_model + llm_provider'));
+    });
+  });
+
+  group('injectWorkflowResult (auto agent turn on workflow completion)', () {
+    // A finished run the supervisor's onComplete hook would hand the
+    // controller. The harness conversation is 's1' (see _buildController).
+    WorkflowRun finishedRun({
+      String conversationId = 's1',
+      WorkflowRunStatus status = WorkflowRunStatus.completed,
+      Outcome? outcome,
+    }) =>
+        WorkflowRun(
+          id: '1',
+          workflowName: 'default',
+          conversationId: conversationId,
+          goal: null,
+          input: 'task',
+          cancel: Completer<void>(),
+        )
+          ..status = status
+          ..outcome = outcome;
+
+    test('a completed run wakes the idle conversation with the outcome',
+        () async {
+      final rl = FakeReadLine();
+      final provider = FakeProvider.done();
+      final controller = _buildController(readLine: rl, provider: provider);
+
+      controller.injectWorkflowResult(
+          finishedRun(outcome: const Outcome.success(notes: 'all green')));
+
+      // The agent ran a turn for the injection (no user input needed).
+      await _pumpUntil(() => provider.calls.isNotEmpty);
+      final userTexts = provider.calls.single.messages
+          .where((m) => m.role == Role.user)
+          .expand((m) => m.content)
+          .whereType<TextBlock>()
+          .map((b) => b.text)
+          .join('\n');
+      expect(userTexts, contains('finished successfully'));
+      expect(userTexts, contains('all green'));
+      expect(userTexts, contains('Report the outcome'));
+
+      // The synthetic prompt is echoed into the chat and persisted like any
+      // turn (agent.run adds the user message to history).
+      expect(
+          hostOf(controller).messages.any((m) => m.contains('finished successfully')),
+          isTrue);
+      await _pumpUntil(() => controller.active.history.any((m) =>
+          m.role == Role.user &&
+          m.content
+              .any((b) => b is TextBlock && b.text.contains('finished successfully'))));
+    });
+
+    test('a failed run hands the failure reason to the agent', () async {
+      final rl = FakeReadLine();
+      final provider = FakeProvider.done();
+      final controller = _buildController(readLine: rl, provider: provider);
+
+      controller.injectWorkflowResult(finishedRun(
+          status: WorkflowRunStatus.failed,
+          outcome: Outcome.fail('goal gate "review" unsatisfied')));
+
+      await _pumpUntil(() => provider.calls.isNotEmpty);
+      final userTexts = provider.calls.single.messages
+          .where((m) => m.role == Role.user)
+          .expand((m) => m.content)
+          .whereType<TextBlock>()
+          .map((b) => b.text)
+          .join('\n');
+      expect(userTexts, contains('failed'));
+      expect(userTexts, contains('goal gate "review" unsatisfied'));
+      expect(userTexts, contains('Report the failure'));
+    });
+
+    test('a completion while a turn is running is queued, not injected',
+        () async {
+      final rl = FakeReadLine();
+      final controller = _buildController(readLine: rl, provider: _SlowProvider());
+
+      rl.enqueue('hi'); // starts a never-ending turn
+      final runFuture = controller.run();
+      await _pumpUntil(() => controller.active.isRunning);
+
+      controller.injectWorkflowResult(
+          finishedRun(outcome: const Outcome.success(notes: 'all green')));
+
+      await _pumpUntil(
+          () => hostOf(controller).messages.any((m) => m.contains('queued')));
+      expect(controller.active.messageQueue.isNotEmpty, isTrue);
+      // No second turn was started: the prompt was only queued, so it was never
+      // echoed as a user message (an injected turn would echo it).
+      expect(
+          hostOf(controller)
+              .messages
+              .any((m) => m.contains('finished successfully')),
+          isFalse);
+
+      rl.close();
+      await runFuture;
+    });
+
+    test('a cancelled run is a no-op (already communicated via stop)',
+        () async {
+      final rl = FakeReadLine();
+      final provider = FakeProvider.done();
+      final controller = _buildController(readLine: rl, provider: provider);
+
+      controller.injectWorkflowResult(finishedRun(status: WorkflowRunStatus.cancelled));
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(provider.calls, isEmpty);
+      expect(hostOf(controller).messages.any((m) => m.contains('finished')),
+          isFalse);
+    });
+
+    test('a run for a closed conversation is a no-op', () async {
+      final rl = FakeReadLine();
+      final provider = FakeProvider.done();
+      final controller = _buildController(readLine: rl, provider: provider);
+
+      controller.injectWorkflowResult(finishedRun(
+          conversationId: 'ghost',
+          outcome: const Outcome.success(notes: 'all green')));
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(provider.calls, isEmpty);
     });
   });
 }
