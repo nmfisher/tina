@@ -60,10 +60,58 @@ void main() {
       expect(w.written(), '→ bash: ls -la\n');
     });
 
-    test('toolStart falls back to the bare tool name for unknown shapes', () {
+    test('toolStart shows the glob pattern', () {
       final w = _sink();
       w.sink.toolStart(const ToolStartEvent('glob', 'u2', {'pattern': '**'}));
-      expect(w.written(), '→ glob\n');
+      expect(w.written(), '→ glob: **\n');
+    });
+
+    test('toolStart shows the glob pattern and path when given', () {
+      final w = _sink();
+      w.sink.toolStart(
+          const ToolStartEvent('glob', 'u2', {'pattern': '*.dart', 'path': '/a'}));
+      expect(w.written(), '→ glob: *.dart in /a\n');
+    });
+
+    test('toolStart shows the grep pattern', () {
+      final w = _sink();
+      w.sink.toolStart(const ToolStartEvent('grep', 'g1', {'pattern': 'TODO'}));
+      expect(w.written(), '→ grep: TODO\n');
+    });
+
+    test('toolStart shows the grep pattern and path when given', () {
+      final w = _sink();
+      w.sink.toolStart(
+          const ToolStartEvent('grep', 'g2', {'pattern': 'TODO', 'path': '/b'}));
+      expect(w.written(), '→ grep: TODO in /b\n');
+    });
+
+    test('toolStart shows the search symbol', () {
+      final w = _sink();
+      w.sink
+          .toolStart(const ToolStartEvent('search', 's1', {'symbol': 'Agent'}));
+      expect(w.written(), '→ search: Agent\n');
+    });
+
+    test('toolStart summarizes unknown tool input as key=value pairs', () {
+      final w = _sink();
+      w.sink.toolStart(const ToolStartEvent(
+          'collect', 'c1', {'scope': 'docs', 'depth': 3}));
+      expect(w.written(), '→ collect: scope=docs depth=3\n');
+    });
+
+    test('toolStart truncates unknown tool summaries at 80 chars', () {
+      final w = _sink();
+      // joined summary is 'x=' + 200 a's (202 chars); truncated to 80 ->
+      // 'x=' + 78 a's + ellipsis.
+      w.sink.toolStart(ToolStartEvent('collect', 'c2', {'x': 'a' * 200}));
+      expect(w.written(), '→ collect: x=${'a' * 78}…\n');
+    });
+
+    test('toolStart shows the bare name when input is empty', () {
+      final w = _sink();
+      w.sink.toolStart(const ToolStartEvent('collect', 'c3', {}));
+      expect(w.written(), '→ collect\n');
     });
 
     test('toolStart truncates long bash commands at 80 chars', () {

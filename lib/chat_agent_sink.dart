@@ -74,9 +74,38 @@ class ChatAgentSink implements AgentSink {
       case 'edit':
         final path = input['filePath'] as String?;
         return path != null ? '$name: $path' : name;
+      case 'glob':
+      case 'grep':
+        // Both read-only search tools take `pattern` (required) and `path`
+        // (optional); show the pattern, and the path when the caller set one.
+        final pattern = input['pattern'] as String?;
+        if (pattern == null) return name;
+        final path = input['path'] as String?;
+        return path != null ? '$name: $pattern in $path' : '$name: $pattern';
+      case 'search':
+        // The code-graph search tool's query lives under `symbol`.
+        final symbol = input['symbol'] as String?;
+        return symbol != null ? 'search: $symbol' : name;
       default:
-        return name;
+        return _summarize(name, input);
     }
+  }
+
+  /// Compact one-line summary for tools without a dedicated case, so no tool
+  /// call hides its arguments. Renders `name: k=v k=v ...` and truncates the
+  /// whole summary to the same 80-char budget as the bash command, keeping it
+  /// short for narrow panels.
+  String _summarize(String name, Map<String, dynamic> input) {
+    if (input.isEmpty) return name;
+    final parts = <String>[];
+    for (final entry in input.entries) {
+      final value = entry.value;
+      if (value == null) continue;
+      final rendered = value is String ? value : value.toString();
+      parts.add('${entry.key}=$rendered');
+    }
+    final joined = parts.join(' ');
+    return joined.isEmpty ? name : '$name: ${_truncate(joined, 80)}';
   }
 
   String _truncate(String s, int n) =>
