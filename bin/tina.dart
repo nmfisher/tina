@@ -323,54 +323,9 @@ Future<void> _runNonInteractive(AppComposition app) async {
     return;
   }
 
-  // Default-workflow routing: while a default DOT workflow resolves, headless
-  // turns run through it too — the same rule as the interactive path. An
-  // unusable workflow falls back to the plain agent with a warning; a run that
-  // fails at runtime exits non-zero (mirroring `--workflow`).
-  final workflowsDir = _workflowsDir(app.environment.env);
-  final wfName = resolveDefaultWorkflowName(
-      configured: app.config.defaultWorkflow, workflowsDir: workflowsDir);
-  if (wfName != null) {
-    var usable = true;
-    try {
-      await ensureDefaultWorkflowUsable(workflowsDir, wfName);
-    } on DefaultWorkflowUnusable catch (e) {
-      // Unusable file: warn and fall through to the plain agent below.
-      usable = false;
-      host.notice('default workflow skipped: ${e.message}',
-          kind: NoticeKind.warning);
-    }
-    if (usable) {
-      final runner = PipelineRunner(
-        scheduler: app.scheduler,
-        pipeline: app.pipeline,
-        workflowsDir: workflowsDir,
-        runsRoot:
-            Directory(p.join(tinaDirFromEnv(app.environment.env).path, 'runs')),
-        defaultModelReference: '${app.config.provider}/${app.config.model}',
-      );
-      final rawInput = prompt.trim();
-      final outcome = await runner.run(
-        workflowName: wfName,
-        sink: host,
-        input: rawInput.isEmpty ? null : rawInput,
-        history: formatChatHistory(app.initialHistory),
-      );
-      if (!outcome.status.isOk) exit(1);
-      await host.dispose();
-      await app.store.close();
-      app.provider.close();
-      await closeLogging();
-      return;
-    }
-  }
-  if (app.config.defaultWorkflow != null &&
-      app.config.defaultWorkflow != 'none') {
-    host.notice(
-        'default workflow "${app.config.defaultWorkflow}" not found — '
-        'running a normal turn',
-        kind: NoticeKind.warning);
-  }
+  // Normal headless turns run the plain agent. Workflows are launched on demand
+  // (use `--workflow <name>` for an explicit, run-to-completion pipeline);
+  // there is no default-workflow routing of ordinary prompts.
 
   // The headless agent runs one turn with the base tools and the un-widened
   // policy — withSubAgents: false preserves the pre-composition behavior (a

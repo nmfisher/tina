@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:attractor/attractor.dart';
 import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/conversation.dart';
@@ -59,13 +58,9 @@ SessionController _buildController({
   String? conversationId,
   Directory? workflowsDir,
   String? defaultWorkflow,
-  Future<Outcome> Function({
-    required String workflowName,
-    required AgentSink sink,
-    String? input,
-    String? history,
-    Future<void>? cancelSignal,
-  })? runPipelineTurn,
+  Future<void> Function({required String workflowName, String? input})?
+      runWorkflow,
+  bool Function([String? id])? stopWorkflow,
 }) {
   final policy = PermissionPolicy();
   final tools = ToolRegistry(const []);
@@ -131,7 +126,8 @@ SessionController _buildController({
   );
   controller.workflowsDir = workflowsDir;
   controller.defaultWorkflow = defaultWorkflow;
-  controller.runPipelineTurn = runPipelineTurn;
+  controller.runWorkflow = runWorkflow;
+  controller.stopWorkflow = stopWorkflow;
   return controller;
 }
 
@@ -499,7 +495,7 @@ void main() {
     });
   });
 
-  group('default workflow routing', () {
+  group('workflow launch (manager loop)', () {
     late Directory tmp;
     late Directory workflows;
 
@@ -513,17 +509,6 @@ void main() {
     Future<void> writeDot(String source) async =>
         File(p.join(workflows.path, 'default.dot')).writeAsString(source);
 
-    Future<Outcome> Function({
-      required String workflowName,
-      required AgentSink sink,
-      String? input,
-      String? history,
-      Future<void>? cancelSignal,
-    }) okRunner() =>
-        ({required workflowName, required sink, input, history, cancelSignal}) async {
-          return const Outcome.success();
-        };
-
     /// A provider that streams 'ok' to the host (TextDelta required — a bare
     /// MessageComplete renders nothing on the sink).
     FakeProvider okProvider() => FakeProvider(const [
@@ -534,92 +519,173 @@ void main() {
           ],
         ]);
 
-    test('routes a turn through the default pipeline instead of the agent',
+    test('a normal turn runs the plain agent even when default.dot exists',
         () async {
+      // The defining change of the manager-loop model: a workflow on disk no
+      // longer wraps a chat turn. The plain agent runs.
       workflows.createSync(recursive: true);
       await writeDot(kDefaultWorkflowDotSource);
       final rl = FakeReadLine();
-      final calls =
-          <({String workflowName, String input, String? history})>[];
+      var launched = false;
+      final controller = _buildController(
+        readLine: rl,
+        provider: okProvider(),
+        workflowsDir: workflows,
+        runWorkflow: ({required workflowName, input}) async {
+          launched = true;
+        },
+      );
+
+      rl.enqueue('hello');
+      final runFuture = controller.run();
+      await _pumpUntil(
+          () => hostOf(controller).sink.texts.any((t) => t.contains('ok')));
+      rl.close();
+      await runFuture;
+
+      // The plain agent ran.
+      expect(hostOf(controller).sink.texts.any((t) => t.contains('ok')), isTrue);
+      // No workflow was launched for a plain turn.
+      expect(launched, isFalse);
+    });
+
+    test('/workflow run launches a workflow with its name and input', () async {
+      final calls = <({String workflowName, String? input})>[];
+      final rl = FakeReadLine();
       final controller = _buildController(
         readLine: rl,
         provider: FakeProvider.done(),
-        workflowsDir: workflows,
-        runPipelineTurn: ({required workflowName, required sink, input,
-            history, cancelSignal}) async {
-          calls.add((
-            workflowName: workflowName,
-            input: input ?? '',
-            history: history,
-          ));
-          return const Outcome.success();
+        runWorkflow: ({required workflowName, input}) async {
+          calls.add((workflowName: workflowName, input: input));
         },
       );
-      // Seed prior history so the $history threading is exercised end-to-end.
-      controller.active.history.add(
-          const Message(role: Role.user, content: [TextBlock('earlier')]));
 
-      rl.enqueue('hello');
+      rl.enqueue('/workflow run default fix the bug');
       final runFuture = controller.run();
       await _pumpUntil(() => calls.isNotEmpty);
       rl.close();
       await runFuture;
 
       expect(calls.single.workflowName, 'default');
-      expect(calls.single.input, 'hello');
-      expect(calls.single.history, 'user: earlier');
-      // The agent never ran — no 'ok' completion was streamed.
-      expect(hostOf(controller).sink.texts.any((t) => t.contains('ok')), isFalse);
+      expect(calls.single.input, 'fix the bug');
     });
 
-    test('falls back to the agent when default.dot does not parse', () async {
-      workflows.createSync(recursive: true);
-      await writeDot('digraph {');
+    test('/workflow run with no input passes null', () async {
+      String? seenInput = 'sentinel';
       final rl = FakeReadLine();
       final controller = _buildController(
         readLine: rl,
-        provider: okProvider(),
-        workflowsDir: workflows,
-        runPipelineTurn: okRunner(),
+        provider: FakeProvider.done(),
+        runWorkflow: ({required workflowName, input}) async {
+          seenInput = input;
+        },
       );
 
-      rl.enqueue('hello');
+      rl.enqueue('/workflow run default');
       final runFuture = controller.run();
-      await _pumpUntil(
-          () => hostOf(controller).sink.texts.any((t) => t.contains('ok')));
+      await _pumpUntil(() => seenInput != 'sentinel');
+      rl.close();
+      await runFuture;
+
+      expect(seenInput, isNull);
+    });
+
+    test('/workflow run without a wired supervisor prints a warning',
+        () async {
+      final rl = FakeReadLine();
+      final controller = _buildController(
+        readLine: rl,
+        provider: FakeProvider.done(),
+        // runWorkflow left null — as in headless.
+      );
+
+      rl.enqueue('/workflow run default');
+      final runFuture = controller.run();
+      await _pumpUntil(() => hostOf(controller)
+          .messages
+          .any((m) => m.contains('workflow supervisor')));
       rl.close();
       await runFuture;
 
       expect(
-          hostOf(controller)
-              .messages
-              .any((m) => m.contains('default workflow skipped:')),
+          hostOf(controller).messages
+              .any((m) => m.contains('/workflow run needs the workflow supervisor')),
           isTrue);
-      expect(hostOf(controller).sink.texts.any((t) => t.contains('ok')), isTrue);
     });
 
-    test('configured-but-missing workflow warns and runs the agent', () async {
+    test('/workflow stop cancels the running workflow', () async {
+      var stopCalls = 0;
+      String? stopped;
       final rl = FakeReadLine();
       final controller = _buildController(
         readLine: rl,
-        provider: okProvider(),
-        workflowsDir: workflows,
-        defaultWorkflow: 'foo',
-        runPipelineTurn: okRunner(),
+        provider: FakeProvider.done(),
+        stopWorkflow: ([id]) {
+          stopCalls++;
+          stopped = id;
+          return true;
+        },
       );
 
-      rl.enqueue('hello');
+      rl.enqueue('/workflow stop');
       final runFuture = controller.run();
-      await _pumpUntil(
-          () => hostOf(controller).sink.texts.any((t) => t.contains('ok')));
+      await _pumpUntil(() => stopCalls > 0);
+      rl.close();
+      await runFuture;
+
+      expect(stopped, isNull); // no id → most-recent-active.
+      expect(
+          hostOf(controller).messages
+              .any((m) => m.contains('stopped the running workflow')),
+          isTrue);
+    });
+
+    test('/workflow stop <id> targets that run', () async {
+      String? stopped;
+      final rl = FakeReadLine();
+      final controller = _buildController(
+        readLine: rl,
+        provider: FakeProvider.done(),
+        stopWorkflow: ([id]) {
+          stopped = id;
+          return true;
+        },
+      );
+
+      rl.enqueue('/workflow stop abc');
+      final runFuture = controller.run();
+      await _pumpUntil(() => stopped != null);
+      rl.close();
+      await runFuture;
+
+      expect(stopped, 'abc');
+      expect(
+          hostOf(controller).messages
+              .any((m) => m.contains('stopped workflow run abc')),
+          isTrue);
+    });
+
+    test('/workflow stop with nothing running reports nothing to stop',
+        () async {
+      final rl = FakeReadLine();
+      final controller = _buildController(
+        readLine: rl,
+        provider: FakeProvider.done(),
+        stopWorkflow: ([id]) => false,
+      );
+
+      rl.enqueue('/workflow stop');
+      final runFuture = controller.run();
+      await _pumpUntil(() => hostOf(controller)
+          .messages
+          .any((m) => m.contains('no running workflow')));
       rl.close();
       await runFuture;
 
       expect(
-          hostOf(controller).messages.any(
-              (m) => m.contains('default workflow "foo" not found')),
+          hostOf(controller).messages
+              .any((m) => m.contains('no running workflow to stop')),
           isTrue);
-      expect(hostOf(controller).sink.texts.any((t) => t.contains('ok')), isTrue);
     });
 
     test('bare /workflow lists workflows with hints and marks the default',
@@ -642,38 +708,13 @@ void main() {
       await runFuture;
 
       final msgs = hostOf(controller).messages.join('\n');
-      expect(msgs, contains('default   ← default (runs on every turn)'));
+      // The default is now the launchable default graph, not a per-turn router.
+      expect(msgs,
+          contains('default   ← default (launch with /workflow run default)'));
       expect(msgs, contains('usage:'));
+      expect(msgs, contains('/workflow stop [id]'));
       expect(msgs, contains('VERDICT: <label>'));
       expect(msgs, contains('llm_model + llm_provider'));
-    });
-
-    test('"none" disables routing even with default.dot present', () async {
-      workflows.createSync(recursive: true);
-      await writeDot(kDefaultWorkflowDotSource);
-      final rl = FakeReadLine();
-      final controller = _buildController(
-        readLine: rl,
-        provider: okProvider(),
-        workflowsDir: workflows,
-        defaultWorkflow: 'none',
-        runPipelineTurn: okRunner(),
-      );
-
-      rl.enqueue('hello');
-      final runFuture = controller.run();
-      await _pumpUntil(
-          () => hostOf(controller).sink.texts.any((t) => t.contains('ok')));
-      rl.close();
-      await runFuture;
-
-      // Plain agent turn, no workflow notices at all.
-      expect(hostOf(controller).sink.texts.any((t) => t.contains('ok')), isTrue);
-      expect(
-          hostOf(controller)
-              .messages
-              .any((m) => m.contains('default workflow')),
-          isFalse);
     });
   });
 }

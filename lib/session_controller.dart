@@ -1,11 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:attractor/attractor.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 import 'conversation.dart';
-import 'pipeline/default_workflow.dart';
 import 'platform/environment.dart';
 import 'session_commands/command_context.dart';
 import 'session_commands/session_command_handlers.dart';
@@ -146,29 +144,26 @@ class SessionController implements CommandContext {
   @override
   Directory? workflowsDir;
 
-  /// Run a workflow as a cancellable turn. Wired by the TUI/headless runner.
+  /// Launch a workflow as a background child run (`/workflow run`). The run
+  /// churns independently of the turn; its node events surface to the active
+  /// host and it reports back on completion. Wired by the TUI coordinator to the
+  /// [WorkflowSupervisor]; null when no supervisor is wired.
   @override
   Future<void> Function({required String workflowName, String? input})?
       runWorkflow;
 
-  /// The `[default] workflow` config value: every normal turn routes through
-  /// that DOT workflow when it resolves to a file on disk. `"none"` explicitly
-  /// disables the presence-based `default.dot` routing. Wired by the TUI
-  /// coordinator; null when unset.
-  String? defaultWorkflow;
+  /// Stop the running workflow (`/workflow stop`). Returns true when a run was
+  /// cancelled. Wired by the TUI coordinator to the WorkflowSupervisor; null
+  /// when no supervisor is wired.
+  @override
+  bool Function([String? id])? stopWorkflow;
 
-  /// Raw pipeline-turn runner: runs a workflow as the active turn, WITHOUT the
-  /// [runCancellableTurn] echo/cancel-completer scaffolding (that re-assigns
-  /// [cancelCompleter], which `_runTurn`'s cancel rollback relies on). Wired
-  /// by the TUI coordinator; null when unavailable (falls back to the plain
-  /// agent path).
-  Future<Outcome> Function({
-    required String workflowName,
-    required AgentSink sink,
-    String? input,
-    String? history,
-    Future<void>? cancelSignal,
-  })? runPipelineTurn;
+  /// The `[default] workflow` config value: names the default workflow file
+  /// shown by `/workflow list` (the seeded `default.dot` unless configured
+  /// otherwise; `"none"` is explicit). Normal turns no longer route through it
+  /// — workflows are launched on demand. Wired by the TUI coordinator; null when
+  /// unset.
+  String? defaultWorkflow;
 
   /// Open the visual graph viewer. Wired by the TUI.
   @override
@@ -343,54 +338,19 @@ class SessionController implements CommandContext {
       }
     }
 
-    // Default-workflow routing: when a default DOT workflow resolves (see
-    // pipeline/default_workflow.dart), the turn runs through it instead of the
-    // plain agent. An unusable workflow falls back to the agent with a warning;
-    // a workflow that fails at runtime ends the turn like any failed turn.
-    var ranPipeline = false;
-    final runner = runPipelineTurn;
-    final dir = workflowsDir;
-    final wfName = dir == null || runner == null
-        ? null
-        : resolveDefaultWorkflowName(
-            configured: defaultWorkflow, workflowsDir: dir);
-    if (wfName != null) {
-      try {
-        // wfName is only non-null when dir was non-null above.
-        await ensureDefaultWorkflowUsable(dir!, wfName);
-        final historyText = formatChatHistory(s.history);
-        await runner!(
-          workflowName: wfName,
-          sink: s.host,
-          input: input,
-          history: historyText,
-          cancelSignal: cancel.future,
-        );
-        ranPipeline = true;
-      } on DefaultWorkflowUnusable catch (e) {
-        s.host.showMessage('default workflow skipped: ${e.message}\n',
-            style: HostMessageStyle.warning);
-      }
-    } else if (defaultWorkflow != null && defaultWorkflow != 'none') {
-      // Explicitly configured but missing on disk (or no runner wired).
-      s.host.showMessage(
-          'default workflow "$defaultWorkflow" not found — '
-          'running a normal turn\n',
-          style: HostMessageStyle.warning);
-    }
-
-    if (!ranPipeline) {
-      try {
-        await s.agent.run(
-          history: s.history,
-          userInput: input,
-          cancelSignal: cancel.future,
-        );
-      } catch (e, st) {
-        s.host.showMessage('error: $e\n', style: HostMessageStyle.error);
-        if (environment.env['COCOON_DEBUG'] == '1') {
-          s.host.showMessage('$st\n', style: HostMessageStyle.dim);
-        }
+    // Normal turns run the plain agent. A workflow is launched on demand as a
+    // background child run by the manager loop (the WorkflowSupervisor wired by
+    // the coordinator) — see `/workflow run`. Workflows never wrap a chat turn.
+    try {
+      await s.agent.run(
+        history: s.history,
+        userInput: input,
+        cancelSignal: cancel.future,
+      );
+    } catch (e, st) {
+      s.host.showMessage('error: $e\n', style: HostMessageStyle.error);
+      if (environment.env['COCOON_DEBUG'] == '1') {
+        s.host.showMessage('$st\n', style: HostMessageStyle.dim);
       }
     }
 

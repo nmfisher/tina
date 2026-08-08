@@ -1,11 +1,12 @@
-// Default-workflow routing for normal chat turns. Pure helpers + the seed
-// file — deliberately free of tina_console and PipelineRunner so
-// `session_controller.dart` can use it without crossing the import boundary
-// (see test/import_boundary_test.dart).
+// The default chat workflow + helpers. Pure helpers + the seed file —
+// deliberately free of tina_console and PipelineRunner so other layers can use
+// it without crossing the import boundary (see test/import_boundary_test.dart).
 //
-// Contract: while `~/.tina/workflows/default.dot` exists (or a workflow named
-// by `[default] workflow` in ~/.tina/config), every normal turn routes through
-// that DOT pipeline; otherwise the plain single-agent path runs.
+// Model (manager loop): the main agent runs OUTSIDE any workflow. Normal turns
+// run the plain agent; a workflow is launched on demand as a background child
+// run (`/workflow run default`). This file seeds the launchable default graph
+// and supplies the helpers that name/validate it. See
+// docs/features/manager_loop.md.
 library;
 
 import 'dart:io';
@@ -51,12 +52,15 @@ String formatChatHistory(List<Message> history,
   return kept.reversed.join('\n\n');
 }
 
-/// Resolve the workflow that a normal turn should route through.
+/// Resolve the conventional "default" workflow file.
 ///
-/// Returns null when no default routing applies (fall back to the plain
-/// agent). `configured` is the `[default] workflow` config value: `"none"`
-/// disables routing explicitly; a name requires that `<name>.dot` to exist;
-/// null/empty means the conventional `default.dot` when present.
+/// Returns the name of the default graph (`default.dot`, or the one named by
+/// `[default] workflow`), or null when none applies. Normal turns no longer
+/// route through it — this just names the launchable default for `/workflow
+/// list` display and `/workflow run default`. `configured` is the
+/// `[default] workflow` config value: `"none"` is explicit; a name requires
+/// that `<name>.dot` to exist; null/empty means the conventional `default.dot`
+/// when present.
 String? resolveDefaultWorkflowName({
   required String? configured,
   required Directory? workflowsDir,
@@ -107,7 +111,10 @@ Future<void> ensureDefaultWorkflowUsable(
   }
 }
 
-/// The seeded default chat workflow. A normal turn flows:
+/// The seeded default chat workflow — the launchable default graph. Launched on
+/// demand with `/workflow run default`; it no longer wraps every chat turn (the
+/// main agent runs outside the workflow — see docs/features/manager_loop.md). A
+/// run flows:
 ///
 ///   main            talk with the user + explore the repo (PLACEHOLDER: the
 ///                   main node explores via its file tools and read-only
@@ -142,10 +149,9 @@ Future<void> ensureDefaultWorkflowUsable(
 /// changes). `$input` is the user's message and `$history` the (truncated) chat
 /// transcript, both expanded by the engine at run time.
 const String kDefaultWorkflowDotSource = '''
-// tina's default chat workflow: every normal turn routes through this graph
-// while this file exists. Edit with /workflow edit default; delete the file
-// (or set [default] workflow = "none" in ~/.tina/config) to fall back to the
-// plain single-agent path.
+// tina's default chat workflow: the launchable default graph. Run it on demand
+// with /workflow run default (the main agent runs outside the workflow; see
+// docs/features/manager_loop.md). Edit with /workflow edit default.
 //
 // Flow:
 //   main            talk with the user + explore the repo (placeholder)

@@ -17,6 +17,7 @@ import 'package:tina/config/user_config.dart';
 import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina/persistence/session_restore.dart';
 import 'package:tina/pipeline/pipeline_runner.dart';
+import 'package:tina/pipeline/workflow_supervisor.dart';
 import 'package:tina/tui/workflow_editor_overlay.dart';
 import 'package:tina/tui/workflow_viewer_overlay.dart';
 import 'package:tina/platform/terminal_geometry.dart';
@@ -679,8 +680,10 @@ class TuiCoordinator {
         refreshSessionMenu();
       }
     };
-    // DOT-pipeline workflows (`/workflow run`). Workflows live in
-    // ~/.tina/workflows/*.dot; each run is audited under ~/.tina/runs/<id>.
+    // DOT-pipeline workflows (`/workflow run` / `/workflow stop`). Workflows
+    // live in ~/.tina/workflows/*.dot; each run is audited under ~/.tina/runs/<id>.
+    // The main agent runs them as background child runs via the manager loop
+    // (WorkflowSupervisor) — launched on demand, never wrapping a chat turn.
     final tinaDataDir = tinaDirFromEnv(app.environment.env);
     final workflowsDir = Directory(p.join(tinaDataDir.path, 'workflows'));
     final runsRoot = Directory(p.join(tinaDataDir.path, 'runs'));
@@ -695,46 +698,34 @@ class TuiCoordinator {
           screen: screen,
           editor: editor,
         );
+    // The manager loop: one supervisor owns the background runs. Its runner
+    // seam is PipelineRunner.run, so the engine, the parallel handler, and the
+    // run store are reused unchanged.
+    final supervisor = WorkflowSupervisor(
+      run: ({required workflowName, required sink, input, history, cancelSignal}) {
+        return buildRunner().run(
+          workflowName: workflowName,
+          sink: sink,
+          input: input,
+          history: history,
+          cancelSignal: cancelSignal,
+        );
+      },
+    );
+    // `/workflow run <name> [input]` — launch a background child run. Node
+    // events + the final outcome stream into the active host; the launch
+    // returns immediately so the user can keep chatting.
     controller.runWorkflow = ({required workflowName, input}) async {
-      final host = controller.active.host;
-      await controller.runCancellableTurn(
-        echo: input == null
-            ? '/workflow run $workflowName'
-            : '/workflow run $workflowName $input',
-        body: (cancel) async {
-          final outcome = await buildRunner().run(
-            workflowName: workflowName,
-            sink: host,
-            input: input,
-            cancelSignal: cancel,
-          );
-          host.showSeparator();
-          host.showMessage(
-            outcome.status.isOk
-                ? 'workflow complete.\n'
-                : 'workflow failed: ${outcome.failureReason}\n',
-            style: outcome.status.isOk
-                ? HostMessageStyle.success
-                : HostMessageStyle.error,
-          );
-        },
-      );
-    };
-    // Default turn routing: while a default DOT workflow resolves, normal chat
-    // turns run through it (see pipeline/default_workflow.dart). Wired as a raw
-    // callback — NOT runCancellableTurn — because _runTurn owns the turn's
-    // cancel completer and persistence.
-    controller.defaultWorkflow = app.config.defaultWorkflow;
-    controller.runPipelineTurn =
-        ({required workflowName, required sink, input, history, cancelSignal}) {
-      return buildRunner().run(
-        workflowName: workflowName,
-        sink: sink,
+      supervisor.launch(
+        name: workflowName,
+        sink: controller.active.host,
         input: input,
-        history: history,
-        cancelSignal: cancelSignal,
       );
     };
+    // `/workflow stop [id]` — cancel the running workflow.
+    controller.stopWorkflow = ([id]) => supervisor.stop(id);
+    // Names the default workflow file for /workflow list (no per-turn routing).
+    controller.defaultWorkflow = app.config.defaultWorkflow;
     // `/workflow show` — visual graph viewer.
     controller.openWorkflowViewer = (name) async {
       try {

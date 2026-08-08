@@ -1,7 +1,13 @@
 # The default chat workflow
 
-Since v0.1.3, every normal chat turn routes through an editable DOT workflow at
-`~/.tina/workflows/default.dot` while that file exists (seeded from
+> **Routing model changed.** As of the manager-loop work, normal chat turns no
+> longer route through this graph. The main agent runs **outside** the workflow;
+> this file is the **launchable default graph**, run on demand with
+> `/workflow run default` as a background child run. See
+> [manager_loop.md](manager_loop.md) for the launch/monitor/stop model. The graph
+> itself, below, is unchanged.
+
+The seeded default graph lives at `~/.tina/workflows/default.dot` (seeded from
 `kDefaultWorkflowDotSource` in `lib/pipeline/default_workflow.dart`). This doc
 describes the seeded graph, the design decisions behind it, and the engine
 primitives it relies on.
@@ -147,20 +153,22 @@ for now. A dedicated explore node or a first-class read-only `explore` tool
 (matching the `Explore` agent the host UI exposes) is future refinement; the
 `main` node's `system_prompt` is the place that behaviour is expressed today.
 
-## Editing and disabling
+## Editing and running
 
+- **Run:** `/workflow run default [input]` launches the graph as a background
+  child run; `/workflow stop` cancels it. (There is no longer anything to
+  "disable" — the graph never wraps a chat turn.)
 - **Edit:** `/workflow edit default` opens the visual node editor on the seed
   graph. The graph serializes back through `graphToDot`, so hand-edits to the
   `.dot` file round-trip.
-- **Disable:** delete `~/.tina/workflows/default.dot`, or set
-  `[default] workflow = "none"` in `~/.tina/config`, to fall back to the plain
-  single-agent path.
-- **Fallbacks:** a missing, unparseable, or invalid `default.dot` shows a
-  warning and falls back to the plain agent (chat never bricks); a runtime
-  failure ends the turn like any failed turn.
+- **Fallbacks:** a missing, unparseable, or invalid workflow file fails the
+  launch with a clear message (chat never bricks); a runtime failure ends that
+  run like any failed run and is reported back to the chat.
 
 ## See also
 
+- `docs/features/manager_loop.md` — how the main agent launches a workflow as a
+  background child run (launch, monitor, stop, report back).
 - `docs/features/agent_pipeline.md` — the agent/sub-agent model and the
   `delegate` tool.
 - `docs/proposals/node_handoff_design.md` — node vs agent, per-node system

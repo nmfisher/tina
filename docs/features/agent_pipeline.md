@@ -196,6 +196,14 @@ A pre-Part-II cleanup of the agent layer, in three commits:
 
 ## Default DOT workflow routing (2026-08-06)
 
+> **Superseded by the manager-loop model.** Normal chat turns no longer route
+> through a DOT workflow. The main agent runs **outside** the workflow, and a
+> workflow is launched on demand as a background child run (`/workflow run
+> default`, monitorable, stoppable). See
+> [manager_loop.md](manager_loop.md). The graph below is unchanged; only the
+> *when it runs* changed — from "every turn" to "on demand". The historical
+> description follows.
+
 Since v0.1.3-ish, **every normal chat turn routes through an editable DOT
 workflow by default** — a planner → reviewer → executor pipeline — instead of
 the plain main-agent loop, while `~/.tina/workflows/default.dot` exists.
@@ -208,14 +216,16 @@ the plain main-agent loop, while `~/.tina/workflows/default.dot` exists.
   review. `VERDICT:` routing (`approve` / `revise` self-loop / `clarify` via a
   human gate). See [`default_workflow.md`](default_workflow.md) for the full
   design.
-- **Routing rule** (`resolveDefaultWorkflowName`): the turn runs through the
-  workflow when `default.dot` exists — unless `[default] workflow = "none"`
-  in `~/.tina/config` disables routing, or the config names a different
-  workflow (`[default] workflow = "foo"` → `foo.dot`).
-- **Fallbacks**: a missing, unparseable, or invalid `default.dot` shows a
-  warning and falls back to the plain agent (chat never bricks); an
-  explicitly-configured workflow that's missing on disk warns + falls back;
-  a workflow that fails at runtime ends the turn like any failed turn.
+- **Routing rule (historical)** (`resolveDefaultWorkflowName`): the turn used to
+  run through the workflow when `default.dot` existed — unless
+  `[default] workflow = "none"` in `~/.tina/config` disabled routing, or the
+  config named a different workflow (`[default] workflow = "foo"` → `foo.dot`).
+  Under the manager-loop model this helper only names the launchable default
+  file for `/workflow list`; it no longer drives any turn routing.
+- **Fallbacks (historical)**: a missing, unparseable, or invalid `default.dot`
+  used to warn and fall back to the plain agent (chat never bricks). Under the
+  manager-loop model there is no per-turn routing to fall back from; a launch
+  of an unusable workflow fails the launch with a clear message.
 - **Prompt expansion**: node prompts can reference `$input` (the user's
   message), `$history` (the truncated chat transcript, 60k chars, newest
   kept), and `$goal` (the graph goal) — expanded by `expandTemplate`

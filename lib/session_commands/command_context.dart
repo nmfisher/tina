@@ -126,17 +126,23 @@ abstract class CommandContext {
   /// when workflows aren't configured. Read by `/workflow list|show`.
   Directory? get workflowsDir;
 
-  /// The `[default] workflow` config value (`"none"` = disabled, a name =
-  /// explicit, null/empty = presence-based `default.dot`). Null when the config
-  /// sets nothing. Used by `/workflow` to mark which workflow every turn routes
-  /// through.
+  /// The `[default] workflow` config value (`"none"` = explicit, a name =
+  /// explicit, null/empty = the conventional `default.dot`). Null when the
+  /// config sets nothing. Names the default workflow file shown by `/workflow
+  /// list`; normal turns no longer route through it.
   String? get defaultWorkflow;
 
-  /// Run a workflow as a cancellable turn on the active session (`/workflow
-  /// run`). Renders progress and the final outcome to the active host. Wired by
-  /// the TUI and the headless runner; null when no pipeline runner is wired.
+  /// Launch a workflow as a background child run on the active session
+  /// (`/workflow run`). The run churns independently of the turn; node events
+  /// surface to the active host and the run reports back on completion. Wired by
+  /// the TUI to the WorkflowSupervisor; null when no supervisor is wired.
   Future<void> Function({required String workflowName, String? input})?
       get runWorkflow;
+
+  /// Stop the running workflow (`/workflow stop`). Returns true when a run was
+  /// cancelled. Wired by the TUI to the WorkflowSupervisor; null when no
+  /// supervisor is wired.
+  bool Function([String? id])? get stopWorkflow;
 
   /// Open the visual graph viewer for a saved workflow (`/workflow show`).
   /// Wired by the TUI; null in headless (no screen).
