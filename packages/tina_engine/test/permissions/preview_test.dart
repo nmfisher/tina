@@ -89,6 +89,42 @@ void main() {
       }
     });
 
+    test('launch_workflow shows the workflow name and the task', () async {
+      final p = await previewToolCall('launch_workflow', {
+        'input': 'add a settings screen to the CLI',
+        'workflow': 'lint',
+      });
+      expect(p, hasLength(1));
+      expect((p.first as PreviewHeader).text,
+          'workflow "lint" — add a settings screen to the CLI');
+    });
+
+    test('launch_workflow defaults the workflow name to "default"', () async {
+      final p = await previewToolCall('launch_workflow', {
+        'input': 'fix the bug',
+      });
+      expect((p.first as PreviewHeader).text,
+          contains('workflow "default"'));
+      expect((p.first as PreviewHeader).text, contains('fix the bug'));
+    });
+
+    test('launch_workflow shows the first task line and counts the rest',
+        () async {
+      final p = await previewToolCall('launch_workflow', {
+        'input': 'refactor the auth module\nsplit it in two\nadd tests',
+      });
+      expect((p.first as PreviewHeader).text,
+          contains('workflow "default" — refactor the auth module'));
+      expect(p.whereType<PreviewContext>().map((e) => e.text),
+          anyElement(contains('2 more lines')));
+    });
+
+    test('launch_workflow with an empty task shows just the workflow',
+        () async {
+      final p = await previewToolCall('launch_workflow', {'input': '   '});
+      expect((p.first as PreviewHeader).text, 'workflow "default"');
+    });
+
     test('preview is clipped past the line cap', () async {
       final big = List.generate(200, (i) => 'line $i').join('\n');
       final p = await previewToolCall('edit', {

@@ -68,9 +68,15 @@ class PermissionPolicy {
   }
 
   /// What this tool call boils down to for matching / display purposes.
-  /// For bash it's the command string; for file tools it's the file path.
+  /// For bash it's the command string; for file tools it's the file path; for
+  /// `launch_workflow` it's the workflow name (the thing the call targets, and
+  /// short enough for the approval line).
   static String keyFor(String tool, Map<String, dynamic> input) {
     if (tool == 'bash') return (input['command'] as String?) ?? '';
+    if (tool == 'launch_workflow') {
+      final name = (input['workflow'] as String?)?.trim();
+      return (name == null || name.isEmpty) ? 'default' : name;
+    }
     return (input['filePath'] as String?) ?? '';
   }
 

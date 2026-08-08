@@ -53,9 +53,34 @@ Future<List<PreviewEntry>> previewToolCall(
       return _editPreview(input);
     case 'write':
       return await _writePreview(input);
+    case 'launch_workflow':
+      return _launchWorkflowPreview(input);
     default:
       return const [];
   }
+}
+
+/// Preview for `launch_workflow`: the workflow name plus the task being handed
+/// to it — the decision the user approves is "run this task through this
+/// graph", so that is what the modal shows. (The agent's streamed prose before
+/// the call is model behavior, not a contract; the approval itself must carry
+/// the information.)
+List<PreviewEntry> _launchWorkflowPreview(Map<String, dynamic> input) {
+  final task = (input['input'] as String?)?.trim() ?? '';
+  final workflow = ((input['workflow'] as String?)?.trim().isEmpty ?? true)
+      ? 'default'
+      : (input['workflow'] as String).trim();
+  final lines = const LineSplitter().convert(task);
+  var first = lines.isEmpty ? '' : lines.first.trim();
+  if (first.length > 80) first = '${first.substring(0, 77)}…';
+  final label = first.isEmpty
+      ? 'workflow "$workflow"'
+      : 'workflow "$workflow" — $first';
+  if (lines.length <= 1) return [PreviewHeader(label)];
+  return [
+    PreviewHeader(label),
+    PreviewContext('… (${lines.length - 1} more lines of task text)'),
+  ];
 }
 
 List<PreviewEntry> _editPreview(Map<String, dynamic> input) {

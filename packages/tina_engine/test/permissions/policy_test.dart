@@ -96,6 +96,22 @@ void main() {
     });
   });
 
+  group('keyFor', () {
+    test('launch_workflow keys on the workflow name (defaulted)', () {
+      expect(PermissionPolicy.keyFor('launch_workflow', {'input': 'x'}),
+          'default');
+      expect(PermissionPolicy.keyFor(
+          'launch_workflow', {'input': 'x', 'workflow': 'lint'}), 'lint');
+      expect(PermissionPolicy.keyFor(
+          'launch_workflow', {'input': 'x', 'workflow': '   '}), 'default');
+    });
+
+    test('bash and file tools keep their keys', () {
+      expect(PermissionPolicy.keyFor('bash', {'command': 'ls'}), 'ls');
+      expect(PermissionPolicy.keyFor('read', {'filePath': '/a/b'}), '/a/b');
+    });
+  });
+
   group('PermissionPolicy.check', () {
     test('built-in defaults', () {
       final p = PermissionPolicy();
