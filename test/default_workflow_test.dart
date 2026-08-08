@@ -30,6 +30,11 @@ class _ScriptedBackend implements CodergenBackend {
 
   final List<({String nodeId, String prompt, String preamble})> calls = [];
 
+  /// Per-node call counter, so a test can vary behavior on repeat visits
+  /// (e.g. a reviewer that clarifies once, then approves).
+  final Map<String, int> _counts = {};
+  CodergenResult? Function(String nodeId, int nthCall)? perCall;
+
   @override
   Future<CodergenResult> run({
     required PipelineNode node,
@@ -39,6 +44,9 @@ class _ScriptedBackend implements CodergenBackend {
     Future<void>? cancelSignal,
   }) async {
     calls.add((nodeId: node.id, prompt: prompt, preamble: preamble));
+    final n = _counts[node.id] = (_counts[node.id] ?? 0) + 1;
+    final override = perCall?.call(node.id, n);
+    if (override != null) return override;
     final text = scripted[node.id] ?? 'response for ${node.id}';
     final verdict = _parseVerdict(text);
     return verdict == null
@@ -65,6 +73,23 @@ String? _parseVerdict(String text) {
 class _UnexpectedGateInterviewer implements Interviewer {
   @override
   Future<Answer> ask(Question question) async => const Answer.cancelled();
+
+  @override
+  Future<void> inform(String message, {String? stage}) async {}
+}
+
+/// An interviewer that always picks the first option (mirroring the headless
+/// auto-approve path) and records how many times it was asked.
+class _PickFirstInterviewer implements Interviewer {
+  int asked = 0;
+  @override
+  Future<Answer> ask(Question question) async {
+    asked++;
+    final options = question.options ?? const <Option>[];
+    if (options.isEmpty) return const Answer.cancelled();
+    final first = options.first;
+    return Answer(value: first.key, selectedOption: first);
+  }
 
   @override
   Future<void> inform(String message, {String? stage}) async {}
@@ -328,6 +353,69 @@ void main() {
       // $input was expanded into the main node's prompt.
       expect(backend.calls.firstWhere((c) => c.nodeId == 'main').prompt,
           contains('fix the bug'));
+    });
+
+    test('clarify verdict routes through the human gate and back to a review',
+        () async {
+      seedDefaultWorkflow(workflows);
+      final source =
+          File(p.join(workflows.path, 'default.dot')).readAsStringSync();
+      final graph = parseDot(source);
+
+      final backend = _ScriptedBackend({
+        'main': 'findings',
+        'plan': 'plan [1] [2] [3]',
+        'plan_review_1': 'approved\nVERDICT: approve',
+        'plan_review_2': 'approved\nVERDICT: approve',
+        'exec_1': 'did chunk 1',
+        'exec_2': 'did chunk 2',
+        'exec_3': 'did chunk 3',
+        'exec_reviewer': 'all chunks done',
+      });
+      // On its FIRST visit, pass 1 asks for clarification; on every later
+      // visit it approves (the scripted default).
+      backend.perCall = (id, n) {
+        if (id == 'plan_review_1' && n == 1) {
+          return CodergenResult('I need a decision from the user\nVERDICT: clarify',
+              outcome: const Outcome.success(preferredLabel: 'clarify'));
+        }
+        return null;
+      };
+      final interviewer = _PickFirstInterviewer();
+
+      final store = MemoryRunStore();
+      final codergen = CodergenHandler(backend);
+      final registry = NodeHandlerRegistry()
+        ..register('start', StartHandler())
+        ..register('exit', ExitHandler())
+        ..register('conditional', ConditionalHandler())
+        ..register('codergen', codergen)
+        ..register('wait.human', HumanGateHandler(interviewer));
+      registry.register('parallel', ParallelHandler(registry));
+      registry.register('parallel.fan_in', ParallelFanInHandler());
+      registry.defaultHandler = codergen;
+      final engine = PipelineEngine(
+        graph: graph,
+        registry: registry,
+        runStore: store,
+        runId: 'r1',
+        workflowName: 'default',
+        backoffFor: (_) => Duration.zero,
+      );
+      final outcome = await engine.run(input: 'fix the bug');
+
+      expect(outcome.status, StageStatus.success);
+      // The human gate was asked exactly once...
+      expect(interviewer.asked, 1);
+      // ...and routing resumed at plan_review_1 (the gate's first option),
+      // which then approved and continued: plan_review_1 ran twice.
+      final review1Runs =
+          store.nodes.where((n) => n.nodeId == 'plan_review_1').length;
+      expect(review1Runs, 2);
+      // The clarify gate node itself ran.
+      expect(store.nodes.any((n) => n.nodeId == 'clarify'), isTrue);
+      // And the run still reached execution.
+      expect(store.nodes.any((n) => n.nodeId == 'fanout'), isTrue);
     });
   });
 
