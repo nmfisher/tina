@@ -1,6 +1,6 @@
 ---
 id: tin-uzo3
-status: closed
+status: open
 deps: []
 links: []
 created: 2026-08-08T04:22:36Z
