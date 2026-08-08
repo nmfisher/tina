@@ -11,6 +11,7 @@ class ConditionalHandler implements NodeHandler {
     required Context context,
     required RunStore runStore,
     Future<void>? cancelSignal,
+    PipelineEventListener? onEvent,
   }) async =>
       Outcome.success(notes: 'conditional node: ${node.id}');
 }

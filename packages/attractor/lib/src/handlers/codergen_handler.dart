@@ -21,6 +21,7 @@ class CodergenHandler implements NodeHandler {
     required Context context,
     required RunStore runStore,
     Future<void>? cancelSignal,
+    PipelineEventListener? onEvent,
   }) async {
     // 1. Resolve + expand the prompt (falls back to label).
     final rawPrompt = node.prompt.isNotEmpty ? node.prompt : node.label;

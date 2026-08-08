@@ -18,6 +18,7 @@ import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina/persistence/session_restore.dart';
 import 'package:tina/pipeline/pipeline_runner.dart';
 import 'package:tina/pipeline/workflow_supervisor.dart';
+import 'package:tina/tui/run_panel_content.dart';
 import 'package:tina/tui/workflow_editor_overlay.dart';
 import 'package:tina/tui/workflow_viewer_overlay.dart';
 import 'package:tina/platform/terminal_geometry.dart';
@@ -320,6 +321,11 @@ class TuiCoordinator {
     // assigned once the controller exists (below) and read at fire time.
     void Function(WorkflowRun)? handleWorkflowComplete;
 
+    // Workflow-launch handler: the supervisor's onLaunch hook opens the run's
+    // live panel (assigned below, once the panel machinery exists; invoked only
+    // long after create returns, when an agent launches a workflow).
+    void Function(WorkflowRun)? handleWorkflowLaunch;
+
     // Constructs the per-conversation terminal host. A background conversation
     // gets a fresh, detached chat region (so its output buffers until it is
     // switched to) and a no-op spinner; [TuiConversationHost.setActive] routes
@@ -370,15 +376,24 @@ class TuiCoordinator {
           editor: editor,
         );
     final supervisor = WorkflowSupervisor(
-      run: ({required workflowName, required sink, input, history, cancelSignal}) =>
+      run: ({
+        required workflowName,
+        required sink,
+        input,
+        history,
+        cancelSignal,
+        onEvent,
+      }) =>
           buildRunner().run(
             workflowName: workflowName,
             sink: sink,
             input: input,
             history: history,
             cancelSignal: cancelSignal,
+            onEvent: onEvent,
           ),
       onComplete: (run) => handleWorkflowComplete?.call(run),
+      onLaunch: (run) => handleWorkflowLaunch?.call(run),
     );
 
     // Build the initial session. Its host adopts screen.chat as its (active)
@@ -1024,6 +1039,99 @@ class TuiCoordinator {
       contentCoordinator.relayContent();
       return panel;
     }
+
+    // A live view of one background workflow run, opened when the agent
+    // launches a workflow (the supervisor's onLaunch hook). The panel is an
+    // "extra" — a non-conversation [RunPanelContent] in a spawned-style frame —
+    // auto-opened WITHOUT stealing input focus (the chat keeps the draft). Keys
+    // while the panel is focused: arrows pan the graph, `s` stops the run, `x`
+    // closes the panel (the run itself continues unless stopped).
+    final Map<String, ({PanelFrame frame, RunPanelContent content})>
+        runPanels = {};
+
+    void _closeRunPanel(String runId) {
+      final handle = runPanels.remove(runId);
+      if (handle == null) return;
+      // Drop the hooks first so a late event can't repaint a torn-down panel.
+      handle.frame.onPanelKey = null;
+      handle.content.detach();
+      contentCoordinator.unbindExtra(handle.frame);
+      tree.parentOf.remove(handle.frame.conversationId);
+      tree.baseLabel.remove(handle.frame.conversationId);
+      panelManager.removeFrame(handle.frame);
+      if (!panelManager.hasSpawnedFrames) {
+        // Last panel: unsplit back to the full-width primary (mirror of the
+        // first-panel split).
+        initialHost.stayAttachedWhenInactive = false;
+        resizeCoordinator.handleResize(split: false, drawInfoFrame: true);
+      } else {
+        panelManager.layout();
+        contentCoordinator.relayContent();
+      }
+    }
+
+    Future<void> _openRunPanel(WorkflowRun run) async {
+      // Re-read + parse the graph the run is executing. A missing/deleted file
+      // opens the panel in an error state rather than failing the launch.
+      // Async open is safe: the supervisor's internal nodeStatus listener never
+      // misses an event, and the updateStatus() below renders whatever state
+      // the run is already in when the panel lands.
+      Graph? graph;
+      String? error;
+      try {
+        graph = parseDot(
+            await PipelineRunner.readWorkflow(workflowsDir, run.workflowName));
+      } catch (e) {
+        error = 'graph unavailable: $e';
+      }
+
+      // First panel: split the layout to make a right column (mirrors
+      // _buildSpawnPanel's first-panel block).
+      if (!panelManager.hasSpawnedFrames) {
+        initialHost.stayAttachedWhenInactive = true;
+        resizeCoordinator.handleResize(split: true, drawInfoFrame: false);
+      }
+
+      final frame = PanelFrame(
+        screen: screen,
+        label: 'wf ${run.workflowName} [run ${run.id}]',
+        conversationId: 'wf-run-${run.id}',
+        ownsCanvas: false,
+      );
+      tree.parentOf[frame.conversationId] = tree.rootId; // depth-1, flush
+      tree.baseLabel[frame.conversationId] = frame.label;
+      final content = RunPanelContent(
+          screen: screen, graph: graph, run: run, error: error);
+      contentCoordinator.bindExtra(frame: frame, content: content);
+      panelManager.layout();
+      contentCoordinator.relayContent();
+      // The comet sweeps the rails while the run is in flight.
+      frame.setBusy(run.isRunning);
+      frame.onPanelKey = (ev) {
+        if (ev is CharInput && ev.text == 's') {
+          supervisor.stop(run.id);
+          return true;
+        }
+        if (ev is CharInput && ev.text == 'x') {
+          _closeRunPanel(run.id);
+          return true;
+        }
+        return content.handleKey(ev);
+      };
+      // Events land here after the supervisor's internal nodeStatus update;
+      // the completion path settles the comet + final state.
+      run.onEvent = (_) => content.updateStatus();
+      run.onFinished = () {
+        frame.setBusy(false);
+        content.updateStatus();
+      };
+      runPanels[run.id] = (frame: frame, content: content);
+      // Draw the current state immediately (a run may already have emitted).
+      content.updateStatus();
+    }
+
+    // Wire the supervisor's onLaunch hook to the run-panel opener.
+    handleWorkflowLaunch = (run) => unawaited(_openRunPanel(run));
 
     // Persist sub-agent transcripts as their own conversations AND, for agent-
     // role jobs, live-panelize them so a delegated sub-agent appears as a panel

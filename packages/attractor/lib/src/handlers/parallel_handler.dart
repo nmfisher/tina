@@ -21,9 +21,10 @@ import '../node_handler.dart';
 ///   multi-step branch as that executor delegating internally.
 /// * One fan-in convergence is supported per fan-out (the first `tripleoctagon`
 ///   successor); the fan-in reads only its own predecessor's staged branches.
-/// * Per-branch progress is not emitted as engine `node_*` events (the
-///   branches stream through their own sink instead); only the fan-out node
-///   itself appears in the event stream.
+///
+/// Branch progress is emitted as engine `node_*` events through [NodeHandler.execute]'s
+/// [onEvent] (the engine threads its listener through), so a live view sees
+/// each branch start/complete/fail.
 class ParallelHandler implements NodeHandler {
   /// Branch nodes are resolved and executed through this registry, so a
   /// `box`/codergen executor runs under the same handler as anywhere else.
@@ -38,6 +39,7 @@ class ParallelHandler implements NodeHandler {
     required Context context,
     required RunStore runStore,
     Future<void>? cancelSignal,
+    PipelineEventListener? onEvent,
   }) async {
     final edges = graph.outgoing(node.id);
     final branches = <PipelineEdge>[];
@@ -68,6 +70,7 @@ class ParallelHandler implements NodeHandler {
           baseContext: context,
           runStore: runStore,
           cancelSignal: cancelSignal,
+          onEvent: onEvent,
         )));
 
     // Stage each branch's output under an internal, fan-out-namespaced key so
@@ -115,9 +118,13 @@ class ParallelHandler implements NodeHandler {
     required Context baseContext,
     required RunStore runStore,
     Future<void>? cancelSignal,
+    PipelineEventListener? onEvent,
   }) async {
     final branchNode = graph.node(edge.to)!;
     final branchCtx = baseContext.clone();
+    // Branches bypass the engine's _executeWithRetry emit sites, so the
+    // handler emits their lifecycle itself (a single attempt — no retries).
+    onEvent?.call(PipelineEvent('node_started', nodeId: branchNode.id));
     try {
       final outcome = await registry.resolve(branchNode).execute(
             node: branchNode,
@@ -125,12 +132,25 @@ class ParallelHandler implements NodeHandler {
             context: branchCtx,
             runStore: runStore,
             cancelSignal: cancelSignal,
+            onEvent: onEvent,
           );
+      if (outcome.status.isOk) {
+        onEvent?.call(PipelineEvent('node_completed',
+            nodeId: branchNode.id, outcome: outcome));
+      } else {
+        onEvent?.call(PipelineEvent('node_failed',
+            nodeId: branchNode.id,
+            outcome: outcome,
+            message: outcome.failureReason));
+      }
       return _BranchResult(branchNode.id, outcome);
     } catch (e) {
       // One bad branch must not take down the fan-out; surface it as a failed
       // branch and let the merge/reviewer handle it.
-      return _BranchResult(branchNode.id, Outcome.fail('branch error: $e'));
+      final fail = Outcome.fail('branch error: $e');
+      onEvent?.call(PipelineEvent('node_failed',
+          nodeId: branchNode.id, outcome: fail, message: fail.failureReason));
+      return _BranchResult(branchNode.id, fail);
     }
   }
 }
@@ -156,6 +176,7 @@ class ParallelFanInHandler implements NodeHandler {
     required Context context,
     required RunStore runStore,
     Future<void>? cancelSignal,
+    PipelineEventListener? onEvent,
   }) async {
     final fanoutId = _fanOutPredecessor(node, graph);
     final outputs = <String, String>{};

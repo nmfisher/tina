@@ -31,6 +31,7 @@ class _ScriptedRunner {
       input,
       history,
       cancelSignal,
+      onEvent,
     }) async {
       calls.add((name: workflowName, input: input, history: history));
       final done = Completer<Outcome>();

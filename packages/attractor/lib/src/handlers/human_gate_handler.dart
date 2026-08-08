@@ -17,6 +17,7 @@ class HumanGateHandler implements NodeHandler {
     required Context context,
     required RunStore runStore,
     Future<void>? cancelSignal,
+    PipelineEventListener? onEvent,
   }) async {
     final edges = graph.outgoing(node.id);
     if (edges.isEmpty) {

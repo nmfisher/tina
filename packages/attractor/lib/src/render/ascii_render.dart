@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import '../graph.dart';
+import '../run_status.dart';
 import 'layout.dart';
 
 /// The rendered graph: a character canvas plus each node's center cell (for
@@ -25,10 +26,16 @@ const _colGap = 5; // gutter between columns for edge routing
 const _rowGap = 2; // vertical gap between stacked nodes
 
 /// Render [g] (already laid out) as ASCII. [selectedId] marks that node's box
-/// with a double-line border. Direction comes from [layout.direction]; LR is
-/// the primary, fully-supported path (TB is rendered as LR for now — a rotated
-/// TB path is a follow-up).
-RenderResult renderGraph(Graph g, {NodeLayout? layout, String? selectedId}) {
+/// with a double-line border; [status] switches a node's border glyphs to its
+/// live-run state (heavy = running, rounded = done, double = failed — which
+/// collides with the selection glyphs; [selectedId] wins when both are given,
+/// and the two never co-occur in practice). Direction comes from
+/// [layout.direction]; LR is the primary, fully-supported path (TB is rendered
+/// as LR for now — a rotated TB path is a follow-up).
+RenderResult renderGraph(Graph g,
+    {NodeLayout? layout,
+    String? selectedId,
+    Map<String, NodeRunStatus>? status}) {
   final lo = layout ?? computeLayout(g);
   final cols = lo.ranks;
 
@@ -78,7 +85,7 @@ RenderResult renderGraph(Graph g, {NodeLayout? layout, String? selectedId}) {
   for (var c = 0; c < cols.length; c++) {
     for (final id in cols[c]) {
       _stampBox(grid, g.node(id)!, topLeft[id]!, colW[c],
-          selected: id == selectedId);
+          selected: id == selectedId, status: status?[id]);
     }
   }
 
@@ -120,7 +127,7 @@ String? _subLine(PipelineNode n) {
 }
 
 void _stampBox(_Grid grid, PipelineNode n, ({int row, int col}) tl, int w,
-    {required bool selected}) {
+    {required bool selected, NodeRunStatus? status}) {
   final inner = w - 2;
   final markAt = n.goalGate ? inner ~/ 2 : -1;
   String topBottom(String left, String right) {
@@ -132,11 +139,16 @@ void _stampBox(_Grid grid, PipelineNode n, ({int row, int col}) tl, int w,
     return buf.toString();
   }
 
-  final tl_c = selected ? '╔' : '┌';
-  final tr_c = selected ? '╗' : '┐';
-  final bl_c = selected ? '╚' : '└';
-  final br_c = selected ? '╝' : '┘';
-  final side = selected ? '║' : '│';
+  // Selection (double box) wins over a status border; they never co-occur in
+  // the shipped surfaces (the editor selects, the run panel tracks status).
+  final (tl_c, tr_c, bl_c, br_c, side) = selected
+      ? ('╔', '╗', '╚', '╝', '║')
+      : switch (status) {
+          NodeRunStatus.running => ('┏', '┓', '┗', '┛', '┃'),
+          NodeRunStatus.done => ('╭', '╮', '╰', '╯', '│'),
+          NodeRunStatus.failed => ('╔', '╗', '╚', '╝', '║'),
+          _ => ('┌', '┐', '└', '┘', '│'), // pending / skipped / null
+        };
 
   final label = _fit(n.label, inner);
   final sub = _subLine(n);

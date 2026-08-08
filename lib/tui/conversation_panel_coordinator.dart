@@ -50,6 +50,12 @@ class ConversationPanelCoordinator {
 
   final Map<String, _ContentBinding> _bindings = {};
 
+  /// Non-conversation panels (e.g. workflow run views): frame → content, no
+  /// host binding. Positioned by [relayContent] like any other panel; focusing
+  /// one keeps the shared input on the primary chat (there is no conversation
+  /// to route input to).
+  final Map<PanelFrame, PanelContent> _extra = {};
+
   /// The primary conversation id, set in [bindPrimary]. Stable for the session's
   /// life (the primary Conversation is reused across /clear), so it identifies
   /// the primary reliably in [onFrameFocused] — mirroring the pre-extraction
@@ -174,11 +180,15 @@ class ConversationPanelCoordinator {
 
   /// Relay content into every frame's freshly-resigned interior and attach
   /// detached ones. The post-layout step the eventual resize sequence takes
-  /// over: position every [PanelContent] to match its frame's current
-  /// interior. Never detaches — see the class doc.
+  /// over: position every [PanelContent] (conversation bindings and extra
+  /// panels alike) to match its frame's current interior. Never detaches — see
+  /// the class doc.
   void relayContent() {
     for (final b in _bindings.values) {
-      _positionContent(b);
+      _positionContent(b.frame, b.content);
+    }
+    for (final entry in _extra.entries) {
+      _positionContent(entry.key, entry.value);
     }
   }
 
@@ -186,15 +196,30 @@ class ConversationPanelCoordinator {
   /// interior and make it visible. Only ever attaches (if detached); the host's
   /// `setActive`/`stayAttachedWhenInactive` governs the primary's detach, so
   /// this stays a pure "make it visible" step.
-  void _positionContent(_ContentBinding b) {
-    final frame = b.frame;
+  void _positionContent(PanelFrame frame, PanelContent content) {
     // Frame-owns-canvas: when the frame owns a surface, hand it to the content
     // so geometry flows from the frame (single source). No-op when the frame
     // has no surface (legacy mode, or a backend that can't provide one).
     final surface = frame.surface;
-    if (surface != null) b.content.bindSurface(surface);
-    b.content.fit(frame.interior, reserveInputRow: frame.reservesInput);
-    if (b.content.isDetached) b.content.attach();
+    if (surface != null) content.bindSurface(surface);
+    content.fit(frame.interior, reserveInputRow: frame.reservesInput);
+    if (content.isDetached) content.attach();
+  }
+
+  /// Register a non-conversation panel (a workflow run view). No host binding:
+  /// [relayContent] fits the content; focusing the frame keeps the shared input
+  /// on the primary chat (there is no conversation to route input to).
+  void bindExtra({required PanelFrame frame, required PanelContent content}) {
+    _extra[frame] = content;
+    frame.setReservesInput(false);
+    frame.onFocus = () => panelManager.relocateInput(panelManager.primaryFrame);
+    panelManager.addFrame(frame);
+  }
+
+  /// Remove and detach an extra panel's content. The caller is responsible for
+  /// removing the frame itself ([PanelManager.removeFrame]).
+  void unbindExtra(PanelFrame frame) {
+    _extra.remove(frame)?.detach();
   }
 
   /// Repoint the shared input onto the frame that owns the active
@@ -234,6 +259,10 @@ class ConversationPanelCoordinator {
       b.content.detach();
     }
     _bindings.clear();
+    for (final c in _extra.values) {
+      c.detach();
+    }
+    _extra.clear();
   }
 }
 

@@ -56,6 +56,12 @@ class PanelFrame implements Focusable {
   /// (the default) leaves PgUp/PgDn unclaimed (they fall through to the editor).
   void Function(int deltaPages)? onScroll;
 
+  /// Optional per-panel key handler, consulted first by [handleEvent]. Set by
+  /// the coordinator for non-chat content (e.g. a workflow run panel's
+  /// pan/stop/close keys); null (the default) keeps the historical
+  /// PgUp/PgDn-only behavior for conversation panels.
+  bool Function(InputEvent event)? onPanelKey;
+
   /// Per-step cadence of the busy comet. Each tick advances the head one cell;
   /// ~40ms gives a brisk sweep without flickering.
   static const Duration busyTickDuration = Duration(milliseconds: 40);
@@ -152,6 +158,9 @@ class PanelFrame implements Focusable {
 
   @override
   bool handleEvent(InputEvent event) {
+    // A non-chat panel (e.g. a workflow run view) can claim keys first via
+    // [onPanelKey]; returning true consumes the event before the editor.
+    if (onPanelKey != null && onPanelKey!(event)) return true;
     // PgUp/PgDn scroll this panel's chat history (when the coordinator wired
     // [onScroll]). −1 = back into history, +1 = toward the tail. Unclaimed
     // (no onScroll) or other events fall through to the line editor.

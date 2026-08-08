@@ -61,6 +61,7 @@ Future<(Outcome, MemoryRunStore)> _run(
   _FakeInterviewer? interviewer,
   String? input,
   Map<String, String>? seedContext,
+  PipelineEventListener? onEvent,
 }) async {
   final store = MemoryRunStore();
   final engine = PipelineEngine(
@@ -70,6 +71,7 @@ Future<(Outcome, MemoryRunStore)> _run(
     runId: 'r1',
     workflowName: g.name,
     backoffFor: (_) => Duration.zero,
+    onEvent: onEvent,
   );
   final outcome =
       await engine.run(input: input, seedContext: seedContext);
@@ -275,5 +277,63 @@ void main() {
       expect(store.nodes.any((n) => n.nodeId == 'left'), isTrue);
       expect(store.nodes.any((n) => n.nodeId == 'right'), isFalse);
     });
+
+    test('threads onEvent into handlers so a handler can emit progress',
+        () async {
+      // A handler that receives the engine's listener and emits its own
+      // progress event through it — the seam parallel branches use.
+      final g = parseDot('''
+        digraph T {
+          start [shape=Mdiamond]
+          step [shape=box, type="spy"]
+          exit [shape=Msquare]
+          start -> step -> exit
+        }
+      ''');
+      final backend = _FakeBackend({});
+      final store = MemoryRunStore();
+      final registry = _registry(backend, _FakeInterviewer([]));
+      final spy = _SpyEmitHandler();
+      registry.register('spy', spy);
+
+      final events = <PipelineEvent>[];
+      final engine = PipelineEngine(
+        graph: g,
+        registry: registry,
+        runStore: store,
+        runId: 'r1',
+        workflowName: g.name,
+        backoffFor: (_) => Duration.zero,
+        onEvent: events.add,
+      );
+      final outcome = await engine.run();
+
+      expect(outcome.status, StageStatus.success);
+      // The handler saw the engine's listener…
+      expect(spy.seenListener, isNotNull);
+      // …and an event emitted from inside the handler surfaced at the engine.
+      expect(events.any((e) => e.kind == 'node_started' && e.nodeId == 'step'),
+          isTrue);
+    });
   });
+}
+
+/// A spy handler: records the [PipelineEventListener] it received and emits a
+/// progress event through it.
+class _SpyEmitHandler implements NodeHandler {
+  PipelineEventListener? seenListener;
+
+  @override
+  Future<Outcome> execute({
+    required PipelineNode node,
+    required Graph graph,
+    required Context context,
+    required RunStore runStore,
+    Future<void>? cancelSignal,
+    PipelineEventListener? onEvent,
+  }) async {
+    seenListener = onEvent;
+    onEvent?.call(PipelineEvent('node_started', nodeId: node.id));
+    return const Outcome.success();
+  }
 }

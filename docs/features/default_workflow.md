@@ -136,10 +136,11 @@ executor idles.
   tool.
 - One fan-in convergence is supported per fan-out (the first `tripleoctagon`
   successor); the fan-in reads only its own predecessor's staged branches.
-- Per-branch progress is **not** emitted as engine `node_started`/`node_completed`
-  events (branches stream through their own sink); only the `fanout` node itself
-  appears in the event stream. Each branch is still recorded in the run store's
-  audit trail.
+- Per-branch progress **is** emitted as engine `node_started`/`node_completed`/
+  `node_failed` events (the engine threads its progress listener into
+  [NodeHandler.execute], and the fan-out emits each branch's lifecycle around
+  its run) — so a live run view and the chat notices see every branch. Each
+  branch is also recorded in the run store's audit trail.
 - The reviewer→executor chunk assignment is static (three executors, three
   chunks). Adjust the node count in the DOT to change it.
 

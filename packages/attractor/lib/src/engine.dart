@@ -3,25 +3,6 @@ import 'dart:async';
 import 'condition.dart';
 import 'node_handler.dart';
 
-/// A progress event the engine emits during a run, for the UI to render.
-class PipelineEvent {
-  /// `started`, `node_started`, `node_completed`, `node_failed`, `node_retrying`,
-  /// `gate`, `completed`, `failed`.
-  final String kind;
-
-  final String? nodeId;
-  final Outcome? outcome;
-  final String? message;
-
-  const PipelineEvent(this.kind, {this.nodeId, this.outcome, this.message});
-
-  @override
-  String toString() =>
-      'PipelineEvent($kind, node=$nodeId${message == null ? '' : ', "$message"'})';
-}
-
-typedef PipelineEventListener = void Function(PipelineEvent event);
-
 /// The traversal engine. Holds no run state between [run] calls; each run is
 /// independent. The host constructs one engine per run.
 class PipelineEngine {
@@ -171,6 +152,7 @@ class PipelineEngine {
           context: context,
           runStore: runStore,
           cancelSignal: cancelSignal,
+          onEvent: onEvent,
         );
       } on Aborted {
         return Outcome.fail('cancelled');

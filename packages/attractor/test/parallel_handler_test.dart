@@ -34,6 +34,7 @@ class _EchoHandler implements NodeHandler {
     required Context context,
     required RunStore runStore,
     Future<void>? cancelSignal,
+    PipelineEventListener? onEvent,
   }) async {
     calls.add(node.id);
     return Outcome.success(contextUpdates: {node.id: 'out:${node.id}'});
@@ -52,6 +53,7 @@ class _IsoHandler implements NodeHandler {
     required Context context,
     required RunStore runStore,
     Future<void>? cancelSignal,
+    PipelineEventListener? onEvent,
   }) async {
     preValues.add(context.getString('k'));
     context.set('k', node.id);
@@ -72,6 +74,7 @@ class _ConcurrencyHandler implements NodeHandler {
     required Context context,
     required RunStore runStore,
     Future<void>? cancelSignal,
+    PipelineEventListener? onEvent,
   }) async {
     log.add('start:${node.id}');
     await Future<void>.delayed(const Duration(milliseconds: 30));
@@ -87,7 +90,7 @@ NodeHandlerRegistry _registryWithParallel(NodeHandlerRegistry registry) {
 }
 
 Future<(Outcome, MemoryRunStore)> _run(Graph g,
-    {required _FakeBackend backend}) async {
+    {required _FakeBackend backend, PipelineEventListener? onEvent}) async {
   final store = MemoryRunStore();
   final registry = NodeHandlerRegistry()
     ..register('start', StartHandler())
@@ -102,6 +105,7 @@ Future<(Outcome, MemoryRunStore)> _run(Graph g,
     runId: 'r1',
     workflowName: g.name,
     backoffFor: (_) => Duration.zero,
+    onEvent: onEvent,
   );
   final outcome = await engine.run();
   return (outcome, store);
@@ -401,5 +405,98 @@ void main() {
       // The pipeline continued past the failed branch to the sink.
       expect(store.nodes.any((n) => n.nodeId == 'sink'), isTrue);
     });
+
+    test('branch lifecycle events reach the engine listener', () async {
+      final g = parseDot('''
+        digraph T {
+          start [shape=Mdiamond]
+          fanout [shape=component]
+          a [shape=box]
+          b [shape=box]
+          fanin [shape=tripleoctagon]
+          exit [shape=Msquare]
+          start -> fanout
+          fanout -> a
+          fanout -> b
+          fanout -> fanin
+          fanin -> exit
+        }
+      ''');
+      final backend = _FakeBackend({
+        'a': CodergenResult('A did it'),
+        'b': CodergenResult.error('executor "b" crashed'),
+      });
+      final events = <PipelineEvent>[];
+      final (outcome, _) = await _run(g,
+          backend: backend, onEvent: events.add);
+
+      expect(outcome.status, StageStatus.success);
+      // Branch a: started → completed.
+      final aStarted = events.where((e) =>
+          e.kind == 'node_started' && e.nodeId == 'a');
+      final aDone = events
+          .where((e) => e.kind == 'node_completed' && e.nodeId == 'a');
+      expect(aStarted, hasLength(1));
+      expect(aDone, hasLength(1));
+      // Branch b: started → failed with the failure reason.
+      final bFailed = events
+          .where((e) => e.kind == 'node_failed' && e.nodeId == 'b');
+      expect(bFailed, hasLength(1));
+      expect(bFailed.single.message, contains('crashed'));
+      // The fan-out's own events still fire around the branches.
+      expect(events.where((e) => e.nodeId == 'fanout'), isNotEmpty);
+    });
+
+    test('a branch handler that throws emits node_failed, not a crash', () async {
+      final g = parseDot('''
+        digraph T {
+          fanout [shape=component]
+          ok [shape=box]
+          boom [shape=box, type="boom"]
+          fanin [shape=tripleoctagon]
+          fanout -> ok
+          fanout -> boom
+          fanout -> fanin
+        }
+      ''');
+      final registry = NodeHandlerRegistry();
+      registry.register('codergen', _EchoHandler());
+      registry.register('boom', _ThrowingHandler());
+      _registryWithParallel(registry);
+
+      final events = <PipelineEvent>[];
+      final outcome = await (registry.resolve(g.node('fanout')!)
+              as ParallelHandler)
+          .execute(
+        node: g.node('fanout')!,
+        graph: g,
+        context: Context(),
+        runStore: MemoryRunStore(),
+        cancelSignal: null,
+        onEvent: events.add,
+      );
+
+      // The fan-out itself still succeeds (the thrown branch is surfaced as a
+      // failed branch), and the throwing branch reported node_failed.
+      expect(outcome.status, StageStatus.success);
+      final boomEvents = events.where((e) => e.nodeId == 'boom').toList();
+      expect(boomEvents.map((e) => e.kind), ['node_started', 'node_failed']);
+      expect(boomEvents.last.message, contains('branch error'));
+    });
   });
+}
+
+/// A branch handler that throws — proves the fan-out's catch path reports the
+/// branch as failed instead of crashing the run.
+class _ThrowingHandler implements NodeHandler {
+  @override
+  Future<Outcome> execute({
+    required PipelineNode node,
+    required Graph graph,
+    required Context context,
+    required RunStore runStore,
+    Future<void>? cancelSignal,
+    PipelineEventListener? onEvent,
+  }) async =>
+      throw StateError('kaboom');
 }

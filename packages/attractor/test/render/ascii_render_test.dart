@@ -61,5 +61,53 @@ void main() {
       expect(selected, contains('╔'));
       expect(selected, contains('╚'));
     });
+
+    test('marks node status with border glyphs', () {
+      final g = parseDot('''
+        digraph S {
+          start [shape=Mdiamond]
+          done [shape=Msquare]
+          a [shape=box, label="Alpha"]
+          b [shape=box, label="Beta"]
+          c [shape=box, label="Gamma"]
+          start -> a -> b -> c -> done
+        }
+      ''');
+      final canvas = renderGraph(g, status: {
+        'a': NodeRunStatus.running,
+        'b': NodeRunStatus.done,
+        'c': NodeRunStatus.failed,
+      }).lines.join('\n');
+      // running → heavy box, done → rounded box, failed → double box.
+      expect(canvas, contains('┏'));
+      expect(canvas, contains('┛'));
+      expect(canvas, contains('╭'));
+      expect(canvas, contains('╰'));
+      expect(canvas, contains('╔'));
+      expect(canvas, contains('╝'));
+      // pending (start/done) stays plain.
+      expect(canvas, contains('┌'));
+      expect(canvas, contains('└'));
+    });
+
+    test('selected wins over a status border (mutually exclusive in practice)',
+        () {
+      final g = parseDot('''
+        digraph S {
+          start [shape=Mdiamond]
+          done [shape=Msquare]
+          a [shape=box, label="Alpha"]
+          start -> a -> done
+        }
+      ''');
+      // A running node would render heavy (┏); selection renders double (╔) —
+      // so the double border proves selection won.
+      final canvas = renderGraph(g,
+              selectedId: 'a', status: {'a': NodeRunStatus.running})
+          .lines
+          .join('\n');
+      expect(canvas, contains('╔'));
+      expect(canvas, isNot(contains('┏')));
+    });
   });
 }

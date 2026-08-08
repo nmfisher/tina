@@ -41,13 +41,15 @@ class PipelineRunner {
   /// Run `<workflowsDir>/<workflowName>.dot` to completion. [sink] is where the
   /// turn's streamed text + progress notices go — pass the active host.
   /// [history] (a chat transcript, if any) is seeded into the run context and
-  /// expandable as `$history` in node prompts.
+  /// expandable as `$history` in node prompts. [onEvent] is an additional
+  /// progress listener (e.g. a live run view); the sink notices still fire.
   Future<Outcome> run({
     required String workflowName,
     required AgentSink sink,
     String? input,
     String? history,
     Future<void>? cancelSignal,
+    PipelineEventListener? onEvent,
   }) async {
     final source = await readWorkflow(workflowsDir, workflowName);
     final graph = parseDot(source);
@@ -97,7 +99,10 @@ class PipelineRunner {
       runId: runId,
       workflowName: workflowName,
       cancelSignal: cancelSignal,
-      onEvent: (e) => _renderEvent(sink, e),
+      onEvent: (e) {
+        _renderEvent(sink, e);
+        onEvent?.call(e);
+      },
     );
 
     return engine.run(

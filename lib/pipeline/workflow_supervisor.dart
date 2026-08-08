@@ -15,6 +15,7 @@ typedef RunWorkflow = Future<Outcome> Function({
   String? input,
   String? history,
   Future<void>? cancelSignal,
+  PipelineEventListener? onEvent,
 });
 
 /// Where a [WorkflowRun] is in its lifecycle.
@@ -51,6 +52,21 @@ class WorkflowRun {
 
   /// The task text that flowed into the run as `$input` (if any).
   final String? input;
+
+  /// Per-node live status, maintained by the supervisor's internal listener
+  /// from the engine's `node_*` events. Never misses an event (the internal
+  /// listener is wired before the runner starts), so a run panel can render
+  /// final state from this even if its external listener joined late.
+  final Map<String, NodeRunStatus> nodeStatus = {};
+
+  /// External progress listener, set by the host (typically inside the
+  /// supervisor's `onLaunch` hook, before any production event can arrive).
+  /// Receives every engine event after the internal [nodeStatus] update.
+  PipelineEventListener? onEvent;
+
+  /// Fired after the run finishes (both success and error paths), after
+  /// `onComplete` — the host uses it to settle the run panel's busy state.
+  void Function()? onFinished;
 
   final Completer<void> _cancel;
 
@@ -105,6 +121,11 @@ class WorkflowSupervisor {
   /// coordinator wires this to the controller's completion-turn injection.
   final void Function(WorkflowRun run)? onComplete;
 
+  /// Fired synchronously inside [launch], after the launch notice is posted
+  /// and before any engine event can be delivered — the host opens the run's
+  /// live view here and attaches [WorkflowRun.onEvent].
+  final void Function(WorkflowRun run)? onLaunch;
+
   /// Active + recently-finished runs keyed by id (newest last). Finished runs
   /// are kept so the main agent can query a result by id; [active] filters to
   /// the still-running ones.
@@ -112,7 +133,8 @@ class WorkflowSupervisor {
   final List<String> _launchOrder = [];
   int _seq = 0;
 
-  WorkflowSupervisor({required RunWorkflow run, this.onComplete}) : _run = run;
+  WorkflowSupervisor({required RunWorkflow run, this.onComplete, this.onLaunch})
+      : _run = run;
 
   /// Launch `<name>` as a background child run for the conversation
   /// [conversationId]. Output and node progress events stream to [sink] (the
@@ -120,22 +142,20 @@ class WorkflowSupervisor {
   /// run for the launch/report notices. Returns immediately with a handle; the
   /// run continues after this returns. (The run's `history` is always `null` —
   /// the launching agent crafts [input]; the runner's `history` arg is unused.)
+  ///
+  /// [onEvent] is the run's external progress listener; the host typically
+  /// passes it through the constructor's [onLaunch] hook instead (which fires
+  /// after the launch notice, before any engine event can be delivered).
   WorkflowRun launch({
     required String name,
     required String conversationId,
     required AgentSink sink,
     String? input,
     String? goal,
+    PipelineEventListener? onEvent,
   }) {
     final id = _newId();
     final cancel = Completer<void>();
-    final future = _run(
-      workflowName: name,
-      sink: sink,
-      input: input,
-      history: null,
-      cancelSignal: cancel.future,
-    );
     final run = WorkflowRun(
       id: id,
       workflowName: name,
@@ -144,6 +164,20 @@ class WorkflowSupervisor {
       input: input,
       cancel: cancel,
     );
+    // The internal listener (nodeStatus tracking) is wired BEFORE the runner
+    // starts, so even a synchronously-emitting runner records every event.
+    run.onEvent = onEvent;
+    final future = _run(
+      workflowName: name,
+      sink: sink,
+      input: input,
+      history: null,
+      cancelSignal: cancel.future,
+      onEvent: (e) {
+        _applyNodeStatus(run, e);
+        run.onEvent?.call(e);
+      },
+    );
     _runs[id] = run;
     _launchOrder.add(id);
 
@@ -151,12 +185,17 @@ class WorkflowSupervisor {
         '${goal == null || goal.isEmpty ? '' : ' — $goal'}');
 
     // Fire-and-forget: report back on completion without blocking launch.
+    // onLaunch fires here — synchronously, before the runner's first await can
+    // emit an event — so the host can open the live view and attach listeners
+    // without missing anything.
+    onLaunch?.call(run);
     unawaited(future.then(
       (outcome) {
         run.outcome = outcome;
         run.status = _classify(outcome, cancelledByStop: cancel.isCompleted);
         _reportBack(sink, run);
         onComplete?.call(run);
+        run.onFinished?.call();
       },
       // A thrown runner error (e.g. the workflow file is missing) never yields
       // an Outcome — surface it as a failed run so the launch still reports
@@ -167,10 +206,31 @@ class WorkflowSupervisor {
         run.status = WorkflowRunStatus.failed;
         _reportBack(sink, run);
         onComplete?.call(run);
+        run.onFinished?.call();
       },
     ));
 
     return run;
+  }
+
+  /// Update [run]'s per-node status map from an engine event. Node events
+  /// without a nodeId (`started`, `completed`, `failed`) are ignored.
+  void _applyNodeStatus(WorkflowRun run, PipelineEvent e) {
+    final id = e.nodeId;
+    if (id == null) return;
+    switch (e.kind) {
+      case 'node_started':
+      case 'node_retrying':
+        run.nodeStatus[id] = NodeRunStatus.running;
+      case 'node_completed':
+        run.nodeStatus[id] = e.outcome?.status == StageStatus.skipped
+            ? NodeRunStatus.skipped
+            : NodeRunStatus.done;
+      case 'node_failed':
+        run.nodeStatus[id] = NodeRunStatus.failed;
+      default:
+        break;
+    }
   }
 
   /// Stop the run [id] (or the most recent still-running launch when null).

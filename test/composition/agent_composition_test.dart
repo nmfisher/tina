@@ -19,7 +19,8 @@ void main() {
   // A run seam that never actually runs a workflow — the tool-set tests don't
   // invoke it; they only assert it lands in the registry.
   RunWorkflow noopRun({Outcome outcome = const Outcome.success()}) =>
-      ({required workflowName, required sink, input, history, cancelSignal}) async => outcome;
+      ({required workflowName, required sink, input, history, cancelSignal,
+          onEvent}) async => outcome;
 
   // A supervisor over the noop run; wired into buildAgent below.
   WorkflowSupervisor noopSupervisor() => WorkflowSupervisor(run: noopRun());

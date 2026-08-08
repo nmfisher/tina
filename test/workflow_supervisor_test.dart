@@ -27,6 +27,10 @@ class _ScriptedRunner {
   final List<({String name, String? input})> calls = [];
   final List<_RunControl> controls = [];
 
+  /// When true, each launch emits a scripted `node_started` event for node
+  /// `x` through the run's [PipelineEventListener] before running.
+  bool emitEvent = true;
+
   RunWorkflow build() {
     return ({
       required workflowName,
@@ -34,12 +38,16 @@ class _ScriptedRunner {
       input,
       history,
       cancelSignal,
+      onEvent,
     }) async {
       calls.add((name: workflowName, input: input));
       final control = _RunControl(sink);
       controls.add(control);
       // Simulate an engine progress event surfacing to the chat host.
       sink.notice('▶ scripted_node', kind: NoticeKind.info);
+      if (emitEvent) {
+        onEvent?.call(const PipelineEvent('node_started', nodeId: 'x'));
+      }
       if (cancelSignal == null) {
         return control.done.future;
       }
@@ -158,6 +166,102 @@ void main() {
           isTrue);
     });
 
+    test('onLaunch fires synchronously after the launch notice', () async {
+      final runner = _ScriptedRunner();
+      WorkflowRun? launched;
+      var noticeVisibleAtHook = false;
+      final sink = FakeAgentSink();
+      final supervisor = WorkflowSupervisor(
+        run: runner.build(),
+        onLaunch: (run) {
+          launched = run;
+          // The launch notice was posted before the hook ran.
+          noticeVisibleAtHook = sink.notices.any((n) => n.message.contains('launched'));
+        },
+      );
+
+      final run = supervisor.launch(
+          name: 'default', conversationId: 'conv-1', sink: sink);
+
+      // The hook ran synchronously inside launch with the run handle — so a
+      // host can open a live view before any engine event can arrive.
+      expect(launched, same(run));
+      expect(noticeVisibleAtHook, isTrue);
+
+      runner.controls.single.done.complete(const Outcome.success());
+      await _pumpUntil(() => run.status != WorkflowRunStatus.running);
+    });
+
+    test('a run event updates nodeStatus and reaches the external listener',
+        () async {
+      final runner = _ScriptedRunner();
+      final supervisor = WorkflowSupervisor(run: runner.build());
+      final sink = FakeAgentSink();
+      final seen = <PipelineEvent>[];
+
+      final run = supervisor.launch(
+          name: 'default',
+          conversationId: 'conv-1',
+          sink: sink,
+          onEvent: seen.add);
+
+      await _pumpUntil(() => run.nodeStatus.containsKey('x'));
+      expect(run.nodeStatus['x'], NodeRunStatus.running);
+      expect(seen.single.kind, 'node_started');
+      expect(seen.single.nodeId, 'x');
+
+      runner.controls.single.done.complete(const Outcome.success());
+      await _pumpUntil(() => run.status != WorkflowRunStatus.running);
+    });
+
+    test('a synchronously-completing run records every event in nodeStatus '
+        'and fires onFinished', () async {
+      final supervisor = WorkflowSupervisor(
+        run: ({
+          required workflowName,
+          required sink,
+          input,
+          history,
+          cancelSignal,
+          onEvent,
+        }) async {
+          onEvent?.call(const PipelineEvent('node_started', nodeId: 'a'));
+          onEvent?.call(const PipelineEvent('node_completed', nodeId: 'a'));
+          return const Outcome.success();
+        },
+      );
+      var finished = false;
+      final run = supervisor.launch(
+          name: 'default', conversationId: 'conv-1', sink: FakeAgentSink());
+      run.onFinished = () => finished = true;
+
+      await _pumpUntil(() => run.status == WorkflowRunStatus.completed);
+      // The internal listener never misses, even for sync emissions.
+      expect(run.nodeStatus['a'], NodeRunStatus.done);
+      expect(finished, isTrue);
+    });
+
+    test('onFinished fires on the thrown-runner path too', () async {
+      final supervisor = WorkflowSupervisor(
+        run: ({
+          required workflowName,
+          required sink,
+          input,
+          history,
+          cancelSignal,
+          onEvent,
+        }) async =>
+            throw StateError('boom'),
+      );
+      var finished = false;
+      final run = supervisor.launch(
+          name: 'default', conversationId: 'conv-1', sink: FakeAgentSink());
+      run.onFinished = () => finished = true;
+
+      await _pumpUntil(() => run.status == WorkflowRunStatus.failed);
+      expect(finished, isTrue);
+    });
+
     test('a runner that throws (e.g. missing workflow file) is reported as a '
         'failed run and fires onComplete', () async {
       final sink = FakeAgentSink();
@@ -169,6 +273,7 @@ void main() {
           input,
           history,
           cancelSignal,
+          onEvent,
         }) async =>
             throw FileSystemException('workflow not found', 'ghost.dot'),
         onComplete: (run) => completed = run,
