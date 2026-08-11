@@ -20,6 +20,7 @@ import 'package:tina/pipeline/pipeline_runner.dart';
 import 'package:tina/pipeline/workflow_supervisor.dart';
 import 'package:tina/regions/region_registry.dart';
 import 'package:tina/tui/run_panel_content.dart';
+import 'package:tina/tui/tool_output_overlay.dart';
 import 'package:tina/tui/workflow_editor_overlay.dart';
 import 'package:tina/tui/workflow_viewer_overlay.dart';
 import 'package:tina/platform/terminal_geometry.dart';
@@ -781,6 +782,31 @@ class TuiCoordinator {
         controller.active.host
             .showMessage('$e\n', style: HostMessageStyle.error);
       }
+    };
+    // `/output [n]` — full output of a capped tool call (the chat shows only
+    // the first ~600 streamed chars). The ring lives on the active
+    // conversation's host; newest first.
+    controller.openToolOutput = (index) async {
+      final host = sessionManager.activeConversation.host;
+      if (host is! TuiConversationHost) {
+        host.showMessage('no capped tool output in this conversation\n',
+            style: HostMessageStyle.warning);
+        return;
+      }
+      if (index >= host.cappedOutputs.length) {
+        host.showMessage(
+            'no capped tool output at /output ${index + 1} '
+            '(${host.cappedOutputs.length} available)\n',
+            style: HostMessageStyle.warning);
+        return;
+      }
+      final o = host.cappedOutputs[index];
+      await runToolOutputViewer(
+        screen: screen,
+        editor: editor,
+        title: 'output · ${o.toolName}',
+        text: o.text,
+      );
     };
     // `/workflow new` + `/workflow edit` — visual node editor.
     controller.openWorkflowEditor = ({name, isNew = false}) async {

@@ -50,6 +50,11 @@ class TuiConversationHost implements HostInterface {
   /// continuously; their [setActive] is render-neutral.
   final bool primary;
 
+  /// Tool calls whose streamed output was capped in the chat — the full text
+  /// lives here for the `/output` viewer. Newest first; bounded to the last 10.
+  /// Populated from the sink's [ChatAgentSink.onCapped].
+  final List<CappedToolOutput> cappedOutputs = [];
+
   /// The [PanelFrame] that frames this host's region. Still used by [clear]
   /// (repaint the chrome after erasing a column slot) and by the coordinator's
   /// relabel path (`/model`). The busy *cue* no longer goes through here — it is
@@ -95,7 +100,13 @@ class TuiConversationHost implements HostInterface {
   /// [BusSink]). Composing the two means this host renders identically to the
   /// old `ChatAgentSink` while also feeding the bus — no rendering logic
   /// duplicated here.
-  late final AgentSink _sink = BusSink(ChatAgentSink(chat, spinner), _bus);
+  late final AgentSink _sink = BusSink(
+    ChatAgentSink(chat, spinner, onCapped: (o) {
+      cappedOutputs.insert(0, o);
+      if (cappedOutputs.length > 10) cappedOutputs.removeLast();
+    }),
+    _bus,
+  );
 
   @override
   AgentEventBus get eventBus => _bus;

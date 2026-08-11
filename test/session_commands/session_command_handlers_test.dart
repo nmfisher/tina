@@ -28,6 +28,7 @@ class _FakeCtx implements CommandContext {
     this.openModelPicker,
     this.openImage,
     this.openBranch,
+    this.openToolOutput,
   });
 
   /// The conversation [active] returns. Tests mutate its provider for assertions.
@@ -52,6 +53,9 @@ class _FakeCtx implements CommandContext {
 
   @override
   Future<void> Function()? openBranch;
+
+  @override
+  Future<void> Function(int index)? openToolOutput;
 
   @override
   Map<String, FutureOr<void> Function()> get commandHooks => const {};
@@ -289,6 +293,64 @@ Future<void> main() async {
 
     test('is a recognized command (in allCommands)', () {
       expect(SessionCommandHandlers.allCommands, contains('/index'));
+      expect(SessionCommandHandlers.allCommands, contains('/output'));
+    });
+  });
+
+  group('SessionCommandHandlers /output', () {
+    late FakeHostInterface host;
+    late FakeProvider provider;
+    late Conversation conv;
+
+    setUp(() {
+      host = FakeHostInterface();
+      provider = FakeProvider.always(model: 'test-model');
+      conv = Conversation(
+        id: 'test-conv',
+        label: 'test-model',
+        agent: _fakeAgent(provider, host),
+        provider: provider,
+        host: host,
+        policy: PermissionPolicy(),
+      );
+    });
+
+    test('no argument opens the most recent capped output', () async {
+      final opened = <int>[];
+      final handlers = SessionCommandHandlers(
+          _FakeCtx(conversation: conv, openToolOutput: (i) async => opened.add(i)));
+      final res = await handlers.dispatch('/output');
+      expect(res, isA<CmdHandled>());
+      expect(opened, [0]);
+    });
+
+    test('/output n maps 1-based to the newest-first ring', () async {
+      final opened = <int>[];
+      final handlers = SessionCommandHandlers(
+          _FakeCtx(conversation: conv, openToolOutput: (i) async => opened.add(i)));
+      await handlers.dispatch('/output 3');
+      expect(opened, [2]);
+    });
+
+    test('a non-numeric argument prints the usage hint', () async {
+      final opened = <int>[];
+      final handlers = SessionCommandHandlers(
+          _FakeCtx(conversation: conv, openToolOutput: (i) async => opened.add(i)));
+      await handlers.dispatch('/output xyz');
+      expect(opened, isEmpty);
+      expect(
+        host.styledMessages.map((m) => m.message),
+        anyElement(contains('usage: /output')),
+      );
+    });
+
+    test('without a TUI wiring, prints the headless warning', () async {
+      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+      await handlers.dispatch('/output');
+      expect(
+        host.styledMessages.map((m) => m.message),
+        anyElement(contains('needs the interactive TUI')),
+      );
     });
   });
 }

@@ -21,7 +21,7 @@ class SessionCommandHandlers {
   static const List<String> allCommands = [
     '/exit', '/quit', '/help', '/clear', '/compact', '/auto-compact',
     '/permissions', '/sessions', '/session', '/resume', '/model', '/settings',
-    '/prompts', '/spawn', '/branch', '/image', '/index', '/workflow',
+    '/prompts', '/spawn', '/branch', '/image', '/index', '/workflow', '/output',
   ];
 
   Future<CmdResult> dispatch(String trimmed) async {
@@ -82,8 +82,38 @@ class SessionCommandHandlers {
         return await _handleIndex();
       case '/workflow':
         await handleWorkflowCommand(ctx, trimmed);
+      case '/output':
+        await _handleOutput(trimmed);
     }
     return const CmdHandled();
+  }
+
+  /// `/output [n]` — show the full output of a capped tool call. No argument
+  /// shows the most recent; `/output 2` shows the second-most-recent, etc.
+  Future<void> _handleOutput(String trimmed) async {
+    final parts = trimmed.split(RegExp(r'\s+'));
+    final int index;
+    if (parts.length > 1) {
+      final n = int.tryParse(parts[1]);
+      if (n == null || n < 1) {
+        ctx.active.host.showMessage(
+            'usage: /output [n] — full output of the most recent capped tool '
+            'call, or the n-th (newest first).\n',
+            style: HostMessageStyle.warning);
+        return;
+      }
+      index = n - 1;
+    } else {
+      index = 0; // the most recent.
+    }
+    final open = ctx.openToolOutput;
+    if (open == null) {
+      ctx.active.host.showMessage(
+          '/output needs the interactive TUI.\n',
+          style: HostMessageStyle.warning);
+      return;
+    }
+    await open(index);
   }
 
   Future<void> _handleSettings() async {

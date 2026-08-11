@@ -160,6 +160,11 @@ class SessionController implements CommandContext {
   @override
   Future<void> Function({String? name, bool isNew})? openWorkflowEditor;
 
+  /// Open the full-output viewer for a capped tool call (`/output`). Wired by
+  /// the TUI; null in headless.
+  @override
+  Future<void> Function(int index)? openToolOutput;
+
   SessionController({
     required this.sessionManager,
     required this.readLine,

@@ -136,6 +136,11 @@ abstract class CommandContext {
   /// Wired by the TUI; null in headless (no screen).
   Future<void> Function(String name)? get openWorkflowViewer;
 
+  /// Open the full-output viewer for a capped tool call (`/output`).
+  /// [index] is 0-based, newest first, against the active conversation's
+  /// capped-output ring. Wired by the TUI; null in headless (no screen).
+  Future<void> Function(int index)? get openToolOutput;
+
   /// Open the visual node editor (`/workflow new` / `/workflow edit`). Wired by
   /// the TUI; null in headless.
   Future<void> Function({String? name, bool isNew})? get openWorkflowEditor;
