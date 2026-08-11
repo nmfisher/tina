@@ -9,6 +9,7 @@ import 'package:tina/pipeline/default_workflow.dart';
 import 'package:tina/pipeline/workflow_supervisor.dart';
 import 'package:tina/session_controller.dart';
 import 'package:tina/session_manager.dart';
+import 'helpers/memory_session_store.dart';
 import 'package:test/test.dart';
 
 import 'helpers/fake_host_interface.dart';
@@ -696,13 +697,44 @@ void main() {
       expect(provider.calls, isEmpty);
     });
   });
+
+  test(
+      'a turn aborted by a provider error persists its reason (visible on '
+      'restore)', () async {
+    final store = MemorySessionStore();
+    final sid = await store.createSession(providerId: 'anthropic');
+    final cid = await store.createConversation(sid);
+    final provider = FakeProvider([
+      [const StreamError('402 payment required — no funds')],
+    ]);
+
+    final rl = FakeReadLine();
+    final controller = _buildController(
+      readLine: rl,
+      provider: provider,
+      store: store,
+      sessionId: sid,
+      conversationId: cid,
+    );
+
+    rl.enqueue('do the thing');
+    final runFuture = controller.run();
+    await _pumpUntil(() => !controller.active.isRunning);
+    rl.close();
+    await runFuture;
+
+    // The live notice was display-only; the persisted transcript carries the
+    // reason as a synthetic assistant message — what a quit + restore replays.
+    final persisted = await store.loadConversation(sid, cid);
+    final lastText = persisted.last.content
+        .whereType<TextBlock>()
+        .map((b) => b.text)
+        .join();
+    expect(lastText,
+        contains('[turn aborted: 402 payment required — no funds]'));
+  });
 }
 
-// --- test doubles ----------------------------------------------------------
-
-/// Provider that starts streaming but never completes, so the cancel signal
-/// can interrupt it. Uses a [StreamController] instead of async* + long await
-/// because async* generators can't be cancelled mid-await.
 class _SlowProvider extends LlmProvider {
   _SlowProvider() : super('slow');
 

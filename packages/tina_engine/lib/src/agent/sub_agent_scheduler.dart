@@ -636,13 +636,26 @@ class SubAgentScheduler {
     // Retain the grown history so a later `continue` can build on this job too.
     job._history = history;
 
+    // Extract the result BEFORE any abort message is appended, so an aborted
+    // job's synthetic message can't masquerade as a real answer.
+    final result = _extractResult(job.label, history);
+
     // Persist the complete transcript to the job's conversation (if it has one).
     // Completion-time persistence is enough; mid-turn incremental writes are a
     // follow-up. Best-effort: a write failure must not fail the job. `replace`
     // rewrites the whole file atomically, so a `send`/re-run that rewrites the
-    // grown history stays consistent.
+    // grown history stays consistent. An aborted turn (budget trip, provider
+    // error, …) appends its reason so a restored sub-agent panel shows why it
+    // stopped — the live notice is display-only.
     final recorder = job._recorder;
     if (recorder != null) {
+      final aborted = agent.abortedReason;
+      if (aborted != null) {
+        history.add(Message(
+          role: Role.assistant,
+          content: [TextBlock('[turn aborted: $aborted]')],
+        ));
+      }
       try {
         await recorder.replace(history);
       } catch (_) {
@@ -650,7 +663,7 @@ class SubAgentScheduler {
       }
     }
 
-    return _extractResult(job.label, history);
+    return result;
   }
 
   /// Run a single agent turn for a codergen node with [systemPrompt] as the

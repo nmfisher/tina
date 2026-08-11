@@ -76,11 +76,25 @@ class Agent {
   /// Run one user turn. The agent may issue several provider calls if tools
   /// are invoked. [cancelSignal], when completed, aborts the current
   /// in-flight stream and exits the turn cleanly.
+  /// Why the previous turn stopped, when it stopped abnormally — a budget
+  /// trip, a provider/API error (remote rate limit, insufficient funds, auth),
+  /// a cut-off stream, the action cap, or max steps. null after a normal
+  /// finish (or a cancel). Reset at the top of every [run]. The interactive
+  /// controller persists this as a synthetic assistant message so a restored
+  /// session still shows why the turn died; it is never appended to history
+  /// here, so the scheduler's result extraction can't mistake it for a real
+  /// answer.
+  String? abortedReason;
+
+  /// Run one user turn. The agent may issue several provider calls if tools
+  /// are invoked. [cancelSignal], when completed, aborts the current
+  /// in-flight stream and exits the turn cleanly.
   Future<void> run({
     required List<Message> history,
     required String userInput,
     Future<void>? cancelSignal,
   }) async {
+    abortedReason = null;
     history.add(Message(role: Role.user, content: [TextBlock(userInput)]));
 
     var cancelled = false;
@@ -106,6 +120,7 @@ class Agent {
           budget?.checkRequestInput(system, history, tools.schemas);
       if (reject != null) {
         sink.notice('\n[budget] $reject\n', kind: NoticeKind.error);
+        abortedReason = reject;
         return;
       }
 
@@ -118,6 +133,7 @@ class Agent {
           .consume(stream, sink: sink, cancelSignal: cancelSignal);
       if (outcome.error != null) {
         sink.notice('\nerror: ${outcome.error}\n', kind: NoticeKind.error);
+        abortedReason = outcome.error.toString();
         return;
       }
       if (outcome.cancelled) {
@@ -132,6 +148,7 @@ class Agent {
         // on a null-assert; surface it and let the user retry.
         sink.notice('\nerror: stream ended without a complete response\n',
             kind: NoticeKind.error);
+        abortedReason = 'stream ended without a complete response';
         return;
       }
       if (outcome.usage != null) {
@@ -152,12 +169,14 @@ class Agent {
             if (!cont) {
               sink.notice('\n[budget] session limit — turn aborted\n',
                   kind: NoticeKind.warning);
+              abortedReason = 'session limit — turn aborted';
               return;
             }
             continue; // resume the loop; next iteration re-sends the request
           }
           sink.notice('\n[budget] ${budget!.exceeded()}\n',
               kind: NoticeKind.error);
+          abortedReason = budget!.exceeded();
           return;
         }
       }
@@ -175,6 +194,7 @@ class Agent {
         if (toolCalls >= kMaxToolCallsPerRun) {
           sink.notice('\n[action limit] reached, stopping\n',
               kind: NoticeKind.warning);
+          abortedReason = 'action limit reached, stopping';
           return;
         }
         toolCalls++;
@@ -243,6 +263,7 @@ class Agent {
     }
 
     sink.notice('(max steps reached)\n', kind: NoticeKind.warning);
+    abortedReason = 'max steps reached';
   }
 
   /// Replace (part of) [history] with a summarized user+assistant exchange.

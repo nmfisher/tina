@@ -3,9 +3,26 @@ import 'dart:async';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
 
+import '../helpers/agent_test_fixtures.dart';
 import '../helpers/fake_agent_sink.dart';
 import '../helpers/fake_provider.dart';
 import '../helpers/fake_tool.dart';
+
+/// A provider that always yields one [StreamError] — the wire shape of a
+/// remote failure (API error, rate limit, insufficient funds, a tripped
+/// global ceiling).
+class _FailingProvider extends LlmProvider {
+  final String error;
+  _FailingProvider(this.error) : super('fail');
+
+  @override
+  Stream<StreamEvent> send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+  }) =>
+      Stream.fromIterable([StreamError(error)]);
+}
 
 /// Builds an [Agent] wired with fakes. The default asker denies, but tests that
 /// need tools to run pass a permissive [policy] (e.g. `bash: allow`) so the
@@ -291,6 +308,37 @@ void main() {
 
       expect(sink.notices.any((n) => n.message.contains('max steps')), isTrue);
       expect(provider.calls, hasLength(3)); // exactly maxSteps provider calls
+      expect(agent.abortedReason, 'max steps reached');
+    });
+
+    test('abortedReason records provider errors and resets on the next run',
+        () async {
+      final provider = _FailingProvider('server exploded');
+      final sink = FakeAgentSink();
+      final agent = _agent(
+        provider: provider,
+        tools: ToolRegistry(const []),
+        sink: sink,
+      );
+
+      await agent.run(history: <Message>[], userInput: 'go');
+      expect(agent.abortedReason, 'server exploded');
+      // The abort reason is never appended to history — extraction must not
+      // mistake it for a real answer.
+      expect(
+          sink.notices.any((n) => n.message.contains('error: server exploded')),
+          isTrue);
+
+      // The field resets at the top of the next run.
+      final okProvider = FakeProvider(
+          [answerEvents('hello from the agent')]); // ignores, just runs
+      final agent2 = _agent(
+        provider: okProvider,
+        tools: ToolRegistry(const []),
+        sink: FakeAgentSink(),
+      );
+      await agent2.run(history: <Message>[], userInput: 'go');
+      expect(agent2.abortedReason, isNull);
     });
 
     test('cancelSignal during the stream cancels the turn cleanly', () async {

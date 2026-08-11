@@ -331,6 +331,19 @@ class SessionController implements CommandContext {
       }
     }
 
+    // A turn that stopped abnormally (budget trip, provider/API error, cut-off
+    // stream, action cap, max steps) gets its reason persisted as a synthetic
+    // assistant message, so a quit + restore still shows WHY the turn died —
+    // the live notice is display-only. A cancelled turn rolls back below and
+    // drops this with the rest of the exchange.
+    final aborted = s.agent.abortedReason;
+    if (aborted != null && !cancel.isCompleted) {
+      s.history.add(Message(
+        role: Role.assistant,
+        content: [TextBlock('[turn aborted: $aborted]')],
+      ));
+    }
+
     if (cancel.isCompleted) {
       // Cancelled: drop any partial assistant/tool messages and the backlog.
       if (s.history.length > preLen) {

@@ -98,11 +98,16 @@ class _FakeStore implements SessionStore {
       String sessionId, String conversationId, Message message) async {}
   @override
   Future<void> replace(
-      String sessionId, String conversationId, List<Message> messages) async {}
+      String sessionId, String conversationId, List<Message> messages) async {
+    lastReplaced = messages;
+  }
+
+  /// The transcript most recently [replace]d, for abort-persistence asserts.
+  List<Message>? lastReplaced;
   @override
   Future<List<Message>> loadConversation(
           String sessionId, String conversationId) async =>
-      const [];
+      lastReplaced ?? const [];
   @override
   Future<SessionManifest> loadSession(String sessionId) async =>
       SessionManifest(
@@ -272,6 +277,46 @@ void main() {
       expect(providerAskerCalls, ['focus']);
       expect(job.panelHost, same(host));
       expect(job.recorder, isNotNull);
+      await scheduler.dispose();
+    });
+
+    test("an aborted job's transcript records the reason (restore visibility)",
+        () async {
+      final host = FakeHostInterface();
+      final store = _FakeStore();
+      final scheduler = testScheduler(
+        scriptedRegistry({'a': [const StreamError('no funds')]}),
+        pipeline: pipeline,
+      );
+      scheduler.persistence =
+          (job, {required meta, required parentConversationId}) async {
+        final conv = await store.createConversationWithMeta('s', meta);
+        job.panelSink = FakeAgentSink();
+        job.panelHost = host;
+        final recorder = SessionRecorder(store, 's', conv, providerId: 'a');
+        recorder.attach('s', conv);
+        return (conv, recorder);
+      };
+      final job = scheduler.spawn(
+        task: 'do it',
+        toolProfile: ToolProfile.readOnly,
+        parentSystemPrompt: 'P',
+        parentReference: 'a/a-model',
+        parentPolicy: PermissionPolicy(),
+        originConversationId: 'conv1',
+      );
+      final result = await job.result;
+      expect(result.isError, isTrue);
+      // The persisted transcript carries the abort reason as a synthetic
+      // assistant message — a restored sub-agent panel shows why it stopped.
+      final transcript = store.lastReplaced!;
+      expect(
+        transcript.last.content
+            .whereType<TextBlock>()
+            .map((b) => b.text)
+            .join(),
+        contains('[turn aborted: no funds]'),
+      );
       await scheduler.dispose();
     });
 
