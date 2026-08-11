@@ -34,6 +34,25 @@ class ControlKey extends InputEvent {
   int get hashCode => code.hashCode;
 }
 
+/// A mouse scroll wheel notch. Routed to the focused panel's scrollback
+/// (conversation panels and run panels scroll their chat) — never to the
+/// editor, so the wheel can't be confused with command-history arrows.
+class ScrollEvent extends InputEvent {
+  /// True = wheel up (scroll back into history), false = wheel down.
+  final bool up;
+  ScrollEvent({required this.up});
+
+  @override
+  String toString() => 'ScrollEvent(${up ? 'up' : 'down'})';
+
+  @override
+  bool operator ==(Object other) =>
+      other is ScrollEvent && other.up == up;
+
+  @override
+  int get hashCode => up.hashCode;
+}
+
 /// An arrow key (CSI A/B/C/D). [hasCtrl] is true for Ctrl+Arrow (used by
 /// [FocusManager] to steer spatial navigation inside the focus ring);
 /// [hasAlt] is true for Alt+Arrow. When either modifier is set, the line

@@ -491,6 +491,10 @@ class LineEditor {
     if (_handleEscFollowUp(event)) return;
 
     switch (event) {
+      // The mouse wheel is routed to the focused panel's scrollback (it had
+      // first claim above); an unclaimed wheel is dropped, never typed.
+      case ScrollEvent():
+        return;
       case CharInput(:final text):
         _dialog.dismiss();
         final code = text.codeUnitAt(0);
@@ -740,6 +744,8 @@ class LineEditor {
 
   void _handleQueueEvent(InputEvent event) {
     switch (event) {
+      case ScrollEvent():
+        return; // the wheel never drives queue/command history.
       case EscapeKey():
         if (_qBuf.isNotEmpty) {
           _qBuf = '';

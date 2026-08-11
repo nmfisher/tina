@@ -118,6 +118,8 @@ class MenuBar implements Focusable {
 
     // Active state — consume all navigation keys.
     switch (event) {
+      case ScrollEvent():
+        return false; // the wheel scrolls the chat, never the menu bar.
       case EscapeKey():
         if (_open) {
           _open = false;

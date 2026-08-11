@@ -56,6 +56,12 @@ class PanelFrame implements Focusable {
   /// (the default) leaves PgUp/PgDn unclaimed (they fall through to the editor).
   void Function(int deltaPages)? onScroll;
 
+  /// Fired when the user scrolls the framed chat with the mouse wheel:
+  /// positive rows = toward the tail, negative = back into history. Set by the
+  /// coordinator alongside [onScroll]. null (the default) leaves wheel events
+  /// unclaimed (they fall through to the editor — which never maps them).
+  void Function(int deltaRows)? onWheel;
+
   /// Optional per-panel key handler, consulted first by [handleEvent]. Set by
   /// the coordinator for non-chat content (e.g. a workflow run panel's
   /// pan/stop/close keys); null (the default) keeps the historical
@@ -175,6 +181,15 @@ class PanelFrame implements Focusable {
           cb(1);
           return true;
         }
+      }
+    }
+    // Mouse wheel: 3 rows per notch — finer than a page, so the user can
+    // scroll back through a long turn. Wheel up = back into history.
+    if (event is ScrollEvent) {
+      final cb = onWheel;
+      if (cb != null) {
+        cb(event.up ? -3 : 3);
+        return true;
       }
     }
     return false;

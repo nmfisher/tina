@@ -290,15 +290,15 @@ void main() {
     // Pins the boundary. If a future change starts producing events for
     // any of these, this test will catch it. The line editor isn't
     // prepared to react to mouse / modifier-only / signal events, so
-    // letting them leak in would be a behavioural regression.
+    // letting them leak in would be a behavioural regression. (The scroll
+    // wheel is the exception: button4/5 become [ScrollEvent]s, which the
+    // focused panel routes to the chat scrollback — see the next test.)
     test('mouse buttons → null', () {
       for (final id in [
         nc.NcKey.motion,
         nc.NcKey.button1,
         nc.NcKey.button2,
         nc.NcKey.button3,
-        nc.NcKey.button4,
-        nc.NcKey.button5,
         nc.NcKey.button6,
         nc.NcKey.button7,
         nc.NcKey.button8,
@@ -309,6 +309,13 @@ void main() {
         expect(translate(id, isSynthesized: true), isNull,
             reason: 'mouse id $id should not produce an InputEvent');
       }
+    });
+
+    test('scroll wheel → ScrollEvent, not history arrows', () {
+      expect(translate(nc.NcKey.scrollUp, isSynthesized: true),
+          ScrollEvent(up: true));
+      expect(translate(nc.NcKey.scrollDown, isSynthesized: true),
+          ScrollEvent(up: false));
     });
 
     test('modifier-only keys → null', () {

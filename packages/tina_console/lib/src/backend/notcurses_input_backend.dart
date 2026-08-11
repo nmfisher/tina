@@ -616,6 +616,12 @@ InputEvent? translateNcKey({
   if (id == nc.NcKey.pgup) return ArrowKey(ArrowDirection.pageUp);
   if (id == nc.NcKey.pgdown) return ArrowKey(ArrowDirection.pageDown);
 
+  // Mouse scroll wheel (delivered when mice are enabled). Routed to the
+  // focused panel's scrollback, never to the editor — distinct from the
+  // up/down arrows that cycle command history.
+  if (id == nc.NcKey.scrollUp) return ScrollEvent(up: true);
+  if (id == nc.NcKey.scrollDown) return ScrollEvent(up: false);
+
   // Editing keys.
   if (id == nc.NcKey.home) return EditingKey(EditingAction.home);
   if (id == nc.NcKey.end) return EditingKey(EditingAction.end);

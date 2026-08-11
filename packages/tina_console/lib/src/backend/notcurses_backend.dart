@@ -121,6 +121,12 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
     if (nc_.notInitialized) {
       throw StateError('Failed to initialize notcurses');
     }
+    // Deliver mouse-button events (scroll wheel included) as key events, so
+    // the wheel can scroll the chat scrollback instead of falling through to
+    // the terminal's wheel→arrow translation (which the editor would treat
+    // as command-history up/down). Best-effort: a terminal without mouse
+    // support leaves the wheel unhandled rather than mis-routed.
+    nc_.miceEnable(nc.MiceEvents.buttonEvent);
     return _LiveNotcursesPlatform._(nc_, nc_.stdplane());
   }
 

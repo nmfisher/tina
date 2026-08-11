@@ -1110,6 +1110,7 @@ class TuiCoordinator {
       // (the frame is gone; its geometry is stale).
       handle.frame.onPanelKey = null;
       handle.frame.onScroll = null;
+      handle.frame.onWheel = null;
       handle.host.chat.onScrollbackChanged = null;
       supervisor.find(runId)?.onFinished = null;
       handle.content.detach();
@@ -1158,12 +1159,14 @@ class TuiCoordinator {
       contentCoordinator.bindExtra(frame: frame, content: content);
       panelManager.layout();
       contentCoordinator.relayContent();
-      // Scrollback: PgUp/PgDn scroll the transcript; the frame badge shows
-      // lines that arrived while scrolled up (mirrors _wireScrollback).
+      // Scrollback: PgUp/PgDn + the mouse wheel scroll the transcript; the
+      // frame badge shows lines that arrived while scrolled up (mirrors
+      // _wireScrollback).
       frame.onScroll = (deltaPages) {
         final page = host.chat.usableHeight;
         host.chat.scrollBy(deltaPages * (page > 0 ? page : 1));
       };
+      frame.onWheel = (deltaRows) => host.chat.scrollBy(deltaRows);
       host.chat.onScrollbackChanged = () {
         frame.setScrollBadge(host.chat.newWhileScrolled);
       };

@@ -71,6 +71,8 @@ class ConversationPanelCoordinator {
       final page = host.chat.usableHeight;
       host.chat.scrollBy(deltaPages * (page > 0 ? page : 1));
     };
+    // The mouse wheel scrolls the same scrollback, 3 rows per notch.
+    frame.onWheel = (deltaRows) => host.chat.scrollBy(deltaRows);
     host.chat.onScrollbackChanged = () {
       frame.setScrollBadge(host.chat.newWhileScrolled);
     };
@@ -256,6 +258,7 @@ class ConversationPanelCoordinator {
       // frame we're about to tear down.
       b.host.chat.onScrollbackChanged = null;
       b.frame.onScroll = null;
+      b.frame.onWheel = null;
       b.content.detach();
     }
     _bindings.clear();

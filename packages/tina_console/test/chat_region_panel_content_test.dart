@@ -391,4 +391,34 @@ void main() {
       }
     });
   });
+
+  group('PanelFrame.handleEvent (scrollback routing)', () {
+    (PanelFrame, ChatRegionPanelContent, ScrollingTextRegion) panel() =>
+        _panelWithChat('m', panelRect);
+
+    test('PgUp/PgDn call onScroll (±1 page)', () {
+      final (frame, _, _) = panel();
+      final pages = <int>[];
+      frame.onScroll = pages.add;
+      expect(frame.handleEvent(ArrowKey(ArrowDirection.pageUp)), isTrue);
+      expect(
+          frame.handleEvent(ArrowKey(ArrowDirection.pageDown)), isTrue);
+      expect(pages, [-1, 1]);
+    });
+
+    test('the mouse wheel calls onWheel — 3 rows per notch, never the editor',
+        () {
+      final (frame, _, _) = panel();
+      final rows = <int>[];
+      frame.onWheel = rows.add;
+      expect(frame.handleEvent(ScrollEvent(up: true)), isTrue);
+      expect(frame.handleEvent(ScrollEvent(up: false)), isTrue);
+      expect(rows, [-3, 3]);
+    });
+
+    test('an unwired wheel falls through (not consumed by the panel)', () {
+      final (frame, _, _) = panel();
+      expect(frame.handleEvent(ScrollEvent(up: true)), isFalse);
+    });
+  });
 }
