@@ -142,6 +142,44 @@ void main() {
       );
       expect(scheduler.seenSystemPrompt, isNotEmpty);
     });
+
+    test('onNodeStart fires before the agent runs, with id + full task',
+        () async {
+      final scheduler = _RecordingScheduler();
+      final seen = <String>[];
+      final backend = TinaCodergenBackend(
+        scheduler: scheduler,
+        sink: FakeAgentSink(),
+        defaultModelReference: 'anthropic/claude-sonnet-4-6',
+        onNodeStart: (id, task) => seen.add('$id|$task'),
+      );
+      final node = PipelineNode(id: 'intake', attrs: {});
+      await backend.run(
+        node: node,
+        prompt: 'explore the repo',
+        preamble: '--- plan ---\nthe plan',
+        context: Context(),
+      );
+      // The full task as received: preamble + prompt.
+      expect(seen.single, 'intake|--- plan ---\nthe plan\n\nexplore the repo');
+      expect(scheduler.calls, 1);
+    });
+
+    test('onNodeStart defaults to unset (headless runs stay as-is)', () async {
+      final scheduler = _RecordingScheduler();
+      final backend = TinaCodergenBackend(
+        scheduler: scheduler,
+        sink: FakeAgentSink(),
+        defaultModelReference: 'anthropic/claude-sonnet-4-6',
+      );
+      await backend.run(
+        node: PipelineNode(id: 'main', attrs: {}),
+        prompt: 'do it',
+        preamble: '',
+        context: Context(),
+      );
+      expect(scheduler.calls, 1);
+    });
   });
 
   group('FileRunStore', () {

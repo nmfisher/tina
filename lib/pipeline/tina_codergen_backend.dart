@@ -26,10 +26,19 @@ class TinaCodergenBackend implements CodergenBackend {
   /// omits `llm_model`/`llm_provider`. Threaded from the runner.
   final String defaultModelReference;
 
+  /// Fired just before a node's agent starts, with the node id and its full
+  /// task (preamble of prior outputs + the node's own prompt) — the "input"
+  /// of the node's transcript block. The runner wires it for live run panels;
+  /// headless runs leave it null and stay as-is. Fires per attempt (a retry
+  /// re-shows the input after the `↻` line) and per parallel branch (each
+  /// branch runs through this same backend).
+  final void Function(String nodeId, String task)? onNodeStart;
+
   TinaCodergenBackend({
     required this.scheduler,
     required this.sink,
     required this.defaultModelReference,
+    this.onNodeStart,
   });
 
   @override
@@ -43,6 +52,7 @@ class TinaCodergenBackend implements CodergenBackend {
     final identity =
         node.systemPrompt.isNotEmpty ? node.systemPrompt : _defaultNodeIdentity;
     final task = preamble.isEmpty ? prompt : '$preamble\n\n$prompt';
+    onNodeStart?.call(node.id, task);
     final nodeModel = node.modelReference;
     final result = await scheduler.runStandalone(
       systemPrompt: identity,

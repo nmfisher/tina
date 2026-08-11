@@ -5,10 +5,11 @@ import 'workflow_supervisor.dart';
 /// The agent-callable workflow launcher. The main agent hands a task to a DOT
 /// workflow (the `default` graph by default); this tool starts it as a
 /// **background run** under the [WorkflowSupervisor] and returns immediately —
-/// the chat stays open while the run churns, node progress streams into the
-/// chat via [sink], and when the run finishes the supervisor's `onComplete`
-/// hook wakes the launching conversation with a synthetic turn carrying the
-/// outcome (see `SessionController.injectWorkflowResult`).
+/// the chat stays open while the run churns, the run's node input/output
+/// streams into a live run panel (the host installs the panel sink on the run
+/// via the supervisor's `onLaunch`), and when the run finishes the
+/// supervisor's `onComplete` hook wakes the launching conversation with a
+/// synthetic turn carrying the outcome (see `SessionController.injectWorkflowResult`).
 ///
 /// Fire-and-forget from the agent's perspective: `execute` does not await the
 /// run. The agent learns the result in a follow-up turn and can cancel a
@@ -33,9 +34,10 @@ class LaunchWorkflowTool implements Tool {
             'execute → review pipeline) in the background. The preferred '
             'way to handle substantial or multi-step work: the workflow '
             'explores, plans, has the plan independently reviewed, executes '
-            'the chunks in parallel, and reviews the outcome. Node progress '
-            'streams into the chat while it runs, and the chat stays open — '
-            'you get a follow-up turn with the outcome when the run finishes. '
+            'the chunks in parallel, and reviews the outcome. Node input and '
+            'output stream into a live run panel while it runs, and the chat '
+            'stays open — you get a follow-up turn with the outcome when the '
+            'run finishes. '
             'Use this for anything that benefits from a plan, independent '
             'review, or parallel execution; use the file tools directly for '
             'small changes and `delegate` for a single focused sub-task. '
@@ -81,9 +83,9 @@ class LaunchWorkflowTool implements Tool {
 
     return ToolResult('Launched workflow "$workflow" in the background '
         '(run ${run.id}). It runs to completion while the chat stays open; '
-        'node progress streams into the chat, and I\'ll get a follow-up turn '
-        'with the outcome when it finishes. Cancel it with stop_workflow if '
-        'needed.');
+        'node input/output streams into a live run panel, and I\'ll get a '
+        'follow-up turn with the outcome when it finishes. Cancel it with '
+        'stop_workflow if needed.');
   }
 }
 

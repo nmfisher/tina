@@ -358,11 +358,12 @@ class TuiCoordinator {
     // The workflow supervisor: the main agent launches DOT workflows in the
     // background via its `launch_workflow` tool (lib/pipeline/launch_workflow_
     // tool.dart) and stops them with `stop_workflow`. One fresh runner per
-    // launch; node progress streams to the launching conversation's host while
-    // the run churns, and on completion `onComplete` fires the completion-turn
-    // hook (assigned to the controller below) so the agent wakes with the
-    // outcome. Defined here so both the initial Agent and the SessionManager's
-    // agentBuilder can wire it in.
+    // launch; the run's node text + progress stream into a live run panel (the
+    // host installs the panel sink on the run inside `onLaunch`), the chat
+    // keeps the launch + completion notices, and on completion `onComplete`
+    // fires the completion-turn hook (assigned to the controller below) so the
+    // agent wakes with the outcome. Defined here so both the initial Agent and
+    // the SessionManager's agentBuilder can wire it in.
     final tinaDataDir = tinaDirFromEnv(app.environment.env);
     final workflowsDir = Directory(p.join(tinaDataDir.path, 'workflows'));
     final runsRoot = Directory(p.join(tinaDataDir.path, 'runs'));
@@ -1042,18 +1043,27 @@ class TuiCoordinator {
 
     // A live view of one background workflow run, opened when the agent
     // launches a workflow (the supervisor's onLaunch hook). The panel is an
-    // "extra" — a non-conversation [RunPanelContent] in a spawned-style frame —
-    // auto-opened WITHOUT stealing input focus (the chat keeps the draft). Keys
-    // while the panel is focused: arrows pan the graph, `s` stops the run, `x`
-    // closes the panel (the run itself continues unless stopped).
-    final Map<String, ({PanelFrame frame, RunPanelContent content})>
+    // "extra" — a read-only [RunPanelContent] transcript in a spawned-style
+    // frame — auto-opened WITHOUT stealing input focus (the chat keeps the
+    // draft). The run's stream (node text + progress) is rerouted to the
+    // panel's own host ([WorkflowRun.sink]), so the panel shows the run's
+    // chat-style transcript and the chat stays clean. Keys while the panel is
+    // focused: `s` stops the run, `x` closes the panel (the run itself
+    // continues unless stopped), PgUp/PgDn scroll the transcript. Input is
+    // disabled — the frame never binds the shared editor.
+    final Map<String,
+            ({PanelFrame frame, RunPanelContent content, TuiConversationHost host})>
         runPanels = {};
 
     void _closeRunPanel(String runId) {
       final handle = runPanels.remove(runId);
       if (handle == null) return;
-      // Drop the hooks first so a late event can't repaint a torn-down panel.
+      // Drop the hooks first so a late event can't repaint a torn-down panel
+      // (the frame is gone; its geometry is stale).
       handle.frame.onPanelKey = null;
+      handle.frame.onScroll = null;
+      handle.host.chat.onScrollbackChanged = null;
+      supervisor.find(runId)?.onFinished = null;
       handle.content.detach();
       contentCoordinator.unbindExtra(handle.frame);
       tree.parentOf.remove(handle.frame.conversationId);
@@ -1068,22 +1078,18 @@ class TuiCoordinator {
         panelManager.layout();
         contentCoordinator.relayContent();
       }
+      // The run continues streaming into the detached region until it ends;
+      // the transcript buffers there and is discarded with the region.
     }
 
-    Future<void> _openRunPanel(WorkflowRun run) async {
-      // Re-read + parse the graph the run is executing. A missing/deleted file
-      // opens the panel in an error state rather than failing the launch.
-      // Async open is safe: the supervisor's internal nodeStatus listener never
-      // misses an event, and the updateStatus() below renders whatever state
-      // the run is already in when the panel lands.
-      Graph? graph;
-      String? error;
-      try {
-        graph = parseDot(
-            await PipelineRunner.readWorkflow(workflowsDir, run.workflowName));
-      } catch (e) {
-        error = 'graph unavailable: $e';
-      }
+    /// Open the run's live transcript panel. SYNCHRONOUS: it runs inside the
+    /// supervisor's `onLaunch` hook, before the run's stream can start, so
+    /// [WorkflowRun.sink] is installed before any node can emit.
+    void _openRunPanel(WorkflowRun run) {
+      // The run's stream sink: a spawned-style host whose region renders in
+      // this panel. Node text + progress land here instead of the chat.
+      final host = _makeSpawnedHost('wf-run-${run.id}');
+      run.sink = host;
 
       // First panel: split the layout to make a right column (mirrors
       // _buildSpawnPanel's first-panel block).
@@ -1100,11 +1106,19 @@ class TuiCoordinator {
       );
       tree.parentOf[frame.conversationId] = tree.rootId; // depth-1, flush
       tree.baseLabel[frame.conversationId] = frame.label;
-      final content = RunPanelContent(
-          screen: screen, graph: graph, run: run, error: error);
+      final content = RunPanelContent(screen: screen, chat: host.chat);
       contentCoordinator.bindExtra(frame: frame, content: content);
       panelManager.layout();
       contentCoordinator.relayContent();
+      // Scrollback: PgUp/PgDn scroll the transcript; the frame badge shows
+      // lines that arrived while scrolled up (mirrors _wireScrollback).
+      frame.onScroll = (deltaPages) {
+        final page = host.chat.usableHeight;
+        host.chat.scrollBy(deltaPages * (page > 0 ? page : 1));
+      };
+      host.chat.onScrollbackChanged = () {
+        frame.setScrollBadge(host.chat.newWhileScrolled);
+      };
       // The comet sweeps the rails while the run is in flight.
       frame.setBusy(run.isRunning);
       frame.onPanelKey = (ev) {
@@ -1116,22 +1130,18 @@ class TuiCoordinator {
           _closeRunPanel(run.id);
           return true;
         }
-        return content.handleKey(ev);
+        // Arrows/PgUp/PgDn are not consumed here — PgUp/PgDn reach the frame's
+        // scroll hook above; arrow keys do nothing (there is nothing to pan).
+        return false;
       };
-      // Events land here after the supervisor's internal nodeStatus update;
-      // the completion path settles the comet + final state.
-      run.onEvent = (_) => content.updateStatus();
-      run.onFinished = () {
-        frame.setBusy(false);
-        content.updateStatus();
-      };
-      runPanels[run.id] = (frame: frame, content: content);
-      // Draw the current state immediately (a run may already have emitted).
-      content.updateStatus();
+      // Completion settles the comet; the transcript already ends with the
+      // engine's ✔/✖ workflow complete/failed line.
+      run.onFinished = () => frame.setBusy(false);
+      runPanels[run.id] = (frame: frame, content: content, host: host);
     }
 
     // Wire the supervisor's onLaunch hook to the run-panel opener.
-    handleWorkflowLaunch = (run) => unawaited(_openRunPanel(run));
+    handleWorkflowLaunch = _openRunPanel;
 
     // Persist sub-agent transcripts as their own conversations AND, for agent-
     // role jobs, live-panelize them so a delegated sub-agent appears as a panel

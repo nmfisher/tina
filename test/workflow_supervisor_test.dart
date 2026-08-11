@@ -166,6 +166,34 @@ void main() {
           isTrue);
     });
 
+    test('onLaunch can install a panel sink; the run streams into it',
+        () async {
+      AgentSink? received;
+      final panelHost = FakeAgentSink();
+      final supervisor = WorkflowSupervisor(
+        run: ({
+          required workflowName,
+          required sink,
+          input,
+          history,
+          cancelSignal,
+          onEvent,
+        }) async {
+          received = sink;
+          return const Outcome.success();
+        },
+        onLaunch: (run) => run.sink = panelHost,
+      );
+
+      final run = supervisor.launch(
+          name: 'default', conversationId: 'conv-1', sink: FakeAgentSink());
+      await _pumpUntil(() => run.status == WorkflowRunStatus.completed);
+
+      // The runner streams into the host installed by onLaunch, not the chat
+      // sink the launch was called with.
+      expect(received, same(panelHost));
+    });
+
     test('onLaunch fires synchronously after the launch notice', () async {
       final runner = _ScriptedRunner();
       WorkflowRun? launched;

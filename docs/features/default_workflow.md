@@ -158,12 +158,13 @@ for now. A dedicated explore node or a first-class read-only `explore` tool
 
 - **Run:** the main agent launches the default graph via its `launch_workflow`
   tool (the default graph by default). The call returns immediately — the run
-  churns in the background while the chat stays open, node progress streams
-  into the chat, and when it finishes the agent gets a follow-up turn carrying
-  the outcome (it reports and acts on it). A running launch is cancelled with
-  the `stop_workflow` tool. (There is no longer anything to "disable" — the
-  graph never wraps a chat turn.) `/workflow list|show|new|edit` inspect/edit
-  graphs; there is no `/workflow run` command.
+  churns in the background while the chat stays open, node input/output
+  streams into a live run panel, and when it finishes the agent gets a
+  follow-up turn carrying the outcome (it reports and acts on it). A running
+  launch is cancelled with the `stop_workflow` tool. (There is no longer
+  anything to "disable" — the graph never wraps a chat turn.)
+  `/workflow list|show|new|edit` inspect/edit graphs; there is no
+  `/workflow run` command.
 - **Edit:** `/workflow edit default` opens the visual node editor on the seed
   graph. The graph serializes back through `graphToDot`, so hand-edits to the
   `.dot` file round-trip.

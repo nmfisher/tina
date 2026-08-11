@@ -6,9 +6,11 @@ import 'package:tina_engine/tina_engine.dart';
 /// Runs one workflow as a child run. This is the seam the supervisor calls; in
 /// production it is `PipelineRunner.run`, so the supervisor reuses the runner,
 /// the engine, and every handler without owning them. The [sink] is where the
-/// run's streamed text + node progress events land (the chat host); the
-/// [cancelSignal] future, when completed, aborts the run with a `cancelled`
-/// outcome — exactly the engine's existing contract.
+/// run's streamed text + node progress events land (by default the launching
+/// chat's host; the coordinator swaps in a live panel host for the run via the
+/// supervisor's `onLaunch` hook — see [WorkflowRun.sink]); the [cancelSignal]
+/// future, when completed, aborts the run with a `cancelled` outcome — exactly
+/// the engine's existing contract.
 typedef RunWorkflow = Future<Outcome> Function({
   required String workflowName,
   required AgentSink sink,
@@ -59,6 +61,13 @@ class WorkflowRun {
   /// final state from this even if its external listener joined late.
   final Map<String, NodeRunStatus> nodeStatus = {};
 
+  /// The run's stream sink — where node text + progress events land. By
+  /// default the launching chat's host (the sink passed to [launch]); the host
+  /// installs a per-run panel host here inside the supervisor's `onLaunch`
+  /// hook, before the runner starts, so the run's transcript renders in a live
+  /// panel instead of the chat.
+  AgentSink? sink;
+
   /// External progress listener, set by the host (typically inside the
   /// supervisor's `onLaunch` hook, before any production event can arrive).
   /// Receives every engine event after the internal [nodeStatus] update.
@@ -99,11 +108,12 @@ class WorkflowRun {
 /// **background child run** via the agent's `launch_workflow` tool. The
 /// supervisor does five things:
 ///
-/// 1. **Launch** ([launch]) — start a workflow as a fire-and-forget run, passing
-///    the chat host as the sink so node progress events surface live. Returns
-///    immediately with a [WorkflowRun] handle.
+/// 1. **Launch** ([launch]) — start a workflow as a fire-and-forget run,
+///    returning immediately with a [WorkflowRun] handle. The host installs a
+///    per-run stream sink on the run inside `onLaunch` (a live panel host, so
+///    node text + progress render in a panel instead of the chat).
 /// 2. **Monitor** — the run's events (`node_started`, `node_completed`, …) reach
-///    the chat through the sink that was passed in; nothing extra is needed.
+///    the sink that was installed; nothing extra is needed.
 /// 3. **Stop** ([stop]/[stopAll]) — complete a run's cancel signal so the engine
 ///    aborts the current node with a `cancelled` outcome.
 /// 4. **Report back** — when the run finishes (success, failure, or cancel) the
@@ -137,10 +147,13 @@ class WorkflowSupervisor {
       : _run = run;
 
   /// Launch `<name>` as a background child run for the conversation
-  /// [conversationId]. Output and node progress events stream to [sink] (the
-  /// chat host). [input] flows into the run as `$input`; [goal] annotates the
-  /// run for the launch/report notices. Returns immediately with a handle; the
-  /// run continues after this returns. (The run's `history` is always `null` —
+  /// [conversationId]. [sink] is where the supervisor's own notices (launch +
+  /// completion report) go — the launching chat's host. The run's streamed
+  /// text + node progress land on [sink] too unless the host installs a
+  /// per-run panel sink on the run inside `onLaunch` (see [WorkflowRun.sink]).
+  /// [input] flows into the run as `$input`; [goal] annotates the run for the
+  /// launch/report notices. Returns immediately with a handle; the run
+  /// continues after this returns. (The run's `history` is always `null` —
   /// the launching agent crafts [input]; the runner's `history` arg is unused.)
   ///
   /// [onEvent] is the run's external progress listener; the host typically
@@ -167,9 +180,25 @@ class WorkflowSupervisor {
     // The internal listener (nodeStatus tracking) is wired BEFORE the runner
     // starts, so even a synchronously-emitting runner records every event.
     run.onEvent = onEvent;
+    _runs[id] = run;
+    _launchOrder.add(id);
+
+    sink.notice('▶ workflow launched: $name [run $id]'
+        '${goal == null || goal.isEmpty ? '' : ' — $goal'}');
+
+    // Fire-and-forget: report back on completion without blocking launch.
+    // onLaunch fires synchronously BEFORE the runner starts — the host opens
+    // the run's live view here, installs the run's stream sink
+    // ([WorkflowRun.sink], a panel host), and attaches listeners. Nothing can
+    // be missed: `_run` is invoked after the hook returns, and its first await
+    // (reading the workflow file) gates the engine's first emission.
+    onLaunch?.call(run);
+
     final future = _run(
       workflowName: name,
-      sink: sink,
+      // The run's stream lands on the panel host when onLaunch installed one;
+      // otherwise it falls back to the launching chat's sink.
+      sink: run.sink ?? sink,
       input: input,
       history: null,
       cancelSignal: cancel.future,
@@ -178,17 +207,6 @@ class WorkflowSupervisor {
         run.onEvent?.call(e);
       },
     );
-    _runs[id] = run;
-    _launchOrder.add(id);
-
-    sink.notice('▶ workflow launched: $name [run $id]'
-        '${goal == null || goal.isEmpty ? '' : ' — $goal'}');
-
-    // Fire-and-forget: report back on completion without blocking launch.
-    // onLaunch fires here — synchronously, before the runner's first await can
-    // emit an event — so the host can open the live view and attach listeners
-    // without missing anything.
-    onLaunch?.call(run);
     unawaited(future.then(
       (outcome) {
         run.outcome = outcome;

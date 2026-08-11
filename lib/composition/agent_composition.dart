@@ -73,9 +73,10 @@ Agent buildAgent({
   // tools below can append without re-wrapping the registry.
   var tools = [...buildTools(safeMode: config.safeMode).all];
   // The workflow surface, when the host provides a supervisor: launch a DOT
-  // workflow in the background (node progress streams to [host] while it runs)
-  // and stop a running launch. The completion turn is injected by the
-  // supervisor's onComplete hook — not returned by the tool.
+  // workflow in the background (the run's input/output streams into a live run
+  // panel; the chat keeps the launch + completion notices) and stop a running
+  // launch. The completion turn is injected by the supervisor's onComplete
+  // hook — not returned by the tool.
   if (supervisor != null) {
     tools.add(LaunchWorkflowTool(
         supervisor: supervisor, conversationId: conversationId, sink: host));

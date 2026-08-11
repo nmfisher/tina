@@ -10,8 +10,9 @@ persistent top-level context — it runs its own turns like any plain agent. A D
 workflow is no longer wrapped around every chat turn. Instead, the main agent
 **launches** a workflow itself, as a tool call, when it decides the work wants
 one. The `launch_workflow` tool starts the graph as a **background run** and
-returns immediately — node progress streams into the chat live while it runs,
-and the **chat stays open** (the user can keep typing). When the run finishes,
+returns immediately — node input/output streams into a **live run panel**
+(§8) while it runs, and the **chat stays open** (the user can keep typing).
+When the run finishes,
 its completion **injects an agent turn** carrying the outcome, so the main agent
 wakes and reports on it / acts on it. A running launch can be cancelled at any
 time with the `stop_workflow` tool. The seeded `default.dot` stays as the
@@ -82,10 +83,14 @@ The tool takes:
 
 `execute` calls `supervisor.launch(name: …, conversationId: …, sink: …)` and
 returns **immediately** with a "launched … (run N)" result — it does not await
-the run. The launching conversation's host is the run's sink, so the engine's
-progress events surface to the chat as notices while the run is in flight —
-`▶ node`, `✔ node`, `✖ node: reason` (rendered by
-`PipelineRunner._renderEvent`). No polling: events are pushed as they happen.
+the run. The launch sink is the launching conversation's host (it carries the
+launch notice + the completion report), but the supervisor's `onLaunch` hook
+swaps in a **live run panel host** as the run's stream sink
+([WorkflowRun.sink]) before the runner starts — so the engine's progress
+events and node text land in the panel, not the chat. Each node's block is
+delimited by `▶ node` … `✔ node` (rendered by `PipelineRunner._renderEvent`)
+with `✖ node: reason` on failure. No polling: events are pushed as they
+happen.
 
 ### 3.2 Stop (the `stop_workflow` tool)
 
@@ -147,13 +152,13 @@ the runner, the engine, and the parallel handler are unchanged.
 | `lib/tui_coordinator.dart` | Builds the `WorkflowSupervisor` (over `buildRunner().run`) and wires both `buildAgent` call sites; `onComplete` → `controller.injectWorkflowResult` via a late `handleWorkflowComplete` field. |
 | `lib/session_controller.dart` | New `injectWorkflowResult(WorkflowRun)` — finds the launching conversation and starts (or queues) a synthetic outcome turn; `_runTurn` still runs the plain agent. |
 | `lib/pipeline/pipeline_commands.dart` | `/workflow run`+`stop` removed; `/workflow list\|show\|new\|edit` remain. Hints note workflows are launched by the agent. |
-| `lib/pipeline/workflow_supervisor.dart` | Live tracking: `WorkflowRun.nodeStatus` + `onEvent`/`onFinished` hooks and the `onLaunch` constructor hook; `launch` wires the internal listener before the runner starts. |
-| `lib/pipeline/pipeline_runner.dart` | `run()` gained an optional `onEvent` listener (the sink notices still fire). |
+| `lib/pipeline/workflow_supervisor.dart` | Live tracking: `WorkflowRun.nodeStatus` + `onEvent`/`onFinished` hooks and the `onLaunch` constructor hook; `WorkflowRun.sink` — the run's stream sink, installed by the host in `onLaunch` (launch is reordered so the hook fires before the runner starts). |
+| `lib/pipeline/pipeline_runner.dart` | `run()` gained an optional `onEvent` listener (the sink notices still fire) + `onNodeStart` — wired for TUI hosts only, it writes each node's dim header + full task into the panel transcript. |
 | `packages/attractor/…/engine.dart`, `node_handler.dart`, `handlers/parallel_handler.dart` | The engine threads its progress listener into `NodeHandler.execute`; parallel branches emit `node_*` events (removing the documented limitation). |
 | `packages/attractor/…/render/ascii_render.dart`, `run_status.dart` | `renderGraph` gained a `status` map → border glyphs per run state; new `NodeRunStatus` enum. |
-| `lib/tui/run_panel_content.dart` | **New.** `RunPanelContent` — the live run view (graph viewport + status list + legend). |
+| `lib/tui/run_panel_content.dart` | **New.** `RunPanelContent` — the live run transcript (wraps the run's chat region; dim `input disabled — read-only` label row). |
 | `lib/tui/conversation_panel_coordinator.dart`, `packages/tina_console/…/conversation_panel.dart` | `bindExtra`/`unbindExtra` for non-conversation panels; `PanelFrame.onPanelKey` key hook. |
-| `lib/tui_coordinator.dart` | `onLaunch` → `_openRunPanel`/`_closeRunPanel` (auto-open, `s` stop / `x` close, comet, no focus steal). |
+| `lib/tui_coordinator.dart` | `onLaunch` → `_openRunPanel`/`_closeRunPanel` (auto-open transcript panel: `_makeSpawnedHost` + `run.sink`, `s` stop / `x` close, PgUp/PgDn scrollback, comet, no focus steal). |
 | `bin/tina.dart` | Seed message corrected; `--workflow <name>` still launches a workflow explicitly to completion (a separate scripting mode). |
 
 **Kept untouched:** the graph model, the codergen handler, the run store, the
@@ -199,28 +204,39 @@ sit *above* the engine.
 
 ## 8. The live run panel
 
-When a workflow launches, a **live run panel auto-opens in the right column**
-(like a spawned agent panel) showing the run as it happens:
+When a workflow launches, a **read-only transcript panel auto-opens in the
+right column** (like a spawned agent panel) showing the run as it happens — a
+chat-style conversation of the run:
 
-- **Status line** — `RUNNING · 3/5 nodes` (colored per state: running cyan,
-  completed green, failed red, cancelled dim).
-- **A pannable ASCII graph** — each node's border carries its run state (heavy
-  = running, rounded = done, double = failed; arrows pan when the panel is
-  focused). Node status comes from the engine's `node_*` events, tracked
-  per-run by the supervisor ([WorkflowRun.nodeStatus]); **parallel branches
-  emit events too** (the engine threads its progress listener into
-  `NodeHandler.execute`, and the fan-out emits each branch's lifecycle).
-- **A colored per-node status list** in graph order (`▶` running, `✔` done,
-  `✖` failed, `↷` skipped, `·` pending).
-- **Keys while focused**: arrows pan, `s` stops the run (same as the
-  `stop_workflow` tool), `x` closes the panel (the run continues unless
-  stopped). The panel never steals input focus — typing always lands in the
-  chat.
+- **The run streams into the panel, not the chat.** The supervisor's
+  `onLaunch` hook builds a spawned-style host (a detached chat region, via the
+  same `_makeSpawnedHost` machinery spawned agent panels use) and installs it
+  as the run's stream sink ([WorkflowRun.sink]) **before the runner starts**,
+  so every node's text, tool calls, and progress render in the panel. The main
+  chat sees only the launch notice and the completion report (plus the
+  follow-up turn the completion injects).
+- **Per-node blocks.** Each node opens with `▶ <node>` (the engine's
+  `node_started` notice), a dim `──── node: <id> ────` header, and the node's
+  **full task as received** — the preamble of prior nodes' outputs plus its
+  own prompt — in user style; then the live streamed output + tool calls;
+  `✔ <node>` closes it. The header + input block are written by the runner's
+  `onNodeStart` hook, wired **only for TUI hosts** (headless `--workflow` keeps
+  the bare `▶` notices). Retries re-show the block after the `↻` line, and
+  **parallel branches stream interleaved** with their own blocks (the fan-out
+  runs each branch through the same backend).
+- **Input is disabled.** The panel never binds the shared editor; its bottom
+  row carries a dim `input disabled — read-only workflow view` label. Typing
+  always lands in the chat.
+- **Keys while focused**: `s` stops the run (same as the `stop_workflow`
+  tool), `x` closes the panel (the run continues unless stopped — the rest of
+  the run buffers into the detached region and is discarded), PgUp/PgDn scroll
+  the transcript (the frame badge shows lines that arrived while scrolled up).
 - **Lifecycle** — the frame's comet sweeps while the run is in flight and
-  settles on completion; the panel stays open showing the final state until
-  closed. Multiple concurrent runs stack one panel each.
+  settles on completion; the transcript ends with the engine's
+  `✔/✖ workflow complete/failed` line. The panel stays open showing the final
+  state until closed. Multiple concurrent runs stack one panel each.
 
 The panel is wired in the coordinator: the supervisor's `onLaunch` hook opens
-it ([RunPanelContent](`lib/tui/run_panel_content.dart`), a `PanelContent` with
-no conversation), run events repaint it, and `onFinished` settles the busy
-cue. The chat keeps streaming node notices as before.
+it synchronously ([RunPanelContent](`lib/tui/run_panel_content.dart`), a
+read-only `PanelContent` wrapping the run's chat region), `run.sink` is set to
+the panel host before the run starts, and `onFinished` settles the busy cue.

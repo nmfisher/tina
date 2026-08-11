@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 
+import '../host/tui_conversation_host.dart';
 import 'file_run_store.dart';
 import 'tina_codergen_backend.dart';
 import 'tina_interviewer.dart';
@@ -66,10 +67,22 @@ class PipelineRunner {
       sink.notice('$w', kind: NoticeKind.info);
     }
 
+    // When the run's sink is a TUI conversation host (a live run panel), each
+    // node's transcript block opens with its input: a dim node header, then
+    // the full task (preamble + prompt) in user style. Headless runs
+    // (HeadlessHost) skip this — the `▶ node` notices carry the markers.
     final backend = TinaCodergenBackend(
-        scheduler: scheduler,
-        sink: sink,
-        defaultModelReference: defaultModelReference);
+      scheduler: scheduler,
+      sink: sink,
+      defaultModelReference: defaultModelReference,
+      onNodeStart: sink is TuiConversationHost
+          ? (id, task) {
+              sink.showMessage('──── node: $id ────',
+                  style: HostMessageStyle.dim);
+              sink.showMessage(task, style: HostMessageStyle.user);
+            }
+          : null,
+    );
     final interviewer = TinaInterviewer(screen: screen, editor: editor);
 
     final runId = _newRunId();
