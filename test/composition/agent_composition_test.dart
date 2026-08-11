@@ -83,6 +83,31 @@ void main() {
       expect(agent.tools['send'], isNull);
     });
 
+    test('ask_user is wired when the coordinator provides an asker, absent '
+        'otherwise', () {
+      final config = testConfig();
+      final scheduler = createScheduler(
+        config: config,
+        registry: ProviderRegistry(env: {}),
+        pipeline: defaultPipeline,
+      );
+      Agent build({Future<List<Answer>> Function(List<Question>)? askUser}) =>
+          buildAgent(
+            pipeline: defaultPipeline,
+            scheduler: scheduler,
+            conversationId: 'c1',
+            provider: FakeProvider(const [], model: 'm'),
+            host: FakeHostInterface(),
+            policy: config.buildPolicy(),
+            config: config,
+            askUser: askUser,
+          );
+      expect(build().tools['ask_user'], isNull);
+      expect(
+          build(askUser: (questions) async => const []).tools['ask_user'],
+          isNotNull);
+    });
+
     test('the workflow surface is wired in both modes when a supervisor is '
         'provided', () {
       final config = testConfig();

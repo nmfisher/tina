@@ -325,31 +325,213 @@ class _ListPickerForm<T> {
 
   static const _focusMark = '▸';
 
-  List<String> _box(String title, List<String> body, String footer) {
-    final w = _rect.width;
-    final innerW = w - 4;
-    String wrap(String s) {
-      final t =
-          s.length > innerW ? s.substring(0, innerW) : s.padRight(innerW);
-      return '${_paint('│')} $t ${_paint('│')}';
+  List<String> _box(String title, List<String> body, String footer) =>
+      _boxLines(
+        width: _rect.width,
+        height: _rect.height,
+        title: title,
+        body: body,
+        footer: footer,
+        paint: _paint,
+      );
+}
+
+/// One bordered content row inside a [_boxLines] frame.
+String _wrapLine(int innerW, String s, String Function(String) paint) {
+  final t = s.length > innerW ? s.substring(0, innerW) : s.padRight(innerW);
+  return '${paint('│')} $t ${paint('│')}';
+}
+
+/// The bordered box shared by the list picker and the question form: title
+/// bar, [body] rows, a blank separator, the footer, padded to [height], with
+/// any overflow truncated.
+List<String> _boxLines({
+  required int width,
+  required int height,
+  required String title,
+  required List<String> body,
+  required String footer,
+  required String Function(String) paint,
+}) {
+  final w = width;
+  final innerW = w - 4;
+  final titleSeg = ' $title ';
+  final titleFit =
+      titleSeg.length > w - 2 ? titleSeg.substring(0, w - 2) : titleSeg;
+  final lines = <String>[
+    '${paint('┌')}${paint(titleFit)}${paint('─' * (w - 2 - titleFit.length))}${paint('┐')}',
+    ...body.map((s) => _wrapLine(innerW, s, paint)),
+    _wrapLine(innerW, '', paint),
+    _wrapLine(innerW, footer, paint),
+  ];
+  while (lines.length < height - 1) {
+    lines.add(_wrapLine(innerW, '', paint));
+  }
+  lines.add('${paint('└')}${paint('─' * (w - 2))}${paint('┘')}');
+  if (lines.length > height) {
+    lines.removeRange(height, lines.length);
+  }
+  return lines;
+}
+
+/// A multi-question selection form: one or more questions, each with a list of
+/// options. ↑/↓ move the option focus within the focused question; ←/→ move
+/// between questions (each keeps its own option focus); Enter confirms ALL
+/// questions at once; Esc/Ctrl-C cancels. Returns the chosen option label per
+/// question (index-aligned), or null on cancel. The opencode/Claude-Code-style
+/// primitive backing the agent's `ask_user` tool.
+Future<List<String>?> runQuestionOverlay({
+  required Screen screen,
+  required LineEditor editor,
+  required List<({String text, List<String> options})> questions,
+  Future<InputEvent> Function()? readEvent,
+}) =>
+    _QuestionForm(screen, questions, readEvent ?? editor.readKey).run();
+
+class _QuestionForm {
+  _QuestionForm(this._screen, this._questions, this._readEvent);
+
+  final Screen _screen;
+  final List<({String text, List<String> options})> _questions;
+  final Future<InputEvent> Function() _readEvent;
+
+  late final OverlayRegion _overlay;
+  late final Rect _rect;
+
+  int _questionFocus = 0;
+  final List<int> _optionFocus = [];
+  final List<int> _selections = [];
+  int _scrollOffset = 0;
+
+  Future<List<String>?> run() async {
+    if (_questions.isEmpty) return const [];
+    for (var i = 0; i < _questions.length; i++) {
+      _optionFocus.add(0);
+      _selections.add(0);
+    }
+    final layout = _screen.layout;
+    final w = (layout.width - 4).clamp(40, 60);
+    final h = (layout.height * 2 ~/ 3).clamp(12, layout.height - 4);
+    _rect = Rect(
+      row: (layout.height - h) ~/ 2,
+      col: (layout.width - w) ~/ 2,
+      width: w,
+      height: h,
+    );
+    _overlay = OverlayRegion(_screen, _rect);
+    _render();
+    while (true) {
+      final ev = await _readEvent();
+      if (ev is EscapeKey ||
+          (ev is ControlKey && ev.code == ControlCode.ctrlC)) {
+        _dispose();
+        return null;
+      }
+      if (_dispatch(ev)) {
+        _dispose();
+        return [
+          for (var q = 0; q < _questions.length; q++)
+            _questions[q].options[_selections[q]],
+        ];
+      }
+      _render();
+    }
+  }
+
+  void _dispose() {
+    _overlay.hide();
+    _overlay.dispose();
+  }
+
+  /// Returns true when the user confirmed.
+  bool _dispatch(InputEvent ev) {
+    if (ev is ArrowKey) {
+      final options = _questions[_questionFocus].options;
+      switch (ev.direction) {
+        case ArrowDirection.up:
+          if (options.isNotEmpty) {
+            _optionFocus[_questionFocus] =
+                (_optionFocus[_questionFocus] - 1).clamp(0, options.length - 1);
+          }
+        case ArrowDirection.down:
+          if (options.isNotEmpty) {
+            _optionFocus[_questionFocus] =
+                (_optionFocus[_questionFocus] + 1).clamp(0, options.length - 1);
+          }
+        case ArrowDirection.left:
+          if (_questionFocus > 0) _questionFocus--;
+        case ArrowDirection.right:
+          if (_questionFocus < _questions.length - 1) _questionFocus++;
+        case ArrowDirection.pageUp:
+        case ArrowDirection.pageDown:
+          break; // no paging in the question form
+      }
+      _ensureFocusedVisible();
+      return false;
+    }
+    if (ev is ControlKey && ev.code == ControlCode.enter) {
+      for (var q = 0; q < _questions.length; q++) {
+        _selections[q] = _optionFocus[q];
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /// The body row index of the focused option.
+  int _focusedRow() {
+    var row = 0;
+    for (var q = 0; q < _questionFocus; q++) {
+      row += 1 + _questions[q].options.length + 1; // question + options + blank
+    }
+    return row + 1 + _optionFocus[_questionFocus];
+  }
+
+  void _ensureFocusedVisible() {
+    final visible = (_rect.height - 4).clamp(1, 1 << 30);
+    if (_focusedRow() < _scrollOffset) {
+      _scrollOffset = _focusedRow();
+    } else if (_focusedRow() >= _scrollOffset + visible) {
+      _scrollOffset = _focusedRow() - visible + 1;
+    }
+  }
+
+  // -- Render -----------------------------------------------------------------
+
+  void _render() => _overlay.show(_boxLines(
+        width: _rect.width,
+        height: _rect.height,
+        title: 'Questions',
+        body: _body(),
+        footer: '↑↓ option · ←→ question · enter confirm · esc cancel',
+        paint: _paint,
+      ));
+
+  String _paint(String s) => _screen.colorize('cyan', s);
+
+  List<String> _body() {
+    final all = <String>[];
+    for (var q = 0; q < _questions.length; q++) {
+      final qFocus = q == _questionFocus;
+      all.add(qFocus ? '▸ ${_questions[q].text}' : '  ${_questions[q].text}');
+      final options = _questions[q].options;
+      for (var o = 0; o < options.length; o++) {
+        final oFocus = qFocus && o == _optionFocus[q];
+        all.add(oFocus ? '    ▸ ${options[o]}' : '      ${options[o]}');
+      }
+      if (q < _questions.length - 1) all.add('');
     }
 
-    final titleSeg = ' $title ';
-    final titleFit =
-        titleSeg.length > w - 2 ? titleSeg.substring(0, w - 2) : titleSeg;
-    final lines = <String>[
-      '${_paint('┌')}${_paint(titleFit)}${_paint('─' * (w - 2 - titleFit.length))}${_paint('┐')}',
-      ...body.map(wrap),
-      wrap(''),
-      wrap(footer),
-    ];
-    while (lines.length < _rect.height - 1) {
-      lines.add(wrap(''));
+    final visible = (_rect.height - 4).clamp(1, all.length);
+    _scrollOffset = _scrollOffset.clamp(0, all.length - 1);
+    final end = (_scrollOffset + visible).clamp(0, all.length);
+    final slice = all.sublist(_scrollOffset, end);
+    if (_scrollOffset > 0 && slice.isNotEmpty) {
+      slice[0] = '↑ $_scrollOffset more';
     }
-    lines.add('${_paint('└')}${_paint('─' * (w - 2))}${_paint('┘')}');
-    if (lines.length > _rect.height) {
-      lines.removeRange(_rect.height, lines.length);
+    if (end < all.length && slice.isNotEmpty) {
+      slice[slice.length - 1] = '↓ ${all.length - end} more';
     }
-    return lines;
+    return slice;
   }
 }

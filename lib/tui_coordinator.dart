@@ -417,6 +417,36 @@ class TuiCoordinator {
       spendLedger: app.spendLedger,
     );
 
+    // `ask_user`: the agent poses multiple-choice questions; the user
+    // navigates ↑/↓ within a question and ←/→ between questions, Enter
+    // confirms. An empty answer list = the user cancelled (Esc).
+    Future<List<Answer>> Function(List<Question>) askUser = (questions) async {
+      final labels = await runQuestionOverlay(
+        screen: screen,
+        editor: editor,
+        questions: [
+          for (final q in questions)
+            (
+              text: q.text,
+              options: [
+                for (final o in q.options ?? const <Option>[]) o.label,
+              ],
+            ),
+        ],
+      );
+      if (labels == null) return const [];
+      return [
+        for (var i = 0; i < questions.length; i++)
+          Answer(
+            value: labels[i],
+            selectedOption: questions[i].options!.firstWhere(
+              (o) => o.label == labels[i],
+              orElse: () => Option(key: '${i + 1}', label: labels[i]),
+            ),
+          ),
+      ];
+    };
+
     // Build the initial session. Its host adopts screen.chat as its (active)
     // region and the shared spinner (bound to the status row), so it is on
     // screen from construction — active: true gives it an interactive asker.
@@ -463,6 +493,7 @@ class TuiCoordinator {
       supervisor: supervisor,
       regions: regions,
       summaryIndex: summaryIndex,
+      askUser: askUser,
       system: initialSystem,
     );
     final initialConversation = Conversation(
@@ -502,6 +533,7 @@ class TuiCoordinator {
         supervisor: supervisor,
         regions: regions,
         summaryIndex: summaryIndex,
+        askUser: askUser,
       ),
       sessionStore: store,
     );
@@ -1794,19 +1826,24 @@ class TuiCoordinator {
 
     // `/index`: the per-directory summary sidecar service built above (it
     // shares the region registry's allocations, so `/index` covers allocated
-    // regions too). The y/n confirm reads a single key via the shared line
-    // editor — the same primitive the permission modal uses.
+    // regions too). The y/n confirm renders as the same arrow-key picker the
+    // other choices use (Yes/No entries), not a bare key read.
     controller.summaryIndex = summaryIndex;
     // `/spend`: the process-wide token ledger (all agents + sub-agents +
     // workflows + /index runs), persisted into the session manifest.
     controller.spendLedger = app.spendLedger;
     controller.confirm = (prompt) async {
-      final host = sessionManager.activeConversation.host;
-      host.showMessage(prompt);
-      final event = await editor.readKey();
-      final yes = event is CharInput && event.text.toLowerCase() == 'y';
-      host.showMessage('${event is CharInput ? event.text : ''}\n');
-      return yes;
+      final title =
+          prompt.replaceFirst(RegExp(r'\s*\[\s*y/N\s*\]\s*$'), '').trim();
+      final choice = await runListOverlay<bool>(
+        screen: screen,
+        editor: editor,
+        entries: const [(display: 'Yes', value: true), (display: 'No', value: false)],
+        title: title,
+        footer: '↑↓ move · enter select · esc cancel',
+        accent: 'cyan',
+      );
+      return choice ?? false;
     };
 
     return coordinator;

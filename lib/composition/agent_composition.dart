@@ -1,6 +1,8 @@
+import 'package:attractor/attractor.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 import '../config.dart';
+import '../pipeline/ask_user_tool.dart';
 import '../pipeline/launch_workflow_tool.dart';
 import '../pipeline/workflow_supervisor.dart';
 import '../regions/region_registry.dart';
@@ -62,6 +64,7 @@ Agent buildAgent({
   WorkflowSupervisor? supervisor,
   RegionRegistry? regions,
   SummaryIndex? summaryIndex,
+  Future<List<Answer>> Function(List<Question>)? askUser,
   String? system,
 }) {
   // The entry agent's resolved system prompt — also the identity a delegated
@@ -106,6 +109,11 @@ Agent buildAgent({
       if (summaryIndex != null) ForgetRegionTool(regions),
     ]);
   }
+  // The question surface, when the coordinator wired an asker: pose
+  // multiple-choice questions to the user (↑/↓ option, ←/→ question).
+  if (askUser != null) {
+    tools.add(AskUserTool(askUser));
+  }
 
   final ToolRegistry agentTools;
   final PermissionPolicy effectivePolicy;
@@ -139,6 +147,8 @@ Agent buildAgent({
         'read_summary': PermissionDecision.allow,
         'query_region': PermissionDecision.allow,
         'allocate_region': PermissionDecision.allow,
+        // ask_user IS the user interaction — no double prompt.
+        'ask_user': PermissionDecision.allow,
       },
       rules: policy.staticRules,
     );
