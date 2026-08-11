@@ -87,6 +87,20 @@ void main() {
       expect(await f, 'ab');
     });
 
+    test('submitted text clears from the input immediately (dispatch window)',
+        () async {
+      final ed = _editor(io);
+      final f = ed.readLine('> ');
+      await _flush();
+      io.feedBytes([0x61, 0x62, 0x0d]); // a, b, Enter
+      expect(await f, 'ab');
+      await _flush();
+      // The buffer is empty BEFORE the next readLine — a long-running command
+      // dispatch (e.g. /index's confirm + fleet run) must not leave the
+      // submitted text sitting in the input region.
+      expect(ed.editState.buffer, isEmpty);
+    });
+
     test('Ctrl-C with empty buffer triggers confirm, second exits', () async {
       final ed = _editor(io);
       final f = ed.readLine('> ');
