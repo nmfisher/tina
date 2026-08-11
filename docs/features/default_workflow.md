@@ -42,6 +42,39 @@ Routing between nodes is verdict-driven: a reviewer ends its response with a
 `delegate` tool (a task plus an optional tool profile: `read-only` for
 exploration/review, `full` for changes).
 
+## Context handoff — each node declares what it receives
+
+A node's preamble is **not** the run so far. Each node declares the prior
+outputs it wants in its `context` attribute; the engine renders exactly those,
+in declared order, as `--- <key> ---` sections in front of the node's prompt.
+Nothing accumulates by default: a node with no `context` attribute sees an
+empty preamble — its prompt (with `$input`, `$goal`, `$history` still
+expandable) is its only input.
+
+- `context="plan"` — this node's preamble renders the `plan` context key (the
+  `plan` node's output, or any node that re-published to it).
+- `writes="plan"` — this node's output is **also** published under the `plan`
+  key, in addition to its own id. The shared-key primitive: a reviewer writes
+  the current plan to `plan`, so every `context="plan"` reader sees the latest
+  version.
+- A declared key with no value yet renders nothing; a `context` key that names
+  no graph node gets a validator warning (`context_key_unknown`). The run
+  panel transcript shows the trimmed input live, so a typo is visible
+  immediately.
+
+The default graph's handoff:
+
+| node | context | sees |
+|---|---|---|
+| `plan` | `intake` | the intake summary |
+| `plan_review_1` / `plan_review_2` | `plan` (+ `writes="plan"`) | the current plan; re-publishes it |
+| `exec_1` / `exec_2` / `exec_3` | `plan` | exactly the approved plan — never each other, never reviewer chatter |
+| `exec_reviewer` | `fanin` | the parallel merge |
+
+In a fan-out, each branch runs against a **cloned** context and declares its
+own `context`, so branches see only what they declare — a sibling's output
+never leaks into a branch's preamble.
+
 ## Design decisions
 
 ### Double review — two sequential nodes, one identity
@@ -72,14 +105,15 @@ review node, not back to `plan`:
 - `plan_review_1 --revise--> plan_review_1`
 - `plan_review_2 --revise--> plan_review_2`
 
-The plan therefore evolves as a **chain of revisions carried forward in each
-downstream node's preamble** (the engine renders prior node outputs as
-`--- <nodeId> ---` sections in front of the next prompt). Each reviewer is told
-to treat the most recent revision as the current plan. No special context-key
-remapping is needed — the existing preamble mechanism carries it. The
+The plan lives at **one stable key**. Each reviewer declares `writes="plan"`,
+so its response **overwrites the `plan` context key in place** — on revise it
+is the full revised plan; on approve the prompt has it restate the plan
+unchanged. Every consumer reads `context="plan"` and always gets the current
+plan, and the next revision visit reads its own previous revision from the
+same key — no revision chain is threaded through downstream preambles. The
 back-edge is a plain edge, so the loop is bounded only by the reviewer
-eventually approving; a reviewer prompt that caps revisions (e.g. "approve with
-caveats after two revises") is the mitigation.
+eventually approving; a reviewer prompt that caps revisions (e.g. "approve
+with caveats after two revises") is the mitigation.
 
 ### Clarification goes through the human gate
 
@@ -112,17 +146,18 @@ single **convergence** (the one `tripleoctagon` target — `fanin`). The handler
    via the handler registry (so a `box` executor runs under the same codergen
    handler as anywhere else).
 3. **Stages** each branch's output under `internal.parallel.<fanout>.branch.<id>`
-   keys (the `internal.` prefix means the preamble skips them) plus a branch
-   list, and routes the engine to the fan-in node via
-   `Outcome.suggestedNextIds`.
+   keys plus a branch list, and routes the engine to the fan-in node via
+   `Outcome.suggestedNextIds`. (`internal.` keys are engine staging: they only
+   appear in a preamble if a node explicitly declares them in its `context`
+   attribute.)
 
 The `fanin` node's handler finds its fan-out predecessor (the incoming edge
 whose source resolves to a `parallel` handler), reads that predecessor's staged
 branches, and **merges them into one result** under its own node id — so the
-next node's preamble sees a single `--- fanin ---` block instead of N internal
-keys. A failed branch is surfaced as text inside the merge (the fan-out itself
-still succeeds), so the execution reviewer can judge it rather than the whole
-run aborting.
+next node (which declares `context="fanin"`) sees a single `--- fanin ---`
+block instead of N internal keys. A failed branch is surfaced as text inside
+the merge (the fan-out itself still succeeds), so the execution reviewer can
+judge it rather than the whole run aborting.
 
 The executors divide the work statically: the `plan` node is told to split the
 work into up to three independent chunks labeled `[1]`, `[2]`, `[3]`, and each

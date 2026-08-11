@@ -57,8 +57,9 @@ class Context {
   Iterable<ContextEntry> get orderedEntries =>
       _values.entries.map((e) => ContextEntry(e.key, e.value));
 
-  /// The keys the engine itself manages — a preamble should skip these when
-  /// assembling prior-work context.
+  /// The keys the engine itself manages. They appear in a preamble only if a
+  /// node explicitly declares them in its `context` attribute — the preamble
+  /// no longer auto-skips (declaration is the filter).
   static const internalKeys = <String>{
     'outcome',
     'preferred_label',

@@ -406,12 +406,15 @@ agent each time**, from that node's `role` (system prompt, tools, model) and `pr
   it to every node. A node writes its output under `context.<nodeId>` (`codergen_handler.dart:59`),
   and the engine merges it back (`engine.dart:125`). Later nodes can read it.
 
-Then how does data move between nodes if there is no shared memory? **As text.** The handler builds a
-*preamble* from the shared `Context` (`buildPreamble`, `codergen_handler.dart:87`) and puts it in
-front of the next node's prompt (`tina_codergen_backend.dart:49`). Node B sees node A's output only
-because the handler copied it in as text. Chat `history` works the same way: it is seeded into the
-`Context` as a string (`pipeline_runner.dart:97`) and pulled in only where a prompt writes `$history`
-— it is text, not a shared message log.
+Then how does data move between nodes if there is no shared memory? **As text — and each node picks
+its own.** The handler builds a *preamble* from the shared `Context`, restricted to the keys the
+node declared in its `context` attribute (`buildPreamble`, `codergen_handler.dart:87`), and puts it
+in front of the next node's prompt (`tina_codergen_backend.dart:49`). Node B sees node A's output
+only if B declared `context="A"` — nothing accumulates by default. A node can also publish its
+output under extra keys (`writes="…"`) so a stable shared key (e.g. `plan`) always holds the latest
+version for everyone who reads it. Chat `history` works the same way: it is seeded into the `Context`
+as a string (`pipeline_runner.dart:97`) and pulled in only where a prompt writes `$history` — it is
+text, not a shared message log.
 
 The engine itself keeps no state between runs (`engine.dart:25`): one engine per run.
 

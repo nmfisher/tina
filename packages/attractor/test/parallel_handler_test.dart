@@ -335,7 +335,7 @@ void main() {
           a [shape=box]
           b [shape=box]
           fanin [shape=tripleoctagon]
-          sink [shape=box]
+          sink [shape=box, context="fanin"]
           exit [shape=Msquare]
           start -> fanout
           fanout -> a
@@ -360,13 +360,47 @@ void main() {
       final fanIn = store.nodes.firstWhere((n) => n.nodeId == 'fanin');
       expect(fanIn.response, contains('A did it'));
       expect(fanIn.response, contains('B did it'));
-      // The downstream sink's preamble carries the merged fan-in result.
+      // The downstream sink's preamble carries the merged fan-in result — the
+      // sink declared context="fanin"; the raw internal staging keys never
+      // leak into a preamble.
       final sinkCall = backend.calls.firstWhere((c) => c.nodeId == 'sink');
       expect(sinkCall.preamble, contains('--- fanin ---'));
       expect(sinkCall.preamble, contains('A did it'));
       expect(sinkCall.preamble, contains('B did it'));
-      // The raw internal staging keys never leak into a preamble.
       expect(sinkCall.preamble, isNot(contains('internal.parallel')));
+    });
+
+    test('branches see only their declared context, never a sibling\'s output',
+        () async {
+      final g = parseDot('''
+        digraph T {
+          start [shape=Mdiamond]
+          plan [shape=box]
+          fanout [shape=component]
+          a [shape=box, context="plan"]
+          b [shape=box, context="plan"]
+          fanin [shape=tripleoctagon]
+          exit [shape=Msquare]
+          start -> plan -> fanout
+          fanout -> a
+          fanout -> b
+          fanout -> fanin
+          fanin -> exit
+        }
+      ''');
+      final backend = _FakeBackend({});
+      final (outcome, _) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.success);
+      // Each branch declares context="plan" — it sees the plan and nothing
+      // else: not the sibling's output, not the fan-out staging.
+      final aCall = backend.calls.firstWhere((c) => c.nodeId == 'a');
+      final bCall = backend.calls.firstWhere((c) => c.nodeId == 'b');
+      expect(aCall.preamble, contains('--- plan ---'));
+      expect(aCall.preamble, contains('response for plan'));
+      expect(aCall.preamble, isNot(contains('--- b ---')));
+      expect(bCall.preamble, isNot(contains('--- a ---')));
+      expect(aCall.preamble, isNot(contains('internal.parallel')));
     });
 
     test('a failed branch is surfaced in the merge; the pipeline continues',

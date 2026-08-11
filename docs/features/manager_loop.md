@@ -217,8 +217,9 @@ chat-style conversation of the run:
   follow-up turn the completion injects).
 - **Per-node blocks.** Each node opens with `▶ <node>` (the engine's
   `node_started` notice), a dim `──── node: <id> ────` header, and the node's
-  **full task as received** — the preamble of prior nodes' outputs plus its
-  own prompt — in user style; then the live streamed output + tool calls;
+  **full task as received** — its declared context (the prior outputs it named
+  in `context="…"`, nothing more) plus its own prompt — in user style; then
+  the live streamed output + tool calls;
   `✔ <node>` closes it. The header + input block are written by the runner's
   `onNodeStart` hook, wired **only for TUI hosts** (headless `--workflow` keeps
   the bare `▶` notices). Retries re-show the block after the `↻` line, and

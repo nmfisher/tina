@@ -86,7 +86,7 @@ void main() {
           graph [goal="do the thing"]
           start [shape=Mdiamond]
           plan [shape=box, role="orchestrator", prompt="plan: \$goal"]
-          build [shape=box, role="implementer"]
+          build [shape=box, role="implementer", context="plan"]
           exit [shape=Msquare]
           start -> plan -> build -> exit
         }
@@ -100,11 +100,103 @@ void main() {
       // plan's own prompt had $goal expanded.
       expect(backend.calls.first.prompt, 'plan: do the thing');
       // plan's response was stored under context.plan and carried into build's
-      // preamble (the prior-work section).
+      // preamble — but only because build declared context="plan".
       final buildPreamble =
           backend.calls.firstWhere((c) => c.nodeId == 'build').preamble;
       expect(buildPreamble, contains('--- plan ---'));
       expect(buildPreamble, contains('response for plan'));
+    });
+
+    test('a node without a context attr gets an empty preamble (strict)',
+        () async {
+      final g = parseDot('''
+        digraph Strict {
+          start [shape=Mdiamond]
+          plan [shape=box]
+          build [shape=box]
+          exit [shape=Msquare]
+          start -> plan -> build -> exit
+        }
+      ''');
+      final backend = _FakeBackend({});
+      final (outcome, _) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.success);
+      // plan ran and wrote context.plan, but build declared no context — it
+      // sees nothing: nothing accumulates by default.
+      expect(
+          backend.calls.firstWhere((c) => c.nodeId == 'build').preamble, '');
+    });
+
+    test('context keys render in declared order; missing keys render nothing',
+        () async {
+      final g = parseDot('''
+        digraph Ordered {
+          start [shape=Mdiamond]
+          a [shape=box]
+          b [shape=box]
+          c [shape=box, context="b,a,ghost"]
+          exit [shape=Msquare]
+          start -> a -> b -> c -> exit
+        }
+      ''');
+      final backend = _FakeBackend({});
+      final (outcome, _) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.success);
+      final preamble =
+          backend.calls.firstWhere((c) => c.nodeId == 'c').preamble;
+      // Declared order (b before a — the reverse of insertion order), and the
+      // unknown key renders nothing.
+      expect(preamble.indexOf('--- b ---'), lessThan(preamble.indexOf('--- a ---')));
+      expect(preamble, isNot(contains('ghost')));
+      expect(preamble, contains('response for a'));
+    });
+
+    test('writes re-publishes the output: readers of the shared key always '
+        'see the latest revision', () async {
+      final g = parseDot('''
+        digraph SharedKey {
+          start [shape=Mdiamond]
+          plan [shape=box]
+          review [shape=box, context="plan", writes="plan"]
+          execute [shape=box, context="plan"]
+          done [shape=Msquare]
+          start -> plan -> review
+          review -> execute [label="approve"]
+          review -> review [label="revise"]
+          execute -> done
+        }
+      ''');
+      final reviewTexts = <String>[];
+      final scripted = _FakeBackend({})..scriptedOverride = (id) {
+          if (id == 'review') {
+            reviewTexts.add('revised plan v${reviewTexts.length + 1}');
+            final v = reviewTexts.length;
+            return CodergenResult('revised plan v$v',
+                outcome: v < 3
+                    ? const Outcome.success(preferredLabel: 'revise')
+                    : const Outcome.success(preferredLabel: 'approve'));
+          }
+          return CodergenResult('output of $id');
+        };
+
+      final (outcome, _) = await _run(g, backend: scripted);
+
+      expect(outcome.status, StageStatus.success);
+      final calls = scripted.calls.where((c) => c.nodeId == 'review').toList();
+      expect(calls.length, 3);
+      // Each revisit reads the shared `plan` key — which now holds the
+      // PREVIOUS visit's revision, not the original plan: the self-loop
+      // refreshes without threading a revision chain through preambles.
+      expect(calls[1].preamble, contains('--- plan ---'));
+      expect(calls[1].preamble, contains('revised plan v1'));
+      expect(calls[1].preamble, isNot(contains('output of plan')));
+      expect(calls[2].preamble, contains('revised plan v2'));
+      // The executor reads the final approved plan from the same key.
+      final execPreamble =
+          scripted.calls.firstWhere((c) => c.nodeId == 'execute').preamble;
+      expect(execPreamble, contains('revised plan v3'));
     });
 
     test('expands any \$<key> token from the run context', () async {

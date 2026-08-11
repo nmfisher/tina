@@ -149,6 +149,22 @@ List<Diagnostic> validate(Graph graph) {
     }
   }
 
+  // Declared context keys reference a node in the graph or an engine seed.
+  // A typo'd key silently yields an empty preamble, so warn (a warning keeps
+  // the workflow launchable, like retry_target_exists).
+  const knownNonNodes = {'input', 'goal', 'graph.goal', 'history'};
+  for (final n in graph.nodes.values) {
+    for (final key in n.contextKeys) {
+      if (graph.nodes.containsKey(key) || knownNonNodes.contains(key)) continue;
+      diags.add(Diagnostic(
+          rule: 'context_key_unknown',
+          severity: Severity.warning,
+          nodeId: n.id,
+          message: 'node "${n.id}" context key "$key" is not a node in the '
+              'graph (and not input/goal/history)'));
+    }
+  }
+
   return diags;
 }
 

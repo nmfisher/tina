@@ -59,6 +59,33 @@ void main() {
       expect(n.attrs['ratio'], 0.5);
     });
 
+    test('parses context and writes key lists (comma, space, quoted, absent)',
+        () {
+      final g = parseDot('''
+        digraph C {
+          start [shape=Mdiamond]
+          a [shape=box]
+          b [shape=box, context="a"]
+          c [shape=box, context="a,b"]
+          d [shape=box, context="a  b,  c  "]
+          e [shape=box, writes="shared"]
+          f [shape=box, context="a", writes="x, y"]
+          exit [shape=Msquare]
+          start -> a -> b -> c -> d -> e -> f -> exit
+        }
+      ''');
+      expect(g.nodes['a']!.contextKeys, isEmpty);
+      expect(g.nodes['b']!.contextKeys, ['a']);
+      expect(g.nodes['c']!.contextKeys, ['a', 'b']);
+      // Whitespace- and comma-separated, trimmed, empties dropped.
+      expect(g.nodes['d']!.contextKeys, ['a', 'b', 'c']);
+      expect(g.nodes['e']!.writesKeys, ['shared']);
+      expect(g.nodes['f']!.writesKeys, ['x', 'y']);
+      expect(g.nodes['f']!.contextKeys, ['a']);
+      // A non-string attr value yields an empty list.
+      expect(PipelineNode(id: 'x', attrs: {'context': 5}).contextKeys, isEmpty);
+    });
+
     test('parses edges with condition + label + weight', () {
       final g = parseDot('''
         digraph B {

@@ -131,10 +131,16 @@ Future<void> ensureDefaultWorkflowUsable(
 ///   sharing one reviewer `system_prompt`. Each node visit is already a fresh
 ///   one-shot agent, so the second pass is automatically fresh — no per-node
 ///   visit counter or condition is needed.
+/// * **Handoff is explicit.** Each node declares its input in a `context`
+///   attribute (which prior outputs it sees); nothing accumulates by default.
+///   The reviewers publish to the shared `plan` key (`writes="plan"`), so
+///   `context="plan"` always means the current plan: a reviewer restates the
+///   plan on approve and outputs the full revised plan on revise, and its
+///   response overwrites the `plan` key in place.
 /// * **Revise** loops to a fresh pass of the SAME review node (the reviewer
-///   updates the plan itself), not back to the `plan` node. The plan evolves as
-///   a chain of revisions carried forward in each downstream node's preamble;
-///   the most recent revision is the current plan.
+///   updates the plan itself), not back to the `plan` node. The next visit
+///   reads the latest plan from the same `plan` key — no revision chain to
+///   thread through downstream preambles.
 /// * **Parallel fan-out** uses the engine's `component` (fan-out) +
 ///   `tripleoctagon` (fan-in) handlers. Each branch is a single executor node
 ///   run against a cloned context; the fan-in merges them into one result.
@@ -168,6 +174,11 @@ const String kDefaultWorkflowDotSource = '''
 // line, matched against an edge's label. intake and the executors can also
 // delegate sub-agents with the delegate tool (task + optional tool profile:
 // read-only for exploration/review, full for changes).
+//
+// Handoff: every node declares its context (which prior outputs it sees) in a
+// `context` attribute; nothing accumulates. The reviewers publish the current
+// plan to the shared `plan` key (`writes="plan"`); the executors read
+// `context="plan"`, and the results reviewer reads `context="fanin"`.
 
 digraph default {
   graph [goal="Turn the user request into a reviewed plan, execute it in parallel, then review the result."]
@@ -178,37 +189,37 @@ digraph default {
         system_prompt="You are the intake step of a coding workflow. A user request and conversation context are provided to you. Explore the repository enough to ground the request in real code; delegate read-only sub-agents where that helps (each delegation is a task plus an optional tool profile: read-only for exploration or review, full for changes — and an optional model). You have file tools (read, write, edit, bash, search, grep, glob) and a delegate tool, but you do not write code and you do not finalize a plan yourself: hand clear requirements and your findings to the plan node.",
         prompt="User request: \$input\\n\\nConversation history for context:\\n\$history\\n\\nExplore the repository enough to ground the request (delegate read-only sub-agents where it helps). Then summarize the requirements and your findings. Do not write code yet. The plan node will plan from your summary."]
 
-  plan [shape=box, label="Plan",
+  plan [shape=box, label="Plan", context="intake",
         system_prompt="You are a planning agent. You turn requirements and findings into a concrete plan that other agents can execute. You do not write code; you plan.",
         prompt="Using the intake summary above, write a concrete plan: the files to change, the steps in order, the risks, and how to verify. Because the work runs in parallel across three executors, divide it into up to three independent chunks labeled [1], [2], [3] so each executor takes one. If the work is small, use fewer chunks. Output only the plan."]
 
-  plan_review_1 [shape=box, label="Plan review (1)",
-        system_prompt="You are a careful, independent plan reviewer. You check the plan above for correctness, completeness, and risk. Treat the most recent version of the plan as the current one.",
-        prompt="Review the plan above. If it is sound, end your response with exactly this line:\\nVERDICT: approve\\nIf you can improve it yourself, output the full revised plan and end with:\\nVERDICT: revise\\nIf you need a decision from the user, state the question in one or two sentences and end with:\\nVERDICT: clarify\\nOutput nothing after the VERDICT line."]
+  plan_review_1 [shape=box, label="Plan review (1)", context="plan", writes="plan",
+        system_prompt="You are a careful, independent plan reviewer. You check the plan above for correctness, completeness, and risk. Your response becomes the working plan for the executors: always restate the plan in full (unchanged if it is sound, revised if you improve it).",
+        prompt="Review the plan above. If it is sound, restate it unchanged (your response is the working plan the executors will implement) and end your response with exactly this line:\\nVERDICT: approve\\nIf you can improve it yourself, output the full revised plan and end with:\\nVERDICT: revise\\nIf you need a decision from the user, state the question in one or two sentences and end with:\\nVERDICT: clarify\\nOutput nothing after the VERDICT line."]
 
-  plan_review_2 [shape=box, label="Plan review (2)",
-        system_prompt="You are a careful, independent plan reviewer. You check the plan above for correctness, completeness, and risk. Treat the most recent version of the plan as the current one.",
-        prompt="Review the plan above. If it is sound, end your response with exactly this line:\\nVERDICT: approve\\nIf you can improve it yourself, output the full revised plan and end with:\\nVERDICT: revise\\nIf you need a decision from the user, state the question in one or two sentences and end with:\\nVERDICT: clarify\\nOutput nothing after the VERDICT line."]
+  plan_review_2 [shape=box, label="Plan review (2)", context="plan", writes="plan",
+        system_prompt="You are a careful, independent plan reviewer. You check the plan above for correctness, completeness, and risk. Your response becomes the working plan for the executors: always restate the plan in full (unchanged if it is sound, revised if you improve it).",
+        prompt="Review the plan above. If it is sound, restate it unchanged (your response is the working plan the executors will implement) and end your response with exactly this line:\\nVERDICT: approve\\nIf you can improve it yourself, output the full revised plan and end with:\\nVERDICT: revise\\nIf you need a decision from the user, state the question in one or two sentences and end with:\\nVERDICT: clarify\\nOutput nothing after the VERDICT line."]
 
   clarify [shape=hexagon, label="The reviewer needs a decision from you before continuing. Pick how to proceed."]
 
   fanout [shape=component, label="Fan out"]
 
-  exec_1 [shape=box, label="Executor 1",
+  exec_1 [shape=box, label="Executor 1", context="plan",
         system_prompt="You are an implementation agent. You execute one chunk of an approved plan. You have the full tool set (read, write, edit, bash, search, grep, glob) and a delegate tool. Read each file before editing it, make only the changes your chunk requires, keep changes minimal, and leave other chunks alone.",
         prompt="The plan above is split into chunks labeled [1], [2], [3]. Execute ONLY chunk [1]. If the plan has no chunk [1], output: no work for executor 1. Otherwise implement chunk [1] now and report exactly what you changed."]
 
-  exec_2 [shape=box, label="Executor 2",
+  exec_2 [shape=box, label="Executor 2", context="plan",
         system_prompt="You are an implementation agent. You execute one chunk of an approved plan. You have the full tool set (read, write, edit, bash, search, grep, glob) and a delegate tool. Read each file before editing it, make only the changes your chunk requires, keep changes minimal, and leave other chunks alone.",
         prompt="The plan above is split into chunks labeled [1], [2], [3]. Execute ONLY chunk [2]. If the plan has no chunk [2], output: no work for executor 2. Otherwise implement chunk [2] now and report exactly what you changed."]
 
-  exec_3 [shape=box, label="Executor 3",
+  exec_3 [shape=box, label="Executor 3", context="plan",
         system_prompt="You are an implementation agent. You execute one chunk of an approved plan. You have the full tool set (read, write, edit, bash, search, grep, glob) and a delegate tool. Read each file before editing it, make only the changes your chunk requires, keep changes minimal, and leave other chunks alone.",
         prompt="The plan above is split into chunks labeled [1], [2], [3]. Execute ONLY chunk [3]. If the plan has no chunk [3], output: no work for executor 3. Otherwise implement chunk [3] now and report exactly what you changed."]
 
   fanin [shape=tripleoctagon, label="Fan in"]
 
-  exec_reviewer [shape=box, label="Execution review",
+  exec_reviewer [shape=box, label="Execution review", context="fanin",
         system_prompt="You are a results reviewer. The execution results above come from parallel executors that each took one chunk of the plan.",
         prompt="Review the execution results above. Did the plan get implemented correctly across the chunks? Note any errors, conflicts, or incomplete work. Summarize the outcome for the user in a few sentences and flag anything that needs follow-up."]
 

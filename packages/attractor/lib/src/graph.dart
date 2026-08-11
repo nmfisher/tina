@@ -57,6 +57,18 @@ class PipelineNode {
     return '$llmProvider/$llmModel';
   }
 
+  /// Which context keys (node ids, plus `input`/`goal`/`history`) this node's
+  /// preamble renders, in declared order. The node's handoff contract: it
+  /// sees exactly these prior outputs — nothing accumulates by default
+  /// (absent or empty = an empty preamble).
+  List<String> get contextKeys => _keyList(attrs['context']);
+
+  /// Additional context keys this node's output is published under, besides
+  /// its own id — the shared-key primitive (e.g. a reviewer publishing the
+  /// current plan under `plan` so every reader of `context="plan"` sees the
+  /// latest revision).
+  List<String> get writesKeys => _keyList(attrs['writes']);
+
   /// Whether this node must reach success before the pipeline can exit.
   bool get goalGate => _bool(attrs['goal_gate'], false);
 
@@ -83,6 +95,20 @@ class PipelineNode {
   bool _bool(Object? v, bool d) => v is bool ? v : d;
 
   int? _int(Object? v) => v is int ? v : null;
+
+  /// Parse a key list attribute (`context="plan,input"` or
+  /// `context="plan input"`): split on commas and whitespace, trim, drop
+  /// empties. Any value that isn't a String (e.g. a bare numeric attr) yields
+  /// an empty list.
+  List<String> _keyList(Object? v) {
+    if (v is! String || v.isEmpty) return const [];
+    final out = <String>[];
+    for (final raw in v.split(RegExp(r'[, ]+'))) {
+      final key = raw.trim();
+      if (key.isNotEmpty) out.add(key);
+    }
+    return out;
+  }
 
   @override
   String toString() => 'PipelineNode($id)';
