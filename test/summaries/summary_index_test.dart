@@ -72,7 +72,8 @@ void main() {
     expect(s.deletedDirs, isEmpty);
   });
 
-  test('status includes allocated regions in the partition', () async {
+  test('status: the allocated layout IS the partition once any exists',
+      () async {
     Directory('${project.path}/lib/src').createSync();
     File('${project.path}/lib/src/s.dart').writeAsStringSync('// s\n');
     _git(project, ['add', '-A']);
@@ -85,10 +86,19 @@ void main() {
     idx.allocations!.set(dir: 'lib/src', model: 'fast/fast-model');
 
     final s = await idx.status();
-    // lib, test, packages, packages/tina_index/lib + the allocated lib/src.
-    expect(s.totalDirs, 5);
-    expect(s.staleDirs, contains('lib/src'));
+    // The default top-level dirs are NOT in the partition once the main
+    // agent's layout exists.
+    expect(s.totalDirs, 1);
+    expect(s.staleDirs, ['lib/src']);
     expect(s.staleCount, s.totalDirs); // first run: all stale
+    expect(s.hasAllocations, isTrue);
+  });
+
+  test('status: no allocations → default partition, hasAllocations false',
+      () async {
+    final s = await _index().status();
+    expect(s.hasAllocations, isFalse);
+    expect(s.totalDirs, 4); // lib, test, packages, packages/tina_index/lib.
   });
 
   test('status detects a partially-stale repo (only one changed dir)', () async {

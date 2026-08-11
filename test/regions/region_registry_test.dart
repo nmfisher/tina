@@ -72,7 +72,7 @@ void main() {
     expect(lib.stale, isTrue);
   });
 
-  test('allocated regions join the partition and persist across instances',
+  test('the allocated layout IS the partition and persists across instances',
       () {
     Directory('${project.path}/lib/src').createSync();
     commit('lib/src', 's.dart', 'int s = 1;\n');
@@ -88,7 +88,9 @@ void main() {
     // Allocated but never summarized → no summary, stale.
     expect(region.summarized, isFalse);
     expect(region.stale, isTrue);
-    expect([for (final r in r2.list()) r.dir], contains('lib/src'));
+    // Once any allocation exists, the layout IS the partition: the default
+    // top-level dirs no longer appear.
+    expect([for (final r in r2.list()) r.dir], ['lib/src']);
   });
 
   test('allocate refuses a missing directory', () {

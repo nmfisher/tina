@@ -80,6 +80,7 @@ SummaryIndexStatus _status({
   required int total,
   required List<String> stale,
   bool firstRun = false,
+  bool hasAllocations = false,
   List<String> deleted = const [],
   String sha = 'abcdef1234567890',
 }) =>
@@ -89,6 +90,7 @@ SummaryIndexStatus _status({
       deletedDirs: deleted,
       headSha: sha,
       firstRun: firstRun,
+      hasAllocations: hasAllocations,
     );
 
 SummaryIndexResult _result(int regenerated,
@@ -137,6 +139,67 @@ void main() {
     expect(_notices().join(), contains('Indexed 4 director'));
     // The post-refresh sha is shortened to 7 chars.
     expect(_notices().join(), contains('zzz9998'));
+  });
+
+  test('first run + confirm wired + no allocations: hands the main agent the '
+      'layout proposal', () async {
+    final idx = _StubIndex(
+      _status(total: 4, stale: const ['lib', 'test'], firstRun: true),
+      refreshResult: _result(4),
+    );
+    final handlers = SessionCommandHandlers(_FakeCtx(
+      conversation: conv,
+      summaryIndex: idx,
+      confirm: (prompt) async => true,
+    ));
+    final res = await handlers.dispatch('/index');
+
+    expect(res, isA<CmdRun>());
+    final prompt = (res as CmdRun).prompt;
+    expect(prompt, contains('repo_structure'));
+    expect(prompt, contains('allocate_region'));
+    expect(prompt, contains('run `/index` again'));
+    expect(_notices().join(), contains('design the layout'));
+    expect(idx.refreshCalls, 0);
+  });
+
+  test('first run + proposed layout: confirms before summarizing', () async {
+    final idx = _StubIndex(
+      _status(total: 3, stale: const ['lib', 'src', 'test'], firstRun: true,
+          hasAllocations: true),
+      refreshResult: _result(3, regeneratedDirs: const ['lib']),
+    );
+    final handlers = SessionCommandHandlers(_FakeCtx(
+      conversation: conv,
+      summaryIndex: idx,
+      confirm: (prompt) async {
+        expect(prompt, contains('proposed'));
+        return true;
+      },
+    ));
+    final res = await handlers.dispatch('/index');
+
+    expect(res, isA<CmdHandled>());
+    expect(idx.refreshCalls, 1);
+    expect(idx.lastRepartition, false);
+    expect(_notices().join(), contains('Indexing 3'));
+    expect(_notices().join(), contains('Indexed 3 director'));
+  });
+
+  test('first run + proposed layout declined: no refresh', () async {
+    final idx = _StubIndex(
+      _status(total: 3, stale: const ['lib'], firstRun: true,
+          hasAllocations: true),
+    );
+    final handlers = SessionCommandHandlers(_FakeCtx(
+      conversation: conv,
+      summaryIndex: idx,
+      confirm: (prompt) async => false,
+    ));
+    final res = await handlers.dispatch('/index');
+
+    expect(res, isA<CmdHandled>());
+    expect(idx.refreshCalls, 0);
   });
 
   test('partly stale: reports the stale dirs and refreshes them', () async {

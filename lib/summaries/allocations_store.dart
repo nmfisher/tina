@@ -1,6 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'sidecar_repo.dart';
+
+/// The partition: the allocated regions when any exist — the main agent's
+/// proposed layout IS the index — else the deterministic default partition
+/// (the headless `--prompt /index` fallback, where no main agent proposes).
+List<String> partitionFor(SidecarSummaryRepo repo, AllocationsStore? allocations) {
+  final allocated = allocations?.dirs ?? const <String>[];
+  if (allocated.isNotEmpty) return allocated;
+  return repo.defaultPartition();
+}
+
 /// One user-allocated region: a directory the main agent chose to give its
 /// own summary, optionally with a dedicated fast model.
 class Allocation {

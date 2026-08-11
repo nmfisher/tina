@@ -40,9 +40,10 @@ class Region {
 }
 
 /// The read side of the summary sidecar, shaped for region agents: which
-/// regions exist (default partition ∪ allocations), their summaries, and
-/// staleness. Constructed once at session start — pure file/git reads, zero
-/// LLM calls — so every region is "ready" the moment the session loads.
+/// regions exist (the allocated layout when any exists, else the default
+/// partition), their summaries, and staleness. Constructed once at session
+/// start — pure file/git reads, zero LLM calls — so every region is "ready"
+/// the moment the session loads.
 class RegionRegistry {
   RegionRegistry({
     required this.projectRoot,
@@ -67,15 +68,11 @@ class RegionRegistry {
   /// The user-allocated regions store (for `allocate_region`/`forget_region`).
   AllocationsStore get allocations => _allocations;
 
-  /// Every region: the default partition plus allocations, in partition order.
+  /// Every region, in partition order: the allocated regions when any exist
+  /// (the main agent's layout IS the index), else the default top-level dirs.
   List<Region> list() {
     final manifest = _repo.loadManifest();
-    final base = _repo.defaultPartition();
-    final dirs = <String>[
-      ...base,
-      for (final a in _allocations.list())
-        if (!base.contains(a.dir)) a.dir,
-    ];
+    final dirs = partitionFor(_repo, _allocations);
     final stale = _repo.staleDirs(dirs, manifest).toRegenerate.toSet();
     return [for (final dir in dirs) _regionFor(dir, manifest, stale)];
   }

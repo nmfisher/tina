@@ -44,15 +44,11 @@ class SummaryIndex {
   /// partition). null = the default partition only (headless `/index`).
   final AllocationsStore? allocations;
 
-  /// The partition: the default top-level dirs plus any allocated regions.
-  List<String> partition(SidecarSummaryRepo repo) {
-    final base = repo.defaultPartition();
-    return [
-      ...base,
-      for (final a in allocations?.list() ?? const <Allocation>[])
-        if (!base.contains(a.dir)) a.dir,
-    ];
-  }
+  /// The partition: the allocated regions when any exist (the main agent's
+  /// proposed layout IS the index), else the default top-level dirs (the
+  /// headless fallback, where no main agent proposes).
+  List<String> partition(SidecarSummaryRepo repo) =>
+      partitionFor(repo, allocations);
 
   SidecarSummaryRepo _repo() => SidecarSummaryRepo(
         root: Directory('$projectRoot/.tina'),
@@ -85,6 +81,7 @@ class SummaryIndex {
       deletedDirs: stale.deleted,
       headSha: sha,
       firstRun: manifest.dirs.isEmpty,
+      hasAllocations: (allocations?.dirs.isNotEmpty ?? false),
     );
   }
 
@@ -138,12 +135,17 @@ class SummaryIndexStatus {
   final String? headSha;
   final bool firstRun;
 
+  /// Whether the main agent has allocated regions (the proposed layout exists
+  /// but nothing is summarized yet on a first run).
+  final bool hasAllocations;
+
   const SummaryIndexStatus({
     required this.totalDirs,
     required this.staleDirs,
     required this.deletedDirs,
     required this.headSha,
     required this.firstRun,
+    this.hasAllocations = false,
   });
 
   int get staleCount => staleDirs.length;

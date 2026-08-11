@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:tina/regions/region_registry.dart';
 import 'package:tina/regions/region_tools.dart';
 import 'package:tina/summaries/sidecar_repo.dart';
-import 'package:tina/summaries/summary_index.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
 
@@ -53,34 +52,7 @@ class _RecordingScheduler extends SubAgentScheduler {
   }
 }
 
-/// A SummaryIndex stub that records refresh(dirs:) without running the fleet.
-class _StubIndex extends SummaryIndex {
-  _StubIndex() : super(projectRoot: '.');
-  int refreshes = 0;
-  List<String>? lastDirs;
-
-  @override
-  Future<SummaryIndexResult> refresh({
-    bool repartition = false,
-    List<String>? dirs,
-  }) async {
-    refreshes++;
-    lastDirs = dirs;
-    return const SummaryIndexResult(
-      status: SummaryIndexStatus(
-          totalDirs: 0,
-          staleDirs: [],
-          deletedDirs: [],
-          headSha: null,
-          firstRun: false),
-      regenerated: 0,
-      regeneratedDirs: [],
-      deletedDirs: [],
-    );
-  }
-}
-
-/// Pins the six region tools: discovery/read/query dispatch through the
+/// Pins the seven region tools: discovery/read/query dispatch through the
 /// registry + scheduler seams, and allocate/forget mutate the partition.
 void main() {
   late Directory tempRoot;
@@ -104,6 +76,9 @@ void main() {
     File('${project.path}/lib/src/s.dart').writeAsStringSync('int s = 1;\n');
     git(project, ['add', '-A']);
     git(project, ['commit', '-m', 'add lib/src']);
+    // The allocated layout IS the partition, so both regions must be
+    // allocated for the discovery/query tests to see them.
+    regions.allocate('lib');
     regions.allocate('lib/src', model: 'fast/fast-model');
     // Seed a current summary for lib.
     Directory('${sidecarRoot.path}/summaries').createSync(recursive: true);
@@ -220,27 +195,36 @@ void main() {
     });
   });
 
-  group('allocate_region / forget_region', () {
-    test('allocate writes the allocation and fires a single-dir refresh',
+  group('repo_structure', () {
+    test('walks the tree with counts, packages, and hidden-dir skip',
         () async {
-      final idx = _StubIndex();
-      final r = await AllocateRegionTool(regions, idx)
-          .execute({'dir': 'lib/src'});
+      final r = await RepoStructureTool(regions).execute({});
       expect(r.isError, isFalse);
-      expect(r.content,contains('Allocated'));
-      // The unawaited refresh lands on the next microtask.
-      await Future<void>.delayed(Duration.zero);
-      expect(idx.refreshes, 1);
-      expect(idx.lastDirs, ['lib/src']);
+      expect(r.content, contains('Repository structure'));
+      expect(r.content, contains('lib/'));
+      expect(r.content, contains('lib/src/'));
+      expect(r.content, contains('dart'));
+      // Hidden entries (.tina, .git) are not region candidates.
+      expect(r.content, isNot(contains('.tina')));
+      expect(r.content, isNot(contains('.git')));
+    });
+  });
+
+  group('allocate_region / forget_region', () {
+    test('allocate writes the allocation; the fleet runs at /index',
+        () async {
+      final r = await AllocateRegionTool(regions).execute({'dir': 'lib/src'});
+      expect(r.isError, isFalse);
+      expect(r.content, contains('Allocated'));
+      expect(r.content, contains('/index'));
       expect(regions.find('lib/src'), isNotNull);
     });
 
-    test('allocate refuses a missing directory without refreshing', () async {
-      final idx = _StubIndex();
-      final r = await AllocateRegionTool(regions, idx).execute({'dir': 'nope'});
+    test('allocate refuses a missing directory', () async {
+      final r = await AllocateRegionTool(regions).execute({'dir': 'nope'});
       expect(r.isError, isTrue);
       expect(r.content, contains('No such directory'));
-      expect(idx.refreshes, 0);
+      expect(regions.find('nope'), isNull);
     });
 
     test('forget removes the region', () async {

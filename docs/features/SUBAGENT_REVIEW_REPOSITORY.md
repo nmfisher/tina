@@ -31,12 +31,22 @@ the main agent allocated, each primed with its summary text.
   reads the manifest + summary files at session start — pure file/git reads,
   no backend calls. Regions are logical entities; an agent only runs when a
   query is dispatched.
+- **The main agent designs the layout — explicit `/index` proposal.** On a
+  first run, `/index` hands the LIVE main agent a proposal turn (`CmdRun`):
+  it reviews the folder structure with `repo_structure` (an indented tree with
+  file counts + `[package]` markers) and allocates regions with
+  `allocate_region` — skip trivial folders, merge related ones, split large
+  ones; its judgment IS the partition. The user approves the proposed layout
+  by running `/index` again (the y/N confirm), and then the fleet summarizes
+  exactly the proposals.
 - **Allocation** (`allocate_region` / `forget_region` tools) writes
   `allocations.json` in the sidecar root (a separate file from `manifest.json`
-  so the summary schema is untouched) — the partition becomes
-  `defaultPartition() ∪ allocations` (`SummaryIndex.partition`). Allocating
-  fires a **single-dir fleet refresh** (`SummaryIndex.refresh(dirs: [dir])`,
-  fire-and-forget) so the summary lands shortly after.
+  so the summary schema is untouched). The partition is **the allocations when
+  any exist, else the deterministic default** (top-level dirs +
+  `packages/*/lib`) — the default remains only the headless `--prompt /index`
+  fallback, where no main agent proposes. `allocate_region` is a cheap
+  partition write (policy-allowed, no modal); the fleet runs only at `/index`
+  approval.
 - **Queries** (`query_region`, `broadcast_region`) dispatch one-shot read-only
   agents via `SubAgentScheduler.runStandalone(toolProfile: readOnly,
   includeDelegate: false)` (new params, defaults unchanged): identity = the

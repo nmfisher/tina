@@ -470,11 +470,12 @@ class SessionCommandHandlers {
   /// `/index` — refresh the per-directory summary sidecar, staleness-aware.
   ///
   /// A pure-git probe ([SummaryIndex.status], no LLM) decides what to do:
-  /// nothing stale → report up to date and confirm before a full re-run;
-  /// partly stale → report the stale dirs and re-run just those; first run or
-  /// everything stale → index all. The fleet runs headless via
-  /// [SummaryIndex.refresh] (race-free manifest+commit); the live conversation's
-  /// agent is not involved. Status is posted to the host as notices.
+  /// first run → the LIVE main agent designs the region layout (a `CmdRun`
+  /// proposal turn) and the user approves it on the next `/index`; nothing
+  /// stale → report up to date and confirm before a full re-run; partly stale
+  /// → report the stale dirs and re-run just those; everything stale → index
+  /// all. The fleet runs via [SummaryIndex.refresh] (race-free
+  /// manifest+commit). Status is posted to the host as notices.
   ///
   /// When [CommandContext.summaryIndex] is null (no composition available),
   /// degrades to the ad-hoc in-chat review ([_indexPrompt]).
@@ -504,6 +505,17 @@ Review the structure of this repository. Identify its main areas / subsystems, t
 Each sub-agent should report a concise summary of what its area does, its key types/functions, and how it fits with the rest of the repo. Cite concrete file paths. Do not summarize more than two areas.''';
 }
 
+/// The first-run `/index` proposal prompt: the live main agent reviews the
+/// repo structure and designs the region layout (which folders get index
+/// agents), allocating freely — the user approves the layout when `/index`
+/// runs again, and then the fleet summarizes exactly those regions.
+const String _proposalPrompt = '''
+No region index exists for this repository yet. Design one: review the folder structure with `repo_structure`, then decide which folders deserve a region agent — a persistent summary of what exists and is implemented there, served by a fast agent that answers questions about that folder.
+
+Use your judgment: skip folders that are too small or trivial to matter; merge closely-related folders into one region; split large, dense folders if they cover several concerns. For every folder you choose, call `allocate_region` with the folder's path (optionally llm_provider + llm_model for a dedicated fast model).
+
+When you are done, report the proposed layout — the folders you allocated and a one-line reason for each — and end your response with: run `/index` again to approve this layout and generate the summaries.''';
+
 /// The `/index` staleness dance, factored out of [SessionCommandHandlers] so the
 /// headless runner (`bin/tina.dart --non-interactive -p /index`) can reuse it
 /// without a [SessionController]: probe staleness (pure git, no LLM), then
@@ -519,6 +531,28 @@ Future<CmdResult> runIndexDance({
   final status = await summaryIndex.status();
   if (status.totalDirs == 0) {
     host.showMessage('No directories to index.\n');
+    return const CmdHandled();
+  }
+
+  // First run in the TUI: the MAIN AGENT designs the region layout before any
+  // fleet run. No allocations yet → hand it a proposal turn (CmdRun runs the
+  // prompt through the normal turn path); allocations exist but nothing is
+  // summarized → the user approves the proposed layout, then the fleet runs.
+  // Headless passes confirm == null and keeps the deterministic default
+  // partition below.
+  if (status.firstRun && confirm != null) {
+    if (!status.hasAllocations) {
+      host.showMessage(
+          'No region index yet — the main agent will design the layout.\n');
+      return CmdRun(_proposalPrompt);
+    }
+    final ok = await confirm('Summarize the ${status.totalDirs} proposed '
+        'regions? [y/N] ');
+    if (!ok) return const CmdHandled();
+    host.showMessage('Indexing ${status.totalDirs} '
+        '${status.totalDirs == 1 ? 'region' : 'regions'}…\n');
+    final r = await summaryIndex.refresh();
+    _postIndexRefresh(host, r, verb: 'Indexed');
     return const CmdHandled();
   }
 

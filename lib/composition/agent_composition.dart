@@ -90,16 +90,19 @@ Agent buildAgent({
   // The region surface, when the coordinator wired a registry: discover /
   // query subfolder-scoped agents primed from the summary sidecar. The query
   // tools run one-shot read-only agents via the scheduler; allocate/forget
-  // additionally need the summary index (to kick off the fleet).
+  // additionally need the summary index (the fleet summarizes on /index).
   if (regions != null) {
     tools.addAll([
+      RepoStructureTool(regions),
       ListRegionsTool(regions),
       ReadSummaryTool(regions),
       QueryRegionTool(regions, scheduler,
           parentReference: '${config.provider}/${provider.model}'),
       BroadcastRegionTool(regions, scheduler,
           parentReference: '${config.provider}/${provider.model}'),
-      if (summaryIndex != null) AllocateRegionTool(regions, summaryIndex),
+      // allocate/forget exist only when the index does — the fleet that
+      // summarizes allocations runs at /index.
+      if (summaryIndex != null) AllocateRegionTool(regions),
       if (summaryIndex != null) ForgetRegionTool(regions),
     ]);
   }
@@ -127,12 +130,15 @@ Agent buildAgent({
         // deserves the user's approval).
         'stop_workflow': PermissionDecision.allow,
         // Region discovery + a single region query are cheap one-shot reads —
-        // same class as `delegate`, no modal. broadcast_region (N runs) and
-        // allocate_region (persistent partition change + a fleet run) stay on
-        // the default `ask`.
+        // same class as `delegate`, no modal. Allocating is a cheap partition
+        // write (the fleet runs only when the user approves at `/index`), so
+        // the agent can design a layout freely; broadcast_region (N runs)
+        // stays on the default `ask`.
+        'repo_structure': PermissionDecision.allow,
         'list_regions': PermissionDecision.allow,
         'read_summary': PermissionDecision.allow,
         'query_region': PermissionDecision.allow,
+        'allocate_region': PermissionDecision.allow,
       },
       rules: policy.staticRules,
     );
