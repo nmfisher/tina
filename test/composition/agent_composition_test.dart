@@ -1,8 +1,12 @@
+import 'dart:io';
+
 import 'package:attractor/attractor.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/composition/agent_composition.dart';
 import 'package:tina/config.dart';
 import 'package:tina/pipeline/workflow_supervisor.dart';
+import 'package:tina/regions/region_registry.dart';
+import 'package:tina/summaries/summary_index.dart';
 import 'package:test/test.dart';
 
 import '../helpers/fake_host_interface.dart';
@@ -112,6 +116,47 @@ void main() {
       expect(interactive.tools['stop_workflow'], isNotNull);
       expect(headless.tools['launch_workflow'], isNotNull);
       expect(headless.tools['stop_workflow'], isNotNull);
+    });
+
+    test('every tool schema is a wire-valid JSON-Schema object', () {
+      // The full interactive registry — base file tools + orchestration +
+      // workflow + region surface — built exactly as the composition builds
+      // it, so a NEW tool added anywhere is swept automatically. Providers
+      // reject schemas without `"type": "object"` (seen live: DeepSeek 400
+      // "Invalid schema for function 'repo_structure' ... got 'type': null"
+      // when a tool declared an empty input schema).
+      final config = testConfig();
+      final scheduler = createScheduler(
+        config: config,
+        registry: ProviderRegistry(env: {}),
+        pipeline: defaultPipeline,
+      );
+      final tmp = Directory.systemTemp.createTempSync('tina-schema-');
+      try {
+        final agent = buildAgent(
+          pipeline: defaultPipeline,
+          scheduler: scheduler,
+          conversationId: 'c1',
+          provider: FakeProvider(const [], model: 'm'),
+          host: FakeHostInterface(),
+          policy: config.buildPolicy(),
+          config: config,
+          supervisor: noopSupervisor(),
+          regions: RegionRegistry(projectRoot: tmp.path),
+          summaryIndex: SummaryIndex(projectRoot: tmp.path),
+        );
+        final schemas = agent.tools.schemas;
+        // The sweep is actually sweeping — not vacuously passing over one tool.
+        expect(schemas.length, greaterThan(10));
+        for (final s in schemas) {
+          expect(s.inputSchema['type'], 'object',
+              reason: '${s.name} must declare type: object');
+          expect(s.inputSchema['properties'], isA<Map>(),
+              reason: '${s.name} must declare a properties map');
+        }
+      } finally {
+        tmp.deleteSync(recursive: true);
+      }
     });
   });
 }
