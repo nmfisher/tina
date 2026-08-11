@@ -28,6 +28,7 @@ class SummaryRunner {
     this.projectRoot,
     this.dryRun = false,
     this.repartition = false,
+    this.dirs,
   });
 
   final Config config;
@@ -41,6 +42,10 @@ class SummaryRunner {
   final String? projectRoot;
   final bool dryRun;
   final bool repartition;
+
+  /// Restrict regeneration to these directories (e.g. a freshly allocated
+  /// region). null = everything stale.
+  final List<String>? dirs;
 
   /// Run the summary fleet against [projectRoot]. Returns the stale set that
   /// was (or would be) regenerated.
@@ -62,12 +67,19 @@ class SummaryRunner {
     }
     final partition = repo.defaultPartition();
     final stale = repo.staleDirs(partition, manifest);
+    // A dirs filter restricts regeneration to the named dirs (allocations);
+    // deletions are never filtered — a dir out of the partition is gone.
+    final toRegenerate = dirs == null
+        ? stale.toRegenerate
+        : stale.toRegenerate.where(dirs!.contains).toList();
+    final effective = StaleSet(
+        toRegenerate: toRegenerate, deleted: stale.deleted);
 
     if (dryRun) {
-      return stale;
+      return effective;
     }
-    if (stale.isEmpty && !repartition) {
-      return stale;
+    if (effective.isEmpty && !repartition) {
+      return effective;
     }
 
     // buildAppComposition (below) re-sets the shared registry's `decorator` to a
@@ -109,14 +121,14 @@ class SummaryRunner {
         policy: app.policy,
         config: config,
         withSubAgents: true,
-        system: _orchestratorPrompt(stale.toRegenerate),
+        system: _orchestratorPrompt(effective.toRegenerate),
       );
 
       final history = <Message>[];
       try {
         await agent.run(
           history: history,
-          userInput: _userPrompt(stale.toRegenerate),
+          userInput: _userPrompt(effective.toRegenerate),
         );
       } finally {
         await host.dispose();
@@ -127,21 +139,21 @@ class SummaryRunner {
       // After the fleet ran, record the regenerated + deleted dirs and commit.
       final updated = repo.record(
         manifest: manifest,
-        regenerated: stale.toRegenerate,
-        deleted: stale.deleted,
+        regenerated: effective.toRegenerate,
+        deleted: effective.deleted,
       );
       repo.saveManifest(updated);
       final commitSha = repo.headCommit();
       repo.commit(
-        regenerated: stale.toRegenerate,
-        deleted: stale.deleted,
+        regenerated: effective.toRegenerate,
+        deleted: effective.deleted,
         commitSha: commitSha,
       );
     } finally {
       registry.decorator = savedDecorator;
     }
 
-    return stale;
+    return effective;
   }
 
   String _projectRoot() => Directory.current.path;

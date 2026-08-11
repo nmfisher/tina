@@ -667,7 +667,10 @@ class SubAgentScheduler {
   ///
   /// [modelReference] is the node's resolved `"provider/model"` (from
   /// `llm_model`/`llm_provider`); when null, [parentReference] (the
-  /// conversation's resolved model) is used.
+  /// conversation's resolved model) is used. [toolProfile] selects the agent's
+  /// tool set (default `full`); [includeDelegate] adds the nested `delegate`
+  /// tool when nesting is wired — set both for a read-only, non-spawning
+  /// one-shot agent (e.g. a region query).
   Future<RunAgentResult> runStandalone({
     required String systemPrompt,
     required String task,
@@ -676,6 +679,8 @@ class SubAgentScheduler {
     List<Message>? seedHistory,
     Future<void>? cancelSignal,
     required AgentSink sink,
+    ToolProfile toolProfile = ToolProfile.full,
+    bool includeDelegate = true,
   }) async {
     final LlmProvider provider;
     final String reference;
@@ -691,15 +696,16 @@ class SubAgentScheduler {
       return RunAgentResult.error('failed to build provider: $e');
     }
 
-    // A node agent runs with the full tool profile plus `delegate` (when
-    // nesting is wired), so it can work directly AND reach further sub-agents.
-    // Identity comes from [systemPrompt]; the model from [reference].
-    final base = _effectiveProfileTools(ToolProfile.full).toList();
-    final policy = _policyForProfile(ToolProfile.full, PermissionPolicy());
+    // A node agent runs with the selected tool profile plus `delegate` (when
+    // nesting is wired and [includeDelegate] is set), so it can work directly
+    // AND reach further sub-agents. Identity comes from [systemPrompt]; the
+    // model from [reference].
+    final base = _effectiveProfileTools(toolProfile).toList();
+    final policy = _policyForProfile(toolProfile, PermissionPolicy());
     final tools = <Tool>[...base];
     final system = resolveIdentityPrompt(systemPrompt,
         safeMode: safeMode, loadProjectContext: pipeline.loadProjectContext);
-    if (delegateToolBuilder != null) {
+    if (includeDelegate && delegateToolBuilder != null) {
       final nestedCtx = AgentToolContext(
         scheduler: this,
         pipeline: pipeline,

@@ -5,6 +5,7 @@
 
 import 'dart:io';
 
+import 'package:tina/summaries/allocations_store.dart';
 import 'package:tina/summaries/summary_index.dart';
 import 'package:test/test.dart';
 
@@ -69,6 +70,25 @@ void main() {
     expect(s.staleCount, 0);
     expect(s.allStale, isFalse);
     expect(s.deletedDirs, isEmpty);
+  });
+
+  test('status includes allocated regions in the partition', () async {
+    Directory('${project.path}/lib/src').createSync();
+    File('${project.path}/lib/src/s.dart').writeAsStringSync('// s\n');
+    _git(project, ['add', '-A']);
+    _git(project, ['commit', '-m', 'add lib/src']);
+
+    final idx = SummaryIndex(
+      projectRoot: project.path,
+      allocations: AllocationsStore.forProject(project.path),
+    );
+    idx.allocations!.set(dir: 'lib/src', model: 'fast/fast-model');
+
+    final s = await idx.status();
+    // lib, test, packages, packages/tina_index/lib + the allocated lib/src.
+    expect(s.totalDirs, 5);
+    expect(s.staleDirs, contains('lib/src'));
+    expect(s.staleCount, s.totalDirs); // first run: all stale
   });
 
   test('status detects a partially-stale repo (only one changed dir)', () async {

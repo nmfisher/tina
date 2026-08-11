@@ -137,6 +137,22 @@ class SidecarSummaryRepo {
   /// The current tree hash for [dir] at HEAD, or null when the dir is absent.
   String? treeHash(String dir) => _treeHashOrNull(dir);
 
+  /// The summary file path for [dir] (manifest's recorded filename when
+  /// present, else the slug-derived default), or null when the file does not
+  /// exist.
+  String? summaryFilePath(String dir) {
+    final recorded = loadManifest().dirs[dir]?.file ?? '${_slug(dir)}.md';
+    final file = File(p.join(_summariesDir.path, recorded));
+    return file.existsSync() ? file.path : null;
+  }
+
+  /// The summary text for [dir], or null when the sidecar has none.
+  String? readSummary(String dir) {
+    final path = summaryFilePath(dir);
+    if (path == null) return null;
+    return File(path).readAsStringSync();
+  }
+
   /// Update [manifest] for the dirs that were just regenerated: record each
   /// dir's current commit + tree + summary filename. Removes [deleted] dirs.
   /// Returns the updated manifest (the caller then [saveManifest]s it).

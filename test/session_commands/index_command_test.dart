@@ -39,7 +39,10 @@ class _StubIndex extends SummaryIndex {
   Future<SummaryIndexStatus> status() async => _status;
 
   @override
-  Future<SummaryIndexResult> refresh({bool repartition = false}) async {
+  Future<SummaryIndexResult> refresh({
+    bool repartition = false,
+    List<String>? dirs,
+  }) async {
     refreshCalls++;
     lastRepartition = repartition;
     return refreshResult!;

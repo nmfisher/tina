@@ -35,6 +35,8 @@ class _RecordingScheduler extends SubAgentScheduler {
     List<Message>? seedHistory,
     Future<void>? cancelSignal,
     required AgentSink sink,
+    ToolProfile toolProfile = ToolProfile.full,
+    bool includeDelegate = true,
   }) async {
     calls++;
     seenModelReference = modelReference;

@@ -5,6 +5,7 @@ import 'package:tina/config.dart';
 import 'package:tina/platform/environment.dart';
 import 'package:tina_engine/tina_engine.dart';
 
+import 'allocations_store.dart';
 import 'sidecar_repo.dart';
 import 'summary_runner.dart';
 
@@ -25,6 +26,7 @@ class SummaryIndex {
     this.config,
     this.registry,
     this.environment,
+    this.allocations,
   });
 
   /// The main repo root being summarized. The sidecar lives at
@@ -37,6 +39,20 @@ class SummaryIndex {
   final Config? config;
   final ProviderRegistry? registry;
   final Environment? environment;
+
+  /// User-allocated regions (main-agent-chosen directories beyond the default
+  /// partition). null = the default partition only (headless `/index`).
+  final AllocationsStore? allocations;
+
+  /// The partition: the default top-level dirs plus any allocated regions.
+  List<String> partition(SidecarSummaryRepo repo) {
+    final base = repo.defaultPartition();
+    return [
+      ...base,
+      for (final a in allocations?.list() ?? const <Allocation>[])
+        if (!base.contains(a.dir)) a.dir,
+    ];
+  }
 
   SidecarSummaryRepo _repo() => SidecarSummaryRepo(
         root: Directory('$projectRoot/.tina'),
@@ -55,8 +71,8 @@ class SummaryIndex {
   Future<SummaryIndexStatus> status() async {
     final repo = _repo();
     final manifest = repo.loadManifest();
-    final partition = repo.defaultPartition();
-    final stale = repo.staleDirs(partition, manifest);
+    final parts = partition(repo);
+    final stale = repo.staleDirs(parts, manifest);
     String? sha;
     try {
       sha = repo.headCommit();
@@ -64,7 +80,7 @@ class SummaryIndex {
       sha = null; // no commits in the main repo yet — nothing to summarize.
     }
     return SummaryIndexStatus(
-      totalDirs: partition.length,
+      totalDirs: parts.length,
       staleDirs: stale.toRegenerate,
       deletedDirs: stale.deleted,
       headSha: sha,
@@ -74,9 +90,13 @@ class SummaryIndex {
 
   /// Run the summary fleet against [projectRoot]: one `summarizer` per stale
   /// directory (or all of them when [repartition] clears the manifest), then
-  /// record + commit. Returns what was regenerated plus a fresh post-run
-  /// [SummaryIndexStatus]. Requires [config] + [registry] (asserted).
-  Future<SummaryIndexResult> refresh({bool repartition = false}) async {
+  /// record + commit. [dirs] restricts regeneration to those directories (e.g.
+  /// a freshly allocated region). Returns what was regenerated plus a fresh
+  /// post-run [SummaryIndexStatus]. Requires [config] + [registry] (asserted).
+  Future<SummaryIndexResult> refresh({
+    bool repartition = false,
+    List<String>? dirs,
+  }) async {
     final cfg = config;
     final reg = registry;
     if (cfg == null || reg == null) {
@@ -92,6 +112,7 @@ class SummaryIndex {
       projectRoot: projectRoot,
       dryRun: false,
       repartition: repartition,
+      dirs: dirs,
     );
     // SummaryRunner.run() owns the registry.decorator save/restore (it calls
     // buildAppComposition, which re-sets the shared decorator). The live

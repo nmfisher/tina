@@ -12,6 +12,44 @@
 > `CommandContext` from `TuiCoordinator.create` (and `_runNonInteractive`).
 > Everything below is the original design doc; the `bin/refresh_summaries.dart`
 > CLI entry it describes is superseded by `/index`.
+>
+> **Status update (2026-08-11):** the sidecar is no longer a pure sink — it now
+> feeds **region agents**: the main agent can allocate a sub-agent to any
+> subfolder, primed with its persistent summary (loaded at session start, zero
+> LLM calls), and route scoped questions to it (`query_region` /
+> `broadcast_region`). See the "Region agents" section below. (The `summarizer`
+> role section further down predates the delegate-catalog removal — summarizers
+> are today read-only sub-agents with `write_summary`, per commit `d7be7cd`.)
+
+## Region agents
+
+The main agent gets a region surface built over the sidecar
+(`lib/regions/`): regions are the default partition **plus** any directories
+the main agent allocated, each primed with its summary text.
+
+- **Priming is free**: `RegionRegistry` (`lib/regions/region_registry.dart`)
+  reads the manifest + summary files at session start — pure file/git reads,
+  no backend calls. Regions are logical entities; an agent only runs when a
+  query is dispatched.
+- **Allocation** (`allocate_region` / `forget_region` tools) writes
+  `allocations.json` in the sidecar root (a separate file from `manifest.json`
+  so the summary schema is untouched) — the partition becomes
+  `defaultPartition() ∪ allocations` (`SummaryIndex.partition`). Allocating
+  fires a **single-dir fleet refresh** (`SummaryIndex.refresh(dirs: [dir])`,
+  fire-and-forget) so the summary lands shortly after.
+- **Queries** (`query_region`, `broadcast_region`) dispatch one-shot read-only
+  agents via `SubAgentScheduler.runStandalone(toolProfile: readOnly,
+  includeDelegate: false)` (new params, defaults unchanged): identity = the
+  region + its summary + a staleness warning, tools = read/search/grep/glob +
+  `write_summary` (so a region agent can refresh its own summary after
+  substantive work), model = allocation override ?? `[regions] model` ??
+  inherit. **Scoping is soft** (the prompt pins the region; there is no
+  per-agent cwd in the engine) — hard per-region sandboxing is future work.
+- **Staleness is visible, never auto-refreshed**: `list_regions` /
+  `read_summary` flag a region whose tree hash drifted (the existing pure-git
+  probe), so the main agent can run `/index` before trusting a stale summary.
+- **Config**: `[regions] model = "provider/model"` sets the fast tier default;
+  per-region overrides ride the allocation.
 
 ## Context
 
@@ -122,7 +160,10 @@ config.
 6. Confirm main repo `git status` is clean throughout (sidecar is under gitignored `.tina/`).
 
 ## Out of scope (follow-ups)
-- Orchestrator-decided partitioning (user deferred) — currently deterministic default; the manifest is the stable pin so a future "orchestrator proposes partition" turn only runs on `--repartition` or when the dir set changes.
+- Orchestrator-decided partitioning — partially delivered: the main agent can
+  now allocate arbitrary directories (`allocate_region`); automatic partition
+  proposals remain future work. The manifest + `allocations.json` are the
+  stable pins.
 - A `/summaries` session command + TUI viewer (browse/regenerate from the chat).
 - Pushing the sidecar to its own remote.
 - Per-symbol `SummaryGenerator` is untouched; the two systems are complementary.

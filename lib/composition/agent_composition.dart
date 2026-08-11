@@ -3,6 +3,9 @@ import 'package:tina_engine/tina_engine.dart';
 import '../config.dart';
 import '../pipeline/launch_workflow_tool.dart';
 import '../pipeline/workflow_supervisor.dart';
+import '../regions/region_registry.dart';
+import '../regions/region_tools.dart';
+import '../summaries/summary_index.dart';
 
 /// Build the session-scoped [SubAgentScheduler] over [pipeline], wired to
 /// [registry]. Tool/model/budget settings come from [config]; the shared pause
@@ -57,6 +60,8 @@ Agent buildAgent({
   required Config config,
   bool withSubAgents = true,
   WorkflowSupervisor? supervisor,
+  RegionRegistry? regions,
+  SummaryIndex? summaryIndex,
   String? system,
 }) {
   // The entry agent's resolved system prompt — also the identity a delegated
@@ -82,6 +87,22 @@ Agent buildAgent({
         supervisor: supervisor, conversationId: conversationId, sink: host));
     tools.add(StopWorkflowTool(supervisor: supervisor));
   }
+  // The region surface, when the coordinator wired a registry: discover /
+  // query subfolder-scoped agents primed from the summary sidecar. The query
+  // tools run one-shot read-only agents via the scheduler; allocate/forget
+  // additionally need the summary index (to kick off the fleet).
+  if (regions != null) {
+    tools.addAll([
+      ListRegionsTool(regions),
+      ReadSummaryTool(regions),
+      QueryRegionTool(regions, scheduler,
+          parentReference: '${config.provider}/${provider.model}'),
+      BroadcastRegionTool(regions, scheduler,
+          parentReference: '${config.provider}/${provider.model}'),
+      if (summaryIndex != null) AllocateRegionTool(regions, summaryIndex),
+      if (summaryIndex != null) ForgetRegionTool(regions),
+    ]);
+  }
 
   final ToolRegistry agentTools;
   final PermissionPolicy effectivePolicy;
@@ -105,6 +126,13 @@ Agent buildAgent({
         // itself stays on the default `ask` (a heavyweight autonomous run
         // deserves the user's approval).
         'stop_workflow': PermissionDecision.allow,
+        // Region discovery + a single region query are cheap one-shot reads —
+        // same class as `delegate`, no modal. broadcast_region (N runs) and
+        // allocate_region (persistent partition change + a fleet run) stay on
+        // the default `ask`.
+        'list_regions': PermissionDecision.allow,
+        'read_summary': PermissionDecision.allow,
+        'query_region': PermissionDecision.allow,
       },
       rules: policy.staticRules,
     );

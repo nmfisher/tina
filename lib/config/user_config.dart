@@ -15,10 +15,11 @@ const int kCurrentConfigVersion = 1;
 
 /// Top-level keys [loadUserConfig] recognizes. Anything else is reported as a
 /// likely typo (e.g. `[limit]` for `[limits]`) rather than silently ignored.
-const _knownTopLevelKeys = {'version', 'default', 'providers', 'limits', 'prompts', 'theme', 'trust'};
+const _knownTopLevelKeys = {'version', 'default', 'providers', 'limits', 'prompts', 'theme', 'trust', 'regions'};
 const _knownDefaultKeys = {'provider', 'model', 'workflow'};
 const _knownProviderKeys = {'api_key', 'auth_token', 'base_url', 'wire', 'name', 'disabled_models'};
 const _knownPromptKeys = {'identity'};
+const _knownRegionsKeys = {'model'};
 const _knownLimitsKeys = {
   'max_global_tokens',
   'max_sub_agent_tokens',
@@ -27,6 +28,24 @@ const _knownLimitsKeys = {
   'max_turn_tokens',
   'max_request_tokens',
 };
+
+/// The `[regions]` table: defaults for the main agent's region agents
+/// (subfolder-scoped, summary-primed query agents).
+class RegionsConfig {
+  /// The default `"provider/model"` for region queries — the fast, cheap tier
+  /// the main agent routes scoped questions to. null = inherit the main
+  /// agent's model.
+  final String? model;
+
+  const RegionsConfig({this.model});
+
+  factory RegionsConfig.fromMap(Map<String, dynamic> m) =>
+      RegionsConfig(model: m['model'] as String?);
+
+  Map<String, dynamic> toMap() => {if (model != null) 'model': model};
+
+  bool get isEmpty => model == null;
+}
 
 /// Per-provider overrides from a `[providers.<id>]` table in the user config.
 /// Null fields are ignored by [buildEnvOverlay].
@@ -241,6 +260,10 @@ class UserConfig {
   /// [Config.trustDefault].
   final String? trustDefault;
 
+  /// The `[regions]` table: defaults for region agents (fast model, etc.).
+  /// Null when absent.
+  final RegionsConfig? regions;
+
   /// Schema version the file declared (defaults to [kCurrentConfigVersion] when
   /// absent). [loadUserConfig] only returns a config whose version matches.
   final int version;
@@ -255,6 +278,7 @@ class UserConfig {
     this.themeVariant,
     this.prompts = const {},
     this.trustDefault,
+    this.regions,
     this.version = kCurrentConfigVersion,
   });
 
@@ -268,7 +292,8 @@ class UserConfig {
       (limits == null || limits!.isEmpty) &&
       theme == null &&
       prompts.isEmpty &&
-      trustDefault == null;
+      trustDefault == null &&
+      (regions == null || regions!.isEmpty);
 
   /// Builds a [UserConfig] from the `toml` package's `toMap()` output. Unknown
   /// keys are ignored.
@@ -283,6 +308,7 @@ class UserConfig {
     final promptsRaw = (m['prompts'] as Map?)?.cast<String, dynamic>();
     final trustRaw = (m['trust'] as Map?)?.cast<String, dynamic>();
     final trustDefault = trustRaw?['default'] as String?;
+    final regionsRaw = (m['regions'] as Map?)?.cast<String, dynamic>();
     final providers = <String, ProviderConfig>{};
     for (final e in (providersRaw ?? const <String, dynamic>{}).entries) {
       if (e.value is Map) {
@@ -310,6 +336,7 @@ class UserConfig {
       themeVariant: themeVariant,
       prompts: prompts,
       trustDefault: trustDefault,
+      regions: regionsRaw == null ? null : RegionsConfig.fromMap(regionsRaw),
       version: (m['version'] as int?) ?? kCurrentConfigVersion,
     );
   }
@@ -398,6 +425,12 @@ void _warnUnknownKeys(Map<String, dynamic> m, String path) {
           }
         }
       }
+    }
+  }
+  final regions = m['regions'];
+  if (regions is Map) {
+    for (final k in regions.keys) {
+      if (!_knownRegionsKeys.contains(k)) warn('regions.$k', _knownRegionsKeys);
     }
   }
 }
@@ -505,6 +538,8 @@ String userConfigToToml(UserConfig config) {
         for (final e in config.prompts.entries) e.key: {'identity': e.value},
       },
     if (config.trustDefault != null) 'trust': {'default': config.trustDefault},
+    if (config.regions != null && !config.regions!.isEmpty)
+      'regions': config.regions!.toMap(),
   };
   return TomlDocument.fromMap(map).toString();
 }
@@ -610,6 +645,12 @@ api_key = "sk-ant-..."
 # max_request_tokens   = 200000     # main agent single-request input
 # max_sub_agent_tokens = 2000000    # per sub-agent session (they otherwise run uncapped)
 # requests_per_minute  = 0          # global RPM throttle (0 = disabled)
+
+# Region agents: the fast, cheap tier the main agent routes scoped questions to
+# (per-subfolder agents primed from the summary index). `model` is a
+# "provider/model" string; omit it to inherit the main agent's model.
+# [regions]
+# model = "deepseek/deepseek-chat"
 
 # Terminal color theme. Values are ANSI SGR parameter strings (e.g. "31" for red
 # foreground, "97;40" for bright-white-on-black). Omit any key to use the

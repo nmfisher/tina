@@ -1023,5 +1023,98 @@ void main() {
       expect(result.text, contains('failed to build provider'));
       await scheduler.dispose();
     });
+
+    test('toolProfile readOnly yields the read-only set and no delegate',
+        () async {
+      final provider = _RecordingToolsProvider();
+      final registry = ProviderRegistry(env: const {'TEST_KEY': 'k'})
+        ..register(ProviderDescriptor(
+          id: 'rec',
+          name: 'rec',
+          authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
+          defaultBaseUrl: 'https://rec.test',
+          builder: (_) => provider,
+          models: {
+            'rec-model': ModelInfo(
+                id: 'rec-model', name: 'm', contextWindow: 1, maxOutput: 1)
+          },
+        ));
+      final scheduler = SubAgentScheduler(
+        registry: registry,
+        pipeline: pipeline,
+        maxTokens: 8192,
+        streamIdleTimeout: const Duration(seconds: 60),
+        requestTimeout: const Duration(seconds: 30),
+        // Wire nesting so the test proves includeDelegate: false drops it.
+        delegateToolBuilder: (ctx) => DelegateTool(ctx),
+      );
+      final result = await scheduler.runStandalone(
+        systemPrompt: 'id',
+        task: 'go',
+        parentReference: 'rec/rec-model',
+        sink: FakeAgentSink(),
+        toolProfile: ToolProfile.readOnly,
+        includeDelegate: false,
+      );
+      expect(result.isError, isFalse);
+      final names = provider.toolNames.single;
+      expect(names, isNot(contains('write')));
+      expect(names, isNot(contains('bash')));
+      expect(names, containsAll(['read', 'grep', 'glob', 'write_summary']));
+      expect(names, isNot(contains('delegate')));
+      await scheduler.dispose();
+    });
+
+    test('defaults keep the full tool profile plus delegate', () async {
+      final provider = _RecordingToolsProvider();
+      final registry = ProviderRegistry(env: const {'TEST_KEY': 'k'})
+        ..register(ProviderDescriptor(
+          id: 'rec',
+          name: 'rec',
+          authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
+          defaultBaseUrl: 'https://rec.test',
+          builder: (_) => provider,
+          models: {
+            'rec-model': ModelInfo(
+                id: 'rec-model', name: 'm', contextWindow: 1, maxOutput: 1)
+          },
+        ));
+      final scheduler = SubAgentScheduler(
+        registry: registry,
+        pipeline: pipeline,
+        maxTokens: 8192,
+        streamIdleTimeout: const Duration(seconds: 60),
+        requestTimeout: const Duration(seconds: 30),
+        delegateToolBuilder: (ctx) => DelegateTool(ctx),
+      );
+      final result = await scheduler.runStandalone(
+        systemPrompt: 'id',
+        task: 'go',
+        parentReference: 'rec/rec-model',
+        sink: FakeAgentSink(),
+      );
+      expect(result.isError, isFalse);
+      final names = provider.toolNames.single;
+      expect(names, containsAll(['write', 'bash', 'delegate']));
+      await scheduler.dispose();
+    });
   });
+}
+
+/// A provider that records the tool schemas each turn was given — the only way
+/// to observe which tool set `runStandalone` built for an agent.
+class _RecordingToolsProvider extends LlmProvider {
+  final List<List<String>> toolNames = [];
+  _RecordingToolsProvider() : super('rec');
+
+  @override
+  Stream<StreamEvent> send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+  }) async* {
+    toolNames.add([for (final t in tools) t.name]);
+    yield MessageComplete(
+        content: const [TextBlock('done')], stopReason: 'end_turn');
+  }
 }

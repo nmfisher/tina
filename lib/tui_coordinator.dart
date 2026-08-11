@@ -18,6 +18,7 @@ import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina/persistence/session_restore.dart';
 import 'package:tina/pipeline/pipeline_runner.dart';
 import 'package:tina/pipeline/workflow_supervisor.dart';
+import 'package:tina/regions/region_registry.dart';
 import 'package:tina/tui/run_panel_content.dart';
 import 'package:tina/tui/workflow_editor_overlay.dart';
 import 'package:tina/tui/workflow_viewer_overlay.dart';
@@ -397,6 +398,23 @@ class TuiCoordinator {
       onLaunch: (run) => handleWorkflowLaunch?.call(run),
     );
 
+    // Region agents + the summary index: built once per session from the live
+    // composition. The registry primes regions from the sidecar at session
+    // start (pure file/git reads — zero LLM calls); the index runs the fleet
+    // (allocate_region's background refresh + `/index`). Both are wired into
+    // the main agent's tool set below and at the agentBuilder.
+    final regions = RegionRegistry(
+      projectRoot: Directory.current.path,
+      defaultModel: config.regionsModel,
+    );
+    final summaryIndex = SummaryIndex(
+      config: app.config,
+      registry: app.registry,
+      environment: app.environment,
+      projectRoot: Directory.current.path,
+      allocations: regions.allocations,
+    );
+
     // Build the initial session. Its host adopts screen.chat as its (active)
     // region and the shared spinner (bound to the status row), so it is on
     // screen from construction — active: true gives it an interactive asker.
@@ -441,6 +459,8 @@ class TuiCoordinator {
       policy: policy,
       config: config,
       supervisor: supervisor,
+      regions: regions,
+      summaryIndex: summaryIndex,
       system: initialSystem,
     );
     final initialConversation = Conversation(
@@ -478,6 +498,8 @@ class TuiCoordinator {
         policy: policy,
         config: config,
         supervisor: supervisor,
+        regions: regions,
+        summaryIndex: summaryIndex,
       ),
       sessionStore: store,
     );
@@ -1740,17 +1762,11 @@ class TuiCoordinator {
       sessionBar: sessionBar,
     );
 
-    // `/index`: the per-directory summary sidecar. The service holds the live
-    // composition's config/registry/environment (the recipe, safe to share) so
-    // it can both probe staleness (pure git, no LLM) and run the summarizer
-    // fleet. The y/n confirm reads a single key via the shared line editor —
-    // the same primitive the permission modal uses.
-    controller.summaryIndex = SummaryIndex(
-      config: app.config,
-      registry: app.registry,
-      environment: app.environment,
-      projectRoot: Directory.current.path,
-    );
+    // `/index`: the per-directory summary sidecar service built above (it
+    // shares the region registry's allocations, so `/index` covers allocated
+    // regions too). The y/n confirm reads a single key via the shared line
+    // editor — the same primitive the permission modal uses.
+    controller.summaryIndex = summaryIndex;
     controller.confirm = (prompt) async {
       final host = sessionManager.activeConversation.host;
       host.showMessage(prompt);

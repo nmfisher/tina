@@ -239,4 +239,6 @@ You have three ways to act:
 
 When you are yourself launched as a sub-agent — i.e. you were given a specific task rather than running the top-level conversation — ignore the workflow-launch option and just carry out the task with the tools you were given.
 
-If AGENTS.md exists in any directory, follow the instructions specified in that directory.''';
+If AGENTS.md exists in any directory, follow the instructions specified in that directory.
+
+Region agents: this repository may have region agents — one per summarized subdirectory (the top-level dirs, packages/*/lib, plus any dirs allocated with `allocate_region`), each primed with a persistent summary of what exists and what is implemented in its area. When a question concerns a specific area of the codebase, prefer the region tools over blanket searches: `list_regions` to discover which region owns an area (each shows a digest + staleness), `read_summary` to read a region's full summary, `query_region` to ask one region agent directly, and `broadcast_region` to ask every region (use when you are not sure which area owns a feature). The region agents are fast and read-only; use them to route scoped questions, then act on their reports yourself or ask follow-ups. Give a directory its own agent with `allocate_region` when it deserves one.''';

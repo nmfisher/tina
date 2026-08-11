@@ -83,6 +83,14 @@ void main() {
       expect(c.isEmpty, isFalse);
     });
 
+    test('parses a [regions] table', () {
+      final c = UserConfig.fromMap({
+        'regions': {'model': 'deepseek/deepseek-chat'},
+      });
+      expect(c.regions?.model, 'deepseek/deepseek-chat');
+      expect(c.isEmpty, isFalse);
+    });
+
     test('parses a [prompts.<role>] table into role→identity', () {
       final c = UserConfig.fromMap({
         'prompts': {
@@ -373,6 +381,16 @@ focus = "32"
       );
       final loaded = loadUserConfig(env: {}, tinaDir: tmp);
       expect(loaded.providers['anthropic']?.apiKey, key);
+    });
+
+    test('[regions] round-trips through loadUserConfig', () {
+      writeUserConfig(
+        const UserConfig(regions: RegionsConfig(model: 'deepseek/deepseek-chat')),
+        env: {},
+        tinaDir: tmp,
+      );
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.regions?.model, 'deepseek/deepseek-chat');
     });
 
     test('[limits] round-trips through loadUserConfig', () {

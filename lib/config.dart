@@ -114,6 +114,11 @@ class Config {
   /// AGENTS.md headless.
   final TrustDefault trustDefault;
 
+  /// The default `"provider/model"` for region agents from `[regions] model` —
+  /// the fast tier the main agent routes scoped questions to. null = region
+  /// agents inherit the main agent's model.
+  final String? regionsModel;
+
   /// Whether to force-acquire the per-session lock (`--force`). Only set when
   /// the user explicitly opts in; otherwise the second process on a session
   /// refuses to start.
@@ -155,6 +160,7 @@ class Config {
     this.safeMode = false,
     this.trustOverride,
     this.trustDefault = TrustDefault.ask,
+    this.regionsModel,
     this.forceLock = false,
   });
 
@@ -487,6 +493,7 @@ class Config {
       trustOverride:
           res.wasParsed('trust') ? res['trust'] as bool : null,
       trustDefault: _parseTrustDefault(userConfig?.trustDefault),
+      regionsModel: userConfig?.regions?.model,
       forceLock: res['force'] as bool,
     );
   }

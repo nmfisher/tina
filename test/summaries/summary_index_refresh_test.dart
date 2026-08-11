@@ -108,4 +108,36 @@ void main() {
         git(Directory('${sidecarRoot.path}/summaries'), ['log', '--oneline']),
         contains('summaries @'));
   });
+
+  test('refresh(dirs:) regenerates only the requested dirs', () async {
+    // A second stale dir so the filter is observable.
+    Directory('${project.path}/packages/foo/lib').createSync(recursive: true);
+    File('${project.path}/packages/foo/lib/f.dart').writeAsStringSync('// f\n');
+    git(project, ['add', '-A']);
+    git(project, ['commit', '-m', 'add package']);
+    // And make lib stale too.
+    File('${project.path}/lib/a.dart').writeAsStringSync('int x = 2;\n');
+    git(project, ['add', '-A']);
+    git(project, ['commit', '-m', 'bump lib']);
+
+    final registry = anthropicRegistry(provider);
+    final idx = _index(registry);
+    final before = await idx.status();
+    expect(before.staleDirs, containsAll(['lib', 'packages/foo/lib']));
+
+    final r =
+        await idx.refresh(dirs: ['lib']).timeout(const Duration(seconds: 30));
+    expect(r.regenerated, 1);
+    expect(r.regeneratedDirs, ['lib']);
+
+    // Only lib was regenerated; the other stale dirs (packages — whose tree
+    // changed when the package was added — and the package lib) stay stale.
+    final after = await idx.status();
+    expect(after.staleDirs, isNot(contains('lib')));
+    expect(after.staleDirs, contains('packages/foo/lib'));
+    expect(File('${sidecarRoot.path}/summaries/lib.md').existsSync(), isTrue);
+    expect(
+        File('${sidecarRoot.path}/summaries/packages__foo__lib.md').existsSync(),
+        isFalse);
+  });
 }

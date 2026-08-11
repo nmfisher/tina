@@ -135,6 +135,27 @@ void main() {
       );
       expect(cfg.promptOverrides, isEmpty);
     });
+
+    test('[regions] model flows into Config.regionsModel', () {
+      final cfg = Config.parse(
+        const [],
+        env: const {'ANTHROPIC_API_KEY': 'sk'},
+        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
+        userConfig: const UserConfig(
+            regions: RegionsConfig(model: 'deepseek/deepseek-chat')),
+      );
+      expect(cfg.regionsModel, 'deepseek/deepseek-chat');
+    });
+
+    test('regionsModel defaults to null when the file sets none', () {
+      final cfg = Config.parse(
+        const [],
+        env: const {'ANTHROPIC_API_KEY': 'sk'},
+        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
+        userConfig: const UserConfig(),
+      );
+      expect(cfg.regionsModel, isNull);
+    });
   });
 
   group('[limits] precedence (CLI > file > default)', () {
