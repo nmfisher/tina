@@ -97,6 +97,34 @@ void main() {
         expect(() => store.setActiveConversation(sid, 'does-not-exist'),
             throwsStateError);
       });
+    });
+
+    group('updateSessionUsage (spend persistence)', () {
+      test('persists the total and restores it on load', () async {
+        final sid = await store.createSession(providerId: 'anthropic');
+        expect((await store.loadSession(sid)).usageTokens, 0);
+
+        await store.updateSessionUsage(sid, 1234567);
+
+        final manifest = await store.loadSession(sid);
+        expect(manifest.usageTokens, 1234567);
+        // Round-trips through the serialized form (usage.tokens).
+        expect(manifest.toJson()['usage'], {'tokens': 1234567});
+        expect(
+            SessionManifest.fromJson(manifest.toJson()).usageTokens, 1234567);
+      });
+
+      test('clamps negative values to 0', () async {
+        final sid = await store.createSession(providerId: 'anthropic');
+        await store.updateSessionUsage(sid, -5);
+        expect((await store.loadSession(sid)).usageTokens, 0);
+      });
+
+      test('a fresh manifest serializes without the usage key', () async {
+        final sid = await store.createSession(providerId: 'anthropic');
+        final json = (await store.loadSession(sid)).toJson();
+        expect(json.containsKey('usage'), isFalse);
+      });
 
       test('materializes a legacy session', () async {
         const legacyId = '20240101-120000-abcd';

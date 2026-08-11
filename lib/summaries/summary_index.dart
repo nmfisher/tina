@@ -27,6 +27,7 @@ class SummaryIndex {
     this.registry,
     this.environment,
     this.allocations,
+    this.spendLedger,
   });
 
   /// The main repo root being summarized. The sidecar lives at
@@ -43,6 +44,11 @@ class SummaryIndex {
   /// User-allocated regions (main-agent-chosen directories beyond the default
   /// partition). null = the default partition only (headless `/index`).
   final AllocationsStore? allocations;
+
+  /// The LIVE session's ledger, when wired by the coordinator: the fleet's
+  /// usage is merged into it after an in-process refresh, so `/index` counts
+  /// toward the session total. null headless (throwaway fleet ledger).
+  final SpendLedger? spendLedger;
 
   /// The partition: the allocated regions when any exist (the main agent's
   /// proposed layout IS the index), else the default top-level dirs (the
@@ -110,6 +116,7 @@ class SummaryIndex {
       dryRun: false,
       repartition: repartition,
       dirs: dirs,
+      spendLedger: spendLedger,
     );
     // SummaryRunner.run() owns the registry.decorator save/restore (it calls
     // buildAppComposition, which re-sets the shared decorator). The live

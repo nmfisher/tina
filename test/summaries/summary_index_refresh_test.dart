@@ -140,4 +140,24 @@ void main() {
         File('${sidecarRoot.path}/summaries/packages__foo__lib.md').existsSync(),
         isFalse);
   });
+
+  test('an in-process refresh merges the fleet spend into the live ledger',
+      () async {
+    final registry = anthropicRegistry(provider);
+    final live = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
+    final idx = SummaryIndex(
+      config: testFleetConfig(registry),
+      registry: registry,
+      environment: const PlatformEnvironment(),
+      projectRoot: project.path,
+      spendLedger: live,
+    );
+
+    final r = await idx.refresh().timeout(const Duration(seconds: 30));
+    expect(r.regenerated, greaterThan(0));
+
+    // The scripted fleet makes 4 provider sends × 150 tokens each; all of it
+    // landed in the live session ledger, not a throwaway.
+    expect(live.totalTokens, 600);
+  });
 }

@@ -29,6 +29,7 @@ class _FakeCtx implements CommandContext {
     this.openImage,
     this.openBranch,
     this.openToolOutput,
+    this.spendLedger,
   });
 
   /// The conversation [active] returns. Tests mutate its provider for assertions.
@@ -56,6 +57,9 @@ class _FakeCtx implements CommandContext {
 
   @override
   Future<void> Function(int index)? openToolOutput;
+
+  @override
+  SpendLedger? spendLedger;
 
   @override
   Map<String, FutureOr<void> Function()> get commandHooks => const {};
@@ -350,6 +354,61 @@ Future<void> main() async {
       expect(
         host.styledMessages.map((m) => m.message),
         anyElement(contains('needs the interactive TUI')),
+      );
+    });
+  });
+
+  group('SessionCommandHandlers /spend', () {
+    late FakeHostInterface host;
+    late FakeProvider provider;
+    late Conversation conv;
+
+    setUp(() {
+      host = FakeHostInterface();
+      provider = FakeProvider.always(model: 'test-model');
+      conv = Conversation(
+        id: 'test-conv',
+        label: 'test-model',
+        agent: _fakeAgent(provider, host),
+        provider: provider,
+        host: host,
+        policy: PermissionPolicy(),
+      );
+    });
+
+    test('prints the session total, the cap, and the throttle', () async {
+      final ledger = SpendLedger(maxGlobalTokens: 50000000, requestsPerMinute: 30);
+      ledger.record(const TokenUsage(inputTokens: 1000, outputTokens: 2000));
+      final handlers = SessionCommandHandlers(
+          _FakeCtx(conversation: conv, spendLedger: ledger));
+      await handlers.dispatch('/spend');
+
+      final joined = host.styledMessages.map((m) => m.message).join();
+      expect(joined, contains('Session spend: 3,000 tokens'));
+      expect(joined, contains('Global cap: 50,000,000'));
+      expect(joined, contains('not tripped'));
+      expect(joined, contains('Requests/min cap: 30'));
+    });
+
+    test('shows the tripped state and the restored portion', () async {
+      final ledger = SpendLedger(maxGlobalTokens: 1000, requestsPerMinute: 0);
+      ledger.seed(500);
+      ledger.record(const TokenUsage(inputTokens: 600, outputTokens: 0));
+      final handlers = SessionCommandHandlers(
+          _FakeCtx(conversation: conv, spendLedger: ledger));
+      await handlers.dispatch('/spend');
+
+      final joined = host.styledMessages.map((m) => m.message).join();
+      expect(joined, contains('restored from a previous run'));
+      expect(joined, contains('TRIPPED'));
+    });
+
+    test('without a ledger, warns', () async {
+      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+      await handlers.dispatch('/spend');
+      expect(
+        host.styledMessages.map((m) => m.message),
+        anyElement(contains('no spend ledger')),
       );
     });
   });

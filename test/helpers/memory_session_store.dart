@@ -128,6 +128,22 @@ class MemorySessionStore implements SessionStore {
       cwd: manifest.cwd,
       activeConversationId: conversationId,
       conversations: manifest.conversations,
+      usageTokens: manifest.usageTokens,
+    );
+  }
+
+  @override
+  Future<void> updateSessionUsage(String sessionId, int tokens) async {
+    final manifest = _manifests[sessionId];
+    if (manifest == null) throw StateError('Session not found: $sessionId');
+    _manifests[sessionId] = SessionManifest(
+      id: manifest.id,
+      providerId: manifest.providerId,
+      baseUrl: manifest.baseUrl,
+      cwd: manifest.cwd,
+      activeConversationId: manifest.activeConversationId,
+      conversations: manifest.conversations,
+      usageTokens: tokens < 0 ? 0 : tokens,
     );
   }
 

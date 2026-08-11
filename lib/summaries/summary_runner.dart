@@ -29,11 +29,18 @@ class SummaryRunner {
     this.dryRun = false,
     this.repartition = false,
     this.dirs,
+    this.spendLedger,
   });
 
   final Config config;
   final ProviderRegistry registry;
   final Environment? environment;
+
+  /// The LIVE session's ledger, when this runner is driven in-process
+  /// (`/index` inside a session): the fleet's ephemeral ledger is merged into
+  /// it after the run, so the fleet's spend counts toward the session total.
+  /// null headless (the fleet's ledger stays throwaway).
+  final SpendLedger? spendLedger;
 
   /// The main repo root to summarize. Defaults to the process cwd at [run]
   /// time (matching `bin/tina.dart`'s convention). Overridable so tests can
@@ -149,6 +156,11 @@ class SummaryRunner {
         deleted: effective.deleted,
         commitSha: commitSha,
       );
+
+      // An in-process /index counts toward the session's spend: fold the
+      // fleet's ephemeral ledger into the live one (the fleet ran on its own
+      // composition + throttle, so only tokens are merged).
+      spendLedger?.merge(app.spendLedger);
     } finally {
       registry.decorator = savedDecorator;
     }

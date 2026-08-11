@@ -22,6 +22,7 @@ class SessionCommandHandlers {
     '/exit', '/quit', '/help', '/clear', '/compact', '/auto-compact',
     '/permissions', '/sessions', '/session', '/resume', '/model', '/settings',
     '/prompts', '/spawn', '/branch', '/image', '/index', '/workflow', '/output',
+    '/spend',
   ];
 
   Future<CmdResult> dispatch(String trimmed) async {
@@ -84,8 +85,49 @@ class SessionCommandHandlers {
         await handleWorkflowCommand(ctx, trimmed);
       case '/output':
         await _handleOutput(trimmed);
+      case '/spend':
+        await _handleSpend();
     }
     return const CmdHandled();
+  }
+
+  /// `/spend` — the session's token usage (all agents + sub-agents +
+  /// workflows), the global cap, and the RPM throttle.
+  Future<void> _handleSpend() async {
+    final ledger = ctx.spendLedger;
+    if (ledger == null) {
+      ctx.active.host.showMessage(
+          'no spend ledger available (headless run?)\n',
+          style: HostMessageStyle.warning);
+      return;
+    }
+    final buf = StringBuffer(
+        'Session spend: ${_formatCount(ledger.totalTokens)} tokens '
+        '(input + output)');
+    if (ledger.seededTokens > 0) {
+      buf.write(' — ${_formatCount(ledger.seededTokens)} restored from a '
+          'previous run');
+    }
+    buf.writeln();
+    final cap = ledger.cap;
+    if (cap != null) {
+      buf.writeln('Global cap: ${_formatCount(cap)} · '
+          '${ledger.tripped ? 'TRIPPED — all agents are paused' : 'not tripped'}');
+    }
+    if (ledger.rpm > 0) {
+      buf.writeln('Requests/min cap: ${ledger.rpm}');
+    }
+    ctx.active.host.showMessage(buf.toString(), style: HostMessageStyle.dim);
+  }
+
+  String _formatCount(int n) {
+    final s = n.toString();
+    final buf = StringBuffer();
+    for (var i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
+      buf.write(s[i]);
+    }
+    return buf.toString();
   }
 
   /// `/output [n]` — show the full output of a capped tool call. No argument

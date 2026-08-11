@@ -414,6 +414,7 @@ class TuiCoordinator {
       environment: app.environment,
       projectRoot: Directory.current.path,
       allocations: regions.allocations,
+      spendLedger: app.spendLedger,
     );
 
     // Build the initial session. Its host adopts screen.chat as its (active)
@@ -1796,6 +1797,9 @@ class TuiCoordinator {
     // regions too). The y/n confirm reads a single key via the shared line
     // editor — the same primitive the permission modal uses.
     controller.summaryIndex = summaryIndex;
+    // `/spend`: the process-wide token ledger (all agents + sub-agents +
+    // workflows + /index runs), persisted into the session manifest.
+    controller.spendLedger = app.spendLedger;
     controller.confirm = (prompt) async {
       final host = sessionManager.activeConversation.host;
       host.showMessage(prompt);

@@ -82,6 +82,9 @@ class ScriptedFleetProvider extends LlmProvider {
     required List<ToolSchema> tools,
   }) async* {
     callCount++;
+    // Every completion carries usage so the metering decorator records it —
+    // the fleet-merge test asserts the live ledger absorbed the fleet's spend.
+    const usage = TokenUsage(inputTokens: 100, outputTokens: 50);
     switch (callCount) {
       case 1:
         // Orchestrator: delegate a sub-agent for lib (no `agent` name — the
@@ -99,6 +102,7 @@ class ScriptedFleetProvider extends LlmProvider {
             ),
           ],
           stopReason: 'tool_use',
+          usage: usage,
         );
       case 2:
         // Summarizer: write_summary, then finish on the next turn.
@@ -114,18 +118,21 @@ class ScriptedFleetProvider extends LlmProvider {
             ),
           ],
           stopReason: 'tool_use',
+          usage: usage,
         );
       case 3:
         // Summarizer: final answer.
         yield MessageComplete(
           content: const [TextBlock('done')],
           stopReason: 'end_turn',
+          usage: usage,
         );
       default:
         // Orchestrator: final answer after the delegation returns.
         yield MessageComplete(
           content: const [TextBlock('summarized 1 directory')],
           stopReason: 'end_turn',
+          usage: usage,
         );
     }
   }

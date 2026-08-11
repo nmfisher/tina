@@ -290,6 +290,11 @@ class SessionManifest {
   /// legacy flat-file sessions (migrated with null).
   final String? cwd;
 
+  /// Tokens spent on this session's work (all agents + sub-agents +
+  /// workflows), persisted so a resumed session restores the counter. 0 for
+  /// sessions created before the field existed.
+  final int usageTokens;
+
   const SessionManifest({
     required this.id,
     required this.providerId,
@@ -297,6 +302,7 @@ class SessionManifest {
     required this.activeConversationId,
     required this.conversations,
     this.cwd,
+    this.usageTokens = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -308,6 +314,7 @@ class SessionManifest {
         if (cwd != null) 'cwd': cwd,
         'activeConversationId': activeConversationId,
         'conversations': conversations.map((c) => c.toJson()).toList(),
+        if (usageTokens > 0) 'usage': {'tokens': usageTokens},
       };
 
   factory SessionManifest.fromJson(Map<String, dynamic> j) => SessionManifest(
@@ -320,6 +327,9 @@ class SessionManifest {
         conversations: ((j['conversations'] ?? const []) as List)
             .map((c) => ConversationMeta.fromJson(c as Map<String, dynamic>))
             .toList(),
+        usageTokens: ((j['usage'] as Map?)?.cast<String, dynamic>())
+                ?['tokens'] as int? ??
+            0,
       );
 }
 
@@ -382,6 +392,11 @@ abstract class SessionStore {
   /// The conversation must already exist in the session. Throws [StateError]
   /// if the session or conversation is unknown.
   Future<void> setActiveConversation(String sessionId, String conversationId);
+
+  /// Record [tokens] as the session's total spend (all agents + sub-agents +
+  /// workflows), persisted so a resumed session restores the counter. Negative
+  /// values are clamped to 0.
+  Future<void> updateSessionUsage(String sessionId, int tokens);
 
   /// List all sessions, most-recently-updated first.
   Future<List<SessionMeta>> listSessions();

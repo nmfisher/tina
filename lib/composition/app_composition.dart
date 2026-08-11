@@ -123,6 +123,13 @@ Future<AppComposition> buildAppComposition({
       pauseGate: pauseGate,
       quota: quota);
   final resolved = await resolveSession(config, sessionStore);
+  // Restore the resumed session's recorded token spend into the ledger, so
+  // `/spend` shows the true session total across processes. Seeding never
+  // trips the ceiling (the cap guards what THIS process spends).
+  final manifest = resolved.manifest;
+  if (manifest != null && manifest.usageTokens > 0) {
+    ledger.seed(manifest.usageTokens);
+  }
   return AppComposition(
     config: config,
     environment: env,

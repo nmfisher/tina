@@ -48,6 +48,12 @@ class SpendLedger {
   bool _tripped = false;
   String? _reason;
 
+  /// Tokens restored from a previous process ([seed]); the part of
+  /// [totalTokens] that predates this process. Shown by `/spend` so the
+  /// restored portion is visible. Seeding never trips the ceiling — the cap
+  /// guards what THIS process spends, not history.
+  int _seededTokens = 0;
+
   // Token-bucket state. Capacity = requestsPerMinute; refills at rpm/60 tokens
   // per second. Polled (not completer-queued) so a blocked acquire is cheap to
   // cancel: [acquireRequestSlot] races its wait against an optional cancel
@@ -73,6 +79,10 @@ class SpendLedger {
 
   /// Running total of `input + output` tokens recorded this session.
   int get totalTokens => _totalTokens;
+
+  /// Tokens restored from a previous run via [seed] (the persisted portion of
+  /// [totalTokens]).
+  int get seededTokens => _seededTokens;
 
   /// The ceiling in effect, or `null` when unbounded (`maxGlobalTokens == 0`).
   int? get cap => maxGlobalTokens == 0 ? null : maxGlobalTokens;
@@ -152,10 +162,38 @@ class SpendLedger {
         (_tokens + added).clamp(0.0, requestsPerMinute.toDouble());
   }
 
+  /// Seed the running total from a persisted session record (resume/session
+  /// switch). Replaces the total and the seeded portion; never trips the
+  /// ceiling (the cap guards what this process spends, not restored history).
+  void seed(int tokens) {
+    _seededTokens = tokens < 0 ? 0 : tokens;
+    _totalTokens = _seededTokens;
+  }
+
+  /// Merge another ledger's total into this one (e.g. the summary fleet's
+  /// ephemeral ledger after an in-process `/index` run). The trip check
+  /// applies: a fleet that pushes the session past its ceiling trips it.
+  void merge(SpendLedger other) {
+    final delta = other.totalTokens;
+    if (delta <= 0) return;
+    if (tripped) {
+      _totalTokens += delta;
+      return;
+    }
+    _totalTokens += delta;
+    if (maxGlobalTokens > 0 && _totalTokens > maxGlobalTokens) {
+      _tripped = true;
+      _reason = 'global token spend ceiling exceeded '
+          '($_totalTokens > $maxGlobalTokens). Raise [limits] max_global_tokens '
+          '(or --max-global-tokens) in ~/.tina/config, or restart tina.';
+    }
+  }
+
   /// Zero all state. For tests / a future explicit reset command — NOT wired to
   /// `/clear`, by design (see class docs).
   void reset() {
     _totalTokens = 0;
+    _seededTokens = 0;
     _tripped = false;
     _reason = null;
     _tokens = requestsPerMinute.toDouble();

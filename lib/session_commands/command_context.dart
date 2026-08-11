@@ -141,6 +141,10 @@ abstract class CommandContext {
   /// capped-output ring. Wired by the TUI; null in headless (no screen).
   Future<void> Function(int index)? get openToolOutput;
 
+  /// The process-wide token ledger (`/spend`). Wired by the composition root;
+  /// null when no composition exists (headless without one).
+  SpendLedger? get spendLedger;
+
   /// Open the visual node editor (`/workflow new` / `/workflow edit`). Wired by
   /// the TUI; null in headless.
   Future<void> Function({String? name, bool isNew})? get openWorkflowEditor;

@@ -165,6 +165,11 @@ class SessionController implements CommandContext {
   @override
   Future<void> Function(int index)? openToolOutput;
 
+  /// The process-wide token ledger (`/spend`). Wired by the composition root;
+  /// used to persist usage into the active session's manifest.
+  @override
+  SpendLedger? spendLedger;
+
   SessionController({
     required this.sessionManager,
     required this.readLine,
@@ -197,6 +202,7 @@ class SessionController implements CommandContext {
           : await readLine('> ');
       if (input == null) {
         active.host.newline();
+        unawaited(_flushUsage()); // persist spend on quit
         return;
       }
 
@@ -204,7 +210,10 @@ class SessionController implements CommandContext {
       if (trimmed.isEmpty) continue;
 
       final cmd = await _commands.dispatch(trimmed);
-      if (cmd is CmdExit) return;
+      if (cmd is CmdExit) {
+        unawaited(_flushUsage()); // persist spend on quit
+        return;
+      }
       if (cmd is CmdHandled) continue;
       if (cmd case CmdRun(:final prompt)) {
         // A command that injects a fixed prompt (e.g. /index): run it as a
@@ -367,9 +376,28 @@ class SessionController implements CommandContext {
     if (identical(s, active)) s.host.setActivity(false);
     onSessionsChanged?.call();
 
+    // Persist the session's token spend so a resumed session restores it.
+    unawaited(_flushUsage());
+
     // Continue the session's backlog, if any.
     final next = s.messageQueue.dequeue();
     if (next != null) _startTurn(s, next);
+  }
+
+  /// Persist the ledger's current total into the active session's manifest
+  /// (`/spend` restore on resume). Best-effort: a failed write must never
+  /// break the turn.
+  Future<void> _flushUsage() async {
+    final ledger = spendLedger;
+    final store = sessionStore;
+    if (ledger == null || store == null) return;
+    final sid = sessionManager.activeId;
+    if (sid.isEmpty) return;
+    try {
+      await store.updateSessionUsage(sid, ledger.totalTokens);
+    } catch (_) {
+      // Best-effort; the in-memory ledger is unaffected.
+    }
   }
 
   // -- Workflow completion turns ------------------------------------------
@@ -489,13 +517,33 @@ class SessionController implements CommandContext {
   void switchSession(String id) {
     if (id == sessionManager.activeId) return;
     final fromId = sessionManager.activeId;
+    // Persist the outgoing session's spend, then restore the incoming
+    // session's recorded spend into the ledger.
+    unawaited(_flushUsage());
     sessionManager.switchSession(id);
+    _seedUsageFrom(id);
     _swapInput(fromId, id);
     active.host.showMessage(
         '(switched to ${_shortId(id)} — ${active.provider.model})\n',
         style: HostMessageStyle.dim);
     onSessionsChanged?.call();
     onActiveFocusChanged?.call();
+  }
+
+  /// Seed the ledger with [sessionId]'s persisted usage (a no-op when the
+  /// session has no record yet).
+  void _seedUsageFrom(String sessionId) {
+    final ledger = spendLedger;
+    final store = sessionStore;
+    if (ledger == null || store == null) return;
+    unawaited(() async {
+      try {
+        final manifest = await store.loadSession(sessionId);
+        ledger.seed(manifest.usageTokens);
+      } catch (_) {
+        // Unknown session or a read failure: leave the ledger as-is.
+      }
+    }());
   }
 
   /// Save the outgoing session's draft input and restore the incoming

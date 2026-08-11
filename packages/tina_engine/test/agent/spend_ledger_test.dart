@@ -120,4 +120,52 @@ void main() {
       expect(sw.elapsedMilliseconds, lessThan(300));
     });
   });
+
+  group('SpendLedger.seed / merge (restore + fleet)', () {
+    test('seed restores the total, tracks seededTokens, never trips', () {
+      final l = SpendLedger(maxGlobalTokens: 1000, requestsPerMinute: 0);
+      // Restored usage may exceed this process's cap — history doesn't trip.
+      l.seed(5000);
+      expect(l.totalTokens, 5000);
+      expect(l.seededTokens, 5000);
+      expect(l.tripped, isFalse);
+
+      // Live spend after restore counts from the restored base and can trip.
+      l.record(_u(10));
+      expect(l.totalTokens, 5020);
+      expect(l.seededTokens, 5000);
+      expect(l.tripped, isTrue);
+    });
+
+    test('merge folds another ledger in and trips when over the cap', () {
+      final live = SpendLedger(maxGlobalTokens: 1000, requestsPerMinute: 0);
+      final fleet = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
+      fleet.record(_u(400));
+      live.merge(fleet);
+      expect(live.totalTokens, 800);
+      expect(live.seededTokens, 0);
+
+      fleet.record(_u(200)); // fleet total: 800 + 400 = 1200
+      live.merge(fleet);
+      expect(live.totalTokens, 2000);
+      expect(live.tripped, isTrue);
+      expect(live.reason, contains('ceiling exceeded'));
+    });
+
+    test('merge of an empty ledger is a no-op', () {
+      final live = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
+      live.record(_u(10));
+      final empty = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
+      live.merge(empty);
+      expect(live.totalTokens, 20);
+    });
+
+    test('reset clears the seeded portion too', () {
+      final l = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
+      l.seed(900);
+      l.reset();
+      expect(l.totalTokens, 0);
+      expect(l.seededTokens, 0);
+    });
+  });
 }
