@@ -208,6 +208,15 @@ void main() {
       expect(r.content, isNot(contains('.tina')));
       expect(r.content, isNot(contains('.git')));
     });
+
+    test('the schema is a JSON-Schema object (no-input tools need type)',
+        () {
+      // Providers reject a schema without `"type": "object"` (seen live:
+      // DeepSeek 400 "Invalid schema for function ... got 'type': null").
+      final schema = RepoStructureTool(regions).schema;
+      expect(schema.inputSchema['type'], 'object');
+      expect(ListRegionsTool(regions).schema.inputSchema['type'], 'object');
+    });
   });
 
   group('allocate_region / forget_region', () {

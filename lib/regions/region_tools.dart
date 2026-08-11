@@ -100,7 +100,9 @@ class RepoStructureTool implements Tool {
             'this to decide where region agents belong (skip trivial folders, '
             'merge related ones, split large ones) before calling '
             'allocate_region.',
-        inputSchema: const {},
+        // Providers require a JSON-Schema object; an empty map would be
+        // rejected on the wire.
+        inputSchema: {'type': 'object', 'properties': {}},
       );
 
   @override
@@ -172,7 +174,9 @@ class ListRegionsTool implements Tool {
             'region (if any) owns an area; then query_region for details, or '
             'broadcast_region when you are not sure which region owns a '
             'feature. No regions yet? Run /index or allocate_region.',
-        inputSchema: const {},
+        // Providers require a JSON-Schema object; an empty map would be
+        // rejected on the wire.
+        inputSchema: {'type': 'object', 'properties': {}},
       );
 
   @override
