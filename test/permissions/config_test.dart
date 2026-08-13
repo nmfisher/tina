@@ -38,6 +38,11 @@ void main() {
   });
 
   group('Config polish flags', () {
+    test('--no-sandbox disables the bash write-sandbox (on by default)', () {
+      expect(_parse([]).sandboxEnabled, isTrue);
+      expect(_parse(['--no-sandbox']).sandboxEnabled, isFalse);
+    });
+
     test('--max-steps defaults to 50 and accepts overrides', () {
       expect(_parse([]).maxSteps, 50);
       expect(_parse(['--max-steps', '200']).maxSteps, 200);

@@ -64,15 +64,35 @@ void main() {
   });
 
   group('defaultAlwaysPatternFor', () {
-    test('bash uses first word + " *"', () {
+    test('bash uses the exact command (not first word + " *")', () {
+      // Approving a bash command re-approves only THAT command, so a single
+      // `rm -rf /tmp/junk` okay does not silently widen to all `rm` calls.
       expect(
           PermissionPolicy.defaultAlwaysPatternFor(
               'bash', {'command': 'git status --short'}),
-          'git *');
+          'git status --short');
       expect(
           PermissionPolicy.defaultAlwaysPatternFor(
               'bash', {'command': '   ls -la'}),
-          'ls *');
+          'ls -la');
+      expect(
+          PermissionPolicy.defaultAlwaysPatternFor(
+              'bash', {'command': 'rm -rf /tmp/junk'}),
+          'rm -rf /tmp/junk');
+    });
+
+    test('an exact bash pattern does not match a different command', () {
+      final p = PermissionPolicy(rules: const [
+        PermissionRule(
+            toolName: 'bash',
+            pattern: 'git status --short',
+            decision: PermissionDecision.allow),
+      ]);
+      expect(p.check('bash', {'command': 'git status --short'}),
+          PermissionDecision.allow);
+      // A different `git` invocation must NOT inherit the literal approval.
+      expect(p.check('bash', {'command': 'git push --force'}),
+          PermissionDecision.ask);
     });
 
     test('file tools use dirname/*', () {

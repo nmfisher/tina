@@ -80,16 +80,19 @@ class PermissionPolicy {
     return (input['filePath'] as String?) ?? '';
   }
 
-  /// The pattern that "always" should remember — broader than the exact
-  /// call so one approval covers a directory of edits or a family of
-  /// commands instead of every single one.
+  /// The pattern that "always" should remember. For file tools this is broader
+  /// than the exact call — the parent directory, so one approval covers a whole
+  /// directory of edits. For **bash** it is the **exact command**: a permissive
+  /// family-wide pattern (`<firstWord> *`) would let one `rm` approval silently
+  /// cover `rm -rf .` for the rest of the session. The exact command has no
+  /// unescaped `*`, so [globMatch] matches it literally; a command that
+  /// genuinely contains a `*` stays a narrow glob rather than widening to the
+  /// whole family.
   static String defaultAlwaysPatternFor(
       String tool, Map<String, dynamic> input) {
     if (tool == 'bash') {
       final cmd = ((input['command'] as String?) ?? '').trim();
-      if (cmd.isEmpty) return '*';
-      final firstWord = cmd.split(RegExp(r'\s+')).first;
-      return '$firstWord *';
+      return cmd.isEmpty ? '*' : cmd;
     }
     final path = (input['filePath'] as String?) ?? '';
     if (path.isEmpty) return '*';

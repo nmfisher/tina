@@ -289,6 +289,14 @@ class SubAgentScheduler {
   /// [persistence]: the wiring sets it once at the composition root.
   SubAgentSessionFactory? subAgentSessionFactory;
 
+  /// The app's configured permission policy, threaded in by the wiring so
+  /// unattended agents (notably [runStandalone] workflow nodes, which have no
+  /// parent conversation) inherit the user's tool decisions — critically the
+  /// bash decision, so `--yolo` / `--allow bash:…` can re-enable shell for a
+  /// workflow that needs it while bash stays gated (denied) by default. Null →
+  /// empty policy (bash gated off).
+  PermissionPolicy? basePolicy;
+
   final StreamController<AgentEvent> _merged =
       StreamController<AgentEvent>.broadcast();
   final List<SubAgentJob> _jobs = [];
@@ -694,6 +702,7 @@ class SubAgentScheduler {
     required AgentSink sink,
     ToolProfile toolProfile = ToolProfile.full,
     bool includeDelegate = true,
+    PermissionPolicy? parentPolicy,
   }) async {
     final LlmProvider provider;
     final String reference;
@@ -714,7 +723,8 @@ class SubAgentScheduler {
     // AND reach further sub-agents. Identity comes from [systemPrompt]; the
     // model from [reference].
     final base = _effectiveProfileTools(toolProfile).toList();
-    final policy = _policyForProfile(toolProfile, PermissionPolicy());
+    final policy =
+        _policyForProfile(toolProfile, parentPolicy ?? basePolicy ?? PermissionPolicy());
     final tools = <Tool>[...base];
     final system = resolveIdentityPrompt(systemPrompt,
         safeMode: safeMode, loadProjectContext: pipeline.loadProjectContext);
@@ -817,14 +827,24 @@ class SubAgentScheduler {
   /// Derive a sub-agent's policy from its tool profile: it may use exactly its
   /// profile's tools plus `delegate` when nesting is wired. Anything else is
   /// absent from the policy → `ask` (the unmapped-tool default) → denied by the
-  /// auto-deny asker. The parent's static permission rules carry forward; its
-  /// allow-list does not.
+  /// auto-deny asker. The parent's static permission rules carry forward.
+  ///
+  /// **bash is deliberately NOT auto-allowed.** `write`/`edit` are confined by
+  /// `SandboxedFileSystem` and backed up, so they're safe to pre-approve; bash
+  /// is the uncontained destructive vector, so it inherits the *parent's* bash
+  /// decision (`ask` normally → a prompt under an interactive asker, a deny
+  /// under the auto-deny asker; `allow` under `--yolo` or an explicit `--allow
+  /// bash:…`). The parent's `defaults` are spread in first so this inheritance
+  /// holds even when the parent expresses bash via a default (e.g. `--yolo`)
+  /// rather than a static rule.
   PermissionPolicy _policyForProfile(
           ToolProfile profile, PermissionPolicy parent) =>
       PermissionPolicy(
         defaults: {
+          ...parent.defaults,
           for (final t in _effectiveProfileTools(profile))
-            t.schema.name: PermissionDecision.allow,
+            if (t.schema.name != 'bash')
+              t.schema.name: PermissionDecision.allow,
           if (delegateToolBuilder != null) 'delegate': PermissionDecision.allow,
         },
         rules: parent.staticRules,

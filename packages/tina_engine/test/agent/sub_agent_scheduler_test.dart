@@ -8,32 +8,6 @@ import '../helpers/fake_agent_sink.dart';
 import '../helpers/fake_host_interface.dart';
 import '../helpers/fake_provider.dart';
 
-/// A provider that records each turn's user-task text into a shared [sink] and
-/// answers [_answers.first]. Built fresh per job by a registry builder that
-/// closes over the same [sink]/[_answers], so multi-call assertions share the
-/// recorder across calls.
-class _RecordingProvider extends LlmProvider {
-  final List<String> _answers;
-  final List<String> _sink;
-  _RecordingProvider(this._answers, this._sink) : super('rec');
-
-  @override
-  Stream<StreamEvent> send({
-    required String system,
-    required List<Message> messages,
-    required List<ToolSchema> tools,
-  }) {
-    final taskText =
-        messages.last.content.whereType<TextBlock>().map((b) => b.text).join();
-    _sink.add(taskText);
-    final answer = _answers.first;
-    return Stream.fromIterable([
-      TextDelta(answer),
-      MessageComplete(content: [TextBlock(answer)], stopReason: 'end_turn'),
-    ]);
-  }
-}
-
 /// A provider that records the `system` prompt it receives each turn, for
 /// asserting a sub-agent's prompt reaches the provider.
 class _SystemCapturingProvider extends LlmProvider {

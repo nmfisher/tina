@@ -67,6 +67,7 @@ export 'src/tools/process_tree.dart';
 export 'src/tools/read_tool.dart';
 export 'src/tools/render_image_tool.dart';
 export 'src/tools/sandbox.dart';
+export 'src/tools/sandbox_runner.dart';
 export 'src/tools/search_tool.dart';
 export 'src/tools/tavily_search.dart';
 export 'src/tools/tool.dart';

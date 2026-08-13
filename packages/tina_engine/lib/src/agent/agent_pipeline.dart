@@ -16,6 +16,7 @@ import '../tools/grep_tool.dart';
 import '../tools/mutation_lock.dart';
 import '../tools/read_tool.dart';
 import '../tools/sandbox.dart';
+import '../tools/sandbox_runner.dart';
 import '../tools/search_tool.dart';
 import '../tools/tool.dart';
 import '../tools/web_search.dart';
@@ -153,6 +154,7 @@ List<Tool> stripForSafeMode(Iterable<Tool> tools) =>
 void configureToolSandbox({
   required String projectRoot,
   required Map<String, String> env,
+  bool sandboxEnabled = true,
 }) {
   final io = const IoFileSystem();
   final sandbox = SandboxedFileSystem(
@@ -179,6 +181,20 @@ void configureToolSandbox({
   _grep.sandbox = sandbox;
   _glob.sandbox = sandbox;
   _bash.projectRoot = projectRoot;
+  // Confine bash subprocess writes to the project root + temp via sandbox-exec
+  // (the structural guard against a destructive command reaching outside the
+  // project). No-op pass-through where sandbox-exec is unavailable. Extra
+  // write-roots come from the TINA_SANDBOX_ALLOW env var (colon-separated).
+  if (sandboxEnabled) {
+    final extra = (env['TINA_SANDBOX_ALLOW'] ?? '')
+        .split(':')
+        .where((s) => s.isNotEmpty)
+        .toList();
+    _bash.processRunner = SandboxedProcessRunner(
+      projectRoot: projectRoot,
+      extraAllowPaths: extra,
+    );
+  }
   // The per-directory summaries sidecar: `<projectRoot>/.tina/summaries` —
   // project-local (so it tracks this repo, under the gitignored `.tina/`),
   // and distinct from the global `~/.tina` data tree the sandbox denies.

@@ -40,6 +40,7 @@ class _RecordingScheduler extends SubAgentScheduler {
     required AgentSink sink,
     ToolProfile toolProfile = ToolProfile.full,
     bool includeDelegate = true,
+    PermissionPolicy? parentPolicy,
   }) async {
     calls.add((
       systemPrompt: systemPrompt,

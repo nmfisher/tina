@@ -34,6 +34,10 @@ SubAgentScheduler createScheduler({
     quota: quota,
   );
   scheduler.delegateToolBuilder = (ctx) => DelegateTool(ctx);
+  // Thread the user's configured policy to unattended agents (workflow nodes)
+  // so the bash decision (--yolo / --allow bash:… / default ask) is inherited
+  // rather than blanket-allowed.
+  scheduler.basePolicy = config.buildPolicy();
   return scheduler;
 }
 

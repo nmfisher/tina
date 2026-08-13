@@ -103,6 +103,13 @@ class Config {
   /// off, so the `--help`/`--init-config`/`--list` short-circuits need no change.
   final bool safeMode;
 
+  /// `--no-sandbox`: when false (the default on macOS), bash subprocesses run
+  /// under `sandbox-exec` with writes confined to the project root + temp, so a
+  /// runaway `rm`/`find -delete` can't reach outside the project. `--no-sandbox`
+  /// disables it (e.g. for commands that must write to `$HOME`). No-op where
+  /// sandbox-exec is unavailable.
+  final bool sandboxEnabled;
+
   /// `--trust` / `--no-trust`: an explicit override of the project-trust gate.
   /// Null (the default) means "use the normal ask/skip/default logic" in
   /// `resolveProjectTrust`. `true` forces loading AGENTS.md; `false` withholds
@@ -158,6 +165,7 @@ class Config {
     this.promptOverrides = const {},
     this.theme = const Theme.defaults(),
     this.safeMode = false,
+    this.sandboxEnabled = true,
     this.trustOverride,
     this.trustDefault = TrustDefault.ask,
     this.regionsModel,
@@ -188,6 +196,11 @@ class Config {
             'Read-only session: remove write/edit/bash from every agent and '
             'instruct each it may only read. Inherently --yolo-proof — safe-'
             'mode silently dominates --yolo.')
+    ..addFlag('no-sandbox',
+        negatable: false,
+        help: 'Disable the sandbox-exec confinement around bash (writes are '
+            'otherwise limited to the project root + temp). Use for commands '
+            'that must write to \$HOME or system paths.')
     ..addOption('resume',
         help: 'Resume a saved session by id. See /sessions inside the REPL.')
     ..addFlag('continue',
@@ -490,6 +503,7 @@ class Config {
       promptOverrides: userConfig?.prompts ?? const {},
       theme: _resolveTheme(userConfig),
       safeMode: res['safe-mode'] as bool,
+      sandboxEnabled: !(res['no-sandbox'] as bool),
       trustOverride:
           res.wasParsed('trust') ? res['trust'] as bool : null,
       trustDefault: _parseTrustDefault(userConfig?.trustDefault),

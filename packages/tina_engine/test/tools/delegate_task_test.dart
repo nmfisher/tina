@@ -147,7 +147,13 @@ void main() {
       await scheduler.dispose();
     });
 
-    test('tools=full: the sub-agent may run bash', () async {
+    test(
+        'tools=full: bash is gated by the parent policy — denied by default '
+        '(auto-deny asker)', () async {
+      // A `full` sub-agent no longer blanket-allows bash; it inherits the
+      // parent's bash decision. The default parent policy is `ask`, and the
+      // unattended delegate path turns `ask` into a deny — so the bash tool
+      // start must NOT reach the bus.
       final bashThenDone = <List<StreamEvent>>[
         [
           const ToolCallStart(id: 'c1', name: 'bash'),
@@ -177,7 +183,75 @@ void main() {
           },
         ));
       final scheduler = sched(r);
+      // Default parent policy (no bash rule) → bash is `ask` → denied here.
       final tool = DelegateTool(ctx(scheduler));
+
+      final seen = <AgentEvent>[];
+      final sub = scheduler.events.listen(seen.add);
+
+      await tool.execute({
+        'delegations': [
+          {'task': 'run echo', 'tools': 'full'},
+        ],
+      });
+      await Future<void>.delayed(Duration.zero);
+      sub.cancel();
+
+      final bashStarts = seen.whereType<JobAgentEvent>().where((e) {
+        final inner = e.event;
+        return inner is ToolAgentEvent &&
+            inner.event is ToolStartEvent &&
+            (inner.event as ToolStartEvent).toolName == 'bash';
+      });
+      expect(bashStarts, isEmpty,
+          reason: 'bash is gated: a full sub-agent without a parent bash grant '
+              'must not run bash');
+      await scheduler.dispose();
+    });
+
+    test(
+        'tools=full: a parent bash:allow rule (e.g. --allow bash:*) lets the '
+        'sub-agent run bash', () async {
+      // The opt-in seam: when the parent policy grants bash, the full sub-agent
+      // inherits that grant and the bash tool start reaches the bus.
+      final bashThenDone = <List<StreamEvent>>[
+        [
+          const ToolCallStart(id: 'c1', name: 'bash'),
+          const MessageComplete(
+            content: [
+              ToolUseBlock(id: 'c1', name: 'bash', input: {'command': 'echo hi'})
+            ],
+            stopReason: 'tool_use',
+          ),
+        ],
+        [
+          const TextDelta('done'),
+          const MessageComplete(
+              content: [TextBlock('done')], stopReason: 'end_turn'),
+        ],
+      ];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(ProviderDescriptor(
+          id: 'a',
+          name: 'a',
+          authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
+          defaultBaseUrl: 'https://a.test',
+          builder: (c) => FakeProvider(bashThenDone, model: c.model),
+          models: const {
+            'a-model':
+                ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+          },
+        ));
+      final scheduler = sched(r);
+      // Parent grants bash (`--allow bash:*`) → the full sub-agent inherits it.
+      final tool = DelegateTool(testContext(scheduler,
+          pipeline: pipeline,
+          parentPolicy: PermissionPolicy(rules: [
+            PermissionRule(
+                toolName: 'bash',
+                pattern: '*',
+                decision: PermissionDecision.allow),
+          ])));
 
       final seen = <AgentEvent>[];
       final sub = scheduler.events.listen(seen.add);
@@ -191,7 +265,7 @@ void main() {
       sub.cancel();
 
       expect(res.content, contains('done'));
-      // A bash tool *start* reached the bus — full profile allowed it.
+      // A bash tool *start* reached the bus — the parent grant flowed through.
       final bashStarts = seen.whereType<JobAgentEvent>().where((e) {
         final inner = e.event;
         return inner is ToolAgentEvent &&

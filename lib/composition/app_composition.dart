@@ -105,6 +105,7 @@ Future<AppComposition> buildAppComposition({
   configureToolSandbox(
     projectRoot: Directory.current.path,
     env: env.env,
+    sandboxEnabled: config.sandboxEnabled,
   );
   // Build the store unconditionally — /sessions and /resume still work
   // (read-only), and the recorder gates writes.

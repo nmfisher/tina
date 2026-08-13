@@ -1467,10 +1467,17 @@ class TuiCoordinator {
           loadProjectContext: pipeline.loadProjectContext);
       final profileToolNames = eff.map((t) => t.schema.name).toList();
       final spawnTools = ToolRegistry(eff);
+      // Profile tools are pre-approved, EXCEPT bash: it's the uncontained
+      // destructive vector, so it inherits the user's bash decision (ask → the
+      // panel prompts; allow under --yolo/--allow bash:…; deny under --deny).
+      final bashDecision = config.buildPolicy().check('bash', const {});
       final spawnPolicy = PermissionPolicy(rules: [
         for (final n in profileToolNames)
-          PermissionRule(
-              toolName: n, pattern: '*', decision: PermissionDecision.allow),
+          if (n != 'bash')
+            PermissionRule(
+                toolName: n, pattern: '*', decision: PermissionDecision.allow),
+        if (profileToolNames.contains('bash'))
+          PermissionRule(toolName: 'bash', pattern: '*', decision: bashDecision),
       ]);
 
       // Register the spawn in the session manifest — this mints the
@@ -1599,10 +1606,16 @@ class TuiCoordinator {
           loadProjectContext: pipeline.loadProjectContext);
       final profileToolNames = eff.map((t) => t.schema.name).toList();
       final branchTools = ToolRegistry(eff);
+      // As with /spawn: profile tools pre-approved except bash, which inherits
+      // the user's bash decision (ask → prompt; allow under --yolo; deny …).
+      final bashDecision = config.buildPolicy().check('bash', const {});
       final branchPolicy = PermissionPolicy(rules: [
         for (final n in profileToolNames)
-          PermissionRule(
-              toolName: n, pattern: '*', decision: PermissionDecision.allow),
+          if (n != 'bash')
+            PermissionRule(
+                toolName: n, pattern: '*', decision: PermissionDecision.allow),
+        if (profileToolNames.contains('bash'))
+          PermissionRule(toolName: 'bash', pattern: '*', decision: bashDecision),
       ]);
 
       // Register the branch in the session manifest, exactly as /spawn does —

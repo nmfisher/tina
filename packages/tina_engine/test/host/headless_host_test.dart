@@ -98,8 +98,11 @@ void main() {
           const PermissionPrompt('bash', {'command': 'rm -rf /'}));
 
       expect(res, PermissionResponse.denyOnce);
+      // Fix 4: the "always allow" hint names the EXACT command, not the
+      // first-word family — so a denied `rm -rf /` points at that command
+      // alone rather than widening to every `rm`.
       expect(err.toString(),
-          contains('use --allow "bash:rm *" or --yolo'));
+          contains('use --allow "bash:rm -rf /" or --yolo'));
       expect(err.toString(), contains('bash:'));
     });
 
