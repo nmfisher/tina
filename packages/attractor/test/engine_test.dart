@@ -60,7 +60,7 @@ NodeHandlerRegistry _registry(CodergenBackend backend, Interviewer interviewer) 
 Future<(Outcome, MemoryRunStore)> _run(
   Graph g, {
   required _FakeBackend backend,
-  _FakeInterviewer? interviewer,
+  Interviewer? interviewer,
   String? input,
   Map<String, String>? seedContext,
   PipelineEventListener? onEvent,
@@ -690,6 +690,32 @@ void main() {
       expect(outcome.text, 'the final summary');
     });
 
+    test('a gate with a prompt attr shows the expanded text (VERDICT lines '
+        'stripped) as its question', () async {
+      final g = parseDot('''
+        digraph GatePrompt {
+          start [shape=Mdiamond]
+          review [shape=box]
+          gate [shape=hexagon, prompt="\$review\\n\\nThe reviewer needs a decision. Pick:"]
+          ship [shape=box]
+          exit [shape=Msquare]
+          start -> review -> gate
+          gate -> ship [label="[A] Approve"]
+          ship -> exit
+        }
+      ''');
+      final backend = _FakeBackend({
+        'review': CodergenResult('the plan text\nVERDICT: clarify'),
+      });
+      final interviewer = _RecordingInterviewer();
+      final (outcome, _) =
+          await _run(g, backend: backend, interviewer: interviewer);
+
+      expect(outcome.status, StageStatus.success);
+      expect(interviewer.questions.single.text,
+          'the plan text\n\nThe reviewer needs a decision. Pick:');
+    });
+
     test('threads onEvent into handlers so a handler can emit progress',
         () async {
       // A handler that receives the engine's listener and emits its own
@@ -728,6 +754,22 @@ void main() {
           isTrue);
     });
   });
+}
+
+/// An interviewer that records every question and picks the first option.
+class _RecordingInterviewer implements Interviewer {
+  final questions = <Question>[];
+  @override
+  Future<Answer> ask(Question question) async {
+    questions.add(question);
+    final options = question.options ?? const <Option>[];
+    if (options.isEmpty) return const Answer.cancelled();
+    final first = options.first;
+    return Answer(value: first.key, selectedOption: first);
+  }
+
+  @override
+  Future<void> inform(String message, {String? stage}) async {}
 }
 
 /// A handler that always throws — for the audit-trail-on-throw test.

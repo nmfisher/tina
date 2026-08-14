@@ -151,8 +151,8 @@ Future<void> ensureDefaultWorkflowUsable(
 /// `VERDICT: <label>` line, matched against an edge's label. `intake` and the
 /// executors can also delegate sub-agents with the `delegate` tool (a task plus
 /// an optional tool profile: read-only for exploration/review, full for
-/// changes). `$input` is the user's message and `$history` the (truncated) chat
-/// transcript, both expanded by the engine at run time.
+/// changes). `$input` is the user's message, expanded by the engine at run
+/// time.
 const String kDefaultWorkflowDotSource = '''
 // tina's default chat workflow: the launchable default graph, launched on demand
 // by the main agent's launch_workflow tool (the main agent runs outside the
@@ -186,22 +186,23 @@ digraph default {
   start [shape=Mdiamond, label="Start"]
 
   intake [shape=box, label="Intake",
-        system_prompt="You are the intake step of a coding workflow. A user request and conversation context are provided to you. Explore the repository enough to ground the request in real code; delegate read-only sub-agents where that helps (each delegation is a task plus an optional tool profile: read-only for exploration or review, full for changes — and an optional model). You have file tools (read, write, edit, bash, search, grep, glob) and a delegate tool, but you do not write code and you do not finalize a plan yourself: hand clear requirements and your findings to the plan node.",
-        prompt="User request: \$input\\n\\nConversation history for context:\\n\$history\\n\\nExplore the repository enough to ground the request (delegate read-only sub-agents where it helps). Then summarize the requirements and your findings. Do not write code yet. The plan node will plan from your summary."]
+        system_prompt="You are the intake step of a coding workflow. A user request is provided to you. Explore the repository enough to ground the request in real code; delegate read-only sub-agents where that helps (each delegation is a task plus an optional tool profile: read-only for exploration or review, full for changes — and an optional model). You have file tools (read, write, edit, bash, search, grep, glob) and a delegate tool, but you do not write code and you do not finalize a plan yourself: hand clear requirements and your findings to the plan node.",
+        prompt="User request: \$input\\n\\nExplore the repository enough to ground the request (delegate read-only sub-agents where it helps). Then summarize the requirements and your findings. Do not write code yet. The plan node will plan from your summary."]
 
   plan [shape=box, label="Plan", context="intake",
         system_prompt="You are a planning agent. You turn requirements and findings into a concrete plan that other agents can execute. You do not write code; you plan.",
         prompt="Using the intake summary above, write a concrete plan: the files to change, the steps in order, the risks, and how to verify. Because the work runs in parallel across three executors, divide it into up to three independent chunks labeled [1], [2], [3] so each executor takes one. If the work is small, use fewer chunks. Output only the plan."]
 
   plan_review_1 [shape=box, label="Plan review (1)", context="plan", writes="plan",
-        system_prompt="You are a careful, independent plan reviewer. You check the plan above for correctness, completeness, and risk. Your response becomes the working plan for the executors: always restate the plan in full (unchanged if it is sound, revised if you improve it).",
-        prompt="Review the plan above. If it is sound, restate it unchanged (your response is the working plan the executors will implement) and end your response with exactly this line:\\nVERDICT: approve\\nIf you can improve it yourself, output the full revised plan and end with:\\nVERDICT: revise\\nIf you need a decision from the user, state the question in one or two sentences and end with:\\nVERDICT: clarify\\nOutput nothing after the VERDICT line."]
+        system_prompt="You are a careful, independent plan reviewer. You check the plan above for correctness, completeness, and risk. Your response becomes the working plan for the executors: always restate the plan in full — unchanged if it is sound, revised if you improve it — WHATEVER your verdict, so the plan is never replaced by a question or a fragment.",
+        prompt="Review the plan above. First, restate the full plan (unchanged if sound; your full revision if you improved it) — your response IS the working plan the executors will implement. Then end with exactly one of:\\nVERDICT: approve — the restated plan is sound\\nVERDICT: revise — you restated an improved plan\\nVERDICT: clarify — AFTER the full restated plan, state the question you need the user to decide (one or two sentences)\\nOutput nothing after the VERDICT line."]
 
   plan_review_2 [shape=box, label="Plan review (2)", context="plan", writes="plan",
-        system_prompt="You are a careful, independent plan reviewer. You check the plan above for correctness, completeness, and risk. Your response becomes the working plan for the executors: always restate the plan in full (unchanged if it is sound, revised if you improve it).",
-        prompt="Review the plan above. If it is sound, restate it unchanged (your response is the working plan the executors will implement) and end your response with exactly this line:\\nVERDICT: approve\\nIf you can improve it yourself, output the full revised plan and end with:\\nVERDICT: revise\\nIf you need a decision from the user, state the question in one or two sentences and end with:\\nVERDICT: clarify\\nOutput nothing after the VERDICT line."]
+        system_prompt="You are a careful, independent plan reviewer. You check the plan above for correctness, completeness, and risk. Your response becomes the working plan for the executors: always restate the plan in full — unchanged if it is sound, revised if you improve it — WHATEVER your verdict, so the plan is never replaced by a question or a fragment.",
+        prompt="Review the plan above. First, restate the full plan (unchanged if sound; your full revision if you improved it) — your response IS the working plan the executors will implement. Then end with exactly one of:\\nVERDICT: approve — the restated plan is sound\\nVERDICT: revise — you restated an improved plan\\nVERDICT: clarify — AFTER the full restated plan, state the question you need the user to decide (one or two sentences)\\nOutput nothing after the VERDICT line."]
 
-  clarify [shape=hexagon, label="The reviewer needs a decision from you before continuing. Pick how to proceed."]
+  clarify [shape=hexagon, label="The reviewer needs a decision from you before continuing. Pick how to proceed.",
+        prompt="\$last_stage\\n\\nThe reviewer needs a decision from you before continuing. Pick how to proceed."]
 
   fanout [shape=component, label="Fan out"]
 
