@@ -7,6 +7,19 @@ import 'package:test/test.dart';
 
 import '../summaries/fleet_test_harness.dart';
 
+/// A [SidecarSummaryRepo] that counts [loadManifest] calls, to prove the
+/// region list reads the manifest once (not once per region — the O(n²) bug).
+class _CountingRepo extends SidecarSummaryRepo {
+  _CountingRepo({required super.root, required super.projectRoot});
+  int loadManifestCalls = 0;
+
+  @override
+  SummaryManifest loadManifest() {
+    loadManifestCalls++;
+    return super.loadManifest();
+  }
+}
+
 /// Pins [RegionRegistry]: regions come from the default partition plus
 /// allocations, summaries read back from the sidecar, staleness is the
 /// pure-git probe, and allocate/forget persist through `allocations.json`.
@@ -63,6 +76,24 @@ void main() {
     expect(lib.summary, contains('lib does X'));
     expect(lib.commit, isNotNull);
     expect(lib.stale, isFalse);
+  });
+
+  /// A [SidecarSummaryRepo] that counts [loadManifest] so we can prove the
+  /// region list reads the manifest once, not once per region (finding I).
+  test('region summary reads reuse one manifest load (no O(n²) re-read)', () {
+    seedSummary('lib');
+    final counting = _CountingRepo(
+        root: sidecarRoot, projectRoot: project);
+    final manifest = counting.loadManifest();
+    expect(counting.loadManifestCalls, 1);
+    // The manifest-aware read resolves against the passed manifest — no
+    // extra load.
+    expect(counting.readSummaryWithManifest('lib', manifest),
+        contains('lib does X'));
+    expect(counting.loadManifestCalls, 1);
+    // The legacy readSummary reloads each call (the O(n²) we removed).
+    counting.readSummary('lib');
+    expect(counting.loadManifestCalls, 2);
   });
 
   test('a changed directory is flagged stale', () {

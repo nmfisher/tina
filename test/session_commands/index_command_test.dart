@@ -12,7 +12,7 @@ import 'package:tina/session_commands/session_command_handlers.dart';
 import 'package:tina/summaries/summary_index.dart';
 import 'package:tina_engine/tina_engine.dart'
     show Agent, HostInterface, LlmProvider, PermissionPolicy,
-        PermissionResponse, SpendLedger, ToolRegistry;
+        PermissionResponse, SpendLedger, TokenUsage, ToolRegistry;
 import 'package:test/test.dart';
 
 import '../helpers/fake_host_interface.dart';
@@ -36,9 +36,13 @@ class _StubIndex extends SummaryIndex {
   SummaryIndexResult? refreshResult;
   int refreshCalls = 0;
   bool? lastRepartition;
+  bool _proposalShown = false;
 
   @override
   Future<SummaryIndexStatus> status() async => _status;
+
+  @override
+  bool get proposalShown => _proposalShown;
 
   @override
   Future<SummaryIndexResult> refresh({
@@ -60,6 +64,8 @@ class _FakeCtx implements CommandContext {
     required this.conversation,
     this.summaryIndex,
     this.confirm,
+    this.spendLedger,
+    this.runBackgroundIndex,
   });
 
   final Conversation conversation;
@@ -288,5 +294,108 @@ void main() {
     expect(res, isA<CmdRun>());
     expect((res as CmdRun).prompt, contains('Review the structure of this repository'));
     expect(_notices().join(), contains('sidecar unavailable'));
+  });
+
+  test('first run + no allocations + proposal already shown: escape hatch',
+      () async {
+    // The proposal turn ran before but allocated nothing — /index must not
+    // loop on another paid proposal turn. It offers the default-partition
+    // fallback instead (finding D).
+    final idx = _StubIndex(
+      _status(total: 4, stale: const ['lib', 'test', 'packages', 'packages/c'],
+          firstRun: true),
+      refreshResult: _result(4),
+    )
+      .._proposalShown = true; // markProposalShown had run
+    final confirmCalls = <String>[];
+    final handlers = SessionCommandHandlers(_FakeCtx(
+      conversation: conv,
+      summaryIndex: idx,
+      confirm: (prompt) async {
+        confirmCalls.add(prompt);
+        return true;
+      },
+    ));
+    final res = await handlers.dispatch('/index');
+
+    expect(res, isA<CmdHandled>());
+    expect(confirmCalls.single, contains('allocated no regions'));
+    expect(idx.refreshCalls, 1); // default partition indexed, not a proposal
+  });
+
+  test('first run + no allocations + proposal shown + decline: no refresh',
+      () async {
+    final idx = _StubIndex(
+      _status(total: 4, stale: const ['lib', 'test', 'packages', 'packages/c'],
+          firstRun: true),
+      refreshResult: _result(4),
+    )
+      .._proposalShown = true;
+    final handlers = SessionCommandHandlers(_FakeCtx(
+      conversation: conv,
+      summaryIndex: idx,
+      confirm: (prompt) async => false,
+    ));
+    final res = await handlers.dispatch('/index');
+
+    expect(res, isA<CmdHandled>());
+    expect(idx.refreshCalls, 0);
+  });
+
+  test('tripped spend cap skips /index (finding M)', () async {
+    final idx = _StubIndex(
+      _status(total: 4, stale: const ['lib', 'test', 'packages', 'packages/c'],
+          firstRun: true),
+      refreshResult: _result(4),
+    );
+    // Trip the ledger with a single oversized record (cap = 1 token).
+    final ledger = SpendLedger(maxGlobalTokens: 1, requestsPerMinute: 0);
+    ledger.record(TokenUsage(inputTokens: 100, outputTokens: 0));
+    expect(ledger.tripped, isTrue);
+
+    final handlers = SessionCommandHandlers(_FakeCtx(
+      conversation: conv,
+      summaryIndex: idx,
+      spendLedger: ledger,
+    ));
+    final res = await handlers.dispatch('/index');
+
+    expect(res, isA<CmdHandled>());
+    expect(idx.refreshCalls, 0); // the fleet never launched
+    expect(_notices().join(), contains('tripped'));
+  });
+
+  test('with runBackgroundIndex wired: returns immediately, delegates to it',
+      () async {
+    // In the TUI, /index hands the fleet to the background task and returns
+    // at once — the task posts its own notices. The inline refresh +
+    // _postIndexRefresh must NOT run (step 6).
+    final idx = _StubIndex(
+      _status(total: 4, stale: const ['lib', 'test', 'packages', 'packages/c'],
+          firstRun: true),
+      refreshResult: _result(4),
+    );
+    List<String>? capturedDirs;
+    bool capturedRepartition = false;
+    Conversation? capturedConv;
+    final handlers = SessionCommandHandlers(_FakeCtx(
+      conversation: conv,
+      summaryIndex: idx,
+      runBackgroundIndex: (c, dirs, {repartition = false}) async {
+        capturedConv = c;
+        capturedDirs = dirs;
+        capturedRepartition = repartition;
+      },
+    ));
+    final res = await handlers.dispatch('/index');
+
+    expect(res, isA<CmdHandled>());
+    expect(idx.refreshCalls, 0); // inline refresh NOT called
+    expect(capturedConv, same(conv));
+    expect(capturedDirs,
+        ['lib', 'test', 'packages', 'packages/c']); // probed stale dirs
+    expect(capturedRepartition, false);
+    // No inline Indexed notice — the background task owns that.
+    expect(_notices().join(), isNot(contains('Indexed')));
   });
 }

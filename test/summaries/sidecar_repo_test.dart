@@ -156,6 +156,110 @@ void main() {
     expect(stale.toRegenerate, contains('docs'));
   });
 
+  test('summarySlug is percent-encoded and injective (no __ collision)', () {
+    // Percent-encoding makes 'a/b' and 'a__b' distinct filenames — the old
+    // '__' slug collided them.
+    expect(summarySlug('a/b'), 'a%2Fb');
+    expect(summarySlug('a__b'), 'a__b');
+    expect(summarySlug('a/b'), isNot(summarySlug('a__b')));
+    expect(summarySlug('100%'), '100%25');
+  });
+
+  test('defaultPartition skips build/dist (top-level and in packages)', () {
+    Directory('${project.path}/build').createSync();
+    Directory('${project.path}/dist').createSync();
+    Directory('${project.path}/packages/tina_index/build')
+        .createSync(recursive: true);
+    final partition = repo.defaultPartition();
+    expect(partition, isNot(contains('build')));
+    expect(partition, isNot(contains('dist')));
+    expect(partition, isNot(contains('packages/tina_index/build')));
+  });
+
+  test('record skips dirs whose summary file was not written (finding C)', () {
+    repo.init();
+    final partition = repo.defaultPartition(); // lib, test, packages/tina_index/lib
+    // Only the first dir's summary file actually landed.
+    seedSummaries(partition.take(1).toList());
+    final recorded = repo.record(
+      manifest: SummaryManifest.empty(),
+      regenerated: partition,
+      deleted: const [],
+    );
+    expect(recorded.dirs.keys, hasLength(1));
+    expect(recorded.dirs.keys, contains(partition.first));
+    // The skipped dirs stay stale on the next probe (no deadlock).
+    final stale = repo.staleDirs(partition, recorded);
+    expect(stale.toRegenerate, hasLength(partition.length - 1));
+  });
+
+  test('staleness: an uncommitted edit makes a recorded dir stale', () {
+    repo.init();
+    final partition = repo.defaultPartition();
+    seedSummaries(partition);
+    final recorded = repo.record(
+      manifest: SummaryManifest.empty(),
+      regenerated: partition,
+      deleted: const [],
+    );
+    // Edit lib (was clean) without committing → porcelain now shows modified,
+    // so the dirty digest differs from the recorded clean one.
+    File('${project.path}/lib/a.dart').writeAsStringSync('int x = 9;\n');
+    final stale = repo.staleDirs(partition, recorded);
+    expect(stale.toRegenerate, contains('lib'));
+    expect(stale.toRegenerate, isNot(contains('test')));
+  });
+
+  test('staleness: a dir summarized while dirty is not stale until it changes',
+      () {
+    repo.init();
+    final partition = repo.defaultPartition();
+    File('${project.path}/lib/a.dart').writeAsStringSync('int x = 9;\n'); // dirty v1
+    seedSummaries(partition);
+    final recorded = repo.record(
+      manifest: SummaryManifest.empty(),
+      regenerated: partition,
+      deleted: const [],
+    );
+    // Re-probe while still dirty → digest matches the recorded one → not stale.
+    final stale = repo.staleDirs(partition, recorded);
+    expect(stale.toRegenerate, isEmpty);
+  });
+
+  test('staleness: a newly-dirtied file in the dir makes it stale again', () {
+    repo.init();
+    final partition = repo.defaultPartition();
+    seedSummaries(partition);
+    final recorded = repo.record(
+      manifest: SummaryManifest.empty(),
+      regenerated: partition,
+      deleted: const [],
+    );
+    // A brand-new untracked file appears in lib → the porcelain set changes,
+    // so the dirty digest differs from the recorded one.
+    File('${project.path}/lib/new.dart').writeAsStringSync('int y = 1;\n');
+    final stale = repo.staleDirs(partition, recorded);
+    expect(stale.toRegenerate, contains('lib'));
+    expect(stale.toRegenerate, isNot(contains('test')));
+  });
+
+  test('staleness: a dirty dir becomes stale once committed (tree changed)', () {
+    repo.init();
+    final partition = repo.defaultPartition();
+    File('${project.path}/lib/a.dart').writeAsStringSync('int x = 9;\n'); // dirty
+    seedSummaries(partition);
+    final recorded = repo.record(
+      manifest: SummaryManifest.empty(),
+      regenerated: partition,
+      deleted: const [],
+    );
+    // Commit → HEAD tree hash now non-null, differing from the recorded null.
+    _git(project, ['add', '-A']);
+    _git(project, ['commit', '-m', 'commit dirty lib']);
+    final stale = repo.staleDirs(partition, recorded);
+    expect(stale.toRegenerate, contains('lib'));
+  });
+
   test('commit writes a git commit to the sidecar with a descriptive message',
       () {
     repo.init();
@@ -183,6 +287,25 @@ void main() {
     );
     expect(File('${sidecarRoot.path}/summaries/test.md').existsSync(), isFalse);
     expect(File('${sidecarRoot.path}/summaries/lib.md').existsSync(), isTrue);
+  });
+
+  test('commit stages summaries + manifest only, never allocations.json', () {
+    repo.init();
+    // A stray runtime file in the sidecar must NOT enter sidecar history.
+    File('${sidecarRoot.path}/summaries/allocations.json')
+        .writeAsStringSync('{"regions":{}}');
+    File('${sidecarRoot.path}/summaries/lib.md').writeAsStringSync('# lib\n');
+    repo.saveManifest(SummaryManifest(dirs: {
+      'lib': DirSummary(
+          commit: _head(project), tree: null, file: 'lib.md', dirtyDigest: ''),
+    }));
+    repo.commit(
+        regenerated: const ['lib'], deleted: const [], commitSha: _head(project));
+    final tracked = _git(Directory('${sidecarRoot.path}/summaries'),
+        ['ls-tree', '-r', '--name-only', 'HEAD']);
+    expect(tracked, contains('lib.md'));
+    expect(tracked, contains('manifest.json'));
+    expect(tracked, isNot(contains('allocations.json')));
   });
 
   test('commit is a no-op when nothing is staged', () {
