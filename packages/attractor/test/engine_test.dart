@@ -64,6 +64,7 @@ Future<(Outcome, MemoryRunStore)> _run(
   String? input,
   Map<String, String>? seedContext,
   PipelineEventListener? onEvent,
+  Future<bool> Function(String reason)? onLoopBudgetExceeded,
 }) async {
   final store = MemoryRunStore();
   final engine = PipelineEngine(
@@ -74,6 +75,7 @@ Future<(Outcome, MemoryRunStore)> _run(
     workflowName: g.name,
     backoffFor: (_) => Duration.zero,
     onEvent: onEvent,
+    onLoopBudgetExceeded: onLoopBudgetExceeded,
   );
   final outcome =
       await engine.run(input: input, seedContext: seedContext);
@@ -413,6 +415,140 @@ void main() {
       // event was emitted for it.
       expect(store.nodes.map((n) => n.nodeId), ['a']);
       expect(events.where((e) => e.kind == 'node_failed'), isEmpty);
+    });
+
+    test('visit cap aborts an unbounded revise self-loop (no hook = abort)',
+        () async {
+      // The reviewer never approves; without the cap this loops forever.
+      final g = parseDot('''
+        digraph Spin {
+          start [shape=Mdiamond]
+          review [shape=box]
+          exit [shape=Msquare]
+          start -> review
+          review -> review [label="revise"]
+          review -> exit [label="approve"]
+        }
+      ''');
+      final backend = _FakeBackend({})..scriptedOverride = (id) =>
+          CodergenResult('again',
+              outcome: const Outcome.success(preferredLabel: 'revise'));
+
+      final (outcome, store) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.fail);
+      expect(outcome.failureReason, contains('exceeded 8 visits'));
+      // The default cap: 8 visits, no more.
+      final visits =
+          store.nodes.where((n) => n.nodeId == 'review').length;
+      expect(visits, 8);
+    });
+
+    test('visit-cap budget hook: continue resets the counter', () async {
+      final g = parseDot('''
+        digraph Reset {
+          start [shape=Mdiamond]
+          review [shape=box]
+          exit [shape=Msquare]
+          start -> review
+          review -> review [label="revise"]
+          review -> exit [label="approve"]
+        }
+      ''');
+      var visits = 0;
+      var hookCalls = 0;
+      final backend = _FakeBackend({})..scriptedOverride = (id) {
+          visits++;
+          // Loop forever the first budget window; approve after the hook
+          // once let it continue.
+          final verdict = visits <= 8 ? 'revise' : 'approve';
+          return CodergenResult(verdict,
+              outcome: Outcome.success(preferredLabel: verdict));
+        };
+
+      final (outcome, _) = await _run(g, backend: backend,
+          onLoopBudgetExceeded: (reason) async {
+        hookCalls++;
+        return true; // continue
+      });
+
+      expect(outcome.status, StageStatus.success);
+      expect(hookCalls, 1);
+      // 8 visits in the first window, then the 9th approves.
+      expect(visits, 9);
+    });
+
+    test('a small max_node_visits graph attr tightens the cap', () async {
+      final g = parseDot('''
+        digraph Tight {
+          graph [max_node_visits=2]
+          start [shape=Mdiamond]
+          review [shape=box]
+          exit [shape=Msquare]
+          start -> review
+          review -> review [label="revise"]
+          review -> exit [label="approve"]
+        }
+      ''');
+      final backend = _FakeBackend({})..scriptedOverride = (id) =>
+          CodergenResult('again',
+              outcome: const Outcome.success(preferredLabel: 'revise'));
+
+      final (outcome, store) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.fail);
+      expect(outcome.failureReason, contains('exceeded 2 visits'));
+      expect(store.nodes.where((n) => n.nodeId == 'review').length, 2);
+    });
+
+    test('goal-gate retry jumps are bounded; budget exhausted fails clearly',
+        () async {
+      // critical is a goal gate that fails; retry_target loops back to it,
+      // and it keeps failing — previously this jumped forever (stale
+      // nodeOutcomes entry at the terminal check).
+      final g = parseDot('''
+        digraph Gate {
+          graph [retry_target="critical"]
+          start [shape=Mdiamond]
+          critical [shape=box, goal_gate=true]
+          exit [shape=Msquare]
+          start -> critical -> exit
+        }
+      ''');
+      final backend = _FakeBackend({
+        'critical': CodergenResult('broke', outcome: Outcome.fail('nope')),
+      });
+
+      final (outcome, store) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.fail);
+      expect(outcome.failureReason,
+          contains('goal gate "critical" retry budget exhausted'));
+      // default budget 2: initial visit + 2 retry jumps.
+      expect(store.nodes.where((n) => n.nodeId == 'critical').length, 3);
+    });
+
+    test('total-step cap (max_steps) guards the whole run', () async {
+      final g = parseDot('''
+        digraph Steps {
+          graph [max_steps=4]
+          start [shape=Mdiamond]
+          a [shape=box]
+          b [shape=box]
+          c [shape=box]
+          d [shape=box]
+          e [shape=box]
+          exit [shape=Msquare]
+          start -> a -> b -> c -> d -> e -> exit
+        }
+      ''');
+      final (outcome, store) = await _run(g, backend: _FakeBackend({}));
+
+      expect(outcome.status, StageStatus.fail);
+      expect(outcome.failureReason, contains('exceeded 4 total steps'));
+      // Every traversal iteration counts, including the start node: start,
+      // a, b, c consume the 4 steps; 'd' never runs.
+      expect(store.nodes.map((n) => n.nodeId), ['a', 'b', 'c']);
     });
 
     test('threads onEvent into handlers so a handler can emit progress',

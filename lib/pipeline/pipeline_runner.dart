@@ -112,6 +112,20 @@ class PipelineRunner {
       runId: runId,
       workflowName: workflowName,
       cancelSignal: cancelSignal,
+      // Loop budgets pause for a human decision in the TUI; headless runs
+      // pass no hook and abort instead of burning budget on a runaway loop.
+      onLoopBudgetExceeded: screen != null && editor != null
+          ? (reason) async {
+              sink.notice('loop budget exhausted: $reason',
+                  kind: NoticeKind.warning);
+              final answer = await interviewer.ask(Question(
+                text: 'Workflow loop budget exhausted: $reason\n'
+                    'Continue (budget resets)?',
+                type: QuestionType.confirmation,
+              ));
+              return answer.kind == AnswerValue.yes;
+            }
+          : null,
       onEvent: (e) {
         _renderEvent(sink, e);
         onEvent?.call(e);
