@@ -623,7 +623,7 @@ Future<CmdResult> runIndexDance({
     if (!ok) return const CmdHandled();
     host.showMessage('Indexing ${status.totalDirs} '
         '${status.totalDirs == 1 ? 'region' : 'regions'}…\n');
-    final r = await summaryIndex.refresh();
+    final r = await summaryIndex.refresh(dirs: status.staleDirs);
     _postIndexRefresh(host, r, verb: 'Indexed');
     return const CmdHandled();
   }
@@ -633,7 +633,7 @@ Future<CmdResult> runIndexDance({
     host.showMessage(
       'Indexing ${status.totalDirs} '
       '${status.totalDirs == 1 ? 'directory' : 'directories'}…\n');
-    final r = await summaryIndex.refresh();
+    final r = await summaryIndex.refresh(dirs: status.staleDirs);
     _postIndexRefresh(host, r, verb: 'Indexed');
     return const CmdHandled();
   }
@@ -660,7 +660,7 @@ Future<CmdResult> runIndexDance({
   host.showMessage(
     '${status.staleCount}/${status.totalDirs} dirs stale: '
     '${status.staleDirs.join(', ')}. Refreshing…\n');
-  final r = await summaryIndex.refresh();
+  final r = await summaryIndex.refresh(dirs: status.staleDirs);
   _postIndexRefresh(host, r, verb: 'Refreshed');
   return const CmdHandled();
 }

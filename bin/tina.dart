@@ -12,6 +12,7 @@ import 'package:tina/pipeline/default_workflow.dart';
 import 'package:tina/pipeline/pipeline_runner.dart';
 import 'package:tina/platform/environment.dart';
 import 'package:tina/session_commands/session_command_handlers.dart';
+import 'package:tina/summaries/allocations_store.dart';
 import 'package:tina/summaries/summary_index.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/project/project_trust.dart';
@@ -308,11 +309,16 @@ Future<void> _runNonInteractive(AppComposition app) async {
   // `--dry-run` behavior.
   final prompt = app.config.prompt?.trim() ?? '';
   if (prompt == '/index') {
+    // Load the on-disk allocations (a TUI session's approved layout) so the
+    // headless run measures the SAME partition. Without this, every allocated
+    // dir falls outside the default partition and gets classified as deleted —
+    // destroying the approved layout's summaries.
     final idx = SummaryIndex(
       config: app.config,
       registry: app.registry,
       environment: app.environment,
       projectRoot: Directory.current.path,
+      allocations: AllocationsStore.forProject(Directory.current.path),
     );
     try {
       await runIndexDance(host: host, summaryIndex: idx, confirm: null);

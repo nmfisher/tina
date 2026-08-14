@@ -117,6 +117,7 @@ class SummaryIndex {
       repartition: repartition,
       dirs: dirs,
       spendLedger: spendLedger,
+      partition: partitionFor(_repo(), allocations),
     );
     // SummaryRunner.run() owns the registry.decorator save/restore (it calls
     // buildAppComposition, which re-sets the shared decorator). The live

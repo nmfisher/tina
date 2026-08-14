@@ -30,6 +30,7 @@ class SummaryRunner {
     this.repartition = false,
     this.dirs,
     this.spendLedger,
+    this.partition,
   });
 
   final Config config;
@@ -54,6 +55,13 @@ class SummaryRunner {
   /// region). null = everything stale.
   final List<String>? dirs;
 
+  /// The partition to measure staleness against. When null, the runner falls
+  /// back to the repo's default partition (top-level dirs + packages/*/lib).
+  /// Callers that own allocations (SummaryIndex) pass the allocated layout —
+  /// the probe and the fleet MUST measure the same partition or the dance
+  /// reports one count and regenerates another.
+  final List<String>? partition;
+
   /// Run the summary fleet against [projectRoot]. Returns the stale set that
   /// was (or would be) regenerated.
   Future<StaleSet> run() async {
@@ -72,7 +80,7 @@ class SummaryRunner {
     if (repartition) {
       manifest = SummaryManifest.empty();
     }
-    final partition = repo.defaultPartition();
+    final partition = this.partition ?? repo.defaultPartition();
     final stale = repo.staleDirs(partition, manifest);
     // A dirs filter restricts regeneration to the named dirs (allocations);
     // deletions are never filtered — a dir out of the partition is gone.
