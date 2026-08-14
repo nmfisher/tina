@@ -22,8 +22,10 @@ const kDefaultPartitionSkip = <String>{'.dart_tool', 'build', 'dist'};
 
 /// Invalidation is deterministic and lives here, not in the model: a
 /// directory's summary is stale iff its `git rev-parse HEAD:<dir>` tree hash
-/// differs from the manifest's recorded tree (or it's new, or deleted). This is
-/// the "only regenerate when code in *that* dir changes" guarantee.
+/// differs from the manifest's recorded tree, or its working-tree digest
+/// (`git status --porcelain`) differs from the recorded one, or it's new, or
+/// deleted. This is the "only regenerate when code in *that* dir changes"
+/// guarantee — extended to uncommitted changes, which never touch HEAD.
 class SidecarSummaryRepo {
   SidecarSummaryRepo({
     required this.root,
@@ -109,24 +111,41 @@ class SidecarSummaryRepo {
   }
 
   /// Compute the stale set against [partition]: every directory that needs
-  /// (re)generation. A dir is stale when its current tree hash differs from the
-  /// manifest's, missing from the manifest (new), or missing on disk (deleted —
-  /// reported so the caller can remove its summary file).
+  /// (re)generation. A dir is stale when
+  /// - its HEAD tree hash differs from the manifest's (committed change),
+  /// - its working-tree digest differs from the manifest's (uncommitted
+  ///   change — covers clean→dirty, dirty→clean, and dirty content changing
+  ///   while the dir stays dirty),
+  /// - it is on disk but not at HEAD and unrecorded (a new, never-committed
+  ///   dir), or it was recorded against a HEAD tree that no longer contains
+  ///   it.
+  /// A dir missing from disk (and recorded) is reported as deleted so the
+  /// caller can remove its summary file.
   StaleSet staleDirs(List<String> partition, SummaryManifest manifest) {
     final stale = <String>[];
     final deleted = <String>[];
     for (final dir in partition) {
+      final onDisk = Directory(p.join(projectRoot.path, dir)).existsSync();
       final current = _treeHashOrNull(dir);
-      if (current == null) {
-        // The dir no longer exists on disk at HEAD. If we had a summary, it's
+      if (!onDisk && current == null) {
+        // The dir is gone from disk and from HEAD. If we had a summary, it's
         // a deletion; otherwise it was never tracked.
         if (manifest.dirs.containsKey(dir)) {
           deleted.add(dir);
         }
         continue;
       }
-      final recorded = manifest.dirs[dir]?.tree;
-      if (recorded == null || recorded != current) {
+      final recorded = manifest.dirs[dir];
+      final digest = _dirtyDigest(dir);
+      if (recorded == null) {
+        // New to the manifest — stale whether tracked at HEAD or not.
+        stale.add(dir);
+      } else if (recorded.tree != current) {
+        // Committed change (including a recorded dir that left HEAD, or an
+        // unrecorded-at-HEAD dir that was later committed).
+        stale.add(dir);
+      } else if (recorded.dirtyDigest != digest) {
+        // Same HEAD tree, different working tree.
         stale.add(dir);
       }
     }
@@ -165,8 +184,9 @@ class SidecarSummaryRepo {
   }
 
   /// Update [manifest] for the dirs that were just regenerated: record each
-  /// dir's current commit + tree + summary filename. Removes [deleted] dirs.
-  /// Returns the updated manifest (the caller then [saveManifest]s it).
+  /// dir's current commit + tree (null when not at HEAD) + working-tree digest
+  /// + summary filename. Removes [deleted] dirs. Returns the updated manifest
+  /// (the caller then [saveManifest]s it).
   SummaryManifest record({
     required SummaryManifest manifest,
     required List<String> regenerated,
@@ -175,11 +195,13 @@ class SidecarSummaryRepo {
     final dirs = Map<String, DirSummary>.from(manifest.dirs);
     final commit = headCommit();
     for (final dir in regenerated) {
-      final tree = _treeHashOrNull(dir);
-      if (tree == null) continue; // vanished mid-run; skip rather than record.
+      if (!Directory(p.join(projectRoot.path, dir)).existsSync()) {
+        continue; // vanished mid-run; skip rather than record.
+      }
       dirs[dir] = DirSummary(
         commit: commit,
-        tree: tree,
+        tree: _treeHashOrNull(dir),
+        dirtyDigest: _dirtyDigest(dir),
         file: '${summarySlug(dir)}.md',
       );
     }
@@ -231,6 +253,23 @@ class SidecarSummaryRepo {
     return out.isEmpty ? null : out;
   }
 
+  /// A digest of [dir]'s working-tree state: an FNV-1a hash of
+  /// `git status --porcelain -- <dir>` (`''` when clean). This is what makes
+  /// uncommitted edits visible to the probe: untracked files appear as `??`
+  /// entries, so a never-committed dir is always dirty. Hashing the full
+  /// porcelain output (rather than a bool) also catches dirty content
+  /// changing while the dir stays dirty.
+  String _dirtyDigest(String dir) {
+    final result = Process.runSync(
+      'git',
+      ['-C', projectRoot.path, 'status', '--porcelain', '--', dir],
+      runInShell: false,
+    );
+    if (result.exitCode != 0) return '';
+    final out = (result.stdout as String).trim();
+    return out.isEmpty ? '' : _fnv1a(out);
+  }
+
   bool _isGitRepo(String path) {
     final result = Process.runSync(
       'git',
@@ -261,28 +300,52 @@ class SidecarSummaryRepo {
       const JsonEncoder.withIndent('  ').convert(json);
 }
 
+/// FNV-1a 64-bit over [s], as hex. Not cryptographic — just a stable,
+/// dependency-free digest that distinguishes porcelain outputs.
+String _fnv1a(String s) {
+  var hash = 0xcbf29ce484222325;
+  for (final code in s.codeUnits) {
+    hash ^= code;
+    hash = (hash * 0x100000001b3) & 0x7fffffffffffffff;
+  }
+  return hash.toRadixString(16);
+}
+
 /// One directory's recorded summary tracking state.
 class DirSummary {
   final String commit;
-  final String tree;
+
+  /// The dir's HEAD tree hash when summarized; null when the dir wasn't at
+  /// HEAD at all (never committed — tracked by [dirtyDigest] alone).
+  final String? tree;
+
+  /// The working-tree digest when summarized (`''` = clean, null = unknown —
+  /// a manifest written before digests existed). A recorded non-null digest
+  /// only differs from a probe on real change; null always re-summarizes once.
+  final String? dirtyDigest;
   final String file;
 
   const DirSummary({
     required this.commit,
     required this.tree,
     required this.file,
+    this.dirtyDigest,
   });
 
   Map<String, dynamic> toJson() => {
         'commit': commit,
-        'tree': tree,
+        if (tree != null) 'tree': tree,
+        // Written even when '' (known clean) — absent means unknown (a
+        // pre-digest manifest), which the probe conservatively re-summarizes.
+        if (dirtyDigest != null) 'dirty': dirtyDigest,
         'file': file,
       };
 
   factory DirSummary.fromJson(Map<String, dynamic> json) => DirSummary(
         commit: json['commit'] as String,
-        tree: json['tree'] as String,
+        tree: json['tree'] as String?,
         file: json['file'] as String,
+        dirtyDigest: json['dirty'] as String?,
       );
 }
 
