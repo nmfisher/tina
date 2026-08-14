@@ -61,6 +61,13 @@ class PipelineEngine {
     final completed = <String>[];
     final retries = <String, int>{};
 
+    // A Future exposes no synchronous completion test; flip a flag the moment
+    // the cancel signal resolves. The loop only checks between awaits, so the
+    // flag is always up to date by then.
+    var cancelled = false;
+    bool isCancelled() => cancelled;
+    unawaited(cancelSignal?.then((_) => cancelled = true));
+
     var start = graph.findStartNode();
     if (start == null) {
       return _finish(Outcome.fail('no start node'), context, completed);
@@ -68,6 +75,11 @@ class PipelineEngine {
 
     PipelineNode current = start;
     while (true) {
+      // Cancellation terminates the traversal: the run ends at the current
+      // node instead of walking the rest of the graph marking nodes failed.
+      if (isCancelled()) {
+        return _finish(Outcome.fail('cancelled'), context, completed);
+      }
       context.set('current_node', current.id);
 
       // Terminal node — enforce goal gates before exiting.
@@ -99,6 +111,7 @@ class PipelineEngine {
         current,
         context,
         retries,
+        isCancelled,
       );
 
       completed.add(current.id);
@@ -137,6 +150,7 @@ class PipelineEngine {
     PipelineNode node,
     Context context,
     Map<String, int> retries,
+    bool Function() isCancelled,
   ) async {
     final handler = registry.resolve(node);
     final maxAttempts = (node.maxRetries ?? graph.defaultMaxRetries) + 1;
@@ -162,6 +176,7 @@ class PipelineEngine {
         onEvent?.call(PipelineEvent('node_failed',
             nodeId: node.id, outcome: fail, message: fail.failureReason));
         if (attempt < maxAttempts) {
+          if (isCancelled()) return Outcome.fail('cancelled');
           await Future.delayed(backoffFor(attempt));
           continue;
         }
@@ -180,6 +195,7 @@ class PipelineEngine {
             outcome: outcome,
             message: outcome.failureReason));
         if (attempt < maxAttempts) {
+          if (isCancelled()) return Outcome.fail('cancelled');
           retries[node.id] = (retries[node.id] ?? 0) + 1;
           await Future.delayed(backoffFor(attempt));
           continue;

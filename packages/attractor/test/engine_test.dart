@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:attractor/attractor.dart';
 import 'package:test/test.dart';
 
@@ -368,6 +370,49 @@ void main() {
       // 'left' is chosen because its condition matched.
       expect(store.nodes.any((n) => n.nodeId == 'left'), isTrue);
       expect(store.nodes.any((n) => n.nodeId == 'right'), isFalse);
+    });
+
+    test('cancellation terminates the run at the current node', () async {
+      // The first working node cancels the run on its way out; the engine
+      // must end there instead of walking the rest of the graph.
+      final g = parseDot('''
+        digraph Cancel {
+          start [shape=Mdiamond]
+          a [shape=box]
+          b [shape=box]
+          exit [shape=Msquare]
+          start -> a -> b -> exit
+        }
+      ''');
+      final cancel = Completer<void>();
+      final backend = _FakeBackend({})..scriptedOverride = (id) {
+          if (id == 'a') {
+            if (!cancel.isCompleted) cancel.complete();
+            return CodergenResult('done a');
+          }
+          return CodergenResult('output of $id');
+        };
+      final store = MemoryRunStore();
+      final registry = _registry(backend, _FakeInterviewer([]));
+      final events = <PipelineEvent>[];
+      final engine = PipelineEngine(
+        graph: g,
+        registry: registry,
+        runStore: store,
+        runId: 'r1',
+        workflowName: g.name,
+        backoffFor: (_) => Duration.zero,
+        cancelSignal: cancel.future,
+        onEvent: events.add,
+      );
+      final outcome = await engine.run();
+
+      expect(outcome.status, StageStatus.fail);
+      expect(outcome.failureReason, 'cancelled');
+      // 'a' completed and was recorded; 'b' never ran and no node_failed
+      // event was emitted for it.
+      expect(store.nodes.map((n) => n.nodeId), ['a']);
+      expect(events.where((e) => e.kind == 'node_failed'), isEmpty);
     });
 
     test('threads onEvent into handlers so a handler can emit progress',
