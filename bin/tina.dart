@@ -286,12 +286,15 @@ Future<void> _runNonInteractive(AppComposition app) async {
     );
     final rawInput = app.config.prompt?.trim();
     try {
-      final outcome = await runner.run(
+      final result = await runner.run(
         workflowName: workflow,
         sink: host,
         input: (rawInput == null || rawInput.isEmpty) ? null : rawInput,
       );
-      if (!outcome.status.isOk) exit(1);
+      if (result.runDir.isNotEmpty) {
+        stderr.writeln('run transcript: ${result.runDir}');
+      }
+      if (!result.outcome.status.isOk) exit(1);
     } finally {
       await host.dispose();
       await app.store.close();

@@ -6,6 +6,7 @@ import 'package:test/test.dart';
 import 'package:tina/pipeline/launch_workflow_tool.dart';
 import 'package:tina/pipeline/workflow_supervisor.dart';
 import '../helpers/fake_agent_sink.dart';
+import 'package:tina/pipeline/pipeline_runner.dart';
 
 /// Pump the event loop until [pred] holds, or time out (the supervisor's
 /// report-back and status updates run on the background run future).
@@ -22,7 +23,7 @@ Future<void> _pumpUntil(bool Function() pred, {int iterations = 200}) async {
 /// fires (→ `Outcome.fail('cancelled')`, mirroring the engine).
 class _ScriptedRunner {
   final List<({String name, String? input, String? history})> calls = [];
-  final List<Completer<Outcome>> controls = [];
+  final List<Completer<PipelineRunResult>> controls = [];
 
   RunWorkflow build() {
     return ({
@@ -34,12 +35,13 @@ class _ScriptedRunner {
       onEvent,
     }) async {
       calls.add((name: workflowName, input: input, history: history));
-      final done = Completer<Outcome>();
+      final done = Completer<PipelineRunResult>();
       controls.add(done);
       if (cancelSignal == null) return done.future;
-      return Future.any<Outcome>([
+      return Future.any<PipelineRunResult>([
         done.future,
-        cancelSignal.then((_) => Outcome.fail('cancelled')),
+        cancelSignal.then((_) =>
+            PipelineRunResult(outcome: Outcome.fail('cancelled'), runDir: '')),
       ]);
     };
   }
@@ -71,7 +73,8 @@ void main() {
       expect(supervisor.active.single.status, WorkflowRunStatus.running);
 
       // Let the run finish so the test tears down cleanly.
-      runner.controls.single.complete(const Outcome.success());
+      runner.controls.single.complete(
+          const PipelineRunResult(outcome: Outcome.success(), runDir: ''));
       await _pumpUntil(() => supervisor.active.isEmpty);
     });
 
@@ -89,7 +92,8 @@ void main() {
       await tool.execute({'input': 'do the thing', 'workflow': '   '});
       expect(runner.calls.last.name, 'default');
 
-      runner.controls.forEach((c) => c.complete(const Outcome.success()));
+      runner.controls.forEach((c) => c.complete(
+          const PipelineRunResult(outcome: Outcome.success(), runDir: '')));
       await _pumpUntil(() => supervisor.active.isEmpty);
     });
 

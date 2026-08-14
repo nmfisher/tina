@@ -158,7 +158,7 @@ class PipelineEngine {
           );
         }
         return _finish(
-          const Outcome.success(notes: 'pipeline completed'),
+          _terminalOutcome(context, completed),
           context,
           completed,
         );
@@ -193,13 +193,24 @@ class PipelineEngine {
           return _finish(outcome, context, completed);
         }
         return _finish(
-          const Outcome.success(notes: 'pipeline completed'),
+          _terminalOutcome(context, completed),
           context,
           completed,
         );
       }
       current = graph.node(next.to)!;
     }
+  }
+
+  /// The outcome for a completed run: a success whose [Outcome.text] carries
+  /// the last executed node's full response — the run's actual output, not
+  /// just a "completed" note.
+  Outcome _terminalOutcome(Context context, List<String> completed) {
+    final last = completed.isNotEmpty ? completed.last : '';
+    return Outcome.success(
+      notes: 'pipeline completed',
+      text: last.isEmpty ? '' : context.getString(last),
+    );
   }
 
   // -- Retry wrapper --------------------------------------------------------

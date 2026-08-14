@@ -668,6 +668,28 @@ void main() {
       expect(store.nodes.any((n) => n.nodeId == 'boom'), isTrue);
     });
 
+    test('terminal success carries the last node\'s response as text',
+        () async {
+      final g = parseDot('''
+        digraph Text {
+          start [shape=Mdiamond]
+          a [shape=box]
+          b [shape=box]
+          exit [shape=Msquare]
+          start -> a -> b -> exit
+        }
+      ''');
+      final backend = _FakeBackend({
+        'a': CodergenResult('output of a'),
+        'b': CodergenResult('the final summary'),
+      });
+
+      final (outcome, _) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.success);
+      expect(outcome.text, 'the final summary');
+    });
+
     test('threads onEvent into handlers so a handler can emit progress',
         () async {
       // A handler that receives the engine's listener and emits its own

@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:attractor/attractor.dart';
 import 'package:tina_engine/tina_engine.dart';
 
+import 'pipeline_runner.dart';
+
 /// Runs one workflow as a child run. This is the seam the supervisor calls; in
 /// production it is `PipelineRunner.run`, so the supervisor reuses the runner,
 /// the engine, and every handler without owning them. The [sink] is where the
@@ -11,7 +13,7 @@ import 'package:tina_engine/tina_engine.dart';
 /// supervisor's `onLaunch` hook — see [WorkflowRun.sink]); the [cancelSignal]
 /// future, when completed, aborts the run with a `cancelled` outcome — exactly
 /// the engine's existing contract.
-typedef RunWorkflow = Future<Outcome> Function({
+typedef RunWorkflow = Future<PipelineRunResult> Function({
   required String workflowName,
   required AgentSink sink,
   String? input,
@@ -76,6 +78,11 @@ class WorkflowRun {
   /// Fired after the run finishes (both success and error paths), after
   /// `onComplete` — the host uses it to settle the run panel's busy state.
   void Function()? onFinished;
+
+  /// The run-store directory for this run (manifest, per-node prompt/response,
+  /// checkpoints), set from the runner's result once the run finishes. null
+  /// until then, or when no run was started (invalid workflow file).
+  String? runDir;
 
   final Completer<void> _cancel;
 
@@ -208,15 +215,17 @@ class WorkflowSupervisor {
       },
     );
     unawaited(future.then(
-      (outcome) {
-        run.outcome = outcome;
-        run.status = _classify(outcome, cancelledByStop: cancel.isCompleted);
+      (result) {
+        run.outcome = result.outcome;
+        if (result.runDir.isNotEmpty) run.runDir = result.runDir;
+        run.status =
+            _classify(result.outcome, cancelledByStop: cancel.isCompleted);
         _reportBack(sink, run);
         onComplete?.call(run);
         run.onFinished?.call();
       },
       // A thrown runner error (e.g. the workflow file is missing) never yields
-      // an Outcome — surface it as a failed run so the launch still reports
+      // a result — surface it as a failed run so the launch still reports
       // back and the completion turn still fires, instead of an unhandled
       // async error.
       onError: (Object e) {

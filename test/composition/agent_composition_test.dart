@@ -4,6 +4,7 @@ import 'package:attractor/attractor.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/composition/agent_composition.dart';
 import 'package:tina/config.dart';
+import 'package:tina/pipeline/pipeline_runner.dart';
 import 'package:tina/pipeline/workflow_supervisor.dart';
 import 'package:tina/regions/region_registry.dart';
 import 'package:tina/summaries/summary_index.dart';
@@ -24,7 +25,8 @@ void main() {
   // invoke it; they only assert it lands in the registry.
   RunWorkflow noopRun({Outcome outcome = const Outcome.success()}) =>
       ({required workflowName, required sink, input, history, cancelSignal,
-          onEvent}) async => outcome;
+          onEvent}) async =>
+          PipelineRunResult(outcome: outcome, runDir: '');
 
   // A supervisor over the noop run; wired into buildAgent below.
   WorkflowSupervisor noopSupervisor() => WorkflowSupervisor(run: noopRun());

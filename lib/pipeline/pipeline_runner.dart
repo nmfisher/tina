@@ -10,6 +10,20 @@ import 'file_run_store.dart';
 import 'tina_codergen_backend.dart';
 import 'tina_interviewer.dart';
 
+/// The result of one workflow run: the engine's final [outcome] — whose
+/// [Outcome.text] carries the last executed node's full response — plus the
+/// run-store directory holding the complete audit trail (manifest, per-node
+/// prompt/response, checkpoints). `runDir` is empty when no run was started
+/// (e.g. the workflow file failed validation).
+class PipelineRunResult {
+  final Outcome outcome;
+
+  /// Filesystem path of this run's run-store directory.
+  final String runDir;
+
+  const PipelineRunResult({required this.outcome, required this.runDir});
+}
+
 /// Assembles the attractor engine with tina's two seams (a [TinaCodergenBackend]
 /// over the [SubAgentScheduler], and a [TinaInterviewer] over the TUI) and runs
 /// a workflow file. One runner per run; constructed by the coordinator (which
@@ -44,7 +58,7 @@ class PipelineRunner {
   /// [history] (a chat transcript, if any) is seeded into the run context and
   /// expandable as `$history` in node prompts. [onEvent] is an additional
   /// progress listener (e.g. a live run view); the sink notices still fire.
-  Future<Outcome> run({
+  Future<PipelineRunResult> run({
     required String workflowName,
     required AgentSink sink,
     String? input,
@@ -61,7 +75,8 @@ class PipelineRunner {
       final msg = errors.map((d) => '  $d').join('\n');
       sink.notice('workflow "$workflowName" is invalid:\n$msg',
           kind: NoticeKind.error);
-      return Outcome.fail('invalid workflow:\n$msg');
+      return PipelineRunResult(
+          outcome: Outcome.fail('invalid workflow:\n$msg'), runDir: '');
     }
     for (final w in diags.where((d) => d.severity == Severity.warning)) {
       sink.notice('$w', kind: NoticeKind.info);
@@ -132,12 +147,13 @@ class PipelineRunner {
       },
     );
 
-    return engine.run(
+    final outcome = await engine.run(
       input: input,
       seedContext: (history == null || history.isEmpty)
           ? null
           : {'history': history},
     );
+    return PipelineRunResult(outcome: outcome, runDir: runDir.path);
   }
 
   void _renderEvent(AgentSink sink, PipelineEvent e) {

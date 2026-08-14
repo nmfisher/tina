@@ -543,17 +543,23 @@ class SessionController implements CommandContext {
   /// is echoed, persisted, and activity-managed like any turn.
   String _workflowOutcomePrompt(WorkflowRun run) {
     final name = run.workflowName;
+    final transcript = run.runDir == null || run.runDir!.isEmpty
+        ? ''
+        : '\nFull transcript: ${run.runDir}\n';
     switch (run.status) {
       case WorkflowRunStatus.completed:
-        final notes = run.outcome?.notes.trim() ?? '';
-        return 'Workflow "$name" (run ${run.id}) finished successfully.'
-            '${notes.isEmpty ? '' : ' The result:\n\n$notes\n\n'}'
-            ' Report the outcome to the user and act on anything it leaves '
+        // The run's real output: the last executed node's full response.
+        final output = _truncateWorkflowOutput(run.outcome?.text ?? '');
+        return 'Workflow "$name" (run ${run.id}) finished successfully.\n'
+            '${output.isEmpty ? '' : '\n$output\n\n'}'
+            '$transcript'
+            'Report the outcome to the user and act on anything it leaves '
             'open (verify the changes, run tests, propose follow-up).';
       case WorkflowRunStatus.failed:
         final reason = run.outcome?.failureReason.trim() ?? 'unknown';
         return 'Workflow "$name" (run ${run.id}) failed.\n'
             'Reason: $reason\n\n'
+            '$transcript'
             'Report the failure to the user and decide whether to fix and '
             'retry.';
       case WorkflowRunStatus.running:
@@ -561,6 +567,15 @@ class SessionController implements CommandContext {
         // Unreachable: inject only fires on completion; cancelled is skipped.
         return '';
     }
+  }
+
+  /// Cap a workflow's output text in the completion prompt — the full response
+  /// lives in the run directory; the turn only needs enough to report and act.
+  String _truncateWorkflowOutput(String text, {int maxChars = 4000}) {
+    final t = text.trim();
+    if (t.length <= maxChars) return t;
+    return '${t.substring(0, maxChars)}\n\n[…truncated — full output in the '
+        'run transcript]';
   }
 
   /// If the request we're about to send would exceed [autoCompactThreshold]
