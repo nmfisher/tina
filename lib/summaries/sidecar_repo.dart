@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:tina_engine/tina_engine.dart' show summarySlug;
 
 /// The per-directory summary sidecar: a standalone git repo under
 /// `<projectRoot>/.tina/summaries/` that tracks the main repo from outside
@@ -13,6 +14,12 @@ import 'package:path/path.dart' as p;
 /// the git plumbing (init, manifest round-trip, staleness, commit) and the
 /// partition — pure `Process.runSync('git', ...)`, no LLM.
 ///
+/// Directories never worth summarizing, shared by the default partition and
+/// `repo_structure`'s folder review so the two surfaces agree on what counts
+/// as a region candidate. Hidden entries (leading `.`) are skipped separately
+/// by both callers.
+const kDefaultPartitionSkip = <String>{'.dart_tool', 'build', 'dist'};
+
 /// Invalidation is deterministic and lives here, not in the model: a
 /// directory's summary is stale iff its `git rev-parse HEAD:<dir>` tree hash
 /// differs from the manifest's recorded tree (or it's new, or deleted). This is
@@ -76,7 +83,9 @@ class SidecarSummaryRepo {
     for (final entry in projectRoot.listSync(followLinks: false)) {
       if (entry is! Directory) continue;
       final name = p.basename(entry.path);
-      if (name.startsWith('.')) continue;
+      if (name.startsWith('.') || kDefaultPartitionSkip.contains(name)) {
+        continue;
+      }
       dirs.add(name);
     }
     // Every packages/<pkg>/lib, so each package's library surface is
@@ -86,7 +95,9 @@ class SidecarSummaryRepo {
       for (final pkg in packagesDir.listSync(followLinks: false)) {
         if (pkg is! Directory) continue;
         final pkgName = p.basename(pkg.path);
-        if (pkgName.startsWith('.')) continue;
+        if (pkgName.startsWith('.') || kDefaultPartitionSkip.contains(pkgName)) {
+          continue;
+        }
         final lib = Directory(p.join(pkg.path, 'lib'));
         if (lib.existsSync()) {
           dirs.add('packages/$pkgName/lib');
@@ -141,7 +152,7 @@ class SidecarSummaryRepo {
   /// present, else the slug-derived default), or null when the file does not
   /// exist.
   String? summaryFilePath(String dir) {
-    final recorded = loadManifest().dirs[dir]?.file ?? '${_slug(dir)}.md';
+    final recorded = loadManifest().dirs[dir]?.file ?? '${summarySlug(dir)}.md';
     final file = File(p.join(_summariesDir.path, recorded));
     return file.existsSync() ? file.path : null;
   }
@@ -169,7 +180,7 @@ class SidecarSummaryRepo {
       dirs[dir] = DirSummary(
         commit: commit,
         tree: tree,
-        file: '${_slug(dir)}.md',
+        file: '${summarySlug(dir)}.md',
       );
     }
     for (final dir in deleted) {
@@ -188,7 +199,7 @@ class SidecarSummaryRepo {
     required String commitSha,
   }) {
     for (final dir in deleted) {
-      final file = File(p.join(_summariesDir.path, '${_slug(dir)}.md'));
+      final file = File(p.join(_summariesDir.path, '${summarySlug(dir)}.md'));
       if (file.existsSync()) file.deleteSync();
     }
     _gitIn(_summariesDir.path, ['add', '-A']);
@@ -307,8 +318,3 @@ class StaleSet {
 
   bool get isEmpty => toRegenerate.isEmpty && deleted.isEmpty;
 }
-
-/// Slug a repo-relative dir path into a flat filename. Mirrors
-/// [WriteSummaryTool]'s slug so the tool and the repo agree on filenames.
-String _slug(String dir) =>
-    p.normalize(dir).replaceAll(RegExp(r'/+'), '__');

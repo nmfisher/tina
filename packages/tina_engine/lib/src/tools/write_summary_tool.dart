@@ -84,7 +84,7 @@ class WriteSummaryTool implements Tool {
           'write_summary is not configured (no sidecar root)');
     }
 
-    final slug = _slug(dir);
+    final slug = summarySlug(dir);
     final dest = p.join(root.path, '$slug.md');
     final rootAbs = p.canonicalize(root.path);
     final destAbs = p.canonicalize(dest);
@@ -150,13 +150,14 @@ class _GitFailure {
   const _GitFailure(this.message);
 }
 
-/// Slug a repo-relative dir path into a flat filename: `lib` → `lib`,
-/// `packages/tina_index/lib` → `packages__tina_index__lib`. Path
-/// separators become `__` (two underscores so a single-`_` segment name like
-/// `tina_index` is never ambiguous with a path boundary).
-String _slug(String dir) {
-  final normalized = p.normalize(dir).replaceAll(RegExp(r'/+'), '__');
-  return normalized;
+/// Slug a repo-relative dir path into a flat, collision-free filename by
+/// percent-encoding: `lib` → `lib`, `packages/tina_index/lib` →
+/// `packages%2Ftina_index%2Flib`. Encoding `%` itself makes the mapping
+/// injective — a directory literally named `a__b` can never collide with
+/// `a/b` (the old `__` separator had exactly that collision).
+String summarySlug(String dir) {
+  final normalized = p.normalize(dir);
+  return normalized.replaceAll('%', '%25').replaceAll('/', '%2F');
 }
 
 /// True when [child] is [parent] or lies under it, using normalized paths with

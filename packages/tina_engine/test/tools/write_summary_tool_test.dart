@@ -55,7 +55,8 @@ void main() {
     expect(text, contains('# lib\n\nThis is the lib directory.'));
   });
 
-  test('slugs nested dirs to a flat filename with __ separators', () async {
+  test('slugs nested dirs percent-encoded, collision-free with __ names',
+      () async {
     Directory('${project.path}/packages/tina_index/lib')
         .createSync(recursive: true);
     File('${project.path}/packages/tina_index/lib/x.dart')
@@ -69,8 +70,11 @@ void main() {
     });
     expect(res.isError, isFalse, reason: res.content);
 
-    expect(File('${sidecar.path}/packages__tina_index__lib.md')
+    expect(File('${sidecar.path}/packages%2Ftina_index%2Flib.md')
         .existsSync(), isTrue);
+    // A directory literally named with `__` can never collide with a path.
+    expect(summarySlug('a/b'), isNot(summarySlug('a__b')));
+    expect(summarySlug('100%'), '100%25');
   });
 
   test('refuses a dir that escapes the sidecar via ..', () async {

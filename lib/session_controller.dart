@@ -223,7 +223,7 @@ class SessionController implements CommandContext {
         if (rs.isRunning) {
           rs.messageQueue.enqueue(prompt);
           active.host.showMessage(
-              '$trimmed  [queued - ${rs.messageQueue.length} pending]\n',
+              '$trimmed  [queued — ${rs.messageQueue.length} pending]\n',
               style: HostMessageStyle.dim);
         } else {
           _startTurn(rs, prompt);

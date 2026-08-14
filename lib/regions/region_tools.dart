@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
 
+import '../summaries/sidecar_repo.dart' show kDefaultPartitionSkip;
 import 'region_registry.dart';
 
 /// The region surface for the main agent: discover regions (`list_regions`),
@@ -89,7 +90,9 @@ class RepoStructureTool implements Tool {
   static const _maxDepth = 3;
 
   /// Hidden entries and build/tool dirs are never region candidates.
-  static const _skip = {'.git', '.tina', '.dart_tool', 'build', 'dist'};
+  /// [kDefaultPartitionSkip] is shared with the default partition so the two
+  /// surfaces agree; `.git`/`.tina` are walk-specific extras.
+  static const _skip = {'.git', '.tina', ...kDefaultPartitionSkip};
 
   @override
   ToolSchema get schema => const ToolSchema(
