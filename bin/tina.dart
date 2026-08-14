@@ -273,7 +273,9 @@ Future<void> _runNonInteractive(AppComposition app) async {
   // `--workflow <name>` headless: run a DOT pipeline to completion. Each `box`
   // node runs as a real agent turn via the scheduler (headless auto-approves at
   // any human gate). Input comes from `--prompt`. The run is audited under
-  // ~/.tina/runs/<id>; a non-success outcome exits non-zero.
+  // ~/.tina/runs/<id>; a non-success outcome exits non-zero. Node agents'
+  // write/edit asks auto-deny headless (there is no one to prompt) — run with
+  // `--yolo` or `--allow write`/`--allow edit` to let a workflow change files.
   final workflow = app.config.workflow;
   if (workflow != null) {
     final tinaDataDir = tinaDirFromEnv(app.environment.env);

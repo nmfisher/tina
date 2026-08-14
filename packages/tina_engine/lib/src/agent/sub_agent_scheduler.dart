@@ -696,6 +696,15 @@ class SubAgentScheduler {
   /// tool set (default `full`); [includeDelegate] adds the nested `delegate`
   /// tool when nesting is wired — set both for a read-only, non-spawning
   /// one-shot agent (e.g. a region query).
+  ///
+  /// **Gated writes.** [gateWrites] (used by the workflow path) stops
+  /// `write`/`edit` from being pre-approved: they fall back to the policy's
+  /// decision (`ask` normally, `allow` under `--yolo`/`--allow`) and reach
+  /// [asker] when they ask. [policy] is an explicit policy instance used for
+  /// the agent as-is (widened in place with the profile's tools): pass the
+  /// SAME instance for a whole run so an "always allow" answer the asker
+  /// remembers persists across nodes. Defaults (no asker, no gating) preserve
+  /// the historical auto-allow behavior for existing callers.
   Future<RunAgentResult> runStandalone({
     required String systemPrompt,
     required String task,
@@ -707,6 +716,9 @@ class SubAgentScheduler {
     ToolProfile toolProfile = ToolProfile.full,
     bool includeDelegate = true,
     PermissionPolicy? parentPolicy,
+    bool gateWrites = false,
+    PermissionPolicy? policy,
+    PermissionAsker? asker,
   }) async {
     final LlmProvider provider;
     final String reference;
@@ -728,8 +740,17 @@ class SubAgentScheduler {
     // AND reach further sub-agents. Identity comes from [systemPrompt]; the
     // model from [reference].
     final base = _effectiveProfileTools(toolProfile).toList();
-    final policy =
-        _policyForProfile(toolProfile, parentPolicy ?? basePolicy ?? PermissionPolicy());
+    final PermissionPolicy effectivePolicy;
+    if (policy != null) {
+      // Caller-owned instance (shared across a whole run): widen it in place
+      // so remembered session rules survive past this node.
+      _widenPolicyInPlace(policy, toolProfile, gateWrites: gateWrites);
+      effectivePolicy = policy;
+    } else {
+      effectivePolicy = _policyForProfile(
+          toolProfile, parentPolicy ?? basePolicy ?? PermissionPolicy(),
+          gateWrites: gateWrites);
+    }
     final tools = <Tool>[...base];
     final system = resolveIdentityPrompt(systemPrompt,
         safeMode: safeMode, loadProjectContext: pipeline.loadProjectContext);
@@ -739,7 +760,7 @@ class SubAgentScheduler {
         pipeline: pipeline,
         parentSystemPrompt: system,
         parentReference: reference,
-        parentPolicy: policy,
+        parentPolicy: effectivePolicy,
         originConversationId: '',
         depth: 1,
       );
@@ -750,8 +771,8 @@ class SubAgentScheduler {
       provider: provider,
       tools: ToolRegistry(tools),
       sink: sink,
-      policy: policy,
-      asker: _autoDenyAsker,
+      policy: effectivePolicy,
+      asker: asker ?? _autoDenyAsker,
       maxSteps: defaultMaxSteps,
       budget: subAgentBudgetLimit == 0
           ? null
@@ -848,17 +869,41 @@ class SubAgentScheduler {
   /// holds even when the parent expresses bash via a default (e.g. `--yolo`)
   /// rather than a static rule.
   PermissionPolicy _policyForProfile(
-          ToolProfile profile, PermissionPolicy parent) =>
+          ToolProfile profile, PermissionPolicy parent,
+          {bool gateWrites = false}) =>
       PermissionPolicy(
         defaults: {
           ...parent.defaults,
           for (final t in _effectiveProfileTools(profile))
-            if (t.schema.name != 'bash')
+            if (t.schema.name != 'bash' &&
+                // Gated path (e.g. workflow nodes with their own asker):
+                // write/edit prompt per call like the main agent instead of
+                // being pre-approved; they inherit the parent's decision
+                // (allow under --yolo, ask otherwise).
+                !(gateWrites &&
+                    (t.schema.name == 'write' || t.schema.name == 'edit')))
               t.schema.name: PermissionDecision.allow,
           if (delegateToolBuilder != null) 'delegate': PermissionDecision.allow,
         },
         rules: parent.staticRules,
       );
+
+  /// Widen [policy] in place with the profile's tool set — the caller keeps
+  /// the same instance for a whole run, so session rules the asker remembers
+  /// ("always allow") persist across every node that shares it. Idempotent;
+  /// respects [gateWrites] exactly like [_policyForProfile].
+  void _widenPolicyInPlace(PermissionPolicy policy, ToolProfile profile,
+      {required bool gateWrites}) {
+    for (final t in _effectiveProfileTools(profile)) {
+      final name = t.schema.name;
+      if (name == 'bash') continue; // never auto-allow bash
+      if (gateWrites && (name == 'write' || name == 'edit')) continue;
+      policy.defaults[name] = PermissionDecision.allow;
+    }
+    if (delegateToolBuilder != null) {
+      policy.defaults['delegate'] = PermissionDecision.allow;
+    }
+  }
 
   DelegationResult _extractResult(String name, List<Message> history) {
     // A leaf that finished normally ends on an assistant text turn — the agent

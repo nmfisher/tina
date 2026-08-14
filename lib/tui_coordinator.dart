@@ -17,6 +17,7 @@ import 'package:tina/config/user_config.dart';
 import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina/persistence/session_restore.dart';
 import 'package:tina/pipeline/pipeline_runner.dart';
+import 'package:tina/pipeline/workflow_permission_asker.dart';
 import 'package:tina/pipeline/workflow_supervisor.dart';
 import 'package:tina/regions/region_registry.dart';
 import 'package:tina/tui/run_panel_content.dart';
@@ -377,6 +378,14 @@ class TuiCoordinator {
           defaultModelReference: '${app.config.provider}/${app.config.model}',
           screen: screen,
           editor: editor,
+          // Workflow node agents prompt per write like the main agent; the
+          // prompt renders into the run's own panel (see
+          // WorkflowPermissionAsker — a run panel's host is inactive, so its
+          // own asker can't be used).
+          permissionAskerBuilder: (runSink) =>
+              WorkflowPermissionAsker(sink: runSink, screen: screen,
+                  editor: editor)
+                  .ask,
         );
     final supervisor = WorkflowSupervisor(
       run: ({

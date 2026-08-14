@@ -43,6 +43,12 @@ class PipelineRunner {
   /// omit `llm_model`/`llm_provider`. Threaded to [TinaCodergenBackend].
   final String defaultModelReference;
 
+  /// Builds the per-run permission asker for a run's sink — the TUI supplies
+  /// this so a node agent's `write`/`edit` prompt renders in that run's panel.
+  /// Null (headless) → asks auto-deny, so workflow writes need `--yolo` /
+  /// `--allow` there.
+  final PermissionAsker Function(AgentSink runSink)? permissionAskerBuilder;
+
   PipelineRunner({
     required this.scheduler,
     required this.pipeline,
@@ -51,6 +57,7 @@ class PipelineRunner {
     required this.defaultModelReference,
     this.screen,
     this.editor,
+    this.permissionAskerBuilder,
   });
 
   /// Run `<workflowsDir>/<workflowName>.dot` to completion. [sink] is where the
@@ -86,10 +93,23 @@ class PipelineRunner {
     // node's transcript block opens with its input: a dim node header, then
     // the full task (preamble + prompt) in user style. Headless runs
     // (HeadlessHost) skip this — the `▶ node` notices carry the markers.
+    //
+    // Node agents prompt per write like the main agent: the run shares ONE
+    // mutable policy (a copy of the app policy, so `--yolo`/`--allow` carry
+    // in) across every runStandalone call — an "always allow" answered at one
+    // node holds for the rest of the run and dies with it. Interactive runs
+    // get a real asker; headless runs auto-deny the asks.
+    final basePolicy = scheduler.basePolicy;
+    final runPolicy = PermissionPolicy(
+      defaults: {...?basePolicy?.defaults},
+      rules: basePolicy?.staticRules,
+    );
     final backend = TinaCodergenBackend(
       scheduler: scheduler,
       sink: sink,
       defaultModelReference: defaultModelReference,
+      permissionPolicy: runPolicy,
+      permissionAsker: permissionAskerBuilder?.call(sink),
       onNodeStart: sink is TuiConversationHost
           ? (id, task) {
               sink.showMessage('──── node: $id ────',
