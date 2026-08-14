@@ -1,6 +1,8 @@
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 
+import '../tui/attention_queue.dart';
+
 /// The interactive permission asker for workflow node agents — the
 /// `launch_workflow` counterpart of the main conversation's
 /// `TuiConversationHost.askPermission`. A workflow runs in a background run
@@ -11,23 +13,36 @@ import 'package:tina_engine/tina_engine.dart';
 ///
 /// "Always" answers are remembered by the agent on the run's shared
 /// `PermissionPolicy` (see `PipelineRunner`), so they hold for every node in
-/// the run and expire with it.
+/// the run and expire with it. When [attentionQueue] is given, asks queue
+/// behind any other open modal (gates, other runs' prompts) instead of
+/// racing on the keyboard.
 class WorkflowPermissionAsker {
   /// The run's sink — the ask renders into the run panel hosting this node.
   final AgentSink sink;
 
   final Screen? screen;
   final LineEditor? editor;
+  final AttentionQueue? attentionQueue;
 
   WorkflowPermissionAsker({
     required this.sink,
     this.screen,
     this.editor,
+    this.attentionQueue,
   });
 
   bool get _interactive => screen != null && editor != null;
 
-  Future<PermissionResponse> ask(PermissionPrompt p) async {
+  Future<PermissionResponse> ask(PermissionPrompt p) {
+    final queue = attentionQueue;
+    if (queue == null) return _ask(p);
+    return queue.run(() => _ask(p), onQueued: () {
+      sink.notice('waiting for your input — another dialog is open…',
+          kind: NoticeKind.info);
+    });
+  }
+
+  Future<PermissionResponse> _ask(PermissionPrompt p) async {
     // Headless wiring never builds an asker at all (the scheduler's
     // auto-deny asker fields those); this guard is for a TUI that lost its
     // editor mid-run. Same posture: deny rather than block a background run.

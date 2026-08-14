@@ -20,6 +20,7 @@ import 'package:tina/pipeline/pipeline_runner.dart';
 import 'package:tina/pipeline/workflow_permission_asker.dart';
 import 'package:tina/pipeline/workflow_supervisor.dart';
 import 'package:tina/regions/region_registry.dart';
+import 'package:tina/tui/attention_queue.dart';
 import 'package:tina/tui/run_panel_content.dart';
 import 'package:tina/tui/tool_output_overlay.dart';
 import 'package:tina/tui/workflow_editor_overlay.dart';
@@ -281,6 +282,12 @@ class TuiCoordinator {
     final pipeline = app.pipeline;
     final scheduler = app.scheduler;
 
+    // The TUI's single attention queue: human gates, loop-budget confirms,
+    // and workflow permission asks serialize through it, so concurrent
+    // background runs take the keyboard one at a time instead of racing on
+    // `editor.readKey()`.
+    final attentionQueue = AttentionQueue();
+
     // Constructs a provider for a new session/conversation, carrying over
     // CLI-level settings. The startup API key and base URL apply only to the
     // startup provider; a different provider is resolved afresh from the
@@ -384,8 +391,9 @@ class TuiCoordinator {
           // own asker can't be used).
           permissionAskerBuilder: (runSink) =>
               WorkflowPermissionAsker(sink: runSink, screen: screen,
-                  editor: editor)
+                  editor: editor, attentionQueue: attentionQueue)
                   .ask,
+          attentionQueue: attentionQueue,
         );
     final supervisor = WorkflowSupervisor(
       run: ({

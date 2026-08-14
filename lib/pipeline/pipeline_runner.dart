@@ -6,6 +6,7 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 import '../host/tui_conversation_host.dart';
+import '../tui/attention_queue.dart';
 import 'file_run_store.dart';
 import 'tina_codergen_backend.dart';
 import 'tina_interviewer.dart';
@@ -49,6 +50,12 @@ class PipelineRunner {
   /// `--allow` there.
   final PermissionAsker Function(AgentSink runSink)? permissionAskerBuilder;
 
+  /// The TUI's shared modal queue: gates, loop-budget confirms, and
+  /// permission asks from ANY run serialize through it, so concurrent runs
+  /// can't race on `editor.readKey()`. Null (headless) → each ask runs
+  /// directly.
+  final AttentionQueue? attentionQueue;
+
   PipelineRunner({
     required this.scheduler,
     required this.pipeline,
@@ -58,6 +65,7 @@ class PipelineRunner {
     this.screen,
     this.editor,
     this.permissionAskerBuilder,
+    this.attentionQueue,
   });
 
   /// Run `<workflowsDir>/<workflowName>.dot` to completion. [sink] is where the
@@ -118,7 +126,12 @@ class PipelineRunner {
             }
           : null,
     );
-    final interviewer = TinaInterviewer(screen: screen, editor: editor);
+    final interviewer = TinaInterviewer(
+      screen: screen,
+      editor: editor,
+      attentionQueue: attentionQueue,
+      sink: sink,
+    );
 
     final runId = _newRunId();
     final runDir = Directory(p.join(runsRoot.path, runId));
