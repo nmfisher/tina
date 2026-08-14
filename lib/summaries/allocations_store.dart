@@ -29,10 +29,10 @@ class Allocation {
 
 /// The user-allocated region partition: a small `allocations.json` in the
 /// sidecar root (`<projectRoot>/.tina/summaries/allocations.json`) recording
-/// which directories the main agent allocated beyond the default partition.
-/// Kept separate from `manifest.json` so the summary manifest schema is
-/// untouched. The partition for staleness/refresh is
-/// `defaultPartition() ∪ allocations`.
+/// which directories the main agent allocated. Kept separate from
+/// `manifest.json` so the summary manifest schema is untouched. The partition
+/// for staleness/refresh is the allocated regions when any exist (see
+/// [partitionFor]), else `defaultPartition()`.
 class AllocationsStore {
   AllocationsStore({required this.sidecarRoot});
 

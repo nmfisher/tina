@@ -176,11 +176,39 @@ class SidecarSummaryRepo {
     return file.existsSync() ? file.path : null;
   }
 
+  /// The summary text for [dir], resolved against an already-loaded
+  /// [manifest] — the batch form of [readSummary] (which reloads the manifest
+  /// per call), so callers iterating the whole partition read it once.
+  String? readSummaryWithManifest(String dir, SummaryManifest manifest) {
+    final recorded = manifest.dirs[dir]?.file ?? '${summarySlug(dir)}.md';
+    final file = File(p.join(_summariesDir.path, recorded));
+    if (!file.existsSync()) return null;
+    return file.readAsStringSync();
+  }
+
   /// The summary text for [dir], or null when the sidecar has none.
-  String? readSummary(String dir) {
-    final path = summaryFilePath(dir);
-    if (path == null) return null;
-    return File(path).readAsStringSync();
+  String? readSummary(String dir) =>
+      readSummaryWithManifest(dir, loadManifest());
+
+  /// Whether the `/index` first-run proposal (the main agent's layout turn)
+  /// has already been shown — the escape hatch that keeps `/index` from
+  /// looping on proposal turns when the agent allocates nothing. Backed by a
+  /// hidden marker file; never staged (commit staging is explicit).
+  bool get proposalShown =>
+      File(p.join(_summariesDir.path, '.proposal_shown')).existsSync();
+
+  /// Record that the proposal turn ran (see [proposalShown]). Best-effort:
+  /// the marker is an escape hatch, not bookkeeping the run depends on, so a
+  /// write failure (read-only sidecar, permissions) is swallowed — worst case
+  /// the proposal shows once more.
+  void markProposalShown() {
+    try {
+      final marker = File(p.join(_summariesDir.path, '.proposal_shown'));
+      marker.parent.createSync(recursive: true);
+      marker.writeAsStringSync('${DateTime.now().toIso8601String()}\n');
+    } on FileSystemException {
+      // Ignored by design.
+    }
   }
 
   /// Whether the summary file the fleet would write for [dir] (the current

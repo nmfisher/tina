@@ -614,8 +614,24 @@ Future<CmdResult> runIndexDance({
   // partition below.
   if (status.firstRun && confirm != null) {
     if (!status.hasAllocations) {
+      // Escape hatch: a proposal turn already ran and still no allocations
+      // (the agent allocated nothing, or every region was since deleted).
+      // Offering another paid proposal turn would loop forever — fall back to
+      // confirming the default partition instead.
+      if (summaryIndex.proposalShown) {
+        final fallback = await confirm(
+            'The proposal turn ran but allocated no regions. '
+            'Index the default partition instead? [y/N] ');
+        if (!fallback) return const CmdHandled();
+        host.showMessage('Indexing ${status.totalDirs} '
+            '${status.totalDirs == 1 ? 'directory' : 'directories'}…\n');
+        final r = await summaryIndex.refresh(dirs: status.staleDirs);
+        _postIndexRefresh(host, r, verb: 'Indexed');
+        return const CmdHandled();
+      }
       host.showMessage(
           'No region index yet — the main agent will design the layout.\n');
+      summaryIndex.markProposalShown();
       return CmdRun(_proposalPrompt);
     }
     final ok = await confirm('Summarize the ${status.totalDirs} proposed '

@@ -107,7 +107,9 @@ class RegionRegistry {
     final recorded = manifest.dirs[dir];
     return Region(
       dir: dir,
-      summary: _repo.readSummary(dir),
+      // Manifest-aware read: list() loaded the manifest once for the whole
+      // partition — readSummary would re-read + re-parse it per region.
+      summary: _repo.readSummaryWithManifest(dir, manifest),
       commit: recorded?.commit,
       stale: staleSet.contains(dir),
       model: _allocations.modelFor(dir),

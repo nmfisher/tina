@@ -66,6 +66,13 @@ class SummaryIndex {
   @visibleForTesting
   SidecarSummaryRepo repoForTest() => _repo();
 
+  /// Whether the first-run layout proposal has already been shown (the
+  /// `/index` escape hatch — see [SidecarSummaryRepo.proposalShown]).
+  bool get proposalShown => _repo().proposalShown;
+
+  /// Record that the proposal turn ran (see [proposalShown]).
+  void markProposalShown() => _repo().markProposalShown();
+
   /// Pure-git staleness probe: the partition size, the stale dirs, the deleted
   /// dirs, the current HEAD sha, and whether the sidecar has ever been indexed
   /// (`firstRun`). No LLM, no side effects (does not `git init` the sidecar —
