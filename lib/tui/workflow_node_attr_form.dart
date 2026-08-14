@@ -12,7 +12,11 @@ import 'spawn_overlay.dart';
 /// label = Main
 /// system_prompt = You are the main agent.   (node identity; \n escapes newlines)
 /// shape = box
+/// type =                                    (explicit handler type; overrides shape)
+/// context = intake                          (comma/space list of prior outputs to see)
+/// writes = plan                             (keys this node's output is published under)
 /// goal_gate = false
+/// allow_partial = false
 /// max_retries =
 /// llm_provider = anthropic                  (optional; with llm_model overrides the conversation model)
 /// llm_model = claude-sonnet-4-6
@@ -168,13 +172,17 @@ String _serialize(PipelineNode n) {
   // Newlines are escaped so a multiline system_prompt stays on one form line.
   buf.writeln('system_prompt = ${_escapeInline(n.systemPrompt)}');
   buf.writeln('shape = ${n.shape}');
+  buf.writeln('type = ${n.type}');
+  buf.writeln('context = ${n.contextKeys.join(',')}');
+  buf.writeln('writes = ${n.writesKeys.join(',')}');
   buf.writeln('goal_gate = ${n.goalGate}');
+  buf.writeln('allow_partial = ${n.allowPartial}');
   buf.writeln('max_retries = ${n.maxRetries ?? ''}');
   buf.writeln('llm_provider = ${n.llmProvider}');
   buf.writeln('llm_model = ${n.llmModel}');
   buf.writeln('retry_target = ${n.retryTarget}');
   buf.writeln('prompt =');
-  buf.write(n.prompt.isNotEmpty ? n.prompt : '');
+  buf.write(n.prompt);
   return buf.toString();
 }
 
@@ -206,8 +214,33 @@ void _apply(PipelineNode n, String text) {
         }
       case 'shape':
         n.attrs['shape'] = value.isEmpty ? 'box' : value;
+      case 'type':
+        if (value.isEmpty) {
+          n.attrs.remove('type');
+        } else {
+          n.attrs['type'] = value;
+        }
+      case 'context':
+      case 'writes':
+        if (value.isEmpty) {
+          n.attrs.remove(key);
+        } else {
+          n.attrs[key] = value;
+        }
       case 'goal_gate':
-        n.attrs['goal_gate'] = value == 'true';
+        // Only carry the key when set — a literal `goal_gate = false` attr is
+        // noise (it's the default) next to a hand-written DOT file.
+        if (value == 'true') {
+          n.attrs['goal_gate'] = true;
+        } else {
+          n.attrs.remove('goal_gate');
+        }
+      case 'allow_partial':
+        if (value == 'true') {
+          n.attrs['allow_partial'] = true;
+        } else {
+          n.attrs.remove('allow_partial');
+        }
       case 'max_retries':
         if (value.isEmpty) {
           n.attrs.remove('max_retries');
@@ -238,7 +271,11 @@ void _apply(PipelineNode n, String text) {
   // Everything after `prompt =` (trim trailing newline added by writeln).
   var p = prompt.toString();
   if (p.endsWith('\n')) p = p.substring(0, p.length - 1);
-  n.attrs['prompt'] = p;
+  if (p.isEmpty) {
+    n.attrs.remove('prompt');
+  } else {
+    n.attrs['prompt'] = p;
+  }
 }
 
 /// Escape newlines/backslashes/quotes so a multiline value renders on one form

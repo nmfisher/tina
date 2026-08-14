@@ -10,6 +10,7 @@ import '../tui/attention_queue.dart';
 import 'file_run_store.dart';
 import 'tina_codergen_backend.dart';
 import 'tina_interviewer.dart';
+import 'workflow_names.dart';
 
 /// The result of one workflow run: the engine's final [outcome] — whose
 /// [Outcome.text] carries the last executed node's full response — plus the
@@ -227,8 +228,12 @@ class PipelineRunner {
       ..sort();
   }
 
-  /// Read `<dir>/<name>.dot`, throwing a clear error if missing.
+  /// Read `<dir>/<name>.dot`, throwing a clear error if missing — or if the
+  /// name could escape the workflows dir (see [isSafeWorkflowName]).
   static Future<String> readWorkflow(Directory dir, String name) async {
+    if (!isSafeWorkflowName(name)) {
+      throw FileSystemException(nameRejection, p.join(dir.path, '<name>.dot'));
+    }
     final file = File(p.join(dir.path, '$name.dot'));
     if (!await file.exists()) {
       throw FileSystemException('workflow not found', file.path);

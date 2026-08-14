@@ -78,30 +78,45 @@ class ParallelHandler implements NodeHandler {
     final updates = <String, String>{};
     final branchIds = <String>[];
     var failures = 0;
+    var cancels = 0;
     for (final r in results) {
       // A failed codergen branch still records its node id with an EMPTY
       // string, so treat an empty output as "no output" and surface the
-      // failure reason instead.
+      // failure reason instead. A cancellation is NOT a failure — the run
+      // was stopped, the branch didn't do anything wrong — so it's labeled
+      // and counted separately.
+      final cancelled = r.outcome.status == StageStatus.fail &&
+          r.outcome.failureReason == 'cancelled';
       final raw = r.outcome.contextUpdates[r.nodeId] ?? '';
       final out = raw.isNotEmpty
           ? raw
-          : (r.outcome.status == StageStatus.fail
-              ? '(branch "${r.nodeId}" failed: ${r.outcome.failureReason})'
-              : '(branch "${r.nodeId}" produced no output)');
-      if (r.outcome.status == StageStatus.fail) failures++;
+          : cancelled
+              ? '(branch "${r.nodeId}" cancelled)'
+              : (r.outcome.status == StageStatus.fail
+                  ? '(branch "${r.nodeId}" failed: ${r.outcome.failureReason})'
+                  : '(branch "${r.nodeId}" produced no output)');
+      if (cancelled) {
+        cancels++;
+      } else if (r.outcome.status == StageStatus.fail) {
+        failures++;
+      }
       updates['internal.parallel.${node.id}.branch.${r.nodeId}'] = out;
       branchIds.add(r.nodeId);
     }
     updates['internal.parallel.${node.id}.branches'] = branchIds.join(',');
     updates['last_stage'] = node.id;
+    final tally = [
+      if (failures > 0) '$failures failed',
+      if (cancels > 0) '$cancels cancelled',
+    ].join(', ');
     updates['last_response'] = 'fanned out to ${branches.length} branch(es)'
-        '${failures == 0 ? '' : ' ($failures failed)'}';
+        '${tally.isEmpty ? '' : ' ($tally)'}';
 
     final outcome = Outcome.success(
       suggestedNextIds: [convergence.to],
       contextUpdates: updates,
       notes: 'fanned out to ${branches.length} branch(es) '
-          '(${failures == 0 ? 'all ok' : '$failures failed'}); '
+          '(${tally.isEmpty ? 'all ok' : tally}); '
           'merging at "${convergence.to}"',
     );
     await runStore.writeNode(

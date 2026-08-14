@@ -144,8 +144,11 @@ class WorkflowSupervisor {
   final void Function(WorkflowRun run)? onLaunch;
 
   /// Active + recently-finished runs keyed by id (newest last). Finished runs
-  /// are kept so the main agent can query a result by id; [active] filters to
-  /// the still-running ones.
+  /// are kept (capped at [maxFinishedRuns], newest) so the main agent can
+  /// query a recent result by id; [active] filters to the still-running ones.
+  /// Runs older than the cap are dropped wholesale — [find] is a
+  /// recency-bounded lookup, not a registry.
+  static const int maxFinishedRuns = 20;
   final Map<String, WorkflowRun> _runs = {};
   final List<String> _launchOrder = [];
   int _seq = 0;
@@ -223,6 +226,7 @@ class WorkflowSupervisor {
         _reportBack(sink, run);
         onComplete?.call(run);
         run.onFinished?.call();
+        _pruneFinished();
       },
       // A thrown runner error (e.g. the workflow file is missing) never yields
       // a result — surface it as a failed run so the launch still reports
@@ -234,6 +238,7 @@ class WorkflowSupervisor {
         _reportBack(sink, run);
         onComplete?.call(run);
         run.onFinished?.call();
+        _pruneFinished();
       },
     ));
 
@@ -280,8 +285,24 @@ class WorkflowSupervisor {
   List<WorkflowRun> get active =>
       _launchOrder.reversed.map((id) => _runs[id]).whereType<WorkflowRun>().where((r) => r.isRunning).toList();
 
-  /// Look up a run by id (active or finished).
+  /// Look up a run by id (active or a recently-finished one — older finished
+  /// runs are pruned, see [maxFinishedRuns]).
   WorkflowRun? find(String id) => _runs[id];
+
+  /// Drop the oldest finished runs beyond [maxFinishedRuns]; an active run is
+  /// never pruned.
+  void _pruneFinished() {
+    final finishedIds = [
+      for (final id in _launchOrder)
+        if (_runs[id]?.isRunning == false) id,
+    ];
+    if (finishedIds.length <= maxFinishedRuns) return;
+    for (final id
+        in finishedIds.take(finishedIds.length - maxFinishedRuns)) {
+      _runs.remove(id);
+      _launchOrder.remove(id);
+    }
+  }
 
   WorkflowRun? _mostRecentActive() {
     for (final id in _launchOrder.reversed) {

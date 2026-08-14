@@ -5,6 +5,7 @@ import 'package:tina_engine/tina_engine.dart';
 import '../session_commands/command_context.dart';
 import 'default_workflow.dart';
 import 'pipeline_runner.dart';
+import 'workflow_names.dart';
 
 /// The `/workflow` slash command: `list`, `show`, `new`, `edit`. Dispatched
 /// from [SessionCommandHandlers]. `list` reads directly from
@@ -105,6 +106,7 @@ Future<void> _show(CommandContext ctx, List<String> parts) async {
         style: HostMessageStyle.warning);
     return;
   }
+  if (!_checkName(ctx, parts[2])) return;
   await open(parts[2]);
 }
 
@@ -153,7 +155,17 @@ Future<void> _edit(CommandContext ctx, List<String> parts) async {
         style: HostMessageStyle.warning);
     return;
   }
+  if (!_checkName(ctx, parts[2])) return;
   await open(name: parts[2], isNew: false);
+}
+
+/// A typed workflow name must be a bare name — `/workflow show ../x` must be
+/// a usage error, not a file outside the workflows dir.
+bool _checkName(CommandContext ctx, String name) {
+  if (isSafeWorkflowName(name)) return true;
+  ctx.active.host
+      .showMessage('$nameRejection: "$name"\n', style: HostMessageStyle.error);
+  return false;
 }
 
 /// Ensure the workflows directory exists (created lazily on first use). Returns
