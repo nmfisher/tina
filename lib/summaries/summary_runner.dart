@@ -31,11 +31,23 @@ class SummaryRunner {
     this.dirs,
     this.spendLedger,
     this.partition,
+    this.host,
+    this.cancelSignal,
   });
 
   final Config config;
   final ProviderRegistry registry;
   final Environment? environment;
+
+  /// Where the fleet's agent prose + notices go. Defaults to a
+  /// [HeadlessHost] (raw stdout/stderr — correct headless, terminal-corrupting
+  /// inside the ncurses TUI); an in-session `/index` passes the conversation's
+  /// host so the fleet streams into the chat panel instead.
+  final HostInterface? host;
+
+  /// Completes to cancel the fleet mid-run (ESC in the TUI); forwarded to
+  /// [Agent.run], which aborts at the next step boundary.
+  final Future<void>? cancelSignal;
 
   /// The LIVE session's ledger, when this runner is driven in-process
   /// (`/index` inside a session): the fleet's ephemeral ledger is merged into
@@ -123,7 +135,8 @@ class SummaryRunner {
         );
       }
 
-      final host = HeadlessHost();
+      final host = this.host ?? HeadlessHost();
+      final ownedHost = this.host == null; // we created it; we dispose it.
       // The top agent is the orchestrator with a summarization identity: it has
       // only `delegate` + channels (no file tools, structurally — see
       // buildAgent's withSubAgents path), which is exactly the shape we want.
@@ -144,9 +157,10 @@ class SummaryRunner {
         await agent.run(
           history: history,
           userInput: _userPrompt(effective.toRegenerate),
+          cancelSignal: cancelSignal,
         );
       } finally {
-        await host.dispose();
+        if (ownedHost) await host.dispose();
         await app.scheduler.dispose();
         app.provider.close();
       }

@@ -10,7 +10,9 @@ import 'package:tina/conversation.dart';
 import 'package:tina/session_commands/command_context.dart';
 import 'package:tina/session_commands/session_command_handlers.dart';
 import 'package:tina/summaries/summary_index.dart';
-import 'package:tina_engine/tina_engine.dart';
+import 'package:tina_engine/tina_engine.dart'
+    show Agent, HostInterface, LlmProvider, PermissionPolicy,
+        PermissionResponse, SpendLedger, ToolRegistry;
 import 'package:test/test.dart';
 
 import '../helpers/fake_host_interface.dart';
@@ -42,6 +44,8 @@ class _StubIndex extends SummaryIndex {
   Future<SummaryIndexResult> refresh({
     bool repartition = false,
     List<String>? dirs,
+    HostInterface? host,
+    Future<void>? cancelSignal,
   }) async {
     refreshCalls++;
     lastRepartition = repartition;
@@ -68,6 +72,16 @@ class _FakeCtx implements CommandContext {
 
   @override
   Future<bool> Function(String prompt)? confirm;
+
+  /// null by default (headless-style: run the fleet inline, cap not tripped).
+  @override
+  SpendLedger? spendLedger;
+
+  /// null by default (headless: no background run). Tests that want the
+  /// background path set this.
+  @override
+  Future<void> Function(Conversation conv, List<String>? dirs,
+      {bool repartition})? runBackgroundIndex;
 
   @override
   Map<String, FutureOr<void> Function()> get commandHooks => const {};

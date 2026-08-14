@@ -101,11 +101,16 @@ class SummaryIndex {
   /// Run the summary fleet against [projectRoot]: one `summarizer` per stale
   /// directory (or all of them when [repartition] clears the manifest), then
   /// record + commit. [dirs] restricts regeneration to those directories (e.g.
-  /// a freshly allocated region). Returns what was regenerated plus a fresh
+  /// a freshly allocated region). [host] routes the fleet's output (defaults
+  /// to a HeadlessHost — pass the conversation host in-session so the fleet
+  /// streams into the chat panel, not raw stdout over the TUI); [cancelSignal]
+  /// cancels the fleet mid-run. Returns what was regenerated plus a fresh
   /// post-run [SummaryIndexStatus]. Requires [config] + [registry] (asserted).
   Future<SummaryIndexResult> refresh({
     bool repartition = false,
     List<String>? dirs,
+    HostInterface? host,
+    Future<void>? cancelSignal,
   }) async {
     final cfg = config;
     final reg = registry;
@@ -125,6 +130,8 @@ class SummaryIndex {
       dirs: dirs,
       spendLedger: spendLedger,
       partition: partitionFor(_repo(), allocations),
+      host: host,
+      cancelSignal: cancelSignal,
     );
     // SummaryRunner.run() owns the registry.decorator save/restore (it calls
     // buildAppComposition, which re-sets the shared decorator). The live

@@ -170,6 +170,83 @@ class SessionController implements CommandContext {
   @override
   SpendLedger? spendLedger;
 
+  /// Cancels an in-flight background `/index` fleet run, when one is running.
+  Completer<void>? _indexCancel;
+
+  /// Whether a background `/index` fleet run is in flight (guards a second
+  /// concurrent run).
+  bool get isIndexRunning => _indexCancel != null;
+
+  /// Launch the summary fleet in the background on [conv] (`/index` in the
+  /// TUI): returns immediately, the fleet's output streams into [conv]'s host,
+  /// and Esc-Esc cancels. Warns and no-ops when a run is already in flight.
+  @override
+  Future<void> Function(Conversation conv, List<String>? dirs,
+      {bool repartition})? get runBackgroundIndex => _runBackgroundIndex;
+
+  Future<void> _runBackgroundIndex(Conversation conv, List<String>? dirs,
+      {bool repartition = false}) {
+    if (isIndexRunning) {
+      conv.host.showMessage(
+          '/index is already running in the background\n',
+          style: HostMessageStyle.warning);
+      return Future.value();
+    }
+    final cancel = Completer<void>();
+    _indexCancel = cancel;
+    unawaited(_doBackgroundIndex(conv, dirs,
+        repartition: repartition, cancel: cancel));
+    return Future.value();
+  }
+
+  /// The background fleet task. Posts start/completion notices to [conv]'s
+  /// host, clears [_indexCancel] when done (when it's still ours — a newer
+  /// run can't start while this one holds the guard, so it always is).
+  Future<void> _doBackgroundIndex(
+    Conversation conv,
+    List<String>? dirs, {
+    required bool repartition,
+    required Completer<void> cancel,
+  }) async {
+    final idx = summaryIndex;
+    if (idx == null) {
+      _indexCancel = null;
+      return;
+    }
+    final n = dirs?.length;
+    conv.host.showMessage(
+        'Indexing ${n == null ? 'all dirs' : '$n ${n == 1 ? 'dir' : 'dirs'}'} '
+        'in the background (Esc-Esc to cancel)…\n');
+    try {
+      final r = await idx.refresh(
+        repartition: repartition,
+        dirs: dirs,
+        host: conv.host,
+        cancelSignal: cancel.future,
+      );
+      if (cancel.isCompleted) {
+        conv.host.showMessage('[index cancelled]\n',
+            style: HostMessageStyle.warning);
+      } else {
+        final sha = r.status.headSha;
+        final at = sha == null
+            ? ''
+            : ' @ ${sha.length >= 7 ? sha.substring(0, 7) : sha}';
+        conv.host.showMessage(
+            'Indexed ${r.regenerated} '
+            '${r.regenerated == 1 ? 'directory' : 'directories'}$at.\n',
+            style: HostMessageStyle.success);
+      }
+    } catch (e) {
+      conv.host.showMessage('index failed: $e\n',
+          style: HostMessageStyle.error);
+    } finally {
+      _indexCancel = null;
+      _cancelArmed = false;
+      unawaited(_flushUsage());
+    }
+  }
+
   SessionController({
     required this.sessionManager,
     required this.readLine,
@@ -244,13 +321,28 @@ class SessionController implements CommandContext {
     }
   }
 
-  /// ESC handler: cancel the active conversation's in-flight turn. Returns true
-  /// (handled) when a turn was running and was signalled, so the line editor
+  /// ESC handler: cancel the active conversation's in-flight turn, or a
+  /// background `/index` fleet run when no turn is running. Returns true
+  /// (handled) when something was running and was signalled, so the line editor
   /// consumes the Esc instead of falling through to its own Esc handling; false
   /// when nothing was running (the editor then activates the menu bar).
   bool cancelActiveTurn() {
     final s = active;
     if (!s.isRunning) {
+      // No turn, but a background index run may be cancellable.
+      if (isIndexRunning) {
+        if (!_cancelArmed) {
+          _cancelArmed = true;
+          s.host.showMessage(
+            'Press Esc again to cancel indexing\n',
+            style: HostMessageStyle.warning,
+          );
+          return true;
+        }
+        _cancelArmed = false;
+        _indexCancel?.complete();
+        return true;
+      }
       _cancelArmed = false;
       return false;
     }

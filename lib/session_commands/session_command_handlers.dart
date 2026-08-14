@@ -440,7 +440,7 @@ class SessionCommandHandlers {
         '  /model         pick a provider/model for the active session\n'
         '  /image <path>  render an image in the focused panel\n'
         '  /index         refresh the per-directory summary index '
-        '(staleness-aware)\n'
+        '(staleness-aware, runs in the background)\n'
         '  /workflow      list/show/new/edit/run DOT pipelines '
         '(/workflow show|new|edit|run <name>)\n'
         '  /permissions   show current permission rules\n'
@@ -559,10 +559,31 @@ class SessionCommandHandlers {
         style: HostMessageStyle.dim);
       return CmdRun(_indexPrompt);
     }
+    // A tripped spend cap pauses every agent — /index must not be the one
+    // loophole (the fleet runs on its own ephemeral ledger, merged only after
+    // the run, so the cap itself can't stop it). Headless has no ledger and
+    // is unaffected.
+    if (ctx.spendLedger?.tripped == true) {
+      ctx.active.host.showMessage(
+          'Token spend ceiling already tripped — /index skipped. '
+          'Raise the cap (or /spend to review) first.\n',
+          style: HostMessageStyle.error);
+      return const CmdHandled();
+    }
+    // The TUI runs the fleet in the background (input stays live, Esc-Esc
+    // cancels); headless has no wiring and runs it inline, blocking to
+    // completion.
+    final bg = ctx.runBackgroundIndex;
     return runIndexDance(
       host: ctx.active.host,
       summaryIndex: idx,
       confirm: ctx.confirm,
+      refreshFn: bg == null
+          ? null
+          : ({bool repartition = false, List<String>? dirs}) {
+              bg(ctx.active, dirs, repartition: repartition);
+              return Future<SummaryIndexResult?>.value();
+            },
     );
   }
 
@@ -588,18 +609,47 @@ Use your judgment: skip folders that are too small or trivial to matter; merge c
 
 When you are done, report the proposed layout — the folders you allocated and a one-line reason for each — and end your response with: run `/index` again to approve this layout and generate the summaries.''';
 
+/// How [runIndexDance] launches the fleet. Null = run it inline via
+/// [SummaryIndex.refresh] and await it (headless). Non-null = hand it off
+/// (the TUI's background task), returning immediately — the task posts its
+/// own start/completion notices, so the dance skips its own.
+typedef IndexRefreshFn = Future<SummaryIndexResult?> Function({
+  bool repartition,
+  List<String>? dirs,
+});
+
 /// The `/index` staleness dance, factored out of [SessionCommandHandlers] so the
 /// headless runner (`bin/tina.dart --non-interactive -p /index`) can reuse it
 /// without a [SessionController]: probe staleness (pure git, no LLM), then
 /// branch — index all on a first run / when everything is stale; re-run only the
 /// stale dirs when partly stale; report up-to-date and confirm (when [confirm]
 /// is wired, i.e. the TUI) before a full re-run. The fleet runs via
-/// [SummaryIndex.refresh]; notices go to [host].
+/// [SummaryIndex.refresh] (inline, awaited) or is handed to [refreshFn] (the
+/// TUI's background task); notices go to [host].
 Future<CmdResult> runIndexDance({
   required HostInterface host,
   required SummaryIndex summaryIndex,
   Future<bool> Function(String prompt)? confirm,
+  IndexRefreshFn? refreshFn,
 }) async {
+  // Run the fleet and report, or hand it off. [startMsg] is posted only in
+  // inline mode (the background task announces itself); [verb] labels the
+  // inline completion report.
+  Future<void> refreshAndReport({
+    required String startMsg,
+    required String verb,
+    bool repartition = false,
+    List<String>? dirs,
+  }) async {
+    if (refreshFn != null) {
+      await refreshFn(repartition: repartition, dirs: dirs);
+      return;
+    }
+    if (startMsg.isNotEmpty) host.showMessage(startMsg);
+    final r = await summaryIndex.refresh(repartition: repartition, dirs: dirs);
+    _postIndexRefresh(host, r, verb: verb);
+  }
+
   final status = await summaryIndex.status();
   if (status.totalDirs == 0) {
     host.showMessage('No directories to index.\n');
@@ -623,10 +673,12 @@ Future<CmdResult> runIndexDance({
             'The proposal turn ran but allocated no regions. '
             'Index the default partition instead? [y/N] ');
         if (!fallback) return const CmdHandled();
-        host.showMessage('Indexing ${status.totalDirs} '
-            '${status.totalDirs == 1 ? 'directory' : 'directories'}…\n');
-        final r = await summaryIndex.refresh(dirs: status.staleDirs);
-        _postIndexRefresh(host, r, verb: 'Indexed');
+        await refreshAndReport(
+          startMsg: 'Indexing ${status.totalDirs} '
+              '${status.totalDirs == 1 ? 'directory' : 'directories'}…\n',
+          verb: 'Indexed',
+          dirs: status.staleDirs,
+        );
         return const CmdHandled();
       }
       host.showMessage(
@@ -637,20 +689,23 @@ Future<CmdResult> runIndexDance({
     final ok = await confirm('Summarize the ${status.totalDirs} proposed '
         'regions? [y/N] ');
     if (!ok) return const CmdHandled();
-    host.showMessage('Indexing ${status.totalDirs} '
-        '${status.totalDirs == 1 ? 'region' : 'regions'}…\n');
-    final r = await summaryIndex.refresh(dirs: status.staleDirs);
-    _postIndexRefresh(host, r, verb: 'Indexed');
+    await refreshAndReport(
+      startMsg: 'Indexing ${status.totalDirs} '
+          '${status.totalDirs == 1 ? 'region' : 'regions'}…\n',
+      verb: 'Indexed',
+      dirs: status.staleDirs,
+    );
     return const CmdHandled();
   }
 
   // First run (empty manifest) or every dir changed since the last index.
   if (status.firstRun || status.allStale) {
-    host.showMessage(
-      'Indexing ${status.totalDirs} '
-      '${status.totalDirs == 1 ? 'directory' : 'directories'}…\n');
-    final r = await summaryIndex.refresh(dirs: status.staleDirs);
-    _postIndexRefresh(host, r, verb: 'Indexed');
+    await refreshAndReport(
+      startMsg: 'Indexing ${status.totalDirs} '
+          '${status.totalDirs == 1 ? 'directory' : 'directories'}…\n',
+      verb: 'Indexed',
+      dirs: status.staleDirs,
+    );
     return const CmdHandled();
   }
 
@@ -666,18 +721,24 @@ Future<CmdResult> runIndexDance({
     final ok = await confirm(
       'Re-run all ${status.totalDirs} summaries anyway? [y/N] ');
     if (!ok) return const CmdHandled();
-    host.showMessage('Re-indexing ${status.totalDirs} dirs…\n');
-    final r = await summaryIndex.refresh(repartition: true);
-    _postIndexRefresh(host, r, verb: 'Re-indexed');
+    await refreshAndReport(
+      startMsg: 'Re-indexing ${status.totalDirs} dirs…\n',
+      verb: 'Re-indexed',
+      repartition: true,
+    );
     return const CmdHandled();
   }
 
-  // Partly stale: re-run just the stale dirs.
+  // Partly stale: re-run just the stale dirs. The stale-dirs report posts in
+  // both modes (it explains WHAT the background run is doing).
   host.showMessage(
     '${status.staleCount}/${status.totalDirs} dirs stale: '
     '${status.staleDirs.join(', ')}. Refreshing…\n');
-  final r = await summaryIndex.refresh(dirs: status.staleDirs);
-  _postIndexRefresh(host, r, verb: 'Refreshed');
+  await refreshAndReport(
+    startMsg: '',
+    verb: 'Refreshed',
+    dirs: status.staleDirs,
+  );
   return const CmdHandled();
 }
 

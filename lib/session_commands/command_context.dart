@@ -145,6 +145,13 @@ abstract class CommandContext {
   /// null when no composition exists (headless without one).
   SpendLedger? get spendLedger;
 
+  /// Launch the summary fleet as a background task on [conv] (`/index` in the
+  /// TUI): the prompt returns immediately, fleet output streams into the
+  /// conversation's host, and ESC cancels. Wired by the TUI's
+  /// [SessionController]; null in headless (which runs the fleet inline).
+  Future<void> Function(Conversation conv, List<String>? dirs,
+      {bool repartition})? get runBackgroundIndex;
+
   /// Open the visual node editor (`/workflow new` / `/workflow edit`). Wired by
   /// the TUI; null in headless.
   Future<void> Function({String? name, bool isNew})? get openWorkflowEditor;
