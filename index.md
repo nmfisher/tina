@@ -1,0 +1,58 @@
+---
+layout: home
+title: Tina
+---
+
+# Tina
+
+> **Tina Is No Agent.** (And *Tina Is No Acronym* — the recursion stops when you want it to.)
+
+Tina is a terminal UI for driving multiple LLM coding agents at once — a
+[notcurses](https://github.com/dankamongmen/notcurses)-based TUI for composing,
+spawning, and metering agent sessions side by side, with scrollback, session
+persistence/resume, and live spend metering across a fleet of sub-agents.
+
+## Install
+
+Prebuilt bundles (Linux x64/arm64, macOS arm64) are attached to each
+[release](https://github.com/nmfisher/tina/releases). Unpack and run:
+
+```sh
+tar xzf tina-<tag>-<target>.tar.gz
+./bundle/bin/tina
+```
+
+## Build from source
+
+Requires a Dart SDK ≥ 3.12. Clone with submodules (the `dart_notcurses` native
+binding is required):
+
+```sh
+git clone --recurse-submodules https://github.com/nmfisher/tina.git
+cd tina
+dart pub get
+dart build cli -t bin/tina.dart        # bundle lands in build/cli/<os>_<arch>/bundle/
+```
+
+For cross-platform bundles (Linux via Docker, macOS native):
+
+```sh
+./tool/build_bundle.sh host            # or: linux-x64 | linux-arm64 | macos-arm64 | all
+```
+
+## Configuration
+
+Tina writes its config, sessions, and caches under `~/.tina/`. Run `tina --setup`
+to configure providers and API keys.
+
+## User guide
+
+- [The `/index` command]({{ site.baseurl }}/index-command/) — build and maintain a
+  per-directory summary index of your repository.
+- [The `/browse` command]({{ site.baseurl }}/browse/) — browse directories and
+  files from the terminal UI.
+
+## License
+
+MIT. The bundled terminal rendering comes from
+[dart_notcurses](https://github.com/nmfisher/dart_notcurses) (separate license).

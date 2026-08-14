@@ -1,0 +1,17 @@
+# Tina — documentation site
+# Site configuration for GitHub Pages (Jekyll, minima theme).
+title: Tina
+description: "Tina is a terminal UI for driving multiple LLM coding agents at once — compose, spawn, and meter agent sessions side by side."
+url: https://nmfisher.github.io/tina
+baseurl: /tina
+
+theme: minima
+
+# GitHub Pages defaults
+lsi: false
+safe: true
+incremental: false
+highlighter: rouge
+kramdown:
+  input: GFM
+  hard_wrap: false
