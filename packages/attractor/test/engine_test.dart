@@ -609,6 +609,65 @@ void main() {
       expect(attempts, 1); // permanent — no retry attempts spent
     });
 
+    test('a failed node with only unmatched conditional edges fails the run',
+        () async {
+      // Before the honesty fix, the any-edge fallback routed a failed node
+      // onward as if it had succeeded, and the run reported success.
+      final g = parseDot('''
+        digraph DeadEnd {
+          start [shape=Mdiamond]
+          work [shape=box]
+          exit [shape=Msquare]
+          start -> work
+          work -> exit [condition="outcome=success"]
+        }
+      ''');
+      final backend = _FakeBackend({
+        'work': CodergenResult('broke', outcome: Outcome.fail('exploded')),
+      });
+
+      final (outcome, store) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.fail);
+      expect(outcome.failureReason, 'exploded');
+      // exit never ran.
+      expect(store.nodes.map((n) => n.nodeId), ['work']);
+    });
+
+    test('a thrown handler error is recorded in the run store', () async {
+      // Only a conditional edge out (on success) so the failed node can't
+      // route onward — this test pins the audit write, not the routing.
+      final g = parseDot('''
+        digraph Throw {
+          start [shape=Mdiamond]
+          boom [shape=box, max_retries=0]
+          exit [shape=Msquare]
+          start -> boom
+          boom -> exit [condition="outcome=success"]
+        }
+      ''');
+      final backend = _FakeBackend({});
+      final store = MemoryRunStore();
+      final registry = _registry(backend, _FakeInterviewer([]));
+      registry.register('codergen', _ThrowingHandler());
+
+      final engine = PipelineEngine(
+        graph: g,
+        registry: registry,
+        runStore: store,
+        runId: 'r1',
+        workflowName: g.name,
+        backoffFor: (_) => Duration.zero,
+      );
+      final outcome = await engine.run();
+
+      expect(outcome.status, StageStatus.fail);
+      expect(outcome.failureReason, contains('handler error in "boom"'));
+      // The audit trail has a status entry even though the handler threw
+      // before its own write.
+      expect(store.nodes.any((n) => n.nodeId == 'boom'), isTrue);
+    });
+
     test('threads onEvent into handlers so a handler can emit progress',
         () async {
       // A handler that receives the engine's listener and emits its own
@@ -647,6 +706,21 @@ void main() {
           isTrue);
     });
   });
+}
+
+/// A handler that always throws — for the audit-trail-on-throw test.
+class _ThrowingHandler implements NodeHandler {
+  @override
+  Future<Outcome> execute({
+    required PipelineNode node,
+    required Graph graph,
+    required Context context,
+    required RunStore runStore,
+    Future<void>? cancelSignal,
+    PipelineEventListener? onEvent,
+  }) async {
+    throw StateError('kaboom');
+  }
 }
 
 /// A spy handler: records the [PipelineEventListener] it received and emits a

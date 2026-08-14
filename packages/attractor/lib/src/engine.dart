@@ -229,8 +229,13 @@ class PipelineEngine {
       } on Aborted {
         return Outcome.fail('cancelled');
       } catch (e) {
-        // Handler threw — fail this attempt.
+        // Handler threw — fail this attempt. Record it so the audit trail has
+        // a status entry even when the exception escaped the handler's own
+        // write (the prompt lives in the handler's scope; '' just means "not
+        // captured").
         final fail = Outcome.fail('handler error in "${node.id}": $e');
+        await runStore.writeNode(
+            nodeId: node.id, outcome: fail, prompt: '', response: '');
         onEvent?.call(PipelineEvent('node_failed',
             nodeId: node.id, outcome: fail, message: fail.failureReason));
         if (attempt < maxAttempts) {
@@ -320,7 +325,12 @@ class PipelineEngine {
     // Steps 4 & 5: weight then lexical among unconditional edges.
     if (unconditional.isNotEmpty) return _bestByWeightThenLexical(unconditional);
 
-    // Fallback: any edge (e.g. all are conditional but none matched).
+    // Only conditional edges remain and none matched. A failed node must not
+    // route onward as if it had succeeded: dead-end (null) so the run fails
+    // with the node's own reason. A non-failed outcome keeps the any-edge
+    // fallback (e.g. a reviewer whose verdict label drifted from the edge
+    // labels — better to continue on the best edge than strand the run).
+    if (outcome.status == StageStatus.fail) return null;
     return _bestByWeightThenLexical(edges);
   }
 
@@ -394,7 +404,7 @@ class PipelineEngine {
   Future<Outcome> _finish(
       Outcome outcome, Context context, List<String> completed) async {
     await runStore.writeCheckpoint(
-      currentNode: outcome.status.isOk ? (completed.isNotEmpty ? completed.last : '') : (completed.isNotEmpty ? completed.last : ''),
+      currentNode: completed.isNotEmpty ? completed.last : '',
       completedNodes: completed,
       context: context,
     );

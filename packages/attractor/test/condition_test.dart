@@ -23,6 +23,28 @@ void main() {
       expect(evaluateCondition('outcome!=success', fail, Context()), isTrue);
     });
 
+    test('`==` parses as equality, not literal `=x`', () {
+      final ok = const Outcome.success();
+      expect(evaluateCondition('outcome==success', ok, Context()), isTrue);
+      expect(
+          evaluateCondition('outcome==success', Outcome.fail('x'), Context()),
+          isFalse);
+    });
+
+    test('outcome=success treats partial_success as good enough', () {
+      final partial = const Outcome(status: StageStatus.partialSuccess);
+      expect(
+          evaluateCondition('outcome=success', partial, Context()), isTrue);
+      // Strict matching is still available the other way around…
+      expect(
+          evaluateCondition('outcome=partial_success',
+              const Outcome.success(), Context()),
+          isFalse);
+      // …and != excludes partial_success from the success branch.
+      expect(
+          evaluateCondition('outcome!=success', partial, Context()), isFalse);
+    });
+
     test('preferred_label match', () {
       final o = const Outcome.success(preferredLabel: 'approve');
       expect(evaluateCondition('preferred_label=approve', o, Context()), isTrue);

@@ -21,7 +21,10 @@ class HumanGateHandler implements NodeHandler {
   }) async {
     final edges = graph.outgoing(node.id);
     if (edges.isEmpty) {
-      return Outcome.fail('no outgoing edges for human gate "${node.id}"');
+      final fail = Outcome.fail('no outgoing edges for human gate "${node.id}"');
+      await runStore.writeNode(
+          nodeId: node.id, outcome: fail, prompt: '', response: '');
+      return fail;
     }
 
     // Derive one choice per outgoing edge.

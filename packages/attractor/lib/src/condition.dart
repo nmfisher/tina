@@ -53,6 +53,16 @@ class _Clause {
         true,
       );
     }
+    // `==` (the documented style) — parse as equality, not key `=` literal
+    // `=x`. Checked after `!=` and before a single `=`.
+    final eqeq = clause.indexOf('==');
+    if (eqeq >= 0) {
+      return _Clause(
+        clause.substring(0, eqeq).trim(),
+        _unquote(clause.substring(eqeq + 2).trim()),
+        false,
+      );
+    }
     final eq = clause.indexOf('=');
     if (eq >= 0) {
       return _Clause(
@@ -74,6 +84,14 @@ class _Clause {
     final bool truthyCheck = literal.isEmpty && !negate;
     if (truthyCheck) {
       return lhs == 'true';
+    }
+    // `outcome=success` treats partial_success as good enough — a partially
+    // completed stage shouldn't dead-end into a failure branch it didn't ask
+    // for — on both sides of the comparison (`!= success` also excludes
+    // partial_success). Strict matching is still available via
+    // `outcome=partial_success` / `outcome=fail`.
+    if (key == 'outcome' && lhs == 'partial_success' && literal == 'success') {
+      return !negate;
     }
     return negate ? lhs != literal : lhs == literal;
   }
