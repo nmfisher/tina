@@ -551,6 +551,64 @@ void main() {
       expect(store.nodes.map((n) => n.nodeId), ['a', 'b', 'c']);
     });
 
+    test('a transient backend error retries and does not clobber writes keys',
+        () async {
+      // flaky publishes to the shared `plan` key (writes) and fails
+      // transiently once; the retry must not record '' under `plan`, and the
+      // executor must see the eventual real output.
+      final g = parseDot('''
+        digraph Transient {
+          start [shape=Mdiamond]
+          flaky [shape=box, max_retries=1, writes="plan"]
+          exec [shape=box, context="plan"]
+          exit [shape=Msquare]
+          start -> flaky -> exec -> exit
+        }
+      ''');
+      var flakyAttempts = 0;
+      final backend = _FakeBackend({})..scriptedOverride = (id) {
+          if (id != 'flaky') return CodergenResult('output of $id');
+          flakyAttempts++;
+          if (flakyAttempts == 1) {
+            return CodergenResult.error('provider hiccup', transient: true);
+          }
+          return CodergenResult('the real output');
+        };
+
+      final (outcome, _) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.success);
+      expect(flakyAttempts, 2);
+      final execPreamble =
+          backend.calls.firstWhere((c) => c.nodeId == 'exec').preamble;
+      expect(execPreamble, contains('the real output'));
+      expect(execPreamble, isNot(contains('--- plan ---\n\n')));
+    });
+
+    test('a permanent backend error fails the node without retry', () async {
+      // goal_gate keeps the failed node from routing on to exit, so the run
+      // itself fails (edge-selection honesty for fail outcomes is its own
+      // finding; the goal gate pins this test to the retry behavior).
+      final g = parseDot('''
+        digraph Perm {
+          start [shape=Mdiamond]
+          flaky [shape=box, max_retries=2, goal_gate=true]
+          exit [shape=Msquare]
+          start -> flaky -> exit
+        }
+      ''');
+      var attempts = 0;
+      final backend = _FakeBackend({})..scriptedOverride = (id) {
+          attempts++;
+          return CodergenResult.error('max steps reached');
+        };
+
+      final (outcome, _) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.fail);
+      expect(attempts, 1); // permanent — no retry attempts spent
+    });
+
     test('threads onEvent into handlers so a handler can emit progress',
         () async {
       // A handler that receives the engine's listener and emits its own

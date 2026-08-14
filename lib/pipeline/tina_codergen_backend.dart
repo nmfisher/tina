@@ -64,7 +64,9 @@ class TinaCodergenBackend implements CodergenBackend {
       parentReference: defaultModelReference,
       modelReference: nodeModel.isEmpty ? null : nodeModel,
     );
-    if (result.isError) return CodergenResult.error(result.text);
+    if (result.isError) {
+      return CodergenResult.error(result.text, transient: result.transient);
+    }
 
     final verdict = parseVerdict(result.text);
     if (verdict != null) {

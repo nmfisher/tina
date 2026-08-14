@@ -18,9 +18,11 @@ class CodergenResult {
   const CodergenResult(this.text, {this.outcome});
 
   /// A failed run — the handler records this outcome and edge selection sees
-  /// `outcome=fail`.
-  factory CodergenResult.error(String reason) =>
-      CodergenResult('', outcome: Outcome.fail(reason));
+  /// `outcome=fail`. With [transient] set (a provider hiccup that may clear on
+  /// its own) the handler returns `StageStatus.retry` instead, so the engine's
+  /// retry loop (with backoff) gets a chance to re-run the node.
+  factory CodergenResult.error(String reason, {bool transient = false}) =>
+      CodergenResult('', outcome: transient ? Outcome.retry(reason) : Outcome.fail(reason));
 }
 
 /// The seam a host application implements to turn a `box`/LLM node into a

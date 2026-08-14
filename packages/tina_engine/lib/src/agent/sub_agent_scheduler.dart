@@ -42,13 +42,17 @@ class DelegationResult {
 }
 
 /// The result of [SubAgentScheduler.runStandalone]: the role's final answer
-/// text, or an error.
+/// text, or an error. An error with [transient] set (a provider build/stream
+/// failure) may clear on its own, so callers may retry it; budget/steps
+/// exhaustions and cancellations are permanent.
 class RunAgentResult {
   final String text;
   final bool isError;
-  const RunAgentResult(this.text, {this.isError = false});
-  factory RunAgentResult.error(String message) =>
-      RunAgentResult(message, isError: true);
+  final bool transient;
+  const RunAgentResult(this.text,
+      {this.isError = false, this.transient = false});
+  factory RunAgentResult.error(String message, {bool transient = false}) =>
+      RunAgentResult(message, isError: true, transient: transient);
 }
 
 /// The shared configuration every spawning tool (`delegate`, `dispatch`,
@@ -715,7 +719,8 @@ class SubAgentScheduler {
         requestTimeout: requestTimeout,
       );
     } catch (e) {
-      return RunAgentResult.error('failed to build provider: $e');
+      return RunAgentResult.error('failed to build provider: $e',
+          transient: true);
     }
 
     // A node agent runs with the selected tool profile plus `delegate` (when
@@ -764,7 +769,12 @@ class SubAgentScheduler {
     );
 
     final extracted = _extractResult('node', history);
-    if (extracted.isError) return RunAgentResult.error(extracted.content);
+    if (extracted.isError) {
+      return RunAgentResult.error(extracted.content,
+          // A provider failure (rate limit, dropped stream) may clear on a
+          // retry; budget/steps exhaustions and everything else will not.
+          transient: agent.abortedKind == AbortedKind.provider);
+    }
     return RunAgentResult(extracted.content);
   }
 
