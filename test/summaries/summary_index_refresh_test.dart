@@ -86,10 +86,15 @@ void main() {
     final registry = anthropicRegistry(provider);
     final idx = _index(registry);
 
-    // Seed an up-to-date manifest so a non-repartition refresh would no-op.
+    // Seed an up-to-date manifest so a non-repartition refresh would no-op —
+    // summary files first, since record() only records what was written.
     final seed = _repo();
     seed.init();
     final partition = seed.defaultPartition();
+    for (final dir in partition) {
+      File('${sidecarRoot.path}/summaries/${summarySlug(dir)}.md')
+          .writeAsStringSync('# $dir\n');
+    }
     seed.saveManifest(seed.record(
       manifest: seed.loadManifest(),
       regenerated: partition,
@@ -137,7 +142,8 @@ void main() {
     expect(after.staleDirs, contains('packages/foo/lib'));
     expect(File('${sidecarRoot.path}/summaries/lib.md').existsSync(), isTrue);
     expect(
-        File('${sidecarRoot.path}/summaries/packages__foo__lib.md').existsSync(),
+        File('${sidecarRoot.path}/summaries/packages%2Ffoo%2Flib.md')
+            .existsSync(),
         isFalse);
   });
 

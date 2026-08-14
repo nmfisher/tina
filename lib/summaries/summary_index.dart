@@ -124,10 +124,17 @@ class SummaryIndex {
     // session's spend funnel is therefore preserved across an in-process
     // /index run — see SummaryRunner.run.
     final stale = await runner.run();
+    // Report what actually landed, not what was planned: a summarizer that
+    // failed or skipped its write_summary call leaves no file, and record()
+    // leaves the dir unrecorded (still stale). The counts the user sees must
+    // match the summaries on disk.
+    final repo = _repo();
+    final landed =
+        stale.toRegenerate.where(repo.summaryWritten).toList();
     return SummaryIndexResult(
       status: await status(),
-      regenerated: stale.toRegenerate.length,
-      regeneratedDirs: stale.toRegenerate,
+      regenerated: landed.length,
+      regeneratedDirs: landed,
       deletedDirs: stale.deleted,
     );
   }

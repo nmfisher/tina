@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:tina/regions/region_registry.dart';
 import 'package:tina/summaries/sidecar_repo.dart';
+import 'package:tina_engine/tina_engine.dart' show summarySlug;
 import 'package:test/test.dart';
 
 import '../summaries/fleet_test_harness.dart';
@@ -36,7 +37,7 @@ void main() {
   /// is not stale).
   void seedSummary(String dir, {String content = '# lib\n\nlib does X'}) {
     Directory('${sidecarRoot.path}/summaries').createSync(recursive: true);
-    File('${sidecarRoot.path}/summaries/${dir.replaceAll('/', '__')}.md')
+    File('${sidecarRoot.path}/summaries/${summarySlug(dir)}.md')
         .writeAsStringSync(content);
     repo.saveManifest(repo.record(
       manifest: repo.loadManifest(),

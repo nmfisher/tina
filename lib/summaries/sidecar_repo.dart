@@ -183,6 +183,13 @@ class SidecarSummaryRepo {
     return File(path).readAsStringSync();
   }
 
+  /// Whether the summary file the fleet would write for [dir] (the current
+  /// slug-derived name) exists — i.e. a summarizer actually delivered. Used by
+  /// [record] (don't record what wasn't written) and by callers computing
+  /// honest post-run counts.
+  bool summaryWritten(String dir) =>
+      File(p.join(_summariesDir.path, '${summarySlug(dir)}.md')).existsSync();
+
   /// Update [manifest] for the dirs that were just regenerated: record each
   /// dir's current commit + tree (null when not at HEAD) + working-tree digest
   /// + summary filename. Removes [deleted] dirs. Returns the updated manifest
@@ -197,6 +204,14 @@ class SidecarSummaryRepo {
     for (final dir in regenerated) {
       if (!Directory(p.join(projectRoot.path, dir)).existsSync()) {
         continue; // vanished mid-run; skip rather than record.
+      }
+      if (!summaryWritten(dir)) {
+        // The fleet planned this dir but never wrote its summary (a failed or
+        // skipping summarizer). Recording it anyway would pin it as fresh at
+        // the current tree — "no summary yet, run /index" meets "index is up
+        // to date" and the dir deadlocks until its code changes. Leave it
+        // unrecorded so it stays stale and resurfaces.
+        continue;
       }
       dirs[dir] = DirSummary(
         commit: commit,
@@ -215,6 +230,10 @@ class SidecarSummaryRepo {
   /// the whole set (regenerated + deleted) with a descriptive message. A no-op
   /// commit when there is nothing staged (the caller may still want to save the
   /// manifest, though).
+  ///
+  /// Staging is explicit — the manifest + the summary files only. A blanket
+  /// `git add -A` would sweep the sidecar's mutable runtime files
+  /// (allocations.json, the /index proposal marker) into summary history.
   void commit({
     required List<String> regenerated,
     required List<String> deleted,
@@ -224,9 +243,31 @@ class SidecarSummaryRepo {
       final file = File(p.join(_summariesDir.path, '${summarySlug(dir)}.md'));
       if (file.existsSync()) file.deleteSync();
     }
-    _gitIn(_summariesDir.path, ['add', '-A']);
-    // Don't commit when there's nothing staged (avoids a noisy empty commit).
-    final hasStaged = _gitIn(_summariesDir.path, ['status', '--porcelain']).isNotEmpty;
+    // Stage the manifest only when it exists (record() may have recorded
+    // nothing — an entirely-skipped fleet run — leaving no manifest to stage).
+    if (File(manifestPath).existsSync()) {
+      _gitIn(_summariesDir.path, ['add', manifestPath]);
+    }
+    for (final dir in regenerated) {
+      final path = p.join(_summariesDir.path, '${summarySlug(dir)}.md');
+      if (File(path).existsSync()) {
+        _gitIn(_summariesDir.path, ['add', path]);
+      }
+    }
+    for (final dir in deleted) {
+      // Staging a deleted (now absent) path records the removal.
+      _gitIn(_summariesDir.path, ['add', '--', summarySlug(dir) + '.md']);
+    }
+    // Don't commit when there's nothing staged (avoids a noisy empty commit —
+    // and an error, since unstaged runtime files like allocations.json would
+    // otherwise make `status --porcelain` non-empty with an empty index).
+    final staged = Process.runSync(
+      'git',
+      ['-C', _summariesDir.path, 'diff', '--cached', '--name-only'],
+      runInShell: false,
+    );
+    final hasStaged =
+        staged.exitCode == 0 && (staged.stdout as String).trim().isNotEmpty;
     if (!hasStaged) return;
     final short = commitSha.length >= 7 ? commitSha.substring(0, 7) : commitSha;
     final parts = <String>[];

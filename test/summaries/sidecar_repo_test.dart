@@ -5,7 +5,9 @@
 
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:tina/summaries/sidecar_repo.dart';
+import 'package:tina_engine/tina_engine.dart' show summarySlug;
 import 'package:test/test.dart';
 
 void main() {
@@ -82,10 +84,21 @@ void main() {
     expect(stale.deleted, isEmpty);
   });
 
+  // Seed the sidecar the way a fleet run would: write each dir's summary file
+  // so record()'s honesty guard (only record what was actually written) lets
+  // the dirs through.
+  void seedSummaries(List<String> dirs) {
+    for (final dir in dirs) {
+      File(p.join(sidecarRoot.path, 'summaries', '${summarySlug(dir)}.md'))
+          .writeAsStringSync('# $dir\n');
+    }
+  }
+
   test('staleness: an unchanged dir is not stale after recording', () {
     repo.init();
     final partition = repo.defaultPartition();
     final stale1 = repo.staleDirs(partition, SummaryManifest.empty());
+    seedSummaries(stale1.toRegenerate);
     final recorded = repo.record(
       manifest: SummaryManifest.empty(),
       regenerated: stale1.toRegenerate,
@@ -100,6 +113,7 @@ void main() {
     repo.init();
     final partition = repo.defaultPartition();
     final stale1 = repo.staleDirs(partition, SummaryManifest.empty());
+    seedSummaries(stale1.toRegenerate);
     final recorded = repo.record(
       manifest: SummaryManifest.empty(),
       regenerated: stale1.toRegenerate,
@@ -118,6 +132,7 @@ void main() {
     repo.init();
     final partition = repo.defaultPartition();
     final stale1 = repo.staleDirs(partition, SummaryManifest.empty());
+    seedSummaries(stale1.toRegenerate);
     final recorded = repo.record(
       manifest: SummaryManifest.empty(),
       regenerated: stale1.toRegenerate,
