@@ -46,3 +46,11 @@ We want:
 - Update ticket status with tk (start when beginning, close when done).
 - Commit all work locally, raise a PR when finished. Never merge.
 - Simplified technical English.
+
+## Design revision 1 (2026-08-15) — single record
+
+The user revised the design: there is **only ONE environment record**, not two (no separate human-editable spec + machine-written snapshot). The record is one file. If no record exists on first load, the environment agent populates it from its measurements. Revise the proposal accordingly:
+
+- Merge the two-artifact design into one record file. The agent maintains the observed-state parts; the user can edit anything.
+- Re-check the affected parts against the new shape: the index region (what digests it measures), warm load (what injects into the system prompt), and the trust gate (unchanged risk — setup lines are execution).
+- Note the accepted tradeoff: machine-observed state lives in a versioned file (single-machine assumption).
