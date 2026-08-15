@@ -428,16 +428,17 @@ void main() {
 
       rl.enqueue('are you there?');
       final runFuture = controller.run();
-      // Wait until the turn is in flight: agent.run has added the user message
-      // to in-memory history and is now awaiting the never-completing stream.
-      await _pumpUntil(() => controller.active.isRunning);
-      expect(
-          controller.active.history.any((m) =>
+      // Wait until the user message has landed in in-memory history —
+      // agent.run adds it as its first act, but only after _runTurn's
+      // auto-compact await, so isRunning alone is not enough (it is set
+      // before agent.run is even called).
+      // Generous budget: under full-suite CPU load the turn start (and the
+      // message add) can take far longer than the default 3s window.
+      await _pumpUntil(
+          () => controller.active.history.any((m) =>
               m.role == Role.user &&
               m.content.any((b) => b is TextBlock && b.text == 'are you there?')),
-          isTrue,
-          reason: 'sanity: the user message is in in-memory history once the '
-              'turn is running');
+          iterations: 3000);
 
       // Quit mid-stream: close input (EOF) so the controller's loop exits. The
       // in-flight _runTurn is abandoned — its post-turn persistence loop never
