@@ -1,0 +1,26 @@
+# Scenario: abort_midstream — the stream is cut off mid-tokens.
+# Step 1 streams three deltas, then !abort destroys the connection before
+# any finish frame or [DONE]. On the wire this is a response that simply
+# ends early (no content-length): tina gets the partial deltas and must
+# complete the turn from them without hanging.
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"Starting the answer: the queue is "},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"drained only after the current batch "},"finish_reason":null}]}
+
+!delay 100
+!abort
+
+# Step 2: the next turn (or a manual retry) gets a short clean completion,
+# so the session can keep going after the abort.
+!step
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"Retried after the aborted stream: the publish is queued, not dropped."},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":14,"total_tokens":134}}
+
+data: [DONE]

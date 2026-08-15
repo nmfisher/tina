@@ -1,0 +1,40 @@
+# Scenario: rapid_tool_calls — several tool_use blocks back to back in one
+# turn. Indices 0..2 arrive in consecutive frames (no text between them),
+# then finish_reason "tool_calls". Step 2 answers after the tool results come
+# back. Tool names are tina's real ones (read / grep) against the
+# examples/workspace fixture, so the tool results are deterministic too.
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":null},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_stub01","type":"function","function":{"name":"read","arguments":""}}]},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"path\":\"packages/core/lib/src/event_bus.dart\"}"}}]},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_stub02","type":"function","function":{"name":"read","arguments":""}}]},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"path\":\"packages/core/lib/src/naive_cache.dart\"}"}}]},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":2,"id":"call_stub03","type":"function","function":{"name":"grep","arguments":""}}]},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":2,"function":{"arguments":"{\"pattern\":\"Repository\",\"path\":\"packages\"}"}}]},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":110,"completion_tokens":72,"total_tokens":182}}
+
+data: [DONE]
+
+# Step 2: the follow-up turn after the three tool results return.
+!step
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"All three calls returned. event_bus.dart queues reentrant publishes; "},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"naive_cache.dart evicts lazily on read; Repository is implemented by "},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"MemoryRepository and JsonFileStore in packages/store/."},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":180,"completion_tokens":40,"total_tokens":220}}
+
+data: [DONE]
