@@ -23,11 +23,15 @@ The LlmProvider is different. It is conversation-scoped runtime state:
 
 2. **The factory already sits next to it.** ProviderRegistry is the provider factory and it is already a composition field. Holding both the factory and one specific product of it is redundant. No other conversation gets its provider from the composition.
 
-3. **Only two consumers use it.** Headless --prompt (bin/tina.dart:349 passes it to buildAgent; :303/:332/:389 close it) and the summary fleet (lib/summaries/summary_runner.dart:147, :165). The TUI path (TuiCoordinator.create, bin/tina.dart:242) never reads app.provider — it builds per-conversation providers via SessionManager.
+3. **It is the initial conversation's provider, not the app's.** Both frontends use it for the FIRST conversation: headless --prompt (bin/tina.dart:349 passes it to buildAgent; :303/:332/:389 close it), the TUI (lib/tui_coordinator.dart:247 reads app.provider; used for the initial agent at :506, the initial Conversation at :520, recorder metadata at :487), and the summary fleet (lib/summaries/summary_runner.dart:147, :165). It also doubles as the account-provider fallback for restored conversations with no stored model ref (lib/tui_coordinator.dart:585 → lib/persistence/session_restore.dart:111). Later conversations build their own providers via SessionManager.
 
 4. **Ambiguous meaning.** `app.provider` reads as "the app's provider" but means "the initial conversation's provider". The summary fleet reuses that same conversation-scoped instance, which is conceptually wrong.
 
 5. **Two lifecycle models.** TUI closes providers per-conversation; headless closes the composition's one. Same thing, two ownership models.
+
+6. **Wasted builds.** The headless --workflow path (bin/tina.dart:280-307) and the /index path (:316-336) build and close app.provider (:303, :332) without ever using it.
+
+7. **Double-close hazard.** On resume, a restored conversation with no stored model ref reuses the startup provider instance (lib/persistence/session_restore.dart:111, via the accountProvider threaded at lib/tui_coordinator.dart:585) — the same instance the initial conversation holds. closeAll closes it per-conversation (lib/session_manager.dart:403), and concrete providers close their HTTP client (packages/tina_engine/lib/src/llm/anthropic.dart:36). Double close.
 
 Why it is there (the defense): the headless path has no conversation manager and needs a provider handed to it; tests inject fakes via the `provider:` param of buildAppComposition; the ledger must be created before any provider so the metering decorator wraps it (app_composition.dart:85-91) — that ordering is already guaranteed by the composition, so moving provider construction out does not break metering.
 
@@ -40,6 +44,10 @@ Analyze the code and write a proposal document at docs/proposals/app_composition
 3. For each option: what changes, what breaks, rough effort, and a recommendation.
 
 Verify every claim against the code. Cite file:line for each fact. The proposal must be written in simplified technical English (short sentences, plain words, no jargon).
+
+## Progress note
+
+First sandbox run (2026-08-14, GLM): the agent completed the full code analysis but the permission layer blocked every write, so nothing was committed. Its verified findings are merged into the Context section above (items 3, 6, 7). The relaunch resumes the agent's prior session with write permissions granted; it should finish the task: write the proposal doc, update this ticket via tk, commit, push, and raise the PR.
 
 ## Agent rules
 
