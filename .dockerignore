@@ -7,6 +7,7 @@ build
 .tina
 .cache
 .claude
+.tickets
 packages/dart_notcurses/.git
 packages/dart_notcurses/.dart_tool
 packages/dart_notcurses/build
