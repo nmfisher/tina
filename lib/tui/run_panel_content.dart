@@ -68,7 +68,7 @@ class RunPanelContent implements PanelContent {
   void _paintLabel() {
     final b = _interior;
     if (b.isEmpty || b.height < 1) return;
-    const plain = 'input disabled — read-only workflow view';
+    const plain = 's stop · x close · read-only workflow view';
     final text = plain.length <= b.width
         ? plain.padRight(b.width)
         : plain.substring(0, b.width);

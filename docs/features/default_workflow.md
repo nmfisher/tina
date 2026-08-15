@@ -48,8 +48,9 @@ A node's preamble is **not** the run so far. Each node declares the prior
 outputs it wants in its `context` attribute; the engine renders exactly those,
 in declared order, as `--- <key> ---` sections in front of the node's prompt.
 Nothing accumulates by default: a node with no `context` attribute sees an
-empty preamble — its prompt (with `$input`, `$goal`, `$history` still
-expandable) is its only input.
+empty preamble — its prompt (with `$input` and `$goal` expandable) is its only
+input. (`$history` is deliberately not used: background launches never seed a
+chat history, so the token would expand to nothing.)
 
 - `context="plan"` — this node's preamble renders the `plan` context key (the
   `plan` node's output, or any node that re-published to it).
@@ -111,21 +112,30 @@ is the full revised plan; on approve the prompt has it restate the plan
 unchanged. Every consumer reads `context="plan"` and always gets the current
 plan, and the next revision visit reads its own previous revision from the
 same key — no revision chain is threaded through downstream preambles. The
-back-edge is a plain edge, so the loop is bounded only by the reviewer
-eventually approving; a reviewer prompt that caps revisions (e.g. "approve
-with caveats after two revises") is the mitigation.
+back-edge is a plain edge, so the loop is bounded by the reviewer eventually
+approving — and, if it never does, by the engine's loop budgets: a node that
+exceeds its visit cap (or a gate its retry budget) pauses the run with a human
+"continue / abort?" gate in the TUI, and fails with a clear reason headless.
+A reviewer prompt that caps revisions (e.g. "approve with caveats after two
+revises") remains a useful soft bound on top.
 
 ### Clarification goes through the human gate
 
 `plan_review_1` (and `plan_review_2`) may emit `VERDICT: clarify`, which routes
 to the `clarify` node — a `hexagon` (human gate). The gate presents its
 outgoing edges as choices ("Re-review with this in mind" / "Approve and
-continue") and routes on the user's pick, looping back to a review. In headless
-mode the interviewer auto-picks the first option, so the workflow never blocks.
-The gate's question is the node's static `label`; a **dynamic, free-form
-clarification question** (the reviewer's specific question, surfaced as the
-gate prompt) is future refinement — today the reviewer states its question in
-its streamed output and the gate asks how to proceed.
+continue") and routes on the user's pick, looping back to a review. The gate's
+question is **the reviewer's actual output**: the node carries a `prompt` attr
+that expands `$last_stage` (the full reviewer response, with the `VERDICT:`
+line stripped), so the user reads the real question before deciding — not a
+static label. A clarify→review loop that never converges is bounded by the
+engine's gate retry budget (see above). In headless mode the interviewer
+auto-picks the first option, so the workflow never blocks (also bounded).
+
+One invariant keeps the handoff safe: the reviewer's prompt makes it
+**restate the full plan first, whatever its verdict** — so its `writes="plan"`
+output can never replace the shared plan with a question or fragment, even on
+`clarify`.
 
 ## Parallel fan-out and fan-in
 
@@ -206,6 +216,13 @@ for now. A dedicated explore node or a first-class read-only `explore` tool
 - **Fallbacks:** a missing, unparseable, or invalid workflow file fails the
   launch with a clear message (chat never bricks); a runtime failure ends that
   run like any failed run and is reported back in the completion turn.
+- **Seed migration:** seeding is idempotent (`seedDefaultWorkflow` only writes
+  when `default.dot` is absent), so an existing `~/.tina/workflows/default.dot`
+  keeps the prompts it was seeded with. If yours predates the clarify-safe
+  reviewer prompts ("always restate the plan in full, whatever your verdict")
+  and the `clarify` node's `prompt` attr, delete the file and let tina re-seed
+  it — or `/workflow edit default` and paste the current
+  `kDefaultWorkflowDotSource`.
 
 ## See also
 

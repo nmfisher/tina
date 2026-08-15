@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:attractor/attractor.dart';
 import 'package:tina_engine/tina_engine.dart';
 
+import 'pipeline_runner.dart';
+
 /// Runs one workflow as a child run. This is the seam the supervisor calls; in
 /// production it is `PipelineRunner.run`, so the supervisor reuses the runner,
 /// the engine, and every handler without owning them. The [sink] is where the
@@ -11,7 +13,7 @@ import 'package:tina_engine/tina_engine.dart';
 /// supervisor's `onLaunch` hook — see [WorkflowRun.sink]); the [cancelSignal]
 /// future, when completed, aborts the run with a `cancelled` outcome — exactly
 /// the engine's existing contract.
-typedef RunWorkflow = Future<Outcome> Function({
+typedef RunWorkflow = Future<PipelineRunResult> Function({
   required String workflowName,
   required AgentSink sink,
   String? input,
@@ -77,6 +79,11 @@ class WorkflowRun {
   /// `onComplete` — the host uses it to settle the run panel's busy state.
   void Function()? onFinished;
 
+  /// The run-store directory for this run (manifest, per-node prompt/response,
+  /// checkpoints), set from the runner's result once the run finishes. null
+  /// until then, or when no run was started (invalid workflow file).
+  String? runDir;
+
   final Completer<void> _cancel;
 
   WorkflowRunStatus status;
@@ -137,8 +144,11 @@ class WorkflowSupervisor {
   final void Function(WorkflowRun run)? onLaunch;
 
   /// Active + recently-finished runs keyed by id (newest last). Finished runs
-  /// are kept so the main agent can query a result by id; [active] filters to
-  /// the still-running ones.
+  /// are kept (capped at [maxFinishedRuns], newest) so the main agent can
+  /// query a recent result by id; [active] filters to the still-running ones.
+  /// Runs older than the cap are dropped wholesale — [find] is a
+  /// recency-bounded lookup, not a registry.
+  static const int maxFinishedRuns = 20;
   final Map<String, WorkflowRun> _runs = {};
   final List<String> _launchOrder = [];
   int _seq = 0;
@@ -208,15 +218,18 @@ class WorkflowSupervisor {
       },
     );
     unawaited(future.then(
-      (outcome) {
-        run.outcome = outcome;
-        run.status = _classify(outcome, cancelledByStop: cancel.isCompleted);
+      (result) {
+        run.outcome = result.outcome;
+        if (result.runDir.isNotEmpty) run.runDir = result.runDir;
+        run.status =
+            _classify(result.outcome, cancelledByStop: cancel.isCompleted);
         _reportBack(sink, run);
         onComplete?.call(run);
         run.onFinished?.call();
+        _pruneFinished();
       },
       // A thrown runner error (e.g. the workflow file is missing) never yields
-      // an Outcome — surface it as a failed run so the launch still reports
+      // a result — surface it as a failed run so the launch still reports
       // back and the completion turn still fires, instead of an unhandled
       // async error.
       onError: (Object e) {
@@ -225,6 +238,7 @@ class WorkflowSupervisor {
         _reportBack(sink, run);
         onComplete?.call(run);
         run.onFinished?.call();
+        _pruneFinished();
       },
     ));
 
@@ -271,8 +285,24 @@ class WorkflowSupervisor {
   List<WorkflowRun> get active =>
       _launchOrder.reversed.map((id) => _runs[id]).whereType<WorkflowRun>().where((r) => r.isRunning).toList();
 
-  /// Look up a run by id (active or finished).
+  /// Look up a run by id (active or a recently-finished one — older finished
+  /// runs are pruned, see [maxFinishedRuns]).
   WorkflowRun? find(String id) => _runs[id];
+
+  /// Drop the oldest finished runs beyond [maxFinishedRuns]; an active run is
+  /// never pruned.
+  void _pruneFinished() {
+    final finishedIds = [
+      for (final id in _launchOrder)
+        if (_runs[id]?.isRunning == false) id,
+    ];
+    if (finishedIds.length <= maxFinishedRuns) return;
+    for (final id
+        in finishedIds.take(finishedIds.length - maxFinishedRuns)) {
+      _runs.remove(id);
+      _launchOrder.remove(id);
+    }
+  }
 
   WorkflowRun? _mostRecentActive() {
     for (final id in _launchOrder.reversed) {

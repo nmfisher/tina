@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:attractor/attractor.dart';
 import 'package:test/test.dart';
 
@@ -58,10 +60,11 @@ NodeHandlerRegistry _registry(CodergenBackend backend, Interviewer interviewer) 
 Future<(Outcome, MemoryRunStore)> _run(
   Graph g, {
   required _FakeBackend backend,
-  _FakeInterviewer? interviewer,
+  Interviewer? interviewer,
   String? input,
   Map<String, String>? seedContext,
   PipelineEventListener? onEvent,
+  Future<bool> Function(String reason)? onLoopBudgetExceeded,
 }) async {
   final store = MemoryRunStore();
   final engine = PipelineEngine(
@@ -72,6 +75,7 @@ Future<(Outcome, MemoryRunStore)> _run(
     workflowName: g.name,
     backoffFor: (_) => Duration.zero,
     onEvent: onEvent,
+    onLoopBudgetExceeded: onLoopBudgetExceeded,
   );
   final outcome =
       await engine.run(input: input, seedContext: seedContext);
@@ -370,6 +374,348 @@ void main() {
       expect(store.nodes.any((n) => n.nodeId == 'right'), isFalse);
     });
 
+    test('cancellation terminates the run at the current node', () async {
+      // The first working node cancels the run on its way out; the engine
+      // must end there instead of walking the rest of the graph.
+      final g = parseDot('''
+        digraph Cancel {
+          start [shape=Mdiamond]
+          a [shape=box]
+          b [shape=box]
+          exit [shape=Msquare]
+          start -> a -> b -> exit
+        }
+      ''');
+      final cancel = Completer<void>();
+      final backend = _FakeBackend({})..scriptedOverride = (id) {
+          if (id == 'a') {
+            if (!cancel.isCompleted) cancel.complete();
+            return CodergenResult('done a');
+          }
+          return CodergenResult('output of $id');
+        };
+      final store = MemoryRunStore();
+      final registry = _registry(backend, _FakeInterviewer([]));
+      final events = <PipelineEvent>[];
+      final engine = PipelineEngine(
+        graph: g,
+        registry: registry,
+        runStore: store,
+        runId: 'r1',
+        workflowName: g.name,
+        backoffFor: (_) => Duration.zero,
+        cancelSignal: cancel.future,
+        onEvent: events.add,
+      );
+      final outcome = await engine.run();
+
+      expect(outcome.status, StageStatus.fail);
+      expect(outcome.failureReason, 'cancelled');
+      // 'a' completed and was recorded; 'b' never ran and no node_failed
+      // event was emitted for it.
+      expect(store.nodes.map((n) => n.nodeId), ['a']);
+      expect(events.where((e) => e.kind == 'node_failed'), isEmpty);
+    });
+
+    test('visit cap aborts an unbounded revise self-loop (no hook = abort)',
+        () async {
+      // The reviewer never approves; without the cap this loops forever.
+      final g = parseDot('''
+        digraph Spin {
+          start [shape=Mdiamond]
+          review [shape=box]
+          exit [shape=Msquare]
+          start -> review
+          review -> review [label="revise"]
+          review -> exit [label="approve"]
+        }
+      ''');
+      final backend = _FakeBackend({})..scriptedOverride = (id) =>
+          CodergenResult('again',
+              outcome: const Outcome.success(preferredLabel: 'revise'));
+
+      final (outcome, store) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.fail);
+      expect(outcome.failureReason, contains('exceeded 8 visits'));
+      // The default cap: 8 visits, no more.
+      final visits =
+          store.nodes.where((n) => n.nodeId == 'review').length;
+      expect(visits, 8);
+    });
+
+    test('visit-cap budget hook: continue resets the counter', () async {
+      final g = parseDot('''
+        digraph Reset {
+          start [shape=Mdiamond]
+          review [shape=box]
+          exit [shape=Msquare]
+          start -> review
+          review -> review [label="revise"]
+          review -> exit [label="approve"]
+        }
+      ''');
+      var visits = 0;
+      var hookCalls = 0;
+      final backend = _FakeBackend({})..scriptedOverride = (id) {
+          visits++;
+          // Loop forever the first budget window; approve after the hook
+          // once let it continue.
+          final verdict = visits <= 8 ? 'revise' : 'approve';
+          return CodergenResult(verdict,
+              outcome: Outcome.success(preferredLabel: verdict));
+        };
+
+      final (outcome, _) = await _run(g, backend: backend,
+          onLoopBudgetExceeded: (reason) async {
+        hookCalls++;
+        return true; // continue
+      });
+
+      expect(outcome.status, StageStatus.success);
+      expect(hookCalls, 1);
+      // 8 visits in the first window, then the 9th approves.
+      expect(visits, 9);
+    });
+
+    test('a small max_node_visits graph attr tightens the cap', () async {
+      final g = parseDot('''
+        digraph Tight {
+          graph [max_node_visits=2]
+          start [shape=Mdiamond]
+          review [shape=box]
+          exit [shape=Msquare]
+          start -> review
+          review -> review [label="revise"]
+          review -> exit [label="approve"]
+        }
+      ''');
+      final backend = _FakeBackend({})..scriptedOverride = (id) =>
+          CodergenResult('again',
+              outcome: const Outcome.success(preferredLabel: 'revise'));
+
+      final (outcome, store) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.fail);
+      expect(outcome.failureReason, contains('exceeded 2 visits'));
+      expect(store.nodes.where((n) => n.nodeId == 'review').length, 2);
+    });
+
+    test('goal-gate retry jumps are bounded; budget exhausted fails clearly',
+        () async {
+      // critical is a goal gate that fails; retry_target loops back to it,
+      // and it keeps failing — previously this jumped forever (stale
+      // nodeOutcomes entry at the terminal check).
+      final g = parseDot('''
+        digraph Gate {
+          graph [retry_target="critical"]
+          start [shape=Mdiamond]
+          critical [shape=box, goal_gate=true]
+          exit [shape=Msquare]
+          start -> critical -> exit
+        }
+      ''');
+      final backend = _FakeBackend({
+        'critical': CodergenResult('broke', outcome: Outcome.fail('nope')),
+      });
+
+      final (outcome, store) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.fail);
+      expect(outcome.failureReason,
+          contains('goal gate "critical" retry budget exhausted'));
+      // default budget 2: initial visit + 2 retry jumps.
+      expect(store.nodes.where((n) => n.nodeId == 'critical').length, 3);
+    });
+
+    test('total-step cap (max_steps) guards the whole run', () async {
+      final g = parseDot('''
+        digraph Steps {
+          graph [max_steps=4]
+          start [shape=Mdiamond]
+          a [shape=box]
+          b [shape=box]
+          c [shape=box]
+          d [shape=box]
+          e [shape=box]
+          exit [shape=Msquare]
+          start -> a -> b -> c -> d -> e -> exit
+        }
+      ''');
+      final (outcome, store) = await _run(g, backend: _FakeBackend({}));
+
+      expect(outcome.status, StageStatus.fail);
+      expect(outcome.failureReason, contains('exceeded 4 total steps'));
+      // Every traversal iteration counts, including the start node: start,
+      // a, b, c consume the 4 steps; 'd' never runs.
+      expect(store.nodes.map((n) => n.nodeId), ['a', 'b', 'c']);
+    });
+
+    test('a transient backend error retries and does not clobber writes keys',
+        () async {
+      // flaky publishes to the shared `plan` key (writes) and fails
+      // transiently once; the retry must not record '' under `plan`, and the
+      // executor must see the eventual real output.
+      final g = parseDot('''
+        digraph Transient {
+          start [shape=Mdiamond]
+          flaky [shape=box, max_retries=1, writes="plan"]
+          exec [shape=box, context="plan"]
+          exit [shape=Msquare]
+          start -> flaky -> exec -> exit
+        }
+      ''');
+      var flakyAttempts = 0;
+      final backend = _FakeBackend({})..scriptedOverride = (id) {
+          if (id != 'flaky') return CodergenResult('output of $id');
+          flakyAttempts++;
+          if (flakyAttempts == 1) {
+            return CodergenResult.error('provider hiccup', transient: true);
+          }
+          return CodergenResult('the real output');
+        };
+
+      final (outcome, _) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.success);
+      expect(flakyAttempts, 2);
+      final execPreamble =
+          backend.calls.firstWhere((c) => c.nodeId == 'exec').preamble;
+      expect(execPreamble, contains('the real output'));
+      expect(execPreamble, isNot(contains('--- plan ---\n\n')));
+    });
+
+    test('a permanent backend error fails the node without retry', () async {
+      // goal_gate keeps the failed node from routing on to exit, so the run
+      // itself fails (edge-selection honesty for fail outcomes is its own
+      // finding; the goal gate pins this test to the retry behavior).
+      final g = parseDot('''
+        digraph Perm {
+          start [shape=Mdiamond]
+          flaky [shape=box, max_retries=2, goal_gate=true]
+          exit [shape=Msquare]
+          start -> flaky -> exit
+        }
+      ''');
+      var attempts = 0;
+      final backend = _FakeBackend({})..scriptedOverride = (id) {
+          attempts++;
+          return CodergenResult.error('max steps reached');
+        };
+
+      final (outcome, _) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.fail);
+      expect(attempts, 1); // permanent — no retry attempts spent
+    });
+
+    test('a failed node with only unmatched conditional edges fails the run',
+        () async {
+      // Before the honesty fix, the any-edge fallback routed a failed node
+      // onward as if it had succeeded, and the run reported success.
+      final g = parseDot('''
+        digraph DeadEnd {
+          start [shape=Mdiamond]
+          work [shape=box]
+          exit [shape=Msquare]
+          start -> work
+          work -> exit [condition="outcome=success"]
+        }
+      ''');
+      final backend = _FakeBackend({
+        'work': CodergenResult('broke', outcome: Outcome.fail('exploded')),
+      });
+
+      final (outcome, store) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.fail);
+      expect(outcome.failureReason, 'exploded');
+      // exit never ran.
+      expect(store.nodes.map((n) => n.nodeId), ['work']);
+    });
+
+    test('a thrown handler error is recorded in the run store', () async {
+      // Only a conditional edge out (on success) so the failed node can't
+      // route onward — this test pins the audit write, not the routing.
+      final g = parseDot('''
+        digraph Throw {
+          start [shape=Mdiamond]
+          boom [shape=box, max_retries=0]
+          exit [shape=Msquare]
+          start -> boom
+          boom -> exit [condition="outcome=success"]
+        }
+      ''');
+      final backend = _FakeBackend({});
+      final store = MemoryRunStore();
+      final registry = _registry(backend, _FakeInterviewer([]));
+      registry.register('codergen', _ThrowingHandler());
+
+      final engine = PipelineEngine(
+        graph: g,
+        registry: registry,
+        runStore: store,
+        runId: 'r1',
+        workflowName: g.name,
+        backoffFor: (_) => Duration.zero,
+      );
+      final outcome = await engine.run();
+
+      expect(outcome.status, StageStatus.fail);
+      expect(outcome.failureReason, contains('handler error in "boom"'));
+      // The audit trail has a status entry even though the handler threw
+      // before its own write.
+      expect(store.nodes.any((n) => n.nodeId == 'boom'), isTrue);
+    });
+
+    test('terminal success carries the last node\'s response as text',
+        () async {
+      final g = parseDot('''
+        digraph Text {
+          start [shape=Mdiamond]
+          a [shape=box]
+          b [shape=box]
+          exit [shape=Msquare]
+          start -> a -> b -> exit
+        }
+      ''');
+      final backend = _FakeBackend({
+        'a': CodergenResult('output of a'),
+        'b': CodergenResult('the final summary'),
+      });
+
+      final (outcome, _) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.success);
+      expect(outcome.text, 'the final summary');
+    });
+
+    test('a gate with a prompt attr shows the expanded text (VERDICT lines '
+        'stripped) as its question', () async {
+      final g = parseDot('''
+        digraph GatePrompt {
+          start [shape=Mdiamond]
+          review [shape=box]
+          gate [shape=hexagon, prompt="\$review\\n\\nThe reviewer needs a decision. Pick:"]
+          ship [shape=box]
+          exit [shape=Msquare]
+          start -> review -> gate
+          gate -> ship [label="[A] Approve"]
+          ship -> exit
+        }
+      ''');
+      final backend = _FakeBackend({
+        'review': CodergenResult('the plan text\nVERDICT: clarify'),
+      });
+      final interviewer = _RecordingInterviewer();
+      final (outcome, _) =
+          await _run(g, backend: backend, interviewer: interviewer);
+
+      expect(outcome.status, StageStatus.success);
+      expect(interviewer.questions.single.text,
+          'the plan text\n\nThe reviewer needs a decision. Pick:');
+    });
+
     test('threads onEvent into handlers so a handler can emit progress',
         () async {
       // A handler that receives the engine's listener and emits its own
@@ -408,6 +754,37 @@ void main() {
           isTrue);
     });
   });
+}
+
+/// An interviewer that records every question and picks the first option.
+class _RecordingInterviewer implements Interviewer {
+  final questions = <Question>[];
+  @override
+  Future<Answer> ask(Question question) async {
+    questions.add(question);
+    final options = question.options ?? const <Option>[];
+    if (options.isEmpty) return const Answer.cancelled();
+    final first = options.first;
+    return Answer(value: first.key, selectedOption: first);
+  }
+
+  @override
+  Future<void> inform(String message, {String? stage}) async {}
+}
+
+/// A handler that always throws — for the audit-trail-on-throw test.
+class _ThrowingHandler implements NodeHandler {
+  @override
+  Future<Outcome> execute({
+    required PipelineNode node,
+    required Graph graph,
+    required Context context,
+    required RunStore runStore,
+    Future<void>? cancelSignal,
+    PipelineEventListener? onEvent,
+  }) async {
+    throw StateError('kaboom');
+  }
 }
 
 /// A spy handler: records the [PipelineEventListener] it received and emits a

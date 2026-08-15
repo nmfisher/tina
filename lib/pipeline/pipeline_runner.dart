@@ -6,9 +6,25 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 import '../host/tui_conversation_host.dart';
+import '../tui/attention_queue.dart';
 import 'file_run_store.dart';
 import 'tina_codergen_backend.dart';
 import 'tina_interviewer.dart';
+import 'workflow_names.dart';
+
+/// The result of one workflow run: the engine's final [outcome] — whose
+/// [Outcome.text] carries the last executed node's full response — plus the
+/// run-store directory holding the complete audit trail (manifest, per-node
+/// prompt/response, checkpoints). `runDir` is empty when no run was started
+/// (e.g. the workflow file failed validation).
+class PipelineRunResult {
+  final Outcome outcome;
+
+  /// Filesystem path of this run's run-store directory.
+  final String runDir;
+
+  const PipelineRunResult({required this.outcome, required this.runDir});
+}
 
 /// Assembles the attractor engine with tina's two seams (a [TinaCodergenBackend]
 /// over the [SubAgentScheduler], and a [TinaInterviewer] over the TUI) and runs
@@ -29,6 +45,18 @@ class PipelineRunner {
   /// omit `llm_model`/`llm_provider`. Threaded to [TinaCodergenBackend].
   final String defaultModelReference;
 
+  /// Builds the per-run permission asker for a run's sink — the TUI supplies
+  /// this so a node agent's `write`/`edit` prompt renders in that run's panel.
+  /// Null (headless) → asks auto-deny, so workflow writes need `--yolo` /
+  /// `--allow` there.
+  final PermissionAsker Function(AgentSink runSink)? permissionAskerBuilder;
+
+  /// The TUI's shared modal queue: gates, loop-budget confirms, and
+  /// permission asks from ANY run serialize through it, so concurrent runs
+  /// can't race on `editor.readKey()`. Null (headless) → each ask runs
+  /// directly.
+  final AttentionQueue? attentionQueue;
+
   PipelineRunner({
     required this.scheduler,
     required this.pipeline,
@@ -37,6 +65,8 @@ class PipelineRunner {
     required this.defaultModelReference,
     this.screen,
     this.editor,
+    this.permissionAskerBuilder,
+    this.attentionQueue,
   });
 
   /// Run `<workflowsDir>/<workflowName>.dot` to completion. [sink] is where the
@@ -44,7 +74,7 @@ class PipelineRunner {
   /// [history] (a chat transcript, if any) is seeded into the run context and
   /// expandable as `$history` in node prompts. [onEvent] is an additional
   /// progress listener (e.g. a live run view); the sink notices still fire.
-  Future<Outcome> run({
+  Future<PipelineRunResult> run({
     required String workflowName,
     required AgentSink sink,
     String? input,
@@ -61,7 +91,8 @@ class PipelineRunner {
       final msg = errors.map((d) => '  $d').join('\n');
       sink.notice('workflow "$workflowName" is invalid:\n$msg',
           kind: NoticeKind.error);
-      return Outcome.fail('invalid workflow:\n$msg');
+      return PipelineRunResult(
+          outcome: Outcome.fail('invalid workflow:\n$msg'), runDir: '');
     }
     for (final w in diags.where((d) => d.severity == Severity.warning)) {
       sink.notice('$w', kind: NoticeKind.info);
@@ -71,10 +102,23 @@ class PipelineRunner {
     // node's transcript block opens with its input: a dim node header, then
     // the full task (preamble + prompt) in user style. Headless runs
     // (HeadlessHost) skip this — the `▶ node` notices carry the markers.
+    //
+    // Node agents prompt per write like the main agent: the run shares ONE
+    // mutable policy (a copy of the app policy, so `--yolo`/`--allow` carry
+    // in) across every runStandalone call — an "always allow" answered at one
+    // node holds for the rest of the run and dies with it. Interactive runs
+    // get a real asker; headless runs auto-deny the asks.
+    final basePolicy = scheduler.basePolicy;
+    final runPolicy = PermissionPolicy(
+      defaults: {...?basePolicy?.defaults},
+      rules: basePolicy?.staticRules,
+    );
     final backend = TinaCodergenBackend(
       scheduler: scheduler,
       sink: sink,
       defaultModelReference: defaultModelReference,
+      permissionPolicy: runPolicy,
+      permissionAsker: permissionAskerBuilder?.call(sink),
       onNodeStart: sink is TuiConversationHost
           ? (id, task) {
               sink.showMessage('──── node: $id ────',
@@ -83,7 +127,12 @@ class PipelineRunner {
             }
           : null,
     );
-    final interviewer = TinaInterviewer(screen: screen, editor: editor);
+    final interviewer = TinaInterviewer(
+      screen: screen,
+      editor: editor,
+      attentionQueue: attentionQueue,
+      sink: sink,
+    );
 
     final runId = _newRunId();
     final runDir = Directory(p.join(runsRoot.path, runId));
@@ -112,18 +161,33 @@ class PipelineRunner {
       runId: runId,
       workflowName: workflowName,
       cancelSignal: cancelSignal,
+      // Loop budgets pause for a human decision in the TUI; headless runs
+      // pass no hook and abort instead of burning budget on a runaway loop.
+      onLoopBudgetExceeded: screen != null && editor != null
+          ? (reason) async {
+              sink.notice('loop budget exhausted: $reason',
+                  kind: NoticeKind.warning);
+              final answer = await interviewer.ask(Question(
+                text: 'Workflow loop budget exhausted: $reason\n'
+                    'Continue (budget resets)?',
+                type: QuestionType.confirmation,
+              ));
+              return answer.kind == AnswerValue.yes;
+            }
+          : null,
       onEvent: (e) {
         _renderEvent(sink, e);
         onEvent?.call(e);
       },
     );
 
-    return engine.run(
+    final outcome = await engine.run(
       input: input,
       seedContext: (history == null || history.isEmpty)
           ? null
           : {'history': history},
     );
+    return PipelineRunResult(outcome: outcome, runDir: runDir.path);
   }
 
   void _renderEvent(AgentSink sink, PipelineEvent e) {
@@ -164,8 +228,12 @@ class PipelineRunner {
       ..sort();
   }
 
-  /// Read `<dir>/<name>.dot`, throwing a clear error if missing.
+  /// Read `<dir>/<name>.dot`, throwing a clear error if missing — or if the
+  /// name could escape the workflows dir (see [isSafeWorkflowName]).
   static Future<String> readWorkflow(Directory dir, String name) async {
+    if (!isSafeWorkflowName(name)) {
+      throw FileSystemException(nameRejection, p.join(dir.path, '<name>.dot'));
+    }
     final file = File(p.join(dir.path, '$name.dot'));
     if (!await file.exists()) {
       throw FileSystemException('workflow not found', file.path);

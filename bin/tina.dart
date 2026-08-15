@@ -273,7 +273,9 @@ Future<void> _runNonInteractive(AppComposition app) async {
   // `--workflow <name>` headless: run a DOT pipeline to completion. Each `box`
   // node runs as a real agent turn via the scheduler (headless auto-approves at
   // any human gate). Input comes from `--prompt`. The run is audited under
-  // ~/.tina/runs/<id>; a non-success outcome exits non-zero.
+  // ~/.tina/runs/<id>; a non-success outcome exits non-zero. Node agents'
+  // write/edit asks auto-deny headless (there is no one to prompt) — run with
+  // `--yolo` or `--allow write`/`--allow edit` to let a workflow change files.
   final workflow = app.config.workflow;
   if (workflow != null) {
     final tinaDataDir = tinaDirFromEnv(app.environment.env);
@@ -286,16 +288,18 @@ Future<void> _runNonInteractive(AppComposition app) async {
     );
     final rawInput = app.config.prompt?.trim();
     try {
-      final outcome = await runner.run(
+      final result = await runner.run(
         workflowName: workflow,
         sink: host,
         input: (rawInput == null || rawInput.isEmpty) ? null : rawInput,
       );
-      if (!outcome.status.isOk) exit(1);
+      if (result.runDir.isNotEmpty) {
+        stderr.writeln('run transcript: ${result.runDir}');
+      }
+      if (!result.outcome.status.isOk) exit(1);
     } finally {
       await host.dispose();
       await app.store.close();
-      app.provider.close();
       await closeLogging();
     }
     return;
@@ -324,7 +328,6 @@ Future<void> _runNonInteractive(AppComposition app) async {
       await runIndexDance(host: host, summaryIndex: idx, confirm: null);
     } finally {
       await host.dispose();
-      app.provider.close();
       await closeLogging();
     }
     return;
@@ -336,12 +339,15 @@ Future<void> _runNonInteractive(AppComposition app) async {
 
   // The headless agent runs one turn with the base tools and the un-widened
   // policy — withSubAgents: false preserves the pre-composition behavior (a
-  // non-interactive run does not gain delegate/channel tools).
+  // non-interactive run does not gain delegate/channel tools). The provider is
+  // built here because this turn owns it: built on demand, closed in the
+  // finally below (no other path shares the instance).
+  final provider = app.buildStartupProvider();
   final agent = buildAgent(
     pipeline: app.pipeline,
     scheduler: app.scheduler,
     conversationId: app.initialConversationId,
-    provider: app.provider,
+    provider: provider,
     host: host,
     policy: app.policy,
     config: app.config,
@@ -381,7 +387,7 @@ Future<void> _runNonInteractive(AppComposition app) async {
     }
     await host.dispose();
     await app.store.close();
-    app.provider.close();
+    provider.close();
     await closeLogging();
   }
 }

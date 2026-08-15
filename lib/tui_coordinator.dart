@@ -17,8 +17,10 @@ import 'package:tina/config/user_config.dart';
 import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina/persistence/session_restore.dart';
 import 'package:tina/pipeline/pipeline_runner.dart';
+import 'package:tina/pipeline/workflow_permission_asker.dart';
 import 'package:tina/pipeline/workflow_supervisor.dart';
 import 'package:tina/regions/region_registry.dart';
+import 'package:tina/tui/attention_queue.dart';
 import 'package:tina/tui/run_panel_content.dart';
 import 'package:tina/tui/tool_output_overlay.dart';
 import 'package:tina/tui/workflow_editor_overlay.dart';
@@ -242,7 +244,11 @@ class TuiCoordinator {
   }) async {
     final config = app.config;
     final reg = app.registry;
-    final provider = app.provider;
+    // The initial conversation's provider, built on demand and owned by that
+    // Conversation (closed with it on teardown / model swap). Later
+    // conversations build their own via providerFactory below; the restore
+    // fallback builds fresh ones through the same tear-off.
+    final provider = app.buildStartupProvider();
     final policy = app.policy;
     final store = app.store;
     final stdio = io ?? const LiveStdio();
@@ -279,6 +285,12 @@ class TuiCoordinator {
     final exitCompleter = Completer<void>();
     final pipeline = app.pipeline;
     final scheduler = app.scheduler;
+
+    // The TUI's single attention queue: human gates, loop-budget confirms,
+    // and workflow permission asks serialize through it, so concurrent
+    // background runs take the keyboard one at a time instead of racing on
+    // `editor.readKey()`.
+    final attentionQueue = AttentionQueue();
 
     // Constructs a provider for a new session/conversation, carrying over
     // CLI-level settings. The startup API key and base URL apply only to the
@@ -377,6 +389,15 @@ class TuiCoordinator {
           defaultModelReference: '${app.config.provider}/${app.config.model}',
           screen: screen,
           editor: editor,
+          // Workflow node agents prompt per write like the main agent; the
+          // prompt renders into the run's own panel (see
+          // WorkflowPermissionAsker — a run panel's host is inactive, so its
+          // own asker can't be used).
+          permissionAskerBuilder: (runSink) =>
+              WorkflowPermissionAsker(sink: runSink, screen: screen,
+                  editor: editor, attentionQueue: attentionQueue)
+                  .ask,
+          attentionQueue: attentionQueue,
         );
     final supervisor = WorkflowSupervisor(
       run: ({
@@ -565,7 +586,10 @@ class TuiCoordinator {
         hostFactory: hostFactory,
         sessionId: initialSessionId,
         activeConversationId: initialConversationId,
-        accountProvider: provider,
+        // The account-provider FACTORY (not the initial conversation's
+        // instance): each fallback conversation builds and owns its own, so
+        // closeAll never double-closes a shared instance.
+        accountProvider: app.buildStartupProvider,
       );
       for (final meta in manifest.conversations) {
         if (meta.id == initialConversationId) continue; // active, already built

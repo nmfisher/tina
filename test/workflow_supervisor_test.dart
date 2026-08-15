@@ -5,8 +5,14 @@ import 'package:attractor/attractor.dart';
 import 'package:test/test.dart';
 import 'package:tina_engine/tina_engine.dart';
 
+import '../lib/pipeline/pipeline_runner.dart';
 import '../lib/pipeline/workflow_supervisor.dart';
 import 'helpers/fake_agent_sink.dart';
+
+/// A finished-run result like the real runner's: an outcome plus the run
+/// directory (empty when no run was started).
+PipelineRunResult _result(Outcome outcome, {String runDir = ''}) =>
+    PipelineRunResult(outcome: outcome, runDir: runDir);
 
 /// Pump the event loop until [pred] holds, or time out. The supervisor's
 /// report-back runs in a `.then` on the background run future, so tests trip a
@@ -51,9 +57,10 @@ class _ScriptedRunner {
       if (cancelSignal == null) {
         return control.done.future;
       }
-      return Future.any<Outcome>([
+      return Future.any<PipelineRunResult>([
         control.done.future,
-        cancelSignal.then((_) => Outcome.fail('cancelled')),
+        cancelSignal.then(
+            (_) => _result(Outcome.fail('cancelled'))),
       ]);
     };
   }
@@ -61,7 +68,7 @@ class _ScriptedRunner {
 
 class _RunControl {
   final AgentSink sink;
-  final Completer<Outcome> done = Completer<Outcome>();
+  final Completer<PipelineRunResult> done = Completer<PipelineRunResult>();
   _RunControl(this.sink);
 }
 
@@ -89,7 +96,7 @@ void main() {
       expect(runner.calls.single.input, 'fix the bug');
 
       // Let it finish so the test tears down cleanly.
-      runner.controls.single.done.complete(const Outcome.success());
+      runner.controls.single.done.complete(_result(const Outcome.success()));
       await _pumpUntil(() => run.status != WorkflowRunStatus.running);
     });
 
@@ -107,7 +114,7 @@ void main() {
       await _pumpUntil(
           () => sink.notices.any((n) => n.message.contains('scripted_node')));
 
-      runner.controls.single.done.complete(const Outcome.success());
+      runner.controls.single.done.complete(_result(const Outcome.success()));
       await _pumpUntil(() => run.status != WorkflowRunStatus.running);
       expect(sink.notices.any((n) => n.message.contains('scripted_node')), isTrue);
     });
@@ -129,7 +136,7 @@ void main() {
               n.message.contains('launched') && n.message.contains('default')),
           isTrue);
 
-      runner.controls.single.done.complete(const Outcome.success());
+      runner.controls.single.done.complete(_result(const Outcome.success()));
       await _pumpUntil(() => run.status == WorkflowRunStatus.completed);
 
       expect(run.outcome?.status, StageStatus.success);
@@ -154,7 +161,7 @@ void main() {
 
       final run =
           supervisor.launch(name: 'default', conversationId: 'conv-1', sink: sink);
-      runner.controls.single.done.complete(const Outcome.success());
+      runner.controls.single.done.complete(_result(const Outcome.success()));
       await _pumpUntil(() => completed != null);
 
       expect(completed, same(run));
@@ -180,7 +187,7 @@ void main() {
           onEvent,
         }) async {
           received = sink;
-          return const Outcome.success();
+          return _result(const Outcome.success());
         },
         onLaunch: (run) => run.sink = panelHost,
       );
@@ -216,7 +223,7 @@ void main() {
       expect(launched, same(run));
       expect(noticeVisibleAtHook, isTrue);
 
-      runner.controls.single.done.complete(const Outcome.success());
+      runner.controls.single.done.complete(_result(const Outcome.success()));
       await _pumpUntil(() => run.status != WorkflowRunStatus.running);
     });
 
@@ -238,7 +245,7 @@ void main() {
       expect(seen.single.kind, 'node_started');
       expect(seen.single.nodeId, 'x');
 
-      runner.controls.single.done.complete(const Outcome.success());
+      runner.controls.single.done.complete(_result(const Outcome.success()));
       await _pumpUntil(() => run.status != WorkflowRunStatus.running);
     });
 
@@ -255,7 +262,7 @@ void main() {
         }) async {
           onEvent?.call(const PipelineEvent('node_started', nodeId: 'a'));
           onEvent?.call(const PipelineEvent('node_completed', nodeId: 'a'));
-          return const Outcome.success();
+          return _result(const Outcome.success());
         },
       );
       var finished = false;
@@ -320,6 +327,24 @@ void main() {
       expect(completed, same(run));
     });
 
+    test('the run handle carries the run dir and outcome text from the result',
+        () async {
+      final runner = _ScriptedRunner();
+      final supervisor = WorkflowSupervisor(run: runner.build());
+      final sink = FakeAgentSink();
+
+      final run =
+          supervisor.launch(name: 'default', conversationId: 'conv-1', sink: sink);
+
+      runner.controls.single.done.complete(_result(
+          const Outcome.success(text: 'the exec reviewer summary'),
+          runDir: '/runs/abc123'));
+      await _pumpUntil(() => run.status == WorkflowRunStatus.completed);
+
+      expect(run.runDir, '/runs/abc123');
+      expect(run.outcome?.text, 'the exec reviewer summary');
+    });
+
     test('a failed run reports the failure reason back', () async {
       final runner = _ScriptedRunner();
       final supervisor = WorkflowSupervisor(run: runner.build());
@@ -329,7 +354,7 @@ void main() {
           supervisor.launch(name: 'default', conversationId: 'conv-1', sink: sink);
 
       runner.controls.single.done
-          .complete(Outcome.fail('goal gate "review" unsatisfied'));
+          .complete(_result(Outcome.fail('goal gate "review" unsatisfied')));
       await _pumpUntil(() => run.status == WorkflowRunStatus.failed);
 
       expect(run.status, WorkflowRunStatus.failed);

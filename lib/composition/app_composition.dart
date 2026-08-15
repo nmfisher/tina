@@ -8,15 +8,19 @@ import 'agent_composition.dart';
 
 /// The assembled non-UI world shared by every frontend (the interactive TUI and
 /// the headless `--prompt` runner): the parsed config, the provider registry,
-/// the startup provider, the base permission policy, the session store, the
-/// agent pipeline + scheduler, and the resolved initial session. Building it
-/// once here means the two entry points can't drift on provider/policy/store
-/// wiring — each just reads what it needs.
+/// the base permission policy, the session store, the agent pipeline +
+/// scheduler, and the resolved initial session. Building it once here means the
+/// two entry points can't drift on provider/policy/store wiring — each just
+/// reads what it needs.
+///
+/// No provider lives here. Providers are conversation-scoped: the first
+/// conversation's is built on demand via [buildStartupProvider], later
+/// conversations build their own through the registry (SessionManager's
+/// `providerFactory`), and each owner closes what it built.
 class AppComposition {
   final Config config;
   final Environment environment;
   final ProviderRegistry registry;
-  final LlmProvider provider;
   final PermissionPolicy policy;
   final SessionStore store;
   final AgentPipeline pipeline;
@@ -43,11 +47,16 @@ class AppComposition {
   /// so the coordinator can rehydrate all of them. Null for a fresh session.
   final SessionManifest? initialManifest;
 
+  /// Test seam only: when `buildAppComposition` was given a `provider`,
+  /// [buildStartupProvider] returns it instead of building a real one. Null in
+  /// production. (An injected fake bypasses registry.build, so it isn't
+  /// metered — fine for fakes.)
+  final LlmProvider? startupProviderOverride;
+
   const AppComposition({
     required this.config,
     required this.environment,
     required this.registry,
-    required this.provider,
     required this.policy,
     required this.store,
     required this.pipeline,
@@ -58,14 +67,33 @@ class AppComposition {
     required this.initialConversationId,
     required this.initialHistory,
     this.initialManifest,
+    this.startupProviderOverride,
   });
+
+  /// Build the FIRST conversation's provider from config.provider/model (the
+  /// CLI key/base URL/timeouts apply as overrides). Not a field: this is
+  /// conversation-scoped state, so the caller owns the result and closes it —
+  /// the TUI's initial `Conversation`, the headless `--prompt` turn, or the
+  /// summary fleet's ephemeral composition. Never share one instance between
+  /// two conversations; every caller gets its own. Later conversations don't
+  /// call this (SessionManager builds those via the registry). Metered: the
+  /// registry decorator is armed in `buildAppComposition` before this runs.
+  LlmProvider buildStartupProvider() => startupProviderOverride ??
+      registry.build(
+        '${config.provider}/${config.model}',
+        apiKeyOverride: config.apiKey,
+        baseUrlOverride: config.baseUrl,
+        maxTokens: config.maxTokens,
+        streamIdleTimeout: config.streamIdleTimeout,
+        requestTimeout: config.requestTimeout,
+      );
 }
 
-/// Assemble the [AppComposition] from a parsed [config] + [registry]: startup
-/// provider, base policy, session store, agent composition, and the resolved
-/// initial session. [provider] / [store] are overridable so tests can inject
-/// fakes; production leaves them null to get the real registry-built provider
-/// and the on-disk store.
+/// Assemble the [AppComposition] from a parsed [config] + [registry]: base
+/// policy, session store, agent composition, and the resolved initial session.
+/// [provider] / [store] are overridable so tests can inject fakes; production
+/// leaves them null so `buildStartupProvider` builds the real registry-built
+/// provider and the on-disk store is used.
 ///
 /// Config parsing (argv → [Config]) and the `--help` / parse-error early exits
 /// stay at the entry point — they must happen before any provider/store is
@@ -78,10 +106,11 @@ Future<AppComposition> buildAppComposition({
   Environment? environment,
 }) async {
   final env = environment ?? const PlatformEnvironment();
-  // The spend ledger is created BEFORE the startup provider so the registry's
-  // decorator wraps every provider built from here on — the startup provider,
-  // per-conversation providers, and every sub-agent. (An injected test provider
-  // bypasses registry.build and so isn't metered, which is fine for fakes.)
+  // The spend ledger is created BEFORE anything can build a provider, so the
+  // registry's decorator wraps every provider built from here on — the startup
+  // provider (AppComposition.buildStartupProvider), per-conversation
+  // providers, and every sub-agent. (An injected test provider bypasses
+  // registry.build and so isn't metered, which is fine for fakes.)
   final ledger = SpendLedger(
     maxGlobalTokens: config.maxGlobalTokens,
     requestsPerMinute: config.requestsPerMinute,
@@ -89,15 +118,6 @@ Future<AppComposition> buildAppComposition({
   final pauseGate = PauseGate();
   registry.decorator =
       (inner) => MeteringProvider(inner, ledger, pauseGate);
-  final startupProvider = provider ??
-      registry.build(
-        '${config.provider}/${config.model}',
-        apiKeyOverride: config.apiKey,
-        baseUrlOverride: config.baseUrl,
-        maxTokens: config.maxTokens,
-        streamIdleTimeout: config.streamIdleTimeout,
-        requestTimeout: config.requestTimeout,
-      );
   final policy = config.buildPolicy();
   // Confine the shared file tools to the project root + deny the Tina tree,
   // and arm write/edit with atomic writes + backups. Idempotent (may re-run on
@@ -135,7 +155,7 @@ Future<AppComposition> buildAppComposition({
     config: config,
     environment: env,
     registry: registry,
-    provider: startupProvider,
+    startupProviderOverride: provider,
     policy: policy,
     store: sessionStore,
     pipeline: pipeline,

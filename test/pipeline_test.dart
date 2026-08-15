@@ -38,6 +38,9 @@ class _RecordingScheduler extends SubAgentScheduler {
     ToolProfile toolProfile = ToolProfile.full,
     bool includeDelegate = true,
     PermissionPolicy? parentPolicy,
+    bool gateWrites = false,
+    PermissionPolicy? policy,
+    PermissionAsker? asker,
   }) async {
     calls++;
     seenModelReference = modelReference;

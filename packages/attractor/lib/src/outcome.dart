@@ -84,6 +84,12 @@ class Outcome {
   /// Why the stage failed or is retrying (when relevant).
   final String failureReason;
 
+  /// The node's full response text, when this outcome carries one. The
+  /// engine's terminal success sets it to the last executed node's response,
+  /// so a caller that only sees the final outcome still gets the run's actual
+  /// output instead of a bare "completed" note.
+  final String text;
+
   const Outcome({
     required this.status,
     this.preferredLabel,
@@ -91,6 +97,7 @@ class Outcome {
     this.contextUpdates = const {},
     this.notes = '',
     this.failureReason = '',
+    this.text = '',
   });
 
   const Outcome.success({
@@ -98,12 +105,14 @@ class Outcome {
     List<String> suggestedNextIds = const [],
     Map<String, String> contextUpdates = const {},
     String notes = '',
+    String text = '',
   }) : this(
           status: StageStatus.success,
           preferredLabel: preferredLabel,
           suggestedNextIds: suggestedNextIds,
           contextUpdates: contextUpdates,
           notes: notes,
+          text: text,
         );
 
   const Outcome.fail(String this.failureReason, {String notes = ''})
@@ -111,7 +120,8 @@ class Outcome {
         preferredLabel = null,
         suggestedNextIds = const [],
         contextUpdates = const {},
-        this.notes = notes;
+        this.notes = notes,
+        text = '';
 
   const Outcome.retry(String reason)
       : status = StageStatus.retry,
@@ -119,7 +129,8 @@ class Outcome {
         preferredLabel = null,
         suggestedNextIds = const [],
         contextUpdates = const {},
-        notes = '';
+        notes = '',
+        text = '';
 
   Outcome copyWith({StageStatus? status, String? preferredLabel}) => Outcome(
         status: status ?? this.status,
@@ -128,6 +139,7 @@ class Outcome {
         contextUpdates: contextUpdates,
         notes: notes,
         failureReason: failureReason,
+        text: text,
       );
 
   Map<String, dynamic> toJson() => {
@@ -139,5 +151,6 @@ class Outcome {
         if (contextUpdates.isNotEmpty) 'context_updates': contextUpdates,
         if (notes.isNotEmpty) 'notes': notes,
         if (failureReason.isNotEmpty) 'failure_reason': failureReason,
+        if (text.isNotEmpty) 'text': text,
       };
 }

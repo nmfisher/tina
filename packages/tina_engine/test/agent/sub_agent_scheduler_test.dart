@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
 
@@ -1119,6 +1121,127 @@ void main() {
       expect(names, containsAll(['write', 'bash', 'delegate']));
       await scheduler.dispose();
     });
+
+    // The workflow-node permission posture (gateWrites): write/edit are NOT
+    // auto-allowed for a node agent, so they inherit the shared run policy's
+    // decision — ask when interactive, deny when headless, allow under --yolo.
+    test('gateWrites routes a node write through the asker', () async {
+      final dir = await Directory.systemTemp.createTemp('standalone-gate');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final path = p.join(dir.path, 'a.txt');
+      final scheduler = testScheduler(
+        _writeOnceRegistry([path]),
+        pipeline: pipeline,
+      );
+      final asker = _ScriptedAsker([PermissionResponse.allowAlways]);
+
+      final result = await scheduler.runStandalone(
+        systemPrompt: 'id',
+        task: 'write the file',
+        parentReference: 'w/w-model',
+        sink: FakeAgentSink(),
+        gateWrites: true,
+        policy: PermissionPolicy(),
+        asker: asker.ask,
+      );
+
+      expect(result.isError, isFalse);
+      expect(asker.prompts.single.toolName, 'write');
+      expect(File(path).readAsStringSync(), 'node output');
+      await scheduler.dispose();
+    });
+
+    test('without an asker a gated write is denied, not executed', () async {
+      final dir = await Directory.systemTemp.createTemp('standalone-deny');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final path = p.join(dir.path, 'a.txt');
+      final scheduler = testScheduler(
+        _writeOnceRegistry([path]),
+        pipeline: pipeline,
+      );
+
+      // No asker (a headless run): the auto-deny asker answers instead, and
+      // the tool must never touch the filesystem.
+      final result = await scheduler.runStandalone(
+        systemPrompt: 'id',
+        task: 'write the file',
+        parentReference: 'w/w-model',
+        sink: FakeAgentSink(),
+        gateWrites: true,
+        policy: PermissionPolicy(),
+      );
+
+      expect(result.isError, isFalse);
+      expect(File(path).existsSync(), isFalse,
+          reason: 'a headless gated write must not execute');
+      await scheduler.dispose();
+    });
+
+    test('a --yolo-style policy copy executes the write without asking',
+        () async {
+      final dir = await Directory.systemTemp.createTemp('standalone-yolo');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final path = p.join(dir.path, 'a.txt');
+      final scheduler = testScheduler(
+        _writeOnceRegistry([path]),
+        pipeline: pipeline,
+      );
+      final asker = _ScriptedAsker(const []);
+      final policy = PermissionPolicy(defaults: const {
+        'read': PermissionDecision.allow,
+        'write': PermissionDecision.allow,
+        'edit': PermissionDecision.allow,
+      });
+
+      final result = await scheduler.runStandalone(
+        systemPrompt: 'id',
+        task: 'write the file',
+        parentReference: 'w/w-model',
+        sink: FakeAgentSink(),
+        gateWrites: true,
+        policy: policy,
+        asker: asker.ask,
+      );
+
+      expect(result.isError, isFalse);
+      expect(asker.prompts, isEmpty,
+          reason: '--yolo defaults must survive the gateWrites widening');
+      expect(File(path).readAsStringSync(), 'node output');
+      await scheduler.dispose();
+    });
+
+    test('an allowAlways answer persists across nodes on the shared policy',
+        () async {
+      final dir = await Directory.systemTemp.createTemp('standalone-remember');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final paths = [p.join(dir.path, 'a.txt'), p.join(dir.path, 'b.txt')];
+      final scheduler = testScheduler(
+        _writeOnceRegistry(paths),
+        pipeline: pipeline,
+      );
+      final asker = _ScriptedAsker([PermissionResponse.allowAlways]);
+      final policy = PermissionPolicy();
+
+      for (var i = 0; i < paths.length; i++) {
+        final result = await scheduler.runStandalone(
+          systemPrompt: 'id',
+          task: 'write file ${i + 1}',
+          parentReference: 'w/w-model',
+          sink: FakeAgentSink(),
+          gateWrites: true,
+          policy: policy, // SAME instance — the run's shared policy
+          asker: asker.ask,
+        );
+        expect(result.isError, isFalse);
+      }
+
+      // One ask for the first node's write; the second node's write in the
+      // same run rides the remembered session rule.
+      expect(asker.prompts.length, 1);
+      expect(File(paths[0]).existsSync(), isTrue);
+      expect(File(paths[1]).existsSync(), isTrue);
+      await scheduler.dispose();
+    });
   });
 }
 
@@ -1137,5 +1260,72 @@ class _RecordingToolsProvider extends LlmProvider {
     toolNames.add([for (final t in tools) t.name]);
     yield MessageComplete(
         content: const [TextBlock('done')], stopReason: 'end_turn');
+  }
+}
+
+/// A provider that asks `write` once (to the path handed to it) then answers —
+/// the script a workflow node agent follows when it wants to change a file.
+class _WriteThenAnswerProvider extends LlmProvider {
+  final String _path;
+  var _calls = 0;
+  _WriteThenAnswerProvider(this._path) : super('write-once');
+
+  @override
+  Stream<StreamEvent> send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+  }) async* {
+    _calls++;
+    if (_calls == 1) {
+      yield MessageComplete(
+        content: [
+          ToolUseBlock(id: 'w1', name: 'write', input: {
+            'filePath': _path,
+            'content': 'node output',
+          }),
+        ],
+        stopReason: 'tool_use',
+      );
+    } else {
+      yield const MessageComplete(
+          content: [TextBlock('done.')], stopReason: 'end_turn');
+    }
+  }
+}
+
+/// A registry whose provider writes the next path in [paths] — one entry per
+/// `runStandalone` call, so a multi-node run test gets a fresh script per node.
+ProviderRegistry _writeOnceRegistry(List<String> paths) {
+  final remaining = List<String>.of(paths);
+  final r = ProviderRegistry(env: const {'TEST_KEY': 'k'})
+    ..register(ProviderDescriptor(
+      id: 'w',
+      name: 'w',
+      authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
+      defaultBaseUrl: 'https://w.test',
+      builder: (_) => _WriteThenAnswerProvider(remaining.removeAt(0)),
+      models: {
+        'w-model': ModelInfo(
+            id: 'w-model', name: 'm', contextWindow: 1, maxOutput: 1)
+      },
+    ));
+  return r;
+}
+
+/// An asker with scripted responses, recording every prompt it saw. Throws if
+/// the agent asks more times than scripted — the assert IS the test.
+class _ScriptedAsker {
+  final List<PermissionResponse> _scripted;
+  final List<PermissionPrompt> prompts = [];
+  var _idx = 0;
+  _ScriptedAsker(List<PermissionResponse> scripted) : _scripted = scripted;
+
+  Future<PermissionResponse> ask(PermissionPrompt prompt) async {
+    prompts.add(prompt);
+    if (_idx >= _scripted.length) {
+      throw StateError('asker called more times than scripted');
+    }
+    return _scripted[_idx++];
   }
 }

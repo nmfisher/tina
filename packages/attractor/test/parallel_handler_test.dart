@@ -440,6 +440,44 @@ void main() {
       expect(store.nodes.any((n) => n.nodeId == 'sink'), isTrue);
     });
 
+    test('a cancelled branch is labeled cancelled, not failed, in the merge',
+        () async {
+      final g = parseDot('''
+        digraph T {
+          start [shape=Mdiamond]
+          fanout [shape=component]
+          a [shape=box]
+          b [shape=box]
+          fanin [shape=tripleoctagon]
+          sink [shape=box]
+          exit [shape=Msquare]
+          start -> fanout
+          fanout -> a
+          fanout -> b
+          fanout -> fanin
+          fanin -> sink
+          sink -> exit
+        }
+      ''');
+      // Branch `a` succeeds; branch `b` was aborted by a stop — the same
+      // `Outcome.fail('cancelled')` a backend returns when its cancel signal
+      // fires. The merge must not call that a failure.
+      final backend = _FakeBackend({
+        'a': CodergenResult('A did it'),
+        'b': CodergenResult('', outcome: Outcome.fail('cancelled')),
+      });
+      final (outcome, store) = await _run(g, backend: backend);
+
+      expect(outcome.status, StageStatus.success);
+      final fanIn = store.nodes.firstWhere((n) => n.nodeId == 'fanin');
+      expect(fanIn.response, contains('(branch "b" cancelled)'));
+      expect(fanIn.response, isNot(contains('failed')));
+      // The fan-out's own tally counts the cancellation separately too.
+      final fanout = store.nodes.firstWhere((n) => n.nodeId == 'fanout');
+      expect(fanout.outcome.notes, contains('1 cancelled'));
+      expect(fanout.outcome.notes, isNot(contains('failed')));
+    });
+
     test('branch lifecycle events reach the engine listener', () async {
       final g = parseDot('''
         digraph T {

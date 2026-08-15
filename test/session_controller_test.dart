@@ -597,7 +597,7 @@ void main() {
       final controller = _buildController(readLine: rl, provider: provider);
 
       controller.injectWorkflowResult(
-          finishedRun(outcome: const Outcome.success(notes: 'all green')));
+          finishedRun(outcome: const Outcome.success(text: 'all green')));
 
       // The agent ran a turn for the injection (no user input needed).
       await _pumpUntil(() => provider.calls.isNotEmpty);
@@ -653,7 +653,7 @@ void main() {
       await _pumpUntil(() => controller.active.isRunning);
 
       controller.injectWorkflowResult(
-          finishedRun(outcome: const Outcome.success(notes: 'all green')));
+          finishedRun(outcome: const Outcome.success(text: 'all green')));
 
       await _pumpUntil(
           () => hostOf(controller).messages.any((m) => m.contains('queued')));
@@ -691,7 +691,7 @@ void main() {
 
       controller.injectWorkflowResult(finishedRun(
           conversationId: 'ghost',
-          outcome: const Outcome.success(notes: 'all green')));
+          outcome: const Outcome.success(text: 'all green')));
 
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(provider.calls, isEmpty);

@@ -22,6 +22,12 @@ final _log = Logger('tina.agent');
 /// relaxes the ask-gate). No config surface by design.
 const int kMaxToolCallsPerRun = 500;
 
+/// Why a turn stopped abnormally, classified by cause. Callers that decide
+/// whether to retry (e.g. the pipeline's codergen nodes) treat [provider]
+/// failures as transient — a rate limit or dropped stream may clear on its
+/// own — while [budget]/[steps] exhaustions and [cancel] never will.
+enum AbortedKind { none, provider, budget, steps, cancel }
+
 const _compactSystemPrompt = '''
 You are summarizing a coding-assistant conversation for context
 preservation. Output ONLY the summary — no preamble, no closing.
@@ -86,6 +92,12 @@ class Agent {
   /// answer.
   String? abortedReason;
 
+  /// The same stop classified by cause, for callers deciding whether a retry
+  /// could succeed: [AbortedKind.provider] failures (rate limit, dropped
+  /// stream, transient build failure) may clear on their own; budget/steps
+  /// exhaustions and cancellations will not. Reset alongside [abortedReason].
+  AbortedKind abortedKind = AbortedKind.none;
+
   /// Run one user turn. The agent may issue several provider calls if tools
   /// are invoked. [cancelSignal], when completed, aborts the current
   /// in-flight stream and exits the turn cleanly.
@@ -95,6 +107,7 @@ class Agent {
     Future<void>? cancelSignal,
   }) async {
     abortedReason = null;
+    abortedKind = AbortedKind.none;
     history.add(Message(role: Role.user, content: [TextBlock(userInput)]));
 
     var cancelled = false;
@@ -110,6 +123,7 @@ class Agent {
     for (var step = 0; step < maxSteps; step++) {
       if (cancelled) {
         sink.notice('\n[cancelled]\n', kind: NoticeKind.warning);
+        abortedKind = AbortedKind.cancel;
         return;
       }
 
@@ -121,6 +135,7 @@ class Agent {
       if (reject != null) {
         sink.notice('\n[budget] $reject\n', kind: NoticeKind.error);
         abortedReason = reject;
+        abortedKind = AbortedKind.budget;
         return;
       }
 
@@ -134,6 +149,7 @@ class Agent {
       if (outcome.error != null) {
         sink.notice('\nerror: ${outcome.error}\n', kind: NoticeKind.error);
         abortedReason = outcome.error.toString();
+        abortedKind = AbortedKind.provider;
         return;
       }
       if (outcome.cancelled) {
@@ -149,6 +165,7 @@ class Agent {
         sink.notice('\nerror: stream ended without a complete response\n',
             kind: NoticeKind.error);
         abortedReason = 'stream ended without a complete response';
+        abortedKind = AbortedKind.provider;
         return;
       }
       if (outcome.usage != null) {
@@ -170,6 +187,7 @@ class Agent {
               sink.notice('\n[budget] session limit — turn aborted\n',
                   kind: NoticeKind.warning);
               abortedReason = 'session limit — turn aborted';
+              abortedKind = AbortedKind.budget;
               return;
             }
             continue; // resume the loop; next iteration re-sends the request
@@ -177,6 +195,7 @@ class Agent {
           sink.notice('\n[budget] ${budget!.exceeded()}\n',
               kind: NoticeKind.error);
           abortedReason = budget!.exceeded();
+          abortedKind = AbortedKind.budget;
           return;
         }
       }
@@ -195,6 +214,7 @@ class Agent {
           sink.notice('\n[action limit] reached, stopping\n',
               kind: NoticeKind.warning);
           abortedReason = 'action limit reached, stopping';
+          abortedKind = AbortedKind.steps;
           return;
         }
         toolCalls++;
@@ -264,6 +284,7 @@ class Agent {
 
     sink.notice('(max steps reached)\n', kind: NoticeKind.warning);
     abortedReason = 'max steps reached';
+    abortedKind = AbortedKind.steps;
   }
 
   /// Replace (part of) [history] with a summarized user+assistant exchange.

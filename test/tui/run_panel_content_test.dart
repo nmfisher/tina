@@ -44,9 +44,9 @@ void main() {
     final out = io.written.toString();
     expect(out, contains('▶ intake'));
     expect(out, contains('working on it'));
-    // The bottom row carries the read-only notice (input is disabled).
-    expect(out, contains('input disabled'));
-    expect(out, contains('read-only workflow view'));
+    // The bottom row carries the read-only notice (input is disabled); in a
+    // 40-col panel the label is clipped, so assert on its head.
+    expect(out, contains('s stop · x close'));
   });
 
   test('fit/attach/detach paint without crashing', () {
@@ -66,6 +66,6 @@ void main() {
     c.fit(const Rect(row: 3, col: 78, width: 40, height: 1),
         reserveInputRow: false);
     c.attach();
-    expect(io.written.toString(), contains('input disabled'));
+    expect(io.written.toString(), contains('s stop · x close'));
   });
 }

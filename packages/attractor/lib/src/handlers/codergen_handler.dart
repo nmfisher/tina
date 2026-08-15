@@ -51,6 +51,18 @@ class CodergenHandler implements NodeHandler {
 
     final responseText = result.text;
 
+    // A transient backend failure asks the engine to retry this node. There
+    // is no output to record — returning early keeps the empty response from
+    // being published under the node's id and `writes` keys (a shared plan
+    // key must not be clobbered with ''). The engine's retry loop re-runs the
+    // node; if retries exhaust, it converts this to a fail outcome itself.
+    if (result.outcome?.status == StageStatus.retry) {
+      final retry = result.outcome!;
+      await runStore.writeNode(
+          nodeId: node.id, outcome: retry, prompt: prompt, response: '');
+      return retry;
+    }
+
     // 5. Build the outcome. Always record this node's output under its id,
     //    plus the spec's last_stage/last_response bookkeeping, plus any
     //    `writes` keys (the shared-key pattern: a reviewer publishing the

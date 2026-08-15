@@ -291,6 +291,33 @@ void main() {
       }
     });
 
+    test('seed pins the clarify-safe handoff contract', () {
+      seedDefaultWorkflow(workflows);
+      final source =
+          File(p.join(workflows.path, 'default.dot')).readAsStringSync();
+      final graph = parseDot(source);
+
+      // The reviewers publish to the shared `plan` key, so `context="plan"`
+      // always means the current plan — whatever their verdict.
+      for (final id in ['plan_review_1', 'plan_review_2']) {
+        expect(graph.node(id)!.writesKeys, contains('plan'),
+            reason: '$id must write the shared plan key');
+      }
+      // The clarify gate carries a prompt that expands the reviewer's output
+      // (`$last_stage`), so the user sees the actual question — not a static
+      // label.
+      expect(graph.node('clarify')!.prompt, isNotEmpty);
+      expect(graph.node('clarify')!.prompt, contains(r'$last_stage'));
+      // No prompt references `$history` — background launches never seed it,
+      // so it would expand to nothing (or stay literal) mid-prompt.
+      for (final n in graph.nodes.values) {
+        expect(n.prompt, isNot(contains(r'$history')),
+            reason: '${n.id} prompt references \$history');
+      }
+      // And the intake prompt does carry the run input.
+      expect(graph.node('intake')!.prompt, contains(r'$input'));
+    });
+
     test('seed runs end-to-end: two reviews approve, work fans out, '
         'results are reviewed', () async {
       seedDefaultWorkflow(workflows);

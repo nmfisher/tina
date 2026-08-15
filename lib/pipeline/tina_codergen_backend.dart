@@ -34,11 +34,21 @@ class TinaCodergenBackend implements CodergenBackend {
   /// branch runs through this same backend).
   final void Function(String nodeId, String task)? onNodeStart;
 
+  /// Per-run permission surface for the node agents — see
+  /// [SubAgentScheduler.runStandalone]. [permissionPolicy] must be the SAME
+  /// instance for the whole run (an "always allow" answer remembered on it
+  /// persists across nodes); [permissionAsker] renders the prompts (null in
+  /// headless mode → asks auto-deny, so writes need `--yolo`/`--allow`).
+  final PermissionPolicy? permissionPolicy;
+  final PermissionAsker? permissionAsker;
+
   TinaCodergenBackend({
     required this.scheduler,
     required this.sink,
     required this.defaultModelReference,
     this.onNodeStart,
+    this.permissionPolicy,
+    this.permissionAsker,
   });
 
   @override
@@ -63,8 +73,15 @@ class TinaCodergenBackend implements CodergenBackend {
       // when absent, runStandalone falls back to [defaultModelReference].
       parentReference: defaultModelReference,
       modelReference: nodeModel.isEmpty ? null : nodeModel,
+      // Workflow nodes prompt per write like the main agent: write/edit are
+      // not pre-approved, and the (possibly auto-deny) asker fields the asks.
+      gateWrites: true,
+      policy: permissionPolicy,
+      asker: permissionAsker,
     );
-    if (result.isError) return CodergenResult.error(result.text);
+    if (result.isError) {
+      return CodergenResult.error(result.text, transient: result.transient);
+    }
 
     final verdict = parseVerdict(result.text);
     if (verdict != null) {

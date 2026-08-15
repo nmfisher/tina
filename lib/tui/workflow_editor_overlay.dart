@@ -8,6 +8,8 @@ import 'package:tina_console/tina_console.dart';
 import 'spawn_overlay.dart';
 import 'workflow_node_attr_form.dart';
 
+import '../pipeline/workflow_names.dart';
+
 /// The visual node editor (`/workflow new` and `/workflow edit <name>`). A
 /// full-screen, live-rendered graph with a keyboard-driven selection cursor:
 /// arrows move between nodes, and keys add/edit/connect/delete nodes + edges,
@@ -39,12 +41,12 @@ Future<bool> runWorkflowEditor({
 
 const _help1 = 'workflow editor — keys:';
 const _help2 = '  ↑↓←→ / Tab   move selection (or pan at the edge)';
-const _help3 = '  e / Enter    edit the selected node (label, role, prompt, …)';
+const _help3 = '  e / Enter    edit the selected node (label, prompt, context, writes, …)';
 const _help4 = '  n            new node';
 const _help5 = '  c            connect selected → another node';
 const _help6 = '  d            delete the selected node';
 const _help7 = '  r            re-layout';
-const _help8 = '  s            save    |  ?  help    |  esc  close';
+const _help8 = '  s            save    |  ?  help    |  esc / ctrl-c  close';
 
 class _WorkflowEditor {
   final Screen screen;
@@ -54,6 +56,10 @@ class _WorkflowEditor {
   final Directory workflowsDir;
   final bool isNew;
   final Future<InputEvent> Function()? readEvent;
+
+  /// The name the graph was loaded under (null for a new graph) — saving in
+  /// place is not an overwrite.
+  final String? originalName;
 
   String? currentName;
   bool dirty;
@@ -75,6 +81,7 @@ class _WorkflowEditor {
     required this.isNew,
     this.readEvent,
   })  : currentName = name,
+        originalName = name,
         dirty = isNew;
 
   Future<bool> run() async {
@@ -94,7 +101,10 @@ class _WorkflowEditor {
       paint();
       while (true) {
         final ev = await (readEvent ?? editor.readKey)();
-        if (ev is EscapeKey) {
+        if (ev is EscapeKey ||
+            (ev is ControlKey && ev.code == ControlCode.ctrlC)) {
+          // Both exits run the same dirty-discard confirm — ctrl-c skipping
+          // it silently lost changes.
           if (dirty) {
             final discard = await _confirm('Discard unsaved changes?');
             if (!discard) {
@@ -104,7 +114,6 @@ class _WorkflowEditor {
           }
           return false;
         }
-        if (ev is ControlKey && ev.code == ControlCode.ctrlC) return false;
         if (ev is ArrowKey) {
           moveSelection(ev.direction);
           // Re-render: `last` carries the selection border, so a stale render
@@ -313,10 +322,15 @@ class _WorkflowEditor {
   }
 
   Future<void> _save() async {
-    if (isNew && (currentName == null || currentName!.isEmpty)) {
+    if (currentName == null || currentName!.isEmpty) {
       final named = await _lineInput('save as (workflow name):');
       if (named == null || named.isEmpty) return;
-      currentName = named;
+      final safe = normalizeWorkflowName(named);
+      if (safe == null) {
+        await _inform('Cannot save — $nameRejection.');
+        return;
+      }
+      currentName = safe;
     }
     final diags = validate(graph);
     final errors = diags.where((d) => d.severity == Severity.error).toList();
@@ -327,10 +341,23 @@ class _WorkflowEditor {
     }
     if (!workflowsDir.existsSync()) workflowsDir.createSync(recursive: true);
     final file = File(p.join(workflowsDir.path, '$currentName.dot'));
+    // Saving under a name that already holds a DIFFERENT workflow (rename,
+    // or a new workflow colliding) must not silently clobber it.
+    if (file.existsSync() && file.path != _loadedPath) {
+      final overwrite =
+          await _confirm('"$currentName" already exists — overwrite it?');
+      if (!overwrite) return;
+    }
     await file.writeAsString(graphToDot(graph));
     dirty = false;
     await _inform('Saved → ${file.path}');
   }
+
+  /// The file this graph was loaded from (null for a brand-new graph) —
+  /// saving in place is not an overwrite.
+  String? get _loadedPath => originalName == null
+      ? null
+      : p.join(workflowsDir.path, '$originalName.dot');
 
   Future<void> _help() async => _inform(
         [_help1, _help2, _help3, _help4, _help5, _help6, _help7, _help8].join('\n'));

@@ -94,14 +94,17 @@ happen.
 
 ### 3.2 Stop (the `stop_workflow` tool)
 
-The engine already aborts a node when its `cancelSignal` future completes: the
-handler throws `Aborted`, caught and turned into `Outcome.fail('cancelled')`
-(`packages/attractor/lib/src/engine.dart`). Each supervised run owns a private
-cancel completer; `supervisor.stop([runId])` completes it (no id → the most
-recent running launch). The agent's `stop_workflow` tool is the user-facing
-cancel path — the user asks the agent to cancel, or the agent decides itself
-(e.g. the run is clearly off-track). The run aborts at its next node boundary
-and completes with a `cancelled` outcome.
+Cancelling **terminates the traversal**. The engine checks its `cancelSignal`
+at the top of every step and before each retry delay
+(`packages/attractor/lib/src/engine.dart`); once it has completed, the run
+finishes immediately with `Outcome.fail('cancelled')` at the current node —
+no `✖` cascade over the downstream nodes, and no post-cancel goal-gate loop.
+Each supervised run owns a private cancel completer;
+`supervisor.stop([runId])` completes it (no id → the most recent running
+launch). The agent's `stop_workflow` tool is the user-facing cancel path —
+the user asks the agent to cancel, or the agent decides itself (e.g. the run
+is clearly off-track). The run aborts at its next node boundary and completes
+with a `cancelled` outcome.
 
 ### 3.3 Completion → injected agent turn
 
@@ -114,8 +117,10 @@ The supervisor's completion path (`_classify` → `_reportBack` → `onComplete`
    that launched the run (by `conversationId`) and starts a **synthetic turn**
    through the normal turn path (`_startTurn`/`_runTurn`): echoed, persisted,
    and activity-managed like any turn. The prompt hands the agent the outcome —
-   success notes, or the failure reason — and instructs it to report to the
-   user and act on anything left open.
+   the run's **final output text** (the last node's response, e.g. the
+   execution reviewer's summary) plus the run-store directory for the full
+   transcript, or the failure reason — and instructs it to report to the user
+   and act on anything left open.
 
 If the conversation is already mid-turn when the run finishes, the outcome
 prompt is **queued** (the same message queue a typed message uses) and drained
@@ -125,14 +130,19 @@ already communicated through the stop path.
 ## 4. The `RunWorkflow` seam
 
 ```dart
-typedef RunWorkflow = Future<Outcome> Function({
+typedef RunWorkflow = Future<PipelineRunResult> Function({
   required String workflowName,
   required AgentSink sink,
   String? input,
   String? history,
   Future<void>? cancelSignal,
+  PipelineEventListener? onEvent,
 });
 ```
+
+`PipelineRunResult` carries the run's final `Outcome` (whose `text` holds the
+last node's response) and the run-store directory the run wrote (manifest,
+per-node prompt/response, checkpoints) — both land in the completion turn.
 
 `RunWorkflow` lives in the app layer (`lib/pipeline/workflow_supervisor.dart`)
 because it bridges two sibling packages — `Outcome` (attractor) and `AgentSink`
@@ -159,7 +169,11 @@ the runner, the engine, and the parallel handler are unchanged.
 | `lib/tui/run_panel_content.dart` | **New.** `RunPanelContent` — the live run transcript (wraps the run's chat region; dim `input disabled — read-only` label row). |
 | `lib/tui/conversation_panel_coordinator.dart`, `packages/tina_console/…/conversation_panel.dart` | `bindExtra`/`unbindExtra` for non-conversation panels; `PanelFrame.onPanelKey` key hook. |
 | `lib/tui_coordinator.dart` | `onLaunch` → `_openRunPanel`/`_closeRunPanel` (auto-open transcript panel: `_makeSpawnedHost` + `run.sink`, `s` stop / `x` close, PgUp/PgDn scrollback, comet, no focus steal). |
-| `bin/tina.dart` | Seed message corrected; `--workflow <name>` still launches a workflow explicitly to completion (a separate scripting mode). |
+| `bin/tina.dart` | Seed message corrected; `--workflow <name>` still launches a workflow explicitly to completion (a separate scripting mode). Node writes prompt per write interactively; headless they auto-deny — pass `--yolo` or `--allow write`/`--allow edit` to let a headless workflow change files. |
+| `lib/pipeline/workflow_permission_asker.dart` | **New.** `WorkflowPermissionAsker` — renders a node agent's write/edit permission prompt (tool + preview) into the run panel and reads `y/n/a/d`. Serialized with human gates through the attention queue. |
+| `lib/tui/attention_queue.dart` | **New.** `AttentionQueue` — one serialized FIFO per TUI for modals (gates, loop-budget confirms, permission asks), so concurrent dialogs never race on `editor.readKey()`; a queued modal posts a dim "waiting for your input" notice to its run's sink. |
+| `packages/attractor/…/engine.dart` | Loop bounds: per-node visit cap (`max_node_visits`, default 8), whole-run step cap (`max_steps`, default 200), and per-gate retry budgets (`max_retries`) — exceeded budgets consult `onLoopBudgetExceeded`; interactive runs pause with a human gate (continue resets the budget / abort), headless fails with a clear reason. Transient backend errors fire `Outcome.retry` so `max_retries` finally runs; a failed node with no unconditional outgoing edge dead-ends the run instead of falling back to any edge. |
+| `lib/tui/run_panel_content.dart` | Label row now reads `s stop · x close · read-only workflow view` (the keys were always wired; the label now documents them). |
 
 **Kept untouched:** the graph model, the codergen handler, the run store, the
 seeded `kDefaultWorkflowDotSource` graph. The supervisor, tools, and run panel
@@ -184,7 +198,8 @@ sit *above* the engine.
 - **Reuse, don't rebuild.** Launch reuses `PipelineRunner.run`; monitoring reuses
   the engine's event stream; stopping reuses the engine's `cancelSignal` (now
   owned per-run by the supervisor); the completion turn reuses the controller's
-  existing `_startTurn`/`messageQueue` machinery. No engine or handler changed.
+  existing `_startTurn`/`messageQueue` machinery. The launch path itself
+  changed no engine or handler.
 - **The default graph is still the default graph.** It is just no longer
   mandatory or user-driven. `launch_workflow` runs exactly the
   reviewed-plan-then-parallel pipeline the old routing ran — now on demand, by
@@ -226,12 +241,22 @@ chat-style conversation of the run:
   **parallel branches stream interleaved** with their own blocks (the fan-out
   runs each branch through the same backend).
 - **Input is disabled.** The panel never binds the shared editor; its bottom
-  row carries a dim `input disabled — read-only workflow view` label. Typing
+  row carries a dim `s stop · x close · read-only workflow view` label. Typing
   always lands in the chat.
 - **Keys while focused**: `s` stops the run (same as the `stop_workflow`
   tool), `x` closes the panel (the run continues unless stopped — the rest of
   the run buffers into the detached region and is discarded), PgUp/PgDn scroll
   the transcript (the frame badge shows lines that arrived while scrolled up).
+- **Node writes prompt per write.** A node agent's `write`/`edit` call is NOT
+  auto-allowed: the prompt (tool + diff preview, `y/n/a/d` — `a` remembers
+  "always" for the rest of the run) renders into the run's panel and reads
+  from there, exactly like the main agent's prompts. `bash` stays gated by the
+  user's own policy (`--yolo` / `--allow bash:…` re-enables it). Headless runs
+  (no one to prompt) auto-deny writes — run with `--yolo` or
+  `--allow write`/`--allow edit` to let a headless workflow change files.
+- **One modal at a time.** Gates (clarify), loop-budget confirms, and write
+  prompts all go through a single attention queue: while one dialog is open the
+  next waits and its run panel shows a dim "waiting for your input" notice.
 - **Lifecycle** — the frame's comet sweeps while the run is in flight and
   settles on completion; the transcript ends with the engine's
   `✔/✖ workflow complete/failed` line. The panel stays open showing the final
