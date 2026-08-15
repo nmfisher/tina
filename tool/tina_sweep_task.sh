@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Run one sweep task end-to-end: fresh tmux session at a geometry, tina
+# launch, reply injection, task prompt typed slowly (avoids the paste
+# detector eating the trailing Enter), approve-loop over tool-call prompts,
+# final capture. Prints the pane at the end and on approval changes.
+#
+# Usage: tool/tina_sweep_task.sh <label> <prompt-file> <cols>x<rows> [--no-approve] [--watch <s>]
+#   --no-approve: do not auto-approve; leave approvals pending (for permission-gate tasks)
+#   --watch <s>:   total watch time in seconds after the prompt is submitted (default 120)
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+
+label="$1"; promptfile="$2"; geom="$3"
+auto_approve=1; watch=120
+shift 3
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-approve) auto_approve=0; shift ;;
+    --watch) watch="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+tmux kill-server >/dev/null 2>&1 || true
+sleep 1
+rm -f /tmp/tina_raw.log
+tmux new-session -d -x "${geom%x*}" -y "${geom#*x}" -s sweep
+tmux send-keys -t sweep "cd /workspace/examples/workspace" Enter
+sleep 1
+tmux pipe-pane -t sweep -o "cat >> /tmp/tina_raw.log" >/dev/null
+tmux send-keys -t sweep "dart run /workspace/bin/tina.dart" Enter
+"$here/tmux_inject_replies.sh" sweep >/dev/null
+sleep 6
+
+# Type the prompt slowly (10-char chunks, 120ms gaps) so the paste-burst
+# detector doesn't swallow the trailing Enter, then submit.
+python3 - "$promptfile" <<'EOF'
+import subprocess, sys, time
+text = open(sys.argv[1]).read().rstrip('\n')
+for i in range(0, len(text), 10):
+    subprocess.run(['tmux', 'send-keys', '-t', 'sweep', '-l', text[i:i+10]], check=True)
+    time.sleep(0.12)
+subprocess.run(['tmux', 'send-keys', '-t', 'sweep', 'Enter'], check=True)
+EOF
+
+echo "=== $label: submitted, watching $watch s ==="
+end=$((SECONDS + watch))
+approvals=0
+while [ $SECONDS -lt $end ]; do
+  # 'y' (allowOnce) is used: 'a' (allowAlways) intermittently fails to
+  # resolve an approval in this harness (see tin-8n7c); 'y' resolves every
+  # time. Longer pauses between presses also avoid the vanish.
+  if [ "$auto_approve" = 1 ] && tmux capture-pane -p -e -t sweep | grep -qE '›[[:space:]]*│$'; then
+    tmux send-keys -t sweep y
+    approvals=$((approvals + 1))
+    sleep 6
+  else
+    sleep 6
+  fi
+done
+echo "=== $label: approvals given: $approvals ==="
+tmux capture-pane -p -e -t sweep
