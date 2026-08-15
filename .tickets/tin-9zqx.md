@@ -1,6 +1,6 @@
 ---
 id: tin-9zqx
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-08-14T00:00:00Z
@@ -8,6 +8,7 @@ type: proposal
 priority: 2
 assignee: Nick Fisher
 tags: [composition, app-provider, refactor, proposal]
+closed: 2026-08-15
 ---
 # AppComposition: is LlmProvider in the wrong place? (simplification options)
 
@@ -55,3 +56,14 @@ Verify every claim against the code. Cite file:line for each fact. The proposal 
 - docs/proposals/app_composition_provider.md exists and contains: at least 3 restructuring options, file:line citations for every claim, concrete rename suggestions, and effort + recommendation per option.
 - No code or test changes in the branch (proposal doc + ticket status only).
 - Ticket status closed via tk. Branch pushed, PR raised.
+
+## Outcome (2026-08-15)
+
+Proposal written to docs/proposals/app_composition_provider.md. Four options evaluated (keep+rename, move-to-entry-points, initial-conversation object, build-on-demand factory) plus one rejected. Recommendation: Option D — a `buildStartupProvider()` factory method on the composition. Class name `AppComposition` kept; field renamed by the method.
+
+Corrections to the Context section, found during verification:
+
+- Point 3 is wrong: the TUI DOES read `app.provider` (lib/tui_coordinator.dart:247, :487, :506, :520, :585). It is the initial conversation's provider; only later conversations build their own.
+- Point 5 understates it: there are three close paths (TUI conversation-owned, headless direct, fleet ephemeral), not two.
+- New finding: the headless `--workflow` and `/index` paths build and close `app.provider` without ever using it (bin/tina.dart:303, :332).
+- New finding: the resume restore fallback can share the startup provider instance between two conversations (lib/persistence/session_restore.dart:111, :117), so `closeAll` closes it twice (lib/session_manager.dart:403).
