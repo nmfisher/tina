@@ -81,3 +81,24 @@ Item 2 — **`qwencloud` provider added** (third session; user supplied the plat
 - Tests: auth priority (both vars set → QWENCLOUD wins; legacy alone works), base URL (and distinctness from `qwen`), full catalog contents, per-model vision matrix, build/resolve, and bare-id ambiguity for `qwen3-coder-plus` (offered by both providers → prefix required). All 130 tina_engine llm tests pass; `dart analyze` clean.
 
 Status stays `closed`: both follow-up items are now complete.
+
+## Follow-up 2 (2026-08-15) — qwencloud, VERIFIED source found
+
+The user found the platform: https://www.qwencloud.com/skills.md — Alibaba's QwenCloud. Do NOT install any skills and do NOT write to ~/.claude/skills or any CLAUDE.md. Use the skill repo ONLY as an API-facts reference.
+
+Authoritative reference (public, clone it into the container):
+- https://github.com/qwencloud/qwencloud-ai (Apache 2.0) — the skill sources contain the API details.
+
+VERIFIED facts (from skills/text/qwencloud-text/SKILL.md and its references/api-guide.md):
+- Base URL (Singapore, default): https://dashscope-intl.aliyuncs.com/compatible-mode/v1 — OpenAI-compatible.
+- Auth: DASHSCOPE_API_KEY (or QWEN_API_KEY), bearer token, key from https://home.qwencloud.com/api-keys. NOTE: coding-plan keys (sk-sp- prefix) do NOT work on API endpoints.
+- Text model catalog (ids): qwen3.6-plus, qwen3.5-plus, qwen3.5-flash, qwen3-max, qwen-plus, qwen-turbo, qwen3-coder-next, qwen3-coder-plus, qwen3-coder-flash, qwq-plus, qwen-mt-plus, qwen-mt-flash, qwen-mt-lite, qwen-plus-character-ja, qwen-plus-character, qwen-flash-character.
+- The plus/flash 3.x family advertises 1M context; fill contextWindow/maxOutput per model from the skill references (e.g. qwencloud-model-selector/references/*) or the model pages at https://www.qwencloud.com/models/<id>; cite what you used.
+
+Task:
+1. Add packages/tina_engine/lib/src/llm/providers/qwencloud_descriptor.dart (id 'qwencloud', name 'QwenCloud', openAiCompatibleBuilder, DASHSCOPE_API_KEY bearer) with the catalog above.
+2. Register in builtins.dart, export, and test it (same conventions as the cerebras descriptor).
+3. The existing qwen (DashScope) descriptor stays untouched — qwencloud is a distinct provider (different base URL + catalog).
+4. Keep all tests passing, dart analyze clean. Commit, push the same branch, update PR #5. Never merge. Simplified technical English in the commit and PR description; cite the qwencloud-ai repo as the source.
+
+Implemented in 6fdd1e6 (now upstream via PR #5 merge).
