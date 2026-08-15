@@ -27,7 +27,7 @@ Dart AST parser, git-aware completion, large-file reads). Do not "fix" them:
 
 | Path | What it probes |
 | --- | --- |
-| `packages/core/lib/src/naïve_cache.dart` | non-ASCII filename + emoji/CJK content |
+| `packages/core/lib/src/naive_cache.dart` | emoji/CJK content (filename was non-ASCII; its NFD form corrupted a dirent on the exFAT dev volume — NFD handling now lives in tina_index's walker tests) |
 | `packages/core/lib/src/placeholder.dart` | empty file |
 | `packages/core/lib/src/broken_probe.dart` | intentional syntax error (parser robustness) |
 | `data/long_line.txt` | a single ~10 KB line |

@@ -1,8 +1,10 @@
 /// A deliberately simple TTL cache.
 ///
-/// NOTE: the filename is intentionally non-ASCII (ï), and the comments
-/// below mix emoji and wide (CJK) characters — this file is part of the
-/// example workspace's edge-case inventory. Do not rename or sanitize it.
+/// NOTE: the comments below mix emoji and wide (CJK) characters — this
+/// file is part of the example workspace's edge-case inventory. Do not
+/// sanitize its content. (The filename WAS non-ASCII, but its NFD form
+/// corrupted a dirent on the exFAT dev volume and became undeletable;
+/// NFD handling is now covered by tina_index's walker tests instead.)
 library;
 
 /// Caches values for a fixed lifetime, then forgets them.
