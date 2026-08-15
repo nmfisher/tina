@@ -40,7 +40,10 @@ class GraphTraversal {
     }
 
     // Interface-consumer expansion on seeds: if a seed is abstract,
-    // pull in all implementors immediately.
+    // pull in all implementors immediately. Seeds themselves are always
+    // kept (the caller asked for them), but discovered consumers respect
+    // maxNodes — an interface with many implementors must not blow past
+    // the cap before the hop loop's own checks even run.
     for (final seed in seeds) {
       final s = graph.symbols[seed];
       if (s != null && s.isAbstract) {
@@ -48,7 +51,9 @@ class GraphTraversal {
           if (e.kind == EdgeKind.extends_ ||
               e.kind == EdgeKind.implements_) {
             final impl = graph.symbols[e.fromId];
-            if (impl != null && !resultNodes.containsKey(e.fromId)) {
+            if (impl != null &&
+                !resultNodes.containsKey(e.fromId) &&
+                resultNodes.length < maxNodes) {
               resultNodes[e.fromId] = impl;
               frontier.add(e.fromId);
             }
