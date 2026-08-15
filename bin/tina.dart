@@ -300,7 +300,6 @@ Future<void> _runNonInteractive(AppComposition app) async {
     } finally {
       await host.dispose();
       await app.store.close();
-      app.provider.close();
       await closeLogging();
     }
     return;
@@ -329,7 +328,6 @@ Future<void> _runNonInteractive(AppComposition app) async {
       await runIndexDance(host: host, summaryIndex: idx, confirm: null);
     } finally {
       await host.dispose();
-      app.provider.close();
       await closeLogging();
     }
     return;
@@ -341,12 +339,15 @@ Future<void> _runNonInteractive(AppComposition app) async {
 
   // The headless agent runs one turn with the base tools and the un-widened
   // policy — withSubAgents: false preserves the pre-composition behavior (a
-  // non-interactive run does not gain delegate/channel tools).
+  // non-interactive run does not gain delegate/channel tools). The provider is
+  // built here because this turn owns it: built on demand, closed in the
+  // finally below (no other path shares the instance).
+  final provider = app.buildStartupProvider();
   final agent = buildAgent(
     pipeline: app.pipeline,
     scheduler: app.scheduler,
     conversationId: app.initialConversationId,
-    provider: app.provider,
+    provider: provider,
     host: host,
     policy: app.policy,
     config: app.config,
@@ -386,7 +387,7 @@ Future<void> _runNonInteractive(AppComposition app) async {
     }
     await host.dispose();
     await app.store.close();
-    app.provider.close();
+    provider.close();
     await closeLogging();
   }
 }

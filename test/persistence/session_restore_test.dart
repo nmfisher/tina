@@ -621,7 +621,6 @@ void main() {
     RestoreContext _ctx(String activeConversationId) {
       final registry = _multiProviderRegistry();
       final config = Config.parse(const ['--backend', 'ansi']);
-      final accountProvider = FakeProvider(const [], model: 'anthropic-small');
       return RestoreContext(
         registry: registry,
         pipeline: _pipeline,
@@ -633,7 +632,9 @@ void main() {
             FakeHostInterface(),
         sessionId: sessionId,
         activeConversationId: activeConversationId,
-        accountProvider: accountProvider,
+        // The factory seam mirrors AppComposition.buildStartupProvider: a
+        // fresh fake per call, so every fallback conversation owns its own.
+        accountProvider: () => FakeProvider(const [], model: 'anthropic-small'),
       );
     }
 
@@ -794,7 +795,8 @@ void main() {
             FakeHostInterface(),
         sessionId: sessionId,
         activeConversationId: cid,
-        accountProvider: FakeProvider(const [], model: 'anthropic-small'),
+        accountProvider: () =>
+            FakeProvider(const [], model: 'anthropic-small'),
       );
 
       await expectLater(

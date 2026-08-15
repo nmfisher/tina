@@ -244,7 +244,11 @@ class TuiCoordinator {
   }) async {
     final config = app.config;
     final reg = app.registry;
-    final provider = app.provider;
+    // The initial conversation's provider, built on demand and owned by that
+    // Conversation (closed with it on teardown / model swap). Later
+    // conversations build their own via providerFactory below; the restore
+    // fallback builds fresh ones through the same tear-off.
+    final provider = app.buildStartupProvider();
     final policy = app.policy;
     final store = app.store;
     final stdio = io ?? const LiveStdio();
@@ -582,7 +586,10 @@ class TuiCoordinator {
         hostFactory: hostFactory,
         sessionId: initialSessionId,
         activeConversationId: initialConversationId,
-        accountProvider: provider,
+        // The account-provider FACTORY (not the initial conversation's
+        // instance): each fallback conversation builds and owns its own, so
+        // closeAll never double-closes a shared instance.
+        accountProvider: app.buildStartupProvider,
       );
       for (final meta in manifest.conversations) {
         if (meta.id == initialConversationId) continue; // active, already built

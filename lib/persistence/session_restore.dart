@@ -18,9 +18,13 @@ class RestoreContext {
   final String sessionId;
   final String activeConversationId;
 
-  /// The account provider (built from config) — the fallback when a meta carries
-  /// no model ref (old sessions stored only `{id, model:null}`).
-  final LlmProvider accountProvider;
+  /// Builds the account provider (from config) — the fallback when a meta
+  /// carries no model ref (old sessions stored only `{id, model:null}`) or a
+  /// ref that no longer resolves. A FACTORY, not an instance: every fallback
+  /// conversation builds and owns its own provider, so no two conversations
+  /// ever share (and double-close) one instance. The coordinator passes
+  /// `AppComposition.buildStartupProvider`.
+  final LlmProvider Function() accountProvider;
 
   const RestoreContext({
     required this.registry,
@@ -105,16 +109,17 @@ Agent _restoreAgent({
 
 /// Resolve the provider a [meta] ran under: its stored model ref when present
 /// (so a sub-agent that ran under a tiered model is rebuilt under that same
-/// model), otherwise the account provider.
+/// model), otherwise a FRESH account provider from the factory (never a shared
+/// instance — the conversation owns and closes its own).
 LlmProvider _restoreProvider(ConversationMeta meta, RestoreContext ctx) {
   final ref = meta.model;
-  if (ref == null || ref.isEmpty) return ctx.accountProvider;
+  if (ref == null || ref.isEmpty) return ctx.accountProvider();
   try {
     return ctx.registry.build(ref, baseUrlOverride: meta.baseUrl);
   } catch (_) {
-    // Unknown/ambiguous model ref (provider removed, typo): fall back to the
-    // account provider rather than failing the whole restore.
-    return ctx.accountProvider;
+    // Unknown/ambiguous model ref (provider removed, typo): fall back to a
+    // fresh account provider rather than failing the whole restore.
+    return ctx.accountProvider();
   }
 }
 

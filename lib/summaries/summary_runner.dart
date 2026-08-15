@@ -137,6 +137,9 @@ class SummaryRunner {
 
       final host = this.host ?? HeadlessHost();
       final ownedHost = this.host == null; // we created it; we dispose it.
+      // The fleet's own provider, built on demand from this ephemeral
+      // composition and closed with it below — no other path shares it.
+      final provider = app.buildStartupProvider();
       // The top agent is the orchestrator with a summarization identity: it has
       // only `delegate` + channels (no file tools, structurally — see
       // buildAgent's withSubAgents path), which is exactly the shape we want.
@@ -144,7 +147,7 @@ class SummaryRunner {
         pipeline: app.pipeline,
         scheduler: app.scheduler,
         conversationId: app.initialConversationId,
-        provider: app.provider,
+        provider: provider,
         host: host,
         policy: app.policy,
         config: config,
@@ -162,7 +165,7 @@ class SummaryRunner {
       } finally {
         if (ownedHost) await host.dispose();
         await app.scheduler.dispose();
-        app.provider.close();
+        provider.close();
       }
 
       // After the fleet ran, record the regenerated + deleted dirs and commit.
