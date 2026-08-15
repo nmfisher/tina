@@ -435,6 +435,39 @@ void main() {
       expect(fired, isTrue);
     });
 
+    test('stale paste overflow never answers a later readKey', () async {
+      // A paste burst whose overflow chars land in _pending (the burst
+      // window after a readKey completes) must not be returned by a LATER
+      // readKey — e.g. an approval prompt seconds after the user submitted
+      // their line. Without the fix the stale paste char answers the
+      // approval as a deny (it is not y/a/d).
+      final io = FakeStdio();
+      final ed = _editor(io);
+      ed.readLine('> ');
+      await _flush();
+
+      final first = ed.readKey();
+      io.feedBytes([0x61]); // 'a'
+      final e1 = await first.timeout(const Duration(seconds: 2));
+      expect((e1 as CharInput).text, 'a');
+
+      // Overflow chars from a paste burst arriving right after the readKey
+      // completes are queued while the burst window is open.
+      io.feedBytes([0x62, 0x63]); // 'b','c'
+      await _flush();
+
+      // Let the burst window expire so the overflow is stale.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await _flush();
+
+      // A fresh readKey (an approval prompt) must wait for a real key, not
+      // return the stale overflow char.
+      final approval = ed.readKey();
+      io.feedBytes([0x79]); // 'y'
+      final e2 = await approval.timeout(const Duration(seconds: 2));
+      expect((e2 as CharInput).text, 'y');
+    });
+
     test('serializes concurrent callers (no orphaned completer)', () async {
       // readKey overwrites _keyCompleter with no save/restore. Without
       // serialization a second caller orphans the first (it never completes).
