@@ -39,7 +39,7 @@ Config testFleetConfig(ProviderRegistry registry) => Config.parse(
       registry: registry,
     );
 
-ProviderRegistry anthropicRegistry(ScriptedFleetProvider provider) {
+ProviderRegistry anthropicRegistry(LlmProvider provider) {
   final r = ProviderRegistry(env: const {'TEST_KEY': 'k', 'ANTHROPIC_API_KEY': 'k'});
   r.register(ProviderDescriptor(
     id: 'anthropic',

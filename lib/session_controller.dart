@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:tina_engine/tina_engine.dart';
 
 import 'conversation.dart';
+import 'environment/environment_index.dart';
 import 'pipeline/workflow_supervisor.dart';
 import 'platform/environment.dart';
 import 'session_commands/command_context.dart';
@@ -115,6 +116,12 @@ class SessionController implements CommandContext {
   @override
   SummaryIndex? summaryIndex;
 
+  /// The environment agent service (the `/index` dance's environment branch
+  /// and first load). Wired by the TUI coordinator from the live
+  /// [AppComposition]; null in headless, which never auto-runs setup.
+  @override
+  EnvironmentIndex? environmentIndex;
+
   /// Ask a yes/no confirmation (`/index` up-to-date re-run prompt). Wired by
   /// the TUI via the shared line editor; null in headless.
   @override
@@ -176,6 +183,71 @@ class SessionController implements CommandContext {
   /// Whether a background `/index` fleet run is in flight (guards a second
   /// concurrent run).
   bool get isIndexRunning => _indexCancel != null;
+
+  /// Cancels an in-flight background environment-agent run, when one is
+  /// running.
+  Completer<void>? _environmentCancel;
+
+  /// Whether a background environment-agent run is in flight.
+  bool get isEnvironmentRunning => _environmentCancel != null;
+
+  /// Launch the environment agent in the background on [conv] (first load, or
+  /// the `/index` dance's environment branch): returns immediately, the
+  /// agent's output streams into [conv]'s host, and Esc-Esc cancels. Warns and
+  /// no-ops when a run is already in flight.
+  @override
+  Future<void> Function(Conversation conv)? get runBackgroundEnvironment =>
+      _runBackgroundEnvironment;
+
+  Future<void> _runBackgroundEnvironment(Conversation conv) {
+    if (isEnvironmentRunning) {
+      conv.host.showMessage(
+          'the environment agent is already running in the background\n',
+          style: HostMessageStyle.warning);
+      return Future.value();
+    }
+    final cancel = Completer<void>();
+    _environmentCancel = cancel;
+    unawaited(_doBackgroundEnvironment(conv, cancel: cancel));
+    return Future.value();
+  }
+
+  /// The background environment-agent task. Posts start/completion notices to
+  /// [conv]'s host and clears the guard when done.
+  Future<void> _doBackgroundEnvironment(
+    Conversation conv, {
+    required Completer<void> cancel,
+  }) async {
+    final idx = environmentIndex;
+    if (idx == null) {
+      _environmentCancel = null;
+      return;
+    }
+    try {
+      final ok = await idx.refresh(
+        host: conv.host,
+        cancelSignal: cancel.future,
+      );
+      if (cancel.isCompleted) {
+        conv.host.showMessage('[environment agent cancelled]\n',
+            style: HostMessageStyle.warning);
+      } else if (ok) {
+        conv.host.showMessage(
+            'Environment record updated (ENVIRONMENT.md).\n',
+            style: HostMessageStyle.success);
+      } else {
+        conv.host.showMessage(
+            'environment agent did not complete — the record stays stale\n',
+            style: HostMessageStyle.warning);
+      }
+    } catch (e) {
+      conv.host.showMessage('environment agent failed: $e\n',
+          style: HostMessageStyle.error);
+    } finally {
+      _environmentCancel = null;
+      unawaited(_flushUsage());
+    }
+  }
 
   /// Launch the summary fleet in the background on [conv] (`/index` in the
   /// TUI): returns immediately, the fleet's output streams into [conv]'s host,
@@ -330,17 +402,18 @@ class SessionController implements CommandContext {
     final s = active;
     if (!s.isRunning) {
       // No turn, but a background index run may be cancellable.
-      if (isIndexRunning) {
+      if (isIndexRunning || isEnvironmentRunning) {
         if (!_cancelArmed) {
           _cancelArmed = true;
           s.host.showMessage(
-            'Press Esc again to cancel indexing\n',
+            'Press Esc again to cancel the background run\n',
             style: HostMessageStyle.warning,
           );
           return true;
         }
         _cancelArmed = false;
         _indexCancel?.complete();
+        _environmentCancel?.complete();
         return true;
       }
       _cancelArmed = false;

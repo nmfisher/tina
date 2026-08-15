@@ -177,6 +177,50 @@ void main() {
     });
   });
 
+  group('projectEnvironmentSource hook', () {
+    late Directory tmp;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('tina_sysprompt_env_');
+    });
+
+    tearDown(() {
+      projectEnvironmentSource = null;
+      tmp.deleteSync(recursive: true);
+    });
+
+    test('injects the block inside <environment> when the hook is set', () {
+      projectEnvironmentSource = () => '<project-environment>\ntoolchain: Dart\n</project-environment>';
+      final s = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
+      expect(s, contains('<project-environment>'));
+      expect(s, contains('toolchain: Dart'));
+      // The block rides inside the environment funnel, after the date line.
+      expect(s.indexOf('date:'), lessThan(s.indexOf('<project-environment>')));
+    });
+
+    test('withholds the block when loadProjectContext is false', () {
+      projectEnvironmentSource = () => 'LEAKED ENVIRONMENT';
+      final s = resolveMainPrompt(defaultPipeline,
+          cwd: tmp.path, loadProjectContext: false);
+      expect(s, isNot(contains('LEAKED ENVIRONMENT')));
+    });
+
+    test('a throwing source cannot break prompt assembly', () {
+      projectEnvironmentSource = () => throw StateError('boom');
+      final s = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
+      expect(s, contains('<environment>'));
+      expect(s, contains('cwd:'));
+    });
+
+    test('no hook (default): byte-identical output to a null source', () {
+      projectEnvironmentSource = null;
+      final a = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
+      final b = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
+      expect(a, equals(b));
+      expect(a, isNot(contains('<project-environment>')));
+    });
+  });
+
   group('resolveIdentityPrompt (node identity)', () {
     test('wraps a bare identity with the environment block', () {
       final s = resolveIdentityPrompt('NODE-IDENTITY');

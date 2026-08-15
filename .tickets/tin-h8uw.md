@@ -1,6 +1,6 @@
 ---
 id: tin-h8uw
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-08-15T00:00:00Z
@@ -82,3 +82,28 @@ Acceptance criteria:
 - First-run path populates ENVIRONMENT.md; later runs warm-load without re-measuring.
 - Commit all work locally; push to the SAME remote branch (tin-h8uw-environment-agent); update PR 6; do NOT create a new PR. Never merge.
 - Simplified technical English in commits and the PR body; cite the proposal as the source.
+
+## Result (2026-08-15) — implemented
+
+Built per docs/proposals/environment_agent.md (revision 2). No unrelated changes.
+
+**New (`lib/environment/`)**
+- `environment_record.dart` — the single record's read side: tolerant `## Section` + bullet parser, `exists` (the first-load signal), and the size-capped warm-load block (`<project-environment>` with `status:` rendered by the caller from the tracking entry).
+- `environment_inputs.dart` — the region's inputs (the record + every present manifest/lockfile), measured as two digests like a summary region: committed (blob hashes at HEAD) and dirty (`git status --porcelain` over the inputs); content-hash fallback outside git.
+- `environment_store.dart` — the machine-owned tracking entry at `.tina/environment/tracking.json`. Dart-only writer; corrupt/absent entry reads as "never measured", never crashes.
+- `environment_runner.dart` — the background agent on the ephemeral composition pattern (own ledger/host/provider, decorator save/restore, dispose in finally). Records the tracking entry only after a real finish.
+- `environment_index.dart` — the façade: pure-read `status()`, `refresh()`, and the warm-load `projectEnvironmentBlock()`.
+
+**Wiring**
+- Engine (`system_prompt.dart`): a `projectEnvironmentSource` hook in the `<environment>` funnel, gated by the same `loadProjectContext` trust flag as AGENTS.md; a throwing source is swallowed. Output is byte-identical when no hook is set.
+- `app_composition.dart` sets the hook; `tui_coordinator.dart` runs first-load population in the background (interactive, trusted, not safe-mode; a merely stale record does NOT auto-run); `session_controller.dart` owns the background task + Esc-Esc cancel; the `/index` dance flags the `#environment` region and runs the agent in the TUI / only reports headless.
+
+**Tests** — `test/environment/` (record, inputs+store, end-to-end runner against a scripted provider), engine `system_prompt_test.dart` hook cases, `/index` environment-branch cases in `index_command_test.dart`.
+
+**Verification in this container**
+- `dart analyze`: clean in all touched code. The 45 remaining issues are pre-existing in `tool/render_to_image.dart`, `tool/visual_test.dart` (reference `tina_console/src/panel_renderer.dart`, which does not exist at the submodule pin) and `packages/{dart_notcurses,tina_index,tina_console}`.
+- Engine suite: 555 passed, 1 failed — `process_tree_test.dart "kills a backgrounded descendant"` fails on the CLEAN tree too (container /proc limitation), not caused by this change.
+- App suite (full `dart test` at root): 530 passed, 1 failed — `session_controller_test.dart "REGRESSION: a user message survives quitting mid-stream"` also fails with this branch's changes stashed (timing-sensitive `_SlowProvider` pump under container load), pre-existing.
+- Everything else ran, including the TUI suites (notcurses built after symlinking the runtime `libunistring.so.5` as `libunistring.so` for the linker — container-only, not committed).
+
+tk is not installed in this container (frontmatter + this section updated instead, as before).

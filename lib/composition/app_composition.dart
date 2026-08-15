@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:tina_engine/tina_engine.dart';
 
 import '../config.dart';
+import '../environment/environment_index.dart';
 import '../platform/environment.dart';
 import 'agent_composition.dart';
 
@@ -143,6 +144,14 @@ Future<AppComposition> buildAppComposition({
       pipeline: pipeline,
       pauseGate: pauseGate,
       quota: quota);
+  // Warm load (docs/proposals/environment_agent.md): supply the
+  // `<project-environment>` block the engine injects into every prompt's
+  // `<environment>` funnel. Gated by the same trust flag as AGENTS.md — an
+  // untrusted project gets no block (and no environment agent), since a cloned
+  // ENVIRONMENT.md can carry a malicious setup line or a fake baseline.
+  projectEnvironmentSource = pipeline.loadProjectContext
+      ? () => projectEnvironmentBlock(Directory.current.path)
+      : null;
   final resolved = await resolveSession(config, sessionStore);
   // Restore the resumed session's recorded token spend into the ledger, so
   // `/spend` shows the true session total across processes. Seeding never

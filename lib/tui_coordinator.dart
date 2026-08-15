@@ -14,6 +14,8 @@ import 'package:tina/composition/app_composition.dart';
 import 'package:tina/config.dart';
 import 'package:tina/config/spawn_mru.dart';
 import 'package:tina/config/user_config.dart';
+import 'package:tina/environment/environment_index.dart';
+import 'package:tina/environment/environment_record.dart';
 import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina/persistence/session_restore.dart';
 import 'package:tina/pipeline/pipeline_runner.dart';
@@ -1866,6 +1868,35 @@ class TuiCoordinator {
     // regions too). The y/n confirm renders as the same arrow-key picker the
     // other choices use (Yes/No entries), not a bare key read.
     controller.summaryIndex = summaryIndex;
+    // The environment agent service: `/index`'s environment branch runs it in
+    // the background, and first load (below) populates the record.
+    final environmentIndex = EnvironmentIndex(
+      config: app.config,
+      registry: app.registry,
+      environment: app.environment,
+      projectRoot: Directory.current.path,
+      spendLedger: app.spendLedger,
+    );
+    controller.environmentIndex = environmentIndex;
+    // First load: no ENVIRONMENT.md → populate it in the background
+    // (docs/proposals/environment_agent.md, "First load"). Interactive only —
+    // headless never auto-runs setup — and only for a trusted project (the
+    // same gate that withholds AGENTS.md) and not under --safe-mode (a doing
+    // worker with no shell is pointless). A merely stale record does not
+    // auto-run: `/index` flags it and the user decides there.
+    if (!config.safeMode &&
+        pipeline.loadProjectContext &&
+        !EnvironmentRecord.exists(Directory.current.path)) {
+      unawaited(() async {
+        // Let the screen settle first so the notice lands in a painted chat.
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        initialHost.showMessage(
+          'No ENVIRONMENT.md yet — the environment agent will populate it in '
+          'the background (Esc-Esc to cancel)…\n',
+        );
+        await controller.runBackgroundEnvironment?.call(initialConversation);
+      }());
+    }
     // `/spend`: the process-wide token ledger (all agents + sub-agents +
     // workflows + /index runs), persisted into the session manifest.
     controller.spendLedger = app.spendLedger;

@@ -24,6 +24,19 @@ and the change cannot be made.
 </safe-mode>
 ''';
 
+/// Supplies the `<project-environment>` block injected inside the shared
+/// `<environment>` block — the warm-load seam for the environment record
+/// (docs/proposals/environment_agent.md, "Warm load"). Set by the app at
+/// composition to read the repo's `ENVIRONMENT.md` + tracking entry; null (the
+/// default) omits the block. The same [loadProjectContext] flag that withholds
+/// an untrusted project's `AGENTS.md` withholds this block, so a cloned repo's
+/// environment claims never reach the prompt untrusted.
+///
+/// Mutable and process-global by design, mirroring `defaultPipeline` and the
+/// shared tool singletons: set once at composition, read per prompt build. The
+/// closure must not throw (a read failure returns null, not an error).
+String? Function()? projectEnvironmentSource;
+
 /// Assembles a system prompt from a role-specific [identity] (the agent's
 /// purpose and tool guidance) followed by the shared environment block and any
 /// AGENTS.md project context discovered upward from [cwd]. [cwd] defaults to the
@@ -32,7 +45,7 @@ and the change cannot be made.
 ///
 /// When [loadProjectContext] is false the AGENTS.md walk is skipped — used by
 /// the project-trust gate to withhold an untrusted project's instructions from
-/// the system prompt.
+/// the system prompt. The `<project-environment>` block is gated the same way.
 String _buildAgentPrompt({
   required String identity,
   String? cwd,
@@ -46,17 +59,32 @@ String _buildAgentPrompt({
       ? _loadAgentsFiles(resolvedCwd)
       : const <({String path, String content})>[];
 
+  // The warm-load block, gated by the same trust flag as AGENTS.md. A throwing
+  // source must never break every prompt build — treat it as absent.
+  String? projectEnv;
+  if (loadProjectContext) {
+    try {
+      projectEnv = projectEnvironmentSource?.call();
+    } catch (_) {
+      projectEnv = null;
+    }
+  }
+
+  final environment = StringBuffer()
+    ..writeln('cwd: $resolvedCwd')
+    ..writeln('os: $os')
+    ..write('date: $today');
+  if (projectEnv != null && projectEnv.isNotEmpty) {
+    environment
+      ..writeln()
+      ..write(projectEnv);
+  }
+
   // Under --safe-mode the preamble leads the identity so the read-only
   // constraint is the first thing the model sees.
-  final base = '''
-${safeMode ? '$_safeModePreamble\n' : ''}$identity
-
-<environment>
-cwd: $resolvedCwd
-os: $os
-date: $today
-</environment>
-''';
+  final base =
+      '${safeMode ? '$_safeModePreamble\n' : ''}$identity\n\n<environment>\n'
+      '$environment\n</environment>\n';
 
   if (agents.isEmpty) return base;
   return '$base\n${_renderAgentsBlock(agents)}';
