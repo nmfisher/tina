@@ -4,10 +4,10 @@ status: open
 deps: []
 links: []
 created: 2026-08-15T00:00:00Z
-type: proposal
+type: feature
 priority: 2
 assignee: Nick Fisher
-tags: [environment, agent, index, bootstrap, design]
+tags: [environment, agent, index, bootstrap, feature]
 ---
 # Environment Agent — persistent environment record + background setup agent
 
@@ -62,3 +62,23 @@ User review: the proposal has too much detail about /index mechanics — not ver
 - Cut the deep /index and summary-fleet code walkthrough (the file:line archaeology). Keep at most a short note on the existing patterns we reuse: the staleness dance concept, the ephemeral composition pattern, the .tina sidecar convention.
 - Focus the document on the environment agent design itself: the single record, first-load population, agent lifecycle, region integration at a conceptual level, warm load, trust gate, tradeoffs.
 - Keep it concise.
+
+## Implementation (2026-08-15) — user approved, go
+
+The design is settled (docs/proposals/environment_agent.md, revision 2). Implement it:
+
+1. **ENVIRONMENT.md record** — single file at repo root, next to AGENTS.md. Sections: Toolchain, Setup (commands), Build, Test (command + baseline), Auth (references only, no secrets), Observed (agent-maintained). If missing on first load, the environment agent populates it from measurements.
+2. **Environment agent** — background job on first tina run in a repo; ephemeral composition pattern (own ledger/host/provider, dispose in finally, like SummaryRunner). Measures the environment, writes/updates the record, RUNS setup (deps, build, test, git identity, SSH key loading, GitHub auth) with gated writes + the real permission asker.
+3. **Tracking entry** — machine-owned state under .tina/environment/ (gitignored), written by Dart code only, never by the agent; the warm-load status: line renders from this entry, not the record prose.
+4. **Index integration** — the #environment synthetic region: the staleness dance flags it stale (record + manifest/lockfile digests); the env agent acts. Conceptual level per the proposal.
+5. **Warm load** — pure-read pass at startup; size-capped project-environment block injected into the system prompt environment funnel with status: from the tracking entry.
+6. **Trust gate** — untrusted project: no env-agent run AND no prompt block (loadProjectContext gating).
+
+Container notes: tk is not installed (update ticket frontmatter + Result section instead); git push is blocked for agents (mirror via the GitHub git data API, then git reset --hard to the remote commit); Dart 3.11 vs ^3.12 constraint (relax locally, do not commit); dart_notcurses submodule + libunistring-dev needed to run tests (not committed).
+
+Acceptance criteria:
+- dart analyze clean.
+- Engine tests pass; app-layer tests run where possible; document anything that cannot run in the container.
+- First-run path populates ENVIRONMENT.md; later runs warm-load without re-measuring.
+- Commit all work locally; push to the SAME remote branch (tin-h8uw-environment-agent); update PR 6; do NOT create a new PR. Never merge.
+- Simplified technical English in commits and the PR body; cite the proposal as the source.
