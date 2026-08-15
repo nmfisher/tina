@@ -31,12 +31,30 @@ each finding as a test, fix it, re-verify.
 
 ## Pinned model config
 
-Write `~/.tina/config.toml` once and never pass model flags on the CLI:
-top-level `provider`+`model` (main agent), `[regions] model` (region
-agents), workflow model. Key comes from env (e.g.
-`ANTHROPIC_API_KEY`). All subagents, region agents, and workflows must
-resolve to the same pinned pair — if any surface lets a different model
-slip through, that itself is a finding.
+The pinned pair is **deepseek / deepseek-v4-flash**. Write `~/.tina/config`
+(no extension — tina reads `~/.tina/config`, not `config.toml`) once and never
+pass model flags on the CLI:
+
+```toml
+version = 1
+
+[default]
+provider = "deepseek"
+model    = "deepseek-v4-flash"   # bare id — no "[1m]" suffix (that's a
+                                 # Claude Code context flag, not model name)
+
+[providers.deepseek]
+api_key = "<DEEPSEEK_KEY>"       # from ~/use_deepseek.sh: the
+                                 # ANTHROPIC_AUTH_TOKEN value is the key
+```
+
+That's the built-in deepseek descriptor (OpenAI wire at api.deepseek.com),
+so no `base_url`/`wire` needed — this exact shape is verified working on the
+host (2026-08-15, `--prompt` smoke test round-tripped). `[regions] model` is
+unset so region agents inherit the main agent's model; subagents inherit too.
+All subagents, region agents, and workflows must resolve to this same pair —
+if any surface lets a different model slip through, that itself is a finding.
+chmod the file 600 (it holds a key).
 
 ## Target workspace
 
