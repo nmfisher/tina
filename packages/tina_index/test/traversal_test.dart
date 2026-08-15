@@ -22,16 +22,17 @@ void main() {
     test('hops=0 returns seed nodes only', () {
       final result = GraphTraversal.expand(
         graph,
-        ['lib/agent/agent.Agent'],
+        ['packages/tina_engine/lib/src/agent/agent.Agent'],
         hops: 0,
         repoRoot: repoRoot,
       );
-      expect(result.nodes, contains('lib/agent/agent.Agent'));
+      expect(result.nodes,
+          contains('packages/tina_engine/lib/src/agent/agent.Agent'));
       expect(result.nodes.length, 1);
     });
 
     test('hops=1 from Agent reaches other symbols', () {
-      final agentQName = 'lib/agent/agent.Agent';
+      const agentQName = 'packages/tina_engine/lib/src/agent/agent.Agent';
       final result = GraphTraversal.expand(
         graph,
         [agentQName],
@@ -45,27 +46,28 @@ void main() {
     test('hops=2 from LlmProvider reaches both providers', () {
       final result = GraphTraversal.expand(
         graph,
-        ['lib/llm/provider.LlmProvider'],
+        ['packages/tina_engine/lib/src/llm/provider.LlmProvider'],
         hops: 2,
         repoRoot: repoRoot,
       );
-      expect(result.nodes, contains('lib/llm/provider.LlmProvider'));
+      expect(result.nodes,
+          contains('packages/tina_engine/lib/src/llm/provider.LlmProvider'));
       expect(
         result.nodes.keys.any((k) => k.contains('AnthropicProvider')),
         isTrue,
         reason: 'Should reach AnthropicProvider within 2 hops',
       );
       expect(
-        result.nodes.keys.any((k) => k.contains('OpenAiProvider')),
+        result.nodes.keys.any((k) => k.contains('OpenAiCompatibleAdapter')),
         isTrue,
-        reason: 'Should reach OpenAiProvider within 2 hops',
+        reason: 'Should reach OpenAiCompatibleAdapter within 2 hops',
       );
     });
 
     test('maxNodes caps expansion', () {
       final result = GraphTraversal.expand(
         graph,
-        ['lib/llm/provider.LlmProvider'],
+        ['packages/tina_engine/lib/src/llm/provider.LlmProvider'],
         hops: 5,
         maxNodes: 3,
         repoRoot: repoRoot,
@@ -74,7 +76,8 @@ void main() {
     });
 
     test('readSource returns source text for Agent', () {
-      final agent = graph.symbols['lib/agent/agent.Agent'];
+      final agent =
+          graph.symbols['packages/tina_engine/lib/src/agent/agent.Agent'];
       expect(agent, isNotNull);
       final source = GraphTraversal.readSource(agent!);
       expect(source, isNotNull);
@@ -98,20 +101,22 @@ void main() {
     test('interface-consumer expansion at hops=0', () {
       final result = GraphTraversal.expand(
         graph,
-        ['lib/llm/provider.LlmProvider'],
+        ['packages/tina_engine/lib/src/llm/provider.LlmProvider'],
         hops: 0,
         repoRoot: repoRoot,
       );
-      expect(result.nodes, contains('lib/llm/provider.LlmProvider'));
+      expect(result.nodes,
+          contains('packages/tina_engine/lib/src/llm/provider.LlmProvider'));
       expect(
         result.nodes.keys.any((k) => k.contains('AnthropicProvider')),
         isTrue,
         reason: 'Interface-consumer expansion should pull in AnthropicProvider',
       );
       expect(
-        result.nodes.keys.any((k) => k.contains('OpenAiProvider')),
+        result.nodes.keys.any((k) => k.contains('OpenAiCompatibleAdapter')),
         isTrue,
-        reason: 'Interface-consumer expansion should pull in OpenAiProvider',
+        reason:
+            'Interface-consumer expansion should pull in OpenAiCompatibleAdapter',
       );
     });
   });

@@ -108,8 +108,12 @@ void main() {
             .map((e) => {'id': e.key, ...e.value.toJson()})
             .toList(),
         'edges': original.edges.map((e) => e.toJson()).toList(),
-        'fileHashes': {'lib/agent/agent.dart': 'oldhash'},
-        'summaries': {'lib/agent/agent.dart': 'Old summary text'},
+        'fileHashes': {
+          'packages/tina_engine/lib/src/agent/agent.dart': 'oldhash'
+        },
+        'summaries': {
+          'packages/tina_engine/lib/src/agent/agent.dart': 'Old summary text'
+        },
       };
 
       File(GraphStore.graphPath(tempDir))
@@ -118,8 +122,12 @@ void main() {
       File(GraphStore.graphPath(tempDir))
           .writeAsStringSync(jsonEncode(v1Json));
 
-      // Load using repoRoot (not tempDir) so absolute paths resolve.
-      final loaded = GraphStore.load(repoRoot);
+      // Load the file we just wrote. (The old version loaded from
+      // repoRoot, which only worked if a stale .tina/graph.json happened
+      // to exist there from a prior tina run — on a clean checkout it
+      // returned null. No assertion here needs file-backed paths, so
+      // resolving against tempDir is fine.)
+      final loaded = GraphStore.load(tempDir);
       expect(loaded, isNotNull);
       // v1 summaries should be discarded.
       expect(loaded!.summaries, isEmpty);
