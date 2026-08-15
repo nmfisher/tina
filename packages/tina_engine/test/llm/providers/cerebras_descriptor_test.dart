@@ -27,11 +27,14 @@ void main() {
     });
 
     test('catalog matches the models the platform serves', () {
-      // Verified against https://api.cerebras.ai/public/v1/models (2026-08-15).
+      // The three live models verified against
+      // https://api.cerebras.ai/public/v1/models (2026-08-15), plus the
+      // announced-not-yet-live qwen3.8-27b (see its dedicated test below).
       // Every model there shares a 131,072-token context window and a
       // 40,960-token completion cap.
       final models = r.modelsFor('cerebras');
       expect(models.map((m) => m.id), unorderedEquals(<String>[
+        'qwen3.8-27b',
         'gpt-oss-120b',
         'gemma-4-31b',
         'zai-glm-4.7',
@@ -43,6 +46,30 @@ void main() {
         // tool-driven, so this must stay true or the agent loop can't run.
         expect(m.supportsTools, isTrue, reason: m.id);
       }
+    });
+
+    test('qwen3.8-27b is carried as announced-not-yet-live, provisional specs', () {
+      // Cerebras announced this model (2026-08-15 email) but the platform
+      // does not serve it yet: /public/v1/models omits it and the per-model
+      // endpoint 404s. Authorized as a preemptive add. The platform has
+      // published no specs, so the entry borrows the platform's uniform
+      // limits rather than the open model's native 262144 context. When the
+      // model goes live, re-verify against /public/v1/models and correct the
+      // entry — this test then pins the corrected values.
+      final m = r.descriptor('cerebras')!.models['qwen3.8-27b']!;
+      expect(m.name, 'Qwen3.8 27B');
+      expect(m.contextWindow, 131072);
+      expect(m.maxOutput, 40960);
+      // The open-weights model ships a vision encoder, but whether Cerebras
+      // serves it is unknown — conservative false so images are never sent.
+      expect(m.supportsVision, isFalse);
+
+      // It must already be resolvable so configs can reference it today.
+      final resolved = r.resolve('cerebras/qwen3.8-27b');
+      expect(resolved.modelId, 'qwen3.8-27b');
+      final built = r.build('cerebras/qwen3.8-27b', apiKeyOverride: 'k');
+      expect(built, isA<OpenAiCompatibleAdapter>());
+      expect(built.model, 'qwen3.8-27b');
     });
 
     test('catalogs Gemma 4 31B with vision support', () {

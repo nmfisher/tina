@@ -62,3 +62,16 @@ Verified against the authoritative source, the public models API
 Rather than fabricate a model id with invented specs — which would ship a catalog entry that fails on every real request — the catalog contains the three models the platform actually serves. If Qwen3-827B does land later, it is a one-entry addition to `cerebras_descriptor.dart`.
 
 Everything else done: descriptor + registration + export, tests (catalog contents, auth env mapping, base URL, build/resolve), `dart analyze` clean on all touched files (the 5414 repo-wide analyzer warnings are pre-existing), all tina_engine llm tests pass. Note: root-package tests cannot run in this container (tina requires SDK ^3.12.0, container has 3.11.0) — pre-existing, unrelated to this change.
+
+## Follow-up (2026-08-15, resumed session)
+
+Item 1 — **`qwen3.8-27b` added to the Cerebras catalog as announced-not-yet-live** (user-authorized preemptive add; the user received the Cerebras announcement email and expects the model live shortly).
+
+- Still NOT on the platform as of this run: `/public/v1/models` returns only `gpt-oss-120b`, `gemma-4-31b`, `zai-glm-4.7`, and `/public/v1/models/qwen3.8-27b` 404s. No public Cerebras blog/press release found either.
+- The model itself is real: open weights at https://huggingface.co/Qwen/Qwen3.8-27B (Apache 2.0, native 262144 context, vision encoder; hosted version "coming soon").
+- Provisional specs, since the platform published none: contextWindow 131072 and maxOutput 40960 (the platform's uniform limits for every live model), supportsTools true, supportsVision false (the open model has a vision encoder but whether Cerebras serves it is unknown — conservative so the agent loop never sends images to a text-only deployment).
+- Marked with an ANNOUNCED, NOT YET LIVE comment in `cerebras_descriptor.dart`; dedicated test pins the provisional values so the go-live correction is a visible test change. All 124 tina_engine llm tests pass; `dart analyze` clean.
+
+Item 2 — **`qwencloud` provider NOT added this run.** No provider by that name is verifiable (absent from models.dev; qwen.ai brands theirs "Qwen API Platform"; the existing `qwen` builtin already covers DashScope). Deferred: the user will supply platform details separately.
+
+Status stays `closed`: item 1 is the authorized completion of the original acceptance criterion; item 2 is new scope tracked outside this ticket.
