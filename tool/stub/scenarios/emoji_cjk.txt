@@ -1,0 +1,31 @@
+# Scenario: emoji_cjk — wide chars, CJK, and emoji on the wire.
+# Exercises the TUI's wcwidth handling: CJK ideographs (2 cells), combining
+# marks, ZWJ family emoji, skin-tone modifiers, flags, and CJK punctuation.
+# Content answers sweep task T6 (naive_cache.dart eviction policy).
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"NaiveCache 的逐出策略是「惰性 TTL」— "},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"读取时检查过期，过期即删，没有后台线程 🧹"},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"也没有 LRU 链表。缓存命中率的代价：冷键永不过期 📉"},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"\n\n要点（中文）："},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"• 惰性过期：read 时才检查 TTL ⏱"},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"• 无 LRU：容量无上限，只靠 TTL 回收 ♾"},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"• 键含 emoji：\"🎉 launch\" / \"🚀 deploy\" / \"✨ release\""},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"• ZWJ 序列：👨‍👩‍👧‍👦（一个 grapheme，多个 code point）"},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"• 肤色修饰符：👋🏽👋🏾👋🏿 与旗帜：🇯🇵🇰🇷","finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"\n\n結論：lazy TTL eviction on read — no LRU. 全角标点：「」、。（）测试完毕 ✅"},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":96,"completion_tokens":88,"total_tokens":184}}
+
+data: [DONE]

@@ -1,0 +1,24 @@
+# Scenario: normal — a plain streaming turn.
+# Text deltas, a finish frame, a usage frame (stream_options.include_usage),
+# then [DONE]. This is the shape api.deepseek.com sends on the OpenAI wire.
+#
+# Served to request 1 (and every request after the last step).
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"EventBus.publish "},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"queues a publish made from inside "},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"a subscriber callback, and dispatches it only "},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"after the current batch finishes. Reentrant publishes "},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"therefore never interleave: they are appended to the "},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"pending queue and run in order.\n\nSource: packages/core/lib/src/event_bus.dart"},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":64,"total_tokens":184}}
+
+data: [DONE]

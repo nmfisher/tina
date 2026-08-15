@@ -1,0 +1,10 @@
+# Scenario: empty — a well-formed stream that carries no content at all.
+# Role frame, finish "stop", usage, done. tina must complete the turn with
+# an empty assistant message, not hang or crash.
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":64,"completion_tokens":1,"total_tokens":65}}
+
+data: [DONE]
