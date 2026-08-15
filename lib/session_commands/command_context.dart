@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:tina_engine/tina_engine.dart';
 
 import '../conversation.dart';
+import '../environment/environment_index.dart';
 import '../session_manager.dart';
 import '../summaries/summary_index.dart';
 
@@ -106,6 +107,11 @@ abstract class CommandContext {
   /// available, in which case `/index` falls back to an ad-hoc in-chat review.
   SummaryIndex? get summaryIndex;
 
+  /// The environment agent service (first load + the `/index` dance's
+  /// environment branch). Wired by the TUI from the live [AppComposition];
+  /// null in headless, which never auto-runs setup.
+  EnvironmentIndex? get environmentIndex;
+
   /// Ask a yes/no confirmation, returning true on "y". Wired by the TUI via the
   /// shared line editor's single-keystroke read (the same primitive the
   /// permission modal uses); null in headless (no interactive input), where the
@@ -151,6 +157,13 @@ abstract class CommandContext {
   /// [SessionController]; null in headless (which runs the fleet inline).
   Future<void> Function(Conversation conv, List<String>? dirs,
       {bool repartition})? get runBackgroundIndex;
+
+  /// Launch the environment agent as a background task on [conv] (the `/index`
+  /// dance's environment branch, and first load): returns immediately, the
+  /// agent's output streams into the conversation's host, and ESC cancels.
+  /// Wired by the TUI's [SessionController]; null in headless, which never
+  /// auto-runs setup.
+  Future<void> Function(Conversation conv)? get runBackgroundEnvironment;
 
   /// Open the visual node editor (`/workflow new` / `/workflow edit`). Wired by
   /// the TUI; null in headless.

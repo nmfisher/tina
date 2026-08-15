@@ -5,6 +5,8 @@ import 'package:tina/config.dart';
 import 'package:tina/platform/environment.dart';
 import 'package:tina_engine/tina_engine.dart';
 
+import '../environment/environment_record.dart';
+import '../environment/environment_store.dart';
 import 'allocations_store.dart';
 import 'sidecar_repo.dart';
 import 'summary_runner.dart';
@@ -95,6 +97,9 @@ class SummaryIndex {
       headSha: sha,
       firstRun: manifest.dirs.isEmpty,
       hasAllocations: (allocations?.dirs.isNotEmpty ?? false),
+      envFirstLoad: !EnvironmentRecord.exists(projectRoot),
+      envStaleReason: EnvironmentTrackingStore(projectRoot: projectRoot)
+          .staleReason(),
     );
   }
 
@@ -168,6 +173,15 @@ class SummaryIndexStatus {
   /// but nothing is summarized yet on a first run).
   final bool hasAllocations;
 
+  /// Whether `ENVIRONMENT.md` is absent — the environment agent's first-load
+  /// signal. Pure file read, like the rest of this probe.
+  final bool envFirstLoad;
+
+  /// Why the environment region is stale, or null when current. From the
+  /// machine-owned tracking entry under `.tina/environment/`, never from the
+  /// record's prose.
+  final String? envStaleReason;
+
   const SummaryIndexStatus({
     required this.totalDirs,
     required this.staleDirs,
@@ -175,7 +189,12 @@ class SummaryIndexStatus {
     required this.headSha,
     required this.firstRun,
     this.hasAllocations = false,
+    this.envFirstLoad = false,
+    this.envStaleReason,
   });
+
+  /// The environment region is stale (first load counts — nothing measured).
+  bool get envStale => envFirstLoad || envStaleReason != null;
 
   int get staleCount => staleDirs.length;
 

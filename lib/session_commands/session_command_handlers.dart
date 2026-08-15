@@ -574,6 +574,7 @@ class SessionCommandHandlers {
     // cancels); headless has no wiring and runs it inline, blocking to
     // completion.
     final bg = ctx.runBackgroundIndex;
+    final env = ctx.runBackgroundEnvironment;
     return runIndexDance(
       host: ctx.active.host,
       summaryIndex: idx,
@@ -584,6 +585,7 @@ class SessionCommandHandlers {
               bg(ctx.active, dirs, repartition: repartition);
               return Future<SummaryIndexResult?>.value();
             },
+      runEnvironment: env == null ? null : () => env(ctx.active),
     );
   }
 
@@ -631,6 +633,7 @@ Future<CmdResult> runIndexDance({
   required SummaryIndex summaryIndex,
   Future<bool> Function(String prompt)? confirm,
   IndexRefreshFn? refreshFn,
+  Future<void> Function()? runEnvironment,
 }) async {
   // Run the fleet and report, or hand it off. [startMsg] is posted only in
   // inline mode (the background task announces itself); [verb] labels the
@@ -651,6 +654,28 @@ Future<CmdResult> runIndexDance({
   }
 
   final status = await summaryIndex.status();
+
+  // The environment region: the dance flags, the environment agent acts
+  // (docs/proposals/environment_agent.md, "Region integration"). Independent
+  // of the dir branches below, so it runs whichever way they go. The TUI hands
+  // it to its background task; headless only reports (an unattended run must
+  // not install dependencies or touch git config).
+  if (status.envStale) {
+    if (runEnvironment != null) {
+      host.showMessage(status.envFirstLoad
+          ? 'No environment record yet — running the environment agent in the '
+              'background (Esc-Esc to cancel)…\n'
+          : 'Environment record is stale (${status.envStaleReason}) — running '
+              'the environment agent in the background…\n');
+      await runEnvironment();
+    } else {
+      host.showMessage(
+          'Environment record is ${status.envFirstLoad ? 'missing' : 'stale'}'
+          '${status.envStaleReason == null ? '' : ' (${status.envStaleReason})'}'
+          ' — refresh it from an interactive session.\n');
+    }
+  }
+
   if (status.totalDirs == 0) {
     host.showMessage('No directories to index.\n');
     return const CmdHandled();

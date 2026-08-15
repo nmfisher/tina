@@ -66,6 +66,7 @@ class _FakeCtx implements CommandContext {
     this.confirm,
     this.spendLedger,
     this.runBackgroundIndex,
+    this.runBackgroundEnvironment,
   });
 
   final Conversation conversation;
@@ -88,6 +89,10 @@ class _FakeCtx implements CommandContext {
   @override
   Future<void> Function(Conversation conv, List<String>? dirs,
       {bool repartition})? runBackgroundIndex;
+
+  /// null by default (headless: the environment agent never auto-runs).
+  @override
+  Future<void> Function(Conversation conv)? runBackgroundEnvironment;
 
   @override
   Map<String, FutureOr<void> Function()> get commandHooks => const {};
@@ -397,5 +402,75 @@ void main() {
     expect(capturedRepartition, false);
     // No inline Indexed notice — the background task owns that.
     expect(_notices().join(), isNot(contains('Indexed')));
+  });
+
+  test('stale environment region: runs the background environment agent',
+      () async {
+    final idx = _StubIndex(
+      SummaryIndexStatus(
+        totalDirs: 2,
+        staleDirs: const ['lib'],
+        headSha: 'abcdef1234567890',
+        firstRun: true,
+        deletedDirs: const [],
+        envFirstLoad: true,
+      ),
+      refreshResult: _result(2),
+    );
+    var envRuns = 0;
+    final handlers = SessionCommandHandlers(_FakeCtx(
+      conversation: conv,
+      summaryIndex: idx,
+      runBackgroundEnvironment: (c) async => envRuns++,
+    ));
+    final res = await handlers.dispatch('/index');
+
+    expect(res, isA<CmdHandled>());
+    expect(envRuns, 1);
+    expect(_notices().join(),
+        contains('running the environment agent in the background'));
+  });
+
+  test('stale environment region, headless: only reports, never runs', () async {
+    final idx = _StubIndex(
+      SummaryIndexStatus(
+        totalDirs: 2,
+        staleDirs: const ['lib'],
+        headSha: 'abcdef1234567890',
+        firstRun: true,
+        deletedDirs: const [],
+        envStaleReason: 'inputs changed since the last measurement',
+      ),
+      refreshResult: _result(2),
+    );
+    var envRuns = 0;
+    final handlers = SessionCommandHandlers(_FakeCtx(
+      conversation: conv,
+      summaryIndex: idx,
+      runBackgroundEnvironment: null, // headless wiring
+    ));
+    final res = await handlers.dispatch('/index');
+
+    expect(res, isA<CmdHandled>());
+    expect(envRuns, 0);
+    expect(_notices().join(),
+        contains('refresh it from an interactive session'));
+  });
+
+  test('current environment region: no environment notice', () async {
+    final idx = _StubIndex(
+      _status(total: 2, stale: const ['lib']),
+      refreshResult: _result(1),
+    );
+    var envRuns = 0;
+    final handlers = SessionCommandHandlers(_FakeCtx(
+      conversation: conv,
+      summaryIndex: idx,
+      runBackgroundEnvironment: (c) async => envRuns++,
+    ));
+    await handlers.dispatch('/index');
+
+    expect(envRuns, 0);
+    expect(_notices().join(), isNot(contains('environment agent')));
   });
 }
