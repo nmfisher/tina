@@ -13,14 +13,26 @@ class DartFileWalker {
 
   Future<List<String>?> _runGitLs() async {
     try {
+      // -z: NUL-delimited, verbatim paths. Without it git C-quotes any
+      // non-ASCII path (core.quotePath defaults on) as
+      // "na\303\257ve_cache.dart" — the trailing quote then fails the
+      // .dart filter AND the octal escapes never resolve on disk, so
+      // such files silently vanish from the index. precomposeunicode
+      // stays off so returned paths match the filesystem's own bytes
+      // (macOS stores decomposed NFD; precomposed NFC forms may not
+      // open on normalization-sensitive volumes like exFAT).
       final res = await Process.run(
         'git',
-        ['ls-files', '--cached', '--others', '--exclude-standard'],
+        [
+          '-c', 'core.quotePath=false',
+          '-c', 'core.precomposeunicode=false',
+          'ls-files', '-z', '--cached', '--others', '--exclude-standard',
+        ],
         workingDirectory: repoRoot,
       );
       if (res.exitCode != 0) return null;
       return (res.stdout as String)
-          .split('\n')
+          .split('\x00')
           .where((l) => l.isNotEmpty && l.endsWith('.dart'))
           .toList();
     } catch (_) {
