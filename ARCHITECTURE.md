@@ -14,7 +14,7 @@ This doc explains where things live and why they're split the way they are.
 tina/
   bin/
     tina.dart              — entry point: parse flags, wire deps, run
-  lib/
+  lib/                       — the app: TUI, wiring, sessions
     config.dart              — CLI + env parsing → Config
     repl.dart                — interactive loop, slash commands
     tui_coordinator.dart     — TUI construction + lifecycle wiring
@@ -23,31 +23,47 @@ tina/
     session.dart             — workspace holding one or more Conversations
     session_manager.dart     — session factory + lifecycle
     message_queue.dart       — queued-message buffer (typing during execution)
-    agent/                   — tool-calling loop + output sink + budgets
-    llm/                     — provider abstraction + wire-format adapters
-    tools/                   — Tool interface + the seven built-in tools
-    permissions/             — policy, rules, interactive prompts, previews
-    persistence/             — SessionStore interface + JSONL impl
+    composition/             — dependency wiring: tools → agent → sessions
     completion/              — git-aware file-path completion provider
+    config/                  — user config (~/.tina/config.toml) + provider registry
+    host/                    — conversation host surface the TUI drives
+    persistence/             — session restore (the store itself is in tina_engine)
+    pipeline/                — workflows: supervisor, pipeline runner, tools
+    platform/                — platform / environment detection
+    project/                 — project-level state
+    regions/                 — region agents + allocation
+    session_commands/        — slash-command implementations
+    summaries/               — summary index + fleet summaries
+    tui/                     — panels, settings, TUI widgets
   packages/
+    tina_engine/           — agent loop, providers, tools, permissions (own pubspec)
     tina_console/          — reusable raw-mode console toolkit (own pubspec)
     tina_index/            — AST-derived code dependency graph (own pubspec)
+    fuzzy_ranker/          — fuzzy ranking + CompletionProvider interface (own pubspec)
+    attractor/             — DOT-based multi-agent pipeline runner (own pubspec)
     dart_notcurses/          — Dart FFI bindings to notcurses (own pubspec)
+  examples/                  — example workspace fixture for driving tina
   docs/                      — design docs (agent pipeline, tool strip, graph search …)
-  tool/                      — dev utilities (render_to_image, visual_test)
+  tool/                      — dev utilities (render_to_image, visual_test, build)
   test/                      — tests for tina proper
 
 ```
 
 The split between `lib/` and `packages/tina_console/` is the most important
-boundary in the project — see [Three packages, on purpose](#three-packages-on-purpose).
+boundary in the project — see [Six packages, on purpose](#six-packages-on-purpose).
 
-## Three packages, on purpose
+## Six packages, on purpose
 
-The repo is a monorepo with three Dart packages.
+The repo is a monorepo with six Dart packages.
 
-**`tina`** (root) is the app. It depends on the other two via path
+**`tina`** (root) is the app. It depends on the others via path
 dependencies in `pubspec.yaml`.
+
+**`tina_engine`** (`packages/tina_engine/`) is the agent runtime: the
+tool-calling loop and its output sink, the LLM provider abstraction and
+wire-format adapters, the tool registry and built-in tools, the permission
+policy, and session persistence. It has no terminal / UI dependencies —
+the app supplies the sink, the permission asker, and the I/O.
 
 **`tina_console`** (`packages/tina_console/`) is a generic raw-mode
 console toolkit built around a `Screen` chokepoint that owns the stdout
@@ -68,6 +84,15 @@ keyword-based matching (`seedQuery`). The app's `SearchTool` and
 `SummaryGenerator` consume it; the package itself has no agent / LLM
 dependencies.
 
+**`fuzzy_ranker`** (`packages/fuzzy_ranker/`) is subsequence-fuzzy
+matching/ranking plus the pluggable `CompletionProvider` interface — the
+neutral seam shared by the TUI toolkit and the app's completion sources.
+Pure Dart, no terminal or engine dependencies.
+
+**`attractor`** (`packages/attractor/`) is a DOT-based pipeline runner:
+directed graphs (Graphviz DOT) that orchestrate multi-stage agent
+workflows. UI- and LLM-agnostic; consumed by the app's pipeline layer.
+
 **`dart_notcurses`** (`packages/dart_notcurses/`) is a Dart FFI wrapper
 around the notcurses C library — `Notcurses`, `Plane`, `Cell`, `Channels`,
 `Visual`, `Menu`, `Direct`, `Reader`, and key-code constants. It ships
@@ -84,8 +109,10 @@ interprets them so tests can assert on the final on-screen state.
 ## Inside `lib/` — by layer
 
 The dependency direction is roughly: entry → tui_coordinator →
-repl/config → session_manager → conversation → agent → tools / llm /
-permissions / persistence. Lower layers don't import higher ones.
+repl/config / composition → session_manager → conversation →
+(tina_engine) agent → tools / llm / permissions / persistence. Lower
+layers don't import higher ones, and nothing in `tina_engine` imports
+anything from the app.
 
 ### `bin/tina.dart` — entry point
 
@@ -136,7 +163,10 @@ execute, or how permissions are checked. It sees `Agent`, `Screen` (only
 `bin/tina.dart` reuses `Agent` directly without involving any REPL code,
 passing a passthrough `Screen.chat` so output goes to plain stdout.
 
-### `lib/agent/` — the tool-calling loop
+### `packages/tina_engine/lib/src/agent/` — the tool-calling loop
+
+(Moved out of the app's `lib/` when the engine became a package; the
+structure below is unchanged apart from the new neighbours.)
 
 `Agent.run(system, history, userInput, cancelSignal)` is the harness:
 
@@ -192,8 +222,12 @@ strip without the loop knowing the difference.
   symbols, asks the model to summarize each function / class, and writes
   the results back to the graph store. Supports dry-run counting
   (`countPending`) for progress reporting.
+- The directory has grown neighbours since the move — `agent_pipeline`,
+  `agent_event_bus`, `sub_agent_scheduler` / `sub_agent_sink`,
+  `spend_ledger`, `agent_quota`, `pause_gate` — which extend the same
+  loop with streaming pipelines, fleet scheduling, and metering.
 
-### `lib/llm/` — provider abstraction
+### `packages/tina_engine/lib/src/llm/` — provider abstraction
 
 This is the hardest boundary in the project, and the one that buys the most.
 
@@ -218,22 +252,30 @@ This is the hardest boundary in the project, and the one that buys the most.
 - **`anthropic.dart`** — adapter for `/v1/messages`.
 - **`openai.dart`** — adapter for `/v1/chat/completions` (and any
   OpenAI-compatible server via `--base-url`).
+- **`openai_compatible.dart` / `gemini.dart`** — further adapters over the
+  same `Message` model.
+- **`registry.dart` + `providers/`** — the provider registry: one
+  descriptor file per built-in provider (anthropic, openai, glm, gemini,
+  grok, mistral, …) carrying wire format, model catalog, and auth shape.
+  User config can override built-ins or add new provider ids.
 
 The adapters are the *only* code that knows wire-format details: header
 shapes, tool-call delta accumulation, the difference between Anthropic's
 `tool_result` blocks and OpenAI's separate `role: "tool"` messages.
 Everything above this layer thinks in `Message` + `ContentBlock`.
 
-### `lib/tools/` — tool interface + implementations
+### `packages/tina_engine/lib/src/tools/` — tool interface + implementations
 
 `tool.dart` defines `Tool` (a `schema` + `execute(input)`), `ToolSchema`,
 `ToolResult`, and a `ToolRegistry` keyed by tool name.
 
-The seven built-ins each live in their own file. Each is responsible
-for its own schema, validation, and execution. The agent never special-cases
-any of them — `tools[use.name]?.execute(use.input)` is the whole dispatch.
-Adding an eighth tool means writing one file and adding it to `buildTools()`
-in `tui_coordinator.dart`.
+The built-ins (the original seven — read, write, edit, bash, grep, glob,
+search — plus later additions like delegate, fetch, channel, and the
+search-provider tools) each live in their own file. Each is responsible
+for its own schema, validation, and execution. The agent never
+special-cases any of them — `tools[use.name]?.execute(use.input)` is the
+whole dispatch. Adding a tool means writing one file and registering it in
+`buildTools()` in the app's `lib/composition/agent_composition.dart`.
 
 - **`read_tool.dart`** — read file contents (with optional offset / limit).
 - **`write_tool.dart`** — write / overwrite a file atomically.
@@ -251,7 +293,7 @@ in `tui_coordinator.dart`.
   traversal (extends, implements, imports), and source retrieval. Returns
   related symbols, their relationships, and source code.
 
-### `lib/permissions/` — gating
+### `packages/tina_engine/lib/src/permissions/` — gating
 
 Permission decisions are a separate layer because they cut across tools,
 config (`--allow`/`--deny`/`--yolo`), CLI display (`/permissions`), and the
@@ -284,17 +326,19 @@ agent loop (gate before execute).
   capped at a configurable line count — the user can rely on git or their
   editor for the full picture.
 
-### `lib/persistence/` — sessions
+### `lib/persistence/` + `packages/tina_engine/lib/src/persistence/` — sessions
 
-- **`session_store.dart`** — abstract `SessionStore` (create / append /
+- **`session_store.dart`** (engine) — abstract `SessionStore` (create / append /
   replace / load / list / delete / close) plus `SessionMeta` and
   `SessionRecorder`. The interface is intentionally narrow: REPL-level
   operations only, no schema concerns. Swapping JSONL for SQLite or a
   remote backend means implementing one class.
-- **`jsonl_session_store.dart`** — the only concrete implementation today.
-  One JSONL file per session at `~/.tina/sessions/<id>.jsonl`. Append uses
-  `FileMode.append` + flush; `replace` writes a tempfile and renames for
-  atomic `/compact` swaps.
+- **`jsonl_session_store.dart`** (engine) — the only concrete
+  implementation today. One JSONL file per session at
+  `~/.tina/sessions/<id>.jsonl`. Append uses `FileMode.append` + flush;
+  `replace` writes a tempfile and renames for atomic `/compact` swaps.
+- **`session_restore.dart`** (app) — rebuilding live conversation state
+  from a persisted session on `--resume` / `--continue`.
 
 `SessionRecorder` is the REPL-side wrapper that holds the active session
 id and an `enabled` flag (so `--no-save` short-circuits writes without
@@ -803,28 +847,22 @@ returns.
 
 Tests follow the source structure: each layer has its own folder.
 
-- `test/agent/` — `agent_sink_test.dart` (output interface contracts),
-  `stream_consumer_test.dart` (stream assembly + cancellation),
-  `system_prompt_test.dart` (environment block), `token_budget_test.dart`
-  (per-turn / per-session / per-request limits).
-- `test/permissions/` — `policy_test.dart` (glob + decision precedence),
-  `config_test.dart` (CLI parsing → rules), `agent_gating_test.dart`
-  (deny short-circuits, "always" decisions get remembered, ask + remember
-  applies to the next call), `preview_test.dart` (diff rendering,
-  truncation, preview-entry sealed hierarchy).
-- `test/persistence/` — `message_json_test.dart` (block round-trips,
-  `is_error` omission, unknown-type rejection), `jsonl_session_store_test.dart`
-  (create/append/load, atomic replace, list sort order, missing-root
-  handling, recorder enable/disable).
-- `test/tools/` — `bash_tool_test.dart`, `glob_tool_test.dart`,
-  `grep_tool_test.dart`, `search_tool_test.dart` — per-tool schema,
-  validation, and execution.
-- `test/completion/` — `git_file_provider_test.dart`.
-- `test/llm/` — `anthropic_test.dart` (wire-format adapter),
-  `http_test.dart` (retry / timeout / error humanization).
-- `test/` (root) — `repl_test.dart`, `session_test.dart`,
-  `session_manager_test.dart`, `message_queue_test.dart`,
-  `tui_coordinator_test.dart`.
+- `packages/tina_engine/test/` — the engine's own suites, mirroring its
+  layout: `agent/` (output interface contracts, stream assembly +
+  cancellation, environment block, token budgets, sub-agent scheduling),
+  `llm/` (wire-format adapters, retry / timeout), `tools/` (per-tool
+  schema, validation, execution), `permissions/`, `persistence/`,
+  plus `agent_event_bus_test.dart` at the root.
+- `test/` (root, the app) — mirrors `lib/`: `config/`, `completion/`,
+  `composition/`, `host/`, `llm/` (config-driven provider tests),
+  `permissions/`, `persistence/`, `pipeline/` (workflow supervisor,
+  default workflow), `platform/`, `project/`, `regions/`, 
+  `session_commands/`, `summaries/`, `tools/`, `tui/`, and the top-level
+  suites (`session_test.dart`, `session_controller_test.dart`,
+  `session_manager_test.dart`, `conversation_test.dart`,
+  `message_queue_test.dart`, `tui_coordinator_test.dart`,
+  `import_boundary_test.dart`, `default_workflow_test.dart`,
+  `feature2_multi_session_test.dart`, `workflow_supervisor_test.dart`).
 - `test/helpers/` — `fake_agent_sink.dart`, `fake_stdio.dart` — shared
   test infrastructure.
 - `packages/tina_console/test/` — split by component:
@@ -886,7 +924,7 @@ A few decisions are load-bearing and worth making explicit:
 - **AgentSink decouples agent from UI.** The agent says *what happened*
   (text delta, tool start, tool output, tool complete, notice); the sink
   decides *how to render it*. The agent layer never imports a UI type —
-  `AgentSink` lives in `lib/agent/` and references only `Tool` from the
+  `AgentSink` lives in `tina_engine`'s agent layer and references only `Tool` from the
   tools layer. This is what will let the tool strip swap in a composing
   sink that routes tool events away from chat without the agent knowing.
 - **Permissions are a layer, not a tool flag.** Tools don't know about
@@ -946,9 +984,9 @@ A few things look like they could be interfaces and aren't:
   realistic second mode (non-TTY). The rendering backend *is* abstracted
   (`TerminalBackend`) because there are genuinely two implementations
   (ANSI / notcurses) — but `Screen` itself isn't.
-- **`Tool`** has seven implementations and no plugin loader.
-  Adding tools is a code change, not a config change. The agent loop
-  is the simpler for it.
+- **`Tool`** has a fixed set of built-in implementations and no plugin
+  loader. Adding tools is a code change, not a config change. The agent
+  loop is the simpler for it.
 - **`Agent`** is concrete. The non-interactive path uses the same class
   with a different `PermissionAsker` and a passthrough `AgentSink`.
   Output is abstracted (via `AgentSink`); the loop itself isn't.
