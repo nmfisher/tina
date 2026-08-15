@@ -54,3 +54,11 @@ The user revised the design: there is **only ONE environment record**, not two (
 - Merge the two-artifact design into one record file. The agent maintains the observed-state parts; the user can edit anything.
 - Re-check the affected parts against the new shape: the index region (what digests it measures), warm load (what injects into the system prompt), and the trust gate (unchanged risk — setup lines are execution).
 - Note the accepted tradeoff: machine-observed state lives in a versioned file (single-machine assumption).
+
+## Design revision 2 (2026-08-15) — document focus
+
+User review: the proposal has too much detail about /index mechanics — not very important or relevant to this design. Restructure docs/proposals/environment_agent.md:
+
+- Cut the deep /index and summary-fleet code walkthrough (the file:line archaeology). Keep at most a short note on the existing patterns we reuse: the staleness dance concept, the ephemeral composition pattern, the .tina sidecar convention.
+- Focus the document on the environment agent design itself: the single record, first-load population, agent lifecycle, region integration at a conceptual level, warm load, trust gate, tradeoffs.
+- Keep it concise.
