@@ -12,6 +12,7 @@ import 'novita_descriptor.dart';
 import 'openai_descriptor.dart';
 import 'openrouter_descriptor.dart';
 import 'qwen_descriptor.dart';
+import 'qwencloud_descriptor.dart';
 import 'tencent_descriptor.dart';
 
 /// Registers every built-in provider descriptor on [registry]. Called once
@@ -31,6 +32,7 @@ void registerBuiltins(ProviderRegistry registry) {
     ..register(nimDescriptor)
     ..register(novitaDescriptor)
     ..register(qwenDescriptor)
+    ..register(qwencloudDescriptor)
     ..register(tencentDescriptor);
 }
 

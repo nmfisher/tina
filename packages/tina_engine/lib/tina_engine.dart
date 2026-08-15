@@ -38,6 +38,7 @@ export 'src/llm/providers/novita_descriptor.dart';
 export 'src/llm/providers/openai_descriptor.dart';
 export 'src/llm/providers/openrouter_descriptor.dart';
 export 'src/llm/providers/qwen_descriptor.dart';
+export 'src/llm/providers/qwencloud_descriptor.dart';
 export 'src/llm/providers/tencent_descriptor.dart';
 export 'src/llm/registry.dart';
 export 'src/llm/sse.dart';
