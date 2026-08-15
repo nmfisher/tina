@@ -1,5 +1,6 @@
 import '../registry.dart';
 import 'anthropic_descriptor.dart';
+import 'cerebras_descriptor.dart';
 import 'deepseek_descriptor.dart';
 import 'gemini_descriptor.dart';
 import 'glm_descriptor.dart';
@@ -18,6 +19,7 @@ import 'tencent_descriptor.dart';
 void registerBuiltins(ProviderRegistry registry) {
   registry
     ..register(anthropicDescriptor)
+    ..register(cerebrasDescriptor)
     ..register(geminiDescriptor)
     ..register(openaiDescriptor)
     ..register(openrouterDescriptor)

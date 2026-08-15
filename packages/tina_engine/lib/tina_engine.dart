@@ -25,6 +25,7 @@ export 'src/llm/openai.dart';
 export 'src/llm/openai_compatible.dart';
 export 'src/llm/provider.dart';
 export 'src/llm/providers/anthropic_descriptor.dart';
+export 'src/llm/providers/cerebras_descriptor.dart';
 export 'src/llm/providers/builtins.dart';
 export 'src/llm/providers/deepseek_descriptor.dart';
 export 'src/llm/providers/gemini_descriptor.dart';

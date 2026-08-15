@@ -1,6 +1,6 @@
 ---
 id: tin-x4m7
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-08-14T00:00:00Z
@@ -45,3 +45,20 @@ Cerebras exposes an OpenAI-compatible API. The codebase already has a clean patt
 - Push the branch and raise a PR when finished. Never merge the PR. Never commit or push to main/master, in this repo or in dependency repos.
 - If you need to read or change a private git dependency, clone it from the remote into the container yourself (git clone https://github.com/<org>/<repo>.git). Do not rely on a local checkout existing.
 - Write the PR description in simplified technical English (short sentences, plain words, no jargon). Cite the Cerebras source you verified the model list against.
+
+## Outcome notes (2026-08-15)
+
+Implemented as specified, with ONE deviation:
+
+**`qwen3-827b` was NOT added — the model does not exist on the platform.**
+Verified against the authoritative source, the public models API
+(`https://api.cerebras.ai/public/v1/models`, fetched 2026-08-15):
+
+- It returns exactly three models: `gpt-oss-120b`, `gemma-4-31b`, `zai-glm-4.7`.
+- `GET /public/v1/models/qwen3-827b` returns `{"detail":"Model 'qwen3-827b' not found or not publicly available"}`.
+- The changelog (https://inference-docs.cerebras.ai/support/change-log) has no mention of a Qwen3-827B at any point; all Qwen models (qwen-3-32b, qwen-3-235b-a22b*, qwen-3-coder-480b) were deprecated in 2025 with migrations to GPT OSS 120B / GLM 4.7.
+- Web search finds no such announcement from Cerebras or Qwen. The premise in Context appears mistaken (possibly conflating Qwen3-235B or Qwen3-8B).
+
+Rather than fabricate a model id with invented specs — which would ship a catalog entry that fails on every real request — the catalog contains the three models the platform actually serves. If Qwen3-827B does land later, it is a one-entry addition to `cerebras_descriptor.dart`.
+
+Everything else done: descriptor + registration + export, tests (catalog contents, auth env mapping, base URL, build/resolve), `dart analyze` clean on all touched files (the 5414 repo-wide analyzer warnings are pre-existing), all tina_engine llm tests pass. Note: root-package tests cannot run in this container (tina requires SDK ^3.12.0, container has 3.11.0) — pre-existing, unrelated to this change.

@@ -3,11 +3,12 @@ import 'package:test/test.dart';
 
 void main() {
   group('registerBuiltins', () {
-    test('registers all thirteen providers, sorted', () {
+    test('registers all fourteen providers, sorted', () {
       final r = ProviderRegistry(env: {});
       registerBuiltins(r);
       expect(r.providerIds, [
         'anthropic',
+        'cerebras',
         'deepseek',
         'gemini',
         'glm',
@@ -44,10 +45,10 @@ void main() {
           isA<GeminiProvider>());
     });
 
-    test('the ten adapter-based providers build to OpenAiCompatibleAdapter', () {
+    test('the eleven adapter-based providers build to OpenAiCompatibleAdapter', () {
       final r = ProviderRegistry(env: {});
       registerBuiltins(r);
-      const adapterIds = ['openai', 'openrouter', 'deepseek', 'glm', 'qwen', 'grok', 'longcat', 'mistral', 'nim', 'novita'];
+      const adapterIds = ['cerebras', 'openai', 'openrouter', 'deepseek', 'glm', 'qwen', 'grok', 'longcat', 'mistral', 'nim', 'novita'];
       for (final id in adapterIds) {
         final model = r.modelsFor(id).first.id;
         expect(r.build('$id/$model', apiKeyOverride: 'k'),
