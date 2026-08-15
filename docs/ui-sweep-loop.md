@@ -42,7 +42,7 @@ slip through, that itself is a finding.
 
 Point tina at `examples/workspace/` — a purpose-built fixture (see its
 README). Its "deliberate edge cases" are ON PURPOSE — do not fix
-`naïve_cache.dart` (unicode filename is the point),
+`naive_cache.dart` (CJK/emoji content is the point),
 `broken_probe.dart` (syntax error is the point), `blob.bin` (invalid
 UTF-8 is the point), etc. `tool/example_workspace.sh dirty|reset|status`
 creates/clears a deterministic dirty git state there.
@@ -112,6 +112,15 @@ After each scenario batch: rewrite STATUS.md, ask the batched
 questions, continue on unblocked work. Tickets + STATUS.md + git log
 are the complete resumable state — the conversation is disposable;
 after any context compaction, reconstruct from those three.
+
+## Task corpus
+
+`tool/sweep_tasks.md` is the fixed set of tasks (T1–T15) to type into
+tina against the fixture, with the machinery each exercises and the
+observable outcome to check. Reference tasks in tickets as `T<n>`. It
+lives in `tool/` — outside the fixture — so the agent under test can't
+read its own task sheet. Always keep a fresh `pristine` snapshot:
+`tool/example_workspace.sh snapshot pristine` after any fixture change.
 
 ## Scenario seeds (start here, then invent)
 
