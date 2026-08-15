@@ -1,0 +1,8 @@
+# The example workspace is scenery for driving tina, not a package tina
+# builds: it is never `pub get`-ed, and broken_probe.dart is broken on
+# purpose. Exclude the whole subtree so `dart analyze` at the repo root
+# stays quiet. tina_index parses these files itself and never reads this
+# file.
+analyzer:
+  exclude:
+    - '**/*'

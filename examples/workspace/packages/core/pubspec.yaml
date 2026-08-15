@@ -1,0 +1,7 @@
+name: core
+description: Tracker domain model — events, results, repositories.
+publish_to: none
+version: 0.2.0
+
+environment:
+  sdk: ^3.12.0

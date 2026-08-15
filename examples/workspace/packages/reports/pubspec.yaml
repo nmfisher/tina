@@ -1,0 +1,13 @@
+name: reports
+description: Summary reporting and export over the store's query API.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  core:
+    path: ../core
+  store:
+    path: ../store
