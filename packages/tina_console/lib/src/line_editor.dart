@@ -222,9 +222,15 @@ class LineEditor {
     _onQueueSubmit = null;
     _keyCompleter = c;
     _ensureListening();
+    if (debugKeys) {
+      stderr.writeln('[readkey] armed');
+    }
     return c.future.whenComplete(() {
       _cancelHandler = savedCancel;
       _onQueueSubmit = savedQueueSubmit;
+      if (debugKeys) {
+        stderr.writeln('[readkey] completed');
+      }
     });
   }
 
