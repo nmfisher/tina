@@ -1,36 +1,40 @@
 # Sweep status
 
-Now:     tin-3x9v (p1, SIGSEGV) — root-cause hunt in the streaming render/input path
-Next:    tin-3x9v (crash), then tin-6a2f (p2 approval overlap), tin-8n7c (p2 approval vanish)
+Now:     final pass done — fresh pass at 80x24 + 120x40 found only already-filed bugs; PR next
+Next:    PR for the session's fixes; tin-3x9v (crash) and tin-8n7c (vanish) stay open with repro notes
 Blocked: none
 Ask:     none
-Last checkpoint: 2026-08-16 02:10 — tin-4k8w CLOSED (2 commits: shrink-reconcile + post-resize refresh); suites green (root +538, tina_console +674)
+Last checkpoint: 2026-08-16 03:20 — tin-6a2f CLOSED (row-ownership fix); suites green (root +538, tina_console +676)
 
 ## In flight
 
-- tin-3x9v (p1) — SIGSEGV mid-run at a pending approval while tool output
-  streams + a keypress. Not yet reproduced this session. Both tin-4k8w fixes
-  harden the same streaming render area; re-attempt the crash repro with the
-  stub + streaming before deeper native digging.
+- tin-3x9v (p1) — SIGSEGV at a pending approval while output streams. Not
+  reproduced in ~25 harness runs this session (stub + real provider, ceremony
+  overlap, key hammering); repro notes + harnesses on the ticket. Both
+  tin-4k8w fixes hardened the same render area. Re-open if it recurs.
+- tin-8n7c (p2) — approval keys vanish at steady cadence. Not reproduced in
+  its exact mode (approvals resolve on the first keypress in stub runs;
+  cadence keys during a running turn go to the queue by design). Repro notes
+  + tool/vanish_hunt.sh on the ticket.
 
 ## Closed this session
 
-- tin-4k8w (p1) — chat corruption on mid-stream resize, two root causes:
-  1. `_reconcileRows` evicted the whole content on shrink with a
-     partially-filled buffer (blank tail kept, content to scrollback) —
-     fixed to keep the most recent content (92deaef).
-  2. tmux keeps the bottom of the alt screen on pane shrink → terminal grid
-     diverges from notcurses' retained frame → damage-only repaints leave
-     dropped rows stale forever (the mid-row `└───` splice). Fixed with a
-     full re-emission (`notcurses_refresh`) at the end of the canonical
-     resize sequence (22bf97f).
-  Live-verified: stub turn + 2 mid-stream resizes → content + frame intact.
+- tin-4k8w (p1) — chat corruption on mid-stream resize: (1) _reconcileRows
+  evicted all content on shrink with a partially-filled buffer (92deaef);
+  (2) tmux alt-screen scroll-on-shrink desynced notcurses' damage map —
+  fixed with a full re-emission at the end of the canonical resize sequence
+  (22bf97f). Live-verified with stub streaming + 2 mid-stream resizes.
+- tin-6a2f (p2) — approval prompt row merged with the next tool header: the
+  approval's open prompt row now carries an ownership token and other
+  writers start a fresh row (fc43037). Live-verified at 80x24 (T9 +
+  ceremony).
 
-## Open (unchanged this session)
+## Open (not in play / parked)
 
-- tin-3x9v (p1) — SIGSEGV mid-run at a pending approval (streaming + keypress).
-- tin-6a2f (p2) — approval line overlap under rapid approvals.
-- tin-8n7c (p2) — approval keys vanish at steady cadence (stale-paste part fixed upstream).
+- tin-3x9v (p1) — SIGSEGV (see In flight).
+- tin-8n7c (p2) — approval key vanish (see In flight).
+- tin-p2sq, tin-g7rk, tin-c5nw, tin-y4qn, tin-r2vd, tin-j3mk — pre-existing,
+  not in play per the brief.
 
 ---
 ## Corpus results (120×40 unless noted)

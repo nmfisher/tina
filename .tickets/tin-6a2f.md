@@ -1,6 +1,6 @@
 ---
 id: tin-6a2f
-status: open
+status: closed
 deps: []
 links: [tin-c5nw]
 created: 2026-08-15T15:10:00Z
@@ -52,3 +52,22 @@ between the two prompts.
 - Two approvals in quick succession render on separate, uncorrupted lines.
 - Regression test with a fake chat region asserting row advance between
   consecutive askPermission prompts.
+
+## Resolution (2026-08-16)
+
+Root cause: an approval prompt is an intentionally partial row —
+askPermission writes "approve? … › " and the answer character joins the
+same line after readKey. While that row was open, a background writer (the
+environment ceremony streaming into the same chat) appended its text to the
+prompt row, so the next tool call's header merged onto the prompt line and
+the answer char was hidden.
+
+Fix (fc43037): the prompt+answer pair carries a row-ownership token; the
+region tracks the owner of the currently-open partial row and any OTHER
+writer's text advances to a fresh row instead of appending. Unowned
+streaming chunks still join each other unchanged.
+
+Reproduced live at 80x24 (T9 with a first-load ceremony): the second
+approval's header spliced onto the first approval's prompt row pre-fix;
+post-fix the rows are clean and the answer char renders. Regression:
+approval_row_ownership_test.dart. Suites: root +538, tina_console +676.
