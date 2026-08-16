@@ -29,6 +29,20 @@ tmux send-keys -t sweep "cd /workspace/examples/workspace" Enter
 sleep 1
 tmux pipe-pane -t sweep -o "cat >> /tmp/tina_raw.log" >/dev/null
 tmux send-keys -t sweep "dart run /workspace/bin/tina.dart" Enter
+# Wait for the dart build hooks to finish before injecting the terminal
+# replies — injecting while the shell is still building echoes them into the
+# pane (cooked mode) and the app then hangs at notcurses init (tin-r2vd).
+# With a warm cache the build is ~5-10 s.
+build_seen=0
+for i in $(seq 1 60); do
+  sleep 3
+  if tmux capture-pane -p -t sweep 2>/dev/null | grep -q "Running build hooks"; then
+    build_seen=1
+  elif [ "$build_seen" = 1 ]; then
+    break
+  fi
+done
+sleep 3
 "$here/tmux_inject_replies.sh" sweep >/dev/null
 sleep 6
 
@@ -48,6 +62,8 @@ EOF
 echo "=== $label: submitted, watching $watch s ==="
 end=$((SECONDS + watch))
 approvals=0
+last_approval=""
+stuck=0
 while [ $SECONDS -lt $end ]; do
   # 'y' (allowOnce) is used: 'a' (allowAlways) intermittently fails to
   # resolve an approval in this harness (see tin-8n7c); 'y' resolves more
@@ -55,7 +71,9 @@ while [ $SECONDS -lt $end ]; do
   # if the same approval text persists across presses, back off and wait
   # before the next press — a press after a pause resolves it.
   if [ "$auto_approve" = 1 ]; then
-    cur=$(tmux capture-pane -p -e -t sweep | grep -E '›[[:space:]]*│$' | md5sum | cut -c1-8)
+    # No approval row matched (e.g. the app is still building): the grep exits
+    # 1 and under pipefail would kill the watch loop — tolerate it.
+    cur=$(tmux capture-pane -p -e -t sweep 2>/dev/null | grep -E '›[[:space:]]*│$' | md5sum | cut -c1-8 || true)
     if [ -n "$cur" ]; then
       if [ "$cur" = "$last_approval" ]; then
         stuck=$((stuck + 1))

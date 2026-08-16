@@ -20,17 +20,20 @@ tmux send-keys -t "$sess" "cd /workspace/examples/workspace" Enter
 sleep 1
 tmux send-keys -t "$sess" "ulimit -c unlimited; gdb -q -batch -ex run -ex 'bt 60' --args dart run /workspace/bin/tina.dart" Enter
 
-# Poll for the compile to start ("Running build hooks" echoes in the pane),
-# then wait out the compile + gdb startup before injecting the replies —
-# too early and the replies land in the shell (cooked mode) and echo as
-# literal text.
-for i in $(seq 1 40); do
+# Poll for the compile to finish (see crash_hunt.sh — injecting into the
+# compiling shell echoes the replies and the app then hangs at init), then
+# inject. gdb is already loaded by the time the compile runs; the app then
+# starts under gdb's control.
+build_seen=0
+for i in $(seq 1 60); do
   sleep 3
   if tmux capture-pane -p -t "$sess" 2>/dev/null | grep -q "Running build hooks"; then
+    build_seen=1
+  elif [ "$build_seen" = 1 ]; then
     break
   fi
 done
-sleep 75
+sleep 3
 "$here/tmux_inject_replies.sh" "$sess" >/dev/null 2>&1 || true
 sleep 10
 

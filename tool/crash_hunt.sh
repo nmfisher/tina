@@ -16,18 +16,26 @@ rm -f /workspace/examples/workspace/ENVIRONMENT.md
 tmux new-session -d -x 120 -y 40 -s "$sess"
 tmux send-keys -t "$sess" "cd /workspace/examples/workspace" Enter
 sleep 1
+tmux pipe-pane -t "$sess" -o "cat >> $outdir/$run_id.raw"
 tmux send-keys -t "$sess" "ulimit -c unlimited; dart run /workspace/bin/tina.dart" Enter
 
-# Wait for the compile to start, then wait it out, then inject the replies.
-for i in $(seq 1 40); do
+# Wait for the compile to finish, then inject the replies. Injecting while
+# the shell is still compiling (cooked mode) echoes the replies into the pane
+# and they are never seen by notcurses — the app then hangs at init (tin-r2vd)
+# and the run exercises nothing. "Running build hooks" appearing then
+# disappearing marks the compile done; with a warm dart cache that is ~10 s.
+build_seen=0
+for i in $(seq 1 60); do
   sleep 3
   if tmux capture-pane -p -t "$sess" 2>/dev/null | grep -q "Running build hooks"; then
+    build_seen=1
+  elif [ "$build_seen" = 1 ]; then
     break
   fi
 done
-sleep 60
+sleep 3
 "$here/tmux_inject_replies.sh" "$sess" >/dev/null 2>&1 || true
-sleep 10
+sleep 8
 
 tmux send-keys -t "$sess" -l "Refactor the store package to expose a count query method and wire it into the cli as a count subcommand."
 sleep 1
