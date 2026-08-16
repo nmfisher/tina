@@ -1,13 +1,14 @@
 ---
 id: tin-v6tq
-status: open
+status: closed
 deps: []
 links: [tin-r2vd, tin-3x9v]
 created: 2026-08-16T09:35:00Z
+closed: 2026-08-16T19:10:00Z
 type: bug
 priority: 2
 assignee: Nick Fisher
-tags: [tui, input, startup-drain, notcurses, paste, needs-user-decision]
+tags: [tui, input, startup-drain, notcurses, paste]
 ---
 # Terminal capability replies arriving after the startup drain window paste into the editor
 
@@ -240,3 +241,52 @@ first-keystroke latency cost — the trade-off the drain-length debate could
 not escape — and it is fully covered by tests plus the captured-stream
 validator. Wiring it is a small, testable change; awaiting a go-ahead since
 the ticket is tagged needs-user-decision.
+
+## Implementation (2026-08-16, option 5 — user approved)
+
+Wired in as recommended. `NotcursesInputBackend` now owns a
+`ReplySequenceFilter` (`replySequenceFiltering: true` by default; pass
+`false` for the old behaviour) and applies it to raw pump records in
+`_onPumpedInput`, after the `StartupDrain` check and before the
+paste-burst detector. The body of the old handler moved to
+`_deliverPumpedKey` unchanged, so the paste-marker path and the explicit
+paste buffer behave exactly as before.
+
+Two details the prototype did not need, the wiring does:
+
+- **Lone-ESC release.** The filter holds an `ESC` for `introducerWindow`
+  (5 ms) to see whether an introducer follows. On an event-driven path
+  nothing would ever release a genuine cancel ESC — the user presses ESC
+  and nothing else. `isHoldingEscape` (added to the filter) arms a
+  `introducerWindow + 1 ms` timer that flushes the held ESC into the normal
+  path. Net cost of the whole feature for the ESC key: ~6 ms, on top of the
+  ~31 ms the burst detector already adds to every keystroke on this path.
+- **Explicit-paste bypass.** While a marker-delimited paste is open
+  (`_explicitPaste != null`) records skip the filter: that content is
+  known-genuine, and pasting text that contains `ESC ]` must not advance
+  the filter's state machine.
+
+### Verification
+
+- Unit: 11 filter tests + 9 wiring tests in
+  `test/notcurses_input_backend_test.dart` (`pump-path reply filtering`
+  group) — burst swallowed at the backend level, typing/paste/ESC/Enter all
+  delivered, the `>30 ms` bursty-gap acceptance case, marker bypass, and
+  the `replySequenceFiltering: false` escape hatch. tina_console suite 697
+  green, root suite 540 green.
+- Live (`tool/verify_reply_filter.sh`, new, stub provider, one run):
+  typing lands; a genuine 1500-char bracketed paste lands as one intact
+  chip; a lone ESC does not eat following keys; the full reply bundle
+  re-injected mid-run leaves **zero** chips and zero residue, and typing
+  still lands after it; app alive.
+- Live (`tool/crash_replyburst.sh`, the ticket's deterministic repro):
+  prior-session panes show the symptom (`[Pasted text : 4570 chars]` ×2 per
+  run); the post-fix run shows no paste chips and no reply bytes — only the
+  harness's own `y` keys in the editor.
+- Harness note in `tool/tmux_inject_replies.sh` updated again: a mid-run
+  re-injection is now safe for the app (still useful as input-path load,
+  which is why `crash_replyburst.sh` keeps firing it).
+
+Residual trade-offs are unchanged from §6 and accepted: a paste of text
+that itself contains literal reply sequences (a captured typescript) would
+have those runs dropped, and an undecoded CSI key would be swallowed.
