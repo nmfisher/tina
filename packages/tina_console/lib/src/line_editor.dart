@@ -185,12 +185,18 @@ class LineEditor {
   /// spend-trip can fire the pause dialog's readKey while askPermission or
   /// /settings already holds one.
   Future<InputEvent> readKey() async {
-    // Cancel any stale burst window and drain pending events from a paste.
+    // Overflow chars from a paste are drained to the next readKey ONLY while
+    // the burst window is still open (the paste is still arriving). Once the
+    // window has expired the queued chars are stale — they must never answer
+    // a later readKey such as an approval prompt, or the approval consumes a
+    // leftover paste char (not y/a/d) as a deny. Drop them instead.
+    final burstOpen = _burstTimer != null;
     _burstTimer?.cancel();
     _burstTimer = null;
-    if (_pending.isNotEmpty) {
+    if (burstOpen && _pending.isNotEmpty) {
       return _pending.removeAt(0);
     }
+    _pending.clear();
 
     while (_readKeyTurn != null) {
       await _readKeyTurn!.future;
