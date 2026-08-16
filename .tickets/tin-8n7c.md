@@ -107,3 +107,30 @@ observation). Not reproduced across ~15 further runs (stub + real);
 cadence keys during a running turn go to the queue by design, and an
 open approval resolves on the first key that arrives while it pends.
 Watch for it in the 80×24 corpus pass.
+
+## Session findings (2026-08-16, continued #2)
+
+REPRODUCED + FIXED the prompt-eating variant (the approval steals the
+user's in-flight typing). Live repro at 80×24 with the real provider +
+COCOON_DEBUG_KEYS ([readkey] armed/completed markers): the env
+ceremony's first approval armed while the user was still typing their
+prompt; the prompt's Enter was delivered to the approval's pending
+readKey (the readKey-first routing) — answered as a deny (not y/a/d),
+"bash denied", and the prompt was NEVER submitted (the session's user
+message absent; the pasted text sat in the editor unsubmitted).
+
+Fix (workflow_permission_asker + TuiConversationHost.askPermission): the
+asker awaits `editor.pendingLine` (the in-flight readLine, new getter)
+before arming its readKey — the approval's row stays visible and the
+readKey arms only after the user's prompt submits. The editor's
+readKey-first contract is unchanged (the spend-pause dialog and gates
+still capture keys while a readLine pends); only the approval askers
+defer. Regression test:
+test/pipeline/workflow_permission_asker_test.dart ("readKey waits while
+the user is typing a prompt") fails without the fix.
+
+Note: the harness's reply injection was also leaking the OSC4 palette
+into typed prompts when it landed after notcurses' reply window closed
+(session user messages began with palette garbage); the launchers now
+inject the moment the app's init query burst ("1049h") appears in the
+raw log (TMUX_INJECT_SLEEP=0).

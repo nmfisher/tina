@@ -200,6 +200,15 @@ class TuiConversationHost implements HostInterface {
     chat.write('  approve? [y/n/a/d]  '
         '(a/d remember "${p.alwaysPattern}") › ',
         rowOwner: rowToken);
+    // If the user is mid-prompt (a readLine in flight), the approval must not
+    // steal their typing — the prompt's Enter would answer this readKey as a
+    // deny (it is not y/a/d) and the prompt would never be submitted. Wait
+    // for the readLine to submit before arming; the approval's own row stays
+    // visible meanwhile (see tin-8n7c / workflow_permission_asker).
+    final pending = editor!.pendingLine;
+    if (pending != null) {
+      await pending.catchError((_) {});
+    }
     final event = await editor!.readKey();
     final ch = event is CharInput ? event.text.toLowerCase() : '';
     chat.write('$ch\n', rowOwner: rowToken);

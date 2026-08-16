@@ -23,15 +23,18 @@ if ! tmux new-session -d -x 120 -y 40 -s "$sess" 2>/dev/null; then
 fi
 tmux send-keys -t "$sess" "cd /workspace/examples/workspace" Enter
 sleep 1
+rm -f "$outdir/$run_id.raw"
+tmux pipe-pane -t "$sess" -o "cat >> $outdir/$run_id.raw"
 tmux send-keys -t "$sess" "HOME=/tmp/sweep-home dart run /workspace/bin/tina.dart" Enter
-for i in $(seq 1 40); do
-  sleep 3
-  if tmux capture-pane -p -t "$sess" 2>/dev/null | grep -q "Running build hooks"; then
+# Inject the replies the moment the app's notcurses init query burst appears
+# in the run's raw log (see crash_hunt.sh) — inside notcurses' reply window.
+for i in $(seq 1 120); do
+  if grep -q "1049h" "$outdir/$run_id.raw" 2>/dev/null; then
     break
   fi
+  sleep 1
 done
-sleep 60
-"$here/tmux_inject_replies.sh" "$sess" >/dev/null
+TMUX_INJECT_SLEEP=0 "$here/tmux_inject_replies.sh" "$sess" >/dev/null
 sleep 8
 tmux send-keys -t "$sess" -l "Run the command."
 sleep 1

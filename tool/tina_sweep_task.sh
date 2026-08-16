@@ -35,23 +35,23 @@ if ! tmux new-session -d -x "${geom%x*}" -y "${geom#*x}" -s sweep 2>/dev/null; t
 fi
 tmux send-keys -t sweep "cd /workspace/examples/workspace" Enter
 sleep 1
+rm -f /tmp/tina_raw.log
 tmux pipe-pane -t sweep -o "cat >> /tmp/tina_raw.log" >/dev/null
 tmux send-keys -t sweep "dart run /workspace/bin/tina.dart" Enter
-# Wait for the dart build hooks to finish before injecting the terminal
-# replies — injecting while the shell is still building echoes them into the
-# pane (cooked mode) and the app then hangs at notcurses init (tin-r2vd).
-# With a warm cache the build is ~5-10 s.
-build_seen=0
-for i in $(seq 1 60); do
-  sleep 3
-  if tmux capture-pane -p -t sweep 2>/dev/null | grep -q "Running build hooks"; then
-    build_seen=1
-  elif [ "$build_seen" = 1 ]; then
+# Inject the terminal replies the moment the app's notcurses init query burst
+# appears in the raw log (the alt-screen enter + CPR are the first queries).
+# This lands inside notcurses' reply window (~2 s):
+#  - earlier (during the compile) the replies echo into the cooked shell and
+#    are lost — the app then blocks at init (tin-r2vd);
+#  - later, notcurses' reply window has closed and the replies leak into the
+#    editor as input — the OSC4 palette garbage lands inside the typed prompt.
+for i in $(seq 1 90); do
+  if grep -q "1049h" /tmp/tina_raw.log 2>/dev/null; then
     break
   fi
+  sleep 1
 done
-sleep 3
-"$here/tmux_inject_replies.sh" sweep >/dev/null
+TMUX_INJECT_SLEEP=0 "$here/tmux_inject_replies.sh" sweep >/dev/null
 sleep 6
 
 # Clear any approve-keys that leaked into the editor, then type the prompt

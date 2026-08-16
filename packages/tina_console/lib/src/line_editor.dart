@@ -293,6 +293,14 @@ class LineEditor {
   /// stale, and the per-panel saved state is authoritative.
   bool get isEditing => _completer != null || _queueModeActive;
 
+  /// The in-flight [readLine], or null when the user is not typing a prompt.
+  /// A background asker (e.g. a workflow run's permission prompt) awaits this
+  /// before arming its own [readKey] — otherwise the approval steals the
+  /// user's typing, the prompt's Enter answers the approval as a deny (it is
+  /// not y/a/d), and the prompt is never submitted (live repro, 80x24:
+  /// ceremony's first approval ate the submitted prompt's Enter).
+  Future<String?>? get pendingLine => _completer?.future;
+
   /// Load edit state from a panel and render the input line, even when no
   /// [readLine] is active — unlike [refresh], this always paints.
   void loadEditState(String buffer, int cursor) {
