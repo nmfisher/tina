@@ -4,7 +4,7 @@ Now:     final pass done — fresh pass at 80x24 + 120x40 found only already-fil
 Next:    PR for the session's fixes; tin-3x9v (crash) and tin-8n7c (vanish) stay open with repro notes
 Blocked: none
 Ask:     none
-Last checkpoint: 2026-08-16 03:20 — tin-6a2f CLOSED (row-ownership fix); suites green (root +538, tina_console +676)
+Last checkpoint: 2026-08-16 03:55 — PR #9 raised (branch pushed via the git data API, 0fd99e0a); suites green (root +538, tina_console +676); push helper tool/push_via_api.py committed locally (remote push of that one commit hit the API rate limit — re-push next session)
 
 ## In flight
 
