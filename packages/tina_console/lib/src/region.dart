@@ -615,13 +615,27 @@ class ScrollingTextRegion extends Region {
     final h = bounds.height;
     if (_rows.length != h) {
       if (_rows.length > h) {
-        // Height shrink: the rows evicted from the top of the window are newer
-        // than anything already in history, so retain them at history's tail —
-        // a resize must not eat scrollback.
-        for (var i = 0; i < _rows.length - h; i++) {
+        // Height shrink. The buffer holds `content` content rows (top-aligned)
+        // followed by blanks; the visible window must keep the MOST RECENT
+        // content, so the oldest content rows — not the blank tail — are the
+        // ones evicted. Evicted rows are newer than anything already in
+        // history, so retain them at history's tail (a resize must not eat
+        // scrollback); the blanks that no longer fit are dropped outright
+        // (retaining them would pollute scrollback with empty lines).
+        final content = _contentRowCount;
+        final keepContent = content > h ? h : content;
+        final dropContent = content - keepContent;
+        for (var i = 0; i < dropContent; i++) {
           _retainRow(_rows[i]);
         }
-        _rows.removeRange(0, _rows.length - h);
+        final keepBlanks = h - keepContent;
+        final kept = <_StyledRow>[
+          ..._rows.sublist(dropContent, content),
+          ..._rows.sublist(_rows.length - keepBlanks),
+        ];
+        _rows
+          ..clear()
+          ..addAll(kept);
       } else {
         _rows.addAll(List.generate(h - _rows.length, (_) => _StyledRow()));
       }
