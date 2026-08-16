@@ -1,6 +1,6 @@
 ---
 id: tin-m4qk
-status: open
+status: closed
 deps: []
 links: [tin-80ll]
 created: 2026-08-08T05:40:00Z
@@ -26,3 +26,7 @@ Note: tin-80ll is still status: open; its acceptance criterion "Delegate targets
 ## Acceptance Criteria
 
 The default main-agent system prompt describes the manager-loop workflow-launch capability alongside direct work and delegation. The prompt no longer instructs the interactive agent to use file tools it does not have. Stale role/AgentRole comments are corrected. Tests pass. Items 3 and 4 either fixed or split into their own tickets.
+
+## Close note
+
+Closed 2026-08-16: all four items verified done in code — manager-loop prompt in _mainIdentity (launch_workflow + delegate + conditional file-tools phrasing, agent_pipeline.dart), no stale "you do not read, write or edit files directly" comment (agent_composition.dart), default.dot entry node renamed intake (default_workflow.dart), no AgentRole references left in session_store.dart / prompts_overlay.dart. Root suite +538 and tina_engine suite green. Ticket body already marked items DONE; closing.

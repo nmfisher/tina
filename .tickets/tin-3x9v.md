@@ -82,3 +82,16 @@ Harness artifacts for re-attempts: tool/stub/scenarios/crash_stream2.txt
 tool/crash_hunt.sh / tool/vanish_hunt.sh (key-hammer + steady-cadence
 drivers), tool/crash_gdb.sh (gdb wrapper for a native backtrace when it
 does reproduce).
+
+## Session findings (2026-08-16, continued)
+
+No crash in 1 valid real-provider crash-hunt run (hammered y/x through a
+full refactor turn with streaming approvals — the exact crash shape) +
+1 vanish-hunt run + 1 debug run. NOTE: the session's first crash-hunt run
+was invalid — the terminal-reply injection landed during a cold dart
+build (cache invalidated by pub get) and the app hung at notcurses init
+(tin-r2vd), so "alive" meant nothing. crash_hunt.sh / crash_gdb.sh /
+tina_sweep_task.sh now wait for the build to finish before injecting
+(commit a39713f); re-verify with the fixed harness. The 80×24 corpus
+pass doubles as crash hunting (each task runs approvals + streaming +
+keys at the crash's cadence).
