@@ -25,6 +25,10 @@ import 'stdio_fake.dart';
 /// Counting retained-mode backend. Surface mutations mark the grid dirty; the
 /// frame machinery flushes at most one render per coalesced frame.
 class CountingBackend implements TerminalBackend {
+
+  // No retained damage model in this fake; refresh is a no-op.
+  @override
+  void refresh() {}
   int renders = 0;
   final List<String> writes = [];
 

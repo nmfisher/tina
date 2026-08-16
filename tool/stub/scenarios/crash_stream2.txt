@@ -1,0 +1,71 @@
+# Scenario: crash_stream2 — long paced stream (the env ceremony consumes it,
+# giving streaming-while-approval-pending overlap) then a bash tool call.
+# Step 1: ~35 deltas over ~14 s. Consumed by the env-agent ceremony at startup.
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+!delay 300
+data: {"choices":[{"index":0,"delta":{"content":"This repository is a small Dart monorepo. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"The workspace fixture contains four packages: core, store, reports, cli. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"The core package holds the domain model with events and repositories. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"The store package implements JSON file stores and memory repositories. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"The reports package builds summaries and CSV exports over queries. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"The cli package wires core, store, and reports behind a track command. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"Dependency direction flows one way: cli to reports and store to core. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"The fixture keeps deliberate edge cases: broken probe, binary blob. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"A symlink points at a missing file and a long line file tests reads. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"The docs directory holds architecture notes and a decisions folder. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"The data directory carries a samples NDJSON file and long line file. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"The package layout mirrors the real repository at a smaller scale. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"Everything is intentionally small so corpus tasks finish quickly. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"A reset script restores the pristine snapshot after each sweep run. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"A dirty script creates a deterministic uncommitted git state. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"Analysis options pin the lints across all fixture packages. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"The README documents the shape and the edge cases table. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{"content":"That is the complete picture of the example workspace layout. "},"finish_reason":null}]}
+!delay 400
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":500,"total_tokens":620}}
+data: [DONE]
+
+# Step 2: the main turn — one bash tool call that streams for ~42 s (fills the chat, native scrolls engage).
+!step
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":null},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_crash01","type":"function","function":{"name":"bash","arguments":""}}]},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"command\":\"for i in $(seq 1 120); do echo \\\"streamed line $i\\\"; sleep 0.35; done\"}"}}]},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":110,"completion_tokens":60,"total_tokens":170}}
+
+data: [DONE]
+
+# Step 3: answer after the tool completes.
+!step
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"The streamed command completed — thirty lines."},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":180,"completion_tokens":20,"total_tokens":200}}
+
+data: [DONE]

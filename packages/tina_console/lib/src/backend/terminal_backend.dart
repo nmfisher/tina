@@ -111,6 +111,17 @@ abstract class TerminalBackend {
   /// returned surface's `putAt`/`eraseAt` are relative to [bounds].
   BackendSurface createSurface(Rect bounds);
 
+  /// Re-emit the last presented frame to the terminal in full, bypassing
+  /// damage tracking. Used after a terminal resize: some terminals (tmux
+  /// foremost) scroll or drop alternate-screen content when the pane shrinks,
+  /// so the terminal's grid diverges from the backend's retained frame —
+  /// damage-only repaints would then skip cells the terminal actually lost,
+  /// leaving stale rows (old borders, old chat fragments) permanently on
+  /// screen. A full re-emission re-syncs the two. No-op on backends without
+  /// damage tracking (ANSI repaints from the retained model anyway).
+  void refresh() {}
+
+
   /// Whether chat writes coalesce into delayed, timer-bounded presents (true
   /// for retained-mode backends like notcurses; false for the synchronous ANSI
   /// path, which paints each write immediately). The chat region's

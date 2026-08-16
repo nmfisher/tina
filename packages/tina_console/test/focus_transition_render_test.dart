@@ -12,6 +12,10 @@ import 'stdio_fake.dart';
 /// this: it keeps only the last frame, so a transient in-between repaint (the
 /// bug we're guarding against) is overwritten and invisible.
 class _RecordBackend implements TerminalBackend {
+
+  // No retained damage model in this fake; refresh is a no-op.
+  @override
+  void refresh() {}
   final List<({int row, int col, String text})> writes = [];
   int _r = 0;
   int _c = 0;

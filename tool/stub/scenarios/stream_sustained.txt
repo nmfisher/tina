@@ -1,0 +1,79 @@
+# Scenario: stream_sustained — a long, paced agent-prose turn (~90 deltas
+# over ~12 s) so a sweep can resize / press keys mid-stream deterministically.
+# Each delta wraps to ~2-3 chat rows at 120 cols, keeping the region's
+# coalesced presentation path continuously active.
+# Step 2 is a short answer so the turn can finish normally.
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+!delay 300
+data: {"choices":[{"index":0,"delta":{"content":"The workspace fixture is a small Dart monorepo with four packages. "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"packages/core holds the domain model: events, Result, Repository, ids, "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"and a deliberately naive cache with emoji and CJK content on purpose. "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"The store package implements JSON-file and in-memory repositories, plus "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"a query subpackage with filters and sorts. The reports package produces "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"summary reports and CSV exports over the store's query API. The cli "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"package wires core, store, and reports together behind a track command "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"with add, list, and report subcommands. Dependency direction flows one "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"way: cli depends on reports and store, store and reports depend on "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"core, and core imports nothing from the other packages. There are also "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"deliberate edge cases scattered through the tree: a broken probe file "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"with a syntax error, a binary blob with invalid UTF-8, a symlink that "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"points at a missing file, and a long line data file used to exercise "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"large read outputs. These edge cases exist on purpose and must not be "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"fixed: they probe tool robustness with UTF-8 handling, the Dart AST "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"parser, git-aware completion, and large-file reads. The docs directory "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"holds architecture notes and a decisions folder with prose files. The "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"data directory carries a samples NDJSON file and the long line file. "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"The fixture is deliberately shaped so that an agent working in it has "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"enough structure to do realistic refactors without risking a real "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"project. It is the default workspace for manual testing and UI sweeps. "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"The package layout mirrors the real tina repository at a smaller scale, "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"so findings from the fixture transfer to the real codebase. Analysis "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"options pin the lints, and a README documents the shape and the edge "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"cases table. A reset script restores the pristine snapshot, and a dirty "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"script creates a deterministic uncommitted state for git-status tests. "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"Everything is intentionally small so a full corpus task can finish in "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"a single turn without exotic tooling. The final answer summarizes the "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"fixture and its purpose for anyone reading this session transcript. "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{"content":"That is the complete picture of the example workspace layout. "},"finish_reason":null}]}
+!delay 120
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":900,"total_tokens":1020}}
+data: [DONE]
+
+# Step 2 (used if a second turn happens; deterministic tail).
+!step
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+data: {"choices":[{"index":0,"delta":{"content":"Done — the fixture layout is summarized above."},"finish_reason":null}]}
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+data: {"choices":[],"usage":{"prompt_tokens":60,"completion_tokens":10,"total_tokens":70}}
+data: [DONE]

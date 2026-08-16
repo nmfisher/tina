@@ -1,11 +1,42 @@
 # Sweep status
 
-Now:     wrapping up — corpus run at 120×40 + 80×24; 4 new tickets filed (2 p1), 2 closed; PR next
-Next:    (sweep done) — the open p1s (tin-3x9v crash, tin-4k8w corruption) need the render/input internals
+Now:     final pass done — fresh pass at 80x24 + 120x40 found only already-filed bugs; PR next
+Next:    PR for the session's fixes; tin-3x9v (crash) and tin-8n7c (vanish) stay open with repro notes
 Blocked: none
 Ask:     none
-Last checkpoint: 2026-08-15 18:20 — corpus: T1-T15 (T13 model no-show), 2 geometries, seeds done; suites green (root +538, tina_console +670); branch pushed via git data API
+Last checkpoint: 2026-08-16 03:20 — tin-6a2f CLOSED (row-ownership fix); suites green (root +538, tina_console +676)
 
+## In flight
+
+- tin-3x9v (p1) — SIGSEGV at a pending approval while output streams. Not
+  reproduced in ~25 harness runs this session (stub + real provider, ceremony
+  overlap, key hammering); repro notes + harnesses on the ticket. Both
+  tin-4k8w fixes hardened the same render area. Re-open if it recurs.
+- tin-8n7c (p2) — approval keys vanish at steady cadence. Not reproduced in
+  its exact mode (approvals resolve on the first keypress in stub runs;
+  cadence keys during a running turn go to the queue by design). Repro notes
+  + tool/vanish_hunt.sh on the ticket.
+
+## Closed this session
+
+- tin-4k8w (p1) — chat corruption on mid-stream resize: (1) _reconcileRows
+  evicted all content on shrink with a partially-filled buffer (92deaef);
+  (2) tmux alt-screen scroll-on-shrink desynced notcurses' damage map —
+  fixed with a full re-emission at the end of the canonical resize sequence
+  (22bf97f). Live-verified with stub streaming + 2 mid-stream resizes.
+- tin-6a2f (p2) — approval prompt row merged with the next tool header: the
+  approval's open prompt row now carries an ownership token and other
+  writers start a fresh row (fc43037). Live-verified at 80x24 (T9 +
+  ceremony).
+
+## Open (not in play / parked)
+
+- tin-3x9v (p1) — SIGSEGV (see In flight).
+- tin-8n7c (p2) — approval key vanish (see In flight).
+- tin-p2sq, tin-g7rk, tin-c5nw, tin-y4qn, tin-r2vd, tin-j3mk — pre-existing,
+  not in play per the brief.
+
+---
 ## Corpus results (120×40 unless noted)
 
 | Task | Result | Notes |

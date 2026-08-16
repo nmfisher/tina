@@ -52,5 +52,12 @@ class ResizeCoordinator {
     panelManager.layout();
     relayContent();
     relocateInput(force: true);
+    // Full re-emission after the last render of the sequence: some terminals
+    // (tmux) scroll the alternate screen when the pane shrinks, so the
+    // terminal's grid no longer matches the backend's retained frame and
+    // damage-only repaints would leave the dropped top rows stale forever.
+    // See TerminalBackend.refresh. This is the one canonical resize site
+    // (SIGWINCH, first-paint, spawns), so the refresh covers every resize.
+    panelManager.screen.refresh();
   }
 }

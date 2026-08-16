@@ -630,6 +630,17 @@ class Screen {
     return _backend!.createSurface(bounds);
   }
 
+  /// Force the backend to re-emit the last presented frame in full,
+  /// bypassing damage tracking. Run once after every terminal resize: some
+  /// terminals (tmux foremost) scroll or drop alternate-screen content when
+  /// the pane shrinks, so the terminal's grid diverges from the backend's
+  /// retained frame and damage-only repaints would leave the dropped rows
+  /// stale forever. See [TerminalBackend.refresh].
+  void refresh() {
+    if (passthrough) return;
+    _backend!.refresh();
+  }
+
   // -- Region-facing primitives --------------------------------------------
 
   /// The rightmost absolute column a primitive may write when an optional

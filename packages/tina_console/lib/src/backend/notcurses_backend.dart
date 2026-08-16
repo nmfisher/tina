@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dart_notcurses/dart_notcurses.dart' as nc;
@@ -345,6 +346,19 @@ class NotcursesBackend implements TerminalBackend {
       _flushPending = true;
       return;
     }
+    _flushNow();
+  }
+
+  @override
+  void refresh() {
+    if (_stopped) return;
+    // Re-emit the last rasterized frame in full (bypasses damage tracking),
+    // then re-park the hardware cursor. See [TerminalBackend.refresh] for
+    // why a resize needs this: tmux scrolls the alternate screen on pane
+    // shrink, so the terminal's grid no longer matches our retained frame
+    // and damage-only renders would leave stale rows forever.
+    _platform.refresh();
+    _gridDirty = false;
     _flushNow();
   }
 

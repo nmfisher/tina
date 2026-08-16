@@ -101,6 +101,43 @@ void main() {
       expect(found, isNot(contains('line 0')));
     });
 
+    test('shrink mid-stream keeps the most recent content (tin-4k8w)', () {
+      // Regression for the mid-stream resize wipe: with a partially-filled
+      // buffer (content top-aligned, blanks at the bottom), shrinking the
+      // terminal used to keep the BLANK tail and evict every content row
+      // into scrollback — the chat went blank after a resize mid-turn. The
+      // window must keep the most recent content instead.
+      final n = 6; // fewer than the region height — buffer is NOT full
+      for (var i = 0; i < n; i++) {
+        screen.chat.write('streamed line $i\n');
+      }
+      vt.feed(io.written.toString());
+      io.written.clear();
+
+      // Shrink the terminal mid-turn: 100x24 -> 100x12.
+      final small = ScreenLayout.fromSize(100, 12);
+      screen.resize(small);
+      vt.feed(io.written.toString());
+
+      final seen = <String>[];
+      for (var r = small.chat.row;
+          r < small.chat.row + small.chat.height;
+          r++) {
+        final t = vt.rowText(r).substring(small.chat.col, small.chat.col + small.chat.width).trim();
+        if (t.isNotEmpty) seen.add(t);
+      }
+      // The most recent streamed lines survive the shrink.
+      expect(seen, contains('streamed line 5'));
+      expect(seen, contains('streamed line 4'));
+      // Content is bottom-aligned: the tail sits on the last region row.
+      final lastRow =
+          small.chat.row + small.chat.height - 1;
+      expect(
+        vt.rowText(lastRow).substring(small.chat.col, small.chat.col + 15),
+        'streamed line 5',
+      );
+    });
+
     test('colorize methods pass ANSI through without affecting width', () {
       screen.chat.dim('hi');
       vt.feed(io.written.toString());
