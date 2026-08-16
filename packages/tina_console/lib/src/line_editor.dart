@@ -361,7 +361,7 @@ class LineEditor {
     if (debugKeys) {
       stderr.writeln('[keys] event: $event');
     }
-    if (_keyCompleter != null) {
+    if (_keyCompleter != null && event is! PasteInput) {
       final c = _keyCompleter!;
       _keyCompleter = null;
       c.complete(event);
