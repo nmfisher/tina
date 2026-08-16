@@ -38,6 +38,8 @@ TMUX_INJECT_SLEEP=0 "$here/tmux_inject_replies.sh" "$sess" >/dev/null
 sleep 8
 tmux send-keys -t "$sess" -l "Run the command."
 sleep 1
+# Pause so the Enter clears the paste-burst join window (see tina_sweep_task).
+sleep 0.15
 tmux send-keys -t "$sess" Enter
 
 # Steady-cadence 'y' presses, 3 s apart — the vanish cadence from the ticket.

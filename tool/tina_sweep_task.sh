@@ -64,6 +64,10 @@ text = open(sys.argv[1]).read().rstrip('\n')
 for i in range(0, len(text), 10):
     subprocess.run(['tmux', 'send-keys', '-t', 'sweep', '-l', text[i:i+10]], check=True)
     time.sleep(0.12)
+# Pause before the Enter so it clears the paste-burst join window (30 ms).
+# A folded Enter turns the submission into a PasteInput whose \n never
+# submits the line — and an approval's pendingLine wait then stalls on it.
+time.sleep(0.15)
 subprocess.run(['tmux', 'send-keys', '-t', 'sweep', 'Enter'], check=True)
 EOF
 

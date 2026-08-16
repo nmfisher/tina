@@ -6,6 +6,13 @@
 #   tool/corpus_sweep.sh 80x24 [t1 t2 ...]      # default: t1..t13 t15
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
+
+# Single-instance guard: a killed driver leaves its task loop orphaned and a
+# second launch then fights the orphan over tmux (both kill each other's
+# sessions every task). flock fails fast instead.
+exec 9>/tmp/corpus_sweep.lock
+flock -n 9 || { echo "another corpus pass is already running" >&2; exit 1; }
+
 geom="${1:?usage: corpus_sweep.sh <cols>x<rows> [task...]}"
 shift
 if [ "$#" -gt 0 ]; then
