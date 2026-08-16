@@ -7,7 +7,7 @@ created: 2026-08-16T09:35:00Z
 type: bug
 priority: 2
 assignee: Nick Fisher
-tags: [tui, input, startup-drain, notcurses, paste]
+tags: [tui, input, startup-drain, notcurses, paste, needs-user-decision]
 ---
 # Terminal capability replies arriving after the startup drain window paste into the editor
 
@@ -70,3 +70,34 @@ Deterministic variant: `tool/crash_replyburst.sh` (stub server, scenario
   still drained.
 - The harness note in `tmux_inject_replies.sh` stops claiming stray
   duplicates are harmless.
+
+## Open design question (needs user decision)
+
+The drain length is a UX trade-off, and the right point on it is a
+judgment call rather than a defect fix:
+
+- **Longer drain** (say idle gap 150 ms, max 3 s) eats a fast typist's
+  first keystrokes on a warm start — the exact complaint the adaptive
+  window was built to avoid (a fixed 150 ms window delayed the first
+  key).
+- **Shorter drain** (today's 30 ms idle / 1 s max) leaks a bursty or
+  late reply stream into the editor.
+- **Content-based drain** (keep discarding until the first key that
+  can't be part of a reply) is not implementable at this layer: by the
+  time the pump surfaces an event it is an id + modifiers pair, and a
+  reply's printable bytes are indistinguishable from typing. notcurses
+  gives no "this came from a reply" marker, and its bracketed-paste
+  markers do not survive the pump (verified — see the dormant marker
+  path in notcurses_input_backend.dart).
+
+Real-world incidence is low: notcurses *blocks* on its init queries, so
+on a healthy terminal the replies are consumed before the app ever runs.
+The leak needs a reply to arrive after init has given up on it — a slow
+mux relay or a terminal that answers late. It is trivially reproducible
+with the harness (`tool/crash_replyburst.sh`), which is how it was
+found.
+
+Proposed default if the user wants it closed without a decision: raise
+`idleThreshold` to 150 ms and `maxWindow` to 3 s, keeping `minWindow` at
+150 ms, with a StartupDrain fake-clock test for the bursty case. Costs
+at most 150 ms of first-keystroke latency on a warm start.
