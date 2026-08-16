@@ -1,6 +1,6 @@
 ---
 id: tin-8n7c
-status: open
+status: closed
 deps: []
 links: [tin-6a2f]
 created: 2026-08-15T15:12:00Z
@@ -81,3 +81,79 @@ never appears, editor stays empty) did not reproduce in ~10 runs.
 The crash ticket tin-3x9v (linked) also failed to reproduce. Both may
 share a trigger not present in the stub runs (real-provider pacing or a
 specific turn state). tool/vanish_hunt.sh drives steady-cadence presses.
+
+## Session findings (2026-08-16, continued)
+
+REPRODUCED + FIXED a second auto-deny path: the paste-burst flush. The
+paste-burst detector holds a typed prompt (chars + trailing Enter within
+the 30 ms join window) and emits ONE PasteInput on flush. When an
+approval's readKey arms in that window — observed live at 80×24 with the
+real provider: the env ceremony's first bash approval rendered just as
+the prompt was submitted — the flush delivers the paste to the pending
+readKey, which completes with it. The paste is not y/a/d, so the
+approval auto-denies ("bash denied" with no answer char) AND the typed
+prompt is lost (its Enter went into the paste). Byte-order evidence in
+the COCOON_DEBUG_KEYS log: "[keys] event: PasteInput(79 chars)" printed
+right after the approval prompt row rendered, with no keypress between.
+
+Fix (commit f5029cc): `_onEventInner` never completes a pending readKey
+with a PasteInput — the paste routes to the editor buffer (text
+preserved), the readKey stays armed. The 21af54e fix covered only the
+`_pending` overflow path; this is a second delivery path. Regression
+test: "paste burst flush never answers a readKey (approval stays open)".
+
+Still open: the steady-cadence "keys vanish for minutes" mode (T10
+observation). Not reproduced across ~15 further runs (stub + real);
+cadence keys during a running turn go to the queue by design, and an
+open approval resolves on the first key that arrives while it pends.
+Watch for it in the 80×24 corpus pass.
+
+## Session findings (2026-08-16, continued #2)
+
+REPRODUCED + FIXED the prompt-eating variant (the approval steals the
+user's in-flight typing). Live repro at 80×24 with the real provider +
+COCOON_DEBUG_KEYS ([readkey] armed/completed markers): the env
+ceremony's first approval armed while the user was still typing their
+prompt; the prompt's Enter was delivered to the approval's pending
+readKey (the readKey-first routing) — answered as a deny (not y/a/d),
+"bash denied", and the prompt was NEVER submitted (the session's user
+message absent; the pasted text sat in the editor unsubmitted).
+
+Fix (workflow_permission_asker + TuiConversationHost.askPermission): the
+asker awaits `editor.pendingLine` (the in-flight readLine, new getter)
+before arming its readKey — the approval's row stays visible and the
+readKey arms only after the user's prompt submits. The editor's
+readKey-first contract is unchanged (the spend-pause dialog and gates
+still capture keys while a readLine pends); only the approval askers
+defer. Regression test:
+test/host/workflow_permission_asker_test.dart ("readKey waits while
+the user is typing a prompt") fails without the fix.
+
+THEN the wait itself deadlocked (found live, T5 at 80x24): the TUI
+input loop ALWAYS sits in readLine (the next prompt arms the moment the
+current one submits), so the asker waited on the always-pending EMPTY
+readLine — every approval stalled behind the user's next prompt: 22 'y'
+presses queued in the input, the approval never armed, the turn stalled
+the whole watch. THE DEADLOCK IS THE TICKET'S "keys vanish for minutes"
+SHAPE: keys accumulate silently in the input while the approval never
+arms. Fixed (92b6292): the wait engages only when the pending readLine
+carries unsent text (the user mid-typing); an empty pending readLine is
+the idle input region. Regression test: "empty pending readLine does
+not stall the approval (no deadlock)" fails without the buffer check.
+
+Live-verified (80x24, real provider): 12/12 approval readKeys armed and
+completed in lockstep with steady 8 s-cadence presses, zero denials —
+the ticket's acceptance ("an open approval always consumes the next
+keypress, including steady cadence") holds for every reproduced mode:
+
+1. stale paste overflow answering a readKey — 21af54e (fixed earlier).
+2. paste-burst flush answering a readKey (auto-deny + prompt loss) —
+   f5029cc: `_onEventInner` never completes a readKey with a PasteInput.
+3. the prompt's Enter answering the approval (prompt never submitted) —
+   b27c6e1 + 92b6292: the approval askers defer to a readLine with
+   unsent content.
+4. the readLine-wait deadlock (the minutes-long vanish shape) — 92b6292.
+
+CLOSED per close criteria: regression tests exist for 2-4, the root
+suite (+540) and tina_console suite are green, and the live repros
+(80x24 real provider + the corpus runs) pass from clean restarts.

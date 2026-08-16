@@ -468,6 +468,35 @@ void main() {
       expect((e2 as CharInput).text, 'y');
     });
 
+    test('paste burst flush never answers a readKey (approval stays open)', () async {
+      // The paste-burst detector holds a typed prompt (chars + a trailing
+      // Enter arrive faster than the join window) and emits ONE PasteInput on
+      // flush. If an approval's readKey arms in that window, the paste is
+      // delivered while the readKey is pending and answers it: not y/a/d, so
+      // the approval auto-denies AND the typed prompt is lost. The paste must
+      // land in the editor buffer instead; the readKey waits for a real key.
+      final io = FakeStdio();
+      final ed = _editor(io);
+      ed.readLine('> ');
+      await _flush();
+
+      final approval = ed.readKey();
+      // The paste flush arrives while the approval readKey is armed.
+      ed.inject(PasteInput('Read packages/core/lib/src/naive_cache.dart'));
+      await _flush();
+
+      // The readKey is still pending — the paste did not answer it.
+      expect(ed.isReadingKey, isTrue,
+          reason: 'paste must not answer a readKey (auto-deny + text loss)');
+      // The typed text is preserved in the editor buffer, not swallowed.
+      expect(ed.editState.buffer, 'Read packages/core/lib/src/naive_cache.dart');
+
+      // A real key answers the approval as before.
+      io.feedBytes([0x79]); // 'y'
+      final e = await approval.timeout(const Duration(seconds: 2));
+      expect((e as CharInput).text, 'y');
+    });
+
     test('serializes concurrent callers (no orphaned completer)', () async {
       // readKey overwrites _keyCompleter with no save/restore. Without
       // serialization a second caller orphans the first (it never completes).

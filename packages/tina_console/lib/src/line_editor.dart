@@ -222,9 +222,15 @@ class LineEditor {
     _onQueueSubmit = null;
     _keyCompleter = c;
     _ensureListening();
+    if (debugKeys) {
+      stderr.writeln('[readkey] armed');
+    }
     return c.future.whenComplete(() {
       _cancelHandler = savedCancel;
       _onQueueSubmit = savedQueueSubmit;
+      if (debugKeys) {
+        stderr.writeln('[readkey] completed');
+      }
     });
   }
 
@@ -286,6 +292,14 @@ class LineEditor {
   /// flight or queue mode is on). When false, [_edit] is either empty or
   /// stale, and the per-panel saved state is authoritative.
   bool get isEditing => _completer != null || _queueModeActive;
+
+  /// The in-flight [readLine], or null when the user is not typing a prompt.
+  /// A background asker (e.g. a workflow run's permission prompt) awaits this
+  /// before arming its own [readKey] — otherwise the approval steals the
+  /// user's typing, the prompt's Enter answers the approval as a deny (it is
+  /// not y/a/d), and the prompt is never submitted (live repro, 80x24:
+  /// ceremony's first approval ate the submitted prompt's Enter).
+  Future<String?>? get pendingLine => _completer?.future;
 
   /// Load edit state from a panel and render the input line, even when no
   /// [readLine] is active — unlike [refresh], this always paints.
@@ -361,7 +375,7 @@ class LineEditor {
     if (debugKeys) {
       stderr.writeln('[keys] event: $event');
     }
-    if (_keyCompleter != null) {
+    if (_keyCompleter != null && event is! PasteInput) {
       final c = _keyCompleter!;
       _keyCompleter = null;
       c.complete(event);

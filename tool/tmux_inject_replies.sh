@@ -37,7 +37,9 @@ pane="${2:-}"
 
 # Wait for the notcurses query burst to be written. dart run needs a moment to
 # start the app; then notcurses writes its queries and blocks reading.
-sleep 4
+# TMUX_INJECT_SLEEP=0 when the caller already polled the app's query burst and
+# needs the replies within notcurses' reply window (~2 s).
+sleep "${TMUX_INJECT_SLEEP:-4}"
 
 target="$session"
 [ -n "$pane" ] && target="$session.$pane"

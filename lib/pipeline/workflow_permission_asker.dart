@@ -71,6 +71,21 @@ class WorkflowPermissionAsker {
     _write(
         '  approve? [y/n/a/d]  (a/d remember "${p.alwaysPattern}") › ',
         HostMessageStyle.normal);
+    // If the user is mid-prompt (a readLine in flight WITH unsent content),
+    // the approval must not steal their typing — the prompt's Enter would
+    // answer this readKey as a deny (it is not y/a/d) and the prompt would
+    // never be submitted. Wait for the readLine to submit before arming;
+    // the approval's own row stays visible meanwhile.
+    //
+    // The TUI's input loop ALWAYS sits in readLine (the next prompt is armed
+    // the moment the current one submits), so an empty pending readLine must
+    // NOT trigger the wait — that deadlocks every approval behind the user's
+    // next prompt (live vanish in the sweep runs: 22 queued 'y's, the
+    // approval never armed).
+    final pending = editor!.pendingLine;
+    if (pending != null && editor!.editState.buffer.isNotEmpty) {
+      await pending.catchError((_) {});
+    }
     final event = await editor!.readKey();
     final ch = event is CharInput ? event.text.toLowerCase() : '';
     _write('$ch\n', HostMessageStyle.normal);

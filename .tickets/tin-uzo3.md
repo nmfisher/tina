@@ -1,6 +1,6 @@
 ---
 id: tin-uzo3
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-08-08T04:22:36Z
@@ -17,3 +17,7 @@ In the TUI, a tool call renders as a dim line like '→ glob' with no arguments.
 
 Every tool call in the main and sub-agent panels shows a compact description of its input; glob shows the pattern; grep and search show pattern or query; unknown tools show a truncated input summary; tests pass.
 
+
+## Close note
+
+Closed 2026-08-16: already fixed by 7dd4949 (on main since Aug 8) — _describe gained glob/grep (pattern, path), search (symbol) cases and a generic _summarize fallback; tests in test/host/agent_sink_test.dart pass (root suite +538 green). Ticket was left open after the fix landed; closing per close criteria.

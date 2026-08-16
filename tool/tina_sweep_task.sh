@@ -23,13 +23,35 @@ done
 
 tmux kill-server >/dev/null 2>&1 || true
 sleep 1
+# A killed driver can orphan its current session ("sweep") — kill-server then
+# races a dying server and new-session fails with "duplicate session". Kill the
+# session by name too, and retry the create once before giving up.
+tmux kill-session -t sweep >/dev/null 2>&1 || true
 rm -f /tmp/tina_raw.log
-tmux new-session -d -x "${geom%x*}" -y "${geom#*x}" -s sweep
+if ! tmux new-session -d -x "${geom%x*}" -y "${geom#*x}" -s sweep 2>/dev/null; then
+  sleep 1
+  tmux kill-session -t sweep >/dev/null 2>&1 || true
+  tmux new-session -d -x "${geom%x*}" -y "${geom#*x}" -s sweep
+fi
 tmux send-keys -t sweep "cd /workspace/examples/workspace" Enter
 sleep 1
+rm -f /tmp/tina_raw.log
 tmux pipe-pane -t sweep -o "cat >> /tmp/tina_raw.log" >/dev/null
 tmux send-keys -t sweep "dart run /workspace/bin/tina.dart" Enter
-"$here/tmux_inject_replies.sh" sweep >/dev/null
+# Inject the terminal replies the moment the app's notcurses init query burst
+# appears in the raw log (the alt-screen enter + CPR are the first queries).
+# This lands inside notcurses' reply window (~2 s):
+#  - earlier (during the compile) the replies echo into the cooked shell and
+#    are lost — the app then blocks at init (tin-r2vd);
+#  - later, notcurses' reply window has closed and the replies leak into the
+#    editor as input — the OSC4 palette garbage lands inside the typed prompt.
+for i in $(seq 1 90); do
+  if grep -q "1049h" /tmp/tina_raw.log 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+TMUX_INJECT_SLEEP=0 "$here/tmux_inject_replies.sh" sweep >/dev/null
 sleep 6
 
 # Clear any approve-keys that leaked into the editor, then type the prompt
@@ -42,12 +64,18 @@ text = open(sys.argv[1]).read().rstrip('\n')
 for i in range(0, len(text), 10):
     subprocess.run(['tmux', 'send-keys', '-t', 'sweep', '-l', text[i:i+10]], check=True)
     time.sleep(0.12)
+# Pause before the Enter so it clears the paste-burst join window (30 ms).
+# A folded Enter turns the submission into a PasteInput whose \n never
+# submits the line — and an approval's pendingLine wait then stalls on it.
+time.sleep(0.15)
 subprocess.run(['tmux', 'send-keys', '-t', 'sweep', 'Enter'], check=True)
 EOF
 
 echo "=== $label: submitted, watching $watch s ==="
 end=$((SECONDS + watch))
 approvals=0
+last_approval=""
+stuck=0
 while [ $SECONDS -lt $end ]; do
   # 'y' (allowOnce) is used: 'a' (allowAlways) intermittently fails to
   # resolve an approval in this harness (see tin-8n7c); 'y' resolves more
@@ -55,7 +83,11 @@ while [ $SECONDS -lt $end ]; do
   # if the same approval text persists across presses, back off and wait
   # before the next press — a press after a pause resolves it.
   if [ "$auto_approve" = 1 ]; then
-    cur=$(tmux capture-pane -p -e -t sweep | grep -E '›[[:space:]]*│$' | md5sum | cut -c1-8)
+    # No approval row matched (e.g. the app is still building): the grep exits
+    # 1 and under pipefail would kill the watch loop — tolerate it. Match on
+    # the PLAIN capture (no -e): with escapes, the colored border prefix breaks
+    # the '› … │$' regex and the loop stops seeing approvals entirely.
+    cur=$(tmux capture-pane -p -t sweep 2>/dev/null | grep -E '›[[:space:]]*│$' | md5sum | cut -c1-8 || true)
     if [ -n "$cur" ]; then
       if [ "$cur" = "$last_approval" ]; then
         stuck=$((stuck + 1))

@@ -11,27 +11,32 @@ run_id="$(date +%H%M%S)"
 
 tmux kill-server >/dev/null 2>&1 || true
 sleep 1
+# kill-server can race a dying server and leave the session name taken;
+# retry the create once before giving up (orphaned sessions from killed runs).
+tmux kill-session -t "${sess}" >/dev/null 2>&1 || true
 # Reset the warm environment record so the first-load ceremony streams in the
 # background (the crash's streaming+approval interleave).
 rm -f /workspace/examples/workspace/.tina/environment/tracking.json
 rm -f /workspace/examples/workspace/ENVIRONMENT.md
-tmux new-session -d -x 120 -y 40 -s "$sess"
+if ! tmux new-session -d -x 120 -y 40 -s "$sess" 2>/dev/null; then
+  sleep 1
+  tmux kill-session -t "$sess" >/dev/null 2>&1 || true
+  tmux new-session -d -x 120 -y 40 -s "$sess"
+fi
 tmux send-keys -t "$sess" "cd /workspace/examples/workspace" Enter
 sleep 1
+tmux pipe-pane -t "$sess" -o "cat >> $outdir/$run_id.raw"
 tmux send-keys -t "$sess" "ulimit -c unlimited; gdb -q -batch -ex run -ex 'bt 60' --args dart run /workspace/bin/tina.dart" Enter
 
-# Poll for the compile to start ("Running build hooks" echoes in the pane),
-# then wait out the compile + gdb startup before injecting the replies —
-# too early and the replies land in the shell (cooked mode) and echo as
-# literal text.
-for i in $(seq 1 40); do
-  sleep 3
-  if tmux capture-pane -p -t "$sess" 2>/dev/null | grep -q "Running build hooks"; then
+# Inject the replies the moment the app's notcurses init query burst appears
+# in the run's raw log — inside notcurses' reply window (see crash_hunt.sh).
+for i in $(seq 1 120); do
+  if grep -q "1049h" "$outdir/$run_id.raw" 2>/dev/null; then
     break
   fi
+  sleep 1
 done
-sleep 75
-"$here/tmux_inject_replies.sh" "$sess" >/dev/null 2>&1 || true
+TMUX_INJECT_SLEEP=0 "$here/tmux_inject_replies.sh" "$sess" >/dev/null 2>&1 || true
 sleep 10
 
 tmux send-keys -t "$sess" -l "Refactor the store package to expose a count query method and wire it into the cli as a count subcommand."
