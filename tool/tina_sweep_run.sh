@@ -27,7 +27,7 @@ case "${1:-}" in
     tmux send-keys -t "$sess" "cd /workspace/examples/workspace" Enter
     sleep 1
     tmux pipe-pane -t "$sess" -o "cat >> /tmp/tina_raw.log"
-    tmux send-keys -t "$sess" "dart run /workspace/bin/tina.dart" Enter
+    tmux send-keys -t "$sess" "ulimit -c unlimited; dart run /workspace/bin/tina.dart" Enter
     "$here/tmux_inject_replies.sh" "$sess"
     sleep 6
     if [ -n "$taskfile" ]; then
