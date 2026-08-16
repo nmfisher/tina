@@ -80,8 +80,10 @@ while [ $SECONDS -lt $end ]; do
   # before the next press — a press after a pause resolves it.
   if [ "$auto_approve" = 1 ]; then
     # No approval row matched (e.g. the app is still building): the grep exits
-    # 1 and under pipefail would kill the watch loop — tolerate it.
-    cur=$(tmux capture-pane -p -e -t sweep 2>/dev/null | grep -E '›[[:space:]]*│$' | md5sum | cut -c1-8 || true)
+    # 1 and under pipefail would kill the watch loop — tolerate it. Match on
+    # the PLAIN capture (no -e): with escapes, the colored border prefix breaks
+    # the '› … │$' regex and the loop stops seeing approvals entirely.
+    cur=$(tmux capture-pane -p -t sweep 2>/dev/null | grep -E '›[[:space:]]*│$' | md5sum | cut -c1-8 || true)
     if [ -n "$cur" ]; then
       if [ "$cur" = "$last_approval" ]; then
         stuck=$((stuck + 1))
