@@ -124,6 +124,130 @@ void main() {
       expect(history[1].content.single, isA<TextBlock>());
     });
 
+    // tin-p2sq: a model whose tool-call arguments are not valid JSON (the
+    // quote-heavy shell one-liner case) must not lose the turn. The agent
+    // answers the call with an error result and the model retries — the tool
+    // itself never runs with garbage input.
+    test('malformed tool arguments become an error result, not a dead turn',
+        () async {
+      var executed = 0;
+      final provider = FakeProvider([
+        [
+          const MessageComplete(
+            content: [
+              TextBlock('Counting first.'),
+              ToolUseBlock(
+                id: 'c1',
+                name: 'bash',
+                input: {},
+                argumentsParseError: 'Unterminated string (at character 349)',
+              ),
+            ],
+            stopReason: 'tool_use',
+          ),
+        ],
+        [
+          const TextDelta('recovered'),
+          const MessageComplete(
+            content: [TextBlock('recovered')],
+            stopReason: 'end_turn',
+          ),
+        ],
+      ]);
+      final sink = FakeAgentSink();
+      final agent = _agent(
+        provider: provider,
+        tools: ToolRegistry([
+          FakeTool('bash', (_) {
+            executed++;
+            return ToolResult('ran');
+          }),
+        ]),
+        sink: sink,
+        policy: PermissionPolicy(defaults: {'bash': PermissionDecision.allow}),
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'what tests do we have?');
+
+      expect(executed, 0, reason: 'the malformed call must not reach the tool');
+      expect(sink.toolStarts, isEmpty);
+      // The turn continued: the model saw the error and answered.
+      expect(provider.calls, hasLength(2));
+      expect(sink.texts, ['recovered']);
+      // user → assistant(text+bad tool_use) → user(tool_result error) → text
+      expect(history, hasLength(4));
+      final result = history[2].content.single as ToolResultBlock;
+      expect(result.toolUseId, 'c1');
+      expect(result.isError, isTrue);
+      expect(result.content, contains('not valid JSON'));
+      expect(result.content, contains('Unterminated string'));
+      // And the retry really can call the tool: a good call on the next step
+      // executes normally.
+      expect(agent.abortedKind, AbortedKind.none);
+    });
+
+    test('a retried good call after a malformed one executes (tin-p2sq)',
+        () async {
+      final inputs = <Map<String, dynamic>>[];
+      final provider = FakeProvider([
+        [
+          const MessageComplete(
+            content: [
+              ToolUseBlock(
+                id: 'c1',
+                name: 'bash',
+                input: {},
+                argumentsParseError: 'Unterminated string',
+              ),
+            ],
+            stopReason: 'tool_use',
+          ),
+        ],
+        [
+          const MessageComplete(
+            content: [
+              ToolUseBlock(
+                id: 'c2',
+                name: 'bash',
+                input: {
+                  'command': r'echo "done: \"$?\""',
+                },
+              ),
+            ],
+            stopReason: 'tool_use',
+          ),
+        ],
+        [
+          const MessageComplete(
+            content: [TextBlock('all set')],
+            stopReason: 'end_turn',
+          ),
+        ],
+      ]);
+      final sink = FakeAgentSink();
+      final agent = _agent(
+        provider: provider,
+        tools: ToolRegistry([
+          FakeTool('bash', (input) {
+            inputs.add(input);
+            return ToolResult('ok');
+          }),
+        ]),
+        sink: sink,
+        policy: PermissionPolicy(defaults: {'bash': PermissionDecision.allow}),
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'run it');
+
+      expect(inputs, [
+        {'command': r'echo "done: \"$?\""'},
+      ], reason: 'only the well-formed retry reaches the tool, input verbatim');
+      expect(sink.toolCompletes.single.isError, isFalse);
+      expect(provider.calls, hasLength(3));
+    });
+
     test('tool loop: result is fed back and the model finishes', () async {
       final provider = FakeProvider([
         [

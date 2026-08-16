@@ -218,6 +218,28 @@ class Agent {
           return;
         }
         toolCalls++;
+        // The model's tool-call arguments were not valid JSON (tin-p2sq: a
+        // quote-heavy shell one-liner it failed to escape). The tool cannot
+        // run, but the turn need not die: answer the call with an error the
+        // model can act on, and let the next step re-emit it correctly.
+        final parseError = use.argumentsParseError;
+        if (parseError != null) {
+          sink.notice(
+              '  ${use.name}: malformed arguments — asking the model to '
+              'retry\n',
+              kind: NoticeKind.warning);
+          results.add(ToolResultBlock(
+            toolUseId: use.id,
+            content: 'Your ${use.name} call was discarded: its arguments '
+                'were not valid JSON ($parseError). This usually means '
+                'quotes or backslashes in the command text were not escaped '
+                'for JSON — re-emit the call with '
+                r'inner double quotes written as \" and each literal '
+                r'backslash as \\.',
+            isError: true,
+          ));
+          continue;
+        }
         final tool = tools[use.name];
         if (tool == null) {
           sink.notice('  unknown tool: ${use.name}\n', kind: NoticeKind.error);

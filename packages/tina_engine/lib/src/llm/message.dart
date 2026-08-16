@@ -17,6 +17,7 @@ sealed class ContentBlock {
           id: j['id'] as String,
           name: j['name'] as String,
           input: Map<String, dynamic>.from(j['input'] as Map),
+          argumentsParseError: j['arguments_parse_error'] as String?,
         );
       case 'tool_result':
         return ToolResultBlock(
@@ -42,10 +43,17 @@ class ToolUseBlock extends ContentBlock {
   final String id;
   final String name;
   final Map<String, dynamic> input;
+
+  /// Set when the model's tool-call arguments were not valid JSON (tin-p2sq:
+  /// a quote-heavy shell one-liner the model failed to escape). [input] is
+  /// then empty; the agent turns this into an error tool result so the model
+  /// can re-emit the call with correct escaping instead of losing the turn.
+  final String? argumentsParseError;
   const ToolUseBlock({
     required this.id,
     required this.name,
     required this.input,
+    this.argumentsParseError,
   });
 
   @override
@@ -54,6 +62,8 @@ class ToolUseBlock extends ContentBlock {
         'id': id,
         'name': name,
         'input': input,
+        if (argumentsParseError != null)
+          'arguments_parse_error': argumentsParseError,
       };
 }
 

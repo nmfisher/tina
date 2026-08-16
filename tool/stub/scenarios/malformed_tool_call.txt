@@ -1,0 +1,49 @@
+# Scenario: malformed_tool_call — tin-p2sq repro. Step 1 streams a bash tool
+# call whose arguments JSON is an unterminated string: the model opened the
+# command value, hit its own unescaped double quote, and the JSON never
+# closes. This is the exact DeepSeek shape from the ticket ("error:
+# FormatException: Unterminated string (at character 349)").
+# Step 2 is what a well-behaved model does once tina answers the broken call
+# with an error tool result: retry with a read-only call, correctly encoded.
+# Step 3 finishes the turn in text.
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":null},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"Counting the test files first."},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_stub01","type":"function","function":{"name":"bash","arguments":""}}]},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"command\":\"for f in $(find . -name '*test*' -type f 2>/dev/null | wc -l | tr -d ' '); do echo \"S: $f\"; done; echo \"D: \\\"$?\\\"\"}"}}]},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":110,"completion_tokens":72,"total_tokens":182}}
+
+data: [DONE]
+
+# Step 2: the retry — a well-formed read call (properly escaped JSON).
+!step
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"That one-liner needed JSON escaping I got wrong — retrying read-only."},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_stub02","type":"function","function":{"name":"read","arguments":""}}]},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"filePath\":\"packages/core/lib/src/event_bus.dart\"}"}}]},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":180,"completion_tokens":40,"total_tokens":220}}
+
+data: [DONE]
+
+# Step 3: the final answer.
+!step
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"Recovered: the malformed call was discarded, the read call ran, and the turn completed."},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":220,"completion_tokens":30,"total_tokens":250}}
+
+data: [DONE]

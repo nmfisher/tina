@@ -281,10 +281,21 @@ class _ToolUseBuilder extends _BlockBuilder {
   @override
   ContentBlock build() {
     final s = jsonFragments.toString();
-    final input = s.isEmpty
-        ? <String, dynamic>{}
-        : jsonDecode(s) as Map<String, dynamic>;
-    return ToolUseBlock(id: id, name: name, input: input);
+    if (s.isEmpty) return ToolUseBlock(id: id, name: name, input: const {});
+    try {
+      return ToolUseBlock(
+          id: id, name: name, input: jsonDecode(s) as Map<String, dynamic>);
+    } on FormatException catch (e) {
+      // Same recovery as the OpenAI adapter (tin-p2sq): a malformed
+      // argument stream becomes a per-call parse error the agent feeds back
+      // to the model, not a turn abort.
+      return ToolUseBlock(
+        id: id,
+        name: name,
+        input: const {},
+        argumentsParseError: e.message,
+      );
+    }
   }
 }
 
