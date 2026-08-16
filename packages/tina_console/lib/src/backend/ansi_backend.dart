@@ -128,6 +128,11 @@ class AnsiBackend implements TerminalBackend {
   @override
   bool get coalescesPaints => false;
 
+  // No retained damage model — every frame is re-emitted from the retained
+  // row model, so a resize needs no explicit re-sync.
+  @override
+  void refresh() {}
+
   @override
   bool get supportsColor => _ansi.useColor;
 

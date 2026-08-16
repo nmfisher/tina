@@ -28,7 +28,12 @@ void main() {
     final io = FakeStdio()..columns = 120;
     final layout = ScreenLayout.fromSize(120, 24,
         split: true, drawInfoFrame: false);
-    screen = Screen(io: io, layout: layout, ansi: AnsiCapable.yes);
+    screen = _RecordingScreen(
+      io: io,
+      layout: layout,
+      ansi: AnsiCapable.yes,
+      order: order,
+    );
   });
 
   ResizeCoordinator _coordinator() {
@@ -73,6 +78,7 @@ void main() {
           'panelManager.layout',
           'relayContent',
           'relocateInput',
+          'screen.refresh',
         ],
       );
     });
@@ -115,6 +121,26 @@ void main() {
       expect(pm.lastDrawInfoFrame, isTrue);
     });
   });
+}
+
+/// Records the post-resize full re-emission ([Screen.refresh]) into the
+/// shared [order] list, so the canonical sequence pins the refresh as the
+/// final step of every resize (see ResizeCoordinator.handleResize).
+class _RecordingScreen extends Screen {
+  _RecordingScreen({
+    required super.io,
+    required super.layout,
+    super.ansi,
+    required this.order,
+  });
+
+  final List<String> order;
+
+  @override
+  void refresh() {
+    order.add('screen.refresh');
+    super.refresh();
+  }
 }
 
 /// Minimal [TerminalGeometry] backed by fixed columns/lines for tests.

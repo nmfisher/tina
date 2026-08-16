@@ -12,6 +12,10 @@ import '../helpers/fake_stdio.dart';
 /// change. A real terminal would show a blanked chat area as a flicker; this
 /// captures the same signal without rendering.
 class _RecordBackend implements TerminalBackend {
+
+  // No retained damage model in this fake; refresh is a no-op.
+  @override
+  void refresh() {}
   final List<({int row, int col, int n})> erases = [];
 
   void clear() => erases.clear();

@@ -105,6 +105,10 @@ class _Erase {
 /// Minimal recording fake: captures moves, erases, and the concatenated text
 /// written. Renders nothing — tests assert on the call sequence.
 class _RecBackend implements TerminalBackend {
+
+  // No retained damage model in this fake; refresh is a no-op.
+  @override
+  void refresh() {}
   final List<_Move> moves = [];
   final List<_Erase> erases = [];
   final List<String> written = [];

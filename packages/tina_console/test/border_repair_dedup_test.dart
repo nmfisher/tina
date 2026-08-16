@@ -12,6 +12,10 @@ import 'stdio_fake.dart';
 /// frame-batching contract (deferred flush) the same way
 /// `screen_backend_lifecycle_test.dart`'s RecordingBackend does.
 class _CountingBackend implements TerminalBackend {
+
+  // No retained damage model in this fake; refresh is a no-op.
+  @override
+  void refresh() {}
   final List<({int row, int col})> moves = [];
   final List<String> writes = [];
   int _frameDepth = 0;
@@ -264,6 +268,9 @@ void main() {
 /// flush actually resolved (became pending) during a frame — used to assert
 /// the one-frame-one-presentation property.
 class _DeferCountingBackend implements TerminalBackend {
+  // No retained damage model in this fake; refresh is a no-op.
+  @override
+  void refresh() {}
   int flushResolutions = 0;
   int _frameDepth = 0;
   bool _flushPending = false;

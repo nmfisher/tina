@@ -314,6 +314,10 @@ void main() {
 /// much work a paint did (full rewrite vs patch vs skip). Mirrors the
 /// RecordingBackend / _CountingBackend pattern in the existing suite.
 class _CountingBackend implements TerminalBackend {
+
+  // No retained damage model in this fake; refresh is a no-op.
+  @override
+  void refresh() {}
   final List<String> calls = [];
   int _frameDepth = 0;
   bool _flushPending = false;
