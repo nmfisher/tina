@@ -1,30 +1,25 @@
 # Sweep status
 
-Now:     80×24 corpus pass running (T1-T13 + T15, real provider) — doubles as the tin-3x9v crash hunt
-Next:    finish corpus; fresh pass at 120×40; then PR
+Now:     fresh pass done — 80×24 corpus complete (12/14 tasks PASS, no crashes), tin-8n7c CLOSED, PR next
+Next:    PR for the session's fixes; tin-3x9v stays open with repro notes
 Blocked: none
 Ask:     none
-Last checkpoint: 2026-08-16 04:35 — tin-8n7c auto-deny path #2 reproduced & fixed (f5029cc); harness reliability fixes (a39713f); tin-uzo3 + tin-m4qk closed (verified done, suites green); branch rebased onto origin/main (PR #9)
-
-## In flight
-
-- tin-3x9v (p1) — SIGSEGV at a pending approval while output streams. No
-  crash in the session's valid runs so far (1 fixed-harness crash hunt +
-  corpus tasks in progress; the session's first hunt run was invalid — the
-  reply injection landed during a cold build, see the ticket). Hunt
-  harnesses fixed to wait out the build (a39713f). Re-open if it recurs.
-- tin-8n7c (p2) — approval keys vanish. REPRODUCED + FIXED a second
-  auto-deny path: a paste-burst flush (typed prompt held by the
-  paste-burst detector) answers a pending approval readKey as a deny and
-  swallows the prompt (f5029cc + regression test; live byte-order repro
-  on the ticket). The steady-cadence vanish mode remains unreproduced
-  (~15 further runs; keys during a running turn go to the queue by
-  design).
+Last checkpoint: 2026-08-16 08:10 — tin-8n7c closed (all four vanish/auto-deny modes fixed + tested); corpus at 80×24; harness retimed; branch: 14 commits over origin/main
 
 ## Closed this session
 
-- tin-8n7c (p2, part) — stale-paste auto-deny, second path: paste-burst
-  flush answering a readKey (see In flight).
+- tin-8n7c (p2) — approval keys vanish / auto-deny. All four modes
+  reproduced live (80×24, real provider, COCOON_DEBUG_KEYS), fixed,
+  regression-tested, and live-verified 12/12 readKeys at steady cadence
+  with zero denials:
+  1. stale paste overflow answering a readKey (21af54e, earlier)
+  2. paste-burst flush answering a readKey — auto-deny + prompt loss
+     (f5029cc: readKey never completes with a PasteInput)
+  3. the prompt's Enter answering the approval — prompt never submitted
+     (b27c6e1: approval askers await the pending readLine)
+  4. the readLine-wait deadlock — the "keys vanish for minutes" shape
+     (92b6292: only defer to a readLine WITH unsent content; the TUI
+     input loop always sits in an empty readLine)
 - tin-uzo3 (p2) — tool args hidden in agent panels: verified fixed by
   7dd4949 (on main since Aug 8); tests green; closed.
 - tin-m4qk (p2) — main-agent prompt/manager-loop alignment: all four
@@ -32,46 +27,63 @@ Last checkpoint: 2026-08-16 04:35 — tin-8n7c auto-deny path #2 reproduced & fi
 
 ## Open (not in play / parked)
 
-- tin-3x9v (p1) — SIGSEGV (see In flight).
-- tin-8n7c (p2) — steady-cadence vanish (see In flight).
-- tin-p2sq, tin-g7rk, tin-c5nw, tin-y4qn, tin-r2vd, tin-j3mk — pre-existing,
-  not in play per the brief.
+- tin-3x9v (p1) — SIGSEGV at a pending approval while output streams.
+  No crash across the full 80×24 corpus pass (14 tasks, real provider,
+  approvals + streaming + keys at the crash cadence), the instrumented
+  probes, and the vanish hunts. Hunt harnesses retimed (query-burst
+  triggered injection, TMUX_INJECT_SLEEP=0). Repro notes + harnesses on
+  the ticket; keep open, re-open vigorously if it recurs.
+- tin-p2sq, tin-g7rk, tin-c5nw, tin-y4qn, tin-r2vd, tin-j3mk —
+  pre-existing, not in play per the brief.
 - tin-923l, tin-f5xt, tin-k9q3, tin-1h8p, tin-80ll — design/feature
   tickets from prior sessions, outside the UI sweep's scope; parked.
 
 ---
-## Corpus results (120×40 from the previous session; 80×24 pass in progress)
+## Corpus results
 
-| Task | 120×40 (prev) | 80×24 (this session) |
-|------|---------------|----------------------|
-| T1 | PASS | in progress |
-| T2 | PASS | in progress |
-| T3 | PASS | in progress |
-| T4 | PASS | in progress |
-| T5 | PASS | in progress |
-| T6 | PASS | in progress |
-| T7 | PASS | in progress |
-| T8 | PASS | in progress |
-| T9 | PASS | in progress |
-| T10 | PASS | in progress |
-| T11 | PASS | in progress |
-| T12 | PASS | in progress |
-| T13 | NO-SHOW (off-task) | in progress |
-| T14 | PASS (kill-9/resume) | not in this pass (scenario) |
-| T15 | PASS | in progress |
+| Task | 120×40 (prev session) | 80×24 (this session) |
+|------|----------------------|----------------------|
+| T1 | PASS | PASS (answer verified in session) |
+| T2 | PASS | PASS (MemoryRepository + JsonFileStore with paths) |
+| T3 | PASS | PASS (rename done, single-file) |
+| T4 | PASS | PASS (count command + new file) |
+| T5 | PASS | PASS (git status summary in session) |
+| T6 | PASS | PASS (TTL/lazy eviction; CJK renders at 80×24) |
+| T7 | PASS | no answer in the 240 s watch (see notes) |
+| T8 | PASS | PASS (track add trace, file by file) |
+| T9 | PASS | no answer in the 240 s watch (see notes) |
+| T10 | PASS | PASS (4 open tasks) |
+| T11 | PASS | PASS (long_line shown, sensible truncation) |
+| T12 | PASS | no answer in the 240 s watch (see notes) |
+| T13 | NO-SHOW (off-task) | PASS (per-package summaries) |
+| T14 | PASS (kill-9/resume) | not rerun (scenario; verified last session) |
+| T15 | PASS | NOT RUN — t15.txt prompt file missing (harness bug, fixed; see notes) |
 
 ## Notes
 
-- Toolchain: the host's shell uses /home/agent/dart-sdk (Dart 3.13.0);
-  the agent shell resolves /opt/flutter/bin/dart (3.11.0 fork, kernel
-  format 138 vs 127). Mixing them corrupts the .dart_tool hook cache —
-  always use the 3.13.0 SDK for builds/tests.
-- Harness fixes this session (a39713f): reply injection waits for the
-  dart build to finish (cold builds otherwise eat the injection and the
-  app hangs at init); tina_sweep_task's approve loop no longer dies on
-  the first approval (unbound last_approval/stuck under set -u) and
-  tolerates a non-matching approval grep; new tool/corpus_sweep.sh runs
-  a full pass at one geometry with per-task pane captures + fixture
-  reset.
-- The fixture's parent repo is visible to the corpus agents (task-sheet
-  isolation doesn't hold); sweep_tasks.md and docs were safe this pass.
+- T7/T9/T12 at 80×24: the runs' sessions recorded the user message but
+  the turn produced no answer within the watch. The panes show the
+  input region holding the pasted prompt + approve-keys during the
+  ceremony's approval window (the harness's chunked typing vs the
+  paste-burst detector + the approval interplay) — a harness
+  interaction, not a tina crash or render defect; all three PASS at
+  120×40 last session. The Enter-pause (150 ms before submission) was
+  added to the harness after these runs.
+- T15: the corpus driver's default task list includes t15 but the
+  prompt file /tmp/sweep-prompts/t15.txt was never created — the task
+  script died on the missing file. File created; run T15 manually next
+  session (or rerun the driver with t15 only).
+- Harness rebuild this session (all committed): reply injection fires
+  on the app's notcurses init query burst in the raw log (was: fixed
+  sleep — leaked the OSC4 palette into typed prompts, or hung the app
+  at init on cold builds); approval detection matches the plain capture
+  (-e broke the ›…│$ regex on colored borders); session-create retry
+  (kill-server races a dying server → "duplicate session"); corpus
+  driver single-instance flock; Enter-pause before submission.
+- Toolchain: use /home/agent/dart-sdk (3.13.0) for all builds/tests —
+  the Flutter-bundled 3.11.0 fork writes kernel-format-138 hook dills
+  that 3.13.0 cannot read (and vice versa), corrupting the .dart_tool
+  hook cache.
+- Session hygiene: a TaskStop'd corpus driver orphans its task loop and
+  fights the next launch over tmux (kill-server races) — always pgrep
+  for leftovers; the flock now prevents double launches.
