@@ -112,7 +112,15 @@ def main():
     # The refs API path is the ref WITHOUT the leading "refs/" (e.g.
     # "heads/asb/ui-sweep"); the branch name in the path IS the ref suffix.
     path = ref.removeprefix("refs/")
-    gh_api("PATCH", f"/git/refs/{path}", {"sha": parent, "force": True})
+    # The branch may not exist yet (e.g. it was deleted after its PR merged):
+    # create it, then update. The PATCH-with-force on a missing ref 422s.
+    try:
+        gh_api("PATCH", f"/git/refs/{path}", {"sha": parent, "force": True})
+    except urllib.error.HTTPError as e:
+        if e.code == 422:
+            gh_api("POST", "/git/refs", {"ref": ref, "sha": parent})
+        else:
+            raise
     print(f"branch {branch} -> {parent}")
 
 
