@@ -11,11 +11,18 @@ run_id="$(date +%H%M%S)"
 
 tmux kill-server >/dev/null 2>&1 || true
 sleep 1
+# kill-server can race a dying server and leave the session name taken;
+# retry the create once before giving up (orphaned sessions from killed runs).
+tmux kill-session -t "${sess}" >/dev/null 2>&1 || true
 # Reset the warm environment record so the first-load ceremony streams in the
 # background (the crash's streaming+approval interleave).
 rm -f /workspace/examples/workspace/.tina/environment/tracking.json
 rm -f /workspace/examples/workspace/ENVIRONMENT.md
-tmux new-session -d -x 120 -y 40 -s "$sess"
+if ! tmux new-session -d -x 120 -y 40 -s "$sess" 2>/dev/null; then
+  sleep 1
+  tmux kill-session -t "$sess" >/dev/null 2>&1 || true
+  tmux new-session -d -x 120 -y 40 -s "$sess"
+fi
 tmux send-keys -t "$sess" "cd /workspace/examples/workspace" Enter
 sleep 1
 tmux send-keys -t "$sess" "ulimit -c unlimited; gdb -q -batch -ex run -ex 'bt 60' --args dart run /workspace/bin/tina.dart" Enter

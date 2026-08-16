@@ -23,8 +23,16 @@ done
 
 tmux kill-server >/dev/null 2>&1 || true
 sleep 1
+# A killed driver can orphan its current session ("sweep") — kill-server then
+# races a dying server and new-session fails with "duplicate session". Kill the
+# session by name too, and retry the create once before giving up.
+tmux kill-session -t sweep >/dev/null 2>&1 || true
 rm -f /tmp/tina_raw.log
-tmux new-session -d -x "${geom%x*}" -y "${geom#*x}" -s sweep
+if ! tmux new-session -d -x "${geom%x*}" -y "${geom#*x}" -s sweep 2>/dev/null; then
+  sleep 1
+  tmux kill-session -t sweep >/dev/null 2>&1 || true
+  tmux new-session -d -x "${geom%x*}" -y "${geom#*x}" -s sweep
+fi
 tmux send-keys -t sweep "cd /workspace/examples/workspace" Enter
 sleep 1
 tmux pipe-pane -t sweep -o "cat >> /tmp/tina_raw.log" >/dev/null
