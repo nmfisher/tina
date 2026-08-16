@@ -32,10 +32,8 @@ tmux send-keys -t sweep "dart run /workspace/bin/tina.dart" Enter
 "$here/tmux_inject_replies.sh" sweep >/dev/null
 sleep 6
 
-# Clear any approve-keys that leaked into the editor, then type the prompt
-# slowly (10-char chunks, 120ms gaps) so the paste-burst detector doesn't
-# swallow the trailing Enter, then submit.
-tmux send-keys -t sweep C-u
+# Type the prompt slowly (10-char chunks, 120ms gaps) so the paste-burst
+# detector doesn't swallow the trailing Enter, then submit.
 python3 - "$promptfile" <<'EOF'
 import subprocess, sys, time
 text = open(sys.argv[1]).read().rstrip('\n')
@@ -50,29 +48,12 @@ end=$((SECONDS + watch))
 approvals=0
 while [ $SECONDS -lt $end ]; do
   # 'y' (allowOnce) is used: 'a' (allowAlways) intermittently fails to
-  # resolve an approval in this harness (see tin-8n7c); 'y' resolves more
-  # often. Steady-cadence presses can be ignored for minutes (tin-8n7c), so
-  # if the same approval text persists across presses, back off and wait
-  # before the next press — a press after a pause resolves it.
-  if [ "$auto_approve" = 1 ]; then
-    cur=$(tmux capture-pane -p -e -t sweep | grep -E '›[[:space:]]*│$' | md5sum | cut -c1-8)
-    if [ -n "$cur" ]; then
-      if [ "$cur" = "$last_approval" ]; then
-        stuck=$((stuck + 1))
-      else
-        stuck=0
-      fi
-      last_approval=$cur
-      if [ "$stuck" -ge 3 ]; then
-        sleep 15
-        stuck=0
-      fi
-      tmux send-keys -t sweep y
-      approvals=$((approvals + 1))
-      sleep 6
-    else
-      sleep 6
-    fi
+  # resolve an approval in this harness (see tin-8n7c); 'y' resolves every
+  # time. Longer pauses between presses also avoid the vanish.
+  if [ "$auto_approve" = 1 ] && tmux capture-pane -p -e -t sweep | grep -qE '›[[:space:]]*│$'; then
+    tmux send-keys -t sweep y
+    approvals=$((approvals + 1))
+    sleep 6
   else
     sleep 6
   fi
