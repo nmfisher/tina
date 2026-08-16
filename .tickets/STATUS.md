@@ -1,14 +1,15 @@
 # Sweep status
-Now:     200x50 corpus pass running (T1-T15); tin-v6tq evaluation reported
-Next:    finish 200x50, then a fresh pass at 60x10; PR
+Now:     session complete — corpus run at 4 geometries, fresh pass clean, PR raised
+Next:    await the tin-v6tq decision; then wire ReplySequenceFilter if approved
 Blocked: none
 Ask:     tin-v6tq — option 1 (raw-byte filter) is unreachable via the notcurses
          3.0.17 API and option 4 (init flag) does not exist; a validated
          event-layer filter is prototyped and awaits a go-ahead to wire in.
          Plus the parked feature tickets below.
-Last checkpoint: 2026-08-16 14:05 — tin-v6tq evaluated (option 1 rejected,
-prototype validated), tin-3x9v hunted 4 more runs incl. a union harness (13
-total, no crash); branch: 3 commits over PR 11's head
+Last checkpoint: 2026-08-16 15:45 — tin-v6tq evaluated (option 1 rejected,
+prototype validated); tin-3x9v hunted 4 more runs incl. a union harness (13
+total, no crash); corpus 200x50 14/14 and a fresh 60x10 pass 14/14, nothing
+new. PR 11 was squash-merged as a1189fb; this session's work is a fresh PR.
 
 ## This session
 
@@ -54,21 +55,27 @@ total, no crash); branch: 3 commits over PR 11's head
 
 | Task | 120x40 (prev session) | 80x24 (last session) | 200x50 (this session) | 60x10 (this session) |
 |------|----------------------|----------------------|----------------------|----------------------|
-| T1 | PASS | PASS | PASS | running |
-| T2 | PASS | PASS | PASS | pending |
-| T3 | PASS | PASS | PASS | pending |
-| T4 | PASS | PASS | PASS | pending |
-| T5 | PASS | PASS | PASS | pending |
-| T6 | PASS | PASS | PASS | pending |
-| T7 | PASS | no answer in watch | PASS | pending |
-| T8 | PASS | PASS | PASS | pending |
-| T9 | PASS | no answer in watch | PASS | pending |
-| T10 | PASS | PASS | PASS | pending |
-| T11 | PASS | PASS | PASS | pending |
-| T12 | PASS | no answer in watch | PASS | pending |
-| T13 | NO-SHOW | PASS | PASS | pending |
+| T1 | PASS | PASS | PASS | PASS |
+| T2 | PASS | PASS | PASS | PASS |
+| T3 | PASS | PASS | PASS | PASS |
+| T4 | PASS | PASS | PASS | PASS |
+| T5 | PASS | PASS | PASS | PASS |
+| T6 | PASS | PASS | PASS | PASS |
+| T7 | PASS | no answer in watch | PASS | PASS |
+| T8 | PASS | PASS | PASS | PASS |
+| T9 | PASS | no answer in watch | PASS | PASS |
+| T10 | PASS | PASS | PASS | PASS |
+| T11 | PASS | PASS | PASS | PASS |
+| T12 | PASS | no answer in watch | PASS | PASS |
+| T13 | NO-SHOW | PASS | PASS | PASS |
 | T14 | PASS | not rerun | not rerun (scenario) | not rerun (scenario) |
-| T15 | PASS | NOT RUN | PASS | pending |
+| T15 | PASS | NOT RUN | PASS | PASS |
+
+200x50: 14/14, no APP DEAD, every pane full-width content (48 content rows);
+T7/T9/T12 — which stalled at 80x24 — all answered. 60x10 (fresh pass, nasty
+geometry): 14/14, no APP DEAD, layout intact (8 content rows + both borders
+in every pane; long approval commands wrap cleanly). **The fresh pass found
+nothing new.**
 
 200x50: 14/14 tasks, no APP DEAD, every pane full-width content (48 content
 rows). T7/T9/T12 — which stalled at 80x24 — all answered at 200x50.
