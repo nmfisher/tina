@@ -36,6 +36,15 @@ class ScrollingTextRegion extends Region {
   int _curRow = 0;
   int _curCol = 0;
 
+  /// Owner of the currently-open partial row, if any. Set by a write that
+  /// carries a [rowOwner] and ends mid-row (no trailing newline); cleared
+  /// when the row completes. While set, any OTHER writer's text starts a
+  /// fresh row instead of appending to the partial one — otherwise a
+  /// background writer (e.g. the environment ceremony) streaming while an
+  /// approval prompt awaits its answer would merge its text onto the
+  /// approval's "approve? … › " row (tin-6a2f).
+  Object? _openRowOwner;
+
   /// When true, writes go to [_detachedBuffer] instead of the screen.
   bool _detached = false;
   final StringBuffer _detachedBuffer = StringBuffer();
@@ -308,9 +317,14 @@ class ScrollingTextRegion extends Region {
   /// Append [text] as a plain (unstyled) write. Any open styled block is
   /// closed first via [_endLineStyle], so a tool call, notice, or the next
   /// turn's prompt lands on the default background.
-  void write(String text) {
+  ///
+  /// [rowOwner] marks the write as belonging to a logical row that spans
+  /// several writes (e.g. an approval prompt awaiting its answer character).
+  /// While such a row is open, other writers' text starts a fresh row
+  /// instead of appending to it — see [_openRowOwner].
+  void write(String text, {Object? rowOwner}) {
     _endLineStyle();
-    _writeInternal(text);
+    _writeInternal(text, rowOwner: rowOwner);
   }
 
   /// Open a styled block. Idempotent — a no-op if one is already open, so
@@ -375,7 +389,7 @@ class ScrollingTextRegion extends Region {
   /// Append [text]. `\n` advances to the next row; other characters wrap
   /// at the region width. ANSI escape sequences pass through but don't
   /// consume column budget.
-  void _writeInternal(String text) => screen.frame(() {
+  void _writeInternal(String text, {Object? rowOwner}) => screen.frame(() {
         if (text.isEmpty) return;
         if (_detached) {
           _detachedBuffer.write(text);
@@ -386,6 +400,16 @@ class ScrollingTextRegion extends Region {
           return;
         }
         if (bounds.isEmpty) return;
+        // A write that begins on a partial row owned by someone else (an
+        // approval prompt awaiting its answer) must not append to it — the
+        // previous owner's row ends where it is and this write starts a
+        // fresh row. The owner's own writes (the answer character) still
+        // append, so "approve? … › y" stays on one row.
+        if (_openRowOwner != null && _curCol > 0 && rowOwner != _openRowOwner) {
+          final touched = <int>{};
+          touched.add(_curRow);
+          _advanceRow(touched);
+        }
         final previousContentRows = _contentRowCount;
         final touched = <int>{};
         var i = 0;
@@ -434,6 +458,14 @@ class ScrollingTextRegion extends Region {
           i = end;
         }
         _flushRows(touched, previousContentRows: previousContentRows);
+        // The row is open (partial) iff the last thing written was not a
+        // newline. Track its owner so the next write can decide whether it
+        // may append.
+        if (_curCol > 0) {
+          _openRowOwner = rowOwner;
+        } else {
+          _openRowOwner = null;
+        }
       });
 
   /// Convenience.

@@ -191,11 +191,18 @@ class TuiConversationHost implements HostInterface {
           chat.dim('  ⋯\n');
       }
     }
+    // The prompt row stays open across the readKey so the answer character
+    // lands on the same line. The row is marked with an ownership token so a
+    // background writer (e.g. the environment ceremony) streaming while the
+    // approval pends starts its own row instead of merging its text onto the
+    // prompt (tin-6a2f).
+    final rowToken = Object();
     chat.write('  approve? [y/n/a/d]  '
-        '(a/d remember "${p.alwaysPattern}") › ');
+        '(a/d remember "${p.alwaysPattern}") › ',
+        rowOwner: rowToken);
     final event = await editor!.readKey();
     final ch = event is CharInput ? event.text.toLowerCase() : '';
-    chat.write('$ch\n');
+    chat.write('$ch\n', rowOwner: rowToken);
     switch (ch) {
       case 'y':
         return PermissionResponse.allowOnce;
