@@ -654,8 +654,25 @@ class ScrollingTextRegion extends Region {
         // history, so retain them at history's tail (a resize must not eat
         // scrollback); the blanks that no longer fit are dropped outright
         // (retaining them would pollute scrollback with empty lines).
+        //
+        // The row the write cursor lands on after the clamps below must not
+        // already hold content while the cursor sits BETWEEN rows (_curCol ==
+        // 0, the streaming steady state right after a newline): filling the
+        // buffer with h content rows clamps the cursor onto the last of them,
+        // so the next streamed line appends to it and the two render as one
+        // row, persistently (tin-m2vq). A cursor mid-row (_curCol > 0)
+        // legitimately shares the content row it is writing into, so it may
+        // keep one more.
         final content = _contentRowCount;
-        final keepContent = content > h ? h : content;
+        var cursorRow = _curRow;
+        if (cursorRow >= h) cursorRow = h - 1;
+        final usableAfterShrink = h - _bottomInset;
+        if (usableAfterShrink > 0 && cursorRow >= usableAfterShrink) {
+          cursorRow = usableAfterShrink - 1;
+        }
+        var room = _curCol == 0 ? cursorRow : cursorRow + 1;
+        if (room < 0) room = 0;
+        final keepContent = content > room ? room : content;
         final dropContent = content - keepContent;
         for (var i = 0; i < dropContent; i++) {
           _retainRow(_rows[i]);

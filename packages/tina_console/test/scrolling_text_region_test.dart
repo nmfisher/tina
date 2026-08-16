@@ -138,6 +138,51 @@ void main() {
       );
     });
 
+    test('shrink mid-stream with a full buffer never merges two rows (tin-m2vq)', () {
+      // Regression for the resize-storm merge: once the buffer is FULL (the
+      // streaming steady state — lines have been scrolling), a height shrink
+      // left the write cursor pointing at a row that already held content, so
+      // the next streamed line appended to it and the two rendered as one row
+      // ("streamed line 29streamed line 30"), persistently.
+      final full = layout.chat.height + 10; // buffer full + scrolling
+      for (var i = 0; i < full; i++) {
+        screen.chat.write('streamed line $i\n');
+      }
+      vt.feed(io.written.toString());
+      io.written.clear();
+
+      // Shrink the terminal mid-turn: 100x24 -> 100x12.
+      final small = ScreenLayout.fromSize(100, 12);
+      screen.resize(small);
+      vt.feed(io.written.toString());
+      io.written.clear();
+
+      // The stream continues after the shrink.
+      for (var i = full; i < full + 6; i++) {
+        screen.chat.write('streamed line $i\n');
+      }
+      vt.feed(io.written.toString());
+
+      final seen = <String>[];
+      for (var r = small.chat.row;
+          r < small.chat.row + small.chat.height;
+          r++) {
+        final t = vt
+            .rowText(r)
+            .substring(small.chat.col, small.chat.col + small.chat.width)
+            .trim();
+        if (t.isNotEmpty) seen.add(t);
+      }
+      // No row may carry text from two streamed lines.
+      for (final t in seen) {
+        final merges = RegExp(r'streamed line \d+streamed line \d+').allMatches(t);
+        expect(merges, isEmpty,
+            reason: 'two streamed lines rendered on one row: "$t"');
+      }
+      // And the newest lines are all present somewhere.
+      expect(seen.join('\n'), contains('streamed line ${full + 5}'));
+    });
+
     test('colorize methods pass ANSI through without affecting width', () {
       screen.chat.dim('hi');
       vt.feed(io.written.toString());
