@@ -1,0 +1,27 @@
+# Scenario: crash_stream — a single bash tool call whose command streams
+# output for ~12 s (tin-3x9v repro: SIGSEGV while tool output streams and a
+# keypress lands). The bash tool runs for real against the fixture; the stub
+# only supplies the tool-use decision + the follow-up answer.
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":null},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_crash01","type":"function","function":{"name":"bash","arguments":""}}]},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"command\":\"for i in $(seq 1 30); do echo \\\"streamed line $i\\\"; sleep 0.4; done\"}"}}]},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":110,"completion_tokens":60,"total_tokens":170}}
+
+data: [DONE]
+
+# Step 2: answer after the tool completes.
+!step
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"The streamed command completed — thirty lines."},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":180,"completion_tokens":20,"total_tokens":200}}
+
+data: [DONE]

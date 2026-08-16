@@ -67,3 +67,17 @@ editor's pending queue.
   3 s cadence presses.
 - Regression test: fake key source feeding keys to askPermission while a
   stale readKey turn is held must still deliver to the approval.
+
+## Session findings (2026-08-16)
+
+Repro attempts with the stub: approvals resolve on the FIRST keypress
+('y' displays the answer char and the tool proceeds). Keys pressed at a
+steady 0.5-3 s cadence DURING a running turn accumulate in the editor's
+queue-mode buffer (by design — queue mode submits on Enter) and never
+reach a pending approval, because no approval is pending at that point.
+The ticket's exact "keys vanish while an approval pends" mode (answer char
+never appears, editor stays empty) did not reproduce in ~10 runs.
+
+The crash ticket tin-3x9v (linked) also failed to reproduce. Both may
+share a trigger not present in the stub runs (real-provider pacing or a
+specific turn state). tool/vanish_hunt.sh drives steady-cadence presses.

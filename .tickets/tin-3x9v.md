@@ -63,3 +63,22 @@ drain touching freed memory (j3mk's teardown race is the same area).
 - Regression coverage: repeated approval cycles with keys at various
   cadences stay alive (the crash is native, so the regression is a
   soak/repeat test in the TUI harness rather than a unit test).
+
+## Session findings (2026-08-16)
+
+Crash not reproduced this session: ~25 automated runs (stub + real provider)
+covering the ticket's conditions — first-load ceremony streaming while an
+approval pends, approval resolved with the pause pattern, keys hammered
+through long streaming tool output (120-line bash stream), real-provider
+refactor turn. No SIGSEGV in any run.
+
+Two render-path fixes landed in the same area (tin-4k8w, closed): the
+mid-stream shrink reconcile and the post-resize full re-emission — both
+harden the streaming render path the crash shared. Re-open if the crash
+recurs after these.
+
+Harness artifacts for re-attempts: tool/stub/scenarios/crash_stream2.txt
+(ceremony-paced stream + 120-line streaming bash call),
+tool/crash_hunt.sh / tool/vanish_hunt.sh (key-hammer + steady-cadence
+drivers), tool/crash_gdb.sh (gdb wrapper for a native backtrace when it
+does reproduce).
