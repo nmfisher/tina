@@ -52,23 +52,40 @@ total, no crash); branch: 3 commits over PR 11's head
 ---
 ## Corpus results
 
-| Task | 120x40 (prev session) | 80x24 (last session) | 200x50 (this session) |
-|------|----------------------|----------------------|----------------------|
-| T1 | PASS | PASS | running |
-| T2 | PASS | PASS | pending |
-| T3 | PASS | PASS | pending |
-| T4 | PASS | PASS | pending |
-| T5 | PASS | PASS | pending |
-| T6 | PASS | PASS | pending |
-| T7 | PASS | no answer in watch | pending |
-| T8 | PASS | PASS | pending |
-| T9 | PASS | no answer in watch | pending |
-| T10 | PASS | PASS | pending |
-| T11 | PASS | PASS | pending |
-| T12 | PASS | no answer in watch | pending |
-| T13 | NO-SHOW | PASS | pending |
-| T14 | PASS | not rerun | not rerun (scenario) |
-| T15 | PASS | NOT RUN | pending |
+| Task | 120x40 (prev session) | 80x24 (last session) | 200x50 (this session) | 60x10 (this session) |
+|------|----------------------|----------------------|----------------------|----------------------|
+| T1 | PASS | PASS | PASS | running |
+| T2 | PASS | PASS | PASS | pending |
+| T3 | PASS | PASS | PASS | pending |
+| T4 | PASS | PASS | PASS | pending |
+| T5 | PASS | PASS | PASS | pending |
+| T6 | PASS | PASS | PASS | pending |
+| T7 | PASS | no answer in watch | PASS | pending |
+| T8 | PASS | PASS | PASS | pending |
+| T9 | PASS | no answer in watch | PASS | pending |
+| T10 | PASS | PASS | PASS | pending |
+| T11 | PASS | PASS | PASS | pending |
+| T12 | PASS | no answer in watch | PASS | pending |
+| T13 | NO-SHOW | PASS | PASS | pending |
+| T14 | PASS | not rerun | not rerun (scenario) | not rerun (scenario) |
+| T15 | PASS | NOT RUN | PASS | pending |
+
+200x50: 14/14 tasks, no APP DEAD, every pane full-width content (48 content
+rows). T7/T9/T12 — which stalled at 80x24 — all answered at 200x50.
+
+### 200x50 notes
+
+- Corpus panes end with an unanswered `approve? … ›` row plus `y`s in the
+  editor. Verified NOT a defect: `tool/approval_key_probe.sh` sends one key
+  at a pending approval and the approval resolves (the approved tool streams
+  beneath the row). The corpus tail is the intended mid-prompt wait — if the
+  editor holds unsent text, the approval deliberately does not arm
+  (tui_conversation_host.dart:202, the tin-8n7c guard), and the harness's
+  `y`s land in that draft. Also note the driver's "approvals given: N" counts
+  key *presses*, not resolutions.
+- `[Pasted text : 10 chars]` chips in the editor are the harness's own prompt
+  entry (10-char chunks at 120 ms) being clustered by the paste-burst
+  detector, not user-visible behaviour.
 
 ## Notes
 
