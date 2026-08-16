@@ -23,6 +23,21 @@ fi
 outdir="/tmp/corpus_${geom/x/_}"
 mkdir -p "$outdir"
 
+# Fail loudly on a missing prompt file: the per-task `|| true` below would
+# otherwise record an empty pane as a completed task, and a missing t15.txt
+# cost a session a silently skipped task (see STATUS.md 2026-08-16).
+missing=0
+for t in "${tasks[@]}"; do
+  if [ ! -f "/tmp/sweep-prompts/$t.txt" ]; then
+    echo "=== $t: MISSING PROMPT /tmp/sweep-prompts/$t.txt — skipping ===" >&2
+    missing=1
+  fi
+done
+if [ "$missing" -ne 0 ]; then
+  echo "Refusing to run a partial pass: recreate the prompt file(s) first." >&2
+  exit 1
+fi
+
 for t in "${tasks[@]}"; do
   label="$geom-$t"
   echo "=== $label: starting ==="
