@@ -96,15 +96,35 @@ tina_sweep_task.sh now wait for the build to finish before injecting
 pass doubles as crash hunting (each task runs approvals + streaming +
 keys at the crash's cadence).
 
-## Session findings (2026-08-16, continued #2)
+## Session findings (2026-08-16, continued #3 — four new hunt angles)
 
-No SIGSEGV across the full 80×24 corpus pass (14 tasks × full 240 s
-watches with 35-40 approvals each, real provider) + the instrumented
-probes + the vanish hunts. The corpus pass doubled as the crash hunt
-and ran at the ticket's exact cadence (approvals + streaming tool
-output + steady keypresses). Also note: the harness's reply injection
-was retimed (TMUX_INJECT_SLEEP=0, burst-triggered) — see tin-8n7c's
-notes — and the approval/input-path fixes this session (tin-8n7c's four
-modes) touched the same render/input area the crash shared; the crash
-repro remains absent. Keep this open with the repro notes; re-open
-vigorously if it recurs after the tin-8n7c hardening.
+The one environmental factor both recorded crashes shared is the tin-r2vd
+reply injection; on 2026-08-15 it fired on a fixed sleep, so it could land
+mid-run rather than inside notcurses' init window. Four new harnesses
+(committed under tool/) attacked that and the other native hazards
+directly — 9 runs, zero SIGSEGV:
+
+| Harness | What it does beyond crash_hunt.sh | Runs | Result |
+|---------|-----------------------------------|------|--------|
+| crash_gdb.sh | real provider under gdb, backtrace on any SIGSEGV | 1 | no crash |
+| crash_replyburst.sh | stub, the FULL reply bundle re-injected mid-run at 12 s / 30 s / 55 s while streaming + keys | 3 (+1 real provider) | no crash |
+| crash_oscstress.sh | stub, ~10 Hz palette probes (OSC 4 + OSC 11 + DA1) for 45 s while streaming + keys — widest window on the "input automaton writes palette while rasterize reads it" race | 2 | no crash |
+| crash_resize.sh | stub, grow/shrink storm (120×40→80×24→60×15→200×50, 0.4 s cadence) while streaming + keys — plane geometry churn | 2 | no crash |
+
+Notes:
+
+- The mid-run reply bundle does not crash the app, but it is **not**
+  harmless: notcurses passes the OSC bytes through as key events after
+  its init window and the editor gains ~4.5 KB pasted garbage per burst
+  (filed as tin-v6tq). This is also a plausible account of the original
+  crashes' environment — but it did not crash once in 4 runs, so the
+  reply-burst hypothesis is now weakened, not confirmed.
+- The pump thread's `notcurses_get_nblock` racing the main isolate's
+  `notcurses_render` remains the only standing native concurrency in the
+  design; crash_oscstress.sh is the harness to re-run if the crash
+  recurs.
+- Most likely explanation for the silence: the crash's precondition — an
+  approval stuck in the tin-8n7c vanish state, where the pump's 256-slot
+  queue fills and Dart stops draining — no longer exists after the four
+  tin-8n7c fixes. Keep open; re-run crash_oscstress.sh +
+  crash_replyburst.sh first if it recurs.
