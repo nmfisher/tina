@@ -22,12 +22,15 @@
 # sent as named keys: "Escape" for ESC, literal chars otherwise, "\;" for
 # a literal semicolon (bare ";" is a tmux command separator).
 #
-# Run this AFTER launching tina in the pane. Re-running it LATER is NOT
-# harmless: past the startup drain window the replies are not consumed and
-# surface as key events — a full bundle pastes ~4.5 KB of garbage into the
-# editor (4837 events over ~200 ms, measured with tool/reply_decode_spike.dart).
-# That is exactly what tool/crash_replyburst.sh exploits, and what tin-v6tq
-# tracks.
+# Run this AFTER launching tina in the pane. Re-running it LATER is safe for
+# the app as of the tin-v6tq fix: past the startup drain window the replies
+# surface as key events, but NotcursesInputBackend's ReplySequenceFilter
+# drops them before they reach the editor (verified by
+# tool/verify_reply_filter.sh). The burst is still real load on the input path
+# — 4837 events over ~200 ms, measured with tool/reply_decode_spike.dart —
+# which is exactly what tool/crash_replyburst.sh exploits as a crash
+# stressor. Before that fix a mid-run bundle pasted ~4.5 KB of garbage into
+# the editor.
 #
 #   tmux new-session -d -x 120 -y 40 -s sweep
 #   tmux send-keys -t sweep "dart run bin/tina.dart" Enter

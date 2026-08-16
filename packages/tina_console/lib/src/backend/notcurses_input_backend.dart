@@ -8,6 +8,7 @@ import '../input_event.dart';
 import '../input_latency.dart';
 import 'input_backend.dart';
 import 'paste_burst_detector.dart';
+import 'reply_sequence_filter.dart';
 
 final _log = Logger('tina_console.notcurses_input');
 
@@ -135,6 +136,9 @@ class NotcursesInputBackend implements InputBackend {
   StreamSubscription<nc.PumpedInput>? _pumpSub;
   Timer? _pasteIdleTimer;
   StringBuffer? _explicitPaste;
+  // tin-v6tq: releases an ESC the reply filter is holding when no introducer
+  // follows. Event-driven, so nothing else would ever deliver it.
+  Timer? _replyEscTimer;
   // On the event-driven pump path there is no poll tick to call
   // PasteBurstDetector.expire() — a paste's final burst would sit buffered
   // until the next keystroke. This timer re-arms on each pending event and
@@ -163,6 +167,15 @@ class NotcursesInputBackend implements InputBackend {
   /// when burst detection is disabled (testing escape hatch).
   final PasteBurstDetector? _burstDetector;
 
+  /// Drops terminal capability replies that survive past the [StartupDrain]
+  /// window (tin-v6tq). notcurses has no rule for OSC/DCS/APC replies after
+  /// init, so they surface as `ESC` + printable key events; without this
+  /// filter the burst detector joins the printable tail into one `PasteInput`
+  /// and ~4.5 KB of reply garbage lands in the editor. Applied to raw pump
+  /// records ahead of the burst detector. Null when reply filtering is
+  /// disabled (testing escape hatch).
+  final ReplySequenceFilter? _replyFilter;
+
   /// Build a backend over [keySource]. Tests inject a fake; production uses
   /// [NotcursesInputBackend.fromNotcurses].
   NotcursesInputBackend(
@@ -175,9 +188,14 @@ class NotcursesInputBackend implements InputBackend {
     bool startPolling = true,
     nc.NotcursesInputPump? pump,
     bool temporalPasteDetection = true,
+    ReplySequenceFilter? replyFilter,
+    bool replySequenceFiltering = true,
   })  : _startupClock = clock ?? Stopwatch(),
         _burstDetector = temporalPasteDetection
             ? (burstDetector ?? PasteBurstDetector())
+            : null,
+        _replyFilter = replySequenceFiltering
+            ? (replyFilter ?? ReplySequenceFilter())
             : null,
         _pump = pump {
     _startupDrain = StartupDrain(
@@ -307,21 +325,44 @@ class NotcursesInputBackend implements InputBackend {
       _startupDrainDone = true;
       if (!_ready.isCompleted) _ready.complete();
     }
-    if (input.id == nc.NcKey.pasteBegin) {
+    // tin-v6tq: a terminal capability reply that arrives past the drain
+    // window surfaces as ESC + printable key events (notcurses has no rule
+    // for OSC/DCS/APC replies after init). Run the raw ids through the reply
+    // filter BEFORE the paste-burst detector, which would otherwise join the
+    // printable tail into one PasteInput and paste ~4.5 KB of reply garbage
+    // into the editor. Bypassed inside an explicit marker-delimited paste:
+    // that content is known-genuine.
+    final filter = _replyFilter;
+    if (filter == null || _explicitPaste != null) {
+      _deliverPumpedKey(input.id, input.modifiers, input.monotonicNanos);
+      return;
+    }
+    final released = filter.add(input.id, input.monotonicNanos ~/ 1000);
+    for (final id in released) {
+      _deliverPumpedKey(id, input.modifiers, input.monotonicNanos);
+    }
+    if (filter.isHoldingEscape) {
+      _armReplyEscTimer();
+    }
+  }
+
+  /// Translate and route one (possibly filter-released) pump record id.
+  void _deliverPumpedKey(int id, int modifiers, int monotonicNanos) {
+    if (id == nc.NcKey.pasteBegin) {
       _finishExplicitPaste();
       _explicitPaste = StringBuffer();
       _armPasteIdleTimer();
       return;
     }
-    if (input.id == nc.NcKey.pasteEnd) {
+    if (id == nc.NcKey.pasteEnd) {
       _finishExplicitPaste();
       return;
     }
     final event = _translateKey(NcKeyEvent(
-      input.id,
-      (input.modifiers & nc.KeyMod.alt) != 0,
-      (input.modifiers & nc.KeyMod.ctrl) != 0,
-      input.id >= nc.preterunicode(0) && input.id <= nc.NcKey.eof,
+      id,
+      (modifiers & nc.KeyMod.alt) != 0,
+      (modifiers & nc.KeyMod.ctrl) != 0,
+      id >= nc.preterunicode(0) && id <= nc.NcKey.eof,
     ));
     if (event == null) return;
     final paste = _explicitPaste;
@@ -339,8 +380,34 @@ class NotcursesInputBackend implements InputBackend {
       _armPasteIdleTimer();
       return;
     }
-    InputLatency.begin(event, input.monotonicNanos);
+    InputLatency.begin(event, monotonicNanos);
     _handleEvent(event);
+  }
+
+  /// Arm the release for an ESC the reply filter is holding. A genuine lone
+  /// ESC (cancel) must not wait for the next keystroke to be delivered — on
+  /// an event-driven path there may never be one.
+  void _armReplyEscTimer() {
+    _replyEscTimer?.cancel();
+    final filter = _replyFilter!;
+    _replyEscTimer = Timer(
+      filter.introducerWindow + const Duration(milliseconds: 1),
+      _releaseHeldEscape,
+    );
+  }
+
+  /// Release an ESC still held by the reply filter once no introducer arrived
+  /// inside the window: it was a real Escape, not a reply opener.
+  void _releaseHeldEscape() {
+    _replyEscTimer = null;
+    final filter = _replyFilter;
+    if (filter == null || _disposed || !filter.isHoldingEscape) return;
+    // Its own "tick": the release is timer-driven, so emit synchronously like
+    // _flushBurst does, then let later events defer.
+    _firstThisTick = true;
+    for (final id in filter.flush()) {
+      _deliverPumpedKey(id, 0, _nowMicros * 1000);
+    }
   }
 
   void _armPasteIdleTimer() {
@@ -512,6 +579,8 @@ class NotcursesInputBackend implements InputBackend {
     _startupTimer = null;
     _burstFlushTimer?.cancel();
     _burstFlushTimer = null;
+    _replyEscTimer?.cancel();
+    _replyEscTimer = null;
     _finishExplicitPaste();
     _pumpSub?.cancel();
     _pumpSub = null;

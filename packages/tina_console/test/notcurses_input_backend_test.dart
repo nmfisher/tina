@@ -482,4 +482,224 @@ void main() {
       expect(emitted, [CharInput('q')]);
     });
   });
+
+  // tin-v6tq: terminal capability replies that survive past the startup
+  // drain surface as ESC + printable key events. The backend drops them at
+  // the pump layer, ahead of the paste-burst detector, so they never reach
+  // the editor as pasted garbage — while genuine pastes, typing and a lone
+  // ESC (cancel) all still arrive.
+  group('pump-path reply filtering (tin-v6tq)', () {
+    late NotcursesInputBackend backend;
+    late List<InputEvent> emitted;
+    late StreamSubscription<InputEvent> sub;
+
+    // A real, started clock: the filter compares per-record timestamps, and
+    // the ESC-release path rides a real Timer.
+    late Stopwatch clock;
+
+    NotcursesInputBackend makeBackend({
+      bool temporalPasteDetection = false,
+      PasteBurstDetector? burstDetector,
+      bool replySequenceFiltering = true,
+    }) {
+      final b = NotcursesInputBackend(
+        _FakeKeySource(),
+        startupDrainMinWindow: Duration.zero,
+        startPolling: false,
+        clock: clock,
+        temporalPasteDetection: temporalPasteDetection,
+        burstDetector: burstDetector,
+        replySequenceFiltering: replySequenceFiltering,
+      );
+      sub = b.events.listen(emitted.add);
+      return b;
+    }
+
+    setUp(() {
+      emitted = [];
+      clock = Stopwatch()..start();
+    });
+
+    tearDown(() async {
+      await sub.cancel();
+      backend.dispose();
+    });
+
+    int recId(String s) => s.codeUnits.first;
+
+    // The reply bundle tool/tmux_inject_replies.sh replays, as pump records
+    // (ESC + printable bytes; notcurses emits the ESC standalone and decodes
+    // the rest as ordinary characters).
+    List<nc.PumpedInput> bundleRecords() => [
+          for (final s in [
+            '\x1b[?62;c',
+            '\x1b[1;1R',
+            '\x1b]4;1;rgb:8000/0000/0000\x1b\\',
+            '\x1b]10;rgb:ffff/ffff/ffff\x1b\\',
+            '\x1b]11;rgb:0000/0000/0000\x1b\\',
+            '\x1b[?2026;1\$y',
+            '\x1b[?1016;1\$y',
+            '\x1b[?1;3;256S',
+            '\x1b[?1u',
+            '\x1b_Gi=1;OK\x1b\\',
+            '\x1bP1+r544e;787465726d2d323536636f6c6f72\x1b\\',
+            '\x1b[4;1;1;80;120t',
+            '\x1b[8;40;120t',
+          ])
+            for (final ch in s.codeUnits) nc.PumpedInput(ch, 0, 0),
+        ];
+
+    test('a mid-run reply burst produces no input events at all', () async {
+      backend = makeBackend();
+      backend.pumpedBatchForTest(bundleRecords());
+      await pumpMicrotasks();
+      expect(emitted, isEmpty,
+          reason: 'no reply byte may reach the editor, as chars or a paste');
+      // Nothing arrives late either (no held state, no straggler timer).
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(emitted, isEmpty);
+    });
+
+    test('a bursty reply stream with >30ms gaps is still discarded', () async {
+      // The ticket's drain-window acceptance case: replies keep arriving
+      // inside the first second but with gaps wider than StartupDrain's
+      // 30ms idle threshold, so the drain closes — and the filter, not the
+      // drain, must keep discarding every complete reply that follows.
+      backend = NotcursesInputBackend(
+        _FakeKeySource(),
+        startupDrainMinWindow: const Duration(milliseconds: 150),
+        startupDrainMaxWindow: const Duration(seconds: 1),
+        startupDrainIdleThreshold: const Duration(milliseconds: 30),
+        clock: clock,
+        startPolling: false,
+        temporalPasteDetection: false,
+      );
+      sub = backend.events.listen(emitted.add);
+
+      // First reply inside minWindow: drained by StartupDrain.
+      backend.pumpedBatchForTest(
+        [for (final ch in '\x1b[?62;c'.codeUnits) nc.PumpedInput(ch, 0, 0)],
+      );
+      await pumpMicrotasks();
+      expect(emitted, isEmpty);
+
+      // >30ms later the drain has closed (idle threshold exceeded, no event
+      // kept it open). Each further reply is complete, so the filter swallows
+      // it whole — a gap between replies must not leak either of them.
+      for (final reply in [
+        '\x1b]4;1;rgb:8000/0000/0000\x1b\\',
+        '\x1b[?2026;1\$y',
+        '\x1b[8;40;120t',
+      ]) {
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        backend.pumpedBatchForTest(
+          [for (final ch in reply.codeUnits) nc.PumpedInput(ch, 0, 0)],
+        );
+      }
+      await pumpMicrotasks();
+      expect(emitted, isEmpty,
+          reason: 'replies past the drain window must not reach the app');
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(emitted, isEmpty);
+    });
+
+    test('typing right after a burst arrives normally', () async {
+      backend = makeBackend();
+      backend.pumpedBatchForTest(bundleRecords());
+      await pumpMicrotasks();
+      for (final ch in 'yes'.codeUnits) {
+        backend.pumpedInputForTest(ch);
+        await Future<void>.delayed(const Duration(milliseconds: 8));
+      }
+      await pumpMicrotasks();
+      expect(emitted, [CharInput('y'), CharInput('e'), CharInput('s')]);
+    });
+
+    test('a genuine paste right after a burst arrives whole', () async {
+      backend = makeBackend(
+        temporalPasteDetection: true,
+        burstDetector: PasteBurstDetector(
+          joinWindow: const Duration(milliseconds: 30),
+          minPasteChars: 8,
+        ),
+      );
+      backend.pumpedBatchForTest(bundleRecords());
+      await pumpMicrotasks();
+      const paste = 'The quick brown fox jumps over the lazy dog. ';
+      backend.pumpedBatchForTest(
+        [for (final ch in (paste * 10).codeUnits) nc.PumpedInput(ch, 0, 0)],
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(emitted, [PasteInput(paste * 10)],
+          reason: 'a paste (no ESC events) must pass the reply filter verbatim');
+    });
+
+    test('a lone ESC is released without a following keystroke', () async {
+      backend = makeBackend();
+      backend.pumpedInputForTest(0x1b);
+      await pumpMicrotasks();
+      expect(emitted, isEmpty, reason: 'held pending a possible introducer');
+      // Past introducerWindow (5 ms) + 1 ms. No further input arrives — the
+      // release timer alone must deliver the Escape.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(emitted, hasLength(1),
+          reason: 'ESC cancel must not wait for the next keystroke');
+      expect(emitted.single, isA<EscapeKey>());
+    });
+
+    test('ESC then a late keystroke delivers both, in order', () async {
+      backend = makeBackend();
+      backend.pumpedInputForTest(0x1b);
+      await Future<void>.delayed(const Duration(milliseconds: 12));
+      backend.pumpedInputForTest('q'.codeUnitAt(0));
+      await pumpMicrotasks();
+      expect(emitted, hasLength(2));
+      expect(emitted[0], isA<EscapeKey>());
+      expect(emitted[1], CharInput('q'));
+    });
+
+    test('Enter interrupting a reply is delivered, never eaten', () async {
+      backend = makeBackend();
+      // An OSC opener whose terminator never arrives, then the user hits
+      // Enter: the swallow must abort on the control key.
+      backend.pumpedBatchForTest(
+        [nc.PumpedInput(0x1b, 0, 0), nc.PumpedInput(0x5d, 0, 0)],
+      );
+      await pumpMicrotasks();
+      backend.pumpedInputForTest(0x0d);
+      await pumpMicrotasks();
+      expect(emitted, [ControlKey(ControlCode.enter)]);
+    });
+
+    test('explicit paste markers bypass the filter', () async {
+      backend = makeBackend();
+      backend.pumpedInputForTest(nc.NcKey.pasteBegin);
+      backend.pumpedInputForTest(recId('a'));
+      backend.pumpedInputForTest(0x1b);
+      backend.pumpedInputForTest(recId(']'));
+      backend.pumpedInputForTest(recId('b'));
+      backend.pumpedInputForTest(nc.NcKey.pasteEnd);
+      await pumpMicrotasks();
+      expect(emitted, [PasteInput('a]b')],
+          reason: 'marker-delimited content is known-genuine and unfiltered');
+      // The filter must not be left holding the in-paste ESC: typing after
+      // the paste still arrives.
+      backend.pumpedInputForTest(recId('x'));
+      await pumpMicrotasks();
+      expect(emitted, [PasteInput('a]b'), CharInput('x')]);
+    });
+
+    test('replySequenceFiltering: false restores the unfiltered stream',
+        () async {
+      backend = makeBackend(replySequenceFiltering: false);
+      backend.pumpedBatchForTest(bundleRecords());
+      await pumpMicrotasks();
+      expect(emitted, isNotEmpty,
+          reason: 'without the filter the reply bytes reach the app (old bug)');
+      expect(emitted.whereType<PasteInput>(), isEmpty);
+      expect(
+          emitted.whereType<CharInput>(), isNotEmpty,
+          reason: 'the old failure mode was reply chars decoded as typing');
+    });
+  });
 }

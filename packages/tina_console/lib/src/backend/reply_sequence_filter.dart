@@ -1,8 +1,9 @@
-/// Prototype filter for tin-v6tq — NOT yet wired into [NotcursesInputBackend].
-///
 /// Drops *terminal reply sequences* (OSC/CSI/DCS/APC payloads arriving as key
 /// events) from a pump-level key stream, so a late or re-delivered capability
 /// reply does not paste into the editor as text.
+///
+/// Wired into [NotcursesInputBackend] ahead of its paste-burst detector
+/// (tin-v6tq); see `_onPumpedInput` there.
 ///
 /// ## Why this is possible at the event layer
 ///
@@ -201,6 +202,12 @@ class ReplySequenceFilter {
     _state = _idle;
     return const [];
   }
+
+  /// Whether an `ESC` is being held pending a possible introducer. Callers on
+  /// an event-driven path use this to arm a short release timer: without one a
+  /// genuine lone `ESC` (cancel) would sit held until the *next* key event
+  /// arrives, which may be never.
+  bool get isHoldingEscape => _state == _afterEsc;
 
   /// The reply class for [id], or 0 when it is not a sequence introducer.
   int _classOf(int id) {
