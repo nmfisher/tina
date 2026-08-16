@@ -213,19 +213,33 @@ class OpenAiCompatibleAdapter extends LlmProvider {
       // payload, and that must surface as a humanized StreamError rather than a
       // raw FormatException thrown out of the generator. Mirrors Anthropic's
       // single-try structure where message_stop assembly is also covered.
+      //
+      // A *malformed arguments* failure is recovered per call instead (tin-p2sq):
+      // the block is emitted with `argumentsParseError` set so the agent can
+      // hand the parse error back to the model, which then re-emits the call
+      // with correct escaping. Models do emit invalid JSON here — DeepSeek
+      // streaming a long quote-heavy `bash` one-liner was the reported case —
+      // and killing the whole turn for it loses text that already streamed.
       final blocks = <ContentBlock>[];
       if (textBuf.isNotEmpty) blocks.add(TextBlock(textBuf.toString()));
       final indices = toolCalls.keys.toList()..sort();
       for (final i in indices) {
         final pc = toolCalls[i]!;
         final argsStr = pc.args.toString();
-        final input = argsStr.isEmpty
-            ? <String, dynamic>{}
-            : jsonDecode(argsStr) as Map<String, dynamic>;
+        Map<String, dynamic> input = const {};
+        String? parseError;
+        if (argsStr.isNotEmpty) {
+          try {
+            input = jsonDecode(argsStr) as Map<String, dynamic>;
+          } on FormatException catch (e) {
+            parseError = e.message;
+          }
+        }
         blocks.add(ToolUseBlock(
           id: pc.id ?? 'call_$i',
           name: pc.name ?? '',
           input: input,
+          argumentsParseError: parseError,
         ));
       }
       final stopReason =

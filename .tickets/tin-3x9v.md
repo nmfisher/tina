@@ -128,3 +128,37 @@ Notes:
   queue fills and Dart stops draining — no longer exists after the four
   tin-8n7c fixes. Keep open; re-run crash_oscstress.sh +
   crash_replyburst.sh first if it recurs.
+
+## Session findings (2026-08-16, continued #4 — union harness)
+
+`tool/crash_union.sh` fires all three previously-isolated hazards at once,
+on the reasoning that both recorded crashes shared every condition
+simultaneously (approval pending + output streaming + a keypress) and a race
+may need the full overlap: the complete reply bundle re-injected mid-run at
+four points (measured 4837 key events in ~200 ms — far past the pump's
+256-slot queue cap, so the pump thread blocks in `pump_push` while the
+isolate renders), a 0.4 s resize storm across 120x40/80x24/60x15/200x50, and
+a `y` key every 0.4 s.
+
+**3 runs, zero SIGSEGV.** Running total across all hunt harnesses: 12 runs,
+no crash.
+
+Two additions to the record:
+
+- The union harness *does* reproduce the tin-v6tq symptom live — the final
+  pane shows the reply bytes pasted into the editor
+  (`0/0000\[?2026;1$y[?1;3;256S...yyyyyyy`). So the input path is being
+  stressed exactly as intended; it degrades to garbage input, not to a native
+  crash.
+- Queue saturation is now a *measured* property of the burst, not a
+  hypothesis: 4837 records against a 256 cap means the pump thread spends
+  most of the burst blocked on `not_full`. That makes the
+  `notcurses_get_nblock` (pump thread) vs `notcurses_render` (main isolate)
+  overlap — the only standing native concurrency in the design — exercised
+  hard by this harness, and it still does not fault.
+
+Also relevant from the tin-v6tq work: `notcurses.h` makes no thread-safety
+statement at all (no "thread" mention in the 3.0.17 header), so that
+concurrency remains undocumented upstream rather than confirmed safe.
+Keep open; if it recurs, crash_gdb.sh (real provider, backtrace on fault) is
+the first harness to reach for, then crash_union.sh.

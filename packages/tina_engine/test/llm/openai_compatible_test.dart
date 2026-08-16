@@ -319,22 +319,42 @@ void main() {
     // JSON must surface as a humanized StreamError, not a thrown FormatException
     // out of the generator. Previously the post-loop jsonDecode sat outside the
     // SSE try/catch; the assembly is now inside it.
-    test('malformed streamed tool arguments yield a StreamError', () async {
+    //
+    // tin-p2sq tightened this further: the failure is recovered *per call* —
+    // the block is delivered with `argumentsParseError` set so the agent can
+    // hand the parse error back to the model instead of aborting the turn.
+    // The two tests below pin that behaviour; a StreamError is no longer
+    // emitted for a malformed-arguments stream.
+    test('malformed streamed tool arguments recover per call (tin-p2sq)',
+        () async {
       final sse = [
         'data: ${jsonEncode({
               "choices": [
                 {
                   "index": 0,
                   "delta": {
+                    "content": "Counting the tests first.",
                     "tool_calls": [
                       {
                         "index": 0,
                         "id": "call_1",
-                        "function": {"name": "bash", "arguments": "not-json{"}
+                        "function": {
+                          "name": "bash",
+                          // An unterminated string: the model opened the
+                          // command value and never closed it — the exact
+                          // shape DeepSeek streamed for a quote-heavy
+                          // one-liner.
+                          "arguments": '{"command":"for f in *; do echo '
+                        }
                       }
                     ]
                   }
                 }
+              ]
+            })}',
+        'data: ${jsonEncode({
+              "choices": [
+                {"index": 0, "delta": {}, "finish_reason": "tool_calls"}
               ]
             })}',
         'data: [DONE]',
@@ -345,7 +365,69 @@ void main() {
       final events = await provider
           .send(system: '', messages: const [], tools: const [])
           .toList();
-      expect(events.whereType<StreamError>(), hasLength(1));
+
+      expect(events.whereType<StreamError>(), isEmpty,
+          reason: 'a malformed call must not kill the streamed response');
+      final complete = events.whereType<MessageComplete>().single;
+      // Text that already streamed survives.
+      expect((complete.content[0] as TextBlock).text, 'Counting the tests first.');
+      final use = complete.content.whereType<ToolUseBlock>().single;
+      expect(use.id, 'call_1');
+      expect(use.name, 'bash');
+      expect(use.input, isEmpty);
+      expect(use.argumentsParseError, contains('Unterminated string'),
+          reason: 'the parse error rides on the block for the agent to relay');
+    });
+
+    test('a well-formed quote-heavy command still decodes (tin-p2sq)',
+        () async {
+      // The same one-liner, correctly escaped by the model: nested single and
+      // double quotes plus backslash-escaped quotes must round-trip into the
+      // tool input verbatim.
+      const command =
+          r'for f in *; do echo "file: $f"; done; echo "done: \"$?\""';
+      final sse = [
+        'data: ${jsonEncode({
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "id": "call_1",
+                        "function": {
+                          "name": "bash",
+                          "arguments": jsonEncode({'command': command})
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            })}',
+        'data: ${jsonEncode({
+              "choices": [
+                {"index": 0, "delta": {}, "finish_reason": "tool_calls"}
+              ]
+            })}',
+        'data: [DONE]',
+        '',
+      ].join('\n');
+      final provider = OpenAiCompatibleAdapter(
+          apiKey: 'k', model: 'm', client: ScriptedSseClient(sse));
+      final events = await provider
+          .send(system: '', messages: const [], tools: const [])
+          .toList();
+
+      final use = events
+          .whereType<MessageComplete>()
+          .single
+          .content
+          .whereType<ToolUseBlock>()
+          .single;
+      expect(use.argumentsParseError, isNull);
+      expect(use.input['command'], command);
     });
   });
 }

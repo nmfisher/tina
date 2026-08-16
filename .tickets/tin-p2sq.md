@@ -1,9 +1,10 @@
 ---
 id: tin-p2sq
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-08-15T00:00:00Z
+closed: 2026-08-16T19:40:00Z
 type: bug
 priority: 1
 assignee: Nick Fisher
@@ -53,3 +54,58 @@ or anything with `\"` and `"` mixed. Expect the FormatException instead of the c
 - Existing tool tests keep passing; dart analyze clean.
 
 Ticket only — no sandbox run requested.
+
+## Findings and fix (2026-08-16)
+
+### Throw site
+
+`openai_compatible.dart` — the **accumulated `tool_calls[].function.arguments`
+JSON string** assembled from the SSE deltas, decoded after the stream ends
+(the line numbered 224 pre-fix). Not the Bash tool: `BashTool` passes the
+command as an argv element (`['-c', command]`, bash_tool.dart:261), so there
+is no shell-string assembly anywhere in the tool path and nothing to escape.
+The model itself streamed invalid JSON — an unescaped `"` inside the command
+value of a long one-liner.
+
+The adapter already wrapped that decode in the stream try/catch (a prior
+regression guard), so it yielded a `StreamError` instead of throwing. The
+remaining defect was one level up: `Agent.run` treats any `outcome.error` as
+fatal — it printed `\nerror: FormatException: Unterminated string (at
+character N)\n` (agent.dart:150, the "error: " prefix from the ticket) and
+aborted the whole turn, discarding text that had already streamed.
+
+### Fix
+
+A malformed-arguments failure is now recovered **per call** instead of
+killing the response:
+
+- `ToolUseBlock` carries an optional `argumentsParseError`
+  (message.dart; serialized as `arguments_parse_error`, round-trips through
+  the session store).
+- Both streaming adapters decode per call and set that field on
+  `FormatException` instead of failing the stream: the OpenAI-compatible
+  post-loop assembly and Anthropic's `_ToolUseBuilder.build()` (which was a
+  bare `jsonDecode` before). Gemini needs nothing — its wire delivers args
+  pre-parsed.
+- `Agent.run` answers such a call with an error `ToolResultBlock` whose text
+  names the parse error and tells the model how to re-emit the call
+  (`\"` / `\\`), then continues the step loop — the same shape as the
+  existing unknown-tool branch. The tool never runs with garbage input.
+
+Quote-heavy commands that the model *does* escape correctly were never
+broken and still decode verbatim (pinned by a test with
+`for f in *; do echo "file: $f"; done; echo "done: \"$?\""`).
+
+### Verification
+
+- Tests: 2 adapter tests + 2 agent tests (turn survives, tool not executed,
+  error result fed back, a good retry after a bad call runs with input
+  verbatim). tina_engine 540 green, root suite 540 green. `dart analyze`
+  unchanged (2 pre-existing warnings in untouched files).
+- Live, `tool/stub/scenarios/malformed_tool_call.txt` (new, deterministic
+  replay of the ticket's shape) via `dart run bin/tina.dart --prompt`:
+  - pre-fix (stashed): `error: FormatException: Unexpected character (at
+    character 97)` and the turn dies — the ticket's symptom.
+  - post-fix: notice `bash: malformed arguments — asking the model to
+    retry`, the model's retry `read` executes (`ok`), the turn completes in
+    text.
