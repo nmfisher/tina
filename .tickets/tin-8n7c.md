@@ -1,6 +1,6 @@
 ---
 id: tin-8n7c
-status: open
+status: closed
 deps: []
 links: [tin-6a2f]
 created: 2026-08-15T15:12:00Z
@@ -126,11 +126,34 @@ readKey arms only after the user's prompt submits. The editor's
 readKey-first contract is unchanged (the spend-pause dialog and gates
 still capture keys while a readLine pends); only the approval askers
 defer. Regression test:
-test/pipeline/workflow_permission_asker_test.dart ("readKey waits while
+test/host/workflow_permission_asker_test.dart ("readKey waits while
 the user is typing a prompt") fails without the fix.
 
-Note: the harness's reply injection was also leaking the OSC4 palette
-into typed prompts when it landed after notcurses' reply window closed
-(session user messages began with palette garbage); the launchers now
-inject the moment the app's init query burst ("1049h") appears in the
-raw log (TMUX_INJECT_SLEEP=0).
+THEN the wait itself deadlocked (found live, T5 at 80x24): the TUI
+input loop ALWAYS sits in readLine (the next prompt arms the moment the
+current one submits), so the asker waited on the always-pending EMPTY
+readLine — every approval stalled behind the user's next prompt: 22 'y'
+presses queued in the input, the approval never armed, the turn stalled
+the whole watch. THE DEADLOCK IS THE TICKET'S "keys vanish for minutes"
+SHAPE: keys accumulate silently in the input while the approval never
+arms. Fixed (92b6292): the wait engages only when the pending readLine
+carries unsent text (the user mid-typing); an empty pending readLine is
+the idle input region. Regression test: "empty pending readLine does
+not stall the approval (no deadlock)" fails without the buffer check.
+
+Live-verified (80x24, real provider): 12/12 approval readKeys armed and
+completed in lockstep with steady 8 s-cadence presses, zero denials —
+the ticket's acceptance ("an open approval always consumes the next
+keypress, including steady cadence") holds for every reproduced mode:
+
+1. stale paste overflow answering a readKey — 21af54e (fixed earlier).
+2. paste-burst flush answering a readKey (auto-deny + prompt loss) —
+   f5029cc: `_onEventInner` never completes a readKey with a PasteInput.
+3. the prompt's Enter answering the approval (prompt never submitted) —
+   b27c6e1 + 92b6292: the approval askers defer to a readLine with
+   unsent content.
+4. the readLine-wait deadlock (the minutes-long vanish shape) — 92b6292.
+
+CLOSED per close criteria: regression tests exist for 2-4, the root
+suite (+540) and tina_console suite are green, and the live repros
+(80x24 real provider + the corpus runs) pass from clean restarts.
