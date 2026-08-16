@@ -1,6 +1,6 @@
 ---
 id: tin-4k8w
-status: open
+status: closed
 deps: []
 links: [tin-3x9v, tin-6a2f]
 created: 2026-08-15T17:35:00Z
@@ -60,3 +60,31 @@ likely a shared concurrent-render row-state bug.
   tails or mid-row borders; repeated streaming runs stay clean.
 - Regression: a virtual-terminal test streaming tool output + interleaved
   chat rows asserting full-width rows (no truncation artifacts).
+
+## Resolution (2026-08-16)
+
+Two distinct bugs, two fixes, one ticket:
+
+1. **Mid-stream shrink wiped the chat** (`_reconcileRows`): on a height
+   shrink the row buffer evicted the first `(rows.length - h)` rows. With a
+   partially-filled buffer (content top-aligned, blanks at the bottom — the
+   normal mid-turn state) that evicted every content row into scrollback and
+   kept the blank tail. Fix (92deaef): keep the most recent content rows in
+   the window, retain evicted content in history, drop only the blanks.
+   Regression: `scrolling_text_region_test.dart` "shrink mid-stream keeps
+   the most recent content".
+
+2. **Terminal/notcurses damage desync after resize** (the `└───` mid-row
+   splice + stale fragments): tmux keeps the BOTTOM of the alternate screen
+   when a pane shrinks (verified empirically), so the terminal's grid
+   diverges from notcurses' retained frame; per-cell damage tracking then
+   skips cells notcurses considers unchanged and the dropped top rows stay
+   on screen forever. Fix (22bf97f): `notcurses_refresh` (full re-emission)
+   at the end of the canonical resize sequence
+   (`ResizeCoordinator.handleResize`). Regression: resize_coordinator_test
+   pins the refresh as the final resize step; resize_refresh_test pins the
+   forwarding chain + cursor re-park.
+
+Live verification: stub-provider turn, resize 120x40 -> 60x18 -> 150x48
+mid-stream from a clean restart — the streamed tail renders full-width and
+the frame stays intact. Suites: root +538, tina_console +674.

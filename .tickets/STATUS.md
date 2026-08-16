@@ -1,11 +1,38 @@
 # Sweep status
 
-Now:     wrapping up — corpus run at 120×40 + 80×24; 4 new tickets filed (2 p1), 2 closed; PR next
-Next:    (sweep done) — the open p1s (tin-3x9v crash, tin-4k8w corruption) need the render/input internals
+Now:     tin-3x9v (p1, SIGSEGV) — root-cause hunt in the streaming render/input path
+Next:    tin-3x9v (crash), then tin-6a2f (p2 approval overlap), tin-8n7c (p2 approval vanish)
 Blocked: none
 Ask:     none
-Last checkpoint: 2026-08-15 18:20 — corpus: T1-T15 (T13 model no-show), 2 geometries, seeds done; suites green (root +538, tina_console +670); branch pushed via git data API
+Last checkpoint: 2026-08-16 02:10 — tin-4k8w CLOSED (2 commits: shrink-reconcile + post-resize refresh); suites green (root +538, tina_console +674)
 
+## In flight
+
+- tin-3x9v (p1) — SIGSEGV mid-run at a pending approval while tool output
+  streams + a keypress. Not yet reproduced this session. Both tin-4k8w fixes
+  harden the same streaming render area; re-attempt the crash repro with the
+  stub + streaming before deeper native digging.
+
+## Closed this session
+
+- tin-4k8w (p1) — chat corruption on mid-stream resize, two root causes:
+  1. `_reconcileRows` evicted the whole content on shrink with a
+     partially-filled buffer (blank tail kept, content to scrollback) —
+     fixed to keep the most recent content (92deaef).
+  2. tmux keeps the bottom of the alt screen on pane shrink → terminal grid
+     diverges from notcurses' retained frame → damage-only repaints leave
+     dropped rows stale forever (the mid-row `└───` splice). Fixed with a
+     full re-emission (`notcurses_refresh`) at the end of the canonical
+     resize sequence (22bf97f).
+  Live-verified: stub turn + 2 mid-stream resizes → content + frame intact.
+
+## Open (unchanged this session)
+
+- tin-3x9v (p1) — SIGSEGV mid-run at a pending approval (streaming + keypress).
+- tin-6a2f (p2) — approval line overlap under rapid approvals.
+- tin-8n7c (p2) — approval keys vanish at steady cadence (stale-paste part fixed upstream).
+
+---
 ## Corpus results (120×40 unless noted)
 
 | Task | Result | Notes |
