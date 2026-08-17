@@ -1,6 +1,6 @@
 ---
 id: tin-k7tr
-status: open
+status: closed
 deps: []
 links: [tin-v6tq, tin-r2vd, tin-3x9v]
 created: 2026-08-17T05:58:00Z
@@ -57,3 +57,29 @@ bumping if the fresh-start path ever shows it too.
   boundary — is dropped on both fresh-start and resume paths.
 - A regression test at the `NotcursesInputBackend`/filter level covering
   a mid-sequence boundary split.
+
+## Close (2026-08-17)
+
+Root cause confirmed: `_onPumpedInput` discarded drained records WITHOUT
+feeding them to `ReplySequenceFilter`, so a sequence whose ESC+introducer
+was drained left the filter idle at the boundary — the post-boundary tail
+passed through as printable input (joined by the burst detector into the
+observed `[Pasted text : 23 chars]`).
+
+Fix, two parts in `notcurses_input_backend.dart`:
+1. Drained records now feed the filter (output discarded with the
+   record), keeping sequence state continuous across the drain boundary —
+   the post-boundary tail is swallowed as the reply it belongs to.
+2. `_onDrainEnd()` (shared by the pump, timer and poll close paths)
+   flush-discards a held lone ESC: one already consumed by the drain must
+   never replay as a stale Escape in front of the next real keystroke.
+   Mid-reply state survives on purpose.
+
+Tests (backend level, `notcurses_input_backend_test.dart`): OSC split
+(`\e]4;154;rgb:` drained / `afff/ffff/ff00\e\\` after — the exact observed
+fragment), CSI split (`\e[?2026;` / `1$y`), and the drained-lone-ESC guard.
+Both split tests fail on the unfixed backend (-2 verified via stash).
+tina_console 718 green, root 543 green. Live: fresh HOME stub run → one
+turn → /exit → `--resume <id>` → inject at paint onset and post-paint: no
+paste markers, no rgb fragments, and the probe message persisted
+byte-clean (`"text":"probe after resume`).
