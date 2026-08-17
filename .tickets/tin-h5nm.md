@@ -1,6 +1,6 @@
 ---
 id: tin-h5nm
-status: open
+status: closed
 deps: []
 links: [tin-h8uw]
 created: 2026-08-17T05:58:00Z
@@ -55,3 +55,19 @@ do NOT `store.record()` (the region stays stale, which is the truth).
   stale and returns false; the coordinator's message is the warning one.
 - Live: with the stub, the ceremony reports non-completion and does not
   stamp tracking.json fresh.
+
+## Close (2026-08-17)
+
+Fixed as proposed: `EnvironmentRunner.run()` snapshots the record's bytes
+before the run, and success now additionally requires `_recordAdvanced` —
+present after a first-load population, content-changed after a re-verify
+(bytes, not mtime: deterministic in tests and immune to touch-without-
+change). Unreadable/vanished record → cannot prove a change → false.
+The coordinator's failure message reworded to "environment agent did not
+update ENVIRONMENT.md" (covers finished-but-wrote-nothing as well as
+aborted). Tests: prose-only first load (region stays stale, no tracking
+entry), prose-only warm re-verify (unchanged bytes → false), warm rewrite
+(changed bytes → true, region current). Root suite 543 green (+3).
+Live stub repro, both legs: ceremony prints the warning branch, no
+ENVIRONMENT.md anywhere, no tracking.json stamp, one provider request per
+launch, honest re-run on restart.

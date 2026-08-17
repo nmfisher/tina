@@ -237,7 +237,8 @@ class SessionController implements CommandContext {
             style: HostMessageStyle.success);
       } else {
         conv.host.showMessage(
-            'environment agent did not complete — the record stays stale\n',
+            'environment agent did not update ENVIRONMENT.md — the record '
+            'stays stale\n',
             style: HostMessageStyle.warning);
       }
     } catch (e) {

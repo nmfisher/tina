@@ -57,14 +57,17 @@ class EnvironmentRunner {
   /// total. Null headless (throwaway ledger).
   final SpendLedger? spendLedger;
 
-  /// Run the environment agent. Returns true when the agent completed and the
-  /// tracking entry was recorded; false when it was cancelled or produced no
-  /// final answer — in which case nothing is recorded and the region stays
-  /// stale, so it resurfaces on the next dance.
+  /// Run the environment agent. Returns true when the agent completed, the
+  /// record actually advanced (created on first load, changed on a
+  /// re-verify), and the tracking entry was recorded; false when it was
+  /// cancelled, produced no final answer, or finished without touching
+  /// `ENVIRONMENT.md` — in which case nothing is recorded and the region
+  /// stays stale, so it resurfaces on the next dance.
   Future<bool> run() async {
     final project = projectRoot ?? Directory.current.path;
     final firstLoad = !EnvironmentRecord.exists(project);
     final store = EnvironmentTrackingStore(projectRoot: project);
+    final recordBefore = _recordBytes(project);
 
     // buildAppComposition re-sets the shared registry's decorator to a fresh
     // ephemeral MeteringProvider/SpendLedger. Save/restore here — at the layer
@@ -124,11 +127,52 @@ class EnvironmentRunner {
       if (agent.abortedReason != null || !_finished(history)) {
         return false;
       }
+      // …and only when the record actually advanced. A prose-only finish —
+      // an agent that answered without ever invoking its write tool — must
+      // not count: the region would be pinned fresh while the record is
+      // still absent or stale, and the first-load path would re-run the
+      // ceremony (a provider round-trip) on every launch, each time claiming
+      // success.
+      if (!_recordAdvanced(project,
+          firstLoad: firstLoad, before: recordBefore)) {
+        return false;
+      }
       store.record();
       return true;
     } finally {
       registry.decorator = savedDecorator;
     }
+  }
+
+  /// The record's bytes before the run, or null when it is absent — the
+  /// baseline the post-run advance check compares against.
+  List<int>? _recordBytes(String project) {
+    final file = EnvironmentRecord.fileFor(project);
+    if (!file.existsSync()) return null;
+    return file.readAsBytesSync();
+  }
+
+  /// Whether the record advanced during the run: present after a first-load
+  /// population, content-changed after a re-verify. An unreadable or vanished
+  /// record cannot prove a change, so it does not count.
+  bool _recordAdvanced(String project,
+      {required bool firstLoad, required List<int>? before}) {
+    final file = EnvironmentRecord.fileFor(project);
+    if (!file.existsSync()) return false;
+    if (firstLoad) return true;
+    try {
+      return !_bytesEqual(before ?? const [], file.readAsBytesSync());
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  bool _bytesEqual(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   /// A finished run ends on an assistant text turn (the agent loop returns the
