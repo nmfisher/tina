@@ -44,12 +44,18 @@ void main() {
   // The seed corpus shape, scaled to the small panel: sections of five lines
   // whose fourth line wraps (a >width token), pushing the region through
   // many scrolls.
+  //
+  // The wide line is sized for the defect: 56 CJK chars + the emoji clusters
+  // are ~49 more CODE UNITS than the plain prefix, so the old one-column-
+  // per-unit budget could hold a model row inside the region while a real
+  // terminal lays the same glyphs out ~2x wider — the overflow that ran past
+  // the panel edge and autowrapped over the border (tin-q4vz).
   String body({bool wide = false, int sections = 12}) => List.generate(
         sections,
         (i) => [
           '-- section $i --',
           'the quick brown fox jumps over the lazy dog 0123456789',
-          if (wide) 'CJK: 漢字テスト混合 $i · emoji: ✓',
+          if (wide) 'CJK: ${'漢字テスト混合' * 8} $i · emoji: 🏳️‍🌈 👨‍👩‍👧‍👦 ✓',
           'long-token: ${'x' * 80}$i',
           'plain indented line ends',
         ].join('\n'),
@@ -89,11 +95,15 @@ void main() {
     chat.write(text);
     drain();
 
-    // The border column…
+    // Both border columns — the left one via the terminal's autowrap, the
+    // right one via content that simply paints past the region edge.
     final interior = const Rect(row: 3, col: 5, width: 58, height: 16);
     final missing = <int>[];
     for (var r = 0; r < interior.height; r++) {
       if (vt.charAt(interior.row + r, interior.col - 1) != '│') {
+        missing.add(interior.row + r);
+      }
+      if (vt.charAt(interior.row + r, interior.col + interior.width) != '│') {
         missing.add(interior.row + r);
       }
     }
@@ -114,5 +124,47 @@ void main() {
       expect(screenText, contains(line),
           reason: 'line corrupted on screen: $line');
     }
+  });
+
+  test('a full-width panel survives wide rows reaching the terminal edge',
+      () {
+    // The live-app geometry: the chat interior extends to the terminal's
+    // right edge, so an over-budget wide row doesn't just paint past the
+    // panel — the TERMINAL autowraps it onto the next screen row, eating
+    // the left border and the first glyphs of the row below.
+    final rect = const Rect(row: 2, col: 4, width: 96, height: 18);
+    final (frame, _, chat) = _panelWithChat(rect);
+    drain();
+
+    chat.write(body(wide: true));
+    drain();
+
+    final interior = frame.interior;
+    expect(interior.col + interior.width, 99,
+        reason: 'fixture premise: interior must reach the terminal edge');
+
+    final missing = <int>[];
+    for (var r = 0; r < interior.height; r++) {
+      if (vt.charAt(interior.row + r, interior.col - 1) != '│') {
+        missing.add(interior.row + r);
+      }
+      if (vt.charAt(interior.row + r, interior.col + interior.width) != '│') {
+        missing.add(interior.row + r);
+      }
+    }
+    expect(missing, isEmpty,
+        reason:
+            'rows lost a border to autowrap (tin-q4vz): got ${missing.take(8).toList()}');
+
+    // The row following a wide row must render its text exactly — the
+    // dropped-glyph symptom (`long-token:` → ` long-toke :`).
+    final screenText = List.generate(
+      24,
+      (r) => List.generate(100, (c) => vt.charAt(r, c)).join(),
+    ).join('\n');
+    expect(screenText, contains('long-token:'),
+        reason: 'long-token row corrupted by the wide row above it');
+    expect(screenText, contains('-- section 11 --'),
+        reason: 'section header corrupted');
   });
 }

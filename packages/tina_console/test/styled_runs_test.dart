@@ -315,6 +315,19 @@ void main() {
       expect(span.runs.first.style.fg, 0x00cdcd);
     });
 
+    test('wide-char prefix → offset counts terminal cells, not units '
+        '(tin-q4vz)', () {
+      // The unchanged prefix ends in wide glyphs. An offset computed in
+      // code units (3 for 漢字テ) lands LEFT of where the prefix actually
+      // ends on screen (6 cells), so the tail re-emit paints over the
+      // prefix's last glyphs — the `long-token:` → ` long-toke :` symptom.
+      final oldRuns = parseStyledRuns('\x1b[32m漢字テ\x1b[36mCD\x1b[0m');
+      final newRuns = parseStyledRuns('\x1b[32m漢字テ\x1b[36mCE\x1b[0m');
+      final span = diffStyledRuns(oldRuns, newRuns);
+      expect(span, isNotNull);
+      expect(span!.colOffset, 6); // 3 wide glyphs × 2 cells
+    });
+
     test('prefix changed → span starts at offset 0', () {
       final oldRuns = parseStyledRuns('\x1b[31mAB\x1b[0m');
       final newRuns = parseStyledRuns('\x1b[32mAB\x1b[0m');

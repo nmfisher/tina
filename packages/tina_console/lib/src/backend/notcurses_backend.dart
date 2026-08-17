@@ -7,6 +7,7 @@ import 'package:dart_notcurses/dart_notcurses.dart' as nc;
 import '../rect.dart';
 import '../stdio.dart';
 import '../styled_text.dart';
+import '../term_width.dart';
 import 'backend_surface.dart';
 import '../input_latency.dart';
 import 'init_reply_guard.dart';
@@ -772,7 +773,11 @@ int _emitSgrStyled(_SgrSink sink, int row, int startCol, String text) {
     }
     if (run.text.isNotEmpty) {
       sink.putStrYX(row, col, run.text);
-      col += run.text.length;
+      // Advance by terminal cells (term_width.dart), not code units — this
+      // is the column where the next run starts painting, and a wrong
+      // advance drifts runs rightward until they autowrap past the plane
+      // edge (tin-q4vz).
+      col += plainWidth(run.text);
     }
   }
   return col;
@@ -791,7 +796,7 @@ int _emitSgrStyledWalker(_SgrSink sink, int row, int startCol, String text) {
       if (buf.isNotEmpty) {
         final span = buf.toString();
         sink.putStrYX(row, col, span);
-        col += span.length;
+        col += plainWidth(span); // terminal cells, not code units (tin-q4vz)
         buf.clear();
       }
       var j = i + 2;
@@ -817,7 +822,7 @@ int _emitSgrStyledWalker(_SgrSink sink, int row, int startCol, String text) {
   if (buf.isNotEmpty) {
     final span = buf.toString();
     sink.putStrYX(row, col, span);
-    col += span.length;
+    col += plainWidth(span); // terminal cells, not code units (tin-q4vz)
   }
   return col;
 }
@@ -839,9 +844,8 @@ void _applySgr(_SgrSink sink, String params) {
 }
 
 /// Count visible columns in [text], skipping over CSI escape sequences
-/// (`\x1b[...<final>`). Each non-escape rune counts as one column — wide
-/// glyphs are NOT counted at width 2, matching how tina_console clips its
-/// own writes. Exposed for tests.
+/// (`\x1b[...<final>`), in terminal cells per term_width.dart — wide runes
+/// count 2, combining marks 0, astral 2. Exposed for tests.
 int visibleColumns(String text) {
   var visible = 0;
   var i = 0;
@@ -861,8 +865,8 @@ int visibleColumns(String text) {
       }
       continue;
     }
-    visible++;
-    i++;
+    visible += runeWidth(codePointAt(text, i));
+    i += runeSizeAt(text, i);
   }
   return visible;
 }

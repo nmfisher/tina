@@ -5,6 +5,14 @@
 /// Does NOT handle: scrolling, tab stops, insert/delete lines, alternate
 /// screen buffer modes — none of those are needed for the rendering
 /// pipeline tests.
+///
+/// Glyph widths model a REAL terminal (tmux-class), not tina's own
+/// conservative table: wide glyphs occupy two cells (the second a
+/// zero-length continuation), combining marks/ZWJ advance nothing, VS16
+/// advances one, and a glyph that no longer fits wraps to the next row —
+/// exactly the autowrap that ate panel borders in tin-q4vz. The table is
+/// deliberately implemented here rather than imported from lib/: a harness
+/// that shares the production width function shares its blind spots too.
 library;
 
 /// A single cell in the virtual terminal.
@@ -58,7 +66,7 @@ class VirtualTerminal {
         if (_cursorRow >= height) _cursorRow = height - 1;
         i++;
       } else if (ch >= 0x20) {
-        _putChar(String.fromCharCode(ch));
+        _putChar(String.fromCharCode(ch), _glyphWidth(ch));
         i++;
       } else {
         i++; // skip other control chars
@@ -144,8 +152,31 @@ class VirtualTerminal {
 
   // -- internals -----------------------------------------------------------
 
-  void _putChar(String ch) {
-    if (_pendingWrap) {
+  /// Terminal-cell width of a code point, tmux-style: East Asian Wide and
+  /// astral emoji occupy two cells, combining marks occupy none, VS16
+  /// advances one (base+VS16 is the 2-cell emoji presentation), and ZWJ
+  /// occupies a cell of its own — tmux does not compose the sequence, it
+  /// lays every member glyph out separately (measured live, tin-q4vz).
+  static int _glyphWidth(int cp) {
+    if (cp >= 0x0300 && cp <= 0x036f) return 0; // combining diacriticals
+    if (cp >= 0x200b && cp <= 0x200f && cp != 0x200d) return 0;
+    if (cp == 0x200d) return 1; // ZWJ
+    if (cp >= 0xfe00 && cp <= 0xfe0e) return 0; // VS1..VS15
+    if (cp == 0xfe0f) return 1; // VS16
+    if (cp >= 0x1100 && cp <= 0x115f) return 2; // Hangul Jamo
+    if (cp >= 0x2e80 && cp <= 0xa4cf) return 2; // CJK radicals..Yi
+    if (cp >= 0xac00 && cp <= 0xd7a3) return 2; // Hangul syllables
+    if (cp >= 0xf900 && cp <= 0xfaff) return 2; // CJK compat ideographs
+    if (cp >= 0xff00 && cp <= 0xff60) return 2; // fullwidth forms
+    if (cp >= 0x1f000 && cp <= 0x1fbff) return 2; // emoji blocks
+    return 1;
+  }
+
+  void _putChar(String ch, int w) {
+    if (w == 0) return; // combining mark: attaches, advances nothing
+    if (_pendingWrap || (w == 2 && _cursorCol >= width - 1)) {
+      // Deferred autowrap, or a wide glyph that cannot fit the last column:
+      // the glyph starts the next row (what xterm/tmux do).
       _cursorCol = 0;
       _cursorRow++;
       _pendingWrap = false;
@@ -157,6 +188,10 @@ class VirtualTerminal {
         _cursorCol < width) {
       grid[_cursorRow][_cursorCol] = _Cell(char: ch);
       _cursorCol++;
+      if (w == 2 && _cursorCol < width) {
+        grid[_cursorRow][_cursorCol] = _Cell(char: ''); // continuation
+        _cursorCol++;
+      }
       if (_cursorCol >= width) {
         _pendingWrap = true;
         _cursorCol = width - 1;

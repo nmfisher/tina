@@ -1,9 +1,10 @@
 ---
 id: tin-q4vz
-status: open
+status: closed
 deps: []
-links: [tin-m2vq, tin-4k8w]
+links: [tin-m2vq, tin-4k8w, tin-p8k2]
 created: 2026-08-17T07:55:00Z
+closed: 2026-08-17T11:30:00Z
 type: bug
 priority: 2
 assignee: Nick Fisher
@@ -121,6 +122,49 @@ Fix direction: one conservative terminal-width function (wide ranges =
 high), applied at every column-budget site in the emit path — wrap,
 pad, clip, run advance, diff colOffset. Over-counting is safe (bar a
 column short at the right edge); under-counting (today) wraps.
+
+## Fix (2026-08-17, hunt 3): one width table, every budget site
+
+`packages/tina_console/lib/src/term_width.dart` is now the single
+terminal-cell table (doctrine: err high, never low — over-counting costs a
+column at the right edge, under-counting wraps). Applied at every column
+budget in the emit path:
+
+- `_writeInternal` wrap — budget in cells; a wide rune with insufficient
+  room wraps to the next row (terminal behavior) instead of overflowing;
+  surrogate pairs never split.
+- `_visibleLen` (bar pad) — cells; bars now pad one column SHORT of the
+  region width so an exactly-full row can't invite the rasterizer's
+  autowrap continuation (both pad sites: `_emitRow` + `_renderRowText`).
+- `clipToVisibleColumns` — clips by cells, drops a boundary-crossing rune
+  whole.
+- `_emitSgrStyled` / `_emitSgrStyledWalker` run advance — cells.
+- `diffStyledRuns` colOffset + `_emitRow`'s oldTailWidth — cells, agreeing
+  with the emit advance.
+- `visibleColumns`, `_appendToRow` — cells.
+
+ZWJ = 1 cell (not 0): measured live, tmux lays each cluster member out —
+so 👨‍👩‍👧‍👦 budgets 11. VS16 = 1 so pictographic+VS16 errs high. Astral = 2.
+Cyrillic/Hebrew/Arabic combining marks = 0; unlisted marks count 1 (errs
+high by design).
+
+Tests (all failing on the unfixed lib, green on the fixed):
+- `test/chat_paste_border_test.dart` — the VT harness now models tmux-class
+  glyph widths (a harness sharing production's table shares its blind
+  spots), plus a full-width-panel edge-reaching regression test.
+- `test/term_width_test.dart` — the table itself.
+- wide-char cases in `styled_runs_test.dart` (diff colOffset) and
+  `notcurses_backend_platform_test.dart` (run advance).
+
+Suites: tina_console 736/736, root 543/543. Live repro from clean
+restarts: 0 borderless (was 11/11), no glyph drops — CJK body ×2, ASCII
+body ×1.
+
+Residual (filed as tin-p8k2): a 1-in-3, 1-cell blank row can still lose
+its left border when the reply prose contains a ZWJ family cluster — the
+notcurses RASTER's erase run relies on autowrap to cross a row boundary
+and tmux's cluster layout is wider than nc's by 9 cells. Below our layer;
+fix direction on that ticket.
 
 ## Acceptance
 
