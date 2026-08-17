@@ -78,6 +78,50 @@ row diff / row storage code (`chat_row_diff_test.dart`,
   resize/move on geometry change and the `_pendingScrollCount`
   coalesced native scroll for a column-0 clobber.
 
+## Hunt 2 (2026-08-17): ROOT CAUSE FOUND — width-table disagreement,
+terminal-side autowrap, damage-blind spot
+
+Reproduced deterministically with the live app (tool/q4vz_live.sh, stub
+emoji_cjk scenario, 120x40, paste5k.txt): **11/11 borderless rows, every
+one a wide-char row or the row directly below one**. ASCII-only body
+(paste_ascii.txt, same shape): **0 borderless**. The earlier "ASCII body
+reproduces" note was contamination from wide rows in the surrounding
+session (the stub turn / ceremony).
+
+Mechanism, from the raw byte stream (tmux pipe-pane):
+
+1. Every column budget in the chat emit path counts **1 column per
+   rune** — `_writeInternal`'s wrap (`_curCol += run.length`),
+   `_emitRow`'s background pad (`_visibleLen`), `clipToVisibleColumns`,
+   `_emitSgrStyled`'s run advance, `diffStyledRuns`' colOffset.
+2. A wide/ZWJ row therefore emits content + pad whose width is honest
+   per OUR table but wider per the real terminal's table: notcurses
+   composes `🏳️‍🌈` as 2 cells and `👨‍👩‍👧‍👦` as 2, tmux lays them out as
+   ~4 and ~8 columns. The rasterized run (content + pad spaces, cursor
+   addressing only at run start) drifts right in tmux's grid and
+   **autowraps past the pane's right edge onto the next screen row,
+   columns 0..k** — blanking the left `│` border and the first cells of
+   the next row (`long-token:` → ` long-toke :`, x's blanked).
+3. notcurses' retained grid still holds the correct cells, so its
+   damage tracking considers those cells unchanged and **never
+   re-emits them** — the corruption survives repaints and resizes
+   (matching the observed persistence).
+4. The two defects share this root: the dropped `n`/shifted `:` are the
+   wrapped-over cells of the row following a wide row; the borderless
+   col-0 is the same wrap eating the border column.
+
+Exonerated along the way: `_ensureSurface` resize/move
+(ncplane_resize(0,0,0,0,0,0,h,w) preserves the absolute origin — probe:
+tool/resize_probe.dart), native `_pendingScrollCount` scroll, the
+comet, and plane geometry (live layout was coherent: full-width chat,
+plane 118 wide).
+
+Fix direction: one conservative terminal-width function (wide ranges =
+2, combining/VS16 = 0, else 1; VS16 = 1 so pictographic+VS16 errs
+high), applied at every column-budget site in the emit path — wrap,
+pad, clip, run advance, diff colOffset. Over-counting is safe (bar a
+column short at the right edge); under-counting (today) wraps.
+
 ## Acceptance
 
 - A VirtualTerminal-level regression test: a chat panel rendering an
