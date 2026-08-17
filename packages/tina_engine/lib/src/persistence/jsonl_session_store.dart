@@ -35,8 +35,7 @@ class JsonlSessionStore implements SessionStore {
   /// Default location: `$HOME/.tina/sessions/` (or `%USERPROFILE%` on
   /// Windows). Falls back to the current directory if neither is set.
   factory JsonlSessionStore.defaultLocation() {
-    final dir =
-        p.join(tinaDirFromEnv(Platform.environment).path, 'sessions');
+    final dir = p.join(tinaDirFromEnv(Platform.environment).path, 'sessions');
     return JsonlSessionStore(Directory(dir));
   }
 
@@ -77,7 +76,8 @@ class JsonlSessionStore implements SessionStore {
 
   @override
   Future<String> createConversation(String sessionId, {String? model}) =>
-      createConversationWithMeta(sessionId, ConversationMetaInput(model: model));
+      createConversationWithMeta(
+          sessionId, ConversationMetaInput(model: model));
 
   @override
   Future<String> createConversationWithMeta(
@@ -130,12 +130,87 @@ class JsonlSessionStore implements SessionStore {
     await _ensureMaterialized(sessionId);
     final f = _conversationFile(sessionId, conversationId);
     if (!await f.parent.exists()) await f.parent.create(recursive: true);
-    await f.writeAsString(
-      '${jsonEncode(m.toJson())}\n',
-      mode: FileMode.append,
-      flush: true,
-    );
+    // One handle for repair + write, so the two steps can't interleave with
+    // another append through this path.
+    final raf = await f.open(mode: FileMode.append);
+    try {
+      await _repairUnterminatedTail(raf);
+      await raf.writeFrom(utf8.encode('${jsonEncode(m.toJson())}\n'));
+      await raf.flush();
+    } finally {
+      await raf.close();
+    }
   }
+
+  /// A crash mid-append (kill -9, power loss) can leave the file without a
+  /// trailing newline. Appending then would glue the new record onto the
+  /// unterminated tail, and the next load drops BOTH lines (tin-g2w9). Two
+  /// tail shapes need different repairs:
+  ///
+  /// - The tail parses as a complete record — the crash landed between the
+  ///   record bytes and its newline. Terminate the line; the record is good.
+  /// - The tail does not parse — a torn write. Drop it back to the last
+  ///   newline; the loader has already skipped it as corrupt.
+  ///
+  /// On return the file ends with `\n` (or is empty) and the handle's
+  /// position is the file's new length — Dart's append mode only *seeks* to
+  /// the end at open, it does not force writes there, so the caller's
+  /// [RandomAccessFile.writeFrom] lands exactly where this leaves it.
+  Future<void> _repairUnterminatedTail(RandomAccessFile raf) async {
+    final length = await raf.length();
+    if (length == 0) return;
+    await raf.setPosition(length - 1);
+    final last = await raf.read(1);
+    if (last.isEmpty) {
+      await raf.setPosition(length);
+      return;
+    }
+    if (last.first == 0x0a) {
+      await raf.setPosition(length);
+      return;
+    }
+
+    // Read back in chunks until the last newline is in hand. The window
+    // starts small (one record's worth) and doubles, so a multi-hundred-KB
+    // single message still resolves correctly.
+    var windowSize = _tailWindow;
+    while (true) {
+      final start = length - windowSize;
+      await raf.setPosition(start < 0 ? 0 : start);
+      final window = await raf.read(length - (start < 0 ? 0 : start));
+      final nl = window.lastIndexOf(0x0a);
+      if (nl >= 0 || start <= 0) {
+        final tail = nl >= 0 ? window.sublist(nl + 1) : window;
+        if (_parsesAsRecord(tail)) {
+          await raf.setPosition(length);
+          await raf.writeByte(0x0a);
+        } else {
+          final keep = nl >= 0 ? (start < 0 ? 0 : start) + nl + 1 : 0;
+          await raf.truncate(keep);
+          await raf.setPosition(keep);
+          _log.warning('dropped torn final record (${tail.length} bytes) from '
+              '${raf.path} before append');
+        }
+        return;
+      }
+      windowSize *= 2;
+    }
+  }
+
+  /// Whether [bytes] are a complete JSON record (best effort — enough to
+  /// distinguish "record missing only its newline" from "torn write").
+  bool _parsesAsRecord(List<int> bytes) {
+    try {
+      jsonDecode(utf8.decode(bytes, allowMalformed: true));
+      return true;
+    } on FormatException {
+      return false;
+    }
+  }
+
+  /// Initial backward-scan window for [_repairUnterminatedTail] (64 KiB —
+  /// comfortably above any single record; grows to the file size if needed).
+  static const _tailWindow = 64 * 1024;
 
   @override
   Future<void> replace(
@@ -163,7 +238,8 @@ class JsonlSessionStore implements SessionStore {
       // not just regular files. Check existence via FileSystemEntity.type —
       // File.exists() returns false for a directory at the same path, which
       // would skip cleanup of a directory tempfile.
-      if (await FileSystemEntity.type(tmp.path) != FileSystemEntityType.notFound) {
+      if (await FileSystemEntity.type(tmp.path) !=
+          FileSystemEntityType.notFound) {
         try {
           await Directory(tmp.path).delete(recursive: true);
         } on FileSystemException catch (e) {
@@ -412,7 +488,8 @@ class JsonlSessionStore implements SessionStore {
       // failed-open) is removed too, not just regular files. Check existence
       // via FileSystemEntity.type — File.exists() returns false for a directory
       // at the same path, which would skip cleanup of a directory tempfile.
-      if (await FileSystemEntity.type(tmp.path) != FileSystemEntityType.notFound) {
+      if (await FileSystemEntity.type(tmp.path) !=
+          FileSystemEntityType.notFound) {
         try {
           await Directory(tmp.path).delete(recursive: true);
         } on FileSystemException catch (e) {

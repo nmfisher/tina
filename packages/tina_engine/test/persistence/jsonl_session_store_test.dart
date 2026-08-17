@@ -202,20 +202,20 @@ void main() {
 
     test('cwd defaults to null and is preserved across manifest rewrites',
         () async {
-      final sid = await store.createSession(
-          providerId: 'anthropic', cwd: '/proj');
+      final sid =
+          await store.createSession(providerId: 'anthropic', cwd: '/proj');
       // Each of these rewrites the manifest; cwd must survive.
       await store.createConversationWithMeta(
           sid, const ConversationMetaInput(model: 'anthropic/m'));
       final manifest = await store.loadSession(sid);
       expect(manifest.cwd, '/proj');
       // Old manifests without cwd parse to null.
-      final raw = jsonDecode(
-              await File('${tmp.path}${Platform.pathSeparator}$sid${Platform.pathSeparator}session.json')
-                  .readAsString())
-          as Map<String, dynamic>;
+      final raw = jsonDecode(await File(
+              '${tmp.path}${Platform.pathSeparator}$sid${Platform.pathSeparator}session.json')
+          .readAsString()) as Map<String, dynamic>;
       raw.remove('cwd');
-      await File('${tmp.path}${Platform.pathSeparator}$sid${Platform.pathSeparator}session.json')
+      await File(
+              '${tmp.path}${Platform.pathSeparator}$sid${Platform.pathSeparator}session.json')
           .writeAsString(jsonEncode(raw));
       expect((await store.loadSession(sid)).cwd, isNull);
     });
@@ -346,6 +346,47 @@ void main() {
       expect((loaded.last.content.single as TextBlock).text, 'after');
     });
 
+    test(
+        'append after a torn final record does not glue onto it '
+        '(tin-g2w9: kill -9 mid-write)', () async {
+      final (sid, cid) = await newConversation();
+      await store.append(sid, cid,
+          const Message(role: Role.user, content: [TextBlock('before')]));
+      // A crash mid-append leaves an unterminated, unparseable record.
+      await File(p.join(tmp.path, sid, '$cid.jsonl')).writeAsString(
+          '{"role":"assistant","content":[{"type":"text","text":"tor',
+          mode: FileMode.append);
+
+      await store.append(sid, cid,
+          const Message(role: Role.user, content: [TextBlock('after')]));
+
+      // Every remaining line must parse — no glued records, and the message
+      // sent after the crash survives the next load.
+      final loaded = await store.loadConversation(sid, cid);
+      expect(loaded, hasLength(2));
+      expect((loaded.first.content.single as TextBlock).text, 'before');
+      expect((loaded.last.content.single as TextBlock).text, 'after');
+    });
+
+    test('append keeps a complete final record that only lacks its newline',
+        () async {
+      final (sid, cid) = await newConversation();
+      await store.append(sid, cid,
+          const Message(role: Role.user, content: [TextBlock('kept')]));
+      // Crash between the record bytes and the newline: complete JSON, no \n.
+      final f = File(p.join(tmp.path, sid, '$cid.jsonl'));
+      final content = await f.readAsString();
+      await f.writeAsString(content.substring(0, content.length - 1));
+
+      await store.append(sid, cid,
+          const Message(role: Role.user, content: [TextBlock('after')]));
+
+      final loaded = await store.loadConversation(sid, cid);
+      expect(loaded, hasLength(2));
+      expect((loaded.first.content.single as TextBlock).text, 'kept');
+      expect((loaded.last.content.single as TextBlock).text, 'after');
+    });
+
     test('replace cleans up the tempfile when rename fails', () async {
       final (sid, cid) = await newConversation();
       await store.append(sid, cid,
@@ -372,7 +413,8 @@ void main() {
       expect(leftovers, isEmpty);
     });
 
-    test('manifest write is atomic: a failed write leaves the previous '
+    test(
+        'manifest write is atomic: a failed write leaves the previous '
         'manifest intact and no tempfile behind', () async {
       final sid = await store.createSession(providerId: 'anthropic');
       final cid = await store.createConversation(sid, model: 'm1');
@@ -380,8 +422,8 @@ void main() {
       // Capture the known-good manifest on disk as ground truth.
       final manifestPath = p.join(tmp.path, sid, 'session.json');
       final baseline = File(manifestPath).readAsStringSync();
-      final baselineManifest =
-          SessionManifest.fromJson(jsonDecode(baseline) as Map<String, dynamic>);
+      final baselineManifest = SessionManifest.fromJson(
+          jsonDecode(baseline) as Map<String, dynamic>);
 
       // Force the next manifest write to fail in the tempfile step: make the
       // tempfile path (session.json.tmp) a directory, so openWrite() throws
@@ -485,8 +527,8 @@ void main() {
           ));
 
       for (final cid in [primaryId, subAgentId, spawnId]) {
-        await store.append(
-            sid, cid, const Message(role: Role.user, content: [TextBlock('q')]));
+        await store.append(sid, cid,
+            const Message(role: Role.user, content: [TextBlock('q')]));
       }
 
       // --- Reloaded-object assertion: every field survives a loadSession. ---
@@ -541,8 +583,8 @@ void main() {
       expect(raw['baseUrl'], 'https://example.com/v1');
       expect(raw['activeConversationId'], primaryId);
       final rawById = {
-        for (final c in (raw['conversations'] as List)
-            .cast<Map<String, dynamic>>())
+        for (final c
+            in (raw['conversations'] as List).cast<Map<String, dynamic>>())
           c['id'] as String: c
       };
       expect(rawById.keys, containsAll([primaryId, subAgentId, spawnId]));
@@ -779,14 +821,16 @@ void main() {
             ['B', 'B+']);
       });
 
-      test('verifyAttach is false before the recorder is initialized', () async {
+      test('verifyAttach is false before the recorder is initialized',
+          () async {
         final (sid, cid) = await newConversation();
         final r = SessionRecorder(store, sid, cid, providerId: 'anthropic');
         // Never attached and never written — _initialized is false.
         expect(await r.verifyAttach(), isFalse);
       });
 
-      test('verifyAttach is true only when attached to a conversation that is '
+      test(
+          'verifyAttach is true only when attached to a conversation that is '
           'actually in the on-disk manifest', () async {
         final (sid, cid) = await newConversation();
         final r = SessionRecorder(store, sid, cid, providerId: 'anthropic');
