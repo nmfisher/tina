@@ -77,7 +77,9 @@ class TinaInterviewer implements Interviewer {
   }
 
   Future<Answer> _yesNo(Question q) async {
-    final ev = await editor!.readKey();
+    // globalKeys: panel-cycling shortcuts stay global at a y/n gate too
+    // (tin-c5nw).
+    final ev = await editor!.readKey(globalKeys: true);
     final yes = ev is CharInput && (ev.text == 'y' || ev.text == 'Y');
     return Answer(
         kind: yes ? AnswerValue.yes : AnswerValue.no,
