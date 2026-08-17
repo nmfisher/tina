@@ -1,109 +1,61 @@
 # Sweep status
-Now:     session complete — corpus run at 4 geometries, fresh pass clean, PR raised
-Next:    await the tin-v6tq decision; then wire ReplySequenceFilter if approved
+Now:     tin-j3mk closed — teardown UAF fixed (pump joined before
+         notcurses_stop on every stop path). Queue empty of pickable bugs.
+Next:    tin-3x9v stays a watch-only hunt (no repro in 13 runs); otherwise
+         pick from the parked feature/proposal tickets once prioritized.
 Blocked: none
-Ask:     tin-v6tq — option 1 (raw-byte filter) is unreachable via the notcurses
-         3.0.17 API and option 4 (init flag) does not exist; a validated
-         event-layer filter is prototyped and awaits a go-ahead to wire in.
-         Plus the parked feature tickets below.
-Last checkpoint: 2026-08-16 15:45 — tin-v6tq evaluated (option 1 rejected,
-prototype validated); tin-3x9v hunted 4 more runs incl. a union harness (13
-total, no crash); corpus 200x50 14/14 and a fresh 60x10 pass 14/14, nothing
-new. PR 11 was squash-merged as a1189fb; this session's work is a fresh PR.
+Ask:     1) Push/PR: 3 local commits (tin-r2vd, tin-c5nw, tin-j3mk) are
+         unpushed and origin/asb/ui-sweep has 3 stale pre-squash commits
+         (already merged as PR 11). Raise a fresh-branch PR as in prior
+         sessions? 2) Parked features awaiting prioritization: tin-1h8p,
+         tin-80ll, tin-923l, tin-f5xt, tin-k9q3, tin-g7rk.
+Last checkpoint: 2026-08-17 05:35 — tin-j3mk root-caused, fixed, and closed;
+suites green (root 540, tina_console 715); no crash in 12 teardown runs.
 
 ## This session
 
-- **tin-v6tq (p2, needs-user-decision) — option-1 evaluation delivered**
-  (user request 2026-08-16). Findings on the ticket:
-  - Dart never reads an input byte; `notcurses_get_nblock` parses inside
-    libnotcurses before the pump thread sees an `ncinput`. No input-fd
-    override, no byte-injection API, no init flag to skip negotiation
-    (`NCOPTION_DRAIN_INPUT` means "never read input"). Option 1 unreachable;
-    option 4 does not exist.
-  - Measured what the pump delivers (`tool/reply_decode_spike.dart`): a
-    reply bundle = 4837 events / 198 ms / 267 ESC; a genuine 5400-byte paste
-    = 5400 events with **zero ESC**; typing is isolated. This overturns the
-    ticket's "content-based filtering not implementable at this layer" claim.
-  - Prototype `ReplySequenceFilter` (NOT wired in) + 11 tests + a validator
-    over the captured streams: burst swallowed, paste and typing verbatim.
-  - Recommendation: wire it into `_onPumpedInput` ahead of the burst detector
-    — fixes the symptom with no first-keystroke latency cost.
-- **tin-3x9v (p1)** — new `tool/crash_union.sh` fires the reply burst + resize
-  storm + key hammer simultaneously (both recorded crashes shared all the
-  conditions at once). 3 runs alive, +1 gdb run under the real provider.
-  13 hunt runs total, zero SIGSEGV. Queue saturation is now measured, not
-  hypothetical: 4837 records against the pump's 256-slot cap.
+- **tin-j3mk (p2, crash) — closed.** Emergency stop paths (SIGTERM/SIGHUP
+  reaper, any error escaping the TUI run loop, zone guard) called
+  notcurses_stop while the native input pump thread was still polling
+  notcurses_get_nblock on the context being freed — the recorded SIGSEGV in
+  notcurses_stdplane. Fix: NotcursesBackend.leaveAltScreen now disposes every
+  input backend it handed out (joining the pump thread) BEFORE the platform
+  stop; dispose is idempotent so the normal path is unchanged. Proof of
+  ordering live under gdb (cocoon_input_pump_stop precedes notcurses_stop);
+  5 regression tests; 12 teardown harness runs clean.
+- **tin-3x9v (p1)** — untouched this session; the teardown work narrowed the
+  native-thread surface it hunts over. Keep open, hunt on recurrence.
 
 ## Open (hunted / not in play)
 
 - tin-3x9v (p1) — keep open; crash_gdb.sh first if it recurs, then
   crash_union.sh. Full notes on the ticket.
-- tin-p2sq, tin-g7rk, tin-c5nw, tin-y4qn, tin-r2vd, tin-j3mk — pre-existing,
-  not in play per the brief.
-- tin-1h8p, tin-80ll, tin-923l, tin-f5xt, tin-k9q3 — decided feature/proposal
-  tickets from prior sessions, parked pending user prioritization.
-- tin-v6tq — needs-user-decision (see Ask).
+- tin-y4qn (p2) — pre-existing, not in play per the brief.
+- tin-1h8p, tin-80ll, tin-923l, tin-f5xt, tin-k9q3 — decided
+  feature/proposal tickets from prior sessions, parked pending user
+  prioritization.
 
 ## Closed earlier
 
+- tin-r2vd (p1) — notcurses init wait bounded for mute terminals.
+- tin-c5nw (p1) — global shortcuts cycle panels while an approval is open.
+- tin-v6tq (p2) — ReplySequenceFilter wired into the pump path (PR 12).
+- tin-p2sq (p1) — malformed-args recovery (PR 12).
 - tin-m2vq (p2) — rapid-resize row merge (PR 11).
-- tin-4k8w, tin-6a2f, tin-8n7c, tin-7b3p, tin-uzo3, tin-m4qk and older — see
-  git log.
-
----
-## Corpus results
-
-| Task | 120x40 (prev session) | 80x24 (last session) | 200x50 (this session) | 60x10 (this session) |
-|------|----------------------|----------------------|----------------------|----------------------|
-| T1 | PASS | PASS | PASS | PASS |
-| T2 | PASS | PASS | PASS | PASS |
-| T3 | PASS | PASS | PASS | PASS |
-| T4 | PASS | PASS | PASS | PASS |
-| T5 | PASS | PASS | PASS | PASS |
-| T6 | PASS | PASS | PASS | PASS |
-| T7 | PASS | no answer in watch | PASS | PASS |
-| T8 | PASS | PASS | PASS | PASS |
-| T9 | PASS | no answer in watch | PASS | PASS |
-| T10 | PASS | PASS | PASS | PASS |
-| T11 | PASS | PASS | PASS | PASS |
-| T12 | PASS | no answer in watch | PASS | PASS |
-| T13 | NO-SHOW | PASS | PASS | PASS |
-| T14 | PASS | not rerun | not rerun (scenario) | not rerun (scenario) |
-| T15 | PASS | NOT RUN | PASS | PASS |
-
-200x50: 14/14, no APP DEAD, every pane full-width content (48 content rows);
-T7/T9/T12 — which stalled at 80x24 — all answered. 60x10 (fresh pass, nasty
-geometry): 14/14, no APP DEAD, layout intact (8 content rows + both borders
-in every pane; long approval commands wrap cleanly). **The fresh pass found
-nothing new.**
-
-200x50: 14/14 tasks, no APP DEAD, every pane full-width content (48 content
-rows). T7/T9/T12 — which stalled at 80x24 — all answered at 200x50.
-
-### 200x50 notes
-
-- Corpus panes end with an unanswered `approve? … ›` row plus `y`s in the
-  editor. Verified NOT a defect: `tool/approval_key_probe.sh` sends one key
-  at a pending approval and the approval resolves (the approved tool streams
-  beneath the row). The corpus tail is the intended mid-prompt wait — if the
-  editor holds unsent text, the approval deliberately does not arm
-  (tui_conversation_host.dart:202, the tin-8n7c guard), and the harness's
-  `y`s land in that draft. Also note the driver's "approvals given: N" counts
-  key *presses*, not resolutions.
-- `[Pasted text : 10 chars]` chips in the editor are the harness's own prompt
-  entry (10-char chunks at 120 ms) being clustered by the paste-burst
-  detector, not user-visible behaviour.
+- tin-4k8w, tin-6a2f, tin-8n7c, tin-7b3p, tin-uzo3, tin-m4qk and older —
+  see git log.
 
 ## Notes
 
-- corpus_sweep.sh now refuses to run when a prompt file is missing (a silent
-  skip cost a session t15). All 15 prompt files present this session.
+- gdb hunting lore (also on the tin-j3mk ticket): attach after the asset lib
+  dlopens — pending breakpoints never resolve under `dart run`; a
+  passed-through SIGTERM under an attached gdb kills the VM instead of
+  reaching Dart's watcher, so exercise signal paths without gdb.
+- `tool/crash_teardown.sh` (new) drives the tin-j3mk shapes: TEARDOWN_MODE =
+  term-burst | term-flood | term-idle | quit-burst.
+- The tina-smoke container that originally surfaced tin-j3mk is worth one
+  re-run at the next checkpoint batch to confirm the fix on the allocator
+  that actually faulted (this host's glibc keeps freed pages mapped).
 - ~/.tina/config is read-only mounted and already correct (deepseek /
-  deepseek-v4-flash, key matches /secrets/use_deepseek.sh) — left as-is.
-  Stub runs use HOME=/tmp/stubhome.
-- Stub server: `dart run tool/stub_server.dart --port 8907 --scenario
-  crash_stream2` (the harnesses expect 8907; the tool's default is 8787).
-- tool/reply_decode_spike.dart must await (not sleep()) or the pump's
-  NativeCallable.listener never fires — cost two dead runs before the
-  isolate-blocking bug was spotted. Same for IOSink flush + writeln.
+  deepseek-v4-flash); stub runs use HOME=/tmp/stubhome.
 - Toolchain: /home/agent/dart-sdk (3.13.0) for all builds/tests.
