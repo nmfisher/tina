@@ -1,18 +1,20 @@
 # Sweep status
-Now:     tin-q4vz (p2) and tin-w8dl (p2) filed from the 5k-paste seed —
-         the empty-dir first-run seed came back clean.
-Next:    tin-q4vz (chat rows lose the left border on expanded paste
-         content; 3/3, deterministic) is the best-actionable open bug.
-         tin-w8dl (paste truncated 6000→5412 + swallowed Enter, 1/4)
-         needs instrumentation first — no deterministic repro yet.
+Now:     tin-q4vz hunt 1 checkpointed — ANSI/VT path exonerated (pinned
+         green in test/chat_paste_border_test.dart), comet ruled out;
+         the corruption lives in the notcurses child-plane /
+         native-scroll / busy-repaint path.
+Next:    tin-q4vz (p2): notcurses-context repro (render_to_image-style
+         harness) driving the paste corpus with busy toggling mid-stream;
+         then fix. tin-w8dl (p2) still needs instrumentation — no
+         deterministic repro yet.
 Blocked: none
 Ask:     Parked features awaiting prioritization: tin-1h8p, tin-80ll,
          tin-923l, tin-f5xt, tin-k9q3, tin-g7rk. Also: push the tin-g2w9
          commit now (fresh branch + PR) or hold until more fixes
-         accumulate? (carried over; two more fixes have landed locally
-         since — tin-h5nm, tin-k7tr.)
-Last checkpoint: 2026-08-17 07:57 — root 543/543 green; tina_console
-         718/718 green; tin-h5nm + tin-k7tr closed with live stub
+         accumulate? (carried over; four unpushed fixes now sit locally —
+         tin-g2w9, tin-h5nm, tin-k7tr, plus the q4vz pinning test.)
+Last checkpoint: 2026-08-17 08:02 — root 543/543 green; tina_console
+         722/722 green; tin-h5nm + tin-k7tr closed with live stub
          verification from clean restarts.
 
 ## This session
