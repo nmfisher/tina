@@ -1,30 +1,34 @@
 # Sweep status
-Now:     tin-j3mk closed — teardown UAF fixed (pump joined before
-         notcurses_stop on every stop path). Queue empty of pickable bugs.
-Next:    tin-3x9v stays a watch-only hunt (no repro in 13 runs); otherwise
-         pick from the parked feature/proposal tickets once prioritized.
+Now:     PR 13 raised (fresh branch asb/ui-sweep-j3mk, off origin/main 8384f48)
+         carrying tin-r2vd, tin-c5nw, tin-j3mk. Teardown re-verified under a
+         faulting allocator (12 crash_teardown.sh runs, MALLOC_PERTURB_=170,
+         all clean).
+Next:    tin-3x9v stays watch-only. Pick from the parked feature/proposal
+         tickets once prioritized. One real tina-smoke container re-run is
+         still owed on a docker-capable host (see Notes).
 Blocked: none
-Ask:     1) Push/PR: 3 local commits (tin-r2vd, tin-c5nw, tin-j3mk) are
-         unpushed and origin/asb/ui-sweep has 3 stale pre-squash commits
-         (already merged as PR 11). Raise a fresh-branch PR as in prior
-         sessions? 2) Parked features awaiting prioritization: tin-1h8p,
-         tin-80ll, tin-923l, tin-f5xt, tin-k9q3, tin-g7rk.
-Last checkpoint: 2026-08-17 05:35 — tin-j3mk root-caused, fixed, and closed;
-suites green (root 540, tina_console 715); no crash in 12 teardown runs.
+Ask:     Parked features awaiting prioritization: tin-1h8p, tin-80ll,
+         tin-923l, tin-f5xt, tin-k9q3, tin-g7rk.
+Last checkpoint: 2026-08-17 06:00 — suites re-confirmed green (root 540,
+tina_console 715); PR 13 open; no crash in 12 perturbed teardown runs.
 
 ## This session
 
-- **tin-j3mk (p2, crash) — closed.** Emergency stop paths (SIGTERM/SIGHUP
-  reaper, any error escaping the TUI run loop, zone guard) called
-  notcurses_stop while the native input pump thread was still polling
-  notcurses_get_nblock on the context being freed — the recorded SIGSEGV in
-  notcurses_stdplane. Fix: NotcursesBackend.leaveAltScreen now disposes every
-  input backend it handed out (joining the pump thread) BEFORE the platform
-  stop; dispose is idempotent so the normal path is unchanged. Proof of
-  ordering live under gdb (cocoon_input_pump_stop precedes notcurses_stop);
-  5 regression tests; 12 teardown harness runs clean.
-- **tin-3x9v (p1)** — untouched this session; the teardown work narrowed the
-  native-thread surface it hunts over. Keep open, hunt on recurrence.
+- **PR 13 raised** — the 3 unpushed commits (tin-r2vd, tin-c5nw, tin-j3mk)
+  pushed to fresh branch asb/ui-sweep-j3mk via push_via_api.py and opened
+  against main. origin/asb/ui-sweep still holds the stale pre-squash commits
+  of PR 11; leave it alone.
+- **tin-j3mk confirmation under a faulting allocator.** No container runtime
+  exists in this sandbox (no docker/podman/socket), so the queued tina-smoke
+  re-run can't execute here. Equivalent: glibc MALLOC_PERTURB_=170 (verified
+  present in the dart process's environ) scribbles freed memory at free(),
+  so a pump-thread read of the freed notcurses context would deref garbage
+  instead of silently succeeding. tool/crash_teardown.sh, all four shapes
+  (term-burst, term-flood, term-idle, quit-burst) x 3 runs = 12/12 clean.
+  Suites re-confirmed: root 540/540, tina_console 715/715.
+- push_via_api.py needed one retry — first attempt stalled on a dead HTTPS
+  connection (urlopen has no timeout; killed at ~3 min). Content-addressed
+  objects made the retry safe; branch created cleanly (17 blobs, 3 commits).
 
 ## Open (hunted / not in play)
 
@@ -37,25 +41,30 @@ suites green (root 540, tina_console 715); no crash in 12 teardown runs.
 
 ## Closed earlier
 
-- tin-r2vd (p1) — notcurses init wait bounded for mute terminals.
-- tin-c5nw (p1) — global shortcuts cycle panels while an approval is open.
-- tin-v6tq (p2) — ReplySequenceFilter wired into the pump path (PR 12).
-- tin-p2sq (p1) — malformed-args recovery (PR 12).
-- tin-m2vq (p2) — rapid-resize row merge (PR 11).
+- tin-j3mk (p2) — teardown UAF: input pump joined before notcurses_stop on
+  every stop path (in PR 13).
+- tin-r2vd (p1) — notcurses init wait bounded for mute terminals (PR 13).
+- tin-c5nw (p1) — global shortcuts cycle panels while an approval is open
+  (PR 13).
+- tin-v6tq (p2), tin-p2sq (p1) — PR 12.
+- tin-m2vq (p2) — PR 11.
 - tin-4k8w, tin-6a2f, tin-8n7c, tin-7b3p, tin-uzo3, tin-m4qk and older —
   see git log.
 
 ## Notes
 
+- The tina-smoke container that originally surfaced tin-j3mk still deserves
+  one re-run where a container runtime exists (the user's docker host); this
+  sandbox has none. The MALLOC_PERTURB_ batch above is the in-sandbox
+  stand-in, not a replacement for the allocator that actually faulted.
 - gdb hunting lore (also on the tin-j3mk ticket): attach after the asset lib
   dlopens — pending breakpoints never resolve under `dart run`; a
   passed-through SIGTERM under an attached gdb kills the VM instead of
   reaching Dart's watcher, so exercise signal paths without gdb.
-- `tool/crash_teardown.sh` (new) drives the tin-j3mk shapes: TEARDOWN_MODE =
-  term-burst | term-flood | term-idle | quit-burst.
-- The tina-smoke container that originally surfaced tin-j3mk is worth one
-  re-run at the next checkpoint batch to confirm the fix on the allocator
-  that actually faulted (this host's glibc keeps freed pages mapped).
+- `tool/crash_teardown.sh` drives the tin-j3mk shapes: TEARDOWN_MODE =
+  term-burst | term-flood | term-idle | quit-burst. MALLOC_PERTURB_=170 in
+  the launching shell reaches the dart process (tmux server restarts per
+  run and inherits it).
 - ~/.tina/config is read-only mounted and already correct (deepseek /
   deepseek-v4-flash); stub runs use HOME=/tmp/stubhome.
 - Toolchain: /home/agent/dart-sdk (3.13.0) for all builds/tests.
