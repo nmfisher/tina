@@ -9,6 +9,7 @@ import '../stdio.dart';
 import '../styled_text.dart';
 import 'backend_surface.dart';
 import '../input_latency.dart';
+import 'init_reply_guard.dart';
 import 'input_backend.dart';
 import 'notcurses_input_backend.dart';
 import 'terminal_backend.dart';
@@ -115,20 +116,32 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
     // all and the TUI is dead to the keyboard. The startup query-response
     // leak is handled instead by a short post-init drain in
     // NotCursesInputBackend.
-    final nc_ = nc.NotCurses(nc.CursesOptions(
-      loglevel: nc.LogLevel.silent,
-      flags: nc.OptionFlags.suppressBanners,
-    ));
-    if (nc_.notInitialized) {
-      throw StateError('Failed to initialize notcurses');
+    //
+    // The reply guard bounds the wait for those query responses: a terminal
+    // that answers nothing (a detached tmux session has no client to answer
+    // the OSC queries) would otherwise block notcurses_init forever. When
+    // the terminal is mute the guard feeds notcurses a fallback DA1 reply
+    // through a pty on fd 0, init completes on defaults, and fd 0 is put
+    // back afterwards (tin-r2vd).
+    final guard = TerminalReplyGuard()..prepare();
+    try {
+      final nc_ = nc.NotCurses(nc.CursesOptions(
+        loglevel: nc.LogLevel.silent,
+        flags: nc.OptionFlags.suppressBanners,
+      ));
+      if (nc_.notInitialized) {
+        throw StateError('Failed to initialize notcurses');
+      }
+      // Deliver mouse-button events (scroll wheel included) as key events, so
+      // the wheel can scroll the chat scrollback instead of falling through to
+      // the terminal's wheel→arrow translation (which the editor would treat
+      // as command-history up/down). Best-effort: a terminal without mouse
+      // support leaves the wheel unhandled rather than mis-routed.
+      nc_.miceEnable(nc.MiceEvents.buttonEvent);
+      return _LiveNotcursesPlatform._(nc_, nc_.stdplane());
+    } finally {
+      guard.restore();
     }
-    // Deliver mouse-button events (scroll wheel included) as key events, so
-    // the wheel can scroll the chat scrollback instead of falling through to
-    // the terminal's wheel→arrow translation (which the editor would treat
-    // as command-history up/down). Best-effort: a terminal without mouse
-    // support leaves the wheel unhandled rather than mis-routed.
-    nc_.miceEnable(nc.MiceEvents.buttonEvent);
-    return _LiveNotcursesPlatform._(nc_, nc_.stdplane());
   }
 
   @override
