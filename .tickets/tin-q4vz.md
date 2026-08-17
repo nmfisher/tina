@@ -58,9 +58,31 @@ class changes, writing a space over the border cell. Start in the chat
 row diff / row storage code (`chat_row_diff_test.dart`,
 `chat_row_storage_test.dart` exist as harnesses).
 
+## Session findings (2026-08-17, hunt 1)
+
+- **ANSI/VT path is clean.** The corpus shape reproduced at the
+  VirtualTerminal level (`test/chat_paste_border_test.dart`: framed chat
+  region, 12 scrolling sections, wide-char variant) keeps every `│` and
+  every glyph — so the row-content/wrap layer (`_writeInternal`,
+  `_emitRow` diff) is exonerated on the ANSI surface. The bug lives in
+  the notcurses path: the chat region's opaque child plane geometry, the
+  native-scroll fast path, or the busy-toggle border repaint.
+- Comet ruled out: it sweeps the top/bottom rails only
+  (conversation_panel.dart:200-210), never the left rail.
+- Correlation with busy time: 28 borderless rows in the 4-turn session,
+  11 in the 2-turn one — consistent with a busy-toggle/native-scroll
+  path that skips rows, not with static layout math.
+- Next hunt: `tool/render_to_image.dart`-style notcurses-context test
+  (or the notcurses_backend_test harness) driving the same corpus with
+  the busy toggle flipping mid-stream; check `_ensureSurface`
+  resize/move on geometry change and the `_pendingScrollCount`
+  coalesced native scroll for a column-0 clobber.
+
 ## Acceptance
 
 - A VirtualTerminal-level regression test: a chat panel rendering an
   expanded multi-section paste keeps `│` at column 0 of every content
   row, and a row following a wide-char/ZWJ row renders its text exactly.
+  (Pinned green at `test/chat_paste_border_test.dart` — keep it as the
+  corpus template; the failing layer is below it.)
 - Live repro passes from a clean restart.
