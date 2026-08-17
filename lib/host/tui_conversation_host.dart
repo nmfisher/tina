@@ -211,7 +211,10 @@ class TuiConversationHost implements HostInterface {
     if (pending != null && editor!.editState.buffer.isNotEmpty) {
       await pending.catchError((_) {});
     }
-    final event = await editor!.readKey();
+    // globalKeys: panel-cycling shortcuts (Ctrl+G/Ctrl+W) and the ring's
+    // other navigation keys must cycle panels here, not answer the prompt
+    // (tin-c5nw — Ctrl+G used to land in this readKey as a deny).
+    final event = await editor!.readKey(globalKeys: true);
     final ch = event is CharInput ? event.text.toLowerCase() : '';
     chat.write('$ch\n', rowOwner: rowToken);
     switch (ch) {

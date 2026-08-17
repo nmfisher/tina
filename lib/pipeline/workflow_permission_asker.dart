@@ -86,7 +86,9 @@ class WorkflowPermissionAsker {
     if (pending != null && editor!.editState.buffer.isNotEmpty) {
       await pending.catchError((_) {});
     }
-    final event = await editor!.readKey();
+    // globalKeys: the focus ring's shortcuts cycle panels, they must not
+    // answer the approval (tin-c5nw).
+    final event = await editor!.readKey(globalKeys: true);
     final ch = event is CharInput ? event.text.toLowerCase() : '';
     _write('$ch\n', HostMessageStyle.normal);
     switch (ch) {
