@@ -49,6 +49,9 @@ class LineEditor {
 
   Completer<String?>? _completer;
   Completer<InputEvent>? _keyCompleter;
+  // Whether the armed [_keyCompleter] yields to the focus ring's global keys
+  // (see [readKey]). Cleared with the completer it belongs to.
+  bool _keyCompleterGlobal = false;
   // Turn token serializing concurrent [readKey] callers. readKey overwrites
   // [_keyCompleter] with no save/restore, so without serialization a second
   // caller would orphan the first (it would never complete). Non-null while a
@@ -184,7 +187,14 @@ class LineEditor {
   /// would never complete) — which matters because a background sub-agent
   /// spend-trip can fire the pause dialog's readKey while askPermission or
   /// /settings already holds one.
-  Future<InputEvent> readKey() async {
+  ///
+  /// With [globalKeys], the focus ring's navigation keys (Ctrl+G/Ctrl+W panel
+  /// cycling, Esc return-home, and every key while cycling is engaged) are
+  /// handled by the editor instead of being delivered here — a global
+  /// shortcut must never become prompt input (tin-c5nw: Ctrl+G at an open
+  /// approval used to answer it as a deny). Approval and gate prompts pass
+  /// `true`; overlays that own the whole screen keep the default.
+  Future<InputEvent> readKey({bool globalKeys = false}) async {
     // Overflow chars from a paste are drained to the next readKey ONLY while
     // the burst window is still open (the paste is still arriving). Once the
     // window has expired the queued chars are stale — they must never answer
@@ -204,7 +214,7 @@ class LineEditor {
     final turn = Completer<void>();
     _readKeyTurn = turn;
     try {
-      return await _readKeyOnce();
+      return await _readKeyOnce(globalKeys);
     } finally {
       _readKeyTurn = null;
       turn.complete();
@@ -214,13 +224,14 @@ class LineEditor {
   /// True while a [readKey] is awaiting a keystroke.
   bool get isReadingKey => _keyCompleter != null;
 
-  Future<InputEvent> _readKeyOnce() {
+  Future<InputEvent> _readKeyOnce(bool globalKeys) {
     final c = Completer<InputEvent>();
     final savedCancel = _cancelHandler;
     final savedQueueSubmit = _onQueueSubmit;
     _cancelHandler = null;
     _onQueueSubmit = null;
     _keyCompleter = c;
+    _keyCompleterGlobal = globalKeys;
     _ensureListening();
     if (debugKeys) {
       stderr.writeln('[readkey] armed');
@@ -228,6 +239,7 @@ class LineEditor {
     return c.future.whenComplete(() {
       _cancelHandler = savedCancel;
       _onQueueSubmit = savedQueueSubmit;
+      _keyCompleterGlobal = false;
       if (debugKeys) {
         stderr.writeln('[readkey] completed');
       }
@@ -376,6 +388,14 @@ class LineEditor {
       stderr.writeln('[keys] event: $event');
     }
     if (_keyCompleter != null && event is! PasteInput) {
+      // A global readKey (an approval or gate prompt) still yields to the
+      // focus ring: Ctrl+G/Ctrl+W cycle panels, and while cycling the ring is
+      // modal over every key. Consumed here, the key never answers the prompt
+      // — pre-fix, Ctrl+G at an open approval landed in the prompt's readKey
+      // and answered it as a deny (tin-c5nw).
+      if (_keyCompleterGlobal && _handleFocusRingKeys(event)) {
+        return;
+      }
       final c = _keyCompleter!;
       _keyCompleter = null;
       c.complete(event);
@@ -461,6 +481,22 @@ class LineEditor {
         return true;
       default:
         break;
+    }
+    return false;
+  }
+
+  /// Offer [event] to the focus ring — steps 2 and 3 of [_dispatchEvent], the
+  /// global navigation layer. True when the ring consumed it (engaged or moved
+  /// cycling, or Esc returned focus home), meaning no other surface — a
+  /// focused panel, the editor, or an armed global [readKey] — should see it.
+  bool _handleFocusRingKeys(InputEvent event) {
+    final fm = _focusManager;
+    if (fm == null) return false;
+    // Not cycling, the ring only claims its entry keys (Ctrl+G/Ctrl+W) and
+    // Esc-return-home; everything else falls through (returns false).
+    if (fm.handleEvent(event)) {
+      _redraw();
+      return true;
     }
     return false;
   }
