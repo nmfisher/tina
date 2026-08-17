@@ -43,9 +43,14 @@ Last checkpoint: 2026-08-17 11:30 — tin-q4vz closed; root 543/543,
   Below our budget layer (our writes were in-budget). Fix direction:
   replace `NotcursesBackendSurface.putAt`'s unconditional `' ' * maxCols`
   pre-erase with a caller-supplied old-tail span.
-- Stash cleanup: dropped the three prior-session WIP stashes (all were
-  mid-compaction q4vz attempts; the useful parts are in this commit).
-  Check `git stash list` is empty if resuming.
+- Stash cleanup: dropped the three prior-session q4vz WIP stashes (all
+  mid-compaction attempts on 4944f48; the useful parts — the width-aware
+  VT harness + edge-panel test — are in the fix commit). FIVE older
+  stashes remain, from sessions before PR 13, on commits d0da253 /
+  268000c ×2 / 5e578ab / 7ee2ef7; one (7ee2ef7) mentions tin-3x9v crash
+  material — inspect it before the next tin-3x9v hunt, and prune the set
+  once triaged. They are invisible to tickets+STATUS+git-log resumption
+  by design; anything worth keeping should be committed or ticketed.
 
 ## Open (hunted / not in play)
 
