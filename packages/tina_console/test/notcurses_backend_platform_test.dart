@@ -112,7 +112,7 @@ class RecordingPlatform implements NotcursesPlatform {
   @override
   InputBackend createInputBackend() {
     calls.add('createInputBackend');
-    final ib = _StubInputBackend();
+    final ib = _StubInputBackend(calls);
     lastInputBackend = ib;
     return ib;
   }
@@ -143,19 +143,33 @@ class RecordingPlatform implements NotcursesPlatform {
 }
 
 class _StubInputBackend implements InputBackend {
+  /// Ordered call log shared with the owning [RecordingPlatform], so a
+  /// dispose can be asserted to precede (or follow) platform-level calls.
+  final List<String>? recorder;
+
+  _StubInputBackend([this.recorder]);
+
   @override
   Future<void> get ready => Future<void>.value();
 
   final _controller = StreamController<InputEvent>.broadcast(sync: true);
   bool disposed = false;
+
+  /// Arm before a dispose that should throw — exercises the choke point's
+  /// "a failing join must not block terminal restoration" contract.
+  bool throwOnDispose = false;
+
   @override
   Stream<InputEvent> get events => _controller.stream;
   @override
   void inject(InputEvent event) => _controller.add(event);
   @override
   void dispose() {
+    if (disposed) return; // mirrors the real backend's idempotent dispose
     disposed = true;
+    recorder?.add('inputDispose');
     _controller.close();
+    if (throwOnDispose) throw StateError('dispose boom');
   }
 }
 
@@ -483,6 +497,72 @@ void main() {
       backend.enterAltScreen();
       backend.leaveAltScreen();
       expect(() => backend.createInputBackend(), throwsStateError);
+    });
+  });
+
+  // tin-j3mk: the native input pump thread polls the notcurses context
+  // (notcurses_get_nblock) until its dispose joins it. Any stop path that
+  // freed the context first left that thread racing the free — the teardown
+  // SIGSEGV in notcurses_stdplane. leaveAltScreen is the choke point every
+  // stop path funnels through (normal teardown, the emergency restore taken
+  // on SIGTERM/SIGHUP or an escaping error, the init-failure unwind), so the
+  // join is asserted there, not in the caller.
+  group('NotcursesBackend teardown ordering (tin-j3mk)', () {
+    test('leaveAltScreen disposes input backends before platform stop', () {
+      backend.enterAltScreen();
+      backend.createInputBackend();
+      backend.leaveAltScreen();
+      expect(
+        plat.calls.indexOf('inputDispose') < plat.calls.indexOf('stop'),
+        isTrue,
+        reason: 'the pump thread must be joined before notcurses_stop frees '
+            'the context it polls',
+      );
+    });
+
+    test('a stop path that skipped disposeInput still joins the pump', () {
+      // The emergency-restore shape: leaveAltScreen with no earlier dispose.
+      backend.enterAltScreen();
+      final ib = backend.createInputBackend() as _StubInputBackend;
+      expect(ib.disposed, isFalse);
+      backend.leaveAltScreen();
+      expect(ib.disposed, isTrue);
+      expect(plat.stopped, isTrue);
+    });
+
+    test('normal path: earlier dispose is not double-disposed', () {
+      backend.enterAltScreen();
+      final ib = backend.createInputBackend();
+      ib.dispose(); // what LineEditor.disposeInput does during teardown
+      backend.leaveAltScreen();
+      expect(
+        plat.calls.where((c) => c == 'inputDispose').length,
+        1,
+        reason: 'dispose is idempotent; the choke-point join is a no-op when '
+            'the normal path already disposed the backend',
+      );
+      expect(plat.calls.indexOf('inputDispose') < plat.calls.indexOf('stop'),
+          isTrue);
+    });
+
+    test('every handed-out backend is disposed before stop', () {
+      backend.enterAltScreen();
+      final first = backend.createInputBackend() as _StubInputBackend;
+      final second = backend.createInputBackend() as _StubInputBackend;
+      backend.leaveAltScreen();
+      expect(first.disposed, isTrue);
+      expect(second.disposed, isTrue);
+      expect(plat.calls.indexOf('inputDispose') < plat.calls.indexOf('stop'),
+          isTrue);
+    });
+
+    test('a throwing dispose does not block the platform stop', () {
+      backend.enterAltScreen();
+      final ib = backend.createInputBackend() as _StubInputBackend;
+      ib.throwOnDispose = true;
+      backend.leaveAltScreen();
+      expect(plat.stopped, isTrue,
+          reason: 'the terminal must be restored even if a dispose throws');
     });
   });
 

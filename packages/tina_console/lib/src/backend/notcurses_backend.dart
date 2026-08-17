@@ -258,6 +258,18 @@ class NotcursesBackend implements TerminalBackend {
   /// [Screen.leaveAltScreen] does) don't dereference the destroyed context.
   bool _stopped = false;
 
+  /// Input backends handed out by [createInputBackend]. [leaveAltScreen]
+  /// disposes them — joining the native input pump thread that polls the
+  /// notcurses context — before [NotcursesPlatform.stop] frees that context.
+  /// This is the load-bearing ordering of teardown (tin-j3mk): the pump
+  /// thread calls `notcurses_get_nblock(nc)` in a loop, and the only join
+  /// lives in the input backend's `dispose`. The normal exit path disposes
+  /// the backend itself first (`LineEditor.disposeInput`); every other stop
+  /// path (the emergency terminal restore taken on SIGTERM/SIGHUP and on any
+  /// error escaping the TUI run loop) reaches the context through here, so
+  /// the join must happen here too or the pump races the free.
+  final List<InputBackend> _inputBackends = [];
+
   NotcursesBackend._(this._io, this._platform);
 
   /// Create and return a [NotcursesBackend] backed by libnotcurses.
@@ -278,11 +290,17 @@ class NotcursesBackend implements TerminalBackend {
   /// Build a paired [InputBackend] that polls the same notcurses context
   /// this backend owns. Throws after the backend has been stopped — callers
   /// must construct the input backend before tearing the screen down.
+  ///
+  /// The returned backend is remembered so [leaveAltScreen] can dispose it
+  /// (and thereby join its native pump thread) before the notcurses context
+  /// is destroyed, whichever stop path runs.
   InputBackend createInputBackend() {
     if (_stopped) {
       throw StateError('NotcursesBackend has been stopped.');
     }
-    return _platform.createInputBackend();
+    final input = _platform.createInputBackend();
+    _inputBackends.add(input);
+    return input;
   }
 
   // -- Cursor positioning -------------------------------------------------
@@ -415,6 +433,18 @@ class NotcursesBackend implements TerminalBackend {
   void leaveAltScreen() {
     if (!_inAltScreen || _stopped) return;
     _inAltScreen = false;
+    // Join every input pump thread BEFORE freeing the context it polls
+    // (tin-j3mk: a live pump thread inside notcurses_get_nblock during
+    // notcurses_stop was the teardown SIGSEGV in notcurses_stdplane).
+    // dispose() is idempotent, so the normal path — which already disposed
+    // the editor's backend — pays nothing here. A dispose that throws must
+    // not block the platform stop: the terminal stays raw until stop runs.
+    for (final input in _inputBackends) {
+      try {
+        input.dispose();
+      } catch (_) {}
+    }
+    _inputBackends.clear();
     _platform.stop();
     // After stop, the platform is unusable: every method that touches the
     // terminal (flush, moveCursor, eraseCells, writeText, enterAltScreen)
