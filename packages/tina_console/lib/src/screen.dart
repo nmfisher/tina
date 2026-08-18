@@ -977,6 +977,7 @@ class _PassthroughSurface implements BackendSurface {
     required String text,
     required int maxCols,
     required bool moveCursor,
+    int? clearCells,
   }) {
     if (text.endsWith('\n')) {
       io.write(text);

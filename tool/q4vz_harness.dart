@@ -178,6 +178,7 @@ class _LoggingSurface implements BackendSurface {
     required String text,
     required int maxCols,
     required bool moveCursor,
+    int? clearCells,
   }) {
     final head = text.length > 32 ? text.substring(0, 32) : text;
     _say('surface.putAt(rel=$relRow,$relCol maxCols=$maxCols '
@@ -188,6 +189,7 @@ class _LoggingSurface implements BackendSurface {
       text: text,
       maxCols: maxCols,
       moveCursor: moveCursor,
+      clearCells: clearCells,
     );
   }
 

@@ -154,6 +154,7 @@ class _Surface implements BackendSurface {
     required String text,
     required int maxCols,
     required bool moveCursor,
+    int? clearCells,
   }) =>
       _touch();
 

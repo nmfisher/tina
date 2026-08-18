@@ -1126,12 +1126,21 @@ class ScrollingTextRegion extends Region {
               ? diffStyledRuns(prevRuns, newRuns)
               : null;
           if (span != null && span.colOffset > 0) {
+            // Clear exactly the old tail (the span the diff replaced) — the
+            // same bounded erase patchStyledAtAbsolute applies on the
+            // standard-plane path. Run text is plain (SGR lives in the
+            // establish calls), so plainWidth is the cell count.
+            var oldTailWidth = 0;
+            for (var i = span.startIndex; i < prevRuns!.length; i++) {
+              oldTailWidth += plainWidth(prevRuns[i].text);
+            }
             s.putAt(
               relRow: visualRow,
               relCol: span.colOffset,
               text: renderStyledRuns(span.runs),
               maxCols: w - span.colOffset,
               moveCursor: false,
+              clearCells: oldTailWidth,
             );
             row.paintedText = text;
             row.paintedVisualRow = visualRow;
@@ -1141,12 +1150,18 @@ class ScrollingTextRegion extends Region {
           }
           // No common prefix (or parse failed) — fall through to full rewrite.
         }
+        // clearCells = the previous painted extent (styled text INCLUDING any
+        // background pad — _visibleLen skips the CSI) so the surface erases
+        // only the stale tail instead of the full budget (tin-p8k2). Null
+        // when there is no same-geometry snapshot: unknown extent, full erase.
         s.putAt(
           relRow: visualRow,
           relCol: 0,
           text: text,
           maxCols: w,
           moveCursor: false,
+          clearCells:
+              previous != null ? _visibleLen(previous).clamp(0, w) : null,
         );
         row.paintedText = text;
         row.paintedVisualRow = visualRow;

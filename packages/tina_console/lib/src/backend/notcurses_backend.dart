@@ -619,16 +619,18 @@ class NotcursesBackendSurface implements BackendSurface {
     required String text,
     required int maxCols,
     required bool moveCursor,
+    int? clearCells,
   }) {
     if (_destroyed) return;
     // Same swallow bug as writeText: the child plane's putStr silently
     // drops any write containing embedded SGR. Route through the shared
     // SGR walker, targeting THIS surface's child plane.
     final clipped = clipToVisibleColumns(text, maxCols);
-    // Erase the destination span first (default style) so a shorter new text
-    // doesn't leave the previous row's stale suffix visible — mirrors what
-    // Screen.putAtAbsolute does (eraseCells then writeText). Without this a
-    // full-row rewrite of chat would keep trailing cells from the prior row.
+    // Erase only the cells the span is known to have painted previously —
+    // bounded by the previous content (the caller's [clearCells] snapshot)
+    // instead of the full budget. When the new text already covers the old
+    // extent, no pre-erase at all: writing spaces over the incoming text's
+    // own cells would only add raster damage.
     //
     // Phase 4 boundary invariant: a child-plane putAt always starts from the
     // default baseline (setFgDefault/setBgDefault/setStyles(0)) before any SGR
@@ -640,7 +642,23 @@ class NotcursesBackendSurface implements BackendSurface {
       ..setFgDefault()
       ..setBgDefault()
       ..setStyles(0);
-    sink.putStrYX(relRow, relCol, ' ' * maxCols);
+    final erase = (clearCells ?? maxCols).clamp(0, maxCols);
+    if (erase > visibleColumns(clipped)) {
+      sink.putStrYX(relRow, relCol, ' ' * erase);
+      // tin-p8k2: a ZWJ cluster lays out wider on the real terminal than in
+      // nc's grid (driftsAgainstRaster), so after this row's content run the
+      // terminal's cursor sits RIGHT of nc's model. If the raster ever emits
+      // the erase as an unaddressed run chained onto that content, the run
+      // ends displaced by the drift and its tail wraps onto the next screen
+      // row, blanking the panel border — and nc's grid still calls those
+      // cells undamaged, so repaints never restore them. Forcing the erase
+      // into its own raster now (it emits ADDRESSED — cursor position
+      // irrelevant) breaks the chain: the content raster that follows
+      // carries only the text, which never exceeds the column budget.
+      if (driftsAgainstRaster(clipped)) {
+        _platform.render();
+      }
+    }
     _emitSgrStyled(sink, relRow, relCol, clipped);
     _present();
   }

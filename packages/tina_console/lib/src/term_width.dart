@@ -80,6 +80,20 @@ int plainWidth(String s) {
   return w;
 }
 
+/// True when [s] contains a ZWJ cluster (U+200D) — the one rune class where
+/// the terminal's layout runs WIDER than notcurses' raster model: tmux lays
+/// every cluster member out as its own cell while nc composes the sequence
+/// into a single wide cell (measured live, tin-q4vz hunt 2 / tin-p8k2).
+///
+/// This is the drift that displaces CURSOR-RELATIVE raster output: after
+/// emitting such a row, the real terminal's cursor sits right of where nc
+/// believes it is, so any run the raster chains onto it (an unaddressed
+/// erase for the previous row's tail) lands displaced and can wrap onto the
+/// next screen row, blanking the panel border. Callers that hand a
+/// shrinking row to a notcurses plane use this to decide whether the erase
+/// must land in its own ADDRESSED raster (tin-p8k2).
+bool driftsAgainstRaster(String s) => s.contains('‍');
+
 /// BMP ranges that occupy no cells: combining diacritics, the Bidi/inline
 /// format controls (ZW*, LRM/RLM), and variation selectors VS1–VS15. VS16 is
 /// deliberately absent (width 1, see doctrine).

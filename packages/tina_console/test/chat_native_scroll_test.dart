@@ -184,6 +184,90 @@ void main() {
       });
     });
   });
+
+  // tin-p8k2: the surface putAt's pre-erase must be bounded by what the row
+  // actually painted before (the caller's snapshot), never unconditionally
+  // the full budget — an over-long erase is what the notcurses raster chains
+  // onto drift-bearing (ZWJ) content as an unaddressed run, wrapping onto
+  // the next screen row and blanking its border. These tests pin the CALLER
+  // half of the contract (what _emitRow reports); the raster half — the
+  // forced two-phase erase — needs the real raster and lives in
+  // tool/p8k2_check.sh, which replays a live notcurses byte stream through
+  // the tmux-class VirtualTerminal and asserts every border survives.
+  group('erase span reporting (tin-p8k2)', () {
+    test('a row painted for the first time reports no previous extent', () {
+      fakeAsync((async) {
+        final p = _FakeNotcursesPlatform();
+        final s = _makeScreen(p, width: 80, height: 24);
+        s.redrawFrame();
+        _flush(async);
+
+        s.chat.write('fresh row');
+        _flush(async);
+        final surf = p.lastSurface!;
+        expect(surf.putAtCalls.last.clearCells, isNull,
+            reason: 'no same-geometry snapshot — the surface must full-erase');
+      });
+    });
+
+    test('a growing styled tail patches with the old tail as the erase span',
+        () {
+      fakeAsync((async) {
+        final p = _FakeNotcursesPlatform();
+        final s = _makeScreen(p, width: 80, height: 24);
+        final chat = s.chat;
+        s.redrawFrame();
+        _flush(async);
+
+        chat.write('\x1b[32mAB\x1b[36mCD');
+        _flush(async);
+        final surf = p.lastSurface!;
+        final before = surf.putAtCalls.length;
+        chat.write('\x1b[36mEF');
+        _flush(async);
+        final call = surf.putAtCalls[before];
+
+        expect(call.relCol, 2,
+            reason: 'the patch lands at the shared-prefix offset');
+        expect(call.clearCells, 2,
+            reason: 'the span re-emits the whole changed run (CDEF at col 2), '
+                'so the erase covers exactly the old tail it replaces (CD = 2 '
+                'cells), not the full row budget');
+      });
+    });
+
+    test('a same-geometry rewrite reports the previous painted extent', () {
+      fakeAsync((async) {
+        final p = _FakeNotcursesPlatform();
+        final s = _makeScreen(p, width: 80, height: 24);
+        final chat = s.chat;
+        s.redrawFrame();
+        _flush(async);
+
+        // Paint 'hello' plain, then tag the SAME row with a style: the row
+        // re-renders as an SGR-wrapped text at the same geometry — a full
+        // rewrite whose previous extent is exactly the old visible width.
+        chat.write('hello');
+        _flush(async);
+        final surf = p.lastSurface!;
+        final before = surf.putAtCalls.length;
+        // Tag the row with a style and grow it by one cell: the plain→styled
+        // flip defeats the run diff (the old snapshot has no SGR to parse),
+        // so the row full-rewrites at the same geometry.
+        chat.beginStyle('32');
+        chat.appendStyled('!');
+        _flush(async);
+        final calls =
+            surf.putAtCalls.sublist(before).where((c) => c.relCol == 0);
+
+        expect(calls, isNotEmpty,
+            reason: 'the styled rewrite full-writes the row');
+        expect(calls.last.clearCells, 5,
+            reason: 'erase span == the previous painted extent ("hello" = 5), '
+                'not the full 80-column budget');
+      });
+    });
+  });
 }
 
 /// Fire the coalesced 8ms _paintPending deterministically.
@@ -364,9 +448,12 @@ class _RecordingSurface implements BackendSurface {
   int putAtCount = 0;
   int eraseAtCount = 0;
   final List<int> scrollRowsArgs = [];
-  // Each putAt call recorded as (relRow, relCol, maxCols) so tests can assert a
-  // partial patch landed at the span offset rather than a full-row rewrite.
-  final List<({int relRow, int relCol, int maxCols})> putAtCalls = [];
+  // Each putAt call recorded as (relRow, relCol, maxCols, clearCells) so
+  // tests can assert a partial patch landed at the span offset rather than a
+  // full-row rewrite, and that the erase span is bounded by the caller's
+  // previous-extent snapshot (tin-p8k2).
+  final List<({int relRow, int relCol, int maxCols, int? clearCells})>
+      putAtCalls = [];
 
   _RecordingSurface._(this.bounds, this.gridW);
 
@@ -389,9 +476,11 @@ class _RecordingSurface implements BackendSurface {
     required String text,
     required int maxCols,
     required bool moveCursor,
+    int? clearCells,
   }) {
     putAtCount++;
-    putAtCalls.add((relRow: relRow, relCol: relCol, maxCols: maxCols));
+    putAtCalls.add(
+        (relRow: relRow, relCol: relCol, maxCols: maxCols, clearCells: clearCells));
     if (OpCounters.enabled) OpCounters.instance.gridWrites++;
     var col = relCol;
     var visible = 0;

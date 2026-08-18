@@ -33,12 +33,20 @@ abstract class BackendSurface {
   /// [moveCursor] = false wraps the write in save/restore so the terminal's
   /// visible cursor (parked by the input region) doesn't jump — use this for
   /// panel content that isn't the editing row.
+  ///
+  /// [clearCells] is the number of cells the destination span is known to
+  /// have painted previously (the caller's snapshot of the row's old
+  /// extent). The surface erases only that span before writing — bounded by
+  /// the previous content instead of the full [maxCols] budget. Null means
+  /// the previous extent is unknown (first paint, geometry change): erase
+  /// the full budget, the pre-tin-p8k2 behaviour.
   void putAt({
     required int relRow,
     required int relCol,
     required String text,
     required int maxCols,
     required bool moveCursor,
+    int? clearCells,
   });
 
   /// Erase [n] cells starting at the relative ([relRow], [relCol]).
