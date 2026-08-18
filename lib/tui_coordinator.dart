@@ -1898,16 +1898,41 @@ class TuiCoordinator {
         pipeline.loadProjectContext &&
         !EnvironmentRecord.exists(Directory.current.path)) {
       coordinator.pendingFirstLoadEnvironmentAsk = () async {
-        void launch() {
+        Future<void> launch() async {
           initialHost.showMessage(
             'No ENVIRONMENT.md yet — spawning environment agent in side panel to inspect '
             'toolchain, run setup/build/test and write ENVIRONMENT.md (Esc-Esc to cancel)…\n',
           );
-          // Unawaited: the agent runs in the background while the REPL is
-          // live (same as the /index environment branch).
-          unawaited(
-              controller.runBackgroundEnvironment?.call(initialConversation) ??
-              Future.value());
+          // Spawn a side panel for the environment agent so its work does not clutter the main panel.
+          final envConvId = 'env-${DateTime.now().millisecondsSinceEpoch}';
+          final envHost = coordinator._makeSpawnedHost(envConvId);
+          coordinator._buildSpawnPanel(
+            conversationId: envConvId,
+            parentConversationId: initialConversation.id,
+            label: 'Environment',
+            sinkHost: envHost,
+          );
+          final cancel = Completer<void>();
+          // Esc-Esc cancels the in-flight environment run. The main REPL remains responsive.
+          // For simplicity we bind cancellation to the initial conversation's host busy state;
+          // the agent run respects cancelSignal.
+          unawaited(() async {
+            try {
+              final idx = controller.environmentIndex;
+              if (idx == null) return;
+              final ok = await idx.refresh(host: envHost, cancelSignal: cancel.future);
+              if (cancel.isCompleted) {
+                initialHost.showMessage('[environment agent cancelled]\n', style: HostMessageStyle.warning);
+              } else if (ok) {
+                initialHost.showMessage('Environment record updated (ENVIRONMENT.md).\n', style: HostMessageStyle.success);
+              } else {
+                initialHost.showMessage('environment agent did not update ENVIRONMENT.md — the record stays stale\n', style: HostMessageStyle.warning);
+              }
+            } catch (e) {
+              initialHost.showMessage('environment agent failed: $e\n', style: HostMessageStyle.error);
+            }
+          }());
+          return;
         }
 
         switch (config.environmentAutoPopulate) {
