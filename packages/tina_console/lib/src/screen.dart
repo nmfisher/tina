@@ -783,13 +783,42 @@ class Screen {
     be.flush();
   }
 
-  /// Apply ANSI colour to [text] when colour is enabled.
+  /// Basic colour names callers may pass to [colorize] / `accent:` params,
+  /// mapped to their numeric SGR parameters (foreground). Numeric codes pass
+  /// through [colorize] untouched, so theme strings like '36' or '1;35' are
+  /// unaffected.
+  static const _sgrColorNames = {
+    'black': '30',
+    'red': '31',
+    'green': '32',
+    'yellow': '33',
+    'blue': '34',
+    'magenta': '35',
+    'cyan': '36',
+    'white': '37',
+    'bright-black': '90',
+    'bright-red': '91',
+    'bright-green': '92',
+    'bright-yellow': '93',
+    'bright-blue': '94',
+    'bright-magenta': '95',
+    'bright-cyan': '96',
+    'bright-white': '97',
+  };
+
+  /// Apply ANSI colour to [text] when colour is enabled. [code] may be a
+  /// numeric SGR parameter ('36', '1;35') or a basic colour NAME ('cyan') —
+  /// names are resolved to their SGR parameter first. The name form matters:
+  /// interpolating it raw produces `ESC [ cyan m`, whose leading `ESC [ c`
+  /// the terminal consumes as a (valid) Device Attributes query, leaving the
+  /// rest — e.g. `yanm` — painted as literal text on the frame.
   String colorize(String code, String text) {
+    final sgr = _sgrColorNames[code] ?? code;
     if (passthrough) {
       if (!ansi.useColor) return text;
-      return '\x1b[${code}m$text\x1b[0m';
+      return '\x1b[${sgr}m$text\x1b[0m';
     }
-    return _backend!.colorize(code, text);
+    return _backend!.colorize(sgr, text);
   }
 
   /// Swap the active theme at runtime. All subsequent paints (region emit,

@@ -267,4 +267,70 @@ void main() {
       expect(row[30], isNot('r'));
     });
   });
+
+  // Regression harness for the "yanm on the panel border" bug.
+  //
+  // Callers (the theme, overlays, and spawned panels) pass colour NAMES such
+  // as 'cyan' to [Screen.colorize] / `accent:`. Those must be resolved to a
+  // numeric SGR parameter before being placed inside `ESC [ <code> m`. The raw
+  // form `ESC [ cyan m` is malformed: `c` is a legal CSI final byte, so the
+  // terminal consumes `ESC [ c` as a Device Attributes query and prints the
+  // leftover `yanm` as literal text on the frame.
+  group('Screen.colorize (name vs numeric SGR)', () {
+    test('resolves a colour name to a numeric SGR in passthrough mode', () {
+      final io = FakeStdio();
+      final screen = Screen.passthrough(io, ansi: AnsiCapable.yes);
+      final out = screen.colorize('cyan', 'x');
+      expect(out, '\x1b[36mx\x1b[0m');
+      expect(out, isNot(contains('\x1b[cyan'))); // the original bug
+      // `yanm` (the tail of the consumed name) must never leak as text.
+      expect(out, isNot(contains('yanm')));
+    });
+
+    test('resolves a colour name to a numeric SGR via the ANSI backend', () {
+      final io = FakeStdio();
+      final screen = Screen(
+        io: io,
+        layout: ScreenLayout.fromSize(80, 24),
+        ansi: AnsiCapable.yes,
+      );
+      final out = screen.colorize('cyan', 'x');
+      expect(out, '\x1b[36mx\x1b[0m');
+      expect(out, isNot(contains('\x1b[cyan')));
+    });
+
+    test('passes numeric SGR codes through untouched', () {
+      final io = FakeStdio();
+      final screen = Screen(
+        io: io,
+        layout: ScreenLayout.fromSize(80, 24),
+        ansi: AnsiCapable.yes,
+      );
+      expect(screen.colorize('1;35', 'x'), '\x1b[1;35mx\x1b[0m');
+      // 24-bit colour SGR strings (theme values like rail/head) must survive.
+      expect(screen.colorize('38;2;30;110;130', 'x'),
+          '\x1b[38;2;30;110;130mx\x1b[0m');
+    });
+
+    test('bright names resolve to their 90-series SGR parameter', () {
+      final io = FakeStdio();
+      final screen = Screen.passthrough(io, ansi: AnsiCapable.yes);
+      expect(screen.colorize('bright-cyan', 'x'), '\x1b[96mx\x1b[0m');
+      expect(screen.colorize('bright-yellow', 'x'), '\x1b[93mx\x1b[0m');
+    });
+
+    test('returns text unchanged when colour is disabled', () {
+      final io = FakeStdio();
+      final screen = Screen.passthrough(io, ansi: AnsiCapable.no);
+      expect(screen.colorize('cyan', 'x'), 'x');
+      expect(screen.colorize('1;35', 'x'), 'x');
+    });
+
+    test('an unrecognised name falls back to the literal code (no crash)', () {
+      final io = FakeStdio();
+      final screen = Screen.passthrough(io, ansi: AnsiCapable.yes);
+      // Not a known name: passes through verbatim rather than throwing.
+      expect(screen.colorize('not-a-color', 'x'), '\x1b[not-a-colormx\x1b[0m');
+    });
+  });
 }
