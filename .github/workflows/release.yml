@@ -39,9 +39,11 @@ env:
   MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
   NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
 
-# Release creation/tagging needs write access to contents.
+# Least privilege: the default for every job is read-only; only the publish
+# job escalates to contents:write (it creates the Release). The build jobs
+# touch secrets (signing/notary) but never need to write repo contents.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -62,7 +64,7 @@ jobs:
             os_dir: linux_arm64
     steps:
       - name: Checkout (with submodules for staged native libs + build hook)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
 
@@ -71,7 +73,7 @@ jobs:
       # image, so no host Dart is required there.
       - name: Set up Dart (macOS only)
         if: runner.os == 'macOS'
-        uses: dart-lang/setup-dart@v1
+        uses: dart-lang/setup-dart@7654d458321ee25acccccfdb86cd48bd95768ff1 # v1.8.0
         with:
           sdk: 3.12
 
@@ -127,20 +129,26 @@ jobs:
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
         run: |
+          # pipefail: the runner's default shell (-e, no pipefail) would let
+          # `notarytool | tee` report tee's exit status and mask a failed
+          # notarization as success — this bit us once already.
+          set -o pipefail
           key="$RUNNER_TEMP/notary.p8"
           printf '%s' "$NOTARY_API_KEY" | base64 --decode > "$key"
           zip="tina-${{ env.TAG }}-${{ matrix.target }}-notarize.zip"
           # ditto preserves symlinks + signatures the way macOS expects.
           ditto -c -k --keepParent "build/cli/${{ matrix.os_dir }}/bundle" "$zip"
           auth=(--key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
-          rm "$key"
           if ! xcrun notarytool submit "$zip" "${auth[@]}" --wait \
               --output-format json | tee notary-result.json; then
-            id=$(jq -r '.id' notary-result.json)
-            xcrun notarytool log "$id" "${auth[@]}" || true
+            id=$(jq -r '.id // empty' notary-result.json 2>/dev/null) || true
+            if [ -n "$id" ]; then
+              xcrun notarytool log "$id" "${auth[@]}" || true
+            fi
             exit 1
           fi
-          rm -f "$zip" notary-result.json
+          # Secrets-bearing files out of RUNNER_TEMP before the step ends.
+          rm -f "$key" "$zip" notary-result.json
 
       - name: Drop signing keychain (macOS)
         if: always() && runner.os == 'macOS'
@@ -167,7 +175,7 @@ jobs:
           fi
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tina-${{ env.TAG }}-${{ matrix.target }}
           path: |
@@ -180,9 +188,11 @@ jobs:
     name: publish release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: tina-${{ env.TAG }}-*
           merge-multiple: false
@@ -198,7 +208,7 @@ jobs:
           echo "---"; find assets -name '*.tar.gz' -exec ls -lh {} \;
 
       - name: Create / attach release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ env.TAG }}
           name: ${{ env.TAG }}
