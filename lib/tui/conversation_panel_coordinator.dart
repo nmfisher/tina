@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:tina_console/tina_console.dart';
+import 'package:tina_engine/tina_engine.dart' show HostMessageStyle;
 
 import '../host/tui_conversation_host.dart';
 import '../session_manager.dart';
@@ -169,8 +170,10 @@ class ConversationPanelCoordinator {
     // in the session (the first-load environment agent's panel) — has no
     // conversation to route input to, and switching would throw. Focus then
     // behaves like an extra panel: the surface still raises, the shared input
-    // stays on the primary chat.
+    // stays on the primary chat, and text keystrokes are consumed with a
+    // notice instead of silently typing into the main conversation's editor.
     if (session.conversationById(binding.conversationId) == null) {
+      _wireReadOnlyInput(frame, binding);
       panelManager.relocateInput(panelManager.primaryFrame);
       return;
     }
@@ -187,6 +190,34 @@ class ConversationPanelCoordinator {
         .then((_) {
       panelManager.relocateInput(frame);
     }));
+  }
+
+  /// Disable text input on a read-only (host-only) panel: text-bearing
+  /// keystrokes are consumed with a dim notice in the panel itself — once per
+  /// focus gain — instead of falling through to the shared editor, which
+  /// would silently type into the main conversation's input. Navigation keys
+  /// pass through untouched: arrows/PgUp/PgDn and the wheel still scroll the
+  /// panel's transcript (the [PanelFrame] handles them after [onPanelKey]
+  /// declines), Esc still cancels the active turn, Ctrl+C still exits, and
+  /// Alt+letter still switches sessions.
+  void _wireReadOnlyInput(PanelFrame frame, _ContentBinding binding) {
+    var noticed = false;
+    frame.onPanelKey = (event) {
+      final isText = event is CharInput ||
+          event is PasteInput ||
+          event is EditingKey ||
+          (event is ControlKey && event.code == ControlCode.enter);
+      if (!isText) return false;
+      if (!noticed) {
+        noticed = true;
+        binding.host.showMessage(
+          '(input disabled — this panel is read-only; cycle focus back to a '
+          'chat panel to type)\n',
+          style: HostMessageStyle.dim,
+        );
+      }
+      return true; // consume: never reach the shared editor
+    };
   }
 
   /// Relay content into every frame's freshly-resigned interior and attach

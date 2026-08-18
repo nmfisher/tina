@@ -206,13 +206,7 @@ void main() {
       // in the session. Focusing it must not attempt the conversation switch
       // (which would throw 'Unknown conversation') — it behaves like an extra
       // panel and leaves the shared input on the primary chat.
-      final host = TuiConversationHost(
-        conversationId: 'env-123',
-        chat: ScrollingTextRegion(_backgroundScreen())..detach(),
-        spinner: Spinner(enabled: false),
-        screen: _backgroundScreen(),
-        primary: false,
-      );
+      final host = _RecordingHost('env-123');
       final frame =
           coordinator.bindSpawned(host: host, label: 'Environment (model)');
       panelManager.layout();
@@ -223,6 +217,31 @@ void main() {
           reason: 'no Conversation exists — there is nothing to switch to');
       expect(sessionManager.active.activeConversationId, 'primary',
           reason: 'focus on a host-only panel never moves the active pointer');
+
+      // Text keystrokes are consumed with a single notice — never routed to
+      // the shared editor (which would silently type into the main panel).
+      expect(frame.handleEvent(CharInput('h')), isTrue);
+      expect(frame.handleEvent(CharInput('i')), isTrue);
+      expect(frame.handleEvent(PasteInput('pasted')), isTrue);
+      expect(frame.handleEvent(ControlKey(ControlCode.enter)), isTrue);
+      expect(host.messages.length, 1,
+          reason: 'the notice is shown once per focus gain, not per key');
+      expect(host.messages.single, contains('input disabled'));
+
+      // Navigation keys keep working: PgUp and the wheel are consumed by the
+      // frame's own scroll handler (wired by _wireScrollback at bind time),
+      // and everything else — Esc (cancel turn), Ctrl+C, Alt+letter — falls
+      // through to the editor untouched.
+      expect(frame.handleEvent(ArrowKey(ArrowDirection.pageUp)), isTrue,
+          reason: 'PgUp still scrolls the panel\'s transcript');
+      expect(frame.handleEvent(ScrollEvent(up: true)), isTrue,
+          reason: 'the wheel still scrolls the panel\'s transcript');
+      expect(frame.handleEvent(EscapeKey()), isFalse,
+          reason: 'Esc still falls through to cancel the active turn');
+      expect(frame.handleEvent(ControlKey(ControlCode.ctrlC)), isFalse,
+          reason: 'Ctrl+C still falls through to the editor (exit path)');
+      expect(host.messages.length, 1,
+          reason: 'navigation keys never post the input-disabled notice');
       frame.dispose();
     });
   });
@@ -343,6 +362,26 @@ Conversation _dummyConversation(String id, {bool detached = true}) {
   );
   if (!detached) host.chat.attach();
   return conv;
+}
+
+/// A host whose [showMessage] calls are recorded, so read-only-input tests
+/// can assert the notice without a rendered screen.
+class _RecordingHost extends TuiConversationHost {
+  _RecordingHost(String id)
+      : super(
+          conversationId: id,
+          chat: ScrollingTextRegion(_backgroundScreen())..detach(),
+          spinner: Spinner(enabled: false),
+          screen: _backgroundScreen(),
+          primary: false,
+        );
+
+  final List<String> messages = [];
+
+  @override
+  void showMessage(String message, {HostMessageStyle style = HostMessageStyle.normal}) {
+    messages.add(message);
+  }
 }
 
 /// Records every [PanelFrame.setBusy] the coordinator drives, so tests can
