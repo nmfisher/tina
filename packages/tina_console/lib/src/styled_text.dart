@@ -24,6 +24,7 @@ import 'package:meta/meta.dart';
 import 'package:dart_notcurses/dart_notcurses.dart' as nc;
 
 import 'input_latency.dart';
+import 'term_width.dart';
 
 /// Bump this whenever [applySgrCode]'s semantics change so stale cached runs
 /// (computed against the old rules) are never reused.
@@ -404,11 +405,13 @@ StyledRunSpan? diffStyledRuns(
   if (i == oldRuns.length && i == newRuns.length) return null;
 
   // Column offset of the first changed run = sum of the unchanged prefix
-  // runs' visible widths. run.text is plain (no SGR), so each code unit is a
-  // cell — matching _displayWidth for plain text.
+  // runs' visible widths, in terminal cells (term_width.dart). This must
+  // agree with the run advance the emitter uses (_emitSgrStyled): an offset
+  // smaller than where the prefix actually ends paints the tail over the
+  // prefix's last glyphs (tin-q4vz).
   var colOffset = 0;
   for (var p = 0; p < i; p++) {
-    colOffset += newRuns[p].text.length;
+    colOffset += plainWidth(newRuns[p].text);
   }
   return StyledRunSpan(i, newRuns.sublist(i), colOffset);
 }

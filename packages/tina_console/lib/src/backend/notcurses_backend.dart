@@ -7,6 +7,7 @@ import 'package:dart_notcurses/dart_notcurses.dart' as nc;
 import '../rect.dart';
 import '../stdio.dart';
 import '../styled_text.dart';
+import '../term_width.dart';
 import 'backend_surface.dart';
 import '../input_latency.dart';
 import 'init_reply_guard.dart';
@@ -618,16 +619,18 @@ class NotcursesBackendSurface implements BackendSurface {
     required String text,
     required int maxCols,
     required bool moveCursor,
+    int? clearCells,
   }) {
     if (_destroyed) return;
     // Same swallow bug as writeText: the child plane's putStr silently
     // drops any write containing embedded SGR. Route through the shared
     // SGR walker, targeting THIS surface's child plane.
     final clipped = clipToVisibleColumns(text, maxCols);
-    // Erase the destination span first (default style) so a shorter new text
-    // doesn't leave the previous row's stale suffix visible — mirrors what
-    // Screen.putAtAbsolute does (eraseCells then writeText). Without this a
-    // full-row rewrite of chat would keep trailing cells from the prior row.
+    // Erase only the cells the span is known to have painted previously —
+    // bounded by the previous content (the caller's [clearCells] snapshot)
+    // instead of the full budget. When the new text already covers the old
+    // extent, no pre-erase at all: writing spaces over the incoming text's
+    // own cells would only add raster damage.
     //
     // Phase 4 boundary invariant: a child-plane putAt always starts from the
     // default baseline (setFgDefault/setBgDefault/setStyles(0)) before any SGR
@@ -639,7 +642,23 @@ class NotcursesBackendSurface implements BackendSurface {
       ..setFgDefault()
       ..setBgDefault()
       ..setStyles(0);
-    sink.putStrYX(relRow, relCol, ' ' * maxCols);
+    final erase = (clearCells ?? maxCols).clamp(0, maxCols);
+    if (erase > visibleColumns(clipped)) {
+      sink.putStrYX(relRow, relCol, ' ' * erase);
+      // tin-p8k2: a ZWJ cluster lays out wider on the real terminal than in
+      // nc's grid (driftsAgainstRaster), so after this row's content run the
+      // terminal's cursor sits RIGHT of nc's model. If the raster ever emits
+      // the erase as an unaddressed run chained onto that content, the run
+      // ends displaced by the drift and its tail wraps onto the next screen
+      // row, blanking the panel border — and nc's grid still calls those
+      // cells undamaged, so repaints never restore them. Forcing the erase
+      // into its own raster now (it emits ADDRESSED — cursor position
+      // irrelevant) breaks the chain: the content raster that follows
+      // carries only the text, which never exceeds the column budget.
+      if (driftsAgainstRaster(clipped)) {
+        _platform.render();
+      }
+    }
     _emitSgrStyled(sink, relRow, relCol, clipped);
     _present();
   }
@@ -772,7 +791,11 @@ int _emitSgrStyled(_SgrSink sink, int row, int startCol, String text) {
     }
     if (run.text.isNotEmpty) {
       sink.putStrYX(row, col, run.text);
-      col += run.text.length;
+      // Advance by terminal cells (term_width.dart), not code units — this
+      // is the column where the next run starts painting, and a wrong
+      // advance drifts runs rightward until they autowrap past the plane
+      // edge (tin-q4vz).
+      col += plainWidth(run.text);
     }
   }
   return col;
@@ -791,7 +814,7 @@ int _emitSgrStyledWalker(_SgrSink sink, int row, int startCol, String text) {
       if (buf.isNotEmpty) {
         final span = buf.toString();
         sink.putStrYX(row, col, span);
-        col += span.length;
+        col += plainWidth(span); // terminal cells, not code units (tin-q4vz)
         buf.clear();
       }
       var j = i + 2;
@@ -817,7 +840,7 @@ int _emitSgrStyledWalker(_SgrSink sink, int row, int startCol, String text) {
   if (buf.isNotEmpty) {
     final span = buf.toString();
     sink.putStrYX(row, col, span);
-    col += span.length;
+    col += plainWidth(span); // terminal cells, not code units (tin-q4vz)
   }
   return col;
 }
@@ -839,9 +862,8 @@ void _applySgr(_SgrSink sink, String params) {
 }
 
 /// Count visible columns in [text], skipping over CSI escape sequences
-/// (`\x1b[...<final>`). Each non-escape rune counts as one column — wide
-/// glyphs are NOT counted at width 2, matching how tina_console clips its
-/// own writes. Exposed for tests.
+/// (`\x1b[...<final>`), in terminal cells per term_width.dart — wide runes
+/// count 2, combining marks 0, astral 2. Exposed for tests.
 int visibleColumns(String text) {
   var visible = 0;
   var i = 0;
@@ -861,8 +883,8 @@ int visibleColumns(String text) {
       }
       continue;
     }
-    visible++;
-    i++;
+    visible += runeWidth(codePointAt(text, i));
+    i += runeSizeAt(text, i);
   }
   return visible;
 }

@@ -176,6 +176,7 @@ class _RecSurface implements BackendSurface {
     required String text,
     required int maxCols,
     required bool moveCursor,
+    int? clearCells,
   }) {
     putAtCalls.add((relRow: relRow, text: text));
   }

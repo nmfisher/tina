@@ -683,6 +683,20 @@ void main() {
       ]);
     });
 
+    test('wide-glyph runs advance by terminal cells (tin-q4vz)', () {
+      backend.moveCursor(0, 0);
+      // 漢字 = 4 cells (not 2 code units); the second span must start at
+      // column 4. An advance short of that paints the tail over the wide
+      // glyphs' second cells.
+      backend.writeText('\x1b[32m漢字\x1b[36mCD');
+      expect(plat.calls, [
+        'setFgRGB(0x00cd00)',
+        'putStrYX(0,0,漢字)',
+        'setFgRGB(0x00cdcd)',
+        'putStrYX(0,4,CD)',
+      ]);
+    });
+
     test('adjacent identical styles collapse into one setter + one putStr',
         () {
       backend.moveCursor(0, 0);

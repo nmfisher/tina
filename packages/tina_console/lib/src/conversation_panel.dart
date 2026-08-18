@@ -199,6 +199,11 @@ class PanelFrame implements Focusable {
 
   /// Toggle the busy (turn-in-flight) cue. When on, a comet sweeps the top and
   /// bottom rails (driven by a per-panel timer) and the border tints cyan.
+  ///
+  /// Busy means the conversation displayed in this frame has a turn in flight
+  /// (agent thinking, streaming, a tool call, or an in-turn permission
+  /// response) — NOT that the panel is focused. Idle panels (waiting for the
+  /// user's next message) show a static border (tin-y4qn).
   void setBusy(bool busy) {
     if (_busy == busy) return;
     _busy = busy;

@@ -7,6 +7,7 @@ import 'input_latency.dart';
 import 'rect.dart';
 import 'screen.dart';
 import 'styled_text.dart';
+import 'term_width.dart';
 
 /// A bounded write surface on the [Screen]. Subclasses cannot, by
 /// construction, write outside [bounds] — they go through the screen's
@@ -438,21 +439,43 @@ class ScrollingTextRegion extends Region {
           // Append a whole plain run up to the next control/escape or wrap point.
           // Streaming model chunks are usually long prose runs; handling them in
           // one substring avoids rebuilding the row once per UTF-16 code unit.
-          final room = bounds.width - _curCol;
+          // The budget is terminal CELLS (wide runes 2, combining 0 — see
+          // term_width.dart), not code units: a row whose stored width exceeds
+          // bounds.width lays out wider on the real terminal and autowraps past
+          // the plane edge onto the next screen row (tin-q4vz). A rune that
+          // does not fit the remaining room ends the run and wraps first —
+          // what a terminal does with a wide rune in the last column.
+          var room = bounds.width - _curCol;
           var end = i;
-          while (end < text.length && end - i < room) {
-            final unit = text[end];
-            if (unit == '\n' || unit == '\r' || unit == '\x1b') break;
-            end++;
+          var runWidth = 0;
+          while (end < text.length) {
+            final unit = text.codeUnitAt(end);
+            if (unit == 0x0a || unit == 0x0d || unit == 0x1b) break;
+            final width = runeWidth(codePointAt(text, end));
+            if (width > room) break;
+            runWidth += width;
+            room -= width;
+            end += runeSizeAt(text, end);
           }
           if (end == i) {
-            // Zero-width/degenerate bounds are guarded above, but guarantee
-            // forward progress if geometry changes during a callback.
-            end++;
+            // The next rune (width ≥ 2) doesn't fit the remaining room.
+            // Wrap it to the next row rather than letting it overflow the
+            // row's final column — a row laid out wider than bounds.width
+            // autowraps on the real terminal and clobbers the next screen
+            // row's border (tin-q4vz). A region narrower than the rune
+            // itself can never fit it; consume it and let the emit-path
+            // clip absorb the damage (never splits a surrogate pair).
+            if (runeWidth(codePointAt(text, i)) > bounds.width) {
+              end += runeSizeAt(text, i);
+            } else {
+              touched.add(_curRow);
+              _advanceRow(touched);
+              continue;
+            }
           }
           final run = text.substring(i, end);
           _rows[_curRow].append(run);
-          _curCol += run.length;
+          _curCol += runWidth;
           touched.add(_curRow);
           if (_curCol >= bounds.width) _advanceRow(touched);
           i = end;
@@ -701,7 +724,7 @@ class ScrollingTextRegion extends Region {
       _curRow = _usableHeight - 1;
     }
     _rows[_curRow].append(s);
-    if (!isAnsi) _curCol++;
+    if (!isAnsi) _curCol += plainWidth(s);
   }
 
   void _advanceRow(Set<int> touched) {
@@ -848,9 +871,14 @@ class ScrollingTextRegion extends Region {
       return;
     }
     // Either no native scroll possible, or the surface declined (ANSI-style
-    // fallback) — revert to the existing full/row path, which is correct for
-    // every non-full window.
-    if (full) {
+    // fallback) — revert to the existing full/row path. A window that
+    // scrolled OUTSIDE the native fast path leaves the plane stale by
+    // scrollCount rows: the model's rows moved, the plane's didn't, and the
+    // pending row indices were recorded before the shift (each now aims one
+    // row below the content it meant). Only a full repaint is correct there —
+    // a row loop over the stale indices emits blank rows and the
+    // scrolled-in content never renders (tin-b4n7).
+    if (full || scrollCount > 0) {
       _redrawAll();
     } else {
       for (final row in rows) {
@@ -974,7 +1002,14 @@ class ScrollingTextRegion extends Region {
     if (style != null && !screen.passthrough && screen.ansi.useColor) {
       text = _stripLeadingCsi(text);
       if (_hasBackground(style)) {
-        final pad = bounds.width - _visibleLen(text);
+        // Pad one column SHORT of the region width: a row that exactly fills
+        // the backend's grid makes the rasterizer carry the next emit into
+        // place via the terminal's autowrap instead of an explicit address,
+        // and any terminal whose width table disagrees then displaces that
+        // un-addressed run onto the next screen row — blanking the panel
+        // border (tin-q4vz). One short column costs a sliver of bar
+        // background at the right edge.
+        final pad = bounds.width - 1 - _visibleLen(text);
         final padSpaces = pad > 0 ? ' ' * pad : '';
         text = '\x1b[${style}m$text$padSpaces\x1b[0m';
       } else {
@@ -1046,11 +1081,12 @@ class ScrollingTextRegion extends Region {
     var text = row.text;
     final style = row.styleCode;
     // Styled rows get their SGR applied at emit time. If the style includes a
-    // background, the row is padded to the full region width with spaces under
-    // the same SGR so the background forms a solid bar edge to edge. Rows with
-    // only a foreground style (agent prose) are left unpadded so they sit on the
-    // terminal's default background. putAtAbsolute erases the row first; the
-    // pad spaces, when present, re-paint those erased cells.
+    // background, the row is padded (one column short of the full region
+    // width — see [_renderRowText]) with spaces under the same SGR so the
+    // background forms a solid bar edge to edge. Rows with only a foreground
+    // style (agent prose) are left unpadded so they sit on the terminal's
+    // default background. putAtAbsolute erases the row first; the pad spaces,
+    // when present, re-paint those erased cells.
     if (style != null && !screen.passthrough && screen.ansi.useColor) {
       // Bar content is plain, so any leading CSI here is spurious — typically a
       // closing `\x1b[0m` leaked from a prior colorized write whose text ended
@@ -1058,7 +1094,7 @@ class ScrollingTextRegion extends Region {
       // would cancel this row's bar SGR before the text, dropping the bar.
       text = _stripLeadingCsi(text);
       if (_hasBackground(style)) {
-        final pad = bounds.width - _visibleLen(text);
+        final pad = bounds.width - 1 - _visibleLen(text);
         final padSpaces = pad > 0 ? ' ' * pad : '';
         text = '\x1b[${style}m$text$padSpaces\x1b[0m';
       } else {
@@ -1095,12 +1131,21 @@ class ScrollingTextRegion extends Region {
               ? diffStyledRuns(prevRuns, newRuns)
               : null;
           if (span != null && span.colOffset > 0) {
+            // Clear exactly the old tail (the span the diff replaced) — the
+            // same bounded erase patchStyledAtAbsolute applies on the
+            // standard-plane path. Run text is plain (SGR lives in the
+            // establish calls), so plainWidth is the cell count.
+            var oldTailWidth = 0;
+            for (var i = span.startIndex; i < prevRuns!.length; i++) {
+              oldTailWidth += plainWidth(prevRuns[i].text);
+            }
             s.putAt(
               relRow: visualRow,
               relCol: span.colOffset,
               text: renderStyledRuns(span.runs),
               maxCols: w - span.colOffset,
               moveCursor: false,
+              clearCells: oldTailWidth,
             );
             row.paintedText = text;
             row.paintedVisualRow = visualRow;
@@ -1110,12 +1155,18 @@ class ScrollingTextRegion extends Region {
           }
           // No common prefix (or parse failed) — fall through to full rewrite.
         }
+        // clearCells = the previous painted extent (styled text INCLUDING any
+        // background pad — _visibleLen skips the CSI) so the surface erases
+        // only the stale tail instead of the full budget (tin-p8k2). Null
+        // when there is no same-geometry snapshot: unknown extent, full erase.
         s.putAt(
           relRow: visualRow,
           relCol: 0,
           text: text,
           maxCols: w,
           moveCursor: false,
+          clearCells:
+              previous != null ? _visibleLen(previous).clamp(0, w) : null,
         );
         row.paintedText = text;
         row.paintedVisualRow = visualRow;
@@ -1154,7 +1205,7 @@ class ScrollingTextRegion extends Region {
           // Changed tail only — clear the old tail width and re-emit the span.
           var oldTailWidth = 0;
           for (var i = span.startIndex; i < oldRuns!.length; i++) {
-            oldTailWidth += oldRuns[i].text.length;
+            oldTailWidth += plainWidth(oldRuns[i].text);
           }
           screen.patchStyledAtAbsolute(
             row: visualRowAbs,
@@ -1227,7 +1278,8 @@ class ScrollingTextRegion extends Region {
   }
 
   /// Visible (printable) column width of [s], skipping any embedded CSI
-  /// escape sequences. Used to size the background pad.
+  /// escape sequences, in terminal cells (see term_width.dart). Used to size
+  /// the background pad.
   int _visibleLen(String s) {
     var n = 0;
     var i = 0;
@@ -1236,8 +1288,8 @@ class ScrollingTextRegion extends Region {
         i = _findCsiEnd(s, i); // lands just past the CSI
         continue;
       }
-      n++;
-      i++;
+      n += runeWidth(codePointAt(s, i));
+      i += runeSizeAt(s, i);
     }
     return n;
   }
@@ -1265,8 +1317,9 @@ class ScrollingTextRegion extends Region {
 }
 
 /// Visible (printable) column width of [s], skipping any embedded CSI escape
-/// sequences. Shared by [InputRegion.render] and [ScrollingTextRegion._emitRow]
-/// so the input row and chat rows size patches identically.
+/// sequences, in terminal cells (see term_width.dart). Shared by
+/// [InputRegion.render] and [ScrollingTextRegion._emitRow] so the input row
+/// and chat rows size patches identically.
 int _displayWidth(String s) {
   var w = 0;
   var i = 0;
@@ -1280,8 +1333,8 @@ int _displayWidth(String s) {
       }
       continue;
     }
-    w++;
-    i++;
+    w += runeWidth(codePointAt(s, i));
+    i += runeSizeAt(s, i);
   }
   return w;
 }

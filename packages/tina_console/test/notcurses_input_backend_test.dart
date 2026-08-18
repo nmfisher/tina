@@ -603,6 +603,107 @@ void main() {
       expect(emitted, isEmpty);
     });
 
+    test('an OSC reply split across the drain boundary leaves no fragment (tin-k7tr)',
+        () async {
+      // The --resume shape: the drain window closes between two records of
+      // one reply. The head (ESC + introducer + payload start) is drained;
+      // the tail arrives after the boundary. The filter must have kept its
+      // mid-reply state across the boundary and swallow the tail — observed
+      // leaking as `[Pasted text : 23 chars]` (`;154;rgb:afff/ffff/ff00`).
+      backend = NotcursesInputBackend(
+        _FakeKeySource(),
+        startupDrainMinWindow: const Duration(milliseconds: 150),
+        startupDrainMaxWindow: const Duration(seconds: 1),
+        startupDrainIdleThreshold: const Duration(milliseconds: 30),
+        startPolling: false,
+        clock: clock,
+        temporalPasteDetection: true,
+        burstDetector: PasteBurstDetector(
+          joinWindow: const Duration(milliseconds: 30),
+          minPasteChars: 8,
+        ),
+      );
+      sub = backend.events.listen(emitted.add);
+
+      // Head of the OSC 4 palette reply, inside the drain window.
+      backend.pumpedBatchForTest(
+        [for (final ch in '\x1b]4;154;rgb:'.codeUnits) nc.PumpedInput(ch, 0, 0)],
+      );
+      await pumpMicrotasks();
+      expect(emitted, isEmpty, reason: 'the drain owns the head');
+
+      // Past minWindow + idleThreshold: the drain has closed. The tail —
+      // all printable, ≥ minPasteChars — is exactly what the burst detector
+      // would join into a paste if the filter let it through.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      backend.pumpedBatchForTest(
+        [for (final ch in 'afff/ffff/ff00\x1b\\'.codeUnits) nc.PumpedInput(ch, 0, 0)],
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(emitted, isEmpty,
+          reason: 'a boundary-split reply tail must not reach the editor');
+    });
+
+    test('a CSI reply split across the drain boundary leaves no fragment (tin-k7tr)',
+        () async {
+      backend = NotcursesInputBackend(
+        _FakeKeySource(),
+        startupDrainMinWindow: const Duration(milliseconds: 150),
+        startupDrainMaxWindow: const Duration(seconds: 1),
+        startupDrainIdleThreshold: const Duration(milliseconds: 30),
+        startPolling: false,
+        clock: clock,
+        temporalPasteDetection: true,
+        burstDetector: PasteBurstDetector(
+          joinWindow: const Duration(milliseconds: 30),
+          minPasteChars: 8,
+        ),
+      );
+      sub = backend.events.listen(emitted.add);
+
+      // Head of a DECRPM reply, drained; the `1$y` tail lands post-boundary.
+      backend.pumpedBatchForTest(
+        [for (final ch in '\x1b[?2026;'.codeUnits) nc.PumpedInput(ch, 0, 0)],
+      );
+      await pumpMicrotasks();
+      expect(emitted, isEmpty);
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      backend.pumpedBatchForTest(
+        [for (final ch in '1\$y'.codeUnits) nc.PumpedInput(ch, 0, 0)],
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(emitted, isEmpty,
+          reason: 'the CSI tail (3 printables) must be swallowed, not typed');
+    });
+
+    test('a drained lone ESC is not replayed after the boundary', () async {
+      backend = NotcursesInputBackend(
+        _FakeKeySource(),
+        startupDrainMinWindow: const Duration(milliseconds: 150),
+        startupDrainMaxWindow: const Duration(seconds: 1),
+        startupDrainIdleThreshold: const Duration(milliseconds: 30),
+        startPolling: false,
+        clock: clock,
+        temporalPasteDetection: false,
+      );
+      sub = backend.events.listen(emitted.add);
+
+      // A real Escape pressed inside the drain window: drained (the drain's
+      // documented trade-off), but fed to the filter, which holds it.
+      backend.pumpedInputForTest(0x1b);
+      await pumpMicrotasks();
+      expect(emitted, isEmpty);
+
+      // Drain closes; typing follows. The stale held ESC must NOT precede
+      // the keystroke — it was already consumed by the drain.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      backend.pumpedInputForTest('q'.codeUnitAt(0));
+      await pumpMicrotasks();
+      expect(emitted, [CharInput('q')],
+          reason: 'no stale EscapeKey may be replayed from inside the drain');
+    });
+
     test('typing right after a burst arrives normally', () async {
       backend = makeBackend();
       backend.pumpedBatchForTest(bundleRecords());

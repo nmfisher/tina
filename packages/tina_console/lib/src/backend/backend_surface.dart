@@ -1,4 +1,5 @@
 import '../rect.dart';
+import '../term_width.dart';
 
 /// A bounded, positioned write surface owned by a [TerminalBackend].
 ///
@@ -32,12 +33,20 @@ abstract class BackendSurface {
   /// [moveCursor] = false wraps the write in save/restore so the terminal's
   /// visible cursor (parked by the input region) doesn't jump — use this for
   /// panel content that isn't the editing row.
+  ///
+  /// [clearCells] is the number of cells the destination span is known to
+  /// have painted previously (the caller's snapshot of the row's old
+  /// extent). The surface erases only that span before writing — bounded by
+  /// the previous content instead of the full [maxCols] budget. Null means
+  /// the previous extent is unknown (first paint, geometry change): erase
+  /// the full budget, the pre-tin-p8k2 behaviour.
   void putAt({
     required int relRow,
     required int relCol,
     required String text,
     required int maxCols,
     required bool moveCursor,
+    int? clearCells,
   });
 
   /// Erase [n] cells starting at the relative ([relRow], [relCol]).
@@ -79,6 +88,12 @@ abstract class BackendSurface {
 /// Clip [s] to a maximum of [maxCols] visible columns, preserving any embedded
 /// ANSI (CSI) escape sequences without counting them toward the budget.
 ///
+/// The budget is terminal cells (wide runes 2, combining 0 — see
+/// term_width.dart), so a clipped string can never lay out wider than
+/// [maxCols] on the real terminal and autowrap onto the next screen row
+/// (tin-q4vz). A rune that would cross the budget is dropped whole — a
+/// surrogate pair is never split.
+///
 /// Mirrors the clipping [Screen] applies to its own region writes; factored
 /// out so backend surfaces clip identically.
 String clipToVisibleColumns(String s, int maxCols) {
@@ -107,10 +122,14 @@ String clipToVisibleColumns(String s, int maxCols) {
       }
       continue;
     }
-    if (visible >= maxCols) break;
-    sb.write(s[i]);
-    visible++;
-    i++;
+    final size = runeSizeAt(s, i);
+    final width = runeWidth(codePointAt(s, i));
+    // Zero-width runes (combining marks) attach to the previous glyph even at
+    // a full budget; anything wider stops the clip here.
+    if (visible + width > maxCols) break;
+    sb.write(s.substring(i, i + size));
+    visible += width;
+    i += size;
   }
   return sb.toString();
 }

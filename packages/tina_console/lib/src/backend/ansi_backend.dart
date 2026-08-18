@@ -198,6 +198,7 @@ class AnsiBackendSurface implements BackendSurface {
     required String text,
     required int maxCols,
     required bool moveCursor,
+    int? clearCells,
   }) {
     final r = _row(relRow);
     final c = _col(relCol);
@@ -208,7 +209,11 @@ class AnsiBackendSurface implements BackendSurface {
       _backend.saveCursor();
       _backend.moveCursor(r, c);
     }
-    _backend.eraseCells(r, c, maxCols);
+    // Bounded by the caller's previous-extent snapshot like the notcurses
+    // surface (tin-p8k2). Here it is purely an output-size optimization —
+    // every write is explicitly addressed, so there is no cursor-drift
+    // hazard — but keeping the two surfaces symmetric means one emit path.
+    _backend.eraseCells(r, c, (clearCells ?? maxCols).clamp(0, maxCols));
     _backend.writeText(clipped);
     if (!moveCursor) _backend.restoreCursor();
     _backend.flush();

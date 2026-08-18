@@ -24,11 +24,18 @@ import '../summaries/fleet_test_harness.dart';
 ///
 ///   1. `write` ENVIRONMENT.md at the repo root (tool_use)
 ///   2. final report (end_turn)
+///
+/// With [writesRecord] false, turn 1 is prose only — an agent that answers
+/// without ever invoking its write tool (the tin-h5nm false-success shape).
+/// On a warm load the write carries an updated baseline so the record's
+/// content actually changes.
 class ScriptedEnvProvider extends LlmProvider {
   int callCount = 0;
   final String projectPath;
+  final bool writesRecord;
 
-  ScriptedEnvProvider(this.projectPath) : super('env');
+  ScriptedEnvProvider(this.projectPath, {this.writesRecord = true})
+      : super('env');
 
   @override
   Stream<StreamEvent> send({
@@ -40,6 +47,17 @@ class ScriptedEnvProvider extends LlmProvider {
     const usage = TokenUsage(inputTokens: 100, outputTokens: 50);
     switch (callCount) {
       case 1:
+        if (!writesRecord) {
+          yield MessageComplete(
+            content: const [
+              TextBlock('environment looks fine; nothing needed writing'),
+            ],
+            stopReason: 'end_turn',
+            usage: usage,
+          );
+          return;
+        }
+        final warm = File('$projectPath/ENVIRONMENT.md').existsSync();
         yield MessageComplete(
           content: [
             ToolUseBlock(
@@ -47,7 +65,20 @@ class ScriptedEnvProvider extends LlmProvider {
               name: 'write',
               input: {
                 'filePath': '$projectPath/ENVIRONMENT.md',
-                'content': '''
+                'content': warm
+                    ? '''
+# Environment
+
+## Toolchain
+- Dart 3.9 (measured)
+
+## Setup
+- dart pub get
+
+## Test baseline
+- 3 tests, 0 failures (re-measured)
+'''
+                    : '''
 # Environment
 
 ## Toolchain
@@ -121,6 +152,86 @@ void main() {
     final store = EnvironmentTrackingStore(projectRoot: project.path);
     expect(store.load(), isNotNull);
     expect(store.staleReason(), isNull);
+  });
+
+  test('a prose-only finish is not a success: region stays stale (tin-h5nm)',
+      () async {
+    final provider = ScriptedEnvProvider(project.path, writesRecord: false);
+    final registry = anthropicRegistry(provider);
+    final config = Config.parse(
+      const ['--backend', 'ansi', '--yolo'],
+      env: const {'TEST_KEY': 'k', 'ANTHROPIC_API_KEY': 'k'},
+      registry: registry,
+    );
+
+    final ok = await EnvironmentRunner(
+      config: config,
+      registry: registry,
+      environment: const PlatformEnvironment(),
+      projectRoot: project.path,
+    ).run().timeout(const Duration(seconds: 30));
+
+    expect(ok, isFalse,
+        reason: 'answering in prose must not read as a completed ceremony');
+    // No record was written, and — the actual bug — the region was NOT
+    // stamped fresh: the next launch re-runs the ceremony instead of
+    // trusting a phantom update.
+    expect(File('${project.path}/ENVIRONMENT.md').existsSync(), isFalse);
+    final store = EnvironmentTrackingStore(projectRoot: project.path);
+    expect(store.load(), isNull);
+    expect(store.staleReason(), isNotNull);
+  });
+
+  test('a warm re-verify that leaves the record unchanged is not a success',
+      () async {
+    File('${project.path}/ENVIRONMENT.md').writeAsStringSync('''
+## Build
+- dart analyze
+''');
+    final provider = ScriptedEnvProvider(project.path, writesRecord: false);
+    final registry = anthropicRegistry(provider);
+    final config = Config.parse(
+      const ['--backend', 'ansi', '--yolo'],
+      env: const {'TEST_KEY': 'k', 'ANTHROPIC_API_KEY': 'k'},
+      registry: registry,
+    );
+
+    final ok = await EnvironmentRunner(
+      config: config,
+      registry: registry,
+      environment: const PlatformEnvironment(),
+      projectRoot: project.path,
+    ).run().timeout(const Duration(seconds: 30));
+
+    expect(ok, isFalse, reason: 'no content change → no advance');
+    expect(EnvironmentTrackingStore(projectRoot: project.path).load(), isNull);
+  });
+
+  test('a warm re-verify that rewrites the record is a success', () async {
+    File('${project.path}/ENVIRONMENT.md').writeAsStringSync('''
+## Build
+- dart analyze
+''');
+    final provider = ScriptedEnvProvider(project.path);
+    final registry = anthropicRegistry(provider);
+    final config = Config.parse(
+      const ['--backend', 'ansi', '--yolo'],
+      env: const {'TEST_KEY': 'k', 'ANTHROPIC_API_KEY': 'k'},
+      registry: registry,
+    );
+
+    final ok = await EnvironmentRunner(
+      config: config,
+      registry: registry,
+      environment: const PlatformEnvironment(),
+      projectRoot: project.path,
+    ).run().timeout(const Duration(seconds: 30));
+
+    expect(ok, isTrue, reason: 'the record content actually changed');
+    final record = File('${project.path}/ENVIRONMENT.md');
+    expect(record.readAsStringSync(), contains('3 tests, 0 failures'));
+    expect(EnvironmentTrackingStore(projectRoot: project.path).staleReason(),
+        isNull);
   });
 
   test('run() restores the registry decorator it temporarily mutates',

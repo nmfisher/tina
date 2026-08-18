@@ -6,6 +6,7 @@ import 'package:meta/meta.dart';
 
 import '../input_event.dart';
 import '../input_latency.dart';
+import '../paste_audit.dart';
 import 'input_backend.dart';
 import 'paste_burst_detector.dart';
 import 'reply_sequence_filter.dart';
@@ -192,7 +193,9 @@ class NotcursesInputBackend implements InputBackend {
     bool replySequenceFiltering = true,
   })  : _startupClock = clock ?? Stopwatch(),
         _burstDetector = temporalPasteDetection
-            ? (burstDetector ?? PasteBurstDetector())
+            ? (burstDetector ??
+                PasteBurstDetector.audited(
+                    onAudit: PasteAudit.enabled ? PasteAudit.log : null))
             : null,
         _replyFilter = replySequenceFiltering
             ? (replyFilter ?? ReplySequenceFilter())
@@ -210,7 +213,7 @@ class NotcursesInputBackend implements InputBackend {
       // records observe the per-batch counter + first-event-synchronous flag.
       // The native thread may fire a notification once _startPump subscribes;
       // _onBatchStart is safe to call now (all fields it touches are set).
-      pump.onBatchStart = (_) => _onBatchStart();
+      pump.onBatchStart = (n) => _onBatchStart(n);
       _startPump();
     } else if (startPolling) {
       _startPolling();
@@ -249,10 +252,17 @@ class NotcursesInputBackend implements InputBackend {
   /// [OpCounters.dartCallbackBatches] once and arms the first-event-synchronous
   /// flag so the first record of the batch emits synchronously and the rest
   /// defer via [_emit]'s microtask path.
-  void _onBatchStart() {
+  void _onBatchStart([int recordCount = 0]) {
     if (_disposed) return;
     if (OpCounters.enabled) {
       OpCounters.instance.dartCallbackBatches++;
+    }
+    // tin-w8dl: batch cadence is the delivery-stall signal. A >30ms hole
+    // between consecutive batch lines mid-paste means the Dart event loop
+    // stalled between native drains — exactly the lie that splits one paste
+    // into detector "bursts" (the detector stamps arrival with delivery time).
+    if (PasteAudit.enabled && recordCount > 0) {
+      PasteAudit.log('batch n=$recordCount');
     }
     _firstThisTick = true;
   }
@@ -307,9 +317,22 @@ class NotcursesInputBackend implements InputBackend {
         _scheduleStartupCheck();
         return;
       }
-      _startupDrainDone = true;
-      if (!_ready.isCompleted) _ready.complete();
+      _onDrainEnd();
     });
+  }
+
+  /// Close the startup drain. If the reply filter is holding a lone `ESC` —
+  /// armed by a record the drain already discarded — that ESC must be dropped,
+  /// not kept: releasing it after the boundary would replay a stale Escape in
+  /// front of the next real keystroke. Mid-reply state survives on purpose;
+  /// that is the boundary-split swallow (tin-k7tr).
+  void _onDrainEnd() {
+    _startupDrainDone = true;
+    final filter = _replyFilter;
+    if (filter != null && filter.isHoldingEscape) {
+      filter.flush(); // Discard: [_esc], already consumed by the drain.
+    }
+    if (!_ready.isCompleted) _ready.complete();
   }
 
   void _onPumpedInput(nc.PumpedInput input) {
@@ -319,11 +342,21 @@ class NotcursesInputBackend implements InputBackend {
     }
     if (!_startupDrainDone && _startupDrain.isDraining) {
       _startupDrain.sawEvent();
+      // tin-k7tr: the drain discards this record, but the reply filter must
+      // still see it. A reply sequence can straddle the drain boundary — its
+      // ESC + introducer drained, its tail arriving after — and a filter left
+      // idle at the boundary passes that tail through as ordinary typing
+      // (observed on --resume: `;154;rgb:afff/ffff/ff00` pasted into the
+      // editor, prefixing real input). Feeding the filter here keeps its
+      // sequence state continuous across the boundary so the post-drain tail
+      // is swallowed; the filter's released output is discarded with the
+      // record. (_explicitPaste is provably null here: it is only set in
+      // _deliverPumpedKey, which the drain never reaches.)
+      _replyFilter?.add(input.id, input.monotonicNanos ~/ 1000);
       return;
     }
     if (!_startupDrainDone) {
-      _startupDrainDone = true;
-      if (!_ready.isCompleted) _ready.complete();
+      _onDrainEnd();
     }
     // tin-v6tq: a terminal capability reply that arrives past the drain
     // window surfaces as ESC + printable key events (notcurses has no rule
@@ -364,7 +397,12 @@ class NotcursesInputBackend implements InputBackend {
       (modifiers & nc.KeyMod.ctrl) != 0,
       id >= nc.preterunicode(0) && id <= nc.NcKey.eof,
     ));
-    if (event == null) return;
+    if (event == null) {
+      if (PasteAudit.enabled) {
+        PasteAudit.log('pump path: untranslated drop id=$id');
+      }
+      return;
+    }
     final paste = _explicitPaste;
     if (paste != null) {
       switch (event) {
@@ -455,6 +493,8 @@ class NotcursesInputBackend implements InputBackend {
         final event = _translateKey(key);
         if (event != null) {
           _handleEvent(event);
+        } else if (PasteAudit.enabled) {
+          PasteAudit.log('poll path: untranslated drop id=${key.id}');
         }
       } else {
         drainedCount++;
@@ -483,8 +523,7 @@ class NotcursesInputBackend implements InputBackend {
     // Close the drain once its window has ended so subsequent events flow
     // through normally.
     if (!_startupDrainDone && !_startupDrain.isDraining) {
-      _startupDrainDone = true;
-      if (!_ready.isCompleted) _ready.complete();
+      _onDrainEnd();
       _log.fine('startup drain complete');
     }
   }
@@ -527,6 +566,9 @@ class NotcursesInputBackend implements InputBackend {
     _burstFlushTimer = null;
     final detector = _burstDetector;
     if (detector == null) return;
+    if (PasteAudit.enabled) {
+      PasteAudit.log('flush-timer fired (joinWindow after last pending)');
+    }
     final expired = detector.expire(_nowMicros);
     if (expired.isEmpty) return;
     // A flush from a Timer callback is its own "tick": emit the first

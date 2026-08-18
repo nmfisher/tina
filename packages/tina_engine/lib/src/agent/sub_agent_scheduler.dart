@@ -532,6 +532,12 @@ class SubAgentScheduler {
         return;
       }
       job.status = SubAgentJobStatus.running;
+      // A panelized job runs through the scheduler's own agent.run — not the
+      // session controller's turn loop — so the scheduler drives the panel
+      // host's activity signal itself. Raised here, cleared in [_finish] on
+      // every terminal path, so a live sub-agent panel's busy cue reflects
+      // the job's real state (tin-y4qn).
+      job.panelHost?.setActivity(true);
       final DelegationResult result;
       try {
         result = await _runAgent(job, task, cancelSignal, seedHistory);
@@ -940,6 +946,9 @@ class SubAgentScheduler {
       SubAgentJobStatus status) {
     job.status = status;
     job._resolved = result;
+    // Every terminal path lands here (done/errored/cancelled): drop the
+    // panel's busy cue so a finished sub-agent shows a static border.
+    job.panelHost?.setActivity(false);
     if (!job._result.isCompleted) job._result.complete(result);
     job._bus.dispose();
   }
