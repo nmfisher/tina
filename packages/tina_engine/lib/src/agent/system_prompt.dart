@@ -37,6 +37,16 @@ and the change cannot be made.
 /// closure must not throw (a read failure returns null, not an error).
 String? Function()? projectEnvironmentSource;
 
+/// Supplies the `<repo>` block — branch/HEAD, dirty counts, recent commits,
+/// and a shallow tree — also injected inside the shared `<environment>`
+/// block, ahead of `<project-environment>`. Same contract as
+/// [projectEnvironmentSource]: set once at app composition, read per prompt
+/// build, must not throw (a failure returns null), and gated by the same
+/// [loadProjectContext] trust flag. The point is that basic repo context
+/// arrives without the model spending tool calls on `git status` / `ls`
+/// round trips at the start of every conversation.
+String? Function()? repoSummarySource;
+
 /// Assembles a system prompt from a role-specific [identity] (the agent's
 /// purpose and tool guidance) followed by the shared environment block and any
 /// AGENTS.md project context discovered upward from [cwd]. [cwd] defaults to the
@@ -59,10 +69,18 @@ String _buildAgentPrompt({
       ? _loadAgentsFiles(resolvedCwd)
       : const <({String path, String content})>[];
 
-  // The warm-load block, gated by the same trust flag as AGENTS.md. A throwing
-  // source must never break every prompt build — treat it as absent.
+  // The warm-load blocks, gated by the same trust flag as AGENTS.md. A
+  // throwing source must never break every prompt build — treat it as
+  // absent. The repo summary leads (cheap factual orientation); the
+  // environment record follows (measured setup/test baseline).
+  String? repoSummary;
   String? projectEnv;
   if (loadProjectContext) {
+    try {
+      repoSummary = repoSummarySource?.call();
+    } catch (_) {
+      repoSummary = null;
+    }
     try {
       projectEnv = projectEnvironmentSource?.call();
     } catch (_) {
@@ -74,6 +92,11 @@ String _buildAgentPrompt({
     ..writeln('cwd: $resolvedCwd')
     ..writeln('os: $os')
     ..write('date: $today');
+  if (repoSummary != null && repoSummary.isNotEmpty) {
+    environment
+      ..writeln()
+      ..write(repoSummary);
+  }
   if (projectEnv != null && projectEnv.isNotEmpty) {
     environment
       ..writeln()

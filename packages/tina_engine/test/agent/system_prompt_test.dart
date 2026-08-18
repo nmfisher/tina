@@ -221,6 +221,46 @@ void main() {
     });
   });
 
+  group('repoSummarySource hook', () {
+    late Directory tmp;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('tina_sysprompt_repo_');
+    });
+
+    tearDown(() {
+      repoSummarySource = null;
+      tmp.deleteSync(recursive: true);
+    });
+
+    test('injects the block inside <environment>, before any '
+        '<project-environment>', () {
+      repoSummarySource = () => '<repo>\nbranch: main @ abc1234\n</repo>';
+      projectEnvironmentSource =
+          () => '<project-environment>\ntoolchain: Dart\n</project-environment>';
+      addTearDown(() => projectEnvironmentSource = null);
+      final s = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
+      expect(s, contains('<repo>'));
+      expect(s, contains('branch: main @ abc1234'));
+      expect(s.indexOf('date:'), lessThan(s.indexOf('<repo>')));
+      expect(s.indexOf('<repo>'), lessThan(s.indexOf('<project-environment>')));
+    });
+
+    test('withholds the block when loadProjectContext is false', () {
+      repoSummarySource = () => 'LEAKED REPO SUMMARY';
+      final s = resolveMainPrompt(defaultPipeline,
+          cwd: tmp.path, loadProjectContext: false);
+      expect(s, isNot(contains('LEAKED REPO SUMMARY')));
+    });
+
+    test('a throwing source cannot break prompt assembly', () {
+      repoSummarySource = () => throw StateError('boom');
+      final s = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
+      expect(s, contains('<environment>'));
+      expect(s, contains('cwd:'));
+    });
+  });
+
   group('resolveIdentityPrompt (node identity)', () {
     test('wraps a bare identity with the environment block', () {
       final s = resolveIdentityPrompt('NODE-IDENTITY');

@@ -13,6 +13,7 @@ import '../tools/fetch_tool.dart';
 import '../tools/tavily_search.dart';
 import '../tools/glob_tool.dart';
 import '../tools/grep_tool.dart';
+import '../tools/git_tool.dart';
 import '../tools/ls_tool.dart';
 import '../tools/mutation_lock.dart';
 import '../tools/read_tool.dart';
@@ -82,6 +83,7 @@ final _glob = GlobTool();
 final _ls = LsTool();
 final _stat = StatTool();
 final _which = WhichTool();
+final _git = GitTool(workingDirectory: Directory.current.path);
 final _writeSummary = WriteSummaryTool();
 
 /// The concrete tool set for [profile]. `read-only` is the read/explore tools
@@ -92,7 +94,7 @@ final _writeSummary = WriteSummaryTool();
 List<Tool> toolSetFor(ToolProfile profile) {
   switch (profile) {
     case ToolProfile.readOnly:
-      return [_read, _fetch, _search, _grep, _glob, _ls, _stat, _which, _writeSummary];
+      return [_read, _fetch, _search, _grep, _glob, _ls, _stat, _which, _git, _writeSummary];
     case ToolProfile.full:
       return [...buildTools().all, _writeSummary];
   }
@@ -118,7 +120,7 @@ ToolProfile parseToolProfile(String? raw) {
 List<Tool> toolsFromPolicy(PermissionPolicy policy) {
   final singletons = [
     _read, _write, _edit, _fetch, _bash, _search, _grep, _glob,
-    _ls, _stat, _which, _writeSummary
+    _ls, _stat, _which, _git, _writeSummary
   ];
   return [
     for (final t in singletons)
@@ -190,6 +192,7 @@ void configureToolSandbox({
   _ls.sandbox = sandbox;
   _stat.sandbox = sandbox;
   _bash.projectRoot = projectRoot;
+  _git.workingDirectory = projectRoot;
   // Confine bash subprocess writes to the project root + temp via sandbox-exec
   // (the structural guard against a destructive command reaching outside the
   // project). No-op pass-through where sandbox-exec is unavailable. Extra
@@ -232,7 +235,7 @@ const _tavilyKeyEnv = 'TAVILY_API_KEY';
 ToolRegistry buildTools({bool safeMode = false}) {
   var tools = [
     _read, _write, _edit, _fetch, _bash, _search, _grep, _glob,
-    _ls, _stat, _which,
+    _ls, _stat, _which, _git,
   ];
   if (safeMode) tools = stripForSafeMode(tools);
   final braveKey = Platform.environment[_braveKeyEnv];
@@ -262,7 +265,7 @@ You are a coding assistant. You talk directly with the user, plan how to carry o
 You have three ways to act:
 
 - Launch a workflow with the `launch_workflow` tool (the `default` graph unless you have a reason to name another): it explores, produces a reviewed plan, executes the chunks in parallel, then reviews the result. The call returns immediately with a run id — the workflow runs in the background while the chat stays open (the user can keep talking), node input/output streams into a live run panel as it runs, and when it finishes you receive a follow-up turn with the outcome: report it to the user and act on anything it leaves open. Cancel a running launch at any time with the `stop_workflow` tool. This is the preferred path for anything substantial or multi-step: prefer it over doing the reading and writing yourself. Reach for it whenever a job benefits from an explicit plan, independent review, or parallel execution.
-- For a small, well-scoped change (a one-line fix, a quick read, a single edit), act directly with the file and shell tools available this session (read, write, edit, bash, search, grep, glob, ls, stat, which — whichever are enabled). Prefer the dedicated read-only tools (ls, stat, which, glob, grep, search) over bash for inspection and lookup: they run without approval, while bash prompts the user every time. Read each file before editing it, keep changes minimal, and report what you did.
+- For a small, well-scoped change (a one-line fix, a quick read, a single edit), act directly with the file and shell tools available this session (read, write, edit, bash, search, grep, glob, ls, stat, which, git — whichever are enabled). Prefer the dedicated read-only tools (ls, stat, which, glob, grep, search, git) over bash for inspection and lookup — including repo-state queries like git log/status/diff, which the read-only `git` tool covers: they run without approval, while bash prompts the user every time. Read each file before editing it, keep changes minimal, and report what you did.
 - Delegate a single focused sub-task to a sub-agent with the `delegate` tool: each delegation is a task (the sub-agent runs under your identity plus that task), an optional tool profile (`read-only` for exploration/review, `full` for changes that write, edit, or run shell), and an optional model override (`llm_provider` + `llm_model`). Use it for one concurrent focused task, not as a substitute for a workflow.
 - Ask the user when a decision is genuinely theirs — `ask_user` poses multiple-choice questions (the user navigates with arrows and confirms with Enter) and returns their choices. Use it sparingly: for choosing between approaches or approving a direction, not for anything you can decide yourself.
 

@@ -53,6 +53,9 @@ class PermissionPolicy {
     'ls': PermissionDecision.allow,
     'stat': PermissionDecision.allow,
     'which': PermissionDecision.allow,
+    // The git tool's subcommand allowlist makes mutation impossible, so it
+    // is read-only by construction (see GitTool).
+    'git': PermissionDecision.allow,
   };
 
   PermissionDecision check(String tool, Map<String, dynamic> input) {

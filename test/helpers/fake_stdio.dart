@@ -11,6 +11,12 @@ class FakeStdio implements Stdio {
 
   void feedBytes(List<int> bytes) => _controller.add(bytes);
 
+  /// Feed [bytes] after [delay] — for tests that must wait until a reader
+  /// (overlay picker, permission prompt) has attached before the input lands.
+  void feedLater(List<int> bytes, Duration delay) {
+    Timer(delay, () => feedBytes(bytes));
+  }
+
   @override
   Stream<List<int>> get stdin => _controller.stream;
 

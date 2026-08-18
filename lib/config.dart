@@ -125,6 +125,11 @@ class Config {
   /// AGENTS.md headless.
   final TrustDefault trustDefault;
 
+  /// First-load environment-agent behavior from `[environment] auto_populate`
+  /// in ~/.tina/config (`ask`/`always`/`never`). `ask` (the default) shows a
+  /// picker on first load; `always` runs without asking; `never` skips.
+  final EnvironmentAutoPopulate environmentAutoPopulate;
+
   /// The default `"provider/model"` for region agents from `[regions] model` —
   /// the fast tier the main agent routes scoped questions to. null = region
   /// agents inherit the main agent's model.
@@ -173,6 +178,7 @@ class Config {
     this.sandboxEnabled = true,
     this.trustOverride,
     this.trustDefault = TrustDefault.ask,
+    this.environmentAutoPopulate = EnvironmentAutoPopulate.ask,
     this.regionsModel,
     this.forceLock = false,
   });
@@ -521,6 +527,8 @@ class Config {
       trustOverride:
           res.wasParsed('trust') ? res['trust'] as bool : null,
       trustDefault: _parseTrustDefault(userConfig?.trustDefault),
+      environmentAutoPopulate:
+          parseEnvironmentAutoPopulate(userConfig?.environmentAutoPopulate),
       regionsModel: userConfig?.regions?.model,
       forceLock: res['force'] as bool,
     );

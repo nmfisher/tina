@@ -152,6 +152,13 @@ Future<AppComposition> buildAppComposition({
   projectEnvironmentSource = pipeline.loadProjectContext
       ? () => projectEnvironmentBlock(Directory.current.path)
       : null;
+  // The `<repo>` block: branch/HEAD, dirty counts, recent commits, shallow
+  // tree — derived locally per prompt build (no LLM), so every conversation
+  // starts with the repo state the model would otherwise probe via git/ls
+  // tool calls. Same trust gating as the environment block.
+  repoSummarySource = pipeline.loadProjectContext
+      ? () => repoSummaryBlock(Directory.current.path)
+      : null;
   final resolved = await resolveSession(config, sessionStore);
   // Restore the resumed session's recorded token spend into the ledger, so
   // `/spend` shows the true session total across processes. Seeding never

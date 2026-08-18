@@ -62,6 +62,10 @@ void main() {
       io: io,
       terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
     );
+    // This test drives the raw first-paint sequence; skip the first-load
+    // environment ask (this repo has no ENVIRONMENT.md, so run() would show
+    // the picker before the REPL). The ask has its own test below.
+    coordinator.pendingFirstLoadEnvironmentAsk = null;
 
     io.feedBytes([
       0x2f,
@@ -195,6 +199,9 @@ void main() {
       io: io,
       terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
     );
+    // Skip the first-load environment ask (see its dedicated test below) —
+    // this test drives the history replay, not the startup picker.
+    coordinator.pendingFirstLoadEnvironmentAsk = null;
 
     io.feedBytes([0x2f, 0x65, 0x78, 0x69, 0x74, 0x0d, 0x0d]); // /exit
 
@@ -208,6 +215,49 @@ void main() {
     // The agent's response should also be rendered.
     expect(out, contains('hi human'),
         reason: 'the loaded agent response must be rendered on startup');
+  });
+
+  test('first load asks before the REPL; Enter runs the environment agent',
+      () async {
+    // With no ENVIRONMENT.md (true of this repo's root) and a trusted
+    // project, run() shows the picker after the first paint and before the
+    // REPL takes the keyboard. Enter selects "Run now" → the launch notice
+    // lands in the chat and the agent starts in the background.
+    final io = FakeStdio()..hasTerminalValue = false;
+    final config = Config.parse(const ['--backend', 'ansi']);
+    final app = await buildAppComposition(
+      config: config,
+      registry: builtinRegistry(),
+      provider: FakeProvider.done(),
+      store: MemorySessionStore(),
+    );
+    final coordinator = await TuiCoordinator.create(
+      app: app,
+      io: io,
+      terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
+    );
+    expect(coordinator.pendingFirstLoadEnvironmentAsk, isNotNull,
+        reason: 'no ENVIRONMENT.md → the ask must be pending');
+
+    // Escape cancels the picker (choosing "Run now" here would launch the
+    // environment agent against the REAL provider registry — the injected
+    // FakeProvider covers the REPL only — so the test exercises the
+    // dismiss path instead). /exit then leaves the REPL. Both fed after a
+    // beat so the picker is already listening.
+    io.feedLater([0x1b], const Duration(milliseconds: 200));
+    io.feedLater([0x2f, 0x65, 0x78, 0x69, 0x74, 0x0d, 0x0d],
+        const Duration(milliseconds: 500));
+
+    await coordinator.run().timeout(const Duration(seconds: 5));
+    io.close();
+
+    final out = io.written.toString();
+    // The picker title wraps at the overlay width, so match short fragments.
+    expect(out, contains('No ENVIRONMENT.md yet'),
+        reason: 'the picker must render');
+    expect(out, contains('Run now'), reason: 'the entries must render');
+    expect(out, isNot(contains('the environment agent will populate it')),
+        reason: 'cancelling the picker must NOT launch the agent');
   });
 
   group('resume restores the panel structure', () {

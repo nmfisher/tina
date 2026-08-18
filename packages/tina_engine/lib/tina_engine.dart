@@ -1,6 +1,7 @@
 export 'src/agent/agent.dart';
 export 'src/agent/agent_event_bus.dart';
 export 'src/agent/agent_pipeline.dart';
+export 'src/agent/repo_summary.dart';
 export 'src/agent/agent_quota.dart';
 export 'src/agent/agent_sink.dart';
 export 'src/agent/pause_gate.dart';
@@ -62,6 +63,7 @@ export 'src/tools/file_enumerator.dart';
 export 'src/tools/file_system.dart';
 export 'src/tools/glob_tool.dart';
 export 'src/tools/grep_tool.dart';
+export 'src/tools/git_tool.dart';
 export 'src/tools/ls_tool.dart';
 export 'src/tools/mutation_lock.dart';
 export 'src/tools/process_registry.dart';

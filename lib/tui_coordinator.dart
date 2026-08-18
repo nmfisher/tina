@@ -1880,24 +1880,77 @@ class TuiCoordinator {
       spendLedger: app.spendLedger,
     );
     controller.environmentIndex = environmentIndex;
-    // First load: no ENVIRONMENT.md → populate it in the background
+    // First load: no ENVIRONMENT.md → offer to populate it in the background
     // (docs/proposals/environment_agent.md, "First load"). Interactive only —
     // headless never auto-runs setup — and only for a trusted project (the
     // same gate that withholds AGENTS.md) and not under --safe-mode (a doing
-    // worker with no shell is pointless). A merely stale record does not
-    // auto-run: `/index` flags it and the user decides there.
+    // worker with no shell is pointless). `[environment] auto_populate`
+    // decides how: `ask` (the default) shows a picker — a token-spending
+    // agent turn never starts silently — `always` runs without asking,
+    // `never` skips. A merely stale record does not auto-run: `/index` flags
+    // it and the user decides there.
+    //
+    // The ask is *recorded* here but *performed* in [run], after the first
+    // paint and before the REPL loop takes the keyboard — the picker needs
+    // the editor's key stream, which the REPL line loop would otherwise hold
+    // ("Stream has already been listened to").
     if (!config.safeMode &&
         pipeline.loadProjectContext &&
         !EnvironmentRecord.exists(Directory.current.path)) {
-      unawaited(() async {
-        // Let the screen settle first so the notice lands in a painted chat.
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-        initialHost.showMessage(
-          'No ENVIRONMENT.md yet — the environment agent will populate it in '
-          'the background (Esc-Esc to cancel)…\n',
-        );
-        await controller.runBackgroundEnvironment?.call(initialConversation);
-      }());
+      coordinator.pendingFirstLoadEnvironmentAsk = () async {
+        void launch() {
+          initialHost.showMessage(
+            'No ENVIRONMENT.md yet — the environment agent will populate it '
+            'in the background (Esc-Esc to cancel)…\n',
+          );
+          // Unawaited: the agent runs in the background while the REPL is
+          // live (same as the /index environment branch).
+          unawaited(
+              controller.runBackgroundEnvironment?.call(initialConversation) ??
+              Future.value());
+        }
+
+        switch (config.environmentAutoPopulate) {
+          case EnvironmentAutoPopulate.never:
+            return;
+          case EnvironmentAutoPopulate.always:
+            launch();
+          case EnvironmentAutoPopulate.ask:
+            final choice = await runListOverlay<String>(
+              screen: screen,
+              editor: editor,
+              entries: const [
+                (display: 'Run now', value: 'now'),
+                (display: 'Always run in the background', value: 'always'),
+                (display: 'Not now', value: 'later'),
+              ],
+              title: 'No ENVIRONMENT.md yet — run the environment agent in '
+                  'the background to populate it?',
+              footer: '↑↓ move · enter select · esc cancel',
+              accent: 'cyan',
+            );
+            if (choice == null || choice == 'later') return;
+            if (choice == 'always') {
+              // Persist the "don't ask again" answer before launching, so an
+              // interrupt mid-run still leaves the preference recorded.
+              // Best-effort: a failed write never blocks the launch.
+              try {
+                final cfg = loadUserConfig(env: app.environment.env);
+                writeUserConfig(
+                  cfg.copyWith(environmentAutoPopulate: 'always'),
+                  env: app.environment.env,
+                );
+                initialHost.showMessage(
+                  'Saved: the environment agent will run automatically on '
+                  'first load (`[environment] auto_populate` in '
+                  '~/.tina/config)\n',
+                  style: HostMessageStyle.dim,
+                );
+              } catch (_) {}
+            }
+            launch();
+        }
+      };
     }
     // Background update check (COCOON_UPDATE_CHECK=0 to disable): cache-first
     // GitHub probe that drops a single dim notice in the chat when a newer
@@ -2052,6 +2105,14 @@ class TuiCoordinator {
     // UI-agnostic and never touches the editor, so the TUI owns this wiring.
     editor.onEscape = controller.cancelActiveTurn;
 
+    // First-load environment ask (recorded by create): run it now, after the
+    // first paint and before the REPL takes the keyboard. Consumed once.
+    final firstLoadAsk = pendingFirstLoadEnvironmentAsk;
+    if (firstLoadAsk != null) {
+      pendingFirstLoadEnvironmentAsk = null;
+      await firstLoadAsk();
+    }
+
     try {
       await controller.run();
     } finally {
@@ -2059,6 +2120,15 @@ class TuiCoordinator {
     }
     return RunOutcome.normal;
   }
+
+  /// The first-load environment-agent ask, recorded by [create] when
+  /// `ENVIRONMENT.md` is absent and the project is trusted, and performed by
+  /// [run] after the first paint but before the REPL loop starts — the picker
+  /// needs the editor's key stream, which the line loop would otherwise
+  /// hold. Null (the common case) means no ask is pending. Public so `create`
+  /// (a factory) can set it on the instance it is building; tests can clear
+  /// it to skip the picker.
+  Future<void> Function()? pendingFirstLoadEnvironmentAsk;
 
   /// Capture exit state, close the store, leave the alt screen, print the resume
   /// hint, and tear down the editor + signal subs. Shared by the normal exit

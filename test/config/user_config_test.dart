@@ -255,6 +255,45 @@ key = "typo"
       expect(loaded.providers['anthropic']?.apiKey, 'sk-ant-x');
     });
 
+    test('[environment] auto_populate round-trips through loadUserConfig',
+        () {
+      writeUserConfig(
+        UserConfig(trustDefault: 'ask', environmentAutoPopulate: 'always'),
+        env: {},
+        tinaDir: tmp,
+      );
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.environmentAutoPopulate, 'always');
+      // Absent → null (the caller resolves null → ask).
+      writeUserConfig(UserConfig(trustDefault: 'ask'), env: {}, tinaDir: tmp);
+      expect(loadUserConfig(env: {}, tinaDir: tmp).environmentAutoPopulate,
+          isNull);
+    });
+
+    test('parseEnvironmentAutoPopulate maps raw values', () {
+      expect(parseEnvironmentAutoPopulate('always'),
+          EnvironmentAutoPopulate.always);
+      expect(parseEnvironmentAutoPopulate('never'),
+          EnvironmentAutoPopulate.never);
+      expect(parseEnvironmentAutoPopulate('ask'), EnvironmentAutoPopulate.ask);
+      // Unknown / absent fall to ask (the safe default: never auto-spend).
+      expect(parseEnvironmentAutoPopulate('sometimes'),
+          EnvironmentAutoPopulate.ask);
+      expect(parseEnvironmentAutoPopulate(null), EnvironmentAutoPopulate.ask);
+    });
+
+    test('copyWith patches one field without dropping the others', () {
+      final base = UserConfig(
+        defaultProvider: 'anthropic',
+        trustDefault: 'always',
+        environmentAutoPopulate: 'ask',
+      );
+      final patched = base.copyWith(environmentAutoPopulate: 'never');
+      expect(patched.environmentAutoPopulate, 'never');
+      expect(patched.defaultProvider, 'anthropic');
+      expect(patched.trustDefault, 'always');
+    });
+
     test('[theme] round-trips through loadUserConfig', () {
       const theme = Theme(
         chat: ChatTheme(userBar: '92;100'),

@@ -15,7 +15,22 @@ const int kCurrentConfigVersion = 1;
 
 /// Top-level keys [loadUserConfig] recognizes. Anything else is reported as a
 /// likely typo (e.g. `[limit]` for `[limits]`) rather than silently ignored.
-const _knownTopLevelKeys = {'version', 'default', 'providers', 'limits', 'prompts', 'theme', 'trust', 'regions'};
+const _knownTopLevelKeys = {'version', 'default', 'providers', 'limits', 'prompts', 'theme', 'trust', 'regions', 'environment'};
+
+/// Whether the first-load environment agent (ENVIRONMENT.md population) may
+/// run in the background without asking. From `[environment] auto_populate`
+/// in ~/.tina/config; `ask` is the default so a token-spending agent turn
+/// never starts silently.
+enum EnvironmentAutoPopulate { ask, always, never }
+
+/// Parse the raw `[environment] auto_populate` value. Unknown / absent →
+/// [EnvironmentAutoPopulate.ask] (the safe default).
+EnvironmentAutoPopulate parseEnvironmentAutoPopulate(String? raw) =>
+    switch (raw) {
+      'always' => EnvironmentAutoPopulate.always,
+      'never' => EnvironmentAutoPopulate.never,
+      _ => EnvironmentAutoPopulate.ask,
+    };
 const _knownDefaultKeys = {'provider', 'model', 'workflow'};
 const _knownProviderKeys = {'api_key', 'auth_token', 'base_url', 'wire', 'name', 'disabled_models'};
 const _knownPromptKeys = {'identity'};
@@ -260,6 +275,11 @@ class UserConfig {
   /// [Config.trustDefault].
   final String? trustDefault;
 
+  /// First-load environment-agent behavior from `[environment]
+  /// auto_populate` (`ask`/`always`/`never`). Null when absent → `ask`.
+  /// Flows into `Config.parse` as [Config.environmentAutoPopulate].
+  final String? environmentAutoPopulate;
+
   /// The `[regions]` table: defaults for region agents (fast model, etc.).
   /// Null when absent.
   final RegionsConfig? regions;
@@ -278,6 +298,7 @@ class UserConfig {
     this.themeVariant,
     this.prompts = const {},
     this.trustDefault,
+    this.environmentAutoPopulate,
     this.regions,
     this.version = kCurrentConfigVersion,
   });
@@ -293,7 +314,40 @@ class UserConfig {
       theme == null &&
       prompts.isEmpty &&
       trustDefault == null &&
+      environmentAutoPopulate == null &&
       (regions == null || regions!.isEmpty);
+
+  /// Copy with any subset of fields overridden; unlisted fields keep their
+  /// values. The read-modify-write path for patching one setting without
+  /// dropping the slices a panel didn't touch.
+  UserConfig copyWith({
+    String? defaultProvider,
+    String? defaultModel,
+    String? defaultWorkflow,
+    Map<String, ProviderConfig>? providers,
+    LimitsConfig? limits,
+    Theme? theme,
+    String? themeVariant,
+    Map<String, String>? prompts,
+    String? trustDefault,
+    String? environmentAutoPopulate,
+    RegionsConfig? regions,
+  }) =>
+      UserConfig(
+        defaultProvider: defaultProvider ?? this.defaultProvider,
+        defaultModel: defaultModel ?? this.defaultModel,
+        defaultWorkflow: defaultWorkflow ?? this.defaultWorkflow,
+        providers: providers ?? this.providers,
+        limits: limits ?? this.limits,
+        theme: theme ?? this.theme,
+        themeVariant: themeVariant ?? this.themeVariant,
+        prompts: prompts ?? this.prompts,
+        trustDefault: trustDefault ?? this.trustDefault,
+        environmentAutoPopulate:
+            environmentAutoPopulate ?? this.environmentAutoPopulate,
+        regions: regions ?? this.regions,
+        version: version,
+      );
 
   /// Builds a [UserConfig] from the `toml` package's `toMap()` output. Unknown
   /// keys are ignored.
@@ -308,6 +362,9 @@ class UserConfig {
     final promptsRaw = (m['prompts'] as Map?)?.cast<String, dynamic>();
     final trustRaw = (m['trust'] as Map?)?.cast<String, dynamic>();
     final trustDefault = trustRaw?['default'] as String?;
+    final environmentRaw = (m['environment'] as Map?)?.cast<String, dynamic>();
+    final environmentAutoPopulate =
+        environmentRaw?['auto_populate'] as String?;
     final regionsRaw = (m['regions'] as Map?)?.cast<String, dynamic>();
     final providers = <String, ProviderConfig>{};
     for (final e in (providersRaw ?? const <String, dynamic>{}).entries) {
@@ -336,6 +393,7 @@ class UserConfig {
       themeVariant: themeVariant,
       prompts: prompts,
       trustDefault: trustDefault,
+      environmentAutoPopulate: environmentAutoPopulate,
       regions: regionsRaw == null ? null : RegionsConfig.fromMap(regionsRaw),
       version: (m['version'] as int?) ?? kCurrentConfigVersion,
     );
@@ -538,6 +596,8 @@ String userConfigToToml(UserConfig config) {
         for (final e in config.prompts.entries) e.key: {'identity': e.value},
       },
     if (config.trustDefault != null) 'trust': {'default': config.trustDefault},
+    if (config.environmentAutoPopulate != null)
+      'environment': {'auto_populate': config.environmentAutoPopulate},
     if (config.regions != null && !config.regions!.isEmpty)
       'regions': config.regions!.toMap(),
   };
