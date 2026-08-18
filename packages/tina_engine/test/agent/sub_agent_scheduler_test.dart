@@ -28,6 +28,31 @@ class _SystemCapturingProvider extends LlmProvider {
   }
 }
 
+/// A provider whose stream stays open until the test releases it, so a
+/// sub-agent job can be held mid-flight for activity-signal assertions.
+class _GatedProvider extends LlmProvider {
+  final _gates = <Completer<void>>[];
+  _GatedProvider() : super('gated');
+
+  void release() {
+    if (_gates.isNotEmpty) _gates.removeAt(0).complete();
+  }
+
+  @override
+  Stream<StreamEvent> send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+  }) async* {
+    final gate = Completer<void>();
+    _gates.add(gate);
+    yield const TextDelta('working');
+    await gate.future;
+    yield const MessageComplete(
+        content: [TextBlock('done')], stopReason: 'end_turn');
+  }
+}
+
 /// A provider that never stops issuing tool calls — turn 1 also carries a text
 /// preamble. Drives a leaf into its step ceiling so we can assert the scheduler
 /// reports the non-finish honestly instead of scavenging the preamble as though
@@ -253,6 +278,62 @@ void main() {
       expect(providerAskerCalls, ['focus']);
       expect(job.panelHost, same(host));
       expect(job.recorder, isNotNull);
+      await scheduler.dispose();
+    });
+
+    test('a panelized job drives its panel host activity cue (tin-y4qn)',
+        () async {
+      // The job's turn runs through the scheduler's own agent.run — NOT the
+      // session controller's turn loop — so the scheduler itself must raise
+      // and clear the panel host's activity signal. A live sub-agent panel
+      // otherwise shows a static border for the whole run.
+      final host = FakeHostInterface();
+      final gated = _GatedProvider();
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(ProviderDescriptor(
+          id: 'a',
+          name: 'a',
+          authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
+          defaultBaseUrl: 'https://a.test',
+          builder: (_) => gated,
+          models: const {
+            'a-model':
+                ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+          },
+        ));
+      final store = _FakeStore();
+      final scheduler = testScheduler(r, pipeline: pipeline);
+      scheduler.persistence =
+          (job, {required meta, required parentConversationId}) async {
+        final conv = await store.createConversationWithMeta('s', meta);
+        job.panelSink = FakeAgentSink();
+        job.panelHost = host;
+        final recorder = SessionRecorder(store, 's', conv, providerId: 'a');
+        recorder.attach('s', conv);
+        return (conv, recorder);
+      };
+      final job = scheduler.spawn(
+        task: 'do it',
+        toolProfile: ToolProfile.readOnly,
+        parentSystemPrompt: 'P',
+        parentReference: 'a/a-model',
+        parentPolicy: PermissionPolicy(),
+        originConversationId: 'conv1',
+      );
+      // Hold the turn mid-flight: the cue must be up while the job runs.
+      for (var i = 0;
+          i < 300 && host.activitySignals.isEmpty;
+          i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(host.activitySignals, [true],
+          reason: 'a running sub-agent raises its panel busy cue');
+      gated.release();
+      final result = await job.result;
+      expect(result.isError, isFalse);
+      expect(host.activitySignals, [true, false],
+          reason: 'the cue clears when the job finishes — an idle panel '
+              'must not animate');
       await scheduler.dispose();
     });
 

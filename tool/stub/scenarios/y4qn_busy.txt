@@ -1,0 +1,84 @@
+# Scenario: y4qn_busy — a long paced turn (~20 s of deltas) for the tin-y4qn
+# live hunt (tool/y4qn_hunt.sh). The hunt needs a busy window long enough to
+# cycle panel focus and sample the unfocused panel's border comet several
+# times mid-turn, then observe the border go static after the turn ends.
+#
+# Step 1: paced prose (~40 deltas x 480 ms ~= 19 s), no tool calls.
+# Step 2: a short clean answer so a queued follow-up turn finishes quickly.
+#
+# Served to request 1 / request 2 respectively. Keep byte-stable: the hunt
+# repro references these steps.
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+!delay 300
+data: {"choices":[{"index":0,"delta":{"content":"The workspace fixture is a small Dart monorepo with four packages. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"packages/core holds the domain model: events, Result, Repository, ids, "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"and a deliberately naive cache with emoji and CJK content on purpose. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"The store package implements JSON-file and in-memory repositories, plus "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"a query subpackage with filters and sorts. The reports package produces "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"summary reports and CSV exports over the store's query API. The cli "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"package wires a thin argument parser onto the domain layer. The fixture "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"also carries deliberate edge cases: a broken probe with a syntax error, "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"a binary blob that is not valid UTF-8, and long single-line data files. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"None of those are bugs to fix; they are the point of the fixture. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"The environment record ceremony runs once and then tracks the tree. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"Region agents and sub-agents each get their own panel when spawned, "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"and the busy comet on a panel border reflects that panel's own turn, "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"never which panel currently holds focus. That is the invariant under "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"test in this scenario: stream long enough to check it from outside. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"This sentence exists only to pace the stream; no information here. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"Padding delta one. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"Padding delta two. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"Padding delta three. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"Padding delta four. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"Padding delta five. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"Padding delta six. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"Padding delta seven. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"Padding delta eight. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"Padding delta nine. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{"content":"Padding delta ten; the turn finishes now. "},"finish_reason":null}]}
+!delay 480
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}
+
+data: [DONE]
+
+!step
+# Step 2: short answer for the queued follow-up turn.
+data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"The cli package is a thin argument parser over the domain layer. "},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"That is all it is."},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}
+
+data: [DONE]

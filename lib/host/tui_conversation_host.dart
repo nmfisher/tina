@@ -288,6 +288,11 @@ class TuiConversationHost implements HostInterface {
     // alike). Inverted from a typed panel back-reference into [onBusyChanged]
     // so the host never reaches into a [PanelFrame]. Falls back to the panel
     // back-reference while the coordinator hasn't bound a frame yet.
+    //
+    // The signal tracks this conversation's activity, not focus — see the
+    // activity-state mapping on [HostInterface.setActivity] (tin-y4qn). A
+    // host with neither callback nor panel (a background conversation with no
+    // frame) no-ops; its work still progresses.
     final cue = onBusyChanged;
     if (cue != null) {
       cue(active);

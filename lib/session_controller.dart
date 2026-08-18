@@ -458,8 +458,11 @@ class SessionController implements CommandContext {
     final preLen = s.history.length;
     final cancel = Completer<void>();
     s.cancelCompleter = cancel;
-    final isActive = identical(s, active);
-    if (isActive) s.host.setActivity(true);
+    // The busy cue tracks THIS conversation's activity, not focus: raise it
+    // whether or not the panel is on screen, so a turn that starts in the
+    // background (queue drain, workflow-result injection) still lights its
+    // panel (tin-y4qn). Hosts without a panel no-op the cue.
+    s.host.setActivity(true);
     onSessionsChanged?.call();
 
     // Persist the user's message BEFORE the turn starts, so it survives a quit
@@ -552,7 +555,10 @@ class SessionController implements CommandContext {
 
     s.cancelCompleter = null;
     _cancelArmed = false;
-    if (identical(s, active)) s.host.setActivity(false);
+    // Clear unconditionally too: a turn that ends while another panel holds
+    // focus must drop its busy cue, or an idle panel animates forever
+    // (tin-y4qn).
+    s.host.setActivity(false);
     onSessionsChanged?.call();
 
     // Persist the session's token spend so a resumed session restores it.
