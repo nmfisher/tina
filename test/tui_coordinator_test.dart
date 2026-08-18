@@ -260,6 +260,37 @@ void main() {
         reason: 'cancelling the picker must NOT launch the agent');
   });
 
+  test('first load explainer mentions side panel spawn', () async {
+    final io = FakeStdio()..hasTerminalValue = false;
+    final config = Config.parse(const ['--backend', 'ansi']);
+    final app = await buildAppComposition(
+      config: config,
+      registry: builtinRegistry(),
+      provider: FakeProvider.done(),
+      store: MemorySessionStore(),
+    );
+    final coordinator = await TuiCoordinator.create(
+      app: app,
+      io: io,
+      terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
+    );
+    expect(coordinator.pendingFirstLoadEnvironmentAsk, isNotNull);
+
+    // Cancel the picker and exit.
+    io.feedLater([0x1b], const Duration(milliseconds: 200));
+    io.feedLater([0x2f, 0x65, 0x78, 0x69, 0x74, 0x0d, 0x0d],
+        const Duration(milliseconds: 500));
+
+    await coordinator.run().timeout(const Duration(seconds: 5));
+    io.close();
+
+    final out = io.written.toString();
+    expect(out, contains('spawns its own side panel agent'),
+        reason: 'the first-load explainer must mention side panel spawn');
+    expect(out, contains('Run now in side panel'),
+        reason: 'the picker entry must mention side panel');
+  });
+
   group('resume restores the panel structure', () {
     // Seeds a session with one active primary conversation + [spawnCount] spawn
     // conversations + [branchCount] branch conversations, each carrying a q/a
