@@ -13,6 +13,27 @@ import 'sse.dart';
 
 final _log = Logger('tina.llm');
 
+/// Repair a streamed tool-call name emitted by a model whose function-calling
+/// degrades under large payloads. Observed on `meta/muse-glimmer-30b` (NIM,
+/// vLLM) once the request reached the real agent's schema+prompt size
+/// (tool/nim_toolcall_probe.dart reproduces it):
+///
+/// - chat-template control tokens fused onto the name: `ls<|message|>`,
+///   `bash<|message|>` — the template's message delimiter leaking through;
+/// - the first argument's key fused into the name: `ls.path`,
+///   `read.filePath` (paired with an invented `filePath` argument key).
+///
+/// Strips `<|…|>` tokens and everything from a `.` on (no registered tool
+/// name contains either), trims, and returns the result. Idempotent; a name
+/// with nothing to repair comes back unchanged.
+String repairStreamedToolName(String? raw) {
+  var name = raw ?? '';
+  name = name.replaceAll(RegExp(r'<\|[^|]*\|>'), '');
+  final dot = name.indexOf('.');
+  if (dot >= 0) name = name.substring(0, dot);
+  return name.trim();
+}
+
 /// A generic [LlmProvider] that speaks OpenAI's `/v1/chat/completions`
 /// protocol. Most hosted and local services (OpenAI, DeepSeek, GLM, Groq, xAI,
 /// Mistral, Qwen, OpenRouter, Ollama, vLLM, LM Studio) expose this interface,
@@ -195,8 +216,15 @@ class OpenAiCompatibleAdapter extends LlmProvider {
               if (fn != null) {
                 final n = fn['name'];
                 if (n is String && partial.name == null) {
-                  partial.name = n;
-                  yield ToolCallStart(id: partial.id ?? '', name: n);
+                  // Repair at capture too (not just assembly) so the
+                  // ToolCallStart progress event names the tool the agent
+                  // will actually run. Idempotent with the assembly pass.
+                  partial.name = repairStreamedToolName(n);
+                  if (partial.name != n) {
+                    _log.fine('repaired streamed tool name "$n" '
+                        '-> "${partial.name}"');
+                  }
+                  yield ToolCallStart(id: partial.id ?? '', name: partial.name!);
                 }
                 final args = fn['arguments'];
                 if (args is String) partial.args.write(args);
@@ -235,9 +263,16 @@ class OpenAiCompatibleAdapter extends LlmProvider {
             parseError = e.message;
           }
         }
+        // Second idempotent pass: a name assembled from fragments (or one
+        // that skipped the capture-time repair) is still cleaned before the
+        // agent's registry sees it.
+        final name = repairStreamedToolName(pc.name);
+        if (name != pc.name) {
+          _log.fine('repaired streamed tool name "${pc.name}" -> "$name"');
+        }
         blocks.add(ToolUseBlock(
           id: pc.id ?? 'call_$i',
-          name: pc.name ?? '',
+          name: name,
           input: input,
           argumentsParseError: parseError,
         ));

@@ -296,6 +296,103 @@ void main() {
       // OpenAI 'tool_calls' finish reason → our canonical 'tool_use'.
       expect(complete.stopReason, 'tool_use');
     });
+
+    // Regression guard: muse-glimmer-30b on NIM mangles streamed tool names
+    // under real agent payload sizes (see ~/.tina/tina.log "unknown tool"
+    // notices; tool/nim_toolcall_probe.dart --real reproduces). Two shapes:
+    // a chat-template token fused on (`ls<|message|>`) and the first
+    // argument key fused on (`ls.path`). Both must reach the agent repaired.
+    test('mangled streamed tool names are repaired (muse-glimmer)', () async {
+      final sse = [
+        'data: ${jsonEncode({
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "tool_calls": [
+                      {
+                        "index": 0,
+                        "id": "call_1",
+                        "function": {
+                          "name": 'ls<|message|>',
+                          "arguments": '{}'
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            })}',
+        'data: ${jsonEncode({
+              "choices": [
+                {
+                  "index": 0,
+                  "delta": {
+                    "tool_calls": [
+                      {
+                        "index": 1,
+                        "id": "call_2",
+                        "function": {
+                          "name": 'read.filePath',
+                          "arguments": '{"filePath": "pubspec.yaml"}'
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            })}',
+        'data: ${jsonEncode({
+              "choices": [
+                {"index": 0, "delta": {}, "finish_reason": "tool_calls"}
+              ]
+            })}',
+        'data: [DONE]',
+        '',
+      ].join('\n');
+
+      final provider = OpenAiCompatibleAdapter(
+          apiKey: 'k', model: 'm', client: ScriptedSseClient(sse));
+      final events = await provider
+          .send(system: '', messages: const [], tools: const [])
+          .toList();
+
+      // The progress event names the tool the agent will actually run.
+      final starts = events.whereType<ToolCallStart>().toList();
+      expect(starts.map((e) => e.name), ['ls', 'read']);
+
+      final complete = events.whereType<MessageComplete>().single;
+      final uses = complete.content.whereType<ToolUseBlock>().toList();
+      expect(uses.map((u) => u.name), ['ls', 'read']);
+      // Arguments pass through untouched — only the NAME is repaired.
+      expect(uses.last.input, {'filePath': 'pubspec.yaml'});
+    });
+  });
+
+  group('repairStreamedToolName', () {
+    test('template control tokens are stripped', () {
+      expect(repairStreamedToolName('ls<|message|>'), 'ls');
+      expect(repairStreamedToolName('bash<|message|>'), 'bash');
+      expect(repairStreamedToolName('<|tool_call|>bash<|end|>'), 'bash');
+    });
+
+    test('a fused argument key is dropped from the name', () {
+      expect(repairStreamedToolName('ls.path'), 'ls');
+      expect(repairStreamedToolName('read.filePath'), 'read');
+    });
+
+    test('clean names pass through unchanged, null/empty tolerate', () {
+      expect(repairStreamedToolName('bash'), 'bash');
+      expect(repairStreamedToolName(' web_search '), 'web_search');
+      expect(repairStreamedToolName(null), '');
+      expect(repairStreamedToolName(''), '');
+    });
+
+    test('idempotent', () {
+      const mangled = 'ls<|message|>';
+      final once = repairStreamedToolName(mangled);
+      expect(repairStreamedToolName(once), once);
+    });
   });
 
   group('error handling', () {
