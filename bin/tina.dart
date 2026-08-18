@@ -12,6 +12,7 @@ import 'package:tina/pipeline/default_workflow.dart';
 import 'package:tina/pipeline/pipeline_runner.dart';
 import 'package:tina/platform/environment.dart';
 import 'package:tina/session_commands/session_command_handlers.dart';
+import 'package:tina/persistence/session_restore.dart';
 import 'package:tina/summaries/allocations_store.dart';
 import 'package:tina/summaries/summary_index.dart';
 import 'package:tina_engine/tina_engine.dart';
@@ -111,6 +112,19 @@ Future<void> _run(List<String> argv) async {
       // launch it via its launch_workflow tool).
       _seedDefaultWorkflowQuietly(environment.env);
 
+      // Construct the session store once and hand it to buildAppComposition (it
+      // would build an identical one internally). On `--resume <id>`, chdir to
+      // the session's recorded working directory BEFORE any project-context read
+      // so trust, AGENTS.md, the repo summary, the tool sandbox, and the
+      // environment agent all resolve against the folder the session actually
+      // lives in — not wherever tina was launched from. `--continue` is
+      // folder-scoped by design and needs no chdir. `resumeCwdFor` is pure and
+      // never throws on a bad id; resolveSession surfaces a missing session.
+      final sessionStore = JsonlSessionStore.defaultLocation();
+      if (config.resumeSessionId != null) {
+        await _restoreSessionCwd(sessionStore, config.resumeSessionId!);
+      }
+
       // Project-trust gate: decide once, before any agent is built, whether this
       // cwd's AGENTS.md may enter system prompts. Withholds it for an untrusted
       // project (headless skips, TUI asks on the tty before the TUI takes over)
@@ -119,7 +133,11 @@ Future<void> _run(List<String> argv) async {
       defaultPipeline.loadProjectContext =
           await _resolveProjectTrust(config, mergedEnv);
 
-      final app = await buildAppComposition(config: config, registry: registry);
+      final app = await buildAppComposition(
+        config: config,
+        registry: registry,
+        store: sessionStore,
+      );
 
       // Acquire the per-session lock when resuming/continuing an on-disk
       // session, so a second process can't corrupt this session's history
@@ -240,6 +258,30 @@ Future<void> _releaseSessionLock() async {
   if (lock == null) return;
   _activeSessionLock = null;
   await lock.release();
+}
+
+/// `--resume <id>`: enter the session's recorded working directory so the
+/// project context (trust, AGENTS.md, repo summary, tool sandbox, env agent)
+/// rebuilds against the folder the session lives in rather than the launch
+/// folder. Safe no-op when the recorded cwd is absent (legacy session), already
+/// matches the launch folder, or points at a directory that no longer exists
+/// (warned + left in the launch folder, matching `--continue`'s fallback).
+Future<void> _restoreSessionCwd(SessionStore store, String sessionId) async {
+  final cwd = await resumeCwdFor(store, sessionId);
+  if (cwd == null || cwd.isEmpty) return; // legacy session — nothing to restore
+  final dir = Directory(cwd);
+  if (dir.path == Directory.current.path) return; // already home
+  if (!await dir.exists()) {
+    stderr.writeln('resume: recorded cwd "$cwd" no longer exists — '
+        'restoring in the launch folder (${Directory.current.path}) instead.');
+    return;
+  }
+  try {
+    Directory.current = dir;
+    stderr.writeln('resumed session in $cwd');
+  } catch (e) {
+    stderr.writeln('resume: could not enter "$cwd": $e');
+  }
 }
 
 Future<RunOutcome> _runInteractive(AppComposition app,

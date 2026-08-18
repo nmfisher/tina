@@ -805,4 +805,51 @@ void main() {
               'message names the conversation', contains(cid))));
     });
   });
+
+  group('resumeCwdFor', () {
+    // A resumable session restores to its recorded working directory. This
+    // uses the real on-disk store, so it also guards the manifest's cwd field
+    // round-tripping through session.json — the value the launcher chdirs to
+    // before rebuilding project context (trust, AGENTS.md, repo summary,
+    // tool sandbox, env agent).
+    test('returns the recorded cwd for a resumable session (jsonl store)',
+        () async {
+      final root = Directory.systemTemp.createTempSync('tina_resume_cwd_');
+      addTearDown(() {
+        if (root.existsSync()) root.deleteSync(recursive: true);
+      });
+      final store = JsonlSessionStore(root);
+      final projectDir =
+          Directory.systemTemp.createTempSync('tina_project_');
+      addTearDown(() {
+        if (projectDir.existsSync()) projectDir.deleteSync(recursive: true);
+      });
+      final sid = await store.createSession(
+          providerId: 'anthropic', cwd: projectDir.path);
+      expect(await resumeCwdFor(store, sid), projectDir.path);
+      await store.close();
+    });
+
+    test('returns null for a legacy session (no recorded cwd)', () async {
+      final root =
+          Directory.systemTemp.createTempSync('tina_resume_legacy_');
+      addTearDown(() {
+        if (root.existsSync()) root.deleteSync(recursive: true);
+      });
+      final store = JsonlSessionStore(root);
+      final sid =
+          await store.createSession(providerId: 'anthropic'); // cwd null
+      expect(await resumeCwdFor(store, sid), isNull);
+      await store.close();
+    });
+
+    // In-memory store for the not-found contract: no disk needed, and the
+    // launcher must not crash on a bad id here (resolveSession surfaces a
+    // missing session later in the boot path, not a double fault up front).
+    test('returns null (never throws) for an unknown session id', () async {
+      final store = MemorySessionStore();
+      expect(await resumeCwdFor(store, 'does-not-exist'), isNull);
+      await store.close();
+    });
+  });
 }

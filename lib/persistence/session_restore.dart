@@ -193,3 +193,39 @@ Future<Conversation> restoreConversation(
     initialHistory: history,
   );
 }
+
+/// The working directory a resumed session should restore to, or null when
+/// there is none to restore.
+///
+/// On `--resume <id>` the launcher chdirs to this value *before* building the
+/// project context (trust, AGENTS.md, repo summary, tool sandbox, env agent),
+/// so that context resolves against the folder the session actually lives in —
+/// not wherever tina happened to be launched from. `--continue` is folder-
+/// scoped by design (it only matches sessions whose recorded cwd is the launch
+/// folder), so it needs no chdir.
+///
+/// This function is deliberately pure — it only reads the manifest; it never
+/// changes [Directory.current] — so it is unit-testable without a process-global
+/// side effect. A missing/unknown session yields null (rather than rethrowing)
+/// so the caller can let [resolveSession]'s load surface the real "session not
+/// found" error instead of a double fault here.
+Future<String?> resumeCwdFor(SessionStore store, String sessionId) async {
+  final manifest = await _safeLoadSession(store, sessionId);
+  // `null` manifests (session not found, or unknown to this store impl) yield
+  // null cwd — the caller lets resolveSession surface the real error.
+  return manifest?.cwd;
+}
+
+/// Load a session's manifest without throwing when the session is unknown, so a
+/// bad/missing `--resume` id degrades to "restore in the launch folder" instead
+/// of crashing before the TUI ever starts. A genuinely unknown session is still
+/// surfaced by [resolveSession] (which calls loadSession directly) later in the
+/// boot path, so swallowing only the documented "not found" error here is safe.
+Future<SessionManifest?> _safeLoadSession(
+    SessionStore store, String sessionId) async {
+  try {
+    return await store.loadSession(sessionId);
+  } on StateError {
+    return null;
+  }
+}
