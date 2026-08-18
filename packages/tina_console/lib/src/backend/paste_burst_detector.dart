@@ -23,6 +23,12 @@ import '../input_event.dart';
 /// The detector is single-threaded and not re-entrant: callers must serialize
 /// [add] / [flush] / [expire].
 class PasteBurstDetector {
+  /// Optional audit sink (tin-w8dl paste-truncation hunt). When non-null, the
+  /// detector reports every state transition that moves chars: mid-burst
+  /// flushes (with the gap that triggered them), timer/expire flushes, and
+  /// dispose flushes. Pure strings; the backend wires it to PasteAudit so the
+  /// pure class stays I/O-free and unit-testable.
+  final void Function(String line)? onAudit;
   /// Two consecutive events closer than this in time are considered part of
   /// the same burst. Must sit above the paste-event cluster (~0.1ms) and below
   /// the smallest typing gap (~50ms). The spike measured paste gaps ≤0.13ms
@@ -45,7 +51,15 @@ class PasteBurstDetector {
   PasteBurstDetector({
     this.joinWindow = const Duration(milliseconds: 30),
     this.minPasteChars = 8,
+    this.onAudit,
   });
+
+  /// Default-constructed detector with the tin-w8dl audit sink attached when
+  /// `TINA_PASTE_AUDIT_LOG` names a file. Kept here (not at the call site) so
+  /// the backend's two construction paths can't drift.
+  static PasteBurstDetector audited(
+          {void Function(String line)? onAudit}) =>
+      PasteBurstDetector(onAudit: onAudit);
 
   /// Feed one translated event with a monotonic timestamp (microseconds since
   /// an arbitrary epoch — only deltas matter). Returns the events to emit
@@ -62,7 +76,12 @@ class PasteBurstDetector {
     if (_pending.isNotEmpty) {
       final last = _pending.last;
       if (nowMicros - last.timeMicros > joinWindow.inMicroseconds) {
-        emitted.addAll(_drain());
+        onAudit?.call(
+          'detector gap-flush: gap=${nowMicros - last.timeMicros}us '
+          '>${joinWindow.inMicroseconds}us pending=${_pending.length} '
+          'burstChars=$_burstChars',
+        );
+        emitted.addAll(_drain('gap'));
       }
     }
     _append(event, nowMicros);
@@ -76,25 +95,44 @@ class PasteBurstDetector {
     if (_pending.isEmpty) return const [];
     final last = _pending.last;
     if (nowMicros - last.timeMicros > joinWindow.inMicroseconds) {
-      return _drain();
+      onAudit?.call(
+        'detector expire-flush: idle=${nowMicros - last.timeMicros}us '
+        'pending=${_pending.length} burstChars=$_burstChars',
+      );
+      return _drain('expire');
     }
     return const [];
   }
 
   /// Flush and discard any pending burst (e.g. on dispose). Returns any
   /// not-yet-emitted events.
-  List<InputEvent> flush() =>
-      _pending.isEmpty ? const [] : _drain();
+  List<InputEvent> flush() {
+    if (_pending.isEmpty) return const [];
+    onAudit?.call(
+      'detector dispose-flush: pending=${_pending.length} '
+      'burstChars=$_burstChars',
+    );
+    return _drain('dispose');
+  }
 
   bool get hasPending => _pending.isNotEmpty;
 
   void _append(InputEvent event, int nowMicros) {
     final ch = _charCount(event);
+    if (onAudit != null && ch > 1) {
+      // tin-w8dl: a multi-char contribution is impossible from the notcurses
+      // translator (one codepoint per event) — if this fires, some feeder is
+      // delivering pre-joined text, and every burst-arithmetic assumption is
+      // off. Name the culprit event.
+      onAudit!(
+        'detector append: MULTI-CHAR event=$event charCount=$ch',
+      );
+    }
     _pending.add(_TimedEvent(event, nowMicros, ch));
     _burstChars += ch;
   }
 
-  List<InputEvent> _drain() {
+  List<InputEvent> _drain([String cause = 'unspecified']) {
     if (_pending.isEmpty) return const [];
     final events = <InputEvent>[];
     if (_burstChars >= minPasteChars) {
@@ -106,10 +144,18 @@ class PasteBurstDetector {
         buf.write(_pasteText(e.event));
       }
       events.add(PasteInput(buf.toString()));
+      onAudit?.call(
+        'detector drain[$cause]: PASTE chars=${buf.length} '
+        'events=${_pending.length} below-threshold-split=no',
+      );
     } else {
       for (final e in _pending) {
         events.add(e.event);
       }
+      onAudit?.call(
+        'detector drain[$cause]: individual events=${_pending.length} '
+        'burstChars=$_burstChars < min=$minPasteChars',
+      );
     }
     _pending.clear();
     _burstChars = 0;

@@ -6,6 +6,7 @@ import 'package:meta/meta.dart';
 
 import '../input_event.dart';
 import '../input_latency.dart';
+import '../paste_audit.dart';
 import 'input_backend.dart';
 import 'paste_burst_detector.dart';
 import 'reply_sequence_filter.dart';
@@ -192,7 +193,9 @@ class NotcursesInputBackend implements InputBackend {
     bool replySequenceFiltering = true,
   })  : _startupClock = clock ?? Stopwatch(),
         _burstDetector = temporalPasteDetection
-            ? (burstDetector ?? PasteBurstDetector())
+            ? (burstDetector ??
+                PasteBurstDetector.audited(
+                    onAudit: PasteAudit.enabled ? PasteAudit.log : null))
             : null,
         _replyFilter = replySequenceFiltering
             ? (replyFilter ?? ReplySequenceFilter())
@@ -210,7 +213,7 @@ class NotcursesInputBackend implements InputBackend {
       // records observe the per-batch counter + first-event-synchronous flag.
       // The native thread may fire a notification once _startPump subscribes;
       // _onBatchStart is safe to call now (all fields it touches are set).
-      pump.onBatchStart = (_) => _onBatchStart();
+      pump.onBatchStart = (n) => _onBatchStart(n);
       _startPump();
     } else if (startPolling) {
       _startPolling();
@@ -249,10 +252,17 @@ class NotcursesInputBackend implements InputBackend {
   /// [OpCounters.dartCallbackBatches] once and arms the first-event-synchronous
   /// flag so the first record of the batch emits synchronously and the rest
   /// defer via [_emit]'s microtask path.
-  void _onBatchStart() {
+  void _onBatchStart([int recordCount = 0]) {
     if (_disposed) return;
     if (OpCounters.enabled) {
       OpCounters.instance.dartCallbackBatches++;
+    }
+    // tin-w8dl: batch cadence is the delivery-stall signal. A >30ms hole
+    // between consecutive batch lines mid-paste means the Dart event loop
+    // stalled between native drains — exactly the lie that splits one paste
+    // into detector "bursts" (the detector stamps arrival with delivery time).
+    if (PasteAudit.enabled && recordCount > 0) {
+      PasteAudit.log('batch n=$recordCount');
     }
     _firstThisTick = true;
   }
@@ -387,7 +397,12 @@ class NotcursesInputBackend implements InputBackend {
       (modifiers & nc.KeyMod.ctrl) != 0,
       id >= nc.preterunicode(0) && id <= nc.NcKey.eof,
     ));
-    if (event == null) return;
+    if (event == null) {
+      if (PasteAudit.enabled) {
+        PasteAudit.log('pump path: untranslated drop id=$id');
+      }
+      return;
+    }
     final paste = _explicitPaste;
     if (paste != null) {
       switch (event) {
@@ -478,6 +493,8 @@ class NotcursesInputBackend implements InputBackend {
         final event = _translateKey(key);
         if (event != null) {
           _handleEvent(event);
+        } else if (PasteAudit.enabled) {
+          PasteAudit.log('poll path: untranslated drop id=${key.id}');
         }
       } else {
         drainedCount++;
@@ -549,6 +566,9 @@ class NotcursesInputBackend implements InputBackend {
     _burstFlushTimer = null;
     final detector = _burstDetector;
     if (detector == null) return;
+    if (PasteAudit.enabled) {
+      PasteAudit.log('flush-timer fired (joinWindow after last pending)');
+    }
     final expired = detector.expire(_nowMicros);
     if (expired.isEmpty) return;
     // A flush from a Timer callback is its own "tick": emit the first
