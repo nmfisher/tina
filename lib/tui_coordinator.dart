@@ -1905,8 +1905,8 @@ class TuiCoordinator {
           );
           // Spawn a side panel for the environment agent so its work does not clutter the main panel.
           final envConvId = 'env-${DateTime.now().millisecondsSinceEpoch}';
-          final envHost = coordinator._makeSpawnedHost(envConvId);
-          coordinator._buildSpawnPanel(
+          final envHost = _makeSpawnedHost(envConvId);
+          _buildSpawnPanel(
             conversationId: envConvId,
             parentConversationId: initialConversation.id,
             label: 'Environment',
