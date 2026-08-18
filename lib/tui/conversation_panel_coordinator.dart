@@ -165,6 +165,15 @@ class ConversationPanelCoordinator {
       panelManager.relocateInput(frame);
       return;
     }
+    // A host-only panel — bound by id but never registered as a Conversation
+    // in the session (the first-load environment agent's panel) — has no
+    // conversation to route input to, and switching would throw. Focus then
+    // behaves like an extra panel: the surface still raises, the shared input
+    // stays on the primary chat.
+    if (session.conversationById(binding.conversationId) == null) {
+      panelManager.relocateInput(panelManager.primaryFrame);
+      return;
+    }
     // Focusing a side panel routes input to it (in-memory active follows
     // focus) but must NOT repoint the session manifest's activeConversationId
     // anchor at it — that anchor decides which conversation becomes the

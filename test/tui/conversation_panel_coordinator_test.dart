@@ -198,6 +198,33 @@ void main() {
       expect(sessionManager.switchCalls, isEmpty,
           reason: 'the primary is already active — no switch, just relocate');
     });
+
+    test('focusing a host-only panel keeps input on the primary instead of '
+        'throwing', () {
+      // The first-load environment agent's panel: bound via bindSpawned by its
+      // host's synthetic id ('env-…'), but no Conversation is ever registered
+      // in the session. Focusing it must not attempt the conversation switch
+      // (which would throw 'Unknown conversation') — it behaves like an extra
+      // panel and leaves the shared input on the primary chat.
+      final host = TuiConversationHost(
+        conversationId: 'env-123',
+        chat: ScrollingTextRegion(_backgroundScreen())..detach(),
+        spinner: Spinner(enabled: false),
+        screen: _backgroundScreen(),
+        primary: false,
+      );
+      final frame =
+          coordinator.bindSpawned(host: host, label: 'Environment (model)');
+      panelManager.layout();
+
+      coordinator.onFrameFocused(frame);
+
+      expect(sessionManager.switchCalls, isEmpty,
+          reason: 'no Conversation exists — there is nothing to switch to');
+      expect(sessionManager.active.activeConversationId, 'primary',
+          reason: 'focus on a host-only panel never moves the active pointer');
+      frame.dispose();
+    });
   });
 
   group('surfaceOf', () {

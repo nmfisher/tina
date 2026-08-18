@@ -1909,7 +1909,11 @@ class TuiCoordinator {
           _buildSpawnPanel(
             conversationId: envConvId,
             parentConversationId: initialConversation.id,
-            label: 'Environment',
+            // Every conversation panel names the model it runs under; the
+            // environment agent runs on the startup provider (EnvironmentRunner
+            // builds its ephemeral composition from the same config), so the
+            // session's startup model is the one to name.
+            label: panelLabel(role: 'Environment', model: provider.model),
             sinkHost: envHost,
           );
           final cancel = Completer<void>();
