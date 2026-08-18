@@ -1,42 +1,38 @@
 # Sweep status
-Now:     tin-y4qn closed — the panel busy cue (border comet) tracked FOCUS,
-         not activity. `SessionController._runTurn` gated both edges of the
-         `setActivity` signal on `identical(s, active)`: a turn ending while
-         its panel was unfocused never cleared the cue (idle panel animated
-         forever — the ticket's report), and a turn starting unfocused (queue
-         drain, workflow injection) never raised it. Delegated sub-agent
-         panels never signaled at all (their turns run via the scheduler's
-         own agent.run, not the turn loop). Async progress itself was sound —
-         verified + pinned by test. Fix: unconditional raise/clear at turn
-         start/end + scheduler-driven cue for panelized jobs; the canonical
-         activity-state mapping is documented on HostInterface.setActivity.
-         Repros written first (all failed pre-fix): app-level harness
-         (real Screen/PanelManager/coordinator/SessionController over
-         FakeStdio) + engine scheduler test. Root suite green, tina_console
-         745/745, tina_engine green except the documented pre-existing
-         process_tree sandbox failure; analyze 30→30 (zero new). Live:
-         tool/y4qn_hunt.sh (new stub scenario y4qn_busy) — HEALTHY,
-         busy-unfocused 2/2/2 comet samples, idle-unfocused 0/0, queued turn
-         ran while unfocused.
-Next:    tin-3x9v (p1) — close as cannot-reproduce with a full investigation
-         log per the host mandate: crash_gdb.sh path first if it recurs, the
-         pre-PR-13 stashes hold crash material (one names 3x9v), triage and
-         prune them as part of the log. Then tin-9x4m (p3) and a fresh probe
-         batch from the scenario-seeds list.
+Now:     tin-3x9v closed as cannot-reproduce — the host mandate's second
+         item. Full investigation log on the ticket: 2 recorded crashes
+         (2026-08-15), zero reproductions across ~50 runs on two tree
+         generations (broad sweep, gdb real-provider, reply-burst,
+         osc-stress, resize-storm, union, MALLOC_PERTURB_ teardown, and
+         today's re-runs of union 3/3 + oscstress 2/2 on the current tree).
+         Credibility argument: every crash correlate has since been fixed
+         or fenced (8n7c vanish precondition, 4k8w/p8k2/b4n7/q4vz render
+         hardening, r2vd+v6tq+k7tr reply environment, j3mk pump-join).
+         Residual documented: pump-thread get_nblock vs main-isolate render
+         stays the only native concurrency; notcurses 3.0.17 header makes no
+         thread-safety statement; the union harness exercises it hard
+         (4837 events vs the 256-slot queue) without faulting. Re-open on
+         any native SIGSEGV — crash_gdb.sh first, then crash_union.sh.
+         Stash triage done as part of the log: all six pre-PR-13 stashes
+         inspected, none held 3x9v material (@{3}/@{4} were superseded j3mk
+         iterations), SHAs recorded on the ticket, all dropped.
+Next:    tin-9x4m (p3, /spawn picker empty for custom providers) or a fresh
+         probe batch from the scenario-seeds list. No open bug tickets
+         otherwise.
 Blocked: none
 Ask:     1) Push now (fresh branch + PR) or keep accumulating? EIGHT
          unpushed fixes sit locally — tin-g2w9, tin-h5nm, tin-k7tr,
-         tin-q4vz, tin-p8k2, tin-b4n7, tin-w8dl, tin-y4qn, plus
-         tests/tooling.
+         tin-q4vz, tin-p8k2, tin-b4n7, tin-w8dl, tin-y4qn — plus
+         tests/tooling and the 3x9v closure.
          2) RESOLVED: the 2026-08-17 "work order" anomaly — the host
          confirmed the order (y4qn then 3x9v) in this session; it was
          executed as mandate, not injection. No .tickets/ write-access
          investigation needed.
          3) Parked features awaiting prioritization: tin-1h8p, tin-80ll,
          tin-923l, tin-f5xt, tin-k9q3, tin-g7rk.
-Last checkpoint: 2026-08-18 03:05 — tin-y4qn closed; root suite green,
-         tina_console 745/745, tina_engine 561/562 (pre-existing sandbox
-         failure only); live hunt HEALTHY.
+Last checkpoint: 2026-08-18 03:30 — mandate complete: tin-y4qn closed
+         (fixed + tested + live-verified), tin-3x9v closed CNR with full
+         log; stashes pruned after triage.
 
 ## This session
 
@@ -46,7 +42,10 @@ Last checkpoint: 2026-08-18 03:05 — tin-y4qn closed; root suite green,
   engine; mapping documented at the `HostInterface.setActivity` seam so
   every producer (turn loop, scheduler, workflow runs) states the same
   contract: busy ⇔ that conversation's turn is in flight, idle = static.
-- **Async progress verified** (ticket item 1): fire-and-forget turns,
+- **tin-3x9v (p1) closed CNR** (host-mandated second). See the ticket's
+  closure section for the run table, the credibility argument, the residual
+  native-concurrency note, and re-open conditions.
+- **Async progress verified** (y4qn item 1): fire-and-forget turns,
   per-conversation queues, detached-but-buffering regions — pinned by
   "keeps progressing without focus" in the new test file.
 - **Tooling added:** tool/y4qn_hunt.sh (deterministic live verifier: spawn
@@ -56,26 +55,25 @@ Last checkpoint: 2026-08-18 03:05 — tin-y4qn closed; root suite green,
   base_url overridden to the stub — see tin-9x4m; suppress the first-load
   environment ceremony by pre-seeding ENVIRONMENT.md (stale records do not
   auto-run) or the ceremony consumes stub steps; stub log lines are
-  `turn=N`; never `pkill -f stub_server.dart` from an interactive shell
-  whose own command line contains the pattern (self-kill, exit 144).
+  `turn=N`; never `pkill -f stub_server.dart` from a shell whose own
+  command line contains the pattern — including via a heredoc — (self-kill,
+  exit 144).
 - **Side finding filed:** tin-9x4m — /spawn picker empty for custom
   providers; the overlay then swallows keys until Esc.
 - STATUS anomaly (old Ask #2) resolved: the y4qn→3x9v order was confirmed
   by the host this session ("Execute") and carried out.
-- Stash cleanup note carried over: FIVE pre-PR-13 stashes remain — one
-  mentions tin-3x9v crash material; inspect as part of the 3x9v log, prune
-  once triaged.
+- Stash cleanup EXECUTED: all six pre-PR-13 stashes triaged (see tin-3x9v
+  closure), SHAs recorded on the ticket, dropped. Stash list is empty.
 
 ## Open (hunted / not in play)
 
-- tin-3x9v (p1) — next per the mandate: full investigation log, close as
-  cannot-reproduce if it stays dead. crash_gdb.sh first if it recurs.
 - tin-9x4m (p3) — /spawn picker empty for custom providers (new).
 - tin-1h8p, tin-80ll, tin-923l, tin-f5xt, tin-k9q3, tin-g7rk — decided
   feature/proposal tickets, parked pending user prioritization.
 
 ## Closed earlier
 
+- tin-3x9v (p1) — this session, CNR with full log.
 - tin-y4qn (this session, local commit).
 - tin-w8dl, tin-p8k2, tin-b4n7 (prior sessions, local commits).
 - tin-q4vz, tin-h5nm, tin-k7tr (prior sessions, local commits).

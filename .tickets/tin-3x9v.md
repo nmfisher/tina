@@ -1,9 +1,10 @@
 ---
 id: tin-3x9v
-status: open
+status: closed
 deps: []
-links: [tin-8n7c, tin-j3mk]
+links: [tin-8n7c, tin-j3mk, tin-r2vd, tin-v6tq, tin-4k8w]
 created: 2026-08-15T16:20:00Z
+closed: 2026-08-18
 type: bug
 priority: 1
 assignee: Nick Fisher
@@ -162,3 +163,78 @@ statement at all (no "thread" mention in the 3.0.17 header), so that
 concurrency remains undocumented upstream rather than confirmed safe.
 Keep open; if it recurs, crash_gdb.sh (real provider, backtrace on fault) is
 the first harness to reach for, then crash_union.sh.
+
+## Closure (2026-08-18) — cannot reproduce; full investigation log
+
+**Verdict: closed as cannot-reproduce.** Two recorded occurrences
+(2026-08-15, five refined-repro sightings same day), zero reproductions
+across every harness since, on a tree that has since removed each identified
+precondition. Total no-crash coverage:
+
+| When | Harness / driver | Runs | Result |
+|------|------------------|------|--------|
+| 2026-08-16 | broad automated sweep (stub + real provider, ceremony streaming, approval cadences, key hammering, 120-line bash streams, real refactor turn) | ~25 | no crash |
+| 2026-08-16 | crash_gdb.sh (real provider under gdb) | 1 | no crash |
+| 2026-08-16 | crash_replyburst.sh (mid-run reply bundle) | 3 + 1 real | no crash |
+| 2026-08-16 | crash_oscstress.sh (~10 Hz palette probes) | 2 | no crash |
+| 2026-08-16 | crash_resize.sh (resize storm) | 2 | no crash |
+| 2026-08-16 | crash_union.sh (all hazards at once) | 3 | no crash |
+| 2026-08-17 | crash_teardown.sh under MALLOC_PERTURB_ (freed memory scribbled) | 12 | no crash |
+| 2026-08-18 | crash_union.sh, re-run on the current tree (post q4vz/p8k2/b4n7/w8dl/y4qn) | 3 | alive 3/3 |
+| 2026-08-18 | crash_oscstress.sh, re-run on the current tree | 2 | alive 2/2 |
+
+**Why the silence is credible, not just absence of evidence** — every factor
+the crashes correlated with has since been fixed or fenced:
+
+1. The strongest correlate was an approval stuck in the tin-8n7c vanish
+   state, where the pump's 256-slot queue fills and Dart stops draining.
+   Four tin-8n7c fixes eliminated that state; the crash's precondition no
+   longer exists in the shape recorded.
+2. The streaming-render path the crash shared (approval row + streaming
+   tool output + next keystroke render) was hardened by tin-4k8w (mid-stream
+   shrink reconcile, post-resize re-emit), tin-p8k2/tin-b4n7 (raster drift
+   handling), tin-q4vz (width-table agreement).
+3. Both recorded crashes ran under the tin-r2vd fixed-sleep reply injection;
+   tin-r2vd bounded the notcurses init wait (injection now lands inside the
+   reply window or is dropped), and tin-v6tq + tin-k7tr filter reply
+   sequences out of the input path entirely — the environment the crashes
+   lived in is gone.
+4. The one same-area native defect that WAS reproducible (tin-j3mk teardown
+   use-after-free) is fixed (a6096ac: input pump joined before
+   notcurses_stop on every stop path), and 12 MALLOC_PERTURB_ teardown runs
+   stayed clean.
+
+**Standing residual risk (documented, accepted):** the pump thread's
+`notcurses_get_nblock` concurrent with the main isolate's
+`notcurses_render` remains the only native concurrency in the design, and
+`notcurses.h` (3.0.17) makes no thread-safety statement. The union harness
+exercises exactly that overlap hard — 4837 queued events against the
+256-slot cap (pump blocked in `pump_push` while rendering) — without a
+fault, across 6 total runs on two tree generations.
+
+**Re-open conditions:** any native SIGSEGV mid-run. First reach for
+tool/crash_gdb.sh (real provider under gdb, backtrace on fault), then
+tool/crash_union.sh. The acceptance criterion's soak coverage is the
+committed harness set itself (crash_*.sh under tool/), which any session
+can re-run.
+
+### Stash triage (the five pre-PR-13 WIP stashes, plus one)
+
+All six stashes inspected 2026-08-18; none contain 3x9v-specific crash
+fixes. SHAs recorded here before pruning (recoverable via
+`git stash apply <sha>` while the objects live):
+
+- `0082acac` — STATUS.md-only checkpoint (tin-b4n7 era). Stale.
+- `4025c86e` — STATUS.md-only checkpoint (tin-g2w9 era). Stale.
+- `ed74a196` — empty (c5nw era).
+- `a4e5ed69` — tin-j3mk teardown-fix iteration (closeOverlays ordering +
+  surface retirement on stop). Superseded by a6096ac's pump-join approach;
+  the surviving `_destroyed` surface guards cover the same late-write case.
+- `a693be36` — tin-j3mk iteration #2 (isStopped flag + editor teardown
+  ordering). Same supersession.
+- `0671e4e3` — pubspec/lock churn only; its message names "tin-3x9v crash
+  findings" but the actual harness work was committed long ago (crash_*.sh
+  are in tree).
+
+All six dropped 2026-08-18 after this triage (the standing STATUS note
+"prune once triaged", executed).
