@@ -269,13 +269,12 @@ Future<void> main(List<String> argv) async {
 
   // Frame B: the appended reply-shaped row. Short, cluster-bearing, landing
   // on a screen row that held a full-width wrapped row after the scroll.
-  // NOTE: no trailing newline — a '\n'-terminated write into a full buffer
-  // hits tin-b4n7 (stale pending-row index after the scroll) and the row
-  // never renders at all. Without it the offset transition still happens:
-  // content rows 36 -> 37 drops the bottom-align offset to 0, so the reply
-  // lands on the visual row that held the filler's last full-width segment.
+  // Trailing newline is deliberate now: the '\n'-terminated write into a
+  // full buffer is the tin-b4n7 shape (a coalesced scroll off the native
+  // fast path), and the offset transition still lands the reply on the
+  // visual row that held the filler's last full-width segment.
   screen.chat.write(
-    'reply: 👨‍👩‍👧‍👦 one grapheme, several code points — done',
+    'reply: 👨‍👩‍👧‍👦 one grapheme, several code points — done\n',
   );
   await Future.delayed(const Duration(milliseconds: 800));
   trace.writeln('PHASE-B ${OpCounters.instance.snapshot()}');

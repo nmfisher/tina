@@ -1,12 +1,10 @@
 # Sweep status
-Now:     tin-p8k2 closed — erase-then-render split for drift-bearing rows
-         (tin-p8k2.md has the corrected root cause; deterministic
-         tool/p8k2_check.sh + live 4/4 clean). Batching the checkpoint
-         asks; next ticket starting now.
-Next:    tin-b4n7 (p2, new, deterministic repro in hand): stale pending-row
-         index after a coalesced scroll leaves a new row unrendered — fix
-         direction on the ticket. Then tin-w8dl (p2, needs
-         instrumentation).
+Now:     tin-b4n7 closed — a window that scrolls off the native fast path
+         now full-repaints (model scrolled, plane didn't; stale pending
+         indices were only half the problem). Both this session's fixes
+         verified together: repro 38/38 borders, live 5/5 at 0 borderless.
+Next:    tin-w8dl (p2) — intermittent paste truncation + swallowed Enter;
+         1/4, needs instrumentation (hunt plan on the ticket).
 Blocked: none
 Ask:     1) Push the tin-g2w9 commit now (fresh branch + PR) or hold until
          more fixes accumulate? Six unpushed fixes now sit locally —
@@ -20,9 +18,9 @@ Ask:     1) Push the tin-g2w9 commit now (fresh branch + PR) or hold until
          worth a look.
          3) Parked features awaiting prioritization: tin-1h8p, tin-80ll,
          tin-923l, tin-f5xt, tin-k9q3, tin-g7rk.
-Last checkpoint: 2026-08-18 00:40 — tin-p8k2 closed; root 543/543,
-         tina_console 739/739; deterministic repro 38/38 borders, live 4/4
-         at 0 borderless; tin-b4n7 filed.
+Last checkpoint: 2026-08-18 01:05 — tin-p8k2 + tin-b4n7 closed; root
+         543/543, tina_console 740/740; deterministic repro 38/38 borders;
+         live 5/5 at 0 borderless.
 
 ## This session
 
@@ -59,7 +57,6 @@ Last checkpoint: 2026-08-18 00:40 — tin-p8k2 closed; root 543/543,
 
 ## Open (hunted / not in play)
 
-- tin-b4n7 (p2) — next up; deterministic repro + fix direction ready.
 - tin-w8dl (p2) — intermittent paste truncation + swallowed Enter; 1/4,
   hunt plan on the ticket.
 - tin-3x9v (p1) — keep open; crash_gdb.sh first if it recurs, then
@@ -70,7 +67,7 @@ Last checkpoint: 2026-08-18 00:40 — tin-p8k2 closed; root 543/543,
 
 ## Closed earlier
 
-- tin-p8k2 (this session, local commit).
+- tin-p8k2, tin-b4n7 (this session, local commits).
 - tin-q4vz, tin-h5nm, tin-k7tr (prior sessions, local commits).
 - tin-g2w9 (p1) — torn-JSONL append repair (local commit, unpushed).
 - tin-j3mk (p2), tin-r2vd (p1), tin-c5nw (p1) — PR 13.
@@ -100,7 +97,7 @@ Last checkpoint: 2026-08-18 00:40 — tin-p8k2 closed; root 543/543,
   (root for the app suite, packages/tina_console for its own).
 - tina_engine's package suite has one pre-existing failure in this
   sandbox: process_tree_test 'kills a backgrounded descendant…'. Root and
-  tina_console suites fully green (543 / 739).
+  tina_console suites fully green (543 / 740).
 - Width-table lore (tin-q4vz/p8k2): three tables in play — ours
   (term_width.dart), notcurses', the terminal's. Ours must be ≥ the
   terminal's per rune; nc's can be narrower on ZWJ clusters (family = 2

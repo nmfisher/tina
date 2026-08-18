@@ -871,9 +871,14 @@ class ScrollingTextRegion extends Region {
       return;
     }
     // Either no native scroll possible, or the surface declined (ANSI-style
-    // fallback) — revert to the existing full/row path, which is correct for
-    // every non-full window.
-    if (full) {
+    // fallback) — revert to the existing full/row path. A window that
+    // scrolled OUTSIDE the native fast path leaves the plane stale by
+    // scrollCount rows: the model's rows moved, the plane's didn't, and the
+    // pending row indices were recorded before the shift (each now aims one
+    // row below the content it meant). Only a full repaint is correct there —
+    // a row loop over the stale indices emits blank rows and the
+    // scrolled-in content never renders (tin-b4n7).
+    if (full || scrollCount > 0) {
       _redrawAll();
     } else {
       for (final row in rows) {

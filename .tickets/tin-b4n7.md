@@ -1,9 +1,10 @@
 ---
 id: tin-b4n7
-status: open
+status: closed
 deps: []
 links: [tin-p8k2, tin-w8dl]
 created: 2026-08-17T23:55:00Z
+closed: 2026-08-18T01:05:00Z
 type: bug
 priority: 2
 assignee: Nick Fisher
@@ -57,20 +58,28 @@ buffer growth past a full-paint trigger). The live TUI mostly masked it
 because agent turns stream '\n'-free chunks (no scroll mid-write) and
 input/animation frames absorb pending chat.
 
-## Fix direction
+## Fix (implemented 2026-08-18)
 
-When a scroll occurs during a coalesced write, the indices in
-`touched`/`_pendingPaintRows` are all stale by the scroll count. Either
-shift them down, or invalidate: mark the window full-paint (or re-emit
-0..usable-1 in the fall-through) whenever `scrollCount > 0` and the native
-fast path declines — `_emitRow`'s snapshot diff makes the unchanged rows
-cheap; the scrolled rows need the repaint anyway (their snapshots' visualRow
-is off by the scroll count and `_shiftSnapshots` only runs on the native
-path).
+Invalidation, not index-shifting: `flushPendingWrites`'s fall-through now
+full-repaints whenever `scrollCount > 0` and the native fast path did not
+run. Shifting the pending indices alone would be insufficient — the MODEL
+scrolled but the PLANE didn't, so every visible row is stale by
+scrollCount, and only `_redrawAll` re-establishes the mapping. (The fast
+path itself is untouched: it re-emits all rows anyway.) Windows that
+scroll off the fast path are rare (they require a trailing blank at
+window start), so the extra full repaint costs nothing in the common
+streaming shapes.
 
 ## Acceptance
 
-- Regression test: real `ScrollingTextRegion` (or the existing screen-test
-  fake) — full buffer, trailing-'\n' write, assert the new row's putAt
-  happens (recording surface) and the row text is on the plane.
-- Root + tina_console suites green.
+- Regression test: chat_native_scroll_test.dart 'scrolled window off the
+  fast path (tin-b4n7)' — fill full, writeln (leaves the trailing blank
+  that makes the next window not-full), then a '\n'-terminated write;
+  asserts the new row paints and lands on the bottom plane row. Fails on
+  the pre-fix code (verified by stashing the fix), passes after.
+- Suites: root 543/543, tina_console 740/740 (739 + this test).
+- Original repro passes: tool/p8k2_check.sh with the repro restored to
+  the trailing-newline shape — the reply row now renders AND the border
+  oracle stays 38/38 (the b4n7 path routes the reply through putAt with
+  no snapshot, which the tin-p8k2 erase-split handles). Live
+  q4vz_live.sh ascii run: 0 borderless.
