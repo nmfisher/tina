@@ -15,7 +15,7 @@ const int kCurrentConfigVersion = 1;
 
 /// Top-level keys [loadUserConfig] recognizes. Anything else is reported as a
 /// likely typo (e.g. `[limit]` for `[limits]`) rather than silently ignored.
-const _knownTopLevelKeys = {'version', 'default', 'providers', 'limits', 'prompts', 'theme', 'trust', 'regions', 'environment'};
+const _knownTopLevelKeys = {'version', 'default', 'providers', 'limits', 'prompts', 'theme', 'trust', 'regions', 'environment', 'tui'};
 
 /// Whether the first-load environment agent (ENVIRONMENT.md population) may
 /// run in the background without asking. From `[environment] auto_populate`
@@ -280,6 +280,14 @@ class UserConfig {
   /// Flows into `Config.parse` as [Config.environmentAutoPopulate].
   final String? environmentAutoPopulate;
 
+  /// Mouse-wheel capture from `[tui] mouse_wheel`. True (the default, null
+  /// when absent) lets the wheel scroll the chat scrollback; false keeps the
+  /// terminal's native click-drag text selection (enabling wheel capture
+  /// makes the terminal route button-1 drags to the app, breaking selection
+  /// — the user must then hold Option/Alt to select). Flows into
+  /// `Config.parse` as [Config.mouseWheel].
+  final bool? mouseWheel;
+
   /// The `[regions]` table: defaults for region agents (fast model, etc.).
   /// Null when absent.
   final RegionsConfig? regions;
@@ -299,6 +307,7 @@ class UserConfig {
     this.prompts = const {},
     this.trustDefault,
     this.environmentAutoPopulate,
+    this.mouseWheel,
     this.regions,
     this.version = kCurrentConfigVersion,
   });
@@ -315,6 +324,7 @@ class UserConfig {
       prompts.isEmpty &&
       trustDefault == null &&
       environmentAutoPopulate == null &&
+      mouseWheel == null &&
       (regions == null || regions!.isEmpty);
 
   /// Copy with any subset of fields overridden; unlisted fields keep their
@@ -331,6 +341,7 @@ class UserConfig {
     Map<String, String>? prompts,
     String? trustDefault,
     String? environmentAutoPopulate,
+    bool? mouseWheel,
     RegionsConfig? regions,
   }) =>
       UserConfig(
@@ -345,6 +356,7 @@ class UserConfig {
         trustDefault: trustDefault ?? this.trustDefault,
         environmentAutoPopulate:
             environmentAutoPopulate ?? this.environmentAutoPopulate,
+        mouseWheel: mouseWheel ?? this.mouseWheel,
         regions: regions ?? this.regions,
         version: version,
       );
@@ -365,6 +377,8 @@ class UserConfig {
     final environmentRaw = (m['environment'] as Map?)?.cast<String, dynamic>();
     final environmentAutoPopulate =
         environmentRaw?['auto_populate'] as String?;
+    final tuiRaw = (m['tui'] as Map?)?.cast<String, dynamic>();
+    final mouseWheel = tuiRaw?['mouse_wheel'] as bool?;
     final regionsRaw = (m['regions'] as Map?)?.cast<String, dynamic>();
     final providers = <String, ProviderConfig>{};
     for (final e in (providersRaw ?? const <String, dynamic>{}).entries) {
@@ -394,6 +408,7 @@ class UserConfig {
       prompts: prompts,
       trustDefault: trustDefault,
       environmentAutoPopulate: environmentAutoPopulate,
+      mouseWheel: mouseWheel,
       regions: regionsRaw == null ? null : RegionsConfig.fromMap(regionsRaw),
       version: (m['version'] as int?) ?? kCurrentConfigVersion,
     );
@@ -598,6 +613,7 @@ String userConfigToToml(UserConfig config) {
     if (config.trustDefault != null) 'trust': {'default': config.trustDefault},
     if (config.environmentAutoPopulate != null)
       'environment': {'auto_populate': config.environmentAutoPopulate},
+    if (config.mouseWheel != null) 'tui': {'mouse_wheel': config.mouseWheel},
     if (config.regions != null && !config.regions!.isEmpty)
       'regions': config.regions!.toMap(),
   };
@@ -728,4 +744,12 @@ api_key = "sk-ant-..."
 # [theme.border.busy]
 # rail = "38;2;30;110;130"
 # head = "1;38;2;175;255;255"
+
+# TUI behavior. `mouse_wheel` (default true) routes the mouse wheel to the
+# chat scrollback. While it is on, the terminal sends button-1 drags to the
+# app too, so native click-drag text selection needs Option/Alt held (macOS
+# Terminal) or Shift (most others). Set it to false to keep plain drag-select,
+# giving the wheel back to the terminal's own scrollback.
+# [tui]
+# mouse_wheel = true
 ''';

@@ -282,6 +282,15 @@ key = "typo"
       expect(parseEnvironmentAutoPopulate(null), EnvironmentAutoPopulate.ask);
     });
 
+    test('[tui] mouse_wheel round-trips through loadUserConfig', () {
+      writeUserConfig(const UserConfig(mouseWheel: false),
+          env: {}, tinaDir: tmp);
+      expect(loadUserConfig(env: {}, tinaDir: tmp).mouseWheel, isFalse);
+      // Absent → null (the caller resolves null → true: wheel capture on).
+      writeUserConfig(const UserConfig(), env: {}, tinaDir: tmp);
+      expect(loadUserConfig(env: {}, tinaDir: tmp).mouseWheel, isNull);
+    });
+
     test('copyWith patches one field without dropping the others', () {
       final base = UserConfig(
         defaultProvider: 'anthropic',

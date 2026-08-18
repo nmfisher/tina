@@ -126,6 +126,26 @@ void main() {
       });
     });
 
+    test('[tui] mouse_wheel flows from the file into Config (default on)',
+        () {
+      final env = const {'ANTHROPIC_API_KEY': 'sk'};
+      final cfg = Config.parse(
+        const [],
+        env: env,
+        registry: testRegistry(env),
+        userConfig: const UserConfig(mouseWheel: false),
+      );
+      expect(cfg.mouseWheel, isFalse);
+      // Absent → true: the wheel scrolls the chat scrollback by default.
+      final dflt = Config.parse(
+        const [],
+        env: env,
+        registry: testRegistry(env),
+        userConfig: const UserConfig(),
+      );
+      expect(dflt.mouseWheel, isTrue);
+    });
+
     test('prompt overrides default to empty when the file sets none', () {
       final cfg = Config.parse(
         const [],

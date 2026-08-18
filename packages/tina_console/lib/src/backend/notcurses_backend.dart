@@ -105,7 +105,7 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
 
   _LiveNotcursesPlatform._(this._nc, this._plane);
 
-  factory _LiveNotcursesPlatform.init() {
+  factory _LiveNotcursesPlatform.init({bool mouseWheel = true}) {
     // suppressBanners: skip the version/performance banners that notcurses
     // prints during init and stop.
     //
@@ -138,7 +138,13 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
       // the terminal's wheel→arrow translation (which the editor would treat
       // as command-history up/down). Best-effort: a terminal without mouse
       // support leaves the wheel unhandled rather than mis-routed.
-      nc_.miceEnable(nc.MiceEvents.buttonEvent);
+      //
+      // There is no wheel-only reporting mode: enabling this routes button-1
+      // click-drags to the app too, so native text selection then needs
+      // Option/Alt (macOS Terminal) or Shift (most terminals) held. Users who
+      // prefer plain drag-select set `[tui] mouse_wheel = false` to skip this
+      // and give the wheel back to the terminal's own scrollback.
+      if (mouseWheel) nc_.miceEnable(nc.MiceEvents.buttonEvent);
       return _LiveNotcursesPlatform._(nc_, nc_.stdplane());
     } finally {
       guard.restore();
@@ -275,9 +281,14 @@ class NotcursesBackend implements TerminalBackend {
 
   /// Create and return a [NotcursesBackend] backed by libnotcurses.
   ///
+  /// [mouseWheel] (default true) enables mouse-button reporting so the wheel
+  /// scrolls the chat scrollback; false keeps the terminal's native
+  /// click-drag text selection.
+  ///
   /// Throws if the notcurses library cannot be initialized.
-  static NotcursesBackend create({required Stdio io}) {
-    return NotcursesBackend._(io, _LiveNotcursesPlatform.init());
+  static NotcursesBackend create({required Stdio io, bool mouseWheel = true}) {
+    return NotcursesBackend._(
+        io, _LiveNotcursesPlatform.init(mouseWheel: mouseWheel));
   }
 
   /// Test-only constructor: inject a fake [NotcursesPlatform] so the

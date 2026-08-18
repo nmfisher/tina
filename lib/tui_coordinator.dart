@@ -2339,7 +2339,7 @@ void emergencyTerminalRestore() {
       // static linking it false-negatives, so the real test is whether
       // create() succeeds.
       try {
-        final nc = NotcursesBackend.create(io: io);
+        final nc = NotcursesBackend.create(io: io, mouseWheel: config.mouseWheel);
         try {
           final effTheme = _resolveNcTheme(nc, config.theme);
           final screen = Screen.withBackend(
