@@ -9,6 +9,7 @@ import 'confirm_dialog.dart';
 import 'focus_manager.dart';
 import 'input_event.dart';
 import 'input_latency.dart';
+import 'paste_audit.dart';
 import 'text_line_input.dart';
 import 'menu_bar.dart';
 import 'modal_surface.dart';
@@ -204,7 +205,20 @@ class LineEditor {
     _burstTimer?.cancel();
     _burstTimer = null;
     if (burstOpen && _pending.isNotEmpty) {
+      if (PasteAudit.enabled) {
+        PasteAudit.log(
+          'readKey: burst window open, handing off first of '
+          '${_pending.length} pending overflow events',
+        );
+      }
       return _pending.removeAt(0);
+    }
+    if (PasteAudit.enabled && _pending.isNotEmpty) {
+      PasteAudit.log(
+        'readKey: burst window EXPIRED, DROPPING ${_pending.length} '
+        'pending overflow events '
+        '(${_pendingChars()} chars)',
+      );
     }
     _pending.clear();
 
@@ -327,12 +341,46 @@ class LineEditor {
   final List<InputEvent> _pending = [];
   Timer? _burstTimer;
 
+  /// PasteInputs held while a global readKey (approval / gate prompt) is
+  /// armed — tin-w8dl. Delivered through [_onEventInner] once the prompt's
+  /// readKey completes; a chained prompt re-arms first and re-holds them.
+  /// Never cleared except by delivery, so no paste content is ever dropped.
+  final List<PasteInput> _heldPastes = [];
+
+  /// Deliver held pastes one microtask after a readKey completes — after the
+  /// completer's awaiter runs, so a prompt that chains into the next readKey
+  /// re-holds rather than races. Re-entry safe: empty list is a no-op.
+  void _scheduleHeldPasteDelivery() {
+    if (_heldPastes.isEmpty) return;
+    if (PasteAudit.enabled) {
+      PasteAudit.log('delivering ${_heldPastes.length} held paste(s)');
+    }
+    scheduleMicrotask(() {
+      if (_heldPastes.isEmpty) return;
+      final deliver = List<PasteInput>.of(_heldPastes);
+      _heldPastes.clear();
+      for (final paste in deliver) {
+        _onEventInner(paste);
+      }
+    });
+  }
+
   /// How long (in ms) after completing a readKey we continue to intercept
   /// CharInput events. Paste bytes arrive within microseconds; normal typing
   /// has 30+ ms between key events.
   static const _burstWindowMs = 10;
 
   void close() {
+    // tin-w8dl: pastes still held behind an open readKey must reach the
+    // buffer before the input stream dies, or a shutdown mid-prompt drops
+    // them. Direct dispatch — no readKey can usefully complete at close.
+    if (_heldPastes.isNotEmpty) {
+      final deliver = List<PasteInput>.of(_heldPastes);
+      _heldPastes.clear();
+      for (final paste in deliver) {
+        _dispatchEvent(paste);
+      }
+    }
     _sub?.cancel();
     _sub = null;
     _burstTimer?.cancel();
@@ -387,6 +435,29 @@ class LineEditor {
     if (debugKeys) {
       stderr.writeln('[keys] event: $event');
     }
+    if (_keyCompleterGlobal && event is PasteInput) {
+      // tin-w8dl: a paste arriving while a GLOBAL readKey (approval / gate
+      // prompt) is armed must not land in the editor buffer underneath the
+      // prompt — the user's next Enter then answers the prompt and the paste
+      // is stranded with no Enter left to submit it. askPermission already
+      // defers arming while a readLine has unsent content; this is the
+      // mirror for content arriving AFTER the arm. Held, never dropped;
+      // delivered through the full pipeline once the prompt resolves (a
+      // chained prompt re-arms first and simply re-holds).
+      //
+      // Scoped to global readKeys only: a non-global readKey (an overlay
+      // that owns the screen) keeps the long-pinned behavior of pasting
+      // straight into the buffer (see line_editor_test's 'paste burst flush
+      // never answers a readKey').
+      _heldPastes.add(event);
+      if (PasteAudit.enabled) {
+        PasteAudit.log(
+          'PasteInput HELD while global readKey armed '
+          '(held=${_heldPastes.length})',
+        );
+      }
+      return;
+    }
     if (_keyCompleter != null && event is! PasteInput) {
       // A global readKey (an approval or gate prompt) still yields to the
       // focus ring: Ctrl+G/Ctrl+W cycle panels, and while cycling the ring is
@@ -398,6 +469,11 @@ class LineEditor {
       }
       final c = _keyCompleter!;
       _keyCompleter = null;
+      if (PasteAudit.enabled) {
+        PasteAudit.log(
+          'readKey ANSWERED by $event (global=$_keyCompleterGlobal)',
+        );
+      }
       c.complete(event);
       // After completing a readKey, open a short burst window during which
       // overflow CharInput events (from a paste) are queued rather than
@@ -407,12 +483,18 @@ class LineEditor {
       _burstTimer?.cancel();
       _burstTimer = Timer(
           Duration(milliseconds: _burstWindowMs), () => _burstTimer = null);
+      _scheduleHeldPasteDelivery();
       return;
     }
     // Overflow CharInput from a paste burst that arrived before readKey
     // could re-arm _keyCompleter.
     if (_burstTimer != null && event is CharInput) {
       _pending.add(event);
+      if (PasteAudit.enabled && _pending.length == 1) {
+        PasteAudit.log(
+          'overflow CharInput queued to _pending (first; window open)',
+        );
+      }
       return;
     }
     if (_cancelHandler != null) {
@@ -439,8 +521,18 @@ class LineEditor {
       return;
     }
 
+    if (PasteAudit.enabled && event is PasteInput) {
+      PasteAudit.log(
+        'PasteInput dispatched: chars='
+        '${event.text.length} readKeyArmed=${_keyCompleter != null} '
+        'queueMode=$_queueModeActive editing=${_completer != null}',
+      );
+    }
     _dispatchEvent(event);
   }
+
+  int _pendingChars() => _pending
+      .fold(0, (n, e) => n + (e is CharInput ? e.text.length : 0));
 
   /// macOS Option+Arrow fallback. When ESC arrived as a standalone event and a
   /// letter follows within 150ms, treat the pair as an Alt+letter word-motion

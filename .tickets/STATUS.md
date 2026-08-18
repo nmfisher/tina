@@ -1,14 +1,20 @@
 # Sweep status
-Now:     tin-b4n7 closed — a window that scrolls off the native fast path
-         now full-repaints (model scrolled, plane didn't; stale pending
-         indices were only half the problem). Both this session's fixes
-         verified together: repro 38/38 borders, live 5/5 at 0 borderless.
-Next:    tin-w8dl (p2) — intermittent paste truncation + swallowed Enter;
-         1/4, needs instrumentation (hunt plan on the ticket).
+Now:     tin-w8dl closed — paste arriving under an armed approval prompt
+         is held and delivered after the prompt resolves (was: dispatched
+         into the buffer, Enter answered the prompt, paste stranded; split
+         tails dropped in the editor's overflow queue). Deterministic repro
+         built first (stub scenario w8dl_ceremony + tool/w8dl_hunt.sh +
+         paste-path audit log); UNHEALTHY on first try pre-fix, 3/3 HEALTHY
+         post-fix including the reused-home origin variant.
+Next:    No actively-open bug tickets. tin-3x9v (p1) stays open but dormant
+         (crash_gdb.sh first if it recurs; inspect the pre-PR-13 stashes —
+         one holds 3x9v crash material). Otherwise: start a fresh probe
+         batch from the scenario-seeds list; the paste-path audit harness
+         (TINA_PASTE_AUDIT_LOG) is now standing tooling for any input bug.
 Blocked: none
-Ask:     1) Push the tin-g2w9 commit now (fresh branch + PR) or hold until
-         more fixes accumulate? Six unpushed fixes now sit locally —
-         tin-g2w9, tin-h5nm, tin-k7tr, tin-q4vz, tin-p8k2, plus tests.
+Ask:     1) Push now (fresh branch + PR) or keep accumulating? SEVEN
+         unpushed fixes sit locally — tin-g2w9, tin-h5nm, tin-k7tr,
+         tin-q4vz, tin-p8k2, tin-b4n7, tin-w8dl, plus tests/tooling.
          2) ANOMALY, please confirm: mid-session on 2026-08-17 an
          unattributed edit appeared in this file claiming a "USER-MANDATED
          WORK ORDER: y4qn then 3x9v before anything else". No such mandate
@@ -18,48 +24,43 @@ Ask:     1) Push the tin-g2w9 commit now (fresh branch + PR) or hold until
          worth a look.
          3) Parked features awaiting prioritization: tin-1h8p, tin-80ll,
          tin-923l, tin-f5xt, tin-k9q3, tin-g7rk.
-Last checkpoint: 2026-08-18 01:05 — tin-p8k2 + tin-b4n7 closed; root
-         543/543, tina_console 740/740; deterministic repro 38/38 borders;
-         live 5/5 at 0 borderless.
+Last checkpoint: 2026-08-18 02:50 — tin-w8dl closed; root 600/600,
+         tina_console 807/807; live hunt 3/3 HEALTHY at 0 truncation.
 
 ## This session
 
-- **tin-p8k2 (p2) closed.** Deterministic repro built first
-  (tool/p8k2_repro.dart drives the real stack in a tmux pane;
-  tool/p8k2_check.dart replays the captured raster bytes through the
-  tmux-class VirtualTerminal; tool/p8k2_check.sh orchestrates). Pre-fix:
-  2 borderless rows stable. Root cause CORRECTED vs the ticket's original
-  fix direction: the trailing space run is raster damage sized by the
-  PREVIOUS frame's row extent, so bounding our pre-erase cannot fix it —
-  any cluster row replacing a longer row spills by exactly its tmux−nc
-  drift. Fix: NotcursesBackendSurface.putAt erases, then (when the text is
-  drift-bearing — driftsAgainstRaster, ZWJ per the measured tables) forces
-  _platform.render() BEFORE writing content, so the erase lands addressed
-  in its own raster and nothing chains onto the drifted content run. The
-  clearCells param (caller-reported previous extent, _emitRow snapshot /
-  styled-diff old tail) keeps the erase bounded and skips it entirely for
-  growing rows. Interface change: BackendSurface.putAt gained optional
-  clearCells (nc + ANSI + passthrough surfaces, harness loggers, test
-  fakes updated).
-- **tin-b4n7 (p2) filed.** Found building the repro (found-A-while-fixing-
-  B): a '\n'-terminated write into a full buffer records the pre-scroll row
-  index in the coalescing pending set; the text shifts down one but only
-  the stale (blank) index is emitted — the new row never renders until an
-  unrelated full repaint. Deterministic repro + instrumented decision trace
-  on the ticket. Repro routes around it (no trailing newline).
-- **STATUS.md anomaly.** An edit I did not make appeared mid-session
-  (claimed a user-mandated y4qn-first work order; contradicted the ticket
-  state itself). Reverted; surfaced as Ask #2. Nothing else in the tree was
-  touched by it.
-- Stash cleanup note carried over: FIVE pre-PR-13 stashes remain (see
-  prior checkpoint) — one mentions tin-3x9v crash material; inspect before
-  the next 3x9v hunt, prune once triaged.
+- **tin-w8dl (p2) closed.** The 1/4 intermittency was the ceremony's
+  approval arming inside the paste window: with emoji_cjk canned replies
+  the environment agent never issued a tool call, so most runs had no
+  prompt open and the race couldn't fire. New stub scenario
+  `w8dl_ceremony` makes its first reply a bash tool call → real
+  permission prompt → readKey(globalKeys:true) armed at paint onset →
+  UNHEALTHY on the first hunt run. Audit trail (TINA_PASTE_AUDIT_LOG,
+  env-gated file logger — stderr pollutes the pane): paste dispatched
+  with readKeyArmed=true, then the +1.5s Enter ANSWERED the prompt.
+  Root cause: PasteInput skipped the armed completer (correct) but fell
+  to _dispatchEvent — buffer under an open prompt, askPermission's
+  arm-guard is arm-time-only. Fix: hold while a global readKey is armed,
+  deliver on resolution (chained prompts re-hold, close() drains).
+  Non-global overlay readKeys keep the old behavior (pinned by an
+  existing test, left untouched).
+- **Benign mystery resolved en route:** the detector's char count read
+  6108 for a 6000-rune corpus — UTF-16 units (108 astral codepoints are
+  surrogate pairs); the editor displays runes. Audit lines count UTF-16.
+- **Tooling added:** paste_audit.dart (env-gated, crash-safe append),
+  detector onAudit hook (gap/expire/dispose flush causes),
+  backend batch-cadence + untranslated-drop logs, editor drop-point logs
+  (pending-clear, readKey answers, paste routing),
+  tool/w8dl_hunt.sh (fresh/reused-home cycle) + tool/w8dl_classify.py,
+  scenario w8dl_ceremony.
+- **STATUS.md anomaly** (Ask #2) unchanged from the prior checkpoint.
+- Stash cleanup note carried over: FIVE pre-PR-13 stashes remain — one
+  mentions tin-3x9v crash material; inspect before the next 3x9v hunt,
+  prune once triaged.
 
 ## Open (hunted / not in play)
 
-- tin-w8dl (p2) — intermittent paste truncation + swallowed Enter; 1/4,
-  hunt plan on the ticket.
-- tin-3x9v (p1) — keep open; crash_gdb.sh first if it recurs, then
+- tin-3x9v (p1) — dormant; crash_gdb.sh first if it recurs, then
   crash_union.sh. Full notes on the ticket.
 - tin-y4qn (p2) — pre-existing, not in play per the brief (see Ask #2).
 - tin-1h8p, tin-80ll, tin-923l, tin-f5xt, tin-k9q3, tin-g7rk — decided
@@ -67,7 +68,8 @@ Last checkpoint: 2026-08-18 01:05 — tin-p8k2 + tin-b4n7 closed; root
 
 ## Closed earlier
 
-- tin-p8k2, tin-b4n7 (this session, local commits).
+- tin-w8dl (this session, local commit).
+- tin-p8k2, tin-b4n7 (prior session, local commits).
 - tin-q4vz, tin-h5nm, tin-k7tr (prior sessions, local commits).
 - tin-g2w9 (p1) — torn-JSONL append repair (local commit, unpushed).
 - tin-j3mk (p2), tin-r2vd (p1), tin-c5nw (p1) — PR 13.
@@ -84,20 +86,22 @@ Last checkpoint: 2026-08-18 01:05 — tin-p8k2 + tin-b4n7 closed; root
 - Under `dart run` the TUI needs ~8–11 s to first paint in this sandbox;
   inject reply bursts AFTER paint onset or the bytes land in the dart
   CLI's stdin, not tina's (tin-k7tr hunt note).
-- gdb hunting lore (also on the tin-j3mk ticket): attach after the asset
-  lib dlopens; exercise signal paths without gdb (a passed-through
-  SIGTERM under gdb kills the VM).
-- tool/crash_teardown.sh drives the tin-j3mk shapes (TEARDOWN_MODE);
-  MALLOC_PERTURB_=170 in the launching shell reaches the dart process.
-- ~/.tina/config is read-only mounted and already correct (deepseek /
-  deepseek-v4-flash); stub runs use /tmp/stubhome (port 8907; stub:
-  `dart run tool/stub_server.dart --scenario emoji_cjk --port 8907`).
 - Toolchain: /home/agent/dart-sdk (3.13.0); the shell's `dart` cannot run
   this repo's build hooks. `dart test` must run from the package dir
   (root for the app suite, packages/tina_console for its own).
 - tina_engine's package suite has one pre-existing failure in this
   sandbox: process_tree_test 'kills a backgrounded descendant…'. Root and
-  tina_console suites fully green (543 / 740).
+  tina_console suites fully green (600 / 807).
+- Stub lore: /tmp/stubhome carries the canonical stub config
+  (provider=stub, base_url 127.0.0.1:8907); a pristine copy lives at
+  /tmp/w8dl_hunt/stub.config. tool/w8dl_hunt.sh (re)starts the stub per
+  invocation on the SCENARIO env (default w8dl_ceremony) — kill leftover
+  stubs between sessions or they hold the port.
+- Paste-path audit lore: set TINA_PASTE_AUDIT_LOG=<file> in the tina
+  env; log lines are `w8dl <ms> ...` (batch cadence, detector
+  gap/expire/dispose flushes, editor holds/answers/drops). Counts are
+  UTF-16 units, not runes. The hunt wrapper can hang at exit holding the
+  stub as a child (do_wait) — kill the wrapper, not the stub.
 - Width-table lore (tin-q4vz/p8k2): three tables in play — ours
   (term_width.dart), notcurses', the terminal's. Ours must be ≥ the
   terminal's per rune; nc's can be narrower on ZWJ clusters (family = 2
