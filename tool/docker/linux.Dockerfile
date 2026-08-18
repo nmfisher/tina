@@ -19,5 +19,9 @@ WORKDIR /work
 # the repo root keeps build/, .git, .dart_tool out of the context.
 COPY . /work
 
-RUN dart pub get && dart build cli -t bin/tina.dart
+RUN dart pub get \
+    # Embed the pubspec version (lib/version.g.dart) before building — see
+    # tool/generate_version.dart; /update compares against it.
+    && dart run tool/generate_version.dart /work \
+    && dart build cli -t bin/tina.dart
 # Bundle now at /work/build/cli/<os>_<arch>/bundle/

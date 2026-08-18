@@ -17,6 +17,7 @@ import 'package:tina/summaries/summary_index.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/project/project_trust.dart';
 import 'package:tina/tui_coordinator.dart';
+import 'package:tina/version.g.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -89,6 +90,10 @@ Future<void> _run(List<String> argv) async {
       }
       if (config.showHelp) {
         stdout.writeln(Config.usage);
+        return;
+      }
+      if (config.showVersion) {
+        stdout.writeln('tina $tinaVersion');
         return;
       }
       if (config.initConfig) {
@@ -406,6 +411,7 @@ bool _shouldRunStdinSetup(List<String> argv, Environment environment) {
       a.startsWith('--workflow=') ||
       a == '--help' ||
       a == '-h' ||
+      a == '--version' ||
       a == '--list' ||
       a == '-l' ||
       a == '--init-config');

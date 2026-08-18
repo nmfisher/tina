@@ -4,7 +4,10 @@
 
 To cut a new tina release:
 
-1. **Bump version** in `pubspec.yaml` (semver, e.g. `1.4.3`).
+1. **Bump version** in `pubspec.yaml` (semver, e.g. `1.4.3`), then regenerate
+   the embedded version constant (`dart run tool/generate_version.dart`) and
+   commit `lib/version.g.dart` together with the bump (CI tests fail if they
+   drift).
 
 2. **Tag and push**:
    ```bash
@@ -14,7 +17,8 @@ To cut a new tina release:
 
 3. **GitHub Actions** fires the `release` workflow (`.github/workflows/release.yml`), which:
    - Builds 3 targets natively/macOS and via Docker (linux-x64, linux-arm64)
-   - Produces per-target tarballs: `tina-1.4.3-macos-arm64.tar.gz`, etc.
+   - Produces per-target tarballs: `tina-1.4.3-macos-arm64.tar.gz`, etc.,
+     plus `.sha256` sidecars (tina's `/update` verifies against them)
    - Creates the GitHub release with `softprops/action-gh-release@v2`, attaching all artifacts.
 
 4. **Announce** the new release / tag as appropriate.

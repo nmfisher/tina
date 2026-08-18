@@ -22,6 +22,8 @@ import 'package:tina/pipeline/pipeline_runner.dart';
 import 'package:tina/pipeline/workflow_permission_asker.dart';
 import 'package:tina/pipeline/workflow_supervisor.dart';
 import 'package:tina/regions/region_registry.dart';
+import 'package:tina/self_update/release_checker.dart';
+import 'package:tina/self_update/updater.dart';
 import 'package:tina/tui/attention_queue.dart';
 import 'package:tina/tui/run_panel_content.dart';
 import 'package:tina/tui/tool_output_overlay.dart';
@@ -1895,6 +1897,30 @@ class TuiCoordinator {
           'the background (Esc-Esc to cancel)…\n',
         );
         await controller.runBackgroundEnvironment?.call(initialConversation);
+      }());
+    }
+    // Background update check (COCOON_UPDATE_CHECK=0 to disable): cache-first
+    // GitHub probe that drops a single dim notice in the chat when a newer
+    // release is out. Fire-and-forget like the catalog fetch — a network miss
+    // never surfaces. Also sweeps any `<bundle>.old` a previous update left.
+    if (app.environment.env['COCOON_UPDATE_CHECK'] != '0') {
+      cleanupStaleOldBundle();
+      unawaited(() async {
+        final checker = ReleaseChecker(env: app.environment.env);
+        try {
+          final release = await checker.checkCached();
+          if (release != null && isNewer(release.tag)) {
+            // Let the screen settle first so the notice lands in a painted
+            // chat (same reason as the ENVIRONMENT.md notice above).
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+            initialHost.showMessage(
+              'tina ${release.tag} is available — /update to install\n',
+              style: HostMessageStyle.dim,
+            );
+          }
+        } finally {
+          checker.close();
+        }
       }());
     }
     // `/spend`: the process-wide token ledger (all agents + sub-agents +

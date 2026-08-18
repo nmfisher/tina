@@ -77,12 +77,22 @@ jobs:
         run: |
           tar -czf "tina-${{ env.TAG }}-${{ matrix.target }}.tar.gz" \
             -C "build/cli/${{ matrix.os_dir }}" bundle
+          # SHA-256 sidecar asset — tina's /update verifies against it.
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "tina-${{ env.TAG }}-${{ matrix.target }}.tar.gz" \
+              > "tina-${{ env.TAG }}-${{ matrix.target }}.tar.gz.sha256"
+          else
+            shasum -a 256 "tina-${{ env.TAG }}-${{ matrix.target }}.tar.gz" \
+              > "tina-${{ env.TAG }}-${{ matrix.target }}.tar.gz.sha256"
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: tina-${{ env.TAG }}-${{ matrix.target }}
-          path: tina-${{ env.TAG }}-${{ matrix.target }}.tar.gz
+          path: |
+            tina-${{ env.TAG }}-${{ matrix.target }}.tar.gz
+            tina-${{ env.TAG }}-${{ matrix.target }}.tar.gz.sha256
           if-no-files-found: error
           retention-days: 7
 
@@ -101,7 +111,7 @@ jobs:
       - name: Collect tarballs
         run: |
           mkdir -p assets
-          find artifacts -name '*.tar.gz' -exec cp {} assets/ \;
+          find artifacts \( -name '*.tar.gz' -o -name '*.sha256' \) -exec cp {} assets/ \;
           echo "## Release artifacts" > body.md
           echo "" >> body.md
           ( cd assets && find . -name '*.tar.gz' | sed 's#^\./#- #' ) >> body.md
@@ -115,5 +125,7 @@ jobs:
           body_path: body.md
           draft: ${{ github.event_name == 'workflow_dispatch' }}
           make_latest: ${{ github.event_name != 'workflow_dispatch' }}
-          files: assets/*.tar.gz
+          files: |
+            assets/*.tar.gz
+            assets/*.sha256
           fail_on_unmatched_files: true

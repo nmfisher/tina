@@ -22,6 +22,10 @@ class Config {
   final int maxTokens;
   final bool yolo;
   final bool showHelp;
+
+  /// Print `tina <version>` and exit (`--version`). Short-circuits like
+  /// [showHelp] — resolved before provider/key lookup.
+  final bool showVersion;
   final String? prompt;
   final List<PermissionRule> permissionRules;
 
@@ -139,6 +143,7 @@ class Config {
     required this.maxTokens,
     required this.yolo,
     required this.showHelp,
+    this.showVersion = false,
     required this.prompt,
     required this.permissionRules,
     required this.resumeSessionId,
@@ -266,6 +271,9 @@ class Config {
         help: 'Seconds to wait for response headers per attempt before '
             'aborting the request. Slow providers or large-context prompts '
             'may need more than the 30s default.')
+    ..addFlag('version',
+        negatable: false,
+        help: 'Print the tina version and exit.')
     ..addFlag('help', abbr: 'h', negatable: false)
     ..addFlag('verbose',
         abbr: 'v',
@@ -313,6 +321,7 @@ class Config {
     bool showHelp = false,
     bool initConfig = false,
     bool listSessions = false,
+    bool showVersion = false,
   }) =>
       Config(
         provider: 'anthropic',
@@ -327,6 +336,7 @@ class Config {
         resumeSessionId: null,
         continueLatest: false,
         listSessions: listSessions,
+        showVersion: showVersion,
         maxTurnTokens: 0,
         maxSessionTokens: 0,
         maxRequestTokens: 0,
@@ -359,6 +369,9 @@ class Config {
     // main() reads only the short-circuit flag and exits. The three share one
     // placeholder Config that differs solely in which flag is set.
     if (res['help'] as bool) return _shortCircuitConfig(showHelp: true);
+
+    // --version: main() prints tinaVersion and exits.
+    if (res['version'] as bool) return _shortCircuitConfig(showVersion: true);
 
     // --init-config: main() writes a commented TOML template and exits.
     if (res['init-config'] as bool) return _shortCircuitConfig(initConfig: true);
@@ -464,6 +477,7 @@ class Config {
       maxTokens: maxTokens,
       yolo: res['yolo'] as bool,
       showHelp: false,
+      showVersion: false,
       prompt: res['prompt'] as String?,
       permissionRules: rules,
       resumeSessionId: resumeId,

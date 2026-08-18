@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:tina_engine/tina_engine.dart';
 
+import '../self_update/release_checker.dart';
+import '../self_update/updater.dart';
+import '../version.g.dart';
 import '../summaries/summary_index.dart';
 import '../pipeline/pipeline_commands.dart';
 import 'command_context.dart';
@@ -13,7 +17,13 @@ import 'command_context.dart';
 /// hook, and switches on the command word exactly as the controller used to.
 class SessionCommandHandlers {
   final CommandContext ctx;
-  SessionCommandHandlers(this.ctx);
+  SessionCommandHandlers(this.ctx, {this.releaseCheckerFactory});
+
+  /// Seam for tests: builds the [ReleaseChecker] `/update` uses. Production
+  /// calls leave it null and a real checker (with [Platform.environment])
+  /// is constructed per invocation and closed afterwards.
+  final ReleaseChecker? Function(Map<String, String> env)?
+      releaseCheckerFactory;
 
   /// Every recognized slash command, in display order. The single source of
   /// truth for both [dispatch] and the `/` command-completion palette
@@ -22,7 +32,7 @@ class SessionCommandHandlers {
     '/exit', '/quit', '/help', '/clear', '/compact', '/auto-compact',
     '/permissions', '/sessions', '/session', '/resume', '/model', '/settings',
     '/prompts', '/spawn', '/branch', '/image', '/index', '/workflow', '/output',
-    '/spend',
+    '/spend', '/update',
   ];
 
   Future<CmdResult> dispatch(String trimmed) async {
@@ -87,6 +97,8 @@ class SessionCommandHandlers {
         await _handleOutput(trimmed);
       case '/spend':
         await _handleSpend();
+      case '/update':
+        await _handleUpdate();
     }
     return const CmdHandled();
   }
@@ -118,6 +130,67 @@ class SessionCommandHandlers {
       buf.writeln('Requests/min cap: ${ledger.rpm}');
     }
     ctx.active.host.showMessage(buf.toString(), style: HostMessageStyle.dim);
+  }
+
+  /// `/update` — check GitHub for a newer release and, after a y/n confirm,
+  /// download + swap the bundle in place (restart finishes it). Headless has
+  /// no confirm; it just reports the latest and links the release.
+  Future<void> _handleUpdate() async {
+    final host = ctx.active.host;
+    final injected = releaseCheckerFactory?.call(Platform.environment);
+    final checker = injected ?? ReleaseChecker(env: Platform.environment);
+    try {
+      host.showMessage('checking for updates…\n', style: HostMessageStyle.dim);
+      final release = await checker.fetchLatest();
+      if (release == null) {
+        host.showMessage('could not reach GitHub for the release check.\n',
+            style: HostMessageStyle.warning);
+        return;
+      }
+      if (!isNewer(release.tag)) {
+        host.showMessage(
+            'tina $tinaVersion is up to date (latest: ${release.tag}).\n',
+            style: HostMessageStyle.dim);
+        return;
+      }
+      host.showMessage(
+          'tina ${release.tag} is available.\n', style: HostMessageStyle.dim);
+      final confirm = ctx.confirm;
+      if (confirm == null) {
+        host.showMessage(
+            'headless run — download it from ${release.releaseUrl}\n',
+            style: HostMessageStyle.dim);
+        return;
+      }
+      if (!await confirm('Download and install tina ${release.tag}?')) {
+        return;
+      }
+      final result = await installRelease(release,
+          notice: (line) =>
+              host.showMessage('$line\n', style: HostMessageStyle.dim));
+      switch (result) {
+        case UpdateResult.success:
+          host.showMessage('updated — restart tina to finish.\n',
+              style: HostMessageStyle.dim);
+        case UpdateResult.unsupported:
+          host.showMessage(
+              'no release asset for this platform — '
+              'see ${ReleaseChecker.releasesPageUrl}\n',
+              style: HostMessageStyle.dim);
+        case UpdateResult.manualRequired:
+          host.showMessage(
+              'this install can\'t be replaced in place (running from '
+              'source, or a read-only location).\n'
+              'Download the new bundle from ${release.releaseUrl} and replace '
+              'this installation manually.\n',
+              style: HostMessageStyle.dim);
+        case UpdateResult.failed:
+          break; // installRelease already noticed the reason
+      }
+    } finally {
+      // An injected checker belongs to the test; only close one we made.
+      if (injected == null) checker.close();
+    }
   }
 
   String _formatCount(int n) {
@@ -448,6 +521,7 @@ class SessionCommandHandlers {
         '  /session       list live sessions; new/switch/close\n'
         '  /resume <id>   load a saved session into the active session\n'
         '  /settings      reconfigure providers/models/tiers (applies on restart)\n'
+        '  /update        check GitHub for a newer release and install it\n'
         '  /prompts       edit each agent role\'s system prompt (applies on restart)\n'
         '  /exit          quit\n'
         'ESC cancels the active session\'s in-flight response.\n');
