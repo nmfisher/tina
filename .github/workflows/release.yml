@@ -116,11 +116,23 @@ jobs:
         run: |
           bundle="build/cli/${{ matrix.os_dir }}/bundle"
           for bin in "$bundle/bin/tina" "$bundle/lib/"*.dylib; do
+            # Entitlements: the Dart VM needs unsigned executable memory even
+            # in AOT builds — hardened runtime without the exception is killed
+            # at launch (see tool/macos-entitlements.plist).
             codesign --force --timestamp --options runtime \
+              --entitlements tool/macos-entitlements.plist \
               --sign "$MACOS_SIGNING_IDENTITY" "$bin"
             codesign --verify --strict --verbose=2 "$bin"
           done
           echo "signed:"; codesign -dv "$bundle/bin/tina" 2>&1 | grep -E 'Authority|TeamIdentifier'
+
+      # The signature must actually RUN, not just verify: a valid-on-disk
+      # signature that the kernel kills at launch (the hardened-runtime /
+      # unsigned-memory trap this build once shipped) passes codesign -v and
+      # notarization alike. Cheap insurance before anything is packaged.
+      - name: Smoke-test signed binary (macOS)
+        if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != ''
+        run: build/cli/${{ matrix.os_dir }}/bundle/bin/tina --version
 
       - name: Notarize (macOS)
         if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != '' && env.NOTARY_API_KEY != ''

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Entitlements applied when release-signing the macOS bundle.
+
+  The Dart VM allocates unsigned executable memory even in pure-AOT builds,
+  so a hardened-runtime signature without this exception is killed by the
+  kernel at launch (SIGKILL, "CODESIGNING: Invalid Page") — verified against
+  `dart compile exe` output on macOS 26 arm64; bisected to exactly this
+  entitlement. This is the same exception Electron, JVM-based apps, and other
+  VM runtimes ship with.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+</dict>
+</plist>
