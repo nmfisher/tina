@@ -1233,6 +1233,12 @@ class TuiCoordinator {
       };
       // The comet sweeps the rails while the run is in flight.
       frame.setBusy(run.isRunning);
+      // Read-only like the environment panel (see
+      // ConversationPanelCoordinator._wireReadOnlyInput): text keystrokes are
+      // consumed with a one-time notice instead of falling through to the
+      // shared editor, where they would silently type into the main
+      // conversation. s/x keep their meaning; navigation passes through.
+      var inputNoticeShown = false;
       frame.onPanelKey = (ev) {
         if (ev is CharInput && ev.text == 's') {
           supervisor.stop(run.id);
@@ -1242,9 +1248,25 @@ class TuiCoordinator {
           _closeRunPanel(run.id);
           return true;
         }
-        // Arrows/PgUp/PgDn are not consumed here — PgUp/PgDn reach the frame's
-        // scroll hook above; arrow keys do nothing (there is nothing to pan).
-        return false;
+        final isText = ev is CharInput ||
+            ev is PasteInput ||
+            ev is EditingKey ||
+            (ev is ControlKey && ev.code == ControlCode.enter);
+        if (!isText) {
+          // Arrows/PgUp/PgDn are not consumed here — PgUp/PgDn reach the
+          // frame's scroll hook above; arrow keys do nothing (there is
+          // nothing to pan). Esc/Ctrl+C/Alt also fall through to the editor.
+          return false;
+        }
+        if (!inputNoticeShown) {
+          inputNoticeShown = true;
+          host.showMessage(
+            '(input disabled — read-only run panel; s stops the run, x '
+            'closes it; cycle focus back to a chat panel to type)\n',
+            style: HostMessageStyle.dim,
+          );
+        }
+        return true;
       };
       // Completion settles the comet; the transcript already ends with the
       // engine's ✔/✖ workflow complete/failed line.
