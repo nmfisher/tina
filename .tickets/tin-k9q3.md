@@ -118,7 +118,7 @@ Compose with existing `--no-sandbox` and `TINA_SANDBOX_ALLOW`.
       `TINA_SANDBOX_ALLOW` extras.
 - [ ] Opt-in `--sandbox-net`, `--sandbox-readonly` (and optionally `--sandbox-cpu`) wired
       through `lib/config.dart` and `configureToolSandbox`.
-- [ ] Tests mirroring `test/tools/sandbox_runner_test.dart`: profile construction, argv
+- [ ] Tests mirroring `packages/tina_engine/test/tools/sandbox_runner_test.dart`: profile construction, argv
       rewrite (fake inner runner), pass-through when disabled, and a Linux-guarded
       integration test (write under project succeeds; write outside blocked; `--sandbox-net`
       blocks a localhost `curl`). Platform groups skipped appropriately.

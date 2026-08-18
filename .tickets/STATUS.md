@@ -1,88 +1,63 @@
 # Sweep status
-Now:     tin-3x9v closed as cannot-reproduce — the host mandate's second
-         item. Full investigation log on the ticket: 2 recorded crashes
-         (2026-08-15), zero reproductions across ~50 runs on two tree
-         generations (broad sweep, gdb real-provider, reply-burst,
-         osc-stress, resize-storm, union, MALLOC_PERTURB_ teardown, and
-         today's re-runs of union 3/3 + oscstress 2/2 on the current tree).
-         Credibility argument: every crash correlate has since been fixed
-         or fenced (8n7c vanish precondition, 4k8w/p8k2/b4n7/q4vz render
-         hardening, r2vd+v6tq+k7tr reply environment, j3mk pump-join).
-         Residual documented: pump-thread get_nblock vs main-isolate render
-         stays the only native concurrency; notcurses 3.0.17 header makes no
-         thread-safety statement; the union harness exercises it hard
-         (4837 events vs the 256-slot queue) without faulting. Re-open on
-         any native SIGSEGV — crash_gdb.sh first, then crash_union.sh.
-         Stash triage done as part of the log: all six pre-PR-13 stashes
-         inspected, none held 3x9v material (@{3}/@{4} were superseded j3mk
-         iterations), SHAs recorded on the ticket, all dropped.
+Now:     All local work is PUSHED — PR #14 (d135b9d, merged 2026-08-18
+         11:08) carried the eight formerly-unpushed fixes (tin-g2w9,
+         tin-h5nm, tin-k7tr, tin-q4vz, tin-p8k2, tin-b4n7, tin-w8dl,
+         tin-y4qn) plus the tin-3x9v CNR closure and the tin-9x4m filing.
+         main == origin/main; the only untracked path is .claude/.
+         Ticket audit (2026-08-18, this session): all 35 tickets reviewed
+         against the tree — stale pre-repackage test paths corrected
+         (q4vz/p8k2/k7tr/v6tq/w8dl/k9q3 now cite packages/tina_console
+         and packages/tina_engine locations), dangling pre-squash fix
+         SHAs annotated with their landing PRs (8n7c→#8/#10, 4k8w→#9,
+         6a2f→#9, 7b3p→#8), 923l cross-linked to its superseding
+         decision 80ll. tin-3x9v's stash SHAs are intentionally-dangling
+         (dropped after triage; recorded on the ticket).
 Next:    tin-9x4m (p3, /spawn picker empty for custom providers) or a fresh
          probe batch from the scenario-seeds list. No open bug tickets
          otherwise.
 Blocked: none
-Ask:     1) Push now (fresh branch + PR) or keep accumulating? EIGHT
-         unpushed fixes sit locally — tin-g2w9, tin-h5nm, tin-k7tr,
-         tin-q4vz, tin-p8k2, tin-b4n7, tin-w8dl, tin-y4qn — plus
-         tests/tooling and the 3x9v closure.
-         2) RESOLVED: the 2026-08-17 "work order" anomaly — the host
-         confirmed the order (y4qn then 3x9v) in this session; it was
-         executed as mandate, not injection. No .tickets/ write-access
-         investigation needed.
-         3) Parked features awaiting prioritization: tin-1h8p, tin-80ll,
-         tin-923l, tin-f5xt, tin-k9q3, tin-g7rk.
-Last checkpoint: 2026-08-18 03:30 — mandate complete: tin-y4qn closed
-         (fixed + tested + live-verified), tin-3x9v closed CNR with full
-         log; stashes pruned after triage.
+Ask:     1) Parked features awaiting prioritization: tin-1h8p, tin-80ll
+         (+ its superseded sibling tin-923l), tin-f5xt, tin-k9q3,
+         tin-g7rk.
+Last checkpoint: 2026-08-18 — PR #14 confirmed landed; ticket audit
+         applied (path fixes, SHA annotations, cross-links); STATUS
+         rewritten. Previous checkpoint (03:30): tin-y4qn closed,
+         tin-3x9v closed CNR, stashes pruned.
 
 ## This session
 
-- **tin-y4qn (p2) closed** (host-mandated first). Signal-chain audit found
-  the focus gate in `session_controller.dart:_runTurn` (both edges) and the
-  never-signaling sub-agent surface (`SubAgentScheduler`). Fix touches app +
-  engine; mapping documented at the `HostInterface.setActivity` seam so
-  every producer (turn loop, scheduler, workflow runs) states the same
-  contract: busy ⇔ that conversation's turn is in flight, idle = static.
-- **tin-3x9v (p1) closed CNR** (host-mandated second). See the ticket's
-  closure section for the run table, the credibility argument, the residual
-  native-concurrency note, and re-open conditions.
-- **Async progress verified** (y4qn item 1): fire-and-forget turns,
-  per-conversation queues, detached-but-buffering regions — pinned by
-  "keeps progressing without focus" in the new test file.
-- **Tooling added:** tool/y4qn_hunt.sh (deterministic live verifier: spawn
-  side panel → long turn → cycle focus away → sample the border comet →
-  settle → assert static) + stub scenario y4qn_busy (~20 s paced stream).
-  Hunt lore: the config must use a BUILT-IN provider id (deepseek) with
-  base_url overridden to the stub — see tin-9x4m; suppress the first-load
-  environment ceremony by pre-seeding ENVIRONMENT.md (stale records do not
-  auto-run) or the ceremony consumes stub steps; stub log lines are
-  `turn=N`; never `pkill -f stub_server.dart` from a shell whose own
-  command line contains the pattern — including via a heredoc — (self-kill,
-  exit 144).
-- **Side finding filed:** tin-9x4m — /spawn picker empty for custom
-  providers; the overlay then swallows keys until Esc.
-- STATUS anomaly (old Ask #2) resolved: the y4qn→3x9v order was confirmed
-  by the host this session ("Execute") and carried out.
-- Stash cleanup EXECUTED: all six pre-PR-13 stashes triaged (see tin-3x9v
-  closure), SHAs recorded on the ticket, dropped. Stash list is empty.
+- Ticket audit only — no product code touched:
+  - Verified PR #14 contains all eight fixes STATUS previously listed
+    as unpushed; old Ask #1 (push vs accumulate) is resolved.
+  - Corrected six tickets' test-path citations to the post-repackage
+    layout (root `test/…` → `packages/tina_console/test/…`,
+    `packages/tina_engine/test/…`).
+  - Annotated dangling fix SHAs with the squash-merge PR that carried
+    each (verified via `git log -S` on the regression tests).
+  - tin-923l: added links + supersession note re tin-80ll.
+  - Confirmed the seven open tickets' code references still resolve
+    (spawn_overlay.dart, session_commands/, sandbox_runner, no markdown
+    pkg) and the y4qn regression test exists
+    (test/tui/panel_busy_cue_test.dart).
 
 ## Open (hunted / not in play)
 
-- tin-9x4m (p3) — /spawn picker empty for custom providers (new).
+- tin-9x4m (p3) — /spawn picker empty for custom providers.
 - tin-1h8p, tin-80ll, tin-923l, tin-f5xt, tin-k9q3, tin-g7rk — decided
   feature/proposal tickets, parked pending user prioritization.
 
 ## Closed earlier
 
-- tin-3x9v (p1) — this session, CNR with full log.
-- tin-y4qn (this session, local commit).
-- tin-w8dl, tin-p8k2, tin-b4n7 (prior sessions, local commits).
-- tin-q4vz, tin-h5nm, tin-k7tr (prior sessions, local commits).
-- tin-g2w9 (p1) — torn-JSONL append repair (local commit, unpushed).
+- tin-y4qn, tin-w8dl, tin-p8k2, tin-b4n7, tin-q4vz, tin-h5nm, tin-k7tr,
+  tin-g2w9, tin-3x9v (CNR) — PR #14.
 - tin-j3mk (p2), tin-r2vd (p1), tin-c5nw (p1) — PR 13.
 - tin-v6tq (p2), tin-p2sq (p1) — PR 12.
 - tin-m2vq (p2) — PR 11.
-- tin-4k8w, tin-6a2f, tin-8n7c, tin-7b3p, tin-uzo3, tin-m4qk and older —
-  see git log.
+- tin-8n7c — PRs 8 + 10. tin-7b3p — PR 8.
+- tin-4k8w, tin-6a2f — PR 9.
+- tin-h8uw, tin-vb4k — PRs 6/7.
+- tin-9zqx, tin-x4m7, tin-uzo3, tin-m4qk, tin-7spm and older — see
+  git log.
 
 ## Notes
 
@@ -115,3 +90,5 @@ Last checkpoint: 2026-08-18 03:30 — mandate complete: tin-y4qn closed
   damage chain — use unbroken tokens; stderr pollutes the pane under test;
   geometry 120×40 splits (chat plane 76 wide), and the pipe-pane capture
   must be cut at the completion sentinel.
+- Re-open condition (tin-3x9v): any native SIGSEGV — tool/crash_gdb.sh
+  first, then tool/crash_union.sh.

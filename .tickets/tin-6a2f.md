@@ -62,7 +62,8 @@ environment ceremony streaming into the same chat) appended its text to the
 prompt row, so the next tool call's header merged onto the prompt line and
 the answer char was hidden.
 
-Fix (fc43037): the prompt+answer pair carries a row-ownership token; the
+Fix (fc43037 — pre-squash local SHA; landed via PR #9, so the SHA no
+longer resolves in main's history): the prompt+answer pair carries a row-ownership token; the
 region tracks the owner of the currently-open partial row and any OTHER
 writer's text advances to a fresh row instead of appending. Unowned
 streaming chunks still join each other unchanged.

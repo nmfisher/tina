@@ -157,3 +157,8 @@ keypress, including steady cadence") holds for every reproduced mode:
 CLOSED per close criteria: regression tests exist for 2-4, the root
 suite (+540) and tina_console suite are green, and the live repros
 (80x24 real provider + the corpus runs) pass from clean restarts.
+
+SHA note (added 2026-08-18): the inline fix SHAs are pre-squash local
+commits that no longer resolve in main's history — 21af54e landed via
+PR #8, f5029cc/b27c6e1/92b6292 via PR #10. The regression tests named
+above trace the same fixes in the merged tree.

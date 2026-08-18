@@ -62,7 +62,7 @@ row diff / row storage code (`chat_row_diff_test.dart`,
 ## Session findings (2026-08-17, hunt 1)
 
 - **ANSI/VT path is clean.** The corpus shape reproduced at the
-  VirtualTerminal level (`test/chat_paste_border_test.dart`: framed chat
+  VirtualTerminal level (`packages/tina_console/test/chat_paste_border_test.dart`: framed chat
   region, 12 scrolling sections, wide-char variant) keeps every `│` and
   every glyph — so the row-content/wrap layer (`_writeInternal`,
   `_emitRow` diff) is exonerated on the ANSI surface. The bug lives in
@@ -149,10 +149,10 @@ Cyrillic/Hebrew/Arabic combining marks = 0; unlisted marks count 1 (errs
 high by design).
 
 Tests (all failing on the unfixed lib, green on the fixed):
-- `test/chat_paste_border_test.dart` — the VT harness now models tmux-class
+- `packages/tina_console/test/chat_paste_border_test.dart` — the VT harness now models tmux-class
   glyph widths (a harness sharing production's table shares its blind
   spots), plus a full-width-panel edge-reaching regression test.
-- `test/term_width_test.dart` — the table itself.
+- `packages/tina_console/test/term_width_test.dart` — the table itself.
 - wide-char cases in `styled_runs_test.dart` (diff colOffset) and
   `notcurses_backend_platform_test.dart` (run advance).
 
@@ -171,6 +171,6 @@ fix direction on that ticket.
 - A VirtualTerminal-level regression test: a chat panel rendering an
   expanded multi-section paste keeps `│` at column 0 of every content
   row, and a row following a wide-char/ZWJ row renders its text exactly.
-  (Pinned green at `test/chat_paste_border_test.dart` — keep it as the
+  (Pinned green at `packages/tina_console/test/chat_paste_border_test.dart` — keep it as the
   corpus template; the failing layer is below it.)
 - Live repro passes from a clean restart.

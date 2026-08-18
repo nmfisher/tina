@@ -123,7 +123,7 @@ the paste then appears in the editor and the next Enter submits it
 whole. Data can no longer strand or truncate.
 
 Verification: root 600/600, tina_console 807/807; new
-`test/paste_held_under_prompt_test.dart` (5 tests: hold+deliver+second-
+`packages/tina_console/test/paste_held_under_prompt_test.dart` (5 tests: hold+deliver+second-
 Enter-submit, chained re-hold, split-paste two-halves-in-order, no-hold
 after resolution, close-drains); deterministic repro 3/3 HEALTHY from
 clean restarts (fresh, fresh, reused-home) at full 6108/6000 chars.

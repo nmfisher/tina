@@ -2,6 +2,7 @@
 id: tin-923l
 status: open
 deps: []
+links: [tin-80ll]
 links: []
 created: 2026-08-07T10:52:21Z
 type: chore
@@ -16,4 +17,10 @@ Current situation: normal chat turns route through ~/.tina/workflows/default.dot
 ## Acceptance Criteria
 
 A clear proposal documents the single source of truth. The default chat experience is one main agent (role main, no file tools, canDelegate) with research sub-agents. No conflicting/duplicated prompt sources remain. Minimal code change + tests pass.
+
+Note (2026-08-18): tin-80ll records the attractor-spec review decision
+that supersedes this ticket's role-based direction (nodes carry their own
+system prompt + model config; no AgentRole). Pick them up together — 80ll
+is the decided path; this ticket's remaining value is the
+single-source-of-truth unification ask.
 

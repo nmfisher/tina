@@ -85,6 +85,10 @@ Two distinct bugs, two fixes, one ticket:
    pins the refresh as the final resize step; resize_refresh_test pins the
    forwarding chain + cursor re-park.
 
+SHA note (added 2026-08-18): 92deaef and 22bf97f are pre-squash local
+commit SHAs — both fixes landed via PR #9, so the SHAs no longer resolve
+in main's history.
+
 Live verification: stub-provider turn, resize 120x40 -> 60x18 -> 150x48
 mid-stream from a clean restart — the streamed tail renders full-width and
 the frame stays intact. Suites: root +538, tina_console +674.

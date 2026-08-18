@@ -196,7 +196,7 @@ notcurses consumes the `ESC[200~`/`ESC[201~` markers — so it cannot match.
 `packages/tina_console/lib/src/backend/reply_sequence_filter.dart` — pure,
 time-parameterized, **not wired into `NotcursesInputBackend`**. Swallows
 `ESC` + introducer runs, terminating per class. 11 tests in
-`test/reply_sequence_filter_test.dart`.
+`packages/tina_console/test/reply_sequence_filter_test.dart`.
 
 Validated against the real captured streams
 (`packages/tina_console/tool/validate_reply_filter.dart`):
@@ -269,7 +269,7 @@ Two details the prototype did not need, the wiring does:
 ### Verification
 
 - Unit: 11 filter tests + 9 wiring tests in
-  `test/notcurses_input_backend_test.dart` (`pump-path reply filtering`
+  `packages/tina_console/test/notcurses_input_backend_test.dart` (`pump-path reply filtering`
   group) — burst swallowed at the backend level, typing/paste/ESC/Enter all
   delivered, the `>30 ms` bursty-gap acceptance case, marker bypass, and
   the `replySequenceFiltering: false` escape hatch. tina_console suite 697

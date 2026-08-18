@@ -13,7 +13,8 @@ tags: [sessions, persistence, test, timing]
 
 ## Result
 
-Fixed in commit 8b7dc36 (test-only): the sanity check now pumps until the
+Fixed in commit 8b7dc36 (test-only; pre-squash local SHA — landed via
+PR #8, so the SHA no longer resolves in main's history): the sanity check now pumps until the
 user message is in history (not just isRunning), with a 30s budget. The
 `_runTurn` code order (persist after the auto-compact, whose `rec.replace`
 would otherwise wipe the fresh append) is deliberate and left unchanged.
