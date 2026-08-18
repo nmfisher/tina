@@ -1900,9 +1900,8 @@ class TuiCoordinator {
       coordinator.pendingFirstLoadEnvironmentAsk = () async {
         void launch() {
           initialHost.showMessage(
-            'No ENVIRONMENT.md yet — launching environment agent to inspect '
-            'toolchain, run setup/build/test and write ENVIRONMENT.md in the '
-            'background (Esc-Esc to cancel)…\n',
+            'No ENVIRONMENT.md yet — spawning environment agent in side panel to inspect '
+            'toolchain, run setup/build/test and write ENVIRONMENT.md (Esc-Esc to cancel)…\n',
           );
           // Unawaited: the agent runs in the background while the REPL is
           // live (same as the /index environment branch).
@@ -1932,7 +1931,8 @@ class TuiCoordinator {
               '  and observed sections Test baseline + verified-at stamp that the agent maintains from measurements\n'
               '\n'
               'It uses the normal sandboxed bash/write/edit tools and will ask for permission for each action. '
-              'It runs in the background while you keep working; Esc-Esc cancels. Success is only reported when the file '
+              'When run, it spawns its own side panel agent so the work does not clutter the main conversation; '
+              'only start/completion notices are posted to the main panel. Esc-Esc cancels. Success is only reported when the file '
               'is created/changed by the agent, not on a prose-only answer.\n',
               style: HostMessageStyle.dim,
             );
@@ -1940,7 +1940,7 @@ class TuiCoordinator {
               screen: screen,
               editor: editor,
               entries: const [
-                (display: 'Run now in background (this session)', value: 'now'),
+                (display: 'Run now in side panel (this session)', value: 'now'),
                 (display: 'Always auto-run on first load', value: 'always'),
                 (display: 'Not now', value: 'later'),
               ],
