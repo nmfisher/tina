@@ -141,6 +141,17 @@ void main() {
       expect(p.check('bash', {'command': 'ls'}), PermissionDecision.ask);
     });
 
+    test('read-only tools default to allow (no approval spam)', () {
+      final p = PermissionPolicy();
+      for (final tool in ['search', 'grep', 'glob', 'ls', 'stat', 'which']) {
+        expect(p.check(tool, const {}), PermissionDecision.allow,
+            reason: '$tool should default to allow');
+      }
+      // A session rule can still deny a read-only tool.
+      p.remember('ls', '*', PermissionDecision.deny);
+      expect(p.check('ls', const {}), PermissionDecision.deny);
+    });
+
     test('static rules override defaults', () {
       final p = PermissionPolicy(rules: const [
         PermissionRule(

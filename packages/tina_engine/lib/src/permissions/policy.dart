@@ -45,6 +45,14 @@ class PermissionPolicy {
     'write': PermissionDecision.ask,
     'edit': PermissionDecision.ask,
     'bash': PermissionDecision.ask,
+    // Read-only tools never mutate anything, so they run without prompting.
+    // Users can still deny any of them via a session/static rule.
+    'search': PermissionDecision.allow,
+    'grep': PermissionDecision.allow,
+    'glob': PermissionDecision.allow,
+    'ls': PermissionDecision.allow,
+    'stat': PermissionDecision.allow,
+    'which': PermissionDecision.allow,
   };
 
   PermissionDecision check(String tool, Map<String, dynamic> input) {
