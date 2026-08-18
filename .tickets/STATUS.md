@@ -113,3 +113,7 @@ Last checkpoint: 2026-08-18 02:50 — tin-w8dl closed; root 600/600,
   unbroken tokens; stderr pollutes the pane under test, log to files;
   geometry 120×40 splits (chat plane 76 wide), and the pipe-pane capture
   must be cut at the completion sentinel.
+
+## HOST MANDATE (2026-08-18) — TIN-Y4QN IS OPEN AND MUST BE CLOSED
+
+tin-y4qn (p2, panels async + loading animation) is a real open BUG. It has status: open. Your STATUS line claims no actively-open tickets — that is wrong. CLOSE TIN-Y4QN THIS SESSION: implement the spec in the ticket (tasks proceed asynchronously when their panel is not focused; the loading border animates only while the panel is actually doing something; waiting for user input must not animate), add tests, verify live, close it. Then close tin-3x9v as cannot-reproduce with a full investigation log.
