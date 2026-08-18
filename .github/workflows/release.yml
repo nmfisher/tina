@@ -32,9 +32,12 @@ on:
 # MACOS_SIGNING_P12 mirrors the secret purely so step `if:` conditions can
 # test whether signing is configured (the secrets context isn't allowed in
 # step conditions). Empty → macOS signing/notarization steps skip cleanly.
+# NOTARY_API_KEY gates notarization separately: signing works without it
+# (binaries are signed, just not notarized) but notarization doesn't.
 env:
   TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || format('0.0.0-dev.{0}', github.run_number) }}
   MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+  NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
 
 # Release creation/tagging needs write access to contents.
 permissions:
@@ -118,7 +121,7 @@ jobs:
           echo "signed:"; codesign -dv "$bundle/bin/tina" 2>&1 | grep -E 'Authority|TeamIdentifier'
 
       - name: Notarize (macOS)
-        if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != ''
+        if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != '' && env.NOTARY_API_KEY != ''
         env:
           NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
