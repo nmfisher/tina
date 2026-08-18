@@ -18,24 +18,3 @@ To cut a new tina release:
    - Creates the GitHub release with `softprops/action-gh-release@v2`, attaching all artifacts.
 
 4. **Announce** the new release / tag as appropriate.
-
-## Branch-prefix rule (Nick, 2026-08-18)
-
-- NEVER use the `asb/` prefix for branches, refs, or worktrees that I create myself.
-- The `asb/` prefix is RESERVED for the sandbox scripts (`sandbox.sh`, `clean.sh`).
-- Diagnostic refs and temporary branches must use a different prefix (e.g. `diag/`, `tmp/`).
-
-## Notcurses-only backend (global memory)
-
-- Nick ONLY cares about the `dart_notcurses` backend; never work on, test, or spend effort on the ANSI backend.
-- This applies to instructions given to sandbox agents working on tina too.
-
-## tina is a PUBLIC repository (global memory)
-
-- NEVER push secrets, API keys, tokens, credentials, personal/private data, or anything undesirable to disclose publicly.
-- Env-var *names* are fine; values must never be pushed.
-- When in doubt, ask before pushing.
-
-## PR-URL rule (global memory)
-
-- Whenever a PR is raised (by a sandbox agent, by me, or by anyone), ALWAYS include the PR URL in my reply — every time, without being asked.
