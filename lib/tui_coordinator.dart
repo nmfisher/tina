@@ -1900,8 +1900,9 @@ class TuiCoordinator {
       coordinator.pendingFirstLoadEnvironmentAsk = () async {
         void launch() {
           initialHost.showMessage(
-            'No ENVIRONMENT.md yet — the environment agent will populate it '
-            'in the background (Esc-Esc to cancel)…\n',
+            'No ENVIRONMENT.md yet — launching environment agent to inspect '
+            'toolchain, run setup/build/test and write ENVIRONMENT.md in the '
+            'background (Esc-Esc to cancel)…\n',
           );
           // Unawaited: the agent runs in the background while the REPL is
           // live (same as the /index environment branch).
@@ -1916,16 +1917,34 @@ class TuiCoordinator {
           case EnvironmentAutoPopulate.always:
             launch();
           case EnvironmentAutoPopulate.ask:
+            initialHost.showMessage(
+              'No ENVIRONMENT.md found.\n'
+              '\n'
+              'Tina uses ENVIRONMENT.md to build a <project-environment> block for every agent. '
+              'It describes how the repo is built, tested and authenticated so agents can run '
+              'setup/build/test reliably and avoid guessing.\n'
+              '\n'
+              'The environment agent is a one-off doing worker that will:\n'
+              '- Inspect dependency manifests and toolchain, e.g. package.json, Cargo.toml, go.mod, pyproject.toml, Gemfile\n'
+              '- Run the setup step, then build and run the test suite, recording real pass/fail/skipped counts\n'
+              '- Check git identity, SSH keys and GitHub auth, recording references only — no secrets are written to the file\n'
+              '- Write ENVIRONMENT.md with intent sections Toolchain/Setup/Build/Test/Auth you can edit, '
+              '  and observed sections Test baseline + verified-at stamp that the agent maintains from measurements\n'
+              '\n'
+              'It uses the normal sandboxed bash/write/edit tools and will ask for permission for each action. '
+              'It runs in the background while you keep working; Esc-Esc cancels. Success is only reported when the file '
+              'is created/changed by the agent, not on a prose-only answer.\n',
+              style: HostMessageStyle.dim,
+            );
             final choice = await runListOverlay<String>(
               screen: screen,
               editor: editor,
               entries: const [
-                (display: 'Run now', value: 'now'),
-                (display: 'Always run in the background', value: 'always'),
+                (display: 'Run now in background (this session)', value: 'now'),
+                (display: 'Always auto-run on first load', value: 'always'),
                 (display: 'Not now', value: 'later'),
               ],
-              title: 'No ENVIRONMENT.md yet — run the environment agent in '
-                  'the background to populate it?',
+              title: 'No ENVIRONMENT.md yet — populate the environment record?',
               footer: '↑↓ move · enter select · esc cancel',
               accent: 'cyan',
             );
