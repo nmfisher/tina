@@ -6,6 +6,7 @@ import 'package:logging/logging.dart';
 
 import '../tools/tool.dart';
 import 'http.dart';
+import 'http_log.dart';
 import 'message.dart';
 import 'provider.dart';
 import 'registry.dart';
@@ -119,6 +120,7 @@ class OpenAiCompatibleAdapter extends LlmProvider {
     // a default like `stream_options` if its endpoint requires it.
     if (extraBody.isNotEmpty) bodyMap.addAll(extraBody);
     final body = jsonEncode(bodyMap);
+    HttpLog.log(Uri.parse(chatEndpoint(baseUrl)), body);
 
     final http.StreamedResponse resp;
     try {

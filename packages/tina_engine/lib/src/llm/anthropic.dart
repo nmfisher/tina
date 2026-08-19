@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 
 import '../tools/tool.dart';
 import 'http.dart';
+import 'http_log.dart';
 import 'message.dart';
 import 'provider.dart';
 import 'sse.dart';
@@ -86,6 +87,7 @@ class AnthropicProvider extends LlmProvider {
       if (tools.isNotEmpty) 'tools': encodedTools,
       'stream': true,
     });
+    HttpLog.log(Uri.parse('$baseUrl/v1/messages'), body);
 
     final http.StreamedResponse resp;
     try {

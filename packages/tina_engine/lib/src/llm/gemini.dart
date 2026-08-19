@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 
 import '../tools/tool.dart';
 import 'http.dart';
+import 'http_log.dart';
 import 'message.dart';
 import 'provider.dart';
 import 'sse.dart';
@@ -83,6 +84,7 @@ class GeminiProvider extends LlmProvider {
         ],
       'generationConfig': {'maxOutputTokens': maxTokens},
     });
+    HttpLog.log(_endpoint(), body);
 
     final http.StreamedResponse resp;
     try {
