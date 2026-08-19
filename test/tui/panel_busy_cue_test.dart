@@ -191,9 +191,14 @@ void main() {
     mainGate.release();
     await pumpUntil(() => !mainConv.isRunning);
 
-    expect(mainCue.skip(cueAfterStart), [false],
-        reason: 'the turn ended unfocused: the busy cue must clear so an '
-            'idle panel shows a static border (tin-y4qn)');
+    // Two producers may clear (Agent.run's finally, then the session
+    // controller's turn-level clear) — hosts treat repeats as idempotent, so
+    // what's pinned is the settled state: nothing re-raised, and the cue
+    // cleared on every path.
+    expect(mainCue.skip(cueAfterStart), isNotEmpty);
+    expect(mainCue.skip(cueAfterStart), everyElement(isFalse),
+        reason: 'the turn ended unfocused: the busy cue must clear (and stay '
+            'cleared) so an idle panel shows a static border (tin-y4qn)');
     rl.close();
     await runFuture;
   });
@@ -205,7 +210,11 @@ void main() {
     controller.injectWorkflowResult(finishedRun('side'));
     await pumpUntil(() => sideConv.isRunning);
 
-    expect(sideCue, [true],
+    // Nested producers both raise (the controller's turn-level signal plus
+    // Agent.run's own) — idempotent at the host. The invariant: raised while
+    // the turn is in flight, never cleared before it ends.
+    expect(sideCue, isNotEmpty);
+    expect(sideCue, everyElement(isTrue),
         reason: 'a turn in flight raises its panel busy cue regardless of '
             'focus (tin-y4qn)');
 

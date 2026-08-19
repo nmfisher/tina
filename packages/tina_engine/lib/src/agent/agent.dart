@@ -7,6 +7,7 @@ import '../llm/provider.dart';
 import '../permissions/policy.dart';
 import '../permissions/prompt.dart';
 import '../tools/tool.dart';
+import '../host/host_interface.dart';
 import 'agent_sink.dart';
 import 'pause_gate.dart';
 import 'stream_consumer.dart';
@@ -101,7 +102,35 @@ class Agent {
   /// Run one user turn. The agent may issue several provider calls if tools
   /// are invoked. [cancelSignal], when completed, aborts the current
   /// in-flight stream and exits the turn cleanly.
+  ///
+  /// The activity lifecycle is owned HERE, not by each caller: when the sink
+  /// is a full host ([HostInterface]), the run raises its activity signal on
+  /// entry and clears it on every exit path — the turn-in-flight semantics of
+  /// HostInterface.setActivity (tin-y4qn). Callers that wrap a run with extra
+  /// scope (the scheduler's job-level signal for panelized delegation, the
+  /// environment ceremony's survey phase) may signal too; hosts treat repeats
+  /// as idempotent. A sink that is only an [AgentSink] (telemetry sinks, the
+  /// headless no-op) has no signal to drive and skips this.
   Future<void> run({
+    required List<Message> history,
+    required String userInput,
+    Future<void>? cancelSignal,
+  }) async {
+    final HostInterface? activityHost =
+        sink is HostInterface ? sink as HostInterface : null;
+    activityHost?.setActivity(true);
+    try {
+      await _runTurn(
+        history: history,
+        userInput: userInput,
+        cancelSignal: cancelSignal,
+      );
+    } finally {
+      activityHost?.setActivity(false);
+    }
+  }
+
+  Future<void> _runTurn({
     required List<Message> history,
     required String userInput,
     Future<void>? cancelSignal,

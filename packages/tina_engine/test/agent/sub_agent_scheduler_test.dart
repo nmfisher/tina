@@ -1080,6 +1080,27 @@ void main() {
       await scheduler.dispose();
     });
 
+    test('drives the host activity signal for the run duration', () async {
+      // A standalone run has no session turn loop to raise the busy cue, so
+      // runStandalone drives it itself when the sink is a full host — the
+      // TUI's per-scout panel host lights its border comet for the run.
+      final scheduler = testScheduler(
+        scriptedRegistry({'a': answerEvents('ok')}),
+        pipeline: pipeline,
+      );
+      final host = FakeHostInterface();
+      final result = await scheduler.runStandalone(
+        systemPrompt: 'You are a coding agent.',
+        task: 'do the thing',
+        parentReference: 'a/a-model',
+        sink: host,
+      );
+      expect(result.isError, isFalse);
+      expect(host.activitySignals, [true, false],
+          reason: 'busy raised at run start, cleared on every exit path');
+      await scheduler.dispose();
+    });
+
     test('inherits the conversation model when no modelReference is set', () async {
       final scheduler = testScheduler(
         scriptedRegistry({'a': answerEvents('from-a')}),

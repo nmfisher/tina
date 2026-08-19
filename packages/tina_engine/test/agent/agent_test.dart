@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 
 import '../helpers/agent_test_fixtures.dart';
 import '../helpers/fake_agent_sink.dart';
+import '../helpers/fake_host_interface.dart';
 import '../helpers/fake_provider.dart';
 import '../helpers/fake_tool.dart';
 
@@ -95,6 +96,81 @@ class _CancelMidStreamProvider extends LlmProvider {
 }
 
 void main() {
+  // The activity lifecycle (tin-y4qn) is Agent.run's own duty: every run
+  // path — the session turn loop, runStandalone, the environment ceremony,
+  // summaries — inherits it from here, so no caller can forget to raise or
+  // clear the busy cue. These pin the contract at the source; the path-level
+  // matrix is pinned where each path lives (sub_agent_scheduler_test's
+  // delegation + standalone groups, tina's panel_busy_cue_test for the turn
+  // loop).
+  group('Agent.run activity lifecycle', () {
+    Agent hostAgent(LlmProvider provider, FakeHostInterface host) => Agent(
+          provider: provider,
+          tools: ToolRegistry(const []),
+          sink: host,
+          policy: PermissionPolicy(),
+          asker: (_) async => PermissionResponse.denyOnce,
+          system: 'sys',
+        );
+
+    test('raises the host signal on entry and clears it on exit', () async {
+      final host = FakeHostInterface();
+      final agent = hostAgent(
+        FakeProvider([
+          [
+            const TextDelta('ok'),
+            const MessageComplete(
+              content: [TextBlock('ok')],
+              stopReason: 'end_turn',
+            ),
+          ],
+        ]),
+        host,
+      );
+      await agent.run(history: [], userInput: 'hi');
+      expect(host.activitySignals, [true, false]);
+    });
+
+    test('clears on a failed stream too (every exit path)', () async {
+      final host = FakeHostInterface();
+      final agent = hostAgent(_FailingProvider('429 Too Many Requests'), host);
+      await agent.run(history: [], userInput: 'hi');
+      expect(host.activitySignals, [true, false],
+          reason: 'a provider error must not leave the busy cue stuck on');
+    });
+
+    test('clears on cancellation', () async {
+      final host = FakeHostInterface();
+      final cancel = Completer<void>();
+      final agent = hostAgent(_CancelMidStreamProvider(cancel), host);
+      await agent.run(
+          history: [], userInput: 'hi', cancelSignal: cancel.future);
+      expect(host.activitySignals, [true, false],
+          reason: 'a cancelled turn must not leave the busy cue stuck on');
+    });
+
+    test('a plain AgentSink (not a host) runs untouched', () async {
+      // Telemetry sinks and the headless no-op have no signal to drive; the
+      // run must proceed normally through them.
+      final sink = FakeAgentSink();
+      final agent = _agent(
+        provider: FakeProvider([
+          [
+            const TextDelta('ok'),
+            const MessageComplete(
+              content: [TextBlock('ok')],
+              stopReason: 'end_turn',
+            ),
+          ],
+        ]),
+        tools: ToolRegistry(const []),
+        sink: sink,
+      );
+      await agent.run(history: [], userInput: 'hi');
+      expect(sink.texts, ['ok']);
+    });
+  });
+
   group('Agent.run', () {
     test('single turn with no tools emits text and appends to history', () async {
       final provider = FakeProvider([

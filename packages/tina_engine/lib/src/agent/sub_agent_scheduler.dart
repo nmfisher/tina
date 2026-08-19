@@ -789,6 +789,11 @@ class SubAgentScheduler {
 
     final history =
         seedHistory != null ? List<Message>.from(seedHistory) : <Message>[];
+
+    // The activity lifecycle is driven by [Agent.run] itself: when the sink
+    // is a full host — the TUI's per-scout panel host — its busy cue rises
+    // for the run's duration and clears on every exit path. A plain sink
+    // (the headless _NoopSink) has no signal and skips it.
     await agent.run(
       history: history,
       userInput: task,
