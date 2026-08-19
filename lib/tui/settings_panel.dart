@@ -388,6 +388,17 @@ class _ProvidersForm {
       }
     }
 
+    // A paste into a focused key/URL field appends verbatim (the whole point
+    // of these rows — pasting an API key). Elsewhere a paste is ignored.
+    if (ev is PasteInput) {
+      final f = rows[_focus];
+      if (f.type == _RowType.key || f.type == _RowType.url) {
+        final text = ev.text.trim();
+        if (text.isNotEmpty) _appendField(f, text);
+        return _ProvidersResult.changed;
+      }
+    }
+
     if (ev is CharInput) {
       final c = ev.text;
       final f = rows[_focus];

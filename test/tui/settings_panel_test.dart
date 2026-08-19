@@ -119,6 +119,26 @@ void main() {
     expect(loaded.providers['alpha']?.apiKey, 'ka');
   });
 
+  test('providers: pasting an API key lands in the key field', () async {
+    final screen = fakeScreen();
+    // The reported bug: a paste while the overlay holds the readKey used to
+    // fall through to the conversation buffer. Now the overlay receives the
+    // PasteInput and the focused key field takes it verbatim (trimmed).
+    canned.events = [
+      ControlKey(ControlCode.enter), // index → providers
+      CharInput(' '), // check alpha
+      ArrowKey(ArrowDirection.right), // expand alpha
+      ArrowKey(ArrowDirection.down), // alpha/key
+      PasteInput('sk-pasted-alpha-key\n'),
+      ControlKey(ControlCode.enter), // providers → save
+      EscapeKey(), // index → close
+    ];
+    final wrote = await runIndex(screen).timeout(overlayTimeout);
+    expect(wrote, isNotNull);
+    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+    expect(loaded.providers['alpha']?.apiKey, 'sk-pasted-alpha-key');
+  });
+
   // -- providers panel ------------------------------------------------------
 
   test('providers: cancel (Esc) writes nothing', () async {

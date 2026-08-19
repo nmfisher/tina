@@ -466,7 +466,14 @@ class LineEditor {
       }
       return;
     }
-    if (_keyCompleter != null && event is! PasteInput) {
+    if (_keyCompleter != null &&
+        (event is! PasteInput || !_keyCompleterGlobal)) {
+      // A non-global readKey is an overlay that owns the screen (settings,
+      // prompts, spawn, pickers) — a paste belongs to ITS focused text field,
+      // not the conversation buffer hidden underneath, so it answers the
+      // readKey like any typed char. Global readKeys (approval / gate
+      // prompts) never see pastes: those are held above and delivered to the
+      // buffer once the prompt resolves.
       // A global readKey (an approval or gate prompt) still yields to the
       // focus ring: Ctrl+G/Ctrl+W cycle panels, and while cycling the ring is
       // modal over every key. Consumed here, the key never answers the prompt

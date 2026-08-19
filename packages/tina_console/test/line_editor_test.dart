@@ -468,19 +468,22 @@ void main() {
       expect((e2 as CharInput).text, 'y');
     });
 
-    test('paste burst flush never answers a readKey (approval stays open)', () async {
+    test('paste burst flush never answers a GLOBAL readKey (approval stays open)',
+        () async {
       // The paste-burst detector holds a typed prompt (chars + a trailing
       // Enter arrive faster than the join window) and emits ONE PasteInput on
       // flush. If an approval's readKey arms in that window, the paste is
       // delivered while the readKey is pending and answers it: not y/a/d, so
-      // the approval auto-denies AND the typed prompt is lost. The paste must
-      // land in the editor buffer instead; the readKey waits for a real key.
+      // the approval stays unanswered AND the typed prompt is lost. The paste
+      // must be held instead; the readKey waits for a real key. Approvals arm
+      // GLOBAL readKeys — a non-global (overlay) readKey now takes the paste
+      // itself (see the test below).
       final io = FakeStdio();
       final ed = _editor(io);
       ed.readLine('> ');
       await _flush();
 
-      final approval = ed.readKey();
+      final approval = ed.readKey(globalKeys: true);
       // The paste flush arrives while the approval readKey is armed.
       ed.inject(PasteInput('Read packages/core/lib/src/naive_cache.dart'));
       await _flush();
@@ -488,13 +491,38 @@ void main() {
       // The readKey is still pending — the paste did not answer it.
       expect(ed.isReadingKey, isTrue,
           reason: 'paste must not answer a readKey (auto-deny + text loss)');
-      // The typed text is preserved in the editor buffer, not swallowed.
-      expect(ed.editState.buffer, 'Read packages/core/lib/src/naive_cache.dart');
+      expect(ed.editState.buffer, isEmpty,
+          reason: 'held, not yet delivered to the buffer');
 
-      // A real key answers the approval as before.
+      // A real key answers the approval as before, and the held paste then
+      // lands in the editor buffer — preserved, not swallowed.
       io.feedBytes([0x79]); // 'y'
       final e = await approval.timeout(const Duration(seconds: 2));
       expect((e as CharInput).text, 'y');
+      await _flush();
+      expect(ed.editState.buffer, 'Read packages/core/lib/src/naive_cache.dart');
+    });
+
+    test('a paste answers a non-global (overlay) readKey, not the buffer', () async {
+      // Screen-owning overlays (settings, prompts, model search) read keys
+      // with a non-global readKey. A paste while one is armed must reach the
+      // overlay's focused text field — pre-fix it fell through to the
+      // conversation buffer hidden underneath (pasting an API key into
+      // /settings typed it into the chat input instead).
+      final io = FakeStdio();
+      final ed = _editor(io);
+      ed.readLine('> ');
+      await _flush();
+
+      final overlay = ed.readKey();
+      ed.inject(PasteInput('sk-pasted-key'));
+      await _flush();
+
+      final e = await overlay.timeout(const Duration(seconds: 2));
+      expect((e as PasteInput).text, 'sk-pasted-key');
+      expect(ed.isReadingKey, isFalse);
+      // Nothing leaked into the conversation buffer.
+      expect(ed.editState.buffer, isEmpty);
     });
 
     test('serializes concurrent callers (no orphaned completer)', () async {

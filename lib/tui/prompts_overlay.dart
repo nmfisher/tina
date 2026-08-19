@@ -190,6 +190,12 @@ class _PromptsForm {
       buf.insert(ev.text);
       return;
     }
+    // A paste into the prompt editor inserts verbatim — with the readKey
+    // routing fix the overlay (not the conversation buffer) receives it.
+    if (ev is PasteInput) {
+      buf.insert(ev.text);
+      return;
+    }
     if (ev is ControlKey) {
       switch (ev.code) {
         case ControlCode.enter:
