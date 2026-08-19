@@ -10,6 +10,7 @@ import '../styled_text.dart';
 import '../term_width.dart';
 import 'backend_surface.dart';
 import '../input_latency.dart';
+import 'discard_unbinder.dart';
 import 'init_reply_guard.dart';
 import 'input_backend.dart';
 import 'notcurses_input_backend.dart';
@@ -145,6 +146,9 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
       // default — plain drag-select wins; users who prefer wheel-scroll set
       // `[tui] mouse_wheel = true`.
       if (mouseWheel) nc_.miceEnable(nc.MiceEvents.buttonEvent);
+      // macOS' line discipline eats 0x0F (Ctrl+O, the VDISCARD toggle)
+      // before it reaches the input pump; unbind it so the byte arrives.
+      DiscardUnbinder.unbind(0);
       return _LiveNotcursesPlatform._(nc_, nc_.stdplane());
     } finally {
       guard.restore();
