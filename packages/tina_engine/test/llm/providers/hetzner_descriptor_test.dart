@@ -39,17 +39,17 @@ void main() {
           'https://inference.hetzner.com/api/v1/models');
     });
 
-    test('catalog matches models.dev (2 vision models, 256K each)', () {
+    test('catalog matches Hetzner docs (2 vision models, 256K each)', () {
       final models = r.modelsFor('hetzner');
       expect(models.map((m) => m.id), unorderedEquals(<String>[
-        'qwen3.8-27b',
-        'qwen3.6-35b-a3b',
+        'Qwen3.8-27B',
+        'Qwen/Qwen3.6-35B-A3B-FP8',
       ]));
       final byId = {for (final m in models) m.id: m};
       // maxOutput comes from models.dev's `limit.output` for each model, not a
       // blanket default — the two differ (32768 vs 65536).
-      expect(byId['qwen3.8-27b']!.maxOutput, 32768);
-      expect(byId['qwen3.6-35b-a3b']!.maxOutput, 65536);
+      expect(byId['Qwen3.8-27B']!.maxOutput, 32768);
+      expect(byId['Qwen/Qwen3.6-35B-A3B-FP8']!.maxOutput, 65536);
       for (final m in models) {
         expect(m.contextWindow, 262144, reason: m.id);
         expect(m.supportsTools, isTrue, reason: m.id);
@@ -60,29 +60,24 @@ void main() {
     test('the newest model is the default', () {
       // Config.parse uses `desc.models.keys.first` as the default model when no
       // HETZNER_MODEL env / file entry is set, so the flagship leads the map.
-      expect(r.modelsFor('hetzner').first.id, 'qwen3.8-27b');
+      expect(r.modelsFor('hetzner').first.id, 'Qwen3.8-27B');
     });
 
     test('resolves and builds as an OpenAI-compatible adapter', () {
-      final built = r.build('hetzner/qwen3.8-27b', apiKeyOverride: 'k');
+      final built = r.build('hetzner/Qwen3.8-27B', apiKeyOverride: 'k');
       expect(built, isA<OpenAiCompatibleAdapter>());
-      expect(built.model, 'qwen3.8-27b');
+      expect(built.model, 'Qwen3.8-27B');
       expect((built as OpenAiCompatibleAdapter).label, 'Hetzner');
     });
 
-    test('model ids shared with cerebras are ambiguous bare, unique ones '
-        'resolve', () {
-      // qwen3.8-27b is the same Qwen model Cerebras announced (and Hetzner
-      // serves), so a bare reference is ambiguous — findModel returns null and
-      // resolve throws, forcing the provider prefix.
-      expect(r.findModel('qwen3.8-27b'), isNull);
-      expect(() => r.resolve('qwen3.8-27b'),
-          throwsA(isA<ProviderRegistryException>()));
-      // The prefixed form disambiguates.
-      expect(r.resolve('hetzner/qwen3.8-27b').descriptor.id, 'hetzner');
-
-      // qwen3.6-35b-a3b is Hetzner-only, so it resolves bare.
-      expect(r.resolve('qwen3.6-35b-a3b').descriptor.id, 'hetzner');
+    test('exact-case ids resolve under the provider prefix', () {
+      expect(r.resolve('hetzner/Qwen3.8-27B').descriptor.id, 'hetzner');
+      // The 35B id itself contains a slash (Hugging Face org prefix), so a
+      // bare reference would parse as provider "Qwen" — the prefixed form is
+      // the only way to name it.
+      expect(
+          r.resolve('hetzner/Qwen/Qwen3.6-35B-A3B-FP8').descriptor.id,
+          'hetzner');
     });
   });
 }

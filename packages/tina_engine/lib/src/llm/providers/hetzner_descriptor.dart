@@ -39,20 +39,22 @@ final ProviderDescriptor hetznerDescriptor = ProviderDescriptor(
   builder: openAiCompatibleBuilder('Hetzner'),
   listsRemoteModels: true,
   models: const {
-    // Hetzner's current Qwen catalog, with metadata sourced from models.dev's
-    // `alibaba/qwen3.*` records (verified 2026-08-19; both updated 2026-08-14).
-    // Ordering puts the newest flagship first so it is the default model when
-    // none is chosen.
-    'qwen3.8-27b': ModelInfo(
-      id: 'qwen3.8-27b',
+    // Hetzner's current Qwen catalog. The ids are the EXACT strings from
+    // Hetzner's own docs (experiments.hetzner.com/docs/inference, verified
+    // 2026-08-20) — case-sensitive, Hugging Face-style. Lowercased variants
+    // (`qwen3.8-27b`) are rejected with `403 {"error":"model use not
+    // permitted"}`. Ordering puts the flagship first so it is the default
+    // model when none is chosen.
+    'Qwen3.8-27B': ModelInfo(
+      id: 'Qwen3.8-27B',
       name: 'Qwen3.8 27B',
       contextWindow: 262144,
       maxOutput: 32768,
       supportsVision: true,
     ),
-    'qwen3.6-35b-a3b': ModelInfo(
-      id: 'qwen3.6-35b-a3b',
-      name: 'Qwen3.6 35B-A3B',
+    'Qwen/Qwen3.6-35B-A3B-FP8': ModelInfo(
+      id: 'Qwen/Qwen3.6-35B-A3B-FP8',
+      name: 'Qwen3.6 35B-A3B FP8',
       contextWindow: 262144,
       maxOutput: 65536,
       supportsVision: true,
