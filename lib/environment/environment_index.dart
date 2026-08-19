@@ -25,7 +25,7 @@ class EnvironmentIndex {
     this.spendLedger,
   });
 
-  /// The repo root. The record lives at `$projectRoot/ENVIRONMENT.md`; the
+  /// The repo root. The record lives at `$projectRoot/.tina/ENVIRONMENT.md`; the
   /// machine-owned tracking entry at `$projectRoot/.tina/environment/`.
   final String projectRoot;
 
@@ -92,7 +92,7 @@ class EnvironmentIndex {
 
 /// The pure-read staleness answer for the environment region.
 class EnvironmentStatus {
-  /// Whether `ENVIRONMENT.md` exists — false means first load: the environment
+  /// Whether `.tina/ENVIRONMENT.md` exists — false means first load: the environment
   /// agent should populate it from measurements.
   final bool recordPresent;
 

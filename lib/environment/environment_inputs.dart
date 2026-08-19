@@ -8,13 +8,15 @@ import 'environment_record.dart';
 /// integration"):
 ///
 /// - **committed** — a digest over the blob hashes at HEAD
-///   (`git rev-parse HEAD:<path>`), so a committed dependency bump or a
-///   committed record edit changes it;
+///   (`git rev-parse HEAD:<path>`), so a committed dependency bump changes it;
 /// - **dirty** — a digest over `git status --porcelain -- <inputs>`, so an
 ///   uncommitted edit is visible without a commit.
 ///
-/// Outside a git repo both degrade to a content digest of the files on disk —
-/// the same fallback a never-committed summary dir relies on.
+/// The record itself lives in the gitignored `.tina/` sidecar, so git sees
+/// neither its existence nor its edits — its content is hashed directly into
+/// the committed digest instead of going through the blob/p porcelain
+/// signals. Outside a git repo both degrade to a content digest of the files
+/// on disk — the same fallback a never-committed summary dir relies on.
 class EnvironmentInputs {
   const EnvironmentInputs();
 
@@ -41,13 +43,27 @@ class EnvironmentInputs {
   ];
 
   /// The input files for [projectRoot], sorted, existing ones only. The record
-  /// is always first-class: editing it is what makes the region stale.
+  /// is NOT listed here (it is measured by content, not through git) — editing
+  /// it is still what makes the region stale, via [measure].
   List<String> files(String projectRoot) {
-    final out = <String>[EnvironmentRecord.fileName];
+    final out = <String>[];
     for (final name in _candidates) {
       if (File('$projectRoot/$name').existsSync()) out.add(name);
     }
     return out;
+  }
+
+  /// The record's content hash line, mixed into the committed digest. The
+  /// record is gitignored under `.tina/`, so git's blob/porcelain signals
+  /// can't see it — its bytes are hashed directly instead.
+  String _recordLine(String projectRoot) {
+    final file = EnvironmentRecord.fileFor(projectRoot);
+    if (!file.existsSync()) return 'record:(absent)';
+    try {
+      return 'record:${_fnv1a(file.readAsStringSync())}';
+    } on FileSystemException {
+      return 'record:(unreadable)';
+    }
   }
 
   /// Measure the two signals now. [commit] is the repo's HEAD sha (empty when
@@ -55,12 +71,13 @@ class EnvironmentInputs {
   /// tracking entry records and the stale check compares.
   EnvironmentInputState measure(String projectRoot) {
     final inputs = files(projectRoot);
+    final recordLine = _recordLine(projectRoot);
     final inRepo = _gitOk(projectRoot, ['rev-parse', '--is-inside-work-tree']);
     final commit = inRepo ? _git(projectRoot, ['rev-parse', 'HEAD']) : '';
     if (!inRepo) {
       // No repo: hash the contents. The dirty signal is meaningless without
       // git, so it stays empty and staleness rides on content alone.
-      final buf = StringBuffer();
+      final buf = StringBuffer()..writeln(recordLine);
       for (final f in inputs) {
         final file = File('$projectRoot/$f');
         if (file.existsSync()) buf.writeln('$f:${_fnv1a(file.readAsStringSync())}');
@@ -68,7 +85,7 @@ class EnvironmentInputs {
       return EnvironmentInputState(
           commit: '', committed: _fnv1a(buf.toString()), dirty: '');
     }
-    final blobHashes = StringBuffer();
+    final blobHashes = StringBuffer()..writeln(recordLine);
     for (final f in inputs) {
       final hash = _gitOrNull(projectRoot, ['rev-parse', 'HEAD:$f']);
       blobHashes.writeln('$f:${hash ?? '(absent)'}');

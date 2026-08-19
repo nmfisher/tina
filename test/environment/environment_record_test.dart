@@ -62,8 +62,10 @@ some non-bullet prose line
       expect(EnvironmentRecord.load(tmp.path), isNull);
     });
 
-    test('load parses an existing record from the repo root', () {
-      File('${tmp.path}/ENVIRONMENT.md').writeAsStringSync('''
+    test('load parses an existing record from the .tina sidecar', () {
+      final f = File('${tmp.path}/.tina/ENVIRONMENT.md')
+        ..createSync(recursive: true);
+      f.writeAsStringSync('''
 ## Build
 - dart build
 ''');

@@ -24,7 +24,7 @@ import '../summaries/fleet_test_harness.dart';
 
 /// Scripts the environment agent's turns:
 ///
-///   1. `write` ENVIRONMENT.md at the repo root (tool_use)
+///   1. `write` .tina/ENVIRONMENT.md in the sidecar (tool_use)
 ///   2. final report (end_turn)
 ///
 /// With [writesRecord] false, turn 1 is prose only — an agent that answers
@@ -88,14 +88,14 @@ class ScriptedEnvProvider extends LlmProvider {
           );
           return;
         }
-        final warm = File('$projectPath/ENVIRONMENT.md').existsSync();
+        final warm = File('$projectPath/.tina/ENVIRONMENT.md').existsSync();
         yield MessageComplete(
           content: [
             ToolUseBlock(
               id: 'w1',
               name: 'write',
               input: {
-                'filePath': '$projectPath/ENVIRONMENT.md',
+                'filePath': '$projectPath/.tina/ENVIRONMENT.md',
                 'content': warm
                     ? '''
 # Environment
@@ -170,6 +170,9 @@ void main() {
     final t = buildTempProject();
     tempRoot = t.tempRoot;
     project = t.project;
+    // The record's sidecar dir — tests and the agent's write tool both
+    // expect `<project>/.tina/` to exist for ENVIRONMENT.md.
+    Directory('${project.path}/.tina').createSync();
   });
 
   tearDown(() {
@@ -198,7 +201,7 @@ void main() {
 
     expect(ok, isTrue, reason: 'a finished run records the region');
     // The agent wrote the record through the ordinary sandboxed write tool.
-    final record = File('${project.path}/ENVIRONMENT.md');
+    final record = File('${project.path}/.tina/ENVIRONMENT.md');
     expect(record.existsSync(), isTrue);
     expect(record.readAsStringSync(), contains('## Toolchain'));
     // Dart — not the agent — recorded the tracking entry, and the region now
@@ -230,7 +233,7 @@ void main() {
     // No record was written, and — the actual bug — the region was NOT
     // stamped fresh: the next launch re-runs the ceremony instead of
     // trusting a phantom update.
-    expect(File('${project.path}/ENVIRONMENT.md').existsSync(), isFalse);
+    expect(File('${project.path}/.tina/ENVIRONMENT.md').existsSync(), isFalse);
     final store = EnvironmentTrackingStore(projectRoot: project.path);
     expect(store.load(), isNull);
     expect(store.staleReason(), isNotNull);
@@ -238,7 +241,7 @@ void main() {
 
   test('a warm re-verify that leaves the record unchanged is not a success',
       () async {
-    File('${project.path}/ENVIRONMENT.md').writeAsStringSync('''
+    File('${project.path}/.tina/ENVIRONMENT.md').writeAsStringSync('''
 ## Build
 - dart analyze
 ''');
@@ -262,7 +265,7 @@ void main() {
   });
 
   test('a warm re-verify that rewrites the record is a success', () async {
-    File('${project.path}/ENVIRONMENT.md').writeAsStringSync('''
+    File('${project.path}/.tina/ENVIRONMENT.md').writeAsStringSync('''
 ## Build
 - dart analyze
 ''');
@@ -282,7 +285,7 @@ void main() {
     ).run().timeout(const Duration(seconds: 30));
 
     expect(ok, isTrue, reason: 'the record content actually changed');
-    final record = File('${project.path}/ENVIRONMENT.md');
+    final record = File('${project.path}/.tina/ENVIRONMENT.md');
     expect(record.readAsStringSync(), contains('3 tests, 0 failures'));
     expect(EnvironmentTrackingStore(projectRoot: project.path).staleReason(),
         isNull);
@@ -439,7 +442,7 @@ void main() {
 
     expect(ok, isTrue, reason: 'the allowed write records the region');
     expect(asked, contains('write'));
-    expect(File('${project.path}/ENVIRONMENT.md').existsSync(), isTrue);
+    expect(File('${project.path}/.tina/ENVIRONMENT.md').existsSync(), isTrue);
   });
 
   test('first load surveys the repo root and each top-level subfolder with '
@@ -550,7 +553,7 @@ void main() {
     expect(projectEnvironmentBlock(project.path), isNull);
 
     // A record with no tracking entry: present but STALE (never measured).
-    File('${project.path}/ENVIRONMENT.md').writeAsStringSync('''
+    File('${project.path}/.tina/ENVIRONMENT.md').writeAsStringSync('''
 ## Build
 - dart analyze
 ''');

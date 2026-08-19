@@ -48,7 +48,7 @@ void main() {
       final repo = newRepo();
       File('${repo.path}/package.json').writeAsStringSync('{}');
       expect(EnvironmentInputs().files(repo.path),
-          containsAll(['ENVIRONMENT.md', 'pubspec.yaml', 'package.json']));
+          containsAll(['pubspec.yaml', 'package.json']));
       expect(EnvironmentInputs().files(repo.path), isNot(contains('go.mod')));
     });
 
@@ -78,11 +78,13 @@ void main() {
 
     test('outside a git repo both digests ride on file contents', () {
       final plain = Directory('${tmp.path}/plain')..createSync();
-      File('${plain.path}/ENVIRONMENT.md').writeAsStringSync('a');
+      final record = File('${plain.path}/.tina/ENVIRONMENT.md')
+        ..createSync(recursive: true);
+      record.writeAsStringSync('a');
       final inputs = const EnvironmentInputs();
       final before = inputs.measure(plain.path);
       expect(before.commit, isEmpty);
-      File('${plain.path}/ENVIRONMENT.md').writeAsStringSync('b');
+      record.writeAsStringSync('b');
       final after = inputs.measure(plain.path);
       expect(after.committed, isNot(before.committed));
     });
@@ -114,13 +116,24 @@ void main() {
       expect(store.staleReason(), 'inputs changed since the last measurement');
     });
 
-    test('an uncommitted edit is stale under "working tree changed"', () {
+    test('an uncommitted manifest edit is stale under "working tree changed"',
+        () {
       final repo = newRepo();
       final store = EnvironmentTrackingStore(projectRoot: repo.path);
       store.record();
-      File('${repo.path}/ENVIRONMENT.md').writeAsStringSync('## Build');
+      File('${repo.path}/pubspec.yaml').writeAsStringSync('name: b\n');
       expect(
           store.staleReason(), 'working tree changed since the last measurement');
+    });
+
+    test('a record edit is stale even though .tina is gitignored', () {
+      final repo = newRepo();
+      File('${repo.path}/.gitignore').writeAsStringSync('.tina/\n');
+      final store = EnvironmentTrackingStore(projectRoot: repo.path);
+      store.record();
+      File('${repo.path}/.tina/ENVIRONMENT.md').writeAsStringSync('## Build');
+      expect(store.staleReason(), 'inputs changed since the last measurement',
+          reason: 'the record is hashed by content, not via git');
     });
 
     test('a corrupt entry reads as never measured, not as a crash', () {

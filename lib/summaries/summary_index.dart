@@ -173,7 +173,7 @@ class SummaryIndexStatus {
   /// but nothing is summarized yet on a first run).
   final bool hasAllocations;
 
-  /// Whether `ENVIRONMENT.md` is absent — the environment agent's first-load
+  /// Whether `.tina/ENVIRONMENT.md` is absent — the environment agent's first-load
   /// signal. Pure file read, like the rest of this probe.
   final bool envFirstLoad;
 

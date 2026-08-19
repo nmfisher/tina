@@ -27,7 +27,7 @@ and the change cannot be made.
 /// Supplies the `<project-environment>` block injected inside the shared
 /// `<environment>` block — the warm-load seam for the environment record
 /// (docs/proposals/environment_agent.md, "Warm load"). Set by the app at
-/// composition to read the repo's `ENVIRONMENT.md` + tracking entry; null (the
+/// composition to read the repo's `.tina/ENVIRONMENT.md` + tracking entry; null (the
 /// default) omits the block. The same [loadProjectContext] flag that withholds
 /// an untrusted project's `AGENTS.md` withholds this block, so a cloned repo's
 /// environment claims never reach the prompt untrusted.

@@ -27,7 +27,7 @@ const kDefaultEnvironmentModelRef = 'nim/google/diffusiongemma-26b-a4b-it';
 /// build-then-dispose ownership, same in-process spend merge.
 ///
 /// The agent measures the environment (toolchain, manifests, build/test
-/// commands, auth), RUNS the setup, and writes `ENVIRONMENT.md` through the
+/// commands, auth), RUNS the setup, and writes `.tina/ENVIRONMENT.md` through the
 /// ordinary sandboxed write/edit tools — under the real permission policy with
 /// the host's asker, so every write and shell command prompts unless the user
 /// allowed it (`--yolo` / `--allow bash:…`).
@@ -93,7 +93,7 @@ class EnvironmentRunner {
   /// record actually advanced (created on first load, changed on a
   /// re-verify), and the tracking entry was recorded; false when it was
   /// cancelled, produced no final answer, or finished without touching
-  /// `ENVIRONMENT.md` — in which case nothing is recorded and the region
+  /// `.tina/ENVIRONMENT.md` — in which case nothing is recorded and the region
   /// stays stale, so it resurfaces on the next dance.
   Future<bool> run() async {
     final project = projectRoot ?? Directory.current.path;
@@ -428,7 +428,7 @@ You are a folder surveyor: a read-only sub-agent that describes one folder of a 
   static const _identity = '''
 You are the environment agent for this repository. Your job is to establish and maintain the environment every agent here needs: dependencies installed, toolchain present, build and test commands known and working, git identity and GitHub auth configured. You are a doing worker — you run commands, you do not just describe them.
 
-The repo's environment record is ENVIRONMENT.md at the repo root. It has two kinds of content: intent sections (Toolchain, Setup, Build, Test, Auth — the commands that should be run) and observed sections (the test baseline, "verified at" stamps — what the last run measured). The user may edit anything; treat the intent sections as authoritative and rewrite only the observed sections from your own fresh measurements.
+The repo's environment record is .tina/ENVIRONMENT.md at the repo root (inside the gitignored .tina sidecar). It has two kinds of content: intent sections (Toolchain, Setup, Build, Test, Auth — the commands that should be run) and observed sections (the test baseline, "verified at" stamps — what the last run measured). The user may edit anything; treat the intent sections as authoritative and rewrite only the observed sections from your own fresh measurements.
 
 Rules:
 - Run the setup: dependency install, build, test. Use bash for commands and write/edit for the record.
@@ -443,10 +443,11 @@ Finish with a short report: what you ran, what passed, what failed, what needs u
   String _taskPrompt(String project, bool firstLoad, String? staleReason,
       {String? survey}) {
     if (firstLoad) {
-      final base = 'No ENVIRONMENT.md exists at $project yet. Populate it '
-          'from measurements: inspect the dependency manifests and toolchain, '
-          'run the setup, build, and tests, check git identity / SSH key / '
-          'GitHub auth, then write ENVIRONMENT.md with the intent sections '
+      final base = 'No .tina/ENVIRONMENT.md exists at $project yet. Populate '
+          'it from measurements: inspect the dependency manifests and '
+          'toolchain, run the setup, build, and tests, check git identity / '
+          'SSH key / GitHub auth, then write .tina/ENVIRONMENT.md with the '
+          'intent sections '
           '(Setup, Build, Test, Auth references) and the observed sections '
           '(Toolchain observed, Test baseline with real counts, verified-at '
           'stamp with the current commit).';
@@ -459,7 +460,8 @@ Finish with a short report: what you ran, what passed, what failed, what needs u
     }
     return 'The environment record is stale${staleReason == null ? '' : ': $staleReason'}. '
         'Re-verify: re-run the setup, build, and tests, check auth, and update '
-        'ENVIRONMENT.md — the intent sections only where reality disagrees, '
+        'ENVIRONMENT.md (.tina/ENVIRONMENT.md) — the intent sections only '
+        'where reality disagrees, '
         'and the observed sections (baseline, verified-at stamp) from fresh '
         'measurements.';
   }

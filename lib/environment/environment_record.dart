@@ -1,7 +1,9 @@
 import 'dart:io';
 
-/// The single environment record: `ENVIRONMENT.md` at the repo root, versioned
-/// in the main repo next to `AGENTS.md` (docs/proposals/environment_agent.md).
+/// The single environment record: `ENVIRONMENT.md` under the project-local
+/// `.tina/` sidecar (`<projectRoot>/.tina/ENVIRONMENT.md`), next to the
+/// tracking entry and the summary store — gitignored, machine-adjacent state
+/// rather than a repo-root file.
 ///
 /// Two kinds of content live in one file: **intent** (Setup, Build, Test,
 /// Toolchain, Auth — usually human-written) and **observed state** (the test
@@ -20,7 +22,7 @@ import 'dart:io';
 class EnvironmentRecord {
   EnvironmentRecord._(this._sections);
 
-  /// The record file name, at the repo root.
+  /// The record file name, under the project-local `.tina/` sidecar.
   static const String fileName = 'ENVIRONMENT.md';
 
   /// Section headings the warm-load block reads. Anything else in the file is
@@ -45,9 +47,11 @@ class EnvironmentRecord {
 
   final Map<String, List<String>> _sections;
 
-  /// The record file for [projectRoot].
+  /// The record file for [projectRoot]: `<projectRoot>/.tina/ENVIRONMENT.md`.
+  /// Inside the gitignored sidecar, so the record never lands in the repo's
+  /// tracked tree (and never trips a commit).
   static File fileFor(String projectRoot) =>
-      File('$projectRoot/${EnvironmentRecord.fileName}');
+      File('$projectRoot/.tina/${EnvironmentRecord.fileName}');
 
   /// Whether a record exists at [projectRoot] — the first-load signal: no
   /// record means the environment agent should populate one from measurements.

@@ -233,11 +233,11 @@ class SessionController implements CommandContext {
             style: HostMessageStyle.warning);
       } else if (ok) {
         conv.host.showMessage(
-            'Environment record updated (ENVIRONMENT.md).\n',
+            'Environment record updated (.tina/ENVIRONMENT.md).\n',
             style: HostMessageStyle.success);
       } else {
         conv.host.showMessage(
-            'environment agent did not update ENVIRONMENT.md — the record '
+            'environment agent did not update .tina/ENVIRONMENT.md — the record '
             'stays stale\n',
             style: HostMessageStyle.warning);
       }
