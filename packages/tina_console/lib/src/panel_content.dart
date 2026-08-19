@@ -35,6 +35,11 @@ abstract interface class PanelContent {
   /// returns the content to managing its own surface. The chat adapter
   /// overrides it; non-chat content ignores the surface it's given.
   void bindSurface(BackendSurface? s) {}
+
+  /// Repaint the content in place, without changing geometry. For callers
+  /// that blanked the screen over this panel (a full-screen overlay scrim on
+  /// backends without real z-order).
+  void repaint() {}
 }
 
 /// Adapts a [ScrollingTextRegion] (chat) to [PanelContent].
@@ -91,4 +96,7 @@ class ChatRegionPanelContent implements PanelContent {
 
   @override
   void bindSurface(BackendSurface? s) => _chat.bindSurface(s);
+
+  @override
+  void repaint() => _chat.repaint();
 }

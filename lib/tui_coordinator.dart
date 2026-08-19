@@ -27,11 +27,13 @@ import 'package:tina/regions/region_registry.dart';
 import 'package:tina/self_update/release_checker.dart';
 import 'package:tina/self_update/updater.dart';
 import 'package:tina/tui/attention_queue.dart';
+import 'package:tina/tui/panel_maximize.dart';
 import 'package:tina/tui/run_panel_content.dart';
 import 'package:tina/tui/tool_output_overlay.dart';
 import 'package:tina/tui/workflow_editor_overlay.dart';
 import 'package:tina/tui/workflow_viewer_overlay.dart';
 import 'package:tina/platform/terminal_geometry.dart';
+import 'package:tina/project/gitignore_guard.dart';
 import 'package:tina/session_controller.dart';
 import 'package:tina/summaries/summary_index.dart';
 import 'package:tina/conversation.dart';
@@ -1075,6 +1077,25 @@ class TuiCoordinator {
     // resolves the active frame and performs the content-agnostic retarget.
     relocateInput = contentCoordinator.relocateInput;
 
+    // Ctrl+O maximizes the highlighted (cycling) or focused panel: its
+    // transcript renders as a 2/3-screen popup over a dimmed background. Only
+    // conversation-backed panels qualify — a frame with no chat binding falls
+    // through and the key reaches its usual handlers.
+    editor.onMaximizeToggle = () {
+      final frame = focusManager.highlighted ?? focusManager.focused;
+      if (frame is! PanelFrame) return false;
+      final src = contentCoordinator.chatFor(frame);
+      if (src == null) return false;
+      unawaited(runMaximizedPanelOverlay(
+        screen: screen,
+        editor: editor,
+        title: src.$2,
+        chat: src.$1,
+        onClosed: contentCoordinator.repaintAll,
+      ));
+      return true;
+    };
+
     // Owns the canonical resize sequence. Every resize site (SIGWINCH handler,
     // the three first-spawn blocks, first-paint) repoints at
     // [ResizeCoordinator.handleResize], so the order lives in one place. Constructed
@@ -1996,7 +2017,7 @@ class TuiCoordinator {
             'No ENVIRONMENT.md yet — spawning environment agent in side panel: '
             'read-only scouts will describe the repo root and each top-level '
             'subfolder, then the agent inspects toolchain, runs setup/build/test '
-            'and writes ENVIRONMENT.md (Esc-Esc to cancel)…\n',
+            'and writes .tina/ENVIRONMENT.md (Esc-Esc to cancel)…\n',
           );
           // Spawn a side panel for the environment agent so its work does not clutter the main panel.
           final envConvId = 'env-${DateTime.now().millisecondsSinceEpoch}';
@@ -2059,10 +2080,10 @@ class TuiCoordinator {
               if (cancel.isCompleted) {
                 initialHost.showMessage('[environment agent cancelled]\n', style: HostMessageStyle.warning);
               } else if (ok) {
-                initialHost.showMessage('Environment record updated (ENVIRONMENT.md).\n', style: HostMessageStyle.success);
+                initialHost.showMessage('Environment record updated (.tina/ENVIRONMENT.md).\n', style: HostMessageStyle.success);
               } else {
                 initialHost.showMessage(
-                    'environment agent did not update ENVIRONMENT.md — the '
+                    'environment agent did not update .tina/ENVIRONMENT.md — the '
                     'record stays stale, so first load will offer to run it '
                     'again on the next launch (details in the Environment '
                     'panel)\n',
@@ -2083,27 +2104,28 @@ class TuiCoordinator {
             // `[environment] model`, else the shipped default.
             launch(config.environmentModel ?? kDefaultEnvironmentModelRef);
           case EnvironmentAutoPopulate.ask:
-            initialHost.showMessage(
-              'No ENVIRONMENT.md found.\n'
+            // The explainer renders INSIDE the picker panel (as body text)
+            // rather than being posted to the chat, so it scrolls with the
+            // picker instead of landing at the bottom of the main panel.
+            const explainer = 'No .tina/ENVIRONMENT.md found.\n'
               '\n'
-              'Tina uses ENVIRONMENT.md to build a <project-environment> block for every agent. '
+              'Tina uses .tina/ENVIRONMENT.md to build a <project-environment> block for every agent. '
               'It describes how the repo is built, tested and authenticated so agents can run '
               'setup/build/test reliably and avoid guessing.\n'
               '\n'
-              'The environment agent is a one-off doing worker that will:\n'
+              'The environment agent is a one-off doing worker that spawns its own side panel agent '
+              'so the work does not clutter the main conversation; only start/completion notices '
+              'are posted to the main panel. It will:\n'
               '- Spawn one read-only scout per folder (repo root + each top-level subfolder, each in its own side panel), each describing its folder and project type\n'
               '- Inspect dependency manifests and toolchain, e.g. package.json, Cargo.toml, go.mod, pyproject.toml, Gemfile\n'
               '- Run the setup step, then build and run the test suite, recording real pass/fail/skipped counts\n'
               '- Check git identity, SSH keys and GitHub auth, recording references only — no secrets are written to the file\n'
-              '- Write ENVIRONMENT.md with intent sections Toolchain/Setup/Build/Test/Auth you can edit, '
+              '- Write .tina/ENVIRONMENT.md with intent sections Toolchain/Setup/Build/Test/Auth you can edit, '
               '  and observed sections Test baseline + verified-at stamp that the agent maintains from measurements\n'
               '\n'
               'It uses the normal sandboxed bash/write/edit tools and will ask for permission for each action. '
-              'When run, it spawns its own side panel agent so the work does not clutter the main conversation; '
-              'only start/completion notices are posted to the main panel. Esc-Esc cancels. Success is only reported when the file '
-              'is created/changed by the agent, not on a prose-only answer.\n',
-              style: HostMessageStyle.dim,
-            );
+              'Esc-Esc cancels. Success is only reported when the file '
+              'is created/changed by the agent, not on a prose-only answer.\n';
             final choice = await runListOverlay<String>(
               screen: screen,
               editor: editor,
@@ -2115,6 +2137,7 @@ class TuiCoordinator {
               title: 'No ENVIRONMENT.md yet — populate the environment record?',
               footer: '↑↓ move · enter select · esc cancel',
               accent: 'cyan',
+              body: explainer,
             );
             if (choice == null || choice == 'later') return;
             if (choice == 'always') {
@@ -2136,6 +2159,58 @@ class TuiCoordinator {
               } catch (_) {}
             }
             launch(await pickEnvironmentModel());
+        }
+      };
+    }
+
+    // .gitignore guard: session transcripts land in `<cwd>/.tina/sessions/`
+    // — inside the repo's working tree, where they could be committed. If the
+    // repo's .gitignore doesn't cover `.tina` yet (and the user hasn't said
+    // "don't ask again" for this repo), offer to add it. Recorded here,
+    // performed in [run] after the first paint — the same lifecycle as the
+    // first-load environment ask above (the picker needs the editor's key
+    // stream). Interactive only; headless runs never create panels.
+    final gitRoot = gitRepoRootFor(Directory.current.path);
+    final gitignoreAsks = GitignoreAskStore.forTinaDir(
+        tinaDirFromEnv(app.environment.env));
+    if (gitRoot != null &&
+        !gitignoreCoversTinaAt(gitRoot) &&
+        !gitignoreAsks.isDeclined(gitRoot)) {
+      coordinator.pendingGitignoreAsk = () async {
+        final choice = await runListOverlay<String>(
+          screen: screen,
+          editor: editor,
+          entries: const [
+            (display: "Add '.tina/' to .gitignore", value: 'add'),
+            (display: "Don't ask again for this repo", value: 'never'),
+            (display: 'Not now', value: 'later'),
+          ],
+          title: 'Keep session transcripts out of git?',
+          footer: '↑↓ move · enter select · esc skip',
+          accent: 'cyan',
+          body: 'Tina stores session transcripts in .tina/sessions/ inside '
+              'this repo '
+              '(${p.relative(gitRoot, from: Directory.current.path)}).\n'
+              '\n'
+              'The .gitignore at the repo root does not cover .tina yet, so '
+              'transcripts could be committed accidentally.',
+        );
+        switch (choice) {
+          case 'add':
+            try {
+              addTinaToGitignore(File(p.join(gitRoot, '.gitignore')));
+              initialHost.showMessage(
+                  "Added '.tina/' to ${p.join(gitRoot, '.gitignore')}\n",
+                  style: HostMessageStyle.dim);
+            } catch (e) {
+              initialHost.showMessage(
+                  'Could not update .gitignore: $e\n',
+                  style: HostMessageStyle.dim);
+            }
+          case 'never':
+            gitignoreAsks.setDeclined(gitRoot, true);
+          default:
+            break; // 'later' / esc: ask again next launch.
         }
       };
     }
@@ -2300,6 +2375,14 @@ class TuiCoordinator {
       await firstLoadAsk();
     }
 
+    // .gitignore ask (recorded by create), same lifecycle as above. Runs
+    // after the environment ask so an env-agent launch isn't held up.
+    final gitignoreAsk = pendingGitignoreAsk;
+    if (gitignoreAsk != null) {
+      pendingGitignoreAsk = null;
+      await gitignoreAsk();
+    }
+
     try {
       await controller.run();
     } finally {
@@ -2316,6 +2399,12 @@ class TuiCoordinator {
   /// (a factory) can set it on the instance it is building; tests can clear
   /// it to skip the picker.
   Future<void> Function()? pendingFirstLoadEnvironmentAsk;
+
+  /// The .gitignore ask, recorded by [create] when the cwd is inside a git
+  /// repo whose `.gitignore` doesn't cover `.tina` (and the user hasn't
+  /// declined for that repo). Same recorded-by-create / performed-by-run
+  /// lifecycle as [pendingFirstLoadEnvironmentAsk].
+  Future<void> Function()? pendingGitignoreAsk;
 
   /// Capture exit state, close the store, leave the alt screen, print the resume
   /// hint, and tear down the editor + signal subs. Shared by the normal exit

@@ -993,10 +993,25 @@ class ScrollingTextRegion extends Region {
         }
       });
 
+  /// Repaint the whole region in place (scrollback view when scrolled up,
+  /// tail view otherwise) without changing any state. For callers that
+  /// blanked the screen over this region — e.g. a full-screen overlay scrim
+  /// on backends without real z-order. No-op while detached (attaching
+  /// replays).
+  void repaint() {
+    if (!_detached) _redraw();
+  }
+
   /// Fully render a row's text with its SGR style and background padding, the
   /// same way [_emitRow] does. Used by the scrollback redraw (a full repaint
   /// of a frozen view, so no snapshot diffing).
-  String _renderRowText(_StyledRow row) {
+  String _renderRowText(_StyledRow row) => _styledRowText(row, bounds.width);
+
+  /// Style [row] the way [_emitRow] does, optionally padding a
+  /// background-styled row to [padWidth] columns (see the padding note in
+  /// [_renderRowText]; pass null to skip padding — the caller pads to its own
+  /// width).
+  String _styledRowText(_StyledRow row, int? padWidth) {
     var text = row.text;
     final style = row.styleCode;
     if (style != null && !screen.passthrough && screen.ansi.useColor) {
@@ -1009,7 +1024,7 @@ class ScrollingTextRegion extends Region {
         // un-addressed run onto the next screen row — blanking the panel
         // border (tin-q4vz). One short column costs a sliver of bar
         // background at the right edge.
-        final pad = bounds.width - 1 - _visibleLen(text);
+        final pad = padWidth == null ? 0 : padWidth - 1 - _visibleLen(text);
         final padSpaces = pad > 0 ? ' ' * pad : '';
         text = '\x1b[${style}m$text$padSpaces\x1b[0m';
       } else {
@@ -1017,6 +1032,23 @@ class ScrollingTextRegion extends Region {
       }
     }
     return text;
+  }
+
+  /// Read-only snapshot of every buffered line — scrollback history followed
+  /// by the visible content rows, oldest first — as styled strings, for
+  /// callers that render this region elsewhere (the panel-maximize overlay).
+  /// The region's own paint state is untouched; trailing blank rows are
+  /// dropped. Background-styled rows are NOT padded: the caller pads to its
+  /// own width.
+  List<String> snapshotLines() {
+    final out = <String>[
+      for (final row in _history) _styledRowText(row, null),
+    ];
+    final content = _contentRowCount;
+    for (var i = 0; i < content; i++) {
+      out.add(_styledRowText(_rows[i], null));
+    }
+    return out;
   }
 
   void _redrawAll() => screen.frame(() {

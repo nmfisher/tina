@@ -61,6 +61,12 @@ class RunPanelContent implements PanelContent {
   @override
   void detach() => _transcript.detach();
 
+  @override
+  void repaint() {
+    _transcript.repaint();
+    _paintLabel();
+  }
+
   // -- Rendering -----------------------------------------------------------
 
   /// The dim read-only notice in the panel's bottom row. Plain-then-colorize

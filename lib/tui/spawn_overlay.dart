@@ -429,7 +429,7 @@ class _ListPickerForm<T> {
   static const _focusMark = '▸';
 
   List<String> _box(String title, List<String> body, String footer) =>
-      _boxLines(
+      boxLines(
         width: _rect.width,
         height: _rect.height,
         title: title,
@@ -439,7 +439,7 @@ class _ListPickerForm<T> {
       );
 }
 
-/// One bordered content row inside a [_boxLines] frame.
+/// One bordered content row inside a [boxLines] frame.
 String _wrapLine(int innerW, String s, String Function(String) paint) {
   final t = s.length > innerW ? s.substring(0, innerW) : s.padRight(innerW);
   return '${paint('│')} $t ${paint('│')}';
@@ -447,7 +447,7 @@ String _wrapLine(int innerW, String s, String Function(String) paint) {
 
 /// Greedy word-wrap [text] to [innerW] columns, preserving blank
 /// `\n`-separated paragraphs. Used to flow an optional picker `body` inside
-/// [_boxLines].
+/// [boxLines].
 List<String> _wrapParagraph(String text, int innerW) {
   final out = <String>[];
   for (final para in text.split('\n')) {
@@ -475,7 +475,7 @@ List<String> _wrapParagraph(String text, int innerW) {
 /// The bordered box shared by the list picker and the question form: title
 /// bar, [body] rows, a blank separator, the footer, padded to [height], with
 /// any overflow truncated.
-List<String> _boxLines({
+List<String> boxLines({
   required int width,
   required int height,
   required String title,
@@ -628,7 +628,7 @@ class _QuestionForm {
 
   // -- Render -----------------------------------------------------------------
 
-  void _render() => _overlay.show(_boxLines(
+  void _render() => _overlay.show(boxLines(
         width: _rect.width,
         height: _rect.height,
         title: 'Questions',

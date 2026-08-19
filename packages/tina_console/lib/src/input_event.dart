@@ -174,6 +174,10 @@ enum ControlCode {
   /// disables XON/XOFF flow control so the byte reaches the process; a few
   /// terminals still intercept it before the process does.
   ctrlS,
+  /// Ctrl+O (SI, 0x0F). The panel-maximize toggle. Not a tty signal in raw
+  /// mode and unbound by macOS terminals (unlike Ctrl+M/Ctrl+Arrow), so the
+  /// byte reliably reaches the process.
+  ctrlO,
   enter,
   tab,
   backspace,

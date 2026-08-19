@@ -121,6 +121,33 @@ void main() {
       expect((event as CharInput).text, 'y');
     });
 
+    test('Ctrl+O fires the maximize hook instead of answering the prompt',
+        () async {
+      final (editor, fm, chat, side) = _rig(io);
+      editor.readLine('> ');
+      await _flush();
+
+      var fired = 0;
+      editor.onMaximizeToggle = () {
+        fired++;
+        return true;
+      };
+      final approval = editor.readKey(globalKeys: true);
+      io.feedBytes([0x0f]); // Ctrl+O
+      await _flush();
+
+      var answered = false;
+      approval.then((_) => answered = true);
+      await _flush();
+      expect(fired, 1, reason: 'the hook fired');
+      expect(answered, isFalse, reason: 'Ctrl+O must not answer the approval');
+
+      // The prompt's own keys still work.
+      io.feedBytes([0x79]);
+      final event = await approval.timeout(const Duration(seconds: 2));
+      expect((event as CharInput).text, 'y');
+    });
+
     test("Ctrl+W engages cycling too; 'n' answers once cycling is off", () async {
       final (editor, fm, chat, side) = _rig(io);
       editor.readLine('> ');

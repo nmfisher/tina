@@ -109,6 +109,14 @@ class LineEditor {
   /// cancels or opens the menu — it just arms the double-ESC window.
   bool Function()? onEscape;
 
+  /// Called for Ctrl+O — the panel-maximize toggle. Offered after the
+  /// modal layer but before the focus ring (so it works both while cycling —
+  /// for the *highlighted* panel — and on the focused panel). Return `true`
+  /// to consume the event (a panel was maximized), `false` to let it fall
+  /// through. Lets the app layer render the highlighted panel as a popup
+  /// without adding app-specific keys to the editor's core dispatch.
+  bool Function()? onMaximizeToggle;
+
   /// Called for an Alt+key event the editor doesn't bind internally (anything
   /// other than Alt+b/d/f word editing). Return `true` to consume the event,
   /// `false` to let it fall through and be ignored. Lets the app layer bind
@@ -582,6 +590,10 @@ class LineEditor {
   /// cycling, or Esc returned focus home), meaning no other surface — a
   /// focused panel, the editor, or an armed global [readKey] — should see it.
   bool _handleFocusRingKeys(InputEvent event) {
+    // The maximize toggle outranks the ring here too: an armed global readKey
+    // (an approval prompt) yields focus-layer keys to this seam, so Ctrl+O
+    // must work there — otherwise it would answer the prompt instead.
+    if (_handleMaximizeToggle(event)) return true;
     final fm = _focusManager;
     if (fm == null) return false;
     // Not cycling, the ring only claims its entry keys (Ctrl+G/Ctrl+W) and
@@ -591,6 +603,18 @@ class LineEditor {
       return true;
     }
     return false;
+  }
+
+  /// The Ctrl+O maximize toggle, shared by every input path: normal dispatch,
+  /// the armed-global-readKey seam, and queue mode. True when the hook
+  /// consumed the key (a panel was maximized).
+  bool _handleMaximizeToggle(InputEvent event) {
+    final maximize = onMaximizeToggle;
+    if (maximize == null) return false;
+    if (event is! ControlKey || event.code != ControlCode.ctrlO) return false;
+    if (!maximize()) return false;
+    _redraw();
+    return true;
   }
 
   void _dispatchEvent(InputEvent event) {
@@ -608,26 +632,32 @@ class LineEditor {
         return;
       }
     }
-    // 2. Modal cycling: the focus manager owns all keys (arrows/Tab move the
+    // 2. Ctrl+O: the app's panel-maximize toggle. Ahead of the focus
+    //    ring so it fires both while cycling (the highlighted panel) and on
+    //    the focused panel. The hook decides whether a panel qualifies.
+    if (_handleMaximizeToggle(event)) {
+      return;
+    }
+    // 3. Modal cycling: the focus manager owns all keys (arrows/Tab move the
     //    highlight, Enter commits, Esc cancels). Nothing reaches a panel.
     if (_focusManager != null && _focusManager!.isCycling) {
       _focusManager!.handleEvent(event);
       _redraw();
       return;
     }
-    // 3. Esc / entry keys: engage cycling or return home. Returns false when
+    // 4. Esc / entry keys: engage cycling or return home. Returns false when
     //    already home, so the editor's double-Esc clear runs in the switch.
     if (_focusManager != null && _focusManager!.handleEvent(event)) {
       _redraw();
       return;
     }
-    // 4. Menu bar — F10/Alt activation (from any focus) and arrow navigation
+    // 5. Menu bar — F10/Alt activation (from any focus) and arrow navigation
     //    when the menu is the focused panel.
     if (_menuBar != null && _menuBar!.handleEvent(event)) {
       _redraw();
       return;
     }
-    // 5. The focused panel handles the event (chat declines → editor; info
+    // 6. The focused panel handles the event (chat declines → editor; info
     //    swallows). The menu is handled in step 4.
     final focused = _focusManager?.focused;
     if (focused != null && focused.handleEvent(event)) {
@@ -726,10 +756,13 @@ class LineEditor {
           case ControlCode.ctrlW:
           case ControlCode.ctrlG:
           case ControlCode.ctrlS:
+          case ControlCode.ctrlO:
             // Handled upstream by FocusManager when a panel exists; when no
             // panel is registered they fall through to here as a no-op.
             // ctrlS ("save") is consumed by the prompts overlay's readKey loop;
-            // at the chat prompt it's a no-op.
+            // at the chat prompt it's a no-op. ctrlO (maximize) is consumed by
+            // the onMaximizeToggle hook — a fall-through means no panel
+            // qualified, so it's a no-op too.
             break;
         }
 
@@ -930,7 +963,10 @@ class LineEditor {
           case ControlCode.ctrlW:
           case ControlCode.ctrlG:
           case ControlCode.ctrlS:
-            // Ignored in queue mode (ctrl-C is intercepted above).
+          case ControlCode.ctrlO:
+            // The maximize toggle works in queue mode too — maximizing a
+            // panel to watch a running agent is a primary use case.
+            _handleMaximizeToggle(event);
             break;
         }
       case CharInput(:final text):

@@ -325,6 +325,30 @@ class ConversationPanelCoordinator {
     _bindings[conversationId]?.frame.relabel(label);
   }
 
+  /// The chat transcript + frame label behind [frame], when the frame presents
+  /// a conversation — the maximize overlay's data source (it snapshots the
+  /// chat buffer and titles the popup with the panel's label). Null for
+  /// frames with no conversation binding.
+  (ScrollingTextRegion, String)? chatFor(PanelFrame frame) {
+    for (final b in _bindings.values) {
+      if (b.frame == frame) return (b.host.chat, b.frame.label);
+    }
+    return null;
+  }
+
+  /// Repaint every panel's content in place. For callers that blanked the
+  /// panel area with a full-screen overlay (the maximize scrim on backends
+  /// without real z-order, where hiding the scrim erases everything it
+  /// covered instead of revealing it).
+  void repaintAll() {
+    for (final b in _bindings.values) {
+      b.content.repaint();
+    }
+    for (final c in _extra.values) {
+      c.repaint();
+    }
+  }
+
   /// The chat surface for [conversationId], for callers that parent overlays
   /// (image rendering) onto the focused panel's plane. null when the panel has
   /// no surface.

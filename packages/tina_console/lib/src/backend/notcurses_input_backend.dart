@@ -702,6 +702,8 @@ InputEvent? translateNcKey({
         return EditingKey(EditingAction.killToEnd);
       case 0x0c: // ctrl-l
         return ControlKey(ControlCode.ctrlL);
+      case 0x0f: // ctrl-o — panel-maximize toggle
+        return ControlKey(ControlCode.ctrlO);
       case 0x15: // ctrl-u
         return EditingKey(EditingAction.killToStart);
       case 0x17: // ctrl-w
