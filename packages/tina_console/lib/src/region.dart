@@ -502,13 +502,10 @@ class ScrollingTextRegion extends Region {
   void red(String s) => write(screen.colorize(screen.theme.chat.red, s));
   void color(String code, String s) => write(screen.colorize(code, s));
 
-  /// Turns used to be divided by a horizontal `─` rule in the TUI; messages are
-  /// now distinguished by their background style (user bar vs agent bar), so
-  /// the rule is gone. Passthrough (piped / non-TTY output) still emits a blank
-  /// line between turns for readability — there are no background bars there.
-  void separator() {
-    if (screen.passthrough) write('\n');
-  }
+  /// A blank line between messages — the visual turn divider. Turns used to be
+  /// divided by a horizontal `─` rule, then by the user bar's background; both
+  /// are gone, and plain whitespace separates bot and user messages now.
+  void separator() => write('\n');
 
   /// Stop writing to the screen. Future [write] calls accumulate in an
   /// internal buffer. Call [attach] to replay them and resume live writes.

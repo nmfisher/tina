@@ -445,6 +445,9 @@ class SessionController implements CommandContext {
   /// written to [s]'s own host, so a turn that gets switched to the background
   /// mid-flight still renders into its (detached) region.
   Future<void> _runTurn(Conversation s, String input) async {
+    // Blank line between the previous bot message and this user message; the
+    // separator below covers the user→bot gap.
+    s.host.showSeparator();
     s.host.showMessage('$input\n', style: HostMessageStyle.user);
     s.host.showSeparator();
 

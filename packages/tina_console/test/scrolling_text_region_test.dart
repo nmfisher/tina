@@ -335,9 +335,23 @@ void main() {
       expect(dimOut, isNot(contains('\x1b[39mdone')));
     });
 
-    test('separator emits no rule in the TUI', () {
+    test('separator emits a blank line, no rule', () {
+      screen.chat.write('a\n');
       screen.chat.separator();
-      expect(io.written.toString(), isEmpty);
+      screen.chat.write('b');
+      vt.feed(io.written.toString());
+      expect(io.written.toString(), isNot(contains('─')));
+      int rowOf(String ch) {
+        for (var r = layout.chat.row;
+            r < layout.chat.row + layout.chat.height;
+            r++) {
+          if (vt.charAt(r, layout.chat.col) == ch) return r;
+        }
+        return -1;
+      }
+
+      // Exactly one blank row between the two lines.
+      expect(rowOf('b') - rowOf('a'), 2);
     });
 
     test('multi-turn: user bar stays distinct across beginStyle turns', () {

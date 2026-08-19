@@ -259,8 +259,12 @@ class TuiConversationHost implements HostInterface {
       case HostMessageStyle.normal:
         chat.write(message);
       case HostMessageStyle.user:
-        // Policy layer picks the bar code; the surface owns the fallback.
-        chat.writeStyledLine(message, screen.theme.chat.userBar);
+        // A bullet line slightly lighter than agent prose — the old
+        // reverse-video bar was heavier than the message it carried.
+        final body = message.endsWith('\n')
+            ? message.substring(0, message.length - 1)
+            : message;
+        chat.writeStyledLine('• $body', screen.theme.chat.userText);
       case HostMessageStyle.dim:
         chat.write(screen.colorize(theme.dim, message));
       case HostMessageStyle.success:

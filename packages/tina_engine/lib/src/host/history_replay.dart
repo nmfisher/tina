@@ -11,12 +11,20 @@ import 'host_interface.dart';
 /// Called on startup (`--continue` / `--resume`) and after the in-TUI
 /// `/resume` command loads a session's history.
 void replayHistory(HostInterface host, List<Message> history) {
+  // Whether anything has been rendered yet — the first message starts at the
+  // top of the chat with no leading blank line.
+  var drew = false;
   for (final message in history) {
     switch (message.role) {
       case Role.user:
         for (final block in message.content) {
           switch (block) {
             case TextBlock():
+              // Blank line between the previous bot message and this user
+              // message; the separator below covers the user→bot gap — the
+              // same spacing a live turn gets in _runTurn.
+              if (drew) host.showSeparator();
+              drew = true;
               host.showMessage('${block.text}\n',
                   style: HostMessageStyle.user);
               host.showSeparator();
@@ -35,8 +43,10 @@ void replayHistory(HostInterface host, List<Message> history) {
               if (block.text.isNotEmpty) {
                 host.text(block.text);
                 host.newline();
+                drew = true;
               }
             case ToolUseBlock():
+              drew = true;
               host.toolStart(
                   ToolStartEvent(block.name, block.id, block.input));
               host.toolComplete(ToolCompleteEvent(
@@ -46,7 +56,5 @@ void replayHistory(HostInterface host, List<Message> history) {
           }
         }
     }
-    // Blank line between consecutive messages for readability.
-    host.newline();
   }
 }

@@ -94,6 +94,11 @@ class Theme {
 
 class ChatTheme {
   final String userBar;
+
+  /// Style for user messages: a bullet line slightly lighter than agent
+  /// prose (bold on top of the agent's code), replacing the old reverse-video
+  /// bar.
+  final String userText;
   final String agentText;
   final String dim;
   final String cyan;
@@ -105,6 +110,7 @@ class ChatTheme {
 
   const ChatTheme({
     this.userBar = '7',
+    this.userText = '1',
     this.agentText = '39',
     this.dim = '2',
     this.cyan = '36',
@@ -117,6 +123,7 @@ class ChatTheme {
   /// standard ANSI colour codes.
   const ChatTheme.light()
       : userBar = '97;40',
+        userText = '1;30',
         agentText = '30',
         dim = '2',
         cyan = '36',
@@ -128,6 +135,7 @@ class ChatTheme {
   /// bright ANSI colour codes for better contrast against the dark background.
   const ChatTheme.dark()
       : userBar = '30;47',
+        userText = '1;97',
         agentText = '97',
         dim = '2',
         cyan = '96',
@@ -137,6 +145,7 @@ class ChatTheme {
 
   bool get isDefault =>
       userBar == _default.userBar &&
+      userText == _default.userText &&
       agentText == _default.agentText &&
       dim == _default.dim &&
       cyan == _default.cyan &&
@@ -149,6 +158,7 @@ class ChatTheme {
     final cast = m.cast<String, dynamic>();
     return ChatTheme(
       userBar: _sgr(cast['user_bar'], _default.userBar),
+      userText: _sgr(cast['user_text'], _default.userText),
       agentText: _sgr(cast['agent_text'], _default.agentText),
       dim: _sgr(cast['dim'], _default.dim),
       cyan: _sgr(cast['cyan'], _default.cyan),
@@ -160,6 +170,7 @@ class ChatTheme {
 
   Map<String, dynamic> toMap() => {
         if (userBar != _default.userBar) 'user_bar': userBar,
+        if (userText != _default.userText) 'user_text': userText,
         if (agentText != _default.agentText) 'agent_text': agentText,
         if (dim != _default.dim) 'dim': dim,
         if (cyan != _default.cyan) 'cyan': cyan,
