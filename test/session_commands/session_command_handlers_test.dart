@@ -10,6 +10,7 @@ import 'package:test/test.dart';
 
 import '../helpers/fake_host_interface.dart';
 import '../helpers/fake_provider.dart';
+import '../helpers/memory_session_store.dart';
 
 /// Minimal [Agent] for command-handler tests — never actually runs a turn.
 Agent _fakeAgent(LlmProvider provider, FakeHostInterface host) => Agent(
@@ -29,6 +30,8 @@ class _FakeCtx implements CommandContext {
     this.openImage,
     this.openBranch,
     this.openToolOutput,
+    this.openSessionPicker,
+    this.store,
     this.spendLedger,
   });
 
@@ -59,6 +62,15 @@ class _FakeCtx implements CommandContext {
   Future<void> Function(int index)? openToolOutput;
 
   @override
+  Future<void> Function()? openSessionPicker;
+
+  /// The on-disk store for the headless /sessions listing path.
+  final SessionStore? store;
+
+  @override
+  SessionStore? get sessionStore => store;
+
+  @override
   SpendLedger? spendLedger;
 
   @override
@@ -70,9 +82,6 @@ class _FakeCtx implements CommandContext {
 
   @override
   SessionManager get sessionManager => throw UnimplementedError();
-
-  @override
-  SessionStore? get sessionStore => throw UnimplementedError();
 
   @override
   int get autoCompactThreshold => throw UnimplementedError();
@@ -144,6 +153,53 @@ Future<void> main() async {
       expect(
         host.styledMessages.map((m) => m.message),
         anyElement(contains('needs the interactive TUI')),
+      );
+    });
+  });
+
+  group('SessionCommandHandlers /sessions', () {
+    late FakeHostInterface host;
+    late FakeProvider provider;
+    late Conversation conv;
+
+    setUp(() {
+      host = FakeHostInterface();
+      provider = FakeProvider.always(model: 'test-model');
+      conv = Conversation(
+        id: 'test-conv',
+        label: 'test-model',
+        agent: _fakeAgent(provider, host),
+        provider: provider,
+        host: host,
+        policy: PermissionPolicy(),
+      );
+    });
+
+    test('/sessions opens the picker when the TUI wired one', () async {
+      var opened = false;
+      final handlers = SessionCommandHandlers(_FakeCtx(
+        conversation: conv,
+        openSessionPicker: () async => opened = true,
+      ));
+      await handlers.dispatch('/sessions');
+      expect(opened, isTrue,
+          reason: 'the TUI /sessions is the picker (same overlay as Alt+S), '
+              'not a printed list');
+    });
+
+    test('headless (no picker): still lists the saved sessions', () async {
+      final store = MemorySessionStore();
+      final sid = await store.createSession(providerId: 'anthropic');
+      final cid = await store.createConversation(sid);
+      await store.append(
+          sid, cid, Message(role: Role.user, content: [TextBlock('hi')]));
+      final handlers = SessionCommandHandlers(
+          _FakeCtx(conversation: conv, store: store));
+      await handlers.dispatch('/sessions');
+      expect(
+        host.styledMessages.map((m) => m.message),
+        anyElement(contains(sid)),
+        reason: 'headless keeps the list — the ids are needed for --resume',
       );
     });
   });

@@ -517,7 +517,7 @@ class SessionCommandHandlers {
         '  /workflow      list/show/new/edit/run DOT pipelines '
         '(/workflow show|new|edit|run <name>)\n'
         '  /permissions   show current permission rules\n'
-        '  /sessions      list saved (on-disk) sessions\n'
+        '  /sessions      open the session picker (switch/resume); lists them headless\n'
         '  /session       list live sessions; new/switch/close\n'
         '  /resume <id>   load a saved session into the active session\n'
         '  /settings      reconfigure providers/models/tiers (applies on restart)\n'
@@ -553,6 +553,15 @@ class SessionCommandHandlers {
   }
 
   Future<void> _printSavedSessions() async {
+    // In the TUI, /sessions opens the session picker (same overlay as Alt+S):
+    // select an entry to switch the live session or resume a saved one into
+    // this process. Headless (no picker wired) keeps the printed list — the
+    // resume ids are still needed there for `tina --resume <id>`.
+    final open = ctx.openSessionPicker;
+    if (open != null) {
+      await open();
+      return;
+    }
     if (ctx.sessionStore == null) {
       ctx.active.host.showMessage('(no session store available)\n',
           style: HostMessageStyle.dim);

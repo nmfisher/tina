@@ -234,7 +234,15 @@ Future<ResolvedSession> resolveSession(
     final cwd = Directory.current.path;
     final inFolder = list.where((s) => s.cwd == null || s.cwd == cwd).toList();
     if (inFolder.isNotEmpty) {
-      final sid = inFolder.first.id;
+      final pick = inFolder.first;
+      // Say what was picked: --continue silently resuming something the user
+      // didn't expect is indistinguishable from picking wrong (the newest
+      // session is often yesterday's — today's runs may never have persisted,
+      // since empty sessions leave no trace). Naming the session, its title,
+      // and when it was last active makes the choice verifiable at a glance.
+      stderr.writeln('--continue: resuming "${pick.title}" '
+          '(last active ${pick.updatedAt.toLocal()}, id ${pick.id})');
+      final sid = pick.id;
       final manifest = await store.loadSession(sid);
       final loaded =
           await store.loadConversation(sid, manifest.activeConversationId);
