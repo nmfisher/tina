@@ -108,4 +108,81 @@ void main() {
     // The input loop's readLine is still pending untouched.
     expect(ed.isEditing, isTrue);
   });
+
+  test('non-answer keys (arrows, Enter, stray chars) never decide the approval',
+      () async {
+    // The reported bug: pressing ↑ while the prompt was open fell into the
+    // default-deny and silently rejected the action. Only y/n/a/d (and Esc,
+    // explicitly) are answers; every other key must leave the read armed.
+    final io = FakeStdio();
+    final screen = Screen(
+      io: io,
+      layout: ScreenLayout.fromSize(80, 24),
+      ansi: AnsiCapable.yes,
+    );
+    final ed = LineEditor(screen: screen, escapeTimeout: Duration.zero);
+    final asker = WorkflowPermissionAsker(
+        sink: FakeAgentSink(), screen: screen, editor: ed);
+
+    final ask = asker.ask(_bashPrompt('cargo test'));
+    var decided = false;
+    unawaited(ask.whenComplete(() => decided = true));
+    await _flush();
+    expect(ed.isReadingKey, isTrue);
+
+    // ↑ arrow — not a CharInput, must not decide anything.
+    io.feedBytes([0x1b, 0x5b, 0x41]);
+    await _flush();
+    expect(decided, isFalse,
+        reason: 'an arrow key is not an answer — the read stays armed');
+
+    // Enter — not an answer either.
+    io.feedBytes([0x0d]);
+    await _flush();
+    expect(decided, isFalse, reason: 'Enter is not an answer');
+
+    // A stray printable character — ignored.
+    io.feedBytes([0x71]); // 'q'
+    await _flush();
+    expect(decided, isFalse, reason: '"q" is not an answer');
+
+    // The actual answer decides.
+    io.feedBytes([0x79]); // 'y'
+    final response = await ask.timeout(const Duration(seconds: 2));
+    expect(response, PermissionResponse.allowOnce);
+  });
+
+  test('Esc explicitly denies; n denies; d denies always', () async {
+    final io = FakeStdio();
+    final screen = Screen(
+      io: io,
+      layout: ScreenLayout.fromSize(80, 24),
+      ansi: AnsiCapable.yes,
+    );
+    final ed = LineEditor(screen: screen, escapeTimeout: Duration.zero);
+    final asker = WorkflowPermissionAsker(
+        sink: FakeAgentSink(), screen: screen, editor: ed);
+
+    // Esc — the "get me out" key keeps its meaning.
+    final esc = asker.ask(_bashPrompt('rm -rf build'));
+    await _flush();
+    io.feedBytes([0x1b]);
+    await _flush();
+    expect(await esc.timeout(const Duration(seconds: 2)),
+        PermissionResponse.denyOnce);
+
+    // 'n' — an explicit single deny.
+    final n = asker.ask(_bashPrompt('ls'));
+    await _flush();
+    io.feedBytes([0x6e]); // 'n'
+    expect(await n.timeout(const Duration(seconds: 2)),
+        PermissionResponse.denyOnce);
+
+    // 'd' — deny + remember.
+    final d = asker.ask(_bashPrompt('ls'));
+    await _flush();
+    io.feedBytes([0x64]); // 'd'
+    expect(await d.timeout(const Duration(seconds: 2)),
+        PermissionResponse.denyAlways);
+  });
 }

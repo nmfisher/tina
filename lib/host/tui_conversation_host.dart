@@ -214,18 +214,34 @@ class TuiConversationHost implements HostInterface {
     // globalKeys: panel-cycling shortcuts (Ctrl+G/Ctrl+W) and the ring's
     // other navigation keys must cycle panels here, not answer the prompt
     // (tin-c5nw — Ctrl+G used to land in this readKey as a deny).
-    final event = await editor!.readKey(globalKeys: true);
-    final ch = event is CharInput ? event.text.toLowerCase() : '';
-    chat.write('$ch\n', rowOwner: rowToken);
-    switch (ch) {
-      case 'y':
-        return PermissionResponse.allowOnce;
-      case 'a':
-        return PermissionResponse.allowAlways;
-      case 'd':
-        return PermissionResponse.denyAlways;
-      default:
+    //
+    // Only the answer keys decide. Anything else — arrows, Enter, stray
+    // characters, pastes, wheel notches — is NOT an answer and must not
+    // decide it: the read simply stays armed and the next key is heard (an
+    // up-arrow used to fall into the default-deny and silently reject the
+    // action). Esc still denies — the "get me out" key keeps its meaning.
+    while (true) {
+      final event = await editor!.readKey(globalKeys: true);
+      if (event is CharInput) {
+        switch (event.text.toLowerCase()) {
+          case 'y':
+            chat.write('y\n', rowOwner: rowToken);
+            return PermissionResponse.allowOnce;
+          case 'a':
+            chat.write('a\n', rowOwner: rowToken);
+            return PermissionResponse.allowAlways;
+          case 'd':
+            chat.write('d\n', rowOwner: rowToken);
+            return PermissionResponse.denyAlways;
+          case 'n':
+            chat.write('n\n', rowOwner: rowToken);
+            return PermissionResponse.denyOnce;
+        }
+      } else if (event is EscapeKey) {
+        chat.write('esc\n', rowOwner: rowToken);
         return PermissionResponse.denyOnce;
+      }
+      // Not an answer key: ignored, nothing echoed, keep listening.
     }
   }
 

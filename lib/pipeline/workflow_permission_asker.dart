@@ -88,18 +88,34 @@ class WorkflowPermissionAsker {
     }
     // globalKeys: the focus ring's shortcuts cycle panels, they must not
     // answer the approval (tin-c5nw).
-    final event = await editor!.readKey(globalKeys: true);
-    final ch = event is CharInput ? event.text.toLowerCase() : '';
-    _write('$ch\n', HostMessageStyle.normal);
-    switch (ch) {
-      case 'y':
-        return PermissionResponse.allowOnce;
-      case 'a':
-        return PermissionResponse.allowAlways;
-      case 'd':
-        return PermissionResponse.denyAlways;
-      default:
+    //
+    // Only the answer keys decide. Anything else — arrows, Enter, stray
+    // characters, pastes, wheel notches — is NOT an answer and must not
+    // decide it: the read simply stays armed and the next key is heard (an
+    // up-arrow used to fall into the default-deny and silently reject the
+    // action). Esc still denies — the "get me out" key keeps its meaning.
+    while (true) {
+      final event = await editor!.readKey(globalKeys: true);
+      if (event is CharInput) {
+        switch (event.text.toLowerCase()) {
+          case 'y':
+            _write('y\n', HostMessageStyle.normal);
+            return PermissionResponse.allowOnce;
+          case 'a':
+            _write('a\n', HostMessageStyle.normal);
+            return PermissionResponse.allowAlways;
+          case 'd':
+            _write('d\n', HostMessageStyle.normal);
+            return PermissionResponse.denyAlways;
+          case 'n':
+            _write('n\n', HostMessageStyle.normal);
+            return PermissionResponse.denyOnce;
+        }
+      } else if (event is EscapeKey) {
+        _write('esc\n', HostMessageStyle.normal);
         return PermissionResponse.denyOnce;
+      }
+      // Not an answer key: ignored, nothing echoed, keep listening.
     }
   }
 

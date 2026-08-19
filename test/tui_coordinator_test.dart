@@ -217,12 +217,29 @@ void main() {
         reason: 'the loaded agent response must be rendered on startup');
   });
 
+  // The first-load ask's gate reads the process cwd's ENVIRONMENT.md — the
+  // repo root is NOT a fixture (the ceremony can legitimately write one
+  // during real use, and did), so these tests point the cwd at a fresh temp
+  // project for their duration.
+  void chdirToFreshProject() {
+    final dir = Directory.systemTemp.createTempSync('tina-first-load-');
+    final old = Directory.current;
+    Directory.current = dir;
+    addTearDown(() {
+      Directory.current = old;
+      try {
+        dir.deleteSync(recursive: true);
+      } catch (_) {}
+    });
+  }
+
   test('first load asks before the REPL; Enter runs the environment agent',
       () async {
-    // With no ENVIRONMENT.md (true of this repo's root) and a trusted
+    // With no ENVIRONMENT.md (the fresh temp cwd) and a trusted
     // project, run() shows the picker after the first paint and before the
     // REPL takes the keyboard. Enter selects "Run now" → the launch notice
     // lands in the chat and the agent starts in the background.
+    chdirToFreshProject();
     final io = FakeStdio()..hasTerminalValue = false;
     final config = Config.parse(const ['--backend', 'ansi']);
     final app = await buildAppComposition(
@@ -261,6 +278,7 @@ void main() {
   });
 
   test('first load explainer mentions side panel spawn', () async {
+    chdirToFreshProject();
     final io = FakeStdio()..hasTerminalValue = false;
     final config = Config.parse(const ['--backend', 'ansi']);
     final app = await buildAppComposition(

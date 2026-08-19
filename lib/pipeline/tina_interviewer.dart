@@ -79,11 +79,24 @@ class TinaInterviewer implements Interviewer {
   Future<Answer> _yesNo(Question q) async {
     // globalKeys: panel-cycling shortcuts stay global at a y/n gate too
     // (tin-c5nw).
-    final ev = await editor!.readKey(globalKeys: true);
-    final yes = ev is CharInput && (ev.text == 'y' || ev.text == 'Y');
-    return Answer(
-        kind: yes ? AnswerValue.yes : AnswerValue.no,
-        value: yes ? 'yes' : 'no');
+    //
+    // Only y/n decide (Esc counts as no — the "get me out" key). Anything
+    // else — arrows, Enter, stray characters — is not an answer and must
+    // not decide the gate; the read stays armed for the next key.
+    while (true) {
+      final ev = await editor!.readKey(globalKeys: true);
+      if (ev is CharInput) {
+        final ch = ev.text.toLowerCase();
+        if (ch == 'y') {
+          return const Answer(kind: AnswerValue.yes, value: 'yes');
+        }
+        if (ch == 'n') {
+          return const Answer(kind: AnswerValue.no, value: 'no');
+        }
+      } else if (ev is EscapeKey) {
+        return const Answer(kind: AnswerValue.no, value: 'no');
+      }
+    }
   }
 
   Future<Answer> _freeform(Question q) async {
