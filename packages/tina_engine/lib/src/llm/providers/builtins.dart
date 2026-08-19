@@ -5,6 +5,7 @@ import 'deepseek_descriptor.dart';
 import 'gemini_descriptor.dart';
 import 'glm_descriptor.dart';
 import 'grok_descriptor.dart';
+import 'hetzner_descriptor.dart';
 import 'longcat_descriptor.dart';
 import 'mistral_descriptor.dart';
 import 'nim_descriptor.dart';
@@ -27,6 +28,7 @@ void registerBuiltins(ProviderRegistry registry) {
     ..register(deepseekDescriptor)
     ..register(glmDescriptor)
     ..register(grokDescriptor)
+    ..register(hetznerDescriptor)
     ..register(longcatDescriptor)
     ..register(mistralDescriptor)
     ..register(nimDescriptor)
