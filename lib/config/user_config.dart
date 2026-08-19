@@ -15,7 +15,7 @@ const int kCurrentConfigVersion = 1;
 
 /// Top-level keys [loadUserConfig] recognizes. Anything else is reported as a
 /// likely typo (e.g. `[limit]` for `[limits]`) rather than silently ignored.
-const _knownTopLevelKeys = {'version', 'default', 'providers', 'limits', 'prompts', 'theme', 'trust', 'regions', 'environment', 'tui'};
+const _knownTopLevelKeys = {'version', 'default', 'providers', 'limits', 'prompts', 'theme', 'trust', 'regions', 'environment', 'tui', 'permissions'};
 
 /// Whether the first-load environment agent (ENVIRONMENT.md population) may
 /// run in the background without asking. From `[environment] auto_populate`
@@ -35,6 +35,7 @@ const _knownDefaultKeys = {'provider', 'model', 'workflow'};
 const _knownProviderKeys = {'api_key', 'auth_token', 'base_url', 'wire', 'name', 'disabled_models'};
 const _knownPromptKeys = {'identity'};
 const _knownRegionsKeys = {'model'};
+const _knownPermissionsKeys = {'mode', 'model'};
 const _knownEnvironmentKeys = {'auto_populate', 'model'};
 const _knownLimitsKeys = {
   'max_global_tokens',
@@ -63,6 +64,29 @@ class RegionsConfig {
   Map<String, dynamic> toMap() => {if (model != null) 'model': model};
 
   bool get isEmpty => model == null;
+}
+
+/// The `[permissions]` table: permission-mode defaults.
+class PermissionsConfig {
+  /// Startup permission mode from `[permissions] mode` (`ask`, `read_all`,
+  /// `allow_edits`, `auto`). null = the `ask` default (CLI flag wins anyway).
+  final String? mode;
+
+  /// `"provider/model"` for the "auto" mode's safety classifier — the fast,
+  /// cheap tier. null = inherit the main agent's model.
+  final String? model;
+
+  const PermissionsConfig({this.mode, this.model});
+
+  factory PermissionsConfig.fromMap(Map<String, dynamic> m) =>
+      PermissionsConfig(mode: m['mode'] as String?, model: m['model'] as String?);
+
+  Map<String, dynamic> toMap() => {
+        if (mode != null) 'mode': mode,
+        if (model != null) 'model': model,
+      };
+
+  bool get isEmpty => mode == null && model == null;
 }
 
 /// Per-provider overrides from a `[providers.<id>]` table in the user config.
@@ -325,6 +349,10 @@ class UserConfig {
   /// Null when absent.
   final RegionsConfig? regions;
 
+  /// The `[permissions]` table: startup permission mode + classifier model.
+  /// Null when absent.
+  final PermissionsConfig? permissions;
+
   /// Schema version the file declared (defaults to [kCurrentConfigVersion] when
   /// absent). [loadUserConfig] only returns a config whose version matches.
   final int version;
@@ -343,6 +371,7 @@ class UserConfig {
     this.environmentModel,
     this.mouseWheel,
     this.regions,
+    this.permissions,
     this.version = kCurrentConfigVersion,
   });
 
@@ -360,7 +389,8 @@ class UserConfig {
       environmentAutoPopulate == null &&
       environmentModel == null &&
       mouseWheel == null &&
-      (regions == null || regions!.isEmpty);
+      (regions == null || regions!.isEmpty) &&
+      (permissions == null || permissions!.isEmpty);
 
   /// Copy with any subset of fields overridden; unlisted fields keep their
   /// values. The read-modify-write path for patching one setting without
@@ -379,6 +409,7 @@ class UserConfig {
     String? environmentModel,
     bool? mouseWheel,
     RegionsConfig? regions,
+    PermissionsConfig? permissions,
   }) =>
       UserConfig(
         defaultProvider: defaultProvider ?? this.defaultProvider,
@@ -395,6 +426,7 @@ class UserConfig {
         environmentModel: environmentModel ?? this.environmentModel,
         mouseWheel: mouseWheel ?? this.mouseWheel,
         regions: regions ?? this.regions,
+        permissions: permissions ?? this.permissions,
         version: version,
       );
 
@@ -418,6 +450,8 @@ class UserConfig {
     final tuiRaw = (m['tui'] as Map?)?.cast<String, dynamic>();
     final mouseWheel = tuiRaw?['mouse_wheel'] as bool?;
     final regionsRaw = (m['regions'] as Map?)?.cast<String, dynamic>();
+    final permissionsRaw =
+        (m['permissions'] as Map?)?.cast<String, dynamic>();
     final providers = <String, ProviderConfig>{};
     for (final e in (providersRaw ?? const <String, dynamic>{}).entries) {
       if (e.value is Map) {
@@ -449,6 +483,9 @@ class UserConfig {
       environmentModel: environmentModel,
       mouseWheel: mouseWheel,
       regions: regionsRaw == null ? null : RegionsConfig.fromMap(regionsRaw),
+      permissions: permissionsRaw == null
+          ? null
+          : PermissionsConfig.fromMap(permissionsRaw),
       version: (m['version'] as int?) ?? kCurrentConfigVersion,
     );
   }
@@ -543,6 +580,14 @@ void _warnUnknownKeys(Map<String, dynamic> m, String path) {
   if (regions is Map) {
     for (final k in regions.keys) {
       if (!_knownRegionsKeys.contains(k)) warn('regions.$k', _knownRegionsKeys);
+    }
+  }
+  final permissions = m['permissions'];
+  if (permissions is Map) {
+    for (final k in permissions.keys) {
+      if (!_knownPermissionsKeys.contains(k)) {
+        warn('permissions.$k', _knownPermissionsKeys);
+      }
     }
   }
   final environment = m['environment'];
@@ -672,6 +717,8 @@ String userConfigToToml(UserConfig config) {
     if (config.mouseWheel != null) 'tui': {'mouse_wheel': config.mouseWheel},
     if (config.regions != null && !config.regions!.isEmpty)
       'regions': config.regions!.toMap(),
+    if (config.permissions != null && !config.permissions!.isEmpty)
+      'permissions': config.permissions!.toMap(),
   };
   return TomlDocument.fromMap(map).toString();
 }
@@ -730,8 +777,9 @@ const _kConfigTemplate = '''# tina user config (~/.tina/config).
 version = 1
 
 [default]
-# Built-in providers: anthropic, openai, deepseek, gemini, glm, grok,
-# longcat, mistral, nim, qwen, tencent. Set `model` to any model the
+# Built-in providers: anthropic, cerebras, deepseek, gemini, glm, grok,
+# hetzner, longcat, mistral, nim, novita, openai, openrouter, qwen, qwencloud,
+# tencent. Set `model` to any model the
 # provider offers (use `/model <name>` in the REPL to list them).
 provider = "anthropic"
 model    = "claude-sonnet-4-6"
@@ -787,6 +835,16 @@ api_key = "sk-ant-..."
 # (per-subfolder agents primed from the summary index). `model` is a
 # "provider/model" string; omit it to inherit the main agent's model.
 # [regions]
+# model = "deepseek/deepseek-chat"
+
+# Permission mode: how tool calls are gated. `ask` (default) prompts for
+# mutating tools; `read_all` also auto-approves network reads; `allow_edits`
+# auto-approves file edits too (bash still prompts); `auto` lets a small
+# classifier model decide each call, falling back to a prompt on any doubt.
+# `model` is the classifier's "provider/model" for auto mode; omit it to
+# inherit the main agent's model.
+# [permissions]
+# mode = "auto"
 # model = "deepseek/deepseek-chat"
 
 # Terminal color theme. Values are ANSI SGR parameter strings (e.g. "31" for red

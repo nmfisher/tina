@@ -104,6 +104,11 @@ class SessionController implements CommandContext {
   @override
   Future<void> Function()? openSessionPicker;
 
+  /// Switch the permission mode (`/permissions <mode>`). Wired by the TUI to
+  /// update the shared base policy plus every live conversation's policy;
+  /// null in headless (no runtime switch — use the CLI flag).
+  void Function(PermissionMode mode)? setPermissionMode;
+
   /// Display the image at [path] in the focused panel (`/image`). Wired by the
   /// TUI coordinator; null in headless.
   @override

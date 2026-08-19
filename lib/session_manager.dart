@@ -246,11 +246,12 @@ class SessionManager {
     final provider = _providerFactory(providerId, apiKey, model, baseUrl);
 
     // Fresh policy per conversation so remembered (always) rules don't leak
-    // across conversations — only the immutable defaults + static rules are
-    // inherited; sessionRules starts clean.
+    // across conversations — only the immutable defaults + static rules +
+    // the current mode are inherited; sessionRules starts clean.
     final policy = PermissionPolicy(
       defaults: basePolicy.defaults,
       rules: basePolicy.staticRules,
+      mode: basePolicy.mode,
     );
 
     // Capture the full per-conversation identity NOW (before the first write)

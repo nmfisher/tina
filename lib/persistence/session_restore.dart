@@ -26,6 +26,11 @@ class RestoreContext {
   /// `AppComposition.buildStartupProvider`.
   final LlmProvider Function() accountProvider;
 
+  /// The auto-mode permission classifier, when one was built. Restored
+  /// primary conversations wrap their asker with it so `/permissions auto`
+  /// keeps working across a resume. Null when no classifier exists.
+  final PermissionClassifier? classifier;
+
   const RestoreContext({
     required this.registry,
     required this.pipeline,
@@ -36,6 +41,7 @@ class RestoreContext {
     required this.sessionId,
     required this.activeConversationId,
     required this.accountProvider,
+    this.classifier,
   });
 }
 
@@ -68,6 +74,7 @@ Agent _restoreAgent({
         policy: policy,
         config: ctx.config,
         withSubAgents: true,
+        classifier: ctx.classifier,
         system: system,
       );
     case ConversationKind.subAgent:

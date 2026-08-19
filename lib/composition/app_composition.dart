@@ -54,6 +54,11 @@ class AppComposition {
   /// metered — fine for fakes.)
   final LlmProvider? startupProviderOverride;
 
+  /// The "auto" permission mode's safety classifier, built from
+  /// `[permissions] model` (or the main model). Null when no provider could
+  /// be built — auto mode then falls back to the interactive prompt.
+  final PermissionClassifier? classifier;
+
   const AppComposition({
     required this.config,
     required this.environment,
@@ -69,6 +74,7 @@ class AppComposition {
     required this.initialHistory,
     this.initialManifest,
     this.startupProviderOverride,
+    this.classifier,
   });
 
   /// Build the FIRST conversation's provider from config.provider/model (the
@@ -120,6 +126,26 @@ Future<AppComposition> buildAppComposition({
   registry.decorator =
       (inner) => MeteringProvider(inner, ledger, pauseGate);
   final policy = config.buildPolicy();
+  // The auto-mode classifier: a dedicated cheap model when `[permissions]
+  // model` is set, else the main model. Best-effort — an unbuildable ref
+  // (unknown provider, missing key) leaves it null and auto mode degrades to
+  // plain prompting.
+  final classifierRef =
+      config.permissionClassifierModel ?? '${config.provider}/${config.model}';
+  PermissionClassifier? classifier;
+  try {
+    classifier = PermissionClassifier(registry.build(
+      classifierRef,
+      apiKeyOverride: classifierRef.startsWith('${config.provider}/')
+          ? config.apiKey
+          : null,
+      maxTokens: config.maxTokens,
+      streamIdleTimeout: config.streamIdleTimeout,
+      requestTimeout: config.requestTimeout,
+    ));
+  } catch (_) {
+    classifier = null;
+  }
   // Confine the shared file tools to the project root + deny the Tina tree,
   // and arm write/edit with atomic writes + backups. Idempotent (may re-run on
   // setup relaunch). Uses the process cwd as the project root.
@@ -182,6 +208,7 @@ Future<AppComposition> buildAppComposition({
     initialConversationId: resolved.activeConversationId,
     initialHistory: resolved.activeHistory,
     initialManifest: resolved.manifest,
+    classifier: classifier,
   );
 }
 

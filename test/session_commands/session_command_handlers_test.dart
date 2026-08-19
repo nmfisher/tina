@@ -31,6 +31,7 @@ class _FakeCtx implements CommandContext {
     this.openBranch,
     this.openToolOutput,
     this.openSessionPicker,
+    this.setPermissionMode,
     this.store,
     this.spendLedger,
   });
@@ -63,6 +64,9 @@ class _FakeCtx implements CommandContext {
 
   @override
   Future<void> Function()? openSessionPicker;
+
+  @override
+  void Function(PermissionMode mode)? setPermissionMode;
 
   /// The on-disk store for the headless /sessions listing path.
   final SessionStore? store;
@@ -465,6 +469,69 @@ Future<void> main() async {
       expect(
         host.styledMessages.map((m) => m.message),
         anyElement(contains('no spend ledger')),
+      );
+    });
+  });
+
+  group('SessionCommandHandlers /permissions <mode>', () {
+    late FakeHostInterface host;
+    late FakeProvider provider;
+    late Conversation conv;
+
+    setUp(() {
+      host = FakeHostInterface();
+      provider = FakeProvider.always(model: 'test-model');
+      conv = Conversation(
+        id: 'test-conv',
+        label: 'test-model',
+        agent: _fakeAgent(provider, host),
+        provider: provider,
+        host: host,
+        policy: PermissionPolicy(),
+      );
+    });
+
+    test('no arg prints the rules incl. the current mode', () async {
+      conv.policy.mode = PermissionMode.readAll;
+      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+      await handlers.dispatch('/permissions');
+      final joined = host.styledMessages.map((m) => m.message).join();
+      expect(joined, contains('mode: readAll'));
+      expect(joined, contains('defaults:'));
+    });
+
+    test('a valid mode invokes the wired switcher', () async {
+      final switched = <PermissionMode>[];
+      final handlers = SessionCommandHandlers(_FakeCtx(
+        conversation: conv,
+        setPermissionMode: switched.add,
+      ));
+      await handlers.dispatch('/permissions allow-edits');
+      expect(switched, [PermissionMode.allowEdits]);
+      expect(host.styledMessages.map((m) => m.message).join(),
+          contains('permission mode: allow-edits'));
+    });
+
+    test('unknown mode errors without switching', () async {
+      var switched = false;
+      final handlers = SessionCommandHandlers(_FakeCtx(
+        conversation: conv,
+        setPermissionMode: (_) => switched = true,
+      ));
+      await handlers.dispatch('/permissions fast');
+      expect(switched, isFalse);
+      expect(
+        host.styledMessages.map((m) => m.message).join(),
+        contains('unknown mode'),
+      );
+    });
+
+    test('headless (no switcher wired) reports the flag instead', () async {
+      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+      await handlers.dispatch('/permissions auto');
+      expect(
+        host.styledMessages.map((m) => m.message).join(),
+        contains('--permission-mode auto'),
       );
     });
   });

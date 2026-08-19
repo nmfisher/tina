@@ -1,4 +1,5 @@
 import 'package:tina/config.dart';
+import 'package:tina/config/user_config.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
 
@@ -34,6 +35,67 @@ void main() {
     test('malformed rule fails fast', () {
       expect(
           () => _parse(['--allow', 'bashgit *']), throwsFormatException);
+    });
+  });
+
+  group('--permission-mode', () {
+    test('defaults to ask when neither flag nor file sets it', () {
+      expect(_parse([]).permissionMode, PermissionMode.ask);
+    });
+
+    test('the flag selects each mode', () {
+      expect(_parse(['--permission-mode', 'read-all']).permissionMode,
+          PermissionMode.readAll);
+      expect(_parse(['--permission-mode', 'allow-edits']).permissionMode,
+          PermissionMode.allowEdits);
+      expect(_parse(['--permission-mode', 'auto']).permissionMode,
+          PermissionMode.auto);
+      expect(_parse(['--permission-mode', 'ask']).permissionMode,
+          PermissionMode.ask);
+    });
+
+    test('an unknown mode value fails fast', () {
+      expect(() => _parse(['--permission-mode', 'yolo-mode']),
+          throwsFormatException);
+    });
+
+    test('the flag beats the [permissions] mode file value', () {
+      final c = Config.parse(
+        const ['--permission-mode', 'read-all'],
+        env: const {'ANTHROPIC_API_KEY': 'test'},
+        userConfig: const UserConfig(
+            permissions: PermissionsConfig(mode: 'auto')),
+      );
+      expect(c.permissionMode, PermissionMode.readAll);
+    });
+
+    test('the [permissions] mode/model file values flow into Config', () {
+      final c = Config.parse(
+        const [],
+        env: const {'ANTHROPIC_API_KEY': 'test'},
+        userConfig: const UserConfig(
+            permissions:
+                PermissionsConfig(mode: 'allow_edits', model: 'nim/foo')),
+      );
+      expect(c.permissionMode, PermissionMode.allowEdits);
+      expect(c.permissionClassifierModel, 'nim/foo');
+    });
+
+    test('an unknown file mode value degrades to ask, not a crash', () {
+      final c = Config.parse(
+        const [],
+        env: const {'ANTHROPIC_API_KEY': 'test'},
+        userConfig:
+            const UserConfig(permissions: PermissionsConfig(mode: 'nope')),
+      );
+      expect(c.permissionMode, PermissionMode.ask);
+    });
+
+    test('buildPolicy carries the mode', () {
+      final p = _parse(['--permission-mode', 'allow-edits']).buildPolicy();
+      expect(p.mode, PermissionMode.allowEdits);
+      expect(p.check('edit', {'filePath': '/x'}), PermissionDecision.allow);
+      expect(p.check('bash', {'command': 'ls'}), PermissionDecision.ask);
     });
   });
 

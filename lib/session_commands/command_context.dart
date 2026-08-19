@@ -96,6 +96,11 @@ abstract class CommandContext {
   /// to switch to or resume a session. Wired by the TUI; null in headless.
   Future<void> Function()? get openSessionPicker;
 
+  /// Switch the permission mode (`/permissions <mode>`): updates the shared
+  /// base policy and every live conversation's policy. Wired by the TUI;
+  /// null in headless (use the `--permission-mode` flag there).
+  void Function(PermissionMode mode)? get setPermissionMode;
+
   /// Display the image at [path] in the focused panel (`/image`). Wired by the
   /// TUI; null in headless (no surface to render onto).
   Future<void> Function(String path)? get openImage;

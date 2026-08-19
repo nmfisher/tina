@@ -258,6 +258,10 @@ class TuiCoordinator {
     // fallback builds fresh ones through the same tear-off.
     final provider = app.buildStartupProvider();
     final policy = app.policy;
+    // Auto-mode classifier (null when no provider could be built) — threaded
+    // into every buildAgent call and the workflow/env askers below so
+    // `/permissions auto` gates calls everywhere via modeAwareAsker.
+    final classifier = app.classifier;
     final store = app.store;
     final stdio = io ?? const LiveStdio();
     final geometry = terminalGeometry ?? const StdoutTerminalGeometry();
@@ -400,11 +404,21 @@ class TuiCoordinator {
           // Workflow node agents prompt per write like the main agent; the
           // prompt renders into the run's own panel (see
           // WorkflowPermissionAsker — a run panel's host is inactive, so its
-          // own asker can't be used).
-          permissionAskerBuilder: (runSink) =>
-              WorkflowPermissionAsker(sink: runSink, screen: screen,
+          // own asker can't be used). Wrapped with the auto-mode classifier
+          // when wired, consulting the scheduler's base policy per call.
+          permissionAskerBuilder: (runSink) => classifier == null
+              ? WorkflowPermissionAsker(sink: runSink, screen: screen,
                   editor: editor, attentionQueue: attentionQueue)
-                  .ask,
+                  .ask
+              : modeAwareAsker(
+                  policy: scheduler.basePolicy ?? policy,
+                  classifier: classifier,
+                  fallback: WorkflowPermissionAsker(sink: runSink,
+                      screen: screen, editor: editor,
+                      attentionQueue: attentionQueue)
+                      .ask,
+                  notice: runSink.notice,
+                ),
           attentionQueue: attentionQueue,
         );
     final supervisor = WorkflowSupervisor(
@@ -523,6 +537,7 @@ class TuiCoordinator {
       regions: regions,
       summaryIndex: summaryIndex,
       askUser: askUser,
+      classifier: classifier,
       system: initialSystem,
     );
     final initialConversation = Conversation(
@@ -563,6 +578,7 @@ class TuiCoordinator {
         regions: regions,
         summaryIndex: summaryIndex,
         askUser: askUser,
+        classifier: classifier,
       ),
       sessionStore: store,
     );
@@ -598,6 +614,7 @@ class TuiCoordinator {
         // instance): each fallback conversation builds and owns its own, so
         // closeAll never double-closes a shared instance.
         accountProvider: app.buildStartupProvider,
+        classifier: classifier,
       );
       for (final meta in manifest.conversations) {
         if (meta.id == initialConversationId) continue; // active, already built
@@ -792,6 +809,18 @@ class TuiCoordinator {
     };
     controller.restoreInput = (buffer, cursor) {
       editor.loadEditState(buffer, cursor);
+    };
+    // `/permissions <mode>`: flip the shared base policy plus every live
+    // conversation's policy (they're copies). New conversations inherit from
+    // the base policy; already-built agents consult their policy per check,
+    // so the change applies immediately.
+    controller.setPermissionMode = (mode) {
+      policy.mode = mode;
+      for (final session in sessionManager.all) {
+        for (final conv in session.conversations) {
+          conv.policy.mode = mode;
+        }
+      }
     };
     // Session picker (Alt+S): switch among live sessions or resume a saved one.
     controller.openSessionPicker = () async {
@@ -2067,6 +2096,18 @@ class TuiCoordinator {
             editor: editor,
             attentionQueue: attentionQueue,
           );
+          // Auto mode gates the environment ceremony too (it mostly runs
+          // read-only scouts, but the ceremony's own bash/write calls pass
+          // through here).
+          PermissionAsker envAskerResolved = envAsker.ask;
+          if (classifier != null) {
+            envAskerResolved = modeAwareAsker(
+              policy: policy,
+              classifier: classifier,
+              fallback: envAsker.ask,
+              notice: envHost.showMessage,
+            );
+          }
           // Esc-Esc cancels the in-flight environment run. The main REPL remains responsive.
           // For simplicity we bind cancellation to the initial conversation's host busy state;
           // the agent run respects cancelSignal.
@@ -2078,7 +2119,7 @@ class TuiCoordinator {
                   host: envHost,
                   cancelSignal: cancel.future,
                   modelRef: envModelRef,
-                  asker: envAsker.ask,
+                  asker: envAskerResolved,
                   scoutSinkFactory: scoutPanelSink);
               if (cancel.isCompleted) {
                 initialHost.showMessage('[environment agent cancelled]\n', style: HostMessageStyle.warning);

@@ -177,6 +177,60 @@ void main() {
       expect(asker.prompts, isEmpty);
       expect(fakeBash.calls.length, 1);
     });
+
+    test('auto mode: classifier allow executes, deny short-circuits', () async {
+      final fakeBash = _RecordingTool('bash');
+      final tools = ToolRegistry([fakeBash]);
+      final provider = _ScriptedProvider([
+        [
+          ToolUseBlock(id: 'u1', name: 'bash', input: const {
+            'command': 'ls',
+          }),
+          ToolUseBlock(id: 'u2', name: 'bash', input: const {
+            'command': 'rm -rf /',
+          }),
+        ],
+        const [TextBlock('done.')],
+      ]);
+      final policy = PermissionPolicy(mode: PermissionMode.auto);
+      // The classifier's provider answers per call: ls -> ALLOW, rm -> DENY.
+      final classifierProvider = _PerCallProvider(['ALLOW', 'DENY']);
+      final classifier = PermissionClassifier(classifierProvider);
+      final asker = _RecordingAsker([]);
+
+      final agent = Agent(
+        provider: provider,
+        tools: tools,
+        sink: FakeAgentSink(),
+        policy: policy,
+        asker: modeAwareAsker(
+          policy: policy,
+          classifier: classifier,
+          fallback: asker.ask,
+        ),
+        system: 'sys',
+      );
+      final history = <Message>[];
+      await agent.run(
+        history: history,
+        userInput: 'run two commands',
+      );
+
+      expect(asker.prompts, isEmpty, reason: 'classifier decided both');
+      expect(
+          fakeBash.calls.map((c) => c['command']), ['ls'],
+          reason: 'the denied rm never reaches execute');
+      // The deny surfaces to the model as an error tool_result.
+      final results = history
+          .lastWhere((m) => m.role == Role.user)
+          .content
+          .whereType<ToolResultBlock>()
+          .toList();
+      expect(results.any((r) => r.isError!), isTrue);
+      expect(
+          results.firstWhere((r) => r.isError!).content,
+          contains('Denied by permission policy'));
+    });
   });
 }
 
@@ -227,6 +281,23 @@ class _RecordingTool implements Tool {
   }) async {
     calls.add(input);
     return const ToolResult('ok');
+  }
+}
+
+class _PerCallProvider extends LlmProvider {
+  final Queue<String> _answers;
+  _PerCallProvider(List<String> answers)
+      : _answers = Queue.of(answers),
+        super('per-call');
+
+  @override
+  Stream<StreamEvent> send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+  }) async* {
+    yield TextDelta(
+        _answers.isEmpty ? 'ALLOW' : _answers.removeFirst());
   }
 }
 

@@ -70,7 +70,7 @@ class SessionCommandHandlers {
       case '/auto-compact':
         _handleAutoCompact(trimmed);
       case '/permissions':
-        _printPermissions();
+        await _handlePermissions(trimmed);
       case '/sessions':
         await _printSavedSessions();
       case '/session':
@@ -437,6 +437,7 @@ class SessionCommandHandlers {
       'grok',
       'mistral',
       'tencent',
+      'hetzner',
     }.contains(lower)
         ? lower
         : null;
@@ -516,7 +517,9 @@ class SessionCommandHandlers {
         '(staleness-aware, runs in the background)\n'
         '  /workflow      list/show/new/edit/run DOT pipelines '
         '(/workflow show|new|edit|run <name>)\n'
-        '  /permissions   show current permission rules\n'
+        '  /permissions   show permission rules; /permissions <mode> switches '
+            'mode\n'
+            '                 (ask | read-all | allow-edits | auto)\n'
         '  /sessions      open the session picker (switch/resume); lists them headless\n'
         '  /session       list live sessions; new/switch/close\n'
         '  /resume <id>   load a saved session into the active session\n'
@@ -527,8 +530,46 @@ class SessionCommandHandlers {
         'ESC cancels the active session\'s in-flight response.\n');
   }
 
+  /// `/permissions` — show rules; `/permissions <ask|read-all|allow-edits|
+  /// auto>` switches the permission mode at runtime. The switch is wired by
+  /// the TUI (base policy + every live conversation); headless reports it's
+  /// unavailable.
+  Future<void> _handlePermissions(String line) async {
+    final parts = line.split(RegExp(r'\s+'));
+    if (parts.length < 2) {
+      _printPermissions();
+      return;
+    }
+    final mode = switch (parts[1]) {
+      'ask' => PermissionMode.ask,
+      'read-all' || 'read_all' => PermissionMode.readAll,
+      'allow-edits' || 'allow_edits' => PermissionMode.allowEdits,
+      'auto' => PermissionMode.auto,
+      _ => null,
+    };
+    if (mode == null) {
+      ctx.active.host.showMessage(
+          'unknown mode "${parts[1]}" — use ask, read-all, allow-edits, '
+          'or auto\n',
+          style: HostMessageStyle.error);
+      return;
+    }
+    final switcher = ctx.setPermissionMode;
+    if (switcher == null) {
+      ctx.active.host.showMessage(
+          'runtime mode switch unavailable here — start with '
+          '--permission-mode ${parts[1]}\n',
+          style: HostMessageStyle.warning);
+      return;
+    }
+    switcher(mode);
+    ctx.active.host.showMessage('permission mode: ${parts[1]}\n');
+  }
+
   void _printPermissions() {
     final policy = ctx.active.policy;
+    ctx.active.host
+        .showMessage('mode: ${policy.mode.name}\n', style: HostMessageStyle.dim);
     ctx.active.host.showMessage('defaults:\n');
     final keys = policy.defaults.keys.toList()..sort();
     for (final k in keys) {

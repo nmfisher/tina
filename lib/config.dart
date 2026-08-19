@@ -34,6 +34,13 @@ class Config {
   final bool continueLatest;
   final bool listSessions;
 
+  /// Startup permission mode (`--permission-mode` / `[permissions] mode`).
+  final PermissionMode permissionMode;
+
+  /// `"provider/model"` for the "auto" mode's safety classifier
+  /// (`[permissions] model`); null = inherit the main model.
+  final String? permissionClassifierModel;
+
   /// A DOT pipeline to run to completion in headless mode (`--workflow <name>`).
   final String? workflow;
 
@@ -197,6 +204,8 @@ class Config {
     this.environmentModel,
     this.mouseWheel = false,
     this.regionsModel,
+    this.permissionMode = PermissionMode.ask,
+    this.permissionClassifierModel,
     this.forceLock = false,
   });
 
@@ -218,6 +227,12 @@ class Config {
         help:
             'Default every tool to allow (skip all permission prompts). '
             'Explicit --deny rules still apply.')
+    ..addOption('permission-mode',
+        allowed: ['ask', 'read-all', 'allow-edits', 'auto'],
+        help: 'Permission gating: ask (prompt for mutating tools), read-all '
+            '(also auto-approve network reads), allow-edits (also auto-approve '
+            'file edits; bash still prompts), auto (a classifier model decides '
+            'each call, falling back to a prompt).')
     ..addFlag('safe-mode',
         negatable: false,
         help:
@@ -549,6 +564,9 @@ class Config {
       environmentModel: userConfig?.environmentModel,
       mouseWheel: userConfig?.mouseWheel ?? false,
       regionsModel: userConfig?.regions?.model,
+      permissionMode: _resolvePermissionMode(
+          res['permission-mode'] as String?, userConfig?.permissions?.mode),
+      permissionClassifierModel: userConfig?.permissions?.model,
       forceLock: res['force'] as bool,
     );
   }
@@ -579,6 +597,8 @@ class Config {
 
   /// Build a policy from the parsed config. `--yolo` makes every default
   /// `allow`; CLI rules layer on top (so `--yolo --deny 'bash:rm *'` works).
+  /// The permission mode rides along on the policy (consulted at check time,
+  /// switchable at runtime via `/permissions <mode>`).
   PermissionPolicy buildPolicy() {
     final defaults = yolo
         ? {
@@ -588,8 +608,24 @@ class Config {
             'bash': PermissionDecision.allow,
           }
         : null;
-    return PermissionPolicy(defaults: defaults, rules: permissionRules);
+    return PermissionPolicy(
+        defaults: defaults, rules: permissionRules, mode: permissionMode);
   }
+}
+
+/// Resolve the startup permission mode: CLI flag > `[permissions] mode` file
+/// value > ask. An unknown file value is a config error at load time, but be
+/// defensive here too — unknown → ask.
+PermissionMode _resolvePermissionMode(String? flagValue, String? fileValue) {
+  final raw = flagValue ?? fileValue;
+  if (raw == null) return PermissionMode.ask;
+  return switch (raw) {
+    'ask' => PermissionMode.ask,
+    'read-all' || 'read_all' => PermissionMode.readAll,
+    'allow-edits' || 'allow_edits' => PermissionMode.allowEdits,
+    'auto' => PermissionMode.auto,
+    _ => PermissionMode.ask,
+  };
 }
 
 /// Resolve the user's [Theme] from [UserConfig], applying the `variant` key

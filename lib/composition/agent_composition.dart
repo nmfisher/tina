@@ -74,6 +74,10 @@ Agent buildAgent({
   // asker auto-denies; the coordinator passes an attention-queue asker so
   // its bash/write prompts actually reach the user.
   PermissionAsker? asker,
+  // The "auto" permission mode's classifier. Non-null wraps the asker with
+  // modeAwareAsker so `/permissions auto` decides calls without a modal;
+  // null leaves the interactive asker untouched.
+  PermissionClassifier? classifier,
   String? system,
 }) {
   // The entry agent's resolved system prompt — also the identity a delegated
@@ -184,12 +188,25 @@ Agent buildAgent({
     effectivePolicy = policy;
   }
 
+  // The resolved asker, wrapped for permission mode "auto" when a classifier
+  // is wired: the wrapper consults effectivePolicy.mode per call, so runtime
+  // `/permissions <mode>` switches apply with no rebuild.
+  var resolvedAsker = asker ?? host.askPermission;
+  if (classifier != null) {
+    resolvedAsker = modeAwareAsker(
+      policy: effectivePolicy,
+      classifier: classifier,
+      fallback: resolvedAsker,
+      notice: (line) => host.showMessage(line, style: HostMessageStyle.dim),
+    );
+  }
+
   return Agent(
     provider: provider,
     tools: agentTools,
     sink: host,
     policy: effectivePolicy,
-    asker: asker ?? host.askPermission,
+    asker: resolvedAsker,
     budget: config.buildTokenBudget(),
     pauseGate: scheduler.pauseGate,
     maxSteps: config.maxSteps,

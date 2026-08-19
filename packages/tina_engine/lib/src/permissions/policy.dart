@@ -1,5 +1,16 @@
 enum PermissionDecision { allow, deny, ask }
 
+/// Session-wide permission mode, layered on top of the per-tool defaults.
+///
+/// - [ask]: the built-in defaults — read-only tools run, mutating tools prompt.
+/// - [readAll]: every read-only tool (including network reads) runs without
+///   prompting; writes still prompt.
+/// - [allowEdits]: reads plus `write`/`edit` run; `bash` still prompts.
+/// - [auto]: gate level identical to [ask], but the asker is an LLM
+///   classifier that decides each call (see `modeAwareAsker`) — falling back
+///   to the interactive prompt when the classifier errors or times out.
+enum PermissionMode { ask, readAll, allowEdits, auto }
+
 class PermissionRule {
   final String toolName;
   final String pattern;
@@ -34,9 +45,15 @@ class PermissionPolicy {
   final List<PermissionRule> staticRules;
   final List<PermissionRule> sessionRules = [];
 
+  /// Current mode. Mutable so `/permissions <mode>` can switch at runtime;
+  /// consulted by [check] on every call, so a change applies immediately to
+  /// agents already holding this policy.
+  PermissionMode mode;
+
   PermissionPolicy({
     Map<String, PermissionDecision>? defaults,
     List<PermissionRule>? rules,
+    this.mode = PermissionMode.ask,
   })  : defaults = Map.from(defaults ?? _builtinDefaults),
         staticRules = List.unmodifiable(rules ?? const []);
 
@@ -53,6 +70,11 @@ class PermissionPolicy {
     'ls': PermissionDecision.allow,
     'stat': PermissionDecision.allow,
     'which': PermissionDecision.allow,
+    // Network reads and the summary sidecar: gated by default (explicit here
+    // rather than via the `?? ask` fallback, so /permissions lists them).
+    'fetch': PermissionDecision.ask,
+    'web_search': PermissionDecision.ask,
+    'write_summary': PermissionDecision.allow,
     // The git tool's subcommand allowlist makes mutation impossible, so it
     // is read-only by construction (see GitTool).
     'git': PermissionDecision.allow,
@@ -67,7 +89,35 @@ class PermissionPolicy {
     for (final r in staticRules) {
       if (_appliesTo(r, tool, key)) return r.decision;
     }
-    return defaults[tool] ?? PermissionDecision.ask;
+    return _widen(tool, defaults[tool] ?? PermissionDecision.ask);
+  }
+
+  /// Tools that only ever read. [PermissionMode.readAll] and [allowEdits]
+  /// auto-approve these; `_builtinDefaults` already allows most of them — the
+  /// set additionally covers the network reads and region queries that gate
+  /// by default.
+  static const _readOnlyTools = {
+    'read', 'search', 'grep', 'glob', 'ls', 'stat', 'which', 'git',
+    'fetch', 'web_search', 'repo_structure', 'list_regions',
+    'read_summary', 'query_region',
+  };
+
+  /// Widen a default decision according to [mode]. Session/static rules are
+  /// unaffected — an explicit `--deny` still denies in every mode.
+  PermissionDecision _widen(String tool, PermissionDecision d) {
+    switch (mode) {
+      case PermissionMode.ask:
+      case PermissionMode.auto:
+        return d;
+      case PermissionMode.readAll:
+        return _readOnlyTools.contains(tool) ? PermissionDecision.allow : d;
+      case PermissionMode.allowEdits:
+        return (_readOnlyTools.contains(tool) ||
+                tool == 'write' ||
+                tool == 'edit')
+            ? PermissionDecision.allow
+            : d;
+    }
   }
 
   void remember(String tool, String pattern, PermissionDecision decision) {
@@ -120,6 +170,7 @@ class PermissionPolicy {
           for (final e in defaults.entries) e.key: e.value.name,
         },
         'staticRules': staticRules.map((r) => r.toJson()).toList(),
+        'mode': mode.name,
       };
 
   factory PermissionPolicy.fromJson(Map<String, dynamic> j) => PermissionPolicy(
@@ -132,6 +183,7 @@ class PermissionPolicy {
             .map((e) =>
                 PermissionRule.fromJson(e as Map<String, dynamic>))
             .toList(),
+        mode: PermissionMode.values.byName(j['mode'] as String? ?? 'ask'),
       );
 
   static bool _appliesTo(PermissionRule r, String tool, String key) {
