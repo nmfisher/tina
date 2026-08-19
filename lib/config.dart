@@ -130,6 +130,12 @@ class Config {
   /// picker on first load; `always` runs without asking; `never` skips.
   final EnvironmentAutoPopulate environmentAutoPopulate;
 
+  /// The environment agent's `"provider/model"` from `[environment] model` in
+  /// ~/.tina/config. Null when absent → the shipped default
+  /// (`kDefaultEnvironmentModelRef`). Distinct from the startup model: the
+  /// environment agent is a dedicated one-off worker with its own model pick.
+  final String? environmentModel;
+
   /// Whether the TUI captures the mouse wheel for chat scrollback from
   /// `[tui] mouse_wheel` in ~/.tina/config. True (the default) enables
   /// xterm mouse-button reporting so the wheel scrolls the transcript —
@@ -187,6 +193,7 @@ class Config {
     this.trustOverride,
     this.trustDefault = TrustDefault.ask,
     this.environmentAutoPopulate = EnvironmentAutoPopulate.ask,
+    this.environmentModel,
     this.mouseWheel = true,
     this.regionsModel,
     this.forceLock = false,
@@ -538,6 +545,7 @@ class Config {
       trustDefault: _parseTrustDefault(userConfig?.trustDefault),
       environmentAutoPopulate:
           parseEnvironmentAutoPopulate(userConfig?.environmentAutoPopulate),
+      environmentModel: userConfig?.environmentModel,
       mouseWheel: userConfig?.mouseWheel ?? true,
       regionsModel: userConfig?.regions?.model,
       forceLock: res['force'] as bool,

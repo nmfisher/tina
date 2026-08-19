@@ -52,11 +52,20 @@ class EnvironmentIndex {
 
   /// Run the environment agent (first-load population or a stale re-verify).
   /// [host] routes the agent's output (defaults to a HeadlessHost — pass the
-  /// conversation host in-session); [cancelSignal] cancels mid-run. Returns
-  /// true when the run completed and the tracking entry was recorded.
+  /// conversation host in-session); [cancelSignal] cancels mid-run;
+  /// [modelRef] overrides the environment agent's model for this run (the
+  /// first-load picker's just-chosen model, which the in-memory [config]
+  /// predates); [asker] overrides its permission asker (the TUI passes an
+  /// attention-queue asker so the background panel's prompts reach the user);
+  /// [scoutSinkFactory] opens a per-scout sink (the TUI: one side panel per
+  /// surveyed folder) for the first-load survey.
+  /// Returns true when the run completed and the tracking entry was recorded.
   Future<bool> refresh({
     HostInterface? host,
     Future<void>? cancelSignal,
+    String? modelRef,
+    PermissionAsker? asker,
+    AgentSink Function(String dir)? scoutSinkFactory,
   }) async {
     final cfg = config;
     final reg = registry;
@@ -74,6 +83,9 @@ class EnvironmentIndex {
       host: host,
       cancelSignal: cancelSignal,
       spendLedger: spendLedger,
+      modelRef: modelRef,
+      asker: asker,
+      scoutSinkFactory: scoutSinkFactory,
     ).run();
   }
 }

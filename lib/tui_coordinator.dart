@@ -16,6 +16,8 @@ import 'package:tina/config/spawn_mru.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina/environment/environment_index.dart';
 import 'package:tina/environment/environment_record.dart';
+import 'package:tina/environment/environment_runner.dart'
+    show kDefaultEnvironmentModelRef;
 import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina/persistence/session_restore.dart';
 import 'package:tina/pipeline/pipeline_runner.dart';
@@ -1920,10 +1922,81 @@ class TuiCoordinator {
         pipeline.loadProjectContext &&
         !EnvironmentRecord.exists(Directory.current.path)) {
       coordinator.pendingFirstLoadEnvironmentAsk = () async {
-        Future<void> launch() async {
+        // The effective model the environment agent runs under for this run:
+        // the just-picked ref, else the persisted `[environment] model`, else
+        // the shipped default. Passed explicitly (not read from [config])
+        // because the in-memory config predates the picker's fresh choice.
+        Future<String> pickEnvironmentModel() async {
+          final stored = config.environmentModel ?? kDefaultEnvironmentModelRef;
+          final envMap = app.environment.env;
+          final cfg = loadUserConfig(env: envMap);
+          final configured = cfg.providers.keys.toSet();
+          if (configured.isEmpty) return stored; // nothing to pick from
+          final disabledModelRefs = <String>{};
+          for (final e in cfg.providers.entries) {
+            for (final mid in (e.value.disabledModels ?? const <String>[])) {
+              disabledModelRefs.add('${e.key}/$mid');
+            }
+          }
+          final refs = <String>[];
+          for (final pid in scheduler.registry.providerIds) {
+            if (!configured.contains(pid)) continue;
+            for (final m in scheduler.registry.modelsFor(pid)) {
+              final ref = '$pid/${m.id}';
+              if (!disabledModelRefs.contains(ref)) refs.add(ref);
+            }
+          }
+          if (refs.isEmpty) return stored;
+          // Surface the effective default at the top — the cursor starts on
+          // index 0, so the default is also the preselected choice.
+          final ordered = [
+            if (refs.contains(stored)) stored,
+            ...refs.where((r) => r != stored),
+          ];
+          final selected = await runListOverlay<String>(
+            screen: screen,
+            editor: editor,
+            entries: [
+              for (final r in ordered)
+                (display: r == stored ? '$r  (default)' : r, value: r),
+            ],
+            title: 'Environment agent — pick its model',
+            footer: '↑↓ move · enter select · esc keep default',
+            accent: 'cyan',
+            body: 'The environment agent is a one-off side-panel worker that measures '
+                'this repo (toolchain, setup, build, tests, auth) and writes '
+                'ENVIRONMENT.md. It runs on its own model, separate from the '
+                'main conversation.\n'
+                '\n'
+                'The choice is saved to [environment] model in ~/.tina/config '
+                'and reused for later environment runs.',
+          );
+          final ref = selected ?? stored;
+          if (selected != null && selected != cfg.environmentModel) {
+            // Best-effort persist (re-loaded fresh so a concurrent
+            // auto_populate write in the same ask isn't clobbered).
+            try {
+              writeUserConfig(
+                loadUserConfig(env: envMap)
+                    .copyWith(environmentModel: selected),
+                env: envMap,
+              );
+              initialHost.showMessage(
+                'Saved: environment agent model → $selected '
+                '(`[environment] model` in ~/.tina/config)\n',
+                style: HostMessageStyle.dim,
+              );
+            } catch (_) {}
+          }
+          return ref;
+        }
+
+        Future<void> launch(String envModelRef) async {
           initialHost.showMessage(
-            'No ENVIRONMENT.md yet — spawning environment agent in side panel to inspect '
-            'toolchain, run setup/build/test and write ENVIRONMENT.md (Esc-Esc to cancel)…\n',
+            'No ENVIRONMENT.md yet — spawning environment agent in side panel: '
+            'read-only scouts will describe the repo root and each top-level '
+            'subfolder, then the agent inspects toolchain, runs setup/build/test '
+            'and writes ENVIRONMENT.md (Esc-Esc to cancel)…\n',
           );
           // Spawn a side panel for the environment agent so its work does not clutter the main panel.
           final envConvId = 'env-${DateTime.now().millisecondsSinceEpoch}';
@@ -1932,13 +2005,44 @@ class TuiCoordinator {
             conversationId: envConvId,
             parentConversationId: initialConversation.id,
             // Every conversation panel names the model it runs under; the
-            // environment agent runs on the startup provider (EnvironmentRunner
-            // builds its ephemeral composition from the same config), so the
-            // session's startup model is the one to name.
-            label: panelLabel(role: 'Environment', model: provider.model),
+            // environment agent runs on its OWN model ([environment] model,
+            // default DiffusionGemma on NIM) — not the session's startup
+            // model — so name the ref the run actually uses.
+            label: panelLabel(role: 'Environment', model: envModelRef),
             sinkHost: envHost,
           );
+          // One scout panel per surveyed folder, nested UNDER the environment
+          // panel (depth 2): each folder's read-only scout streams its own
+          // transcript (tool reads + description) into its own surface. The
+          // panels are host-only (like the env panel itself) — read-only, and
+          // they stay after the scout finishes as its transcript.
+          var scoutSeq = 0;
+          AgentSink scoutPanelSink(String dir) {
+            final id = '$envConvId-scout-${scoutSeq++}';
+            final host = _makeSpawnedHost(id);
+            _buildSpawnPanel(
+              conversationId: id,
+              parentConversationId: envConvId,
+              label: panelLabel(
+                  role: dir == '.' ? 'scout root' : 'scout $dir',
+                  model: envModelRef),
+              sinkHost: host,
+            );
+            return host;
+          }
           final cancel = Completer<void>();
+          // The env panel's host is a BACKGROUND host — its own asker
+          // auto-denies, which would silently starve the ceremony of every
+          // gated tool (bash/write/edit all "denied", nothing ever sticks).
+          // Route its permission asks through the attention queue instead:
+          // the prompt renders in the env panel, the y/n/a/d key is read via
+          // the shared editor — the same seam workflow run panels use.
+          final envAsker = WorkflowPermissionAsker(
+            sink: envHost,
+            screen: screen,
+            editor: editor,
+            attentionQueue: attentionQueue,
+          );
           // Esc-Esc cancels the in-flight environment run. The main REPL remains responsive.
           // For simplicity we bind cancellation to the initial conversation's host busy state;
           // the agent run respects cancelSignal.
@@ -1946,13 +2050,23 @@ class TuiCoordinator {
             try {
               final idx = controller.environmentIndex;
               if (idx == null) return;
-              final ok = await idx.refresh(host: envHost, cancelSignal: cancel.future);
+              final ok = await idx.refresh(
+                  host: envHost,
+                  cancelSignal: cancel.future,
+                  modelRef: envModelRef,
+                  asker: envAsker.ask,
+                  scoutSinkFactory: scoutPanelSink);
               if (cancel.isCompleted) {
                 initialHost.showMessage('[environment agent cancelled]\n', style: HostMessageStyle.warning);
               } else if (ok) {
                 initialHost.showMessage('Environment record updated (ENVIRONMENT.md).\n', style: HostMessageStyle.success);
               } else {
-                initialHost.showMessage('environment agent did not update ENVIRONMENT.md — the record stays stale\n', style: HostMessageStyle.warning);
+                initialHost.showMessage(
+                    'environment agent did not update ENVIRONMENT.md — the '
+                    'record stays stale, so first load will offer to run it '
+                    'again on the next launch (details in the Environment '
+                    'panel)\n',
+                    style: HostMessageStyle.warning);
               }
             } catch (e) {
               initialHost.showMessage('environment agent failed: $e\n', style: HostMessageStyle.error);
@@ -1965,7 +2079,9 @@ class TuiCoordinator {
           case EnvironmentAutoPopulate.never:
             return;
           case EnvironmentAutoPopulate.always:
-            launch();
+            // "Don't ask" also means no model picker: run on the persisted
+            // `[environment] model`, else the shipped default.
+            launch(config.environmentModel ?? kDefaultEnvironmentModelRef);
           case EnvironmentAutoPopulate.ask:
             initialHost.showMessage(
               'No ENVIRONMENT.md found.\n'
@@ -1975,6 +2091,7 @@ class TuiCoordinator {
               'setup/build/test reliably and avoid guessing.\n'
               '\n'
               'The environment agent is a one-off doing worker that will:\n'
+              '- Spawn one read-only scout per folder (repo root + each top-level subfolder, each in its own side panel), each describing its folder and project type\n'
               '- Inspect dependency manifests and toolchain, e.g. package.json, Cargo.toml, go.mod, pyproject.toml, Gemfile\n'
               '- Run the setup step, then build and run the test suite, recording real pass/fail/skipped counts\n'
               '- Check git identity, SSH keys and GitHub auth, recording references only — no secrets are written to the file\n'
@@ -2018,7 +2135,7 @@ class TuiCoordinator {
                 );
               } catch (_) {}
             }
-            launch();
+            launch(await pickEnvironmentModel());
         }
       };
     }

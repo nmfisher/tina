@@ -69,6 +69,11 @@ Agent buildAgent({
   RegionRegistry? regions,
   SummaryIndex? summaryIndex,
   Future<List<Answer>> Function(List<Question>)? askUser,
+  // Overrides the agent's permission asker (defaults to the host's). The
+  // first-load environment agent runs on a background panel host whose own
+  // asker auto-denies; the coordinator passes an attention-queue asker so
+  // its bash/write prompts actually reach the user.
+  PermissionAsker? asker,
   String? system,
 }) {
   // The entry agent's resolved system prompt — also the identity a delegated
@@ -184,7 +189,7 @@ Agent buildAgent({
     tools: agentTools,
     sink: host,
     policy: effectivePolicy,
-    asker: host.askPermission,
+    asker: asker ?? host.askPermission,
     budget: config.buildTokenBudget(),
     pauseGate: scheduler.pauseGate,
     maxSteps: config.maxSteps,
