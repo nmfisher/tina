@@ -1,6 +1,8 @@
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 
+import 'package:tina/tui/model_search_overlay.dart';
+
 /// A model-picker overlay for the `/spawn` command: shows a flat, scrollable
 /// list of `"provider/model"` references from the configured providers in the
 /// registry. The user navigates with arrow keys and selects with Enter.
@@ -28,7 +30,9 @@ Future<String?> runSpawnOverlay({
   Future<InputEvent> Function()? readEvent,
 }) {
   final refs = <String>[];
+  final names = <String, String>{};
   for (final id in registry.providerIds) {
+    names[id] = registry.descriptor(id)?.name ?? id;
     if (!configuredProviders.contains(id)) continue;
     for (final m in registry.modelsFor(id)) {
       final ref = '$id/${m.id}';
@@ -37,26 +41,27 @@ Future<String?> runSpawnOverlay({
   }
   final available = refs.toSet();
   final recent = recentlyUsed.where(available.contains).toList(growable: false);
-  final modelRefs = recent.isEmpty
-      ? refs
-      : [...recent, ...refs.where((r) => !recent.contains(r))];
 
   return runModelPickerOverlay(
     screen: screen,
     editor: editor,
-    modelRefs: modelRefs,
+    modelRefs: refs,
     title: 'Spawn agent',
     readEvent: readEvent,
+    providerNames: names,
+    recentRefs: recent,
   );
 }
 
-/// A model-picker overlay showing a scrollable list of [modelRefs] (each a
-/// `"provider/model"` string). The caller builds the list; this function only
+/// A model-picker overlay: [modelRefs] (each a `"provider/model"` string)
+/// rendered as a searchable, provider-grouped list (see
+/// [runModelSearchOverlay]). The caller builds the list; this function only
 /// handles the UI. Returns the selected ref or `null` on cancel (Escape /
 /// Ctrl-C).
 ///
 /// Used by both `/spawn` (filtered to configured providers) and `/model`
-/// (all providers in the registry).
+/// (all providers in the registry). [providerNames] maps provider id →
+/// display name for the group headers; [recentRefs] surface at the top.
 Future<String?> runModelPickerOverlay({
   required Screen screen,
   required LineEditor editor,
@@ -64,14 +69,16 @@ Future<String?> runModelPickerOverlay({
   String title = 'Select model',
   Future<InputEvent> Function()? readEvent,
   String? accent,
+  Map<String, String> providerNames = const {},
+  List<String> recentRefs = const [],
 }) {
-  final entries = modelRefs.map((r) => (display: r, value: r)).toList();
-  return runListOverlay<String>(
+  return runModelSearchOverlay(
     screen: screen,
     editor: editor,
-    entries: entries,
+    modelRefs: modelRefs,
+    providerNames: providerNames,
     title: title,
-    footer: '↑↓ move · enter select · esc cancel',
+    recentRefs: recentRefs,
     readEvent: readEvent,
     accent: accent,
   );
@@ -439,10 +446,46 @@ class _ListPickerForm<T> {
       );
 }
 
-/// One bordered content row inside a [boxLines] frame.
+/// One bordered content row inside a [boxLines] frame. Rows may embed ANSI
+/// SGR sequences (colorized text); those carry no width, so padding is
+/// computed on the VISIBLE length — a raw `String.length` pad would leave
+/// colored rows short of (or past) the right border.
 String _wrapLine(int innerW, String s, String Function(String) paint) {
-  final t = s.length > innerW ? s.substring(0, innerW) : s.padRight(innerW);
+  final vis = _visibleLength(s);
+  String t;
+  if (vis > innerW) {
+    // Hard clip on visible cells, then re-establish the default style — the
+    // clip may land mid-run, leaving an SGR sequence open.
+    t = '${_clipVisible(s, innerW)}\x1b[0m';
+  } else {
+    t = '$s${' ' * (innerW - vis)}';
+  }
   return '${paint('│')} $t ${paint('│')}';
+}
+
+final _ansiEscape = RegExp(r'\x1b\[[0-9;?]*[ -/]*[@-~]');
+
+/// The printable width of [s]: its length with ANSI escapes removed.
+int _visibleLength(String s) => s.replaceAll(_ansiEscape, '').length;
+
+/// Keep the first [n] visible cells of [s], dropping escapes that start
+/// beyond the clip point.
+String _clipVisible(String s, int n) {
+  final buf = StringBuffer();
+  var vis = 0;
+  for (var i = 0; i < s.length;) {
+    final m = _ansiEscape.matchAsPrefix(s, i);
+    if (m != null) {
+      buf.write(m[0]);
+      i = m.end;
+      continue;
+    }
+    if (vis >= n) break;
+    buf.write(s[i]);
+    vis++;
+    i++;
+  }
+  return buf.toString();
 }
 
 /// Greedy word-wrap [text] to [innerW] columns, preserving blank

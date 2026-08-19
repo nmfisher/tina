@@ -1795,7 +1795,9 @@ class TuiCoordinator {
       }
       // Build the list of provider/model refs limited to configured providers.
       final refs = <String>[];
+      final names = <String, String>{};
       for (final pid in scheduler.registry.providerIds) {
+        names[pid] = scheduler.registry.descriptor(pid)?.name ?? pid;
         if (!configured.contains(pid)) continue;
         for (final m in scheduler.registry.modelsFor(pid)) {
           final ref = '$pid/${m.id}';
@@ -1814,6 +1816,7 @@ class TuiCoordinator {
         editor: editor,
         modelRefs: refs,
         title: 'Switch model',
+        providerNames: names,
       );
       if (selected == null) return;
 
