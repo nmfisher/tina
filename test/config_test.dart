@@ -126,24 +126,24 @@ void main() {
       });
     });
 
-    test('[tui] mouse_wheel flows from the file into Config (default on)',
+    test('[tui] mouse_wheel flows from the file into Config (default off)',
         () {
       final env = const {'ANTHROPIC_API_KEY': 'sk'};
       final cfg = Config.parse(
         const [],
         env: env,
         registry: testRegistry(env),
-        userConfig: const UserConfig(mouseWheel: false),
+        userConfig: const UserConfig(mouseWheel: true),
       );
-      expect(cfg.mouseWheel, isFalse);
-      // Absent → true: the wheel scrolls the chat scrollback by default.
+      expect(cfg.mouseWheel, isTrue);
+      // Absent → false: native click-drag text selection by default.
       final dflt = Config.parse(
         const [],
         env: env,
         registry: testRegistry(env),
         userConfig: const UserConfig(),
       );
-      expect(dflt.mouseWheel, isTrue);
+      expect(dflt.mouseWheel, isFalse);
     });
 
     test('prompt overrides default to empty when the file sets none', () {

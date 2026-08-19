@@ -137,11 +137,12 @@ class Config {
   final String? environmentModel;
 
   /// Whether the TUI captures the mouse wheel for chat scrollback from
-  /// `[tui] mouse_wheel` in ~/.tina/config. True (the default) enables
-  /// xterm mouse-button reporting so the wheel scrolls the transcript —
-  /// which also routes click-drags to the app, so native text selection
-  /// needs Option/Alt (macOS Terminal) or Shift (most terminals) held.
-  /// False leaves selection native and the wheel with the terminal.
+  /// `[tui] mouse_wheel` in ~/.tina/config. True enables xterm mouse-button
+  /// reporting so the wheel scrolls the transcript — which also routes
+  /// click-drags to the app, so native text selection needs Option/Alt
+  /// (macOS Terminal) or Shift (most terminals) held. False (the default)
+  /// leaves selection native and the wheel with the terminal (PgUp/PgDn
+  /// still scrolls the transcript).
   final bool mouseWheel;
 
   /// The default `"provider/model"` for region agents from `[regions] model` —
@@ -194,7 +195,7 @@ class Config {
     this.trustDefault = TrustDefault.ask,
     this.environmentAutoPopulate = EnvironmentAutoPopulate.ask,
     this.environmentModel,
-    this.mouseWheel = true,
+    this.mouseWheel = false,
     this.regionsModel,
     this.forceLock = false,
   });
@@ -546,7 +547,7 @@ class Config {
       environmentAutoPopulate:
           parseEnvironmentAutoPopulate(userConfig?.environmentAutoPopulate),
       environmentModel: userConfig?.environmentModel,
-      mouseWheel: userConfig?.mouseWheel ?? true,
+      mouseWheel: userConfig?.mouseWheel ?? false,
       regionsModel: userConfig?.regions?.model,
       forceLock: res['force'] as bool,
     );

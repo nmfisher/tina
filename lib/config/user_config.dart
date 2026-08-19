@@ -313,9 +313,9 @@ class UserConfig {
   /// `Config.parse` as [Config.environmentModel].
   final String? environmentModel;
 
-  /// Mouse-wheel capture from `[tui] mouse_wheel`. True (the default, null
-  /// when absent) lets the wheel scroll the chat scrollback; false keeps the
-  /// terminal's native click-drag text selection (enabling wheel capture
+  /// Mouse-wheel capture from `[tui] mouse_wheel`. False (the default, null
+  /// when absent) keeps the terminal's native click-drag text selection;
+  /// true lets the wheel scroll the chat scrollback (enabling wheel capture
   /// makes the terminal route button-1 drags to the app, breaking selection
   /// — the user must then hold Option/Alt to select). Flows into
   /// `Config.parse` as [Config.mouseWheel].
@@ -806,11 +806,11 @@ api_key = "sk-ant-..."
 # rail = "38;2;30;110;130"
 # head = "1;38;2;175;255;255"
 
-# TUI behavior. `mouse_wheel` (default true) routes the mouse wheel to the
-# chat scrollback. While it is on, the terminal sends button-1 drags to the
-# app too, so native click-drag text selection needs Option/Alt held (macOS
-# Terminal) or Shift (most others). Set it to false to keep plain drag-select,
-# giving the wheel back to the terminal's own scrollback.
+# TUI behavior. `mouse_wheel` (default false) keeps the terminal's native
+# click-drag text selection and its own wheel scrollback. Set it to true to
+# route the wheel to the chat scrollback instead — then the terminal sends
+# button-1 drags to the app too, so native selection needs Option/Alt held
+# (macOS Terminal) or Shift (most others).
 # [tui]
-# mouse_wheel = true
+# mouse_wheel = false
 ''';
