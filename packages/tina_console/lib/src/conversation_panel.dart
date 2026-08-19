@@ -50,6 +50,12 @@ class PanelFrame implements Focusable {
   /// conversation the active input target. Set by the coordinator.
   void Function()? onFocus;
 
+  /// Fired whenever this panel gains the cycling highlight (before the user
+  /// commits focus), so the coordinator can scroll it into the visible window
+  /// when the side column holds more panels than fit. Set by the coordinator;
+  /// null (the default) is a no-op.
+  void Function()? onHighlight;
+
   /// Fired when the user scrolls the framed chat with PgUp/PgDn: −1 for a
   /// page up (back into history), +1 for a page down (toward the tail). Set by
   /// the coordinator to route the scroll to this panel's chat region. null
@@ -86,6 +92,18 @@ class PanelFrame implements Focusable {
   bool _busy = false;
   int _busyTick = 0;
   bool _busyAnimationRegistered = false;
+
+  /// Whether this panel is scrolled out of the side column's visible window.
+  /// While parked, [bounds] holds the panel's VIRTUAL slot — where it sits in
+  /// the scrolled-out order, off-screen and possibly at negative rows — so
+  /// focus cycling can navigate onto it by geometry (arrows find it below/above
+  /// the visible stack; Tab finds it via [canFocus]); nothing ever paints
+  /// there. The coordinator's highlight hook scrolls the window, and the next
+  /// [setOuter] with `parked: false` makes it real.
+  bool _parked = false;
+
+  /// Whether this panel is parked outside the visible window (see [_parked]).
+  bool get isParked => _parked;
 
   /// "↓ N new" badge: the count of chat lines that arrived while the panel was
   /// scrolled up. Rendered right-aligned on the bottom rail; 0 hides it.
@@ -151,6 +169,7 @@ class PanelFrame implements Focusable {
   void highlight() {
     _isHighlighted = true;
     render();
+    onHighlight?.call();
   }
 
   @override
@@ -259,14 +278,10 @@ class PanelFrame implements Focusable {
     _surface = null;
   }
 
-  /// The rect the owned surface covers: [interior] minus the reserved input
-  /// row when one is in effect (the input row lives on the standard plane,
-  /// below the surface — matching the region's usable-height semantics).
-  Rect get _contentRect {
-    final i = interior;
-    final h = _reservesInput && i.height > 0 ? i.height - 1 : i.height;
-    return Rect(row: i.row, col: i.col, width: i.width, height: h);
-  }
+  /// The rect the owned surface covers: [contentInterior] — the interior
+  /// already minus the per-side padding and the reserved input row (the input
+  /// row lives on the standard plane, below the surface).
+  Rect get _contentRect => contentInterior;
 
   /// Create or resize the owned chat surface to match [_contentRect]. A
   /// backend that can't provide a surface (test fakes, notcurses alloc
@@ -297,9 +312,22 @@ class PanelFrame implements Focusable {
   /// chrome. Content positioning is the [PanelContent] adapter's job and is
   /// driven by the coordinator (which calls `adapter.fit(interior, ...)` after
   /// this). Called by the coordinator after layout changes.
-  void setOuter(Rect outer) {
+  ///
+  /// With [parked] true the rect is a VIRTUAL slot off the visible screen (the
+  /// side column scrolled this panel out of its window): the owned canvas is
+  /// released and painting is suppressed, but the geometry stays navigable so
+  /// focus cycling can reach the panel — its highlight hook then scrolls the
+  /// window and re-[setOuter]s it with real bounds. An empty rect (the
+  /// never-laid-out state) leaves the panel unfocusable as before.
+  void setOuter(Rect outer, {bool parked = false}) {
     _outer = outer;
-    _ensureFrameSurface();
+    _parked = parked;
+    if (outer.isEmpty || parked) {
+      _surface?.destroy();
+      _surface = null;
+    } else {
+      _ensureFrameSurface();
+    }
     render();
   }
 
@@ -312,6 +340,29 @@ class PanelFrame implements Focusable {
     final interiorW = b.width > 2 ? b.width - 2 : 1;
     final interiorH = b.height > 2 ? b.height - 2 : 1;
     return Rect(row: b.row + 1, col: b.col + 1, width: interiorW, height: interiorH);
+  }
+
+  /// Cells of breathing room between the panel chrome (border — and the
+  /// reserved input row, when one is in effect) and the framed content,
+  /// applied on every side. The bottom padding row sits directly ABOVE the
+  /// shared input line, so typed text never touches streamed content.
+  static const int contentPadding = 1;
+
+  /// The rectangle the framed content actually occupies: [interior] inset by
+  /// [contentPadding] on the left, right, and top, and by [contentPadding]
+  /// plus the reserved input row (when one is in effect) at the bottom.
+  /// Collapses toward empty when the panel is too small to pad — never
+  /// negative.
+  Rect get contentInterior {
+    final i = interior;
+    final w = i.width - 2 * contentPadding;
+    final h = i.height - 2 * contentPadding - (_reservesInput ? 1 : 0);
+    return Rect(
+      row: i.row + contentPadding,
+      col: i.col + contentPadding,
+      width: w < 0 ? 0 : w,
+      height: h < 0 ? 0 : h,
+    );
   }
 
   /// The rectangle the shared input line should occupy when this panel is the
@@ -405,9 +456,10 @@ class PanelFrame implements Focusable {
 
   /// Paint the bordered box: top border with label title, vertical sides,
   /// bottom border, and the per-panel input row at the bottom interior.
+  /// No-op while parked (virtual slot — nothing paints off-window).
   void render() => screen.frame(() {
         final b = _outer;
-        if (b.isEmpty) return;
+        if (b.isEmpty || _parked) return;
 
         _write(b.row, b.col, _topRow(), b.width);
 
@@ -453,7 +505,7 @@ class PanelFrame implements Focusable {
   /// tail is short, so this keeps animation work independent of panel width.
   void _repaintBusyRailDelta(int previousTick) => screen.frame(() {
         final b = _outer;
-        if (b.isEmpty) return;
+        if (b.isEmpty || _parked) return;
         final innerW = b.width > 2 ? b.width - 2 : 1;
         final titleWidth = label.length > innerW ? innerW : label.length;
         _repaintCometRuns(

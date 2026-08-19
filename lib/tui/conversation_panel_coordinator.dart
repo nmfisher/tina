@@ -29,13 +29,15 @@ const _frameOwnedCanvas = true;
 ///   into an [TuiConversationHost.onBusyChanged] callback so the host never
 ///   reaches into a [PanelFrame].
 ///
-/// Content relay deliberately never **detaches**: it only ever `fit`s each
-/// content surface into its (new) interior and `attach`es it if still
-/// detached. This matches the pre-extraction relay exactly. Detaching the
-/// primary when a side panel is focused would regress the
+/// Content relay deliberately never **detaches** *live* panels: it only ever
+/// `fit`s each content surface into its (new) interior and `attach`es it if
+/// still detached. This matches the pre-extraction relay exactly. Detaching
+/// the primary when a side panel is focused would regress the
 /// primary-stays-visible invariant the host's `stayAttachedWhenInactive`
 /// preserves (pinned by the focus characterization tests), so detach stays the
-/// host's job and this coordinator only ever makes content visible.
+/// host's job — the one exception is a panel scrolled out of the side
+/// column's visible window, whose content is parked (detached) until the
+/// window scrolls back to it.
 class ConversationPanelCoordinator {
   ConversationPanelCoordinator({
     required this.panelManager,
@@ -137,6 +139,10 @@ class ConversationPanelCoordinator {
     // The coordinator owns onFocus (see class doc). Sub-agent panels re-point
     // this later via a focus rebind once their Conversation is minted.
     frame.onFocus = () => onFrameFocused(frame);
+    // The cycling highlight scrolls the column before focus commits, so a
+    // panel beyond the visible window is revealed the moment the user cycles
+    // onto it — not only after Enter.
+    frame.onHighlight = () => _scrollIntoView(frame);
     panelManager.addFrame(frame);
 
     // Keep the panel back-reference for chrome paths (clear()/relabel); invert
@@ -157,6 +163,11 @@ class ConversationPanelCoordinator {
   /// manifest anchor unless this is the primary), then repoint the shared input
   /// onto the focused frame.
   void onFrameFocused(PanelFrame frame) {
+    // A panel can only be focused while visible (hidden panels are
+    // unfocusable), but a programmatic focusPanel (spawn/branch) or a window
+    // resize can land on an off-window panel — scroll it in first so the
+    // input line relocates onto a real rect.
+    _scrollIntoView(frame);
     final binding = _bindings.values.firstWhere((b) => b.frame == frame);
     final s = binding.content.surface;
     if (s != null) panelManager.screen.raiseChatSurface(s);
@@ -223,8 +234,8 @@ class ConversationPanelCoordinator {
   /// Relay content into every frame's freshly-resigned interior and attach
   /// detached ones. The post-layout step the eventual resize sequence takes
   /// over: position every [PanelContent] (conversation bindings and extra
-  /// panels alike) to match its frame's current interior. Never detaches — see
-  /// the class doc.
+  /// panels alike) to match its frame's current interior. The one deliberate
+  /// detach is the scrolled-out panel — see [_positionContent].
   void relayContent() {
     for (final b in _bindings.values) {
       _positionContent(b.frame, b.content);
@@ -234,17 +245,44 @@ class ConversationPanelCoordinator {
     }
   }
 
+  /// Scroll the side column's window so [frame] is visible, re-tiling and
+  /// re-relaying when it moved. Wired to both the cycling highlight (reveal
+  /// before the user commits) and focus (spawn/branch can focus a frame the
+  /// window doesn't show). No-op while every panel fits.
+  void _scrollIntoView(PanelFrame frame) {
+    if (panelManager.ensureVisible(frame)) {
+      panelManager.layout();
+      relayContent();
+    }
+  }
+
   /// Coordinator policy: position one content surface into its frame's
   /// interior and make it visible. Only ever attaches (if detached); the host's
   /// `setActive`/`stayAttachedWhenInactive` governs the primary's detach, so
-  /// this stays a pure "make it visible" step.
+  /// this stays a pure "make it visible" step — EXCEPT for a scrolled-out
+  /// panel (empty bounds), whose content is parked instead: detached (writes
+  /// buffer, replayed on re-attach) and released from the frame-owned canvas
+  /// the frame just destroyed, in that order so the borrowed surface isn't
+  /// destroyed twice.
   void _positionContent(PanelFrame frame, PanelContent content) {
+    // The primary frame is never parked — it isn't part of the scrolled
+    // column, and detaching it would regress the primary-stays-visible
+    // invariant even when its bounds are momentarily empty (pre-layout).
+    if (frame != panelManager.primaryFrame &&
+        (frame.isParked || frame.bounds.isEmpty)) {
+      if (!content.isDetached) content.detach();
+      content.bindSurface(null);
+      return;
+    }
     // Frame-owns-canvas: when the frame owns a surface, hand it to the content
     // so geometry flows from the frame (single source). No-op when the frame
     // has no surface (legacy mode, or a backend that can't provide one).
     final surface = frame.surface;
     if (surface != null) content.bindSurface(surface);
-    content.fit(frame.interior, reserveInputRow: frame.reservesInput);
+    // contentInterior already carries the per-side padding AND excludes the
+    // reserved input row (padding sits above the input), so the adapter fits
+    // the padded rect without its own bottom inset.
+    content.fit(frame.contentInterior, reserveInputRow: false);
     if (content.isDetached) content.attach();
   }
 
@@ -255,6 +293,7 @@ class ConversationPanelCoordinator {
     _extra[frame] = content;
     frame.setReservesInput(false);
     frame.onFocus = () => panelManager.relocateInput(panelManager.primaryFrame);
+    frame.onHighlight = () => _scrollIntoView(frame);
     panelManager.addFrame(frame);
   }
 

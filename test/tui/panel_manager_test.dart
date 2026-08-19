@@ -83,18 +83,43 @@ void main() {
 
     test('spawned panels tile the right column: perPanel height, last absorbs '
         'the remainder, contiguous and aligned', () {
+      // A tall screen so every panel fits at the column's minimum height —
+      // the tiling math under test is the fit case; the scroll case has its
+      // own group below.
+      final tallIo = FakeStdio()..columns = 120;
+      final tallScreen = Screen(
+          io: tallIo,
+          layout: ScreenLayout.fromSize(120, 44, split: true, drawInfoFrame: false),
+          ansi: AnsiCapable.yes);
+      final tallPrimary = PanelFrame(
+        screen: tallScreen,
+        label: 'primary',
+        conversationId: 'primary',
+      )..setReservesInput(true);
+      final tallTree = SpawnTree(rootId: tallPrimary.conversationId);
       final pm = PanelManager(
-        screen: screen,
+        screen: tallScreen,
         focusManager: focusManager,
         editor: editor,
-        primaryFrame: primary,
-        terminalGeometry: geometry,
+        primaryFrame: tallPrimary,
+        terminalGeometry: _Geometry(columns: 120, lines: 44),
         menuBarEnabled: false,
-        tree: tree,
+        tree: tallTree,
       );
-      final a = _spawn('a');
-      final b = _spawn('b');
-      final c = _spawn('c');
+      PanelFrame spawn(String id) {
+        final panel = PanelFrame(
+          screen: tallScreen,
+          label: id,
+          conversationId: id,
+        )..setReservesInput(true);
+        tallTree.parentOf[id] = 'primary';
+        tallTree.baseLabel[id] = id;
+        return panel;
+      }
+
+      final a = spawn('a');
+      final b = spawn('b');
+      final c = spawn('c');
       pm.addFrame(a);
       pm.addFrame(b);
       pm.addFrame(c);
@@ -105,9 +130,9 @@ void main() {
       expect(a.bounds.isEmpty, isTrue);
       pm.layout();
 
-      final layout = screen.layout;
+      final layout = tallScreen.layout;
       expect(layout.isSplit, isTrue);
-      final ordered = tree.ordered(pm.spawnedFrames);
+      final ordered = tallTree.ordered(pm.spawnedFrames);
       expect(ordered, hasLength(3));
 
       final boxTop = layout.topBorderRow;
@@ -145,6 +170,7 @@ void main() {
         expect(p.bounds.width, w0, reason: 'flat spawns share width');
       }
       pm.dispose();
+      tallPrimary.dispose();
     });
 
     test('nested spawn is indented deeper than its parent', () {
@@ -272,6 +298,165 @@ void main() {
       expect(pm.hasSpawnedFrames, isTrue);
       pm.removeFrame(a);
       expect(pm.hasSpawnedFrames, isFalse);
+      pm.dispose();
+    });
+  });
+
+  group('min height + column scrolling', () {
+    // The setUp screen is 120x24 → boxHeight 24: at minPanelHeight 10 that
+    // fits two panels unscrolled, and scrolls from four on.
+    PanelManager manager(List<PanelFrame> panels) {
+      final pm = PanelManager(
+        screen: screen,
+        focusManager: focusManager,
+        editor: editor,
+        primaryFrame: primary,
+        terminalGeometry: geometry,
+        menuBarEnabled: false,
+        tree: tree,
+      );
+      for (final p in panels) {
+        pm.addFrame(p);
+      }
+      return pm;
+    }
+
+    test('panels that fit are each at least minPanelHeight tall', () {
+      final pm = manager([_spawn('a'), _spawn('b')]);
+      pm.layout();
+      // 2 × 10 ≤ 24 → no scrolling; equal tiling at 12 each.
+      for (final p in pm.spawnedFrames) {
+        expect(p.bounds.isEmpty, isFalse);
+        expect(p.bounds.height,
+            greaterThanOrEqualTo(PanelManager.minPanelHeight));
+      }
+      pm.dispose();
+    });
+
+    test('excess panels scroll: only the window tiles, the rest park',
+        () {
+      final panels = [_spawn('a'), _spawn('b'), _spawn('c'), _spawn('d')];
+      final pm = manager(panels);
+      pm.layout();
+
+      // 24 rows − 2 indicator rows = 22 → capacity 2 at min height.
+      final visible = panels.where((p) => !p.isParked).toList();
+      expect(visible, hasLength(2), reason: 'only the window is tiled');
+      expect(visible, [panels[0], panels[1]],
+          reason: 'the window starts at the top of the order');
+      for (final p in visible) {
+        expect(p.bounds.isEmpty, isFalse);
+        expect(p.bounds.height,
+            greaterThanOrEqualTo(PanelManager.minPanelHeight));
+      }
+      // Parked panels paint nothing but keep a VIRTUAL slot with real
+      // geometry, so focus cycling can navigate onto them by direction.
+      for (final p in panels.skip(2)) {
+        expect(p.isParked, isTrue);
+        expect(p.bounds.isEmpty, isFalse,
+            reason: 'parked panels keep virtual geometry for cycling');
+        expect(p.canFocus, isTrue,
+            reason: 'parked panels stay cyclable (the highlight scrolls them '
+                'into view)');
+        expect(p.bounds.row, greaterThan(visible.last.bounds.bottom),
+            reason: 'a panel hidden below parks below the visible stack');
+      }
+      // The visible window still covers the stack contiguously.
+      expect(visible[1].bounds.row,
+          visible[0].bounds.row + visible[0].bounds.height);
+      pm.dispose();
+    });
+
+    test('ensureVisible scrolls the window to an off-screen panel', () {
+      final panels = [_spawn('a'), _spawn('b'), _spawn('c'), _spawn('d')];
+      final pm = manager(panels);
+      pm.layout();
+
+      // Cycling down to the last panel scrolls it into view…
+      expect(pm.ensureVisible(panels[3]), isTrue);
+      pm.layout();
+      final visible = panels.where((p) => !p.isParked).toList();
+      expect(visible, [panels[2], panels[3]],
+          reason: 'the window slid down one slot');
+      // …and the panels that scrolled off park at virtual slots.
+      expect(panels[0].isParked, isTrue);
+      expect(panels[1].isParked, isTrue);
+      // A panel parked ABOVE the window sits above the visible stack.
+      expect(panels[0].bounds.bottom,
+          lessThan(visible.first.bounds.row));
+
+      // Already-visible panels don't move the window.
+      expect(pm.ensureVisible(panels[2]), isFalse);
+      // Cycling back up to the first scrolls the window back.
+      expect(pm.ensureVisible(panels[0]), isTrue);
+      pm.layout();
+      expect(panels[0].isParked, isFalse);
+      pm.dispose();
+    });
+
+    test('removing panels clamps the scroll offset back into range', () {
+      final panels = [_spawn('a'), _spawn('b'), _spawn('c'), _spawn('d')];
+      final pm = manager(panels);
+      pm.layout();
+      expect(pm.ensureVisible(panels[3]), isTrue);
+      pm.layout();
+
+      // The window's last two panels close: the offset must clamp so the
+      // remaining panels fill the column instead of showing nothing.
+      pm.removeFrame(panels[3]);
+      pm.removeFrame(panels[2]);
+      pm.layout();
+      for (final p in pm.spawnedFrames) {
+        expect(p.isParked, isFalse,
+            reason: 'two panels fit; nothing stays parked');
+      }
+      pm.dispose();
+    });
+
+    test('arrow cycling down onto a parked panel scrolls it into view', () {
+      // Regression: parked panels used to drop to Rect.empty, which the
+      // focus manager's direction search skips (empty bounds) — the ↓ key
+      // could never highlight them, so the column never scrolled. Parked
+      // panels now keep virtual geometry, and the highlight hook (what the
+      // coordinator wires to ensureVisible + layout) reveals them.
+      final panels = [_spawn('a'), _spawn('b'), _spawn('c'), _spawn('d')];
+      final pm = manager(panels);
+      pm.layout();
+      focusManager.register(primary);
+      focusManager.home = primary;
+
+      // Wire the coordinator's highlight contract: onHighlight scrolls.
+      for (final p in panels) {
+        p.onHighlight = () {
+          if (pm.ensureVisible(p)) pm.layout();
+        };
+      }
+
+      // Enter cycling on the top panel and walk DOWN past the window.
+      focusManager.focusPanel(panels[0]);
+      focusManager.engage();
+      focusManager.moveHighlightDirection(ArrowDirection.down);
+      expect(focusManager.highlighted, panels[1]);
+      focusManager.moveHighlightDirection(ArrowDirection.down);
+      // ↓ from the last VISIBLE panel must land on the parked panel below —
+      // and the hook must have scrolled the window to show it.
+      expect(focusManager.highlighted, panels[2],
+          reason: 'arrow cycling crosses the window edge');
+      expect(panels[2].isParked, isFalse,
+          reason: 'the highlight hook scrolled it into view');
+
+      // Committing focus on it works: it is real, visible geometry now.
+      focusManager.commit();
+      expect(focusManager.focused, panels[2]);
+      expect(panels[2].bounds.isEmpty, isFalse);
+
+      // Tab cycling also reaches parked panels.
+      focusManager.engage();
+      focusManager.moveHighlightCyclic(1); // → panels[3] (parked, below)
+      expect(focusManager.highlighted, panels[3]);
+      expect(panels[3].isParked, isFalse,
+          reason: 'Tab onto a parked panel scrolls it into view too');
+      focusManager.cancel();
       pm.dispose();
     });
   });

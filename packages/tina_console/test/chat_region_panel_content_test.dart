@@ -349,12 +349,15 @@ void main() {
       }
     });
 
-    test('with the input row reserved, content fills the surface above it', () {
+    test('with the input row reserved, content fills the padded surface above it',
+        () {
       // The realistic spawned-panel case: reservesInput true. The frame sizes
-      // the surface to interior minus the input row; the region leaves
-      // _bottomInset at 0 (the inset is structural), so content uses the whole
-      // surface rather than wasting a row.
-      const rect = Rect(row: 5, col: 68, width: 28, height: 6);
+      // the surface to contentInterior — the interior minus one padding cell
+      // per side AND the reserved input row (the padding row sits directly
+      // above the input) — and the coordinator fits with reserveInputRow:
+      // false, so the region leaves _bottomInset at 0 (the inset is
+      // structural) and content uses the whole surface.
+      const rect = Rect(row: 5, col: 68, width: 28, height: 8);
       final chat =
           ScrollingTextRegion(screen, bounds: screen.layout.info)..detach();
       final content = ChatRegionPanelContent(chat);
@@ -366,26 +369,38 @@ void main() {
       )..setReservesInput(true);
       frame.setOuter(rect);
 
+      // The seam the coordinator drives (see
+      // ConversationPanelCoordinator._positionContent).
+      final padded = frame.contentInterior;
+      expect(padded.row, rect.row + 2, reason: 'border + top padding');
+      expect(padded.col, rect.col + 2, reason: 'border + left padding');
+      expect(padded.width, rect.width - 4, reason: 'padding on both sides');
+      expect(padded.height, rect.height - 4 - 1,
+          reason: 'padding top+bottom and the reserved input row');
+
       content.bindSurface(frame.surface);
-      content.fit(frame.interior, reserveInputRow: true);
+      content.fit(padded, reserveInputRow: false);
       if (content.isDetached) content.attach();
       vt.feed(io.written.toString());
       io.written.clear();
 
-      // Surface is the interior minus the reserved input row.
-      expect(frame.surface!.bounds.height, frame.interior.height - 1);
+      // Surface is exactly the padded content rect (Rect has no ==, so
+      // field-wise).
+      final s = frame.surface!.bounds;
+      expect((s.row, s.col, s.width, s.height),
+          (padded.row, padded.col, padded.width, padded.height));
 
-      // Fill every usable row; all of it stays inside the frame.
+      // Fill every usable row; all of it stays inside the padded rect.
       chat.write('L0\nL1\nL2\nL3');
       vt.feed(io.written.toString());
       for (var r = 0; r < vt.height; r++) {
         for (var c = 0; c < vt.width; c++) {
           final ch = vt.charAt(r, c);
           if (ch == 'L') {
-            expect(c >= rect.col + 1 && c < rect.col + rect.width - 1, isTrue,
-                reason: "'L' at ($r,$c) escapes the frame");
-            expect(r >= rect.row + 1 && r < rect.row + rect.height - 1, isTrue,
-                reason: "'L' at ($r,$c) escapes the frame");
+            expect(c >= padded.col && c < padded.col + padded.width, isTrue,
+                reason: "'L' at ($r,$c) escapes the padded content rect");
+            expect(r >= padded.row && r < padded.row + padded.height, isTrue,
+                reason: "'L' at ($r,$c) escapes the padded content rect");
           }
         }
       }

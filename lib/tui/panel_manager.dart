@@ -33,6 +33,19 @@ class PanelManager {
 
   final List<PanelFrame> spawnedFrames = [];
 
+  /// Minimum height of a side-column panel, border rows included. When the
+  /// stacked panels cannot all fit at this height, the column scrolls: a
+  /// window of panels is tiled and the rest park at virtual off-screen slots
+  /// (invisible but cyclable) until focus or the cycling highlight scrolls
+  /// them into view ([ensureVisible]). Indicator rows above/below the stack
+  /// name how many panels are hidden on each side.
+  static const int minPanelHeight = 10;
+
+  /// Index (into the tree-ordered panel list) of the first VISIBLE panel while
+  /// the column scrolls. Kept in range by [layout]; moved by [ensureVisible].
+  /// Irrelevant while every panel fits ([layout] pins it to 0).
+  int _scrollOffset = 0;
+
   /// The panel whose input state is currently loaded in the editor. Tracked here
   /// so [relocateInput] can save/restore per-panel input across focus changes.
   PanelFrame? _inputFrame;
@@ -109,15 +122,50 @@ class PanelManager {
     // Order + indent by tree: a parent precedes its children (DFS pre-order)
     // and each panel's left border is shifted right by its depth, so a child
     // sits under (and indented from) its parent.
+    //
+    // Min height + scrolling: while every panel fits at [minPanelHeight] the
+    // column tiles everything as before. Beyond that, one indicator row is
+    // reserved above and below the stack ("↑ N panels above" / "↓ N below"),
+    // and only the [_scrollOffset] window of panels is tiled. The panels
+    // outside the window park at their VIRTUAL slot — where they'd sit if the
+    // column extended past the screen — so focus cycling can navigate onto
+    // them by geometry (see [ensureVisible]); nothing paints there.
     final ordered = tree.ordered(spawnedFrames);
     final boxTop = layout.topBorderRow;
     final boxHeight = layout.bottomBorderRow - boxTop + 1;
-    final perPanel = boxHeight ~/ ordered.length;
+    final scrolling = ordered.length * minPanelHeight > boxHeight;
+    final stackTop = boxTop + (scrolling ? 1 : 0);
+    final stackHeight = boxHeight - (scrolling ? 2 : 0);
+    final visibleCount = _visibleCapacity(stackHeight, ordered.length);
+    if (!scrolling) {
+      _scrollOffset = 0;
+    } else {
+      _scrollOffset = _scrollOffset.clamp(0, ordered.length - visibleCount);
+    }
+    final perPanel = stackHeight ~/ visibleCount;
     for (var i = 0; i < ordered.length; i++) {
       final frame = ordered[i];
+      final slot = scrolling ? i - _scrollOffset : i;
       final indent = indentForDepth(tree.depthOf(frame.conversationId));
-      final row = boxTop + i * perPanel;
-      final h = i < ordered.length - 1 ? perPanel : boxTop + boxHeight - row;
+      final row = stackTop + slot * perPanel;
+      final inWindow = !scrolling ||
+          (i >= _scrollOffset && i < _scrollOffset + visibleCount);
+      if (!inWindow) {
+        // Virtual slot: negative rows above the stack, rows past the screen
+        // below it. Same column/width so direction-aware cycling (arrows)
+        // scores it as directly below/above the visible stack.
+        frame.setOuter(
+          Rect(
+            row: row,
+            col: info.col + indent,
+            width: info.width - indent,
+            height: perPanel,
+          ),
+          parked: true,
+        );
+        continue;
+      }
+      final h = slot < visibleCount - 1 ? perPanel : stackTop + stackHeight - row;
       frame.setOuter(Rect(
         row: row,
         col: info.col + indent,
@@ -127,6 +175,66 @@ class PanelManager {
       tree.relabelPanel(
           frame, tree.baseLabel[frame.conversationId] ?? frame.label);
     }
+    if (scrolling) {
+      final hiddenAbove = _scrollOffset;
+      final hiddenBelow = ordered.length - (_scrollOffset + visibleCount);
+      _drawScrollIndicator(
+          row: stackTop - 1,
+          text: hiddenAbove > 0 ? '↑ $hiddenAbove panel${hiddenAbove == 1 ? '' : 's'} above' : '');
+      _drawScrollIndicator(
+          row: stackTop + stackHeight,
+          text: hiddenBelow > 0
+              ? '↓ $hiddenBelow panel${hiddenBelow == 1 ? '' : 's'} below (Ctrl+W to cycle)'
+              : '');
+    }
+  }
+
+  /// How many of [panelCount] panels fit into [stackHeight] rows: every panel
+  /// while they all fit at [minPanelHeight], else that many (at least one, so
+  /// a short terminal still shows something rather than a blank column).
+  int _visibleCapacity(int stackHeight, int panelCount) {
+    if (panelCount <= 1) return panelCount;
+    final cap = stackHeight ~/ minPanelHeight;
+    return cap < 1 ? 1 : (cap > panelCount ? panelCount : cap);
+  }
+
+  /// Scroll the side column's window so [frame] is among the visible panels.
+  /// Returns true when the window moved — the caller must then [layout] and
+  /// relay content. False when [frame] is unknown, everything already fits, or
+  /// it was already in the window.
+  bool ensureVisible(PanelFrame frame) {
+    final ordered = tree.ordered(spawnedFrames);
+    final idx = ordered.indexOf(frame);
+    if (idx < 0) return false;
+    final layout = screen.layout;
+    final boxHeight = layout.bottomBorderRow - layout.topBorderRow + 1;
+    if (ordered.length * minPanelHeight <= boxHeight) return false;
+    final visibleCount =
+        _visibleCapacity(boxHeight - 2, ordered.length); // −2: indicators
+    var offset = _scrollOffset;
+    if (idx < offset) offset = idx;
+    if (idx >= offset + visibleCount) offset = idx - visibleCount + 1;
+    offset = offset.clamp(0, ordered.length - visibleCount);
+    if (offset == _scrollOffset) return false;
+    _scrollOffset = offset;
+    return true;
+  }
+
+  /// Paint one scroll-indicator row in the right column: dim text at the info
+  /// column's left edge, clipped to the column. Rows above/below the panel
+  /// stack belong exclusively to the indicators (the stack never tiles into
+  /// them), so nothing repaints over these cells.
+  void _drawScrollIndicator({required int row, required String text}) {
+    if (text.isEmpty) return;
+    final info = screen.layout.info;
+    if (info.isEmpty) return;
+    screen.putAtAbsolute(
+      row: row,
+      col: info.col,
+      text: screen.colorize(screen.theme.chat.dim, text),
+      maxCols: info.width,
+      moveCursor: false,
+    );
   }
 
   /// Move the shared input line onto [target]'s input rect, saving the editor

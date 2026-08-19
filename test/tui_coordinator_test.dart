@@ -600,10 +600,13 @@ void main() {
         provider: FakeProvider.done(),
         store: store,
       );
+      // 44 lines so all three panels fit at the column's minimum height —
+      // this pins the FIT case; the scroll case (panels exceed the column,
+      // window + min height 10) is pinned in panel_manager_test.dart.
       final coordinator = await TuiCoordinator.create(
         app: app,
         io: io,
-        terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 24),
+        terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 44),
       );
 
       final layout = coordinator.screen.layout;
