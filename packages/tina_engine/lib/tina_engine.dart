@@ -22,6 +22,7 @@ export 'src/llm/message.dart';
 export 'src/llm/metering_provider.dart';
 export 'src/llm/model_catalog.dart';
 export 'src/llm/models_dev_catalog.dart';
+export 'src/llm/live_models_catalog.dart';
 export 'src/llm/openai.dart';
 export 'src/llm/openai_compatible.dart';
 export 'src/llm/provider.dart';

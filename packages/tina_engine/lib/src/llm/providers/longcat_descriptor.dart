@@ -11,6 +11,7 @@ final ProviderDescriptor longcatDescriptor = ProviderDescriptor(
   authSources: const [AuthSource('LONGCAT_API_KEY', AuthScheme.bearerToken)],
   defaultBaseUrl: 'https://api.longcat.chat',
   builder: openAiCompatibleBuilder('LongCat'),
+  listsRemoteModels: true,
   models: const {
     'longcat-2.0': ModelInfo(
       id: 'longcat-2.0',

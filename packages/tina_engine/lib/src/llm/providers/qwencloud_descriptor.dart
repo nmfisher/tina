@@ -28,6 +28,7 @@ final ProviderDescriptor qwencloudDescriptor = ProviderDescriptor(
   ],
   defaultBaseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
   builder: openAiCompatibleBuilder('QwenCloud'),
+  listsRemoteModels: true,
   models: const {
     'qwen3.8-max': ModelInfo(
         id: 'qwen3.8-max',

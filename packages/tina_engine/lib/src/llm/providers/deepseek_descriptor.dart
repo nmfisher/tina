@@ -10,6 +10,7 @@ final ProviderDescriptor deepseekDescriptor = ProviderDescriptor(
   authSources: const [AuthSource('DEEPSEEK_API_KEY', AuthScheme.bearerToken)],
   defaultBaseUrl: 'https://api.deepseek.com',
   builder: openAiCompatibleBuilder('DeepSeek'),
+  listsRemoteModels: true,
   models: const {
     'deepseek-chat': ModelInfo(
         id: 'deepseek-chat',

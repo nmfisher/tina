@@ -8,6 +8,7 @@ final ProviderDescriptor grokDescriptor = ProviderDescriptor(
   authSources: const [AuthSource('XAI_API_KEY', AuthScheme.bearerToken)],
   defaultBaseUrl: 'https://api.x.ai/v1',
   builder: openAiCompatibleBuilder('Grok'),
+  listsRemoteModels: true,
   models: const {
     'grok-4': ModelInfo(
         id: 'grok-4', name: 'Grok 4', contextWindow: 131072, maxOutput: 8192),

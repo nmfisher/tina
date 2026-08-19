@@ -79,7 +79,10 @@ Future<void> _run(List<String> argv) async {
       final mergedEnv = {...environment.env, ...buildEnvOverlay(userConfig)};
       final registry = builtinRegistry(env: mergedEnv);
       registerConfigProviders(registry, userConfig);
-      _attachModelsDevCatalog(registry, environment.env);
+      // mergedEnv (not the raw environment): a key configured in ~/.tina/config
+      // rather than the shell must reach the live-models catalog too, or it
+      // sees no credentials and silently skips that provider's /v1/models.
+      _attachModelsDevCatalog(registry, mergedEnv);
       // Built-in per-provider rate limiting: every provider built from one
       // descriptor shares a launch-slot queue, so concurrent agents on the
       // same provider (folder-survey scouts, sub-agents, side panels) space
@@ -504,20 +507,29 @@ String _shortStamp(DateTime t) {
       '${pad(l.hour)}:${pad(l.minute)}';
 }
 
-/// Attach a [ModelsDevCatalog] to [registry] and kick off a non-blocking
-/// load. `COCOON_MODELS_DEV=0` skips the fetch (handy for tests and
-/// hermetic CI). The catalog fetch is fire-and-forget; the compiled
-/// descriptor maps are the source of truth until it completes, so the
-/// `/settings` picker and bare-model resolution never block on the
-/// network.
+/// Attach the model catalogs to [registry] and kick off a non-blocking
+/// load. Two layers:
+///
+/// 1. [ModelsDevCatalog] — the community models.dev registry, layered over
+///    the compiled descriptor maps;
+/// 2. [LiveModelsCatalog] — each provider's own `GET /v1/models` (the
+///    actually-servable list, using the user's key), layered over (1).
+///
+/// `COCOON_MODELS_DEV=0` skips both fetches (handy for tests and hermetic
+/// CI). Both loads are fire-and-forget; the compiled descriptor maps are the
+/// source of truth until they complete, so the `/settings` picker and
+/// bare-model resolution never block on the network.
 void _attachModelsDevCatalog(
     ProviderRegistry registry, Map<String, String> env) {
   if (env['COCOON_MODELS_DEV'] == '0') return;
-  final catalog = ModelsDevCatalog(env: env);
-  registry.catalog = catalog;
-  // Errors are logged inside the catalog at FINE; we don't want a network
+  final modelsDev = ModelsDevCatalog(env: env);
+  final live = LiveModelsCatalog(env: env, inner: modelsDev);
+  registry.catalog = live;
+  // Errors are logged inside the catalogs at FINE; we don't want a network
   // miss to surface in the user-facing log stream.
-  unawaited(catalog.load().catchError((Object _) {}));
+  unawaited(modelsDev.load().catchError((Object _) {}));
+  unawaited(
+      live.load(registry.descriptors).catchError((Object _) {}));
 }
 
 /// Resolve whether the launch cwd's project context (AGENTS.md) may be loaded.

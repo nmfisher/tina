@@ -10,6 +10,7 @@ final ProviderDescriptor glmDescriptor = ProviderDescriptor(
   authSources: const [AuthSource('GLM_API_KEY', AuthScheme.bearerToken)],
   defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
   builder: openAiCompatibleBuilder('GLM'),
+  listsRemoteModels: true,
   models: const {
     'glm-4.6': ModelInfo(
         id: 'glm-4.6',

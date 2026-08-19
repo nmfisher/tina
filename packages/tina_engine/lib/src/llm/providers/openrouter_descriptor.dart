@@ -17,6 +17,7 @@ final ProviderDescriptor openrouterDescriptor = ProviderDescriptor(
   ],
   defaultBaseUrl: 'https://openrouter.ai/api/v1',
   builder: openAiCompatibleBuilder('OpenRouter'),
+  listsRemoteModels: true,
   models: const {
     'openai/gpt-4o': ModelInfo(
       id: 'openai/gpt-4o',

@@ -10,6 +10,7 @@ final ProviderDescriptor nimDescriptor = ProviderDescriptor(
   authSources: const [AuthSource('NVIDIA_API_KEY', AuthScheme.bearerToken)],
   defaultBaseUrl: 'https://integrate.api.nvidia.com',
   builder: openAiCompatibleBuilder('NVIDIA NIM'),
+  listsRemoteModels: true,
   models: const {
     'meta/llama-3.3-70b-instruct': ModelInfo(
       id: 'meta/llama-3.3-70b-instruct',

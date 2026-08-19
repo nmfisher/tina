@@ -8,6 +8,7 @@ final ProviderDescriptor qwenDescriptor = ProviderDescriptor(
   authSources: const [AuthSource('DASHSCOPE_API_KEY', AuthScheme.bearerToken)],
   defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   builder: openAiCompatibleBuilder('Qwen'),
+  listsRemoteModels: true,
   models: const {
     'qwen3-coder-plus': ModelInfo(
         id: 'qwen3-coder-plus',

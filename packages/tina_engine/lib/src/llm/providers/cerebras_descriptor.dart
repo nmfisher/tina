@@ -14,6 +14,7 @@ final ProviderDescriptor cerebrasDescriptor = ProviderDescriptor(
   authSources: const [AuthSource('CEREBRAS_API_KEY', AuthScheme.bearerToken)],
   defaultBaseUrl: 'https://api.cerebras.ai/v1',
   builder: openAiCompatibleBuilder('Cerebras'),
+  listsRemoteModels: true,
   models: const {
     // ANNOUNCED, NOT YET LIVE (added 2026-08-15). Cerebras announced this
     // model by email but the platform does not serve it yet —

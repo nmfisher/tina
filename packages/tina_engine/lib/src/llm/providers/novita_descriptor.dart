@@ -15,6 +15,7 @@ final ProviderDescriptor novitaDescriptor = ProviderDescriptor(
   authSources: const [AuthSource('NOVITA_API_KEY', AuthScheme.bearerToken)],
   defaultBaseUrl: 'https://api.novita.ai/openai',
   builder: openAiCompatibleBuilder('Novita AI'),
+  listsRemoteModels: true,
   models: const {
     'deepseek-v3-0324': ModelInfo(
       id: 'deepseek-v3-0324',

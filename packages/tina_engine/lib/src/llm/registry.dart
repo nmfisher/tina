@@ -124,6 +124,13 @@ class ProviderDescriptor {
   /// providers that rely on dynamic discovery (e.g. local servers).
   final Map<String, ModelInfo> models;
 
+  /// Whether the provider exposes an OpenAI-compatible `GET /v1/models`
+  /// endpoint that lists the models actually servable with the user's key.
+  /// When true, [LiveModelsCatalog] fetches that list at startup and layers
+  /// it over this compiled map (which then serves as metadata enrichment —
+  /// context windows, tool support — rather than the catalog itself).
+  final bool listsRemoteModels;
+
   const ProviderDescriptor({
     required this.id,
     required this.name,
@@ -131,6 +138,7 @@ class ProviderDescriptor {
     required this.defaultBaseUrl,
     required this.builder,
     this.models = const {},
+    this.listsRemoteModels = false,
   });
 }
 
@@ -228,6 +236,11 @@ class ProviderRegistry {
 
   /// Registered provider ids, sorted.
   List<String> get providerIds => _providers.keys.toList()..sort();
+
+  /// All registered descriptors, in registration order. For callers that
+  /// need the full set (e.g. the live-models catalog loading every
+  /// listable provider at startup).
+  Iterable<ProviderDescriptor> get descriptors => _providers.values;
 
   /// The descriptor for [providerId], or null if unregistered.
   ProviderDescriptor? descriptor(String providerId) => _providers[providerId];

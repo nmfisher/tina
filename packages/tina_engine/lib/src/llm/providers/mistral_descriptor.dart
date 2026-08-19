@@ -8,6 +8,7 @@ final ProviderDescriptor mistralDescriptor = ProviderDescriptor(
   authSources: const [AuthSource('MISTRAL_API_KEY', AuthScheme.bearerToken)],
   defaultBaseUrl: 'https://api.mistral.ai/v1',
   builder: openAiCompatibleBuilder('Mistral'),
+  listsRemoteModels: true,
   models: const {
     'mistral-large-latest': ModelInfo(
         id: 'mistral-large-latest',

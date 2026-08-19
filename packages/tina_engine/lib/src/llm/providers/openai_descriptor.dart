@@ -8,6 +8,7 @@ final ProviderDescriptor openaiDescriptor = ProviderDescriptor(
   authSources: const [AuthSource('OPENAI_API_KEY', AuthScheme.bearerToken)],
   defaultBaseUrl: 'https://api.openai.com',
   builder: openAiCompatibleBuilder('OpenAI'),
+  listsRemoteModels: true,
   models: const {
     'gpt-4o': ModelInfo(
         id: 'gpt-4o', name: 'GPT-4o', contextWindow: 128000, maxOutput: 16384),
