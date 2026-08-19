@@ -270,6 +270,80 @@ key = "typo"
           isNull);
     });
 
+    test('[environment] model round-trips and coexists with auto_populate',
+        () {
+      // Both keys live in ONE table: writing the model must not drop a
+      // previously-persisted auto_populate (or vice versa).
+      writeUserConfig(
+        UserConfig(environmentAutoPopulate: 'always'),
+        env: {},
+        tinaDir: tmp,
+      );
+      writeUserConfig(
+        loadUserConfig(env: {}, tinaDir: tmp)
+            .copyWith(environmentModel: 'nim/google/diffusiongemma-26b-a4b-it'),
+        env: {},
+        tinaDir: tmp,
+      );
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.environmentModel, 'nim/google/diffusiongemma-26b-a4b-it');
+      expect(loaded.environmentAutoPopulate, 'always',
+          reason: 'the model write must not clobber the sibling key');
+      // Absent → null (the caller resolves null → the shipped default).
+      writeUserConfig(const UserConfig(), env: {}, tinaDir: tmp);
+      expect(loadUserConfig(env: {}, tinaDir: tmp).environmentModel, isNull);
+    });
+
+    test('[limits] min_request_interval_ms round-trips beside the other limits',
+        () {
+      writeUserConfig(
+        const UserConfig(
+            limits: LimitsConfig(requestsPerMinute: 30, maxTurnTokens: 1000)),
+        env: {},
+        tinaDir: tmp,
+      );
+      writeUserConfig(
+        loadUserConfig(env: {}, tinaDir: tmp).copyWith(
+            limits: const LimitsConfig(
+                requestsPerMinute: 30,
+                maxTurnTokens: 1000,
+                minRequestIntervalMs: 250)),
+        env: {},
+        tinaDir: tmp,
+      );
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.limits!.minRequestIntervalMs, 250);
+      expect(loaded.limits!.requestsPerMinute, 30,
+          reason: 'the interval write must not clobber sibling limits');
+      // Absent → null (the app default of 1 request/sec applies).
+      writeUserConfig(const UserConfig(), env: {}, tinaDir: tmp);
+      expect(loadUserConfig(env: {}, tinaDir: tmp).limits, isNull);
+    });
+
+    test('[limits] max_concurrent_requests round-trips beside the interval',
+        () {
+      writeUserConfig(
+        const UserConfig(
+            limits:
+                LimitsConfig(minRequestIntervalMs: 500, maxTurnTokens: 1000)),
+        env: {},
+        tinaDir: tmp,
+      );
+      writeUserConfig(
+        loadUserConfig(env: {}, tinaDir: tmp).copyWith(
+            limits: const LimitsConfig(
+                minRequestIntervalMs: 500,
+                maxTurnTokens: 1000,
+                maxConcurrentRequests: 2)),
+        env: {},
+        tinaDir: tmp,
+      );
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.limits!.maxConcurrentRequests, 2);
+      expect(loaded.limits!.minRequestIntervalMs, 500,
+          reason: 'the concurrency write must not clobber the interval');
+    });
+
     test('parseEnvironmentAutoPopulate maps raw values', () {
       expect(parseEnvironmentAutoPopulate('always'),
           EnvironmentAutoPopulate.always);

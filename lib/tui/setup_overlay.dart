@@ -627,6 +627,11 @@ class _SetupForm {
             maxGlobalTokens: _limitValues['max_global_tokens'],
             maxSubAgentTokens: _limitValues['max_sub_agent_tokens'],
             requestsPerMinute: _limitValues['requests_per_minute'],
+            // Not edited here; carry through so the write can't drop it.
+            minRequestIntervalMs:
+                (_initialLimits ?? const LimitsConfig()).minRequestIntervalMs,
+            maxConcurrentRequests: (_initialLimits ?? const LimitsConfig())
+                .maxConcurrentRequests,
           )
         : null;
     final filteredKeys = <String, String>{

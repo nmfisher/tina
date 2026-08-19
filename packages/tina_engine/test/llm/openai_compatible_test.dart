@@ -410,6 +410,9 @@ void main() {
           .send(system: '', messages: const [], tools: const [])
           .toList();
       expect(events.whereType<StreamError>().single.error, 'OpenAI 400: bad request');
+      // The status rides along so the rate-limit adapter can react to 429s
+      // without string-matching the humanized text.
+      expect(events.whereType<StreamError>().single.statusCode, 400);
     });
 
     // Regression guard: a model that streams tool arguments which are not valid

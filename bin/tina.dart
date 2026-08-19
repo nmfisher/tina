@@ -80,6 +80,21 @@ Future<void> _run(List<String> argv) async {
       final registry = builtinRegistry(env: mergedEnv);
       registerConfigProviders(registry, userConfig);
       _attachModelsDevCatalog(registry, environment.env);
+      // Built-in per-provider rate limiting: every provider built from one
+      // descriptor shares a launch-slot queue, so concurrent agents on the
+      // same provider (folder-survey scouts, sub-agents, side panels) space
+      // their requests instead of stampeding the endpoint's per-key limit.
+      // Defaults: 1 request/second start spacing, at most 4 requests per
+      // provider on the wire at once; `[limits] min_request_interval_ms` /
+      // `max_concurrent_requests` in ~/.tina/config tune them (0 disables).
+      registry.rateLimiter.minInterval = Duration(
+          milliseconds: userConfig.limits?.minRequestIntervalMs ?? 1000);
+      registry.rateLimiter.maxConcurrent =
+          userConfig.limits?.maxConcurrentRequests ?? 4;
+      // Wire retries live at the TOP of the provider policy stack, so a
+      // re-attempt re-acquires a rate-limit slot (never a stampede past the
+      // queue). 3 = the historical transport-internal retry count.
+      registry.maxSendRetries = 3;
 
       final Config config;
       try {

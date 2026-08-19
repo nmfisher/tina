@@ -86,15 +86,17 @@ class GeminiProvider extends LlmProvider {
 
     final http.StreamedResponse resp;
     try {
-      resp = await sendWithRetry(_client, () => _buildRequest(body),
+      resp = await sendOnce(_client, () => _buildRequest(body),
           requestTimeout: requestTimeout);
     } catch (e) {
-      yield StreamError(humanizeException(e));
+      yield StreamError(humanizeException(e), transient: isTransientException(e));
       return;
     }
     if (resp.statusCode != 200) {
       final text = await resp.stream.bytesToString();
-      yield StreamError(humanizeHttpError('Gemini', resp.statusCode, text));
+      yield StreamError(humanizeHttpError('Gemini', resp.statusCode, text),
+          statusCode: resp.statusCode,
+          retryAfter: parseRetryAfter(resp.headers['retry-after']));
       return;
     }
 

@@ -13,7 +13,10 @@ final _log = Logger('tina.llm');
 /// the transport behaviour (retries, timeouts, error humanization) can be
 /// tested in isolation from any specific provider's wire format.
 
-const _retryDelays = [
+/// Backoff schedule between retries — index 0 is the delay before the FIRST
+/// retry. Public because the policy-layer retry ([RetryingProvider]) uses the
+/// same schedule the transport-level helper does.
+const retryDelays = [
   Duration(milliseconds: 250),
   Duration(milliseconds: 750),
   Duration(milliseconds: 2250),
@@ -46,7 +49,10 @@ const defaultRequestTimeout = Duration(seconds: 30);
 /// silently-dropped connection doesn't hang the REPL forever.
 const defaultStreamIdleTimeout = Duration(seconds: 60);
 
-bool _isRetryableStatus(int code) =>
+/// Whether a non-200 status is worth another attempt. Public for the
+/// policy-layer retry ([RetryingProvider]), which classifies the StreamError
+/// events providers emit.
+bool isRetryableStatus(int code) =>
     code == 408 ||
     code == 425 ||
     code == 429 ||
@@ -54,7 +60,10 @@ bool _isRetryableStatus(int code) =>
     // retry: 501 Not Implemented, 505 HTTP Version Not Supported.
     (code >= 500 && code < 600 && code != 501 && code != 505);
 
-bool _isTransientException(Object e) =>
+/// Whether a thrown transport exception may clear on its own (a dropped
+/// socket, a reset connection, a header timeout). Providers fold these into
+/// `StreamError(transient: true)`; the policy-layer retry re-attempts them.
+bool isTransientException(Object e) =>
     e is SocketException || e is HttpException || e is TimeoutException;
 
 /// Parse an HTTP `Retry-After` header value. Accepts integer seconds (the
@@ -71,10 +80,26 @@ Duration? parseRetryAfter(String? header) {
   return d > _maxRetryAfter ? _maxRetryAfter : d;
 }
 
+/// Send ONE request attempt — headers timeout, no retry. The LLM providers
+/// use this so their wire failures surface as typed [StreamError]s the
+/// policy-layer retry ([RetryingProvider]) can classify and re-attempt ABOVE
+/// the rate limiter (a retry must re-acquire a launch slot, not bypass the
+/// queue the way a transport-internal retry would).
+Future<http.StreamedResponse> sendOnce(
+  http.Client client,
+  http.Request Function() build, {
+  Duration requestTimeout = defaultRequestTimeout,
+}) =>
+    client.send(build()).timeout(requestTimeout);
+
 /// Send a request, retrying on transient failures with exponential backoff.
 /// The request builder closure must produce a fresh Request per attempt —
 /// `http.Request` is single-use. Honors a server-supplied `Retry-After`
 /// header in preference to the local schedule when present.
+///
+/// Retries here are TRANSPORT-INTERNAL — invisible to any outer policy — so
+/// this is only for utility endpoints (search APIs, fetch). LLM providers
+/// must use [sendOnce] + the policy-layer retry instead.
 Future<http.StreamedResponse> sendWithRetry(
   http.Client client,
   http.Request Function() build, {
@@ -83,19 +108,19 @@ Future<http.StreamedResponse> sendWithRetry(
   for (var attempt = 0;; attempt++) {
     try {
       final resp = await client.send(build()).timeout(requestTimeout);
-      if (_isRetryableStatus(resp.statusCode) &&
-          attempt < _retryDelays.length) {
+      if (isRetryableStatus(resp.statusCode) &&
+          attempt < retryDelays.length) {
         await resp.stream.drain();
         final hinted = parseRetryAfter(resp.headers['retry-after']);
-        await Future<void>.delayed(hinted ?? applyBackoffJitter(_retryDelays[attempt]));
+        await Future<void>.delayed(hinted ?? applyBackoffJitter(retryDelays[attempt]));
         continue;
       }
       return resp;
     } catch (e) {
-      if (!_isTransientException(e) || attempt >= _retryDelays.length) {
+      if (!isTransientException(e) || attempt >= retryDelays.length) {
         rethrow;
       }
-      await Future<void>.delayed(applyBackoffJitter(_retryDelays[attempt]));
+      await Future<void>.delayed(applyBackoffJitter(retryDelays[attempt]));
     }
   }
 }

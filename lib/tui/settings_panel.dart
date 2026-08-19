@@ -686,7 +686,9 @@ class _QuotaForm {
     }
   }
 
-  // Snapshot the working values back into a LimitsConfig.
+  // Snapshot the working values back into a LimitsConfig. Fields this panel
+  // doesn't edit (minRequestIntervalMs, maxConcurrentRequests) carry through
+  // from the initial config so a save here can't silently drop them.
   LimitsConfig _toConfig() => LimitsConfig(
         maxSessionTokens: _limitValues['max_session_tokens'],
         maxTurnTokens: _limitValues['max_turn_tokens'],
@@ -694,6 +696,10 @@ class _QuotaForm {
         maxGlobalTokens: _limitValues['max_global_tokens'],
         maxSubAgentTokens: _limitValues['max_sub_agent_tokens'],
         requestsPerMinute: _limitValues['requests_per_minute'],
+        minRequestIntervalMs:
+            (_initial.limits ?? const LimitsConfig()).minRequestIntervalMs,
+        maxConcurrentRequests:
+            (_initial.limits ?? const LimitsConfig()).maxConcurrentRequests,
       );
 
   final Screen _screen;

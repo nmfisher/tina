@@ -67,7 +67,25 @@ class MessageComplete extends StreamEvent {
 
 class StreamError extends StreamEvent {
   final Object error;
-  const StreamError(this.error);
+
+  /// The HTTP status the transport failed with, when the error is a non-200
+  /// response (null for connection/parse failures). Carried separately from
+  /// the humanized [error] text so wrappers (the rate-limit adapter's
+  /// adaptive backoff, the policy-layer retry) can react to e.g. 429s
+  /// without string-matching.
+  final int? statusCode;
+
+  /// A server-supplied `Retry-After` hint parsed off the failed response.
+  /// The policy-layer retry prefers it over its local backoff schedule.
+  final Duration? retryAfter;
+
+  /// Whether the cause may clear on its own (a dropped socket, a reset
+  /// connection, a header timeout) — folded in by providers from
+  /// `isTransientException` so the retry layer can re-attempt without
+  /// re-throwing the raw exception through the stream.
+  final bool transient;
+  const StreamError(this.error,
+      {this.statusCode, this.retryAfter, this.transient = false});
 }
 
 abstract class LlmProvider {

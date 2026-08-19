@@ -35,10 +35,13 @@ const _knownDefaultKeys = {'provider', 'model', 'workflow'};
 const _knownProviderKeys = {'api_key', 'auth_token', 'base_url', 'wire', 'name', 'disabled_models'};
 const _knownPromptKeys = {'identity'};
 const _knownRegionsKeys = {'model'};
+const _knownEnvironmentKeys = {'auto_populate', 'model'};
 const _knownLimitsKeys = {
   'max_global_tokens',
   'max_sub_agent_tokens',
   'requests_per_minute',
+  'min_request_interval_ms',
+  'max_concurrent_requests',
   'max_session_tokens',
   'max_turn_tokens',
   'max_request_tokens',
@@ -173,6 +176,20 @@ class LimitsConfig {
   /// Outbound requests-per-minute cap shared by all agents (0 = disabled).
   final int? requestsPerMinute;
 
+  /// Minimum spacing between request STARTS on one provider, in milliseconds
+  /// (0 = disabled) — the built-in per-provider queue. When several agents hit
+  /// the same provider (folder-survey scouts, sub-agents, side panels), they
+  /// launch at most this far apart, so a fan-out stays under the endpoint's
+  /// per-key rate limit. Null when absent → the app default (1 request/sec).
+  final int? minRequestIntervalMs;
+
+  /// Maximum requests per provider on the wire at once (0 = uncapped) — the
+  /// concurrency half of the built-in per-provider limiter. Long streaming
+  /// turns hold a permit until the stream ends, so a scout fan-out plus the
+  /// main chat can't pile more than this many open requests onto one API key.
+  /// Null when absent → the app default (4).
+  final int? maxConcurrentRequests;
+
   /// Per-turn / per-session / per-request-input caps on the MAIN agent's
   /// [TokenBudget] (0 = that cap disabled). These mirror the `--max-*-tokens`
   /// flags so the whole token-limit surface is configurable from `/settings`.
@@ -186,6 +203,8 @@ class LimitsConfig {
     this.maxSubAgentDepth,
     this.maxSubAgentConcurrency,
     this.requestsPerMinute,
+    this.minRequestIntervalMs,
+    this.maxConcurrentRequests,
     this.maxTurnTokens,
     this.maxSessionTokens,
     this.maxRequestTokens,
@@ -197,6 +216,8 @@ class LimitsConfig {
         maxSubAgentDepth: m['max_sub_agent_depth'] as int?,
         maxSubAgentConcurrency: m['max_sub_agent_concurrency'] as int?,
         requestsPerMinute: m['requests_per_minute'] as int?,
+        minRequestIntervalMs: m['min_request_interval_ms'] as int?,
+        maxConcurrentRequests: m['max_concurrent_requests'] as int?,
         maxTurnTokens: m['max_turn_tokens'] as int?,
         maxSessionTokens: m['max_session_tokens'] as int?,
         maxRequestTokens: m['max_request_tokens'] as int?,
@@ -208,11 +229,13 @@ class LimitsConfig {
       maxSubAgentDepth == null &&
       maxSubAgentConcurrency == null &&
       requestsPerMinute == null &&
+      minRequestIntervalMs == null &&
+      maxConcurrentRequests == null &&
       maxTurnTokens == null &&
       maxSessionTokens == null &&
       maxRequestTokens == null;
 
-  /// Value equality over the eight nullable limits (used to detect an edit that
+  /// Value equality over the nullable limits (used to detect an edit that
   /// changed nothing).
   @override
   bool operator ==(Object other) =>
@@ -222,6 +245,8 @@ class LimitsConfig {
       maxSubAgentDepth == other.maxSubAgentDepth &&
       maxSubAgentConcurrency == other.maxSubAgentConcurrency &&
       requestsPerMinute == other.requestsPerMinute &&
+      minRequestIntervalMs == other.minRequestIntervalMs &&
+      maxConcurrentRequests == other.maxConcurrentRequests &&
       maxTurnTokens == other.maxTurnTokens &&
       maxSessionTokens == other.maxSessionTokens &&
       maxRequestTokens == other.maxRequestTokens;
@@ -233,6 +258,8 @@ class LimitsConfig {
       maxSubAgentDepth,
       maxSubAgentConcurrency,
       requestsPerMinute,
+      minRequestIntervalMs,
+      maxConcurrentRequests,
       maxTurnTokens,
       maxSessionTokens,
       maxRequestTokens);
@@ -280,6 +307,12 @@ class UserConfig {
   /// Flows into `Config.parse` as [Config.environmentAutoPopulate].
   final String? environmentAutoPopulate;
 
+  /// The environment agent's `"provider/model"` from `[environment] model`.
+  /// Null when absent → the shipped default (see
+  /// [kDefaultEnvironmentModelRef] in environment_runner.dart). Flows into
+  /// `Config.parse` as [Config.environmentModel].
+  final String? environmentModel;
+
   /// Mouse-wheel capture from `[tui] mouse_wheel`. True (the default, null
   /// when absent) lets the wheel scroll the chat scrollback; false keeps the
   /// terminal's native click-drag text selection (enabling wheel capture
@@ -307,6 +340,7 @@ class UserConfig {
     this.prompts = const {},
     this.trustDefault,
     this.environmentAutoPopulate,
+    this.environmentModel,
     this.mouseWheel,
     this.regions,
     this.version = kCurrentConfigVersion,
@@ -324,6 +358,7 @@ class UserConfig {
       prompts.isEmpty &&
       trustDefault == null &&
       environmentAutoPopulate == null &&
+      environmentModel == null &&
       mouseWheel == null &&
       (regions == null || regions!.isEmpty);
 
@@ -341,6 +376,7 @@ class UserConfig {
     Map<String, String>? prompts,
     String? trustDefault,
     String? environmentAutoPopulate,
+    String? environmentModel,
     bool? mouseWheel,
     RegionsConfig? regions,
   }) =>
@@ -356,6 +392,7 @@ class UserConfig {
         trustDefault: trustDefault ?? this.trustDefault,
         environmentAutoPopulate:
             environmentAutoPopulate ?? this.environmentAutoPopulate,
+        environmentModel: environmentModel ?? this.environmentModel,
         mouseWheel: mouseWheel ?? this.mouseWheel,
         regions: regions ?? this.regions,
         version: version,
@@ -377,6 +414,7 @@ class UserConfig {
     final environmentRaw = (m['environment'] as Map?)?.cast<String, dynamic>();
     final environmentAutoPopulate =
         environmentRaw?['auto_populate'] as String?;
+    final environmentModel = environmentRaw?['model'] as String?;
     final tuiRaw = (m['tui'] as Map?)?.cast<String, dynamic>();
     final mouseWheel = tuiRaw?['mouse_wheel'] as bool?;
     final regionsRaw = (m['regions'] as Map?)?.cast<String, dynamic>();
@@ -408,6 +446,7 @@ class UserConfig {
       prompts: prompts,
       trustDefault: trustDefault,
       environmentAutoPopulate: environmentAutoPopulate,
+      environmentModel: environmentModel,
       mouseWheel: mouseWheel,
       regions: regionsRaw == null ? null : RegionsConfig.fromMap(regionsRaw),
       version: (m['version'] as int?) ?? kCurrentConfigVersion,
@@ -506,6 +545,14 @@ void _warnUnknownKeys(Map<String, dynamic> m, String path) {
       if (!_knownRegionsKeys.contains(k)) warn('regions.$k', _knownRegionsKeys);
     }
   }
+  final environment = m['environment'];
+  if (environment is Map) {
+    for (final k in environment.keys) {
+      if (!_knownEnvironmentKeys.contains(k)) {
+        warn('environment.$k', _knownEnvironmentKeys);
+      }
+    }
+  }
 }
 
 /// Translate the `[providers.<id>]` block into a synthetic env overlay: each
@@ -594,6 +641,10 @@ String userConfigToToml(UserConfig config) {
           'max_sub_agent_concurrency': config.limits!.maxSubAgentConcurrency,
         if (config.limits!.requestsPerMinute != null)
           'requests_per_minute': config.limits!.requestsPerMinute,
+        if (config.limits!.minRequestIntervalMs != null)
+          'min_request_interval_ms': config.limits!.minRequestIntervalMs,
+        if (config.limits!.maxConcurrentRequests != null)
+          'max_concurrent_requests': config.limits!.maxConcurrentRequests,
         if (config.limits!.maxTurnTokens != null)
           'max_turn_tokens': config.limits!.maxTurnTokens,
         if (config.limits!.maxSessionTokens != null)
@@ -611,8 +662,13 @@ String userConfigToToml(UserConfig config) {
         for (final e in config.prompts.entries) e.key: {'identity': e.value},
       },
     if (config.trustDefault != null) 'trust': {'default': config.trustDefault},
-    if (config.environmentAutoPopulate != null)
-      'environment': {'auto_populate': config.environmentAutoPopulate},
+    if (config.environmentAutoPopulate != null ||
+        config.environmentModel != null)
+      'environment': {
+        if (config.environmentAutoPopulate != null)
+          'auto_populate': config.environmentAutoPopulate,
+        if (config.environmentModel != null) 'model': config.environmentModel,
+      },
     if (config.mouseWheel != null) 'tui': {'mouse_wheel': config.mouseWheel},
     if (config.regions != null && !config.regions!.isEmpty)
       'regions': config.regions!.toMap(),
@@ -721,6 +777,11 @@ api_key = "sk-ant-..."
 # max_request_tokens   = 200000     # main agent single-request input
 # max_sub_agent_tokens = 2000000    # per sub-agent session (they otherwise run uncapped)
 # requests_per_minute  = 0          # global RPM throttle (0 = disabled)
+# min_request_interval_ms = 1000    # min spacing between request starts on one
+#                                   # provider; concurrent agents queue (0 = disabled)
+# max_concurrent_requests = 4       # max requests per provider on the wire at
+#                                   # once; extras queue until one finishes
+#                                   # (0 = uncapped)
 
 # Region agents: the fast, cheap tier the main agent routes scoped questions to
 # (per-subfolder agents primed from the summary index). `model` is a

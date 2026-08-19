@@ -3,6 +3,8 @@ import 'dart:io';
 import 'http.dart';
 import 'model_catalog.dart';
 import 'provider.dart';
+import 'provider_rate_limit.dart';
+import 'retrying_provider.dart';
 
 /// How a credential sourced from an env var is sent on the wire.
 ///
@@ -194,6 +196,21 @@ class ProviderRegistry {
   /// tests that build a registry directly) leaves providers unwrapped.
   ProviderDecorator? decorator;
 
+  /// Built-in per-provider request spacing, applied inside [build] beneath the
+  /// [decorator] so every provider constructed from one descriptor — the
+  /// startup provider, side panels, sub-agents, the environment agent — shares
+  /// one launch-slot queue. Disabled ([ProviderRateLimiter.minInterval] zero,
+  /// the default) until the composition root opts in; the app entrypoint sets
+  /// it from the user config.
+  final ProviderRateLimiter rateLimiter = ProviderRateLimiter();
+
+  /// Wire retries per send, applied by [RetryingProvider] at the top of the
+  /// policy stack (see [build]). Zero (the default) means no retry layer —
+  /// providers stay single-attempt and the built provider keeps its concrete
+  /// type in tests. The app entrypoint sets the historical transport count
+  /// (3); a retry re-enters the rate limiter, so it can never stampede.
+  int maxSendRetries = 0;
+
   /// Optional overlay catalog. When set, [modelsFor] / [findModel] / [resolve]
   /// consult it first and fall back to the descriptor's compiled `models` map.
   /// Used by `ModelsDevCatalog` to layer a live models.dev registry on top of
@@ -315,18 +332,44 @@ class ProviderRegistry {
     // the compiled map is the source; the models.dev catalog overlay carries
     // no tina-specific body tweaks.
     final extraBody = desc.models[resolved.modelId]?.extraBody ?? const {};
+    final endpoint = baseUrlOverride ?? desc.defaultBaseUrl;
     final built = desc.builder(ProviderInstance(
       apiKey: apiKey,
       model: resolved.modelId,
-      baseUrl: baseUrlOverride ?? desc.defaultBaseUrl,
+      baseUrl: endpoint,
       maxTokens: maxTokens ?? defaultMaxTokens,
       streamIdleTimeout: streamIdleTimeout ?? defaultStreamIdleTimeout,
       requestTimeout: requestTimeout ?? defaultRequestTimeout,
       authScheme: scheme,
       extraBody: extraBody,
     ));
-    final wrap = decorator;
-    return wrap == null ? built : wrap(built);
+    // The policy stack, innermost first:
+    //
+    //   built → rate limiter → metering → retry
+    //
+    // * rate limiting innermost so the ledger measures requests that actually
+    //   went out, and the spacing/concurrency apply to every wire request;
+    //   the queue key is the endpoint+API-key hash (providerQueueKey) — the
+    //   hosted per-key identity — not the descriptor id, so two config
+    //   providers on one upstream share one queue;
+    // * metering below retry so each RETRY is measured too (it is a real
+    //   request that consumes real tokens);
+    // * retry outermost so a re-attempt re-enters the whole stack — it
+    //   re-acquires a launch slot instead of bypassing the queue the way the
+    //   old transport-internal retry did.
+    //
+    // Each layer wraps only when enabled, keeping the built provider's
+    // concrete type visible (and zero-overhead) in tests and any path that
+    // hasn't opted in.
+    final limited =
+        rateLimiter.minInterval > Duration.zero || rateLimiter.maxConcurrent > 0
+            ? RateLimitedProvider(
+                built, rateLimiter, providerQueueKey(endpoint, apiKey))
+            : built;
+    final metered = decorator == null ? limited : decorator!(limited);
+    return maxSendRetries > 0
+        ? RetryingProvider(metered, maxRetries: maxSendRetries)
+        : metered;
   }
 
   /// First [AuthSource] whose env var is set in [env] (defaulting to this
