@@ -859,6 +859,188 @@ void main() {
     });
   });
 
+  group('project-local transcripts', () {
+    late Directory project;
+
+    setUp(() async {
+      project = await Directory.systemTemp.createTemp('tina_project_test_');
+    });
+
+    tearDown(() async {
+      if (await project.exists()) await project.delete(recursive: true);
+    });
+
+    Future<(String, String)> newLocalConversation() async {
+      final sid = await store.createSession(
+          providerId: 'anthropic', cwd: project.path);
+      final cid = await store.createConversation(sid);
+      return (sid, cid);
+    }
+
+    Directory localDir(String sid) =>
+        Directory(p.join(project.path, '.tina', 'sessions', sid));
+
+    test('createSession marks the manifest transcriptsLocal', () async {
+      final sid = await store.createSession(
+          providerId: 'anthropic', cwd: project.path);
+      final manifest = await store.loadSession(sid);
+      expect(manifest.transcriptsLocal, isTrue);
+      // ...and the raw on-disk manifest carries the flag.
+      final raw = jsonDecode(
+          await File(p.join(tmp.path, sid, 'session.json')).readAsString())
+          as Map<String, dynamic>;
+      expect(raw['transcriptsLocal'], isTrue);
+    });
+
+    test('old manifests without the flag parse as transcriptsLocal false',
+        () async {
+      final m = SessionManifest.fromJson({
+        'id': 's1',
+        'activeConversationId': 'c1',
+        'conversations': [
+          {'id': 'c1'}
+        ],
+      });
+      expect(m.transcriptsLocal, isFalse);
+      // False is omitted from the wire form.
+      expect(m.toJson().containsKey('transcriptsLocal'), isFalse);
+    });
+
+    test('new session writes transcripts to the project-local sidecar',
+        () async {
+      final (sid, cid) = await newLocalConversation();
+      await store.append(
+          sid, cid, const Message(role: Role.user, content: [TextBlock('hi')]));
+
+      expect(await File(p.join(localDir(sid).path, '$cid.jsonl')).exists(),
+          isTrue);
+      // Nothing transcript-shaped under the global session dir.
+      expect(await File(p.join(tmp.path, sid, '$cid.jsonl')).exists(), isFalse);
+      // The manifest stays global.
+      expect(await File(p.join(tmp.path, sid, 'session.json')).exists(),
+          isTrue);
+    });
+
+    test('loadConversation reads from the project-local sidecar', () async {
+      final (sid, cid) = await newLocalConversation();
+      await store.append(
+          sid, cid, const Message(role: Role.user, content: [TextBlock('hi')]));
+      final loaded = await store.loadConversation(sid, cid);
+      expect((loaded.single.content.single as TextBlock).text, 'hi');
+    });
+
+    test('replace lands in the project-local sidecar', () async {
+      final (sid, cid) = await newLocalConversation();
+      await store.append(
+          sid, cid, const Message(role: Role.user, content: [TextBlock('a')]));
+      await store.replace(sid, cid, const [
+        Message(role: Role.user, content: [TextBlock('summary')]),
+      ]);
+      final loaded = await store.loadConversation(sid, cid);
+      expect((loaded.single.content.single as TextBlock).text, 'summary');
+      expect(await File(p.join(localDir(sid).path, '$cid.jsonl')).exists(),
+          isTrue);
+    });
+
+    test('sessions without cwd stay in the global layout', () async {
+      final sid = await store.createSession(providerId: 'anthropic');
+      final cid = await store.createConversation(sid);
+      await store.append(
+          sid, cid, const Message(role: Role.user, content: [TextBlock('a')]));
+      expect(await File(p.join(tmp.path, sid, '$cid.jsonl')).exists(), isTrue);
+    });
+
+    test('read falls back to global when the project-local file is missing',
+        () async {
+      final sid = await store.createSession(
+          providerId: 'anthropic', cwd: project.path);
+      final cid = await store.createConversation(sid);
+      // Simulate the project-local copy vanishing (e.g. not synced): the
+      // transcript lives globally only.
+      await File(p.join(project.path, '.tina', 'sessions', sid, '$cid.jsonl'))
+          .delete();
+      await File(p.join(tmp.path, sid, '$cid.jsonl')).writeAsString(
+          '${jsonEncode(const Message(role: Role.user, content: [
+            TextBlock('global only')
+          ]).toJson())}\n');
+      final loaded = await store.loadConversation(sid, cid);
+      expect((loaded.single.content.single as TextBlock).text, 'global only');
+    });
+
+    test('write falls back to global when the recorded cwd was deleted',
+        () async {
+      final sid = await store.createSession(
+          providerId: 'anthropic', cwd: project.path);
+      final cid = await store.createConversation(sid);
+      await project.delete(recursive: true);
+      await store.append(
+          sid, cid, const Message(role: Role.user, content: [TextBlock('a')]));
+      expect(await File(p.join(tmp.path, sid, '$cid.jsonl')).exists(), isTrue);
+    });
+
+    test('listSessions counts and titles from the project-local transcripts',
+        () async {
+      final (sid, cid) = await newLocalConversation();
+      await store.append(sid, cid,
+          const Message(role: Role.user, content: [TextBlock('local title')]));
+      final list = await store.listSessions();
+      final meta = list.singleWhere((s) => s.id == sid);
+      expect(meta.messageCount, 1);
+      expect(meta.title, 'local title');
+      expect(meta.cwd, project.path);
+    });
+
+    test('deleteSession cleans up both locations', () async {
+      final (sid, cid) = await newLocalConversation();
+      await store.append(
+          sid, cid, const Message(role: Role.user, content: [TextBlock('a')]));
+      expect(await localDir(sid).exists(), isTrue);
+      await store.deleteSession(sid);
+      expect(await localDir(sid).exists(), isFalse);
+      expect(await Directory(p.join(tmp.path, sid)).exists(), isFalse);
+    });
+
+    test('deleteConversation removes the project-local file', () async {
+      final (sid, cid) = await newLocalConversation();
+      await store.append(
+          sid, cid, const Message(role: Role.user, content: [TextBlock('a')]));
+      await store.deleteConversation(sid, cid);
+      expect(await File(p.join(localDir(sid).path, '$cid.jsonl')).exists(),
+          isFalse);
+      final manifest = await store.loadSession(sid);
+      expect(manifest.conversations, isEmpty);
+    });
+
+    test('transcriptsLocal survives manifest rewrites', () async {
+      final sid = await store.createSession(
+          providerId: 'anthropic', cwd: project.path);
+      await store.createConversation(sid);
+      await store.updateSessionUsage(sid, 42);
+      final manifest = await store.loadSession(sid);
+      expect(manifest.transcriptsLocal, isTrue);
+      expect(manifest.usageTokens, 42);
+    });
+
+    test('legacy flat-file migration stays global (never project-local)',
+        () async {
+      const legacyId = '20240101-120000-abcd';
+      final f = File(p.join(tmp.path, '$legacyId.jsonl'));
+      await f.create(recursive: true);
+      await f.writeAsString(
+          '${jsonEncode(const Message(role: Role.user, content: [
+            TextBlock('legacy')
+          ]).toJson())}\n');
+
+      final manifest = await store.loadSession(legacyId);
+      expect(manifest.transcriptsLocal, isFalse);
+      final cid = manifest.activeConversationId;
+      await store.append(legacyId, cid,
+          const Message(role: Role.user, content: [TextBlock('more')]));
+      expect(
+          await File(p.join(tmp.path, legacyId, '$cid.jsonl')).exists(), isTrue);
+    });
+  });
+
   group('SessionManifest provider migration', () {
     test('reads the legacy providerKind key as providerId', () {
       // Manifests written before the registry migration stored the enum name

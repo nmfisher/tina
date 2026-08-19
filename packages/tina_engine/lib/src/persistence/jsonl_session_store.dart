@@ -14,8 +14,20 @@ final _log = Logger('tina.persistence');
 
 /// File-backed [SessionStore]. Each session is a directory under [root]:
 ///
-///   `<root>/<sessionId>/session.json`              — manifest
-///   `<root>/<sessionId>/<conversationId>.jsonl`    — one conversation's history
+///   `<root>/<sessionId>/session.json`              — manifest (always global)
+///   `<root>/<sessionId>/<conversationId>.jsonl`    — legacy transcript location
+///
+/// For sessions created with `transcriptsLocal` (see [SessionManifest]), the
+/// transcripts instead live in the project-local sidecar:
+///
+///   `<cwd>/.tina/sessions/<sessionId>/<conversationId>.jsonl`
+///
+/// The manifest and the per-session `.lock` always stay under [root] so the
+/// global index (and `--continue`'s folder scoping) keeps working; only the
+/// bulky transcript files travel with the project. Reads fall back to the
+/// global location (e.g. the recorded `cwd` was deleted); writes fall back
+/// only when the `cwd` directory no longer exists. Sessions created before
+/// the split are never migrated — they keep the global layout forever.
 ///
 /// Append is O(1) and crash-safe per line; [replace] swaps atomically via a
 /// tempfile + rename. Each `.jsonl` line is the same wire shape used over the
@@ -47,6 +59,50 @@ class JsonlSessionStore implements SessionStore {
   File _manifestFile(String sid) => File(p.join(root.path, sid, _manifestName));
   File _legacyFile(String sid) => File(p.join(root.path, '$sid.jsonl'));
 
+  /// Project-local transcript directory for a session started in [cwd], or
+  /// null when the manifest carries no cwd.
+  Directory? _projectTranscriptDir(String? cwd, String sid) => cwd == null
+      ? null
+      : Directory(p.join(cwd, '.tina', 'sessions', sid));
+
+  /// Resolve a conversation file for WRITING: the project-local sidecar when
+  /// the manifest says so and the recorded cwd still exists, else the global
+  /// session directory.
+  Future<File> _resolveConversationFile(
+      SessionManifest manifest, String cid) async {
+    if (manifest.transcriptsLocal &&
+        manifest.cwd != null &&
+        await Directory(manifest.cwd!).exists()) {
+      return File(p.join(
+          manifest.cwd!, '.tina', 'sessions', manifest.id, '$cid.jsonl'));
+    }
+    return _conversationFile(manifest.id, cid);
+  }
+
+  /// Resolve a conversation file for READING/DELETING: project-local first
+  /// (when the manifest says so), then the global session directory.
+  Future<File> _findConversationFile(
+      SessionManifest manifest, String cid) async {
+    final projectDir = _projectTranscriptDir(manifest.cwd, manifest.id);
+    if (manifest.transcriptsLocal && projectDir != null) {
+      final local = File(p.join(projectDir.path, '$cid.jsonl'));
+      if (await local.exists()) return local;
+    }
+    return _conversationFile(manifest.id, cid);
+  }
+
+  /// [_findConversationFile] for callers that hold only a session id. A
+  /// missing manifest (incomplete/mid-migration directory) reads as "no such
+  /// conversation" via the global path, preserving the pre-split behavior
+  /// where the failed read surfaces as StateError from the caller.
+  Future<File> _findConversationFileSafe(String sid, String cid) async {
+    try {
+      return await _findConversationFile(await _readManifest(sid), cid);
+    } on PathNotFoundException {
+      return _conversationFile(sid, cid);
+    }
+  }
+
   /// The on-disk directory backing [sessionId] (where the manifest, history
   /// files, and a per-session `.lock` live). Exposed so callers can place a
   /// [SessionLock] without reaching into the private layout.
@@ -70,6 +126,9 @@ class JsonlSessionStore implements SessionStore {
       cwd: cwd,
       activeConversationId: '',
       conversations: const [],
+      // New sessions keep their transcripts in the project-local sidecar
+      // (`<cwd>/.tina/sessions/<id>/`). Old sessions (flag absent) never move.
+      transcriptsLocal: true,
     ));
     return id;
   }
@@ -84,11 +143,11 @@ class JsonlSessionStore implements SessionStore {
       String sessionId, ConversationMetaInput input) async {
     await _ensureMaterialized(sessionId);
     final cid = _newId();
-    final f = _conversationFile(sessionId, cid);
-    await f.parent.create(recursive: true);
-    await f.create();
     // Register the conversation in the manifest; the first one becomes active.
     final manifest = await _readManifest(sessionId);
+    final f = await _resolveConversationFile(manifest, cid);
+    await f.parent.create(recursive: true);
+    await f.create();
     final conversations = [
       ...manifest.conversations,
       _metaFromInput(cid, input),
@@ -102,6 +161,7 @@ class JsonlSessionStore implements SessionStore {
           ? cid
           : manifest.activeConversationId,
       conversations: conversations,
+      transcriptsLocal: manifest.transcriptsLocal,
     ));
     return cid;
   }
@@ -128,7 +188,8 @@ class JsonlSessionStore implements SessionStore {
   Future<void> append(
       String sessionId, String conversationId, Message m) async {
     await _ensureMaterialized(sessionId);
-    final f = _conversationFile(sessionId, conversationId);
+    final f = await _resolveConversationFile(
+        await _readManifest(sessionId), conversationId);
     if (!await f.parent.exists()) await f.parent.create(recursive: true);
     // One handle for repair + write, so the two steps can't interleave with
     // another append through this path.
@@ -216,7 +277,8 @@ class JsonlSessionStore implements SessionStore {
   Future<void> replace(
       String sessionId, String conversationId, List<Message> messages) async {
     await _ensureMaterialized(sessionId);
-    final target = _conversationFile(sessionId, conversationId);
+    final target = await _resolveConversationFile(
+        await _readManifest(sessionId), conversationId);
     if (!await target.parent.exists()) {
       await target.parent.create(recursive: true);
     }
@@ -256,7 +318,7 @@ class JsonlSessionStore implements SessionStore {
   Future<List<Message>> loadConversation(
       String sessionId, String conversationId) async {
     await _ensureMaterialized(sessionId);
-    final f = _conversationFile(sessionId, conversationId);
+    final f = await _findConversationFileSafe(sessionId, conversationId);
     final List<String> lines;
     try {
       lines = await f.readAsLines();
@@ -296,6 +358,7 @@ class JsonlSessionStore implements SessionStore {
       activeConversationId: conversationId,
       conversations: manifest.conversations,
       usageTokens: manifest.usageTokens,
+      transcriptsLocal: manifest.transcriptsLocal,
     ));
   }
 
@@ -311,6 +374,7 @@ class JsonlSessionStore implements SessionStore {
       activeConversationId: manifest.activeConversationId,
       conversations: manifest.conversations,
       usageTokens: tokens < 0 ? 0 : tokens,
+      transcriptsLocal: manifest.transcriptsLocal,
     ));
   }
 
@@ -341,7 +405,7 @@ class JsonlSessionStore implements SessionStore {
         var totalCount = 0;
         String? title;
         for (final c in manifest.conversations) {
-          final (count, cTitle) = await _countAndTitle(sid, c.id);
+          final (count, cTitle) = await _countAndTitle(manifest, c.id);
           totalCount += count;
           if (c.id == manifest.activeConversationId) title = cTitle;
         }
@@ -349,7 +413,8 @@ class JsonlSessionStore implements SessionStore {
           id: sid,
           title: title ?? '(empty)',
           createdAt: dirStat.changed,
-          updatedAt: await _newestConversationMtime(entity),
+          updatedAt: await _newestConversationMtime(entity,
+              projectDir: _projectTranscriptDir(manifest.cwd, sid)),
           messageCount: totalCount,
           conversationCount: manifest.conversations.length,
           cwd: manifest.cwd,
@@ -386,6 +451,19 @@ class JsonlSessionStore implements SessionStore {
 
   @override
   Future<void> deleteSession(String sessionId) async {
+    // Clean up the project-local transcript dir too, when there is one.
+    try {
+      final manifest = await _readManifest(sessionId);
+      final projectDir =
+          _projectTranscriptDir(manifest.cwd, sessionId);
+      if (manifest.transcriptsLocal &&
+          projectDir != null &&
+          await projectDir.exists()) {
+        await projectDir.delete(recursive: true);
+      }
+    } on PathNotFoundException {
+      // Manifest already gone — nothing project-local to check.
+    }
     final dir = _sessionDir(sessionId);
     try {
       await dir.delete(recursive: true);
@@ -403,9 +481,11 @@ class JsonlSessionStore implements SessionStore {
   Future<void> deleteConversation(
       String sessionId, String conversationId) async {
     try {
-      await _conversationFile(sessionId, conversationId).delete();
+      final manifest = await _readManifest(sessionId);
+      final f = await _findConversationFile(manifest, conversationId);
+      if (await f.exists()) await f.delete();
     } on PathNotFoundException {
-      // Idempotent — file already gone.
+      // Idempotent — file (or manifest) already gone.
     }
     // Drop the conversation from the manifest too, and fix up the active
     // pointer if it pointed here.
@@ -423,6 +503,8 @@ class JsonlSessionStore implements SessionStore {
         cwd: manifest.cwd,
         activeConversationId: active,
         conversations: remaining,
+        usageTokens: manifest.usageTokens,
+        transcriptsLocal: manifest.transcriptsLocal,
       ));
     } on PathNotFoundException {
       // No manifest (legacy/missing session) — nothing to update.
@@ -528,8 +610,9 @@ class JsonlSessionStore implements SessionStore {
 
   /// Derive (non-blank-line count, first-user-message title) from a
   /// conversation file. Returns (0, null) if the file can't be read.
-  Future<(int, String?)> _countAndTitle(String sid, String cid) async {
-    final f = _conversationFile(sid, cid);
+  Future<(int, String?)> _countAndTitle(
+      SessionManifest manifest, String cid) async {
+    final f = await _findConversationFile(manifest, cid);
     try {
       return _countAndTitleFromLines(await f.readAsLines());
     } on FileSystemException {
@@ -540,15 +623,22 @@ class JsonlSessionStore implements SessionStore {
   /// Newest mtime across a session directory's conversation files, falling
   /// back to the directory's own mtime. Writing to a conversation file does
   /// NOT bump its parent directory's mtime, so we scan the files to keep
-  /// "most-recently-updated" ordering honest.
-  Future<DateTime> _newestConversationMtime(Directory dir) async {
+  /// "most-recently-updated" ordering honest. For project-local sessions the
+  /// transcripts live in [projectDir] instead, so both are scanned.
+  Future<DateTime> _newestConversationMtime(Directory dir,
+      {Directory? projectDir}) async {
     var newest = (await dir.stat()).modified;
-    await for (final e in dir.list()) {
-      if (e is File && e.path.endsWith('.jsonl')) {
-        final s = await e.stat();
-        if (s.modified.isAfter(newest)) newest = s.modified;
+    Future<void> scan(Directory d) async {
+      await for (final e in d.list()) {
+        if (e is File && e.path.endsWith('.jsonl')) {
+          final s = await e.stat();
+          if (s.modified.isAfter(newest)) newest = s.modified;
+        }
       }
     }
+
+    await scan(dir);
+    if (projectDir != null && await projectDir.exists()) await scan(projectDir);
     return newest;
   }
 

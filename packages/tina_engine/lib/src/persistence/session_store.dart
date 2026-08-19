@@ -295,6 +295,12 @@ class SessionManifest {
   /// sessions created before the field existed.
   final int usageTokens;
 
+  /// Whether this session's transcripts live in the project-local sidecar
+  /// (`<cwd>/.tina/sessions/<id>/`) rather than the global session root.
+  /// False/absent = global layout (sessions created before this field
+  /// existed, which are never migrated).
+  final bool transcriptsLocal;
+
   const SessionManifest({
     required this.id,
     required this.providerId,
@@ -303,6 +309,7 @@ class SessionManifest {
     required this.conversations,
     this.cwd,
     this.usageTokens = 0,
+    this.transcriptsLocal = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -315,6 +322,7 @@ class SessionManifest {
         'activeConversationId': activeConversationId,
         'conversations': conversations.map((c) => c.toJson()).toList(),
         if (usageTokens > 0) 'usage': {'tokens': usageTokens},
+        if (transcriptsLocal) 'transcriptsLocal': true,
       };
 
   factory SessionManifest.fromJson(Map<String, dynamic> j) => SessionManifest(
@@ -330,6 +338,7 @@ class SessionManifest {
         usageTokens: ((j['usage'] as Map?)?.cast<String, dynamic>())
                 ?['tokens'] as int? ??
             0,
+        transcriptsLocal: j['transcriptsLocal'] as bool? ?? false,
       );
 }
 
