@@ -295,8 +295,10 @@ class Config {
             '0 disables it (or falls back to the file default).')
     ..addOption('auto-compact-threshold',
         defaultsTo: '120000',
-        help: 'Auto-summarize older history when an incoming turn\'s estimated '
-            'input tokens exceed this, keeping recent turns. 0 disables.')
+        help: 'Auto-summarize older history when a request\'s estimated input '
+            'tokens exceed this — between turns and mid-turn (long tool-using '
+            'turns compact in place instead of drowning in accumulated '
+            'results), keeping recent turns verbatim. 0 disables.')
     ..addOption('max-steps',
         defaultsTo: '50',
         help: 'Maximum tool-calling steps allowed in a single user turn.')

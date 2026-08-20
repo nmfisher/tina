@@ -27,6 +27,32 @@ void main() {
   });
 
   group('JsonlSessionStore', () {
+    test('createSession honors a caller-supplied id', () async {
+      // The app pre-allocates a session id at startup and prints it as the
+      // headless "resume:" hint before the first write materializes the
+      // store entry — the store must persist THAT id, not mint a new one at
+      // first-write time (the minted id made the printed hint a dangling
+      // reference).
+      const pre = '20260820-025935-1462';
+      final sid = await store.createSession(
+          providerId: 'anthropic', sessionId: pre);
+      expect(sid, pre);
+      final cid = await store.createConversation(sid);
+      await store.append(sid, cid,
+          const Message(role: Role.user, content: [TextBlock('hello')]));
+      final manifest = await store.loadSession(pre); // resolves, no throw
+      expect(manifest.id, pre);
+    });
+
+    test('createSession mints a fresh id on a caller-id collision', () async {
+      const pre = 'dup';
+      final first = await store.createSession(providerId: 'a', sessionId: pre);
+      final second = await store.createSession(providerId: 'a', sessionId: pre);
+      expect(first, pre);
+      expect(second, isNot(pre)); // collision → fresh id, never an overwrite
+      await store.createConversation(second); // both sessions are usable
+    });
+
     test('create -> append -> load round-trips messages in order', () async {
       final (sid, cid) = await newConversation();
       expect(sid, isNotEmpty);
@@ -829,7 +855,9 @@ void main() {
     group('SessionRecorder', () {
       test('lazy-inits the store on first write', () async {
         // Create a recorder with placeholder IDs — no store entries yet.
-        // The store generates canonical IDs on lazy init.
+        // The session id was pre-allocated by the app (and may already have
+        // been surfaced to the user as the resume hint), so lazy init
+        // persists THAT id; only the conversation id is store-minted.
         final r = SessionRecorder(store, 's-placeholder', 'c-placeholder',
             providerId: 'anthropic');
         expect(r.isInitialized, isFalse);
@@ -838,12 +866,10 @@ void main() {
             const Message(role: Role.user, content: [TextBlock('hello')]));
         expect(r.isInitialized, isTrue);
 
-        // Session and conversation now exist in the store, using the store's
-        // generated IDs which the recorder captured.
         final sid = r.sessionId;
         final cid = r.conversationId;
-        expect(sid, isNot('s-placeholder'));
-        expect(cid, isNot('c-placeholder'));
+        expect(sid, 's-placeholder'); // pre-allocated id honored
+        expect(cid, isNot('c-placeholder')); // conversation id is minted
 
         final manifest = await store.loadSession(sid);
         expect(manifest.conversations, hasLength(1));

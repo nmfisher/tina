@@ -64,6 +64,22 @@ class Agent {
   /// tests that want the legacy abort behavior.
   final PauseGate? pauseGate;
 
+  /// Mid-turn auto-compact: when the NEXT request's estimated input tokens
+  /// exceed this, the older history is summarized in place (keeping the
+  /// trailing [autoCompactKeepMessages] messages verbatim) before the request
+  /// goes out. 0 (the engine default) disables it — the app wires the user's
+  /// `--auto-compact-threshold` here so every long autonomous turn (headless
+  /// `--prompt`, workflow nodes, a chatty interactive session) is bounded by
+  /// compaction rather than dying at the per-turn token ceiling. Mutable so a
+  /// runtime adjustment (the `/auto-compact` command) applies without a
+  /// rebuild, matching the app-level threshold's contract.
+  int autoCompactThreshold;
+
+  /// How many trailing messages a mid-turn auto-compact keeps uncompressed.
+  /// The split lands on an assistant-message boundary so a tool_use and its
+  /// tool_result are never severed (see [compact]).
+  int autoCompactKeepMessages;
+
   /// Resolved once at construction; reused for every provider call so the
   /// system prefix stays stable across a multi-step turn (cache-friendly).
   final String system;
@@ -77,6 +93,8 @@ class Agent {
     this.maxSteps = 50,
     this.budget,
     this.pauseGate,
+    this.autoCompactThreshold = 0,
+    this.autoCompactKeepMessages = 6,
     required this.system,
   }) : _provider = provider;
 
@@ -149,11 +167,44 @@ class Agent {
     // --yolo can't extend it. Tripping stops the turn with a notice.
     var toolCalls = 0;
 
+    // Step of the last mid-turn auto-compact ATTEMPT. A compaction that fails
+    // to shrink the estimate (summary error, nothing safely splittable) must
+    // not be retried every step — one attempt per 3 steps bounds the waste.
+    var lastCompactAttempt = -3;
+
     for (var step = 0; step < maxSteps; step++) {
       if (cancelled) {
         sink.notice('\n[cancelled]\n', kind: NoticeKind.warning);
         abortedKind = AbortedKind.cancel;
         return;
+      }
+
+      // Mid-turn auto-compact: tool results accumulate in history faster than
+      // any between-turns pass can trim them, so a long autonomous turn (a
+      // headless --prompt task, a workflow node) re-sends an ever-growing
+      // payload until it drowns in its own context — the per-turn budget then
+      // kills a run that was making progress. When the next request's
+      // estimated input crosses the threshold, summarize the older history in
+      // place (keeping the trailing messages verbatim) and send that instead.
+      // Same estimate [checkRequestInput] uses; compaction failure is
+      // non-fatal and rate-limited by the attempt gate above. Runs BEFORE the
+      // per-request rejection so a payload that crossed both thresholds gets
+      // compacted first — the cap then judges the compacted history, and only
+      // rejects when even compaction couldn't bring it down.
+      //
+      // The splittability pre-check (boundary ≥ 2 ⇒ a prefix of at least two
+      // messages) costs no request: a history that is still all-current-turn
+      // must not consume the attempt gate, or the gate would postpone the
+      // first real compaction by its whole window.
+      if (autoCompactThreshold > 0 && step - lastCompactAttempt >= 3) {
+        final estimate =
+            TokenBudget.estimateInputTokens(system, history, tools.schemas);
+        if (estimate > autoCompactThreshold &&
+            _assistantMessageBoundary(history, autoCompactKeepMessages) >= 2) {
+          lastCompactAttempt = step;
+          await compact(history,
+              preserveRecentMessages: autoCompactKeepMessages);
+        }
       }
 
       // Pre-flight: refuse a request whose input alone would blow past the
@@ -350,7 +401,17 @@ class Agent {
   /// human-turn boundary — never between a tool_use and its tool_result — so the
   /// preserved suffix stays a valid conversation the provider will accept. 0
   /// summarizes the whole history (the `/compact` behavior).
-  Future<bool> compact(List<Message> history, {int preserveRecent = 0}) async {
+  ///
+  /// [preserveRecentMessages] is the mid-turn variant: keep the last N
+  /// *messages* verbatim instead of counting human turns — mid-turn there is
+  /// often just one human turn (the current input), which the human-turn mode
+  /// can't split around. The boundary walks back to the nearest assistant
+  /// message, so the suffix starts on an assistant turn and a tool_use and its
+  /// tool_result can never be separated (the tool_result always directly
+  /// follows its tool_use's assistant message). Ignored when
+  /// [preserveRecent] is set.
+  Future<bool> compact(List<Message> history,
+      {int preserveRecent = 0, int preserveRecentMessages = 0}) async {
     if (history.isEmpty) {
       sink.notice('(nothing to compact)\n');
       return false;
@@ -358,15 +419,21 @@ class Agent {
 
     final List<Message> prefix;
     final List<Message> suffix;
-    if (preserveRecent <= 0) {
-      prefix = history;
-      suffix = const [];
-    } else {
+    if (preserveRecent > 0) {
       final split = _recentHumanTurnBoundary(history, preserveRecent);
       if (split <= 0) return false; // fewer recent human turns than requested
       prefix = history.sublist(0, split);
       suffix = history.sublist(split);
       if (prefix.length < 2) return false; // not enough older context to summarize
+    } else if (preserveRecentMessages > 0) {
+      final split = _assistantMessageBoundary(history, preserveRecentMessages);
+      if (split <= 0) return false; // no safe boundary with a splittable prefix
+      prefix = history.sublist(0, split);
+      suffix = history.sublist(split);
+      if (prefix.length < 2) return false; // not enough older context to summarize
+    } else {
+      prefix = history;
+      suffix = const [];
     }
 
     final priorCount = history.length;
@@ -461,6 +528,22 @@ class Agent {
         humanTurns++;
         if (humanTurns == keep) return i;
       }
+    }
+    return 0;
+  }
+
+  /// Largest split index that leaves at least [keep] messages in the suffix
+  /// AND starts the suffix on an assistant message — the message-boundary
+  /// analogue of [_recentHumanTurnBoundary] for mid-turn compaction, where the
+  /// recent tail is a run of tool exchanges rather than human turns. Starting
+  /// the suffix on an assistant message keeps every `assistant(tool_use)` next
+  /// to its `user(tool_result)`: the pair is either both summarized (split
+  /// after the tool_result) or both preserved (split at/before the tool_use).
+  /// Returns 0 when no such boundary exists (the whole history is the recent
+  /// exchange — nothing safely splittable).
+  static int _assistantMessageBoundary(List<Message> history, int keep) {
+    for (var i = history.length - keep; i >= 1; i--) {
+      if (history[i].role == Role.assistant) return i;
     }
     return 0;
   }

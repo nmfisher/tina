@@ -778,5 +778,229 @@ void main() {
       expect(compacted, isFalse);
       expect(history, hasLength(2)); // unchanged
     });
+
+    test('preserveRecentMessages splits on an assistant boundary, never a tool pair',
+        () async {
+      // Mid-turn shape: one human input followed by tool exchanges. The
+      // message-boundary mode must summarize the older prefix and keep the
+      // trailing exchanges intact — every tool_result still next to its
+      // tool_use.
+      final provider = FakeProvider([
+        [
+          const TextDelta('summary'),
+          const MessageComplete(
+              content: [TextBlock('summary')], stopReason: 'end_turn'),
+        ],
+      ]);
+      final agent = _agent(
+        provider: provider,
+        tools: ToolRegistry(const []),
+        sink: FakeAgentSink(),
+      );
+      final history = <Message>[
+        const Message(role: Role.user, content: [TextBlock('do the task')]),
+        const Message(role: Role.assistant, content: [
+          TextBlock('checking 1'),
+          ToolUseBlock(id: 't1', name: 'read', input: {}),
+        ]),
+        const Message(role: Role.user, content: [
+          ToolResultBlock(toolUseId: 't1', content: 'file one'),
+        ]),
+        const Message(role: Role.assistant, content: [
+          TextBlock('checking 2'),
+          ToolUseBlock(id: 't2', name: 'read', input: {}),
+        ]),
+        const Message(role: Role.user, content: [
+          ToolResultBlock(toolUseId: 't2', content: 'file two'),
+        ]),
+        const Message(role: Role.assistant, content: [
+          TextBlock('checking 3'),
+          ToolUseBlock(id: 't3', name: 'read', input: {}),
+        ]),
+        const Message(role: Role.user, content: [
+          ToolResultBlock(toolUseId: 't3', content: 'file three'),
+        ]),
+      ];
+
+      final compacted =
+          await agent.compact(history, preserveRecentMessages: 4);
+
+      expect(compacted, isTrue);
+      // [summary-u, summary-a, a(t2), u(t2), a(t3), u(t3)] — the first
+      // exchange was summarized away, the kept suffix starts on an assistant
+      // message, and t2/t3 pairs are intact.
+      expect(history, hasLength(6));
+      expect(history[2].role, Role.assistant);
+      final useIds = history
+          .expand((m) => m.content.whereType<ToolUseBlock>())
+          .map((b) => b.id)
+          .toSet();
+      final resultIds = history
+          .expand((m) => m.content.whereType<ToolResultBlock>())
+          .map((b) => b.toolUseId)
+          .toSet();
+      expect(useIds, {'t2', 't3'});
+      expect(resultIds, {'t2', 't3'}); // no dangling tool_result
+    });
+
+    test(
+        'preserveRecentMessages is a no-op when the whole history is the recent exchange',
+        () async {
+      // Fewer messages than keep (plus the splittable-prefix floor) → nothing
+      // to summarize without cutting into the live tool exchange.
+      final provider = FakeProvider([[]]); // never invoked
+      final agent = _agent(
+        provider: provider,
+        tools: ToolRegistry(const []),
+        sink: FakeAgentSink(),
+      );
+      final history = <Message>[
+        const Message(role: Role.user, content: [TextBlock('q')]),
+        const Message(role: Role.assistant, content: [
+          ToolUseBlock(id: 't1', name: 'read', input: {}),
+        ]),
+        const Message(role: Role.user, content: [
+          ToolResultBlock(toolUseId: 't1', content: 'big result'),
+        ]),
+      ];
+
+      final compacted =
+          await agent.compact(history, preserveRecentMessages: 6);
+
+      expect(compacted, isFalse);
+      expect(history, hasLength(3)); // unchanged
+    });
+  });
+
+  group('Agent.run mid-turn auto-compact', () {
+    // Tool-result payload sized against a 2000-token threshold: 20k chars
+    // estimates to ~5k tokens (bytes/4), enough to trip it.
+    final String big = 'x' * 20000;
+
+    List<StreamEvent> toolUse(String id) => [
+          MessageComplete(
+              content: [
+                ToolUseBlock(id: id, name: 'big', input: const {}),
+              ],
+              stopReason: 'tool_use'),
+        ];
+
+    List<StreamEvent> text(String t) => [
+          MessageComplete(content: [TextBlock(t)], stopReason: 'end_turn'),
+        ];
+
+    List<StreamEvent> summary() => [
+          const TextDelta('progress summary'),
+          const MessageComplete(
+              content: [TextBlock('progress summary')],
+              stopReason: 'end_turn'),
+        ];
+
+    Agent compactingAgent(FakeProvider provider,
+        {FakeToolHandler? handler}) {
+      final agent = _agent(
+        provider: provider,
+        tools: ToolRegistry([
+          FakeTool('big', handler ?? (_) => ToolResult(big)),
+        ]),
+        sink: FakeAgentSink(),
+        policy:
+            PermissionPolicy(defaults: {'big': PermissionDecision.allow}),
+      );
+      agent
+        ..autoCompactThreshold = 2000
+        ..autoCompactKeepMessages = 2;
+      return agent;
+    }
+
+    test('compacts in place when the estimated input crosses the threshold',
+        () async {
+      // Round 1's result is small so the turn starts normally; round 2's big
+      // result pushes the next request's estimate over the threshold, so
+      // before round 3 the agent summarizes (call index 2), keeping the live
+      // tool exchange verbatim, and finishes against the compacted history.
+      var calls = 0;
+      final agent = compactingAgent(
+        FakeProvider([
+          toolUse('t1'),
+          toolUse('t2'),
+          summary(),
+          text('all done'),
+        ]),
+        handler: (_) => ToolResult(calls++ == 0 ? 'small' : big),
+      );
+
+      await agent.run(history: <Message>[], userInput: 'go');
+      final provider = (agent.provider as FakeProvider);
+
+      expect(provider.calls, hasLength(4));
+      // Call 2 is the compaction request: the compact system prompt, and a
+      // summary instruction as its last message.
+      expect(provider.calls[2].system, isNot('sys'));
+      expect(
+        provider.calls[2].messages.any((m) => m.content.any((b) =>
+            b is TextBlock &&
+            b.text.contains('Summarize the conversation above'))),
+        isTrue,
+      );
+      // The post-compaction turn request starts from the summary exchange…
+      final lastCall = provider.calls[3];
+      expect(
+        lastCall.messages.any((m) => m.content.any((b) =>
+            b is TextBlock && b.text.contains('Prior conversation summary'))),
+        isTrue,
+      );
+      // …but the in-flight tool result survived verbatim in the suffix.
+      expect(
+        lastCall.messages.any((m) => m.content
+            .any((b) => b is ToolResultBlock && b.content == big)),
+        isTrue,
+      );
+    });
+
+    test('never compacts when the threshold is 0 (engine default off)',
+        () async {
+      final provider = FakeProvider([
+        toolUse('t1'),
+        text('done without compacting'),
+      ]);
+      final agent = compactingAgent(provider)..autoCompactThreshold = 0;
+
+      await agent.run(history: <Message>[], userInput: 'go');
+
+      expect(provider.calls, hasLength(2));
+      expect(provider.calls.every((c) => c.system == 'sys'), isTrue);
+    });
+
+    test('a failed compaction is not retried on every step', () async {
+      // Every tool result is big. The first splittable history arrives at
+      // step 2 (5 messages: input + two exchanges); each compact attempt then
+      // yields an empty stream → summary fails → the agent keeps working
+      // un-compacted. With the 3-step attempt gate, attempts land on steps 2
+      // and 5 → exactly 2 compact requests, not one per step.
+      final provider = FakeProvider([
+        toolUse('t0'),
+        toolUse('t1'),
+        const [], // compact attempt at step 2: empty stream → failure
+        toolUse('t2'),
+        toolUse('t3'),
+        toolUse('t4'),
+        const [], // compact attempt at step 5
+        toolUse('t5'),
+        text('done'),
+      ]);
+      final agent = compactingAgent(provider);
+
+      await agent.run(history: <Message>[], userInput: 'go');
+
+      final compactCalls = provider.calls
+          .where((c) => c.messages.any((m) => m.content.any((b) =>
+              b is TextBlock &&
+              b.text.contains('Summarize the conversation above'))))
+          .length;
+      expect(compactCalls, 2);
+      // The turn still finished normally.
+      expect(agent.abortedReason, isNull);
+    });
   });
 }

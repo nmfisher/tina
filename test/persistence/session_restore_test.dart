@@ -498,10 +498,12 @@ void main() {
       // throw, even though nothing has been written yet.
       await primary.ensureRegistered();
 
-      // After materialization the recorder holds the real on-disk session id,
-      // which the store mints fresh (it diverges from the placeholder).
-      expect(primary.sessionId, isNot(placeholder),
-          reason: 'store mints a fresh on-disk id at materialization');
+      // After materialization the recorder's id is the REAL on-disk id —
+      // which is now the placeholder itself (createSession honors a
+      // caller-supplied id), so the id the app already printed as the resume
+      // hint stays valid.
+      expect(primary.sessionId, placeholder,
+          reason: 'store honors the pre-allocated id at materialization');
 
       // Now register the spawn under that real id. Pre-fix this threw
       // StateError('Session not found') because the (placeholder) dir was absent.

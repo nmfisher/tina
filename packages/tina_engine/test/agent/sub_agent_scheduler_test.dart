@@ -85,8 +85,11 @@ class _LoopingToolProvider extends LlmProvider {
 class _FakeStore implements SessionStore {
   @override
   Future<String> createSession(
-          {required String providerId, String? baseUrl, String? cwd}) async =>
-      's';
+          {required String providerId,
+          String? baseUrl,
+          String? cwd,
+          String? sessionId}) async =>
+      sessionId ?? 's';
   @override
   Future<String> createConversation(String sessionId, {String? model}) async =>
       'c';
