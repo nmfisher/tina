@@ -402,6 +402,13 @@ abstract class SessionStore {
   /// if the session or conversation is unknown.
   Future<void> setActiveConversation(String sessionId, String conversationId);
 
+  /// Update a conversation's persisted model ref (and label) — e.g. after a
+  /// `/model` swap — so a resume rebuilds the conversation under the model it
+  /// was switched to, not the one it was created with. Throws [StateError] if
+  /// the session or conversation is unknown.
+  Future<void> updateConversationModel(String sessionId, String conversationId,
+      {required String model, String? label});
+
   /// Record [tokens] as the session's total spend (all agents + sub-agents +
   /// workflows), persisted so a resumed session restores the counter. Negative
   /// values are clamped to 0.
@@ -534,6 +541,37 @@ class SessionRecorder {
     _sessionId = sessionId;
     _conversationId = conversationId;
     _initialized = true; // the conversation already exists on disk
+  }
+
+  /// Persist a model swap (`/model`) so a resume rebuilds this conversation
+  /// under the model it was switched to. Also updates the captured [_meta] so
+  /// a later [startFresh] (before any write) carries the new model. Best-effort
+  /// on disk: the conversation may not exist yet (nothing written), in which
+  /// case the meta update alone is enough — the lazy init writes it later.
+  Future<void> updateModel(String model, {String? label}) async {
+    _meta = _meta == null
+        ? null
+        : ConversationMetaInput(
+            model: model,
+            baseUrl: _meta!.baseUrl,
+            providerId: model.contains('/')
+                ? model.substring(0, model.indexOf('/'))
+                : _meta!.providerId,
+            label: label ?? _meta!.label,
+            kind: _meta!.kind,
+            targetName: _meta!.targetName,
+            promptOverride: _meta!.promptOverride,
+            policy: _meta!.policy,
+            parentConversationId: _meta!.parentConversationId,
+          );
+    if (!_initialized) return; // meta alone suffices until first write
+    try {
+      await store.updateConversationModel(_sessionId, _conversationId,
+          model: model, label: label);
+    } on StateError {
+      // The conversation isn't in the manifest (e.g. an unmaterialized
+      // placeholder id) — the meta update above is the best we can do.
+    }
   }
 
   /// Switch to recording into an existing conversation (used by `/resume`).

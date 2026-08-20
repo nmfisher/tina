@@ -385,6 +385,47 @@ void main() {
       return (sessionId: sid, primaryId: primaryId);
     }
 
+    test('the resumed active conversation rebuilds under its persisted model',
+        () async {
+      // A `/model` swap during the session persists the new ref into the
+      // conversation meta. The ACTIVE conversation is built by create() (the
+      // restore loop skips it), so it must read that meta — not silently fall
+      // back to the config-default startup provider.
+      final store = MemorySessionStore();
+      final sid = await store.createSession(providerId: 'anthropic');
+      final primaryId = await store.createConversationWithMeta(
+        sid,
+        const ConversationMetaInput(
+          model: 'anthropic/claude-sonnet-4-6',
+          providerId: 'anthropic',
+          label: 'claude-sonnet-4-6',
+          kind: ConversationKind.primary,
+          promptOverride: 'persisted system',
+        ),
+      );
+      await store.append(sid, primaryId,
+          const Message(role: Role.user, content: [TextBlock('primary q')]));
+
+      final io = FakeStdio()..hasTerminalValue = false;
+      final config = Config.parse(['--resume', sid, '--backend', 'ansi']);
+      final app = await buildAppComposition(
+        config: config,
+        registry: builtinRegistry(),
+        provider: FakeProvider.done(), // the config default — a DIFFERENT model
+        store: store,
+      );
+      final coordinator = await TuiCoordinator.create(
+        app: app,
+        io: io,
+        terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 24),
+      );
+
+      final conv = coordinator.sessionManager.activeConversation;
+      expect(conv.provider.model, 'claude-sonnet-4-6',
+          reason: 'the active conversation must resume under its persisted '
+              'model ref, not the config default');
+    });
+
     test('a session with spawns resumes split with right-column panels',
         () async {
       final store = MemorySessionStore();

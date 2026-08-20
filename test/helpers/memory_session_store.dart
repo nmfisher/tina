@@ -133,6 +133,49 @@ class MemorySessionStore implements SessionStore {
   }
 
   @override
+  Future<void> updateConversationModel(String sessionId,
+      String conversationId,
+      {required String model, String? label}) async {
+    final manifest = _manifests[sessionId];
+    if (manifest == null) throw StateError('Session not found: $sessionId');
+    var found = false;
+    final updated = [
+      for (final c in manifest.conversations)
+        () {
+          if (c.id != conversationId) return c;
+          found = true;
+          return ConversationMeta(
+            id: c.id,
+            model: model,
+            baseUrl: c.baseUrl,
+            providerId: model.contains('/')
+                ? model.substring(0, model.indexOf('/'))
+                : c.providerId,
+            label: label ?? c.label,
+            kind: c.kind,
+            targetName: c.targetName,
+            promptOverride: c.promptOverride,
+            policy: c.policy,
+            parentConversationId: c.parentConversationId,
+          );
+        }(),
+    ];
+    if (!found) {
+      throw StateError(
+          'Conversation not found in session: $sessionId/$conversationId');
+    }
+    _manifests[sessionId] = SessionManifest(
+      id: manifest.id,
+      providerId: manifest.providerId,
+      baseUrl: manifest.baseUrl,
+      cwd: manifest.cwd,
+      activeConversationId: manifest.activeConversationId,
+      conversations: updated,
+      usageTokens: manifest.usageTokens,
+    );
+  }
+
+  @override
   Future<void> updateSessionUsage(String sessionId, int tokens) async {
     final manifest = _manifests[sessionId];
     if (manifest == null) throw StateError('Session not found: $sessionId');

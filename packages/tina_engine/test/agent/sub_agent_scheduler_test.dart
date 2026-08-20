@@ -121,6 +121,10 @@ class _FakeStore implements SessionStore {
   Future<void> setActiveConversation(
       String sessionId, String conversationId) async {}
   @override
+  Future<void> updateConversationModel(String sessionId,
+          String conversationId,
+          {required String model, String? label}) async {}
+  @override
   Future<void> updateSessionUsage(String sessionId, int tokens) async {}
   @override
   Future<List<SessionMeta>> listSessions() async => const [];

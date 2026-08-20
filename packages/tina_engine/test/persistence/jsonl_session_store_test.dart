@@ -99,6 +99,89 @@ void main() {
       });
     });
 
+    group('updateConversationModel (model-swap persistence)', () {
+      test('persists the new model ref + label and keeps the rest of the meta',
+          () async {
+        final sid = await store.createSession(providerId: 'anthropic');
+        final cid = await store.createConversationWithMeta(sid,
+            const ConversationMetaInput(
+          model: 'anthropic/claude-sonnet-4-6',
+          providerId: 'anthropic',
+          label: 'claude-sonnet-4-6',
+          kind: ConversationKind.primary,
+          promptOverride: 'persisted system',
+        ));
+
+        await store.updateConversationModel(sid, cid,
+            model: 'deepseek/deepseek-chat', label: 'deepseek-chat');
+
+        final meta = (await store.loadSession(sid))
+            .conversations
+            .firstWhere((c) => c.id == cid);
+        expect(meta.model, 'deepseek/deepseek-chat');
+        expect(meta.label, 'deepseek-chat');
+        expect(meta.providerId, 'deepseek',
+            reason: 'providerId follows the new ref prefix');
+        // Untouched identity survives the rewrite.
+        expect(meta.kind, ConversationKind.primary);
+        expect(meta.promptOverride, 'persisted system');
+      });
+
+      test('label omitted keeps the stored label', () async {
+        final sid = await store.createSession(providerId: 'anthropic');
+        final cid = await store.createConversationWithMeta(sid,
+            const ConversationMetaInput(
+                model: 'anthropic/claude-sonnet-4-6', label: 'kept'));
+        await store.updateConversationModel(sid, cid, model: 'glm/glm-5');
+        expect(
+            (await store.loadSession(sid))
+                .conversations
+                .firstWhere((c) => c.id == cid)
+                .label,
+            'kept');
+      });
+
+      test('on unknown conversation throws StateError', () async {
+        final sid = await store.createSession(providerId: 'anthropic');
+        await store.createConversation(sid);
+        expect(
+            () => store.updateConversationModel(sid, 'does-not-exist',
+                model: 'glm/glm-5'),
+            throwsStateError);
+      });
+    });
+
+    group('SessionRecorder.updateModel', () {
+      test('rewrites the on-disk meta of an attached conversation',
+          () async {
+        final sid = await store.createSession(providerId: 'anthropic');
+        final cid = await store.createConversationWithMeta(sid,
+            const ConversationMetaInput(model: 'anthropic/claude-sonnet-4-6'));
+        final rec = SessionRecorder(store, sid, cid, providerId: 'anthropic')
+          ..attach(sid, cid);
+
+        await rec.updateModel('deepseek/deepseek-chat', label: 'deepseek');
+
+        expect(
+            (await store.loadSession(sid))
+                .conversations
+                .firstWhere((c) => c.id == cid)
+                .model,
+            'deepseek/deepseek-chat');
+      });
+
+      test('before any write only updates the captured meta', () async {
+        // A never-written conversation has no manifest entry yet — the meta
+        // update must not throw, and the lazy init later carries the new model.
+        final rec = SessionRecorder(store, 's-unknown', 'c-unknown',
+            providerId: 'anthropic',
+            meta: const ConversationMetaInput(
+                model: 'anthropic/claude-sonnet-4-6'));
+        await rec.updateModel('glm/glm-5');
+        expect(rec.meta!.model, 'glm/glm-5');
+      });
+    });
+
     group('updateSessionUsage (spend persistence)', () {
       test('persists the total and restores it on load', () async {
         final sid = await store.createSession(providerId: 'anthropic');

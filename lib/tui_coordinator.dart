@@ -256,7 +256,27 @@ class TuiCoordinator {
     // Conversation (closed with it on teardown / model swap). Later
     // conversations build their own via providerFactory below; the restore
     // fallback builds fresh ones through the same tear-off.
-    final provider = app.buildStartupProvider();
+    //
+    // On resume the ACTIVE conversation is the one already built here (the
+    // restore loop skips it), so its provider must come from the model ref
+    // persisted in its meta — a `/model` swap during the session would
+    // otherwise be lost and the conversation would come back under the config
+    // default. Same resolution philosophy as the restore fallback
+    // (_restoreProvider): an unresolvable ref degrades to the config provider.
+    final activeMeta = app.initialManifest?.conversations
+        .where((c) => c.id == app.initialConversationId)
+        .firstOrNull;
+    LlmProvider provider;
+    if (activeMeta?.model == null || activeMeta!.model!.isEmpty) {
+      provider = app.buildStartupProvider();
+    } else {
+      try {
+        provider = reg.build(activeMeta.model!,
+            baseUrlOverride: activeMeta.baseUrl);
+      } catch (_) {
+        provider = app.buildStartupProvider();
+      }
+    }
     final policy = app.policy;
     // Auto-mode classifier (null when no provider could be built) — threaded
     // into every buildAgent call and the workflow/env askers below so
@@ -498,11 +518,13 @@ class TuiCoordinator {
     final initialHistory = app.initialHistory;
     // Resolve the main role's system prompt ONCE so the recorder's captured
     // metadata and the agent's actual prompt can't drift (and aren't compiled
-    // twice). Stored in the conversation meta so resume replays the exact prompt.
-    final initialSystem = resolveMainPrompt(pipeline,
-        overrides: config.promptOverrides,
-        safeMode: config.safeMode,
-        loadProjectContext: pipeline.loadProjectContext);
+    // twice). Stored in the conversation meta so resume replays the exact prompt
+    // (on resume the stored promptOverride wins, mirroring _restoreAgent).
+    final initialSystem = activeMeta?.promptOverride ??
+        resolveMainPrompt(pipeline,
+            overrides: config.promptOverrides,
+            safeMode: config.safeMode,
+            loadProjectContext: pipeline.loadProjectContext);
     final initialRecorder = SessionRecorder(
         store, initialSessionId, initialConversationId,
         providerId: config.provider,
@@ -1877,6 +1899,13 @@ class TuiCoordinator {
           : 'main';
       conv.provider = nextProvider;
       conv.label = panelLabel(role: role, model: selected);
+      // Persist the swap so a resume rebuilds this conversation under the
+      // model it ended with, not the one it was created with.
+      final rec = conv.recorder;
+      if (rec != null) {
+        unawaited(rec.updateModel(selected, label: conv.label)
+            .catchError((Object e) {}));
+      }
       final panel = (conv.host as TuiConversationHost).panel;
       if (panel != null) {
         tree.relabelPanel(panel, conv.label);

@@ -363,6 +363,50 @@ class JsonlSessionStore implements SessionStore {
   }
 
   @override
+  Future<void> updateConversationModel(String sessionId,
+      String conversationId,
+      {required String model, String? label}) async {
+    await _ensureMaterialized(sessionId);
+    final manifest = await _readManifest(sessionId);
+    var found = false;
+    final updated = [
+      for (final c in manifest.conversations)
+        () {
+          if (c.id != conversationId) return c;
+          found = true;
+          return ConversationMeta(
+            id: c.id,
+            model: model,
+            baseUrl: c.baseUrl,
+            providerId: model.contains('/')
+                ? model.substring(0, model.indexOf('/'))
+                : c.providerId,
+            label: label ?? c.label,
+            kind: c.kind,
+            targetName: c.targetName,
+            promptOverride: c.promptOverride,
+            policy: c.policy,
+            parentConversationId: c.parentConversationId,
+          );
+        }(),
+    ];
+    if (!found) {
+      throw StateError(
+          'Conversation not found in session: $sessionId/$conversationId');
+    }
+    await _writeManifest(SessionManifest(
+      id: manifest.id,
+      providerId: manifest.providerId,
+      baseUrl: manifest.baseUrl,
+      cwd: manifest.cwd,
+      activeConversationId: manifest.activeConversationId,
+      conversations: updated,
+      usageTokens: manifest.usageTokens,
+      transcriptsLocal: manifest.transcriptsLocal,
+    ));
+  }
+
+  @override
   Future<void> updateSessionUsage(String sessionId, int tokens) async {
     await _ensureMaterialized(sessionId);
     final manifest = await _readManifest(sessionId);
