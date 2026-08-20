@@ -124,6 +124,10 @@ Future<void> _run(List<String> argv) async {
         await _listSessions();
         return;
       }
+      if (config.models != null) {
+        await _printModels(config.models, registry);
+        return;
+      }
 
       // First-run seeding of the default DOT workflow (idempotent; also runs
       // for interactive launches so `default.dot` exists before the agent may
@@ -472,8 +476,9 @@ Future<void> _runNonInteractive(AppComposition app) async {
 /// Whether to run the first-run setup wizard over **stdin** — the non-tty
 /// (piped/CI) path. A real terminal is handled by the in-TUI overlay instead
 /// (see the `setupMode` branch in `main`). `--help` / `--init-config` /
-/// `--list` / `--prompt` short-circuit without setup; `--setup` forces it;
-/// otherwise it runs only when stdin is NOT a terminal and no config exists.
+/// `--list` / `--prompt` / `--models` / `--api-key` short-circuit without setup;
+/// `--setup` forces it; otherwise it runs only when stdin is NOT a terminal and
+/// no config exists.
 bool _shouldRunStdinSetup(List<String> argv, Environment environment) {
   if (stdioType(stdin) == StdioType.terminal) return false; // tty → overlay
   final nonInteractive = argv.any((a) =>
@@ -486,7 +491,11 @@ bool _shouldRunStdinSetup(List<String> argv, Environment environment) {
       a == '--version' ||
       a == '--list' ||
       a == '-l' ||
-      a == '--init-config');
+      a == '--init-config' ||
+      a == '--models' ||
+      a.startsWith('--models=') ||
+      a == '--api-key' ||
+      a.startsWith('--api-key='));
   if (nonInteractive) return false;
   if (argv.any((a) => a == '--setup')) return true;
   return !userConfigFile(environment.env).existsSync();
@@ -531,17 +540,20 @@ String _shortStamp(DateTime t) {
 /// CI). Both loads are fire-and-forget; the compiled descriptor maps are the
 /// source of truth until they complete, so the `/settings` picker and
 /// bare-model resolution never block on the network.
-void _attachModelsDevCatalog(
+/// Returns the catalog load futures (already running) so short-circuit
+/// callers — `--models` — can await a complete catalog; the startup path
+/// just ignores them (fire-and-forget, errors logged at FINE inside the
+/// catalogs). Empty when disabled via `COCOON_MODELS_DEV=0`.
+List<Future<void>> _attachModelsDevCatalog(
     ProviderRegistry registry, Map<String, String> env) {
-  if (env['COCOON_MODELS_DEV'] == '0') return;
+  if (env['COCOON_MODELS_DEV'] == '0') return const [];
   final modelsDev = ModelsDevCatalog(env: env);
   final live = LiveModelsCatalog(env: env, inner: modelsDev);
   registry.catalog = live;
-  // Errors are logged inside the catalogs at FINE; we don't want a network
-  // miss to surface in the user-facing log stream.
-  unawaited(modelsDev.load().catchError((Object _) {}));
-  unawaited(
-      live.load(registry.descriptors).catchError((Object _) {}));
+  return [
+    modelsDev.load().catchError((Object _) {}),
+    live.load(registry.descriptors).catchError((Object _) {}),
+  ];
 }
 
 /// Resolve whether the launch cwd's project context (AGENTS.md) may be loaded.
@@ -572,4 +584,36 @@ Future<bool> _askTrustStdin(String cwd) async {
     ..write('Load it? [y/N] ');
   final line = stdin.readLineSync()?.trim().toLowerCase() ?? '';
   return line == 'y' || line == 'yes';
+}
+
+/// Print the resolved model list for one provider id (one `<id> — <name>` per
+/// line), exit 0. Reuse the startup catalog attach, await its load, print
+/// registry.modelsFor(id). No value passed → print known provider ids, exit 0.
+/// Unknown provider → stderr naming the known providers, non-zero exit.
+Future<void> _printModels(String? providerId, ProviderRegistry registry) async {
+  // Await a complete catalog: models.dev + every listable provider's own
+  // /v1/models, so the listing matches what the TUI picker would show.
+  await Future.wait(_attachModelsDevCatalog(registry, Platform.environment));
+
+  // Bare `--models ""` (an addOption can't distinguish no-value from
+  // absent) lists the known provider ids instead.
+  if (providerId == null || providerId.isEmpty) {
+    for (final id in registry.providerIds) {
+      stdout.writeln(id);
+    }
+    return;
+  }
+
+  final models = registry.modelsFor(providerId);
+  if (models.isEmpty) {
+    // Unknown provider → stderr with known providers, non-zero exit
+    stderr.writeln('Unknown provider "$providerId". '
+        'Known: ${registry.providerIds.join(', ')}');
+    exit(1);
+  }
+
+  // Print models in "id — name" format
+  for (final m in models) {
+    stdout.writeln('${m.id} — ${m.name}');
+  }
 }

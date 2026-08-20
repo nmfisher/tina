@@ -23,6 +23,18 @@ class Config {
   final bool yolo;
   final bool showHelp;
 
+  /// Print the resolved model list for one provider id (one `<id> — <name>` per
+  /// line), exit 0. Reuse the startup catalog attach, await its load, print
+  /// registry.modelsFor(id). No value passed → print known provider ids, exit 0.
+  /// Unknown provider → stderr naming the known providers, non-zero exit.
+  final String? models;
+
+  /// One-shot credential override for headless/CI runs that must not touch
+  /// ~/.tina/config. Precedence: the flag beats both config file and env vars
+  /// (most explicit intent wins). The key must not be persisted anywhere
+  /// (no config writes, no session files).
+  final String? apiKeyOverride;
+
   /// Print `tina <version>` and exit (`--version`). Short-circuits like
   /// [showHelp] — resolved before provider/key lookup.
   final bool showVersion;
@@ -207,6 +219,8 @@ class Config {
     this.permissionMode = PermissionMode.ask,
     this.permissionClassifierModel,
     this.forceLock = false,
+    this.models,
+    this.apiKeyOverride,
   });
 
   bool get nonInteractive => prompt != null || workflow != null;
@@ -254,6 +268,15 @@ class Config {
         abbr: 'l',
         negatable: false,
         help: 'List saved sessions and exit.')
+    ..addOption('models',
+        help: 'Print the resolved model list for one provider id (one '
+            '`<id> — <name>` per line), exit 0. No value passed → print known '
+            'provider ids. Unknown provider → stderr with known providers, exit 1.')
+    ..addOption('api-key',
+        help: 'One-shot credential override for headless/CI runs that must not '
+            'touch ~/.tina/config. Precedence: the flag beats both config file '
+            'and env vars (most explicit intent wins). The key must not be '
+            'persisted anywhere (no config writes, no session files).')
     ..addOption('workflow',
         help: 'Run a DOT pipeline from ~/.tina/workflows/<name>.dot to '
             'completion (non-interactive). Pair with --prompt for its input.')
@@ -362,6 +385,7 @@ class Config {
     bool initConfig = false,
     bool listSessions = false,
     bool showVersion = false,
+    String? models,
   }) =>
       Config(
         provider: 'anthropic',
@@ -371,6 +395,8 @@ class Config {
         maxTokens: 0,
         yolo: false,
         showHelp: showHelp,
+        models: models,
+        apiKeyOverride: null,
         prompt: null,
         permissionRules: const [],
         resumeSessionId: null,
@@ -443,7 +469,16 @@ class Config {
     // NOT throw here: an unconfigured app boots into first-run setup rather than
     // exit(64). main() treats an empty key as "not configured" and shows the
     // setup overlay; the key only matters when a turn is actually sent.
-    final apiKey = registry.authFor(desc, env: env).key;
+    //
+    // --api-key (flag > file > env): the most explicit intent wins, so the
+    // flag beats BOTH the config-file overlay and the env-var scan that
+    // authFor performs. It is one-shot — this is the only place it is read,
+    // and it lands on [Config.apiKey] (not persisted to ~/.tina/config or any
+    // session file), so the flag never leaks into a write path. Every provider
+    // route that builds from Config.apiKey (the startup provider, the
+    // permission classifier, and TUI conversations) inherits it.
+    final flagApiKey = res['api-key'] as String?;
+    final apiKey = flagApiKey ?? registry.authFor(desc, env: env).key;
 
     // Per-provider env overrides by convention: <PROVIDER>_MODEL / _BASE_URL.
     final envPrefix = providerId.toUpperCase();
@@ -519,6 +554,8 @@ class Config {
       showHelp: false,
       showVersion: false,
       prompt: res['prompt'] as String?,
+      models: res['models'] as String?,
+      apiKeyOverride: res['api-key'] as String?,
       permissionRules: rules,
       resumeSessionId: resumeId,
       continueLatest: continueLatest,
