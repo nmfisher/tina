@@ -77,6 +77,12 @@ Aborting to prevent runaway cost. Raise with --max-turn-tokens.
 6. **grep tool scans binary/asset dirs** (`examples/workspace/assets/*.png`
    warnings) — noisy in stderr; a default ignore for binaries (or
    `.gitignore`-aware skipping) would clean long greps. (Cosmetic.)
+   **→ Implemented 2026-08-20 (improvements run, Run D):** the pure-Dart
+   fallback sniffs the first 8KB for a NUL byte and skips binaries
+   silently with a one-line `... (skipped N binary files)` summary;
+   genuine I/O and strict-decode failures keep the warn-and-skip. The
+   ripgrep path needed nothing. (Run D also hit the deadlock logged as
+   #26 mid-turn and was re-driven to completion.)
 7. **Session persistence on abort worked well** — the full exploration
    history was persisted, so `--resume` can continue the task after the fix.
    (Positive note, worth keeping.)
