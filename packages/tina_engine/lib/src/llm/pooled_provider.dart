@@ -31,10 +31,12 @@ import 'provider.dart';
 ///   mid-stream would duplicate the partial content (the same rule
 ///   [RetryingProvider] applies to its own re-attempts);
 /// * a send that finds every member still cooling (e.g. an immediate
-///   re-send after a total failure) surfaces a cooling error rather than
-///   hammering a member that just failed — the policy retry above
-///   re-enters the pool after its backoff, by which time the earliest
-///   member has usually recovered.
+///   re-send after a total failure) PACES until the earliest cooldown
+///   lapses — at most one [cooldown] away — instead of erroring: the
+///   policy retry's backoff is shorter than the cooldown, so surfacing
+///   the condition would just re-enter the same wall and abort a run
+///   whose members are milliseconds from eligible. (The cooling error
+///   remains as a degenerate no-progress backstop.)
 ///
 /// Composed beneath the metering/retry decorators in [ProviderRegistry],
 /// a policy-layer retry re-enters `send` and naturally lands on the NEXT
@@ -174,13 +176,35 @@ class PooledProvider implements LlmProvider {
       });
     }
 
+    /// Wait until some member's cooldown lapses. False when there is
+    /// nothing to wait for (no cooling entries — shouldn't happen — or the
+    /// wait already elapsed) or the send was cancelled meanwhile.
+    Future<bool> waitForEligible() async {
+      if (_coolingUntil.isEmpty) return false;
+      var earliest = _coolingUntil.values.first;
+      for (final until in _coolingUntil.values) {
+        if (until < earliest) earliest = until;
+      }
+      final wait = earliest - _clock.elapsed;
+      if (wait <= Duration.zero) return true;
+      await Future.delayed(wait);
+      return !cancelled.isCompleted;
+    }
+
     Future<void> run() async {
       StreamError? lastError;
-      for (var tried = 0; tried < members.length; tried++) {
-        final member = _takeMember();
-        // Everyone cooling: surface it rather than hammering a member
-        // that just failed (see the class doc).
-        if (member == null) break;
+      var tried = 0;
+      while (tried < members.length) {
+        var member = _takeMember();
+        if (member == null) {
+          // Everyone cooling. The earliest expiry is at most one [cooldown]
+          // away, so PACE until it rather than surfacing an error: the
+          // policy retry's backoff is shorter than the cooldown, so a
+          // re-entry would find the same wall and abort a run whose members
+          // are milliseconds from eligible again.
+          if (!await waitForEligible()) break;
+          continue; // re-take; waiting is not a member attempt
+        }
         final failure = await _attempt(member);
         if (cancelled.isCompleted) return;
         if (failure == null) {
@@ -193,6 +217,7 @@ class PooledProvider implements LlmProvider {
         if (cooldown > Duration.zero) {
           _coolingUntil[member] = _clock.elapsed + cooldown;
         }
+        tried++;
       }
       if (!controller.isClosed) {
         controller.add(lastError ??

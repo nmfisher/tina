@@ -184,25 +184,30 @@ void main() {
           reason: 'the LAST member\'s error is the one surfaced');
     });
 
-    test('a send while every member is cooling surfaces a cooling error',
+    test('a send while every member is cooling paces until one recovers',
         () async {
       final a = _ClosableProvider([
         [const StreamError('down', statusCode: 503)],
+        _ok,
       ]);
       final pool =
-          PooledProvider([a], cooldown: const Duration(seconds: 30));
+          PooledProvider([a], cooldown: const Duration(milliseconds: 60));
 
       final first = await _drain(
           pool.send(system: 's', messages: const [], tools: const []));
       expect(first.whereType<StreamError>().single.statusCode, 503);
 
-      // The single member is now cooling for 30s; an immediate re-send
-      // must not hammer it.
+      // The single member is now cooling for 60ms. An immediate re-send
+      // must not hammer it NOR error — it paces until the cooldown lapses,
+      // then the member serves. (Erroring here aborted real runs: the
+      // policy retry's backoff is shorter than the cooldown, so every
+      // re-entry found the same wall.)
       final second = await _drain(
           pool.send(system: 's', messages: const [], tools: const []));
-      expect(a.calls, 1, reason: 'the cooling member is not retried');
-      expect(second.whereType<StreamError>().single.error,
-          contains('cooling'));
+      expect(a.calls, 2, reason: 'the send waited out the cooldown');
+      expect(second.whereType<MessageComplete>(), isNotEmpty,
+          reason: 'the paced send completes, not errors');
+      expect(second.whereType<StreamError>(), isEmpty);
     });
 
     test('a downstream cancel tears down the inner member subscription',
