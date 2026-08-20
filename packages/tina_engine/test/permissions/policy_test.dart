@@ -132,6 +132,51 @@ void main() {
     });
   });
 
+  group('PermissionPolicy.allowedPatterns', () {
+    test('lists only allow decisions for the tool, static then session', () {
+      final p = PermissionPolicy(rules: const [
+        PermissionRule(
+            toolName: 'bash',
+            pattern: 'git *',
+            decision: PermissionDecision.allow),
+        PermissionRule(
+            toolName: 'bash',
+            pattern: 'rm *',
+            decision: PermissionDecision.deny),
+        PermissionRule(
+            toolName: 'write',
+            pattern: '/tmp/*',
+            decision: PermissionDecision.allow),
+      ]);
+      p.remember('bash', 'dart *', PermissionDecision.allow);
+
+      expect(
+          p.allowedPatterns('bash'),
+          ['bash:git *', 'bash:dart *'],
+          reason: 'deny rules and other tools are excluded');
+      expect(p.allowedPatterns('write'), ['write:/tmp/*']);
+    });
+
+    test('a wildcard-tool rule counts for every tool, deduped', () {
+      final p = PermissionPolicy(rules: const [
+        PermissionRule(
+            toolName: '*',
+            pattern: '/data/**',
+            decision: PermissionDecision.allow),
+      ]);
+      p.remember('read', '/data/**', PermissionDecision.allow);
+
+      expect(p.allowedPatterns('read'), ['read:/data/**'],
+          reason: 'the same effective rule from two sources is listed once');
+      expect(p.allowedPatterns('write'), ['write:/data/**']);
+    });
+
+    test('empty when the tool has no allow rules', () {
+      final p = PermissionPolicy();
+      expect(p.allowedPatterns('bash'), isEmpty);
+    });
+  });
+
   group('PermissionPolicy.check', () {
     test('built-in defaults', () {
       final p = PermissionPolicy();

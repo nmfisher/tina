@@ -693,6 +693,118 @@ void main() {
     });
   });
 
+  group('Agent.run denied tool call', () {
+    // A denial is the model's chance to self-correct: the tool_result must
+    // name the allowed shapes for that tool (so it can rephrase) and, for
+    // bash, the always-allowed native tools, instead of a bare one-liner.
+    FakeProvider denyProvider(String tool, Map<String, dynamic> input) =>
+        FakeProvider([
+          [
+            MessageComplete(
+                content: [ToolUseBlock(id: 'd1', name: tool, input: input)],
+                stopReason: 'tool_use'),
+          ],
+          answerEvents('ok'),
+        ]);
+
+    ToolResultBlock deniedResult(List<Message> history) => history
+        .lastWhere((m) => m.role == Role.user)
+        .content
+        .single as ToolResultBlock;
+
+    test('denied bash result lists the bash allow patterns in the policy',
+        () async {
+      final policy = PermissionPolicy(rules: const [
+        PermissionRule(
+            toolName: 'bash',
+            pattern: 'dart *',
+            decision: PermissionDecision.allow),
+        PermissionRule(
+            toolName: 'bash',
+            pattern: 'cd *',
+            decision: PermissionDecision.allow),
+        PermissionRule(
+            toolName: 'write',
+            pattern: '/tmp/*',
+            decision: PermissionDecision.allow),
+      ]);
+      final sink = FakeAgentSink();
+      final agent = Agent(
+        provider: denyProvider('bash', {'command': 'rm -rf /tmp/x'}),
+        tools: ToolRegistry([FakeTool('bash', (_) => ToolResult('ran'))]),
+        sink: sink,
+        policy: policy,
+        asker: (_) async => PermissionResponse.denyOnce,
+        system: 'sys',
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'clean up');
+
+      expect(sink.toolStarts, isEmpty,
+          reason: 'the denied call must not reach the tool');
+      final result = deniedResult(history);
+      expect(result.toolUseId, 'd1');
+      expect(result.isError, isTrue);
+      expect(result.content, contains('Denied by permission policy'));
+      expect(result.content, contains('bash:dart *'));
+      expect(result.content, contains('bash:cd *'));
+      expect(result.content, isNot(contains('write:')),
+          reason: 'other tools’ rules must not leak into the hint');
+      expect(result.content, contains('Do not retry the same call unchanged'));
+    });
+
+    test('denied bash with no bash allow rules says none and names the native '
+        'tools', () async {
+      final sink = FakeAgentSink();
+      final agent = Agent(
+        provider: denyProvider('bash', {'command': 'rm -rf /tmp/x'}),
+        tools: ToolRegistry([FakeTool('bash', (_) => ToolResult('ran'))]),
+        sink: sink,
+        policy: PermissionPolicy(), // no rules at all
+        asker: (_) async => PermissionResponse.denyOnce,
+        system: 'sys',
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'clean up');
+
+      final result = deniedResult(history);
+      expect(result.isError, isTrue);
+      expect(result.content, contains('Denied by permission policy'));
+      expect(result.content, contains('Allowed bash patterns: none'));
+      for (final native in ['ls', 'stat', 'glob', 'grep', 'search', 'git']) {
+        expect(result.content, contains(native),
+            reason: 'bash denies must point at the $native tool');
+      }
+      expect(result.content, contains('Do not retry the same call unchanged'));
+    });
+
+    test('a denied non-bash tool gets the pattern list but no bash pointer',
+        () async {
+      final sink = FakeAgentSink();
+      final agent = Agent(
+        provider: denyProvider('write', {'filePath': '/etc/hosts'}),
+        tools: ToolRegistry([FakeTool('write', (_) => ToolResult('ok'))]),
+        sink: sink,
+        policy: PermissionPolicy(),
+        asker: (_) async => PermissionResponse.denyOnce,
+        system: 'sys',
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'edit it');
+
+      final result = deniedResult(history);
+      expect(result.isError, isTrue);
+      expect(result.content, contains('Denied by permission policy'));
+      expect(result.content, contains('Allowed write patterns: none'));
+      expect(result.content,
+          isNot(contains('always-allowed tools')));
+      expect(result.content, contains('Do not retry the same call unchanged'));
+    });
+  });
+
   group('Agent.compact', () {
     test('replaces history with a single summarized exchange', () async {
       final provider = FakeProvider([

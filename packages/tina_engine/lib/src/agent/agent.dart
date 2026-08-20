@@ -372,7 +372,7 @@ class Agent {
           sink.notice('  ${use.name} denied\n');
           results.add(ToolResultBlock(
             toolUseId: use.id,
-            content: 'Denied by permission policy.',
+            content: _deniedContent(use.name),
             isError: true,
           ));
           continue;
@@ -540,6 +540,26 @@ class Agent {
     final after = 2 + suffix.length;
     sink.notice('--- compacted $priorCount → $after messages ---\n');
     return true;
+  }
+
+  /// The remediation payload a denied tool call carries back to the model.
+  /// The old one-liner ('Denied by permission policy.') gave the model no way
+  /// to self-correct, so it retried blind variants of the same shape; the
+  /// model now sees the allowed shapes for its tool and (for bash) the
+  /// always-allowed native tools, and is told not to retry unchanged.
+  String _deniedContent(String tool) {
+    final patterns = policy.allowedPatterns(tool);
+    final lines = <String>[
+      'Denied by permission policy.',
+      'Allowed $tool patterns: '
+          '${patterns.isEmpty ? 'none' : patterns.join(', ')}',
+      if (tool == 'bash')
+        'For read-only checks prefer the always-allowed tools: ls, stat, '
+            'glob, grep, search, git, which.',
+      'Do not retry the same call unchanged; rephrase it to an allowed '
+          'shape or use one of those tools.',
+    ];
+    return lines.join('\n');
   }
 
   /// Index in [history] of the [keep]-th-most-recent *human* turn (a user
