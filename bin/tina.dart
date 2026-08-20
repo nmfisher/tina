@@ -430,11 +430,19 @@ Future<void> _runNonInteractive(AppComposition app) async {
   );
   final preLen = history.length;
 
+  // Append concise summary instruction for headless --prompt runs.
+  final rawPrompt = app.config.prompt!;
+  final userInput = rawPrompt + (
+    rawPrompt.trim().isNotEmpty ? '\n' : ''
+  ) + HeadlessHost.kHeadlessSummaryInstruction;
+
+  var aborted = false;
   try {
     await agent.run(
       history: history,
-      userInput: app.config.prompt!,
+      userInput: userInput,
     );
+    aborted = agent.abortedReason != null;
   } finally {
     for (final m in history.skip(preLen)) {
       try {
@@ -458,6 +466,7 @@ Future<void> _runNonInteractive(AppComposition app) async {
     provider.close();
     await closeLogging();
   }
+  if (aborted) exit(2);
 }
 
 /// Whether to run the first-run setup wizard over **stdin** — the non-tty
