@@ -247,6 +247,17 @@ and commit. Two new observations from the first run of this round:
     completion` if it repeats. The empty message is never appended to
     history (some providers reject an empty assistant message on the next
     request).
+22. **A compile-broken tree cannot heal itself via resume.** Run B's
+    provider-killed attempts left `lib/config.dart` with new fields that
+    no constructor initialized (exit 254 at `dart run` compile time,
+    before any prompt is sent). Resume is useless there — the agent never
+    gets a turn — so the driver must repair the tree by hand. Two
+    mitigations worth building: (a) a fast post-edit compile gate in
+    headless runs (analyze the edited file after each edit step, feed the
+    error straight back to the model while its own edit is still in
+    context — cheaper than discovering a pile of them at test time); (b)
+    the session recorder stamping the tree's compile status per step, so
+    a resume can tell the model WHICH step broke it. Neither built yet.
 
 ## Epilogue — the feature protecting its own provider
 
