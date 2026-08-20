@@ -238,12 +238,15 @@ and commit. Two new observations from the first run of this round:
     treated an assistant message with no text and no tool calls as a
     normal end-of-turn: the run exited 0 after 5 of 120 steps, no
     summary, nothing wrong visible anywhere. Worse than a crash — it
-    looks like success. Fixed in `Agent.run`: a completion with NO blocks
-    is not recorded and does not end the turn — the loop retries the send
-    once (which also rotates to the next pool member when pooled) and
-    aborts with `model returned an empty completion` if it repeats. The
-    empty message is never appended to history (some providers reject an
-    empty assistant message on the next request).
+    looks like success. Fixed in two layers: `PooledProvider` treats an
+    empty completion as a failed member response — cooldown + failover to
+    the next member within the SAME send (the agent-level retry re-rolls
+    the dice on the same flapping member; the pool picks a different one)
+    — and `Agent.run` no longer records or accepts a no-block completion:
+    it retries the send once and aborts with `model returned an empty
+    completion` if it repeats. The empty message is never appended to
+    history (some providers reject an empty assistant message on the next
+    request).
 
 ## Epilogue — the feature protecting its own provider
 

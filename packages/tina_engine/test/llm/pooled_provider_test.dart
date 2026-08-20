@@ -104,6 +104,46 @@ void main() {
       expect(a.calls, 2, reason: 'a serves again once its cooldown lapses');
     });
 
+    test('an empty completion fails over to the next member', () async {
+      // The exhausted-worker shape: 200, zero content blocks. The send must
+      // not complete empty-handed — the member cools down and the next one
+      // serves the SAME send.
+      final a = _ClosableProvider([
+        [const MessageComplete(content: [], stopReason: 'end_turn')],
+      ]);
+      final b = _ClosableProvider([_ok]);
+      final pool = PooledProvider([a, b]);
+
+      final events = await _drain(
+          pool.send(system: 's', messages: const [], tools: const []));
+
+      expect(b.calls, 1, reason: 'the empty member is failed over from');
+      final complete = events.whereType<MessageComplete>().single;
+      expect(complete.content, isNotEmpty);
+      expect(events.whereType<StreamError>(), isEmpty,
+          reason: 'the failover is invisible downstream');
+    });
+
+    test('every member returning an empty completion surfaces an error', () async {
+      final a = _ClosableProvider([
+        [const MessageComplete(content: [], stopReason: 'end_turn')],
+      ]);
+      final b = _ClosableProvider([
+        [const MessageComplete(content: [], stopReason: 'end_turn')],
+      ]);
+      final pool = PooledProvider([a, b]);
+
+      final events = await _drain(
+          pool.send(system: 's', messages: const [], tools: const []));
+
+      expect(a.calls, 1);
+      expect(b.calls, 1);
+      final error = events.whereType<StreamError>().single;
+      expect(error.error.toString(), contains('empty completion'));
+      expect(error.transient, isTrue,
+          reason: 'the policy retry layer may re-attempt it');
+    });
+
     test('a failure after content started surfaces — no failover', () async {
       final a = _ClosableProvider([
         [const TextDelta('partial'), const StreamError('cut off', statusCode: 429)],

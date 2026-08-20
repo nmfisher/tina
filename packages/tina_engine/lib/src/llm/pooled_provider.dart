@@ -19,7 +19,12 @@ import 'provider.dart';
 ///   after the one that served request i-1, skipping cooling members);
 /// * a member whose stream fails BEFORE any content — a 429, a 5xx, a bad
 ///   key, anything — is marked cooling for [cooldown] and the SAME send
-///   immediately retries on the next member, at most one pass per send;
+///   immediately retries on the next member, at most one pass per send.
+///   A completion with NO content blocks counts as that failure too (an
+///   exhausted worker 200ing with zero content): completing the send
+///   empty-handed would end the turn; [Agent.run]'s empty-completion retry
+///   exists as a backstop, but failing over HERE lands on a different
+///   member instead of re-rolling the dice on the same flapping one;
 /// * every member failing before content re-emits the LAST error, the
 ///   shape callers already understand from a single provider;
 /// * an error AFTER content has streamed surfaces as-is — failing over
@@ -129,6 +134,21 @@ class PooledProvider implements LlmProvider {
               if (cancelled.isCompleted || swallowed != null) return;
               if (!forwarded && event is StreamError) {
                 swallowed = event;
+                return;
+              }
+              // A completion with NO blocks is a failed member response in
+              // substance — observed as an exhausted worker 200ing with
+              // zero content (poolside/laguna under load). Complete the
+              // send with it and the turn ends empty-handed; [Agent.run]
+              // would retry, but the retry may land on the same flapping
+              // member. Fail over HERE instead: cooldown + next member,
+              // same as any before-content error.
+              if (!forwarded &&
+                  event is MessageComplete &&
+                  event.content.isEmpty) {
+                swallowed = const StreamError(
+                    'member returned an empty completion',
+                    transient: true);
                 return;
               }
               forwarded = true;
