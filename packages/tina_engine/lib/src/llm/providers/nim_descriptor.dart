@@ -11,6 +11,8 @@ final ProviderDescriptor nimDescriptor = ProviderDescriptor(
   defaultBaseUrl: 'https://integrate.api.nvidia.com',
   builder: openAiCompatibleBuilder('NVIDIA NIM'),
   listsRemoteModels: true,
+  // Observed 429 ceiling in the wild: 40 requests per minute per API key.
+  requestsPerMinute: 40,
   models: const {
     'meta/llama-3.3-70b-instruct': ModelInfo(
       id: 'meta/llama-3.3-70b-instruct',

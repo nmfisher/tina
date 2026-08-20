@@ -34,8 +34,25 @@ void main() {
       expect(resolved.modelId, 'google/gemma-4-31b-it');
 
       final built = r.build('nim/google/gemma-4-31b-it', apiKeyOverride: 'k');
-      expect(built, isA<OpenAiCompatibleAdapter>());
-      expect(built.model, 'google/gemma-4-31b-it');
+      // The 40 rpm built-in hint wraps the adapter in its launch-slot queue;
+      // peel it to assert the adapter the descriptor actually builds to.
+      final adapter =
+          built is RateLimitedProvider ? built.inner : built;
+      expect(adapter, isA<OpenAiCompatibleAdapter>());
+      expect(adapter.model, 'google/gemma-4-31b-it');
+    });
+
+    test('the observed 40 rpm ceiling spaces the queue by default', () {
+      // The hint engages the launch-slot wrapper on its own — even with the
+      // registry-wide limiter disabled — and installs 60 s / 40 rpm of
+      // spacing on the endpoint+key queue.
+      final built = r.build('nim/google/gemma-4-31b-it', apiKeyOverride: 'k');
+      expect(built, isA<RateLimitedProvider>(),
+          reason: 'NIM 429s at 40 req/min per key in the wild; that ceiling '
+              'must hold unless the user overrides it');
+      final key = (built as RateLimitedProvider).limitKey;
+      expect(r.rateLimiter.minIntervalFor(key),
+          const Duration(milliseconds: 1500));
     });
 
     test('the prefixed reference is the only valid selector', () {

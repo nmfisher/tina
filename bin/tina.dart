@@ -94,6 +94,16 @@ Future<void> _run(List<String> argv) async {
           milliseconds: userConfig.limits?.minRequestIntervalMs ?? 1000);
       registry.rateLimiter.maxConcurrent =
           userConfig.limits?.maxConcurrentRequests ?? 4;
+      // Per-provider request-rate ceilings from `[providers.<id>]
+      // requests_per_minute`: each wins over the descriptor's built-in hint
+      // (e.g. NIM's 40/min) and the global default above; 0 disables spacing
+      // for that provider's queues. Installed before any provider builds (the
+      // registry reads these when it lazily wraps each queue key), so order
+      // here vs. registration only needs to precede the first `build`.
+      for (final entry in userConfig.providers.entries) {
+        final rpm = entry.value.requestsPerMinute;
+        if (rpm != null) registry.setRequestRate(entry.key, rpm);
+      }
       // Wire retries live at the TOP of the provider policy stack, so a
       // re-attempt re-acquires a rate-limit slot (never a stampede past the
       // queue). 3 = the historical transport-internal retry count.

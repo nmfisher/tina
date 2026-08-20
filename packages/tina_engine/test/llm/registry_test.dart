@@ -19,6 +19,7 @@ ProviderDescriptor _desc(
     AuthSource('TEST_KEY', AuthScheme.bearerToken),
   ],
   Map<String, ModelInfo> models = const {},
+  int? requestsPerMinute,
   required ProviderBuilder builder,
 }) =>
     ProviderDescriptor(
@@ -28,7 +29,17 @@ ProviderDescriptor _desc(
       defaultBaseUrl: baseUrl,
       builder: builder,
       models: models,
+      requestsPerMinute: requestsPerMinute,
     );
+
+/// Send one minimal request through [p] and run it to completion — the
+/// observable side of "did the launch-slot queue space these starts?".
+Future<void> _drain(LlmProvider p) => p
+    .send(
+        system: 's',
+        messages: const [Message(role: Role.user, content: [TextBlock('hi')])],
+        tools: const [])
+    .drain<void>();
 
 void main() {
   group('ModelReference.parse', () {
@@ -350,6 +361,84 @@ void main() {
       final r = ProviderRegistry(env: {});
       expect(() => r.buildPooled(const []),
           throwsA(isA<ProviderRegistryException>()));
+    });
+  });
+
+  group('setRequestRate (per-provider RPM)', () {
+    test('rpm < 0 throws', () {
+      final r = ProviderRegistry(env: {});
+      expect(
+          () => r.setRequestRate('nim', -1), throwsA(isA<ArgumentError>()));
+    });
+
+    test('a descriptor hint alone spaces the queue (global limiter off)',
+        () async {
+      // 600 rpm → 100 ms between starts. The registry-wide limiter is fully
+      // disabled, so the ONLY thing that can space these sends is the
+      // descriptor's own hint — this is the case where the hint must engage
+      // the launch-slot wrapper on its own.
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('p',
+            builder: _recording([]), requestsPerMinute: 600));
+
+      final provider = r.build('p/m');
+      expect(provider, isA<RateLimitedProvider>(),
+          reason: 'the hint must engage the launch-slot queue even when the '
+              'registry-wide default is disabled');
+      final key = (provider as RateLimitedProvider).limitKey;
+      expect(key, providerQueueKey('https://example.test', 'k'),
+          reason: 'the queue is keyed by endpoint+API key, not descriptor id');
+      expect(r.rateLimiter.minIntervalFor(key),
+          const Duration(milliseconds: 100),
+          reason: '60 s / 600 rpm, rounded up to whole ms');
+
+      final watch = Stopwatch()..start();
+      await Future.wait([_drain(provider), _drain(provider)]);
+      expect(watch.elapsedMilliseconds, greaterThan(80),
+          reason: 'the second send cannot start until the first has held its '
+              '100 ms launch slot');
+    });
+
+    test('rpm = 0 explicitly disables spacing for that provider', () async {
+      // Hint says 100 ms, the global default says 100 ms — the user's 0 must
+      // beat both: two sends on the key launch together.
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('p',
+            builder: _recording([]), requestsPerMinute: 600));
+      r.setRequestRate('p', 0);
+      r.rateLimiter.minInterval = const Duration(milliseconds: 100);
+
+      final provider = r.build('p/m');
+      final key = provider is RateLimitedProvider
+          ? provider.limitKey
+          : providerQueueKey('https://example.test', 'k');
+      expect(r.rateLimiter.minIntervalFor(key), Duration.zero,
+          reason: '0 installs Duration.zero (explicit disable), not a '
+              'fall-through to the 100 ms global');
+
+      final watch = Stopwatch()..start();
+      await Future.wait([_drain(provider), _drain(provider)]);
+      expect(watch.elapsedMilliseconds, lessThan(80),
+          reason: 'either spacing left on (100 ms) would force ≥ 100 ms');
+    });
+
+    test('the user override beats the descriptor hint', () async {
+      // Hint: 600 rpm → 100 ms. Override: 6000 rpm → 10 ms. The override
+      // wins, or these two sends would be a full 100 ms apart.
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('p',
+            builder: _recording([]), requestsPerMinute: 600));
+      r.setRequestRate('p', 6000);
+
+      final provider = r.build('p/m');
+      final key = (provider as RateLimitedProvider).limitKey;
+      expect(r.rateLimiter.minIntervalFor(key),
+          const Duration(milliseconds: 10));
+
+      final watch = Stopwatch()..start();
+      await Future.wait([_drain(provider), _drain(provider)]);
+      expect(watch.elapsedMilliseconds, lessThan(80),
+          reason: 'the hint\'s 100 ms spacing would force ≥ 100 ms');
     });
   });
 }

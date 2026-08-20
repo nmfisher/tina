@@ -167,9 +167,9 @@ void _registerPool(ProviderRegistry registry, String id, ProviderConfig pc,
     models: catalog,
   ));
   stderr.writeln('tina: pool "$id" rotates over: ${entries.join(', ')} '
-      '(per-member spacing via [limits] min_request_interval_ms; raise '
-      '[limits] requests_per_minute to the sum or the session cap bottlenecks '
-      'the pool)');
+      '(per-member spacing via [limits] min_request_interval_ms or '
+      '[providers.<id>] requests_per_minute; raise the limits to the sum or '
+      'the session cap bottlenecks the pool)');
 }
 
 /// Resolves the effective wire format for a config block, or null when the block

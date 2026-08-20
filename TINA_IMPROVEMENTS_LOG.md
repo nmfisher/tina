@@ -322,6 +322,22 @@ file:line-cited summary of its own rate limiter.
     provider descriptors carrying a default RPM hint (NIM = 40) so tina
     throttles to the account's real ceiling without the user reading
     vendor docs first.
+    **→ Implemented 2026-08-20 (improvements run, Run E):**
+    `ProviderDescriptor.requestsPerMinute` — NIM's descriptor ships the
+    observed 40/min ceiling, and the registry installs it as per-queue-key
+    spacing (60 s ÷ rpm) when the provider builds, so the hint holds even
+    with the registry-wide limiter disabled. User override: `[providers
+    .<id>] requests_per_minute` beats the hint, `0` disables spacing for
+    that provider's queues. Precedence: override > hint > `[limits]
+    min_request_interval_ms`. Two latent gaps the new tests caught: the
+    wrap decision and the send fast-path both read the GLOBAL interval,
+    so a hint went unenforced whenever the global limiter was off — both
+    now read the effective per-key interval. Engine 725 / root 667
+    green; live smoke: `--models hetzner` boots the pool with the wiring
+    in place. (Run E ended `error: member returned an empty completion`
+    mid-test-writing — NIM flapping again, #21 — leaving a compile scar
+    in the new test group; repaired by hand per the #22 rule: a
+    compile-broken tree can't heal itself via resume.)
 
 24. **Stream-idle-timeout (60s default) kills healthy prefills on large
     contexts — and the error names the wrong knob.** Measured on Hetzner

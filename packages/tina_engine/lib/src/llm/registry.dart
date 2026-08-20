@@ -132,6 +132,15 @@ class ProviderDescriptor {
   /// context windows, tool support — rather than the catalog itself).
   final bool listsRemoteModels;
 
+  /// The endpoint's known per-key request ceiling, in requests per minute —
+  /// a hint the registry installs on [ProviderRegistry.rateLimiter] as the
+  /// per-queue-key spacing (60 s / [requestsPerMinute]) when this descriptor
+  /// builds a provider. Null (the default) means "no evidence for a ceiling":
+  /// the queue key falls back to the registry-wide [ProviderRateLimiter
+  /// .minInterval]. A user override via [ProviderRegistry.setRequestRate]
+  /// always wins over this hint.
+  final int? requestsPerMinute;
+
   const ProviderDescriptor({
     required this.id,
     required this.name,
@@ -140,6 +149,7 @@ class ProviderDescriptor {
     required this.builder,
     this.models = const {},
     this.listsRemoteModels = false,
+    this.requestsPerMinute,
   });
 }
 
@@ -219,6 +229,44 @@ class ProviderRegistry {
   /// type in tests. The app entrypoint sets the historical transport count
   /// (3); a retry re-enters the rate limiter, so it can never stampede.
   int maxSendRetries = 0;
+
+  /// Per-provider user override for the request-rate ceiling, in requests per
+  /// minute — from `[providers.<id>] requests_per_minute`. Consulted by
+  /// [_buildLimited] AHEAD of the descriptor's own [ProviderDescriptor
+  /// .requestsPerMinute] hint (which itself beats the registry-wide
+  /// [rateLimiter.minInterval] default). 0 disables spacing for that
+  /// provider's queues (the key keeps only the concurrency cap); null
+  /// (absent, the default) means "no override" — the descriptor hint or the
+  /// global default applies.
+  final Map<String, int> _requestRates = {};
+
+  /// Install (or replace) the user's per-provider request-rate override for
+  /// [providerId], in requests per minute. 0 disables spacing for every queue
+  /// key this provider builds; a positive value spaces each of its keys at
+  /// 60 s / [rpm] (rounded up to whole ms). Idempotent — the interval is
+  /// (re)installed lazily and idempotently when the provider next builds, so
+  /// calling this any time before/around [build] is safe.
+  void setRequestRate(String providerId, int rpm) {
+    if (rpm < 0) {
+      throw ArgumentError.value(
+          rpm, 'rpm', 'requests per minute must be >= 0');
+    }
+    _requestRates[providerId] = rpm;
+  }
+
+  /// The effective spacing for one descriptor's queue keys: the user override
+  /// ([_requestRates]) when present, else the descriptor's [ProviderDescriptor
+  /// .requestsPerMinute] hint, else null (fall back to the registry-wide
+  /// [rateLimiter.minInterval]). Returns null = "use the global default",
+  /// [Duration.zero] = spacing explicitly disabled for this provider.
+  Duration? _effectiveSpacing(ProviderDescriptor desc) {
+    final override = _requestRates[desc.id];
+    final rpm = override ?? desc.requestsPerMinute;
+    if (rpm == null) return null;
+    if (rpm == 0) return Duration.zero;
+    return Duration(microseconds:
+        (60 * 1000 * 1000 + rpm - 1) ~/ rpm); // ceil to whole µs ≡ ms
+  }
 
   /// Optional overlay catalog. When set, [modelsFor] / [findModel] / [resolve]
   /// consult it first and fall back to the descriptor's compiled `models` map.
@@ -466,10 +514,22 @@ class ProviderRegistry {
     // Each layer wraps only when enabled, keeping the built provider's
     // concrete type visible (and zero-overhead) in tests and any path that
     // hasn't opted in.
-    return rateLimiter.minInterval > Duration.zero ||
+    final key = providerQueueKey(endpoint, apiKey);
+    // Per-provider request-rate ceiling: the user's override beats the
+    // descriptor's built-in hint, which beats the registry-wide minInterval
+    // default. Installed ONCE per queue key (idempotent — repeated builds of
+    // the same provider re-install the same value), so a pool of two NIM
+    // keys spaces EACH key to NIM's ceiling (aggregate ≈ 2×) instead of one
+    // shared queue. Null = no hint/override → the global default applies.
+    final spacing = _effectiveSpacing(desc);
+    if (spacing != null) rateLimiter.setMinInterval(key, spacing);
+    // The wrap decision must read the EFFECTIVE interval for THIS key (the
+    // override just installed above, else the registry-wide default) — reading
+    // the global alone would leave a descriptor hint unenforced whenever the
+    // global limiter is disabled, silently spacing nothing.
+    return rateLimiter.minIntervalFor(key) > Duration.zero ||
             rateLimiter.maxConcurrent > 0
-        ? RateLimitedProvider(
-            built, rateLimiter, providerQueueKey(endpoint, apiKey))
+        ? RateLimitedProvider(built, rateLimiter, key)
         : built;
   }
 

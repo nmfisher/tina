@@ -32,7 +32,7 @@ EnvironmentAutoPopulate parseEnvironmentAutoPopulate(String? raw) =>
       _ => EnvironmentAutoPopulate.ask,
     };
 const _knownDefaultKeys = {'provider', 'model', 'workflow'};
-const _knownProviderKeys = {'api_key', 'auth_token', 'base_url', 'wire', 'name', 'disabled_models', 'members'};
+const _knownProviderKeys = {'api_key', 'auth_token', 'base_url', 'wire', 'name', 'disabled_models', 'members', 'requests_per_minute'};
 const _knownPromptKeys = {'identity'};
 const _knownRegionsKeys = {'model'};
 const _knownPermissionsKeys = {'mode', 'model'};
@@ -139,6 +139,14 @@ class ProviderConfig {
   /// provider blocks. A pool member cannot itself be a pool.
   final List<String>? members;
 
+  /// Per-provider request-rate override (in requests per minute), or null
+  /// to have no override and use either the descriptor's built-in hint
+  /// ([ProviderDescriptor.requestsPerMinute]) or the registry-wide default
+  /// ([rateLimiter.minInterval]). 0 disables spacing for this provider's
+  /// queue keys (only the concurrency cap remains). Configured via
+  /// `[providers.<id>] requests_per_minute` in the user config.
+  final int? requestsPerMinute;
+
   const ProviderConfig({
     this.apiKey,
     this.authToken,
@@ -147,6 +155,7 @@ class ProviderConfig {
     this.name,
     this.disabledModels,
     this.members,
+    this.requestsPerMinute,
   });
 
   factory ProviderConfig.fromMap(Map<String, dynamic> m) {
@@ -170,6 +179,9 @@ class ProviderConfig {
       name: m['name'] as String?,
       disabledModels: disabled,
       members: members,
+      // 0 is meaningful (explicitly disables spacing for this provider's
+      // queues), so unlike the drop-empty lists above it is kept as-is.
+      requestsPerMinute: m['requests_per_minute'] as int?,
     );
   }
 
@@ -177,7 +189,7 @@ class ProviderConfig {
   /// compare equal when their fields match (used to detect an edit that changed
   /// nothing, `disabledModels` compared as sets).
   @override
-  bool operator ==(Object other) =>
+  bool operator==(Object other) =>
       other is ProviderConfig &&
       apiKey == other.apiKey &&
       authToken == other.authToken &&
@@ -185,11 +197,12 @@ class ProviderConfig {
       wire == other.wire &&
       name == other.name &&
       members == other.members &&
+      requestsPerMinute == other.requestsPerMinute &&
       _setsEqual(disabledModels, other.disabledModels);
 
   @override
   int get hashCode => Object.hash(apiKey, authToken, baseUrl, wire, name,
-      members, Set.of(disabledModels ?? const {}));
+      members, requestsPerMinute, Set.of(disabledModels ?? const {}));
 
   static bool _setsEqual(Set<String>? a, Set<String>? b) {
     if (a == null && b == null) return true;
@@ -691,6 +704,10 @@ String userConfigToToml(UserConfig config) {
             if (e.value.name != null) 'name': e.value.name,
             if (e.value.disabledModels != null && e.value.disabledModels!.isNotEmpty)
               'disabled_models': e.value.disabledModels!.toList(),
+            // 0 is meaningful (explicitly disables spacing for this provider's
+            // queues), so unlike the drop-empty lists above it is kept as-is.
+            if (e.value.requestsPerMinute != null)
+              'requests_per_minute': e.value.requestsPerMinute,
           },
       },
     if (config.limits != null && !config.limits!.isEmpty)

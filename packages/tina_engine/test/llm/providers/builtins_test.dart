@@ -53,9 +53,12 @@ void main() {
       const adapterIds = ['cerebras', 'openai', 'openrouter', 'deepseek', 'glm', 'qwen', 'qwencloud', 'grok', 'longcat', 'mistral', 'nim', 'novita', 'hetzner'];
       for (final id in adapterIds) {
         final model = r.modelsFor(id).first.id;
-        expect(r.build('$id/$model', apiKeyOverride: 'k'),
-            isA<OpenAiCompatibleAdapter>(),
-            reason: id);
+        final built = r.build('$id/$model', apiKeyOverride: 'k');
+        // NIM carries a built-in requestsPerMinute hint, so it builds wrapped
+        // in its launch-slot queue even with the registry-wide limiter off —
+        // peel the policy layer to see the adapter the descriptor builds to.
+        final adapter = built is RateLimitedProvider ? built.inner : built;
+        expect(adapter, isA<OpenAiCompatibleAdapter>(), reason: id);
       }
     });
 
