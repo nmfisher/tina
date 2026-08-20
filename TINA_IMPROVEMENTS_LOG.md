@@ -129,6 +129,14 @@ was ever "large".
     excellent (`--allow "bash:ls /workspace"`), but the tool RESULT the
     model sees should carry the same remediation (exact rule + "or use the
     ls tool") so the model self-corrects instead of re-trying blind.
+    **→ Implemented 2026-08-20 (improvements run, Run C):** the deny
+    `ToolResultBlock` now lists the ALLOW patterns that exist for the tool
+    this session (`PermissionPolicy.allowedPatterns`) and, for bash, the
+    always-allowed native tools, closing with an explicit
+    do-not-retry-unchanged. Verified by the new engine tests (deny content
+    names the patterns, says `none` when empty, points bash at the native
+    tools); the next live dogfood (a run hitting a denied shape) will show
+    it in a wire log.
 11. **Small-model steering: prompt nudge exists and is ignored.** Correction
     from round 3's wire log: the system prompt ALREADY says "Prefer the
     dedicated read-only tools (ls, stat, which, glob, grep, search, git)
@@ -136,6 +144,7 @@ was ever "large".
     Prose steering doesn't reach small models; the remedy that would is #10
     (put the exact `--allow` rule and native-tool suggestion in the deny
     tool-result itself, where the model must read it to continue).
+    **→ Implemented with #10, 2026-08-20 (Run C).**
 
 ## Round 3 — raised budget, broadened allows, task completed
 
