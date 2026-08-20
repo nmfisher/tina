@@ -12,11 +12,25 @@ requests-per-minute rate limit in this repo. Newest entries at the bottom.
    only inside the TUI). I had to curl the endpoint out-of-band. A
    `tina --models <provider>` CLI (or `--prompt /models`) would remove the
    guesswork for scripted/headless use.
+   **→ Implemented 2026-08-20 (improvements run, Run B):** `--models
+   <provider>` prints the resolved catalog (live models.dev + the
+   provider's own /v1/models awaited, so it matches the TUI picker),
+   bare `--models` lists known provider ids, unknown ids exit 1 naming
+   the known set. Verified live (`--models hetzner` prints the catalog
+   incl. models absent from the static descriptor).
 2. **Permission-classifier friction was environmental, not tina's fault** —
    but it did surface that every credential path (env var, `~/.tina/config`)
    is all-or-nothing: no `--api-key` flag for a one-shot run without touching
    config state. A `--api-key` flag (or `TINA_API_KEY`) would make ephemeral
    drives like this one cleaner.
+   **→ Implemented 2026-08-20 (improvements run, Run B):** `--api-key` wins
+   over both the config file and env (flag > file > env) at the single
+   auth-resolution seam in `Config.parse`; read once, lands on
+   `Config.apiKey`, never persisted. Verified live: a bogus flag key draws
+   a provider 401 while the config file holds the real one. One edge left
+   open: under a pool `[default]` the flag is a no-op — pool members take
+   their keys from member config, and one string can't be right for a
+   multi-provider pool anyway.
 
 ## Round 1 — first task run
 
@@ -259,6 +273,22 @@ and commit. Two new observations from the first run of this round:
     the session recorder stamping the tree's compile status per step, so
     a resume can tell the model WHICH step broke it. Neither built yet.
 
+23. **A 30s default request-timeout silently kills large-context resumes.**
+    Run B's resumed session carries ~220KB of conversation (each resume
+    appends). Hetzner serves that payload fine — ~18s prefill, measured
+    out-of-band with a same-size curl — but `--request-timeout` defaults to
+    30s, so the send died as `error: Request timed out`, and the retry
+    policy re-sent the SAME oversized request into the SAME wall four
+    times (1 + 3 retries) before aborting with exit 2. Nothing in the
+    output names the `--request-timeout` knob, so the failure reads like a
+    dead provider rather than a too-small cap. **Would make:** (a) the
+    timeout error should name the flag and the elapsed-vs-cap numbers
+    (`request exceeded 30s — raise with --request-timeout`); (b) a retry
+    after a wall-clock timeout on an unchanged payload is doomed — back
+    off exponentially at minimum; (c) worth considering a default scaled
+    to request size (the estimate the limiter already computes). Driving
+    remedy meanwhile: launch with `--request-timeout 180`.
+
 ## Epilogue — the feature protecting its own provider
 
 NIM's hard ceiling is 40 RPM, so the driver-side rule from here on is to
@@ -277,3 +307,40 @@ file:line-cited summary of its own rate limiter.
     provider descriptors carrying a default RPM hint (NIM = 40) so tina
     throttles to the account's real ceiling without the user reading
     vendor docs first.
+
+24. **Stream-idle-timeout (60s default) kills healthy prefills on large
+    contexts — and the error names the wrong knob.** Measured on Hetzner
+    Qwen3.8-27B: a 244KB request WITH tool schemas sits completely silent
+    for **81 seconds** before its first generation chunk (110KB without
+    tools: 16s; the provider is computing prefill, not dead). tina's
+    `--stream-idle-timeout` defaults to 60s, so the send dies as
+    `error: Request timed out` — the SAME string the request-timeout uses —
+    and the retry policy walks an exponential backoff into the same wall
+    (observed gaps of 306s/130s between wire-log POSTs while every retry
+    was doomed). Two compounding traps: (a) one error string for two
+    different knobs, so the operator raises `--request-timeout` (as I did,
+    30 → 180 → 600) and nothing changes; (b) the idle clock measures from
+    the last received byte, which on a silent prefill punishes exactly the
+    requests that are working hardest. **Would make:** distinct error
+    strings that name their flag and the observed gap (`no bytes for 60s —
+    raise --stream-idle-timeout`), and a default idle budget that scales
+    with the request-size estimate the limiter already computes. Driving
+    remedy meanwhile: `--stream-idle-timeout 300` (plus
+    `--auto-compact-threshold 40000` to shrink the requests themselves —
+    244KB contexts ride forever under the 120K default because the
+    estimate (~61K) never crosses it, yet each re-send pays the full
+    prefill).
+
+25. **A mid-turn kill persists the tree but not the conversation.** Killing
+    a headless run mid-turn (as a driver must, when a run dithers or rides
+    a timeout wall) leaves every file edit on disk but loses the turn's
+    conversation events — the recorder flushes at turn end, so 13 tool
+    calls' worth of reasoning vanished (no session dir was ever created
+    for the fresh run; a resumed run's events file sat at its pre-turn
+    mtime). `--resume` is useless there — the session either doesn't exist
+    or predates the turn — and the model must restart from a directive,
+    re-reading what it already read. **Would make:** event write-through
+    (or a periodic flush) so a killed run resumes where it stopped — the
+    original session-persistence design (#7) quietly assumes graceful turn
+    ends. Workaround meanwhile: fresh session + directive that names
+    what's already on disk; edits survive, so this recovers cheaply.
