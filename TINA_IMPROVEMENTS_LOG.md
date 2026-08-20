@@ -353,3 +353,18 @@ file:line-cited summary of its own rate limiter.
     original session-persistence design (#7) quietly assumes graceful turn
     ends. Workaround meanwhile: fresh session + directive that names
     what's already on disk; edits survive, so this recovers cheaply.
+
+26. **A headless run can deadlock silently — no error, no exit, no watchdog.**
+    Run D wedged mid-turn: an edit completed, the model streamed a sentence
+    of intent ("Let me update:"), and then nothing — forever. The process
+    sat in `futex_do_wait` with zero CPU over a 10s sample and two idle
+    sockets, 25+ minutes after its last wire request; no timeout fired
+    because no request was in flight (the hang is below/outside the
+    provider stack — plausibly the edit mutation lock or another internal
+    await that never resolves). A driver sees a hung run with no
+    diagnostic and must notice the silence themselves. **Would make:** a
+    turn-level liveness watchdog in headless mode (no agent-sink event for
+    N minutes → abort with a stack dump of where the loop is parked), the
+    same way the budget guard already converts runaway spend into a clean
+    exit-2. Driving remedy meanwhile: watch the wire log's mtime and kill
+    by hand.
