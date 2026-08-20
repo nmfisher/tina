@@ -218,17 +218,32 @@ and commit. Two new observations from the first run of this round:
     Per-provider limit overrides (`[providers.<id>] requests_per_minute`)
     NOT included — deferred until #15 (descriptor RPM hints) lands, which
     is the better home for per-member defaults.
-20. **BUG (not yet fixed): a hard-killed headless run persists nothing.**
-    Run B was SIGTERM/SIGKILLed ~25 minutes into a fresh `--prompt` run
-    (30+ tool calls streamed) and left NO session directory on disk —
-    nothing to `--resume`. Round 1's exploration-only session survived
-    only because the budget abort exits gracefully and flushes. The JSONL
-    store is append-per-record (its own tests cover recovering a torn
-    final record after kill -9), so the loss is upstream: the recorder's
-    buffered/lazy write path never reached the store before the signal.
-    Persistence should be incremental from the first recorded event, not
-    contingent on a graceful exit — a killed run should cost the
-    un-flushed tail, never the whole session.
+20. **BUG (misdiagnosed — NOT a bug, withdrawn).** A hard-killed headless
+    run looked like it persisted nothing: `~/.tina/sessions/<id>/` held
+    only a `session.json` stub with no events. Wrong tree — the store is
+    SPLIT: the manifest lives globally under `~/.tina/sessions/`, the
+    conversation events live repo-locally under
+    `<cwd>/.tina/sessions/<id>/<conversationId>.jsonl` (see
+    `JsonlSessionStore`'s header comment). The killed Run B's events were
+    on disk the whole time and `--resume` would have worked; I killed and
+    relaunched fresh unnecessarily. Lesson: check both roots before
+    declaring session loss. (The split itself is undiscoverable — the
+    `session:` stderr line prints only the global id with no hint of
+    where events land; a `--sessions` listing that names the event files'
+    location would prevent the next misdiagnosis.)
+21. **BUG (fixed): an empty model completion ended a headless run as a
+    silent SUCCESS.** Poolside/laguna-xs-2.1 on NIM, under worker
+    exhaustion (`503 ResourceExhausted` on later probes), answered a
+    mid-task request with `200` + zero content blocks. The agent loop
+    treated an assistant message with no text and no tool calls as a
+    normal end-of-turn: the run exited 0 after 5 of 120 steps, no
+    summary, nothing wrong visible anywhere. Worse than a crash — it
+    looks like success. Fixed in `Agent.run`: a completion with NO blocks
+    is not recorded and does not end the turn — the loop retries the send
+    once (which also rotates to the next pool member when pooled) and
+    aborts with `model returned an empty completion` if it repeats. The
+    empty message is never appended to history (some providers reject an
+    empty assistant message on the next request).
 
 ## Epilogue — the feature protecting its own provider
 

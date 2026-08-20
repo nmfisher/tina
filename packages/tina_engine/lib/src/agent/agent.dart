@@ -172,6 +172,10 @@ class Agent {
     // not be retried every step — one attempt per 3 steps bounds the waste.
     var lastCompactAttempt = -3;
 
+    // Consecutive completions that carried NO blocks at all (see the check
+    // before the history append below). One retry, then abort.
+    var emptyCompletions = 0;
+
     for (var step = 0; step < maxSteps; step++) {
       if (cancelled) {
         sink.notice('\n[cancelled]\n', kind: NoticeKind.warning);
@@ -279,6 +283,30 @@ class Agent {
           return;
         }
       }
+
+      // A completion with NO blocks at all is degenerate — seen in the wild
+      // as a 200 whose body carries zero content (an overloaded worker
+      // "answering" with nothing: NIM's poolside/laguna under worker
+      // exhaustion). Ending the turn here would read as a clean finish, and
+      // a headless run would exit 0 having done nothing. Retry once — a
+      // re-send lands on the next member when the provider is pooled — and
+      // abort loudly if it repeats. Either way the empty message is NOT
+      // appended to history: it says nothing, and some providers reject an
+      // empty assistant message on the next request.
+      if (content.isEmpty) {
+        if (emptyCompletions == 0) {
+          emptyCompletions++;
+          sink.notice('\n[provider] empty completion — retrying\n',
+              kind: NoticeKind.warning);
+          continue;
+        }
+        sink.notice('\nerror: model returned an empty completion\n',
+            kind: NoticeKind.error);
+        abortedReason = 'model returned an empty completion';
+        abortedKind = AbortedKind.provider;
+        return;
+      }
+      emptyCompletions = 0;
 
       history.add(Message(role: Role.assistant, content: content));
 

@@ -169,6 +169,69 @@ void main() {
       await agent.run(history: [], userInput: 'hi');
       expect(sink.texts, ['ok']);
     });
+
+    test('an empty completion is retried, not recorded as a clean finish', () async {
+      // Seen in the wild: an overloaded worker returns 200 with zero content
+      // blocks. The turn must NOT end there (a headless run would exit 0
+      // having done nothing) and the empty message must not reach history.
+      final provider = FakeProvider([
+        [
+          const MessageComplete(content: [], stopReason: 'end_turn'),
+        ],
+        [
+          const TextDelta('recovered'),
+          const MessageComplete(
+            content: [TextBlock('recovered')],
+            stopReason: 'end_turn',
+          ),
+        ],
+      ]);
+      final sink = FakeAgentSink();
+      final agent = _agent(
+        provider: provider,
+        tools: ToolRegistry(const []),
+        sink: sink,
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'hi');
+
+      expect(agent.abortedReason, isNull);
+      expect(sink.texts, ['recovered']);
+      expect(
+          history
+              .where((m) => m.role == Role.assistant)
+              .map((m) => m.content),
+          everyElement(isNotEmpty),
+          reason: 'the degenerate empty message is never appended');
+      expect(
+          sink.notices.map((n) => n.message),
+          contains(contains('empty completion')),
+          reason: 'the retry is visible, not silent');
+    });
+
+    test('two consecutive empty completions abort the run loudly', () async {
+      final provider = FakeProvider([
+        [
+          const MessageComplete(content: [], stopReason: 'end_turn'),
+        ],
+        [
+          const MessageComplete(content: [], stopReason: 'end_turn'),
+        ],
+      ]);
+      final sink = FakeAgentSink();
+      final agent = _agent(
+        provider: provider,
+        tools: ToolRegistry(const []),
+        sink: sink,
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'hi');
+
+      expect(agent.abortedReason, 'model returned an empty completion');
+      expect(history.where((m) => m.role == Role.assistant), isEmpty);
+    });
   });
 
   group('Agent.run', () {
