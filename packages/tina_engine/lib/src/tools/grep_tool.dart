@@ -289,6 +289,7 @@ class GrepTool implements Tool {
     final buf = StringBuffer();
     var matchCount = 0;
     var truncated = false;
+    var binarySkips = 0;
 
     for (final relPath in files) {
       if (cancelled) break;
@@ -299,9 +300,25 @@ class GrepTool implements Tool {
       final fullPath =
           p.isAbsolute(relPath) ? relPath : p.join(path, relPath);
       if (!await fs.fileExists(fullPath)) continue;
-      String text;
+      // Read bytes once to detect binary files (NUL byte in first 8KB).
+      final List<int> bytes;
       try {
-        text = await fs.readFileString(fullPath);
+        bytes = await fs.readFileBytes(fullPath);
+      } catch (e) {
+        _log.warning('failed to read $fullPath, skipping', e);
+        continue;
+      }
+      final checkEnd = bytes.length > 8192 ? 8192 : bytes.length;
+      final isBinary = bytes.sublist(0, checkEnd).any((b) => b == 0);
+      if (isBinary) {
+        binarySkips++;
+        continue;
+      }
+      // Decode non-binary bytes as UTF-8. Strict decoding can throw on
+      // invalid sequences in a file that has no NUL byte.
+      final String text;
+      try {
+        text = utf8.decode(bytes);
       } catch (e) {
         _log.warning('failed to read $fullPath, skipping', e);
         continue;
@@ -320,9 +337,16 @@ class GrepTool implements Tool {
       }
     }
 
-    if (matchCount == 0) return const ToolResult('(no matches)');
-    if (truncated) {
+    if (matchCount == 0) {
+      if (binarySkips == 0) return const ToolResult('(no matches)');
+      // No matches but binary files were seen: report both facts so the
+      // caller knows the walk ran and what it skipped.
+      buf.writeln('(no matches)');
+    } else if (truncated) {
       buf.writeln('... (cap of $maxResults reached; raise maxResults)');
+    }
+    if (binarySkips > 0) {
+      buf.writeln('... (skipped $binarySkips binary files)');
     }
     return ToolResult(buf.toString());
   }
