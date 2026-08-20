@@ -363,5 +363,62 @@ void main() {
       // than registering a pool over nothing.
       expect(registry.descriptor('empty'), isNull);
     });
+
+    test('full-reference members pin each member to its own model', () {
+      // The mixed-provider shape the feature exists for: two endpoints, two
+      // DIFFERENT models, one logical session — NIM's 40-RPM ceiling no
+      // longer caps the whole run.
+      final config = UserConfig(providers: {
+        'mypool': ProviderConfig(members: [
+          'nim/meta/muse-glimmer-30b',
+          'hetzner/Qwen3.8-27B',
+        ]),
+      });
+      final registry = builtinRegistry(env: buildEnvOverlay(config));
+      registerConfigProviders(registry, config);
+
+      final pool = registry.build('mypool/anything') as PooledProvider;
+      expect(pool.members.map((m) => m.model).toList(),
+          ['meta/muse-glimmer-30b', 'Qwen3.8-27B'],
+          reason: 'pinned members ignore the pool reference\'s model');
+    });
+
+    test('a mixed pool threads the reference model to bare members only', () {
+      final config = UserConfig(providers: {
+        'a': ProviderConfig(baseUrl: 'https://a.test/v1', wire: 'openai'),
+        'mypool': ProviderConfig(members: ['a', 'hetzner/Qwen3.8-27B']),
+      });
+      final registry = builtinRegistry(env: buildEnvOverlay(config));
+      registerConfigProviders(registry, config);
+
+      final pool = registry.build('mypool/llama3') as PooledProvider;
+      expect(pool.members.map((m) => m.model).toList(),
+          ['llama3', 'Qwen3.8-27B']);
+    });
+
+    test('a full reference to an unknown provider skips the pool', () {
+      final config = UserConfig(providers: {
+        'mypool': ProviderConfig(members: ['nope/some-model']),
+      });
+      final registry = builtinRegistry(env: buildEnvOverlay(config));
+      registerConfigProviders(registry, config);
+
+      expect(registry.descriptor('mypool'), isNull);
+    });
+
+    test('a pinned member contributes just its model to the pool catalog', () {
+      final config = UserConfig(providers: {
+        'mypool': ProviderConfig(members: [
+          'nim/meta/muse-glimmer-30b',
+          'hetzner/Qwen3.8-27B',
+        ]),
+      });
+      final registry = builtinRegistry(env: buildEnvOverlay(config));
+      registerConfigProviders(registry, config);
+
+      // muse-glimmer isn't in NIM's compiled catalog, so only the pinned
+      // model that RESOLVES is listed — the pool still serves both.
+      expect(registry.modelsFor('mypool').map((m) => m.id), ['Qwen3.8-27B']);
+    });
   });
 }

@@ -203,11 +203,21 @@ and commit. Two new observations from the first run of this round:
     endpoint+API-key, so each member is spaced against ITSELF (three
     members at 1500 ms ≈ 120 RPM aggregate). The session-wide
     `--requests-per-minute` stays the outer ceiling — set it to the sum
-    (or 0), else it bottlenecks the pool at one member's cap. V1
-    limitation: members must agree on the model id (`<member>/<model>`
-    resolves per member). Per-provider limit overrides (`[providers.<id>]
-    requests_per_minute`) NOT included — deferred until #15 (descriptor
-    RPM hints) lands, which is the better home for per-member defaults.
+    (or 0), else it bottlenecks the pool at one member's cap. Member
+    entries are bare provider ids (every member serves the `<pool>/<model>`
+    id) or FULL references (`"nim/meta/muse-glimmer-30b"`,
+    `"hetzner/Qwen3.8-27B"` — the member is pinned, so one pool can mix
+    models and providers; a `/model` swap on a mixed pool is undefined and
+    should be avoided). Verified live 2026-08-20: a two-member pool
+    (NIM muse-glimmer + Hetzner Qwen3.8-27B, `min_request_interval_ms =
+    1500`) served a 4-request headless run in strict alternation — NIM,
+    Hetzner, NIM, Hetzner — correct model per member, zero errors. One
+    residual gap: a pinned model missing from the provider's compiled
+    catalog (muse-glimmer vs NIM's static list) serves fine but isn't
+    listed in the pool's catalog until the live/models.dev catalog loads.
+    Per-provider limit overrides (`[providers.<id>] requests_per_minute`)
+    NOT included — deferred until #15 (descriptor RPM hints) lands, which
+    is the better home for per-member defaults.
 20. **BUG (not yet fixed): a hard-killed headless run persists nothing.**
     Run B was SIGTERM/SIGKILLed ~25 minutes into a fresh `--prompt` run
     (30+ tool calls streamed) and left NO session directory on disk —

@@ -129,11 +129,14 @@ class ProviderConfig {
   /// uncheck state survives restarts.
   final Set<String>? disabledModels;
 
-  /// Provider ids this entry POOLS, turning `<id>` into a round-robin
-  /// [PooledProvider] over equivalent members (`members = ["nim",
-  /// "openrouter"]`, then `[default] provider = "<id>"` and any
-  /// `<id>/<model>` reference rotates across the members). Null/empty on
-  /// wire-format provider blocks. A pool member cannot itself be a pool.
+  /// Members this entry POOLS, turning `<id>` into a round-robin
+  /// [PooledProvider] (`members = ["nim", "hetzner/Qwen3.8-27B"]`, then
+  /// `[default] provider = "<id>"` and any `<id>/<model>` reference rotates
+  /// across the members). An entry is a bare provider id — every member then
+  /// serves the model named in the `<id>/<model>` reference — or a full
+  /// `<provider>/<model>` reference pinning that member to that model, which
+  /// lets one pool mix models and providers. Null/empty on wire-format
+  /// provider blocks. A pool member cannot itself be a pool.
   final List<String>? members;
 
   const ProviderConfig({
