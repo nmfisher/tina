@@ -18,6 +18,13 @@ class InfoPanel implements Focusable {
   bool _hasFocus = false;
   bool _visible = true;
 
+  /// Whether a visible [render] has actually painted since the last hide.
+  /// Guards [hide]'s blanking: a panel that never drew anything (e.g. the
+  /// session bar on a resumed session with spawned panels — hidden by its
+  /// first refresh, before it ever rendered) must not erase the info column,
+  /// which would wipe pixels that spawned panels already own.
+  bool _painted = false;
+
   InfoPanel(this.screen, {this.title = '', List<String> content = const []})
       : _content = List<String>.unmodifiable(content);
 
@@ -28,11 +35,15 @@ class InfoPanel implements Focusable {
   }
 
   /// Hide the panel — blanks the interior. Retains content so [show]
-  /// restores it as-is.
+  /// restores it as-is. Skips the blanking when the panel never painted
+  /// (see [_painted]) so a first-refresh hide can't erase content another
+  /// surface (restored spawned panels) already owns.
   void hide() {
     if (!_visible) return;
     _visible = false;
+    if (!_painted) return;
     _clearInterior();
+    _painted = false;
   }
 
   /// Show the panel — repaints retained content.
@@ -105,6 +116,7 @@ class InfoPanel implements Focusable {
       return;
     }
     final accent = screen.theme.infoPanel.dim; // dim — the box border carries the focus cue
+    _painted = true;
     var row = b.row;
     if (title.isNotEmpty && b.height > 0) {
       final label = screen.colorize(accent, title);
