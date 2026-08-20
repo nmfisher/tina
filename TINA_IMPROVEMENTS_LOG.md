@@ -56,6 +56,10 @@ Aborting to prevent runaway cost. Raise with --max-turn-tokens.
    The abort notice goes to stderr and the process exits 0 (!) — a script
    driving tina can't tell the turn failed without parsing stderr. Exit code
    should be non-zero when a turn aborts (also for provider errors).
+   **→ Implemented 2026-08-20 (improvements run, Run A):** `_runNonInteractive`
+   exits 2 whenever the turn ends with `agent.abortedReason` set (budget,
+   provider, max-steps). Demonstrated live twice while driving: the
+   max-steps abort of Run A's first attempt exited 0.
 6. **grep tool scans binary/asset dirs** (`examples/workspace/assets/*.png`
    warnings) — noisy in stderr; a default ignore for binaries (or
    `.gitignore`-aware skipping) would clean long greps. (Cosmetic.)
@@ -147,6 +151,74 @@ which matches my pre-run verification of main.
     `--prompt` yielded exactly that. A `--require-summary` headless default
     (or appending that instruction automatically when `--prompt` runs)
     would make round-3-quality output the norm.
+    **→ Implemented 2026-08-20 (improvements run, Run A):**
+    `HeadlessHost.kHeadlessSummaryInstruction` is appended to every
+    non-interactive `--prompt` turn in `bin/tina.dart`.
+
+## Improvements run (post-merge) — driving tina through the backlog
+
+Reopened after PR #15 merged. Same discipline: tina implements, I verify
+and commit. Two new observations from the first run of this round:
+
+16. **glob on a file path warns instead of matching quietly.** A glob
+    whose root is a file (`glob pattern=* path=bin/tina.dart`) logs
+    `FileSystemException: Not a directory, errno 20` + "failed to list,
+    skipping subtree" to stderr. A file root should either match the
+    pattern against the file or return no matches — the exception noise
+    makes an innocent query look like a failure. (Would make; not yet
+    scheduled.)
+17. **Default maxSteps (50) is tight for small-model writes.** The first
+    Run A attempt spent all 50 steps exploring (plus 12 wasted on denied
+    `cat`/`head`/`grep` bash shapes) and hit the max-steps ceiling with
+    zero writes — then exited 0 (see #5, since fixed). The resume with
+    `--max-steps 80` + the denied shapes allowed landed the change in 37
+    steps. Driving pattern for small models: let them explore once, then
+    resume with a directive; or raise the ceiling up front on any run
+    expected to write code.
+18. **No headless `--model` override (would make).** Model alternation
+    exists per-conversation (TUI `/model`, persisted across resume),
+    per-task (sub-agent `modelReference`), and for the permission
+    classifier — but a headless run can only take `~/.tina/config`'s
+    `[default]`, and `--resume` honors the conversation's persisted model,
+    so there is no way to run (or resume) a headless session under a
+    different model without editing config state. A `--model
+    <provider/model>` flag beating both the config default and the
+    persisted label would enable alternating models across headless
+    rounds — cheap explorer for reads, strong model for writes.
+19. **No way to spread load across providers → Implemented.**
+    A session pinned to one provider inherits that provider's rate
+    ceiling (NIM: 40 RPM) with no recourse; throughput above it is
+    impossible even when equivalent models live on several providers.
+    Landed as `PooledProvider` (`packages/tina_engine/lib/src/llm/
+    pooled_provider.dart`): round-robin over N resolved members, before-
+    content failover to the next member within the same send (after-
+    content errors surface — failover would duplicate partial output),
+    per-member cooldown, last-error surfacing when everyone fails, and a
+    cooling error rather than hammering when all members are down. Config
+    declares a pool as `[providers.<id>] members = ["a", "b"]` (nested
+    pools, unknown members, and self-reference are warned about and
+    skipped at startup); the pool's catalog is the union of its members'
+    and `<pool>/<model>` rotates across them. Per-member spacing falls
+    out of the existing limiter for free — the queue key is
+    endpoint+API-key, so each member is spaced against ITSELF (three
+    members at 1500 ms ≈ 120 RPM aggregate). The session-wide
+    `--requests-per-minute` stays the outer ceiling — set it to the sum
+    (or 0), else it bottlenecks the pool at one member's cap. V1
+    limitation: members must agree on the model id (`<member>/<model>`
+    resolves per member). Per-provider limit overrides (`[providers.<id>]
+    requests_per_minute`) NOT included — deferred until #15 (descriptor
+    RPM hints) lands, which is the better home for per-member defaults.
+20. **BUG (not yet fixed): a hard-killed headless run persists nothing.**
+    Run B was SIGTERM/SIGKILLed ~25 minutes into a fresh `--prompt` run
+    (30+ tool calls streamed) and left NO session directory on disk —
+    nothing to `--resume`. Round 1's exploration-only session survived
+    only because the budget abort exits gracefully and flushes. The JSONL
+    store is append-per-record (its own tests cover recovering a torn
+    final record after kill -9), so the loss is upstream: the recorder's
+    buffered/lazy write path never reached the store before the signal.
+    Persistence should be incremental from the first recorded event, not
+    contingent on a graceful exit — a killed run should cost the
+    un-flushed tail, never the whole session.
 
 ## Epilogue — the feature protecting its own provider
 

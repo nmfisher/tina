@@ -243,4 +243,125 @@ void main() {
       expect(registry.descriptor('glm'), isNotNull);
     });
   });
+
+  group('registerConfigProviders pools', () {
+    // Two endpoints serving the same models, plus a pool over them — the
+    // shape the feature exists for: one 40-RPM provider becomes two.
+    UserConfig twoMemberConfig() => UserConfig(providers: {
+          'a': ProviderConfig(
+              baseUrl: 'https://a.test/v1', wire: 'openai', apiKey: 'ka'),
+          'b': ProviderConfig(
+              baseUrl: 'https://b.test/v1', wire: 'openai', apiKey: 'kb'),
+          'mypool': ProviderConfig(members: ['a', 'b']),
+        });
+
+    test('a pool block builds a PooledProvider over its members', () {
+      final config = twoMemberConfig();
+      final overlay = buildEnvOverlay(config);
+      final registry = builtinRegistry(env: overlay);
+      registerConfigProviders(registry, config);
+
+      final pool = registry.build('mypool/llama3');
+      expect(pool, isA<PooledProvider>());
+      expect((pool as PooledProvider).members, hasLength(2));
+      expect(pool.model, 'llama3');
+    });
+
+    test('the pool needs no base_url of its own', () {
+      // twoMemberConfig's pool block has only members — if base_url were
+      // required the pool would have been skipped and build would throw.
+      final config = twoMemberConfig();
+      final registry = builtinRegistry(env: buildEnvOverlay(config));
+      registerConfigProviders(registry, config);
+
+      expect(registry.descriptor('mypool'), isNotNull);
+    });
+
+    test('the pool catalog is the union of member catalogs', () {
+      final config = UserConfig(providers: {
+        'a': ProviderConfig(
+            baseUrl: 'https://a.test/v1',
+            wire: 'openai',
+            disabledModels: const <String>{}),
+        'b': ProviderConfig(
+            baseUrl: 'https://b.test/v1',
+            wire: 'openai',
+            disabledModels: const {'glm-5.2'}),
+        'mypool': ProviderConfig(members: ['a', 'b']),
+      });
+      final registry = builtinRegistry(env: buildEnvOverlay(config));
+      registerConfigProviders(registry, config);
+
+      final ids = registry.modelsFor('mypool').map((m) => m.id).toSet();
+      final aIds = registry.modelsFor('a').map((m) => m.id).toSet();
+      final bIds = registry.modelsFor('b').map((m) => m.id).toSet();
+      expect(ids, aIds.union(bIds),
+          reason: 'everything any member serves is pickable through the pool');
+    });
+
+    test('a pool declared BEFORE its members still resolves', () {
+      final config = UserConfig(providers: {
+        'mypool': ProviderConfig(members: ['a', 'b']), // listed first
+        'a': ProviderConfig(baseUrl: 'https://a.test/v1', wire: 'openai'),
+        'b': ProviderConfig(baseUrl: 'https://b.test/v1', wire: 'openai'),
+      });
+      final registry = builtinRegistry(env: buildEnvOverlay(config));
+      registerConfigProviders(registry, config);
+
+      expect(registry.build('mypool/llama3'), isA<PooledProvider>(),
+          reason: 'pools register in a second pass, so table order is free');
+    });
+
+    test('a pool naming an unknown member is skipped', () {
+      final config = UserConfig(providers: {
+        'mypool': ProviderConfig(members: ['a', 'nope']),
+        'a': ProviderConfig(baseUrl: 'https://a.test/v1', wire: 'openai'),
+      });
+      final registry = builtinRegistry(env: buildEnvOverlay(config));
+      registerConfigProviders(registry, config);
+
+      expect(registry.descriptor('mypool'), isNull,
+          reason: 'a pool over a phantom member would 404 every rotation');
+    });
+
+    test('a pool over another pool is skipped', () {
+      final config = UserConfig(providers: {
+        'a': ProviderConfig(baseUrl: 'https://a.test/v1', wire: 'openai'),
+        'inner': ProviderConfig(members: ['a']),
+        'outer': ProviderConfig(members: ['inner']),
+      });
+      final registry = builtinRegistry(env: buildEnvOverlay(config));
+      registerConfigProviders(registry, config);
+
+      expect(registry.descriptor('inner'), isNotNull);
+      expect(registry.descriptor('outer'), isNull,
+          reason: 'nested pools are not supported and must not half-register');
+    });
+
+    test('a pool listing itself is skipped', () {
+      final config = UserConfig(providers: {
+        'a': ProviderConfig(baseUrl: 'https://a.test/v1', wire: 'openai'),
+        'loop': ProviderConfig(members: ['loop', 'a']),
+      });
+      final registry = builtinRegistry(env: buildEnvOverlay(config));
+      registerConfigProviders(registry, config);
+
+      expect(registry.descriptor('loop'), isNull);
+    });
+
+    test('a member config block with an empty members list is a plain provider',
+        () {
+      final config = UserConfig(providers: {
+        'a': ProviderConfig(baseUrl: 'https://a.test/v1', wire: 'openai'),
+        'empty': ProviderConfig(members: const [], baseUrl: '', wire: null),
+      });
+      final registry = builtinRegistry(env: buildEnvOverlay(config));
+      registerConfigProviders(registry, config);
+
+      // members: [] parses to null (fromMap drops empty lists), so 'empty'
+      // goes down the wire path — and with no base_url it is skipped rather
+      // than registering a pool over nothing.
+      expect(registry.descriptor('empty'), isNull);
+    });
+  });
 }

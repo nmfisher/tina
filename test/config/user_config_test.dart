@@ -115,6 +115,22 @@ void main() {
       });
       expect(c.prompts, {'main': 'kept'});
     });
+
+    test('parses provider members (a pool block); empty or non-list → null', () {
+      final c = UserConfig.fromMap({
+        'providers': {
+          'mypool': {'members': ['nim', 'openrouter']},
+          'empty': {'members': []},
+          'bogus': {'members': 'nim'},
+          'plain': {'base_url': 'https://example.test'},
+        },
+      });
+      expect(c.providers['mypool']?.members, ['nim', 'openrouter']);
+      expect(c.providers['empty']?.members, isNull,
+          reason: 'an empty list is not a pool declaration');
+      expect(c.providers['bogus']?.members, isNull);
+      expect(c.providers['plain']?.members, isNull);
+    });
   });
 
   group('buildEnvOverlay', () {

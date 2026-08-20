@@ -32,7 +32,7 @@ EnvironmentAutoPopulate parseEnvironmentAutoPopulate(String? raw) =>
       _ => EnvironmentAutoPopulate.ask,
     };
 const _knownDefaultKeys = {'provider', 'model', 'workflow'};
-const _knownProviderKeys = {'api_key', 'auth_token', 'base_url', 'wire', 'name', 'disabled_models'};
+const _knownProviderKeys = {'api_key', 'auth_token', 'base_url', 'wire', 'name', 'disabled_models', 'members'};
 const _knownPromptKeys = {'identity'};
 const _knownRegionsKeys = {'model'};
 const _knownPermissionsKeys = {'mode', 'model'};
@@ -129,6 +129,13 @@ class ProviderConfig {
   /// uncheck state survives restarts.
   final Set<String>? disabledModels;
 
+  /// Provider ids this entry POOLS, turning `<id>` into a round-robin
+  /// [PooledProvider] over equivalent members (`members = ["nim",
+  /// "openrouter"]`, then `[default] provider = "<id>"` and any
+  /// `<id>/<model>` reference rotates across the members). Null/empty on
+  /// wire-format provider blocks. A pool member cannot itself be a pool.
+  final List<String>? members;
+
   const ProviderConfig({
     this.apiKey,
     this.authToken,
@@ -136,6 +143,7 @@ class ProviderConfig {
     this.wire,
     this.name,
     this.disabledModels,
+    this.members,
   });
 
   factory ProviderConfig.fromMap(Map<String, dynamic> m) {
@@ -145,6 +153,12 @@ class ProviderConfig {
       final s = raw.whereType<String>().toSet();
       if (s.isNotEmpty) disabled = s;
     }
+    List<String>? members;
+    final rawMembers = m['members'];
+    if (rawMembers is List) {
+      final l = rawMembers.whereType<String>().toList();
+      if (l.isNotEmpty) members = l;
+    }
     return ProviderConfig(
       apiKey: m['api_key'] as String?,
       authToken: m['auth_token'] as String?,
@@ -152,6 +166,7 @@ class ProviderConfig {
       wire: m['wire'] as String?,
       name: m['name'] as String?,
       disabledModels: disabled,
+      members: members,
     );
   }
 
@@ -166,11 +181,12 @@ class ProviderConfig {
       baseUrl == other.baseUrl &&
       wire == other.wire &&
       name == other.name &&
+      members == other.members &&
       _setsEqual(disabledModels, other.disabledModels);
 
   @override
-  int get hashCode => Object.hash(
-      apiKey, authToken, baseUrl, wire, name, Set.of(disabledModels ?? const {}));
+  int get hashCode => Object.hash(apiKey, authToken, baseUrl, wire, name,
+      members, Set.of(disabledModels ?? const {}));
 
   static bool _setsEqual(Set<String>? a, Set<String>? b) {
     if (a == null && b == null) return true;

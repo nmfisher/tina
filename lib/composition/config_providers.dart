@@ -26,6 +26,10 @@ ProviderBuilder anthropicCompatibleBuilder() => (c) => AnthropicProvider(
 /// ([registerBuiltins] / [builtinRegistry]) and **before** [Config.parse],
 /// which rejects an unknown default provider id. For each block:
 ///
+/// - `members` set → register a POOL descriptor (see [_registerPool]): the id
+///   becomes a round-robin [PooledProvider] over the listed provider ids, and
+///   `<id>/<model>` references rotate across them. Pool blocks skip the
+///   `base_url` requirement — the members carry the endpoints and keys.
 /// - `wire` unset + **new** id      → register a custom OpenAI-compatible
 ///   provider (the dominant format for local/third-party servers).
 /// - `wire` unset + **built-in** id → leave the built-in alone; the env overlay
@@ -42,12 +46,20 @@ ProviderBuilder anthropicCompatibleBuilder() => (c) => AnthropicProvider(
 /// `auth_token` into `<PREFIX>_API_KEY` / `<PREFIX>_AUTH_TOKEN`, and the
 /// descriptor's [AuthSource]s read those same vars via
 /// [ProviderRegistry.authFor] — so the key reaches the startup provider
-/// (`Config.parse`) and sub-agents (`registry.build`) alike.
+/// (`Config.parse`) and sub-agents (`registry.build`) alike. Pools need none
+/// of it: each member resolves its own credential the normal way.
 void registerConfigProviders(
     ProviderRegistry registry, UserConfig userConfig) {
+  // Pools register in a second pass so a pool may list config-declared wire
+  // providers as members regardless of table order.
+  final pools = <MapEntry<String, ProviderConfig>>[];
   for (final entry in userConfig.providers.entries) {
     final id = entry.key;
     final pc = entry.value;
+    if (pc.members != null && pc.members!.isNotEmpty) {
+      pools.add(entry);
+      continue;
+    }
     final existing = registry.descriptor(id);
     final wire = _normalizeWire(id, pc.wire, existing);
 
@@ -62,6 +74,71 @@ void registerConfigProviders(
     final catalog = existing?.models ?? const <String, ModelInfo>{};
     _registerCustom(registry, id, pc, wire, catalog, baseUrl: pc.baseUrl);
   }
+  for (final entry in pools) {
+    _registerPool(registry, entry.key, entry.value, userConfig);
+  }
+}
+
+/// Register `id` as a pool over `pc.members`: a synthetic descriptor whose
+/// builder resolves `<member>/<model>` per member through
+/// [ProviderRegistry.buildPooled]. Its model catalog is the UNION of the
+/// members' (so the model picker lists everything any member serves), and its
+/// auth is empty — credentials live on the members.
+///
+/// Rate limits compose without new knobs: the registry's shared limiter queues
+/// per endpoint+API-key, so each member is spaced by `[limits]
+/// min_request_interval_ms` against ITSELF (three members at 1500 ms ≈ 40 RPM
+/// each ≈ 120 RPM aggregate) while `[limits] requests_per_minute` remains the
+/// session-wide ceiling — it must be raised to the sum (or 0) or it
+/// bottlenecks the pool at one member's cap.
+void _registerPool(ProviderRegistry registry, String id, ProviderConfig pc,
+    UserConfig config) {
+  final memberIds = pc.members!;
+  if (memberIds.contains(id)) {
+    stderr.writeln('warning: [providers.$id] lists itself as a pool member; '
+        'skipping.');
+    return;
+  }
+  for (final memberId in memberIds) {
+    if (registry.descriptor(memberId) == null) {
+      stderr.writeln('warning: [providers.$id] pools unknown provider '
+          '"$memberId"; skipping the pool.');
+      return;
+    }
+    final memberConfig = config.providers[memberId];
+    if (memberConfig?.members != null && memberConfig!.members!.isNotEmpty) {
+      stderr.writeln('warning: [providers.$id] pools "$memberId", which is '
+          'itself a pool (nesting is not supported); skipping.');
+      return;
+    }
+  }
+
+  final catalog = <String, ModelInfo>{
+    for (final memberId in memberIds)
+      for (final m in registry.modelsFor(memberId)) m.id: m,
+  };
+  registry.registerPool(ProviderDescriptor(
+    id: id,
+    name: pc.name ?? _titleCase(id),
+    authSources: const [],
+    defaultBaseUrl: '',
+    // The instance's model id is the part after `<pool>/` — each member is
+    // resolved as `<member>/<that model>` so the pool speaks one model id
+    // across all its members. Per-member model-id differences (same model,
+    // different names per provider) are not expressible; point the pool at
+    // members that agree on the id.
+    builder: (c) => registry.buildPooled(
+      [for (final memberId in memberIds) '$memberId/${c.model}'],
+      maxTokens: c.maxTokens,
+      streamIdleTimeout: c.streamIdleTimeout,
+      requestTimeout: c.requestTimeout,
+    ),
+    models: catalog,
+  ));
+  stderr.writeln('tina: pool "$id" rotates over: ${memberIds.join(', ')} '
+      '(per-member spacing via [limits] min_request_interval_ms; raise '
+      '[limits] requests_per_minute to the sum or the session cap bottlenecks '
+      'the pool)');
 }
 
 /// Resolves the effective wire format for a config block, or null when the block

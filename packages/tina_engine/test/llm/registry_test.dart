@@ -293,4 +293,63 @@ void main() {
       expect(identical(r.build('p/model'), built), isTrue);
     });
   });
+
+  group('buildPooled', () {
+    test('members get their own launch slots with distinct queue keys', () {
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('a',
+            baseUrl: 'https://a.test', builder: _recording([])))
+        ..register(_desc('b',
+            baseUrl: 'https://b.test', builder: _recording([])));
+      r.rateLimiter.minInterval = const Duration(milliseconds: 10);
+
+      final pool = r.buildPooled(['a/m', 'b/m']) as PooledProvider;
+
+      expect(pool.members, hasLength(2));
+      final keys = [
+        for (final m in pool.members)
+          (m as RateLimitedProvider).limitKey
+      ];
+      expect(keys[0], isNot(keys[1]),
+          reason: 'distinct endpoints space against THEMSELVES, not each '
+              'other — the whole premise of pooling');
+      expect(pool.members.every((m) => m is! RetryingProvider), isTrue,
+          reason: 'retry policy belongs to the pool as a whole');
+    });
+
+    test('build() over a pool descriptor applies the policy stack exactly once', () {
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(
+            _desc('a', baseUrl: 'https://a.test', builder: _recording([])));
+      r.rateLimiter.minInterval = const Duration(milliseconds: 10);
+      r.maxSendRetries = 2;
+      r.registerPool(
+          _desc('pool', builder: (c) => r.buildPooled(['a/${c.model}'])));
+
+      final built = r.build('pool/m');
+
+      // retry outermost → peel it, and what's left must be the bare pool:
+      // a RateLimitedProvider here would mean the degenerate queue key got
+      // applied, serializing the whole pool through one slot.
+      final beneathRetry = built is RetryingProvider ? built.inner : built;
+      expect(beneathRetry, isA<PooledProvider>());
+      expect(beneathRetry is RateLimitedProvider, isFalse);
+    });
+
+    test('a pool over a pool throws', () {
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('a', builder: _recording([])));
+      r.registerPool(_desc('p', builder: (c) => r.buildPooled(['a/${c.model}'])));
+
+      expect(() => r.buildPooled(['p/m']),
+          throwsA(isA<ProviderRegistryException>().having(
+              (e) => e.message, 'message', contains('nested pool'))));
+    });
+
+    test('an empty member list throws', () {
+      final r = ProviderRegistry(env: {});
+      expect(() => r.buildPooled(const []),
+          throwsA(isA<ProviderRegistryException>()));
+    });
+  });
 }

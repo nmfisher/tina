@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'http.dart';
 import 'model_catalog.dart';
+import 'pooled_provider.dart';
 import 'provider.dart';
 import 'provider_rate_limit.dart';
 import 'retrying_provider.dart';
@@ -229,6 +230,23 @@ class ProviderRegistry {
   ProviderRegistry({Map<String, String>? env})
       : _env = env ?? Platform.environment;
 
+  /// Provider ids registered as pools (see [registerPool]) — the ids [build]
+  /// must NOT wrap in a [RateLimitedProvider] of their own.
+  final Set<String> _poolIds = {};
+
+  /// Register [descriptor] as a provider POOL: a synthetic descriptor whose
+  /// builder is expected to call [buildPooled] over its members. A pool
+  /// reference (`pool/model`) then resolves through [build] like any other —
+  /// the difference is the policy stack: members carry their own per-key
+  /// launch slots from [buildPooled], so the pool itself skips the
+  /// rate-limit wrap (it has no endpoint+key identity of its own; its queue
+  /// key would be degenerate and serialize the WHOLE pool through one slot)
+  /// and takes only the metering/retry layers, exactly once.
+  void registerPool(ProviderDescriptor descriptor) {
+    _poolIds.add(descriptor.id);
+    _providers[descriptor.id] = descriptor;
+  }
+
   /// Register a provider descriptor.
   void register(ProviderDescriptor descriptor) {
     _providers[descriptor.id] = descriptor;
@@ -323,6 +341,79 @@ class ProviderRegistry {
     Duration? requestTimeout,
   }) {
     final resolved = resolve(reference);
+    // A pool descriptor's builder returns the [PooledProvider] itself, its
+    // members already carrying per-key launch slots from [buildPooled]. The
+    // pool takes ONLY the session policy stack here — wrapping it in a
+    // [RateLimitedProvider] would give it the degenerate queue key of a
+    // provider with no endpoint and no key, serializing the whole pool
+    // through one slot: the opposite of pooling.
+    if (_poolIds.contains(resolved.descriptor.id)) {
+      final pool = resolved.descriptor.builder(ProviderInstance(
+        apiKey: '',
+        model: resolved.modelId,
+        baseUrl: resolved.descriptor.defaultBaseUrl,
+        maxTokens: maxTokens ?? defaultMaxTokens,
+        streamIdleTimeout: streamIdleTimeout ?? defaultStreamIdleTimeout,
+        requestTimeout: requestTimeout ?? defaultRequestTimeout,
+        authScheme: AuthScheme.none,
+      ));
+      return _policyStack(pool);
+    }
+    return _policyStack(_buildLimited(resolved,
+        apiKeyOverride: apiKeyOverride,
+        baseUrlOverride: baseUrlOverride,
+        maxTokens: maxTokens,
+        streamIdleTimeout: streamIdleTimeout,
+        requestTimeout: requestTimeout));
+  }
+
+  /// Build [references] as the members of one [PooledProvider] (see there
+  /// for the rotation/failover semantics). Each member goes through
+  /// [_buildLimited] — its own launch slot on its own endpoint+key queue —
+  /// but NOT the session policy stack: that wraps the POOL, exactly once,
+  /// when [build] resolves a pool descriptor. Throws on an empty member list
+  /// or a member that is itself a pool.
+  LlmProvider buildPooled(
+    List<String> references, {
+    String? apiKeyOverride,
+    int? maxTokens,
+    Duration? streamIdleTimeout,
+    Duration? requestTimeout,
+  }) {
+    if (references.isEmpty) {
+      throw const ProviderRegistryException(
+          'a pool needs at least one member reference');
+    }
+    for (final reference in references) {
+      final pid = ModelReference.parse(reference).providerId;
+      if (pid != null && _poolIds.contains(pid)) {
+        throw ProviderRegistryException(
+            'nested pool "$reference" — pools cannot pool pools');
+      }
+    }
+    final members = [
+      for (final reference in references)
+        _buildLimited(resolve(reference),
+            apiKeyOverride: apiKeyOverride,
+            maxTokens: maxTokens,
+            streamIdleTimeout: streamIdleTimeout,
+            requestTimeout: requestTimeout)
+    ];
+    return PooledProvider(members);
+  }
+
+  /// Resolve + auth + build one provider and give it its per-key launch
+  /// slot. Everything [build] does below the session policy stack — also the
+  /// member path for [buildPooled], which is why it stops here: metering and
+  /// retry belong to the pool as a whole, not to each member.
+  LlmProvider _buildLimited(
+    ResolvedModel resolved, {
+    String? apiKeyOverride,
+    String? baseUrlOverride,
+    int? maxTokens,
+    Duration? streamIdleTimeout,
+    Duration? requestTimeout,
+  }) {
     final desc = resolved.descriptor;
     final AuthScheme scheme;
     final String apiKey;
@@ -364,7 +455,8 @@ class ProviderRegistry {
     //   went out, and the spacing/concurrency apply to every wire request;
     //   the queue key is the endpoint+API-key hash (providerQueueKey) — the
     //   hosted per-key identity — not the descriptor id, so two config
-    //   providers on one upstream share one queue;
+    //   providers on one upstream share one queue (and two members of one
+    //   pool each keep their own);
     // * metering below retry so each RETRY is measured too (it is a real
     //   request that consumes real tokens);
     // * retry outermost so a re-attempt re-enters the whole stack — it
@@ -374,12 +466,17 @@ class ProviderRegistry {
     // Each layer wraps only when enabled, keeping the built provider's
     // concrete type visible (and zero-overhead) in tests and any path that
     // hasn't opted in.
-    final limited =
-        rateLimiter.minInterval > Duration.zero || rateLimiter.maxConcurrent > 0
-            ? RateLimitedProvider(
-                built, rateLimiter, providerQueueKey(endpoint, apiKey))
-            : built;
-    final metered = decorator == null ? limited : decorator!(limited);
+    return rateLimiter.minInterval > Duration.zero ||
+            rateLimiter.maxConcurrent > 0
+        ? RateLimitedProvider(
+            built, rateLimiter, providerQueueKey(endpoint, apiKey))
+        : built;
+  }
+
+  /// The session policy stack above one built provider (or one pool):
+  /// metering, then retry. See [_buildLimited] for the layering rationale.
+  LlmProvider _policyStack(LlmProvider inner) {
+    final metered = decorator == null ? inner : decorator!(inner);
     return maxSendRetries > 0
         ? RetryingProvider(metered, maxRetries: maxSendRetries)
         : metered;
