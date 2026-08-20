@@ -445,10 +445,13 @@ Future<void> _runNonInteractive(AppComposition app) async {
       }
     }
     // Non-interactive hint goes to stderr so callers parsing stdout for the
-    // agent's answer aren't disrupted.
+    // agent's answer aren't disrupted. The RECORDER's id, not the
+    // pre-allocation from startup: a store that couldn't honor our id mints
+    // its own at first write, and the printed hint must point at the session
+    // that actually exists on disk.
     if (app.initialSessionId.isNotEmpty) {
       stderr.writeln(
-          'session: ${app.initialSessionId}  (resume: tina --resume ${app.initialSessionId})');
+          'session: ${recorder.sessionId}  (resume: tina --resume ${recorder.sessionId})');
     }
     await host.dispose();
     await app.store.close();
