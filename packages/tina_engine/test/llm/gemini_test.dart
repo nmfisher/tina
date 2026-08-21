@@ -209,5 +209,20 @@ void main() {
       expect(complete.stopReason, 'end_turn');
       expect(complete.usage, isNull);
     });
+
+    // #24: stream-idle timeout names its own flag.
+    test('silent stream surfaces --stream-idle-timeout', () async {
+      final provider = GeminiProvider(
+        apiKey: 'k',
+        model: 'gemini-2.5-pro',
+        streamIdleTimeout: const Duration(milliseconds: 100),
+        client: SilentSseClient(),
+      );
+      final events = await provider
+          .send(system: '', messages: const [], tools: const [])
+          .toList();
+      final err = events.whereType<StreamError>().single;
+      expect(err.error, contains('--stream-idle-timeout'));
+    });
   });
 }

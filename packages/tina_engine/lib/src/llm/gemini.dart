@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -108,7 +109,20 @@ class GeminiProvider extends LlmProvider {
     var inputTokens = 0;
     var outputTokens = 0;
 
-    final events = parseSse(resp.stream).timeout(streamIdleTimeout);
+    // WHY (#23 / #24): stream-idle timeout must name its flag — same anonymous
+    // string as request-timeout made operators change the wrong knob.
+    final rawEvents = resp.stream.timeout(
+      streamIdleTimeout,
+      onTimeout: (sink) {
+        sink.addError(TimeoutException(
+          'no stream events for ${streamIdleTimeout.inSeconds}s — '
+          'raise with --stream-idle-timeout',
+          streamIdleTimeout,
+        ));
+        sink.close();
+      },
+    );
+    final events = parseSse(rawEvents);
     try {
       await for (final payload in events) {
         final Map<String, dynamic> evt;

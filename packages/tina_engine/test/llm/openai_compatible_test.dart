@@ -529,5 +529,24 @@ void main() {
       expect(use.argumentsParseError, isNull);
       expect(use.input['command'], command);
     });
+
+    // #24: a stream that goes silent mid-response must name its own knob —
+    // previously it surfaced as the same anonymous 'Request timed out' as the
+    // request timeout, so the operator raised --request-timeout and nothing
+    // changed.
+    test('a stream that goes silent names --stream-idle-timeout', () async {
+      final provider = OpenAiCompatibleAdapter(
+        apiKey: 'k',
+        model: 'm',
+        streamIdleTimeout: const Duration(milliseconds: 100),
+        client: SilentSseClient(),
+      );
+      final events = await provider
+          .send(system: '', messages: const [], tools: const [])
+          .toList();
+      final err = events.whereType<StreamError>().single;
+      expect(err.error, contains('no stream events for'));
+      expect(err.error, contains('--stream-idle-timeout'));
+    });
   });
 }

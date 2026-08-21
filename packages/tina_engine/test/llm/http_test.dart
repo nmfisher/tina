@@ -53,8 +53,18 @@ void main() {
       expect(humanizeException(sock), 'Network error: host down');
     });
 
-    test('TimeoutException reads cleanly', () {
-      expect(humanizeException(TimeoutException('x')), 'Request timed out');
+    test('TimeoutException with message passes through', () {
+      expect(
+        humanizeException(TimeoutException('request exceeded 30s ...')),
+        'request exceeded 30s ...',
+      );
+    });
+
+    test('anonymous TimeoutException (message \'\') falls back to legacy phrase', () {
+      expect(
+        humanizeException(TimeoutException('', const Duration(seconds: 30))),
+        'Request timed out',
+      );
     });
 
     test('unknown error falls back to toString', () {
@@ -131,6 +141,18 @@ void main() {
       expect(client.callCount, 2);
     });
 
+    // #23b regression guard: socket exceptions keep the transport-internal
+    // retry schedule (they DO clear); only wall-clock timeouts are terminal.
+    test('retries on HttpException', () async {
+      final client = _FakeClient([
+        _throw(const HttpException('connection closed')),
+        _ok('hello'),
+      ]);
+      final resp = await sendWithRetry(client, _buildReq);
+      expect(resp.statusCode, 200);
+      expect(client.callCount, 2);
+    });
+
     test('gives up after exhausting attempts and returns the last response',
         () async {
       // 4 attempts = initial + 3 retries; all 429 → last 429 surfaces.
@@ -157,21 +179,67 @@ void main() {
           reason: 'expected to wait ≈1s per Retry-After, not the 250ms default');
     });
 
-    test('request timeout converts a hung send into a transient retry',
+    // #23b: timeout is TERMINAL — the retry loop must NOT burn the
+    // schedule re-sending the same payload; it surfaces as a named
+    // TimeoutException instead. (Previously this retried; now it doesn't.)
+    test('request timeout on headers is terminal, names --request-timeout',
         () async {
-      // First attempt never completes; the .timeout() inside sendWithRetry
-      // turns that into a TimeoutException, which is retryable.
       final client = _FakeClient([
         _hang(),
-        _ok('hello'),
+        // Would be attempt 2 if retries happened — must NOT reach.
+        _ok('never reached'),
       ]);
-      final resp = await sendWithRetry(
-        client,
-        _buildReq,
-        requestTimeout: const Duration(milliseconds: 50),
+      await expectLater(
+        () => sendWithRetry(
+          client,
+          _buildReq,
+          requestTimeout: const Duration(milliseconds: 50),
+        ),
+        throwsA(isA<TimeoutException>().having(
+          (e) => e.message,
+          'message',
+          contains('--request-timeout'),
+        )),
       );
-      expect(resp.statusCode, 200);
-      expect(client.callCount, 2);
+      expect(client.callCount, 1,
+          reason: 'timeout is terminal — no doomed retry');
+    });
+
+    // #23b: a TimeoutException thrown while awaiting response HEADERS is
+    // TERMINAL for the retry loop — re-sending the same payload into the
+    // same wall burns the 250/750/2250 schedule for nothing. It must NOT
+    // retry, and the message must name --request-timeout.
+    test('timeout on headers is terminal: exactly ONE attempt, named message',
+        () async {
+      final client = _FakeClient([
+        _throw(TimeoutException(
+          'request exceeded 2s without response headers — '
+          'raise with --request-timeout',
+          const Duration(seconds: 2),
+        )),
+        // A second attempt would confirm retry happened — must NOT run.
+        _ok('never reached'),
+      ]);
+      await expectLater(
+        () => sendWithRetry(
+          client,
+          _buildReq,
+          requestTimeout: const Duration(seconds: 2),
+        ),
+        throwsA(isA<TimeoutException>()
+            .having(
+              (e) => e.message,
+              'message',
+              contains('--request-timeout'),
+            )
+            .having(
+              (e) => e.duration,
+              'duration',
+              const Duration(seconds: 2),
+            )),
+      );
+      expect(client.callCount, 1,
+          reason: 'timeout must NOT retry — doomed re-send of same payload');
     });
 
     test('non-transient exception is rethrown without retry', () async {
@@ -206,6 +274,29 @@ void main() {
       final resp = await sendWithRetry(client, _buildReq);
       expect(resp.statusCode, 200);
       expect(client.callCount, 3);
+    });
+  });
+
+  group('sendOnce', () {
+    test('names --request-timeout on header timeout', () async {
+      final client = _FakeClient([
+        // First attempt hangs forever → timeout after 100ms.
+        _hang(),
+      ]);
+      await expectLater(
+        () => sendOnce(
+          client,
+          _buildReq,
+          requestTimeout: const Duration(milliseconds: 100),
+        ),
+        throwsA(isA<TimeoutException>()
+            .having(
+              (e) => e.message,
+              'message',
+              contains('--request-timeout'),
+            )),
+      );
+      expect(client.callCount, 1);
     });
   });
 

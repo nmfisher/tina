@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -115,7 +116,21 @@ class AnthropicProvider extends LlmProvider {
     // Wrap the SSE consumption: humanize any error (network drop, stall,
     // bad framing) and surface it as StreamError rather than letting the
     // raw exception bubble up to the agent.
-    final events = parseSse(resp.stream).timeout(streamIdleTimeout);
+    // WHY (#23 / #24): stream-idle must name its knob — same anonymous
+    // 'Request timed out' made operators raise --request-timeout instead,
+    // which did nothing. Naming the flag lets the operator fix the right knob.
+    final rawEvents = resp.stream.timeout(
+      streamIdleTimeout,
+      onTimeout: (sink) {
+        sink.addError(TimeoutException(
+          'no stream events for ${streamIdleTimeout.inSeconds}s — '
+          'raise with --stream-idle-timeout',
+          streamIdleTimeout,
+        ));
+        sink.close();
+      },
+    );
+    final events = parseSse(rawEvents);
     Stream<Map<String, dynamic>> decoded() async* {
       await for (final payload in events) {
         try {
