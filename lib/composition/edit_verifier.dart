@@ -50,6 +50,37 @@ class DartAnalyzeVerifier {
     }
   }
 
+  /// Startup tree-health check (#22b): run `dart analyze` over the WHOLE
+  /// project (no file argument) in [cwd] (null = the process cwd) and return
+  /// a notice naming the broken tree when the analyzer reports error-severity
+  /// diagnostics — the headless host prepends it to the turn so the model is
+  /// TOLD at startup, before it plans anything, that fixes come first. The
+  /// per-edit verdicts from [call] live in the transcript, but compaction can
+  /// drop them, the break may pre-date the session, or the breakage came from
+  /// outside (a kill, a manual edit); the current tree state is authoritative.
+  ///
+  /// Shares the exact parse/cap/trim of [blockFor]; only the header differs
+  /// (it names the tree, not one file). Null on a clean or warnings-only
+  /// analyze and on any timeout/spawn failure — never throws into the caller.
+  Future<String?> projectCheck({String? cwd}) async {
+    try {
+      final result = await processRunner
+          .run('dart', ['analyze'], workingDirectory: cwd)
+          .timeout(const Duration(seconds: 30));
+      return _cappedErrorBlock(
+        stdout: result.stdout,
+        stderr: result.stderr,
+        header: (n) =>
+            '[tree-health] the working tree does not compile: $n error(s)'
+            ' — fix these FIRST:',
+      );
+    } on TimeoutException {
+      return null; // bounded: never hang startup
+    } catch (_) {
+      return null; // spawn failure and friends never kill the run
+    }
+  }
+
   /// Pure output→block mapping (exposed for tests): parse `dart analyze`
   /// output — verified against a scratch `.dart` file with real errors, the
   /// error-severity lines read `  error - path:line:col - message  - code` —
@@ -61,6 +92,24 @@ class DartAnalyzeVerifier {
     required String stderr,
     required String filePath,
   }) {
+    return _cappedErrorBlock(
+      stdout: stdout,
+      stderr: stderr,
+      header: (n) =>
+          '[analyze] $filePath: $n error(s) — fix before continuing:',
+    );
+  }
+
+  /// Shared parse+cap core behind [blockFor] and [projectCheck]: collect the
+  /// `error - ` lines from combined stdout+stderr, cap at [maxErrorLines]
+  /// with a `... (K more)` tail, severity-trim each line, and open the block
+  /// with [header] (built from the total error count). Null when there are
+  /// no error lines.
+  static String? _cappedErrorBlock({
+    required String stdout,
+    required String stderr,
+    required String Function(int errorCount) header,
+  }) {
     final errorLines = (stdout + stderr)
         .split('\n')
         .map((l) => l.trim())
@@ -70,9 +119,7 @@ class DartAnalyzeVerifier {
 
     final shown = errorLines.take(maxErrorLines).toList();
     final more = errorLines.length - shown.length;
-    final buf = StringBuffer()
-      ..write('[analyze] $filePath: ${errorLines.length} error(s) — '
-          'fix before continuing:');
+    final buf = StringBuffer()..write(header(errorLines.length));
     for (final line in shown) {
       buf.write('\n  ${_trimSeverity(line)}');
     }

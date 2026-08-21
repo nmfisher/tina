@@ -473,9 +473,23 @@ Future<void> _runNonInteractive(AppComposition app) async {
 
   // Append concise summary instruction for headless --prompt runs.
   final rawPrompt = app.config.prompt!;
-  final userInput = rawPrompt + (
+  var userInput = rawPrompt + (
     rawPrompt.trim().isNotEmpty ? '\n' : ''
   ) + HeadlessHost.kHeadlessSummaryInstruction;
+
+  // Startup tree-health check (#22b): a killed run persists its edits but not
+  // the model's awareness of them; compaction can drop old per-edit verdicts;
+  // and the break may pre-date the session or come from outside entirely (a
+  // kill, a manual edit). The CURRENT tree state at startup is authoritative
+  // regardless of transcript history — so analyze it here and, when it does
+  // not compile, prepend a <tree-health> notice so the model fixes it FIRST.
+  // Bounded 30s; silent skip on timeout/spawn failure; no new flags.
+  if (File('pubspec.yaml').existsSync()) {
+    final notice = await DartAnalyzeVerifier().projectCheck();
+    if (notice != null) {
+      userInput = '<tree-health>\n$notice\n</tree-health>\n\n$userInput';
+    }
+  }
 
   var aborted = false;
   // Liveness watchdog (#26): a wedge below the provider stack (an internal

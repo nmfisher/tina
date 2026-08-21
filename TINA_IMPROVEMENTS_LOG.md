@@ -333,6 +333,22 @@ and commit. Two new observations from the first run of this round:
     Headless wires DartAnalyzeVerifier (`dart analyze <file>`, 30s-bounded,
     capped error block; null on clean/timeout/failure). (b) recorder
     stamping remains open.
+    **→ (b) Implemented 2026-08-21 (improvements run, Run N), REFRAMED:**
+    per-step recorder stamping turned out to be subsumed — #22a's verdicts
+    ride the tool-result messages and #25 persists those write-through, so
+    a resumed transcript already carries them. The real gap was CURRENT
+    tree state: compaction can drop old verdicts, and the break may
+    pre-date the session or come from outside (a kill, a manual edit). So
+    instead: a startup tree-health check — `projectCheck()` on
+    DartAnalyzeVerifier (whole-project `dart analyze`, 30s-bounded,
+    shares the #22a parse/cap core) runs before the headless turn when a
+    pubspec.yaml is present, and a `<tree-health>` block naming the errors
+    is prepended to the user input so the model fixes FIRST. Verified
+    live: a broken scratch package's persisted transcript carries the
+    block with the exact diagnostic; a clean package gets no notice.
+    Cost note: every headless run in a Dart project now pays one bounded
+    project analyze (~seconds on small projects, ~15s on this monorepo)
+    before the first request.
 
 23. **A 30s default request-timeout silently kills large-context resumes.**
     Run B's resumed session carries ~220KB of conversation (each resume
@@ -486,3 +502,36 @@ file:line-cited summary of its own rate limiter.
     the original want: no stack dump of the parked await — Dart has no
     API to fetch another await's stack, so the diagnostic says so instead
     of printing a misleading one.
+
+27. **A permission-denied headless run dithers in a denial spiral — and the
+    new tree-health notice amplifies it (would make).** Observed live while
+    verifying #22(b): a no-`--allow` probe run in a broken scratch package
+    received the `<tree-health>` block, correctly diagnosed the error,
+    tried to fix it — `edit denied`, `write denied`, then NINE more
+    denied bash shapes ending in a denied `bash: dart analyze` — and never
+    answered the actual prompt (the driver's 240s kill ended it; a sibling
+    run whose model simply replied exited 0). Run A already logged 12
+    steps wasted on denied shapes; the root cause is unchanged: headless
+    refuses every ask, but nothing tells the MODEL that asks are futile,
+    and nothing circuit-breaks repeated denials of the same tool.
+    **Would make:** (a) the headless denial message should state plainly
+    "asks are auto-refused headless; rephrasing will not help — proceed
+    without this tool or answer from what you have"; (b) the agent loop
+    should count consecutive denials per tool and inject a notice (or
+    stop) after N; (c) the tree-health notice should be conditioned on
+    the policy actually permitting edit/write, or phrased "fix these
+    first if you are permitted to edit". Driving remedy meanwhile:
+    always launch with the intended `--allow` shapes.
+
+28. **The pool "rotates over" warning prints even when the pool is not used
+    (cosmetic, but misleading — would make).** Observed live while
+    verifying #18: a run launched with `--model openrouter/stealth/ox-alpha`
+    against a pool-default config still prints `tina: pool "pool" rotates
+    over: ...` on stderr, because the warning fires at registry-attach
+    time from the config-file declaration, not at resolve/use time. It
+    reads as "the pool is active" when the run uses a single direct
+    provider — bad enough that Run L's summary mistook the warning's
+    member list for proof the flag had taken effect (the wire log was
+    needed to settle it). **Would make:** emit the warning when a pool
+    descriptor is actually RESOLVED for a build, or stamp it with "when
+    used". Trivial severity; pure operator-confusion cost.

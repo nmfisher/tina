@@ -127,4 +127,117 @@ $err2
       expect(block, isNot(contains('code_a')));
     });
   });
+
+  group('DartAnalyzeVerifier.projectCheck (#22b)', () {
+    // MemoryProcessRunner records only {executable, arguments} — not the
+    // workingDirectory it was handed — so this local fake records all three
+    // and scripts the RunResult directly.
+    var scriptedResult = const RunResult(exitCode: 0, stdout: '', stderr: '');
+    late _RecordingRunner runner;
+
+    setUp(() {
+      scriptedResult = const RunResult(exitCode: 0, stdout: '', stderr: '');
+      runner = _RecordingRunner(() => scriptedResult);
+    });
+
+    const err1 = '  error - lib/main.dart:3:5 - first message  - code_a';
+
+    test('clean output → null', () async {
+      scriptedResult = const RunResult(
+          exitCode: 0, stdout: 'Analyzing tina...\nNo issues found!', stderr: '');
+      final v = DartAnalyzeVerifier(processRunner: runner);
+      expect(await v.projectCheck(), isNull);
+      expect(runner.runs, hasLength(1));
+    });
+
+    test('warnings-only output → null', () async {
+      scriptedResult = const RunResult(
+          exitCode: 0,
+          stdout:
+              '  warning - lib/main.dart:2:1 - unused thing  - warn_code',
+          stderr: '');
+      final v = DartAnalyzeVerifier(processRunner: runner);
+      expect(await v.projectCheck(), isNull);
+    });
+
+    test('error output → [tree-health] notice with count, capped lines, '
+        'and a "... (K more)" tail', () async {
+      final lines = List.generate(7, (i) => err1.replaceFirst(':3:5', ':${i + 1}:1'));
+      scriptedResult = RunResult(exitCode: 65, stdout: lines.join('\n'), stderr: '');
+      final v = DartAnalyzeVerifier(processRunner: runner);
+      final notice = await v.projectCheck();
+      expect(notice, isNotNull);
+      expect(
+          notice,
+          startsWith('[tree-health] the working tree does not compile: '
+              '7 error(s) — fix these FIRST:'));
+      expect(notice, contains('main.dart:1:1 - first message'));
+      expect(notice, contains('main.dart:5:1 - first message'));
+      expect(notice, isNot(contains('main.dart:6:1')),
+          reason: 'only maxErrorLines lines are shown');
+      expect(notice, contains('... (2 more)'));
+      // Same severity-trim contract as blockFor: no diagnostic codes.
+      expect(notice, isNot(contains('code_a')));
+    });
+
+    test('passes workingDirectory through; analyzes with no file argument',
+        () async {
+      scriptedResult = const RunResult(
+          exitCode: 65,
+          stdout: err1,
+          stderr: '');
+      final v = DartAnalyzeVerifier(processRunner: runner);
+      await v.projectCheck(cwd: '/tmp/some-project');
+      expect(runner.runs, hasLength(1));
+      expect(runner.runs.first.executable, 'dart');
+      expect(runner.runs.first.arguments, ['analyze'],
+          reason: 'the whole project, not one file');
+      expect(runner.runs.first.workingDirectory, '/tmp/some-project');
+
+      await v.projectCheck();
+      expect(runner.runs.last.workingDirectory, isNull,
+          reason: 'null cwd = the process cwd');
+    });
+
+    test('runner throws → null; never throws into the caller', () async {
+      final thrower = _ThrowingRunner();
+      final v = DartAnalyzeVerifier(processRunner: thrower);
+      expect(await v.projectCheck(), isNull);
+      expect(thrower.attempts, 1);
+    });
+  });
+}
+
+/// A [ProcessRunner] that records every [run]'s executable, arguments, AND
+/// workingDirectory (which [MemoryProcessRunner] does not capture), returning
+/// a scripted [RunResult].
+class _RecordingRunner implements ProcessRunner {
+  final RunResult Function() result;
+
+  final List<
+          ({
+            String executable,
+            List<String> arguments,
+            String? workingDirectory,
+          })>
+      runs = [];
+
+  _RecordingRunner(this.result);
+
+  @override
+  Future<RunningProcess> start(String executable, List<String> arguments,
+      {String? workingDirectory}) async {
+    throw UnimplementedError('projectCheck uses run only');
+  }
+
+  @override
+  Future<RunResult> run(String executable, List<String> arguments,
+      {String? workingDirectory}) async {
+    runs.add((
+      executable: executable,
+      arguments: arguments,
+      workingDirectory: workingDirectory,
+    ));
+    return result();
+  }
 }
