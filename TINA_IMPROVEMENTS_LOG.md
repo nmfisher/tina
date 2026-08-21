@@ -441,7 +441,8 @@ file:line-cited summary of its own rate limiter.
     same way the budget guard already converts runaway spend into a clean
     exit-2. Driving remedy meanwhile: watch the wire log's mtime and kill
     by hand.
-    **Implemented:** `HeadlessWatchdog` (lib/host/headless_watchdog.dart)
+    **→ Implemented 2026-08-21 (improvements run, Run K + driver repairs):**
+    `HeadlessWatchdog` (lib/host/headless_watchdog.dart)
     resets its idle clock on every agent event-bus emission; on expiry it
     fires once — a `[watchdog]` diagnostic block on stderr (last event,
     its age, total events, plus the honest note that Dart cannot retrieve
