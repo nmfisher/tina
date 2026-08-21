@@ -555,7 +555,7 @@ Future<void> _runNonInteractive(AppComposition app) async {
 /// Whether to run the first-run setup wizard over **stdin** — the non-tty
 /// (piped/CI) path. A real terminal is handled by the in-TUI overlay instead
 /// (see the `setupMode` branch in `main`). `--help` / `--init-config` /
-/// `--list` / `--prompt` / `--models` / `--api-key` short-circuit without setup;
+/// `--list` / `--prompt` / `--models` short-circuit without setup;
 /// `--setup` forces it; otherwise it runs only when stdin is NOT a terminal and
 /// no config exists.
 bool _shouldRunStdinSetup(List<String> argv, Environment environment) {

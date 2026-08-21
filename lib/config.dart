@@ -29,12 +29,6 @@ class Config {
   /// Unknown provider → stderr naming the known providers, non-zero exit.
   final String? models;
 
-  /// One-shot credential override for headless/CI runs that must not touch
-  /// ~/.tina/config. Precedence: the flag beats both config file and env vars
-  /// (most explicit intent wins). The key must not be persisted anywhere
-  /// (no config writes, no session files).
-  final String? apiKeyOverride;
-
   /// Print `tina <version>` and exit (`--version`). Short-circuits like
   /// [showHelp] — resolved before provider/key lookup.
   final bool showVersion;
@@ -227,7 +221,6 @@ class Config {
     this.permissionClassifierModel,
     this.forceLock = false,
     this.models,
-    this.apiKeyOverride,
   });
 
   bool get nonInteractive => prompt != null || workflow != null;
@@ -279,11 +272,6 @@ class Config {
         help: 'Print the resolved model list for one provider id (one '
             '`<id> — <name>` per line), exit 0. No value passed → print known '
             'provider ids. Unknown provider → stderr with known providers, exit 1.')
-    ..addOption('api-key',
-        help: 'One-shot credential override for headless/CI runs that must not '
-            'touch ~/.tina/config. Precedence: the flag beats both config file '
-            'and env vars (most explicit intent wins). The key must not be '
-            'persisted anywhere (no config writes, no session files).')
     ..addOption('model',
         help: 'Run this session under a different model. A value containing '
             '"/" is a full \'<provider>/<model>\' reference (provider = FIRST '
@@ -416,7 +404,6 @@ class Config {
         yolo: false,
         showHelp: showHelp,
         models: models,
-        apiKeyOverride: null,
         prompt: null,
         permissionRules: const [],
         resumeSessionId: null,
@@ -479,7 +466,7 @@ class Config {
     // swapped provider drives everything derived from it below: the
     // unknown-provider FormatException, the API-key auth scan, the
     // <PROVIDER>_MODEL / _BASE_URL env prefix, the default base URL, and the
-    // default model fallback. One-shot like --api-key: it lands on [Config]
+    // default model fallback. One-shot: it lands on [Config]
     // fields only and is never persisted to ~/.tina/config.
     final flagModel = res['model'] as String?;
     String providerId;
@@ -513,15 +500,13 @@ class Config {
     // exit(64). main() treats an empty key as "not configured" and shows the
     // setup overlay; the key only matters when a turn is actually sent.
     //
-    // --api-key (flag > file > env): the most explicit intent wins, so the
-    // flag beats BOTH the config-file overlay and the env-var scan that
-    // authFor performs. It is one-shot — this is the only place it is read,
-    // and it lands on [Config.apiKey] (not persisted to ~/.tina/config or any
-    // session file), so the flag never leaks into a write path. Every provider
-    // route that builds from Config.apiKey (the startup provider, the
-    // permission classifier, and TUI conversations) inherits it.
-    final flagApiKey = res['api-key'] as String?;
-    final apiKey = flagApiKey ?? registry.authFor(desc, env: env).key;
+    // Precedence is file > env: the config-file overlay merged into [env] by
+    // main() (buildEnvOverlay) wins over the plain environment, and authFor's
+    // scan does the rest. There is deliberately NO --api-key flag: a key on a
+    // command line leaks via shell history, process listings, and audit logs —
+    // credentials belong in ~/.tina/config or the environment (owner
+    // decision, 2026-08-21; the flag shipped briefly and was removed).
+    final apiKey = registry.authFor(desc, env: env).key;
 
     // Per-provider env overrides by convention: <PROVIDER>_MODEL / _BASE_URL.
     final envPrefix = providerId.toUpperCase();
@@ -600,7 +585,6 @@ class Config {
       showVersion: false,
       prompt: res['prompt'] as String?,
       models: res['models'] as String?,
-      apiKeyOverride: res['api-key'] as String?,
       permissionRules: rules,
       resumeSessionId: resumeId,
       continueLatest: continueLatest,

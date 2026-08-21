@@ -31,6 +31,14 @@ requests-per-minute rate limit in this repo. Newest entries at the bottom.
    open: under a pool `[default]` the flag is a no-op — pool members take
    their keys from member config, and one string can't be right for a
    multi-provider pool anyway.
+   **→ REMOVED 2026-08-21 (owner decision):** the flag shipped briefly and
+   was taken back out — a key on a command line leaks via shell history,
+   process listings, and audit logs; credentials belong in
+   `~/.tina/config` (chmod 600) or the environment. Passing `--api-key`
+   now fails fast (`Could not find an option named "--api-key"`), the
+   dead `Config.apiKeyOverride` field went with it, and resolution is the
+   clean file > env chain through `registry.authFor`. The pool edge
+   dissolved with the flag.
 
 ## Round 1 — first task run
 
