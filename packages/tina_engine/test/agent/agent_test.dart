@@ -34,6 +34,7 @@ Agent _agent({
   required FakeAgentSink sink,
   PermissionPolicy? policy,
   int maxSteps = 50,
+  ToolResultVerifier? resultVerifier,
 }) =>
     Agent(
       provider: provider,
@@ -43,6 +44,7 @@ Agent _agent({
       asker: (_) async => PermissionResponse.denyOnce,
       maxSteps: maxSteps,
       system: 'sys',
+      resultVerifier: resultVerifier,
     );
 
 /// A tool that emits incremental output via [onOutput] (like a real BashTool
@@ -92,6 +94,20 @@ class _CancelMidStreamProvider extends LlmProvider {
     scheduleMicrotask(cancel.complete);
     // Intentionally never closed — the cancel tears it down.
     return controller.stream;
+  }
+}
+
+/// A scripted verifier seam for the #22a tests. The engine typedef is a plain
+/// function type (no interface to implement), so the test wraps a lambda in a
+/// mutable holder that records each call.
+class _VerifierScript {
+  final List<String> calls = [];
+  String? Function(String toolName, Map<String, dynamic> input) verdict =
+      (_, __) => null;
+
+  Future<String?> call(String toolName, Map<String, dynamic> input) async {
+    calls.add(toolName);
+    return verdict(toolName, input);
   }
 }
 
@@ -1326,6 +1342,137 @@ void main() {
       final provider = agent.provider as FakeProvider;
       expect(provider.calls.every((c) => c.system == 'sys'), isTrue,
           reason: 'accumulating spend without a cap must not compact');
+    });
+  });
+
+  group('Agent.run result verifier (#22a)', () {
+    List<StreamEvent> editUse(String id) => [
+          MessageComplete(
+              content: [
+                ToolUseBlock(
+                    id: id, name: 'edit', input: {'filePath': 'a.dart'}),
+              ],
+              stopReason: 'tool_use'),
+        ];
+
+    List<StreamEvent> text(String t) => [
+          MessageComplete(content: [TextBlock(t)], stopReason: 'end_turn'),
+        ];
+
+    Agent editAgent(FakeProvider provider, _VerifierScript script) =>
+        _agent(
+          provider: provider,
+          tools: ToolRegistry([
+            FakeTool('edit', (_) => ToolResult('applied')),
+          ]),
+          sink: FakeAgentSink(),
+          policy:
+              PermissionPolicy(defaults: {'edit': PermissionDecision.allow}),
+          resultVerifier: script.call,
+        );
+
+    ToolResultBlock toolResult(List<Message> history) => history
+        .lastWhere((m) => m.role == Role.user)
+        .content
+        .single as ToolResultBlock;
+
+    test('a non-null verdict is appended to the tool result the model reads',
+        () async {
+      final script = _VerifierScript()
+        ..verdict = (tool, input) =>
+            '[analyze] a.dart: 1 error(s) — fix before continuing:\n'
+            '  a.dart:3:5 some_error';
+      final agent = editAgent(
+        FakeProvider([
+          editUse('t1'),
+          text('fixed it'),
+        ]),
+        script,
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'edit a.dart');
+
+      expect(script.calls, ['edit'],
+          reason: 'the verifier fires once, on the successful edit');
+      final result = toolResult(history);
+      expect(result.content, startsWith('applied'),
+          reason: 'the tool content stays intact, the verdict appends');
+      expect(result.content, contains('[analyze] a.dart: 1 error(s)'));
+      expect(result.content, contains('a.dart:3:5 some_error'));
+      expect(result.isError, isFalse,
+          reason: 'the edit succeeded; the verdict is advisory, not an error');
+      // The next request really carried the appended block.
+      expect((agent.provider as FakeProvider).calls, hasLength(2));
+    });
+
+    test('the verifier is skipped on an error tool result', () async {
+      final script = _VerifierScript()
+        ..verdict = (tool, input) => 'should not appear';
+      final agent = _agent(
+        provider: FakeProvider([
+          editUse('t1'),
+          text('recovered'),
+        ]),
+        tools: ToolRegistry([
+          FakeTool('edit', (_) => ToolResult.error('file not found')),
+        ]),
+        sink: FakeAgentSink(),
+        policy:
+            PermissionPolicy(defaults: {'edit': PermissionDecision.allow}),
+        resultVerifier: script.call,
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'edit a.dart');
+
+      expect(script.calls, isEmpty,
+          reason: 'an error result ships as-is; no post-edit gate on failure');
+      final result = toolResult(history);
+      expect(result.isError, isTrue);
+      expect(result.content, 'file not found');
+    });
+
+    test('a throwing verifier leaves the result unchanged and the turn lives',
+        () async {
+      final script = _VerifierScript()
+        ..verdict = (tool, input) => throw StateError('boom');
+      final agent = editAgent(
+        FakeProvider([
+          editUse('t1'),
+          text('carried on'),
+        ]),
+        script,
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'edit a.dart');
+
+      expect(script.calls, ['edit'],
+          reason: 'the verifier ran — and its crash was contained');
+      final result = toolResult(history);
+      expect(result.content, 'applied',
+          reason: 'the crash must not corrupt or lose the tool content');
+      expect(agent.abortedReason, isNull);
+      expect((agent.provider as FakeProvider).calls, hasLength(2),
+          reason: 'the turn continued to the second model call');
+    });
+
+    test('a null verifier leaves the result byte-identical', () async {
+      final agent = editAgent(
+        FakeProvider([
+          editUse('t1'),
+          text('done'),
+        ]),
+        _VerifierScript(),
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'edit a.dart');
+
+      final result = toolResult(history);
+      expect(result.content, 'applied');
+      expect(result.isError, isFalse);
     });
   });
 }

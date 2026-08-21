@@ -79,6 +79,11 @@ Agent buildAgent({
   // null leaves the interactive asker untouched.
   PermissionClassifier? classifier,
   String? system,
+  // Optional post-tool-result verifier (improvements log #22a): on a successful
+  // `edit`/`write` the agent awaits it and appends its verdict to the tool
+  // result the model reads next step. Headless passes a DartAnalyzeVerifier;
+  // interactive deliberately passes null (no analyze latency in the loop).
+  ToolResultVerifier? resultVerifier,
 }) {
   // The entry agent's resolved system prompt — also the identity a delegated
   // sub-agent inherits. Resolved once so the agent and the delegation context
@@ -216,5 +221,6 @@ Agent buildAgent({
     // instead of drowning in accumulated tool results.
     autoCompactThreshold: config.autoCompactThreshold,
     system: resolvedSystem,
+    resultVerifier: resultVerifier,
   );
 }

@@ -40,6 +40,11 @@ Use terse markdown bullets, <= 400 words. Preserve:
 Omit pleasantries and reasoning that did not lead anywhere.
 ''';
 
+typedef ToolResultVerifier = Future<String?> Function(
+  String toolName,
+  Map<String, dynamic> input,
+);
+
 class Agent {
   LlmProvider _provider;
 
@@ -80,6 +85,21 @@ class Agent {
   /// tool_result are never severed (see [compact]).
   int autoCompactKeepMessages;
 
+  /// Optional post-success gate on a tool result, run by the agent AFTER a
+  /// tool completes without error and BEFORE its result is appended to the
+  /// history the model reads next step. Given the tool name and input, return
+  /// a short remediation string (or null for "nothing to add"); a non-null
+  /// return is appended to the tool's own content (tool content first, then a
+  /// newline, then the verifier text) so the model sees the diagnosis while
+  /// its own edit is still in context. The intended headless use is a
+  /// post-edit `dart analyze` gate (#22a): a non-compiling edit is fed
+  /// straight back so the model can self-correct instead of leaving a scar
+  /// that kills the NEXT `dart run` at exit 254. Never fires on error results
+  /// (parse-error / unknown-tool / denied / thrown paths skip it), and a
+  /// verifier that itself throws is logged and ignored — the tool's own
+  /// content ships unchanged. Null (the default) = no verification at all.
+  final ToolResultVerifier? resultVerifier;
+
   /// Resolved once at construction; reused for every provider call so the
   /// system prefix stays stable across a multi-step turn (cache-friendly).
   final String system;
@@ -95,6 +115,7 @@ class Agent {
     this.pauseGate,
     this.autoCompactThreshold = 0,
     this.autoCompactKeepMessages = 6,
+    this.resultVerifier,
     required this.system,
   }) : _provider = provider;
 
@@ -418,6 +439,31 @@ class Agent {
           );
           sink.toolComplete(ToolCompleteEvent(use.name, use.id,
               isError: out.isError, result: out.content));
+          // Success-only verifier gate (#22a): a post-tool check (e.g. a
+          // headless post-edit `dart analyze`) can append a remediation block
+          // to the result the model reads next step. Error results, the
+          // parse-error / unknown-tool / denied / thrown paths above all skip
+          // it, and a verifier crash must never kill the turn — the tool's
+          // own content ships unchanged instead.
+          if (!out.isError && resultVerifier != null) {
+            try {
+              final verdict = await resultVerifier!(use.name, use.input);
+              if (verdict != null && verdict.isNotEmpty) {
+                results.add(ToolResultBlock(
+                  toolUseId: use.id,
+                  content: '${out.content}\n$verdict',
+                  isError: out.isError,
+                ));
+                continue;
+              }
+            } catch (e, st) {
+              _log.warning(
+                  'result verifier for ${use.name} failed — shipping the '
+                  'tool content unchanged',
+                  e,
+                  st);
+            }
+          }
           results.add(ToolResultBlock(
             toolUseId: use.id,
             content: out.content,

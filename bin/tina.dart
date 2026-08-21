@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:tina/composition/agent_composition.dart';
 import 'package:tina/composition/app_composition.dart';
+import 'package:tina/composition/edit_verifier.dart';
 import 'package:tina/config.dart';
 import 'package:tina/config/setup.dart';
 import 'package:tina/config/user_config.dart';
@@ -431,6 +432,9 @@ Future<void> _runNonInteractive(AppComposition app) async {
     policy: app.policy,
     config: app.config,
     withSubAgents: false,
+    // Headless (#22a): pass the post-edit compile gate so a failed edit
+    // feeds its `dart analyze` errors back to the model mid-turn.
+    resultVerifier: DartAnalyzeVerifier(),
   );
 
   final history = app.initialHistory;
