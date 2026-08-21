@@ -581,3 +581,17 @@ file:line-cited summary of its own rate limiter.
     integrate.api.nvidia.com before the repair); resume WITH `--model
     nim/thinkingmachines/inkling` → https://integrate.api.nvidia.com
     (the flag wins). Engine 763 / root 698 (690 + 8 new) green.
+
+30. **TUI: the permission prompt sometimes renders overlapping the tail of
+    the last tool output (owner-observed).** When a permission request
+    draws right after streamed tool output (or a still-live spinner/
+    inline region), the prompt's first line can glue itself onto or over
+    the output's last line instead of starting on a fresh one — the
+    approval line (`tool: key`) becomes hard to read and looks like part
+    of the result. The draw path (TuiConversationHost.askPermission →
+    chat.yellow) does not guarantee the previous output ended with a
+    newline, nor that the spinner/region has quiesced before the prompt
+    renders. **Would make:** before drawing a permission prompt, force a
+    line break (and settle any active spinner/region) so the prompt
+    always starts at column 0 of a fresh line — the same discipline the
+    tool-start/tool-complete notices already follow.
