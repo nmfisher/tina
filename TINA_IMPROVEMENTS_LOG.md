@@ -415,6 +415,17 @@ file:line-cited summary of its own rate limiter.
     original session-persistence design (#7) quietly assumes graceful turn
     ends. Workaround meanwhile: fresh session + directive that names
     what's already on disk; edits survive, so this recovers cheaply.
+    **→ Implemented 2026-08-21 (improvements run, Runs J+J2, driver
+    repairs):** the agent fires awaited observer seams — onHistoryAppend
+    after every history add, onHistoryReplace once after compact's
+    rewrite — and headless persists through the SessionRecorder as each
+    message is produced (turn-end flush deleted). Null observers suspend
+    zero times: the notify helpers return null rather than a completed
+    future, because an async no-op await still yields a microtask —
+    enough to hang two gate-based scheduler tests. Live-verified: a real
+    headless run's project-local transcript holds all messages before
+    process exit. The TUI's SessionController still flushes at turn end
+    (same seam available when wanted).
 
 26. **A headless run can deadlock silently — no error, no exit, no watchdog.**
     Run D wedged mid-turn: an edit completed, the model streamed a sentence
