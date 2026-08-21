@@ -89,6 +89,53 @@ void main() {
           equals(ArrowKey(ArrowDirection.up, hasCtrl: false)));
     });
 
+    test('ESC ESC [ D (macOS Terminal Alt+Left) produces Alt+ArrowLeft', () {
+      parser.feed(0x1b);
+      expect(parser.feed(0x1b), isNull);
+      expect(parser.feed(0x5b), isNull); // '['
+      expect(parser.feed(0x44), // 'D'
+          equals(ArrowKey(ArrowDirection.left, hasAlt: true)));
+    });
+
+    test('ESC ESC [ C (macOS Terminal Alt+Right) produces Alt+ArrowRight', () {
+      parser.feed(0x1b);
+      expect(parser.feed(0x1b), isNull);
+      expect(parser.feed(0x5b), isNull);
+      expect(parser.feed(0x43),
+          equals(ArrowKey(ArrowDirection.right, hasAlt: true)));
+    });
+
+    test('ESC ESC [ 1;5C (Alt+Ctrl+Arrow) sets both modifiers', () {
+      parser.feed(0x1b);
+      parser.feed(0x1b);
+      parser.feed(0x5b);
+      parser.feed(0x31); // '1'
+      parser.feed(0x3b); // ';'
+      parser.feed(0x35); // '5' — Ctrl
+      expect(parser.feed(0x43),
+          equals(ArrowKey(ArrowDirection.right, hasCtrl: true, hasAlt: true)));
+    });
+
+    test('ESC ESC [ D leaves no Alt residue on later sequences', () {
+      parser.feed(0x1b);
+      parser.feed(0x1b);
+      parser.feed(0x5b);
+      expect(parser.feed(0x44),
+          equals(ArrowKey(ArrowDirection.left, hasAlt: true)));
+      parser.feed(0x1b);
+      parser.feed(0x5b);
+      expect(parser.feed(0x44), equals(ArrowKey(ArrowDirection.left)));
+    });
+
+    test('ESC ESC [ A produces plain ArrowUp (Alt stamp only matters for editor word-motion)', () {
+      // The parser stamps hasAlt on any ESC-prefixed arrow; consumers that
+      // don't care about Alt (spatial nav, pickers) ignore it.
+      parser.feed(0x1b);
+      parser.feed(0x1b);
+      parser.feed(0x5b);
+      expect(parser.feed(0x41), equals(ArrowKey(ArrowDirection.up, hasAlt: true)));
+    });
+
     test('ESC [ A produces ArrowUp', () {
       expect(parser.feed(0x1b), isNull); // ESC start
       expect(parser.feed(0x5b), isNull); // '['

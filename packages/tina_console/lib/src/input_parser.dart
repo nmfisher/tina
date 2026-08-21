@@ -49,6 +49,12 @@ class InputParser {
   /// terminator (`ESC \`); the next byte decides.
   bool _oscSawEsc = false;
 
+  /// True while collecting a sequence that began `ESC ESC` — the first ESC is
+  /// the Alt modifier (macOS Terminal.app sends Alt+Arrow as `ESC ESC [ D`,
+  /// an ESC-prefixed CSI, rather than xterm's `ESC [ 1;3 D`). When the
+  /// sequence completes, its [ArrowKey] gets `hasAlt` set.
+  bool _altPrefix = false;
+
   /// macOS Option key produces special Unicode characters instead of the
   /// ESC+letter sequence. This table maps those code points back to the
   /// lowercase letter the user intended, so [AltKey] events fire correctly.
@@ -155,7 +161,7 @@ class InputParser {
         final result = _pendingEvent;
         _pendingEvent = null;
         _escBuf.clear();
-        return result;
+        return _applyAltPrefix(result);
       }
       return null;
     }
@@ -196,6 +202,7 @@ class InputParser {
   void _onEscTimeout() {
     _escTimer = null;
     _escBuf.clear();
+    _altPrefix = false;
     _onTimeout!(EscapeKey());
   }
 
@@ -209,6 +216,7 @@ class InputParser {
     _discardingCsi = false;
     _discardingOsc = false;
     _oscSawEsc = false;
+    _altPrefix = false;
     _inPaste = false;
     _pasteBuf.clear();
   }
@@ -282,6 +290,19 @@ class InputParser {
       }
       return false;
     }
+    if (second == 0x1b) {
+      // ESC ESC <sequence> — the first ESC is the Alt modifier. Drop it, flag
+      // the modifier, and keep collecting the sequence that follows (a CSI/SS3
+      // arrow, typically — macOS Terminal.app sends Alt+Arrow this way). The
+      // escape timer restarts so a lone double-ESC still resolves via timeout.
+      _escBuf.removeAt(0);
+      _altPrefix = true;
+      if (_escapeTimeout != null && _onTimeout != null) {
+        _escTimer?.cancel();
+        _escTimer = Timer(_escapeTimeout!, _onEscTimeout);
+      }
+      return false;
+    }
     if (second == 0x5d) {
       // OSC introducer (ESC]). Terminal query replies (OSC 11 background
       // color, OSC 8 hyperlinks, etc.) carry no input semantics and their
@@ -304,6 +325,19 @@ class InputParser {
       _pendingEvent = EditingKey(EditingAction.deleteWordBackward);
     }
     return true;
+  }
+
+  /// Stamp `hasAlt` onto a completed sequence's [ArrowKey] when it was
+  /// ESC-prefixed (`ESC ESC [ D`), then clear the flag. Non-arrow results
+  /// (and nulls) just clear it — they have no modifier to carry.
+  InputEvent? _applyAltPrefix(InputEvent? event) {
+    final alt = _altPrefix;
+    _altPrefix = false;
+    if (alt && event is ArrowKey && !event.hasAlt) {
+      return ArrowKey(event.direction,
+          hasCtrl: event.hasCtrl, hasAlt: true);
+    }
+    return event;
   }
 
   /// Map a complete CSI/SS3 sequence to an [InputEvent].
