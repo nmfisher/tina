@@ -187,10 +187,17 @@ class Agent {
       // any between-turns pass can trim them, so a long autonomous turn (a
       // headless --prompt task, a workflow node) re-sends an ever-growing
       // payload until it drowns in its own context — the per-turn budget then
-      // kills a run that was making progress. When the next request's
-      // estimated input crosses the threshold, summarize the older history in
-      // place (keeping the trailing messages verbatim) and send that instead.
-      // Same estimate [checkRequestInput] uses; compaction failure is
+      // kills a run that was making progress. Two triggers fire a compaction:
+      // the next request's estimated input crossing the threshold (a single
+      // request too big), or the turn's CUMULATIVE spend (input+output of
+      // every round trip) crossing half the per-turn cap while the estimate
+      // is above half the threshold — the many-steps-on-a-mid-size-context
+      // case (65K × 15 ≈ 1M) where no single request ever grows large
+      // enough, but the cap keeps tripping. Compacting at half-spend
+      // shrinks every subsequent request and stretches the cap for exactly
+      // the runs that need it. Either way the older history is summarized in
+      // place (keeping the trailing messages verbatim) and that goes out
+      // instead. Same estimate [checkRequestInput] uses; compaction failure is
       // non-fatal and rate-limited by the attempt gate above. Runs BEFORE the
       // per-request rejection so a payload that crossed both thresholds gets
       // compacted first — the cap then judges the compacted history, and only
@@ -200,11 +207,32 @@ class Agent {
       // messages) costs no request: a history that is still all-current-turn
       // must not consume the attempt gate, or the gate would postpone the
       // first real compaction by its whole window.
+      //
+      // `autoCompactThreshold == 0` disables BOTH triggers (0 = feature off;
+      // the spend trigger refines WHEN, not WHETHER, to compact).
       if (autoCompactThreshold > 0 && step - lastCompactAttempt >= 3) {
         final estimate =
             TokenBudget.estimateInputTokens(system, history, tools.schemas);
-        if (estimate > autoCompactThreshold &&
+        final sizeTriggered = estimate > autoCompactThreshold;
+        // Spend trigger: the per-turn cap counts every round trip's
+        // input+output, so a many-step turn on a mid-size context burns
+        // through the cap even when no single request is large. Compact at
+        // ~50% of the cap — halving every subsequent request stretches the
+        // remaining budget for the long autonomous runs that need it. The
+        // floor (estimate > threshold/2) skips compaction when the context
+        // is small enough that compacting buys little.
+        final perTurn = budget?.perTurnLimit;
+        final spendTriggered =
+            perTurn != null &&
+                budget!.turnTotal >= perTurn ~/ 2 &&
+                estimate > autoCompactThreshold ~/ 2;
+        if ((sizeTriggered || spendTriggered) &&
             _assistantMessageBoundary(history, autoCompactKeepMessages) >= 2) {
+          if (spendTriggered && !sizeTriggered) {
+            sink.notice('\n[compact] turn spend ${budget!.turnTotal}/$perTurn '
+                'crossed 50% — compacting to stretch the per-turn cap\n',
+                kind: NoticeKind.info);
+          }
           lastCompactAttempt = step;
           await compact(history,
               preserveRecentMessages: autoCompactKeepMessages);

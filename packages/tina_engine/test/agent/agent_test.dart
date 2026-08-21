@@ -1060,6 +1060,18 @@ void main() {
               stopReason: 'tool_use'),
         ];
 
+    /// A tool-use round that also reports [usage], so the turn's cumulative
+    /// spend (the [Agent] budget counts every round trip's input+output) can be
+    /// driven from a script.
+    List<StreamEvent> toolUseWithUsage(String id, TokenUsage usage) => [
+          MessageComplete(
+              content: [
+                ToolUseBlock(id: id, name: 'big', input: const {}),
+              ],
+              stopReason: 'tool_use',
+              usage: usage),
+        ];
+
     List<StreamEvent> text(String t) => [
           MessageComplete(content: [TextBlock(t)], stopReason: 'end_turn'),
         ];
@@ -1072,19 +1084,22 @@ void main() {
         ];
 
     Agent compactingAgent(FakeProvider provider,
-        {FakeToolHandler? handler}) {
+        {FakeToolHandler? handler,
+        FakeAgentSink? sink,
+        int threshold = 2000,
+        int keepMessages = 2}) {
       final agent = _agent(
         provider: provider,
         tools: ToolRegistry([
           FakeTool('big', handler ?? (_) => ToolResult(big)),
         ]),
-        sink: FakeAgentSink(),
+        sink: sink ?? FakeAgentSink(),
         policy:
             PermissionPolicy(defaults: {'big': PermissionDecision.allow}),
       );
       agent
-        ..autoCompactThreshold = 2000
-        ..autoCompactKeepMessages = 2;
+        ..autoCompactThreshold = threshold
+        ..autoCompactKeepMessages = keepMessages;
       return agent;
     }
 
@@ -1176,6 +1191,141 @@ void main() {
       expect(compactCalls, 2);
       // The turn still finished normally.
       expect(agent.abortedReason, isNull);
+    });
+
+    test('SPEND trigger fires when cumulative tokens cross 50% of per-turn limit',
+        () async {
+      // The size trigger (estimate > threshold) must NOT fire — only the spend
+      // trigger (turnTotal >= perTurn/2 AND estimate > threshold/2). So the
+      // estimate has to land in (threshold/2, threshold]: small results keep
+      // it low for round 1, then one medium result lifts it over the floor.
+      //
+      // Usage is 30/round against perTurnLimit 100: after round 2 the turn
+      // has spent 60 — past 50% (50) but still under the full limit, so the
+      // turn is not budget-aborted and the SPEND check gets to run.
+      final medium = 'x' * 2500; // ~625 est. tokens: above the 500 floor
+      final provider = FakeProvider([
+        toolUseWithUsage('t1', const TokenUsage(inputTokens: 15, outputTokens: 15)),
+        toolUseWithUsage('t2', const TokenUsage(inputTokens: 15, outputTokens: 15)),
+        summary(), // the spend-triggered compaction
+        text('all done'),
+      ]);
+      var calls = 0;
+      final agent = compactingAgent(
+        provider,
+        handler: (_) => ToolResult(calls++ == 0 ? 'small' : medium),
+        threshold: 1000, // floor = 500; the medium result lifts estimate to ~640
+        keepMessages: 2,
+      );
+      agent.budget = const TokenBudget(perTurnLimit: 100);
+
+      await agent.run(history: <Message>[], userInput: 'go');
+
+      // Step 2 sees turnTotal 60 (>= 50% of 100) with the medium result in
+      // history (estimate ~640: over the 500 floor, under the 1000 size
+      // threshold) → SPEND-only compaction: exactly one summary request.
+      expect(provider.calls, hasLength(4));
+      expect(
+        provider.calls
+            .where((c) =>
+                c.messages.any((m) => m.content.any((b) =>
+                    b is TextBlock &&
+                    b.text.contains('Summarize the conversation above'))))
+            .length,
+        1,
+      );
+      // The compaction notice names the spend reason (the size path stays quiet).
+      expect(
+        (agent.sink as FakeAgentSink)
+            .notices
+            .any((n) => n.message.contains('crossed 50%')),
+        isTrue,
+        reason: 'the spend trigger is announced, the size trigger is silent',
+      );
+      expect(agent.abortedReason, isNull,
+          reason: '60 spent of 100 allowed — the turn must complete');
+    });
+
+    test('FLOOR holds: no compaction when spend past 50% but estimate below floor',
+        () async {
+      // Spend crosses 50% (usage 30/round against a limit of 100 → 60 after
+      // round 2) but the payloads stay tiny, so the estimate never reaches
+      // the 500 floor — the floor check is what blocks compaction here, not
+      // absent spend.
+      final sink = FakeAgentSink();
+      final agent = compactingAgent(
+        FakeProvider([
+          toolUseWithUsage(
+              't1', const TokenUsage(inputTokens: 15, outputTokens: 15)),
+          toolUseWithUsage(
+              't2', const TokenUsage(inputTokens: 15, outputTokens: 15)),
+          text('done'),
+        ]),
+        handler: (_) => ToolResult('small'),
+        sink: sink,
+        threshold: 1000, // floor = 500; 'small' results never reach it
+        keepMessages: 2,
+      );
+      agent.budget = const TokenBudget(perTurnLimit: 100);
+
+      await agent.run(history: <Message>[], userInput: 'go');
+
+      final provider = agent.provider as FakeProvider;
+      expect(provider.calls.where((c) => c.system != 'sys'), isEmpty,
+          reason: 'spend crossed 50% but the estimate stayed below the floor');
+      expect(agent.abortedReason, isNull, reason: '60 of 100 spent');
+    });
+
+    test('threshold 0 disables the spend trigger too', () async {
+      // When threshold is 0, auto-compact is disabled entirely — including
+      // the spend trigger — and the cumulative cap still protects on its
+      // own: 2 tokens recorded against a limit of 1 aborts the turn.
+      final sink = FakeAgentSink();
+      final agent = compactingAgent(
+        FakeProvider([
+          toolUseWithUsage(
+              't1', const TokenUsage(inputTokens: 2, outputTokens: 0)),
+        ]),
+        handler: (_) => ToolResult('small'),
+        sink: sink,
+        threshold: 0, // disable
+        keepMessages: 2,
+      );
+      agent.budget = const TokenBudget(perTurnLimit: 1);
+
+      await agent.run(history: <Message>[], userInput: 'go');
+
+      final provider = agent.provider as FakeProvider;
+      expect(provider.calls.where((c) => c.system != 'sys'), isEmpty,
+          reason: 'no compaction request may leave the wire at threshold 0');
+      expect(agent.abortedReason, contains('per-turn'),
+          reason: 'the budget cap is the backstop that stays on');
+    });
+
+    test('no perTurnLimit makes spend trigger inert', () async {
+      // Usage IS recorded (spend accumulates), but with no per-turn limit
+      // there is no fraction to cross — the spend trigger is inert and only
+      // the size trigger could fire, which these small payloads never do.
+      final sink = FakeAgentSink();
+      final agent = compactingAgent(
+        FakeProvider([
+          toolUseWithUsage(
+              't1', const TokenUsage(inputTokens: 15, outputTokens: 15)),
+          text('done'),
+        ]),
+        handler: (_) => ToolResult('small'),
+        sink: sink,
+        threshold: 2000,
+        keepMessages: 2,
+      );
+      // No caps at all: spend totals advance but can never cross a limit.
+      agent.budget = const TokenBudget();
+
+      await agent.run(history: <Message>[], userInput: 'go');
+
+      final provider = agent.provider as FakeProvider;
+      expect(provider.calls.every((c) => c.system == 'sys'), isTrue,
+          reason: 'accumulating spend without a cap must not compact');
     });
   });
 }

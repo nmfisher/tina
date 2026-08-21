@@ -128,6 +128,22 @@ was ever "large".
    it — long autonomous tasks on cheap models. Not fixed this run (the
    designed `--max-turn-tokens` knob is the documented remedy); logged as
    the improvement I would make next.
+    **→ Implemented 2026-08-21 (improvements run, Run F):** second trigger
+    in the mid-turn gate — spendTriggered = perTurnLimit set AND turnTotal
+    ≥ perTurnLimit/2 AND estimate > threshold/2 (floor), ORed with the
+    size trigger, both sharing the attempt gate and the splittability
+    pre-check; threshold 0 still disables everything; spend-only fires
+    emit a `[compact] turn spend X/Y crossed 50%` notice so headless
+    drivers can see which trigger acted. Run F (tina, session
+    20260820-202356-3bd9) wrote the implementation and the main
+    spend-fires test across two max-steps-terminated legs; three sibling
+    tests it left mis-scripted (completions with no TokenUsage, so spend
+    never actually crossed) were repaired by hand per the #22 rule.
+    Engine 729 / root 667 green. Postscript: this run also exhausted 60
+    then 40 steps legitimately on a two-file task — the driver now
+    launches with `--max-steps 500`, and the product default was raised
+    to match (50 → 500, with kMaxToolCallsPerRun 500 → 5000 to keep the
+    designed ~10× tool-call headroom).
 10. **Headless bash-denial flail.** The agent tried `cd … && dart test`,
     `ls /workspace`, `which dart` — all outside my `--allow` patterns — and
     burned 8 calls retrying variants instead of switching to the (default-
