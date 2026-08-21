@@ -49,6 +49,38 @@ const defaultRequestTimeout = Duration(seconds: 30);
 /// silently-dropped connection doesn't hang the REPL forever.
 const defaultStreamIdleTimeout = Duration(seconds: 60);
 
+/// Upper bound on any size-scaled timeout. Even a pathological payload gets
+/// at most 15 minutes per attempt before the operator must intervene
+/// deliberately (via the flags), keeping a runaway default from hanging a
+/// headless run for hours.
+const _maxScaledTimeout = Duration(seconds: 900);
+
+/// Size-scaled request-timeout default (#23c): the flat 30s default killed a
+/// ~220KB resume payload that Hetzner serves correctly in ~18s. Adds 1s of
+/// headers budget per 4096 bytes of request body, capped at 15 minutes —
+/// 220KB → 30s + 55s = 85s, ~4.7x the observed 18s, while small payloads
+/// (below one 4096-byte step) keep the exact base default.
+Duration scaledRequestTimeout(int bodyBytes) {
+  final secs = defaultRequestTimeout.inSeconds + bodyBytes ~/ 4096;
+  return Duration(
+      seconds: secs > _maxScaledTimeout.inSeconds
+          ? _maxScaledTimeout.inSeconds
+          : secs);
+}
+
+/// Size-scaled stream-idle-timeout default (#24b): the flat 60s default killed
+/// a healthy 244KB prefill measured silent for 81s before its first generation
+/// chunk. Adds 1s of idle budget per 3072 bytes of request body, capped at 15
+/// minutes — 244KB → 60s + 81s = 141s, ~1.7x the observed silent prefill,
+/// while small payloads keep the exact base default.
+Duration scaledStreamIdleTimeout(int bodyBytes) {
+  final secs = defaultStreamIdleTimeout.inSeconds + bodyBytes ~/ 3072;
+  return Duration(
+      seconds: secs > _maxScaledTimeout.inSeconds
+          ? _maxScaledTimeout.inSeconds
+          : secs);
+}
+
 /// Whether a non-200 status is worth another attempt. Public for the
 /// policy-layer retry ([RetryingProvider]), which classifies the StreamError
 /// events providers emit.

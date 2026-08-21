@@ -69,7 +69,7 @@ class GeminiProvider extends LlmProvider {
     required List<ToolSchema> tools,
   }) async* {
     final idToName = _collectToolNames(messages);
-    final body = jsonEncode({
+    final bodyStr = jsonEncode({
       if (system.isNotEmpty)
         'systemInstruction': {
           'parts': [
@@ -85,12 +85,21 @@ class GeminiProvider extends LlmProvider {
         ],
       'generationConfig': {'maxOutputTokens': maxTokens},
     });
-    HttpLog.log(_endpoint(), body);
+    final bodyBytes = utf8.encode(bodyStr).length;
+    // Size-scaled defaults (#23c / #24b): same contract as all providers.
+    final effectiveRequestTimeout = requestTimeout == defaultRequestTimeout
+        ? scaledRequestTimeout(bodyBytes)
+        : requestTimeout;
+    final effectiveStreamIdleTimeout =
+        streamIdleTimeout == defaultStreamIdleTimeout
+            ? scaledStreamIdleTimeout(bodyBytes)
+            : streamIdleTimeout;
+    HttpLog.log(_endpoint(), bodyStr);
 
     final http.StreamedResponse resp;
     try {
-      resp = await sendOnce(_client, () => _buildRequest(body),
-          requestTimeout: requestTimeout);
+      resp = await sendOnce(_client, () => _buildRequest(bodyStr),
+          requestTimeout: effectiveRequestTimeout);
     } catch (e) {
       yield StreamError(humanizeException(e), transient: isTransientException(e));
       return;
@@ -112,12 +121,12 @@ class GeminiProvider extends LlmProvider {
     // WHY (#23 / #24): stream-idle timeout must name its flag — same anonymous
     // string as request-timeout made operators change the wrong knob.
     final rawEvents = resp.stream.timeout(
-      streamIdleTimeout,
+      effectiveStreamIdleTimeout,
       onTimeout: (sink) {
         sink.addError(TimeoutException(
-          'no stream events for ${streamIdleTimeout.inSeconds}s — '
+          'no stream events for ${effectiveStreamIdleTimeout.inSeconds}s — '
           'raise with --stream-idle-timeout',
-          streamIdleTimeout,
+          effectiveStreamIdleTimeout,
         ));
         sink.close();
       },

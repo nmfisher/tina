@@ -356,6 +356,14 @@ and commit. Two new observations from the first run of this round:
     more re-sending an unchanged payload into the same wall — the error
     stays transient so the pool fails over with real spacing). (c) the
     size-scaled default remains open.
+    **→ (c) Implemented 2026-08-21 (improvements run, Run M):**
+    `scaledRequestTimeout(bodyBytes)` — 30s + 1s per 4096 bytes, capped
+    900s (220KB → 85s, ~4.7x the observed 18s) — applied at each
+    provider's send site when the configured value EQUALS the built-in
+    default (nobody passes a flag to request the default; any other
+    explicit value is a deliberate choice and wins verbatim). No Config,
+    registry, or constructor signatures changed; the existing named
+    errors automatically report the scaled seconds.
 
 ## Epilogue — the feature protecting its own provider
 
@@ -420,6 +428,12 @@ file:line-cited summary of its own rate limiter.
     idle clock now measures raw bytes (resp.stream.timeout before SSE
     parsing) so a silent prefill names the right knob. (b) the
     size-scaled idle default remains open.
+    **→ (b) Implemented 2026-08-21 (improvements run, Run M):**
+    `scaledStreamIdleTimeout(bodyBytes)` — 60s + 1s per 3072 bytes,
+    capped 900s (244KB → 141s, ~1.7x the measured 81s silent prefill) —
+    same "== default scales, explicit wins" contract as #23(c), applied
+    identically across anthropic/gemini/openai_compatible. A plain launch
+    now survives a large resume without hand-passing either flag.
 
 25. **A mid-turn kill persists the tree but not the conversation.** Killing
     a headless run mid-turn (as a driver must, when a run dithers or rides
