@@ -330,6 +330,13 @@ and commit. Two new observations from the first run of this round:
     off exponentially at minimum; (c) worth considering a default scaled
     to request size (the estimate the limiter already computes). Driving
     remedy meanwhile: launch with `--request-timeout 180`.
+    **→ (a)+(b) Implemented 2026-08-21 (improvements run, Run I):** each
+    timeout raise site names its flag and the observed seconds, and
+    humanizeException passes the message through; a wall-clock timeout
+    awaiting headers is now terminal for the transport retry loop (no
+    more re-sending an unchanged payload into the same wall — the error
+    stays transient so the pool fails over with real spacing). (c) the
+    size-scaled default remains open.
 
 ## Epilogue — the feature protecting its own provider
 
@@ -388,6 +395,12 @@ file:line-cited summary of its own rate limiter.
     244KB contexts ride forever under the 120K default because the
     estimate (~61K) never crosses it, yet each re-send pays the full
     prefill).
+    **→ (a) Implemented 2026-08-21 (improvements run, Run I):** the
+    stream-idle raise names its flag and the observed seconds ("no
+    stream events for 60s — raise with --stream-idle-timeout"), and the
+    idle clock now measures raw bytes (resp.stream.timeout before SSE
+    parsing) so a silent prefill names the right knob. (b) the
+    size-scaled idle default remains open.
 
 25. **A mid-turn kill persists the tree but not the conversation.** Killing
     a headless run mid-turn (as a driver must, when a run dithers or rides
