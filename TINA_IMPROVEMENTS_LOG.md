@@ -307,7 +307,13 @@ and commit. Two new observations from the first run of this round:
     error straight back to the model while its own edit is still in
     context — cheaper than discovering a pile of them at test time); (b)
     the session recorder stamping the tree's compile status per step, so
-    a resume can tell the model WHICH step broke it. Neither built yet.
+    a resume can tell the model WHICH step broke it.
+    **→ (a) Implemented 2026-08-21 (improvements run, Run H):** the agent
+    takes an optional ToolResultVerifier; after a successful edit/write it
+    appends the verdict to the tool result the model reads next step.
+    Headless wires DartAnalyzeVerifier (`dart analyze <file>`, 30s-bounded,
+    capped error block; null on clean/timeout/failure). (b) recorder
+    stamping remains open.
 
 23. **A 30s default request-timeout silently kills large-context resumes.**
     Run B's resumed session carries ~220KB of conversation (each resume
