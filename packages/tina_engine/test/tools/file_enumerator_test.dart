@@ -94,6 +94,22 @@ void main() {
       final e = RepoFileEnumerator(processRunner: runner, fallback: fallback);
       expect(await e.enumerate('/repo'), ['walked.dart']);
     });
+
+    test('file root with git unavailable returns the file, no git run',
+        () async {
+      final tmp = Directory.systemTemp.createTempSync('tina_walk_');
+      try {
+        final file = File('${tmp.path}/only.dart')..writeAsStringSync('');
+        final runner = MemoryProcessRunner(
+            (_, __) => throw Exception('git not found'));
+        final e = RepoFileEnumerator(
+            processRunner: runner, fallback: const WalkFileEnumerator());
+        expect(await e.enumerate(file.path), ['only.dart']);
+        expect(runner.runs, isEmpty);
+      } finally {
+        tmp.deleteSync(recursive: true);
+      }
+    });
   });
 
   group('WalkFileEnumerator', () {
@@ -109,6 +125,18 @@ void main() {
         final files = await WalkFileEnumerator().enumerate(tmp.path);
         expect(files, containsAll(['a.dart', 'sub/b.dart']));
         expect(files, isNot(contains('node_modules/dep.js')));
+      } finally {
+        tmp.deleteSync(recursive: true);
+      }
+    });
+
+    test('file root returns just that file, no exception or warning',
+        () async {
+      final tmp = Directory.systemTemp.createTempSync('tina_walk_');
+      try {
+        final file = File('${tmp.path}/single.dart')..writeAsStringSync('');
+        final files = await WalkFileEnumerator().enumerate(file.path);
+        expect(files, ['single.dart']);
       } finally {
         tmp.deleteSync(recursive: true);
       }
