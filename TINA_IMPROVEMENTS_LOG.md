@@ -225,6 +225,9 @@ and commit. Two new observations from the first run of this round:
     steps. Driving pattern for small models: let them explore once, then
     resume with a directive; or raise the ceiling up front on any run
     expected to write code.
+    **→ Implemented 2026-08-20:** the default maxSteps is 500 now (raised
+    after Run F burned the then-80 ceiling legitimately; driver launches
+    use ≥500 and the driving rule is formalized as "minimum 500").
 18. **No headless `--model` override (would make).** Model alternation
     exists per-conversation (TUI `/model`, persisted across resume),
     per-task (sub-agent `modelReference`), and for the permission
