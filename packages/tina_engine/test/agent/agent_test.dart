@@ -35,6 +35,8 @@ Agent _agent({
   PermissionPolicy? policy,
   int maxSteps = 50,
   ToolResultVerifier? resultVerifier,
+  HistoryAppendObserver? onHistoryAppend,
+  HistoryReplaceObserver? onHistoryReplace,
 }) =>
     Agent(
       provider: provider,
@@ -45,6 +47,8 @@ Agent _agent({
       maxSteps: maxSteps,
       system: 'sys',
       resultVerifier: resultVerifier,
+      onHistoryAppend: onHistoryAppend,
+      onHistoryReplace: onHistoryReplace,
     );
 
 /// A tool that emits incremental output via [onOutput] (like a real BashTool
@@ -1473,6 +1477,227 @@ void main() {
       final result = toolResult(history);
       expect(result.content, 'applied');
       expect(result.isError, isFalse);
+    });
+  });
+
+  group('Agent history observers (#25 write-through persistence)', () {
+    List<StreamEvent> toolUse(String id) => [
+          ToolCallStart(id: id, name: 'gate'),
+          MessageComplete(
+            content: [
+              ToolUseBlock(id: id, name: 'gate', input: const {}),
+            ],
+            stopReason: 'tool_use',
+          ),
+        ];
+
+    List<StreamEvent> text(String t) => [
+          TextDelta(t),
+          MessageComplete(content: [TextBlock(t)], stopReason: 'end_turn'),
+        ];
+
+    /// An agent whose tool parks on [gate] until released — lets the test
+    /// freeze the turn mid-flight and assert what the observers have already
+    /// seen (the write-through ordering guarantee).
+    Agent gatedAgent(FakeProvider provider, Completer<void> gate,
+        {HistoryAppendObserver? onAppend,
+        HistoryReplaceObserver? onReplace}) {
+      final agent = _agent(
+        provider: provider,
+        tools: ToolRegistry([
+          FakeTool('gate', (_) async {
+            await gate.future;
+            return ToolResult('gate passed');
+          }),
+        ]),
+        sink: FakeAgentSink(),
+        policy:
+            PermissionPolicy(defaults: {'gate': PermissionDecision.allow}),
+        onHistoryAppend: onAppend,
+        onHistoryReplace: onReplace,
+      );
+      return agent;
+    }
+
+    test('append observer fires in order for user, assistant, tool results',
+        () async {
+      final observed = <Role>[];
+      final gate = Completer<void>();
+      final agent = gatedAgent(
+        FakeProvider([
+          toolUse('t1'),
+          text('finished'),
+        ]),
+        gate,
+        onAppend: (m) async {
+          observed.add(m.role);
+        },
+      );
+
+      final run = agent.run(history: <Message>[], userInput: 'go');
+      // The turn is parked inside the tool; the user message and the
+      // assistant tool_use completion have both already been observed —
+      // write-through, not end-of-turn.
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(observed, [Role.user, Role.assistant]);
+
+      gate.complete();
+      await run;
+
+      // The tool-result batch lands before the final assistant text.
+      expect(observed, [Role.user, Role.assistant, Role.user, Role.assistant]);
+    });
+
+    test('run does not return while an append observer is still in flight',
+        () async {
+      // The observer holds its write open until the test releases it. If the
+      // agent fired-and-forgot, run() could finish (and a caller tear the
+      // store down) while the last write is still pending.
+      final observerReleased = Completer<void>();
+      var observerFinished = false;
+      final gate = Completer<void>();
+      final agent = gatedAgent(
+        FakeProvider([
+          toolUse('t1'),
+          text('finished'),
+        ]),
+        gate,
+        onAppend: (m) async {
+          await observerReleased.future;
+          observerFinished = true;
+        },
+      );
+
+      final run = agent.run(history: <Message>[], userInput: 'go');
+      // Give the turn time to reach the final append (the assistant text)…
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      // …then let the observer finish and the turn unwind.
+      observerReleased.complete();
+      gate.complete();
+      await run;
+
+      expect(observerFinished, isTrue,
+          reason: 'the awaited observer completed before run() returned');
+    });
+
+    test('a throwing append observer is contained and the turn completes',
+        () async {
+      final gate = Completer<void>();
+      final agent = gatedAgent(
+        FakeProvider([
+          toolUse('t1'),
+          text('survived'),
+        ]),
+        gate,
+        onAppend: (m) async => throw StateError('recorder exploded'),
+      );
+
+      final runFuture = agent.run(history: <Message>[], userInput: 'go');
+      gate.complete(); // let the gated tool through
+      await runFuture;
+
+      expect(agent.abortedReason, isNull,
+          reason: 'a broken observer must degrade to "not persisted"');
+      expect((agent.sink as FakeAgentSink).texts, ['survived']);
+    });
+
+    test('compact fires replace once with the final post-compact list',
+        () async {
+      var replaces = 0;
+      List<Message>? replacedWith;
+      final provider = FakeProvider([
+        [
+          const TextDelta('the gist'),
+          const MessageComplete(
+              content: [TextBlock('the gist')], stopReason: 'end_turn'),
+        ],
+      ]);
+      final agent = _agent(
+        provider: provider,
+        tools: ToolRegistry(const []),
+        sink: FakeAgentSink(),
+        onHistoryAppend: (m) async {
+          // Not expected: compact rebuilds via replace, not append.
+        },
+        onHistoryReplace: (messages) async {
+          replaces++;
+          replacedWith = messages; // keep the identity: replace passes the list
+        },
+      );
+      final history = <Message>[
+        const Message(role: Role.user, content: [TextBlock('old q')]),
+        const Message(role: Role.assistant, content: [TextBlock('old a')]),
+        const Message(role: Role.user, content: [TextBlock('recent q')]),
+        const Message(role: Role.assistant, content: [TextBlock('recent a')]),
+      ];
+
+      final compacted = await agent.compact(history, preserveRecent: 1);
+
+      expect(compacted, isTrue);
+      // The rewrite is observed as ONE replace carrying the final list —
+      // the rebuilt summary exchange plus the kept suffix — and nothing else.
+      expect(replaces, 1);
+      expect(replacedWith, same(history));
+      expect(
+          (replacedWith![0].content.single as TextBlock).text,
+          contains('Prior conversation summary:\n\nthe gist'));
+      expect((replacedWith![2].content.single as TextBlock).text, 'recent q');
+      expect((replacedWith![3].content.single as TextBlock).text, 'recent a');
+    });
+
+    test('a throwing replace observer is contained and compact still succeeds',
+        () async {
+      final provider = FakeProvider([
+        [
+          const TextDelta('summary'),
+          const MessageComplete(
+              content: [TextBlock('summary')], stopReason: 'end_turn'),
+        ],
+      ]);
+      final agent = _agent(
+        provider: provider,
+        tools: ToolRegistry(const []),
+        sink: FakeAgentSink(),
+        onHistoryReplace: (messages) async => throw StateError('boom'),
+      );
+      final history = <Message>[
+        const Message(role: Role.user, content: [TextBlock('old q')]),
+        const Message(role: Role.assistant, content: [TextBlock('old a')]),
+        const Message(role: Role.user, content: [TextBlock('recent q')]),
+        const Message(role: Role.assistant, content: [TextBlock('recent a')]),
+      ];
+
+      final compacted = await agent.compact(history, preserveRecent: 1);
+
+      expect(compacted, isTrue,
+          reason: 'a broken persistence observer must not fail the compact');
+      expect(history, hasLength(4));
+    });
+
+    test('null observers leave the turn byte-identical (default off)', () async {
+      final provider = FakeProvider([
+        [
+          const TextDelta('plain'),
+          const MessageComplete(
+              content: [TextBlock('plain')], stopReason: 'end_turn'),
+        ],
+      ]);
+      final sink = FakeAgentSink();
+      final agent = _agent(
+        provider: provider,
+        tools: ToolRegistry(const []),
+        sink: sink,
+        policy: PermissionPolicy(),
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'go');
+
+      expect(provider.calls, hasLength(1));
+      expect(sink.texts, ['plain']);
+      // user → assistant — no observer ever fired; byte-identical behavior.
+      expect(history, hasLength(2));
+      expect(agent.abortedReason, isNull);
     });
   });
 }

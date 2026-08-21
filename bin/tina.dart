@@ -423,6 +423,25 @@ Future<void> _runNonInteractive(AppComposition app) async {
   // built here because this turn owns it: built on demand, closed in the
   // finally below (no other path shares the instance).
   final provider = app.buildStartupProvider();
+  final history = app.initialHistory;
+  final recorder = SessionRecorder(
+    app.store,
+    app.initialSessionId,
+    app.initialConversationId,
+    providerId: app.config.provider,
+    baseUrl: app.config.baseUrl,
+    cwd: Directory.current.path,
+  );
+
+  // Write-through persistence (#25): the engine AWAITS these observers at the
+  // moment each message is produced, so a mid-turn kill (SIGKILL, OOM, crash)
+  // leaves the completed exchanges on disk instead of losing the whole turn to
+  // a turn-end flush. The store's append is crash-safe per line (flush +
+  // torn-tail repair), so no batching is needed here. A compact is observed
+  // once with the final post-compact list and rewrites the session file
+  // wholesale (no synthetic marker message exists to intercept). Observer
+  // failures are logged and swallowed — persistence must never abort a run
+  // (the engine likewise catches, logs, and continues).
   final agent = buildAgent(
     pipeline: app.pipeline,
     scheduler: app.scheduler,
@@ -435,18 +454,21 @@ Future<void> _runNonInteractive(AppComposition app) async {
     // Headless (#22a): pass the post-edit compile gate so a failed edit
     // feeds its `dart analyze` errors back to the model mid-turn.
     resultVerifier: DartAnalyzeVerifier(),
+    onHistoryAppend: (m) async {
+      try {
+        await recorder.append(m);
+      } catch (e, st) {
+        _log.severe('session write-through failed', e, st);
+      }
+    },
+    onHistoryReplace: (messages) async {
+      try {
+        await recorder.replace(messages);
+      } catch (e, st) {
+        _log.severe('session compact-replace failed', e, st);
+      }
+    },
   );
-
-  final history = app.initialHistory;
-  final recorder = SessionRecorder(
-    app.store,
-    app.initialSessionId,
-    app.initialConversationId,
-    providerId: app.config.provider,
-    baseUrl: app.config.baseUrl,
-    cwd: Directory.current.path,
-  );
-  final preLen = history.length;
 
   // Append concise summary instruction for headless --prompt runs.
   final rawPrompt = app.config.prompt!;
@@ -462,14 +484,6 @@ Future<void> _runNonInteractive(AppComposition app) async {
     );
     aborted = agent.abortedReason != null;
   } finally {
-    for (final m in history.skip(preLen)) {
-      try {
-        await recorder.append(m);
-      } catch (e, st) {
-        _log.severe('session write failed', e, st);
-        break;
-      }
-    }
     // Non-interactive hint goes to stderr so callers parsing stdout for the
     // agent's answer aren't disrupted. The RECORDER's id, not the
     // pre-allocation from startup: a store that couldn't honor our id mints

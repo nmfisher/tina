@@ -45,6 +45,19 @@ typedef ToolResultVerifier = Future<String?> Function(
   Map<String, dynamic> input,
 );
 
+/// Fired (and awaited) by [Agent] after a message is appended to the live
+/// history — the turn's user message, each assistant completion, each
+/// tool-result batch. Write-through persistence (#25): the app wires this to
+/// the [SessionRecorder] so a mid-turn kill leaves completed exchanges on
+/// disk. Null (the default) = nothing fires and the turn is byte-identical to
+/// the pre-observer behavior. A throw is caught, logged, and swallowed.
+typedef HistoryAppendObserver = Future<void> Function(Message);
+
+/// Fired (and awaited) ONCE after [Agent.compact] rewrites the history in
+/// place, with the FINAL post-compact list — a REWRITE, not appends. Null (the
+/// default) = nothing fires. A throw is caught, logged, and swallowed.
+typedef HistoryReplaceObserver = Future<void> Function(List<Message>);
+
 class Agent {
   LlmProvider _provider;
 
@@ -100,6 +113,25 @@ class Agent {
   /// content ships unchanged. Null (the default) = no verification at all.
   final ToolResultVerifier? resultVerifier;
 
+  /// Write-through seam (#25): fired and AWAITED after every message is
+  /// appended to [history] — the turn's user message, each assistant
+  /// completion, each tool-result batch. Awaiting keeps the ordering
+  /// guarantee a fire-and-forget write cannot: when [run] returns, every
+  /// observer for this turn has finished (or failed and been logged), so
+  /// teardown can close the store without racing the last write. A throw is
+  /// caught, logged, and swallowed — a broken observer degrades to "not
+  /// persisted", never aborts the turn. Null (the default) = nothing fires
+  /// and behavior is byte-identical to the pre-observer agent.
+  HistoryAppendObserver? onHistoryAppend;
+
+  /// Write-through seam for compaction: fired and AWAITED exactly once after
+  /// [compact] rewrites [history] (clear + rebuild), with the FINAL
+  /// post-compact list — a REWRITE, not appends. Receives the live [history]
+  /// list itself; observers that persist must treat it as read-only (compact
+  /// continues mutating the same list afterwards). Null (the default) =
+  /// nothing fires. Same throw-containment as [onHistoryAppend].
+  HistoryReplaceObserver? onHistoryReplace;
+
   /// Resolved once at construction; reused for every provider call so the
   /// system prefix stays stable across a multi-step turn (cache-friendly).
   final String system;
@@ -116,8 +148,45 @@ class Agent {
     this.autoCompactThreshold = 0,
     this.autoCompactKeepMessages = 6,
     this.resultVerifier,
+    this.onHistoryAppend,
+    this.onHistoryReplace,
     required this.system,
   }) : _provider = provider;
+
+  /// Await [onHistoryAppend] for [m], swallowing observer failures — a broken
+  /// recorder must degrade to "not persisted", never abort the turn. The
+  /// await is what makes the seam safe to tear down behind: when [run]
+  /// returns, no observer write for this turn is still in flight.
+  ///
+  /// NOT async, and deliberately returns null (never an already-completed
+  /// future) when no observer is installed: `await` on anything — even a
+  /// synchronously-completed future — suspends the turn loop for a microtask,
+  /// and "null = byte-identical behavior" must hold all the way down to
+  /// suspension timing (a queued microtask ran between the user message and
+  /// the provider subscription and hung a gate-based test fixture; production
+  /// timing shifts just as invisibly). Call sites skip the await on null.
+  Future<void>? _notifyAppend(Message m) {
+    final cb = onHistoryAppend;
+    if (cb == null) return null;
+    return _guardObserver(() => cb(m));
+  }
+
+  /// Await [onHistoryReplace] with the post-compact [messages], containing
+  /// observer failures the same way [onHistoryAppend] is — and returning null
+  /// (zero suspensions) when no observer is set, for the same reason.
+  Future<void>? _notifyReplace(List<Message> messages) {
+    final cb = onHistoryReplace;
+    if (cb == null) return null;
+    return _guardObserver(() => cb(messages));
+  }
+
+  Future<void> _guardObserver(Future<void> Function() run) async {
+    try {
+      await run();
+    } catch (e, st) {
+      _log.warning('history observer failed', e, st);
+    }
+  }
 
   /// Run one user turn. The agent may issue several provider calls if tools
   /// are invoked. [cancelSignal], when completed, aborts the current
@@ -176,7 +245,10 @@ class Agent {
   }) async {
     abortedReason = null;
     abortedKind = AbortedKind.none;
-    history.add(Message(role: Role.user, content: [TextBlock(userInput)]));
+    final userMessage = Message(role: Role.user, content: [TextBlock(userInput)]);
+    history.add(userMessage);
+    final pendingUser = _notifyAppend(userMessage);
+    if (pendingUser != null) await pendingUser;
 
     var cancelled = false;
     cancelSignal?.then((_) => cancelled = true);
@@ -357,7 +429,14 @@ class Agent {
       }
       emptyCompletions = 0;
 
-      history.add(Message(role: Role.assistant, content: content));
+      final assistantMessage = Message(role: Role.assistant, content: content);
+      history.add(assistantMessage);
+      // Written-through as soon as it exists: the assistant message carries
+      // the tool_use blocks the next step answers, so losing it on a kill
+      // orphans the tool results that follow. Awaited so a turn exit (cancel,
+      // error, clean finish) can never outrun the observer.
+      final pendingAssistant = _notifyAppend(assistantMessage);
+      if (pendingAssistant != null) await pendingAssistant;
 
       final toolUses = content.whereType<ToolUseBlock>().toList();
       if (toolUses.isEmpty) {
@@ -483,7 +562,14 @@ class Agent {
           ));
         }
       }
-      history.add(Message(role: Role.user, content: results));
+      final toolResults =
+          Message(role: Role.user, content: results);
+      history.add(toolResults);
+      // Written-through immediately: a kill after the tools ran but before the
+      // next completion would otherwise lose the results while the on-disk
+      // assistant message already references them (a dangling tool_use).
+      final pendingResults = _notifyAppend(toolResults);
+      if (pendingResults != null) await pendingResults;
     }
 
     sink.notice('(max steps reached)\n', kind: NoticeKind.warning);
@@ -600,18 +686,28 @@ class Agent {
       return false;
     }
 
+    // Signal the rewrite to the observer: compact is a REWRITE (clear +
+    // rebuild), not an append. No synthetic marker message is appended — the
+    // marker used to fire BEFORE the rebuild (and only when a replace-capable
+    // observer was wired), so append-only observers saw a phantom message and
+    // replace-capable ones could miss the rewrite entirely. Nor are the
+    // rebuilt messages re-appended: an append-only recorder would duplicate
+    // the kept suffix (those messages were already appended when they first
+    // happened). The replace seam below fires ONCE with the final post-compact
+    // list, after the history is fully rebuilt.
+    final rebuilt = [
+      Message(role: Role.user,
+          content: [TextBlock('Prior conversation summary:\n\n$summary')]),
+      const Message(role: Role.assistant,
+          content: [TextBlock('Got it — continuing from this summary.')]),
+      ...suffix,
+    ];
+    final after = rebuilt.length;
     history
       ..clear()
-      ..add(Message(
-        role: Role.user,
-        content: [TextBlock('Prior conversation summary:\n\n$summary')],
-      ))
-      ..add(const Message(
-        role: Role.assistant,
-        content: [TextBlock('Got it — continuing from this summary.')],
-      ))
-      ..addAll(suffix);
-    final after = 2 + suffix.length;
+      ..addAll(rebuilt);
+    final pendingReplace = _notifyReplace(history);
+    if (pendingReplace != null) await pendingReplace;
     sink.notice('--- compacted $priorCount → $after messages ---\n');
     return true;
   }

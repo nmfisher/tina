@@ -84,6 +84,14 @@ Agent buildAgent({
   // result the model reads next step. Headless passes a DartAnalyzeVerifier;
   // interactive deliberately passes null (no analyze latency in the loop).
   ToolResultVerifier? resultVerifier,
+  /// Write-through observers (#25): awaited by the engine after every history
+  /// append (user message, assistant completion, tool-result batch) and once
+  /// after a compact (with the final post-compact list). Headless passes the
+  /// session recorder's append/replace so each message persists as it is
+  /// produced — no end-of-run flush to lose on a crash; interactive sessions
+  /// rely on the SessionController's turn-end flush (still safe, just coarser).
+  HistoryAppendObserver? onHistoryAppend,
+  HistoryReplaceObserver? onHistoryReplace,
 }) {
   // The entry agent's resolved system prompt — also the identity a delegated
   // sub-agent inherits. Resolved once so the agent and the delegation context
@@ -222,5 +230,7 @@ Agent buildAgent({
     autoCompactThreshold: config.autoCompactThreshold,
     system: resolvedSystem,
     resultVerifier: resultVerifier,
+    onHistoryAppend: onHistoryAppend,
+    onHistoryReplace: onHistoryReplace,
   );
 }
