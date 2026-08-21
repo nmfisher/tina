@@ -110,6 +110,42 @@ void main() {
           isNotNull);
     });
 
+    test('the auto-compact threshold flows from config into the agent', () {
+      // Headless --prompt runs have no SessionController to run the
+      // between-turns compaction pass, so the engine's mid-turn auto-compact
+      // must be armed straight from --auto-compact-threshold (the default
+      // 120000, not the engine's off-by-default 0).
+      Agent buildWith(List<String> argv) {
+        final config = Config.parse(argv);
+        final scheduler = createScheduler(
+          config: config,
+          registry: ProviderRegistry(env: {}),
+          pipeline: defaultPipeline,
+        );
+        return buildAgent(
+          pipeline: defaultPipeline,
+          scheduler: scheduler,
+          conversationId: 'c1',
+          provider: FakeProvider(const [], model: 'm'),
+          host: FakeHostInterface(),
+          policy: config.buildPolicy(),
+          config: config,
+          withSubAgents: false,
+        );
+      }
+
+      expect(buildWith(const ['--backend', 'ansi']).autoCompactThreshold,
+          120000);
+      expect(
+          buildWith(const ['--backend', 'ansi', '--auto-compact-threshold',
+              '5000']).autoCompactThreshold,
+          5000);
+      expect(
+          buildWith(const ['--backend', 'ansi', '--auto-compact-threshold',
+              '0']).autoCompactThreshold,
+          0);
+    });
+
     test('the workflow surface is wired in both modes when a supervisor is '
         'provided', () {
       final config = testConfig();

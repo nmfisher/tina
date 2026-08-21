@@ -115,9 +115,16 @@ class JsonlSessionStore implements SessionStore {
     required String providerId,
     String? baseUrl,
     String? cwd,
+    String? sessionId,
   }) async {
     await root.create(recursive: true);
-    final id = _newId();
+    // Honor a caller pre-allocated id when its directory isn't taken (see
+    // SessionStore.createSession); fall back to minting one on the rare
+    // collision so creation can never fail here.
+    var id = sessionId ?? _newId();
+    if (sessionId != null && await _sessionDir(sessionId).exists()) {
+      id = _newId();
+    }
     await _sessionDir(id).create(recursive: true);
     await _writeManifest(SessionManifest(
       id: id,

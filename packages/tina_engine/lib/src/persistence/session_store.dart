@@ -354,10 +354,19 @@ abstract class SessionStore {
   /// [baseUrl] is an optional override endpoint. [cwd] records the working
   /// directory the session was started in, used to scope `--continue` to the
   /// current folder. The API key is never stored.
+  ///
+  /// [sessionId], when given, is used as the session's id instead of a
+  /// freshly minted one — for callers that pre-allocated the id and already
+  /// surfaced it to the user (the headless exit prints "resume: tina --resume
+  /// <id>"; a store-minted id there points at a session that doesn't exist).
+  /// Implementations that can't honor a caller id (e.g. a remote service with
+  /// server-side ids) may ignore it, but then MUST return the id that was
+  /// actually created so the caller can correct itself.
   Future<String> createSession({
     required String providerId,
     String? baseUrl,
     String? cwd,
+    String? sessionId,
   });
 
   /// Add a new (empty) conversation to [sessionId] and return its id. Writes a
@@ -501,12 +510,17 @@ class SessionRecorder {
   Future<void> _lazyInit() async {
     if (_initialized) return;
     // Create the session if it doesn't already exist (resume reuses an existing
-    // session). The store generates its own ID, so we capture it.
+    // session). The store honors our pre-allocated id when it can, so the id
+    // the caller already surfaced (the headless "resume:" hint) is the one that
+    // lands on disk; whatever id comes back is captured either way.
     try {
       await store.loadSession(_sessionId);
     } on StateError {
       _sessionId = await store.createSession(
-          providerId: _providerId, baseUrl: _baseUrl, cwd: _cwd);
+          providerId: _providerId,
+          baseUrl: _baseUrl,
+          cwd: _cwd,
+          sessionId: _sessionId);
       // Only create a conversation when the created the session too (brand-new
       // session). On resume/switchTo/attach the conversation already exists.
       _conversationId = await store.createConversationWithMeta(

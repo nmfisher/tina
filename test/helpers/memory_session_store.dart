@@ -28,9 +28,15 @@ class MemorySessionStore implements SessionStore {
     required String providerId,
     String? baseUrl,
     String? cwd,
+    String? sessionId,
     DateTime? updatedAt,
   }) async {
-    final id = 's${++_sessionCounter}';
+    // Honor a caller id when it isn't taken (mirrors the on-disk store's
+    // collision fallback); otherwise mint one.
+    var id = sessionId;
+    if (id == null || _manifests.containsKey(id)) {
+      id = 's${++_sessionCounter}';
+    }
     final now = updatedAt ?? DateTime.now();
     _manifests[id] = SessionManifest(
       id: id,

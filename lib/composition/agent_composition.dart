@@ -210,6 +210,11 @@ Agent buildAgent({
     budget: config.buildTokenBudget(),
     pauseGate: scheduler.pauseGate,
     maxSteps: config.maxSteps,
+    // The engine fires this MID-turn (estimating the next request before it
+    // ships), so long autonomous turns — headless --prompt tasks especially,
+    // which have no SessionController to run the between-turns pass — compact
+    // instead of drowning in accumulated tool results.
+    autoCompactThreshold: config.autoCompactThreshold,
     system: resolvedSystem,
   );
 }
