@@ -17,11 +17,11 @@ final _log = Logger('tina.agent');
 
 /// Hard-coded ceiling on tool invocations per turn. The run loop bounds *steps*
 /// via [Agent.maxSteps] but not *tool uses* — this is the coarse backstop that
-/// complements the token spend-funnel (~10× maxSteps=50, so legitimate
+/// complements the token spend-funnel (~10× maxSteps=500, so legitimate
 /// multi-file refactors have headroom; tool uses are serial per step). When
 /// tripped the turn stops with a notice. `--yolo` can't extend it (it only
 /// relaxes the ask-gate). No config surface by design.
-const int kMaxToolCallsPerRun = 500;
+const int kMaxToolCallsPerRun = 5000;
 
 /// Why a turn stopped abnormally, classified by cause. Callers that decide
 /// whether to retry (e.g. the pipeline's codergen nodes) treat [provider]
@@ -90,7 +90,7 @@ class Agent {
     required this.sink,
     required this.policy,
     required this.asker,
-    this.maxSteps = 50,
+    this.maxSteps = 500,
     this.budget,
     this.pauseGate,
     this.autoCompactThreshold = 0,

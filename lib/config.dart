@@ -323,7 +323,7 @@ class Config {
             'turns compact in place instead of drowning in accumulated '
             'results), keeping recent turns verbatim. 0 disables.')
     ..addOption('max-steps',
-        defaultsTo: '50',
+        defaultsTo: '500',
         help: 'Maximum tool-calling steps allowed in a single user turn.')
     ..addOption('stream-idle-timeout',
         defaultsTo: '60',
@@ -579,7 +579,7 @@ class Config {
       requestsPerMinute: parseLimit(
           'requests-per-minute', fileLimits?.requestsPerMinute, 0),
       autoCompactThreshold: parseBudget('auto-compact-threshold', '120000'),
-      maxSteps: parsePositive('max-steps', '50'),
+      maxSteps: parsePositive('max-steps', '500'),
       streamIdleTimeout:
           Duration(seconds: parsePositive('stream-idle-timeout', '60')),
       requestTimeout:

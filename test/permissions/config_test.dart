@@ -105,8 +105,8 @@ void main() {
       expect(_parse(['--no-sandbox']).sandboxEnabled, isFalse);
     });
 
-    test('--max-steps defaults to 50 and accepts overrides', () {
-      expect(_parse([]).maxSteps, 50);
+    test('--max-steps defaults to 500 and accepts overrides', () {
+      expect(_parse([]).maxSteps, 500);
       expect(_parse(['--max-steps', '200']).maxSteps, 200);
     });
 
