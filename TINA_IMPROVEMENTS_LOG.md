@@ -235,6 +235,22 @@ and commit. Two new observations from the first run of this round:
     <provider/model>` flag beating both the config default and the
     persisted label would enable alternating models across headless
     rounds — cheap explorer for reads, strong model for writes.
+    **→ Implemented 2026-08-21 (improvements run, Run L):** `--model`
+    normalizes into Config.provider/Config.model at parse time, so every
+    downstream consumer (buildStartupProvider, the workflow runner's
+    defaultModelReference, the SessionRecorder's providerId) inherits it
+    with no other file touched. A value containing '/' is a full
+    `<provider>/<model>` ref split on the FIRST slash (the
+    session_restore convention — model ids may themselves contain slashes,
+    e.g. `openrouter/stealth/ox-alpha`); a bare value overrides only the
+    model. Precedence: flag > `[default]` file > env/descriptor default.
+    Verified live: `--model openrouter/stealth/ox-alpha` against a
+    pool-default config sent its request to https://openrouter.ai on the
+    wire (not the pool's members); `--model nosuch/x` fails fast with the
+    unknown-provider FormatException. Scope note: a headless `--resume`
+    without `--model` still uses the config default (the persisted
+    conversation model is honored on the TUI path only, per #4's fix) —
+    `--model` is the explicit way to pin it headlessly.
 19. **No way to spread load across providers → Implemented.**
     A session pinned to one provider inherits that provider's rate
     ceiling (NIM: 40 RPM) with no recourse; throughput above it is

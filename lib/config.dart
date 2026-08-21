@@ -284,6 +284,13 @@ class Config {
             'touch ~/.tina/config. Precedence: the flag beats both config file '
             'and env vars (most explicit intent wins). The key must not be '
             'persisted anywhere (no config writes, no session files).')
+    ..addOption('model',
+        help: 'Run this session under a different model. A value containing '
+            '"/" is a full \'<provider>/<model>\' reference (provider = FIRST '
+            'segment — model ids may themselves contain slashes, e.g. '
+            'openrouter/stealth/ox-alpha); a bare value overrides only the '
+            'model, keeping the config default provider. Beats the [default] '
+            'provider/model from ~/.tina/config. One-shot: never persisted.')
     ..addOption('workflow',
         help: 'Run a DOT pipeline from ~/.tina/workflows/<name>.dot to '
             'completion (non-interactive). Pair with --prompt for its input.')
@@ -463,8 +470,30 @@ class Config {
     registry ??= builtinRegistry();
     env ??= Platform.environment;
 
-    // Provider precedence: config file > 'anthropic' default.
-    final providerId = userConfig?.defaultProvider ?? 'anthropic';
+    // --model (flag > file): a value containing '/' is a full
+    // '<provider>/<model>' reference — the provider is the FIRST segment only,
+    // because model ids may themselves contain slashes (e.g.
+    // openrouter/stealth/ox-alpha). The same split convention lives in
+    // session_restore.dart. A bare value overrides just the model and keeps
+    // the config default provider. Parsed BEFORE the descriptor lookup so a
+    // swapped provider drives everything derived from it below: the
+    // unknown-provider FormatException, the API-key auth scan, the
+    // <PROVIDER>_MODEL / _BASE_URL env prefix, the default base URL, and the
+    // default model fallback. One-shot like --api-key: it lands on [Config]
+    // fields only and is never persisted to ~/.tina/config.
+    final flagModel = res['model'] as String?;
+    String providerId;
+    final String modelOverride;
+    if (flagModel != null && flagModel.contains('/')) {
+      providerId = flagModel.split('/').first;
+      modelOverride = flagModel.substring(flagModel.indexOf('/') + 1);
+    } else {
+      providerId = userConfig?.defaultProvider ?? 'anthropic';
+      modelOverride = flagModel ?? '';
+    }
+
+    // Provider precedence: config file > 'anthropic' default; a full --model
+    // ref beats both.
     final desc = registry.descriptor(providerId);
     if (desc == null) {
       throw FormatException('Unknown provider "$providerId". '
@@ -561,7 +590,9 @@ class Config {
     return Config(
       provider: providerId,
       apiKey: apiKey,
-      model: userConfig?.defaultModel ?? defaultModel,
+      model: modelOverride.isNotEmpty
+          ? modelOverride
+          : userConfig?.defaultModel ?? defaultModel,
       baseUrl: (res['base-url'] as String?) ?? defaultBaseUrl,
       maxTokens: maxTokens,
       yolo: res['yolo'] as bool,

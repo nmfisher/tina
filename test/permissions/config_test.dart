@@ -146,6 +146,56 @@ void main() {
       expect(() => _parse(['--auto-compact-threshold', 'abc']),
           throwsFormatException);
     });
+
+    test('--model bare value overrides the model, provider unchanged', () {
+      final c = _parse(['--model', 'glimmer-30b']);
+      expect(c.model, 'glimmer-30b');
+      expect(c.provider, 'anthropic');
+    });
+
+    test('--model full ref splits on the FIRST slash only', () {
+      final c = _parse(['--model', 'openrouter/stealth/ox-alpha']);
+      expect(c.provider, 'openrouter');
+      // Model ids may themselves contain slashes — the remainder after the
+      // first '/' is the model, slashes kept.
+      expect(c.model, 'stealth/ox-alpha');
+    });
+
+    test('--model beats the [default] provider/model file values', () {
+      // Full ref: both provider and model come from the flag.
+      final full = Config.parse(
+        const ['--model', 'openrouter/stealth/ox-alpha'],
+        env: const {'ANTHROPIC_API_KEY': 'test'},
+        userConfig: const UserConfig(
+            defaultProvider: 'anthropic', defaultModel: 'claude-file'),
+      );
+      expect(full.provider, 'openrouter');
+      expect(full.model, 'stealth/ox-alpha');
+      // Bare form: the model wins, the file provider is kept.
+      final bare = Config.parse(
+        const ['--model', 'glimmer-30b'],
+        env: const {'ANTHROPIC_API_KEY': 'test'},
+        userConfig: const UserConfig(
+            defaultProvider: 'anthropic', defaultModel: 'claude-file'),
+      );
+      expect(bare.provider, 'anthropic');
+      expect(bare.model, 'glimmer-30b');
+    });
+
+    test('without --model, the [default] model file value is honored', () {
+      final c = Config.parse(
+        const [],
+        env: const {'ANTHROPIC_API_KEY': 'test'},
+        userConfig: const UserConfig(defaultModel: 'claude-file'),
+      );
+      expect(c.provider, 'anthropic');
+      expect(c.model, 'claude-file');
+    });
+
+    test('--model full ref with an unknown provider fails fast', () {
+      expect(() => _parse(['--model', 'nosuchprovider/some-model']),
+          throwsFormatException);
+    });
   });
 }
 
