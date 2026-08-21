@@ -210,8 +210,13 @@ and commit. Two new observations from the first run of this round:
     `FileSystemException: Not a directory, errno 20` + "failed to list,
     skipping subtree" to stderr. A file root should either match the
     pattern against the file or return no matches — the exception noise
-    makes an innocent query look like a failure. (Would make; not yet
-    scheduled.)
+    makes an innocent query look like a failure.
+    **→ Implemented 2026-08-21 (improvements run, Runs G2+G3):** the
+    enumerator layer returns the file itself for a file root (c4618b3),
+    and both consumers honor it end-to-end (5b2ca42): glob accepts a
+    file root and matches the pattern against its basename; grep's Dart
+    fallback reads the root itself instead of the phantom
+    `<file>/<basename>` join. The rg subprocess path was never broken.
 17. **Default maxSteps (50) is tight for small-model writes.** The first
     Run A attempt spent all 50 steps exploring (plus 12 wasted on denied
     `cat`/`head`/`grep` bash shapes) and hit the max-steps ceiling with
