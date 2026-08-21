@@ -93,7 +93,8 @@ Future<void> _run(List<String> argv) async {
       // provider on the wire at once; `[limits] min_request_interval_ms` /
       // `max_concurrent_requests` in ~/.tina/config tune them (0 disables).
       registry.rateLimiter.minInterval = Duration(
-          milliseconds: userConfig.limits?.minRequestIntervalMs ?? 1000);
+        milliseconds: userConfig.limits?.minRequestIntervalMs ?? 1000,
+      );
       registry.rateLimiter.maxConcurrent =
           userConfig.limits?.maxConcurrentRequests ?? 4;
       // Per-provider request-rate ceilings from `[providers.<id>]
@@ -113,8 +114,12 @@ Future<void> _run(List<String> argv) async {
 
       final Config config;
       try {
-        config = Config.parse(argv,
-            env: mergedEnv, registry: registry, userConfig: userConfig);
+        config = Config.parse(
+          argv,
+          env: mergedEnv,
+          registry: registry,
+          userConfig: userConfig,
+        );
       } on FormatException catch (e) {
         stderr.writeln(e.message);
         exit(64);
@@ -164,8 +169,10 @@ Future<void> _run(List<String> argv) async {
       // project (headless skips, TUI asks on the tty before the TUI takes over)
       // unless --trust / [trust] default override. Stored on the shared pipeline
       // so every agent (main, sub, /spawn) honors the same decision.
-      defaultPipeline.loadProjectContext =
-          await _resolveProjectTrust(config, mergedEnv);
+      defaultPipeline.loadProjectContext = await _resolveProjectTrust(
+        config,
+        mergedEnv,
+      );
 
       final app = await buildAppComposition(
         config: config,
@@ -211,7 +218,8 @@ Future<void> _run(List<String> argv) async {
       }
       if (outcome == RunOutcome.setupCancelled) {
         stderr.writeln(
-            'Setup cancelled. Re-run with --setup or set ANTHROPIC_API_KEY.');
+          'Setup cancelled. Re-run with --setup or set ANTHROPIC_API_KEY.',
+        );
       }
       return;
     }
@@ -306,8 +314,10 @@ Future<void> _restoreSessionCwd(SessionStore store, String sessionId) async {
   final dir = Directory(cwd);
   if (dir.path == Directory.current.path) return; // already home
   if (!await dir.exists()) {
-    stderr.writeln('resume: recorded cwd "$cwd" no longer exists — '
-        'restoring in the launch folder (${Directory.current.path}) instead.');
+    stderr.writeln(
+      'resume: recorded cwd "$cwd" no longer exists — '
+      'restoring in the launch folder (${Directory.current.path}) instead.',
+    );
     return;
   }
   try {
@@ -318,8 +328,10 @@ Future<void> _restoreSessionCwd(SessionStore store, String sessionId) async {
   }
 }
 
-Future<RunOutcome> _runInteractive(AppComposition app,
-    {bool setupMode = false}) async {
+Future<RunOutcome> _runInteractive(
+  AppComposition app, {
+  bool setupMode = false,
+}) async {
   final coordinator = await TuiCoordinator.create(app: app);
   final result = await coordinator.run(setupMode: setupMode);
   return result;
@@ -334,10 +346,12 @@ Directory _workflowsDir(Map<String, String> env) =>
 void _seedDefaultWorkflowQuietly(Map<String, String> env) {
   try {
     if (seedDefaultWorkflow(_workflowsDir(env))) {
-      stdout.writeln('seeded ~/.tina/workflows/default.dot — the default '
-          'graph the agent launches via its launch_workflow tool. Edit with '
-          '/workflow edit default; delete it (or set [default] workflow = '
-          '"none") if you don\'t want a default workflow available.');
+      stdout.writeln(
+        'seeded ~/.tina/workflows/default.dot — the default '
+        'graph the agent launches via its launch_workflow tool. Edit with '
+        '/workflow edit default; delete it (or set [default] workflow = '
+        '"none") if you don\'t want a default workflow available.',
+      );
     }
   } catch (e) {
     stderr.writeln('warning: could not seed the default workflow: $e');
@@ -488,21 +502,28 @@ Future<void> _runNonInteractive(AppComposition app) async {
 
   // Append concise summary instruction for headless --prompt runs.
   final rawPrompt = app.config.prompt!;
-  var userInput = rawPrompt + (
-    rawPrompt.trim().isNotEmpty ? '\n' : ''
-  ) + HeadlessHost.kHeadlessSummaryInstruction;
+  var userInput =
+      rawPrompt +
+      (rawPrompt.trim().isNotEmpty ? '\n' : '') +
+      HeadlessHost.kHeadlessSummaryInstruction;
 
   // Startup tree-health check (#22b): a killed run persists its edits but not
   // the model's awareness of them; compaction can drop old per-edit verdicts;
   // and the break may pre-date the session or come from outside entirely (a
   // kill, a manual edit). The CURRENT tree state at startup is authoritative
   // regardless of transcript history — so analyze it here and, when it does
-  // not compile, prepend a <tree-health> notice so the model fixes it FIRST.
-  // Bounded 30s; silent skip on timeout/spawn failure; no new flags.
+  // not compile, prepend a <tree-health> notice. (#27) Whether the notice may
+  // say "fix FIRST" depends on whether this run can actually edit: in a
+  // read-only run that framing invites an edit-refusal spiral (Run A burned
+  // 12 steps on refused edits), so wrapTreeHealth appends a do-not-try line
+  // and the model answers with read-only tools instead.
   if (File('pubspec.yaml').existsSync()) {
     final notice = await DartAnalyzeVerifier().projectCheck();
     if (notice != null) {
-      userInput = '<tree-health>\n$notice\n</tree-health>\n\n$userInput';
+      userInput =
+          '<tree-health>\n'
+          '${DartAnalyzeVerifier.wrapTreeHealth(notice, editActionable: DartAnalyzeVerifier.editActionable(app.policy))}'
+          '\n</tree-health>\n\n$userInput';
     }
   }
 
@@ -528,15 +549,18 @@ Future<void> _runNonInteractive(AppComposition app) async {
         // session writes), then take the hard exit the budget guard would.
         cancelWatchdog.complete();
         watchdogGrace = Timer(const Duration(seconds: 5), () {
-          stderr.writeln('[watchdog] graceful teardown missed the 5s grace — '
-              'exiting hard');
+          stderr.writeln(
+            '[watchdog] graceful teardown missed the 5s grace — '
+            'exiting hard',
+          );
           exit(2);
         });
       },
     )..start();
     watchdogSub = host.eventBus.events.listen(
-        (e) => watchdog?.record(e.runtimeType.toString()),
-        onDone: watchdog.dispose);
+      (e) => watchdog?.record(e.runtimeType.toString()),
+      onDone: watchdog.dispose,
+    );
     cancelWatchdog.future.whenComplete(watchdog.dispose);
   }
   try {
@@ -557,7 +581,8 @@ Future<void> _runNonInteractive(AppComposition app) async {
     // that actually exists on disk.
     if (app.initialSessionId.isNotEmpty) {
       stderr.writeln(
-          'session: ${recorder.sessionId}  (resume: tina --resume ${recorder.sessionId})');
+        'session: ${recorder.sessionId}  (resume: tina --resume ${recorder.sessionId})',
+      );
     }
     await host.dispose();
     await app.store.close();
@@ -575,21 +600,23 @@ Future<void> _runNonInteractive(AppComposition app) async {
 /// no config exists.
 bool _shouldRunStdinSetup(List<String> argv, Environment environment) {
   if (stdioType(stdin) == StdioType.terminal) return false; // tty → overlay
-  final nonInteractive = argv.any((a) =>
-      a == '--prompt' ||
-      a.startsWith('--prompt=') ||
-      a == '--workflow' ||
-      a.startsWith('--workflow=') ||
-      a == '--help' ||
-      a == '-h' ||
-      a == '--version' ||
-      a == '--list' ||
-      a == '-l' ||
-      a == '--init-config' ||
-      a == '--models' ||
-      a.startsWith('--models=') ||
-      a == '--api-key' ||
-      a.startsWith('--api-key='));
+  final nonInteractive = argv.any(
+    (a) =>
+        a == '--prompt' ||
+        a.startsWith('--prompt=') ||
+        a == '--workflow' ||
+        a.startsWith('--workflow=') ||
+        a == '--help' ||
+        a == '-h' ||
+        a == '--version' ||
+        a == '--list' ||
+        a == '-l' ||
+        a == '--init-config' ||
+        a == '--models' ||
+        a.startsWith('--models=') ||
+        a == '--api-key' ||
+        a.startsWith('--api-key='),
+  );
   if (nonInteractive) return false;
   if (argv.any((a) => a == '--setup')) return true;
   return !userConfigFile(environment.env).existsSync();
@@ -639,7 +666,9 @@ String _shortStamp(DateTime t) {
 /// just ignores them (fire-and-forget, errors logged at FINE inside the
 /// catalogs). Empty when disabled via `COCOON_MODELS_DEV=0`.
 List<Future<void>> _attachModelsDevCatalog(
-    ProviderRegistry registry, Map<String, String> env) {
+  ProviderRegistry registry,
+  Map<String, String> env,
+) {
   if (env['COCOON_MODELS_DEV'] == '0') return const [];
   final modelsDev = ModelsDevCatalog(env: env);
   final live = LiveModelsCatalog(env: env, inner: modelsDev);
@@ -654,9 +683,12 @@ List<Future<void>> _attachModelsDevCatalog(
 /// Headless / non-tty runs skip it for an untrusted project (no UI to ask); a
 /// tty run prompts on stdin before the TUI takes over the terminal — the same
 /// pre-TUI stdin window the setup wizard uses.
-Future<bool> _resolveProjectTrust(Config config, Map<String, String> env) async {
-  final hasUi = !config.nonInteractive &&
-      stdioType(stdin) == StdioType.terminal;
+Future<bool> _resolveProjectTrust(
+  Config config,
+  Map<String, String> env,
+) async {
+  final hasUi =
+      !config.nonInteractive && stdioType(stdin) == StdioType.terminal;
   return resolveProjectTrust(
     cwd: Directory.current.path,
     store: ProjectTrustStore.forTinaDir(tinaDirFromEnv(env)),
@@ -673,8 +705,10 @@ Future<bool> _askTrustStdin(String cwd) async {
   stdout
     ..writeln('Trust this project?')
     ..writeln('  $cwd')
-    ..writeln('  An AGENTS.md here can inject instructions into the agent. '
-        'Trusting loads it.')
+    ..writeln(
+      '  An AGENTS.md here can inject instructions into the agent. '
+      'Trusting loads it.',
+    )
     ..write('Load it? [y/N] ');
   final line = stdin.readLineSync()?.trim().toLowerCase() ?? '';
   return line == 'y' || line == 'yes';
@@ -701,8 +735,10 @@ Future<void> _printModels(String? providerId, ProviderRegistry registry) async {
   final models = registry.modelsFor(providerId);
   if (models.isEmpty) {
     // Unknown provider → stderr with known providers, non-zero exit
-    stderr.writeln('Unknown provider "$providerId". '
-        'Known: ${registry.providerIds.join(', ')}');
+    stderr.writeln(
+      'Unknown provider "$providerId". '
+      'Known: ${registry.providerIds.join(', ')}',
+    );
     exit(1);
   }
 

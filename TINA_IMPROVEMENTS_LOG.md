@@ -595,3 +595,32 @@ file:line-cited summary of its own rate limiter.
     line break (and settle any active spinner/region) so the prompt
     always starts at column 0 of a fresh line — the same discipline the
     tool-start/tool-complete notices already follow.
+    **→ Implemented 2026-08-21 (improvements run, Run P + driver touch-up):**
+    all three legs. (a) `PermissionResponse.note` — a model-facing
+    explanation an auto-refusing asker supplies (HeadlessHost, the
+    background-conversation TUI branch, and the workflow asker all set
+    it): "Non-interactive run: permission asks are auto-refused —
+    rephrasing will not change this." It rides on the denied tool result;
+    the stderr hint stays for the operator. A static deny RULE gets no
+    note (the asker was never consulted; the allowed-shapes text is the
+    remedy there). (b) A per-tool consecutive-denial circuit breaker in
+    the agent loop: at ≥3 denials of the same tool (an allowed call of
+    that tool resets the streak) the denial result itself says "stop
+    calling it" and a warning notice marks the trip for the operator.
+    (c) The `<tree-health>` block now goes through
+    `DartAnalyzeVerifier.wrapTreeHealth`: when `editActionable(policy)`
+    (a scratch-file `edit` probe against the run's policy) says the run
+    cannot edit, the block gains "You do NOT have edit permission in
+    this run — do not try to fix these." Live acceptance (the exact
+    probe that exposed the spiral): a no-`--allow` run in a broken
+    scratch package answered the prompt with ZERO denials — the model
+    read the file, cited "the no-edit constraint", and exited 0 (the
+    pre-fix behavior was 11 denials and a driver kill). Driver
+    touch-up: removed a redundant second streak-reset (the allow-time
+    reset already covers it) and dart-format. Engine 767 / root 702
+    (driver-run counts; Run P's summary claimed "534 across the repo" —
+    a subset miscount, its fourth in a row). An unplanned bonus proof:
+    Run P's first launch lost its `--allow` flags to a launcher typo,
+    and tina — reading only its own denial results — stopped after 3
+    denials and reported honestly instead of spiraling: the fix's
+    target behavior, exercised by accident.

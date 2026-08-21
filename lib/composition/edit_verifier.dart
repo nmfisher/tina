@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:tina_engine/tina_engine.dart';
 
@@ -19,7 +20,7 @@ class DartAnalyzeVerifier {
   final ProcessRunner processRunner;
 
   DartAnalyzeVerifier({ProcessRunner? processRunner})
-      : processRunner = processRunner ?? const IoProcessRunner();
+    : processRunner = processRunner ?? const IoProcessRunner();
 
   /// How many error lines the block carries before it truncates to a
   /// `... (K more)` tail.
@@ -100,6 +101,36 @@ class DartAnalyzeVerifier {
     );
   }
 
+  /// Whether THIS run may act on a [wrapTreeHealth] notice: does an `edit` of
+  /// a scratch `.dart` file in [cwd] (null = process cwd) pass the given
+  /// [policy]? The probe mirrors what a real fix attempt would need — static
+  /// allow/deny rules and mode widening decide; no ask is ever surfaced.
+  /// Exposed for tests so the actionable gate can be asserted without
+  /// spawning a run.
+  static bool editActionable(PermissionPolicy policy, {String? cwd}) {
+    final dir = cwd ?? Directory.current.path;
+    final joined = dir.endsWith('/')
+        ? '${dir}tree_health_probe.dart'
+        : '${dir}/tree_health_probe.dart';
+    return policy.check('edit', {'filePath': joined}) ==
+        PermissionDecision.allow;
+  }
+
+  /// Wrap a [projectCheck] notice for the headless turn prefix (#27). When
+  /// [editActionable] is false — a read-only/no-allow run — the usual "fix
+  /// these FIRST" framing is a denial spiral invitation: the model tries
+  /// edit after edit, each refused, burning steps it never recovers (#27 Run
+  /// A: 12 wasted steps). In that case append an explicit do-not-try line so
+  /// the model treats the breakage as context and answers with read-only
+  /// tools instead.
+  static String wrapTreeHealth(String notice, {required bool editActionable}) {
+    if (editActionable) return notice;
+    return '$notice\n'
+        'You do NOT have edit permission in this run — do not try to fix '
+        'these. Treat them as pre-existing context and answer with read-only '
+        'tools.';
+  }
+
   /// Shared parse+cap core behind [blockFor] and [projectCheck]: collect the
   /// `error - ` lines from combined stdout+stderr, cap at [maxErrorLines]
   /// with a `... (K more)` tail, severity-trim each line, and open the block
@@ -132,8 +163,9 @@ class DartAnalyzeVerifier {
     final withoutSeverity = line.substring('error - '.length);
     // Drop the trailing diagnostic code (`  - some_code`) when present.
     final codeIdx = withoutSeverity.lastIndexOf('  - ');
-    final body =
-        codeIdx > 0 ? withoutSeverity.substring(0, codeIdx) : withoutSeverity;
+    final body = codeIdx > 0
+        ? withoutSeverity.substring(0, codeIdx)
+        : withoutSeverity;
     return body.trim();
   }
 }

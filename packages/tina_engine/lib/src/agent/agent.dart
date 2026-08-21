@@ -23,6 +23,15 @@ final _log = Logger('tina.agent');
 /// relaxes the ask-gate). No config surface by design.
 const int kMaxToolCallsPerRun = 5000;
 
+/// Consecutive denials of the SAME tool after which the denial result gains a
+/// circuit-breaker line telling the model to stop calling that tool (#27).
+/// Why 3: the live spiral runs wasted 12 steps (Run A) and 11 (the probe run)
+/// re-denying one tool before the model gave up — three strikes is early
+/// enough to cut most of that waste while leaving room for one legitimate
+/// rephrase between attempts. Not configurable by design, like
+/// [kMaxToolCallsPerRun].
+const int _consecutiveDenialNoticeThreshold = 3;
+
 /// Why a turn stopped abnormally, classified by cause. Callers that decide
 /// whether to retry (e.g. the pipeline's codergen nodes) treat [provider]
 /// failures as transient — a rate limit or dropped stream may clear on its
@@ -245,7 +254,8 @@ class Agent {
   }) async {
     abortedReason = null;
     abortedKind = AbortedKind.none;
-    final userMessage = Message(role: Role.user, content: [TextBlock(userInput)]);
+    final userMessage =
+        Message(role: Role.user, content: [TextBlock(userInput)]);
     history.add(userMessage);
     final pendingUser = _notifyAppend(userMessage);
     if (pendingUser != null) await pendingUser;
@@ -268,6 +278,11 @@ class Agent {
     // Consecutive completions that carried NO blocks at all (see the check
     // before the history append below). One retry, then abort.
     var emptyCompletions = 0;
+
+    // Per-tool consecutive denial counter (#27): resets on any SUCCESS of
+    // that tool, increments on each denial. Used to trip the circuit-breaker
+    // message that tells the model to stop calling the same denied tool.
+    final denialCounts = <String, int>{};
 
     for (var step = 0; step < maxSteps; step++) {
       if (cancelled) {
@@ -315,14 +330,14 @@ class Agent {
         // floor (estimate > threshold/2) skips compaction when the context
         // is small enough that compacting buys little.
         final perTurn = budget?.perTurnLimit;
-        final spendTriggered =
-            perTurn != null &&
-                budget!.turnTotal >= perTurn ~/ 2 &&
-                estimate > autoCompactThreshold ~/ 2;
+        final spendTriggered = perTurn != null &&
+            budget!.turnTotal >= perTurn ~/ 2 &&
+            estimate > autoCompactThreshold ~/ 2;
         if ((sizeTriggered || spendTriggered) &&
             _assistantMessageBoundary(history, autoCompactKeepMessages) >= 2) {
           if (spendTriggered && !sizeTriggered) {
-            sink.notice('\n[compact] turn spend ${budget!.turnTotal}/$perTurn '
+            sink.notice(
+                '\n[compact] turn spend ${budget!.turnTotal}/$perTurn '
                 'crossed 50% — compacting to stretch the per-turn cap\n',
                 kind: NoticeKind.info);
           }
@@ -335,8 +350,7 @@ class Agent {
       // Pre-flight: refuse a request whose input alone would blow past the
       // per-request cap. Catches the "single tool returned 5MB of context"
       // scenario before we put it on the wire.
-      final reject =
-          budget?.checkRequestInput(system, history, tools.schemas);
+      final reject = budget?.checkRequestInput(system, history, tools.schemas);
       if (reject != null) {
         sink.notice('\n[budget] $reject\n', kind: NoticeKind.error);
         abortedReason = reject;
@@ -488,9 +502,14 @@ class Agent {
         }
 
         var decision = policy.check(use.name, use.input);
+        // The asker's response, when the decision went through the asker
+        // (ask → refused). Null for a static deny RULE — a rule deny is a
+        // policy choice; the allowed-shapes text is its remedy, so no asker
+        // note is expected there.
+        PermissionResponse? resp;
         if (decision == PermissionDecision.ask) {
           final prompt = PermissionPrompt(use.name, use.input);
-          final resp = await asker(prompt);
+          resp = await asker(prompt);
           decision = resp.decision;
           if (resp.remember) {
             policy.remember(use.name, prompt.alwaysPattern, decision);
@@ -498,14 +517,41 @@ class Agent {
         }
         if (decision == PermissionDecision.deny) {
           sink.notice('  ${use.name} denied\n');
+          // Circuit breaker (#27): a model that keeps re-denying the SAME
+          // tool never gets new information from the plain denial text, and
+          // the asker's own refusal hint only went to stderr — so it spun
+          // (12 wasted steps in Run A; 11 in the probe run). Past the
+          // threshold the denial result itself says "stop calling this".
+          final denials = (denialCounts[use.name] ?? 0) + 1;
+          denialCounts[use.name] = denials;
+          var content = _deniedContent(use.name);
+          final note = resp?.note;
+          if (note != null && note.isNotEmpty) {
+            content = '$content\n$note';
+          }
+          if (denials >= _consecutiveDenialNoticeThreshold) {
+            content =
+                '$content\nNOTE: $denials consecutive ${use.name} denials '
+                'this turn — this tool will keep being refused. Stop calling '
+                'it; proceed with the allowed tools or answer from what you '
+                'have.';
+            sink.notice(
+                '  ${use.name}: $denials consecutive denials this turn — '
+                'circuit-breaker notice attached to the denial result\n',
+                kind: NoticeKind.warning);
+          }
           results.add(ToolResultBlock(
             toolUseId: use.id,
-            content: _deniedContent(use.name),
+            content: content,
             isError: true,
           ));
           continue;
         }
 
+        // An ALLOWED call resets this tool's denial streak — the policy
+        // let the shape through, so the refusal pattern it was counting is
+        // over (whether the execution then succeeds or errors).
+        denialCounts.remove(use.name);
         sink.toolStart(ToolStartEvent(use.name, use.id, use.input));
         try {
           final out = await tool.execute(
@@ -562,8 +608,7 @@ class Agent {
           ));
         }
       }
-      final toolResults =
-          Message(role: Role.user, content: results);
+      final toolResults = Message(role: Role.user, content: results);
       history.add(toolResults);
       // Written-through immediately: a kill after the tools ran but before the
       // next completion would otherwise lose the results while the on-disk
@@ -612,13 +657,15 @@ class Agent {
       if (split <= 0) return false; // fewer recent human turns than requested
       prefix = history.sublist(0, split);
       suffix = history.sublist(split);
-      if (prefix.length < 2) return false; // not enough older context to summarize
+      if (prefix.length < 2)
+        return false; // not enough older context to summarize
     } else if (preserveRecentMessages > 0) {
       final split = _assistantMessageBoundary(history, preserveRecentMessages);
       if (split <= 0) return false; // no safe boundary with a splittable prefix
       prefix = history.sublist(0, split);
       suffix = history.sublist(split);
-      if (prefix.length < 2) return false; // not enough older context to summarize
+      if (prefix.length < 2)
+        return false; // not enough older context to summarize
     } else {
       prefix = history;
       suffix = const [];
@@ -628,7 +675,8 @@ class Agent {
     final summaryRequest = [
       ...prefix,
       const Message(role: Role.user, content: [
-        TextBlock('Summarize the conversation above following the system instructions.'),
+        TextBlock(
+            'Summarize the conversation above following the system instructions.'),
       ]),
     ];
 
@@ -696,9 +744,11 @@ class Agent {
     // happened). The replace seam below fires ONCE with the final post-compact
     // list, after the history is fully rebuilt.
     final rebuilt = [
-      Message(role: Role.user,
+      Message(
+          role: Role.user,
           content: [TextBlock('Prior conversation summary:\n\n$summary')]),
-      const Message(role: Role.assistant,
+      const Message(
+          role: Role.assistant,
           content: [TextBlock('Got it — continuing from this summary.')]),
       ...suffix,
     ];
@@ -765,5 +815,4 @@ class Agent {
     }
     return 0;
   }
-
 }

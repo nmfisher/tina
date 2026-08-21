@@ -163,8 +163,8 @@ void main() {
       final host = FakeHostInterface();
       final cancel = Completer<void>();
       final agent = hostAgent(_CancelMidStreamProvider(cancel), host);
-      await agent.run(
-          history: [], userInput: 'hi', cancelSignal: cancel.future);
+      await agent
+          .run(history: [], userInput: 'hi', cancelSignal: cancel.future);
       expect(host.activitySignals, [true, false],
           reason: 'a cancelled turn must not leave the busy cue stuck on');
     });
@@ -190,7 +190,8 @@ void main() {
       expect(sink.texts, ['ok']);
     });
 
-    test('an empty completion is retried, not recorded as a clean finish', () async {
+    test('an empty completion is retried, not recorded as a clean finish',
+        () async {
       // Seen in the wild: an overloaded worker returns 200 with zero content
       // blocks. The turn must NOT end there (a headless run would exit 0
       // having done nothing) and the empty message must not reach history.
@@ -219,13 +220,10 @@ void main() {
       expect(agent.abortedReason, isNull);
       expect(sink.texts, ['recovered']);
       expect(
-          history
-              .where((m) => m.role == Role.assistant)
-              .map((m) => m.content),
+          history.where((m) => m.role == Role.assistant).map((m) => m.content),
           everyElement(isNotEmpty),
           reason: 'the degenerate empty message is never appended');
-      expect(
-          sink.notices.map((n) => n.message),
+      expect(sink.notices.map((n) => n.message),
           contains(contains('empty completion')),
           reason: 'the retry is visible, not silent');
     });
@@ -255,7 +253,8 @@ void main() {
   });
 
   group('Agent.run', () {
-    test('single turn with no tools emits text and appends to history', () async {
+    test('single turn with no tools emits text and appends to history',
+        () async {
       final provider = FakeProvider([
         [
           const TextDelta('hello'),
@@ -400,9 +399,13 @@ void main() {
 
       await agent.run(history: history, userInput: 'run it');
 
-      expect(inputs, [
-        {'command': r'echo "done: \"$?\""'},
-      ], reason: 'only the well-formed retry reaches the tool, input verbatim');
+      expect(
+          inputs,
+          [
+            {'command': r'echo "done: \"$?\""'},
+          ],
+          reason:
+              'only the well-formed retry reaches the tool, input verbatim');
       expect(sink.toolCompletes.single.isError, isFalse);
       expect(provider.calls, hasLength(3));
     });
@@ -527,7 +530,8 @@ void main() {
       await agent.run(history: history, userInput: 'try it');
 
       expect(sink.toolStarts, isEmpty); // never reached execution
-      expect(sink.notices.any((n) => n.message.contains('unknown tool')), isTrue);
+      expect(
+          sink.notices.any((n) => n.message.contains('unknown tool')), isTrue);
       expect(sink.texts, ['recovered']); // loop continued to a second call
       expect(provider.calls, hasLength(2));
     });
@@ -554,7 +558,8 @@ void main() {
       final sink = FakeAgentSink();
       final agent = _agent(
         provider: provider,
-        tools: ToolRegistry([FakeTool('bash', (_) => throw StateError('boom'))]),
+        tools:
+            ToolRegistry([FakeTool('bash', (_) => throw StateError('boom'))]),
         sink: sink,
         policy: PermissionPolicy(defaults: {'bash': PermissionDecision.allow}),
       );
@@ -727,10 +732,9 @@ void main() {
           answerEvents('ok'),
         ]);
 
-    ToolResultBlock deniedResult(List<Message> history) => history
-        .lastWhere((m) => m.role == Role.user)
-        .content
-        .single as ToolResultBlock;
+    ToolResultBlock deniedResult(List<Message> history) =>
+        history.lastWhere((m) => m.role == Role.user).content.single
+            as ToolResultBlock;
 
     test('denied bash result lists the bash allow patterns in the policy',
         () async {
@@ -774,7 +778,8 @@ void main() {
       expect(result.content, contains('Do not retry the same call unchanged'));
     });
 
-    test('denied bash with no bash allow rules says none and names the native '
+    test(
+        'denied bash with no bash allow rules says none and names the native '
         'tools', () async {
       final sink = FakeAgentSink();
       final agent = Agent(
@@ -819,9 +824,185 @@ void main() {
       expect(result.isError, isTrue);
       expect(result.content, contains('Denied by permission policy'));
       expect(result.content, contains('Allowed write patterns: none'));
-      expect(result.content,
-          isNot(contains('always-allowed tools')));
+      expect(result.content, isNot(contains('always-allowed tools')));
       expect(result.content, contains('Do not retry the same call unchanged'));
+    });
+
+    test('asker refusal note is appended to the denial result (#27)', () async {
+      final sink = FakeAgentSink();
+      final agent = Agent(
+        provider: denyProvider('write', {'filePath': '/etc/hosts'}),
+        tools: ToolRegistry([FakeTool('write', (_) => ToolResult('ok'))]),
+        sink: sink,
+        policy: PermissionPolicy(),
+        asker: (_) async => const PermissionResponse(PermissionDecision.deny,
+            note: 'Non-interactive run: permission asks are auto-refused.'),
+        system: 'sys',
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'edit it');
+
+      final result = deniedResult(history);
+      expect(result.isError, isTrue);
+      expect(result.content, contains('Denied by permission policy'));
+      expect(result.content,
+          contains('Non-interactive run: permission asks are auto-refused.'),
+          reason: 'the model-facing note must ride on the tool result');
+    });
+
+    test('static rule denial has no note (asker never consulted)', () async {
+      final sink = FakeAgentSink();
+      // A static deny RULE short-circuits before the asker — its remedy is
+      // the allowed-shapes text, so no asker note is expected there.
+      final agent = Agent(
+        provider: denyProvider('write', {'filePath': '/etc/passwd'}),
+        tools: ToolRegistry([FakeTool('write', (_) => ToolResult('ok'))]),
+        sink: sink,
+        policy: PermissionPolicy(rules: const [
+          PermissionRule(
+              toolName: 'write',
+              pattern: '/etc/*',
+              decision: PermissionDecision.deny),
+        ]),
+        asker: (_) async => const PermissionResponse(PermissionDecision.deny,
+            note: 'asker note that must NOT appear'),
+        system: 'sys',
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'edit it');
+
+      final result = deniedResult(history);
+      expect(result.content, contains('Denied by permission policy'));
+      expect(result.content, isNot(contains('asker note')),
+          reason: 'a rule deny never went through the asker');
+    });
+
+    test(
+        'three consecutive denials of one tool attach a stop-calling '
+        'notice (#27)', () async {
+      // Four scripted denials of the SAME tool: the breaker line appears
+      // from the third denial on, and the counter keeps counting.
+      final provider = FakeProvider([
+        [
+          MessageComplete(content: [
+            ToolUseBlock(id: 'd1', name: 'bash', input: {'command': 'rm -rf /'})
+          ], stopReason: 'tool_use'),
+        ],
+        [
+          MessageComplete(content: [
+            ToolUseBlock(
+                id: 'd2', name: 'bash', input: {'command': 'rm -rf /*'})
+          ], stopReason: 'tool_use'),
+        ],
+        [
+          MessageComplete(content: [
+            ToolUseBlock(id: 'd3', name: 'bash', input: {'command': 'rm -rf .'})
+          ], stopReason: 'tool_use'),
+        ],
+        [
+          MessageComplete(content: [
+            ToolUseBlock(
+                id: 'd4', name: 'bash', input: {'command': 'rm -rf ..'})
+          ], stopReason: 'tool_use'),
+        ],
+        answerEvents('ok'),
+      ]);
+      final sink = FakeAgentSink();
+      final agent = Agent(
+        provider: provider,
+        tools: ToolRegistry([FakeTool('bash', (_) => ToolResult('ran'))]),
+        sink: sink,
+        policy: PermissionPolicy(),
+        asker: (_) async => PermissionResponse.denyOnce,
+        system: 'sys',
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'clean up');
+
+      final toolResults = history
+          .whereType<Message>()
+          .where((m) => m.role == Role.user)
+          .expand((m) => m.content.whereType<ToolResultBlock>())
+          .toList();
+      expect(toolResults, hasLength(4));
+      // Denials 1 and 2: plain denial, no breaker line yet.
+      expect(toolResults[0].content, isNot(contains('consecutive')));
+      expect(toolResults[1].content, isNot(contains('consecutive')));
+      // Denials 3 and 4: the circuit-breaker notice rides the result.
+      expect(toolResults[2].content, contains('3 consecutive bash denials'));
+      expect(toolResults[2].content, contains('Stop calling'));
+      expect(toolResults[3].content, contains('4 consecutive bash denials'));
+      // The trip is also visible on the sink, for operators watching stderr.
+      expect(
+          sink.notices.any((n) =>
+              n.message.contains('consecutive denials this turn') &&
+              n.kind == NoticeKind.warning),
+          isTrue);
+    });
+
+    test('a successful call resets the denial streak (#27)', () async {
+      // deny, deny, ALLOW (tool runs), deny: the final denial must be the
+      // FIRST of a fresh streak — no breaker line — proving the counter
+      // cleared on success.
+      final provider = FakeProvider([
+        [
+          MessageComplete(content: [
+            ToolUseBlock(id: 'd1', name: 'bash', input: {'command': 'rm -rf /'})
+          ], stopReason: 'tool_use'),
+        ],
+        [
+          MessageComplete(content: [
+            ToolUseBlock(
+                id: 'd2', name: 'bash', input: {'command': 'rm -rf /*'})
+          ], stopReason: 'tool_use'),
+        ],
+        [
+          MessageComplete(content: [
+            ToolUseBlock(id: 'ok1', name: 'bash', input: {'command': 'ls -la'})
+          ], stopReason: 'tool_use'),
+        ],
+        [
+          MessageComplete(content: [
+            ToolUseBlock(id: 'd3', name: 'bash', input: {'command': 'rm -rf .'})
+          ], stopReason: 'tool_use'),
+        ],
+        answerEvents('ok'),
+      ]);
+      final sink = FakeAgentSink();
+      // Static allow for the exact successful command; the rm commands ask
+      // (default) and get refused by the asker below.
+      final agent = Agent(
+        provider: provider,
+        tools: ToolRegistry([FakeTool('bash', (_) => ToolResult('ran'))]),
+        sink: sink,
+        policy: PermissionPolicy(rules: const [
+          PermissionRule(
+              toolName: 'bash',
+              pattern: 'ls -la',
+              decision: PermissionDecision.allow),
+        ]),
+        asker: (_) async => PermissionResponse.denyOnce,
+        system: 'sys',
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'clean up');
+
+      final toolResults = history
+          .whereType<Message>()
+          .where((m) => m.role == Role.user)
+          .expand((m) => m.content.whereType<ToolResultBlock>())
+          .toList();
+      expect(toolResults, hasLength(4));
+      expect(toolResults[0].content, isNot(contains('consecutive')));
+      expect(toolResults[1].content, isNot(contains('consecutive')));
+      expect(toolResults[2].isError, isFalse,
+          reason: 'the allowed call must have actually run');
+      expect(toolResults[3].content, isNot(contains('consecutive')),
+          reason: 'the success reset the streak, so this is denial #1 again');
     });
   });
 
@@ -844,7 +1025,8 @@ void main() {
       );
       final history = <Message>[
         const Message(role: Role.user, content: [TextBlock('old user')]),
-        const Message(role: Role.assistant, content: [TextBlock('old assistant')]),
+        const Message(
+            role: Role.assistant, content: [TextBlock('old assistant')]),
       ];
 
       await agent.compact(history);
@@ -852,7 +1034,8 @@ void main() {
       expect(history, hasLength(2));
       expect(history[0].role, Role.user);
       expect(history[1].role, Role.assistant);
-      expect(sink.texts, ['summary bullets']); // summary streamed through the sink
+      expect(
+          sink.texts, ['summary bullets']); // summary streamed through the sink
     });
 
     test('an empty summary reports failure and leaves history untouched',
@@ -872,7 +1055,8 @@ void main() {
 
       await agent.compact(history);
 
-      expect(sink.notices.any((n) => n.message.contains('compact failed')), isTrue);
+      expect(sink.notices.any((n) => n.message.contains('compact failed')),
+          isTrue);
       expect(history, hasLength(2));
       expect((history[0].content.single as TextBlock).text, 'q');
       expect((history[1].content.single as TextBlock).text, 'a');
@@ -949,12 +1133,12 @@ void main() {
       expect((history[2].content.single as TextBlock).text, 'q2');
       expect(
           history.any((m) => m.content.any((b) => b is ToolUseBlock)), isTrue);
-      expect(
-          history.any((m) => m.content.any((b) => b is ToolResultBlock)),
+      expect(history.any((m) => m.content.any((b) => b is ToolResultBlock)),
           isTrue);
     });
 
-    test('preserveRecent is a no-op when there are too few human turns to split',
+    test(
+        'preserveRecent is a no-op when there are too few human turns to split',
         () async {
       // One human turn → can't keep one AND summarize a prefix.
       final provider = FakeProvider([[]]); // never invoked
@@ -974,7 +1158,8 @@ void main() {
       expect(history, hasLength(2)); // unchanged
     });
 
-    test('preserveRecentMessages splits on an assistant boundary, never a tool pair',
+    test(
+        'preserveRecentMessages splits on an assistant boundary, never a tool pair',
         () async {
       // Mid-turn shape: one human input followed by tool exchanges. The
       // message-boundary mode must summarize the older prefix and keep the
@@ -1017,8 +1202,7 @@ void main() {
         ]),
       ];
 
-      final compacted =
-          await agent.compact(history, preserveRecentMessages: 4);
+      final compacted = await agent.compact(history, preserveRecentMessages: 4);
 
       expect(compacted, isTrue);
       // [summary-u, summary-a, a(t2), u(t2), a(t3), u(t3)] — the first
@@ -1059,8 +1243,7 @@ void main() {
         ]),
       ];
 
-      final compacted =
-          await agent.compact(history, preserveRecentMessages: 6);
+      final compacted = await agent.compact(history, preserveRecentMessages: 6);
 
       expect(compacted, isFalse);
       expect(history, hasLength(3)); // unchanged
@@ -1073,23 +1256,18 @@ void main() {
     final String big = 'x' * 20000;
 
     List<StreamEvent> toolUse(String id) => [
-          MessageComplete(
-              content: [
-                ToolUseBlock(id: id, name: 'big', input: const {}),
-              ],
-              stopReason: 'tool_use'),
+          MessageComplete(content: [
+            ToolUseBlock(id: id, name: 'big', input: const {}),
+          ], stopReason: 'tool_use'),
         ];
 
     /// A tool-use round that also reports [usage], so the turn's cumulative
     /// spend (the [Agent] budget counts every round trip's input+output) can be
     /// driven from a script.
     List<StreamEvent> toolUseWithUsage(String id, TokenUsage usage) => [
-          MessageComplete(
-              content: [
-                ToolUseBlock(id: id, name: 'big', input: const {}),
-              ],
-              stopReason: 'tool_use',
-              usage: usage),
+          MessageComplete(content: [
+            ToolUseBlock(id: id, name: 'big', input: const {}),
+          ], stopReason: 'tool_use', usage: usage),
         ];
 
     List<StreamEvent> text(String t) => [
@@ -1099,8 +1277,7 @@ void main() {
     List<StreamEvent> summary() => [
           const TextDelta('progress summary'),
           const MessageComplete(
-              content: [TextBlock('progress summary')],
-              stopReason: 'end_turn'),
+              content: [TextBlock('progress summary')], stopReason: 'end_turn'),
         ];
 
     Agent compactingAgent(FakeProvider provider,
@@ -1114,8 +1291,7 @@ void main() {
           FakeTool('big', handler ?? (_) => ToolResult(big)),
         ]),
         sink: sink ?? FakeAgentSink(),
-        policy:
-            PermissionPolicy(defaults: {'big': PermissionDecision.allow}),
+        policy: PermissionPolicy(defaults: {'big': PermissionDecision.allow}),
       );
       agent
         ..autoCompactThreshold = threshold
@@ -1162,8 +1338,8 @@ void main() {
       );
       // …but the in-flight tool result survived verbatim in the suffix.
       expect(
-        lastCall.messages.any((m) => m.content
-            .any((b) => b is ToolResultBlock && b.content == big)),
+        lastCall.messages.any((m) =>
+            m.content.any((b) => b is ToolResultBlock && b.content == big)),
         isTrue,
       );
     });
@@ -1213,7 +1389,8 @@ void main() {
       expect(agent.abortedReason, isNull);
     });
 
-    test('SPEND trigger fires when cumulative tokens cross 50% of per-turn limit',
+    test(
+        'SPEND trigger fires when cumulative tokens cross 50% of per-turn limit',
         () async {
       // The size trigger (estimate > threshold) must NOT fire — only the spend
       // trigger (turnTotal >= perTurn/2 AND estimate > threshold/2). So the
@@ -1225,8 +1402,10 @@ void main() {
       // turn is not budget-aborted and the SPEND check gets to run.
       final medium = 'x' * 2500; // ~625 est. tokens: above the 500 floor
       final provider = FakeProvider([
-        toolUseWithUsage('t1', const TokenUsage(inputTokens: 15, outputTokens: 15)),
-        toolUseWithUsage('t2', const TokenUsage(inputTokens: 15, outputTokens: 15)),
+        toolUseWithUsage(
+            't1', const TokenUsage(inputTokens: 15, outputTokens: 15)),
+        toolUseWithUsage(
+            't2', const TokenUsage(inputTokens: 15, outputTokens: 15)),
         summary(), // the spend-triggered compaction
         text('all done'),
       ]);
@@ -1234,7 +1413,8 @@ void main() {
       final agent = compactingAgent(
         provider,
         handler: (_) => ToolResult(calls++ == 0 ? 'small' : medium),
-        threshold: 1000, // floor = 500; the medium result lifts estimate to ~640
+        threshold:
+            1000, // floor = 500; the medium result lifts estimate to ~640
         keepMessages: 2,
       );
       agent.budget = const TokenBudget(perTurnLimit: 100);
@@ -1247,10 +1427,9 @@ void main() {
       expect(provider.calls, hasLength(4));
       expect(
         provider.calls
-            .where((c) =>
-                c.messages.any((m) => m.content.any((b) =>
-                    b is TextBlock &&
-                    b.text.contains('Summarize the conversation above'))))
+            .where((c) => c.messages.any((m) => m.content.any((b) =>
+                b is TextBlock &&
+                b.text.contains('Summarize the conversation above'))))
             .length,
         1,
       );
@@ -1266,7 +1445,8 @@ void main() {
           reason: '60 spent of 100 allowed — the turn must complete');
     });
 
-    test('FLOOR holds: no compaction when spend past 50% but estimate below floor',
+    test(
+        'FLOOR holds: no compaction when spend past 50% but estimate below floor',
         () async {
       // Spend crosses 50% (usage 30/round against a limit of 100 → 60 after
       // round 2) but the payloads stay tiny, so the estimate never reaches
@@ -1351,20 +1531,16 @@ void main() {
 
   group('Agent.run result verifier (#22a)', () {
     List<StreamEvent> editUse(String id) => [
-          MessageComplete(
-              content: [
-                ToolUseBlock(
-                    id: id, name: 'edit', input: {'filePath': 'a.dart'}),
-              ],
-              stopReason: 'tool_use'),
+          MessageComplete(content: [
+            ToolUseBlock(id: id, name: 'edit', input: {'filePath': 'a.dart'}),
+          ], stopReason: 'tool_use'),
         ];
 
     List<StreamEvent> text(String t) => [
           MessageComplete(content: [TextBlock(t)], stopReason: 'end_turn'),
         ];
 
-    Agent editAgent(FakeProvider provider, _VerifierScript script) =>
-        _agent(
+    Agent editAgent(FakeProvider provider, _VerifierScript script) => _agent(
           provider: provider,
           tools: ToolRegistry([
             FakeTool('edit', (_) => ToolResult('applied')),
@@ -1375,10 +1551,9 @@ void main() {
           resultVerifier: script.call,
         );
 
-    ToolResultBlock toolResult(List<Message> history) => history
-        .lastWhere((m) => m.role == Role.user)
-        .content
-        .single as ToolResultBlock;
+    ToolResultBlock toolResult(List<Message> history) =>
+        history.lastWhere((m) => m.role == Role.user).content.single
+            as ToolResultBlock;
 
     test('a non-null verdict is appended to the tool result the model reads',
         () async {
@@ -1422,8 +1597,7 @@ void main() {
           FakeTool('edit', (_) => ToolResult.error('file not found')),
         ]),
         sink: FakeAgentSink(),
-        policy:
-            PermissionPolicy(defaults: {'edit': PermissionDecision.allow}),
+        policy: PermissionPolicy(defaults: {'edit': PermissionDecision.allow}),
         resultVerifier: script.call,
       );
       final history = <Message>[];
@@ -1500,8 +1674,7 @@ void main() {
     /// freeze the turn mid-flight and assert what the observers have already
     /// seen (the write-through ordering guarantee).
     Agent gatedAgent(FakeProvider provider, Completer<void> gate,
-        {HistoryAppendObserver? onAppend,
-        HistoryReplaceObserver? onReplace}) {
+        {HistoryAppendObserver? onAppend, HistoryReplaceObserver? onReplace}) {
       final agent = _agent(
         provider: provider,
         tools: ToolRegistry([
@@ -1511,8 +1684,7 @@ void main() {
           }),
         ]),
         sink: FakeAgentSink(),
-        policy:
-            PermissionPolicy(defaults: {'gate': PermissionDecision.allow}),
+        policy: PermissionPolicy(defaults: {'gate': PermissionDecision.allow}),
         onHistoryAppend: onAppend,
         onHistoryReplace: onReplace,
       );
@@ -1638,8 +1810,7 @@ void main() {
       // the rebuilt summary exchange plus the kept suffix — and nothing else.
       expect(replaces, 1);
       expect(replacedWith, same(history));
-      expect(
-          (replacedWith![0].content.single as TextBlock).text,
+      expect((replacedWith![0].content.single as TextBlock).text,
           contains('Prior conversation summary:\n\nthe gist'));
       expect((replacedWith![2].content.single as TextBlock).text, 'recent q');
       expect((replacedWith![3].content.single as TextBlock).text, 'recent a');
@@ -1674,7 +1845,8 @@ void main() {
       expect(history, hasLength(4));
     });
 
-    test('null observers leave the turn byte-identical (default off)', () async {
+    test('null observers leave the turn byte-identical (default off)',
+        () async {
       final provider = FakeProvider([
         [
           const TextDelta('plain'),

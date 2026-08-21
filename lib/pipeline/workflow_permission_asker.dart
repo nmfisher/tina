@@ -36,10 +36,15 @@ class WorkflowPermissionAsker {
   Future<PermissionResponse> ask(PermissionPrompt p) {
     final queue = attentionQueue;
     if (queue == null) return _ask(p);
-    return queue.run(() => _ask(p), onQueued: () {
-      sink.notice('waiting for your input — another dialog is open…',
-          kind: NoticeKind.info);
-    });
+    return queue.run(
+      () => _ask(p),
+      onQueued: () {
+        sink.notice(
+          'waiting for your input — another dialog is open…',
+          kind: NoticeKind.info,
+        );
+      },
+    );
   }
 
   Future<PermissionResponse> _ask(PermissionPrompt p) async {
@@ -47,9 +52,19 @@ class WorkflowPermissionAsker {
     // auto-deny asker fields those); this guard is for a TUI that lost its
     // editor mid-run. Same posture: deny rather than block a background run.
     if (!_interactive) {
-      sink.notice('${p.toolName} denied — no interactive asker',
-          kind: NoticeKind.warning);
-      return PermissionResponse.denyOnce;
+      sink.notice(
+        '${p.toolName} denied — no interactive asker',
+        kind: NoticeKind.warning,
+      );
+      return const PermissionResponse(
+        PermissionDecision.deny,
+        // #27: the model only sees the denial through the tool result —
+        // tell it the refusal is structural so it stops rephrasing.
+        note:
+            'Non-interactive run: permission asks are auto-refused — '
+            'rephrasing will not change this. Proceed without this tool or '
+            'answer from what you have.',
+      );
     }
 
     _write('  ${p.toolName}: ${p.key}\n', HostMessageStyle.warning);
@@ -69,8 +84,9 @@ class WorkflowPermissionAsker {
       }
     }
     _write(
-        '  approve? [y/n/a/d]  (a/d remember "${p.alwaysPattern}") › ',
-        HostMessageStyle.normal);
+      '  approve? [y/n/a/d]  (a/d remember "${p.alwaysPattern}") › ',
+      HostMessageStyle.normal,
+    );
     // If the user is mid-prompt (a readLine in flight WITH unsent content),
     // the approval must not steal their typing — the prompt's Enter would
     // answer this readKey as a deny (it is not y/a/d) and the prompt would
