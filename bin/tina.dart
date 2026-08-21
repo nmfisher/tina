@@ -12,6 +12,7 @@ import 'package:tina/logging.dart';
 import 'package:tina/pipeline/default_workflow.dart';
 import 'package:tina/pipeline/pipeline_runner.dart';
 import 'package:tina/platform/environment.dart';
+import 'package:tina/host/headless_watchdog.dart';
 import 'package:tina/session_commands/session_command_handlers.dart';
 import 'package:tina/persistence/session_restore.dart';
 import 'package:tina/summaries/allocations_store.dart';
@@ -477,13 +478,49 @@ Future<void> _runNonInteractive(AppComposition app) async {
   ) + HeadlessHost.kHeadlessSummaryInstruction;
 
   var aborted = false;
+  // Liveness watchdog (#26): a wedge below the provider stack (an internal
+  // await that never resolves — Run D sat silent 25+ minutes past its last
+  // wire request) emits no agent-sink event AND has no request in flight, so
+  // neither the stream-idle nor the request timeout can fire. Every sink call
+  // lands on the host's event bus; the watchdog resets on each one and, when
+  // the idle clock expires, tears the turn down through the cancel signal
+  // with a diagnostic — the headless analogue of the budget guard's clean
+  // exit-2. 0 disables.
+  final cancelWatchdog = Completer<void>();
+  HeadlessWatchdog? watchdog;
+  StreamSubscription<AgentEvent>? watchdogSub;
+  Timer? watchdogGrace;
+  if (app.config.watchdogSeconds > 0) {
+    watchdog = HeadlessWatchdog(
+      timeout: Duration(seconds: app.config.watchdogSeconds),
+      onFire: (diagnostic) {
+        stderr.writeln(diagnostic);
+        // Give the cancel path a grace period to tear down cleanly (flushes,
+        // session writes), then take the hard exit the budget guard would.
+        cancelWatchdog.complete();
+        watchdogGrace = Timer(const Duration(seconds: 5), () {
+          stderr.writeln('[watchdog] graceful teardown missed the 5s grace — '
+              'exiting hard');
+          exit(2);
+        });
+      },
+    )..start();
+    watchdogSub = host.eventBus.events.listen(
+        (e) => watchdog?.record(e.runtimeType.toString()),
+        onDone: watchdog.dispose);
+    cancelWatchdog.future.whenComplete(watchdog.dispose);
+  }
   try {
     await agent.run(
       history: history,
       userInput: userInput,
+      cancelSignal: cancelWatchdog.future,
     );
-    aborted = agent.abortedReason != null;
+    aborted = agent.abortedReason != null || (watchdog?.fired ?? false);
   } finally {
+    watchdogGrace?.cancel();
+    await watchdogSub?.cancel();
+    watchdog?.dispose();
     // Non-interactive hint goes to stderr so callers parsing stdout for the
     // agent's answer aren't disrupted. The RECORDER's id, not the
     // pre-allocation from startup: a store that couldn't honor our id mints

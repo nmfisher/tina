@@ -83,6 +83,12 @@ class Config {
   /// keeps invoking tools without converging on an answer.
   final int maxSteps;
 
+  /// Headless liveness timeout (#26): no agent-sink event for this long
+  /// aborts the run with a diagnostic and exit 2 — Run D sat in a silent
+  /// futex wait 25+ minutes past its last wire request because the hang was
+  /// below the provider stack where no request timeout applies. 0 disables.
+  final int watchdogSeconds;
+
   /// How long an SSE stream may be silent before we treat it as dead.
   /// Generous default so a slow completion doesn't fail spuriously.
   final Duration streamIdleTimeout;
@@ -200,6 +206,7 @@ class Config {
     required this.requestsPerMinute,
     required this.autoCompactThreshold,
     required this.maxSteps,
+    required this.watchdogSeconds,
     required this.streamIdleTimeout,
     required this.requestTimeout,
     required this.backend,
@@ -325,6 +332,12 @@ class Config {
     ..addOption('max-steps',
         defaultsTo: '500',
         help: 'Maximum tool-calling steps allowed in a single user turn.')
+    ..addOption('watchdog-seconds',
+        defaultsTo: '300',
+        help: 'Headless only: abort the run when no agent-sink event has '
+            'arrived for this long (a silent wedge below the provider stack '
+            '— no request is in flight, so no other timeout fires). '
+            '0 disables.')
     ..addOption('stream-idle-timeout',
         defaultsTo: '60',
         help: 'Seconds to wait between SSE events before declaring the '
@@ -413,6 +426,7 @@ class Config {
         requestsPerMinute: 0,
         autoCompactThreshold: 0,
         maxSteps: 50,
+        watchdogSeconds: 0,
         streamIdleTimeout: const Duration(seconds: 60),
         requestTimeout: const Duration(seconds: 30),
         backend: BackendChoice.notcurses,
@@ -580,6 +594,7 @@ class Config {
           'requests-per-minute', fileLimits?.requestsPerMinute, 0),
       autoCompactThreshold: parseBudget('auto-compact-threshold', '120000'),
       maxSteps: parsePositive('max-steps', '500'),
+      watchdogSeconds: parseBudget('watchdog-seconds', '300'),
       streamIdleTimeout:
           Duration(seconds: parsePositive('stream-idle-timeout', '60')),
       requestTimeout:

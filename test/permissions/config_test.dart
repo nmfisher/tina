@@ -115,6 +115,18 @@ void main() {
       expect(() => _parse(['--max-steps', '-1']), throwsFormatException);
     });
 
+    test('--watchdog-seconds defaults to 300; overrides and 0 kept', () {
+      expect(_parse([]).watchdogSeconds, 300);
+      expect(_parse(['--watchdog-seconds', '5']).watchdogSeconds, 5);
+      // 0 is the explicit "disable the watchdog" value, not an error.
+      expect(_parse(['--watchdog-seconds', '0']).watchdogSeconds, 0);
+    });
+
+    test('--watchdog-seconds rejects negative and non-integer', () {
+      expect(() => _parse(['--watchdog-seconds', '-1']), throwsFormatException);
+      expect(() => _parse(['--watchdog-seconds', 'abc']), throwsFormatException);
+    });
+
     test('--stream-idle-timeout defaults to 60s', () {
       expect(_parse([]).streamIdleTimeout, const Duration(seconds: 60));
       expect(_parse(['--stream-idle-timeout', '5']).streamIdleTimeout,
