@@ -543,3 +543,41 @@ file:line-cited summary of its own rate limiter.
     needed to settle it). **Would make:** emit the warning when a pool
     descriptor is actually RESOLVED for a build, or stamp it with "when
     used". Trivial severity; pure operator-confusion cost.
+
+29. **Headless `--resume` ran the conversation under the config default,
+    not the model it was actually using (owner-directed fix).** The
+    `/model`-persistence work (4ff1ff8) rebuilt the active conversation
+    from its stored model ref in the TUI only — the headless path built
+    its startup provider purely from `Config.provider`/`Config.model`, so
+    `tina --resume <id>` silently switched the conversation back to the
+    config default (with a pool default: to whatever member rotated
+    first). Owner contract (2026-08-21): **`--model` flag > persisted
+    active-conversation model (on `--resume`/`--continue`) > `[default]`
+    file > env/descriptor default.**
+    **→ Implemented 2026-08-21 (owner-directed, Run O + driver repair):**
+    `Config.modelExplicit` carries flag-explicitness past #18's
+    parse-time normalization (the flag folds into provider/model, so
+    explicitness must travel separately or the precedence is
+    unimplementable). `buildStartupProvider()` consults the active
+    conversation's meta ref when no flag was passed: first-slash provider
+    (the session_restore convention), a single stderr warning + config
+    fallback when the ref is no longer resolvable — a resume never
+    hard-fails on a stale ref — and apiKey/baseUrl overrides applied only
+    when the ref's provider matches config's (the TUI guard pattern).
+    Run O's code and unit tests were correct, but the live proof FAILED
+    initially: the headless `SessionRecorder` created its conversation
+    meta with `model: null` (only the TUI creation path and `/model`
+    swaps ever stamped one), so the meta the new code read was always
+    null and every resume still fell back to the pool. tina had skipped
+    the live checks its prompt required — exactly where this would have
+    surfaced. Driver repair: `bin/tina.dart` now stamps
+    `ConversationMetaInput.primary` at recorder construction, mirroring
+    the TUI's initialRecorder (write-once for fresh sessions; a resume
+    attaches, so persisted swaps are never clobbered). Wire proof, three
+    live runs: fresh `--model openrouter/stealth/ox-alpha` →
+    https://openrouter.ai with the meta stamped
+    `openrouter/stealth/ox-alpha`; resume with NO flag →
+    https://openrouter.ai (the persisted meta wins; this was
+    integrate.api.nvidia.com before the repair); resume WITH `--model
+    nim/thinkingmachines/inkling` → https://integrate.api.nvidia.com
+    (the flag wins). Engine 763 / root 698 (690 + 8 new) green.

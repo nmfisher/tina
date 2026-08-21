@@ -5,22 +5,23 @@ import 'package:test/test.dart';
 
 void main() {
   group('Config permission flags', () {
-    test('--allow and --deny populate permissionRules; deny is listed first',
-        () {
-      final c = _parse(['--allow', 'bash:git *', '--deny', 'bash:rm *']);
-      expect(c.permissionRules.length, 2);
-      expect(c.permissionRules.first.decision, PermissionDecision.deny);
-      expect(c.permissionRules.first.pattern, 'rm *');
-      expect(c.permissionRules.last.decision, PermissionDecision.allow);
-    });
+    test(
+      '--allow and --deny populate permissionRules; deny is listed first',
+      () {
+        final c = _parse(['--allow', 'bash:git *', '--deny', 'bash:rm *']);
+        expect(c.permissionRules.length, 2);
+        expect(c.permissionRules.first.decision, PermissionDecision.deny);
+        expect(c.permissionRules.first.pattern, 'rm *');
+        expect(c.permissionRules.last.decision, PermissionDecision.allow);
+      },
+    );
 
     test('--yolo flips defaults to allow; explicit --deny still wins', () {
       final c = _parse(['--yolo', '--deny', 'bash:rm *']);
       final p = c.buildPolicy();
       expect(p.check('bash', {'command': 'ls'}), PermissionDecision.allow);
       expect(p.check('write', {'filePath': '/x'}), PermissionDecision.allow);
-      expect(p.check('bash', {'command': 'rm -rf /'}),
-          PermissionDecision.deny);
+      expect(p.check('bash', {'command': 'rm -rf /'}), PermissionDecision.deny);
     });
 
     test('without --yolo, defaults are ask except read', () {
@@ -33,8 +34,7 @@ void main() {
     });
 
     test('malformed rule fails fast', () {
-      expect(
-          () => _parse(['--allow', 'bashgit *']), throwsFormatException);
+      expect(() => _parse(['--allow', 'bashgit *']), throwsFormatException);
     });
   });
 
@@ -44,19 +44,29 @@ void main() {
     });
 
     test('the flag selects each mode', () {
-      expect(_parse(['--permission-mode', 'read-all']).permissionMode,
-          PermissionMode.readAll);
-      expect(_parse(['--permission-mode', 'allow-edits']).permissionMode,
-          PermissionMode.allowEdits);
-      expect(_parse(['--permission-mode', 'auto']).permissionMode,
-          PermissionMode.auto);
-      expect(_parse(['--permission-mode', 'ask']).permissionMode,
-          PermissionMode.ask);
+      expect(
+        _parse(['--permission-mode', 'read-all']).permissionMode,
+        PermissionMode.readAll,
+      );
+      expect(
+        _parse(['--permission-mode', 'allow-edits']).permissionMode,
+        PermissionMode.allowEdits,
+      );
+      expect(
+        _parse(['--permission-mode', 'auto']).permissionMode,
+        PermissionMode.auto,
+      );
+      expect(
+        _parse(['--permission-mode', 'ask']).permissionMode,
+        PermissionMode.ask,
+      );
     });
 
     test('an unknown mode value fails fast', () {
-      expect(() => _parse(['--permission-mode', 'yolo-mode']),
-          throwsFormatException);
+      expect(
+        () => _parse(['--permission-mode', 'yolo-mode']),
+        throwsFormatException,
+      );
     });
 
     test('the flag beats the [permissions] mode file value', () {
@@ -64,7 +74,8 @@ void main() {
         const ['--permission-mode', 'read-all'],
         env: const {'ANTHROPIC_API_KEY': 'test'},
         userConfig: const UserConfig(
-            permissions: PermissionsConfig(mode: 'auto')),
+          permissions: PermissionsConfig(mode: 'auto'),
+        ),
       );
       expect(c.permissionMode, PermissionMode.readAll);
     });
@@ -74,8 +85,8 @@ void main() {
         const [],
         env: const {'ANTHROPIC_API_KEY': 'test'},
         userConfig: const UserConfig(
-            permissions:
-                PermissionsConfig(mode: 'allow_edits', model: 'nim/foo')),
+          permissions: PermissionsConfig(mode: 'allow_edits', model: 'nim/foo'),
+        ),
       );
       expect(c.permissionMode, PermissionMode.allowEdits);
       expect(c.permissionClassifierModel, 'nim/foo');
@@ -85,8 +96,9 @@ void main() {
       final c = Config.parse(
         const [],
         env: const {'ANTHROPIC_API_KEY': 'test'},
-        userConfig:
-            const UserConfig(permissions: PermissionsConfig(mode: 'nope')),
+        userConfig: const UserConfig(
+          permissions: PermissionsConfig(mode: 'nope'),
+        ),
       );
       expect(c.permissionMode, PermissionMode.ask);
     });
@@ -124,27 +136,44 @@ void main() {
 
     test('--watchdog-seconds rejects negative and non-integer', () {
       expect(() => _parse(['--watchdog-seconds', '-1']), throwsFormatException);
-      expect(() => _parse(['--watchdog-seconds', 'abc']), throwsFormatException);
+      expect(
+        () => _parse(['--watchdog-seconds', 'abc']),
+        throwsFormatException,
+      );
     });
 
     test('--stream-idle-timeout defaults to 60s', () {
       expect(_parse([]).streamIdleTimeout, const Duration(seconds: 60));
-      expect(_parse(['--stream-idle-timeout', '5']).streamIdleTimeout,
-          const Duration(seconds: 5));
+      expect(
+        _parse(['--stream-idle-timeout', '5']).streamIdleTimeout,
+        const Duration(seconds: 5),
+      );
     });
 
-    test('--auto-compact-threshold defaults to 120000; 0 disables; overrides', () {
-      expect(_parse([]).autoCompactThreshold, 120000);
-      expect(_parse(['--auto-compact-threshold', '0']).autoCompactThreshold, 0);
-      expect(_parse(['--auto-compact-threshold', '50000']).autoCompactThreshold,
-          50000);
-    });
+    test(
+      '--auto-compact-threshold defaults to 120000; 0 disables; overrides',
+      () {
+        expect(_parse([]).autoCompactThreshold, 120000);
+        expect(
+          _parse(['--auto-compact-threshold', '0']).autoCompactThreshold,
+          0,
+        );
+        expect(
+          _parse(['--auto-compact-threshold', '50000']).autoCompactThreshold,
+          50000,
+        );
+      },
+    );
 
     test('--auto-compact-threshold rejects negative and non-integer', () {
-      expect(() => _parse(['--auto-compact-threshold', '-1']),
-          throwsFormatException);
-      expect(() => _parse(['--auto-compact-threshold', 'abc']),
-          throwsFormatException);
+      expect(
+        () => _parse(['--auto-compact-threshold', '-1']),
+        throwsFormatException,
+      );
+      expect(
+        () => _parse(['--auto-compact-threshold', 'abc']),
+        throwsFormatException,
+      );
     });
 
     test('--model bare value overrides the model, provider unchanged', () {
@@ -167,7 +196,9 @@ void main() {
         const ['--model', 'openrouter/stealth/ox-alpha'],
         env: const {'ANTHROPIC_API_KEY': 'test'},
         userConfig: const UserConfig(
-            defaultProvider: 'anthropic', defaultModel: 'claude-file'),
+          defaultProvider: 'anthropic',
+          defaultModel: 'claude-file',
+        ),
       );
       expect(full.provider, 'openrouter');
       expect(full.model, 'stealth/ox-alpha');
@@ -176,7 +207,9 @@ void main() {
         const ['--model', 'glimmer-30b'],
         env: const {'ANTHROPIC_API_KEY': 'test'},
         userConfig: const UserConfig(
-            defaultProvider: 'anthropic', defaultModel: 'claude-file'),
+          defaultProvider: 'anthropic',
+          defaultModel: 'claude-file',
+        ),
       );
       expect(bare.provider, 'anthropic');
       expect(bare.model, 'glimmer-30b');
@@ -193,8 +226,28 @@ void main() {
     });
 
     test('--model full ref with an unknown provider fails fast', () {
-      expect(() => _parse(['--model', 'nosuchprovider/some-model']),
-          throwsFormatException);
+      expect(
+        () => _parse(['--model', 'nosuchprovider/some-model']),
+        throwsFormatException,
+      );
+    });
+  });
+
+  group('Config modelExplicit', () {
+    test('--model bare value marks the flag explicit', () {
+      expect(_parse(['--model', 'glimmer-30b']).modelExplicit, isTrue);
+    });
+
+    test('--model full ref marks the flag explicit', () {
+      expect(
+        _parse(['--model', 'openrouter/stealth/ox-alpha']).modelExplicit,
+        isTrue,
+      );
+    });
+
+    test('without --model, modelExplicit is false (resume may honor the '
+        'persisted conversation model)', () {
+      expect(_parse([]).modelExplicit, isFalse);
     });
   });
 }

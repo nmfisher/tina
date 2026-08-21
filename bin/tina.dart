@@ -432,6 +432,21 @@ Future<void> _runNonInteractive(AppComposition app) async {
     providerId: app.config.provider,
     baseUrl: app.config.baseUrl,
     cwd: Directory.current.path,
+    // Stamp the conversation meta at creation, mirroring the TUI's
+    // initialRecorder: the model this run ACTUALLY used (the --model flag or
+    // the config default) lands in the manifest, so a later headless
+    // --resume/--continue resolves it via buildStartupProvider instead of
+    // silently falling back to the config default. The system prompt stays
+    // null (re-derived from the static main role on resume, like
+    // session_manager's capture). On resume the recorder attaches to an
+    // existing conversation, so this meta is write-once for fresh sessions
+    // only — it never clobbers a persisted swap.
+    meta: ConversationMetaInput.primary(
+      providerId: app.config.provider,
+      provider: provider,
+      baseUrl: app.config.baseUrl,
+      policy: app.policy,
+    ),
   );
 
   // Write-through persistence (#25): the engine AWAITS these observers at the

@@ -169,6 +169,13 @@ class Config {
   /// agents inherit the main agent's model.
   final String? regionsModel;
 
+  /// Whether `--model` was explicitly passed by the user. Must be carried
+  /// separately from [model] because resume precedence depends on whether
+  /// the user explicitly overrode the model: when `modelExplicit` is false,
+  /// a resumed session's active conversation meta model ref takes precedence
+  /// over the config file / default; when true, the CLI flag wins.
+  final bool modelExplicit;
+
   /// Whether to force-acquire the per-session lock (`--force`). Only set when
   /// the user explicitly opts in; otherwise the second process on a session
   /// refuses to start.
@@ -219,6 +226,7 @@ class Config {
     this.regionsModel,
     this.permissionMode = PermissionMode.ask,
     this.permissionClassifierModel,
+    this.modelExplicit = false,
     this.forceLock = false,
     this.models,
   });
@@ -228,158 +236,251 @@ class Config {
   static final _parser = ArgParser()
     ..addOption('base-url')
     ..addOption('max-tokens', defaultsTo: '8192')
-    ..addOption('prompt',
-        help: 'Run a single prompt non-interactively and exit.')
-    ..addMultiOption('allow',
-        help: 'Allow rule: TOOL:PATTERN, e.g. --allow "bash:git *" '
-            '--allow "read:/workspace/**". Can be repeated.')
-    ..addMultiOption('deny',
-        help: 'Deny rule: same syntax as --allow. Deny rules take '
-            'precedence over allow rules of the same scope.')
-    ..addFlag('yolo',
-        negatable: false,
-        help:
-            'Default every tool to allow (skip all permission prompts). '
-            'Explicit --deny rules still apply.')
-    ..addOption('permission-mode',
-        allowed: ['ask', 'read-all', 'allow-edits', 'auto'],
-        help: 'Permission gating: ask (prompt for mutating tools), read-all '
-            '(also auto-approve network reads), allow-edits (also auto-approve '
-            'file edits; bash still prompts), auto (a classifier model decides '
-            'each call, falling back to a prompt).')
-    ..addFlag('safe-mode',
-        negatable: false,
-        help:
-            'Read-only session: remove write/edit/bash from every agent and '
-            'instruct each it may only read. Inherently --yolo-proof — safe-'
-            'mode silently dominates --yolo.')
-    ..addFlag('no-sandbox',
-        negatable: false,
-        help: 'Disable the sandbox-exec confinement around bash (writes are '
-            'otherwise limited to the project root + temp). Use for commands '
-            'that must write to \$HOME or system paths.')
-    ..addOption('resume',
-        help: 'Resume a saved session by id. See /sessions inside the REPL.')
-    ..addFlag('continue',
-        abbr: 'c',
-        negatable: false,
-        help: 'Resume the most recently updated session.')
-    ..addFlag('list',
-        abbr: 'l',
-        negatable: false,
-        help: 'List saved sessions and exit.')
-    ..addOption('models',
-        help: 'Print the resolved model list for one provider id (one '
-            '`<id> — <name>` per line), exit 0. No value passed → print known '
-            'provider ids. Unknown provider → stderr with known providers, exit 1.')
-    ..addOption('model',
-        help: 'Run this session under a different model. A value containing '
-            '"/" is a full \'<provider>/<model>\' reference (provider = FIRST '
-            'segment — model ids may themselves contain slashes, e.g. '
-            'openrouter/stealth/ox-alpha); a bare value overrides only the '
-            'model, keeping the config default provider. Beats the [default] '
-            'provider/model from ~/.tina/config. One-shot: never persisted.')
-    ..addOption('workflow',
-        help: 'Run a DOT pipeline from ~/.tina/workflows/<name>.dot to '
-            'completion (non-interactive). Pair with --prompt for its input.')
-    ..addOption('max-turn-tokens',
-        defaultsTo: '1000000',
-        help: 'Abort a user turn if input+output exceeds this many tokens. '
-            'Guard against runaway tool loops. 0 to disable.')
-    ..addOption('max-session-tokens',
-        defaultsTo: '10000000',
-        help: 'Abort if cumulative session tokens exceed this. '
-            'Resets on /clear. 0 to disable.')
-    ..addOption('max-request-tokens',
-        defaultsTo: '200000',
-        help: 'Refuse to send a request whose input alone exceeds this '
-            '(approx). 0 to disable.')
-    ..addOption('max-global-tokens',
-        defaultsTo: '0',
-        help: 'Hard cap on total tokens across ALL agents this app session '
-            '(main + orchestrator + scouts). Trips a hard abort when crossed. '
-            '0 falls back to the file default, or unbounded if neither is set.')
-    ..addOption('max-sub-agent-tokens',
-        defaultsTo: '0',
-        help: 'Per-session token cap for each sub-agent (they otherwise run '
-            'uncapped). 0 falls back to the file default, or unbounded.')
-    ..addOption('max-sub-agent-depth',
-        defaultsTo: '3',
-        help: 'Maximum nesting depth for sub-agent delegation — the root '
-            'orchestrator is depth 0, its direct children are depth 0, and so '
-            'on. A spawn at this depth or deeper is rejected. Overrides the '
-            '[limits] max_sub_agent_depth key.')
-    ..addOption('max-sub-agent-concurrency',
-        defaultsTo: '6',
-        help: 'Maximum number of sub-agents allowed to run concurrently. '
-            'Extra spawns queue until a slot frees. Overrides the [limits] '
-            'max_sub_agent_concurrency key.')
-    ..addOption('requests-per-minute',
-        defaultsTo: '0',
-        help: 'Global requests-per-minute throttle shared by all agents. '
-            '0 disables it (or falls back to the file default).')
-    ..addOption('auto-compact-threshold',
-        defaultsTo: '120000',
-        help: 'Auto-summarize older history when a request\'s estimated input '
-            'tokens exceed this — between turns and mid-turn (long tool-using '
-            'turns compact in place instead of drowning in accumulated '
-            'results), keeping recent turns verbatim. 0 disables.')
-    ..addOption('max-steps',
-        defaultsTo: '500',
-        help: 'Maximum tool-calling steps allowed in a single user turn.')
-    ..addOption('watchdog-seconds',
-        defaultsTo: '300',
-        help: 'Headless only: abort the run when no agent-sink event has '
-            'arrived for this long (a silent wedge below the provider stack '
-            '— no request is in flight, so no other timeout fires). '
-            '0 disables.')
-    ..addOption('stream-idle-timeout',
-        defaultsTo: '60',
-        help: 'Seconds to wait between SSE events before declaring the '
-            'stream dead. Bump for very slow models.')
-    ..addOption('request-timeout',
-        defaultsTo: '30',
-        help: 'Seconds to wait for response headers per attempt before '
-            'aborting the request. Slow providers or large-context prompts '
-            'may need more than the 30s default.')
-    ..addFlag('version',
-        negatable: false,
-        help: 'Print the tina version and exit.')
+    ..addOption(
+      'prompt',
+      help: 'Run a single prompt non-interactively and exit.',
+    )
+    ..addMultiOption(
+      'allow',
+      help:
+          'Allow rule: TOOL:PATTERN, e.g. --allow "bash:git *" '
+          '--allow "read:/workspace/**". Can be repeated.',
+    )
+    ..addMultiOption(
+      'deny',
+      help:
+          'Deny rule: same syntax as --allow. Deny rules take '
+          'precedence over allow rules of the same scope.',
+    )
+    ..addFlag(
+      'yolo',
+      negatable: false,
+      help:
+          'Default every tool to allow (skip all permission prompts). '
+          'Explicit --deny rules still apply.',
+    )
+    ..addOption(
+      'permission-mode',
+      allowed: ['ask', 'read-all', 'allow-edits', 'auto'],
+      help:
+          'Permission gating: ask (prompt for mutating tools), read-all '
+          '(also auto-approve network reads), allow-edits (also auto-approve '
+          'file edits; bash still prompts), auto (a classifier model decides '
+          'each call, falling back to a prompt).',
+    )
+    ..addFlag(
+      'safe-mode',
+      negatable: false,
+      help:
+          'Read-only session: remove write/edit/bash from every agent and '
+          'instruct each it may only read. Inherently --yolo-proof — safe-'
+          'mode silently dominates --yolo.',
+    )
+    ..addFlag(
+      'no-sandbox',
+      negatable: false,
+      help:
+          'Disable the sandbox-exec confinement around bash (writes are '
+          'otherwise limited to the project root + temp). Use for commands '
+          'that must write to \$HOME or system paths.',
+    )
+    ..addOption(
+      'resume',
+      help: 'Resume a saved session by id. See /sessions inside the REPL.',
+    )
+    ..addFlag(
+      'continue',
+      abbr: 'c',
+      negatable: false,
+      help: 'Resume the most recently updated session.',
+    )
+    ..addFlag(
+      'list',
+      abbr: 'l',
+      negatable: false,
+      help: 'List saved sessions and exit.',
+    )
+    ..addOption(
+      'models',
+      help:
+          'Print the resolved model list for one provider id (one '
+          '`<id> — <name>` per line), exit 0. No value passed → print known '
+          'provider ids. Unknown provider → stderr with known providers, exit 1.',
+    )
+    ..addOption(
+      'model',
+      help:
+          'Run this session under a different model. A value containing '
+          '"/" is a full \'<provider>/<model>\' reference (provider = FIRST '
+          'segment — model ids may themselves contain slashes, e.g. '
+          'openrouter/stealth/ox-alpha); a bare value overrides only the '
+          'model, keeping the config default provider. On resume, an '
+          'explicit `--model` beats the persisted conversation model ref; '
+          'without the flag the active conversation\'s meta model wins. '
+          'One-shot: never persisted.',
+    )
+    ..addOption(
+      'workflow',
+      help:
+          'Run a DOT pipeline from ~/.tina/workflows/<name>.dot to '
+          'completion (non-interactive). Pair with --prompt for its input.',
+    )
+    ..addOption(
+      'max-turn-tokens',
+      defaultsTo: '1000000',
+      help:
+          'Abort a user turn if input+output exceeds this many tokens. '
+          'Guard against runaway tool loops. 0 to disable.',
+    )
+    ..addOption(
+      'max-session-tokens',
+      defaultsTo: '10000000',
+      help:
+          'Abort if cumulative session tokens exceed this. '
+          'Resets on /clear. 0 to disable.',
+    )
+    ..addOption(
+      'max-request-tokens',
+      defaultsTo: '200000',
+      help:
+          'Refuse to send a request whose input alone exceeds this '
+          '(approx). 0 to disable.',
+    )
+    ..addOption(
+      'max-global-tokens',
+      defaultsTo: '0',
+      help:
+          'Hard cap on total tokens across ALL agents this app session '
+          '(main + orchestrator + scouts). Trips a hard abort when crossed. '
+          '0 falls back to the file default, or unbounded if neither is set.',
+    )
+    ..addOption(
+      'max-sub-agent-tokens',
+      defaultsTo: '0',
+      help:
+          'Per-session token cap for each sub-agent (they otherwise run '
+          'uncapped). 0 falls back to the file default, or unbounded.',
+    )
+    ..addOption(
+      'max-sub-agent-depth',
+      defaultsTo: '3',
+      help:
+          'Maximum nesting depth for sub-agent delegation — the root '
+          'orchestrator is depth 0, its direct children are depth 0, and so '
+          'on. A spawn at this depth or deeper is rejected. Overrides the '
+          '[limits] max_sub_agent_depth key.',
+    )
+    ..addOption(
+      'max-sub-agent-concurrency',
+      defaultsTo: '6',
+      help:
+          'Maximum number of sub-agents allowed to run concurrently. '
+          'Extra spawns queue until a slot frees. Overrides the [limits] '
+          'max_sub_agent_concurrency key.',
+    )
+    ..addOption(
+      'requests-per-minute',
+      defaultsTo: '0',
+      help:
+          'Global requests-per-minute throttle shared by all agents. '
+          '0 disables it (or falls back to the file default).',
+    )
+    ..addOption(
+      'auto-compact-threshold',
+      defaultsTo: '120000',
+      help:
+          'Auto-summarize older history when a request\'s estimated input '
+          'tokens exceed this — between turns and mid-turn (long tool-using '
+          'turns compact in place instead of drowning in accumulated '
+          'results), keeping recent turns verbatim. 0 disables.',
+    )
+    ..addOption(
+      'max-steps',
+      defaultsTo: '500',
+      help: 'Maximum tool-calling steps allowed in a single user turn.',
+    )
+    ..addOption(
+      'watchdog-seconds',
+      defaultsTo: '300',
+      help:
+          'Headless only: abort the run when no agent-sink event has '
+          'arrived for this long (a silent wedge below the provider stack '
+          '— no request is in flight, so no other timeout fires). '
+          '0 disables.',
+    )
+    ..addOption(
+      'stream-idle-timeout',
+      defaultsTo: '60',
+      help:
+          'Seconds to wait between SSE events before declaring the '
+          'stream dead. Bump for very slow models.',
+    )
+    ..addOption(
+      'request-timeout',
+      defaultsTo: '30',
+      help:
+          'Seconds to wait for response headers per attempt before '
+          'aborting the request. Slow providers or large-context prompts '
+          'may need more than the 30s default.',
+    )
+    ..addFlag(
+      'version',
+      negatable: false,
+      help: 'Print the tina version and exit.',
+    )
     ..addFlag('help', abbr: 'h', negatable: false)
-    ..addFlag('verbose',
-        abbr: 'v',
-        negatable: false,
-        help: 'Verbose logging (Level.FINE). Equivalent to COCOON_DEBUG=1; '
-            'captures swallowed-exception and lifecycle records in '
-            '~/.tina/tina.log.')
-    ..addFlag('init-config',
-        negatable: false,
-        help: 'Write a commented TOML template to ~/.tina/config (chmod 600) '
-            'and exit. Edits there persist provider, model, and API '
-            'keys so you can stop passing them on the CLI / as env vars.')
-    ..addFlag('setup',
-        negatable: false,
-        help: 'Run the interactive first-run setup wizard (provider/model '
-            'selection). Also runs automatically when no config exists and '
-            'stdin is a terminal.')
-    ..addOption('backend',
-        allowed: ['ansi', 'notcurses'],
-        defaultsTo: 'notcurses',
-        help: 'Rendering backend. "notcurses" (the default) forces notcurses '
-            'and exits if it cannot initialize; "ansi" forces the ANSI '
-            'renderer.')
-    ..addFlag('trust',
-        negatable: true,
-        help: 'Override the project-trust gate. --trust loads this '
-            'directory\'s AGENTS.md without asking; --no-trust withholds it. '
-            'By default tina asks (TUI) or skips (headless) for an untrusted '
-            'project. See [trust] default in ~/.tina/config.')
-    ..addFlag('force',
-        negatable: false,
-        help: 'Force-acquire the per-session lock even if another process '
-            'appears to hold it. Use only when that process is gone but its '
-            'lock lingers (e.g. after a reboot) — concurrent access to one '
-            'session corrupts its history.');
+    ..addFlag(
+      'verbose',
+      abbr: 'v',
+      negatable: false,
+      help:
+          'Verbose logging (Level.FINE). Equivalent to COCOON_DEBUG=1; '
+          'captures swallowed-exception and lifecycle records in '
+          '~/.tina/tina.log.',
+    )
+    ..addFlag(
+      'init-config',
+      negatable: false,
+      help:
+          'Write a commented TOML template to ~/.tina/config (chmod 600) '
+          'and exit. Edits there persist provider, model, and API '
+          'keys so you can stop passing them on the CLI / as env vars.',
+    )
+    ..addFlag(
+      'setup',
+      negatable: false,
+      help:
+          'Run the interactive first-run setup wizard (provider/model '
+          'selection). Also runs automatically when no config exists and '
+          'stdin is a terminal.',
+    )
+    ..addOption(
+      'backend',
+      allowed: ['ansi', 'notcurses'],
+      defaultsTo: 'notcurses',
+      help:
+          'Rendering backend. "notcurses" (the default) forces notcurses '
+          'and exits if it cannot initialize; "ansi" forces the ANSI '
+          'renderer.',
+    )
+    ..addFlag(
+      'trust',
+      negatable: true,
+      help:
+          'Override the project-trust gate. --trust loads this '
+          'directory\'s AGENTS.md without asking; --no-trust withholds it. '
+          'By default tina asks (TUI) or skips (headless) for an untrusted '
+          'project. See [trust] default in ~/.tina/config.',
+    )
+    ..addFlag(
+      'force',
+      negatable: false,
+      help:
+          'Force-acquire the per-session lock even if another process '
+          'appears to hold it. Use only when that process is gone but its '
+          'lock lingers (e.g. after a reboot) — concurrent access to one '
+          'session corrupts its history.',
+    );
 
   static String get usage => 'tina — terminal coding agent\n\n${_parser.usage}';
 
@@ -394,48 +495,49 @@ class Config {
     bool listSessions = false,
     bool showVersion = false,
     String? models,
-  }) =>
-      Config(
-        provider: 'anthropic',
-        apiKey: '',
-        model: '',
-        baseUrl: '',
-        maxTokens: 0,
-        yolo: false,
-        showHelp: showHelp,
-        models: models,
-        prompt: null,
-        permissionRules: const [],
-        resumeSessionId: null,
-        continueLatest: false,
-        listSessions: listSessions,
-        showVersion: showVersion,
-        maxTurnTokens: 0,
-        maxSessionTokens: 0,
-        maxRequestTokens: 0,
-        maxGlobalTokens: 0,
-        maxSubAgentTokens: 0,
-        maxSubAgentDepth: 3,
-        maxSubAgentConcurrency: 6,
-        requestsPerMinute: 0,
-        autoCompactThreshold: 0,
-        maxSteps: 50,
-        watchdogSeconds: 0,
-        streamIdleTimeout: const Duration(seconds: 60),
-        requestTimeout: const Duration(seconds: 30),
-        backend: BackendChoice.notcurses,
-        verbose: false,
-        initConfig: initConfig,
-        setup: false,
-        trustOverride: null,
-        trustDefault: TrustDefault.ask,
-        forceLock: false,
-      );
+  }) => Config(
+    provider: 'anthropic',
+    apiKey: '',
+    model: '',
+    baseUrl: '',
+    maxTokens: 0,
+    yolo: false,
+    showHelp: showHelp,
+    models: models,
+    prompt: null,
+    permissionRules: const [],
+    resumeSessionId: null,
+    continueLatest: false,
+    listSessions: listSessions,
+    showVersion: showVersion,
+    maxTurnTokens: 0,
+    maxSessionTokens: 0,
+    maxRequestTokens: 0,
+    maxGlobalTokens: 0,
+    maxSubAgentTokens: 0,
+    maxSubAgentDepth: 3,
+    maxSubAgentConcurrency: 6,
+    requestsPerMinute: 0,
+    autoCompactThreshold: 0,
+    maxSteps: 50,
+    watchdogSeconds: 0,
+    streamIdleTimeout: const Duration(seconds: 60),
+    requestTimeout: const Duration(seconds: 30),
+    backend: BackendChoice.notcurses,
+    verbose: false,
+    initConfig: initConfig,
+    setup: false,
+    trustOverride: null,
+    trustDefault: TrustDefault.ask,
+    forceLock: false,
+  );
 
-  factory Config.parse(List<String> argv,
-      {Map<String, String>? env,
-      ProviderRegistry? registry,
-      UserConfig? userConfig}) {
+  factory Config.parse(
+    List<String> argv, {
+    Map<String, String>? env,
+    ProviderRegistry? registry,
+    UserConfig? userConfig,
+  }) {
     final res = _parser.parse(argv);
     // --help / --init-config / --list short-circuit before provider/key
     // resolution: each runs on a fresh install with no credentials, so none of
@@ -448,7 +550,8 @@ class Config {
     if (res['version'] as bool) return _shortCircuitConfig(showVersion: true);
 
     // --init-config: main() writes a commented TOML template and exits.
-    if (res['init-config'] as bool) return _shortCircuitConfig(initConfig: true);
+    if (res['init-config'] as bool)
+      return _shortCircuitConfig(initConfig: true);
 
     // --list: main() prints saved sessions and exits — only the on-disk store
     // is needed, not credentials.
@@ -483,8 +586,10 @@ class Config {
     // ref beats both.
     final desc = registry.descriptor(providerId);
     if (desc == null) {
-      throw FormatException('Unknown provider "$providerId". '
-          'Known: ${registry.providerIds.join(', ')}');
+      throw FormatException(
+        'Unknown provider "$providerId". '
+        'Known: ${registry.providerIds.join(', ')}',
+      );
     }
 
     // Resolve the API key via the registry's resolver — the SAME path
@@ -510,7 +615,8 @@ class Config {
 
     // Per-provider env overrides by convention: <PROVIDER>_MODEL / _BASE_URL.
     final envPrefix = providerId.toUpperCase();
-    final defaultModel = env['${envPrefix}_MODEL'] ??
+    final defaultModel =
+        env['${envPrefix}_MODEL'] ??
         (desc.models.isNotEmpty ? desc.models.keys.first : '');
     final defaultBaseUrl = env['${envPrefix}_BASE_URL'] ?? desc.defaultBaseUrl;
 
@@ -531,14 +637,17 @@ class Config {
     final continueLatest = res['continue'] as bool;
     if (resumeId != null && continueLatest) {
       throw const FormatException(
-          '--resume and --continue are mutually exclusive.');
+        '--resume and --continue are mutually exclusive.',
+      );
     }
 
     int parseBudget(String name, String defaultValue) {
       final raw = (res[name] as String?) ?? defaultValue;
       final n = int.tryParse(raw);
       if (n == null || n < 0) {
-        throw FormatException('--$name must be a non-negative integer; got "$raw"');
+        throw FormatException(
+          '--$name must be a non-negative integer; got "$raw"',
+        );
       }
       return n;
     }
@@ -563,7 +672,8 @@ class Config {
         final n = int.tryParse(raw);
         if (n == null || n < 0) {
           throw FormatException(
-              '--$name must be a non-negative integer; got "$raw"');
+            '--$name must be a non-negative integer; got "$raw"',
+          );
         }
         return n;
       }
@@ -591,29 +701,53 @@ class Config {
       listSessions: false,
       workflow: res['workflow'] as String?,
       defaultWorkflow: userConfig?.defaultWorkflow,
-      maxTurnTokens:
-          parseLimit('max-turn-tokens', fileLimits?.maxTurnTokens, 1000000),
+      maxTurnTokens: parseLimit(
+        'max-turn-tokens',
+        fileLimits?.maxTurnTokens,
+        1000000,
+      ),
       maxSessionTokens: parseLimit(
-          'max-session-tokens', fileLimits?.maxSessionTokens, 10000000),
+        'max-session-tokens',
+        fileLimits?.maxSessionTokens,
+        10000000,
+      ),
       maxRequestTokens: parseLimit(
-          'max-request-tokens', fileLimits?.maxRequestTokens, 200000),
-      maxGlobalTokens:
-          parseLimit('max-global-tokens', fileLimits?.maxGlobalTokens, 50000000),
+        'max-request-tokens',
+        fileLimits?.maxRequestTokens,
+        200000,
+      ),
+      maxGlobalTokens: parseLimit(
+        'max-global-tokens',
+        fileLimits?.maxGlobalTokens,
+        50000000,
+      ),
       maxSubAgentTokens: parseLimit(
-          'max-sub-agent-tokens', fileLimits?.maxSubAgentTokens, 2000000),
-      maxSubAgentDepth:
-          parseLimit('max-sub-agent-depth', fileLimits?.maxSubAgentDepth, 3),
-      maxSubAgentConcurrency: parseLimit('max-sub-agent-concurrency',
-          fileLimits?.maxSubAgentConcurrency, 6),
+        'max-sub-agent-tokens',
+        fileLimits?.maxSubAgentTokens,
+        2000000,
+      ),
+      maxSubAgentDepth: parseLimit(
+        'max-sub-agent-depth',
+        fileLimits?.maxSubAgentDepth,
+        3,
+      ),
+      maxSubAgentConcurrency: parseLimit(
+        'max-sub-agent-concurrency',
+        fileLimits?.maxSubAgentConcurrency,
+        6,
+      ),
       requestsPerMinute: parseLimit(
-          'requests-per-minute', fileLimits?.requestsPerMinute, 0),
+        'requests-per-minute',
+        fileLimits?.requestsPerMinute,
+        0,
+      ),
       autoCompactThreshold: parseBudget('auto-compact-threshold', '120000'),
       maxSteps: parsePositive('max-steps', '500'),
       watchdogSeconds: parseBudget('watchdog-seconds', '300'),
-      streamIdleTimeout:
-          Duration(seconds: parsePositive('stream-idle-timeout', '60')),
-      requestTimeout:
-          Duration(seconds: parsePositive('request-timeout', '30')),
+      streamIdleTimeout: Duration(
+        seconds: parsePositive('stream-idle-timeout', '60'),
+      ),
+      requestTimeout: Duration(seconds: parsePositive('request-timeout', '30')),
       backend: switch (res['backend'] as String) {
         'ansi' => BackendChoice.ansi,
         _ => BackendChoice.notcurses,
@@ -625,17 +759,20 @@ class Config {
       theme: _resolveTheme(userConfig),
       safeMode: res['safe-mode'] as bool,
       sandboxEnabled: !(res['no-sandbox'] as bool),
-      trustOverride:
-          res.wasParsed('trust') ? res['trust'] as bool : null,
+      trustOverride: res.wasParsed('trust') ? res['trust'] as bool : null,
       trustDefault: _parseTrustDefault(userConfig?.trustDefault),
-      environmentAutoPopulate:
-          parseEnvironmentAutoPopulate(userConfig?.environmentAutoPopulate),
+      environmentAutoPopulate: parseEnvironmentAutoPopulate(
+        userConfig?.environmentAutoPopulate,
+      ),
       environmentModel: userConfig?.environmentModel,
       mouseWheel: userConfig?.mouseWheel ?? false,
       regionsModel: userConfig?.regions?.model,
       permissionMode: _resolvePermissionMode(
-          res['permission-mode'] as String?, userConfig?.permissions?.mode),
+        res['permission-mode'] as String?,
+        userConfig?.permissions?.mode,
+      ),
       permissionClassifierModel: userConfig?.permissions?.model,
+      modelExplicit: res.wasParsed('model'),
       forceLock: res['force'] as bool,
     );
   }
@@ -643,9 +780,7 @@ class Config {
   /// Build a token budget from the parsed flags. 0 in any field disables
   /// that particular cap; if all three are 0 the budget is itself null.
   TokenBudget? buildTokenBudget() {
-    if (maxTurnTokens == 0 &&
-        maxSessionTokens == 0 &&
-        maxRequestTokens == 0) {
+    if (maxTurnTokens == 0 && maxSessionTokens == 0 && maxRequestTokens == 0) {
       return null;
     }
     return TokenBudget(
@@ -678,7 +813,10 @@ class Config {
           }
         : null;
     return PermissionPolicy(
-        defaults: defaults, rules: permissionRules, mode: permissionMode);
+      defaults: defaults,
+      rules: permissionRules,
+      mode: permissionMode,
+    );
   }
 }
 
@@ -716,7 +854,7 @@ Theme _resolveTheme(UserConfig? uc) {
 /// Parse `[trust] default` from the config file into a [TrustDefault]. Unknown
 /// or absent → `ask`.
 TrustDefault _parseTrustDefault(String? raw) => switch (raw) {
-      'always' => TrustDefault.always,
-      'never' => TrustDefault.never,
-      _ => TrustDefault.ask,
-    };
+  'always' => TrustDefault.always,
+  'never' => TrustDefault.never,
+  _ => TrustDefault.ask,
+};
