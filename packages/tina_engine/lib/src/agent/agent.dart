@@ -23,6 +23,15 @@ final _log = Logger('tina.agent');
 /// relaxes the ask-gate). No config surface by design.
 const int kMaxToolCallsPerRun = 5000;
 
+/// Consecutive denials of the SAME tool after which the denial result gains a
+/// circuit-breaker line telling the model to stop calling that tool (#27).
+/// Why 3: the live spiral runs wasted 12 steps (Run A) and 11 (the probe run)
+/// re-denying one tool before the model gave up — three strikes is early
+/// enough to cut most of that waste while leaving room for one legitimate
+/// rephrase between attempts. Not configurable by design, like
+/// [kMaxToolCallsPerRun].
+const int _consecutiveDenialNoticeThreshold = 3;
+
 /// Why a turn stopped abnormally, classified by cause. Callers that decide
 /// whether to retry (e.g. the pipeline's codergen nodes) treat [provider]
 /// failures as transient — a rate limit or dropped stream may clear on its
@@ -39,6 +48,24 @@ Use terse markdown bullets, <= 400 words. Preserve:
 - errors encountered and how they were resolved
 Omit pleasantries and reasoning that did not lead anywhere.
 ''';
+
+typedef ToolResultVerifier = Future<String?> Function(
+  String toolName,
+  Map<String, dynamic> input,
+);
+
+/// Fired (and awaited) by [Agent] after a message is appended to the live
+/// history — the turn's user message, each assistant completion, each
+/// tool-result batch. Write-through persistence (#25): the app wires this to
+/// the [SessionRecorder] so a mid-turn kill leaves completed exchanges on
+/// disk. Null (the default) = nothing fires and the turn is byte-identical to
+/// the pre-observer behavior. A throw is caught, logged, and swallowed.
+typedef HistoryAppendObserver = Future<void> Function(Message);
+
+/// Fired (and awaited) ONCE after [Agent.compact] rewrites the history in
+/// place, with the FINAL post-compact list — a REWRITE, not appends. Null (the
+/// default) = nothing fires. A throw is caught, logged, and swallowed.
+typedef HistoryReplaceObserver = Future<void> Function(List<Message>);
 
 class Agent {
   LlmProvider _provider;
@@ -80,6 +107,40 @@ class Agent {
   /// tool_result are never severed (see [compact]).
   int autoCompactKeepMessages;
 
+  /// Optional post-success gate on a tool result, run by the agent AFTER a
+  /// tool completes without error and BEFORE its result is appended to the
+  /// history the model reads next step. Given the tool name and input, return
+  /// a short remediation string (or null for "nothing to add"); a non-null
+  /// return is appended to the tool's own content (tool content first, then a
+  /// newline, then the verifier text) so the model sees the diagnosis while
+  /// its own edit is still in context. The intended headless use is a
+  /// post-edit `dart analyze` gate (#22a): a non-compiling edit is fed
+  /// straight back so the model can self-correct instead of leaving a scar
+  /// that kills the NEXT `dart run` at exit 254. Never fires on error results
+  /// (parse-error / unknown-tool / denied / thrown paths skip it), and a
+  /// verifier that itself throws is logged and ignored — the tool's own
+  /// content ships unchanged. Null (the default) = no verification at all.
+  final ToolResultVerifier? resultVerifier;
+
+  /// Write-through seam (#25): fired and AWAITED after every message is
+  /// appended to [history] — the turn's user message, each assistant
+  /// completion, each tool-result batch. Awaiting keeps the ordering
+  /// guarantee a fire-and-forget write cannot: when [run] returns, every
+  /// observer for this turn has finished (or failed and been logged), so
+  /// teardown can close the store without racing the last write. A throw is
+  /// caught, logged, and swallowed — a broken observer degrades to "not
+  /// persisted", never aborts the turn. Null (the default) = nothing fires
+  /// and behavior is byte-identical to the pre-observer agent.
+  HistoryAppendObserver? onHistoryAppend;
+
+  /// Write-through seam for compaction: fired and AWAITED exactly once after
+  /// [compact] rewrites [history] (clear + rebuild), with the FINAL
+  /// post-compact list — a REWRITE, not appends. Receives the live [history]
+  /// list itself; observers that persist must treat it as read-only (compact
+  /// continues mutating the same list afterwards). Null (the default) =
+  /// nothing fires. Same throw-containment as [onHistoryAppend].
+  HistoryReplaceObserver? onHistoryReplace;
+
   /// Resolved once at construction; reused for every provider call so the
   /// system prefix stays stable across a multi-step turn (cache-friendly).
   final String system;
@@ -95,8 +156,46 @@ class Agent {
     this.pauseGate,
     this.autoCompactThreshold = 0,
     this.autoCompactKeepMessages = 6,
+    this.resultVerifier,
+    this.onHistoryAppend,
+    this.onHistoryReplace,
     required this.system,
   }) : _provider = provider;
+
+  /// Await [onHistoryAppend] for [m], swallowing observer failures — a broken
+  /// recorder must degrade to "not persisted", never abort the turn. The
+  /// await is what makes the seam safe to tear down behind: when [run]
+  /// returns, no observer write for this turn is still in flight.
+  ///
+  /// NOT async, and deliberately returns null (never an already-completed
+  /// future) when no observer is installed: `await` on anything — even a
+  /// synchronously-completed future — suspends the turn loop for a microtask,
+  /// and "null = byte-identical behavior" must hold all the way down to
+  /// suspension timing (a queued microtask ran between the user message and
+  /// the provider subscription and hung a gate-based test fixture; production
+  /// timing shifts just as invisibly). Call sites skip the await on null.
+  Future<void>? _notifyAppend(Message m) {
+    final cb = onHistoryAppend;
+    if (cb == null) return null;
+    return _guardObserver(() => cb(m));
+  }
+
+  /// Await [onHistoryReplace] with the post-compact [messages], containing
+  /// observer failures the same way [onHistoryAppend] is — and returning null
+  /// (zero suspensions) when no observer is set, for the same reason.
+  Future<void>? _notifyReplace(List<Message> messages) {
+    final cb = onHistoryReplace;
+    if (cb == null) return null;
+    return _guardObserver(() => cb(messages));
+  }
+
+  Future<void> _guardObserver(Future<void> Function() run) async {
+    try {
+      await run();
+    } catch (e, st) {
+      _log.warning('history observer failed', e, st);
+    }
+  }
 
   /// Run one user turn. The agent may issue several provider calls if tools
   /// are invoked. [cancelSignal], when completed, aborts the current
@@ -155,7 +254,11 @@ class Agent {
   }) async {
     abortedReason = null;
     abortedKind = AbortedKind.none;
-    history.add(Message(role: Role.user, content: [TextBlock(userInput)]));
+    final userMessage =
+        Message(role: Role.user, content: [TextBlock(userInput)]);
+    history.add(userMessage);
+    final pendingUser = _notifyAppend(userMessage);
+    if (pendingUser != null) await pendingUser;
 
     var cancelled = false;
     cancelSignal?.then((_) => cancelled = true);
@@ -175,6 +278,11 @@ class Agent {
     // Consecutive completions that carried NO blocks at all (see the check
     // before the history append below). One retry, then abort.
     var emptyCompletions = 0;
+
+    // Per-tool consecutive denial counter (#27): resets on any SUCCESS of
+    // that tool, increments on each denial. Used to trip the circuit-breaker
+    // message that tells the model to stop calling the same denied tool.
+    final denialCounts = <String, int>{};
 
     for (var step = 0; step < maxSteps; step++) {
       if (cancelled) {
@@ -222,14 +330,14 @@ class Agent {
         // floor (estimate > threshold/2) skips compaction when the context
         // is small enough that compacting buys little.
         final perTurn = budget?.perTurnLimit;
-        final spendTriggered =
-            perTurn != null &&
-                budget!.turnTotal >= perTurn ~/ 2 &&
-                estimate > autoCompactThreshold ~/ 2;
+        final spendTriggered = perTurn != null &&
+            budget!.turnTotal >= perTurn ~/ 2 &&
+            estimate > autoCompactThreshold ~/ 2;
         if ((sizeTriggered || spendTriggered) &&
             _assistantMessageBoundary(history, autoCompactKeepMessages) >= 2) {
           if (spendTriggered && !sizeTriggered) {
-            sink.notice('\n[compact] turn spend ${budget!.turnTotal}/$perTurn '
+            sink.notice(
+                '\n[compact] turn spend ${budget!.turnTotal}/$perTurn '
                 'crossed 50% — compacting to stretch the per-turn cap\n',
                 kind: NoticeKind.info);
           }
@@ -242,8 +350,7 @@ class Agent {
       // Pre-flight: refuse a request whose input alone would blow past the
       // per-request cap. Catches the "single tool returned 5MB of context"
       // scenario before we put it on the wire.
-      final reject =
-          budget?.checkRequestInput(system, history, tools.schemas);
+      final reject = budget?.checkRequestInput(system, history, tools.schemas);
       if (reject != null) {
         sink.notice('\n[budget] $reject\n', kind: NoticeKind.error);
         abortedReason = reject;
@@ -336,7 +443,14 @@ class Agent {
       }
       emptyCompletions = 0;
 
-      history.add(Message(role: Role.assistant, content: content));
+      final assistantMessage = Message(role: Role.assistant, content: content);
+      history.add(assistantMessage);
+      // Written-through as soon as it exists: the assistant message carries
+      // the tool_use blocks the next step answers, so losing it on a kill
+      // orphans the tool results that follow. Awaited so a turn exit (cancel,
+      // error, clean finish) can never outrun the observer.
+      final pendingAssistant = _notifyAppend(assistantMessage);
+      if (pendingAssistant != null) await pendingAssistant;
 
       final toolUses = content.whereType<ToolUseBlock>().toList();
       if (toolUses.isEmpty) {
@@ -388,9 +502,14 @@ class Agent {
         }
 
         var decision = policy.check(use.name, use.input);
+        // The asker's response, when the decision went through the asker
+        // (ask → refused). Null for a static deny RULE — a rule deny is a
+        // policy choice; the allowed-shapes text is its remedy, so no asker
+        // note is expected there.
+        PermissionResponse? resp;
         if (decision == PermissionDecision.ask) {
           final prompt = PermissionPrompt(use.name, use.input);
-          final resp = await asker(prompt);
+          resp = await asker(prompt);
           decision = resp.decision;
           if (resp.remember) {
             policy.remember(use.name, prompt.alwaysPattern, decision);
@@ -398,14 +517,41 @@ class Agent {
         }
         if (decision == PermissionDecision.deny) {
           sink.notice('  ${use.name} denied\n');
+          // Circuit breaker (#27): a model that keeps re-denying the SAME
+          // tool never gets new information from the plain denial text, and
+          // the asker's own refusal hint only went to stderr — so it spun
+          // (12 wasted steps in Run A; 11 in the probe run). Past the
+          // threshold the denial result itself says "stop calling this".
+          final denials = (denialCounts[use.name] ?? 0) + 1;
+          denialCounts[use.name] = denials;
+          var content = _deniedContent(use.name);
+          final note = resp?.note;
+          if (note != null && note.isNotEmpty) {
+            content = '$content\n$note';
+          }
+          if (denials >= _consecutiveDenialNoticeThreshold) {
+            content =
+                '$content\nNOTE: $denials consecutive ${use.name} denials '
+                'this turn — this tool will keep being refused. Stop calling '
+                'it; proceed with the allowed tools or answer from what you '
+                'have.';
+            sink.notice(
+                '  ${use.name}: $denials consecutive denials this turn — '
+                'circuit-breaker notice attached to the denial result\n',
+                kind: NoticeKind.warning);
+          }
           results.add(ToolResultBlock(
             toolUseId: use.id,
-            content: _deniedContent(use.name),
+            content: content,
             isError: true,
           ));
           continue;
         }
 
+        // An ALLOWED call resets this tool's denial streak — the policy
+        // let the shape through, so the refusal pattern it was counting is
+        // over (whether the execution then succeeds or errors).
+        denialCounts.remove(use.name);
         sink.toolStart(ToolStartEvent(use.name, use.id, use.input));
         try {
           final out = await tool.execute(
@@ -418,6 +564,31 @@ class Agent {
           );
           sink.toolComplete(ToolCompleteEvent(use.name, use.id,
               isError: out.isError, result: out.content));
+          // Success-only verifier gate (#22a): a post-tool check (e.g. a
+          // headless post-edit `dart analyze`) can append a remediation block
+          // to the result the model reads next step. Error results, the
+          // parse-error / unknown-tool / denied / thrown paths above all skip
+          // it, and a verifier crash must never kill the turn — the tool's
+          // own content ships unchanged instead.
+          if (!out.isError && resultVerifier != null) {
+            try {
+              final verdict = await resultVerifier!(use.name, use.input);
+              if (verdict != null && verdict.isNotEmpty) {
+                results.add(ToolResultBlock(
+                  toolUseId: use.id,
+                  content: '${out.content}\n$verdict',
+                  isError: out.isError,
+                ));
+                continue;
+              }
+            } catch (e, st) {
+              _log.warning(
+                  'result verifier for ${use.name} failed — shipping the '
+                  'tool content unchanged',
+                  e,
+                  st);
+            }
+          }
           results.add(ToolResultBlock(
             toolUseId: use.id,
             content: out.content,
@@ -437,7 +608,13 @@ class Agent {
           ));
         }
       }
-      history.add(Message(role: Role.user, content: results));
+      final toolResults = Message(role: Role.user, content: results);
+      history.add(toolResults);
+      // Written-through immediately: a kill after the tools ran but before the
+      // next completion would otherwise lose the results while the on-disk
+      // assistant message already references them (a dangling tool_use).
+      final pendingResults = _notifyAppend(toolResults);
+      if (pendingResults != null) await pendingResults;
     }
 
     sink.notice('(max steps reached)\n', kind: NoticeKind.warning);
@@ -480,13 +657,15 @@ class Agent {
       if (split <= 0) return false; // fewer recent human turns than requested
       prefix = history.sublist(0, split);
       suffix = history.sublist(split);
-      if (prefix.length < 2) return false; // not enough older context to summarize
+      if (prefix.length < 2)
+        return false; // not enough older context to summarize
     } else if (preserveRecentMessages > 0) {
       final split = _assistantMessageBoundary(history, preserveRecentMessages);
       if (split <= 0) return false; // no safe boundary with a splittable prefix
       prefix = history.sublist(0, split);
       suffix = history.sublist(split);
-      if (prefix.length < 2) return false; // not enough older context to summarize
+      if (prefix.length < 2)
+        return false; // not enough older context to summarize
     } else {
       prefix = history;
       suffix = const [];
@@ -496,7 +675,8 @@ class Agent {
     final summaryRequest = [
       ...prefix,
       const Message(role: Role.user, content: [
-        TextBlock('Summarize the conversation above following the system instructions.'),
+        TextBlock(
+            'Summarize the conversation above following the system instructions.'),
       ]),
     ];
 
@@ -554,18 +734,30 @@ class Agent {
       return false;
     }
 
+    // Signal the rewrite to the observer: compact is a REWRITE (clear +
+    // rebuild), not an append. No synthetic marker message is appended — the
+    // marker used to fire BEFORE the rebuild (and only when a replace-capable
+    // observer was wired), so append-only observers saw a phantom message and
+    // replace-capable ones could miss the rewrite entirely. Nor are the
+    // rebuilt messages re-appended: an append-only recorder would duplicate
+    // the kept suffix (those messages were already appended when they first
+    // happened). The replace seam below fires ONCE with the final post-compact
+    // list, after the history is fully rebuilt.
+    final rebuilt = [
+      Message(
+          role: Role.user,
+          content: [TextBlock('Prior conversation summary:\n\n$summary')]),
+      const Message(
+          role: Role.assistant,
+          content: [TextBlock('Got it — continuing from this summary.')]),
+      ...suffix,
+    ];
+    final after = rebuilt.length;
     history
       ..clear()
-      ..add(Message(
-        role: Role.user,
-        content: [TextBlock('Prior conversation summary:\n\n$summary')],
-      ))
-      ..add(const Message(
-        role: Role.assistant,
-        content: [TextBlock('Got it — continuing from this summary.')],
-      ))
-      ..addAll(suffix);
-    final after = 2 + suffix.length;
+      ..addAll(rebuilt);
+    final pendingReplace = _notifyReplace(history);
+    if (pendingReplace != null) await pendingReplace;
     sink.notice('--- compacted $priorCount → $after messages ---\n');
     return true;
   }
@@ -623,5 +815,4 @@ class Agent {
     }
     return 0;
   }
-
 }

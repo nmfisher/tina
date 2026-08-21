@@ -30,8 +30,7 @@ void main() {
 
       expect(out.toString(), 'hello world\n');
       await sub.cancel();
-      expect(
-          events.whereType<TextAgentEvent>().map((e) => e.text).toList(),
+      expect(events.whereType<TextAgentEvent>().map((e) => e.text).toList(),
           ['hello ', 'world']);
       // newline() forwards but emits nothing.
       expect(events.whereType<TextAgentEvent>().length, 2);
@@ -54,8 +53,8 @@ void main() {
       final host = HeadlessHost(write: out.write);
 
       // Non-const: 'boom' * 100 (string repeat) isn't a const operation.
-      host.toolComplete(ToolCompleteEvent('bash', 't1',
-          isError: true, result: 'boom' * 100));
+      host.toolComplete(
+          ToolCompleteEvent('bash', 't1', isError: true, result: 'boom' * 100));
 
       final s = out.toString();
       expect(s, startsWith('  failed: '));
@@ -97,12 +96,16 @@ void main() {
       final res = await host.askPermission(
           const PermissionPrompt('bash', {'command': 'rm -rf /'}));
 
-      expect(res, PermissionResponse.denyOnce);
+      expect(res.decision, PermissionDecision.deny);
+      // #27: the refusal now carries a model-facing note — the stderr hint is
+      // invisible to the model, so the note must say the asker is
+      // non-interactive and rephrasing will not help.
+      expect(res.note, contains('Non-interactive run: permission asks'));
+      expect(res.note, contains('rephrasing will not change this'));
       // Fix 4: the "always allow" hint names the EXACT command, not the
       // first-word family — so a denied `rm -rf /` points at that command
       // alone rather than widening to every `rm`.
-      expect(err.toString(),
-          contains('use --allow "bash:rm -rf /" or --yolo'));
+      expect(err.toString(), contains('use --allow "bash:rm -rf /" or --yolo'));
       expect(err.toString(), contains('bash:'));
     });
 

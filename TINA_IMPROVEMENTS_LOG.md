@@ -31,6 +31,14 @@ requests-per-minute rate limit in this repo. Newest entries at the bottom.
    open: under a pool `[default]` the flag is a no-op — pool members take
    their keys from member config, and one string can't be right for a
    multi-provider pool anyway.
+   **→ REMOVED 2026-08-21 (owner decision):** the flag shipped briefly and
+   was taken back out — a key on a command line leaks via shell history,
+   process listings, and audit logs; credentials belong in
+   `~/.tina/config` (chmod 600) or the environment. Passing `--api-key`
+   now fails fast (`Could not find an option named "--api-key"`), the
+   dead `Config.apiKeyOverride` field went with it, and resolution is the
+   clean file > env chain through `registry.authFor`. The pool edge
+   dissolved with the flag.
 
 ## Round 1 — first task run
 
@@ -210,8 +218,13 @@ and commit. Two new observations from the first run of this round:
     `FileSystemException: Not a directory, errno 20` + "failed to list,
     skipping subtree" to stderr. A file root should either match the
     pattern against the file or return no matches — the exception noise
-    makes an innocent query look like a failure. (Would make; not yet
-    scheduled.)
+    makes an innocent query look like a failure.
+    **→ Implemented 2026-08-21 (improvements run, Runs G2+G3):** the
+    enumerator layer returns the file itself for a file root (c4618b3),
+    and both consumers honor it end-to-end (5b2ca42): glob accepts a
+    file root and matches the pattern against its basename; grep's Dart
+    fallback reads the root itself instead of the phantom
+    `<file>/<basename>` join. The rg subprocess path was never broken.
 17. **Default maxSteps (50) is tight for small-model writes.** The first
     Run A attempt spent all 50 steps exploring (plus 12 wasted on denied
     `cat`/`head`/`grep` bash shapes) and hit the max-steps ceiling with
@@ -220,6 +233,9 @@ and commit. Two new observations from the first run of this round:
     steps. Driving pattern for small models: let them explore once, then
     resume with a directive; or raise the ceiling up front on any run
     expected to write code.
+    **→ Implemented 2026-08-20:** the default maxSteps is 500 now (raised
+    after Run F burned the then-80 ceiling legitimately; driver launches
+    use ≥500 and the driving rule is formalized as "minimum 500").
 18. **No headless `--model` override (would make).** Model alternation
     exists per-conversation (TUI `/model`, persisted across resume),
     per-task (sub-agent `modelReference`), and for the permission
@@ -230,6 +246,22 @@ and commit. Two new observations from the first run of this round:
     <provider/model>` flag beating both the config default and the
     persisted label would enable alternating models across headless
     rounds — cheap explorer for reads, strong model for writes.
+    **→ Implemented 2026-08-21 (improvements run, Run L):** `--model`
+    normalizes into Config.provider/Config.model at parse time, so every
+    downstream consumer (buildStartupProvider, the workflow runner's
+    defaultModelReference, the SessionRecorder's providerId) inherits it
+    with no other file touched. A value containing '/' is a full
+    `<provider>/<model>` ref split on the FIRST slash (the
+    session_restore convention — model ids may themselves contain slashes,
+    e.g. `openrouter/stealth/ox-alpha`); a bare value overrides only the
+    model. Precedence: flag > `[default]` file > env/descriptor default.
+    Verified live: `--model openrouter/stealth/ox-alpha` against a
+    pool-default config sent its request to https://openrouter.ai on the
+    wire (not the pool's members); `--model nosuch/x` fails fast with the
+    unknown-provider FormatException. Scope note: a headless `--resume`
+    without `--model` still uses the config default (the persisted
+    conversation model is honored on the TUI path only, per #4's fix) —
+    `--model` is the explicit way to pin it headlessly.
 19. **No way to spread load across providers → Implemented.**
     A session pinned to one provider inherits that provider's rate
     ceiling (NIM: 40 RPM) with no recourse; throughput above it is
@@ -302,7 +334,29 @@ and commit. Two new observations from the first run of this round:
     error straight back to the model while its own edit is still in
     context — cheaper than discovering a pile of them at test time); (b)
     the session recorder stamping the tree's compile status per step, so
-    a resume can tell the model WHICH step broke it. Neither built yet.
+    a resume can tell the model WHICH step broke it.
+    **→ (a) Implemented 2026-08-21 (improvements run, Run H):** the agent
+    takes an optional ToolResultVerifier; after a successful edit/write it
+    appends the verdict to the tool result the model reads next step.
+    Headless wires DartAnalyzeVerifier (`dart analyze <file>`, 30s-bounded,
+    capped error block; null on clean/timeout/failure). (b) recorder
+    stamping remains open.
+    **→ (b) Implemented 2026-08-21 (improvements run, Run N), REFRAMED:**
+    per-step recorder stamping turned out to be subsumed — #22a's verdicts
+    ride the tool-result messages and #25 persists those write-through, so
+    a resumed transcript already carries them. The real gap was CURRENT
+    tree state: compaction can drop old verdicts, and the break may
+    pre-date the session or come from outside (a kill, a manual edit). So
+    instead: a startup tree-health check — `projectCheck()` on
+    DartAnalyzeVerifier (whole-project `dart analyze`, 30s-bounded,
+    shares the #22a parse/cap core) runs before the headless turn when a
+    pubspec.yaml is present, and a `<tree-health>` block naming the errors
+    is prepended to the user input so the model fixes FIRST. Verified
+    live: a broken scratch package's persisted transcript carries the
+    block with the exact diagnostic; a clean package gets no notice.
+    Cost note: every headless run in a Dart project now pays one bounded
+    project analyze (~seconds on small projects, ~15s on this monorepo)
+    before the first request.
 
 23. **A 30s default request-timeout silently kills large-context resumes.**
     Run B's resumed session carries ~220KB of conversation (each resume
@@ -319,6 +373,21 @@ and commit. Two new observations from the first run of this round:
     off exponentially at minimum; (c) worth considering a default scaled
     to request size (the estimate the limiter already computes). Driving
     remedy meanwhile: launch with `--request-timeout 180`.
+    **→ (a)+(b) Implemented 2026-08-21 (improvements run, Run I):** each
+    timeout raise site names its flag and the observed seconds, and
+    humanizeException passes the message through; a wall-clock timeout
+    awaiting headers is now terminal for the transport retry loop (no
+    more re-sending an unchanged payload into the same wall — the error
+    stays transient so the pool fails over with real spacing). (c) the
+    size-scaled default remains open.
+    **→ (c) Implemented 2026-08-21 (improvements run, Run M):**
+    `scaledRequestTimeout(bodyBytes)` — 30s + 1s per 4096 bytes, capped
+    900s (220KB → 85s, ~4.7x the observed 18s) — applied at each
+    provider's send site when the configured value EQUALS the built-in
+    default (nobody passes a flag to request the default; any other
+    explicit value is a deliberate choice and wins verbatim). No Config,
+    registry, or constructor signatures changed; the existing named
+    errors automatically report the scaled seconds.
 
 ## Epilogue — the feature protecting its own provider
 
@@ -377,6 +446,18 @@ file:line-cited summary of its own rate limiter.
     244KB contexts ride forever under the 120K default because the
     estimate (~61K) never crosses it, yet each re-send pays the full
     prefill).
+    **→ (a) Implemented 2026-08-21 (improvements run, Run I):** the
+    stream-idle raise names its flag and the observed seconds ("no
+    stream events for 60s — raise with --stream-idle-timeout"), and the
+    idle clock now measures raw bytes (resp.stream.timeout before SSE
+    parsing) so a silent prefill names the right knob. (b) the
+    size-scaled idle default remains open.
+    **→ (b) Implemented 2026-08-21 (improvements run, Run M):**
+    `scaledStreamIdleTimeout(bodyBytes)` — 60s + 1s per 3072 bytes,
+    capped 900s (244KB → 141s, ~1.7x the measured 81s silent prefill) —
+    same "== default scales, explicit wins" contract as #23(c), applied
+    identically across anthropic/gemini/openai_compatible. A plain launch
+    now survives a large resume without hand-passing either flag.
 
 25. **A mid-turn kill persists the tree but not the conversation.** Killing
     a headless run mid-turn (as a driver must, when a run dithers or rides
@@ -391,6 +472,17 @@ file:line-cited summary of its own rate limiter.
     original session-persistence design (#7) quietly assumes graceful turn
     ends. Workaround meanwhile: fresh session + directive that names
     what's already on disk; edits survive, so this recovers cheaply.
+    **→ Implemented 2026-08-21 (improvements run, Runs J+J2, driver
+    repairs):** the agent fires awaited observer seams — onHistoryAppend
+    after every history add, onHistoryReplace once after compact's
+    rewrite — and headless persists through the SessionRecorder as each
+    message is produced (turn-end flush deleted). Null observers suspend
+    zero times: the notify helpers return null rather than a completed
+    future, because an async no-op await still yields a microtask —
+    enough to hang two gate-based scheduler tests. Live-verified: a real
+    headless run's project-local transcript holds all messages before
+    process exit. The TUI's SessionController still flushes at turn end
+    (same seam available when wanted).
 
 26. **A headless run can deadlock silently — no error, no exit, no watchdog.**
     Run D wedged mid-turn: an edit completed, the model streamed a sentence
@@ -406,3 +498,129 @@ file:line-cited summary of its own rate limiter.
     same way the budget guard already converts runaway spend into a clean
     exit-2. Driving remedy meanwhile: watch the wire log's mtime and kill
     by hand.
+    **→ Implemented 2026-08-21 (improvements run, Run K + driver repairs):**
+    `HeadlessWatchdog` (lib/host/headless_watchdog.dart)
+    resets its idle clock on every agent event-bus emission; on expiry it
+    fires once — a `[watchdog]` diagnostic block on stderr (last event,
+    its age, total events, plus the honest note that Dart cannot retrieve
+    the parked await's stack), then tears the turn down via
+    `agent.run`'s `cancelSignal`, with a 5s grace before a hard exit(2)
+    (the budget guard's clean-exit pattern). Flag `--watchdog-seconds`
+    (default 300; 0 disables; headless only). One honest deviation from
+    the original want: no stack dump of the parked await — Dart has no
+    API to fetch another await's stack, so the diagnostic says so instead
+    of printing a misleading one.
+
+27. **A permission-denied headless run dithers in a denial spiral — and the
+    new tree-health notice amplifies it (would make).** Observed live while
+    verifying #22(b): a no-`--allow` probe run in a broken scratch package
+    received the `<tree-health>` block, correctly diagnosed the error,
+    tried to fix it — `edit denied`, `write denied`, then NINE more
+    denied bash shapes ending in a denied `bash: dart analyze` — and never
+    answered the actual prompt (the driver's 240s kill ended it; a sibling
+    run whose model simply replied exited 0). Run A already logged 12
+    steps wasted on denied shapes; the root cause is unchanged: headless
+    refuses every ask, but nothing tells the MODEL that asks are futile,
+    and nothing circuit-breaks repeated denials of the same tool.
+    **Would make:** (a) the headless denial message should state plainly
+    "asks are auto-refused headless; rephrasing will not help — proceed
+    without this tool or answer from what you have"; (b) the agent loop
+    should count consecutive denials per tool and inject a notice (or
+    stop) after N; (c) the tree-health notice should be conditioned on
+    the policy actually permitting edit/write, or phrased "fix these
+    first if you are permitted to edit". Driving remedy meanwhile:
+    always launch with the intended `--allow` shapes.
+
+28. **The pool "rotates over" warning prints even when the pool is not used
+    (cosmetic, but misleading — would make).** Observed live while
+    verifying #18: a run launched with `--model openrouter/stealth/ox-alpha`
+    against a pool-default config still prints `tina: pool "pool" rotates
+    over: ...` on stderr, because the warning fires at registry-attach
+    time from the config-file declaration, not at resolve/use time. It
+    reads as "the pool is active" when the run uses a single direct
+    provider — bad enough that Run L's summary mistook the warning's
+    member list for proof the flag had taken effect (the wire log was
+    needed to settle it). **Would make:** emit the warning when a pool
+    descriptor is actually RESOLVED for a build, or stamp it with "when
+    used". Trivial severity; pure operator-confusion cost.
+
+29. **Headless `--resume` ran the conversation under the config default,
+    not the model it was actually using (owner-directed fix).** The
+    `/model`-persistence work (4ff1ff8) rebuilt the active conversation
+    from its stored model ref in the TUI only — the headless path built
+    its startup provider purely from `Config.provider`/`Config.model`, so
+    `tina --resume <id>` silently switched the conversation back to the
+    config default (with a pool default: to whatever member rotated
+    first). Owner contract (2026-08-21): **`--model` flag > persisted
+    active-conversation model (on `--resume`/`--continue`) > `[default]`
+    file > env/descriptor default.**
+    **→ Implemented 2026-08-21 (owner-directed, Run O + driver repair):**
+    `Config.modelExplicit` carries flag-explicitness past #18's
+    parse-time normalization (the flag folds into provider/model, so
+    explicitness must travel separately or the precedence is
+    unimplementable). `buildStartupProvider()` consults the active
+    conversation's meta ref when no flag was passed: first-slash provider
+    (the session_restore convention), a single stderr warning + config
+    fallback when the ref is no longer resolvable — a resume never
+    hard-fails on a stale ref — and apiKey/baseUrl overrides applied only
+    when the ref's provider matches config's (the TUI guard pattern).
+    Run O's code and unit tests were correct, but the live proof FAILED
+    initially: the headless `SessionRecorder` created its conversation
+    meta with `model: null` (only the TUI creation path and `/model`
+    swaps ever stamped one), so the meta the new code read was always
+    null and every resume still fell back to the pool. tina had skipped
+    the live checks its prompt required — exactly where this would have
+    surfaced. Driver repair: `bin/tina.dart` now stamps
+    `ConversationMetaInput.primary` at recorder construction, mirroring
+    the TUI's initialRecorder (write-once for fresh sessions; a resume
+    attaches, so persisted swaps are never clobbered). Wire proof, three
+    live runs: fresh `--model openrouter/stealth/ox-alpha` →
+    https://openrouter.ai with the meta stamped
+    `openrouter/stealth/ox-alpha`; resume with NO flag →
+    https://openrouter.ai (the persisted meta wins; this was
+    integrate.api.nvidia.com before the repair); resume WITH `--model
+    nim/thinkingmachines/inkling` → https://integrate.api.nvidia.com
+    (the flag wins). Engine 763 / root 698 (690 + 8 new) green.
+
+30. **TUI: the permission prompt sometimes renders overlapping the tail of
+    the last tool output (owner-observed).** When a permission request
+    draws right after streamed tool output (or a still-live spinner/
+    inline region), the prompt's first line can glue itself onto or over
+    the output's last line instead of starting on a fresh one — the
+    approval line (`tool: key`) becomes hard to read and looks like part
+    of the result. The draw path (TuiConversationHost.askPermission →
+    chat.yellow) does not guarantee the previous output ended with a
+    newline, nor that the spinner/region has quiesced before the prompt
+    renders. **Would make:** before drawing a permission prompt, force a
+    line break (and settle any active spinner/region) so the prompt
+    always starts at column 0 of a fresh line — the same discipline the
+    tool-start/tool-complete notices already follow.
+    **→ Implemented 2026-08-21 (improvements run, Run P + driver touch-up):**
+    all three legs. (a) `PermissionResponse.note` — a model-facing
+    explanation an auto-refusing asker supplies (HeadlessHost, the
+    background-conversation TUI branch, and the workflow asker all set
+    it): "Non-interactive run: permission asks are auto-refused —
+    rephrasing will not change this." It rides on the denied tool result;
+    the stderr hint stays for the operator. A static deny RULE gets no
+    note (the asker was never consulted; the allowed-shapes text is the
+    remedy there). (b) A per-tool consecutive-denial circuit breaker in
+    the agent loop: at ≥3 denials of the same tool (an allowed call of
+    that tool resets the streak) the denial result itself says "stop
+    calling it" and a warning notice marks the trip for the operator.
+    (c) The `<tree-health>` block now goes through
+    `DartAnalyzeVerifier.wrapTreeHealth`: when `editActionable(policy)`
+    (a scratch-file `edit` probe against the run's policy) says the run
+    cannot edit, the block gains "You do NOT have edit permission in
+    this run — do not try to fix these." Live acceptance (the exact
+    probe that exposed the spiral): a no-`--allow` run in a broken
+    scratch package answered the prompt with ZERO denials — the model
+    read the file, cited "the no-edit constraint", and exited 0 (the
+    pre-fix behavior was 11 denials and a driver kill). Driver
+    touch-up: removed a redundant second streak-reset (the allow-time
+    reset already covers it) and dart-format. Engine 767 / root 702
+    (driver-run counts; Run P's summary claimed "534 across the repo" —
+    a subset miscount, its fourth in a row). An unplanned bonus proof:
+    Run P's first launch lost its `--allow` flags to a launcher typo,
+    and tina — reading only its own denial results — stopped after 3
+    denials and reported honestly instead of spiraling: the fix's
+    target behavior, exercised by accident.

@@ -53,6 +53,27 @@ void main() {
       expect(res.content, equals('(no matches)'));
     });
 
+    test('file root is pattern-matched and returned as the basename', () async {
+      // A file root is valid input: the enumerator reduces it to its basename
+      // (c4618b3), so glob matches the pattern against that basename instead
+      // of rejecting the root as a non-directory.
+      final file = File('${tmp.path}/only.dart')..writeAsStringSync('');
+      final res = await GlobTool(fileEnumerator: const WalkFileEnumerator())
+          .execute({'pattern': '*.dart', 'path': file.path});
+      expect(res.isError, isFalse);
+      // Same relative shape a dir-rooted glob would print for this file.
+      expect(res.content.trim(), equals('only.dart'));
+    });
+
+    test('file root that does not match the pattern reports (no matches)',
+        () async {
+      final file = File('${tmp.path}/only.txt')..writeAsStringSync('');
+      final res = await GlobTool(fileEnumerator: const WalkFileEnumerator())
+          .execute({'pattern': '*.dart', 'path': file.path});
+      expect(res.isError, isFalse);
+      expect(res.content, equals('(no matches)'));
+    });
+
     test('rejects an empty pattern', () async {
       final res = await GlobTool(fileEnumerator: MemoryFileEnumerator({}))
           .execute({'pattern': ''});

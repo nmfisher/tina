@@ -77,12 +77,19 @@ abstract class FileEnumerator {
 
 /// Enumerates by walking the directory tree with `dart:io`, skipping
 /// well-known build dirs ([skipDirs]) and following no symlinks. Used directly
-/// when git is unavailable, and as [RepoFileEnumerator]'s fallback.
+/// when git is unavailable, and as [RepoFileEnumerator]'s fallback. A root
+/// that is itself a file enumerates to just that file — search tools accept
+/// file paths to narrow a search, and a walk would die on them.
 class WalkFileEnumerator implements FileEnumerator {
   const WalkFileEnumerator();
 
   @override
-  Future<List<String>> enumerate(String root) async => _walk(root);
+  Future<List<String>> enumerate(String root) async {
+    if (FileSystemEntity.typeSync(root) == FileSystemEntityType.file) {
+      return [p.basename(root)];
+    }
+    return _walk(root);
+  }
 }
 
 List<String> _walk(String root) {
@@ -126,6 +133,13 @@ class RepoFileEnumerator implements FileEnumerator {
 
   @override
   Future<List<String>> enumerate(String root) async {
+    // When the user passes a file as root, neither the git command (which
+    // expects a working-directory) nor the directory walk should run.
+    // Return the file directly so every consumer (glob, grep, future) gets
+    // the same shape it would from a walk: basename relative to the root.
+    if (FileSystemEntity.typeSync(root) == FileSystemEntityType.file) {
+      return [p.basename(root)];
+    }
     try {
       final res = await processRunner.run(
         'git',

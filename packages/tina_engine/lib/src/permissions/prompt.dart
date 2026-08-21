@@ -17,12 +17,19 @@ class PermissionResponse {
   /// using the prompt's [PermissionPrompt.alwaysPattern].
   final bool remember;
 
-  const PermissionResponse(this.decision, {this.remember = false});
+  /// Optional model-facing explanation an auto-refusing asker supplies (e.g.
+  /// headless non-interactive refusal). Appended to the denied tool result
+  /// content when non-null.
+  final String? note;
 
-  static const allowOnce =
-      PermissionResponse(PermissionDecision.allow);
-  static const denyOnce =
-      PermissionResponse(PermissionDecision.deny);
+  const PermissionResponse(
+    this.decision, {
+    this.remember = false,
+    this.note,
+  });
+
+  static const allowOnce = PermissionResponse(PermissionDecision.allow);
+  static const denyOnce = PermissionResponse(PermissionDecision.deny);
   static const allowAlways =
       PermissionResponse(PermissionDecision.allow, remember: true);
   static const denyAlways =

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
@@ -272,6 +273,25 @@ void main() {
       expect(res.content, contains('a.txt:1:foo'));
       expect(res.content, contains('b.txt:1:foo'));
       expect(res.content, isNot(contains('skipped')));
+    });
+
+    test('file root through Dart fallback returns basename-shaped matches', () async {
+      // When the enumerator sees a file root (c4618b3) it returns the basename.
+      // The Dart fallback must read from the actual file root (not the phantom
+      // `path/basename` join) and emit `basename:line:content`.
+      final tmp = Directory.systemTemp.createTempSync('tina_grep_file_');
+      try {
+        final file = File('${tmp.path}/match.dart')
+          ..writeAsStringSync('hello world\n');
+        final res = await GrepTool(
+          processRunner: _noRgRunner(),
+          fileEnumerator: WalkFileEnumerator(),
+        ).execute({'pattern': 'hello', 'path': file.path});
+        expect(res.isError, isFalse);
+        expect(res.content, contains('match.dart:1:hello world'));
+      } finally {
+        tmp.deleteSync(recursive: true);
+      }
     });
 
     test('reports (no matches) plus skip line when all files are binary',

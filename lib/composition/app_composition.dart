@@ -77,23 +77,64 @@ class AppComposition {
     this.classifier,
   });
 
-  /// Build the FIRST conversation's provider from config.provider/model (the
-  /// CLI key/base URL/timeouts apply as overrides). Not a field: this is
+  /// Build the FIRST conversation's provider. Not a field: this is
   /// conversation-scoped state, so the caller owns the result and closes it —
   /// the TUI's initial `Conversation`, the headless `--prompt` turn, or the
   /// summary fleet's ephemeral composition. Never share one instance between
   /// two conversations; every caller gets its own. Later conversations don't
   /// call this (SessionManager builds those via the registry). Metered: the
   /// registry decorator is armed in `buildAppComposition` before this runs.
-  LlmProvider buildStartupProvider() => startupProviderOverride ??
-      registry.build(
-        '${config.provider}/${config.model}',
-        apiKeyOverride: config.apiKey,
-        baseUrlOverride: config.baseUrl,
-        maxTokens: config.maxTokens,
-        streamIdleTimeout: config.streamIdleTimeout,
-        requestTimeout: config.requestTimeout,
-      );
+  ///
+  /// Model precedence on resume (`--resume` / `--continue`, headless and TUI
+  /// alike): an explicit `--model` flag wins; otherwise the ACTIVE
+  /// conversation's persisted meta model ref wins (a `/model` swap during the
+  /// session would otherwise be lost, and the conversation would come back
+  /// under the config default); otherwise the config default. Same resolution
+  /// philosophy as the restore fallback (`_restoreProvider` in
+  /// session_restore.dart): an unresolvable ref warns on stderr and degrades
+  /// to the config provider rather than failing the resume.
+  LlmProvider buildStartupProvider() {
+    if (startupProviderOverride != null) return startupProviderOverride!;
+    // The persisted ref applies only when the user did NOT pass --model.
+    if (!config.modelExplicit) {
+      final activeMeta = initialManifest?.conversations
+          .where((c) => c.id == initialConversationId)
+          .firstOrNull;
+      final ref = activeMeta?.model;
+      if (ref != null &&
+          ref.isNotEmpty &&
+          ref != '${config.provider}/${config.model}') {
+        final refProvider = ref.contains('/') ? ref.split('/').first : null;
+        if (refProvider == null || registry.descriptor(refProvider) == null) {
+          stderr.writeln(
+            'resume: conversation model "$ref" is no longer resolvable — '
+            'falling back to ${config.provider}/${config.model}.',
+          );
+        } else {
+          // The startup key/base URL apply only to the CONFIG provider; a
+          // different provider resolves afresh from its descriptor + env (same
+          // guard as the TUI's providerFactory).
+          final sameProvider = refProvider == config.provider;
+          return registry.build(
+            ref,
+            apiKeyOverride: sameProvider ? config.apiKey : null,
+            baseUrlOverride: sameProvider ? config.baseUrl : null,
+            maxTokens: config.maxTokens,
+            streamIdleTimeout: config.streamIdleTimeout,
+            requestTimeout: config.requestTimeout,
+          );
+        }
+      }
+    }
+    return registry.build(
+      '${config.provider}/${config.model}',
+      apiKeyOverride: config.apiKey,
+      baseUrlOverride: config.baseUrl,
+      maxTokens: config.maxTokens,
+      streamIdleTimeout: config.streamIdleTimeout,
+      requestTimeout: config.requestTimeout,
+    );
+  }
 }
 
 /// Assemble the [AppComposition] from a parsed [config] + [registry]: base
@@ -123,8 +164,7 @@ Future<AppComposition> buildAppComposition({
     requestsPerMinute: config.requestsPerMinute,
   );
   final pauseGate = PauseGate();
-  registry.decorator =
-      (inner) => MeteringProvider(inner, ledger, pauseGate);
+  registry.decorator = (inner) => MeteringProvider(inner, ledger, pauseGate);
   final policy = config.buildPolicy();
   // The auto-mode classifier: a dedicated cheap model when `[permissions]
   // model` is set, else the main model. Best-effort — an unbuildable ref
@@ -134,15 +174,17 @@ Future<AppComposition> buildAppComposition({
       config.permissionClassifierModel ?? '${config.provider}/${config.model}';
   PermissionClassifier? classifier;
   try {
-    classifier = PermissionClassifier(registry.build(
-      classifierRef,
-      apiKeyOverride: classifierRef.startsWith('${config.provider}/')
-          ? config.apiKey
-          : null,
-      maxTokens: config.maxTokens,
-      streamIdleTimeout: config.streamIdleTimeout,
-      requestTimeout: config.requestTimeout,
-    ));
+    classifier = PermissionClassifier(
+      registry.build(
+        classifierRef,
+        apiKeyOverride: classifierRef.startsWith('${config.provider}/')
+            ? config.apiKey
+            : null,
+        maxTokens: config.maxTokens,
+        streamIdleTimeout: config.streamIdleTimeout,
+        requestTimeout: config.requestTimeout,
+      ),
+    );
   } catch (_) {
     classifier = null;
   }
@@ -165,11 +207,12 @@ Future<AppComposition> buildAppComposition({
     maxLive: config.maxSubAgentConcurrency,
   );
   final scheduler = createScheduler(
-      config: config,
-      registry: registry,
-      pipeline: pipeline,
-      pauseGate: pauseGate,
-      quota: quota);
+    config: config,
+    registry: registry,
+    pipeline: pipeline,
+    pauseGate: pauseGate,
+    quota: quota,
+  );
   // Warm load (docs/proposals/environment_agent.md): supply the
   // `<project-environment>` block the engine injects into every prompt's
   // `<environment>` funnel. Gated by the same trust flag as AGENTS.md — an
@@ -243,8 +286,10 @@ Future<ResolvedSession> resolveSession(
   if (config.resumeSessionId != null) {
     final sid = config.resumeSessionId!;
     final manifest = await store.loadSession(sid);
-    final loaded =
-        await store.loadConversation(sid, manifest.activeConversationId);
+    final loaded = await store.loadConversation(
+      sid,
+      manifest.activeConversationId,
+    );
     return ResolvedSession(
       sessionId: sid,
       activeConversationId: manifest.activeConversationId,
@@ -267,12 +312,16 @@ Future<ResolvedSession> resolveSession(
       // session is often yesterday's — today's runs may never have persisted,
       // since empty sessions leave no trace). Naming the session, its title,
       // and when it was last active makes the choice verifiable at a glance.
-      stderr.writeln('--continue: resuming "${pick.title}" '
-          '(last active ${pick.updatedAt.toLocal()}, id ${pick.id})');
+      stderr.writeln(
+        '--continue: resuming "${pick.title}" '
+        '(last active ${pick.updatedAt.toLocal()}, id ${pick.id})',
+      );
       final sid = pick.id;
       final manifest = await store.loadSession(sid);
-      final loaded =
-          await store.loadConversation(sid, manifest.activeConversationId);
+      final loaded = await store.loadConversation(
+        sid,
+        manifest.activeConversationId,
+      );
       return ResolvedSession(
         sessionId: sid,
         activeConversationId: manifest.activeConversationId,
@@ -281,7 +330,8 @@ Future<ResolvedSession> resolveSession(
       );
     }
     stderr.writeln(
-        '--continue: no saved sessions found in this folder; starting fresh.');
+      '--continue: no saved sessions found in this folder; starting fresh.',
+    );
   }
   // Fresh session — generate IDs locally; the SessionRecorder creates the
   // store entries lazily on the first append. No manifest yet.

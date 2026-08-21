@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -47,6 +48,25 @@ class ScriptedSseClient extends http.BaseClient {
     return http.StreamedResponse(
       Stream.value(utf8.encode(body)),
       status,
+      headers: const {'content-type': 'text/event-stream'},
+    );
+  }
+}
+
+/// An [http.Client] whose stream emits nothing but delays forever —
+/// the provider's stream-idle timeout should fire. We use a controller
+/// that never emits; the underlying stream is open but silent.
+class SilentSseClient extends http.BaseClient {
+  SilentSseClient();
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final controller = StreamController<List<int>>();
+    // Intentionally never emit and never close — the stream stays open
+    // but silent, so the provider's .timeout() measures from the open time.
+    return http.StreamedResponse(
+      controller.stream,
+      200,
       headers: const {'content-type': 'text/event-stream'},
     );
   }

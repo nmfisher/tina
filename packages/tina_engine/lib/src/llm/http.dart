@@ -49,6 +49,38 @@ const defaultRequestTimeout = Duration(seconds: 30);
 /// silently-dropped connection doesn't hang the REPL forever.
 const defaultStreamIdleTimeout = Duration(seconds: 60);
 
+/// Upper bound on any size-scaled timeout. Even a pathological payload gets
+/// at most 15 minutes per attempt before the operator must intervene
+/// deliberately (via the flags), keeping a runaway default from hanging a
+/// headless run for hours.
+const _maxScaledTimeout = Duration(seconds: 900);
+
+/// Size-scaled request-timeout default (#23c): the flat 30s default killed a
+/// ~220KB resume payload that Hetzner serves correctly in ~18s. Adds 1s of
+/// headers budget per 4096 bytes of request body, capped at 15 minutes —
+/// 220KB → 30s + 55s = 85s, ~4.7x the observed 18s, while small payloads
+/// (below one 4096-byte step) keep the exact base default.
+Duration scaledRequestTimeout(int bodyBytes) {
+  final secs = defaultRequestTimeout.inSeconds + bodyBytes ~/ 4096;
+  return Duration(
+      seconds: secs > _maxScaledTimeout.inSeconds
+          ? _maxScaledTimeout.inSeconds
+          : secs);
+}
+
+/// Size-scaled stream-idle-timeout default (#24b): the flat 60s default killed
+/// a healthy 244KB prefill measured silent for 81s before its first generation
+/// chunk. Adds 1s of idle budget per 3072 bytes of request body, capped at 15
+/// minutes — 244KB → 60s + 81s = 141s, ~1.7x the observed silent prefill,
+/// while small payloads keep the exact base default.
+Duration scaledStreamIdleTimeout(int bodyBytes) {
+  final secs = defaultStreamIdleTimeout.inSeconds + bodyBytes ~/ 3072;
+  return Duration(
+      seconds: secs > _maxScaledTimeout.inSeconds
+          ? _maxScaledTimeout.inSeconds
+          : secs);
+}
+
 /// Whether a non-200 status is worth another attempt. Public for the
 /// policy-layer retry ([RetryingProvider]), which classifies the StreamError
 /// events providers emit.
@@ -89,8 +121,20 @@ Future<http.StreamedResponse> sendOnce(
   http.Client client,
   http.Request Function() build, {
   Duration requestTimeout = defaultRequestTimeout,
-}) =>
-    client.send(build()).timeout(requestTimeout);
+}) {
+  // WHY (#23 / #24): a request-timeout must name its knob — one string for
+  // two different timeouts sent the operator raising the WRONG flag.
+  return client
+      .send(build())
+      .timeout(
+        requestTimeout,
+        onTimeout: () => throw TimeoutException(
+          'request exceeded ${requestTimeout.inSeconds}s without response '
+          'headers — raise with --request-timeout',
+          requestTimeout,
+        ),
+      );
+}
 
 /// Send a request, retrying on transient failures with exponential backoff.
 /// The request builder closure must produce a fresh Request per attempt —
@@ -107,7 +151,16 @@ Future<http.StreamedResponse> sendWithRetry(
 }) async {
   for (var attempt = 0;; attempt++) {
     try {
-      final resp = await client.send(build()).timeout(requestTimeout);
+      // Same named-knob message as [sendOnce] (#23): the error must say which
+      // timeout tripped, or the operator raises the wrong flag.
+      final resp = await client.send(build()).timeout(
+        requestTimeout,
+        onTimeout: () => throw TimeoutException(
+          'request exceeded ${requestTimeout.inSeconds}s without response '
+          'headers — raise with --request-timeout',
+          requestTimeout,
+        ),
+      );
       if (isRetryableStatus(resp.statusCode) &&
           attempt < retryDelays.length) {
         await resp.stream.drain();
@@ -117,6 +170,14 @@ Future<http.StreamedResponse> sendWithRetry(
       }
       return resp;
     } catch (e) {
+      // WHY (#23b): a wall-clock timeout while awaiting response headers is
+      // TERMINAL for this loop — the retry schedule (250/750/2250ms) would
+      // just re-send the identical oversized payload into the same wall, and
+      // a healthy-but-slow prefill reads like a dead provider (4 identical
+      // doomed POSTs observed live). Surface as transient anyway so the
+      // policy layer / pool fail over with their own cooldown-paced spacing.
+      // Socket/HTTP exceptions keep the in-loop retry: those DO clear.
+      if (e is TimeoutException) rethrow;
       if (!isTransientException(e) || attempt >= retryDelays.length) {
         rethrow;
       }
@@ -160,6 +221,14 @@ String humanizeException(Object e) {
     return 'Network error: ${e.message}'
         '${e.osError != null ? " (${e.osError!.message})" : ""}';
   }
-  if (e is TimeoutException) return 'Request timed out';
+  if (e is TimeoutException) {
+    // WHY (#23 / #24): both knobs collapsed into the same anonymous string.
+    // A message set at the raise site (sendOnce / sendWithRetry / stream
+    // timeout) carries the knob name; anonymous TimeoutExceptions from
+    // elsewhere fall back to the legacy phrase.
+    return (e.message ?? '').isNotEmpty
+        ? e.message!
+        : 'Request timed out';
+  }
   return e.toString();
 }

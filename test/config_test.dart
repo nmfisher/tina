@@ -456,7 +456,7 @@ void main() {
     });
   });
 
-  group('--api-key precedence (flag > file > env)', () {
+  group('API key resolution (file > env; no flag)', () {
     // A config file's `[providers.<id>] api_key` reaches Config.parse only
     // through buildEnvOverlay: main() merges it over the real env (overlay
     // winning) and passes the merged env + the UserConfig into Config.parse.
@@ -468,20 +468,24 @@ void main() {
 
     const realEnv = {'ANTHROPIC_API_KEY': 'sk-from-env'};
 
-    test('flag beats both the config file and the env var', () {
+    test('--api-key is rejected: keys do not belong on command lines', () {
+      // Owner decision 2026-08-21: a key on a command line leaks via shell
+      // history, process listings, and audit logs. The flag shipped briefly
+      // and was removed; passing it must fail fast, not be silently ignored.
       final userConfig = _fileProvider('sk-from-file');
       final mergedEnv = {...realEnv, ...buildEnvOverlay(userConfig)};
-      final cfg = Config.parse(
-        const ['--api-key', 'sk-from-flag'],
-        env: mergedEnv,
-        registry: testRegistry(mergedEnv),
-        userConfig: userConfig,
+      expect(
+        () => Config.parse(
+          const ['--api-key', 'sk-from-flag'],
+          env: mergedEnv,
+          registry: testRegistry(mergedEnv),
+          userConfig: userConfig,
+        ),
+        throwsFormatException,
       );
-      expect(cfg.apiKeyOverride, 'sk-from-flag');
-      expect(cfg.apiKey, 'sk-from-flag');
     });
 
-    test('config file beats the env var when no flag is set', () {
+    test('config file beats the env var when no file key exists', () {
       final userConfig = _fileProvider('sk-from-file');
       final mergedEnv = {...realEnv, ...buildEnvOverlay(userConfig)};
       final cfg = Config.parse(
@@ -490,7 +494,6 @@ void main() {
         registry: testRegistry(mergedEnv),
         userConfig: userConfig,
       );
-      expect(cfg.apiKeyOverride, isNull);
       expect(cfg.apiKey, 'sk-from-file');
     });
 
@@ -502,15 +505,6 @@ void main() {
         userConfig: const UserConfig(defaultProvider: 'anthropic'),
       );
       expect(cfg.apiKey, 'sk-from-env');
-    });
-
-    test('the flag is the sole source when nothing else resolves', () {
-      final cfg = Config.parse(
-        const ['--api-key', 'sk-from-flag'],
-        env: const {},
-        registry: testRegistry(const {}),
-      );
-      expect(cfg.apiKey, 'sk-from-flag');
     });
   });
 }
