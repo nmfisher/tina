@@ -405,4 +405,112 @@ void main() {
       expect(cfg.theme.border.focus, '36');
     });
   });
+
+  group('--models flag', () {
+    const env = {'ANTHROPIC_API_KEY': 'sk'};
+
+    test('parses --models <provider> into Config.models', () {
+      final cfg = Config.parse(
+        const ['--models', 'anthropic'],
+        env: env,
+        registry: testRegistry(env),
+      );
+      expect(cfg.models, 'anthropic');
+      // The named provider's compiled catalog is what the handler prints —
+      // a valid id must resolve to a non-empty list.
+      expect(testRegistry(env).modelsFor('anthropic'), isNotEmpty);
+    });
+
+    test('bare --models (empty value) parses to an empty string', () {
+      // addOption can't distinguish a missing value from an absent flag, so a
+      // bare `--models ""` yields '' (not null); main() treats empty as
+      // "list the known provider ids".
+      final cfg = Config.parse(
+        const ['--models', ''],
+        env: env,
+        registry: testRegistry(env),
+      );
+      expect(cfg.models, '');
+    });
+
+    test('--models is null when the flag is absent', () {
+      final cfg = Config.parse(
+        const [],
+        env: env,
+        registry: testRegistry(env),
+      );
+      expect(cfg.models, isNull);
+    });
+
+    test('an unknown provider id passes through (the handler rejects it)', () {
+      // Config.parse does not validate the id; the bin handler prints the known
+      // providers and exits non-zero when the registry has no such provider.
+      final reg = testRegistry(env);
+      final cfg = Config.parse(
+        const ['--models', 'nosuch'],
+        env: env,
+        registry: reg,
+      );
+      expect(cfg.models, 'nosuch');
+      expect(reg.modelsFor('nosuch'), isEmpty);
+    });
+  });
+
+  group('--api-key precedence (flag > file > env)', () {
+    // A config file's `[providers.<id>] api_key` reaches Config.parse only
+    // through buildEnvOverlay: main() merges it over the real env (overlay
+    // winning) and passes the merged env + the UserConfig into Config.parse.
+    // These tests mirror that wiring.
+    UserConfig _fileProvider(String apiKey) => UserConfig(
+          defaultProvider: 'anthropic',
+          providers: {'anthropic': ProviderConfig(apiKey: apiKey)},
+        );
+
+    const realEnv = {'ANTHROPIC_API_KEY': 'sk-from-env'};
+
+    test('flag beats both the config file and the env var', () {
+      final userConfig = _fileProvider('sk-from-file');
+      final mergedEnv = {...realEnv, ...buildEnvOverlay(userConfig)};
+      final cfg = Config.parse(
+        const ['--api-key', 'sk-from-flag'],
+        env: mergedEnv,
+        registry: testRegistry(mergedEnv),
+        userConfig: userConfig,
+      );
+      expect(cfg.apiKeyOverride, 'sk-from-flag');
+      expect(cfg.apiKey, 'sk-from-flag');
+    });
+
+    test('config file beats the env var when no flag is set', () {
+      final userConfig = _fileProvider('sk-from-file');
+      final mergedEnv = {...realEnv, ...buildEnvOverlay(userConfig)};
+      final cfg = Config.parse(
+        const [],
+        env: mergedEnv,
+        registry: testRegistry(mergedEnv),
+        userConfig: userConfig,
+      );
+      expect(cfg.apiKeyOverride, isNull);
+      expect(cfg.apiKey, 'sk-from-file');
+    });
+
+    test('env var is used when neither flag nor file sets a key', () {
+      final cfg = Config.parse(
+        const [],
+        env: realEnv,
+        registry: testRegistry(realEnv),
+        userConfig: const UserConfig(defaultProvider: 'anthropic'),
+      );
+      expect(cfg.apiKey, 'sk-from-env');
+    });
+
+    test('the flag is the sole source when nothing else resolves', () {
+      final cfg = Config.parse(
+        const ['--api-key', 'sk-from-flag'],
+        env: const {},
+        registry: testRegistry(const {}),
+      );
+      expect(cfg.apiKey, 'sk-from-flag');
+    });
+  });
 }

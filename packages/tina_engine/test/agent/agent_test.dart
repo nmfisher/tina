@@ -169,6 +169,69 @@ void main() {
       await agent.run(history: [], userInput: 'hi');
       expect(sink.texts, ['ok']);
     });
+
+    test('an empty completion is retried, not recorded as a clean finish', () async {
+      // Seen in the wild: an overloaded worker returns 200 with zero content
+      // blocks. The turn must NOT end there (a headless run would exit 0
+      // having done nothing) and the empty message must not reach history.
+      final provider = FakeProvider([
+        [
+          const MessageComplete(content: [], stopReason: 'end_turn'),
+        ],
+        [
+          const TextDelta('recovered'),
+          const MessageComplete(
+            content: [TextBlock('recovered')],
+            stopReason: 'end_turn',
+          ),
+        ],
+      ]);
+      final sink = FakeAgentSink();
+      final agent = _agent(
+        provider: provider,
+        tools: ToolRegistry(const []),
+        sink: sink,
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'hi');
+
+      expect(agent.abortedReason, isNull);
+      expect(sink.texts, ['recovered']);
+      expect(
+          history
+              .where((m) => m.role == Role.assistant)
+              .map((m) => m.content),
+          everyElement(isNotEmpty),
+          reason: 'the degenerate empty message is never appended');
+      expect(
+          sink.notices.map((n) => n.message),
+          contains(contains('empty completion')),
+          reason: 'the retry is visible, not silent');
+    });
+
+    test('two consecutive empty completions abort the run loudly', () async {
+      final provider = FakeProvider([
+        [
+          const MessageComplete(content: [], stopReason: 'end_turn'),
+        ],
+        [
+          const MessageComplete(content: [], stopReason: 'end_turn'),
+        ],
+      ]);
+      final sink = FakeAgentSink();
+      final agent = _agent(
+        provider: provider,
+        tools: ToolRegistry(const []),
+        sink: sink,
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'hi');
+
+      expect(agent.abortedReason, 'model returned an empty completion');
+      expect(history.where((m) => m.role == Role.assistant), isEmpty);
+    });
   });
 
   group('Agent.run', () {
@@ -630,6 +693,118 @@ void main() {
     });
   });
 
+  group('Agent.run denied tool call', () {
+    // A denial is the model's chance to self-correct: the tool_result must
+    // name the allowed shapes for that tool (so it can rephrase) and, for
+    // bash, the always-allowed native tools, instead of a bare one-liner.
+    FakeProvider denyProvider(String tool, Map<String, dynamic> input) =>
+        FakeProvider([
+          [
+            MessageComplete(
+                content: [ToolUseBlock(id: 'd1', name: tool, input: input)],
+                stopReason: 'tool_use'),
+          ],
+          answerEvents('ok'),
+        ]);
+
+    ToolResultBlock deniedResult(List<Message> history) => history
+        .lastWhere((m) => m.role == Role.user)
+        .content
+        .single as ToolResultBlock;
+
+    test('denied bash result lists the bash allow patterns in the policy',
+        () async {
+      final policy = PermissionPolicy(rules: const [
+        PermissionRule(
+            toolName: 'bash',
+            pattern: 'dart *',
+            decision: PermissionDecision.allow),
+        PermissionRule(
+            toolName: 'bash',
+            pattern: 'cd *',
+            decision: PermissionDecision.allow),
+        PermissionRule(
+            toolName: 'write',
+            pattern: '/tmp/*',
+            decision: PermissionDecision.allow),
+      ]);
+      final sink = FakeAgentSink();
+      final agent = Agent(
+        provider: denyProvider('bash', {'command': 'rm -rf /tmp/x'}),
+        tools: ToolRegistry([FakeTool('bash', (_) => ToolResult('ran'))]),
+        sink: sink,
+        policy: policy,
+        asker: (_) async => PermissionResponse.denyOnce,
+        system: 'sys',
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'clean up');
+
+      expect(sink.toolStarts, isEmpty,
+          reason: 'the denied call must not reach the tool');
+      final result = deniedResult(history);
+      expect(result.toolUseId, 'd1');
+      expect(result.isError, isTrue);
+      expect(result.content, contains('Denied by permission policy'));
+      expect(result.content, contains('bash:dart *'));
+      expect(result.content, contains('bash:cd *'));
+      expect(result.content, isNot(contains('write:')),
+          reason: 'other tools’ rules must not leak into the hint');
+      expect(result.content, contains('Do not retry the same call unchanged'));
+    });
+
+    test('denied bash with no bash allow rules says none and names the native '
+        'tools', () async {
+      final sink = FakeAgentSink();
+      final agent = Agent(
+        provider: denyProvider('bash', {'command': 'rm -rf /tmp/x'}),
+        tools: ToolRegistry([FakeTool('bash', (_) => ToolResult('ran'))]),
+        sink: sink,
+        policy: PermissionPolicy(), // no rules at all
+        asker: (_) async => PermissionResponse.denyOnce,
+        system: 'sys',
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'clean up');
+
+      final result = deniedResult(history);
+      expect(result.isError, isTrue);
+      expect(result.content, contains('Denied by permission policy'));
+      expect(result.content, contains('Allowed bash patterns: none'));
+      for (final native in ['ls', 'stat', 'glob', 'grep', 'search', 'git']) {
+        expect(result.content, contains(native),
+            reason: 'bash denies must point at the $native tool');
+      }
+      expect(result.content, contains('Do not retry the same call unchanged'));
+    });
+
+    test('a denied non-bash tool gets the pattern list but no bash pointer',
+        () async {
+      final sink = FakeAgentSink();
+      final agent = Agent(
+        provider: denyProvider('write', {'filePath': '/etc/hosts'}),
+        tools: ToolRegistry([FakeTool('write', (_) => ToolResult('ok'))]),
+        sink: sink,
+        policy: PermissionPolicy(),
+        asker: (_) async => PermissionResponse.denyOnce,
+        system: 'sys',
+      );
+      final history = <Message>[];
+
+      await agent.run(history: history, userInput: 'edit it');
+
+      final result = deniedResult(history);
+      expect(result.isError, isTrue);
+      expect(result.content, contains('Denied by permission policy'));
+      expect(result.content, contains('Allowed write patterns: none'));
+      expect(result.content,
+          isNot(contains('always-allowed tools')));
+      expect(result.content, contains('Do not retry the same call unchanged'));
+    });
+  });
+
   group('Agent.compact', () {
     test('replaces history with a single summarized exchange', () async {
       final provider = FakeProvider([
@@ -885,6 +1060,18 @@ void main() {
               stopReason: 'tool_use'),
         ];
 
+    /// A tool-use round that also reports [usage], so the turn's cumulative
+    /// spend (the [Agent] budget counts every round trip's input+output) can be
+    /// driven from a script.
+    List<StreamEvent> toolUseWithUsage(String id, TokenUsage usage) => [
+          MessageComplete(
+              content: [
+                ToolUseBlock(id: id, name: 'big', input: const {}),
+              ],
+              stopReason: 'tool_use',
+              usage: usage),
+        ];
+
     List<StreamEvent> text(String t) => [
           MessageComplete(content: [TextBlock(t)], stopReason: 'end_turn'),
         ];
@@ -897,19 +1084,22 @@ void main() {
         ];
 
     Agent compactingAgent(FakeProvider provider,
-        {FakeToolHandler? handler}) {
+        {FakeToolHandler? handler,
+        FakeAgentSink? sink,
+        int threshold = 2000,
+        int keepMessages = 2}) {
       final agent = _agent(
         provider: provider,
         tools: ToolRegistry([
           FakeTool('big', handler ?? (_) => ToolResult(big)),
         ]),
-        sink: FakeAgentSink(),
+        sink: sink ?? FakeAgentSink(),
         policy:
             PermissionPolicy(defaults: {'big': PermissionDecision.allow}),
       );
       agent
-        ..autoCompactThreshold = 2000
-        ..autoCompactKeepMessages = 2;
+        ..autoCompactThreshold = threshold
+        ..autoCompactKeepMessages = keepMessages;
       return agent;
     }
 
@@ -1001,6 +1191,141 @@ void main() {
       expect(compactCalls, 2);
       // The turn still finished normally.
       expect(agent.abortedReason, isNull);
+    });
+
+    test('SPEND trigger fires when cumulative tokens cross 50% of per-turn limit',
+        () async {
+      // The size trigger (estimate > threshold) must NOT fire — only the spend
+      // trigger (turnTotal >= perTurn/2 AND estimate > threshold/2). So the
+      // estimate has to land in (threshold/2, threshold]: small results keep
+      // it low for round 1, then one medium result lifts it over the floor.
+      //
+      // Usage is 30/round against perTurnLimit 100: after round 2 the turn
+      // has spent 60 — past 50% (50) but still under the full limit, so the
+      // turn is not budget-aborted and the SPEND check gets to run.
+      final medium = 'x' * 2500; // ~625 est. tokens: above the 500 floor
+      final provider = FakeProvider([
+        toolUseWithUsage('t1', const TokenUsage(inputTokens: 15, outputTokens: 15)),
+        toolUseWithUsage('t2', const TokenUsage(inputTokens: 15, outputTokens: 15)),
+        summary(), // the spend-triggered compaction
+        text('all done'),
+      ]);
+      var calls = 0;
+      final agent = compactingAgent(
+        provider,
+        handler: (_) => ToolResult(calls++ == 0 ? 'small' : medium),
+        threshold: 1000, // floor = 500; the medium result lifts estimate to ~640
+        keepMessages: 2,
+      );
+      agent.budget = const TokenBudget(perTurnLimit: 100);
+
+      await agent.run(history: <Message>[], userInput: 'go');
+
+      // Step 2 sees turnTotal 60 (>= 50% of 100) with the medium result in
+      // history (estimate ~640: over the 500 floor, under the 1000 size
+      // threshold) → SPEND-only compaction: exactly one summary request.
+      expect(provider.calls, hasLength(4));
+      expect(
+        provider.calls
+            .where((c) =>
+                c.messages.any((m) => m.content.any((b) =>
+                    b is TextBlock &&
+                    b.text.contains('Summarize the conversation above'))))
+            .length,
+        1,
+      );
+      // The compaction notice names the spend reason (the size path stays quiet).
+      expect(
+        (agent.sink as FakeAgentSink)
+            .notices
+            .any((n) => n.message.contains('crossed 50%')),
+        isTrue,
+        reason: 'the spend trigger is announced, the size trigger is silent',
+      );
+      expect(agent.abortedReason, isNull,
+          reason: '60 spent of 100 allowed — the turn must complete');
+    });
+
+    test('FLOOR holds: no compaction when spend past 50% but estimate below floor',
+        () async {
+      // Spend crosses 50% (usage 30/round against a limit of 100 → 60 after
+      // round 2) but the payloads stay tiny, so the estimate never reaches
+      // the 500 floor — the floor check is what blocks compaction here, not
+      // absent spend.
+      final sink = FakeAgentSink();
+      final agent = compactingAgent(
+        FakeProvider([
+          toolUseWithUsage(
+              't1', const TokenUsage(inputTokens: 15, outputTokens: 15)),
+          toolUseWithUsage(
+              't2', const TokenUsage(inputTokens: 15, outputTokens: 15)),
+          text('done'),
+        ]),
+        handler: (_) => ToolResult('small'),
+        sink: sink,
+        threshold: 1000, // floor = 500; 'small' results never reach it
+        keepMessages: 2,
+      );
+      agent.budget = const TokenBudget(perTurnLimit: 100);
+
+      await agent.run(history: <Message>[], userInput: 'go');
+
+      final provider = agent.provider as FakeProvider;
+      expect(provider.calls.where((c) => c.system != 'sys'), isEmpty,
+          reason: 'spend crossed 50% but the estimate stayed below the floor');
+      expect(agent.abortedReason, isNull, reason: '60 of 100 spent');
+    });
+
+    test('threshold 0 disables the spend trigger too', () async {
+      // When threshold is 0, auto-compact is disabled entirely — including
+      // the spend trigger — and the cumulative cap still protects on its
+      // own: 2 tokens recorded against a limit of 1 aborts the turn.
+      final sink = FakeAgentSink();
+      final agent = compactingAgent(
+        FakeProvider([
+          toolUseWithUsage(
+              't1', const TokenUsage(inputTokens: 2, outputTokens: 0)),
+        ]),
+        handler: (_) => ToolResult('small'),
+        sink: sink,
+        threshold: 0, // disable
+        keepMessages: 2,
+      );
+      agent.budget = const TokenBudget(perTurnLimit: 1);
+
+      await agent.run(history: <Message>[], userInput: 'go');
+
+      final provider = agent.provider as FakeProvider;
+      expect(provider.calls.where((c) => c.system != 'sys'), isEmpty,
+          reason: 'no compaction request may leave the wire at threshold 0');
+      expect(agent.abortedReason, contains('per-turn'),
+          reason: 'the budget cap is the backstop that stays on');
+    });
+
+    test('no perTurnLimit makes spend trigger inert', () async {
+      // Usage IS recorded (spend accumulates), but with no per-turn limit
+      // there is no fraction to cross — the spend trigger is inert and only
+      // the size trigger could fire, which these small payloads never do.
+      final sink = FakeAgentSink();
+      final agent = compactingAgent(
+        FakeProvider([
+          toolUseWithUsage(
+              't1', const TokenUsage(inputTokens: 15, outputTokens: 15)),
+          text('done'),
+        ]),
+        handler: (_) => ToolResult('small'),
+        sink: sink,
+        threshold: 2000,
+        keepMessages: 2,
+      );
+      // No caps at all: spend totals advance but can never cross a limit.
+      agent.budget = const TokenBudget();
+
+      await agent.run(history: <Message>[], userInput: 'go');
+
+      final provider = agent.provider as FakeProvider;
+      expect(provider.calls.every((c) => c.system == 'sys'), isTrue,
+          reason: 'accumulating spend without a cap must not compact');
     });
   });
 }

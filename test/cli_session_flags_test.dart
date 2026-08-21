@@ -51,6 +51,28 @@ void main() {
     });
   });
 
+  group('--api-key flag', () {
+    test('parses --api-key into apiKeyOverride', () {
+      final cfg = Config.parse(
+        const ['--api-key', 'sk-override'],
+        env: const {'ANTHROPIC_API_KEY': 'sk'},
+        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
+      );
+      expect(cfg.apiKeyOverride, 'sk-override');
+      // The flag wins over the env var at the resolved key.
+      expect(cfg.apiKey, 'sk-override');
+    });
+
+    test('apiKeyOverride is null by default', () {
+      final cfg = Config.parse(
+        const [],
+        env: const {'ANTHROPIC_API_KEY': 'sk'},
+        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
+      );
+      expect(cfg.apiKeyOverride, isNull);
+    });
+  });
+
   group('--continue flag', () {
     test('parses --continue into continueLatest', () {
       final cfg = Config.parse(

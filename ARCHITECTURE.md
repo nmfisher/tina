@@ -254,6 +254,12 @@ This is the hardest boundary in the project, and the one that buys the most.
   OpenAI-compatible server via `--base-url`).
 - **`openai_compatible.dart` / `gemini.dart`** — further adapters over the
   same `Message` model.
+- **`pooled_provider.dart`** — a pool decorator: N equivalent providers
+  serving one model, rotated round-robin to multiply a per-key rate limit
+  (three 40-RPM members ≈ 120 RPM aggregate). Failover happens before any
+  content streams; a failed member cools down and is skipped. Config
+  declares one as `[providers.<id>] members = [...]`; see
+  `lib/composition/config_providers.dart`.
 - **`registry.dart` + `providers/`** — the provider registry: one
   descriptor file per built-in provider (anthropic, openai, glm, gemini,
   grok, mistral, …) carrying wire format, model catalog, and auth shape.

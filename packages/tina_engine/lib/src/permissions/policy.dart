@@ -128,6 +128,22 @@ class PermissionPolicy {
     ));
   }
 
+  /// The ALLOW patterns that exist for [tool] (static rules, then session
+  /// rules, each as `tool:pattern`), for the remediation message a denied
+  /// call carries back to the model. A wildcard-tool (`*`) rule counts for
+  /// every tool; a rule remembered in the session that also exists statically
+  /// is listed once.
+  List<String> allowedPatterns(String tool) {
+    final out = <String>[];
+    for (final r in [...staticRules, ...sessionRules]) {
+      if (r.decision != PermissionDecision.allow) continue;
+      if (r.toolName != tool && r.toolName != '*') continue;
+      final display = '$tool:${r.pattern}';
+      if (!out.contains(display)) out.add(display);
+    }
+    return out;
+  }
+
   /// What this tool call boils down to for matching / display purposes.
   /// For bash it's the command string; for file tools it's the file path; for
   /// `launch_workflow` it's the workflow name (the thing the call targets, and

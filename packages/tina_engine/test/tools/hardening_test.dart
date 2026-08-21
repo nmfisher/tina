@@ -481,7 +481,7 @@ void main() {
         sink: sink,
         policy: PermissionPolicy(defaults: {'loop': PermissionDecision.allow}),
         asker: (_) async => PermissionResponse.denyOnce,
-        maxSteps: 1000, // high so the action cap, not steps, is what trips
+        maxSteps: kMaxToolCallsPerRun + 1000, // high so the action cap, not steps, is what trips
         system: 'sys',
       );
       await agent.run(history: [], userInput: 'go');

@@ -26,6 +26,11 @@ ProviderBuilder anthropicCompatibleBuilder() => (c) => AnthropicProvider(
 /// ([registerBuiltins] / [builtinRegistry]) and **before** [Config.parse],
 /// which rejects an unknown default provider id. For each block:
 ///
+/// - `members` set → register a POOL descriptor (see [_registerPool]): the id
+///   becomes a round-robin [PooledProvider] over the listed members (bare
+///   provider ids, or full `<provider>/<model>` references to mix models),
+///   and `<id>/<model>` references rotate across them. Pool blocks skip the
+///   `base_url` requirement — the members carry the endpoints and keys.
 /// - `wire` unset + **new** id      → register a custom OpenAI-compatible
 ///   provider (the dominant format for local/third-party servers).
 /// - `wire` unset + **built-in** id → leave the built-in alone; the env overlay
@@ -42,12 +47,20 @@ ProviderBuilder anthropicCompatibleBuilder() => (c) => AnthropicProvider(
 /// `auth_token` into `<PREFIX>_API_KEY` / `<PREFIX>_AUTH_TOKEN`, and the
 /// descriptor's [AuthSource]s read those same vars via
 /// [ProviderRegistry.authFor] — so the key reaches the startup provider
-/// (`Config.parse`) and sub-agents (`registry.build`) alike.
+/// (`Config.parse`) and sub-agents (`registry.build`) alike. Pools need none
+/// of it: each member resolves its own credential the normal way.
 void registerConfigProviders(
     ProviderRegistry registry, UserConfig userConfig) {
+  // Pools register in a second pass so a pool may list config-declared wire
+  // providers as members regardless of table order.
+  final pools = <MapEntry<String, ProviderConfig>>[];
   for (final entry in userConfig.providers.entries) {
     final id = entry.key;
     final pc = entry.value;
+    if (pc.members != null && pc.members!.isNotEmpty) {
+      pools.add(entry);
+      continue;
+    }
     final existing = registry.descriptor(id);
     final wire = _normalizeWire(id, pc.wire, existing);
 
@@ -62,6 +75,101 @@ void registerConfigProviders(
     final catalog = existing?.models ?? const <String, ModelInfo>{};
     _registerCustom(registry, id, pc, wire, catalog, baseUrl: pc.baseUrl);
   }
+  for (final entry in pools) {
+    _registerPool(registry, entry.key, entry.value, userConfig);
+  }
+}
+
+/// Register `id` as a pool over `pc.members`: a synthetic descriptor whose
+/// builder resolves every member through [ProviderRegistry.buildPooled]. Its
+/// model catalog is the UNION of the members' (so the model picker lists
+/// everything any member serves), and its auth is empty — credentials live on
+/// the members.
+///
+/// A member entry is either a bare provider id (`"nim"` — the model comes
+/// from the pool reference `<pool>/<model>`, so every bare member must serve
+/// that same model id) or a FULL reference (`"nim/meta/muse-glimmer-30b"`,
+/// `"hetzner/Qwen3.8-27B"` — the member is pinned to that model, letting one
+/// pool mix models AND providers: two 40-RPM endpoints serving different
+/// models still double throughput). A `/model` swap fans out to every member
+/// verbatim, so a mixed-model pool should not be `/model`-swapped at runtime.
+///
+/// Rate limits compose without new knobs: the registry's shared limiter queues
+/// per endpoint+API-key, so each member is spaced by `[limits]
+/// min_request_interval_ms` against ITSELF (three members at 1500 ms ≈ 40 RPM
+/// each ≈ 120 RPM aggregate) while `[limits] requests_per_minute` remains the
+/// session-wide ceiling — it must be raised to the sum (or 0) or it
+/// bottlenecks the pool at one member's cap.
+void _registerPool(ProviderRegistry registry, String id, ProviderConfig pc,
+    UserConfig config) {
+  final entries = pc.members!;
+  // The provider id of a full reference is the text before the first slash
+  // (model ids themselves may contain slashes: `meta/muse-glimmer-30b`).
+  final memberProviderIds = [
+    for (final entry in entries) ModelReference.parse(entry).providerId ?? entry
+  ];
+  if (memberProviderIds.contains(id)) {
+    stderr.writeln('warning: [providers.$id] lists itself as a pool member; '
+        'skipping.');
+    return;
+  }
+  for (final memberId in memberProviderIds) {
+    if (registry.descriptor(memberId) == null) {
+      stderr.writeln('warning: [providers.$id] pools unknown provider '
+          '"$memberId"; skipping the pool.');
+      return;
+    }
+    final memberConfig = config.providers[memberId];
+    if (memberConfig?.members != null && memberConfig!.members!.isNotEmpty) {
+      stderr.writeln('warning: [providers.$id] pools "$memberId", which is '
+          'itself a pool (nesting is not supported); skipping.');
+      return;
+    }
+  }
+
+  final catalog = <String, ModelInfo>{};
+  for (final entry in entries) {
+    final ref = ModelReference.parse(entry);
+    if (ref.providerId == null) {
+      // Bare id: the member serves whatever `<pool>/<model>` says — surface
+      // its whole catalog.
+      for (final m in registry.modelsFor(entry)) {
+        catalog[m.id] = m;
+      }
+    } else {
+      // Full reference: only that model. Null when the provider's compiled
+      // catalog lacks it (e.g. a newly-added id ahead of a release) — the
+      // pool still serves it, it just isn't listed until the catalog catches
+      // up.
+      final m = registry.findModel(entry);
+      if (m != null) catalog[m.id] = m;
+    }
+  }
+  registry.registerPool(ProviderDescriptor(
+    id: id,
+    name: pc.name ?? _titleCase(id),
+    authSources: const [],
+    defaultBaseUrl: '',
+    // The instance's model id is the part after `<pool>/`. Bare members are
+    // resolved as `<member>/<that model>`; full references are pinned and
+    // ignore it.
+    builder: (c) => registry.buildPooled(
+      [
+        for (final entry in entries)
+          ModelReference.parse(entry).providerId == null
+              ? '$entry/${c.model}'
+              : entry
+      ],
+      maxTokens: c.maxTokens,
+      streamIdleTimeout: c.streamIdleTimeout,
+      requestTimeout: c.requestTimeout,
+    ),
+    models: catalog,
+  ));
+  stderr.writeln('tina: pool "$id" rotates over: ${entries.join(', ')} '
+      '(per-member spacing via [limits] min_request_interval_ms or '
+      '[providers.<id>] requests_per_minute; raise the limits to the sum or '
+      'the session cap bottlenecks the pool)');
 }
 
 /// Resolves the effective wire format for a config block, or null when the block

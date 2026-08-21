@@ -132,5 +132,13 @@ void main() {
       final texts = events.whereType<TextAgentEvent>().map((e) => e.text);
       expect(texts, ['before']);
     });
+
+    test('kHeadlessSummaryInstruction is a non-empty single sentence', () {
+      const instr = HeadlessHost.kHeadlessSummaryInstruction;
+      expect(instr, isNotEmpty);
+      expect(instr, endsWith('.'));
+      expect(instr.split('.'), hasLength(2)); // one sentence
+      expect(instr.toLowerCase(), contains('summary'));
+    });
   });
 }

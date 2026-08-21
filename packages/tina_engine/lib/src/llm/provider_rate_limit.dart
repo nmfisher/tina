@@ -21,6 +21,14 @@ import 'provider.dart';
 ///   wire at once (the concurrent-requests semantic). Extras park in FIFO
 ///   order until [release] frees a permit.
 ///
+/// Per-key overrides: [setMinInterval] installs a key-specific spacing that
+/// replaces [minInterval] for that key alone (the override wins, the global
+/// is the fallback — see [minIntervalFor]). That is how a provider with a
+/// known per-key ceiling (NVIDIA NIM 429s at 40 req/min) throttles itself to
+/// it by default while every other provider keeps the registry-wide default,
+/// and how a user can override per provider (`[providers.<id>]
+/// requests_per_minute`) ahead of the built-in hint.
+///
 /// Start-time slot reservation is FIFO by [acquire] call order and needs no
 /// queue structure: each caller is handed the next free launch time on its
 /// key and waits out its own delay in parallel with the others. Concurrency
@@ -38,6 +46,10 @@ class ProviderRateLimiter {
   /// Monotonic clock. A [Stopwatch] (not [DateTime.now]) so the limiter can't
   /// stall or fire early across a wall-clock adjustment.
   final Stopwatch _clock = Stopwatch()..start();
+
+  /// Per-key override for [minInterval]: when set, this interval replaces the
+  /// global for requests with this queue key. Absent means use [minInterval].
+  final Map<String, Duration> _minIntervalByKey = {};
 
   /// Per provider id: the launch time reserved for the NEXT requester. Absent
   /// means the provider is idle; a stale past time is treated as "free now".
@@ -60,6 +72,21 @@ class ProviderRateLimiter {
   /// park a provider for minutes at a time.
   static const _maxPenalty = Duration(seconds: 60);
 
+  /// Install (or replace) the minimum interval for ONE queue key: from now on
+  /// [acquire]s on [key] space at [interval] apart, overriding the registry
+  /// global [minInterval] for that key alone. [Duration.zero] EXPLICITLY
+  /// disables spacing for [key] (it does not fall back to the global — it
+  /// beats it). Keys with no override keep the global. The effective interval
+  /// is read via [minIntervalFor], which is `minIntervalByKey[key] ?? minInterval`.
+  void setMinInterval(String key, Duration interval) {
+    _minIntervalByKey[key] = interval;
+  }
+
+  /// The effective [minInterval] for [key]: the per-key override when
+  /// installed (including an explicit [Duration.zero] = spacing disabled),
+  /// else the registry-wide [minInterval].
+  Duration minIntervalFor(String key) => _minIntervalByKey[key] ?? minInterval;
+
   ProviderRateLimiter(
       {this.minInterval = Duration.zero, this.maxConcurrent = 0});
 
@@ -69,7 +96,7 @@ class ProviderRateLimiter {
   /// parked for) once that time arrives. Completes without parking when both
   /// knobs are disabled or their constraints are already satisfied.
   Future<void> acquire(String providerId) async {
-    final interval = minInterval;
+    final interval = minIntervalFor(providerId);
     if (interval > Duration.zero) {
       final now = _clock.elapsed;
       var slot = _nextFreeAt[providerId] ?? Duration.zero;
@@ -122,7 +149,7 @@ class ProviderRateLimiter {
   /// fixed at acquire); they may launch into the penalty window and 429 again,
   /// which just extends it. Convergence over precision — no queue surgery.
   void defer(String providerId) {
-    final interval = minInterval;
+    final interval = minIntervalFor(providerId);
     if (interval <= Duration.zero) return;
     // Seed with 2× so the first 429 lands on 4×interval, then doubles.
     final base = _penalties[providerId] ?? interval * 2;
@@ -143,6 +170,7 @@ class ProviderRateLimiter {
     _nextFreeAt.clear();
     _penalties.clear();
     _inFlight.clear();
+    _minIntervalByKey.clear();
     for (final q in _waiters.values) {
       for (final w in q) {
         if (!w.isCompleted) w.complete();
@@ -170,8 +198,8 @@ String providerQueueKey(String baseUrl, String apiKey) {
 /// Decorates an [LlmProvider] with its descriptor's [ProviderRateLimiter]:
 /// each [send] awaits a launch slot (spacing) and a concurrency permit before
 /// subscribing to the inner stream, and releases the permit when the request
-/// leaves the wire. With the limiter fully disabled (both knobs off) it
-/// forwards untouched — no controller, no extra microtask.
+/// leaves the wire. With spacing off for this provider's key AND no
+/// concurrency cap it forwards untouched — no controller, no extra microtask.
 ///
 /// Like [MeteringProvider], the stream is controller-backed (not `async*`) so
 /// cancelling the subscription while parked on a slot tears down promptly and
@@ -207,7 +235,12 @@ class RateLimitedProvider implements LlmProvider {
     required List<Message> messages,
     required List<ToolSchema> tools,
   }) {
-    if (limiter.minInterval <= Duration.zero && limiter.maxConcurrent <= 0) {
+    // Fast path: read the EFFECTIVE interval for THIS queue key (per-key
+    // override, else the global) — the same value [ProviderRateLimiter.acquire]
+    // would enforce — so a key with an installed spacing is never bypassed by
+    // a disabled global, and a key with spacing disabled stays unwrapped-fast.
+    if (limiter.minIntervalFor(limitKey) <= Duration.zero &&
+        limiter.maxConcurrent <= 0) {
       return inner.send(system: system, messages: messages, tools: tools);
     }
     late StreamController<StreamEvent> controller;

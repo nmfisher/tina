@@ -17,11 +17,11 @@ final _log = Logger('tina.agent');
 
 /// Hard-coded ceiling on tool invocations per turn. The run loop bounds *steps*
 /// via [Agent.maxSteps] but not *tool uses* — this is the coarse backstop that
-/// complements the token spend-funnel (~10× maxSteps=50, so legitimate
+/// complements the token spend-funnel (~10× maxSteps=500, so legitimate
 /// multi-file refactors have headroom; tool uses are serial per step). When
 /// tripped the turn stops with a notice. `--yolo` can't extend it (it only
 /// relaxes the ask-gate). No config surface by design.
-const int kMaxToolCallsPerRun = 500;
+const int kMaxToolCallsPerRun = 5000;
 
 /// Why a turn stopped abnormally, classified by cause. Callers that decide
 /// whether to retry (e.g. the pipeline's codergen nodes) treat [provider]
@@ -90,7 +90,7 @@ class Agent {
     required this.sink,
     required this.policy,
     required this.asker,
-    this.maxSteps = 50,
+    this.maxSteps = 500,
     this.budget,
     this.pauseGate,
     this.autoCompactThreshold = 0,
@@ -172,6 +172,10 @@ class Agent {
     // not be retried every step — one attempt per 3 steps bounds the waste.
     var lastCompactAttempt = -3;
 
+    // Consecutive completions that carried NO blocks at all (see the check
+    // before the history append below). One retry, then abort.
+    var emptyCompletions = 0;
+
     for (var step = 0; step < maxSteps; step++) {
       if (cancelled) {
         sink.notice('\n[cancelled]\n', kind: NoticeKind.warning);
@@ -183,10 +187,17 @@ class Agent {
       // any between-turns pass can trim them, so a long autonomous turn (a
       // headless --prompt task, a workflow node) re-sends an ever-growing
       // payload until it drowns in its own context — the per-turn budget then
-      // kills a run that was making progress. When the next request's
-      // estimated input crosses the threshold, summarize the older history in
-      // place (keeping the trailing messages verbatim) and send that instead.
-      // Same estimate [checkRequestInput] uses; compaction failure is
+      // kills a run that was making progress. Two triggers fire a compaction:
+      // the next request's estimated input crossing the threshold (a single
+      // request too big), or the turn's CUMULATIVE spend (input+output of
+      // every round trip) crossing half the per-turn cap while the estimate
+      // is above half the threshold — the many-steps-on-a-mid-size-context
+      // case (65K × 15 ≈ 1M) where no single request ever grows large
+      // enough, but the cap keeps tripping. Compacting at half-spend
+      // shrinks every subsequent request and stretches the cap for exactly
+      // the runs that need it. Either way the older history is summarized in
+      // place (keeping the trailing messages verbatim) and that goes out
+      // instead. Same estimate [checkRequestInput] uses; compaction failure is
       // non-fatal and rate-limited by the attempt gate above. Runs BEFORE the
       // per-request rejection so a payload that crossed both thresholds gets
       // compacted first — the cap then judges the compacted history, and only
@@ -196,11 +207,32 @@ class Agent {
       // messages) costs no request: a history that is still all-current-turn
       // must not consume the attempt gate, or the gate would postpone the
       // first real compaction by its whole window.
+      //
+      // `autoCompactThreshold == 0` disables BOTH triggers (0 = feature off;
+      // the spend trigger refines WHEN, not WHETHER, to compact).
       if (autoCompactThreshold > 0 && step - lastCompactAttempt >= 3) {
         final estimate =
             TokenBudget.estimateInputTokens(system, history, tools.schemas);
-        if (estimate > autoCompactThreshold &&
+        final sizeTriggered = estimate > autoCompactThreshold;
+        // Spend trigger: the per-turn cap counts every round trip's
+        // input+output, so a many-step turn on a mid-size context burns
+        // through the cap even when no single request is large. Compact at
+        // ~50% of the cap — halving every subsequent request stretches the
+        // remaining budget for the long autonomous runs that need it. The
+        // floor (estimate > threshold/2) skips compaction when the context
+        // is small enough that compacting buys little.
+        final perTurn = budget?.perTurnLimit;
+        final spendTriggered =
+            perTurn != null &&
+                budget!.turnTotal >= perTurn ~/ 2 &&
+                estimate > autoCompactThreshold ~/ 2;
+        if ((sizeTriggered || spendTriggered) &&
             _assistantMessageBoundary(history, autoCompactKeepMessages) >= 2) {
+          if (spendTriggered && !sizeTriggered) {
+            sink.notice('\n[compact] turn spend ${budget!.turnTotal}/$perTurn '
+                'crossed 50% — compacting to stretch the per-turn cap\n',
+                kind: NoticeKind.info);
+          }
           lastCompactAttempt = step;
           await compact(history,
               preserveRecentMessages: autoCompactKeepMessages);
@@ -280,6 +312,30 @@ class Agent {
         }
       }
 
+      // A completion with NO blocks at all is degenerate — seen in the wild
+      // as a 200 whose body carries zero content (an overloaded worker
+      // "answering" with nothing: NIM's poolside/laguna under worker
+      // exhaustion). Ending the turn here would read as a clean finish, and
+      // a headless run would exit 0 having done nothing. Retry once — a
+      // re-send lands on the next member when the provider is pooled — and
+      // abort loudly if it repeats. Either way the empty message is NOT
+      // appended to history: it says nothing, and some providers reject an
+      // empty assistant message on the next request.
+      if (content.isEmpty) {
+        if (emptyCompletions == 0) {
+          emptyCompletions++;
+          sink.notice('\n[provider] empty completion — retrying\n',
+              kind: NoticeKind.warning);
+          continue;
+        }
+        sink.notice('\nerror: model returned an empty completion\n',
+            kind: NoticeKind.error);
+        abortedReason = 'model returned an empty completion';
+        abortedKind = AbortedKind.provider;
+        return;
+      }
+      emptyCompletions = 0;
+
       history.add(Message(role: Role.assistant, content: content));
 
       final toolUses = content.whereType<ToolUseBlock>().toList();
@@ -344,7 +400,7 @@ class Agent {
           sink.notice('  ${use.name} denied\n');
           results.add(ToolResultBlock(
             toolUseId: use.id,
-            content: 'Denied by permission policy.',
+            content: _deniedContent(use.name),
             isError: true,
           ));
           continue;
@@ -512,6 +568,26 @@ class Agent {
     final after = 2 + suffix.length;
     sink.notice('--- compacted $priorCount → $after messages ---\n');
     return true;
+  }
+
+  /// The remediation payload a denied tool call carries back to the model.
+  /// The old one-liner ('Denied by permission policy.') gave the model no way
+  /// to self-correct, so it retried blind variants of the same shape; the
+  /// model now sees the allowed shapes for its tool and (for bash) the
+  /// always-allowed native tools, and is told not to retry unchanged.
+  String _deniedContent(String tool) {
+    final patterns = policy.allowedPatterns(tool);
+    final lines = <String>[
+      'Denied by permission policy.',
+      'Allowed $tool patterns: '
+          '${patterns.isEmpty ? 'none' : patterns.join(', ')}',
+      if (tool == 'bash')
+        'For read-only checks prefer the always-allowed tools: ls, stat, '
+            'glob, grep, search, git, which.',
+      'Do not retry the same call unchanged; rephrase it to an allowed '
+          'shape or use one of those tools.',
+    ];
+    return lines.join('\n');
   }
 
   /// Index in [history] of the [keep]-th-most-recent *human* turn (a user

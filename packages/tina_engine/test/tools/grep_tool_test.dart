@@ -241,6 +241,52 @@ void main() {
       expect(res.isError, isTrue);
       expect(res.content, contains('invalid regex'));
     });
+
+    test('skips a binary file (NUL byte) but reports text matches', () async {
+      final fe = MemoryFileEnumerator({'/repo': ['a.txt', 'blob.bin']});
+      final fs = MemoryFileSystem({'/repo/a.txt': 'needle in text\n'})
+        ..directories.add('/repo')
+        // A file whose raw bytes contain a NUL → detected as binary.
+        ..addBinaryFile('/repo/blob.bin', [0x4e, 0x00, 0x4e, 0x0a]);
+      final res = await fallbackTool(fileEnumerator: fe, fs: fs)
+          .execute({'pattern': 'needle', 'path': '/repo'});
+      expect(res.isError, isFalse);
+      // Only the text match is reported.
+      expect(res.content, contains('a.txt:1:needle in text'));
+      expect(res.content, isNot(contains('blob.bin')));
+      // The binary skip counter is surfaced.
+      expect(res.content, contains('skipped 1 binary files'));
+    });
+
+    test('omits the skip line when no binary files are present', () async {
+      // Regression: a pure-text dir must produce byte-for-byte the same
+      // output as before the binary-skip feature landed (no skip marker).
+      final fe = MemoryFileEnumerator({'/repo': ['a.txt', 'b.txt']});
+      final fs = MemoryFileSystem({
+        '/repo/a.txt': 'foo\n',
+        '/repo/b.txt': 'foo\n',
+      })..directories.add('/repo');
+      final res = await fallbackTool(fileEnumerator: fe, fs: fs)
+          .execute({'pattern': 'foo', 'path': '/repo'});
+      expect(res.isError, isFalse);
+      expect(res.content, contains('a.txt:1:foo'));
+      expect(res.content, contains('b.txt:1:foo'));
+      expect(res.content, isNot(contains('skipped')));
+    });
+
+    test('reports (no matches) plus skip line when all files are binary',
+        () async {
+      final fe = MemoryFileEnumerator({'/repo': ['a.bin', 'b.bin']});
+      final fs = MemoryFileSystem()
+        ..directories.add('/repo')
+        ..addBinaryFile('/repo/a.bin', [0xff, 0x00, 0x10])
+        ..addBinaryFile('/repo/b.bin', [0x00, 0x20]);
+      final res = await fallbackTool(fileEnumerator: fe, fs: fs)
+          .execute({'pattern': 'nothing', 'path': '/repo'});
+      expect(res.isError, isFalse);
+      expect(res.content, contains('(no matches)'));
+      expect(res.content, contains('skipped 2 binary files'));
+    });
   });
 
   group('GrepTool validation', () {

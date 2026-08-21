@@ -113,6 +113,64 @@ void main() {
           reason: 'the capped 60s penalty still holds the queue');
     });
 
+    group('per-key interval override (setMinInterval / minIntervalFor)', () {
+      test('setMinInterval installs a per-key override', () async {
+        final limiter = ProviderRateLimiter(
+            minInterval: const Duration(milliseconds: 100));
+        // Override for 'nim' to 50ms
+        limiter.setMinInterval('nim', const Duration(milliseconds: 50));
+
+        expect(limiter.minIntervalFor('nim'),
+            equals(const Duration(milliseconds: 50)),
+            reason: 'per-key override returns the stored value');
+      });
+
+      test('Duration.zero explicitly disables spacing for a key', () async {
+        final limiter = ProviderRateLimiter(
+            minInterval: const Duration(milliseconds: 100));
+        limiter.setMinInterval('nim', Duration.zero);
+
+        expect(limiter.minIntervalFor('nim'), equals(Duration.zero),
+            reason: 'zero is stored, not fallback to global');
+
+        // Verify no waiting occurs
+        limiter.setMinInterval('nim', Duration.zero);
+        final watch = Stopwatch()..start();
+        for (var i = 0; i < 5; i++) {
+          await limiter.acquire('nim');
+        }
+        expect(watch.elapsedMilliseconds, lessThan(50),
+            reason: 'zero disables spacing, requests fire immediately');
+      });
+
+      test('unset key falls back to global', () async {
+        final limiter = ProviderRateLimiter(
+            minInterval: const Duration(milliseconds: 100));
+        // No override for 'anthropic'
+        expect(limiter.minIntervalFor('anthropic'), equals(const Duration(milliseconds: 100)),
+            reason: 'unset key uses global');
+      });
+
+      test('reset clears per-key overrides', () async {
+        final limiter = ProviderRateLimiter();
+        limiter.setMinInterval('nim', Duration(milliseconds: 200));
+        expect(limiter.minIntervalFor('nim'), equals(Duration(milliseconds: 200)));
+
+        limiter.reset();
+        expect(limiter.minIntervalFor('nim'), equals(Duration.zero),
+            reason: 'after reset, key loses its override');
+      });
+
+      test('different keys can have different intervals', () async {
+        final limiter = ProviderRateLimiter();
+        limiter.setMinInterval('nim', Duration(milliseconds: 50));
+        limiter.setMinInterval('anthropic', Duration(milliseconds: 200));
+
+        expect(limiter.minIntervalFor('nim'), equals(Duration(milliseconds: 50)));
+        expect(limiter.minIntervalFor('anthropic'), equals(Duration(milliseconds: 200)));
+      });
+    });
+
     test('maxConcurrent parks the third acquirer until release', () async {
       final limiter = ProviderRateLimiter(maxConcurrent: 2);
       // Both knobs independent: no spacing, only the cap.

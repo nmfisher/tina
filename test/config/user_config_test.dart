@@ -115,6 +115,22 @@ void main() {
       });
       expect(c.prompts, {'main': 'kept'});
     });
+
+    test('parses provider members (a pool block); empty or non-list → null', () {
+      final c = UserConfig.fromMap({
+        'providers': {
+          'mypool': {'members': ['nim', 'openrouter']},
+          'empty': {'members': []},
+          'bogus': {'members': 'nim'},
+          'plain': {'base_url': 'https://example.test'},
+        },
+      });
+      expect(c.providers['mypool']?.members, ['nim', 'openrouter']);
+      expect(c.providers['empty']?.members, isNull,
+          reason: 'an empty list is not a pool declaration');
+      expect(c.providers['bogus']?.members, isNull);
+      expect(c.providers['plain']?.members, isNull);
+    });
   });
 
   group('buildEnvOverlay', () {
@@ -318,6 +334,42 @@ key = "typo"
       // Absent → null (the app default of 1 request/sec applies).
       writeUserConfig(const UserConfig(), env: {}, tinaDir: tmp);
       expect(loadUserConfig(env: {}, tinaDir: tmp).limits, isNull);
+    });
+
+    test('[providers.<id>] requests_per_minute round-trips, 0 kept as-is',
+        () {
+      writeUserConfig(
+        const UserConfig(providers: {
+          'nim': ProviderConfig(requestsPerMinute: 40),
+          'hetzner': ProviderConfig(requestsPerMinute: 0),
+          'anthropic': ProviderConfig(apiKey: 'sk-ant-x'),
+        }),
+        env: {},
+        tinaDir: tmp,
+      );
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.providers['nim']?.requestsPerMinute, 40);
+      expect(loaded.providers['hetzner']?.requestsPerMinute, 0,
+          reason: '0 is meaningful (explicitly disables spacing for that '
+              'provider) and must survive the round trip');
+      expect(loaded.providers['anthropic']?.requestsPerMinute, isNull,
+          reason: 'absent → no override: descriptor hint / global default');
+      // A sibling key must survive a requests_per_minute rewrite, and vice
+      // versa — both live in one [providers.<id>] table.
+      writeUserConfig(
+        loaded.copyWith(providers: {
+          ...loaded.providers,
+          'nim': const ProviderConfig(
+              apiKey: 'test-key-x', requestsPerMinute: 30),
+        }),
+        env: {},
+        tinaDir: tmp,
+      );
+      final reloaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(reloaded.providers['nim']?.requestsPerMinute, 30);
+      expect(reloaded.providers['nim']?.apiKey, 'test-key-x');
+      expect(reloaded.providers['hetzner']?.requestsPerMinute, 0,
+          reason: 'the nim write must not clobber sibling providers');
     });
 
     test('[limits] max_concurrent_requests round-trips beside the interval',
