@@ -187,6 +187,7 @@ class InputParser {
     if (b == 0x0c) return ControlKey(ControlCode.ctrlL);
     if (b == 0x13) return ControlKey(ControlCode.ctrlS);
     if (b == 0x0f) return ControlKey(ControlCode.ctrlO);
+    if (b == 0x12) return ControlKey(ControlCode.ctrlR);
     if (b == 0x01) return EditingKey(EditingAction.home);
     if (b == 0x05) return EditingKey(EditingAction.end);
     if (b == 0x0b) return EditingKey(EditingAction.killToEnd);

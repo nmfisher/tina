@@ -1147,6 +1147,25 @@ class TuiCoordinator {
       return true;
     };
 
+    // Ctrl+R opens the raw-markdown viewer (tin-g7rk): the active
+    // conversation's current/most-recent assistant turn exactly as the model
+    // sent it, before markdown rendering. Default-off escape hatch for when
+    // the rendering hides something; nothing is opened when there is no raw
+    // text to show (first turn, or a passthrough surface).
+    editor.onRawView = () {
+      final host = sessionManager.activeConversation.host;
+      if (host is! TuiConversationHost) return false;
+      final raw = host.lastRawMarkdown;
+      if (raw.trim().isEmpty) return false;
+      unawaited(runToolOutputViewer(
+        screen: screen,
+        editor: editor,
+        title: 'raw · assistant markdown',
+        text: raw,
+      ));
+      return true;
+    };
+
     // Owns the canonical resize sequence. Every resize site (SIGWINCH handler,
     // the three first-spawn blocks, first-paint) repoints at
     // [ResizeCoordinator.handleResize], so the order lives in one place. Constructed

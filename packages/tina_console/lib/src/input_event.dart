@@ -179,6 +179,10 @@ enum ControlCode {
   /// (IEXTEN) — DiscardUnbinder unbinds that char right after notcurses
   /// init, and Linux has no VDISCARD, so the byte reaches the process.
   ctrlO,
+  /// Ctrl+R (DC2, 0x12). App-level hook (tina binds it to the raw-markdown
+  /// viewer). Readline muscle memory says reverse-incremental-search; tina's
+  /// editor has no search, so the key is free. Not a tty signal in raw mode.
+  ctrlR,
   enter,
   tab,
   backspace,

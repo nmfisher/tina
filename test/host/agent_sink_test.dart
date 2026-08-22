@@ -19,6 +19,23 @@ import '../helpers/fake_stdio.dart';
   );
 }
 
+/// Build a [ChatAgentSink] over a real (non-passthrough) screen so the
+/// markdown path runs. Bytes are captured after the initial frame paint.
+({ChatAgentSink sink, String Function() written}) _tuiSink(
+    {AnsiCapable ansi = AnsiCapable.yes,
+    void Function(String text)? onRawText}) {
+  final io = FakeStdio()..columns = 100;
+  final screen =
+      Screen(io: io, layout: ScreenLayout.fromSize(100, 24), ansi: ansi);
+  screen.redrawFrame();
+  io.written.clear();
+  return (
+    sink: ChatAgentSink(screen.chat, Spinner(enabled: false),
+        onRawText: onRawText),
+    written: () => io.written.toString(),
+  );
+}
+
 void main() {
   group('ChatAgentSink', () {
     test('text writes through verbatim', () {
@@ -31,16 +48,11 @@ void main() {
       // Non-passthrough screen with color on: the sink's policy picks
       // the agent style code and the region renders it as default-fg text
       // (no background bar). Pins the styling policy at its new home.
-      final io = FakeStdio()..columns = 100;
-      final screen =
-          Screen(io: io, layout: ScreenLayout.fromSize(100, 24), ansi: AnsiCapable.yes);
-      screen.redrawFrame();
-      io.written.clear();
+      final w = _tuiSink();
+      w.sink.text('hello\n');
+      w.sink.newline(); // prose end: flush the held paragraph
 
-      final sink = ChatAgentSink(screen.chat, Spinner(enabled: false));
-      sink.text('hello\n');
-
-      final out = io.written.toString();
+      final out = w.written();
       expect(out, contains('\x1b[39mhello\x1b[0m'),
           reason: 'agent prose must render as default-fg styled text');
       expect(out, isNot(contains('\x1b[30;47m')),
@@ -155,6 +167,108 @@ void main() {
       w.sink.activityStart();
       w.sink.activityStop();
       expect(w.written(), '');
+    });
+  });
+
+  group('ChatAgentSink — streamed markdown (tin-g7rk)', () {
+    test('passthrough keeps markdown markers verbatim', () {
+      final w = _sink();
+      w.sink.text('**not bold** `code`\n');
+      w.sink.newline();
+      expect(w.written(), '**not bold** `code`\n\n');
+    });
+
+    test('an open paragraph is held back until prose ends', () {
+      final w = _tuiSink();
+      w.sink.text('hel');
+      w.sink.text('lo\n'); // complete line, but no blank line: still open
+      expect(w.written(), '',
+          reason: 'an unterminated block must not render piecemeal');
+      w.sink.newline();
+      expect(w.written(), contains('hello'));
+    });
+
+    test('a blank line closes the block mid-stream', () {
+      final w = _tuiSink();
+      w.sink.text('para one\n\n');
+      expect(w.written(), contains('para one'));
+    });
+
+    test('a fenced code block renders with the bar style', () {
+      final w = _tuiSink();
+      w.sink.text('```\nint x = 1;\n```\n');
+      final out = w.written();
+      expect(out, contains('int x = 1;'));
+      expect(out, contains('\x1b[100m'),
+          reason: 'code lines carry the theme codeBlock bar (grey bg)');
+    });
+
+    test('inline markers render as SGR, not literal', () {
+      final w = _tuiSink();
+      w.sink.text('run **bold** now\n\n');
+      final out = w.written();
+      expect(out, contains('\x1b[1mbold\x1b[0m'));
+      expect(out, isNot(contains('**')));
+    });
+
+    test('consecutive blocks are separated by exactly one blank line', () {
+      final w = _tuiSink(ansi: AnsiCapable.no);
+      w.sink.text('one\n\n');
+      final first = w.written().length;
+      w.sink.text('two\n\n');
+      final out = w.written().substring(first);
+      // One blank row between the blocks, then the second block's text.
+      expect(out, contains('two'));
+      expect(out, isNot(contains('two\n\n\ntwo')),
+          reason: 'no double blank between streamed blocks');
+    });
+
+    test('no-color surfaces render structure without SGR styling', () {
+      final w = _tuiSink(ansi: AnsiCapable.no);
+      w.sink.text('- item\n\n');
+      final out = w.written();
+      expect(out, contains('• item')); // structure survives without color
+      expect(out, isNot(contains('\x1b[39m')));
+      expect(out, isNot(contains('\x1b[100m')));
+    });
+
+    test('toolStart flushes held prose before the tool line', () {
+      final w = _tuiSink(ansi: AnsiCapable.no);
+      w.sink.text('about to list\n'); // held: no blank line yet
+      w.sink.toolStart(const ToolStartEvent('bash', 'u1', {'command': 'ls'}));
+      final out = w.written();
+      expect(out, contains('about to list'));
+      expect(out.indexOf('about to list'), lessThan(out.indexOf('→ bash')));
+    });
+
+    test('notice flushes held prose', () {
+      final w = _tuiSink(ansi: AnsiCapable.no);
+      w.sink.text('half a thought\n');
+      w.sink.notice('[cancelled]\n');
+      expect(w.written(), contains('half a thought'));
+    });
+
+    test('onRawText receives the turn raw, verbatim and cumulative', () {
+      final raw = <String>[];
+      final w = _tuiSink(onRawText: raw.add);
+      w.sink.text('**a**\n\n');
+      w.sink.text('b\n\n');
+      expect(raw, ['**a**\n\n', '**a**\n\nb\n\n'],
+          reason: 'each closed segment re-fires with the whole turn so far');
+      w.sink.beginAssistantTurn();
+      w.sink.text('c\n\n');
+      expect(raw.last, 'c\n\n', reason: 'a new turn drops the old raw');
+    });
+
+    test('beginAssistantTurn abandons an unclosed block', () {
+      final w = _tuiSink(ansi: AnsiCapable.no);
+      w.sink.text('canceled mid-str'); // no newline: held
+      w.sink.beginAssistantTurn();
+      w.sink.text('fresh\n\n');
+      final out = w.written();
+      expect(out, contains('fresh'));
+      expect(out, isNot(contains('canceled')),
+          reason: 'the abandoned block must not leak into the new turn');
     });
   });
 }

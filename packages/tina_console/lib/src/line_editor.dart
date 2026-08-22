@@ -117,6 +117,12 @@ class LineEditor {
   /// without adding app-specific keys to the editor's core dispatch.
   bool Function()? onMaximizeToggle;
 
+  /// Called for Ctrl+R — offered at the same dispatch rank as
+  /// [onMaximizeToggle] (after the modal layer, before the focus ring), so
+  /// the app-level viewer it opens works from any focus. Return `true` to
+  /// consume the event (the viewer opened), `false` to let it fall through.
+  bool Function()? onRawView;
+
   /// Called for an Alt+key event the editor doesn't bind internally (anything
   /// other than Alt+b/d/f word editing). Return `true` to consume the event,
   /// `false` to let it fall through and be ignored. Lets the app layer bind
@@ -601,6 +607,7 @@ class LineEditor {
     // (an approval prompt) yields focus-layer keys to this seam, so Ctrl+O
     // must work there — otherwise it would answer the prompt instead.
     if (_handleMaximizeToggle(event)) return true;
+    if (_handleRawView(event)) return true;
     final fm = _focusManager;
     if (fm == null) return false;
     // Not cycling, the ring only claims its entry keys (Ctrl+G/Ctrl+W) and
@@ -624,6 +631,17 @@ class LineEditor {
     return true;
   }
 
+  /// The Ctrl+R app hook (tina: raw-markdown viewer), at the same dispatch
+  /// rank as the maximize toggle. True when the hook consumed the key.
+  bool _handleRawView(InputEvent event) {
+    final rawView = onRawView;
+    if (rawView == null) return false;
+    if (event is! ControlKey || event.code != ControlCode.ctrlR) return false;
+    if (!rawView()) return false;
+    _redraw();
+    return true;
+  }
+
   void _dispatchEvent(InputEvent event) {
     if (debugKeys) {
       stderr.writeln('[keys] event: $event');
@@ -643,6 +661,11 @@ class LineEditor {
     //    ring so it fires both while cycling (the highlighted panel) and on
     //    the focused panel. The hook decides whether a panel qualifies.
     if (_handleMaximizeToggle(event)) {
+      return;
+    }
+    // Ctrl+R rides at the same rank (the app's raw-view overlay opens from
+    // any focus).
+    if (_handleRawView(event)) {
       return;
     }
     // 3. Modal cycling: the focus manager owns all keys (arrows/Tab move the
@@ -764,12 +787,13 @@ class LineEditor {
           case ControlCode.ctrlG:
           case ControlCode.ctrlS:
           case ControlCode.ctrlO:
+          case ControlCode.ctrlR:
             // Handled upstream by FocusManager when a panel exists; when no
             // panel is registered they fall through to here as a no-op.
             // ctrlS ("save") is consumed by the prompts overlay's readKey loop;
             // at the chat prompt it's a no-op. ctrlO (maximize) is consumed by
-            // the onMaximizeToggle hook — a fall-through means no panel
-            // qualified, so it's a no-op too.
+            // the onMaximizeToggle hook and ctrlR by onRawView — a fall-through
+            // means nothing qualified, so they are no-ops too.
             break;
         }
 
@@ -971,9 +995,12 @@ class LineEditor {
           case ControlCode.ctrlG:
           case ControlCode.ctrlS:
           case ControlCode.ctrlO:
+          case ControlCode.ctrlR:
             // The maximize toggle works in queue mode too — maximizing a
-            // panel to watch a running agent is a primary use case.
+            // panel to watch a running agent is a primary use case. Same for
+            // the raw-view overlay.
             _handleMaximizeToggle(event);
+            _handleRawView(event);
             break;
         }
       case CharInput(:final text):
