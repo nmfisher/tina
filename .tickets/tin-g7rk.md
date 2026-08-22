@@ -39,3 +39,50 @@ Notes for the implementer:
 - A plain/raw view of the response still exists.
 - Renderer unit tests cover the block and inline forms listed.
 - dart analyze clean; existing tests keep passing.
+
+## Design findings (2026-08-22 investigation, branch asb/markdown-render)
+
+Trace: provider stream → `ProviderStreamConsumer` → `ChatAgentSink.text`
+(delta per chunk) → `ScrollingTextRegion.appendStyled`. Constraints found
+in code:
+
+- `ScrollingTextRegion` is append-only, wraps at write time in terminal
+  cells, and never re-flows (`_writeInternal` / `_reconcileRows`,
+  tina_console region.dart). There is no public API to rewrite
+  already-written rows; once a row scrolls into history it is frozen.
+  → markdown must be finalized before it is written.
+- The style model is already rich enough: one row-level SGR code
+  (`styleCode` → full-width background bars, used for code blocks) PLUS
+  inline CSI runs inside row text, parsed/cached/diffed by styled_text.dart
+  (bold/italic/underline + truecolor fg/bg). No emit-machinery changes
+  needed for inline emphasis.
+- Clean streaming boundaries exist: `sink.newline()` fires only at prose
+  end (ToolCallStart / turn end — stream_consumer.dart:50-51,61-62,
+  agent.dart:535); `toolStart`/`notice` route through `write()`, closing
+  any open style. These are the flush signals for a held-back tail.
+- Degradation is owned by the surface (`appendStyled` falls back to plain
+  on passthrough/no-color); the sink must serialize plain-structural
+  output in those modes, not SGR.
+- Secondary consumers (panel-maximize `snapshotLines`, session-restore
+  replay via history_replay → same sink) inherit whatever lands in rows,
+  so both render consistently for free.
+- `markdown` 7.3.1 verified installable (pub.dev reachable; deps only
+  args+meta, both already in the tree). Hand-rolled renderer allowed by
+  the ticket but re-implements nested-emphasis edge cases agents emit
+  constantly — not worth it.
+
+Decisions (user + session, 2026-08-22):
+
+1. **markdown package + paragraph-granularity hold-back.** The sink
+   buffers deltas; a block is rendered once closed (blank line outside a
+   fence, or closing fence); the tail flushes on `newline()`/`toolStart`/
+   `notice`. Long lists/fences held until close are accepted for v1.
+2. **Renderer is a pure function** markdown string → styled lines
+   (runs of text+SGR, optional per-line bar style), so unit tests need
+   no terminal. App-level code; only theme fields land in tina_console
+   (no markdown dep below the app — import boundaries stay clean).
+3. **Raw view: default off, keybind to show.** Sink keeps the last
+   assistant message's raw markdown (ring on the host, mirroring the
+   onCapped/`/output` precedent); a keybind opens a viewer overlay.
+   Headless stays plain per the ticket.
+
