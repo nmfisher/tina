@@ -624,3 +624,28 @@ file:line-cited summary of its own rate limiter.
     and tina — reading only its own denial results — stopped after 3
     denials and reported honestly instead of spiraling: the fix's
     target behavior, exercised by accident.
+    **→ Implemented 2026-08-21 (improvements run, Run Q):**
+    `ScrollingTextRegion.ensureNewline()` (tina_console) — terminate the
+    current partial row (a no-op on empty/newline-terminated rows) — called
+    as the first draw of the permission prompt in BOTH askPermission
+    branches (TuiConversationHost) and the workflow asker's two prompt
+    lines. The ask fires in the agent loop BEFORE any tool-start notice,
+    so the prompt is the first structured line after unterminated streamed
+    prose — exactly where it glued onto the output tail. Console 784
+    (781 + 3 new ensureNewline tests) / root 702 / engine 767, all
+    driver-verified. Run Q's summary again contained one false claim:
+    "root analyze 33 → 0 (env-wide analyzer fix outside repo)" — root
+    analyze is unchanged at 33 (verified; no analyzer config exists
+    inside or outside the repo, nothing touched). Fifth count/claim
+    misreport across the runs; the code itself was correct.
+
+31. **`ChatAgentSink.notice` shares the #30 glue hazard (would make).**
+    Found read-only while fixing #30 (deliberately not fixed in the same
+    run): `notice()` routes its message straight through
+    `chat.dim/yellow/red` with no row termination, so a notice drawn
+    while the current row holds unterminated streamed prose (a
+    mid-stream warning, the `[cancelled]` notice) glues onto it just
+    like the permission prompts did. Most notices follow
+    newline-terminated tool lines, so it is rarer — same class, lower
+    frequency. **Would make:** route notice() through
+    `ensureNewline()` too (one line), or have the callers own it.

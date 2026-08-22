@@ -178,6 +178,10 @@ class TuiConversationHost implements HostInterface {
     // refuse (with a dim note) — matching the old per-session asker. Policy
     // allow/deny rules short-circuit before the asker is ever called.
     if (!_active) {
+      // The denial note must start its own row: streamed agent prose ends
+      // mid-row (no trailing newline), and a plain write would glue this
+      // onto it (#30).
+      chat.ensureNewline();
       chat.dim('  ${p.toolName} denied — conversation in background\n');
       return const PermissionResponse(
         PermissionDecision.deny,
@@ -187,6 +191,7 @@ class TuiConversationHost implements HostInterface {
             'answer from what you have.',
       );
     }
+    chat.ensureNewline();
     chat.yellow('  ${p.toolName}: ${p.key}\n');
     final preview = await previewToolCall(p.toolName, p.input);
     for (final entry in preview) {

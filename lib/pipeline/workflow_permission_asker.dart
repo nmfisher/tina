@@ -1,6 +1,7 @@
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 
+import '../host/tui_conversation_host.dart';
 import '../tui/attention_queue.dart';
 
 /// The interactive permission asker for workflow node agents — the
@@ -67,6 +68,12 @@ class WorkflowPermissionAsker {
       );
     }
 
+    // Streamed prose ends mid-row (no trailing newline); the prompt must
+    // start a fresh row, not glue onto it (#30).
+    if (sink is TuiConversationHost) {
+      final host = sink as TuiConversationHost;
+      host.chat.ensureNewline();
+    }
     _write('  ${p.toolName}: ${p.key}\n', HostMessageStyle.warning);
     final preview = await previewToolCall(p.toolName, p.input);
     for (final entry in preview) {
@@ -82,6 +89,12 @@ class WorkflowPermissionAsker {
         case PreviewSeparator():
           _write('  ⋯\n', HostMessageStyle.dim);
       }
+    }
+    // The prompt writes to chat; streamed prose ends mid-row (no trailing
+    // newline), so the first prompt line must start a fresh row (#30).
+    if (sink is TuiConversationHost) {
+      final host = sink as TuiConversationHost;
+      host.chat.ensureNewline();
     }
     _write(
       '  approve? [y/n/a/d]  (a/d remember "${p.alwaysPattern}") › ',

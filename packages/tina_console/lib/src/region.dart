@@ -495,6 +495,20 @@ class ScrollingTextRegion extends Region {
   void writeln([String s = '']) => write('$s\n');
   void newline() => write('\n');
 
+  /// Ensure the current partial row terminates so the next write starts on a
+  /// fresh row. Used before permission prompts so they don't glue onto
+  /// unterminated streamed prose (owner report #30, 2026-08-21).
+  ///
+  /// If the current row has content, appends `\n` via `_writeInternal` inside
+  /// `screen.frame`; no `rowOwner` is set (the newline is structural, not part
+  /// of a partial prompt row). No-op when the row is already empty or ends in
+  /// `\n`.
+  void ensureNewline() {
+    if (_curCol > 0) {
+      _writeInternal('\n');
+    }
+  }
+
   void dim(String s) => write(screen.colorize(screen.theme.chat.dim, s));
   void cyan(String s) => write(screen.colorize(screen.theme.chat.cyan, s));
   void green(String s) => write(screen.colorize(screen.theme.chat.green, s));
@@ -1761,7 +1775,8 @@ class OverlayRegion extends Region {
     }
     // Erase any leftover trailing rows from a previous (larger) overlay.
     for (var i = count; i < _bounds.height; i++) {
-      surface.eraseAt(relRow: i, relCol: 0, n: _bounds.width, moveCursor: false);
+      surface.eraseAt(
+          relRow: i, relCol: 0, n: _bounds.width, moveCursor: false);
     }
     // Surface writes bypass putAtAbsolute's border repair; re-assert it for
     // the touched rows so split-mode info-box borders survive hide.
