@@ -341,7 +341,11 @@ class _GateProvider extends LlmProvider {
     _calls++;
     final gate = Completer<void>();
     _gates.add(gate);
-    yield const TextDelta('working');
+    // The trailing blank line closes the markdown block (tin-g7rk renders at
+    // block granularity), so the delta renders mid-turn — while the gate
+    // still holds the turn open. Without it the paragraph would be held back
+    // until prose end and "streams while unfocused" would not be observable.
+    yield const TextDelta('working\n\n');
     await gate.future;
     yield const MessageComplete(
         content: [TextBlock('done')], stopReason: 'end_turn');

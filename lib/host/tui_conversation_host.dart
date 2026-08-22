@@ -55,6 +55,12 @@ class TuiConversationHost implements HostInterface {
   /// Populated from the sink's [ChatAgentSink.onCapped].
   final List<CappedToolOutput> cappedOutputs = [];
 
+  /// The current (or, between turns, most recent) assistant turn's raw
+  /// markdown, byte-for-byte as the model sent it — the raw view behind the
+  /// Ctrl+R viewer. Updated from the sink's [ChatAgentSink.onRawText]; reset
+  /// when the user's next message opens a turn.
+  String lastRawMarkdown = '';
+
   /// The [PanelFrame] that frames this host's region. Still used by [clear]
   /// (repaint the chrome after erasing a column slot) and by the coordinator's
   /// relabel path (`/model`). The busy *cue* no longer goes through here — it is
@@ -95,18 +101,21 @@ class TuiConversationHost implements HostInterface {
   /// [dispose].
   StreamSubscription<AgentEvent>? _logSub;
 
+  /// The [ChatAgentSink] that renders this host's agent output. Held directly
+  /// (besides the bus-composing [_sink]) for the turn-boundary hook.
+  late final ChatAgentSink _chatSink = ChatAgentSink(chat, spinner, onCapped: (o) {
+    cappedOutputs.insert(0, o);
+    if (cappedOutputs.length > 10) cappedOutputs.removeLast();
+  }, onRawText: (text) {
+    lastRawMarkdown = text;
+  });
+
   /// Forwards [AgentSink] calls to the chat region (via [ChatAgentSink]) and,
   /// for the calls that carry an [AgentEvent], mirrors them on [eventBus] (via
   /// [BusSink]). Composing the two means this host renders identically to the
   /// old `ChatAgentSink` while also feeding the bus — no rendering logic
   /// duplicated here.
-  late final AgentSink _sink = BusSink(
-    ChatAgentSink(chat, spinner, onCapped: (o) {
-      cappedOutputs.insert(0, o);
-      if (cappedOutputs.length > 10) cappedOutputs.removeLast();
-    }),
-    _bus,
-  );
+  late final AgentSink _sink = BusSink(_chatSink, _bus);
 
   @override
   AgentEventBus get eventBus => _bus;
@@ -259,6 +268,13 @@ class TuiConversationHost implements HostInterface {
       case HostMessageStyle.normal:
         chat.write(message);
       case HostMessageStyle.user:
+        // A new user message opens a new assistant turn: drop the previous
+        // turn's raw markdown so the raw viewer tracks the live turn (and so
+        // replayed history doesn't stack every past turn into one buffer).
+        // Both halves: the sink's accumulator, and the already-published
+        // [lastRawMarkdown].
+        _chatSink.beginAssistantTurn();
+        lastRawMarkdown = '';
         // A bullet line slightly lighter than agent prose — the old
         // reverse-video bar was heavier than the message it carried.
         final body = message.endsWith('\n')
