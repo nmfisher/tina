@@ -43,6 +43,86 @@ void main() {
     });
   });
 
+  group('ChatTheme markdown styles (tin-g7rk)', () {
+    test('all three variants ship the four markdown fields', () {
+      for (final theme
+          in const [Theme.defaults(), Theme.light(), Theme.dark()]) {
+        expect(theme.chat.header, isNotEmpty);
+        expect(theme.chat.inlineCode, isNotEmpty);
+        expect(theme.chat.codeBlock, isNotEmpty);
+        expect(theme.chat.link, isNotEmpty);
+      }
+    });
+
+    test('every markdown code is inside the styled-run parser vocabulary', () {
+      // The markdown renderer embeds these codes as inline SGR in chat rows;
+      // applySgrCode silently drops anything outside its switch (notably
+      // SGR 7, reverse video), which would render on ANSI but not notcurses.
+      // A code that parses to the all-default state has been dropped.
+      const names = ['defaults', 'light', 'dark'];
+      const themes = [Theme.defaults(), Theme.light(), Theme.dark()];
+      for (var i = 0; i < themes.length; i++) {
+        for (final code in [
+          themes[i].chat.header,
+          themes[i].chat.inlineCode,
+          themes[i].chat.link,
+        ]) {
+          final acc = SgrState();
+          applySgrCode(code.split(';'), _NullSink(), acc);
+          expect(
+            acc.fg != null || acc.bg != null || acc.stylebits != 0,
+            isTrue,
+            reason: '$code from ${names[i]} parsed to the default state — '
+                'applySgrCode dropped it',
+          );
+        }
+      }
+    });
+
+    test('codeBlock sets a background so the region paints a solid bar', () {
+      // The chat row's bar padding engages only for styles _hasBackground
+      // recognises (40-47 / 100-107 / 48 / 7). A code block without one
+      // would render as floating text instead of a bar.
+      bool hasBackground(String style) {
+        for (final code in style.split(';')) {
+          final n = int.tryParse(code);
+          if (n == null) continue;
+          if ((n >= 40 && n <= 49) || (n >= 100 && n <= 107) || n == 7) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      for (final theme
+          in const [Theme.defaults(), Theme.light(), Theme.dark()]) {
+        expect(hasBackground(theme.chat.codeBlock), isTrue,
+            reason: 'codeBlock must set a background colour');
+      }
+    });
+
+    test('fromMap/toMap round-trips the markdown fields', () {
+      const original = ChatTheme(
+        header: '1;4',
+        inlineCode: '97;100',
+        codeBlock: '97;100',
+        link: '4;96',
+      );
+      final map = original.toMap();
+      expect(map, {
+        'header': '1;4',
+        'inline_code': '97;100',
+        'code_block': '97;100',
+        'link': '4;96',
+      });
+      final roundTrip = ChatTheme.fromMap(map);
+      expect(roundTrip.header, '1;4');
+      expect(roundTrip.inlineCode, '97;100');
+      expect(roundTrip.codeBlock, '97;100');
+      expect(roundTrip.link, '4;96');
+    });
+  });
+
   group('Theme.fromMap', () {
     test('overrides only supplied keys; missing keys fall back to defaults', () {
       final theme = Theme.fromMap({
@@ -234,3 +314,18 @@ final void Function() themeChangeInvalidationTests = () {
     });
   });
 };
+
+/// A [StyledStyleSink] that records nothing — the vocabulary test only cares
+/// whether `applySgrCode` *accepts* each code, not what setters it issues.
+class _NullSink implements StyledStyleSink {
+  @override
+  void setStyles(int stylebits) {}
+  @override
+  void setFgRGB(int hex) {}
+  @override
+  void setBgRGB(int hex) {}
+  @override
+  void setFgDefault() {}
+  @override
+  void setBgDefault() {}
+}
