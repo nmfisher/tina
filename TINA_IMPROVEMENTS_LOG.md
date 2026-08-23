@@ -870,6 +870,10 @@ the driver verifies and commits. Survey sources: the analyzer output,
     runner ships no git user.name/user.email (invisible locally, where
     a dev machine always has one). Root job now sets a tina-ci identity
     before testing. Third live run is the verdict.
+    **→ GREEN 2026-08-23T15:26Z (run 32648458822):** all four jobs —
+    root, engine, console, index — success. #35 accepted live; the
+    ~2,400-test suite and every analyze baseline are now machine-gated
+    on every PR and push to main. Item closed.
 36. **Drive the analyzer to zero outside the submodule.** After #34's
     fifteen, eighteen warnings remain (one of them the submodule's
     config warning, out of scope): two `catchError((_) {})`
