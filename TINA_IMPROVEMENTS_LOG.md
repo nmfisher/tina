@@ -862,6 +862,14 @@ the driver verifies and commits. Survey sources: the analyzer output,
     sub-packages, mirroring a dev machine. Also: #39 shipped in the
     same push, so tina_index joined the matrix (analyze 0 + test 56,
     pure Dart, no apt step) and the exclusion comment is gone.
+    **→ Second live run (32648223073): console/engine/index GREEN —
+    the linker and package_config fixes held.** Root's analyze gate
+    passed too; its `dart test` then lost 17 tests, every one the same
+    signature: `ProcessException: Author identity unknown` — the
+    summary tests do real `git commit`s in temp repos and a GitHub
+    runner ships no git user.name/user.email (invisible locally, where
+    a dev machine always has one). Root job now sets a tina-ci identity
+    before testing. Third live run is the verdict.
 36. **Drive the analyzer to zero outside the submodule.** After #34's
     fifteen, eighteen warnings remain (one of them the submodule's
     config warning, out of scope): two `catchError((_) {})`

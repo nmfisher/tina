@@ -107,6 +107,16 @@ jobs:
           fi
           exit 0
 
+      # The summary tests do real `git commit`s in temp repos; a GitHub
+      # runner has NO git identity configured, and every one of them dies
+      # with `ProcessException: Author identity unknown` (17 failures on
+      # live run 32648223073 — invisible locally, where a dev machine
+      # always has user.name/user.email).
+      - name: Configure git identity (summary tests commit in temp repos)
+        run: |
+          git config --global user.name "tina-ci"
+          git config --global user.email "tina-ci@example.com"
+
       - name: test (root)
         working-directory: .
         run: dart test
