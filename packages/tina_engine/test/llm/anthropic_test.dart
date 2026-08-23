@@ -186,5 +186,24 @@ void main() {
       expect(events.whereType<StreamError>().single.error,
           'Anthropic: overloaded_error: Overloaded');
     });
+
+    // #24: a stream that goes silent mid-response must surface an error that
+    // names --stream-idle-timeout (previously the same anonymous 'Request
+    // timed out' string as the request timeout, so operators raised the
+    // wrong knob).
+    test('a stream that goes silent names --stream-idle-timeout', () async {
+      final provider = AnthropicProvider(
+        apiKey: 'sk-test',
+        model: 'claude-test',
+        streamIdleTimeout: const Duration(milliseconds: 100),
+        client: SilentSseClient(),
+      );
+      final events = await provider
+          .send(system: '', messages: const [], tools: const [])
+          .toList();
+      final err = events.whereType<StreamError>().single;
+      expect(err.error, contains('no stream events for'));
+      expect(err.error, contains('--stream-idle-timeout'));
+    });
   });
 }

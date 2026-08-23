@@ -119,13 +119,22 @@ class OpenAiCompatibleAdapter extends LlmProvider {
     // Provider-specific extras win (merged last), so a model can override even
     // a default like `stream_options` if its endpoint requires it.
     if (extraBody.isNotEmpty) bodyMap.addAll(extraBody);
-    final body = jsonEncode(bodyMap);
-    HttpLog.log(Uri.parse(chatEndpoint(baseUrl)), body);
+    final bodyStr = jsonEncode(bodyMap);
+    final bodyBytes = utf8.encode(bodyStr).length;
+    // Size-scaled defaults (#23c / #24b): same contract as all providers.
+    final effectiveRequestTimeout = requestTimeout == defaultRequestTimeout
+        ? scaledRequestTimeout(bodyBytes)
+        : requestTimeout;
+    final effectiveStreamIdleTimeout =
+        streamIdleTimeout == defaultStreamIdleTimeout
+            ? scaledStreamIdleTimeout(bodyBytes)
+            : streamIdleTimeout;
+    HttpLog.log(Uri.parse(chatEndpoint(baseUrl)), bodyStr);
 
     final http.StreamedResponse resp;
     try {
-      resp = await sendOnce(_client, () => _buildRequest(body),
-          requestTimeout: requestTimeout);
+      resp = await sendOnce(_client, () => _buildRequest(bodyStr),
+          requestTimeout: effectiveRequestTimeout);
     } catch (e) {
       yield StreamError(humanizeException(e), transient: isTransientException(e));
       return;
@@ -146,7 +155,20 @@ class OpenAiCompatibleAdapter extends LlmProvider {
     var promptTokens = 0;
     var completionTokens = 0;
 
-    final events = parseSse(resp.stream).timeout(streamIdleTimeout);
+    // WHY (#23 / #24): stream-idle timeout must name its flag — same anonymous
+    // string as request-timeout made operators change the wrong knob.
+    final rawEvents = resp.stream.timeout(
+      effectiveStreamIdleTimeout,
+      onTimeout: (sink) {
+        sink.addError(TimeoutException(
+          'no stream events for ${effectiveStreamIdleTimeout.inSeconds}s — '
+          'raise with --stream-idle-timeout',
+          effectiveStreamIdleTimeout,
+        ));
+        sink.close();
+      },
+    );
+    final events = parseSse(rawEvents);
     try {
       await for (final payload in events) {
         final Map<String, dynamic> evt;

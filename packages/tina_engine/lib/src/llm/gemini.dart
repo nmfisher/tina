@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -68,7 +69,7 @@ class GeminiProvider extends LlmProvider {
     required List<ToolSchema> tools,
   }) async* {
     final idToName = _collectToolNames(messages);
-    final body = jsonEncode({
+    final bodyStr = jsonEncode({
       if (system.isNotEmpty)
         'systemInstruction': {
           'parts': [
@@ -84,12 +85,21 @@ class GeminiProvider extends LlmProvider {
         ],
       'generationConfig': {'maxOutputTokens': maxTokens},
     });
-    HttpLog.log(_endpoint(), body);
+    final bodyBytes = utf8.encode(bodyStr).length;
+    // Size-scaled defaults (#23c / #24b): same contract as all providers.
+    final effectiveRequestTimeout = requestTimeout == defaultRequestTimeout
+        ? scaledRequestTimeout(bodyBytes)
+        : requestTimeout;
+    final effectiveStreamIdleTimeout =
+        streamIdleTimeout == defaultStreamIdleTimeout
+            ? scaledStreamIdleTimeout(bodyBytes)
+            : streamIdleTimeout;
+    HttpLog.log(_endpoint(), bodyStr);
 
     final http.StreamedResponse resp;
     try {
-      resp = await sendOnce(_client, () => _buildRequest(body),
-          requestTimeout: requestTimeout);
+      resp = await sendOnce(_client, () => _buildRequest(bodyStr),
+          requestTimeout: effectiveRequestTimeout);
     } catch (e) {
       yield StreamError(humanizeException(e), transient: isTransientException(e));
       return;
@@ -108,7 +118,20 @@ class GeminiProvider extends LlmProvider {
     var inputTokens = 0;
     var outputTokens = 0;
 
-    final events = parseSse(resp.stream).timeout(streamIdleTimeout);
+    // WHY (#23 / #24): stream-idle timeout must name its flag — same anonymous
+    // string as request-timeout made operators change the wrong knob.
+    final rawEvents = resp.stream.timeout(
+      effectiveStreamIdleTimeout,
+      onTimeout: (sink) {
+        sink.addError(TimeoutException(
+          'no stream events for ${effectiveStreamIdleTimeout.inSeconds}s — '
+          'raise with --stream-idle-timeout',
+          effectiveStreamIdleTimeout,
+        ));
+        sink.close();
+      },
+    );
+    final events = parseSse(rawEvents);
     try {
       await for (final payload in events) {
         final Map<String, dynamic> evt;

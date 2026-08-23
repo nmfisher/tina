@@ -127,8 +127,10 @@ class TuiConversationHost implements HostInterface {
           case ToolStartEvent():
             _log.fine('[$conversationId] tool start: ${event.toolName}');
           case ToolCompleteEvent():
-            _log.fine('[$conversationId] tool complete: ${event.toolName} '
-                '(error=${event.isError})');
+            _log.fine(
+              '[$conversationId] tool complete: ${event.toolName} '
+              '(error=${event.isError})',
+            );
           case ToolOutputEvent():
             break; // every output chunk — too chatty to log
         }
@@ -181,9 +183,20 @@ class TuiConversationHost implements HostInterface {
     // refuse (with a dim note) — matching the old per-session asker. Policy
     // allow/deny rules short-circuit before the asker is ever called.
     if (!_active) {
+      // The denial note must start its own row: streamed agent prose ends
+      // mid-row (no trailing newline), and a plain write would glue this
+      // onto it (#30).
+      chat.ensureNewline();
       chat.dim('  ${p.toolName} denied — conversation in background\n');
-      return PermissionResponse.denyOnce;
+      return const PermissionResponse(
+        PermissionDecision.deny,
+        note:
+            'Non-interactive run: permission asks are auto-refused — '
+            'rephrasing will not change this. Proceed without this tool or '
+            'answer from what you have.',
+      );
     }
+    chat.ensureNewline();
     chat.yellow('  ${p.toolName}: ${p.key}\n');
     final preview = await previewToolCall(p.toolName, p.input);
     for (final entry in preview) {
@@ -206,9 +219,11 @@ class TuiConversationHost implements HostInterface {
     // approval pends starts its own row instead of merging its text onto the
     // prompt (tin-6a2f).
     final rowToken = Object();
-    chat.write('  approve? [y/n/a/d]  '
-        '(a/d remember "${p.alwaysPattern}") › ',
-        rowOwner: rowToken);
+    chat.write(
+      '  approve? [y/n/a/d]  '
+      '(a/d remember "${p.alwaysPattern}") › ',
+      rowOwner: rowToken,
+    );
     // If the user is mid-prompt (a readLine in flight WITH unsent content),
     // the approval must not steal their typing — the prompt's Enter would
     // answer this readKey as a deny (it is not y/a/d) and the prompt would
@@ -261,8 +276,10 @@ class TuiConversationHost implements HostInterface {
   }
 
   @override
-  void showMessage(String message,
-      {HostMessageStyle style = HostMessageStyle.normal}) {
+  void showMessage(
+    String message, {
+    HostMessageStyle style = HostMessageStyle.normal,
+  }) {
     final theme = screen.theme.hostMessage;
     switch (style) {
       case HostMessageStyle.normal:

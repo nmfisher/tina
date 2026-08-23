@@ -154,6 +154,7 @@ class GrepTool implements Tool {
       glob: glob,
       maxResults: maxResults,
       caseInsensitive: caseInsensitive,
+      isFileRoot: isFile,
       cancelSignal: cancelSignal,
     );
   }
@@ -269,6 +270,7 @@ class GrepTool implements Tool {
     required String? glob,
     required int maxResults,
     required bool caseInsensitive,
+    bool isFileRoot = false,
     required Future<void>? cancelSignal,
   }) async {
     final RegExp regex;
@@ -297,8 +299,16 @@ class GrepTool implements Tool {
         truncated = true;
         break;
       }
-      final fullPath =
-          p.isAbsolute(relPath) ? relPath : p.join(path, relPath);
+      // A file root enumerates to its basename (c4618b3). Output keeps the
+      // basename (`relPath`) so the shape matches a dir-rooted search; reads
+      // must use the actual file root (`path`) — joining would build the
+      // nonexistent `<file>/<basename>` and silently skip every match.
+      final String fullPath;
+      if (isFileRoot) {
+        fullPath = path;
+      } else {
+        fullPath = p.isAbsolute(relPath) ? relPath : p.join(path, relPath);
+      }
       if (!await fs.fileExists(fullPath)) continue;
       // Read bytes once to detect binary files (NUL byte in first 8KB).
       final List<int> bytes;

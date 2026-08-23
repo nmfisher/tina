@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -73,7 +74,7 @@ class AnthropicProvider extends LlmProvider {
         _encodeMessage(messages[i], cacheLastBlock: i == cacheMessageAt),
     ];
 
-    final body = jsonEncode({
+    final bodyStr = jsonEncode({
       'model': model,
       'max_tokens': maxTokens,
       'system': [
@@ -87,12 +88,23 @@ class AnthropicProvider extends LlmProvider {
       if (tools.isNotEmpty) 'tools': encodedTools,
       'stream': true,
     });
-    HttpLog.log(Uri.parse('$baseUrl/v1/messages'), body);
+    final bodyBytes = utf8.encode(bodyStr).length;
+    // Size-scaled defaults (#23c / #24b): if the user never chose a timeout
+    // (value equals the built-in default), scale by request size; any other
+    // explicit value wins verbatim as a deliberate operator choice.
+    final effectiveRequestTimeout = requestTimeout == defaultRequestTimeout
+        ? scaledRequestTimeout(bodyBytes)
+        : requestTimeout;
+    final effectiveStreamIdleTimeout =
+        streamIdleTimeout == defaultStreamIdleTimeout
+            ? scaledStreamIdleTimeout(bodyBytes)
+            : streamIdleTimeout;
+    HttpLog.log(Uri.parse('$baseUrl/v1/messages'), bodyStr);
 
     final http.StreamedResponse resp;
     try {
-      resp = await sendOnce(_client, () => _buildRequest(body),
-          requestTimeout: requestTimeout);
+      resp = await sendOnce(_client, () => _buildRequest(bodyStr),
+          requestTimeout: effectiveRequestTimeout);
     } catch (e) {
       yield StreamError(humanizeException(e), transient: isTransientException(e));
       return;
@@ -115,7 +127,21 @@ class AnthropicProvider extends LlmProvider {
     // Wrap the SSE consumption: humanize any error (network drop, stall,
     // bad framing) and surface it as StreamError rather than letting the
     // raw exception bubble up to the agent.
-    final events = parseSse(resp.stream).timeout(streamIdleTimeout);
+    // WHY (#23 / #24): stream-idle must name its knob — same anonymous
+    // 'Request timed out' made operators raise --request-timeout instead,
+    // which did nothing. Naming the flag lets the operator fix the right knob.
+    final rawEvents = resp.stream.timeout(
+      effectiveStreamIdleTimeout,
+      onTimeout: (sink) {
+        sink.addError(TimeoutException(
+          'no stream events for ${effectiveStreamIdleTimeout.inSeconds}s — '
+          'raise with --stream-idle-timeout',
+          effectiveStreamIdleTimeout,
+        ));
+        sink.close();
+      },
+    );
+    final events = parseSse(rawEvents);
     Stream<Map<String, dynamic>> decoded() async* {
       await for (final payload in events) {
         try {

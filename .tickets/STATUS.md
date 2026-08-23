@@ -1,41 +1,33 @@
 # Sweep status
-Now:     tin-g7rk (p2, markdown rendering in the TUI) implemented on branch
-         asb/markdown-render — renderer + sink integration + Ctrl+R raw
-         view; all suites green (root 719, tina_console 789, engine 728 +
-         the known sandbox failure). Ticket closed with a full resolution
-         record; PR raised against main, NOT merged.
-Next:    Review/merge the tin-g7rk PR. Then tin-9x4m (p3, /spawn picker
+Now:     PR 17 (asb/improvements-log) conflict-free against main — merged
+         origin/main (tin-g7rk, fa05e20) in, resolved the one conflict in
+         lib/host/tui_conversation_host.dart keeping main's _chatSink
+         refactor + our #30 permission fixes; root 757 / tina_console 792
+         green, engine 765 + the two known non-merge failures below.
+Next:    Review/merge PR 17. Then tin-9x4m (p3, /spawn picker
          empty for custom providers) or a fresh probe batch from the
          scenario-seeds list.
 Blocked: none
 Ask:     1) Parked features awaiting prioritization: tin-1h8p, tin-80ll
          (+ its superseded sibling tin-923l), tin-f5xt, tin-k9q3.
-Last checkpoint: 2026-08-22 — tin-g7rk closed (markdown rendering +
-         raw view, PR pending); STATUS rewritten; dart-sdk toolchain note
-         corrected. Previous checkpoint (2026-08-18): PR #14 confirmed
-         landed; ticket audit applied (path fixes, SHA annotations,
-         cross-links).
+Last checkpoint: 2026-08-23 — PR 17 merge-conflict resolution pushed
+         (merge commit only, no rebase); bash_tool spill-test flake root-
+         caused and logged. Previous checkpoint (2026-08-22): tin-g7rk
+         closed (markdown rendering + raw view, PR pending); STATUS
+         rewritten; dart-sdk toolchain note corrected.
 
 ## This session
 
-- tin-g7rk end to end on asb/markdown-render:
-  - ChatTheme gained header/inlineCode/codeBlock/link fields
-    (default/light/dark), vocabulary-pinned by tests.
-  - lib/tui/markdown_renderer.dart: pure renderer (markdown pkg 7.3.1,
-    app-level dep only) + MarkdownStreamSplitter (block-granularity
-    streaming contract).
-  - ChatAgentSink renders closed blocks (flush on newline/toolStart/
-    notice); passthrough stays byte-exact; onRawText publishes the
-    turn raw; beginAssistantTurn abandons it.
-  - Ctrl+R (ControlCode.ctrlR, both input backends; LineEditor.onRawView
-    at the maximize rank) opens the generic viewer with the active
-    conversation's raw markdown. Default off.
-  - panel_busy_cue's gate provider now streams a closed block — the
-    mid-turn streaming observable under block-granularity rendering.
-- Toolchain correction: dart is /opt/dart-sdk (3.13.1) on PATH — the old
-  /home/agent/dart-sdk note was stale. dart_notcurses submodule must be
-  initialized (`git submodule update --init packages/dart_notcurses`)
-  before `dart pub get` works at root/tina_console.
+- Merged origin/main (tin-g7rk markdown rendering, fa05e20) into
+  asb/improvements-log for PR 17. One conflict, in
+  lib/host/tui_conversation_host.dart `_sink`: HEAD still built a second
+  ChatAgentSink inline (onCapped only); main routes BusSink through the
+  shared `_chatSink` (onCapped + onRawText, beginAssistantTurn hook).
+  Took main's form — the inline one would have left beginAssistantTurn
+  driving a sink outside the render path, and our #30 ensureNewline /
+  denial-note changes sat outside the hunk and survive untouched.
+- Merge-introduced breakage: none. tina_engine is byte-identical to the
+  pre-merge branch; its two failures pre-date the merge (see Notes).
 
 ## Open (hunted / not in play)
 
@@ -75,7 +67,16 @@ Last checkpoint: 2026-08-22 — tin-g7rk closed (markdown rendering +
   release) — not introduced by and not blocking the g7rk work.
 - tina_engine's package suite has one pre-existing failure in this sandbox:
   process_tree_test 'kills a backgrounded descendant…'. Root and
-  tina_console suites fully green.
+  tina_console suites fully green. Probed 2026-08-23: spawned
+  grandchildren live in a PID namespace the VM can't signal — pgrep
+  (subprocess) sees them, the VM's own /proc doesn't, so SIGKILL lands on
+  the wrong pid. Sandbox-only; the code is sound.
+- bash_tool_test 'output above the cap keeps the tail and spills the full
+  output' flakes ~1/12 in isolation: it asserts `isNot(contains('A'))`
+  while the spill path embeds the random createTemp suffix
+  (tina_bash_test_<random>), which can itself contain 'A'. Random-name
+  collision, not a tail-keep regression; fix would be a deterministic
+  spill-path assert.
 - Stub lore: /tmp/stubhome carries the canonical stub config; a pristine
   copy lives at /tmp/w8dl_hunt/stub.config. tool/w8dl_hunt.sh and
   tool/y4qn_hunt.sh (re)start the stub per invocation — kill leftover

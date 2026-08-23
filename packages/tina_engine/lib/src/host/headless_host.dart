@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../agent/agent_event_bus.dart';
 import '../agent/agent_sink.dart';
+import '../permissions/policy.dart';
 import '../permissions/preview.dart';
 import '../permissions/prompt.dart';
 import '../tools/tool.dart';
@@ -41,9 +42,16 @@ class HeadlessHost implements HostInterface {
     // Mirrors the pre-refactor non-interactive asker: a `ask` decision can't be
     // posed interactively, so refuse and point the user at the flags that would
     // have allowed it. (Policy allow/deny rules short-circuit before this.)
+    //
+    // The stderr hint above is for the OPERATOR; `note` is the model-facing
+    // twin (#27) — it rides on the denied tool result so the model itself
+    // learns why and stops rephrasing the same refused shape.
+    const note = 'Non-interactive run: permission asks are auto-refused — '
+        'rephrasing will not change this. Proceed without this tool or answer '
+        'from what you have.';
     _writeErr('${p.toolName}: ${p.key}\n  '
         'refused (use --allow "${p.toolName}:${p.alwaysPattern}" or --yolo)\n');
-    return PermissionResponse.denyOnce;
+    return const PermissionResponse(PermissionDecision.deny, note: note);
   }
 
   @override

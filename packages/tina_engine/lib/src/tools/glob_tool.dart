@@ -68,7 +68,9 @@ class GlobTool implements Tool {
     } on ToolValidationException catch (e) {
       return ToolResult.error(e.message);
     }
-    if (!Directory(path).existsSync()) {
+    // A file root is valid: it enumerates to itself (c4618b3), so it should be
+    // pattern-matched like any enumerated entry rather than rejected here.
+    if (!Directory(path).existsSync() && !File(path).existsSync()) {
       return ToolResult.error('path does not exist: $path');
     }
     // The enumerate walk can't be covered by the FS seam, so assert the

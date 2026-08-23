@@ -51,25 +51,18 @@ void main() {
     });
   });
 
-  group('--api-key flag', () {
-    test('parses --api-key into apiKeyOverride', () {
-      final cfg = Config.parse(
-        const ['--api-key', 'sk-override'],
-        env: const {'ANTHROPIC_API_KEY': 'sk'},
-        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
+  group('--api-key flag (removed)', () {
+    test('--api-key is rejected: keys do not belong on command lines', () {
+      // Owner decision 2026-08-21 — a CLI key leaks via shell history and
+      // process listings. The flag must fail fast now that it is gone.
+      expect(
+        () => Config.parse(
+          const ['--api-key', 'sk-override'],
+          env: const {'ANTHROPIC_API_KEY': 'sk'},
+          registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
+        ),
+        throwsFormatException,
       );
-      expect(cfg.apiKeyOverride, 'sk-override');
-      // The flag wins over the env var at the resolved key.
-      expect(cfg.apiKey, 'sk-override');
-    });
-
-    test('apiKeyOverride is null by default', () {
-      final cfg = Config.parse(
-        const [],
-        env: const {'ANTHROPIC_API_KEY': 'sk'},
-        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
-      );
-      expect(cfg.apiKeyOverride, isNull);
     });
   });
 
