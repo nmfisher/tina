@@ -49,8 +49,19 @@ ProviderBuilder anthropicCompatibleBuilder() => (c) => AnthropicProvider(
 /// [ProviderRegistry.authFor] — so the key reaches the startup provider
 /// (`Config.parse`) and sub-agents (`registry.build`) alike. Pools need none
 /// of it: each member resolves its own credential the normal way.
+///
+/// The pool rotation notice (`tina: pool "<id>" rotates over: …`) fires on the
+/// pool's FIRST BUILD, not at attach (#28) — a run that never touches the pool
+/// (e.g. an explicit `--model` elsewhere) must not print a member list that
+/// reads as "the pool is active". [warn] injects the sink for that notice so
+/// tests can observe WHEN it fires; production keeps the default
+/// `stderr.writeln`.
 void registerConfigProviders(
-    ProviderRegistry registry, UserConfig userConfig) {
+    ProviderRegistry registry, UserConfig userConfig,
+    {void Function(String line)? warn}) {
+  // Explicit type: stderr.writeln's tear-off takes Object?, and without the
+  // annotation the ??-inferred type is bare `Function`.
+  final void Function(String) warnOut = warn ?? stderr.writeln;
   // Pools register in a second pass so a pool may list config-declared wire
   // providers as members regardless of table order.
   final pools = <MapEntry<String, ProviderConfig>>[];
@@ -76,7 +87,7 @@ void registerConfigProviders(
     _registerCustom(registry, id, pc, wire, catalog, baseUrl: pc.baseUrl);
   }
   for (final entry in pools) {
-    _registerPool(registry, entry.key, entry.value, userConfig);
+    _registerPool(registry, entry.key, entry.value, userConfig, warnOut);
   }
 }
 
@@ -101,7 +112,7 @@ void registerConfigProviders(
 /// session-wide ceiling — it must be raised to the sum (or 0) or it
 /// bottlenecks the pool at one member's cap.
 void _registerPool(ProviderRegistry registry, String id, ProviderConfig pc,
-    UserConfig config) {
+    UserConfig config, void Function(String line) warnOut) {
   final entries = pc.members!;
   // The provider id of a full reference is the text before the first slash
   // (model ids themselves may contain slashes: `meta/muse-glimmer-30b`).
@@ -145,6 +156,8 @@ void _registerPool(ProviderRegistry registry, String id, ProviderConfig pc,
       if (m != null) catalog[m.id] = m;
     }
   }
+  // Warn-once flag, captured by the builder below.
+  var warned = false;
   registry.registerPool(ProviderDescriptor(
     id: id,
     name: pc.name ?? _titleCase(id),
@@ -153,23 +166,31 @@ void _registerPool(ProviderRegistry registry, String id, ProviderConfig pc,
     // The instance's model id is the part after `<pool>/`. Bare members are
     // resolved as `<member>/<that model>`; full references are pinned and
     // ignore it.
-    builder: (c) => registry.buildPooled(
-      [
-        for (final entry in entries)
-          ModelReference.parse(entry).providerId == null
-              ? '$entry/${c.model}'
-              : entry
-      ],
-      maxTokens: c.maxTokens,
-      streamIdleTimeout: c.streamIdleTimeout,
-      requestTimeout: c.requestTimeout,
-    ),
+    builder: (c) {
+      // Warn on FIRST BUILD, not at attach (#28): a run that never touches the
+      // pool (e.g. an explicit `--model` elsewhere) must not print a member
+      // list that reads as "the pool is active".
+      if (!warned) {
+        warned = true;
+        warnOut('tina: pool "$id" rotates over: ${entries.join(', ')} '
+            '(per-member spacing via [limits] min_request_interval_ms or '
+            '[providers.<id>] requests_per_minute; raise the limits to the '
+            'sum or the session cap bottlenecks the pool)');
+      }
+      return registry.buildPooled(
+        [
+          for (final entry in entries)
+            ModelReference.parse(entry).providerId == null
+                ? '$entry/${c.model}'
+                : entry
+        ],
+        maxTokens: c.maxTokens,
+        streamIdleTimeout: c.streamIdleTimeout,
+        requestTimeout: c.requestTimeout,
+      );
+    },
     models: catalog,
   ));
-  stderr.writeln('tina: pool "$id" rotates over: ${entries.join(', ')} '
-      '(per-member spacing via [limits] min_request_interval_ms or '
-      '[providers.<id>] requests_per_minute; raise the limits to the sum or '
-      'the session cap bottlenecks the pool)');
 }
 
 /// Resolves the effective wire format for a config block, or null when the block

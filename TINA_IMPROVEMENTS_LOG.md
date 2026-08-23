@@ -649,3 +649,33 @@ file:line-cited summary of its own rate limiter.
     newline-terminated tool lines, so it is rarer — same class, lower
     frequency. **Would make:** route notice() through
     `ensureNewline()` too (one line), or have the callers own it.
+    **→ Implemented 2026-08-21 (improvements run, Run R):** the notice
+    moved into the pool descriptor's builder with a warn-once flag — it
+    fires on the pool's FIRST BUILD, never at attach. [warn] injects the
+    sink so tests assert the timing (3 new: attach warns nothing; first
+    build warns once with the member list; a second build stays at one).
+    Live proof both directions (driver-run): `--model nim/…` against a
+    pool-default config prints ZERO pool warnings (previously the member
+    list printed at attach — the noise that fooled Run L's
+    self-verification); a pool-default run prints it exactly once, on
+    first use. Root 705 (702 + 3). Verified 2026-08-23 after an
+    environment rebuild wiped ~/.tina/config (recreated from the owner's
+    standing key directive) and stale pub resolutions: root 33 / engine
+    2 / console 3 analyze all back at pre-existing baselines.
+
+32. **`process_tree_test` reports a healthy kill as a failure in the
+    rebuilt environment — zombie liveness (would make).** After the
+    2026-08-23 sandbox rebuild, `kills a backgrounded descendant that
+    survives a bare kill of the root` fails deterministically while the
+    manual equivalent works: `killProcessTree` DOES kill the descendants
+    (SIGKILL lands), but this container's PID 1 never reaps orphans, so
+    the killed children persist as zombies — and the test's liveness
+    check (`kill -0 pid`) counts a zombie as alive. The product behavior
+    is correct; the test's definition of "dead" is wrong in any
+    PID-1-doesn't-reap container. **Would make:** treat state `Z` in
+    `/proc/<pid>/stat` as dead in the test's `_alive` (and consider the
+    same in `killProcessTree`'s grace loop, where a lingering zombie
+    currently eats the full grace delay before a pointless SIGKILL).
+    Engine suite stands at 767 tests: 766 green + this 1
+    environment-caused failure (bash_tool's cap test remains the known
+    order-dependent flake; passes in isolation).

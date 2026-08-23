@@ -420,5 +420,52 @@ void main() {
       // model that RESOLVES is listed — the pool still serves both.
       expect(registry.modelsFor('mypool').map((m) => m.id), ['Qwen3.8-27B']);
     });
+
+    test('attaching a pool warns nothing until the pool is built (#28)', () {
+      final config = twoMemberConfig();
+      final registry = builtinRegistry(env: buildEnvOverlay(config));
+      final warnings = <String>[];
+      registerConfigProviders(registry, config, warn: warnings.add);
+
+      // A run that declares a pool but never uses it (e.g. `--model` picked
+      // elsewhere) must not print a member list that reads as "the pool is
+      // active" — one past run mistook the attach-time notice for exactly
+      // that.
+      expect(warnings, isEmpty,
+          reason: 'the pool notice fires on first use, not at attach');
+    });
+
+    test('the pool notice fires once, on the first build (#28)', () {
+      final config = twoMemberConfig();
+      final registry = builtinRegistry(env: buildEnvOverlay(config));
+      final warnings = <String>[];
+      registerConfigProviders(registry, config, warn: warnings.add);
+
+      registry.build('mypool/llama3');
+      expect(warnings, hasLength(1),
+          reason: 'the notice belongs to the first build of the pool');
+      expect(warnings.single, contains('rotates over'));
+      expect(warnings.single, contains('a, b'));
+
+      registry.build('mypool/llama3');
+      expect(warnings, hasLength(1),
+          reason: 'a second build of the same pool must not warn again');
+    });
+
+    test('a non-pool provider writes nothing to the warn sink', () {
+      final config = UserConfig(providers: {
+        'zai': ProviderConfig(
+          baseUrl: 'https://api.z.ai/api/anthropic',
+          wire: 'anthropic',
+        ),
+      });
+      final registry = builtinRegistry(env: buildEnvOverlay(config));
+      final warnings = <String>[];
+      registerConfigProviders(registry, config, warn: warnings.add);
+
+      registry.build('zai/glm-5.2', apiKeyOverride: 'test-key');
+      expect(warnings, isEmpty,
+          reason: 'only pool builds go through the injected warn sink');
+    });
   });
 }
