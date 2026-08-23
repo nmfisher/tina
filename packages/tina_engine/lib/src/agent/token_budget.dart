@@ -17,6 +17,14 @@ import '../tools/tool.dart';
 /// continue/abort decision — from a per-turn trip, which still hard-aborts.
 enum TokenLimitKind { perTurn, perSession }
 
+/// Fraction of the per-turn token cap at which [TokenBudget.softMarginNotice]
+/// starts reporting the turn's SOFT margin (#37): the recorded spend has
+/// reached ~90% of the limit, so the model gets ONE in-band nudge to land
+/// cleanly before the hard abort at 100%. Named constant so it is tunable and
+/// unit-testable; the hard-abort comparison (`turnTotal > perTurnLimit`) is
+/// untouched by it.
+const double kPerTurnSoftMarginRatio = 0.9;
+
 /// Immutable accumulator of token spend against the three caps. [record]
 /// returns a new [TokenBudget] with the totals advanced; [resetTurn] /
 /// [resetSession] return one with a total zeroed. The owner (an [Agent])
@@ -108,6 +116,35 @@ class TokenBudget {
       case null:
         return null;
     }
+  }
+
+  /// The soft-margin notice (#37), or null if the per-turn soft margin has
+  /// not been reached yet.
+  ///
+  /// [exceeded] reports the HARD abort (spend strictly above 100% of the
+  /// cap). This method reports the SOFT margin: the recorded spend has
+  /// reached [kPerTurnSoftMarginRatio] (90%) of the per-turn limit while
+  /// still within budget. It is a pure predicate over [turnTotal] and
+  /// [perTurnLimit] — the same source [exceeded] reads — so it can never
+  /// fire after a hard trip (once `turnTotal > perTurnLimit`, [exceeded]
+  /// already won) and it re-fires on every call after the threshold is
+  /// crossed: callers must latch their own once-per-turn flag (the agent
+  /// does), exactly like the denial counter does for #27.
+  ///
+  /// The returned text is what the agent injects into the turn's history as
+  /// a user-role message so the MODEL sees it (a UI-only `sink.notice`
+  /// never reaches the model — lesson #27); the message text is the seam
+  /// tests assert against.
+  String? softMarginNotice() {
+    final limit = perTurnLimit;
+    if (limit == null || turnTotal < (limit * kPerTurnSoftMarginRatio).ceil()) {
+      return null;
+    }
+    if (exceededLimit() != null) return null; // hard trip: the hard reason wins
+    return '[budget] turn spend at ${(kPerTurnSoftMarginRatio * 100).round()}%'
+        ' (${turnTotal} of $limit tokens) of the per-turn limit — finish the '
+        'current step and write your closing summary now; the turn is '
+        'aborted hard when the remaining spend is exhausted.';
   }
 
   /// Pre-flight check on a request's input size. Approximates token count as

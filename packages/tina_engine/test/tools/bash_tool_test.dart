@@ -38,11 +38,11 @@ void main() {
         () async {
       final testDir = await Directory.systemTemp.createTemp('tina_bash_test_');
       try {
-        // A head of 'A's then a tail of 'Z's larger than the cap, so the kept
-        // tail is all 'Z's (proving we keep the END, not the start) and the
+        // A head of '!'s then a tail of '#'s larger than the cap, so the kept
+        // tail is all '#'s (proving we keep the END, not the start) and the
         // dropped head is recoverable from the spilled temp file.
-        final head = 'A' * 100000;
-        final tailBlock = 'Z' * 250000;
+        final head = '!' * 100000;
+        final tailBlock = '#' * 250000;
         final runner = MemoryProcessRunner.always(
             MemoryRunningProcess(stdoutChunks: [head, tailBlock]));
         final r = await BashTool(
@@ -50,11 +50,16 @@ void main() {
           tempDirFactory: () => testDir,
         ).execute({'command': 'flood'});
 
-        // Tail-keep: the displayed stdout is the end (all 'Z'); the 'A' head
-        // is gone. 'A'/'Z' are chosen so they don't appear in headers or the
-        // temp path.
-        expect(r.content, contains('Z'));
-        expect(r.content, isNot(contains('A')));
+        // Tail-keep: the displayed stdout is the end (all '#'); the '!' head
+        // is gone. The sentinels must be characters that can NEVER appear in
+        // the content's fixed parts — headers or the temp path. 'A'/'Z'
+        // failed that: Directory.createTemp's random suffix is mixed-case
+        // ([a-zA-Z0-9]), and the spill path rides in the content
+        // ('full output: /tmp/tina_bash_test_Ax3Z…/…'), so the negative
+        // assertion failed on ~20% of runs regardless of suite context
+        // (#38). '!' and '#' are outside every alphabet involved.
+        expect(r.content, contains('#'));
+        expect(r.content, isNot(contains('!')));
         expect(r.content, contains('truncated'));
         expect(r.content, contains('full output:'));
 
@@ -64,8 +69,8 @@ void main() {
         final spillPath = match!.group(1)!.trim();
         final spilled = await File(spillPath).readAsString();
         expect(spilled.length, 350000);
-        expect(spilled, contains('A'));
-        expect(spilled, contains('Z'));
+        expect(spilled, contains('!'));
+        expect(spilled, contains('#'));
       } finally {
         await testDir.delete(recursive: true);
       }

@@ -827,6 +827,25 @@ the driver verifies and commits. Survey sources: the analyzer output,
     root, engine, and console, so this log's "baselines unchanged"
     claims become machine-checked. The analyzer warning inside
     `packages/dart_notcurses` (submodule config) stays out of scope.
+    **→ Implemented 2026-08-23 (round 2, tina session
+    20260823-145230-d8b5, driver-verified):** `.github/workflows/ci.yml`
+    — three plain parallel jobs (root/engine/console; a matrix would
+    have needed awkward per-entry `if`s for the root count-gate and the
+    console apt step), checkout with `submodules: recursive`,
+    setup-dart stable, pub get → analyze → test per package, PR+push on
+    main, `contents: read`, no secrets. Root gates by COUNT on
+    `dart analyze --format=machine` (verified live: exactly 1 line —
+    the submodule's include_file_not_found; fails >1, emits a
+    `::notice::` at 0 so the gate gets tightened later). Engine and
+    console gate on zero. The apt step's honest nuance, from tina's
+    investigation: the bindings load NO system notcurses — the
+    submodule's build hook statically links the vendored
+    libnotcurses-core.a into a bundled asset; `DynamicLibrary.open`
+    appears only in availability probes — so libnotcurses-dev makes the
+    probe path real but is not load-bearing for the suite. tina_index
+    excluded with a comment until #39 ships. yaml validated; the first
+    LIVE runner pass is the remaining acceptance (runner dart SDK, apt
+    availability, submodule checkout are only proven on GitHub).
 36. **Drive the analyzer to zero outside the submodule.** After #34's
     fifteen, eighteen warnings remain (one of them the submodule's
     config warning, out of scope): two `catchError((_) {})`
@@ -864,6 +883,30 @@ the driver verifies and commits. Survey sources: the analyzer output,
     turn ("turn budget at 90% — finish up and write the closing
     summary") so the model can land cleanly; keep the hard abort at
     100%.
+    **→ Implemented 2026-08-23 (round 2, tina session 20260823-142018-6679,
+    driver-verified):** `kPerTurnSoftMarginRatio = 0.9` in
+    token_budget.dart; `softMarginNotice()` is a pure predicate over the
+    same totals `exceeded()` reads (null past the hard cap — the hard
+    reason wins); the agent latches it once per turn, resets it at the
+    top of `_runTurn`, and delivers the nudge as a user-role message
+    injected into the turn's history — the channel that actually
+    reaches the model (#27 lesson; tina confirmed independently that
+    `sink.notice` is UI-only) — with a `sink.notice` mirror for the
+    transcript. Eight regression tests assert wire-level visibility
+    (FakeProvider.calls), once-only, ordering before a hard abort, and
+    no-op under 90%. Engine: analyze 0, 775/775. Third incident, for
+    the record: the run that IMPLEMENTED this hit
+    `2013851 > 2000000` — the abort landed after the implementation was
+    complete ("The implementation is solid"), during log-editing prose;
+    the running process had compiled agent.dart at startup and could
+    not hot-load its own fix. The margin's first live beneficiary is
+    the next run.
+    **→ Verified live, same day:** the very next run (tina session
+    20260823-145230-d8b5, the #35 run) hit the margin for real —
+    `[budget] turn spend at 90% (1822439 of 2000000 tokens) … write
+    your closing summary now` fired mid-run — and the model heeded it:
+    final acceptance check, closing summary, clean exit 0. The exact
+    beheading this item was written for did not happen.
 38. **bash_tool's cap test remains order-dependent (multi-day,
     unreproduced today).** The "output above the cap" test has failed
     in full-suite runs across several days while passing in isolation;
@@ -872,6 +915,18 @@ the driver verifies and commits. Survey sources: the analyzer output,
     rare. **Would make:** root-cause the shared state, or make the test
     self-sealed (unique sentinels per run, explicit temp dir) if the
     interference path can't be isolated.
+    **→ Root-caused and fixed 2026-08-23 (round 2, driver-side):** there
+    never was shared state or order dependence — the "order" theory was
+    an artifact of nobody looping the test in isolation. The negative
+    assertion `isNot(contains('A'))` reads the spill path that rides in
+    the content (`full output: /tmp/tina_bash_test_<suffix>/…`), and
+    Dart's `createTemp` random suffix is mixed-case alnum — measured:
+    3000/3000 suffixes contain uppercase, ~21% contain 'A'. The test
+    failed on ~20-25% of runs regardless of context (5/20 looped
+    pre-fix; the day's four passes were p≈.8 luck). Fix: sentinels
+    outside every alphabet involved ('!' head / '#' tail — not in
+    headers, not in the path suffix), with the constraint documented at
+    the assertion. Post-fix: 0/30 looped failures.
 39. **tina_index's `seedQuery "stream" returns streaming-related symbols`
     fails on pristine HEAD — pre-existing, not lint collateral.**
     Verified by control: the failure reproduces with the working tree
@@ -882,3 +937,22 @@ the driver verifies and commits. Survey sources: the analyzer output,
     whether it's a seed-corpus or a query-semantics bug, and fix —
     then add tina_index to the suites this log tracks (and to #35's
     workflow matrix), so a red test there never ships un-noticed again.
+    **→ Diagnosed 2026-08-23 (round 2, driver-side):** not a flake — the
+    test scans the LIVE tree (`GraphStore.rebuildFromRepo`), and round
+    1's `streamIdleTimeout` field (added to Config + six providers and
+    the scheduler) outranks it everywhere: `seedQuery` scores
+    name-prefix hits 500 but camelCase-fragment hits only 300, so seven
+    bearers of the same member name take seven of the ten slots while
+    `ProviderStreamConsumer` (300 − 78 ≈ 222) falls off the bottom. The
+    ranker is the defect — a seed query feeds the agent context anchors
+    and wants diversity, not seven copies of one field name. Fix:
+    dedupe results by bare symbol name (keep the highest-scoring
+    bearer), collapsing the seven to one and letting StreamConsumer
+    back in without touching the test's expectation.
+    **→ Fixed 2026-08-23 (round 2, driver-side):** seedQuery now sorts
+    by score, then keeps only the best-scoring bearer of each bare
+    symbol name before take(maxResults); a synthetic-table regression
+    test ('one slot per bare symbol name, however many bearers') pins
+    it without depending on the live tree. tina_index: analyze 0,
+    56/56 tests green — the suite joins the driver's routine gate
+    (and CI's matrix once #35's workflow lands).
