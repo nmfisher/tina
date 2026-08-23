@@ -7,10 +7,27 @@ import 'package:test/test.dart';
 /// only meaningful on macOS/Linux. Skipped elsewhere.
 final bool _supported = Platform.isMacOS || Platform.isLinux;
 
-/// True when [pid] is a live process (`kill -0` succeeds).
+/// True when [pid] is a live process (`kill -0` succeeds). Zombies count as
+/// dead on Linux: a container whose PID 1 never reaps orphans keeps SIGKILLed
+/// children as zombies, which `kill -0` still reports as alive (#32).
 Future<bool> _alive(int pid) async {
+  if (await _zombie(pid)) return false;
   final r = await Process.run('kill', ['-0', '$pid']);
   return r.exitCode == 0;
+}
+
+/// True while [pid] sits in state `Z` in `/proc/<pid>/stat` (Linux only).
+/// The comm field can contain spaces/parentheses, so the state is parsed as
+/// the field right after the LAST ')'.
+Future<bool> _zombie(int pid) async {
+  if (!Platform.isLinux) return false;
+  try {
+    final stat = await File('/proc/$pid/stat').readAsString();
+    final state = stat.substring(stat.lastIndexOf(')') + 1).trim();
+    return state.startsWith('Z');
+  } catch (_) {
+    return false; // No /proc entry: not a zombie; let `kill -0` decide.
+  }
 }
 
 /// Direct children of [pid] via `pgrep -P`.

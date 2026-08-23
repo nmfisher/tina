@@ -662,6 +662,14 @@ file:line-cited summary of its own rate limiter.
     environment rebuild wiped ~/.tina/config (recreated from the owner's
     standing key directive) and stale pub resolutions: root 33 / engine
     2 / console 3 analyze all back at pre-existing baselines.
+    **→ The glue itself fixed 2026-08-23 (improvements run, Run U —
+    tina session 20260823-113436-ac51):** `notice()` now calls
+    `chat.ensureNewline()` after its `_flushMarkdown()`, the same idiom
+    the #30 permission prompts adopted — one line in
+    `lib/chat_agent_sink.dart`. Regression test pins the hazard shape:
+    streamed output left mid-row (no trailing newline, notice before
+    `toolComplete`) must NOT concatenate (`partial row[watchdog]…`
+    asserted absent; the notice asserted alone on its own row).
 
 32. **`process_tree_test` reports a healthy kill as a failure in the
     rebuilt environment — zombie liveness (would make).** After the
@@ -679,6 +687,20 @@ file:line-cited summary of its own rate limiter.
     Engine suite stands at 767 tests: 766 green + this 1
     environment-caused failure (bash_tool's cap test remains the known
     order-dependent flake; passes in isolation).
+    **→ Implemented 2026-08-23 (improvements run, Run U — tina session
+    20260823-113436-ac51):** both sites. The test's `_alive` consults
+    `/proc/<pid>/stat` first on Linux and counts state `Z` as dead
+    (state parsed after the LAST `)` — comm can contain spaces and
+    parens; macOS keeps bare `kill -0`). `killProcessTree`'s grace wait
+    is now a 25 ms poll that ends as soon as every pid is dead-or-zombie
+    and SIGKILLs only the genuinely alive, via a shared `_isDeadAsync`
+    (Linux: /proc state `Z`, an unreadable entry falls through to
+    `kill -0`; elsewhere: `kill -0` alone). Verified in this
+    PID-1-never-reaps container: the descendant-kill test went from
+    deterministic red to 3× consecutive green, and a timed probe of a
+    two-sleeper tree with 2 s grace returned in 234 ms (was a hard
+    ≥2000 ms). Engine 767 green, root 758 green, analyze baselines
+    unchanged.
 
 33. **notcurses: a mute terminal leaves the keyboard dead after the
     reply-guard detour (would make).** CONFIRMED LIVE 2026-08-23 with

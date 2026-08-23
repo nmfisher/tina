@@ -120,4 +120,24 @@ void main() {
     expect(painted, contains('/output'));
     expect(capped.single.hiddenChars, 100);
   });
+
+  test('a notice over an unterminated stream starts its own row', () {
+    final chat = ScrollingTextRegion(_screen());
+    final sink = ChatAgentSink(chat, Spinner(enabled: false));
+
+    sink.toolStart(const ToolStartEvent('bash', 't1', {'command': 'go'}));
+    // The stream ends mid-row (no trailing newline) and the notice lands
+    // before the tool completes.
+    sink.toolOutput(const ToolOutputEvent('bash', 't1', 'partial row'));
+    sink.notice('[watchdog] turn idle for 5m');
+
+    final painted = _painted(chat);
+    // Without ensureNewline the notice glues onto the partial row.
+    expect(painted, isNot(contains('partial row[watchdog] turn idle for 5m')));
+    final lines = painted.split('\n');
+    final noticeRow =
+        lines.where((l) => l.contains('[watchdog] turn idle for 5m')).toList();
+    expect(noticeRow, hasLength(1));
+    expect(noticeRow.single.trimLeft(), '[watchdog] turn idle for 5m');
+  });
 }
