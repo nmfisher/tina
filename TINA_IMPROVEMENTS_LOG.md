@@ -846,6 +846,22 @@ the driver verifies and commits. Survey sources: the analyzer output,
     excluded with a comment until #39 ships. yaml validated; the first
     LIVE runner pass is the remaining acceptance (runner dart SDK, apt
     availability, submodule checkout are only proven on GitHub).
+    **→ First live run (32647847129, this PR's update): engine green;
+    root + console red — two runner-only facts a dev machine cannot
+    show.** (1) The build hook statically links the vendored
+    libnotcurses-core.a but leaves `-ltinfo -lunistring -ldeflate` as
+    SYSTEM libs, none of whose -dev link symlinks ubuntu-latest ships —
+    `dart test` died in the hook with `cannot find -lunistring/
+    -ldeflate`; apt list widened to libnotcurses-dev + libtinfo-dev +
+    libunistring-dev + libdeflate-dev, in the ROOT job too (root's
+    tests import tina_console, so its dart test runs the same hook).
+    (2) Root analyze sweeps sub-package test/ dirs, whose test-only
+    imports (console's fake_async) resolve only through each package's
+    OWN package_config.json — without sub-package pub gets the gate saw
+    23 URI_DOES_NOT_EXIST errors; the root job now pub-gets all three
+    sub-packages, mirroring a dev machine. Also: #39 shipped in the
+    same push, so tina_index joined the matrix (analyze 0 + test 56,
+    pure Dart, no apt step) and the exclusion comment is gone.
 36. **Drive the analyzer to zero outside the submodule.** After #34's
     fifteen, eighteen warnings remain (one of them the submodule's
     config warning, out of scope): two `catchError((_) {})`
