@@ -106,6 +106,25 @@ class ChatTheme {
   final String yellow;
   final String red;
 
+  /// Markdown styles (tin-g7rk). Applied to agent prose rendered by the
+  /// markdown renderer. All codes MUST stay within the vocabulary the
+  /// styled-run parser understands (styled_text.dart `applySgrCode`):
+  /// bold/italic/underline bits and fg/bg colour codes — SGR 7 (reverse
+  /// video) is silently dropped there, so it must not appear in these.
+  ///
+  /// ATX headers (all levels).
+  final String header;
+
+  /// Inline `code` spans — a soft background "pill".
+  final String inlineCode;
+
+  /// Row style for fenced/indented code blocks. Must set a background
+  /// (40-47 / 100-107 / 48;2;…) so the region paints it as a solid bar.
+  final String codeBlock;
+
+  /// Link text (underline + colour).
+  final String link;
+
   static const _default = ChatTheme();
 
   const ChatTheme({
@@ -117,6 +136,10 @@ class ChatTheme {
     this.green = '32',
     this.yellow = '33',
     this.red = '31',
+    this.header = '1',
+    this.inlineCode = '100',
+    this.codeBlock = '100',
+    this.link = '4;36',
   });
 
   /// Light-background variant: black agent text, black bar for user prompts,
@@ -129,7 +152,11 @@ class ChatTheme {
         cyan = '36',
         green = '32',
         yellow = '33',
-        red = '31';
+        red = '31',
+        header = '1',
+        inlineCode = '30;47',
+        codeBlock = '30;47',
+        link = '4;36';
 
   /// Dark-background variant: bright agent text, white bar for user prompts,
   /// bright ANSI colour codes for better contrast against the dark background.
@@ -141,7 +168,11 @@ class ChatTheme {
         cyan = '96',
         green = '92',
         yellow = '93',
-        red = '91';
+        red = '91',
+        header = '1;97',
+        inlineCode = '97;48;2;45;45;55',
+        codeBlock = '97;48;2;45;45;55',
+        link = '4;96';
 
   bool get isDefault =>
       userBar == _default.userBar &&
@@ -151,7 +182,11 @@ class ChatTheme {
       cyan == _default.cyan &&
       green == _default.green &&
       yellow == _default.yellow &&
-      red == _default.red;
+      red == _default.red &&
+      header == _default.header &&
+      inlineCode == _default.inlineCode &&
+      codeBlock == _default.codeBlock &&
+      link == _default.link;
 
   factory ChatTheme.fromMap(Map<String, dynamic>? m) {
     if (m == null) return const ChatTheme();
@@ -165,6 +200,10 @@ class ChatTheme {
       green: _sgr(cast['green'], _default.green),
       yellow: _sgr(cast['yellow'], _default.yellow),
       red: _sgr(cast['red'], _default.red),
+      header: _sgr(cast['header'], _default.header),
+      inlineCode: _sgr(cast['inline_code'], _default.inlineCode),
+      codeBlock: _sgr(cast['code_block'], _default.codeBlock),
+      link: _sgr(cast['link'], _default.link),
     );
   }
 
@@ -177,6 +216,10 @@ class ChatTheme {
         if (green != _default.green) 'green': green,
         if (yellow != _default.yellow) 'yellow': yellow,
         if (red != _default.red) 'red': red,
+        if (header != _default.header) 'header': header,
+        if (inlineCode != _default.inlineCode) 'inline_code': inlineCode,
+        if (codeBlock != _default.codeBlock) 'code_block': codeBlock,
+        if (link != _default.link) 'link': link,
       };
 }
 

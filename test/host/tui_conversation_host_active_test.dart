@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:tina_console/tina_console.dart';
+import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/host/tui_conversation_host.dart';
 import 'package:test/test.dart';
 
@@ -166,6 +167,54 @@ void main() {
               're-attached on activation so its saved rows repaint');
       expect(screen.chat.isDetached, isFalse,
           reason: 'attach() reattaches the region');
+    });
+  });
+
+  group('TuiConversationHost raw markdown ring (tin-g7rk)', () {
+    late TuiConversationHost host;
+
+    setUp(() {
+      final io = FakeStdio()
+        ..columns = 120
+        ..hasTerminalValue = false;
+      final screen = Screen.withBackend(
+        backend: _RecordBackend(),
+        io: io,
+        layout: ScreenLayout.fromSize(120, 24),
+        ansi: AnsiCapable.yes,
+      );
+      host = TuiConversationHost(
+        conversationId: 'c1',
+        chat: screen.chat,
+        screen: screen,
+        spinner: Spinner(enabled: false, region: screen.status),
+        primary: true,
+      );
+    });
+
+    test('agent text accumulates verbatim as segments close', () {
+      host.text('**bold** and\n\n');
+      expect(host.lastRawMarkdown, '**bold** and\n\n',
+          reason: 'the raw ring keeps the model bytes, not the rendered form');
+      host.text('more\n\n');
+      expect(host.lastRawMarkdown, '**bold** and\n\nmore\n\n');
+    });
+
+    test('an open paragraph does not update the ring until it closes', () {
+      host.text('partial'); // no blank line — held by the splitter
+      expect(host.lastRawMarkdown, '');
+      host.text('\n\n');
+      expect(host.lastRawMarkdown, 'partial\n\n');
+    });
+
+    test('a user message starts a fresh turn (the ring resets)', () {
+      host.text('previous turn\n\n');
+      host.showMessage('next question\n', style: HostMessageStyle.user);
+      expect(host.lastRawMarkdown, '',
+          reason: 'the raw viewer must not show the previous turn after the '
+              'user has moved on');
+      host.text('answer\n\n');
+      expect(host.lastRawMarkdown, 'answer\n\n');
     });
   });
 }

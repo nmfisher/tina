@@ -2,6 +2,8 @@ import 'package:tina_console/tina_console.dart';
 
 import 'package:tina_engine/tina_engine.dart';
 
+import 'tui/markdown_renderer.dart';
+
 /// A tool call whose streamed output was capped in the chat. The full text is
 /// preserved here for the `/output` viewer; the chat shows only the first
 /// [ChatAgentSink.displayCap] chars.
@@ -44,8 +46,23 @@ class ChatAgentSink implements AgentSink {
   /// full text (the host keeps a ring for `/output`).
   final void Function(CappedToolOutput output)? onCapped;
 
+  /// Fired whenever the current assistant turn's raw markdown grows a closed
+  /// segment (prose end), with the whole turn's raw text so far — the raw
+  /// view behind the Ctrl+R viewer. The sink never styles this; it is the
+  /// model's bytes, verbatim.
+  final void Function(String text)? onRawText;
+
   ChatAgentSink(this.chat, this.spinner,
-      {this.displayCap = 600, this.onCapped});
+      {this.displayCap = 600, this.onCapped, this.onRawText});
+
+  /// Drop the accumulated raw markdown for this turn (a new user message
+  /// starts a new turn). Called by the host when it shows the user's line.
+  /// Any splitter-held remainder from a canceled turn is abandoned with it.
+  void beginAssistantTurn() {
+    _raw.clear();
+    _md = null;
+    _wroteBlock = false;
+  }
 
   /// The current tool call's accumulated streamed output (from [toolStart] to
   /// [toolComplete]). Tool calls run one at a time per agent, so a single
@@ -55,19 +72,90 @@ class ChatAgentSink implements AgentSink {
   Map<String, dynamic> _toolInput = const {};
   bool _capped = false;
 
+  // --- streamed markdown state (tin-g7rk) ---
+
+  /// The turn's raw markdown, byte-for-byte as the model sent it. Grows with
+  /// every [text] delta; handed to [onRawText] as segments close; cleared by
+  /// [beginAssistantTurn].
+  final StringBuffer _raw = StringBuffer();
+
+  /// Carves the stream into closed markdown blocks. Null until the first
+  /// non-passthrough [text] delta (headless prose must stay verbatim, so the
+  /// splitter is never even constructed there).
+  MarkdownStreamSplitter? _md;
+
+  /// Whether a rendered block has been written since the last turn boundary;
+  /// drives the blank separator between consecutive blocks.
+  bool _wroteBlock = false;
+
+  /// Markdown rendering is active on color surfaces only. Passthrough
+  /// (headless `--prompt`, piped output) keeps the byte-for-byte legacy path.
+  bool get _markdownActive => !chat.screen.passthrough;
+
   @override
   void text(String s) {
-    // The policy layer only picks the style code; the surface owns the
-    // passthrough/color/detached fallback (inside [ScrollingTextRegion.appendStyled]).
-    chat.beginStyle(chat.screen.theme.chat.agentText);
-    chat.appendStyled(s); // stays open across stream chunks; closed by next plain write
+    _raw.write(s);
+    if (!_markdownActive) {
+      // Verbatim: the policy layer only picks the style code; the surface
+      // owns the passthrough/color/detached fallback (inside
+      // [ScrollingTextRegion.appendStyled]).
+      chat.beginStyle(chat.screen.theme.chat.agentText);
+      chat.appendStyled(s); // stays open across chunks; closed by next plain write
+      return;
+    }
+    final blocks = (_md ??= MarkdownStreamSplitter()).push(s);
+    for (final block in blocks) {
+      _writeMarkdownBlock(block);
+    }
+    if (blocks.isNotEmpty) _fireRaw(); // a segment just closed
+  }
+
+  /// Render one closed block of markdown onto the chat. One block = one
+  /// [beginStyle]/[endStyle] span per line, so wraps and the bar (code) style
+  /// are carried by the region, never re-flowed later.
+  void _writeMarkdownBlock(String source) {
+    if (_wroteBlock) chat.write('\n'); // blank line between blocks
+    final style = MarkdownStyle.fromChatTheme(chat.screen.theme.chat);
+    final styled = chat.screen.ansi.useColor;
+    for (final line in renderMarkdown(source, style)) {
+      if (line.isBlank) {
+        chat.write('\n');
+        continue;
+      }
+      final ser = serializeLine(line, style, styled: styled);
+      chat.beginStyle(ser.bar ?? style.base);
+      if (ser.text.isNotEmpty) chat.appendStyled(ser.text);
+      chat.appendStyled('\n');
+      chat.endStyle();
+    }
+    _wroteBlock = true;
+  }
+
+  /// Render and emit any block still held back by the splitter, then hand the
+  /// turn's raw markdown to [onRawText]. Called at every prose end ([newline],
+  /// [toolStart], [notice]) — never mid-paragraph.
+  void _flushMarkdown() {
+    final md = _md;
+    if (md == null) return;
+    final rest = md.flush();
+    if (rest.trim().isNotEmpty) _writeMarkdownBlock(rest);
+    _fireRaw();
+  }
+
+  void _fireRaw() {
+    if (_raw.isNotEmpty) onRawText?.call(_raw.toString());
   }
 
   @override
-  void newline() => chat.newline();
+  void newline() {
+    _flushMarkdown();
+    _wroteBlock = false;
+    chat.newline();
+  }
 
   @override
   void toolStart(ToolStartEvent e) {
+    _flushMarkdown(); // a tool call ends prose: nothing may stay held back
     _buffer.clear();
     _toolName = e.toolName;
     _toolInput = e.input;
@@ -113,6 +201,7 @@ class ChatAgentSink implements AgentSink {
 
   @override
   void notice(String message, {NoticeKind kind = NoticeKind.info}) {
+    _flushMarkdown(); // a notice interrupts prose: flush what is held
     switch (kind) {
       case NoticeKind.info:
         chat.dim(message);
