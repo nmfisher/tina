@@ -9,7 +9,7 @@ void main() {
     loglevel: nc.LogLevel.silent,
     flags: nc.OptionFlags.suppressBanners,
   ));
-  final std = n.stdplane()!;
+  final std = n.stdplane();
   final child = std.create(nc.PlaneOptions(
       y: 1, x: 1, rows: 38, cols: 76, name: 'probe'))!;
   print('before resize: absYX=${child.absYX()} dims=${child.dimy()}x${child.dimx()}');

@@ -233,7 +233,7 @@ class TuiConversationHost implements HostInterface {
     // deadlocks the approval behind the user's next prompt (tin-8n7c).
     final pending = editor!.pendingLine;
     if (pending != null && editor!.editState.buffer.isNotEmpty) {
-      await pending.catchError((_) {});
+      await pending.catchError((_) => '');
     }
     // globalKeys: panel-cycling shortcuts (Ctrl+G/Ctrl+W) and the ring's
     // other navigation keys must cycle panels here, not answer the prompt

@@ -8,15 +8,6 @@ import 'package:test/test.dart';
 import '../helpers/fake_agent_sink.dart';
 import '../helpers/fake_stdio.dart';
 
-LineEditor _editor(FakeStdio io) {
-  final screen = Screen(
-    io: io,
-    layout: ScreenLayout.fromSize(80, 24),
-    ansi: AnsiCapable.yes,
-  );
-  return LineEditor(screen: screen, escapeTimeout: Duration.zero);
-}
-
 PermissionPrompt _bashPrompt(String command) =>
     PermissionPrompt('bash', {'command': command});
 
@@ -100,8 +91,10 @@ void main() {
         editor: ed,
       );
 
-      // The input loop's next readLine is pending, empty.
-      final next = ed.readLine('> ');
+      // The input loop's next readLine is pending, empty. The call itself
+      // is the setup (a pending readLine); its future is intentionally
+      // dropped.
+      ed.readLine('> ');
       await _flush();
 
       // The approval must arm immediately, not wait for `next`.

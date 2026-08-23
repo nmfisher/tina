@@ -226,9 +226,9 @@ void main() {
           .content
           .whereType<ToolResultBlock>()
           .toList();
-      expect(results.any((r) => r.isError!), isTrue);
+      expect(results.any((r) => r.isError), isTrue);
       expect(
-          results.firstWhere((r) => r.isError!).content,
+          results.firstWhere((r) => r.isError).content,
           contains('Denied by permission policy'));
     });
   });

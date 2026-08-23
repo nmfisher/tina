@@ -786,3 +786,99 @@ file:line-cited summary of its own rate limiter.
     loop hid every post-render stderr line), `tool/altkey_pty_driver.py`
     PASS (Alt+b → `id=0x62 mods=2 ALT`), `tool/stop_hang_driver.py`
     STOP-CLEAN (exit 0.1s after quit). Console suite 811 green.
+
+## Improvements run, round 2 — fresh backlog (2026-08-23)
+
+Items #1–#33 are all implemented, withdrawn, or verified; PR #19 carries
+the last batch (#33, #31, #32 — the latter two implemented by tina
+itself in Run U, session 20260823-113436-ac51, engine 767 / root 758 /
+console 811 green at ship time). Same discipline as round 1: every item
+below was confirmed live or by direct inspection today, tina implements,
+the driver verifies and commits. Survey sources: the analyzer output,
+`.github/workflows/`, git history, and Run U's own transcript.
+
+34. **tool/ carries two probes pinned to an API that never shipped in
+    the public tree, plus one superseded driver.** `tool/render_to_image.dart`
+    (12 errors) and `tool/visual_test.dart` (3 errors) import
+    `package:tina_console/src/panel_layout.dart` / `panel_renderer.dart`
+    — neither exists here; the panels API that DID ship is
+    `panel.dart`/`panel_content.dart`. Both tools have been
+    un-compilable since the initial public release (pickaxe finds no
+    commit that ever removed the classes — they predate the repo), and
+    they account for 15 of the root analyzer's 32 issues. Same drawer:
+    `tool/mute_diag_driver.py`, the first-generation mute driver whose
+    read loop stops at the render marker — the exact output blindness
+    that cost a diagnosis round on #33 — superseded by
+    `tool/syscall_diag_driver.py` (whole-run drain, fd tables, pollfd
+    decode, FIONREAD timelines). **Would make:** retire all three. Dead
+    code that cannot run misleads more than it documents; git preserves
+    them if the panels API ever returns.
+    **→ Implemented 2026-08-23 (round 2, driver-side):** all three retired
+    (`git rm`); `ARCHITECTURE.md`'s tool/ line updated, and
+    `tool/mute_diag_probe.dart`'s header now points at
+    `syscall_diag_driver.py` as its companion. Root analyze dropped
+    32 → 18 with the fifteen errors gone.
+35. **No CI gating: ~2,300 tests and no workflow runs them.**
+    `.github/workflows/` contains only `release.yml`. Root 758 + engine
+    767 + console 811 tests exist, analyze baselines are tracked by
+    hand in this log, and nothing mechanical prevents a red suite or a
+    new analyzer issue landing on main. **Would make:** a
+    pull_request/push workflow running `dart analyze` + `dart test` for
+    root, engine, and console, so this log's "baselines unchanged"
+    claims become machine-checked. The analyzer warning inside
+    `packages/dart_notcurses` (submodule config) stays out of scope.
+36. **Drive the analyzer to zero outside the submodule.** After #34's
+    fifteen, eighteen warnings remain (one of them the submodule's
+    config warning, out of scope): two `catchError((_) {})`
+    handlers whose null return does not match `Future<String>`
+    (`lib/host/tui_conversation_host.dart:236`,
+    `lib/pipeline/workflow_permission_asker.dart:116` — benign in
+    effect, wrong in type), unused imports/declarations and no-op `!`s
+    across tina_index (8), console tests (2), engine tests (2),
+    `tool/resize_probe.dart` (1), `workflow_permission_asker_test` (2).
+    **Would make:** fix the seventeen in-repo ones (return `''` from
+    the catchError handlers; drop the dead declarations), leaving only
+    the submodule's config warning, then pin zero via #35's workflow.
+    **→ Implemented 2026-08-23 (round 2):** tina (session
+    20260823-135931-5a3d, six files) + driver completion (eleven more,
+    including the store_test.dart bang surgery — only the five
+    genuinely-dead `!`s at lines 77/89/99/134/136, after a blanket
+    replace broke the twelve that were load-bearing — and the
+    scrolling_text_region off-by-one: the newest finished line
+    bottom-aligns ON the last row, `height - 1`, not `height - 2`).
+    Analyze now: root 1 (submodule only), engine 0, console 0,
+    tina_index 0. Suites: engine 767 ✓, console 811 ✓, root 758 ✓;
+    tina_index has one failure that predates this work (see #39).
+    Driver runs for the next tina session should pass
+    `--max-turn-tokens 2000000` — the 1M default was hit a second time
+    (1,004,710) during the #36 lint run, again after all substantive
+    work, again in closing prose.
+37. **The per-turn budget abort beheads a finished run (live, Run U).**
+    Run U completed every tool call and test run, then hit
+    `[budget] per-turn token budget exceeded (1032509 > 1000000)` in
+    mid-final-summary: the closing report the prompt explicitly asked
+    for was lost, and the run's tail reads failure-shaped even though
+    all work had landed. The #5 fix held (session persisted, resume
+    hint printed) — what's missing is a runway. **Would make:** a soft
+    margin — at ~90% of `--max-turn-tokens` inject a notice into the
+    turn ("turn budget at 90% — finish up and write the closing
+    summary") so the model can land cleanly; keep the hard abort at
+    100%.
+38. **bash_tool's cap test remains order-dependent (multi-day,
+    unreproduced today).** The "output above the cap" test has failed
+    in full-suite runs across several days while passing in isolation;
+    today it passed four consecutive full engine suites (two driver
+    runs, tina's Run U, and the pre-work baseline), so the trigger is
+    rare. **Would make:** root-cause the shared state, or make the test
+    self-sealed (unique sentinels per run, explicit temp dir) if the
+    interference path can't be isolated.
+39. **tina_index's `seedQuery "stream" returns streaming-related symbols`
+    fails on pristine HEAD — pre-existing, not lint collateral.**
+    Verified by control: the failure reproduces with the working tree
+    hard-reset to HEAD (only `/tmp/index_lint.patch` as a cross-check),
+    so it predates round 2 entirely; it was simply never in any
+    baseline run before today, because tina_index's suite wasn't part
+    of the driver's routine gate. **Would make:** reproduce, diagnose
+    whether it's a seed-corpus or a query-semantics bug, and fix —
+    then add tina_index to the suites this log tracks (and to #35's
+    workflow matrix), so a red test there never ships un-noticed again.

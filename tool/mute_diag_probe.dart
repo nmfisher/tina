@@ -6,7 +6,8 @@
 //   - the /proc/self/fd target of notcurses' input-ready descriptor
 //   - guard state (armed / bridge running) and the pump's record count
 //
-// Companion: tool/mute_diag_driver.py (stays mute, then injects keys).
+// Companion: tool/syscall_diag_driver.py (stays mute, injects keys, and
+// snapshots fds/syscalls/FIONREAD from outside the whole run).
 // Usage: dart run tool/mute_diag_probe.dart [probeLog] [diagLog]
 import 'dart:async';
 import 'dart:ffi' as ffi;

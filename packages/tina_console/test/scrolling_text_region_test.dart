@@ -81,10 +81,10 @@ void main() {
       }
       vt.feed(io.written.toString());
 
-      // The bottom row of the chat region should hold the last completed
-      // line, which is one before the cursor's blank current row.
+      // After scrolling, the newest finished line bottom-aligns ON the
+      // region's last row (the cursor's pending blank row is not rendered
+      // inside the region until more content arrives).
       final lastLineRow = layout.chat.row + layout.chat.height - 1;
-      // After scrolling, the row before "current empty" holds 'line {n-1}'
       final lastLineNum = layout.chat.height + extra - 1;
       final expectedText = 'line $lastLineNum';
       // Walk the chat region rows; expect the most recent finished line to
@@ -97,6 +97,11 @@ void main() {
         if (t.isNotEmpty) found.add(t);
       }
       expect(found, contains(expectedText));
+      // The last finished line sits exactly where bottom-alignment puts it.
+      expect(
+        vt.rowText(lastLineRow).substring(layout.chat.col, layout.dividerCol).trim(),
+        expectedText,
+      );
       // First few lines must have scrolled out.
       expect(found, isNot(contains('line 0')));
     });

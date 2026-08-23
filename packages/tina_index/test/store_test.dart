@@ -6,7 +6,6 @@ import 'package:test/test.dart';
 
 import 'dart:convert';
 
-import 'package:tina_index/graph.dart';
 import 'package:tina_index/store.dart';
 
 String get repoRoot => p.normalize(p.join(Directory.current.path, '..', '..'));
@@ -74,7 +73,7 @@ void main() {
       final loaded = GraphStore.load(tempDir);
       expect(loaded, isNotNull);
       expect(loaded!.summaryFor('lib/agent/agent.dart'), 'Core agent loop');
-      expect(loaded!.summaryFor('lib/llm/provider.dart'), 'LLM provider interface');
+      expect(loaded.summaryFor('lib/llm/provider.dart'), 'LLM provider interface');
     });
 
     test('manifest round-trips through save and load', () {
@@ -86,7 +85,7 @@ void main() {
       final loaded = GraphStore.load(tempDir);
       expect(loaded, isNotNull);
       expect(loaded!.manifest['lib/agent/agent.dart'], 'hash111');
-      expect(loaded!.manifest['lib/agent/agent.Agent'], 'hash222');
+      expect(loaded.manifest['lib/agent/agent.Agent'], 'hash222');
     });
 
     test('load handles graph without summaries or manifest', () {
@@ -96,7 +95,7 @@ void main() {
       final loaded = GraphStore.load(tempDir);
       expect(loaded, isNotNull);
       expect(loaded!.summaries, isEmpty);
-      expect(loaded!.manifest, isEmpty);
+      expect(loaded.manifest, isEmpty);
     });
 
     test('v1 migration discards old summaries', () {
@@ -131,9 +130,9 @@ void main() {
       expect(loaded, isNotNull);
       // v1 summaries should be discarded.
       expect(loaded!.summaries, isEmpty);
-      expect(loaded!.manifest, isEmpty);
+      expect(loaded.manifest, isEmpty);
       // But symbols and edges should load fine.
-      expect(loaded!.symbols.length, greaterThan(0));
+      expect(loaded.symbols.length, greaterThan(0));
     });
   });
 }
