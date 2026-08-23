@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'dart:ffi' as ffi;
+import 'dart:io';
 import 'dart:typed_data';
+import 'package:meta/meta.dart';
 
 /// Bounds the wait for terminal capability replies around notcurses init.
 ///
@@ -30,12 +33,42 @@ import 'dart:typed_data';
 ///    path. The fallback DA1 declares a plain VT220 with ANSI colour and
 ///    nothing else, so no palette, sixel or kitty support is implied.
 ///
-/// fd 0 is restored after init, so the input path for the rest of the
-/// session is exactly what it would have been without the guard.
+/// fd 0 is NOT restored after init — it stays on the detour pty for the
+/// life of the session. notcurses' input thread enters `ppoll(fd 0)` while
+/// fd 0 is the detour slave, and poll binds the file description at
+/// syscall entry, so that thread waits on the detour slave forever no
+/// matter what fd 0 points at afterwards. Swapping fd 0 back to the real
+/// stdin splits the input path — the thread *reads* the real tty while its
+/// poll still waits on the detour — and every keystroke is lost (the
+/// DEAD-KEYBOARD of [tool/mute_pty_driver.py]; proven with
+/// [tool/mute_diag_probe.dart] under [tool/syscall_diag_driver.py], which
+/// decodes the thread's pollfd out of process memory). Instead the real
+/// stdin keeps flowing into the detour master via [StdinBridge], so poll
+/// target and read target agree on one pty. The owner of the guard
+/// (NotcursesBackend) must call [TerminalReplyGuard.shutdown] before it
+/// destroys the notcurses context; that stops the bridge, gives the real
+/// terminal its original mode back and tears the detour pty down.
 class TerminalReplyGuard {
-  TerminalReplyGuard({ReplyGuardOs? os}) : _os = os ?? ReplyGuardOs.posix();
+  /// The guard and its [StdinBridge] must share ONE os layer: the bridge
+  /// copies bytes between the very fds [ReplyGuardOs.installDetour] opened,
+  /// so a second instance (whose master/source are forever −1) would make
+  /// the copy loop a silent no-op — the keyboard stays dead with no error
+  /// anywhere. The redirect guarantees that even default construction
+  /// builds exactly one.
+  TerminalReplyGuard({ReplyGuardOs? os})
+      : this._shared(os ?? ReplyGuardOs.posix());
+
+  TerminalReplyGuard._shared(ReplyGuardOs os)
+      : _os = os,
+        _bridge = StdinBridge(os);
 
   final ReplyGuardOs _os;
+  final StdinBridge _bridge;
+
+  /// Whether the guard and its bridge operate on the same os instance.
+  /// Regression seam for the two-instance constructor bug.
+  @visibleForTesting
+  bool get sharesOsLayer => identical(_os, _bridge._os);
 
   /// The query whose silence proves the terminal cannot answer: OSC 10
   /// (default foreground) and OSC 11 (default background). Deliberately
@@ -58,6 +91,18 @@ class TerminalReplyGuard {
   static const int drainLimit = 4096;
 
   bool _armed = false;
+  bool _bridgeStarted = false;
+  bool _sessionEnded = false;
+
+  /// The stdin bridge owned by this guard. Exposed for tests that drive
+  /// pump ticks manually instead of waiting on the real timer.
+  @visibleForTesting
+  StdinBridge get bridge => _bridge;
+
+  /// Whether [restore] started the stdin bridge and [shutdown] has not yet
+  /// cancelled it.
+  @visibleForTesting
+  bool get bridgeRunning => _bridgeStarted && _bridge.running;
 
   /// Whether [restore] has anything to put back.
   bool get armed => _armed;
@@ -107,15 +152,232 @@ class TerminalReplyGuard {
     return armed;
   }
 
-  /// Put the real stdin back on fd 0. No-op unless [prepare] returned true.
-  void restore() {
+  /// Adopt the detour pty as the session's input terminal. No-op unless
+  /// [prepare] returned true. Call once notcurses init has returned.
+  ///
+  /// fd 0 deliberately STAYS on the detour slave (see the class comment:
+  /// notcurses' input thread is wedged to it by an already-entered ppoll).
+  /// This switches the real stdin — still held open by the OS layer — to
+  /// raw + non-blocking, forwards window-size changes into the detour, and
+  /// starts the stdin bridge copying real stdin into the detour master
+  /// every [StdinBridge.tickMs]. Call [shutdown] when the notcurses
+  /// context goes away.
+  void finishInit() {
     if (!_armed) return;
     _armed = false;
     try {
-      _os.restoreStdin();
+      _os.beginBridgedSession();
+      // Start the copy loop only when there is actually a master to feed:
+      // on POSIX this is the pty notcurses reads for the whole session.
+      if (_os.bridgeMasterFd >= 0) {
+        _bridge.start();
+        _bridgeStarted = true;
+      }
     } catch (_) {
-      // fd 0 is the pty at this point; if swapping back fails the keyboard
-      // is lost either way and there is nothing the caller could do.
+      // The detour is all fd 0 has now; if wiring the bridge fails the
+      // keyboard is lost either way and there is nothing the caller could
+      // do about it from here.
+    }
+  }
+
+  /// Stop the stdin bridge and tear the detour down: real terminal mode
+  /// restored, detour master released. Safe to call more than once and from
+  /// any state (never started / never armed / already shut down): every path
+  /// is a no-op then. Must be called by whoever owns the guard once the
+  /// notcurses context is being torn down — before it, so the pump thread
+  /// never reads from a pty whose master closed mid-drain.
+  void shutdown() {
+    _bridgeStarted = false;
+    try {
+      _bridge.stop();
+    } catch (_) {
+      // The bridge is best-effort; a failure to stop cleanly must not
+      // propagate into teardown.
+    }
+    if (_sessionEnded) return;
+    _sessionEnded = true;
+    try {
+      _os.endBridgedSession();
+    } catch (_) {
+      // Same here: teardown must run to completion even if an fd close or
+      // mode restore fails part-way.
+    }
+  }
+}
+
+/// Copies the real stdin (held open by the OS layer as the bridge source)
+/// into the detour pty master, so notcurses keeps hearing the keyboard from
+/// the pty its input thread is wedged to (see the [TerminalReplyGuard]
+/// class comment). Reading fd 0 instead would be wrong twice over: fd 0 is
+/// the detour slave — the bridge would compete with notcurses for it — and
+/// the real tty would have no reader at all.
+///
+/// The copy runs as a periodic poll/read/write cycle on the Dart event loop
+/// rather than on a dedicated thread: it must not compete with notcurses'
+/// own input thread for the pty, and a 10 ms cadence is far below what a
+/// human can perceive (~50 ms). Every tick is best-effort — read errors,
+/// write errors and a vanished master all leave the loop running until
+/// [stop]; only the timer's own cancellation ends it.
+class StdinBridge {
+  StdinBridge(this._os);
+
+  final ReplyGuardOs _os;
+
+  /// How often the pump wakes up to move bytes. Small enough that typing
+  /// never feels laggy (a keypress waits at most one tick), large enough
+  /// that an idle session costs a single no-op syscall per tick.
+  static const int tickMs = 10;
+
+  /// Per-read upper bound. A fast paste can deliver far more than this per
+  /// tick; [_maxChunksPerTick] caps how many chunks are moved per wake-up
+  /// so a firehose input cannot starve the rest of the event loop.
+  static const int chunkBytes = 4096;
+
+  /// Read chunks drained per tick before leaving the rest for the next one.
+  static const int maxChunksPerTick = 16;
+
+  /// Give up on buffered bytes beyond this size. The master's buffer only
+  /// backs up if notcurses stops reading for seconds; past that point the
+  /// least-bad outcome is dropping oldest keystrokes rather than growing
+  /// the buffer unbounded or stalling the pump forever.
+  static const int pendingDropLimit = 256 * 1024;
+
+  Timer? _timer;
+  Uint8List _pending = Uint8List(0);
+  bool _ticking = false;
+  bool _loggedError = false;
+
+  /// Whether [start] has armed the periodic copy and [stop] has not yet
+  /// cancelled it.
+  @visibleForTesting
+  bool get running => _timer != null;
+
+  /// Bytes waiting to be written to the master after a short write, exposed
+  /// for tests that drive the pump manually.
+  @visibleForTesting
+  int get pendingBytes => _pending.length;
+
+  /// Begin copying stdin into the pty master every [tickMs]. Idempotent:
+  /// calling it while already running keeps the existing timer.
+  void start() {
+    if (_timer != null) return;
+    _timer =
+        Timer.periodic(const Duration(milliseconds: tickMs), (_) => tick());
+  }
+
+  /// Cancel the periodic copy and drop anything buffered but not yet
+  /// delivered. Idempotent.
+  void stop() {
+    _timer?.cancel();
+    _timer = null;
+    _pending = Uint8List(0);
+  }
+
+  /// Copy [bytes] into the master exactly as a tick would, without reading
+  /// stdin first. Test hook for driving short-write/retry behaviour
+  /// deterministically; shares the buffering path with [tick].
+  @visibleForTesting
+  void feedBytes(Uint8List bytes) {
+    if (_os.bridgeMasterFd < 0 || bytes.isEmpty) return;
+    var written = 0;
+    while (written < bytes.length) {
+      final n =
+          _os.writeBytes(_os.bridgeMasterFd, Uint8List.sublistView(
+              bytes, written));
+      if (n <= 0) {
+        _buffer(Uint8List.sublistView(bytes, written));
+        return;
+      }
+      written += n;
+    }
+  }
+
+  /// One copy cycle: retry undelivered bytes, then move up to
+  /// [maxChunksPerTick] fresh chunks from the real stdin into the master.
+  /// Production invocations come from the [Timer.periodic] armed by [start];
+  /// exposed so tests can step the pump deterministically instead of
+  /// sleeping.
+  @visibleForTesting
+  void tick() {
+    // Re-entrancy guard: a slow FFI call must not let two ticks interleave.
+    if (_ticking) return;
+    if (_os.bridgeMasterFd < 0) {
+      // Master already released (teardown race or an abandoned detour):
+      // there is nowhere to forward bytes, so do not even lift them out of
+      // the kernel queue — dropping keystrokes here is silent by design,
+      // the keyboard is gone regardless once the pty dies.
+      return;
+    }
+    final source = _os.bridgeSourceFd;
+    if (source < 0) {
+      // No real stdin held behind the detour (never armed, or the session
+      // already ended): same story as above, nowhere to pull bytes from.
+      return;
+    }
+    _ticking = true;
+    try {
+      _flushPending();
+      var chunks = 0;
+      while (chunks < maxChunksPerTick) {
+        final chunk = _os.readBytes(source, chunkBytes);
+        if (chunk.isEmpty) break;
+        chunks++;
+        var written = 0;
+        while (written < chunk.length) {
+          final n = _os.writeBytes(_os.bridgeMasterFd,
+              Uint8List.sublistView(chunk, written));
+          if (n <= 0) {
+            _buffer(Uint8List.sublistView(chunk, written));
+            written = chunk.length;
+          } else {
+            written += n;
+          }
+        }
+      }
+    } catch (_) {
+      // One logged line per bridge lifetime: the loop itself keeps going,
+      // because the alternative is a dead keyboard with no trace.
+      if (!_loggedError) {
+        _loggedError = true;
+        assert(() {
+          stderr.writeln('stdin bridge: copy error, retrying next tick');
+          return true;
+        }());
+      }
+    } finally {
+      _ticking = false;
+    }
+  }
+
+  /// Retry whatever a previous tick could not push into the master yet.
+  void _flushPending() {
+    while (_pending.isNotEmpty) {
+      final n = _os.writeBytes(_os.bridgeMasterFd, _pending);
+      if (n <= 0) return; // still backed up; keep it for the next tick
+      if (n >= _pending.length) {
+        _pending = Uint8List(0);
+      } else {
+        _pending = Uint8List.fromList(
+            Uint8List.sublistView(_pending, n));
+      }
+    }
+  }
+
+  /// Park undelivered bytes for later ticks, applying [pendingDropLimit].
+  void _buffer(Uint8List extra) {
+    if (_pending.isEmpty && extra.length > pendingDropLimit) {
+      _pending = Uint8List.fromList(
+          Uint8List.sublistView(extra, extra.length - pendingDropLimit));
+      return;
+    }
+    final merged = Uint8List(_pending.length + extra.length)
+      ..setAll(0, _pending)
+      ..setAll(_pending.length, extra);
+    if (merged.length > pendingDropLimit) {
+      _pending = Uint8List.fromList(
+          Uint8List.sublistView(merged, merged.length - pendingDropLimit));
+    } else {
+      _pending = merged;
     }
   }
 }
@@ -150,12 +412,47 @@ abstract class ReplyGuardOs {
   /// false when the detour could not be installed.
   bool installDetour(String reply);
 
-  /// Undo the detour: real stdin back on fd 0, non-blocking as notcurses
-  /// expects fd 0 to be, pty fds closed.
-  void restoreStdin();
+  /// Keep the detour as the session terminal: fd 0 stays on the pty slave,
+  /// the real stdin stays held open by the OS layer and is switched to raw +
+  /// non-blocking (with its original mode remembered for
+  /// [endBridgedSession]), and window-size changes start flowing into the
+  /// detour. After this the real stdin is only read via [bridgeSourceFd].
+  void beginBridgedSession();
+
+  /// End the session started by [beginBridgedSession]: restore the real
+  /// terminal's original mode, close the held-open real stdin and release
+  /// the detour master (which tears the pty — and with it notcurses' input
+  /// thread — down). No-op when no session was begun.
+  void endBridgedSession();
+
+  /// The real stdin fd held open for the stdin bridge to read after
+  /// [beginBridgedSession], or a negative value when there is none — no
+  /// detour was armed, or the session has already ended. Ownership stays
+  /// here; valid for reads until [endBridgedSession].
+  int get bridgeSourceFd;
+
+  /// The detour pty master the stdin bridge feeds for the life of the
+  /// session, or a negative value when there is none — no detour was
+  /// installed, or it has already been released. Valid for reads and writes
+  /// until [releaseBridgeMaster]; ownership stays here.
+  int get bridgeMasterFd;
+
+  /// Close and forget the fd reported by [bridgeMasterFd]. Idempotent and
+  /// safe when there is nothing to release.
+  void releaseBridgeMaster();
+
+  /// Read whatever is pending on [fd], up to [maxBytes]. Non-blocking:
+  /// returns an empty list immediately when nothing has arrived (or the fd
+  /// is gone) rather than waiting for input.
+  Uint8List readBytes(int fd, int maxBytes);
+
+  /// Best-effort write of [bytes] to [fd]; returns the number of bytes
+  /// accepted, which may be fewer than [bytes.length] — or zero — when the
+  /// fd is non-blocking and its buffer is momentarily full.
+  int writeBytes(int fd, Uint8List bytes);
 
   /// Release resources held by a detour without touching fd 0. Called when
-  /// the guard aborts between [installDetour] and [restoreStdin].
+  /// the guard aborts between [installDetour] and [beginBridgedSession].
   void abandon();
 
   /// The live POSIX implementation.
@@ -165,6 +462,15 @@ abstract class ReplyGuardOs {
 class PosixReplyGuardOs implements ReplyGuardOs {
   int? _savedStdin;
   int? _master;
+
+  /// The real terminal's termios as it was before [beginBridgedSession]
+  /// switched it to raw, restored by [endBridgedSession]. Null when no
+  /// session is active.
+  ffi.Pointer<ffi.Uint8>? _sessionTermios;
+
+  /// Forwards SIGWINCH from the real terminal into the detour pty while a
+  /// bridged session runs, so notcurses' fd-0 size stays truthful.
+  StreamSubscription<ProcessSignal>? _sigwinchSub;
 
   @override
   bool isTerminal(int fd) => _isatty(fd) == 1;
@@ -271,6 +577,12 @@ class PosixReplyGuardOs implements ReplyGuardOs {
         _tcsetattr(slave, _tcsanow, termios);
       }
 
+      // notcurses reads the terminal size from fd 0 at init; without this
+      // the detour pty would carry the fresh-openpty default (0x0) and the
+      // mute-terminal session would render into a zero-sized plane. fd 0 is
+      // still the real terminal at this point.
+      _copyWinsize(0, slave);
+
       if (_dup2(slave, 0) < 0) return false;
       swapped = true;
       _close(slave);
@@ -300,28 +612,112 @@ class PosixReplyGuardOs implements ReplyGuardOs {
   }
 
   @override
-  void restoreStdin() {
+  void beginBridgedSession() {
     final saved = _savedStdin;
-    final master = _master;
-    _savedStdin = null;
-    _master = null;
     if (saved == null || saved < 0) return;
-    // notcurses set O_NONBLOCK on fd 0 while fd 0 was the pty slave; the
-    // real stdin still carries its original flags, so set it before the
-    // swap and the input pump's poll-then-read pattern keeps working.
+    // Remember the terminal's current mode: the bridge needs raw for the
+    // rest of the session, and the user deserves their cooked terminal back
+    // when it ends.
+    final snapshot = _malloc(termiosBytes);
+    if (_tcgetattr(saved, snapshot) == 0) {
+      _sessionTermios = snapshot;
+    } else {
+      _free(snapshot);
+    }
+    final raw = _malloc(termiosBytes);
+    try {
+      if (_tcgetattr(saved, raw) == 0) {
+        _cfmakeraw(raw);
+        _tcsetattr(saved, _tcsanow, raw);
+      }
+    } finally {
+      _free(raw);
+    }
+    // Non-blocking, like notcurses expects its tty: the bridge's read loop
+    // treats EAGAIN as "idle" and moves on.
     final flags = _fcntl(saved, _fGetFl, 0);
     if (flags >= 0) _fcntl(saved, _fSetFl, flags | _oNonblock);
-    _dup2(saved, 0);
-    _close(saved);
+    // Keep the detour pty sized like the real terminal, now and on every
+    // resize: notcurses re-reads fd 0's size on SIGWINCH, and fd 0 is the
+    // detour for the life of the session.
+    final master = _master;
+    if (master != null && master >= 0) {
+      _copyWinsize(saved, master);
+      _sigwinchSub = ProcessSignal.sigwinch.watch().listen((_) {
+        final m = _master;
+        final s = _savedStdin;
+        if (m != null && m >= 0 && s != null && s >= 0) {
+          _copyWinsize(s, m);
+        }
+      });
+    }
+  }
+
+  @override
+  void endBridgedSession() {
+    _sigwinchSub?.cancel();
+    _sigwinchSub = null;
+    final saved = _savedStdin;
+    _savedStdin = null;
+    final tio = _sessionTermios;
+    _sessionTermios = null;
+    if (saved != null && saved >= 0) {
+      if (tio != null) {
+        _tcsetattr(saved, _tcsanow, tio);
+        _free(tio);
+      }
+      _close(saved);
+    }
+    // Releasing the master tears the detour pty down; notcurses' input
+    // thread, wedged to the slave since init, sees its poll go dead and
+    // exits. Callers do this before destroying the notcurses context.
+    releaseBridgeMaster();
+  }
+
+  @override
+  int get bridgeSourceFd => _savedStdin ?? -1;
+
+  @override
+  int get bridgeMasterFd => _master ?? -1;
+
+  @override
+  void releaseBridgeMaster() {
+    final master = _master;
+    _master = null;
     if (master != null && master >= 0) _close(master);
   }
 
   @override
+  Uint8List readBytes(int fd, int maxBytes) {
+    final buf = _malloc(maxBytes);
+    try {
+      final n = _read(fd, buf, maxBytes);
+      if (n <= 0) return Uint8List(0);
+      // Copy out before the buffer is freed.
+      return Uint8List.fromList(buf.asTypedList(n));
+    } finally {
+      _free(buf);
+    }
+  }
+
+  @override
+  int writeBytes(int fd, Uint8List bytes) {
+    if (bytes.isEmpty) return 0;
+    final buf = _malloc(bytes.length);
+    try {
+      buf.asTypedList(bytes.length).setAll(0, bytes);
+      final n = _write(fd, buf, bytes.length);
+      if (n < 0) return 0; // EAGAIN and friends: nothing accepted
+      return n > bytes.length ? bytes.length : n;
+    } finally {
+      _free(buf);
+    }
+  }
+
+  @override
   void abandon() {
-    final master = _master;
-    _master = null;
     _savedStdin = null;
-    if (master != null && master >= 0) _close(master);
+    releaseBridgeMaster();
   }
 
   // -- FFI plumbing -------------------------------------------------------
@@ -335,6 +731,25 @@ class PosixReplyGuardOs implements ReplyGuardOs {
   static const int _fGetFl = 3;
   static const int _fSetFl = 4;
   static const int _oNonblock = 0x800;
+
+  // Linux ioctl request values for the window-size copy (see _copyWinsize).
+  static const int _tiocgwinsz = 0x5413;
+  static const int _tiocswinsz = 0x5414;
+
+  /// Copy the window size of [from] to [to] (either side of a pty pair
+  /// works as [to]). Best-effort: a failure leaves the old size in place.
+  void _copyWinsize(int from, int to) {
+    final ws = _malloc(8); // struct winsize: four unsigned shorts
+    try {
+      if (_ioctl(from, _tiocgwinsz, ws.cast()) == 0) {
+        _ioctl(to, _tiocswinsz, ws.cast());
+      }
+    } catch (_) {
+      // Size forwarding is decoration; it must never disturb the session.
+    } finally {
+      _free(ws);
+    }
+  }
 
   static final ffi.DynamicLibrary _libc = ffi.DynamicLibrary.process();
 
@@ -453,6 +868,10 @@ class PosixReplyGuardOs implements ReplyGuardOs {
   static final _fcntl = _libc.lookupFunction<
       ffi.Int32 Function(ffi.Int32, ffi.Int32, ffi.Int64),
       int Function(int, int, int)>('fcntl');
+
+  static final _ioctl = _libc.lookupFunction<
+      ffi.Int32 Function(ffi.Int32, ffi.Uint64, ffi.Pointer<ffi.Void>),
+      int Function(int, int, ffi.Pointer<ffi.Void>)>('ioctl');
 }
 
 class _SavedTermios {

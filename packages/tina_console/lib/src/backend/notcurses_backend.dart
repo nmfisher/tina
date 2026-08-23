@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dart_notcurses/dart_notcurses.dart' as nc;
@@ -104,6 +103,10 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
   @override
   nc.NotCurses get notc => _nc;
 
+  /// The reply guard that protected init against a mute terminal; must be
+  /// shut down (ending the stdin bridge) before the context is freed.
+  TerminalReplyGuard? _replyGuard;
+
   _LiveNotcursesPlatform._(this._nc, this._plane);
 
   factory _LiveNotcursesPlatform.init({bool mouseWheel = false}) {
@@ -123,8 +126,14 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
     // that answers nothing (a detached tmux session has no client to answer
     // the OSC queries) would otherwise block notcurses_init forever. When
     // the terminal is mute the guard feeds notcurses a fallback DA1 reply
-    // through a pty on fd 0, init completes on defaults, and fd 0 is put
-    // back afterwards (tin-r2vd).
+    // through a pty on fd 0 and init completes on defaults (tin-r2vd).
+    // finishInit() then leaves fd 0 on that pty for the whole session with
+    // a stdin bridge feeding it — notcurses' input thread entered ppoll on
+    // the detour slave during init and can never be moved to another tty,
+    // so poll target and read target must stay the same pty — and this
+    // platform keeps the guard so stop() can end the bridge and give the
+    // real terminal its mode back before the context is freed
+    // (tin-DEAD-KEYBOARD).
     final guard = TerminalReplyGuard()..prepare();
     try {
       final nc_ = nc.NotCurses(nc.CursesOptions(
@@ -149,9 +158,16 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
       // macOS' line discipline eats 0x0F (Ctrl+O, the VDISCARD toggle)
       // before it reaches the input pump; unbind it so the byte arrives.
       DiscardUnbinder.unbind(0);
-      return _LiveNotcursesPlatform._(nc_, nc_.stdplane());
+      final platform = _LiveNotcursesPlatform._(nc_, nc_.stdplane());
+      platform._replyGuard = guard;
+      return platform;
+    } catch (_) {
+      // No live platform owns the guard on this path, so nothing would ever
+      // stop its bridge timer; end it here before the error escapes.
+      guard.shutdown();
+      rethrow;
     } finally {
-      guard.restore();
+      guard.finishInit();
     }
   }
 
@@ -196,7 +212,14 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
   void cursorDisable() => _nc.cursorDisable();
 
   @override
-  void stop() => _nc.stop();
+  void stop() {
+    // End the stdin bridge BEFORE notcurses_stop: the pump thread is about
+    // to lose its tty (the detour pty master closes with the guard), and a
+    // tick reading from a closed master must not race the drain. Idempotent,
+    // and a no-op unless the mute-terminal path armed the guard.
+    _replyGuard?.shutdown();
+    _nc.stop();
+  }
 
   @override
   int paletteSize() => _nc.paletteSize();

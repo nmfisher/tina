@@ -19,8 +19,8 @@ Future<void> main(List<String> args) async {
 
   // Same init path as tina's notcurses backend: under a tmux pane (or any
   // terminal that never answers notcurses' capability queries) a bare init
-  // blocks forever — the reply guard feeds a fallback DA1 reply and restores
-  // fd 0 afterwards.
+  // blocks forever — the reply guard feeds a fallback DA1 reply and then
+  // keeps the detour pty as fd 0 for the session, bridging real stdin in.
   final guard = TerminalReplyGuard()..prepare();
   nc.NotCurses ncs;
   try {
@@ -29,7 +29,7 @@ Future<void> main(List<String> args) async {
       flags: nc.OptionFlags.suppressBanners,
     ));
   } finally {
-    guard.restore();
+    guard.finishInit();
   }
   if (ncs.notInitialized) {
     stderr.writeln('notcurses init failed');
@@ -82,6 +82,7 @@ Future<void> main(List<String> args) async {
   logLine('probe exit');
   await sub.cancel();
   pump.stop();
+  guard.shutdown(); // stop the bridge + give the real terminal its mode back
   log.close();
   ncs.stop();
   exit(0);

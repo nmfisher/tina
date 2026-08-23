@@ -679,3 +679,88 @@ file:line-cited summary of its own rate limiter.
     Engine suite stands at 767 tests: 766 green + this 1
     environment-caused failure (bash_tool's cap test remains the known
     order-dependent flake; passes in isolation).
+
+33. **notcurses: a mute terminal leaves the keyboard dead after the
+    reply-guard detour (would make).** CONFIRMED LIVE 2026-08-23 with
+    `tool/mute_pty_driver.py` (a mute-terminal variant of
+    altkey_pty_driver.py): when the terminal answers none of init's
+    queries — a tmux window created with `new-window -d`, or any
+    headless-launch-then-attach flow — `TerminalReplyGuard` arms its
+    fd-0 detour, feeds notcurses the fallback DA1, init completes, the
+    welcome screen renders… and not one keystroke ever arrives for the
+    rest of the session. Root cause: notcurses' input thread captured
+    ITS tty fd during init — while fd 0 was the detour pty slave — and
+    `guard.restore()` then closes the master, killing that pty. The
+    vendored pump (`dart_notcurses/native/src/input_pump.c`) polls
+    `notcurses_inputready_fd()`, which that dead reader never signals
+    again. The answering-terminal path is unaffected (driver PASS),
+    which is why only the detour case dies. **Would make:** when the
+    detour is armed, keep the master open for the session and bridge
+    real stdin into it — after `restoreStdin()` puts the real stdin back
+    on fd 0 (nonblocking, as notcurses expects), a small poll/read/
+    write loop (the FFI plumbing already exists in
+    `PosixReplyGuardOs`) copies bytes from fd 0 to the master, so
+    notcurses keeps decoding from a live pty. The backend must own the
+    guard for the session and shut the bridge down on `stop()`.
+    Acceptance: `tool/mute_pty_driver.py` flips from DEAD-KEYBOARD to
+    PASS with no probe changes, teardown stays clean (<10s exit), and
+    `tool/altkey_pty_driver.py` still passes.
+
+    **FIXED 2026-08-23** (same day as the live confirmation). The master
+    is no longer closed on restore: [restoreStdin] keeps it and hands it
+    to a new [StdinBridge] — a 10 ms `Timer.periodic` pump copying
+    fd 0 → master (4096-byte chunks, ≤16 per tick so a paste cannot
+    starve the event loop, 256 KiB drop-oldest bound if notcurses stops
+    reading). `TerminalReplyGuard.restore()` starts the bridge only when
+    a master exists; the new idempotent `shutdown()` stops it, and
+    `NotcursesBackend.stop()` calls that before `_nc.stop()` so the pump
+    thread never reads from a pty mid-close. Read/write errors are
+    swallowed with a single debug-mode trace; every tick is best-effort.
+    Tests: `test/init_reply_guard_test.dart` grew a `_BridgeFakeOs`
+    (scripted stdin queue + write budget/EAGAIN/throw) covering copy,
+    short-write retry, buffering, overflow, caps, error recovery,
+    released-master no-op, lifecycle, plus three guard-level bridge
+    tests — 25 passing.
+
+    **REDESIGNED 2026-08-23 (later the same day): the swap-back design was
+    itself the bug.** The fix above still lost every keystroke under the
+    diag harness. Evidence ladder (kept in `tool/syscall_diag_driver.py`):
+    `/proc/<pid>/fd` readlinks showed notcurses' input thread held NO fd
+    to the detour slave after init — it had opened the real tty by name
+    (from `ttyname(stdout)`) as its own private fd; `/proc/<pid>/task/*/
+    /syscall` + reading the pollfd array out of `/proc/<pid>/mem` showed
+    that thread parked in `ppoll(fd 0)` — polling fd 0, reading fd 13.
+    Linux binds the file description a poll waits on AT SYSCALL ENTRY:
+    the thread entered ppoll during init, when fd 0 was the detour
+    slave, so its poll waits on the detour pty forever no matter what
+    the fd table says later. Putting the real stdin back on fd 0 makes
+    poll and read disagree — the thread READS the real tty while its
+    POLL waits on a pty nobody feeds. (The first bridge made it worse:
+    draining fd 0 — the read side — to feed the master — the poll side
+    — starved the reader it was trying to serve.) **The fix that holds:
+    never swap fd 0 back.** The detour pty stays notcurses' terminal for
+    the whole session; `finishInit()` (renamed from `restore()`) calls
+    `beginBridgedSession()` — snapshot termios, cfmakeraw the SAVED
+    real-stdin fd (not fd 0), set it O_NONBLOCK, copy winsize, forward
+    SIGWINCH — and `StdinBridge.tick()` reads that saved fd into the
+    detour master, so poll side and read side are one pty again.
+    `shutdown()` reverses it: termios back, fds closed, master released.
+
+    **And a second bug hiding behind the first: the default constructor
+    built TWO `PosixReplyGuardOs` instances** (`_os = os ?? posix(),
+    _bridge = StdinBridge(os ?? posix())`), so with
+    `TerminalReplyGuard()` — exactly what `NotcursesBackend` uses — the
+    bridge ticked an os layer whose master/source were forever −1 and
+    silently copied nothing. Every unit test injected one shared os, so
+    the suite stayed green while production moved zero bytes; only the
+    pty-driver acceptance runs caught it (`tool/mute_pty_driver.py`
+    stayed DEAD-KEYBOARD with FIONREAD on the real slave stuck at 1
+    forever). Now a redirecting constructor guarantees one instance,
+    with a `sharesOsLayer` regression test.
+
+    Final acceptance, all three drivers green: `tool/mute_pty_driver.py`
+    PASS (`pump: 'b' id=0x62`, `'q'` quits, rc=0 — and the driver now
+    drains the master for the whole run; its old stop-at-render read
+    loop hid every post-render stderr line), `tool/altkey_pty_driver.py`
+    PASS (Alt+b → `id=0x62 mods=2 ALT`), `tool/stop_hang_driver.py`
+    STOP-CLEAN (exit 0.1s after quit). Console suite 811 green.
