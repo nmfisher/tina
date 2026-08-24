@@ -113,7 +113,7 @@ class WorkflowPermissionAsker {
     // approval never armed).
     final pending = editor!.pendingLine;
     if (pending != null && editor!.editState.buffer.isNotEmpty) {
-      await pending.catchError((_) {});
+      await pending.catchError((_) => '');
     }
     // globalKeys: the focus ring's shortcuts cycle panels, they must not
     // answer the approval (tin-c5nw).

@@ -10,10 +10,16 @@ import 'dart:io';
 /// (present on both macOS and Linux) and signal each pid. A double-forked
 /// `setsid` daemon still escapes — the same known limitation pi has.
 ///
-/// Sequence: SIGTERM every pid (descendants before the root), wait [grace] for a
-/// clean exit, then SIGKILL whatever is still alive. All errors (already-dead
-/// pids, missing `pgrep`, permission denied) are swallowed, so the function is
-/// idempotent and safe on best-effort cleanup paths.
+/// Sequence: SIGTERM every pid (descendants before the root), poll for a clean
+/// exit over [grace], then SIGKILL whatever is still alive. On Linux a zombie
+/// counts as dead (its /proc/<pid>/stat state is `Z`) — in a container whose
+/// PID 1 never reaps orphans, `kill -0` would report the zombie as alive,
+/// eating the whole grace delay and SIGKILLing a corpse. On platforms without
+/// /proc, liveness falls back to `kill -0` — the wait still ends early once
+/// everything it can see is gone.
+/// All errors (already-dead pids, missing `pgrep`, permission denied) are
+/// swallowed, so the function is idempotent and safe on best-effort cleanup
+/// paths.
 Future<void> killProcessTree(
   int rootPid, {
   Duration grace = const Duration(seconds: 2),
@@ -27,12 +33,49 @@ Future<void> killProcessTree(
   for (final pid in pids.reversed) {
     _signal(pid, ProcessSignal.sigterm);
   }
+  // Wait for a clean exit, polling so a fully-dead tree skips the rest of the
+  // grace window.
   if (grace > Duration.zero) {
-    await Future<void>.delayed(grace);
+    final deadline = DateTime.now().add(grace);
+    while (true) {
+      var anyAlive = false;
+      for (final pid in pids) {
+        if (!await _isDeadAsync(pid)) {
+          anyAlive = true;
+          break;
+        }
+      }
+      if (!anyAlive) break;
+      if (!DateTime.now().isBefore(deadline)) break;
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+    }
   }
-  // Force anything still alive.
+  // Force what is still genuinely alive (zombies are already dead).
   for (final pid in pids) {
-    _signal(pid, ProcessSignal.sigkill);
+    if (!await _isDeadAsync(pid)) _signal(pid, ProcessSignal.sigkill);
+  }
+}
+
+/// True when [pid] counts as gone: on Linux, either its `/proc/<pid>/stat`
+/// state is `Z` (zombie — an unreaped corpse, dead for our purposes whether
+/// or not PID 1 ever reaps it) or `kill -0` fails; elsewhere, `kill -0`
+/// failing (the pre-zombie-awareness semantics). Never throws.
+Future<bool> _isDeadAsync(int pid) async {
+  if (Platform.isLinux) {
+    try {
+      final stat = await File('/proc/$pid/stat').readAsString();
+      final state = stat.substring(stat.lastIndexOf(')') + 1).trim();
+      if (state.startsWith('Z')) return true;
+      return false; // A live /proc entry: still running.
+    } catch (_) {
+      // No readable entry — fall through and let `kill -0` decide.
+    }
+  }
+  try {
+    final r = await Process.run('kill', ['-0', '$pid']);
+    return r.exitCode != 0;
+  } catch (_) {
+    return true; // Could not even ask: treat as gone.
   }
 }
 

@@ -216,6 +216,16 @@ class Agent {
   /// exhaustions and cancellations will not. Reset alongside [abortedReason].
   AbortedKind abortedKind = AbortedKind.none;
 
+  /// Whether the 90% per-turn budget SOFT margin (#37) has fired in the
+  /// CURRENT turn — i.e. the one-time "finish up and write your closing
+  /// summary" message has been injected into the turn's history. The agent
+  /// sets it exactly once per turn (see the check after
+  /// [TokenBudget.record]) and resets it at the top of every [_runTurn], so
+  /// a new turn gets its own nudge. Exposed so regression tests can assert
+  /// the once-per-turn semantics.
+  bool get softMarginFired => _softMarginFired;
+  bool _softMarginFired = false;
+
   /// Run one user turn. The agent may issue several provider calls if tools
   /// are invoked. [cancelSignal], when completed, aborts the current
   /// in-flight stream and exits the turn cleanly.
@@ -254,6 +264,9 @@ class Agent {
   }) async {
     abortedReason = null;
     abortedKind = AbortedKind.none;
+    // The soft margin re-arms every turn: a new user turn gets its own one
+    // nudge (the previous turn's spend is zeroed by resetTurn below).
+    _softMarginFired = false;
     final userMessage =
         Message(role: Role.user, content: [TextBlock(userInput)]);
     history.add(userMessage);
@@ -283,6 +296,11 @@ class Agent {
     // that tool, increments on each denial. Used to trip the circuit-breaker
     // message that tells the model to stop calling the same denied tool.
     final denialCounts = <String, int>{};
+
+    // Soft margin (#37): the once-per-turn latch is the instance field
+    // [_softMarginFired]; it resets here, at the top of every turn, so each
+    // new turn gets exactly one nudge (a threshold re-fire would re-nag the
+    // model on every step once spend stays past 90%).
 
     for (var step = 0; step < maxSteps; step++) {
       if (cancelled) {
@@ -389,6 +407,26 @@ class Agent {
       }
       if (outcome.usage != null) {
         budget = budget?.record(outcome.usage!);
+        // SOFT margin (#37): when the recorded spend FIRST reaches ~90% of
+        // the per-turn cap, inject ONE user-role message into this turn's
+        // history so the MODEL is told to land cleanly — a sink.notice here
+        // would reach only the UI/stderr and be invisible to the model (the
+        // #27 lesson: Run A's asker-refusal hint went to stderr and the model
+        // spun on). The hard abort below stays exactly as it was.
+        if (!_softMarginFired) {
+          final soft = budget?.softMarginNotice();
+          if (soft != null) {
+            _softMarginFired = true;
+            final softMessage =
+                Message(role: Role.user, content: [TextBlock(soft)]);
+            history.add(softMessage);
+            final pendingSoft = _notifyAppend(softMessage);
+            if (pendingSoft != null) await pendingSoft;
+            // UI mirror: the transcript shows what the model was told. This
+            // is convenience, not delivery — delivery happened above.
+            sink.notice('\n$soft\n', kind: NoticeKind.warning);
+          }
+        }
         final kind = budget?.exceededLimit();
         if (kind != null) {
           if (pauseGate != null && kind == TokenLimitKind.perSession) {

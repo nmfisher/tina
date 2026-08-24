@@ -1,0 +1,207 @@
+# Continuous integration for tina: `dart analyze` + `dart test` for the root
+# package and the three sub-packages, on every PR to main and every push to
+# main. (tina_index joined the matrix when log item #39 — its seedQuery
+# pre-existing failure — shipped; engine 775 + console 811 + root 758 +
+# tina_index 56 tests gate here.)
+#
+# No dart format gate on purpose: the tree has format drift, and analyze +
+# test are the contract this repo actually tracks (TINA_IMPROVEMENTS_LOG.md).
+#
+# Native library note: tina_console's FFI does NOT load a system libnotcurses
+# via findLibrary/DynamicLibrary.open for its bindings. dart_notcurses vendors
+# libnotcurses-core.a under native/lib/<os>_<arch>/ inside the submodule, and
+# its build hook (hook/build.dart) statically links it into a bundled shared
+# asset (libnotcurses_merged) that @Native(assetId:) resolves automatically —
+# no DynamicLibrary.open of notcurses anywhere in the binding layer. The two
+# DynamicLibrary.open sites in tina_console itself are best-effort probes:
+#   - notcurses_probe.dart: isNotcursesAvailable() tries libnotcurses.so /
+#     libnotcurses.so.3 purely to report availability (never throws);
+#   - init_reply_guard.dart: _resolveOpenpty() probes libutil.so for openpty.
+# Installing libnotcurses-dev therefore only makes the probe report true (and
+# gives init a real system library when one is wanted); the vendored static
+# link keeps the suite green either way. We install it so CI exercises the
+# same live-library path a developer machine has.
+#
+# LINKER deps (learned on the first live run, 32647847129): the build hook
+# statically links the vendored libnotcurses-core.a but leaves -ltinfo,
+# -lunistring and -ldeflate as SYSTEM shared libraries (hook/build.dart's
+# Linux flags) — and ubuntu-latest ships none of their -dev link symlinks.
+# dart test then dies in the hook with `cannot find -lunistring/-ldeflate`.
+# Both the console job AND the root job (root's tests import tina_console,
+# so its dart test runs the same hook) must apt-install all of:
+#   libnotcurses-dev (probe path) + libtinfo-dev libunistring-dev
+#   libdeflate-dev (link deps).
+
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  root:
+    name: root (tina)
+    runs-on: ubuntu-latest
+    steps:
+      # Submodules: recursive — packages/dart_notcurses is a git submodule and
+      # the tree embeds its native sources + staged static libs; tina_console
+      # FFI-links them through the dart_notcurses build hook.
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: pub get (root)
+        working-directory: .
+        run: dart pub get
+
+      # Root's analyze sweeps the sub-packages' test/ dirs, and those tests
+      # import packages (e.g. tina_console's fake_async) that only resolve
+      # through EACH package's own .dart_tool/package_config.json — learn from
+      # the first live run: without these pub gets, root analyze saw 23
+      # URI_DOES_NOT_EXIST errors for console's test-only imports. This
+      # mirrors a dev machine, where every package has been pub-got.
+      - name: pub get (sub-packages, for root analyze)
+        run: |
+          (cd packages/tina_engine && dart pub get)
+          (cd packages/tina_console && dart pub get)
+          (cd packages/tina_index && dart pub get)
+
+      # Root's own tests import tina_console → the dart_notcurses build hook
+      # runs on dart test → the system linker deps must be present (see the
+      # header's LINKER deps note).
+      - name: Install native link deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
+
+      # Root analyze baseline is NOT zero: analyzing the repo root also picks
+      # up packages/dart_notcurses (the submodule), whose analysis_options.yaml
+      # includes package:lints/recommended.yaml without declaring lints as a
+      # dev dependency — producing exactly ONE known warning:
+      #   include_file_not_found (packages/dart_notcurses/analysis_options.yaml:1:10)
+      # Gate by count instead of exit code: fail on any NEW issue (>1), tolerate
+      # exactly the known one (==1). When the submodule config is fixed or the
+      # warning disappears, tighten this to plain `dart analyze` + zero.
+      - name: analyze (root)
+        working-directory: .
+        run: |
+          set +e
+          dart analyze --format=machine | tee /tmp/root_analyze.txt
+          issues=$(grep -c . /tmp/root_analyze.txt || true)
+          echo "root analyzer issues: $issues"
+          if [ "$issues" -gt 1 ]; then
+            echo "::error::root analyze regressed: $issues issues (baseline is exactly 1 — the submodule's include_file_not_found config warning). Fix the new issue(s); do not raise the baseline."
+            exit 1
+          fi
+          if [ "$issues" -eq 0 ]; then
+            echo "::notice::root analyze hit ZERO issues — the known submodule warning is gone; consider tightening this gate to plain 'dart analyze'."
+          fi
+          exit 0
+
+      # The summary tests do real `git commit`s in temp repos; a GitHub
+      # runner has NO git identity configured, and every one of them dies
+      # with `ProcessException: Author identity unknown` (17 failures on
+      # live run 32648223073 — invisible locally, where a dev machine
+      # always has user.name/user.email).
+      - name: Configure git identity (summary tests commit in temp repos)
+        run: |
+          git config --global user.name "tina-ci"
+          git config --global user.email "tina-ci@example.com"
+
+      - name: test (root)
+        working-directory: .
+        run: dart test
+
+  engine:
+    name: engine (packages/tina_engine)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: pub get (engine)
+        working-directory: packages/tina_engine
+        run: dart pub get
+
+      # Engine gates on zero issues (verified baseline: "No issues found!").
+      - name: analyze (engine)
+        working-directory: packages/tina_engine
+        run: dart analyze
+
+      - name: test (engine)
+        working-directory: packages/tina_engine
+        run: dart test
+
+  console:
+    name: console (packages/tina_console)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      # The notcurses backend's availability probe loads libnotcurses.so(.3)
+      # from the system loader (see header comment), and the build hook needs
+      # the system link deps (-ltinfo -lunistring -ldeflate) — see the
+      # header's LINKER deps note; the first live run failed on the latter.
+      - name: Install native notcurses + link deps (console job)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
+
+      - name: pub get (console)
+        working-directory: packages/tina_console
+        run: dart pub get
+
+      # Console gates on zero issues (verified baseline: "No issues found!").
+      - name: analyze (console)
+        working-directory: packages/tina_console
+        run: dart analyze
+
+      - name: test (console)
+        working-directory: packages/tina_console
+        run: dart test
+
+  index:
+    name: index (packages/tina_index)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: pub get (index)
+        working-directory: packages/tina_index
+        run: dart pub get
+
+      # Index gates on zero issues (verified baseline: "No issues found!").
+      # Pure Dart — no native deps, no apt step needed.
+      - name: analyze (index)
+        working-directory: packages/tina_index
+        run: dart analyze
+
+      - name: test (index)
+        working-directory: packages/tina_index
+        run: dart test

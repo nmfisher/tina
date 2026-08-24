@@ -202,6 +202,9 @@ class ChatAgentSink implements AgentSink {
   @override
   void notice(String message, {NoticeKind kind = NoticeKind.info}) {
     _flushMarkdown(); // a notice interrupts prose: flush what is held
+    // Terminate any open row first: a notice drawn over unterminated
+    // streamed output glues onto its tail, like the #30 prompts did (#31).
+    chat.ensureNewline();
     switch (kind) {
       case NoticeKind.info:
         chat.dim(message);

@@ -5,10 +5,10 @@ import 'package:test/test.dart';
 /// driving the [FocusManager] state machine without a real terminal.
 class _Fake implements Focusable {
   final String name;
-  _Fake(this.name, {Rect? bounds, this.canFocusFlag = true})
+  _Fake(this.name, {Rect? bounds})
       : boundsRect = bounds ?? Rect.empty;
 
-  final bool canFocusFlag;
+  final bool canFocusFlag = true;
   final Rect boundsRect;
   bool isFocused = false;
   bool isHighlighted = false;

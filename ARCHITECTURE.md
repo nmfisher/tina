@@ -44,7 +44,7 @@ tina/
     dart_notcurses/          — Dart FFI bindings to notcurses (own pubspec)
   examples/                  — example workspace fixture for driving tina
   docs/                      — design docs (agent pipeline, tool strip, graph search …)
-  tool/                      — dev utilities (render_to_image, visual_test, build)
+  tool/                      — dev utilities (probes, pty drivers, crash hunts, build)
   test/                      — tests for tina proper
 
 ```

@@ -52,11 +52,20 @@ List<String> seedQuery(
     }
   }
 
-  // Sort by score descending.
+  // Sort by score descending, then keep only the best-scoring bearer of
+  // each bare symbol name. Without this, N classes declaring the same
+  // member (e.g. streamIdleTimeout on Config and six providers) take N
+  // of the maxResults slots and crowd out weaker-but-different matches
+  // (ProviderStreamConsumer fell out of the top 10 entirely) — and a
+  // seed list's whole job is diverse context anchors (#39).
   final sorted = scored.entries.toList()
     ..sort((a, b) => b.value.compareTo(a.value));
+  final seenNames = <String>{};
+  final unique = sorted
+      .where((e) => seenNames.add(e.key.split('.').last))
+      .toList();
 
-  return sorted.take(maxResults).map((e) => e.key).toList();
+  return unique.take(maxResults).map((e) => e.key).toList();
 }
 
 List<String> _camelParts(String name) {

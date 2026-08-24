@@ -4,7 +4,6 @@ import 'package:path/path.dart' as p;
 
 import 'package:test/test.dart';
 
-import 'package:tina_index/edge.dart';
 import 'package:tina_index/graph.dart';
 import 'package:tina_index/store.dart';
 import 'package:tina_index/traversal.dart';

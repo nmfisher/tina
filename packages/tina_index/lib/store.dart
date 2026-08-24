@@ -7,7 +7,6 @@ import 'edge.dart';
 import 'extractor.dart';
 import 'graph.dart';
 import 'graph_builder.dart';
-import 'hasher.dart';
 import 'symbol.dart';
 import 'symbol_table.dart';
 

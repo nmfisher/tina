@@ -662,6 +662,14 @@ file:line-cited summary of its own rate limiter.
     environment rebuild wiped ~/.tina/config (recreated from the owner's
     standing key directive) and stale pub resolutions: root 33 / engine
     2 / console 3 analyze all back at pre-existing baselines.
+    **→ The glue itself fixed 2026-08-23 (improvements run, Run U —
+    tina session 20260823-113436-ac51):** `notice()` now calls
+    `chat.ensureNewline()` after its `_flushMarkdown()`, the same idiom
+    the #30 permission prompts adopted — one line in
+    `lib/chat_agent_sink.dart`. Regression test pins the hazard shape:
+    streamed output left mid-row (no trailing newline, notice before
+    `toolComplete`) must NOT concatenate (`partial row[watchdog]…`
+    asserted absent; the notice asserted alone on its own row).
 
 32. **`process_tree_test` reports a healthy kill as a failure in the
     rebuilt environment — zombie liveness (would make).** After the
@@ -679,3 +687,300 @@ file:line-cited summary of its own rate limiter.
     Engine suite stands at 767 tests: 766 green + this 1
     environment-caused failure (bash_tool's cap test remains the known
     order-dependent flake; passes in isolation).
+    **→ Implemented 2026-08-23 (improvements run, Run U — tina session
+    20260823-113436-ac51):** both sites. The test's `_alive` consults
+    `/proc/<pid>/stat` first on Linux and counts state `Z` as dead
+    (state parsed after the LAST `)` — comm can contain spaces and
+    parens; macOS keeps bare `kill -0`). `killProcessTree`'s grace wait
+    is now a 25 ms poll that ends as soon as every pid is dead-or-zombie
+    and SIGKILLs only the genuinely alive, via a shared `_isDeadAsync`
+    (Linux: /proc state `Z`, an unreadable entry falls through to
+    `kill -0`; elsewhere: `kill -0` alone). Verified in this
+    PID-1-never-reaps container: the descendant-kill test went from
+    deterministic red to 3× consecutive green, and a timed probe of a
+    two-sleeper tree with 2 s grace returned in 234 ms (was a hard
+    ≥2000 ms). Engine 767 green, root 758 green, analyze baselines
+    unchanged.
+
+33. **notcurses: a mute terminal leaves the keyboard dead after the
+    reply-guard detour (would make).** CONFIRMED LIVE 2026-08-23 with
+    `tool/mute_pty_driver.py` (a mute-terminal variant of
+    altkey_pty_driver.py): when the terminal answers none of init's
+    queries — a tmux window created with `new-window -d`, or any
+    headless-launch-then-attach flow — `TerminalReplyGuard` arms its
+    fd-0 detour, feeds notcurses the fallback DA1, init completes, the
+    welcome screen renders… and not one keystroke ever arrives for the
+    rest of the session. Root cause: notcurses' input thread captured
+    ITS tty fd during init — while fd 0 was the detour pty slave — and
+    `guard.restore()` then closes the master, killing that pty. The
+    vendored pump (`dart_notcurses/native/src/input_pump.c`) polls
+    `notcurses_inputready_fd()`, which that dead reader never signals
+    again. The answering-terminal path is unaffected (driver PASS),
+    which is why only the detour case dies. **Would make:** when the
+    detour is armed, keep the master open for the session and bridge
+    real stdin into it — after `restoreStdin()` puts the real stdin back
+    on fd 0 (nonblocking, as notcurses expects), a small poll/read/
+    write loop (the FFI plumbing already exists in
+    `PosixReplyGuardOs`) copies bytes from fd 0 to the master, so
+    notcurses keeps decoding from a live pty. The backend must own the
+    guard for the session and shut the bridge down on `stop()`.
+    Acceptance: `tool/mute_pty_driver.py` flips from DEAD-KEYBOARD to
+    PASS with no probe changes, teardown stays clean (<10s exit), and
+    `tool/altkey_pty_driver.py` still passes.
+
+    **FIXED 2026-08-23** (same day as the live confirmation). The master
+    is no longer closed on restore: [restoreStdin] keeps it and hands it
+    to a new [StdinBridge] — a 10 ms `Timer.periodic` pump copying
+    fd 0 → master (4096-byte chunks, ≤16 per tick so a paste cannot
+    starve the event loop, 256 KiB drop-oldest bound if notcurses stops
+    reading). `TerminalReplyGuard.restore()` starts the bridge only when
+    a master exists; the new idempotent `shutdown()` stops it, and
+    `NotcursesBackend.stop()` calls that before `_nc.stop()` so the pump
+    thread never reads from a pty mid-close. Read/write errors are
+    swallowed with a single debug-mode trace; every tick is best-effort.
+    Tests: `test/init_reply_guard_test.dart` grew a `_BridgeFakeOs`
+    (scripted stdin queue + write budget/EAGAIN/throw) covering copy,
+    short-write retry, buffering, overflow, caps, error recovery,
+    released-master no-op, lifecycle, plus three guard-level bridge
+    tests — 25 passing.
+
+    **REDESIGNED 2026-08-23 (later the same day): the swap-back design was
+    itself the bug.** The fix above still lost every keystroke under the
+    diag harness. Evidence ladder (kept in `tool/syscall_diag_driver.py`):
+    `/proc/<pid>/fd` readlinks showed notcurses' input thread held NO fd
+    to the detour slave after init — it had opened the real tty by name
+    (from `ttyname(stdout)`) as its own private fd; `/proc/<pid>/task/*/
+    /syscall` + reading the pollfd array out of `/proc/<pid>/mem` showed
+    that thread parked in `ppoll(fd 0)` — polling fd 0, reading fd 13.
+    Linux binds the file description a poll waits on AT SYSCALL ENTRY:
+    the thread entered ppoll during init, when fd 0 was the detour
+    slave, so its poll waits on the detour pty forever no matter what
+    the fd table says later. Putting the real stdin back on fd 0 makes
+    poll and read disagree — the thread READS the real tty while its
+    POLL waits on a pty nobody feeds. (The first bridge made it worse:
+    draining fd 0 — the read side — to feed the master — the poll side
+    — starved the reader it was trying to serve.) **The fix that holds:
+    never swap fd 0 back.** The detour pty stays notcurses' terminal for
+    the whole session; `finishInit()` (renamed from `restore()`) calls
+    `beginBridgedSession()` — snapshot termios, cfmakeraw the SAVED
+    real-stdin fd (not fd 0), set it O_NONBLOCK, copy winsize, forward
+    SIGWINCH — and `StdinBridge.tick()` reads that saved fd into the
+    detour master, so poll side and read side are one pty again.
+    `shutdown()` reverses it: termios back, fds closed, master released.
+
+    **And a second bug hiding behind the first: the default constructor
+    built TWO `PosixReplyGuardOs` instances** (`_os = os ?? posix(),
+    _bridge = StdinBridge(os ?? posix())`), so with
+    `TerminalReplyGuard()` — exactly what `NotcursesBackend` uses — the
+    bridge ticked an os layer whose master/source were forever −1 and
+    silently copied nothing. Every unit test injected one shared os, so
+    the suite stayed green while production moved zero bytes; only the
+    pty-driver acceptance runs caught it (`tool/mute_pty_driver.py`
+    stayed DEAD-KEYBOARD with FIONREAD on the real slave stuck at 1
+    forever). Now a redirecting constructor guarantees one instance,
+    with a `sharesOsLayer` regression test.
+
+    Final acceptance, all three drivers green: `tool/mute_pty_driver.py`
+    PASS (`pump: 'b' id=0x62`, `'q'` quits, rc=0 — and the driver now
+    drains the master for the whole run; its old stop-at-render read
+    loop hid every post-render stderr line), `tool/altkey_pty_driver.py`
+    PASS (Alt+b → `id=0x62 mods=2 ALT`), `tool/stop_hang_driver.py`
+    STOP-CLEAN (exit 0.1s after quit). Console suite 811 green.
+
+## Improvements run, round 2 — fresh backlog (2026-08-23)
+
+Items #1–#33 are all implemented, withdrawn, or verified; PR #19 carries
+the last batch (#33, #31, #32 — the latter two implemented by tina
+itself in Run U, session 20260823-113436-ac51, engine 767 / root 758 /
+console 811 green at ship time). Same discipline as round 1: every item
+below was confirmed live or by direct inspection today, tina implements,
+the driver verifies and commits. Survey sources: the analyzer output,
+`.github/workflows/`, git history, and Run U's own transcript.
+
+34. **tool/ carries two probes pinned to an API that never shipped in
+    the public tree, plus one superseded driver.** `tool/render_to_image.dart`
+    (12 errors) and `tool/visual_test.dart` (3 errors) import
+    `package:tina_console/src/panel_layout.dart` / `panel_renderer.dart`
+    — neither exists here; the panels API that DID ship is
+    `panel.dart`/`panel_content.dart`. Both tools have been
+    un-compilable since the initial public release (pickaxe finds no
+    commit that ever removed the classes — they predate the repo), and
+    they account for 15 of the root analyzer's 32 issues. Same drawer:
+    `tool/mute_diag_driver.py`, the first-generation mute driver whose
+    read loop stops at the render marker — the exact output blindness
+    that cost a diagnosis round on #33 — superseded by
+    `tool/syscall_diag_driver.py` (whole-run drain, fd tables, pollfd
+    decode, FIONREAD timelines). **Would make:** retire all three. Dead
+    code that cannot run misleads more than it documents; git preserves
+    them if the panels API ever returns.
+    **→ Implemented 2026-08-23 (round 2, driver-side):** all three retired
+    (`git rm`); `ARCHITECTURE.md`'s tool/ line updated, and
+    `tool/mute_diag_probe.dart`'s header now points at
+    `syscall_diag_driver.py` as its companion. Root analyze dropped
+    32 → 18 with the fifteen errors gone.
+35. **No CI gating: ~2,300 tests and no workflow runs them.**
+    `.github/workflows/` contains only `release.yml`. Root 758 + engine
+    767 + console 811 tests exist, analyze baselines are tracked by
+    hand in this log, and nothing mechanical prevents a red suite or a
+    new analyzer issue landing on main. **Would make:** a
+    pull_request/push workflow running `dart analyze` + `dart test` for
+    root, engine, and console, so this log's "baselines unchanged"
+    claims become machine-checked. The analyzer warning inside
+    `packages/dart_notcurses` (submodule config) stays out of scope.
+    **→ Implemented 2026-08-23 (round 2, tina session
+    20260823-145230-d8b5, driver-verified):** `.github/workflows/ci.yml`
+    — three plain parallel jobs (root/engine/console; a matrix would
+    have needed awkward per-entry `if`s for the root count-gate and the
+    console apt step), checkout with `submodules: recursive`,
+    setup-dart stable, pub get → analyze → test per package, PR+push on
+    main, `contents: read`, no secrets. Root gates by COUNT on
+    `dart analyze --format=machine` (verified live: exactly 1 line —
+    the submodule's include_file_not_found; fails >1, emits a
+    `::notice::` at 0 so the gate gets tightened later). Engine and
+    console gate on zero. The apt step's honest nuance, from tina's
+    investigation: the bindings load NO system notcurses — the
+    submodule's build hook statically links the vendored
+    libnotcurses-core.a into a bundled asset; `DynamicLibrary.open`
+    appears only in availability probes — so libnotcurses-dev makes the
+    probe path real but is not load-bearing for the suite. tina_index
+    excluded with a comment until #39 ships. yaml validated; the first
+    LIVE runner pass is the remaining acceptance (runner dart SDK, apt
+    availability, submodule checkout are only proven on GitHub).
+    **→ First live run (32647847129, this PR's update): engine green;
+    root + console red — two runner-only facts a dev machine cannot
+    show.** (1) The build hook statically links the vendored
+    libnotcurses-core.a but leaves `-ltinfo -lunistring -ldeflate` as
+    SYSTEM libs, none of whose -dev link symlinks ubuntu-latest ships —
+    `dart test` died in the hook with `cannot find -lunistring/
+    -ldeflate`; apt list widened to libnotcurses-dev + libtinfo-dev +
+    libunistring-dev + libdeflate-dev, in the ROOT job too (root's
+    tests import tina_console, so its dart test runs the same hook).
+    (2) Root analyze sweeps sub-package test/ dirs, whose test-only
+    imports (console's fake_async) resolve only through each package's
+    OWN package_config.json — without sub-package pub gets the gate saw
+    23 URI_DOES_NOT_EXIST errors; the root job now pub-gets all three
+    sub-packages, mirroring a dev machine. Also: #39 shipped in the
+    same push, so tina_index joined the matrix (analyze 0 + test 56,
+    pure Dart, no apt step) and the exclusion comment is gone.
+    **→ Second live run (32648223073): console/engine/index GREEN —
+    the linker and package_config fixes held.** Root's analyze gate
+    passed too; its `dart test` then lost 17 tests, every one the same
+    signature: `ProcessException: Author identity unknown` — the
+    summary tests do real `git commit`s in temp repos and a GitHub
+    runner ships no git user.name/user.email (invisible locally, where
+    a dev machine always has one). Root job now sets a tina-ci identity
+    before testing. Third live run is the verdict.
+    **→ GREEN 2026-08-23T15:26Z (run 32648458822):** all four jobs —
+    root, engine, console, index — success. #35 accepted live; the
+    ~2,400-test suite and every analyze baseline are now machine-gated
+    on every PR and push to main. Item closed.
+36. **Drive the analyzer to zero outside the submodule.** After #34's
+    fifteen, eighteen warnings remain (one of them the submodule's
+    config warning, out of scope): two `catchError((_) {})`
+    handlers whose null return does not match `Future<String>`
+    (`lib/host/tui_conversation_host.dart:236`,
+    `lib/pipeline/workflow_permission_asker.dart:116` — benign in
+    effect, wrong in type), unused imports/declarations and no-op `!`s
+    across tina_index (8), console tests (2), engine tests (2),
+    `tool/resize_probe.dart` (1), `workflow_permission_asker_test` (2).
+    **Would make:** fix the seventeen in-repo ones (return `''` from
+    the catchError handlers; drop the dead declarations), leaving only
+    the submodule's config warning, then pin zero via #35's workflow.
+    **→ Implemented 2026-08-23 (round 2):** tina (session
+    20260823-135931-5a3d, six files) + driver completion (eleven more,
+    including the store_test.dart bang surgery — only the five
+    genuinely-dead `!`s at lines 77/89/99/134/136, after a blanket
+    replace broke the twelve that were load-bearing — and the
+    scrolling_text_region off-by-one: the newest finished line
+    bottom-aligns ON the last row, `height - 1`, not `height - 2`).
+    Analyze now: root 1 (submodule only), engine 0, console 0,
+    tina_index 0. Suites: engine 767 ✓, console 811 ✓, root 758 ✓;
+    tina_index has one failure that predates this work (see #39).
+    Driver runs for the next tina session should pass
+    `--max-turn-tokens 2000000` — the 1M default was hit a second time
+    (1,004,710) during the #36 lint run, again after all substantive
+    work, again in closing prose.
+37. **The per-turn budget abort beheads a finished run (live, Run U).**
+    Run U completed every tool call and test run, then hit
+    `[budget] per-turn token budget exceeded (1032509 > 1000000)` in
+    mid-final-summary: the closing report the prompt explicitly asked
+    for was lost, and the run's tail reads failure-shaped even though
+    all work had landed. The #5 fix held (session persisted, resume
+    hint printed) — what's missing is a runway. **Would make:** a soft
+    margin — at ~90% of `--max-turn-tokens` inject a notice into the
+    turn ("turn budget at 90% — finish up and write the closing
+    summary") so the model can land cleanly; keep the hard abort at
+    100%.
+    **→ Implemented 2026-08-23 (round 2, tina session 20260823-142018-6679,
+    driver-verified):** `kPerTurnSoftMarginRatio = 0.9` in
+    token_budget.dart; `softMarginNotice()` is a pure predicate over the
+    same totals `exceeded()` reads (null past the hard cap — the hard
+    reason wins); the agent latches it once per turn, resets it at the
+    top of `_runTurn`, and delivers the nudge as a user-role message
+    injected into the turn's history — the channel that actually
+    reaches the model (#27 lesson; tina confirmed independently that
+    `sink.notice` is UI-only) — with a `sink.notice` mirror for the
+    transcript. Eight regression tests assert wire-level visibility
+    (FakeProvider.calls), once-only, ordering before a hard abort, and
+    no-op under 90%. Engine: analyze 0, 775/775. Third incident, for
+    the record: the run that IMPLEMENTED this hit
+    `2013851 > 2000000` — the abort landed after the implementation was
+    complete ("The implementation is solid"), during log-editing prose;
+    the running process had compiled agent.dart at startup and could
+    not hot-load its own fix. The margin's first live beneficiary is
+    the next run.
+    **→ Verified live, same day:** the very next run (tina session
+    20260823-145230-d8b5, the #35 run) hit the margin for real —
+    `[budget] turn spend at 90% (1822439 of 2000000 tokens) … write
+    your closing summary now` fired mid-run — and the model heeded it:
+    final acceptance check, closing summary, clean exit 0. The exact
+    beheading this item was written for did not happen.
+38. **bash_tool's cap test remains order-dependent (multi-day,
+    unreproduced today).** The "output above the cap" test has failed
+    in full-suite runs across several days while passing in isolation;
+    today it passed four consecutive full engine suites (two driver
+    runs, tina's Run U, and the pre-work baseline), so the trigger is
+    rare. **Would make:** root-cause the shared state, or make the test
+    self-sealed (unique sentinels per run, explicit temp dir) if the
+    interference path can't be isolated.
+    **→ Root-caused and fixed 2026-08-23 (round 2, driver-side):** there
+    never was shared state or order dependence — the "order" theory was
+    an artifact of nobody looping the test in isolation. The negative
+    assertion `isNot(contains('A'))` reads the spill path that rides in
+    the content (`full output: /tmp/tina_bash_test_<suffix>/…`), and
+    Dart's `createTemp` random suffix is mixed-case alnum — measured:
+    3000/3000 suffixes contain uppercase, ~21% contain 'A'. The test
+    failed on ~20-25% of runs regardless of context (5/20 looped
+    pre-fix; the day's four passes were p≈.8 luck). Fix: sentinels
+    outside every alphabet involved ('!' head / '#' tail — not in
+    headers, not in the path suffix), with the constraint documented at
+    the assertion. Post-fix: 0/30 looped failures.
+39. **tina_index's `seedQuery "stream" returns streaming-related symbols`
+    fails on pristine HEAD — pre-existing, not lint collateral.**
+    Verified by control: the failure reproduces with the working tree
+    hard-reset to HEAD (only `/tmp/index_lint.patch` as a cross-check),
+    so it predates round 2 entirely; it was simply never in any
+    baseline run before today, because tina_index's suite wasn't part
+    of the driver's routine gate. **Would make:** reproduce, diagnose
+    whether it's a seed-corpus or a query-semantics bug, and fix —
+    then add tina_index to the suites this log tracks (and to #35's
+    workflow matrix), so a red test there never ships un-noticed again.
+    **→ Diagnosed 2026-08-23 (round 2, driver-side):** not a flake — the
+    test scans the LIVE tree (`GraphStore.rebuildFromRepo`), and round
+    1's `streamIdleTimeout` field (added to Config + six providers and
+    the scheduler) outranks it everywhere: `seedQuery` scores
+    name-prefix hits 500 but camelCase-fragment hits only 300, so seven
+    bearers of the same member name take seven of the ten slots while
+    `ProviderStreamConsumer` (300 − 78 ≈ 222) falls off the bottom. The
+    ranker is the defect — a seed query feeds the agent context anchors
+    and wants diversity, not seven copies of one field name. Fix:
+    dedupe results by bare symbol name (keep the highest-scoring
+    bearer), collapsing the seven to one and letting StreamConsumer
+    back in without touching the test's expectation.
+    **→ Fixed 2026-08-23 (round 2, driver-side):** seedQuery now sorts
+    by score, then keeps only the best-scoring bearer of each bare
+    symbol name before take(maxResults); a synthetic-table regression
+    test ('one slot per bare symbol name, however many bearers') pins
+    it without depending on the live tree. tina_index: analyze 0,
+    56/56 tests green — the suite joins the driver's routine gate
+    (and CI's matrix once #35's workflow lands).
