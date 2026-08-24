@@ -1,0 +1,15 @@
+# This file exists for exactly one purpose: keeping the dart_notcurses
+# submodule out of the parent tree's analysis context (TINA_IMPROVEMENTS_LOG
+# #40). The parent repo otherwise runs on pure SDK defaults — no lints
+# package, no custom rules — and gains none from this file.
+#
+# The submodule ships its own analysis_options.yaml whose first line
+# includes package:lints/recommended.yaml. That URI cannot resolve in the
+# parent's context (the parent tree does not depend on lints), which
+# surfaced as the root analyzer's single include_file_not_found warning —
+# and until #35's CI landed, the only thing keeping root analyze from zero.
+# The submodule is analyzed on its own terms inside its own package
+# context; the parent repo never gated on its contents.
+analyzer:
+  exclude:
+    - packages/dart_notcurses/**

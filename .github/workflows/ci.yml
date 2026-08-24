@@ -83,29 +83,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
 
-      # Root analyze baseline is NOT zero: analyzing the repo root also picks
-      # up packages/dart_notcurses (the submodule), whose analysis_options.yaml
-      # includes package:lints/recommended.yaml without declaring lints as a
-      # dev dependency — producing exactly ONE known warning:
-      #   include_file_not_found (packages/dart_notcurses/analysis_options.yaml:1:10)
-      # Gate by count instead of exit code: fail on any NEW issue (>1), tolerate
-      # exactly the known one (==1). When the submodule config is fixed or the
-      # warning disappears, tighten this to plain `dart analyze` + zero.
+      # Root gates on zero issues. (History: this gate was born count-based —
+      # it tolerated exactly ONE known warning, the submodule's
+      # include_file_not_found, and emitted a ::notice:: if it ever hit zero.
+      # Log item #40 then added the root analysis_options.yaml whose
+      # analyzer.exclude silences the submodule config in the parent context,
+      # the root analyzer reached zero, and the gate tightened to plain
+      # `dart analyze` exactly as that notice suggested.)
       - name: analyze (root)
         working-directory: .
-        run: |
-          set +e
-          dart analyze --format=machine | tee /tmp/root_analyze.txt
-          issues=$(grep -c . /tmp/root_analyze.txt || true)
-          echo "root analyzer issues: $issues"
-          if [ "$issues" -gt 1 ]; then
-            echo "::error::root analyze regressed: $issues issues (baseline is exactly 1 — the submodule's include_file_not_found config warning). Fix the new issue(s); do not raise the baseline."
-            exit 1
-          fi
-          if [ "$issues" -eq 0 ]; then
-            echo "::notice::root analyze hit ZERO issues — the known submodule warning is gone; consider tightening this gate to plain 'dart analyze'."
-          fi
-          exit 0
+        run: dart analyze
 
       # The summary tests do real `git commit`s in temp repos; a GitHub
       # runner has NO git identity configured, and every one of them dies
