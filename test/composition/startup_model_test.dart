@@ -116,6 +116,48 @@ void main() {
       expect(provider.model, 'stealth/ox-alpha');
     });
 
+    test('resume ref under the config provider uses the CURRENT base-url', () {
+      // The meta's captured baseUrl is provenance, never a replay source: a
+      // `base-url` edited in ~/.tina/config must reach the resumed
+      // conversation (owner bug, 2026-08-24 — a stale captured base 404-ed
+      // forever, no matter what the config said now).
+      final config = Config.parse(
+        const ['--backend', 'ansi', '--base-url', 'https://fresh.example'],
+        env: {
+          'ANTHROPIC_API_KEY': 'test',
+          // Pin the config default away from the meta ref so the meta-ref
+          // path (not the config-default path) is the one under test.
+          'ANTHROPIC_MODEL': 'claude-sonnet-4-6',
+        },
+      );
+      final manifest = SessionManifest(
+        id: 's-resume',
+        providerId: 'anthropic',
+        activeConversationId: 'c-meta',
+        conversations: [
+          ConversationMeta(
+            id: 'c-meta',
+            model: 'anthropic/claude-3-opus-20240229',
+            baseUrl: 'https://stale.example/v1',
+            providerId: 'anthropic',
+            label: 'meta model',
+            kind: ConversationKind.primary,
+          ),
+        ],
+      );
+      final app = buildWith(
+        config: config,
+        manifest: manifest,
+        initialSessionId: 's-resume',
+        initialConversationId: 'c-meta',
+      );
+      final provider = app.buildStartupProvider();
+      expect(provider.model, 'claude-3-opus-20240229');
+      // Same provider → the CURRENT config base applies; the captured one
+      // must not.
+      expect((provider as AnthropicProvider).baseUrl, 'https://fresh.example');
+    });
+
     test('unknown provider in meta ref warns on stderr and falls back', () {
       final config = Config.parse(
         const ['--backend', 'ansi'],

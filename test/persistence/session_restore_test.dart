@@ -748,6 +748,141 @@ void main() {
     });
   });
 
+  // Regression (owner bug, 2026-08-24): _restoreProvider used to replay the
+  // baseUrl CAPTURED in the conversation meta at creation time, so a stale
+  // experimental `base-url` outlived every config edit for the life of the
+  // session — the restored conversation kept posting to a dead endpoint
+  // (Hetzner 404) no matter what ~/.tina/config said now. The meta's baseUrl
+  // is provenance; the CURRENT config is the only replay source, and its base
+  // applies only when the ref's provider is the config provider (the same
+  // guard as AppComposition.buildStartupProvider / the TUI's providerFactory).
+  group('restore provider freshness', () {
+    /// A registry whose builders record the base URL they were constructed
+    /// with, so tests can assert which base a restored provider actually got.
+    ProviderRegistry _recordingRegistry(List<String> bases) {
+      ProviderDescriptor desc(String id) => ProviderDescriptor(
+            id: id,
+            name: id,
+            authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
+            defaultBaseUrl: 'https://$id.test',
+            builder: (c) {
+              bases.add(c.baseUrl);
+              return FakeProvider(const [], model: c.model);
+            },
+            models: {
+              '$id-small': ModelInfo(
+                  id: '$id-small', name: 'Small', contextWindow: 1, maxOutput: 1),
+              '$id-large': ModelInfo(
+                  id: '$id-large', name: 'Large', contextWindow: 1, maxOutput: 1),
+            },
+          );
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(desc('anthropic'))
+        ..register(desc('openai'));
+      return r;
+    }
+
+    /// A store holding one conversation captured with [staleBase] while it
+    /// ran under [model]; the meta and transcript the ctx restores against.
+    Future<(MemorySessionStore, String, ConversationMeta)> _sessionWith({
+      required String model,
+      required String staleBase,
+    }) async {
+      final store = MemorySessionStore();
+      final sessionId = await store.createSession(providerId: 'anthropic');
+      final refProvider = model.split('/').first;
+      final cid = await store.createConversationWithMeta(
+          sessionId,
+          ConversationMetaInput.primary(
+            providerId: refProvider,
+            provider: FakeProvider(const [], model: model.split('/').skip(1).join('/')),
+            baseUrl: staleBase,
+            policy: PermissionPolicy(),
+          ));
+      await store.append(sessionId, cid,
+          const Message(role: Role.user, content: [TextBlock('q')]));
+      return (store, sessionId, store.metaFor(sessionId, cid)!);
+    }
+
+    RestoreContext _freshCtx(ProviderRegistry registry, Config config,
+            MemorySessionStore store, String sessionId) =>
+        RestoreContext(
+          registry: registry,
+          pipeline: _pipeline,
+          config: config,
+          store: store,
+          scheduler: createScheduler(config: config, registry: registry, pipeline: _pipeline),
+          hostFactory: ({required conversationId, required isActive}) =>
+              FakeHostInterface(),
+          sessionId: sessionId,
+          activeConversationId: 'c-active',
+          accountProvider: () => FakeProvider(const [], model: 'anthropic-small'),
+        );
+
+    test('same-provider ref: the CURRENT --base-url wins, not the captured one',
+        () async {
+      final bases = <String>[];
+      final registry = _recordingRegistry(bases);
+      final (store, sessionId, meta) = await _sessionWith(
+          model: 'anthropic/anthropic-large',
+          staleBase: 'https://stale.example/v1');
+      final config = Config.parse(
+          const ['--backend', 'ansi', '--base-url', 'https://fresh.example'],
+          registry: registry,
+          env: const {'TEST_KEY': 'k'});
+      final conv = await restoreConversation(
+          meta, _freshCtx(registry, config, store, sessionId));
+
+      expect(conv.provider.model, 'anthropic-large');
+      expect(bases, isNot(contains('https://stale.example/v1')),
+          reason: 'the base captured at creation must never reach a provider');
+      expect(bases.last, 'https://fresh.example',
+          reason: 'the config base applies — under the ref\'s provider — today');
+      await conv.host.dispose();
+    });
+
+    test('cross-provider ref: neither the captured base nor the config base applies',
+        () async {
+      final bases = <String>[];
+      final registry = _recordingRegistry(bases);
+      // A spawn that ran under openai, captured while an anthropic base-url
+      // (now stale) was configured. The config base belongs to anthropic only.
+      final (store, sessionId, meta) = await _sessionWith(
+          model: 'openai/openai-large', staleBase: 'https://stale.example/v1');
+      final config = Config.parse(
+          const ['--backend', 'ansi', '--base-url', 'https://fresh.example'],
+          registry: registry,
+          env: const {'TEST_KEY': 'k'});
+      final conv = await restoreConversation(
+          meta, _freshCtx(registry, config, store, sessionId));
+
+      expect(conv.provider.model, 'openai-large');
+      expect(bases.last, 'https://openai.test',
+          reason: 'the ref resolves afresh from its own descriptor default');
+      expect(bases, isNot(contains('https://stale.example/v1')));
+      expect(bases, isNot(contains('https://fresh.example')));
+      await conv.host.dispose();
+    });
+
+    test('no config override: the ref builds under its descriptor default',
+        () async {
+      final bases = <String>[];
+      final registry = _recordingRegistry(bases);
+      final (store, sessionId, meta) = await _sessionWith(
+          model: 'anthropic/anthropic-large',
+          staleBase: 'https://stale.example/v1');
+      final config = Config.parse(const ['--backend', 'ansi'],
+          registry: registry, env: const {'TEST_KEY': 'k'});
+      final conv = await restoreConversation(
+          meta, _freshCtx(registry, config, store, sessionId));
+
+      expect(bases.last, 'https://anthropic.test',
+          reason: 'config.baseUrl resolves to the descriptor default when no '
+              'override exists — a resumed session heals to the default');
+      await conv.host.dispose();
+    });
+  });
+
   // Uses the REAL on-disk store: the in-memory store couples meta + messages,
   // so its loadConversation never throws for a listed conversation. Only the
   // file-backed store reproduces a manifest entry whose message file is gone.

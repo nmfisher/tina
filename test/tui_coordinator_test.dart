@@ -96,6 +96,84 @@ void main() {
     );
   });
 
+  test('resume builds the active provider under the current config base', () async {
+    // Regression (owner bug, 2026-08-24): on resume the TUI replayed the
+    // baseUrl CAPTURED in the conversation meta when the session was created,
+    // so a stale experimental base-url kept 404-ing forever — no matter what
+    // ~/.tina/config said now — for the life of that session. The provider
+    // must resolve through buildStartupProvider: the CURRENT config base,
+    // applied only under the ref's provider, never the captured one.
+    final bases = <String>[];
+    final registry = ProviderRegistry(env: const {'TEST_KEY': 'k'})
+      ..register(ProviderDescriptor(
+        id: 'anthropic',
+        name: 'anthropic',
+        authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
+        defaultBaseUrl: 'https://anthropic.test',
+        builder: (c) {
+          bases.add(c.baseUrl);
+          return FakeProvider(const [], model: c.model);
+        },
+        models: {
+          'claude-sonnet-4-6': ModelInfo(
+              id: 'claude-sonnet-4-6', name: 'S', contextWindow: 1, maxOutput: 1),
+        },
+      ));
+
+    // A session created while a wrong experimental base was configured: the
+    // meta froze it, and the transcript exists so --resume resolves it.
+    final store = MemorySessionStore();
+    final sid = await store.createSession(providerId: 'anthropic');
+    final cid = await store.createConversationWithMeta(
+        sid,
+        ConversationMetaInput.primary(
+          providerId: 'anthropic',
+          provider: FakeProvider(const [], model: 'claude-3-opus-20240229'),
+          baseUrl: 'https://stale.example/v1',
+          policy: PermissionPolicy(),
+        ));
+    await store.append(sid, cid,
+        const Message(role: Role.user, content: [TextBlock('q')]));
+    await store.setActiveConversation(sid, cid);
+
+    final io = FakeStdio()..hasTerminalValue = false;
+    final config = Config.parse(
+        ['--resume', sid, '--backend', 'ansi', '--base-url', 'https://fresh.example'],
+        registry: registry,
+        env: const {'TEST_KEY': 'k'});
+    final app = await buildAppComposition(
+      config: config,
+      registry: registry,
+      store: store,
+      // Timing-sensitive full-loop test: keep the update-check banner (a real
+      // network probe) out of the chat stream.
+      environment: FakeEnvironment(
+          env: {for (final e in Platform.environment.entries) e.key: e.value}
+            ..['COCOON_UPDATE_CHECK'] = '0'),
+    );
+    final coordinator = await TuiCoordinator.create(
+      app: app,
+      io: io,
+      terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
+    );
+    coordinator.pendingFirstLoadEnvironmentAsk = null;
+
+    // The ACTIVE conversation's provider was built at create() — under the
+    // current config base (and still under the /model-swapped model the meta
+    // remembers), never under the captured one.
+    expect(bases, isNot(contains('https://stale.example/v1')),
+        reason: 'the base captured at creation must never reach a provider');
+    expect(bases.last, 'https://fresh.example');
+    expect(
+        coordinator.sessionManager.activeConversation.provider.model,
+        'claude-3-opus-20240229',
+        reason: 'a /model swap during the session still survives resume');
+
+    io.feedBytes([0x2f, 0x65, 0x78, 0x69, 0x74, 0x0d, 0x0d]); // /exit
+    await coordinator.run().timeout(const Duration(seconds: 5));
+    io.close();
+  });
+
   test('emergencyTerminalRestore leaves the alt screen via the live backend',
       () async {
     // Regression guard for the crash-path terminal restore: when an unhandled
@@ -396,9 +474,11 @@ void main() {
       final primaryId = await store.createConversationWithMeta(
         sid,
         const ConversationMetaInput(
-          model: 'anthropic/claude-sonnet-4-6',
+          // A model the config default is NOT (the descriptor's default is
+          // claude-sonnet-4-6), so falling back would be visible.
+          model: 'anthropic/claude-3-opus-20240229',
           providerId: 'anthropic',
-          label: 'claude-sonnet-4-6',
+          label: 'claude-3-opus-20240229',
           kind: ConversationKind.primary,
           promptOverride: 'persisted system',
         ),
@@ -408,11 +488,16 @@ void main() {
 
       final io = FakeStdio()..hasTerminalValue = false;
       final config = Config.parse(['--resume', sid, '--backend', 'ansi']);
+      // NO injected provider: the injected startup override wins over the
+      // persisted ref by contract (AppComposition.buildStartupProvider), so
+      // exercising the meta path means letting the registry build for real.
       final app = await buildAppComposition(
         config: config,
         registry: builtinRegistry(),
-        provider: FakeProvider.done(), // the config default — a DIFFERENT model
         store: store,
+        environment: FakeEnvironment(
+            env: {for (final e in Platform.environment.entries) e.key: e.value}
+              ..['COCOON_UPDATE_CHECK'] = '0'),
       );
       final coordinator = await TuiCoordinator.create(
         app: app,
@@ -421,7 +506,7 @@ void main() {
       );
 
       final conv = coordinator.sessionManager.activeConversation;
-      expect(conv.provider.model, 'claude-sonnet-4-6',
+      expect(conv.provider.model, 'claude-3-opus-20240229',
           reason: 'the active conversation must resume under its persisted '
               'model ref, not the config default');
     });
@@ -1148,6 +1233,13 @@ void main() {
         registry: builtinRegistry(),
         provider: FakeProvider([toolTurn('c1'), toolTurn('c2')]),
         store: MemorySessionStore(),
+        // Hermeticity: the background update check probes GitHub and drops a
+        // banner into the chat — a real release (0.4.1, 2026-08-24) landed it
+        // between the approval and the first Esc, breaking the echo this test
+        // pumps for. Timing-sensitive TUI tests must not see the network.
+        environment: FakeEnvironment(
+            env: {for (final e in Platform.environment.entries) e.key: e.value}
+              ..['COCOON_UPDATE_CHECK'] = '0'),
       );
       final coordinator = await TuiCoordinator.create(
         app: app,

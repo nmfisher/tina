@@ -1281,4 +1281,40 @@ Round-5 close notes (2026-08-24):
   eats single Escs as deny), and PR #25 — `--continue` degrades when
   project-local transcripts are gone instead of crashing at
   resolveSession. All four CI jobs green on both.
+- CI: PR #26 all four jobs pass live (run 32702056746; console 52s,
+  engine 1m10s, index 41s, root 1m37s). #24 and #25 merged upstream
+  (86515ec, e3d1549) plus a release bump to 0.4.1 (a8bb941); #26
+  left open, MERGEABLE/CLEAN against the new main. Next round rebases
+  the driver branch onto a8bb941 — the local stack still carries
+  pre-squash copies of the two fixes.
 
+
+Driver fix (2026-08-24, post-round-5) — stale base-url replay on resume:
+
+- Owner follow-up to the Hetzner 404 triage: the resume paths replayed
+  the `base_url` CAPTURED into the conversation meta at creation time
+  (tui_coordinator's active-conversation build and
+  session_restore._restoreProvider), so a stale experimental `base-url`
+  outlived every config edit for the life of the session — the exact
+  trap that kept a dead endpoint 404-ing no matter what the config said
+  now. Live probes pinned the diagnosis: model-id mismatches 403
+  (`model use not permitted`); only wrong PATHS 404 (`404 page not
+  found`).
+- Fix: both replay sites now resolve under the CURRENT config with the
+  same guard AppComposition.buildStartupProvider and the TUI's
+  providerFactory already use — the startup key/base apply only when
+  the ref's provider IS the config provider; meta.baseUrl is provenance
+  only. The TUI's duplicated meta-resolution block is gone entirely
+  (buildStartupProvider IS that logic, plus --model-wins and the
+  unresolvable-ref stderr note); _restoreProvider mirrors it inline and
+  now also threads the config knobs (maxTokens/idle/request) it used to
+  drop.
+- Test hermeticity fallout: the release of 0.4.1 itself broke the
+  double-Esc regression test — the TUI's background update check
+  (COCOON_UPDATE_CHECK) probed GitHub, found 0.4.1, and dropped its
+  banner between the approval and the first Esc. Timing-sensitive TUI
+  tests now inject FakeEnvironment with COCOON_UPDATE_CHECK=0.
+- Tests: +3 restore freshness (same-provider current-wins,
+  cross-provider neither-applies, no-override heals to descriptor
+  default), +1 startup base-url, +1 end-to-end TUI resume (recording
+  registry). All verified failing pre-fix. Root 782 green, analyzes 0.
