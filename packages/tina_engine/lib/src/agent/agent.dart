@@ -32,6 +32,90 @@ const int kMaxToolCallsPerRun = 5000;
 /// [kMaxToolCallsPerRun].
 const int _consecutiveDenialNoticeThreshold = 3;
 
+/// How many of the most recent agent-loop STEPS keep their tool results at
+/// full size (#44). A result older than this window is dead weight at full
+/// size — the model metabolized it when it arrived (extracting what mattered
+/// into its own prose) but every later request re-sends it verbatim: #42
+/// measured ONE 53KB read costing ~585K cumulative tokens across a 45-step
+/// turn. Why 8: deep enough that any follow-up work on a fresh result happens
+/// inside the window; shallow enough that a long turn's steady-state context
+/// stays bounded to recent output plus prose. Tunable like
+/// [kToolResultStubThreshold]; both must be exceeded for a stub.
+const int kToolResultRetentionSteps = 8;
+
+/// Minimum serialized size (bytes) of a tool_result body worth stubbing
+/// (#44). Small results are cheap context and often load-bearing (error
+/// text, exit codes, short paths) — only bodies larger than this are aged
+/// out. Bytes = the serialized length the token estimator counts, so the
+/// threshold is directly comparable to the request-size arithmetic.
+const int kToolResultStubThreshold = 4096;
+
+/// Replace AGED LARGE tool_result blocks in [history] with short stubs
+/// (#44), in place. A block qualifies when its serialized body exceeds
+/// [kToolResultStubThreshold] bytes AND it was produced more than
+/// [kToolResultRetentionSteps] steps before [currentStep] — the current
+/// step's results and everything inside the retention window are never
+/// touched, nor are small results. The stub keeps the block's `tool_use_id`
+/// and message structure intact so tool_use/tool_result pairing is NEVER
+/// severed (providers reject an unpaired use — the hard invariant); only
+/// the content string shrinks. Returns how many blocks were stubbed
+/// (0 = no-op: all-small or all-recent history).
+///
+/// Runs between steps, BEFORE any compaction pass at the same checkpoint:
+/// it is cheap, deterministic, and LLM-free, so it composes with
+/// compaction — stubbing bounds the steady-state context, compaction
+/// rescues the rest. Silent by design: the UI already showed the content
+/// live when the tool completed; there is nothing new to announce.
+///
+/// "Step" here means the agent-loop index: the turn's opening user message
+/// carries no results, and each step appends exactly ONE user
+/// (tool_result) batch — possibly with several blocks — so the Nth
+/// tool-result batch in history order was produced by loop step N (1-based).
+/// Age = currentStep − that batch number; a batch is aged only when the age
+/// EXCEEDS the retention window (blocks in a batch age together). The stub
+/// names the tool by looking its `tool_use_id` up in the history's
+/// tool_use blocks (defensive fallback if the use was summarized away).
+int stubAgedToolResults(List<Message> history,
+    {required int currentStep}) {
+  // id → tool name, from every tool_use block in history (the assistant
+  // message each result batch answers). One cheap pre-pass; the pairing
+  // itself is never modified — only the result body is.
+  final useNames = <String, String>{};
+  for (final m in history) {
+    if (m.role != Role.assistant) continue;
+    for (final b in m.content) {
+      if (b is ToolUseBlock) useNames[b.id] = b.name;
+    }
+  }
+
+  var stubbed = 0;
+  var batchNumber = 0;
+  for (final m in history) {
+    if (m.role != Role.user) continue;
+    final hasResult = m.content.any((b) => b is ToolResultBlock);
+    if (!hasResult) continue;
+    batchNumber++;
+    final ageSteps = currentStep - batchNumber;
+    if (ageSteps <= kToolResultRetentionSteps) continue;
+    for (var b = 0; b < m.content.length; b++) {
+      final block = m.content[b];
+      if (block is! ToolResultBlock) continue;
+      if (block.content.length <= kToolResultStubThreshold) continue;
+      final originalBytes = block.content.length;
+      final toolName = useNames[block.toolUseId] ?? 'unknown tool';
+      m.content[b] = ToolResultBlock(
+        toolUseId: block.toolUseId,
+        isError: block.isError,
+        content:
+            '[elided after $ageSteps steps: $toolName result, '
+            '$originalBytes bytes — re-run to recover]',
+      );
+      stubbed++;
+    }
+  }
+  return stubbed;
+}
+
 /// Why a turn stopped abnormally, classified by cause. Callers that decide
 /// whether to retry (e.g. the pipeline's codergen nodes) treat [provider]
 /// failures as transient — a rate limit or dropped stream may clear on its
@@ -226,6 +310,15 @@ class Agent {
   bool get softMarginFired => _softMarginFired;
   bool _softMarginFired = false;
 
+  /// Once-per-turn latch (#43) for the 50% cumulative-spend compaction
+  /// trigger. When [budget!.turnSpendCompactTrigger()] first reaches true,
+  /// the agent runs [compact] once for the turn, then sets this so the
+  /// trigger does not re-fire (repeating compaction buys nothing and would
+  /// waste provider calls). Reset each turn with [_softMarginFired]. The
+  /// ladder is 50% compact → 90% soft nudge → 100% hard abort.
+  bool get turnSpendCompactFired => _turnSpendCompactFired;
+  bool _turnSpendCompactFired = false;
+
   /// Run one user turn. The agent may issue several provider calls if tools
   /// are invoked. [cancelSignal], when completed, aborts the current
   /// in-flight stream and exits the turn cleanly.
@@ -267,6 +360,9 @@ class Agent {
     // The soft margin re-arms every turn: a new user turn gets its own one
     // nudge (the previous turn's spend is zeroed by resetTurn below).
     _softMarginFired = false;
+    // Same for the 50%-spend compaction latch (#43): the previous turn's
+    // compaction must not suppress this turn's.
+    _turnSpendCompactFired = false;
     final userMessage =
         Message(role: Role.user, content: [TextBlock(userInput)]);
     history.add(userMessage);
@@ -319,15 +415,17 @@ class Agent {
       // every round trip) crossing half the per-turn cap while the estimate
       // is above half the threshold — the many-steps-on-a-mid-size-context
       // case (65K × 15 ≈ 1M) where no single request ever grows large
-      // enough, but the cap keeps tripping. Compacting at half-spend
-      // shrinks every subsequent request and stretches the cap for exactly
-      // the runs that need it. Either way the older history is summarized in
-      // place (keeping the trailing messages verbatim) and that goes out
-      // instead. Same estimate [checkRequestInput] uses; compaction failure is
-      // non-fatal and rate-limited by the attempt gate above. Runs BEFORE the
-      // per-request rejection so a payload that crossed both thresholds gets
-      // compacted first — the cap then judges the compacted history, and only
-      // rejects when even compaction couldn't bring it down.
+      // enough, but the cap keeps tripping (#42 measured exactly this shape:
+      // 45 steps × ~40K re-sent ≈ 1.8M, every request under ~60K).
+      // Compacting at half-spend shrinks every subsequent request and
+      // stretches the cap for exactly the runs that need it. Either way the
+      // older history is summarized in place (keeping the trailing messages
+      // verbatim) and that goes out instead. Same estimate [checkRequestInput]
+      // uses; compaction failure is non-fatal and rate-limited by the attempt
+      // gate above. Runs BEFORE the per-request rejection so a payload that
+      // crossed both thresholds gets compacted first — the cap then judges
+      // the compacted history, and only rejects when even compaction couldn't
+      // bring it down.
       //
       // The splittability pre-check (boundary ≥ 2 ⇒ a prefix of at least two
       // messages) costs no request: a history that is still all-current-turn
@@ -336,32 +434,54 @@ class Agent {
       //
       // `autoCompactThreshold == 0` disables BOTH triggers (0 = feature off;
       // the spend trigger refines WHEN, not WHETHER, to compact).
+      //
+      // The per-turn spend LADDER (#43), in firing order: 50% of
+      // perTurnLimit — one in-place compaction (this block; the latch
+      // [_turnSpendCompactFired] bounds it to a single attempt per turn) →
+      // 90% — the soft margin's one in-band "finish up" nudge (#37, checked
+      // after each record below) → 100% — the hard budget abort (below,
+      // untouched). Compacting at the first rung is what keeps the later
+      // rungs from being reached in a many-step turn.
+      // Aged large tool_result stubbing (#44): between steps, any
+      // tool_result block whose serialized body exceeds the threshold
+      // (4KB) and which is older than the retention window (8 steps back)
+      // is replaced IN PLACE with a short text stub; pairing stays
+      // intact (`tool_use_id` preserved). Silent, deterministic, no
+      // LLM call — runs BEFORE any compaction pass so the two compose:
+      // stubbing trims the steady-state context, compaction handles the
+      // rest. A history of all-small or all-recent results is a no-op.
+      stubAgedToolResults(history, currentStep: step);
+
       if (autoCompactThreshold > 0 && step - lastCompactAttempt >= 3) {
         final estimate =
             TokenBudget.estimateInputTokens(system, history, tools.schemas);
         final sizeTriggered = estimate > autoCompactThreshold;
         // Spend trigger: the per-turn cap counts every round trip's
         // input+output, so a many-step turn on a mid-size context burns
-        // through the cap even when no single request is large. Compact at
-        // ~50% of the cap — halving every subsequent request stretches the
-        // remaining budget for the long autonomous runs that need it. The
-        // floor (estimate > threshold/2) skips compaction when the context
-        // is small enough that compacting buys little.
-        final perTurn = budget?.perTurnLimit;
-        final spendTriggered = perTurn != null &&
-            budget!.turnTotal >= perTurn ~/ 2 &&
-            estimate > autoCompactThreshold ~/ 2;
+        // through the cap even when no single request is large. The
+        // predicate [TokenBudget.turnSpendCompactTrigger] owns the 50% rung
+        // of the ladder (named constant kTurnSpendCompactRatio; pure over
+        // the recorded totals, false without a perTurnLimit); the latch
+        // below bounds it to once per turn; the size floor
+        // (estimate > threshold/2) skips compaction when the context is
+        // small enough that compacting buys little.
+        final spendTriggered =
+            !_turnSpendCompactFired &&
+                budget?.turnSpendCompactTrigger() == true &&
+                estimate > autoCompactThreshold ~/ 2;
         if ((sizeTriggered || spendTriggered) &&
             _assistantMessageBoundary(history, autoCompactKeepMessages) >= 2) {
           if (spendTriggered && !sizeTriggered) {
             sink.notice(
-                '\n[compact] turn spend ${budget!.turnTotal}/$perTurn '
-                'crossed 50% — compacting to stretch the per-turn cap\n',
+                '\n[compact] turn spend ${budget!.turnTotal}/'
+                '${budget!.perTurnLimit} crossed '
+                '${(kTurnSpendCompactRatio * 100).round()}% '
+                '— compacting once to stretch the per-turn cap\n',
                 kind: NoticeKind.info);
           }
           lastCompactAttempt = step;
-          await compact(history,
-              preserveRecentMessages: autoCompactKeepMessages);
+          _turnSpendCompactFired = true;
+          await compact(history, preserveRecentMessages: autoCompactKeepMessages);
         }
       }
 

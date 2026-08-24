@@ -25,6 +25,21 @@ enum TokenLimitKind { perTurn, perSession }
 /// untouched by it.
 const double kPerTurnSoftMarginRatio = 0.9;
 
+/// Fraction of the per-turn token cap at which the agent's mid-turn
+/// auto-compact fires on CUMULATIVE spend (#43): when `turnTotal` FIRST
+/// crosses this share of `perTurnLimit`, the older history is summarized in
+/// place — the same compaction the request-size trigger runs — so every
+/// subsequent request shrinks before the cap trips. #42's measurement is why
+/// the trigger exists: a 45-step turn on a mid-size context spends
+/// cumulatively (steps × re-sent context ≈ 1.8M) while no single request ever
+/// grows "large", so the request-size threshold alone fired too late to
+/// matter. With the soft margin this completes the spend ladder: compact at
+/// 50% → soft nudge at 90% ([kPerTurnSoftMarginRatio]) → hard abort at 100%
+/// (`exceededLimit`, untouched). Named constant beside the soft-margin ratio
+/// so both rungs of the ladder are tunable in one place; requires an
+/// auto-compact threshold > 0 (0 disables compaction entirely).
+const double kTurnSpendCompactRatio = 0.5;
+
 /// Immutable accumulator of token spend against the three caps. [record]
 /// returns a new [TokenBudget] with the totals advanced; [resetTurn] /
 /// [resetSession] return one with a total zeroed. The owner (an [Agent])
@@ -145,6 +160,26 @@ class TokenBudget {
         ' (${turnTotal} of $limit tokens) of the per-turn limit — finish the '
         'current step and write your closing summary now; the turn is '
         'aborted hard when the remaining spend is exhausted.';
+  }
+
+  /// True when the recorded spend has FIRST crossed the #43 compaction rung
+  /// — `turnTotal` has reached [kTurnSpendCompactRatio] (50%) of the
+  /// per-turn limit while still within the cap. Pure over [turnTotal] and
+  /// [perTurnLimit] — the same source [exceeded] reads — so it can never
+  /// report true after a hard trip (once `turnTotal > perTurnLimit`,
+  /// [exceeded] already won). Like [softMarginNotice] it re-fires on every
+  /// call after the threshold is crossed: callers must latch their own
+  /// once-per-turn flag (the agent does). The agent pairs this predicate
+  /// with the auto-compact threshold's own size floor at the call site, so
+  /// a mid-size cap doesn't force compaction of a context so small that
+  /// compacting buys nothing. Null (no per-turn limit) → false: with no cap
+  /// there is no fraction to cross.
+  bool turnSpendCompactTrigger() {
+    final limit = perTurnLimit;
+    if (limit == null || turnTotal < (limit * kTurnSpendCompactRatio).ceil()) {
+      return false;
+    }
+    return exceededLimit() == null; // hard trip: the hard reason wins
   }
 
   /// Pre-flight check on a request's input size. Approximates token count as
