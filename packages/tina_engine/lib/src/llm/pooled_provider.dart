@@ -3,6 +3,7 @@ import 'dart:async';
 import '../tools/tool.dart';
 import 'message.dart';
 import 'provider.dart';
+import 'retrying_provider.dart';
 import 'wire.dart';
 
 /// One logical model served by N equivalent member providers, round-robin.
@@ -123,8 +124,10 @@ class PooledProvider implements LlmProvider {
     /// Pump one member's stream to [controller]. Returns the swallowed
     /// before-content error when this member failed and a failover is
     /// warranted (the caller cools it down and tries the next); null when
-    /// the attempt ran to its terminal event (or was cancelled).
-    Future<StreamError?> _attempt(LlmProvider member) {
+    /// the attempt ran to its terminal event (or was cancelled). [memberIndex]
+    /// / [tryNumber] tag the failed-attempt usage report (#46).
+    Future<StreamError?> _attempt(LlmProvider member,
+        {required int memberIndex, required int tryNumber}) {
       final done = Completer<void>();
       StreamError? swallowed;
       var forwarded = false;
@@ -138,6 +141,15 @@ class PooledProvider implements LlmProvider {
               if (cancelled.isCompleted || swallowed != null) return;
               if (!forwarded && event is StreamError) {
                 swallowed = event;
+                // #46: a member attempt that fails and rotates is a full
+                // body re-send — its cost was invisible before this fix.
+                bookFailedAttemptUsage(
+                    system: system,
+                    messages: messages,
+                    tools: tools,
+                    error: event,
+                    attempt: tryNumber,
+                    member: 'pool-$memberIndex');
                 return;
               }
               // A completion with NO blocks is a failed member response in
@@ -150,9 +162,19 @@ class PooledProvider implements LlmProvider {
               if (!forwarded &&
                   event is MessageComplete &&
                   event.content.isEmpty) {
-                swallowed = const StreamError(
+                final emptyErr = StreamError(
                     'member returned an empty completion',
                     transient: true);
+                swallowed = emptyErr;
+                // #46: empty-completion failover is a swallowed full-body
+                // re-send — same invisible-spend fix.
+                bookFailedAttemptUsage(
+                    system: system,
+                    messages: messages,
+                    tools: tools,
+                    error: emptyErr,
+                    attempt: tryNumber,
+                    member: 'pool-$memberIndex');
                 return;
               }
               forwarded = true;
@@ -210,7 +232,8 @@ class PooledProvider implements LlmProvider {
         final (member, index) = taken;
         Wire.report('pool_rotate',
             member: 'pool-$index', attempt: tried + 1);
-        final failure = await _attempt(member);
+        final failure = await _attempt(member,
+            memberIndex: index, tryNumber: tried + 1);
         if (cancelled.isCompleted) return;
         if (failure == null) {
           // Terminal attempt — its events (including any error that

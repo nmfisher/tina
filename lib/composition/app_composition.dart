@@ -163,6 +163,12 @@ Future<AppComposition> buildAppComposition({
     maxGlobalTokens: config.maxGlobalTokens,
     requestsPerMinute: config.requestsPerMinute,
   );
+  // #46 (c): make a degrading provider patch visible while it burns — the
+  // ledger notices when retried (failed-attempt) spend crosses a tenth of
+  // total spend and escalates by further tenths. stderr is the default sink
+  // (visible headless and in nohup logs, same channel as the watchdog); a
+  // TUI may replace it with a chat renderer.
+  ledger.onRetriedSpendNotice = stderr.writeln;
   final pauseGate = PauseGate();
   registry.decorator = (inner) => MeteringProvider(inner, ledger, pauseGate);
   final policy = config.buildPolicy();

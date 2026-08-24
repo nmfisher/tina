@@ -121,6 +121,18 @@ class SessionCommandHandlers {
           'previous run');
     }
     buf.writeln();
+    // #46: failed-attempt spend is booked distinctly — measured (the error
+    // carried provider-reported usage) or estimated (body-size floor) — and
+    // counts toward the cap arithmetic, so show it separately here rather
+    // than folding it into the measured number.
+    final est = ledger.totalEstimatedTokens;
+    if (est > 0) {
+      buf.writeln('Failed-attempt bookings: '
+          '${_formatCount(est)} estimated tokens '
+          '(re-sent bodies the retry ladders swallowed — the measured '
+          'error-body usage rides in the total above); combined total '
+          '${_formatCount(ledger.grandTotalTokens)}');
+    }
     final cap = ledger.cap;
     if (cap != null) {
       buf.writeln('Global cap: ${_formatCount(cap)} · '

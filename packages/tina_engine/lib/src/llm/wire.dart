@@ -43,10 +43,83 @@ class WireState {
       '$event member=$member attempt=$attempt ${inFlight ? 'in-flight' : 'idle'}';
 }
 
+/// #46: token usage booked for one FAILED transport attempt. This is a
+/// SELF-CONTAINED numeric carrier: it deliberately does NOT reference
+/// [TokenUsage] (provider.dart) because this file must stay import-free at the
+/// bottom of the stack. The ladder converts the real [TokenUsage] into a
+/// [WireUsage] when it reports, and the metering layer converts it back.
+class WireUsage {
+  final int inputTokens;
+  final int outputTokens;
+  final int cacheCreationInputTokens;
+  final int cacheReadInputTokens;
+
+  const WireUsage({
+    this.inputTokens = 0,
+    this.outputTokens = 0,
+    this.cacheCreationInputTokens = 0,
+    this.cacheReadInputTokens = 0,
+  });
+
+  int get total => inputTokens + outputTokens;
+
+  @override
+  String toString() =>
+      '$inputTokens in / $outputTokens out'
+      '${cacheCreationInputTokens > 0 ? ' / +$cacheCreationInputTokens write' : ''}'
+      '${cacheReadInputTokens > 0 ? ' / $cacheReadInputTokens read' : ''}';
+}
+
+/// #46: usage booked for one FAILED transport attempt. Emitted through
+/// [Wire.onAttemptUsage] by the retry ladder ([RetryingProvider],
+/// [PooledProvider]) — the layers that swallow a before-content failure and
+/// re-send the full body, so they are also the only layers that know an
+/// attempt died and what it cost.
+///
+/// [estimated] distinguishes the two capture paths mandated by #46:
+/// * false (measured) — the attempt's error carried provider-reported usage
+///   (several providers include it in 429/5xx bodies or headers); those
+///   tokens are real and really billed;
+/// * true (estimated) — the error carried nothing, so the ladder books the
+///   estimated input-token size of the body it re-sent as a floor.
+class AttemptUsage {
+  /// Which pool member / endpoint served the failed attempt ('single' when
+  /// not pooled) — mirrors [WireState.member].
+  final String member;
+
+  /// 1-based attempt number within the send that failed.
+  final int attempt;
+
+  /// What the attempt cost: provider-reported when [estimated] is false,
+  /// the body-size estimate when true.
+  final WireUsage usage;
+
+  /// True when [usage] is an approximation, not a provider report.
+  final bool estimated;
+
+  const AttemptUsage({
+    required this.member,
+    required this.attempt,
+    required this.usage,
+    required this.estimated,
+  });
+
+  @override
+  String toString() =>
+      'attempt#$attempt member=$member $usage'
+      '${estimated ? ' (est)' : ''}';
+}
+
 abstract final class Wire {
   /// Installed by the app layer (bin/tina.dart) before any send can run.
   /// Null everywhere else — every report is then a no-op.
   static void Function(WireState state)? onWireEvent;
+
+  /// #46: installed by the metering layer ([MeteringProvider]) at startup.
+  /// The retry ladder reports failed-attempt usage through this hook so
+  /// the funnel (metering) sees spend that was previously invisible. A null
+  /// hook keeps reports free when no meter is installed.
+  static void Function(AttemptUsage usage)? onAttemptUsage;
 
   static WireState? _last;
   static DateTime _inFlightSince = DateTime.now();
@@ -63,6 +136,12 @@ abstract final class Wire {
     _last = WireState(event,
         member: member, attempt: attempt, inFlight: f);
     onWireEvent?.call(_last!);
+  }
+
+  /// #46: report usage booked for one failed transport attempt. Free (no-op)
+  /// when no meter is installed — mirroring [report].
+  static void reportAttemptUsage(AttemptUsage usage) {
+    onAttemptUsage?.call(usage);
   }
 
   /// Elapsed time of the current (or last) in-flight request.

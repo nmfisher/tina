@@ -14,11 +14,22 @@ class TokenUsage {
   /// is unavailable.
   final int cacheReadInputTokens;
 
+  /// #46: true when the numbers here were APPROXIMATED — a failed transport
+  /// attempt whose error carried no usage gets the estimated size of the body
+  /// it re-sent — rather than reported by the provider. Estimated usage is
+  /// booked via [SpendLedger.recordEstimated] into a separate counter and
+  /// shown distinctly ("X measured + Y estimated") so it never masquerades as
+  /// measured, but it counts toward the same ceilings so a runaway retry
+  /// ladder trips them like real spend. Provider-reported usage never sets
+  /// this flag (its default is false).
+  final bool estimated;
+
   const TokenUsage({
     required this.inputTokens,
     required this.outputTokens,
     this.cacheCreationInputTokens = 0,
     this.cacheReadInputTokens = 0,
+    this.estimated = false,
   });
 
   static const zero = TokenUsage(inputTokens: 0, outputTokens: 0);
@@ -84,8 +95,17 @@ class StreamError extends StreamEvent {
   /// `isTransientException` so the retry layer can re-attempt without
   /// re-throwing the raw exception through the stream.
   final bool transient;
+
+  /// #46 (a): usage the provider reported IN its error response, when it did.
+  /// Several providers include a final usage block in 429/5xx bodies or an
+  /// `x-…-tokens` header even when they refuse the request — those tokens were
+  /// really processed and really billed. Null when the error carried none:
+  /// nothing is invented here. The retry ladder books this measured usage for
+  /// the failed attempt INSTEAD of an estimate ([estimated] stays false) —
+  /// measured beats estimated for the same attempt.
+  final TokenUsage? usage;
   const StreamError(this.error,
-      {this.statusCode, this.retryAfter, this.transient = false});
+      {this.statusCode, this.retryAfter, this.transient = false, this.usage});
 }
 
 abstract class LlmProvider {

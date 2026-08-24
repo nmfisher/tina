@@ -113,7 +113,9 @@ class AnthropicProvider extends LlmProvider {
       final text = await resp.stream.bytesToString();
       yield StreamError(humanizeHttpError('Anthropic', resp.statusCode, text),
           statusCode: resp.statusCode,
-          retryAfter: parseRetryAfter(resp.headers['retry-after']));
+          retryAfter: parseRetryAfter(resp.headers['retry-after']),
+          // #46 (a): Anthropic sometimes reports usage in non-200 bodies.
+          usage: parseErrorUsage(text));
       return;
     }
 

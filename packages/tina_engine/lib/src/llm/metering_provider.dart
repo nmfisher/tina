@@ -5,6 +5,15 @@ import '../agent/spend_ledger.dart';
 import '../tools/tool.dart';
 import 'message.dart';
 import 'provider.dart';
+import 'wire.dart';
+
+/// #46 funnel: live-instance tracking avoids closing one ephemeral
+/// [MeteringProvider] (e.g. a summary/env runner's) from nulling the hook
+/// another live instance still relies on. Each instance installs itself
+/// as the active handler on the shared [Wire] slot; [close()] only
+/// reinstalls the newest remaining live handler (or nulls when none).
+/// All instances route to their shared ledger, so reports never double-book.
+final List<MeteringProvider> _liveMeters = <MeteringProvider>[];
 
 /// A pass-through [LlmProvider] decorator that is the single funnel for spend
 /// metering and rate-limiting. Applied once inside `ProviderRegistry.build`, it
@@ -40,7 +49,39 @@ class MeteringProvider implements LlmProvider {
   /// here at its next request). Null in tests / headless (no pause behavior).
   final PauseGate? pauseGate;
 
-  MeteringProvider(this.inner, this.ledger, [this.pauseGate]);
+  MeteringProvider(this.inner, this.ledger, [this.pauseGate]) {
+    // #46: funnel for retried-spend reports from both failure ladders.
+    // Each attempt's invisible cost (estimate or measured error usage) flows
+    // through here into the ledger. Every instance over the same shared
+    // session ledger routes its reports to that one ledger, so a report is
+    // booked exactly once no matter how many meters are alive; the static
+    // slot always points at the newest live instance (see [_liveMeters]).
+    _liveMeters.add(this);
+    Wire.onAttemptUsage = _recordAttemptUsage;
+  }
+
+  void _recordAttemptUsage(AttemptUsage usage) {
+    final t = TokenUsage(
+      inputTokens: usage.usage.inputTokens,
+      outputTokens: usage.usage.outputTokens,
+      cacheCreationInputTokens: usage.usage.cacheCreationInputTokens,
+      cacheReadInputTokens: usage.usage.cacheReadInputTokens,
+    );
+    // One entry point books everything: the measured/estimated counters AND
+    // the retried tallies that drive the #46 (c) degrading-provider notice.
+    ledger.recordRetried(t, estimated: usage.estimated);
+  }
+
+  @override
+  void close() {
+    // Only stop funneling when this is the last live meter — an earlier
+    // ephemeral runner's close() must not kill the hook the session's
+    // remaining meters still rely on.
+    _liveMeters.remove(this);
+    Wire.onAttemptUsage =
+        _liveMeters.isEmpty ? null : _liveMeters.last._recordAttemptUsage;
+    inner.close();
+  }
 
   /// Delegate so `/model <name>` (which assigns `provider.model = next`) reaches
   /// the real underlying provider rather than a dead field on the decorator.
@@ -50,9 +91,6 @@ class MeteringProvider implements LlmProvider {
   set model(String value) {
     inner.model = value;
   }
-
-  @override
-  void close() => inner.close();
 
   @override
   Stream<StreamEvent> send({
