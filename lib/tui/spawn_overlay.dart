@@ -750,9 +750,13 @@ class _QuestionForm {
       all.add(qFocus ? _hi('❯ ${_questions[q].text}') : _dim('  ${_questions[q].text}'));
       final options = _questions[q].options;
       for (var o = 0; o < options.length; o++) {
+        // No arrow indicator on options (owner follow-up 2026-08-24): ▸ read
+        // as a collapsed/expander chevron. Focus is the selected COLOR alone —
+        // the completion picker's convention; a committed answer keeps its
+        // filled dot, which marks choice, not expandability.
         final oFocus = qFocus && o == _optionFocus[q];
         if (oFocus) {
-          all.add(_hi('  ▸ ${options[o]}'));
+          all.add(_hi('    ${options[o]}'));
         } else if (_committed[q] == o) {
           all.add(_dim('  ● ${options[o]}')); // Enter-confirmed on this pass
         } else {

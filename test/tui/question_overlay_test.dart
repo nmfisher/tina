@@ -200,6 +200,9 @@ void main() {
       expect(out, isNot(contains('┐')));
       expect(out, isNot(contains('┘')));
       expect(out, isNot(contains('─')), reason: 'no horizontal rule');
+      // Answer options carry NO arrow indicator (owner follow-up: ▸ read as
+      // an expandable-collapsed chevron). Focus is color alone.
+      expect(out, isNot(contains('▸')), reason: 'no arrow on answer options');
       // The content itself is there: questions, options, and the key hint.
       expect(out, contains('Which approach?'));
       expect(out, contains('A: refactor'));
