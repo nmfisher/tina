@@ -548,10 +548,20 @@ List<String> boxLines({
 }
 
 /// A multi-question selection form: one or more questions, each with a list of
-/// options. ↑/↓ move the option focus within the focused question; ←/→ move
-/// between questions (each keeps its own option focus); Enter confirms ALL
-/// questions at once; Esc/Ctrl-C cancels. Returns the chosen option label per
-/// question (index-aligned), or null on cancel. The opencode/Claude-Code-style
+/// options. It renders INLINE AT THE INPUT FIELD — the options occupy the rows
+/// directly above the input line (the completion-picker placement: the input's
+/// column and width, growing upward into the chat area), and the input row
+/// itself carries the focused question — NOT a centered panel popover.
+///
+/// Keys: ↑/↓ move the option focus within the focused question; ←/→ move
+/// between questions (each keeps its own option focus); Enter SELECTS the
+/// focused option for the focused question — committing it and advancing to
+/// the next question — and only submits the form when pressed on the LAST
+/// question (owner bug report: Enter on the first option used to submit the
+/// whole thing, which read as if the form had never been navigated). A
+/// question reached by ←/→ without its own Enter falls back to its focused
+/// option. Esc/Ctrl-C cancels. Returns the chosen option label per question
+/// (index-aligned), or null on cancel. The opencode/Claude-Code-style
 /// primitive backing the agent's `ask_user` tool.
 Future<List<String>?> runQuestionOverlay({
   required Screen screen,
@@ -559,39 +569,33 @@ Future<List<String>?> runQuestionOverlay({
   required List<({String text, List<String> options})> questions,
   Future<InputEvent> Function()? readEvent,
 }) =>
-    _QuestionForm(screen, questions, readEvent ?? editor.readKey).run();
+    _QuestionForm(screen, editor, questions, readEvent ?? editor.readKey).run();
 
 class _QuestionForm {
-  _QuestionForm(this._screen, this._questions, this._readEvent);
+  _QuestionForm(this._screen, this._editor, this._questions, this._readEvent);
 
   final Screen _screen;
+  final LineEditor _editor;
   final List<({String text, List<String> options})> _questions;
   final Future<InputEvent> Function() _readEvent;
 
-  late final OverlayRegion _overlay;
-  late final Rect _rect;
+  late final OverlayRegion _overlay = OverlayRegion(_screen, Rect.empty);
 
   int _questionFocus = 0;
   final List<int> _optionFocus = [];
-  final List<int> _selections = [];
+
+  /// Per question, the option index confirmed by an Enter on that question,
+  /// or null when the user only navigated past it (its focused option is the
+  /// implicit answer at submit time).
+  final List<int?> _committed = [];
   int _scrollOffset = 0;
 
   Future<List<String>?> run() async {
     if (_questions.isEmpty) return const [];
     for (var i = 0; i < _questions.length; i++) {
       _optionFocus.add(0);
-      _selections.add(0);
+      _committed.add(null);
     }
-    final layout = _screen.layout;
-    final w = (layout.width - 4).clamp(40, 60);
-    final h = (layout.height * 2 ~/ 3).clamp(12, layout.height - 4);
-    _rect = Rect(
-      row: (layout.height - h) ~/ 2,
-      col: (layout.width - w) ~/ 2,
-      width: w,
-      height: h,
-    );
-    _overlay = OverlayRegion(_screen, _rect);
     _render();
     while (true) {
       final ev = await _readEvent();
@@ -604,7 +608,7 @@ class _QuestionForm {
         _dispose();
         return [
           for (var q = 0; q < _questions.length; q++)
-            _questions[q].options[_selections[q]],
+            _questions[q].options[_committed[q] ?? _optionFocus[q]],
         ];
       }
       _render();
@@ -614,9 +618,18 @@ class _QuestionForm {
   void _dispose() {
     _overlay.hide();
     _overlay.dispose();
+    // The form painted the input row with the focused question; hand the row
+    // back. A parked readLine repaints itself; an idle input row is erased so
+    // no question text lingers after the form is gone.
+    if (_editor.isEditing) {
+      _editor.refresh();
+    } else {
+      _screen.input.erase();
+    }
   }
 
-  /// Returns true when the user confirmed.
+  /// Returns true when the LAST question was Enter-confirmed — the only event
+  /// that submits the form.
   bool _dispatch(InputEvent ev) {
     if (ev is ArrowKey) {
       final options = _questions[_questionFocus].options;
@@ -643,8 +656,13 @@ class _QuestionForm {
       return false;
     }
     if (ev is ControlKey && ev.code == ControlCode.enter) {
-      for (var q = 0; q < _questions.length; q++) {
-        _selections[q] = _optionFocus[q];
+      // Enter SELECTS the focused option for the focused question — it does
+      // NOT submit the form unless this is the last question.
+      _committed[_questionFocus] = _optionFocus[_questionFocus];
+      if (_questionFocus < _questions.length - 1) {
+        _questionFocus++;
+        _ensureFocusedVisible();
+        return false;
       }
       return true;
     }
@@ -661,7 +679,7 @@ class _QuestionForm {
   }
 
   void _ensureFocusedVisible() {
-    final visible = (_rect.height - 4).clamp(1, 1 << 30);
+    final visible = (_availableHeight() - 1).clamp(1, 1 << 30); // footer row
     if (_focusedRow() < _scrollOffset) {
       _scrollOffset = _focusedRow();
     } else if (_focusedRow() >= _scrollOffset + visible) {
@@ -669,42 +687,84 @@ class _QuestionForm {
     }
   }
 
+  /// Rows the form may occupy: from just above the input row (skipping the
+  /// separator) up to the chat ceiling — the completion-picker geometry.
+  int _availableHeight() {
+    final inputRow = _screen.input.bounds.row;
+    final bottomRow = inputRow - 1;
+    return bottomRow - _screen.layout.chat.row + 1;
+  }
+
   // -- Render -----------------------------------------------------------------
 
-  void _render() => _overlay.show(boxLines(
-        width: _rect.width,
-        height: _rect.height,
-        title: 'Questions',
-        body: _body(),
-        footer: '↑↓ option · ←→ question · enter confirm · esc cancel',
-        paint: _paint,
-      ));
+  void _render() {
+    final body = _body();
+    final footer = _dim('  ↑↓ option · ←→ question · enter select · esc cancel');
+    final maxH = _availableHeight();
+    final wanted = body.length + 1; // + footer
+    final h = wanted > maxH ? maxH : wanted;
+    if (h <= 0) return; // degenerate geometry: nothing to paint
+    _scrollOffset = _scrollOffset.clamp(0, body.length - 1);
+    final end = (_scrollOffset + h - 1).clamp(0, body.length); // footer takes 1
+    final slice = body.sublist(_scrollOffset, end);
+    if (_scrollOffset > 0 && slice.isNotEmpty) {
+      slice[0] = _dim('  ↑ ${_scrollOffset} more');
+    }
+    if (end < body.length && slice.isNotEmpty) {
+      slice[slice.length - 1] = _dim('  ↓ ${body.length - end} more');
+    }
+    final inputBounds = _screen.input.bounds;
+    _overlay.reposition(Rect(
+      row: (inputBounds.row - 1) - h + 1,
+      col: inputBounds.col,
+      width: inputBounds.width,
+      height: h,
+    ));
+    _overlay.show([...slice, footer]);
+    _renderInputRow();
+  }
 
-  String _paint(String s) => _screen.colorize('cyan', s);
+  /// The input row carries the focused question while the form runs — the
+  /// questions live IN the input field, not in a detached popover.
+  void _renderInputRow() {
+    final q = _questions[_questionFocus];
+    _screen.input.render(
+      prompt: '❯ ',
+      buffer: q.text,
+      cursor: q.text.length,
+    );
+  }
+
+  String _dim(String s) => _screen.ansi.useColor
+      ? _screen.colorize(_screen.theme.completion.dim, s)
+      : s;
+
+  String _hi(String s) => _screen.ansi.useColor
+      ? _screen.colorize(_screen.theme.completion.selected, s)
+      : s;
 
   List<String> _body() {
     final all = <String>[];
     for (var q = 0; q < _questions.length; q++) {
       final qFocus = q == _questionFocus;
-      all.add(qFocus ? '▸ ${_questions[q].text}' : '  ${_questions[q].text}');
+      all.add(qFocus ? _hi('❯ ${_questions[q].text}') : _dim('  ${_questions[q].text}'));
       final options = _questions[q].options;
       for (var o = 0; o < options.length; o++) {
+        // No arrow indicator on options (owner follow-up 2026-08-24): ▸ read
+        // as a collapsed/expander chevron. Focus is the selected COLOR alone —
+        // the completion picker's convention; a committed answer keeps its
+        // filled dot, which marks choice, not expandability.
         final oFocus = qFocus && o == _optionFocus[q];
-        all.add(oFocus ? '    ▸ ${options[o]}' : '      ${options[o]}');
+        if (oFocus) {
+          all.add(_hi('    ${options[o]}'));
+        } else if (_committed[q] == o) {
+          all.add(_dim('  ● ${options[o]}')); // Enter-confirmed on this pass
+        } else {
+          all.add(_dim('    ${options[o]}'));
+        }
       }
-      if (q < _questions.length - 1) all.add('');
+      if (q < _questions.length - 1) all.add(_dim(''));
     }
-
-    final visible = (_rect.height - 4).clamp(1, all.length);
-    _scrollOffset = _scrollOffset.clamp(0, all.length - 1);
-    final end = (_scrollOffset + visible).clamp(0, all.length);
-    final slice = all.sublist(_scrollOffset, end);
-    if (_scrollOffset > 0 && slice.isNotEmpty) {
-      slice[0] = '↑ $_scrollOffset more';
-    }
-    if (end < all.length && slice.isNotEmpty) {
-      slice[slice.length - 1] = '↓ ${all.length - end} more';
-    }
-    return slice;
+    return all;
   }
 }
