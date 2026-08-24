@@ -1318,3 +1318,6 @@ Driver fix (2026-08-24, post-round-5) — stale base-url replay on resume:
   cross-provider neither-applies, no-override heals to descriptor
   default), +1 startup base-url, +1 end-to-end TUI resume (recording
   registry). All verified failing pre-fix. Root 782 green, analyzes 0.
+- Shipped as PR #27 (branch asb/resume-base-url-freshness, single
+  commit parented on 0.4.1's a8bb941). All four CI jobs green live
+  (run 32738396638); left open for the owner's merge call, as with #26.
