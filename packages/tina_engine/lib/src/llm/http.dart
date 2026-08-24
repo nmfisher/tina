@@ -38,7 +38,7 @@ Duration applyBackoffJitter(Duration base, [Random? rng]) {
 /// Cap on how long we'll honor a server's `Retry-After` hint. Anthropic and
 /// most providers stay well under this, but we don't want a misconfigured
 /// upstream to make us sleep for hours.
-const _maxRetryAfter = Duration(seconds: 60);
+const maxRetryAfter = Duration(seconds: 60);
 
 /// How long to wait for response headers before giving up on a single
 /// attempt. The body is then read with a separate stall timeout.
@@ -101,7 +101,7 @@ bool isTransientException(Object e) =>
 /// Parse an HTTP `Retry-After` header value. Accepts integer seconds (the
 /// common form for rate-limit responses); ignores HTTP-date form since
 /// providers we target don't use it. Returns null if unparseable. Clamps
-/// at [_maxRetryAfter] so a misconfigured upstream can't make us sleep
+/// at [maxRetryAfter] so a misconfigured upstream can't make us sleep
 /// for hours.
 Duration? parseRetryAfter(String? header) {
   if (header == null) return null;
@@ -109,7 +109,57 @@ Duration? parseRetryAfter(String? header) {
   final secs = int.tryParse(s);
   if (secs == null || secs < 0) return null;
   final d = Duration(seconds: secs);
-  return d > _maxRetryAfter ? _maxRetryAfter : d;
+  return d > maxRetryAfter ? maxRetryAfter : d;
+}
+
+/// Worst-case wall-clock ONE outermost send can spend inside the transport
+/// retry ladder (#45), computed from the same constants the ladder runs on:
+///
+/// * [RetryingProvider] makes `maxRetries + 1` policy attempts;
+/// * each attempt enters [PooledProvider], which may burn a full pass of
+///   [members] member attempts (each bounded by [scaledRequestTimeout] for
+///   the request's size) plus one cooldown pacing wait;
+/// * between policy attempts, at most `maxRetries` honored `Retry-After`
+///   parks ([maxRetryAfter] each) or the [retryDelays] backoff schedule —
+///   take the larger bound.
+///
+/// This is a CEILING, not an expectation — a healthy send is one attempt of
+/// seconds. It exists so [reconcileWatchdogWithLadder] can enforce the
+/// watchdog≥ladder invariant: a watchdog tighter than the ladder a send is
+/// legitimately allowed to climb aborts healthy runs (Run F ground through a
+/// bad provider patch for minutes while the 300s default watchdog watched).
+Duration wireLadderWorstCase({
+  required int bodyBytes,
+  required int members,
+  int maxRetries = 3,
+  Duration cooldown = const Duration(seconds: 5),
+}) {
+  final perAttempt = scaledRequestTimeout(bodyBytes);
+  final poolPass = perAttempt * members + cooldown;
+  final backoff = retryDelays.fold(
+      Duration.zero, (total, d) => total + d);
+  final parks = maxRetryAfter * maxRetries;
+  return poolPass * (maxRetries + 1) + (parks > backoff ? parks : backoff);
+}
+
+/// The watchdog≥ladder invariant (#45c): a liveness watchdog must not fire
+/// while a send is still inside the retry ladder's legitimate worst case.
+/// Returns the effective watchdog — the configured one when it already
+/// covers [wireLadderWorstCase], else the computed floor — plus whether it
+/// was raised so callers can say so.
+({bool raised, int seconds}) reconcileWatchdogWithLadder({
+  required int watchdogSeconds,
+  required int bodyBytes,
+  required int members,
+  int maxRetries = 3,
+  Duration cooldown = const Duration(seconds: 5),
+}) {
+  final floor = wireLadderWorstCase(
+          bodyBytes: bodyBytes, members: members,
+          maxRetries: maxRetries, cooldown: cooldown)
+      .inSeconds;
+  if (watchdogSeconds >= floor) return (raised: false, seconds: watchdogSeconds);
+  return (raised: true, seconds: floor);
 }
 
 /// Send ONE request attempt — headers timeout, no retry. The LLM providers

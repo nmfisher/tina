@@ -536,14 +536,41 @@ Future<void> _runNonInteractive(AppComposition app) async {
   // the idle clock expires, tears the turn down through the cancel signal
   // with a diagnostic — the headless analogue of the budget guard's clean
   // exit-2. 0 disables.
+  //
+  // #45: the transport retry ladder is agent-event-silent, so the watchdog
+  // ALSO drinks from the wire feed ([Wire.onWireEvent] — attempt rungs, pool
+  // rotation, backoff parks) — a run grinding through a bad provider patch
+  // then reads as alive, not wedged. And the timeout itself is reconciled
+  // against the ladder's worst case (watchdog≥ladder): the conservative
+  // floor (no body bytes, no pool) already exceeds the 300s default, and a
+  // real payload only lengthens the rungs the feed resets on.
   final cancelWatchdog = Completer<void>();
   HeadlessWatchdog? watchdog;
   StreamSubscription<AgentEvent>? watchdogSub;
   Timer? watchdogGrace;
-  if (app.config.watchdogSeconds > 0) {
+  var watchdogSeconds = app.config.watchdogSeconds;
+  if (watchdogSeconds > 0) {
+    final reconciled = reconcileWatchdogWithLadder(
+        watchdogSeconds: watchdogSeconds, bodyBytes: 0, members: 1);
+    if (reconciled.raised) {
+      stderr.writeln(
+        '[watchdog] ${watchdogSeconds}s is tighter than the retry '
+        'ladder\'s worst case (${reconciled.seconds}s) — raising to it so a '
+        'legitimately slow ladder is not aborted. 0 disables.',
+      );
+      watchdogSeconds = reconciled.seconds;
+    }
     watchdog = HeadlessWatchdog(
-      timeout: Duration(seconds: app.config.watchdogSeconds),
+      timeout: Duration(seconds: watchdogSeconds),
       onFire: (diagnostic) {
+        // #45: name what the wire was last doing — the difference between
+        // "wedged below the provider stack" and "parked on backoff" is the
+        // first thing the postmortem needs.
+        final wire = Wire.last;
+        if (wire != null) {
+          diagnostic += ' Wire: $wire'
+              '${wire.inFlight ? ' (in flight ${Wire.inFlightFor.inSeconds}s)' : ''}';
+        }
         stderr.writeln(diagnostic);
         // Give the cancel path a grace period to tear down cleanly (flushes,
         // session writes), then take the hard exit the budget guard would.
@@ -557,11 +584,16 @@ Future<void> _runNonInteractive(AppComposition app) async {
         });
       },
     )..start();
+    Wire.onWireEvent =
+        (s) => watchdog?.record('wire:${s.event}(${s.member})');
     watchdogSub = host.eventBus.events.listen(
       (e) => watchdog?.record(e.runtimeType.toString()),
       onDone: watchdog.dispose,
     );
-    cancelWatchdog.future.whenComplete(watchdog.dispose);
+    cancelWatchdog.future.whenComplete(() {
+      Wire.onWireEvent = null;
+      watchdog?.dispose();
+    });
   }
   try {
     await agent.run(
@@ -573,6 +605,7 @@ Future<void> _runNonInteractive(AppComposition app) async {
   } finally {
     watchdogGrace?.cancel();
     await watchdogSub?.cancel();
+    Wire.onWireEvent = null;
     watchdog?.dispose();
     // Non-interactive hint goes to stderr so callers parsing stdout for the
     // agent's answer aren't disrupted. The RECORDER's id, not the
