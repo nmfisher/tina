@@ -984,3 +984,100 @@ the driver verifies and commits. Survey sources: the analyzer output,
     it without depending on the live tree. tina_index: analyze 0,
     56/56 tests green — the suite joins the driver's routine gate
     (and CI's matrix once #35's workflow lands).
+
+## Improvements run, round 3 — fresh backlog (2026-08-24)
+
+PR #19 was squash-merged to main as c607c37 ("Recursive improvement
+round 2: … (#19)"); CI ran green on the merged content's twins (run
+32648458822, all four jobs), and the working branch was reset onto
+main's tip to start this round clean. Same discipline: every item below
+confirmed live or by direct inspection today; tina implements what it
+can, the driver verifies and commits.
+
+40. **Root analyze's ONE remaining issue is the submodule's config, and
+    the parent tree can silence it parent-side.** The warning
+    (`include_file_not_found` at packages/dart_notcurses/
+    analysis_options.yaml:1:10) fires because the submodule's options
+    file includes `package:lints/recommended.yaml` while the parent
+    tree's analysis context has no `lints` package; the parent repo has
+    NO analysis_options.yaml of its own (pure SDK defaults), so the
+    analyzer reads the submodule's config for the files it sweeps. The
+    submodule is out of scope to edit (standing rule), but the PARENT
+    can exclude it: a root analysis_options.yaml with
+    `analyzer.excludes: [packages/dart_notcurses/**]` stops the sweep
+    from loading that config at all. **Would make:** add the root
+    options file with the exclude (documented with why), verify root
+    analyze reaches 0, then tighten ci.yml's root gate from the
+    count-based tolerance (==1) to plain zero — removing the
+    count-gate's special case and its `::notice::` exactly as the
+    workflow's own comment planned ("when the warning disappears,
+    tighten this gate to plain `dart analyze`").
+    **→ Implemented 2026-08-24 (round 3, driver-side):** root
+    analysis_options.yaml created with `analyzer.exclude:
+    packages/dart_notcurses/**` (first attempt used `excludes` — the
+    analyzer rejected it with `unsupported_option`, which SURFACED a
+    second warning while leaving the first; the supported key is
+    `exclude`). Root analyze: **No issues found!** — zero for the
+    first time in the repo's history. ci.yml's root gate tightened
+    from the count-based tolerance to plain `dart analyze`, with the
+    count-gate's history kept in the step comment. Engine, console,
+    and tina_index re-verified at 0 after the change.
+41. **The incremental Git-Data-API push tool lives only in /tmp.**
+    tool/push_via_api.py (in-repo) pushes a range but has no
+    remote-parent grafting and — as this round's first shipment
+    learned — no deletion handling (`git ls-tree` on a removed path
+    returns empty and the blob-upload loop dies with IndexError). The
+    incremental variant (/tmp/push_inc.py, adapted from that tool)
+    grafts each new commit onto the remote twin of the local base and
+    skips empty ls-tree results; it carried round 2's entire shipment —
+    six replicated commits across two batches INCLUDING deletions
+    (9305e6b removed three tool/ files) and three CI fixes. **Would
+    make:** land it as tool/push_incremental.py next to its parent
+    tool, with the deletion-skip and the grafting documented in the
+    docstring, so the next round's shipment does not depend on /tmp
+    surviving.
+    **→ Implemented 2026-08-24 (round 3, driver-side):** landed as
+    `tool/push_incremental.py` (executable, docstring covering the
+    grafting and the deletion skip); the code body is the /tmp version
+    that carried round 2 — the deletion skip, the remote-parent graft,
+    and the 422 ref fallback all verified present. Round 3's own
+    shipment (this commit) is its first in-repo use.
+42. **What actually consumed the 2M-token turn is unmeasured.** Three
+    runs hit the per-turn cap (1,032,509 / 1,004,710 / 2,013,851), the
+    soft margin fired at 1,822,439 and the model landed clean — #37
+    treats the symptom. But WHY a task brief plus ~30 steps costs two
+    million tokens has never been measured: candidates are verbatim
+    tool outputs (full `dart test` suite runs entering history), whole-
+    file reads of large sources, and the conversation's own growth
+    re-sent on every step. The engine records per-call usage. **Would
+    make:** evidence first — analyze the two aborted sessions'
+    transcripts (20260823-142018-6679 and the 2M #36 run) plus the
+    1.82M #35 run, break spend down by contributor, and only then
+    propose the fix (tool-output compaction, read sizing, or a tuned
+    auto-compact trigger) as a future item with numbers attached.
+    **→ Investigated 2026-08-24 (round 3, driver-side) — the numbers are
+    in, and they indict re-sent file reads.** The 1.82M #35 run's
+    persisted transcript (.tina/sessions/…145230-d8b5, 73 messages, 45
+    tool calls): final history 228KB ≈ 57K tokens, of which **88% is
+    tool_result bodies** (assistant prose 2%, tool_use 6%). The
+    largest results are READS, not test output — the lean-brief
+    strategy (driver runs the suites) worked: read of
+    TINA_IMPROVEMENTS_LOG.md 53KB, notcurses_backend.dart 38KB,
+    dart_notcurses lib 30KB, release.yml 12KB, a console grep 11KB.
+    Arithmetic: cumulative spend = steps × context — 45 calls at an
+    average ~35-40K input (growing to 57K) + per-call system ≈ the
+    measured 1.82M within ~15%. One number tells the story: the single
+    53KB log read is ~13K tokens re-sent on every subsequent step —
+    **45 × 13K ≈ 585K tokens, ~32% of the entire turn, from one
+    read**. The 2M aborted run shows the same shape one step further:
+    its transcript OPENS with a compaction summary (request-size
+    auto-compact fired when a request crossed 120K), growth slowed,
+    and the turn still died at 2M — compaction-by-request-size cannot
+    fix spend that is cumulative-by-construction. This confirms item
+    #9's original diagnosis with measurements. Future items, numbers
+    attached: (a) turn-level compaction keyed on CUMULATIVE spend —
+    compact when turnTotal crosses ~50% of perTurnLimit; (b) age
+    tool_result bodies out of history — after K steps, replace an old
+    large read with a stub ("[read of <path>, N lines — re-read if
+    needed]"), bounding steady-state context to recent results plus
+    the model's own prose.
