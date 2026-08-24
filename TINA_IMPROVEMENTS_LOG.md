@@ -1081,3 +1081,135 @@ can, the driver verifies and commits.
     large read with a stub ("[read of <path>, N lines — re-read if
     needed]"), bounding steady-state context to recent results plus
     the model's own prose.
+
+## Improvements run, round 4 — fresh backlog (2026-08-24)
+
+PR #20 squash-merged to main as a057ffb with all four CI jobs green
+(run 32683317462 — notably faster than round 2's first runs: 44s-1m41s
+per job), including root under the newly-tightened plain-analyze gate
+(#40 proven on a runner, not just locally). This round takes #42's
+measurements straight to implementation: the two engine fixes the
+turn-spend anatomy proposed.
+
+43. **Compaction is keyed on the wrong variable for the failure mode
+    that actually occurs.** The mid-turn auto-compact (round 1, item
+    #3) fires when a single request's ESTIMATE exceeds 120K — but #42
+    measured the real shape: no request was ever "large" (all under
+    ~60K), the spend was cumulative (45 steps × re-sent context), and
+    the 2M run died WITH a compaction summary in its history: the
+    request-size trigger fired too late and too rarely to matter.
+    Item #9 called this in round 1 ("spend-aware auto-compact") and
+    #42 confirmed it with numbers. **Would make:** a second trigger on
+    CUMULATIVE turn spend — when `turnTotal` first crosses ~50% of
+    `perTurnLimit`, run the SAME in-place history compaction the
+    request-size path uses (reusing its machinery, gates, and
+    assistant-boundary splitting). The ladder becomes: 50% compact
+    (context shrinks, spend rate drops) → 90% soft nudge (#37) → 100%
+    hard abort. Named constant `kTurnSpendCompactRatio = 0.5` beside
+    `kPerTurnSoftMarginRatio`; once-per-turn latch like the soft
+    margin's; hard abort untouched.
+    **→ Implemented 2026-08-24 (round 4, tina + driver repair):**
+    `kTurnSpendCompactRatio = 0.5` beside the soft-margin ratio in
+    token_budget.dart, with pure predicate `turnSpendCompactTrigger()`
+    (false past the hard cap — the hard reason wins; false with no
+    perTurnLimit). The agent call site pairs it with the existing
+    size floor (`estimate > threshold/2`) and a once-per-turn latch
+    (`turnSpendCompactFired`, reset beside the soft margin's), then
+    reuses the request-size compaction verbatim; the ladder
+    (50% compact → 90% nudge → 100% abort) is documented once at the
+    trigger. Tests: spend_compact_test.dart — 5 predicate unit tests
+    + (a) one-compaction-exactly wire test (compaction count, the
+    '[compact] … crossed 50%' notice, the post-compact request
+    carrying the summary, the 90% nudge still firing, hard abort
+    unchanged) + (b) under-50% no-op. Tina's versions of (a)/(b)
+    failed on payload arithmetic, not logic: tool results ACCUMULATE,
+    so round 3's request already estimated ~314 tokens against a
+    200-token threshold and the SIZE trigger fired (twice in (a));
+    driver-side fix = threshold 560 (band: floor 280 < rung-checkpoint
+    estimate ~465 < 560), per-round usage 45 so the ladder lands in 5
+    rounds, and the summarizer script moved after round 3 where the
+    step-top check actually fires.
+44. **Aged tool results ride along forever at full size.** #42's
+    anatomy: 88% of the final context was tool_result bodies, and the
+    top contributors were whole-file reads whose content the model had
+    already metabolized into its own prose — one 53KB read cost ~585K
+    cumulative tokens across 45 steps. A tool result older than a
+    handful of steps is dead weight: the model cannot need it verbatim
+    (it extracted what mattered when it arrived) but the provider
+    bills for it on every subsequent request. **Would make:** age large
+    tool results out of history between steps — any tool_result block
+    older than `kToolResultRetentionSteps` (start: 8) whose serialized
+    body exceeds `kToolResultStubThreshold` (start: 4KB) is replaced
+    IN PLACE with a stub ("<tool name> result elided after N steps:
+    X bytes — re-run to recover"); the `tool_use_id` stays intact so
+    tool_use/tool_result pairing is never severed. Recent results (in
+    the retention window) and small results are never touched. Runs
+    BEFORE any compaction pass (cheap, deterministic, no LLM call) so
+    the two compose: stubbing bounds steady-state context, compaction
+    rescues the rest.
+    **→ Implemented 2026-08-24 (round 4, tina; tests driver-side):**
+    `stubAgedToolResults()` in agent.dart — one cheap pre-pass maps
+    tool_use_id → name, then each user tool-result batch older than
+    `kToolResultRetentionSteps` (8) with a body over
+    `kToolResultStubThreshold` (4096 bytes serialized) is replaced in
+    place with `[elided after N steps: <tool> result, X bytes — re-run
+    to recover]`; ids, message structure, and isError flags survive
+    (pairing is never severed), unknown ids fall back to 'unknown
+    tool' (a post-compaction history can outlive its use). Called at
+    the step checkpoint BEFORE and OUTSIDE the compaction gate —
+    threshold 0 (compaction off) still stubs, which is how the
+    integration test isolates it. Tests: tool_result_stub_test.dart —
+    8 unit tests (age boundary at exactly 8 vs 9, size boundary at
+    exactly 4096 vs 4097, recent/small untouched, error-flag and
+    unknown-id survival, all-recent no-op) + a wire-level integration
+    test (round 10's request carries t1 stubbed at 9 steps while t9
+    rides full-size, pairing intact on the wire, zero notices, clean
+    turn end). Tina's run died at the budget cap with the
+    implementation in place but before writing any of these.
+
+    Round-4 run ledger (both aborts are load-bearing — see #45): run 1
+    (session 20260824-042130-63ec) died to the 300s watchdog in
+    mid-read with zero edits; run 2 (20260824-043717-f900) implemented
+    everything, then hit the per-turn budget cap at 2,051,048/2,000,000
+    — the FOURTH cap abort — while debugging its own mis-sized tests.
+    The driver repaired the tests and wrote #44's (both verified
+    against the estimator's real arithmetic, bytes/4 schemas
+    included). Engine 791 + root 758 + console 811 + index 56 tests
+    green, all four analyzes 0.
+45. **The headless watchdog cannot see transport-layer liveness, and
+    its abort diagnostic names the wrong failure.** Round 4's first
+    run died to "[watchdog] no agent activity for 300s — Likely
+    cause: an internal await that never resolves (e.g. the edit
+    mutation lock)" — and the transcript disproves that reading: it
+    ends at a COMPLETED read, no edit was ever attempted, no lock
+    held. What the watchdog actually measures is agent-event-bus
+    silence (bin/tina.dart wires bus events → record()), and the
+    transport ladder is event-SILENT by design: retrying_provider
+    and pooled_provider make zero sink calls, so retries, backoff
+    parks, and pool rotations are invisible. The arithmetic that
+    kills: one attempt's headers timeout is size-scaled (30s +
+    body/4096, capped at 900s — for this run's ~200KB body ≈ 78s),
+    `_maxRetryAfter` parks up to 60s per retry, the rate limiter
+    widens further, the pool rotates over three members — a
+    failing-but-alive ladder LEGITIMATELY outlives the default 300s
+    watchdog, and the 900s `_maxScaledTimeout` cap was never
+    reconciled against it. The wire log (TINA_HTTP_LOG) run 2's
+    driver kept shows the smoking gun live: a six-request cascade
+    rotating nim → openrouter → hetzner twice in 34s, then one
+    hetzner request that took 1m48s to complete — agent-event silent
+    throughout, wire busy the whole time. Teardown also missed its 5s
+    grace and exit(2)'d hard with nine [cancelled] lines.
+    **Would make:** (a) attempt-level liveness — every wire attempt
+    start, backoff transition, and pool rotation feeds the watchdog
+    (or pauses its idle clock while a request is in flight), so
+    "grinding through a bad provider patch" never reads as "parked";
+    (b) the abort diagnostic reports wire state (member id, attempt
+    number, elapsed in flight, last wire event age) instead of a
+    hardcoded guess — the HTTP-log machinery already captures most of
+    this and just isn't wired in; (c) an explicit invariant that
+    watchdog-seconds ≥ the transport ladder's worst-case wall-clock,
+    or a cap on the ladder below the watchdog, so the two layers
+    can't disagree about whether a run is alive. Status: OPEN
+    (evidence recorded from a live kill; this round shipped with the
+    driver running tina at --watchdog-seconds 900 + TINA_HTTP_LOG as
+    the workaround).
