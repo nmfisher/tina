@@ -130,6 +130,14 @@ class LineEditor {
   /// app-specific keys to the editor's core dispatch.
   bool Function(AltKey key)? onAltKey;
 
+  /// Called for Shift+Tab (backtab). Offered at the same dispatch rank as
+  /// [onMaximizeToggle] — after the modal layer, before the focus ring — and
+  /// in queue mode alongside it, so the app-level binding works from any
+  /// focus and while a turn is running. Return `true` to consume the event,
+  /// `false` to let it fall through (the editor binds nothing for backtab, so
+  /// a declining hook means the key is dropped, never typed).
+  bool Function()? onBackTab;
+
   /// Timestamp of the last standalone ESC at the prompt, for double-Esc
   /// detection. Null after a double completes or the window elapses.
   DateTime? _lastEsc;
@@ -642,6 +650,18 @@ class LineEditor {
     return true;
   }
 
+  /// The Shift+Tab app hook (tina: permission-mode cycling), at the same
+  /// dispatch rank as the maximize toggle. True when the hook consumed the
+  /// key.
+  bool _handleBackTab(InputEvent event) {
+    final backTab = onBackTab;
+    if (backTab == null) return false;
+    if (event is! ControlKey || event.code != ControlCode.backtab) return false;
+    if (!backTab()) return false;
+    _redraw();
+    return true;
+  }
+
   void _dispatchEvent(InputEvent event) {
     if (debugKeys) {
       stderr.writeln('[keys] event: $event');
@@ -666,6 +686,11 @@ class LineEditor {
     // Ctrl+R rides at the same rank (the app's raw-view overlay opens from
     // any focus).
     if (_handleRawView(event)) {
+      return;
+    }
+    // Shift+Tab rides at the same rank (the app cycles permission modes from
+    // any focus).
+    if (_handleBackTab(event)) {
       return;
     }
     // 3. Modal cycling: the focus manager owns all keys (arrows/Tab move the
@@ -788,12 +813,15 @@ class LineEditor {
           case ControlCode.ctrlS:
           case ControlCode.ctrlO:
           case ControlCode.ctrlR:
+          case ControlCode.backtab:
             // Handled upstream by FocusManager when a panel exists; when no
             // panel is registered they fall through to here as a no-op.
             // ctrlS ("save") is consumed by the prompts overlay's readKey loop;
             // at the chat prompt it's a no-op. ctrlO (maximize) is consumed by
             // the onMaximizeToggle hook and ctrlR by onRawView — a fall-through
-            // means nothing qualified, so they are no-ops too.
+            // means nothing qualified, so they are no-ops too. backtab
+            // (Shift+Tab) is consumed by the onBackTab hook; a fall-through
+            // (no hook, or it declined) drops the key — backtab never types.
             break;
         }
 
@@ -1001,6 +1029,12 @@ class LineEditor {
             // the raw-view overlay.
             _handleMaximizeToggle(event);
             _handleRawView(event);
+            break;
+          case ControlCode.backtab:
+            // Shift+Tab's mode cycling also works mid-turn: flipping the
+            // permission mode while an agent runs changes how its NEXT tool
+            // call is gated.
+            _handleBackTab(event);
             break;
         }
       case CharInput(:final text):

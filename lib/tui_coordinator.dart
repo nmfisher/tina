@@ -1166,6 +1166,19 @@ class TuiCoordinator {
       return true;
     };
 
+    // Shift+Tab cycles the permission mode (ask → read-all → allow-edits →
+    // auto → ask) — the same switch `/permissions <mode>` performs (base
+    // policy plus every live conversation), so a mode flipped mid-turn
+    // changes how the agent's NEXT tool call is gated. Announced with the
+    // same message line the slash command prints.
+    editor.onBackTab = () {
+      final next = policy.mode.nextMode;
+      controller.setPermissionMode?.call(next);
+      sessionManager.activeConversation.host
+          .showMessage('permission mode: ${next.label}\n');
+      return true;
+    };
+
     // Owns the canonical resize sequence. Every resize site (SIGWINCH handler,
     // the three first-spawn blocks, first-paint) repoints at
     // [ResizeCoordinator.handleResize], so the order lives in one place. Constructed

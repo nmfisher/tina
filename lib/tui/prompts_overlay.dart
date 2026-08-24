@@ -206,6 +206,7 @@ class _PromptsForm {
           _saveEditor();
         case ControlCode.ctrlC:
         case ControlCode.tab:
+        case ControlCode.backtab:
         case ControlCode.ctrlL:
         case ControlCode.ctrlW:
         case ControlCode.ctrlG:

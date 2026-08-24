@@ -9,7 +9,31 @@ enum PermissionDecision { allow, deny, ask }
 /// - [auto]: gate level identical to [ask], but the asker is an LLM
 ///   classifier that decides each call (see `modeAwareAsker`) — falling back
 ///   to the interactive prompt when the classifier errors or times out.
-enum PermissionMode { ask, readAll, allowEdits, auto }
+enum PermissionMode {
+  ask,
+  readAll,
+  allowEdits,
+  auto;
+
+  /// Shift+Tab's ring: ask → readAll → allowEdits → auto → ask. Explicit
+  /// rather than values-index arithmetic so a future insertion can't
+  /// silently change the cycle order.
+  PermissionMode get nextMode => switch (this) {
+        ask => readAll,
+        readAll => allowEdits,
+        allowEdits => auto,
+        auto => ask,
+      };
+
+  /// The CLI/TUI spelling (`--permission-mode`, `/permissions`, config
+  /// files): dashed, not the enum's camelCase name.
+  String get label => switch (this) {
+        ask => 'ask',
+        readAll => 'read-all',
+        allowEdits => 'allow-edits',
+        auto => 'auto',
+      };
+}
 
 class PermissionRule {
   final String toolName;
