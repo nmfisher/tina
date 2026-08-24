@@ -82,6 +82,19 @@ void main() {
       expect((ev as ArrowKey).hasCtrl, isFalse);
     });
 
+    test('CSI Z produces backtab (Shift+Tab), distinct from plain Tab', () {
+      parser.feed(0x1b);
+      parser.feed(0x5b);
+      expect(parser.feed(0x5a), equals(ControlKey(ControlCode.backtab)));
+      // Plain Tab (0x09) remains its own key — completion, not cycling.
+      expect(parser.feed(0x09), equals(ControlKey(ControlCode.tab)));
+    });
+
+    test('ESC Z (no bracket) is still Alt+z, not backtab', () {
+      parser.feed(0x1b);
+      expect(parser.feed(0x5a), isA<AltKey>());
+    });
+
     test('plain arrow ArrowKey equality treats hasCtrl:false as default', () {
       // Regression fence for the equality contract — existing test files
       // rely on `ArrowKey(dir)` matching parser output.

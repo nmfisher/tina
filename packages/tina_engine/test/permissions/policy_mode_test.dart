@@ -69,4 +69,38 @@ void main() {
       expect(legacy.mode, PermissionMode.ask);
     });
   });
+
+  group('PermissionMode.nextMode (Shift+Tab cycling)', () {
+    test('cycles ask → readAll → allowEdits → auto and wraps to ask', () {
+      expect(PermissionMode.ask.nextMode, PermissionMode.readAll);
+      expect(PermissionMode.readAll.nextMode, PermissionMode.allowEdits);
+      expect(PermissionMode.allowEdits.nextMode, PermissionMode.auto);
+      expect(PermissionMode.auto.nextMode, PermissionMode.ask,
+          reason: 'the ring wraps — auto cycles back to ask');
+    });
+
+    test('four presses return to the starting mode from anywhere', () {
+      for (final start in PermissionMode.values) {
+        var m = start;
+        for (var i = 0; i < 4; i++) {
+          m = m.nextMode;
+        }
+        expect(m, start, reason: 'starting from ${start.name}');
+      }
+    });
+
+    test('labels are the dashed CLI spelling, not the enum name', () {
+      expect(PermissionMode.ask.label, 'ask');
+      expect(PermissionMode.readAll.label, 'read-all');
+      expect(PermissionMode.allowEdits.label, 'allow-edits');
+      expect(PermissionMode.auto.label, 'auto');
+      // The label is what config.dart's --permission-mode parser and the
+      // /permissions command accept — the dashed set, all distinct.
+      expect(PermissionMode.values.map((m) => m.label).toSet(),
+          hasLength(PermissionMode.values.length));
+      expect(PermissionMode.readAll.label, isNot(PermissionMode.readAll.name));
+      expect(
+          PermissionMode.allowEdits.label, isNot(PermissionMode.allowEdits.name));
+    });
+  });
 }

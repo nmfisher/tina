@@ -185,6 +185,11 @@ enum ControlCode {
   ctrlR,
   enter,
   tab,
+  /// Shift+Tab (CSI Z, "backtab"). App-level hook — tina binds it to
+  /// permission-mode cycling via the editor's `onBackTab`. The editor binds
+  /// nothing internally: plain Tab completes from a picker, but backtab has
+  /// no completion role.
+  backtab,
   backspace,
 }
 

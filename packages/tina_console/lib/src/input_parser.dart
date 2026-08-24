@@ -361,6 +361,12 @@ class InputParser {
           case 0x44:
             _pendingEvent = ArrowKey(ArrowDirection.left);
             return;
+          case 0x5a:
+            // CSI Z — backtab (Shift+Tab). A distinct key from plain Tab
+            // (0x09): apps bind it as a reverse-cycle modifier. Routed to
+            // the editor's onBackTab hook; the editor itself binds nothing.
+            _pendingEvent = ControlKey(ControlCode.backtab);
+            return;
           case 0x48:
             _pendingEvent = EditingKey(EditingAction.home);
             return;
