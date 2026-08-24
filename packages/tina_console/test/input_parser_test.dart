@@ -599,6 +599,76 @@ void main() {
       expect(timeoutEvent, isNull);
       expect(p.isMidSequence, isTrue); // ESC still pending
     });
+
+    test('rapid ESC ESC (one window) emits TWO EscapeKeys, not one',
+        () async {
+      // The owner's double-Esc cancel bug: both bytes land inside a single
+      // 150ms escape window, so the pair takes the `ESC ESC` Alt-prefix path
+      // and the timeout used to emit ONE EscapeKey for TWO keypresses — the
+      // editor never saw a double press. Each swallowed standalone ESC must
+      // be re-emitted.
+      final events = <InputEvent>[];
+      final p = InputParser(
+        escapeTimeout: const Duration(milliseconds: 10),
+        onTimeout: events.add,
+      );
+      expect(p.feed(0x1b), isNull);
+      expect(p.feed(0x1b), isNull); // still pending — no event yet
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(events, hasLength(2));
+      expect(events[0], isA<EscapeKey>());
+      expect(events[1], isA<EscapeKey>());
+      expect(p.isMidSequence, isFalse);
+    });
+
+    test('rapid ESC ESC ESC (one window) emits THREE EscapeKeys', () async {
+      final events = <InputEvent>[];
+      final p = InputParser(
+        escapeTimeout: const Duration(milliseconds: 10),
+        onTimeout: events.add,
+      );
+      p.feed(0x1b);
+      p.feed(0x1b);
+      p.feed(0x1b);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(events.whereType<EscapeKey>(), hasLength(3));
+    });
+
+    test('presses straddling two windows still emit two EscapeKeys',
+        () async {
+      // Slow-ish double press: the first ESC resolves on its own timeout,
+      // the second starts a fresh window. Two events either way.
+      final events = <InputEvent>[];
+      final p = InputParser(
+        escapeTimeout: const Duration(milliseconds: 10),
+        onTimeout: events.add,
+      );
+      p.feed(0x1b);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(events, hasLength(1));
+      p.feed(0x1b);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(events, hasLength(2));
+    });
+
+    test('ESC ESC [ D is still ONE Alt+Arrow, no EscapeKeys (macOS guard)',
+        () async {
+      final events = <InputEvent>[];
+      final p = InputParser(
+        escapeTimeout: const Duration(milliseconds: 10),
+        onTimeout: events.add,
+      );
+      p.feed(0x1b);
+      p.feed(0x1b);
+      final event = p.feed(0x5b); // '['
+      expect(event, isNull);
+      final arrow = p.feed(0x44); // 'D'
+      expect(arrow, isA<ArrowKey>());
+      expect((arrow as ArrowKey).hasAlt, isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(events, isEmpty,
+          reason: 'a real Alt sequence must not also emit EscapeKeys');
+    });
   });
 
   group('InputParser macosOptionAsMeta', () {

@@ -109,6 +109,16 @@ class LineEditor {
   /// cancels or opens the menu — it just arms the double-ESC window.
   bool Function()? onEscape;
 
+  /// Called when a second standalone Esc arrives within the double-Esc window
+  /// (~450ms) — from ANY input context: the prompt's own dispatch, or a
+  /// modal's armed [readKey] (a permission approval swallows single Escs as
+  /// "deny", so the prompt-level [onEscape] never sees them). Return `true`
+  /// when the gesture was handled (a running turn was force-cancelled); the
+  /// dispatch path then consumes the event. The readKey path always delivers
+  /// the event afterwards, so the modal's own Esc semantics still close its
+  /// row while the run underneath is stopping.
+  bool Function()? onDoubleEscape;
+
   /// Called for Ctrl+O — the panel-maximize toggle. Offered after the
   /// modal layer but before the focus ring (so it works both while cycling —
   /// for the *highlighted* panel — and on the focused panel). Return `true`
@@ -503,6 +513,19 @@ class LineEditor {
           'readKey ANSWERED by $event (global=$_keyCompleterGlobal)',
         );
       }
+      if (event is EscapeKey) {
+        // Stamp the double-Esc window on the readKey path too (the dispatch
+        // path below stamps its own). A modal's Esc handling swallows the
+        // event — "deny" for an approval — so this is the only place a
+        // double press spanning a modal registers. The force-cancel fires as
+        // a side call and the event is STILL delivered: the modal needs its
+        // Esc to close its row while the run underneath stops.
+        final now = DateTime.now();
+        final isDouble = _lastEsc != null &&
+            now.difference(_lastEsc!) <= _doubleEscWindow;
+        _lastEsc = isDouble ? null : now;
+        if (isDouble) onDoubleEscape?.call();
+      }
       c.complete(event);
       // After completing a readKey, open a short burst window during which
       // overflow CharInput events (from a paste) are queued rather than
@@ -896,13 +919,24 @@ class LineEditor {
         // onEscape — responsive "panic" cancel). If nothing is running,
         // onEscape returns false and we fall through to double-Esc, which
         // clears the input. Single Esc no longer activates the menu bar.
-        if (onEscape?.call() ?? false) {
-          break;
-        }
+        //
+        // A RAPID double-Esc force-cancels first (onDoubleEscape), ahead of
+        // both of those: the first press may have armed the prompt's warning
+        // OR answered a modal (an approval row eats single Escs as "deny" —
+        // the stamp in the readKey path keeps the window alive across it),
+        // and the second must mean "stop", not a re-arm. Consumed only when
+        // something was actually running; otherwise the gesture falls
+        // through to the input clear below.
         final now = DateTime.now();
         final isDouble =
             _lastEsc != null && now.difference(_lastEsc!) <= _doubleEscWindow;
         _lastEsc = isDouble ? null : now;
+        if (isDouble && (onDoubleEscape?.call() ?? false)) {
+          break;
+        }
+        if (onEscape?.call() ?? false) {
+          break;
+        }
         if (isDouble) {
           if (_edit.buffer.isNotEmpty) {
             _edit = _edit.clear();

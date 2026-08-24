@@ -286,16 +286,17 @@ Future<ResolvedSession> resolveSession(
   if (config.resumeSessionId != null) {
     final sid = config.resumeSessionId!;
     final manifest = await store.loadSession(sid);
-    final loaded = await store.loadConversation(
-      sid,
-      manifest.activeConversationId,
-    );
-    return ResolvedSession(
-      sessionId: sid,
-      activeConversationId: manifest.activeConversationId,
-      activeHistory: loaded,
-      manifest: manifest,
-    );
+    final resolved = await _loadBestConversation(store, sid, manifest,
+        why: 'resume');
+    if (resolved == null) {
+      // The user named this session explicitly — say what's wrong rather
+      // than silently swapping in a fresh one.
+      throw StateError(
+          'no readable transcript in session $sid — its transcripts are '
+          'project-local and the project no longer has them (fresh clone or '
+          'git clean?)');
+    }
+    return resolved;
   }
   if (config.continueLatest) {
     final list = await store.listSessions();
@@ -305,8 +306,22 @@ Future<ResolvedSession> resolveSession(
     // first, so the first match is the latest session in this folder.
     final cwd = Directory.current.path;
     final inFolder = list.where((s) => s.cwd == null || s.cwd == cwd).toList();
-    if (inFolder.isNotEmpty) {
-      final pick = inFolder.first;
+    // A session whose transcripts are all unreadable (see
+    // [_loadBestConversation]) is skipped in favor of the next candidate —
+    // crashing on the newest one would make --continue unusable exactly when
+    // the user needs it (after a fresh clone / git clean).
+    for (final pick in inFolder) {
+      final manifest = await store.loadSession(pick.id);
+      final resolved = await _loadBestConversation(store, pick.id, manifest,
+          why: 'continue');
+      if (resolved == null) {
+        stderr.writeln(
+          '--continue: skipping "${pick.title}" (${pick.id}) — no readable '
+          'transcript (project-local transcripts missing; fresh clone or '
+          'git clean?)',
+        );
+        continue;
+      }
       // Say what was picked: --continue silently resuming something the user
       // didn't expect is indistinguishable from picking wrong (the newest
       // session is often yesterday's — today's runs may never have persisted,
@@ -316,18 +331,7 @@ Future<ResolvedSession> resolveSession(
         '--continue: resuming "${pick.title}" '
         '(last active ${pick.updatedAt.toLocal()}, id ${pick.id})',
       );
-      final sid = pick.id;
-      final manifest = await store.loadSession(sid);
-      final loaded = await store.loadConversation(
-        sid,
-        manifest.activeConversationId,
-      );
-      return ResolvedSession(
-        sessionId: sid,
-        activeConversationId: manifest.activeConversationId,
-        activeHistory: loaded,
-        manifest: manifest,
-      );
+      return resolved;
     }
     stderr.writeln(
       '--continue: no saved sessions found in this folder; starting fresh.',
@@ -340,6 +344,56 @@ Future<ResolvedSession> resolveSession(
     activeConversationId: _newId(),
     activeHistory: <Message>[],
     manifest: null,
+  );
+}
+
+/// Load the session's active conversation, falling back to its first
+/// READABLE conversation when the active one's transcript is missing, and to
+/// null when none load.
+///
+/// Crash guard (owner bug 2026-08-24: `tina --continue` died with
+/// "Conversation not found: <sid>/<cid>"): modern sessions keep transcripts
+/// PROJECT-LOCAL (`<cwd>/.tina/sessions/<sid>/`, gitignored) while the
+/// manifest lives in the global store — a fresh clone or `git clean` removes
+/// every transcript while the manifest survives, and the manifest's
+/// `activeConversationId` then names a file that no longer exists anywhere.
+/// Startup must degrade — pick what still reads — instead of crashing before
+/// the REPL draws.
+Future<ResolvedSession?> _loadBestConversation(
+  SessionStore store,
+  String sid,
+  SessionManifest manifest, {
+  required String why,
+}) async {
+  // Deduped, active-first candidate order.
+  final ids = <String>{
+    if (manifest.activeConversationId.isNotEmpty)
+      manifest.activeConversationId,
+    ...manifest.conversations.map((c) => c.id),
+  }.toList();
+  String? picked;
+  List<Message>? history;
+  for (final id in ids) {
+    try {
+      history = await store.loadConversation(sid, id);
+      picked = id;
+      break;
+    } on StateError {
+      continue; // transcript missing/unreadable — try the next candidate
+    }
+  }
+  if (picked == null) return null;
+  if (picked != manifest.activeConversationId) {
+    stderr.writeln(
+      '$why: active conversation ${manifest.activeConversationId} is '
+      'unreadable — falling back to $picked',
+    );
+  }
+  return ResolvedSession(
+    sessionId: sid,
+    activeConversationId: picked,
+    activeHistory: history ?? <Message>[],
+    manifest: manifest,
   );
 }
 

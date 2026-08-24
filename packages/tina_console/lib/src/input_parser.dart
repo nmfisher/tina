@@ -55,6 +55,15 @@ class InputParser {
   /// sequence completes, its [ArrowKey] gets `hasAlt` set.
   bool _altPrefix = false;
 
+  /// Standalone ESCs swallowed by the `ESC ESC` Alt-prefix path. A fast
+  /// double-Esc press (both bytes inside one escape-timeout window) lands as
+  /// `ESC ESC` with nothing following; without this count the timeout would
+  /// emit ONE [EscapeKey] for TWO keypresses and the app's double-Esc
+  /// gestures would misfire exactly when pressed quickly. Each swallowed ESC
+  /// is re-emitted when the timer fires; a real sequence completing (e.g.
+  /// `ESC ESC [ D`) clears the count.
+  int _standaloneEscs = 0;
+
   /// macOS Option key produces special Unicode characters instead of the
   /// ESC+letter sequence. This table maps those code points back to the
   /// lowercase letter the user intended, so [AltKey] events fire correctly.
@@ -161,6 +170,9 @@ class InputParser {
         final result = _pendingEvent;
         _pendingEvent = null;
         _escBuf.clear();
+        // A real sequence completed — any `ESC ESC` prefix really was an Alt
+        // modifier, so no swallowed standalone ESCs are pending.
+        _standaloneEscs = 0;
         return _applyAltPrefix(result);
       }
       return null;
@@ -204,7 +216,16 @@ class InputParser {
     _escTimer = null;
     _escBuf.clear();
     _altPrefix = false;
+    final swallowed = _standaloneEscs;
+    _standaloneEscs = 0;
     _onTimeout!(EscapeKey());
+    // `ESC ESC …` with no sequence behind it: each extra ESC was its own
+    // keypress, not an Alt modifier. Emit one EscapeKey per press so a fast
+    // double-Esc reads as two events (the editor's double-window then sees
+    // them ~0ms apart).
+    for (var i = 0; i < swallowed; i++) {
+      _onTimeout!(EscapeKey());
+    }
   }
 
   /// Reset all internal state.
@@ -218,6 +239,7 @@ class InputParser {
     _discardingOsc = false;
     _oscSawEsc = false;
     _altPrefix = false;
+    _standaloneEscs = 0;
     _inPaste = false;
     _pasteBuf.clear();
   }
@@ -296,8 +318,12 @@ class InputParser {
       // the modifier, and keep collecting the sequence that follows (a CSI/SS3
       // arrow, typically — macOS Terminal.app sends Alt+Arrow this way). The
       // escape timer restarts so a lone double-ESC still resolves via timeout.
+      // Count the swallowed ESC: if the timer fires instead of a sequence
+      // completing, it was a fast double-press, not a modifier (see
+      // [_standaloneEscs]).
       _escBuf.removeAt(0);
       _altPrefix = true;
+      _standaloneEscs++;
       if (_escapeTimeout != null && _onTimeout != null) {
         _escTimer?.cancel();
         _escTimer = Timer(_escapeTimeout!, _onEscTimeout);
