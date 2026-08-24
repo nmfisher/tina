@@ -118,11 +118,28 @@ Agent _restoreAgent({
 /// (so a sub-agent that ran under a tiered model is rebuilt under that same
 /// model), otherwise a FRESH account provider from the factory (never a shared
 /// instance — the conversation owns and closes its own).
+///
+/// The ref is built under the CURRENT config — the same rule as
+/// [AppComposition.buildStartupProvider] and the TUI's providerFactory: the
+/// startup key/base URL apply only when the ref's provider IS the config
+/// provider, and the base comes from today's config rather than the
+/// [ConversationMeta.baseUrl] captured at creation. That capture is
+/// provenance; replaying it made a `base-url` edit in ~/.tina/config
+/// invisible to every restored conversation of the session.
 LlmProvider _restoreProvider(ConversationMeta meta, RestoreContext ctx) {
   final ref = meta.model;
   if (ref == null || ref.isEmpty) return ctx.accountProvider();
   try {
-    return ctx.registry.build(ref, baseUrlOverride: meta.baseUrl);
+    final refProvider = ref.contains('/') ? ref.split('/').first : null;
+    final sameProvider = refProvider == ctx.config.provider;
+    return ctx.registry.build(
+      ref,
+      apiKeyOverride: sameProvider ? ctx.config.apiKey : null,
+      baseUrlOverride: sameProvider ? ctx.config.baseUrl : null,
+      maxTokens: ctx.config.maxTokens,
+      streamIdleTimeout: ctx.config.streamIdleTimeout,
+      requestTimeout: ctx.config.requestTimeout,
+    );
   } catch (_) {
     // Unknown/ambiguous model ref (provider removed, typo): fall back to a
     // fresh account provider rather than failing the whole restore.

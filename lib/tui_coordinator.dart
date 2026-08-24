@@ -258,25 +258,32 @@ class TuiCoordinator {
     // fallback builds fresh ones through the same tear-off.
     //
     // On resume the ACTIVE conversation is the one already built here (the
-    // restore loop skips it), so its provider must come from the model ref
-    // persisted in its meta — a `/model` swap during the session would
-    // otherwise be lost and the conversation would come back under the config
-    // default. Same resolution philosophy as the restore fallback
-    // (_restoreProvider): an unresolvable ref degrades to the config provider.
+    // restore loop skips it), so its provider comes from the model ref
+    // persisted in its meta — resolved by [AppComposition.buildStartupProvider]
+    // under the CURRENT config: a `/model` swap during the session survives
+    // resume, an explicit --model flag wins, and the startup key/base URL
+    // apply only when the ref's provider is the config provider. The meta's
+    // captured baseUrl is deliberately NOT replayed — it froze whatever
+    // `base-url` was configured when the session was created, so replaying it
+    // made every later config edit invisible to the resumed session (a stale
+    // experimental base 404-ed forever, no matter what the config said now).
+    LlmProvider provider;
+    try {
+      provider = app.buildStartupProvider();
+    } catch (_) {
+      // The meta ref can still fail to BUILD (auth required, no key) even when
+      // its provider descriptor exists; degrade to the plain config default —
+      // the same provider a fresh session would get — rather than dying.
+      provider = reg.build('${config.provider}/${config.model}',
+          maxTokens: config.maxTokens,
+          streamIdleTimeout: config.streamIdleTimeout,
+          requestTimeout: config.requestTimeout);
+    }
+    // The active conversation's meta also carries the system prompt it ran
+    // under — resume replays the stored prompt verbatim (below).
     final activeMeta = app.initialManifest?.conversations
         .where((c) => c.id == app.initialConversationId)
         .firstOrNull;
-    LlmProvider provider;
-    if (activeMeta?.model == null || activeMeta!.model!.isEmpty) {
-      provider = app.buildStartupProvider();
-    } else {
-      try {
-        provider = reg.build(activeMeta.model!,
-            baseUrlOverride: activeMeta.baseUrl);
-      } catch (_) {
-        provider = app.buildStartupProvider();
-      }
-    }
     final policy = app.policy;
     // Auto-mode classifier (null when no provider could be built) — threaded
     // into every buildAgent call and the workflow/env askers below so
