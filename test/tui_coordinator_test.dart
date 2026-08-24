@@ -1120,4 +1120,88 @@ void main() {
       expect(io.written.toString(), contains('permission mode: read-all'));
     });
   });
+
+  group('double-Esc force-cancels through an open approval', () {
+    // Owner bug 2026-08-24: "I pressed Escape twice and the border was still
+    // animating." A bash approval was open; its readKey loop eats single Escs
+    // as "deny", the model re-issued the denied call, and nothing ever
+    // stopped the turn. The parser must emit one EscapeKey per rapid press,
+    // the editor's 450ms double window must survive the readKey swipe, and
+    // the second Esc must force-cancel the run underneath the modal.
+    test('rapid Esc-Esc across two approvals stops the turn', () async {
+      final io = FakeStdio()..hasTerminalValue = false;
+      final config = Config.parse(const ['--backend', 'ansi']);
+      // Each response re-issues the same denied bash call — the exact
+      // circuit-breaker shape (#27) that kept the comet sweeping.
+      List<StreamEvent> toolTurn(String id) => [
+            MessageComplete(
+              content: [
+                ToolUseBlock(id: id, name: 'bash', input: const {
+                  'command': 'echo hi',
+                }),
+              ],
+              stopReason: 'tool_use',
+            ),
+          ];
+      final app = await buildAppComposition(
+        config: config,
+        registry: builtinRegistry(),
+        provider: FakeProvider([toolTurn('c1'), toolTurn('c2')]),
+        store: MemorySessionStore(),
+      );
+      final coordinator = await TuiCoordinator.create(
+        app: app,
+        io: io,
+        terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
+      );
+      coordinator.pendingFirstLoadEnvironmentAsk = null;
+
+      int countOf(String needle) =>
+          needle.allMatches(io.written.toString().replaceAll('\n', ' ')).length;
+
+      Future<void> pumpUntil(bool Function() cond,
+          {Duration timeout = const Duration(seconds: 5)}) async {
+        final deadline = DateTime.now().add(timeout);
+        while (!cond()) {
+          if (DateTime.now().isAfter(deadline)) {
+            fail('pumpUntil timed out after ${timeout.inSeconds}s; output '
+                'tail:\n${io.written.toString().split('\n').skip(0).join('\n')}');
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+      }
+
+      final runFuture = coordinator.run().timeout(const Duration(seconds: 20));
+
+      io.feedBytes([0x68, 0x69, 0x0d]); // hi + Enter — starts the turn
+      await pumpUntil(() => countOf('approve?') >= 1); // approval #1 armed
+
+      io.feedBytes([0x1b]); // first Esc: denies approval #1
+      await pumpUntil(() => countOf(' esc') >= 1); // deny echo landed
+
+      // The model re-issues the denied call — approval #2 arms.
+      await pumpUntil(() => countOf('approve?') >= 2);
+
+      io.feedBytes([0x1b]); // second Esc, within the 450ms double window
+      await pumpUntil(() => countOf(' esc') >= 2); // the modal still denies
+      await pumpUntil(
+          () => !coordinator.sessionManager.activeConversation.isRunning);
+      await pumpUntil(() => countOf('[cancelled]') >= 1);
+
+      // Let the turn teardown settle before driving the prompt — keys fed
+      // mid-unwind are swallowed (queued/ignored) and the loop never sees
+      // the /exit.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      io.feedBytes([0x2f, 0x65, 0x78, 0x69, 0x74, 0x0d]); // /exit + accept
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      io.feedBytes([0x0d]); // submit
+      await runFuture;
+
+      final out = io.written.toString();
+      expect(out, contains('[cancelled]'),
+          reason: 'the double-Esc force-cancelled turn is indicated');
+      expect(out, contains('approve?'),
+          reason: 'sanity: the approval row really opened');
+    });
+  });
 }

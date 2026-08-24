@@ -388,6 +388,96 @@ void main() {
           reason: 'cancelled exchange should be discarded from history');
     });
 
+    test('cancelNow force-cancels a running turn with no arming step',
+        () async {
+      // The double-Esc gesture: the first Esc (arming, or swallowed by a
+      // permission modal) already served as the warning — the second must
+      // stop the run outright.
+      final rl = FakeReadLine();
+      final controller =
+          _buildController(readLine: rl, provider: _SlowProvider());
+
+      rl.enqueue('hi');
+      final runFuture = controller.run();
+      await _pumpUntil(() => controller.active.isRunning);
+
+      expect(controller.cancelNow(), isTrue,
+          reason: 'something was running — the second Esc is consumed');
+      final host = hostOf(controller);
+      expect(host.messages.any((m) => m.contains('Press Esc again')), isFalse,
+          reason: 'no arming warning on the force path');
+      await _pumpUntil(() => controller.active.history.isEmpty);
+      rl.close();
+      await runFuture;
+
+      expect(host.notices.any((n) => n.contains('[cancelled]')), isTrue,
+          reason: 'the force-cancelled turn is indicated');
+      expect(controller.active.history, isEmpty,
+          reason: 'the cancelled exchange is discarded');
+    });
+
+    test('cancelNow returns false when nothing runs (idle input-clear path)',
+        () async {
+      final controller = _buildController(
+          readLine: FakeReadLine(), provider: FakeProvider.done());
+
+      expect(controller.cancelNow(), isFalse,
+          reason: 'the editor only consumes the second Esc when a run stops; '
+              'idle double-Esc keeps its input-clear meaning');
+    });
+
+    test('cancelNow force-cancels from the ARMED state (modal-swallowed Esc)',
+        () async {
+      // Owner scenario shape: first Esc is eaten elsewhere (an approval row
+      // treats it as "deny") but armed the warning; the second must complete
+      // the cancel WITHOUT a fresh warning.
+      final rl = FakeReadLine();
+      final controller =
+          _buildController(readLine: rl, provider: _SlowProvider());
+
+      rl.enqueue('hi');
+      final runFuture = controller.run();
+      await _pumpUntil(() => controller.active.isRunning);
+      expect(controller.cancelActiveTurn(), isTrue); // arms
+      final host = hostOf(controller);
+      final warningsBefore = host.messages
+          .where((m) => m.contains('Press Esc again'))
+          .length;
+
+      expect(controller.cancelNow(), isTrue);
+      await _pumpUntil(() => controller.active.history.isEmpty);
+      rl.close();
+      await runFuture;
+
+      expect(host.messages.where((m) => m.contains('Press Esc again')).length,
+          warningsBefore,
+          reason: 'the force path completes the cancel, not another warning');
+      expect(host.notices.any((n) => n.contains('[cancelled]')), isTrue);
+    });
+
+    test('cancelNow during unwind is consumed silently (no re-arm)', () async {
+      final rl = FakeReadLine();
+      final controller =
+          _buildController(readLine: rl, provider: _SlowProvider());
+
+      rl.enqueue('hi');
+      final runFuture = controller.run();
+      await _pumpUntil(() => controller.active.isRunning);
+      expect(controller.cancelNow(), isTrue); // completes the canceller
+      // A third rapid Esc lands while the turn is still unwinding — it must
+      // not arm a warning for a run that is already stopping.
+      final host = hostOf(controller);
+      expect(controller.cancelActiveTurn(), isTrue,
+          reason: 'consumed while unwinding');
+      await _pumpUntil(() => controller.active.history.isEmpty);
+      rl.close();
+      await runFuture;
+
+      expect(
+          host.messages.where((m) => m.contains('Press Esc again')), isEmpty,
+          reason: 'no warning was armed for the already-stopping run');
+    });
+
     test(
         'REGRESSION: a user message survives quitting before the response '
         'completes (restored by -c)', () async {

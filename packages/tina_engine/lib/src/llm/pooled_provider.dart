@@ -3,6 +3,7 @@ import 'dart:async';
 import '../tools/tool.dart';
 import 'message.dart';
 import 'provider.dart';
+import 'wire.dart';
 
 /// One logical model served by N equivalent member providers, round-robin.
 ///
@@ -93,15 +94,16 @@ class PooledProvider implements LlmProvider {
     return until == null || _clock.elapsed >= until;
   }
 
-  /// The next eligible member, or null when every member is cooling.
-  /// Advances the rotation past the member it hands out.
-  LlmProvider? _takeMember() {
+  /// The next eligible member and its rotation index, or null when every
+  /// member is cooling. Advances the rotation past the member it hands out.
+  /// The index rides along for the wire liveness label (`pool-<i>`).
+  (LlmProvider, int)? _takeMember() {
     for (var i = 0; i < members.length; i++) {
       final index = (_next + i) % members.length;
       final member = members[index];
       if (!_isEligible(member)) continue;
       _next = (index + 1) % members.length;
-      return member;
+      return (member, index);
     }
     return null;
   }
@@ -195,8 +197,8 @@ class PooledProvider implements LlmProvider {
       StreamError? lastError;
       var tried = 0;
       while (tried < members.length) {
-        var member = _takeMember();
-        if (member == null) {
+        final taken = _takeMember();
+        if (taken == null) {
           // Everyone cooling. The earliest expiry is at most one [cooldown]
           // away, so PACE until it rather than surfacing an error: the
           // policy retry's backoff is shorter than the cooldown, so a
@@ -205,6 +207,9 @@ class PooledProvider implements LlmProvider {
           if (!await waitForEligible()) break;
           continue; // re-take; waiting is not a member attempt
         }
+        final (member, index) = taken;
+        Wire.report('pool_rotate',
+            member: 'pool-$index', attempt: tried + 1);
         final failure = await _attempt(member);
         if (cancelled.isCompleted) return;
         if (failure == null) {

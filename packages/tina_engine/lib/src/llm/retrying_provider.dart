@@ -4,6 +4,7 @@ import '../tools/tool.dart';
 import 'http.dart' show applyBackoffJitter, isRetryableStatus, retryDelays;
 import 'message.dart';
 import 'provider.dart';
+import 'wire.dart';
 
 /// Policy-layer retry for LLM sends: re-attempts a request whose FIRST event
 /// is a retryable failure (a 408/425/429/5xx [StreamError], or a transient
@@ -111,6 +112,7 @@ class RetryingProvider implements LlmProvider {
 
     Future<void> run() async {
       for (var attempt = 0; attempt <= maxRetries; attempt++) {
+        Wire.report('attempt_start', attempt: attempt + 1, inFlight: true);
         final retryOf = await _runAttempt(
           controller,
           cancelled,
@@ -119,6 +121,7 @@ class RetryingProvider implements LlmProvider {
           tools: tools,
           retriesLeft: maxRetries - attempt,
         );
+        Wire.report('attempt_end', attempt: attempt + 1, inFlight: false);
         if (retryOf == null || cancelled.isCompleted) {
           // Terminal attempt (its events — including any surfaced error —
           // were forwarded): close the send's stream.
@@ -128,6 +131,7 @@ class RetryingProvider implements LlmProvider {
         final delay = retryOf.retryAfter ??
             applyBackoffJitter(
                 retryDelays[attempt.clamp(0, retryDelays.length - 1)]);
+        Wire.report('backoff', attempt: attempt + 1, inFlight: false);
         // Park on the backoff; a cancel during it ends the send quietly.
         await Future.any([Future<void>.delayed(delay), cancelled.future]);
         if (cancelled.isCompleted) return;

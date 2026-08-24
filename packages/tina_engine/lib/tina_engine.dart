@@ -29,6 +29,7 @@ export 'src/llm/pooled_provider.dart';
 export 'src/llm/provider.dart';
 export 'src/llm/provider_rate_limit.dart';
 export 'src/llm/retrying_provider.dart';
+export 'src/llm/wire.dart';
 export 'src/llm/providers/anthropic_descriptor.dart';
 export 'src/llm/providers/cerebras_descriptor.dart';
 export 'src/llm/providers/builtins.dart';

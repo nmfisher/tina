@@ -1209,7 +1209,76 @@ turn-spend anatomy proposed.
     this and just isn't wired in; (c) an explicit invariant that
     watchdog-seconds ≥ the transport ladder's worst-case wall-clock,
     or a cap on the ladder below the watchdog, so the two layers
-    can't disagree about whether a run is alive. Status: OPEN
-    (evidence recorded from a live kill; this round shipped with the
-    driver running tina at --watchdog-seconds 900 + TINA_HTTP_LOG as
-    the workaround).
+    can't disagree about whether a run is alive. Status: DONE
+    (round 5 — tina built the Wire feed + ladder arithmetic before
+    its budget abort; the driver finished the unwired rungs and the
+    app-side hookups; see the round-5 close notes).
+
+## Improvements run, round 5 — fresh backlog (2026-08-24)
+
+PR #21 (round 4: #43 spend compaction + #44 aged-result stubbing)
+squash-merged as 92af202 and PR #22 (ask_user inline at the input field,
+Enter selects per question, no arrow on options) as d45ed1a, all four
+jobs green on both. PR #23 (owner feature: Shift+Tab cycles permission
+modes ask → read-all → allow-edits → auto) is in flight as this round
+starts — driver-side like the owner bug fixes, no tina involvement.
+This round returns the backlog to tina with the single deep item #45.
+
+46. **Failed transport attempts are budget-invisible — the token budget
+    undercounts exactly when the provider stack is misbehaving.** Found
+    while building #45's evidence: the retry ladder's FAILED attempts
+    emit StreamError with no usage, and `record()` only books the
+    SUCCESSFUL attempt's MessageComplete usage — but every failed
+    attempt still re-sent the full body (a ~200KB context ≈ 50K input
+    tokens billed upstream per attempt; round 4's run 2 rotated
+    nim → openrouter → hetzner → hetzner in one turn). The compounding
+    case is the worst one: a turn that dies mid-ladder has booked
+    NONE of its transport spend, so `--max-turn-tokens` arithmetic and
+    the 50%/90% rungs (#43/#37) all read low while the bill ran high.
+    **Would make:** (a) attempt-level usage capture — when a failed
+    attempt's error carries usage headers/body (several providers
+    include them on 429/5xx), book it; (b) an explicit approximation
+    for attempts that don't — estimated input tokens of the re-sent
+    body recorded as `estimated` (distinct from measured) usage;
+    (c) a sink notice when retried spend exceeds a threshold (say
+    10% of the turn total), so a degrading provider patch is visible
+    to the user and not just to the bill. Status: OPEN (filed by the
+    driver from #45's wire-log evidence; not scheduled for this round).
+
+Round-5 close notes (2026-08-24):
+
+- tina's run implemented #45's feed and its arithmetic seam, then hit
+  the per-turn budget cap mid-flight (fifth cap abort; body ≈2.03M
+  tokens) — left in tree: wire.dart (Wire/WireState, unused-import
+  wart), wire_liveness_test.dart referencing two APIs that didn't
+  exist yet, and http.dart's `_maxRetryAfter` made public. Untouched:
+  both provider layers and bin/tina.dart, i.e. would-makes (b) and
+  (c) were unwired.
+- Driver repair, keeping tina's shapes: ladder arithmetic
+  (`wireLadderWorstCase`) and the invariant
+  (`reconcileWatchdogWithLadder`) live in http.dart beside the
+  constants they compute from — wire.dart stays import-free at the
+  bottom of the stack, so no layer cycles. RetryingProvider reports
+  `attempt_start`/`backoff`/`attempt_end` (numbered rungs);
+  PooledProvider reports `pool_rotate` with a `pool-<i>` member label
+  (its `_takeMember` now returns the rotation index). bin/tina.dart
+  installs `Wire.onWireEvent → watchdog.record('wire:…')` for (a),
+  appends `Wire.last` + in-flight elapsed to the abort diagnostic for
+  (b), and reconciles the configured timeout against the minimum
+  ladder floor for (c) — the floor (4×(30+5) + 3×60 = 320s) already
+  exceeds the 300s default, so the invariant binds out of the box;
+  a raise says so on stderr, 0 still disables.
+- wire_liveness_test.dart rewritten against the real APIs: the silent
+  fake proves the LADDER reports (not the provider under test), a
+  layered pool-over-retry send proves the seam ordering, and the
+  arithmetic tests pin the floor at real constants (200KB/3 members
+  → 1160s > 300s; minimum ladder > 300s).
+- Verification: engine 800 (794 + 6 wire tests) and root 777 green;
+  engine/console/index/root analyzes 0.
+- Also shipped this round, driver-side owner bugs (tina not involved):
+  PR #24 — rapid double-Esc force-cancels through open approvals
+  (parser collapsed fast pairs into one EscapeKey; approval readKey
+  eats single Escs as deny), and PR #25 — `--continue` degrades when
+  project-local transcripts are gone instead of crashing at
+  resolveSession. All four CI jobs green on both.
+

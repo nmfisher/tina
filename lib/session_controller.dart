@@ -407,6 +407,16 @@ class SessionController implements CommandContext {
   bool cancelActiveTurn() {
     final s = active;
     if (!s.isRunning) {
+      // A cancelled turn may still be unwinding — its completer completed,
+      // but _runTurn hasn't cleaned the reference up yet (isRunning is
+      // derived from the completer, so it flips the instant the cancel
+      // lands). Consume further Escs silently instead of falling through to
+      // editor handling (or arming a warning) for a run that is already
+      // stopping.
+      if (s.cancelCompleter != null) {
+        _cancelArmed = false;
+        return true;
+      }
       // No turn, but a background index run may be cancellable.
       if (isIndexRunning || isEnvironmentRunning) {
         if (!_cancelArmed) {
@@ -436,7 +446,32 @@ class SessionController implements CommandContext {
     }
     // Second Esc: cancel.
     _cancelArmed = false;
-    s.cancelCompleter?.complete();
+    final c = s.cancelCompleter;
+    if (c != null && !c.isCompleted) c.complete();
+    return true;
+  }
+
+  /// Force-cancel the active conversation's in-flight turn — the rapid
+  /// Esc-Esc gesture. Unlike [cancelActiveTurn] there is no arming step: the
+  /// first Esc has already served as the warning (it may have answered a
+  /// permission modal, which swallows single Escs as "deny" and would
+  /// otherwise reset the arm count). Background `/index` / environment runs
+  /// get the same treatment — the first Esc armed THEIR warning. Returns true
+  /// when something was running — the caller consumes the second Esc only
+  /// then, so the idle-prompt double-Esc input clear still works.
+  bool cancelNow() {
+    final s = active;
+    _cancelArmed = false;
+    if (!s.isRunning) {
+      if (isIndexRunning || isEnvironmentRunning) {
+        _indexCancel?.complete();
+        _environmentCancel?.complete();
+        return true;
+      }
+      return false;
+    }
+    final c = s.cancelCompleter;
+    if (c != null && !c.isCompleted) c.complete();
     return true;
   }
 
