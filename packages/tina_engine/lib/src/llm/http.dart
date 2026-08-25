@@ -6,6 +6,8 @@ import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 
+import 'provider.dart';
+
 final _log = Logger('tina.llm');
 
 /// Shared HTTP plumbing used by every LLM provider. Lives in its own file so
@@ -262,6 +264,60 @@ String humanizeHttpError(String provider, int status, String body) {
   }
   final preview = body.length > 240 ? '${body.substring(0, 240)}…' : body;
   return '$provider $status: $preview';
+}
+
+/// #46 (a): pull provider-reported token usage out of a non-200 response
+/// body. Several providers include a final usage block in error responses —
+/// OpenAI-compatible servers echo `"usage": {"prompt_tokens": ..,
+/// "completion_tokens": ..}` (some also nest it under `"error"`), Gemini sends
+/// `usageMetadata`, Anthropic per-request usage (`input_tokens` /
+/// `output_tokens`, plus the cache fields). Returns null when the body
+/// carries none — nothing is invented here; callers fall back to the body-size
+/// estimate (#46 b).
+TokenUsage? parseErrorUsage(String body) {
+  if (body.isEmpty) return null;
+  try {
+    final j = jsonDecode(body);
+    if (j is! Map) return null;
+    // Usage may sit at the top level, nested under "error", or both — probe
+    // each candidate map with every known key shape.
+    final candidates = <dynamic>[j['usage'], j['usageMetadata']];
+    final err = j['error'];
+    if (err is Map) {
+      candidates..add(err['usage'])..add(err['usageMetadata']);
+    }
+    for (final c in candidates) {
+      if (c is! Map) continue;
+      int? pick(List<String> keys) {
+        for (final k in keys) {
+          final v = c[k];
+          if (v is int && v >= 0) return v;
+        }
+        return null;
+      }
+
+      final input = pick(
+          ['prompt_tokens', 'input_tokens', 'promptTokenCount']);
+      final output =
+          pick(['completion_tokens', 'output_tokens', 'candidatesTokenCount']);
+      final cacheWrite =
+          pick(['cache_creation_input_tokens', 'cacheCreationInputTokens']);
+      final cacheRead =
+          pick(['cache_read_input_tokens', 'cacheReadInputTokens']);
+      // Require at least one real counter — an empty/partial shell is noise,
+      // not a report.
+      if (input == null && output == null) continue;
+      return TokenUsage(
+        inputTokens: input ?? 0,
+        outputTokens: output ?? 0,
+        cacheCreationInputTokens: cacheWrite ?? 0,
+        cacheReadInputTokens: cacheRead ?? 0,
+      );
+    }
+  } catch (e) {
+    _log.fine('error body carried no parseable usage', e);
+  }
+  return null;
 }
 
 /// Convert a low-level transport exception into a phrase suitable for the

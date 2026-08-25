@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../agent/token_budget.dart' show TokenBudget;
 import '../tools/tool.dart';
 import 'http.dart' show applyBackoffJitter, isRetryableStatus, retryDelays;
 import 'message.dart';
@@ -65,6 +66,8 @@ class RetryingProvider implements LlmProvider {
     /// Returns the swallowed retryable error when the attempt failed before
     /// any content and retries remain (the caller backs off and re-sends);
     /// null when the attempt ran to its terminal event (or was cancelled).
+    /// [attemptNumber] is the 1-based attempt index, reported alongside the
+    /// swallowed failure's usage so the meter can attribute it.
     Future<StreamError?> _runAttempt(
       StreamController<StreamEvent> controller,
       Completer<void> cancelled, {
@@ -72,6 +75,7 @@ class RetryingProvider implements LlmProvider {
       required List<Message> messages,
       required List<ToolSchema> tools,
       required int retriesLeft,
+      required int attemptNumber,
     }) {
       final done = Completer<void>();
       StreamError? swallowed;
@@ -89,6 +93,13 @@ class RetryingProvider implements LlmProvider {
                   retriesLeft > 0 &&
                   _isRetryable(event)) {
                 swallowed = event;
+                bookFailedAttemptUsage(
+                    system: system,
+                    messages: messages,
+                    tools: tools,
+                    error: event,
+                    attempt: attemptNumber,
+                    member: 'single');
                 return;
               }
               forwarded = true;
@@ -120,6 +131,7 @@ class RetryingProvider implements LlmProvider {
           messages: messages,
           tools: tools,
           retriesLeft: maxRetries - attempt,
+          attemptNumber: attempt + 1,
         );
         Wire.report('attempt_end', attempt: attempt + 1, inFlight: false);
         if (retryOf == null || cancelled.isCompleted) {
@@ -151,4 +163,45 @@ class RetryingProvider implements LlmProvider {
 
   static bool _isRetryable(StreamError e) =>
       e.transient || (e.statusCode != null && isRetryableStatus(e.statusCode!));
+}
+
+/// #46: book the spend of one FAILED transport attempt, before it is
+/// swallowed into a retry (or a pool rotation).
+/// * (a) the error carried provider-reported [StreamError.usage] → book
+///   it, MEASURED (never estimated);
+/// * (b) otherwise → book the estimate of the body the ladder just
+///   re-sent ([TokenBudget.estimateInputTokens] on the identical input).
+/// Reported through [Wire.reportAttemptUsage] to the metering layer
+/// ([MeteringProvider]) — the single spend funnel. Measured beats
+/// estimated for the same attempt: (a) implies no (b).
+///
+/// Shared by both failure ladders: [RetryingProvider] (same provider,
+/// backoff, re-send) and [PooledProvider] (next member, re-send) — each
+/// swallowed attempt is a full-body re-transmission that was previously
+/// invisible to the meter.
+void bookFailedAttemptUsage({
+  required String system,
+  required List<Message> messages,
+  required List<ToolSchema> tools,
+  required StreamError error,
+  required int attempt,
+  String member = 'single',
+}) {
+  final measured = error.usage;
+  final usage = measured != null
+      ? WireUsage(
+          inputTokens: measured.inputTokens,
+          outputTokens: measured.outputTokens,
+          cacheCreationInputTokens: measured.cacheCreationInputTokens,
+          cacheReadInputTokens: measured.cacheReadInputTokens,
+        )
+      : WireUsage(
+          inputTokens:
+              TokenBudget.estimateInputTokens(system, messages, tools));
+  Wire.reportAttemptUsage(AttemptUsage(
+    member: member,
+    attempt: attempt,
+    usage: usage,
+    estimated: measured == null,
+  ));
 }

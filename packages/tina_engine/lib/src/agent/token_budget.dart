@@ -61,12 +61,24 @@ class TokenBudget {
 
   /// Running total of input+output tokens within the current `Agent.run` call,
   /// capped by [perTurnLimit]. Zeroed at the start of each run by [resetTurn].
+  /// MEASURED spend only.
   final int turnTotal;
 
   /// Running total of input+output tokens across the whole REPL session,
   /// capped by [perSessionLimit]. Zeroed by [resetSession] (on `/clear` and
   /// after a per-session pause is resolved).
+  /// MEASURED spend only.
   final int sessionTotal;
+
+  /// #46 (b): running total of ESTIMATED tokens within the current turn — the
+  /// floor booked from failed transport attempts that carried no
+  /// provider-reported usage. Counts toward the same [perTurnLimit] ceiling so
+  /// a runaway retry ladder trips it like measured spend would.
+  final int turnEstimated;
+
+  /// #46 (b): running total of ESTIMATED tokens across the session. Same cap
+  /// arithmetic applies.
+  final int sessionEstimated;
 
   const TokenBudget({
     this.perTurnLimit,
@@ -74,28 +86,42 @@ class TokenBudget {
     this.perRequestInputLimit,
     this.turnTotal = 0,
     this.sessionTotal = 0,
+    this.turnEstimated = 0,
+    this.sessionEstimated = 0,
   });
 
   /// Copy with the given totals replaced. Caps are carried over unchanged.
-  TokenBudget _copyWith({int? turnTotal, int? sessionTotal}) => TokenBudget(
+  TokenBudget _copyWith(
+          {int? turnTotal,
+          int? sessionTotal,
+          int? turnEstimated,
+          int? sessionEstimated}) =>
+      TokenBudget(
         perTurnLimit: perTurnLimit,
         perSessionLimit: perSessionLimit,
         perRequestInputLimit: perRequestInputLimit,
         turnTotal: turnTotal ?? this.turnTotal,
         sessionTotal: sessionTotal ?? this.sessionTotal,
+        turnEstimated: turnEstimated ?? this.turnEstimated,
+        sessionEstimated: sessionEstimated ?? this.sessionEstimated,
       );
 
-  /// Zero the per-turn total, keeping the session total. Called at the start
+  /// Zero the per-turn totals, keeping the session total. Called at the start
   /// of each `Agent.run`.
-  TokenBudget resetTurn() => _copyWith(turnTotal: 0);
+  TokenBudget resetTurn() =>
+      _copyWith(turnTotal: 0, turnEstimated: 0);
 
-  /// Zero both totals. Called by `/clear` and after a per-session pause is
+  /// Zero all totals. Called by `/clear` and after a per-session pause is
   /// resolved (Continue or Abort both reset, so the next turn starts clean).
-  TokenBudget resetSession() => _copyWith(turnTotal: 0, sessionTotal: 0);
+  TokenBudget resetSession() => _copyWith(
+      turnTotal: 0, sessionTotal: 0, turnEstimated: 0, sessionEstimated: 0);
 
-  /// Record one request's usage. Sums `input + output` into both running
-  /// totals and returns the updated budget.
+  /// Record one request's MEASURED usage (provider-reported). Sums
+  /// `input + output` into both running totals and returns the updated
+  /// budget. Usage flagged [TokenUsage.estimated] is routed to
+  /// [recordEstimated] so the two counters can never be conflated.
   TokenBudget record(TokenUsage usage) {
+    if (usage.estimated) return recordEstimated(usage);
     final used = usage.inputTokens + usage.outputTokens;
     return _copyWith(
       turnTotal: turnTotal + used,
@@ -103,14 +129,43 @@ class TokenBudget {
     );
   }
 
+  /// #46 (b): record one failed transport attempt's ESTIMATED usage — the
+  /// size of the body it re-sent when its error carried no provider-reported
+  /// numbers. The estimate counts toward the SAME caps ([perTurnLimit],
+  /// [perSessionLimit]) — the point of #46: those caps read LOW today because
+  /// failed-attempt spend was invisible — but it lives in its own counters
+  /// ([turnEstimated], [sessionEstimated]) so it never masquerades as
+  /// measured.
+  TokenBudget recordEstimated(TokenUsage usage) {
+    final used = usage.inputTokens + usage.outputTokens;
+    return _copyWith(
+      turnEstimated: turnEstimated + used,
+      sessionEstimated: sessionEstimated + used,
+    );
+  }
+
+  /// The per-turn cap arithmetic over the COMBINED measured+estimated spend:
+  /// this is the number the hard abort, the #43 compaction rung and the #37
+  /// soft-margin rung all compare against. Estimated spend raises these
+  /// readings exactly like measured spend would.
+  int get turnGrandTotal => turnTotal + turnEstimated;
+
   /// Which cumulative cap (if any) is currently crossed, or null if within
   /// budget. Call after each [record]. The agent uses this to apply the
   /// pause+dialog resolution only to per-session trips.
+  ///
+  /// #46: the per-turn and per-session comparisons read the COMBINED
+  /// measured+estimated total — estimated spend trips the caps like measured
+  /// spend, which is the point (a runaway retry ladder must trip them even
+  /// when the ladder itself dies mid-flight and never reaches a
+  /// MessageComplete).
   TokenLimitKind? exceededLimit() {
-    if (perTurnLimit != null && turnTotal > perTurnLimit!) {
+    final turnGrand = turnTotal + turnEstimated;
+    final sessionGrand = sessionTotal + sessionEstimated;
+    if (perTurnLimit != null && turnGrand > perTurnLimit!) {
       return TokenLimitKind.perTurn;
     }
-    if (perSessionLimit != null && sessionTotal > perSessionLimit!) {
+    if (perSessionLimit != null && sessionGrand > perSessionLimit!) {
       return TokenLimitKind.perSession;
     }
     return null;
@@ -119,14 +174,18 @@ class TokenBudget {
   /// Returns a human-readable reason if a cumulative cap has been crossed,
   /// or null if we're still within budget. Call after each [record].
   String? exceeded() {
+    final turnGrand = turnTotal + turnEstimated;
+    final sessionGrand = sessionTotal + sessionEstimated;
     switch (exceededLimit()) {
       case TokenLimitKind.perTurn:
         return 'per-turn token budget exceeded '
-            '($turnTotal > $perTurnLimit). Aborting to prevent runaway cost. '
+            '($turnGrand > $perTurnLimit, of which '
+            '$turnEstimated estimated). Aborting to prevent runaway cost. '
             'Raise with --max-turn-tokens.';
       case TokenLimitKind.perSession:
         return 'per-session token budget exceeded '
-            '($sessionTotal > $perSessionLimit). Aborting to prevent runaway '
+            '($sessionGrand > $perSessionLimit, of which '
+            '$sessionEstimated estimated). Aborting to prevent runaway '
             'cost. Raise with --max-session-tokens, or /clear to reset.';
       case null:
         return null;
@@ -152,14 +211,16 @@ class TokenBudget {
   /// tests assert against.
   String? softMarginNotice() {
     final limit = perTurnLimit;
-    if (limit == null || turnTotal < (limit * kPerTurnSoftMarginRatio).ceil()) {
+    final grand = turnTotal + turnEstimated;
+    if (limit == null || grand < (limit * kPerTurnSoftMarginRatio).ceil()) {
       return null;
     }
     if (exceededLimit() != null) return null; // hard trip: the hard reason wins
     return '[budget] turn spend at ${(kPerTurnSoftMarginRatio * 100).round()}%'
-        ' (${turnTotal} of $limit tokens) of the per-turn limit — finish the '
-        'current step and write your closing summary now; the turn is '
-        'aborted hard when the remaining spend is exhausted.';
+        ' (${grand} of $limit tokens, of which $turnEstimated estimated) of '
+        'the per-turn limit — finish the current step and write your closing '
+        'summary now; the turn is aborted hard when the remaining spend is '
+        'exhausted.';
   }
 
   /// True when the recorded spend has FIRST crossed the #43 compaction rung
@@ -176,7 +237,8 @@ class TokenBudget {
   /// there is no fraction to cross.
   bool turnSpendCompactTrigger() {
     final limit = perTurnLimit;
-    if (limit == null || turnTotal < (limit * kTurnSpendCompactRatio).ceil()) {
+    final grand = turnTotal + turnEstimated;
+    if (limit == null || grand < (limit * kTurnSpendCompactRatio).ceil()) {
       return false;
     }
     return exceededLimit() == null; // hard trip: the hard reason wins

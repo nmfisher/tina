@@ -108,7 +108,9 @@ class GeminiProvider extends LlmProvider {
       final text = await resp.stream.bytesToString();
       yield StreamError(humanizeHttpError('Gemini', resp.statusCode, text),
           statusCode: resp.statusCode,
-          retryAfter: parseRetryAfter(resp.headers['retry-after']));
+          retryAfter: parseRetryAfter(resp.headers['retry-after']),
+          // #46 (a): error bodies can carry usageMetadata — book it.
+          usage: parseErrorUsage(text));
       return;
     }
 

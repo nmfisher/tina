@@ -48,6 +48,44 @@ class SpendLedger {
   bool _tripped = false;
   String? _reason;
 
+  /// #46 (b): estimated input-token spend from failed transport attempts that
+  /// carried no provider-reported usage (each failed attempt gets the estimate
+  /// of the body it re-sent). Always reported separately from measured spend
+  /// — `totalTokens` is measured only, `totalEstimatedTokens` is estimated only,
+  /// and `/spend` shows "X measured + Y estimated" so estimates never masquerade.
+  int _totalEstimatedTokens = 0;
+
+  /// #46 (c): spend booked for RETRIED transport attempts — every failed
+  /// attempt, whether its tokens were measured from the error body or
+  /// estimated from the re-sent body size. This is the numerator of the
+  /// degrading-provider notice ([onRetriedSpendNotice]): retried spend
+  /// growing past a tenth of total spend means the provider stack is
+  /// burning money re-sending bodies, and the user should hear about it
+  /// while it happens — not only on the bill.
+  int _retriedTokens = 0;
+  int _retriedEstimated = 0;
+  int _retriedMeasured = 0;
+
+  /// Highest 10-percentage-point band the retried-spend notice has fired
+  /// for. The notice escalates — it fires again only when retried spend
+  /// crosses the NEXT band, so a degrading patch that keeps retrying keeps
+  /// escalating rather than spamming per attempt.
+  int _retriedNoticeBand = 0;
+
+  /// #46 (c): sink for the retried-spend notice. Installed by the app
+  /// composition (stderr by default — visible headless and in nohup logs);
+  /// a TUI may replace it with a chat renderer. Null disables the notice
+  /// (tests install their own collector or leave it null).
+  void Function(String notice)? onRetriedSpendNotice;
+
+  /// Retried transport spend booked this session ([recordRetried]).
+  int get retriedTokens => _retriedTokens;
+
+  /// Of [retriedTokens], the portion that was provider-measured (the error
+  /// body carried usage) vs estimated (body-size floor).
+  int get retriedMeasured => _retriedMeasured;
+  int get retriedEstimated => _retriedEstimated;
+
   /// Tokens restored from a previous process ([seed]); the part of
   /// [totalTokens] that predates this process. Shown by `/spend` so the
   /// restored portion is visible. Seeding never trips the ceiling — the cap
@@ -78,7 +116,25 @@ class SpendLedger {
         _now = now ?? DateTime.now;
 
   /// Running total of `input + output` tokens recorded this session.
+  /// MEASURED spend only — provider-reported usage. Estimated spend from
+  /// failed attempts is tracked separately in [totalEstimatedTokens] so the
+  /// two are never conflated; the trip arithmetic reads BOTH (see
+  /// [_tripCheck]).
   int get totalTokens => _totalTokens;
+
+  /// #46 (b): running total of ESTIMATED tokens (failed-attempt approximations
+  /// booked via [recordEstimated]). Reported distinctly from [totalTokens];
+  /// counts toward the same ceiling so a runaway retry ladder trips it.
+  int get totalEstimatedTokens => _totalEstimatedTokens;
+
+  /// Convenience read for the trip/display arithmetic: measured + estimated.
+  int get grandTotalTokens => _totalTokens + _totalEstimatedTokens;
+
+  /// The ceiling-crossing test over the COMBINED total (#46: estimated spend
+  /// must trip the global ceiling like measured spend, because the point of
+  /// the estimate is that the caps read low today).
+  bool get _overCeiling =>
+      maxGlobalTokens > 0 && grandTotalTokens > maxGlobalTokens;
 
   /// Tokens restored from a previous run via [seed] (the persisted portion of
   /// [totalTokens]).
@@ -97,21 +153,86 @@ class SpendLedger {
   /// The trip reason, set once when the ceiling is first crossed.
   String? get reason => _reason;
 
-  /// Record one request's usage. Sums `input + output` into the running total
-  /// and, if that crosses [maxGlobalTokens], latches [tripped] + [reason]
-  /// exactly once. A no-op for usage that's already empty.
+  /// Record one request's MEASURED usage (provider-reported). Sums
+  /// `input + output` into the running total and, if that crosses
+  /// [maxGlobalTokens], latches [tripped] + [reason] exactly once.
+  ///
+  /// This books the measured counter only. Usage flagged
+  /// [TokenUsage.estimated] is routed to [recordEstimated] so the two
+  /// counters can never be conflated, no matter who calls this.
   void record(TokenUsage usage) {
-    if (tripped) {
-      // Keep counting for the /spend total even after tripping, but never
-      // rewrite the first trip reason.
-      _totalTokens += usage.inputTokens + usage.outputTokens;
+    if (usage.estimated) {
+      recordEstimated(usage);
       return;
     }
     _totalTokens += usage.inputTokens + usage.outputTokens;
-    if (maxGlobalTokens > 0 && _totalTokens > maxGlobalTokens) {
+    _tripCheck();
+  }
+
+  /// #46 (b): record one failed transport attempt's ESTIMATED usage — the
+  /// size of the body it re-sent, booked because its error carried no
+  /// provider-reported usage. The estimate counts toward the SAME
+  /// [maxGlobalTokens] ceiling (the point of #46: the caps read low today and
+  /// a runaway retry ladder must still trip them), but it lives in its own
+  /// counter ([totalEstimatedTokens]) so `/spend` can report "X measured +
+  /// Y estimated" and estimates never masquerade as measured.
+  void recordEstimated(TokenUsage usage) {
+    _totalEstimatedTokens += usage.inputTokens + usage.outputTokens;
+    _tripCheck();
+  }
+
+  /// #46 (c): book one RETRIED transport attempt — the single funnel entry
+  /// for failed-attempt spend. Routes the tokens into the measured or
+  /// estimated counter exactly as the raw paths do, AND accumulates the
+  /// retried-spend tallies that drive the degrading-provider notice
+  /// ([onRetriedSpendNotice]): once retried spend crosses a tenth of total
+  /// spend, and again at each further tenth, the ledger says so — a provider
+  /// patch that keeps failing keeps re-sending the full body, and that burn
+  /// belongs in front of the user, not only on the bill.
+  void recordRetried(TokenUsage usage, {required bool estimated}) {
+    final used = usage.inputTokens + usage.outputTokens;
+    _retriedTokens += used;
+    if (estimated) {
+      _retriedEstimated += used;
+      recordEstimated(usage);
+    } else {
+      _retriedMeasured += used;
+      record(usage);
+    }
+    _retriedBandCheck();
+  }
+
+  /// Retried-spend notice bands are 10% of the running grand total. Below
+  /// [kRetriedNoticeMinTokens] nothing fires — a thousand retried tokens is
+  /// noise on a tiny session, not a degrading provider.
+  static const kRetriedNoticeMinTokens = 1000;
+
+  void _retriedBandCheck() {
+    final sink = onRetriedSpendNotice;
+    if (sink == null) return;
+    final grand = grandTotalTokens;
+    if (grand <= 0 || _retriedTokens < kRetriedNoticeMinTokens) return;
+    final pct = _retriedTokens * 100 / grand;
+    final band = (pct / 10).floor();
+    if (band <= _retriedNoticeBand) return;
+    _retriedNoticeBand = band;
+    sink('[retries] failed-attempt spend $_retriedTokens tokens '
+        '(${pct.toStringAsFixed(0)}% of $grand total; '
+        '$_retriedEstimated estimated + $_retriedMeasured measured) — '
+        'a provider is degrading and the ladders are re-sending full bodies');
+  }
+
+  /// Latches [tripped] + [reason] exactly once, when the COMBINED
+  /// measured+estimated total crosses [maxGlobalTokens]. Keeps counting after
+  /// the trip (the totals keep growing for `/spend`) but never rewrites the
+  /// first trip reason.
+  void _tripCheck() {
+    if (_tripped) return;
+    if (_overCeiling) {
       _tripped = true;
       _reason = 'global token spend ceiling exceeded '
-          '($_totalTokens > $maxGlobalTokens). Raise [limits] max_global_tokens '
+          '($grandTotalTokens > $maxGlobalTokens, of which '
+          '$_totalEstimatedTokens estimated). Raise [limits] max_global_tokens '
           '(or --max-global-tokens) in ~/.tina/config, or restart tina.';
     }
   }
@@ -170,29 +291,27 @@ class SpendLedger {
     _totalTokens = _seededTokens;
   }
 
-  /// Merge another ledger's total into this one (e.g. the summary fleet's
-  /// ephemeral ledger after an in-process `/index` run). The trip check
-  /// applies: a fleet that pushes the session past its ceiling trips it.
+  /// Merge another ledger's totals into this one (e.g. the summary fleet's
+  /// ephemeral ledger after an in-process `/index` run). Measured and
+  /// estimated merge into their own counters — never mixed — and the trip
+  /// check applies over the combined total: a fleet that pushes the session
+  /// past its ceiling trips it.
   void merge(SpendLedger other) {
-    final delta = other.totalTokens;
-    if (delta <= 0) return;
-    if (tripped) {
-      _totalTokens += delta;
-      return;
-    }
-    _totalTokens += delta;
-    if (maxGlobalTokens > 0 && _totalTokens > maxGlobalTokens) {
-      _tripped = true;
-      _reason = 'global token spend ceiling exceeded '
-          '($_totalTokens > $maxGlobalTokens). Raise [limits] max_global_tokens '
-          '(or --max-global-tokens) in ~/.tina/config, or restart tina.';
-    }
+    if (other.grandTotalTokens <= 0) return;
+    _totalTokens += other.totalTokens;
+    _totalEstimatedTokens += other.totalEstimatedTokens;
+    _tripCheck();
   }
 
   /// Zero all state. For tests / a future explicit reset command — NOT wired to
   /// `/clear`, by design (see class docs).
   void reset() {
     _totalTokens = 0;
+    _totalEstimatedTokens = 0;
+    _retriedTokens = 0;
+    _retriedEstimated = 0;
+    _retriedMeasured = 0;
+    _retriedNoticeBand = 0;
     _seededTokens = 0;
     _tripped = false;
     _reason = null;

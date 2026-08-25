@@ -1318,3 +1318,66 @@ Driver fix (2026-08-24, post-round-5) — stale base-url replay on resume:
   cross-provider neither-applies, no-override heals to descriptor
   default), +1 startup base-url, +1 end-to-end TUI resume (recording
   registry). All verified failing pre-fix. Root 782 green, analyzes 0.
+- Shipped as PR #27 (branch asb/resume-base-url-freshness, single
+  commit parented on 0.4.1's a8bb941). All four CI jobs green live
+  (run 32738396638); left open for the owner's merge call, as with #26.
+
+Driver incident (2026-08-24, found during round 6 verification) — PR #27's
+tree-based push smuggled a revert of lib/version.g.dart (0.4.1 → 0.4.0)
+into main: the pushed commit's tree was built on the pre-0.4.1 local
+stack, so every file the 0.4.1 bump had touched that the stack didn't
+carry came back reverted, and the squash-merge applied it (round 5's
+engine files rode along too — identical content, benign). On the PR
+branch both files agreed at 0.4.0, so CI was green; only the squash onto
+main left pubspec 0.4.1 / version.g.dart 0.4.0 — the version test red on
+main. Repaired in round 6 (regenerated the file; root 782 green again).
+Procedure change: before opening any push_incremental PR, verify the
+pushed commit's compare-vs-remote-parent file list contains EXACTLY the
+intended files (GitHub compare API) — the local stack must be rebased
+onto the remote parent, not just parented.
+
+## Improvements run, round 6 — item #46 (2026-08-24)
+
+Fresh branch asb/improvements-round-6 off the merged main (ba4e79a =
+round 5, 3a5f27a = #27). The single open backlog item: #46, failed
+transport attempts are budget-invisible. Three legs:
+
+- Leg 1 (1h36m, watchdog-aborted): tina read the whole architecture and
+  built the core plumbing — the import-free WireUsage/AttemptUsage
+  carriers + Wire.onAttemptUsage hook (wire.dart), TokenUsage.estimated
+  and StreamError.usage (provider.dart), the ledger/budget estimated
+  counters feeding the same trip arithmetic, and
+  bookFailedAttemptUsage in the ladder. A hetzner member request hung to
+  the 15-min attempt ceiling; the #45 watchdog caught it, named the
+  member (pool_rotate pool-2 in-flight), and tore down — the round-5
+  feature working as designed on a real hang.
+- Leg 2 (2h, hard per-turn cap at 8.02M tokens — the driver forgot
+  --auto-compact-threshold on the fresh session, so 121 reconciliation
+  reads ballooned the body): PooledProvider member-attempt booking
+  (including empty-completion failovers), the metering funnel
+  (_liveMeters LRU keeps the hook alive across ephemeral close()s), and
+  parseErrorUsage + the three adapter extraction sites. The cap-abort
+  and 90%-rung messages themselves now read "of which N estimated".
+- Leg 3 (resume of the same session WITH auto-compact 60K — the
+  transcript opens with a compaction summary and the body stays small):
+  verified the funnel invariants, found the rung-notice home is
+  agent.dart (not bin/tina.dart), and closed with an honest summary:
+  (a) and (b) complete and tested, (c) isolated but unwired — correct
+  per-turn attribution under concurrent sub-agents needs a stream-event
+  mechanism it judged out of scope.
+
+Driver completion, keeping tina's shapes: (c) landed at the SESSION
+level where attribution is unambiguous — SpendLedger.recordRetried is
+the single funnel entry (routes measured/estimated AND accumulates the
+retried tallies), and the ledger fires an escalating notice through an
+installable sink (onRetriedSpendNotice; the composition installs
+stderr.writeln): once when retried spend crosses a tenth of the grand
+total, again at each further tenth, silent below a 1,000-token floor.
+Per-turn attribution via a stream-event AttemptUsage remains the
+documented seam (tina's Option B analysis in its closing summary) —
+filed for a future item if the per-turn caps reading low under
+concurrent sub-agents ever bites.
+
+Verification: engine 807 (804 + 3 new: band escalation, no-sink
+bookkeeping, funnel tallies), root 782 (incl. the healed version test),
+all four analyzes 0. tina's 4 regression tests verified with it.
