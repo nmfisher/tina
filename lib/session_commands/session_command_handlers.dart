@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
 
 import '../self_update/release_checker.dart';
@@ -9,6 +10,7 @@ import '../version.g.dart';
 import '../summaries/summary_index.dart';
 import '../pipeline/pipeline_commands.dart';
 import 'command_context.dart';
+import 'session_export.dart';
 
 /// The slash-command handlers, lifted out of [SessionController] so they can be
 /// read and tested in isolation. Operates purely through a [CommandContext] —
@@ -30,7 +32,8 @@ class SessionCommandHandlers {
   /// ([CommandCompletionProvider]).
   static const List<String> allCommands = [
     '/exit', '/quit', '/help', '/clear', '/compact', '/auto-compact',
-    '/permissions', '/sessions', '/session', '/resume', '/model', '/settings',
+    '/permissions', '/sessions', '/session', '/resume', '/save', '/model',
+    '/settings',
     '/prompts', '/spawn', '/branch', '/image', '/index', '/workflow', '/output',
     '/spend', '/update',
   ];
@@ -77,6 +80,8 @@ class SessionCommandHandlers {
         await _handleSessionCommand(trimmed);
       case '/resume':
         await _handleResume(trimmed);
+      case '/save':
+        await _handleSave(trimmed);
       case '/model':
         _handleModel(trimmed);
       case '/settings':
@@ -535,6 +540,7 @@ class SessionCommandHandlers {
         '  /sessions      open the session picker (switch/resume); lists them headless\n'
         '  /session       list live sessions; new/switch/close\n'
         '  /resume <id>   load a saved session into the active session\n'
+        '  /save <path>   export this session as a markdown transcript\n'
         '  /settings      reconfigure providers/models/tiers (applies on restart)\n'
         '  /update        check GitHub for a newer release and install it\n'
         '  /prompts       edit each agent role\'s system prompt (applies on restart)\n'
@@ -649,6 +655,104 @@ class SessionCommandHandlers {
       return;
     }
     await ctx.resumeIntoActive(parts[1]);
+  }
+
+  /// `/save <path>` — export the ACTIVE session as a markdown transcript.
+  ///
+  /// Reads the session back from the store (manifest + every conversation)
+  /// and writes the rendered transcript to [path]. Refuses to overwrite an
+  /// existing file and never creates directories — the path must point at an
+  /// existing folder. All failures are reported, never thrown.
+  Future<void> _handleSave(String line) async {
+    final host = ctx.active.host;
+    final parts = line.split(RegExp(r'\s+'));
+    if (parts.length != 2 || parts[1].isEmpty) {
+      host.showMessage(
+          'usage: /save <path> — export this session as markdown\n',
+          style: HostMessageStyle.warning);
+      return;
+    }
+    final recorder = ctx.active.recorder;
+    final store = recorder?.store ?? ctx.sessionStore;
+    final sessionId = recorder?.sessionId;
+    if (store == null || sessionId == null) {
+      host.showMessage(
+          'session persistence is disabled — nothing to save\n',
+          style: HostMessageStyle.error);
+      return;
+    }
+
+    // Expand a leading `~` the same way the platform paths do
+    // (HOME on POSIX, USERPROFILE on Windows).
+    var target = parts[1];
+    if (target == '~' || target.startsWith('~/')) {
+      final home =
+          Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+      if (home == null || home.isEmpty) {
+        host.showMessage('cannot expand ~ (no HOME set)\n',
+            style: HostMessageStyle.error);
+        return;
+      }
+      target = target == '~' ? home : p.join(home, target.substring(2));
+    }
+    if (!p.isAbsolute(target)) {
+      target = p.join(Directory.current.path, target);
+    }
+    final parentPath = p.dirname(target);
+    final parent = Directory(parentPath);
+    if (!parent.existsSync()) {
+      host.showMessage(
+          'directory does not exist: $parentPath '
+          '(create it first; /save does not mkdir)\n',
+          style: HostMessageStyle.error);
+      return;
+    }
+    if (File(target).existsSync() || Directory(target).existsSync()) {
+      host.showMessage('refusing to overwrite: $target\n',
+          style: HostMessageStyle.error);
+      return;
+    }
+
+    final SessionManifest manifest;
+    try {
+      manifest = await store.loadSession(sessionId);
+    } catch (e) {
+      host.showMessage('failed to load session $sessionId: $e\n',
+          style: HostMessageStyle.error);
+      return;
+    }
+    final byConversation = <String, List<Message>>{};
+    var totalMessages = 0;
+    for (final conv in manifest.conversations) {
+      try {
+        final messages = await store.loadConversation(sessionId, conv.id);
+        totalMessages += messages.length;
+        byConversation[conv.id] = messages;
+      } catch (e) {
+        host.showMessage(
+            'skipping conversation ${conv.id} (unreadable: $e)\n',
+            style: HostMessageStyle.warning);
+      }
+    }
+    if (byConversation.isEmpty && manifest.conversations.isNotEmpty) {
+      host.showMessage(
+          'nothing saved — none of this session\'s conversations could be '
+          'read from the store\n',
+          style: HostMessageStyle.error);
+      return;
+    }
+    final transcript = renderSessionTranscript(manifest, byConversation);
+    try {
+      await File(target).writeAsString(transcript, flush: true);
+    } catch (e) {
+      host.showMessage('failed to write $target: $e\n',
+          style: HostMessageStyle.error);
+      return;
+    }
+    host.showMessage(
+        'saved $totalMessages messages across ${byConversation.length} '
+        'conversations (${transcript.length} bytes) → $target\n',
+        style: HostMessageStyle.dim);
   }
 
   Future<void> _handleModel(String line) async {
