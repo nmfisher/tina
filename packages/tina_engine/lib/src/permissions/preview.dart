@@ -10,6 +10,10 @@ const int _maxPreviewLines = 60;
 /// would be slow, and the diff would be unreadable anyway.
 const int _maxDiffLineCount = 2000;
 
+/// How many of the `launch_workflow` task's lines the preview shows verbatim
+/// (#51d) — the first line rides in the header, the next ones render below it.
+const int _maxWorkflowTaskLines = 5;
+
 /// A single rendered line of a tool-call preview. The asker turns each entry
 /// into chat output with appropriate colors; keeping it as data (not pre-
 /// colored strings) makes preview generation unit-testable.
@@ -73,13 +77,24 @@ List<PreviewEntry> _launchWorkflowPreview(Map<String, dynamic> input) {
   final lines = const LineSplitter().convert(task);
   var first = lines.isEmpty ? '' : lines.first.trim();
   if (first.length > 80) first = '${first.substring(0, 77)}…';
-  final label = first.isEmpty
-      ? 'workflow "$workflow"'
-      : 'workflow "$workflow" — $first';
+  final label =
+      first.isEmpty ? 'workflow "$workflow"' : 'workflow "$workflow" — $first';
   if (lines.length <= 1) return [PreviewHeader(label)];
+  // #51d: the approval decides "run this task through this graph", so show
+  // the first few task LINES, not just the first 80 chars of line one — the
+  // rest is counted, not hidden behind a bare elision. Each shown line gets
+  // the same 80-char bound as the header's first.
+  String bounded(String l) => l.length > 80 ? '${l.substring(0, 77)}…' : l;
+  final shown = lines
+      .take(_maxWorkflowTaskLines)
+      .map((l) => bounded(l.trim()))
+      .where((l) => l.isNotEmpty)
+      .toList();
+  final rest = lines.length - _maxWorkflowTaskLines;
   return [
     PreviewHeader(label),
-    PreviewContext('… (${lines.length - 1} more lines of task text)'),
+    for (final l in shown.skip(1)) PreviewContext('  $l'),
+    if (rest > 0) PreviewContext('… ($rest more lines of task text)'),
   ];
 }
 
@@ -88,8 +103,7 @@ List<PreviewEntry> _editPreview(Map<String, dynamic> input) {
   final oldStr = input['oldString'] as String? ?? '';
   final newStr = input['newString'] as String? ?? '';
   final replaceAll = (input['replaceAll'] as bool?) ?? false;
-  final header =
-      replaceAll ? 'edit: $path (replaceAll)' : 'edit: $path';
+  final header = replaceAll ? 'edit: $path (replaceAll)' : 'edit: $path';
 
   final oldLines = const LineSplitter().convert(oldStr);
   final newLines = const LineSplitter().convert(newStr);
@@ -98,13 +112,11 @@ List<PreviewEntry> _editPreview(Map<String, dynamic> input) {
   // The cap is split so neither side can starve the other. Sharing one
   // budget meant a 60-line oldString consumed it entirely and the user
   // approved an edit whose added half never rendered.
-  final removedBudget =
-      _sideCap(oldLines.length, newLines.length);
+  final removedBudget = _sideCap(oldLines.length, newLines.length);
   final addedBudget = _maxPreviewLines - removedBudget;
-  _appendBounded(out, oldLines, removedBudget, 'removed',
-      (s) => PreviewRemoved(s));
-  _appendBounded(out, newLines, addedBudget, 'added',
-      (s) => PreviewAdded(s));
+  _appendBounded(
+      out, oldLines, removedBudget, 'removed', (s) => PreviewRemoved(s));
+  _appendBounded(out, newLines, addedBudget, 'added', (s) => PreviewAdded(s));
   return out;
 }
 
@@ -134,8 +146,7 @@ void _appendBounded<T>(
   }
   if (lines.length > budget) {
     final sign = side == 'added' ? '+' : '-';
-    out.add(PreviewContext(
-        '… ($sign${lines.length - budget} more $side)'));
+    out.add(PreviewContext('… ($sign${lines.length - budget} more $side)'));
   }
 }
 
@@ -159,7 +170,9 @@ Future<List<PreviewEntry>> _writePreview(Map<String, dynamic> input) async {
   try {
     oldText = await file.readAsString();
   } on FileSystemException catch (e) {
-    return [PreviewHeader('write: $path (overwrite; cannot read existing: $e)')];
+    return [
+      PreviewHeader('write: $path (overwrite; cannot read existing: $e)')
+    ];
   }
   if (oldText == content) {
     return [PreviewHeader('write: $path (no change)')];
@@ -262,8 +275,7 @@ List<List<_DiffOp>> _hunks(List<_DiffOp> ops, {int contextLines = 2}) {
           break;
         }
       }
-      final hasOpenChange =
-          current.any((o) => o.mark == '+' || o.mark == '-');
+      final hasOpenChange = current.any((o) => o.mark == '+' || o.mark == '-');
       if (hasOpenChange && contextRun < contextLines) {
         current.add(op);
         contextRun++;

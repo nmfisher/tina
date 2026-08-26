@@ -65,7 +65,8 @@ void main() {
           'content': 'a\nb\nC\nd\ne\nF\n',
         });
         expect((p.first as PreviewHeader).text, contains('overwrite'));
-        final removed = p.whereType<PreviewRemoved>().map((e) => e.text).toSet();
+        final removed =
+            p.whereType<PreviewRemoved>().map((e) => e.text).toSet();
         final added = p.whereType<PreviewAdded>().map((e) => e.text).toSet();
         expect(removed, containsAll(<String>['c', 'f']));
         expect(added, containsAll(<String>['C', 'F']));
@@ -103,8 +104,7 @@ void main() {
       final p = await previewToolCall('launch_workflow', {
         'input': 'fix the bug',
       });
-      expect((p.first as PreviewHeader).text,
-          contains('workflow "default"'));
+      expect((p.first as PreviewHeader).text, contains('workflow "default"'));
       expect((p.first as PreviewHeader).text, contains('fix the bug'));
     });
 
@@ -115,14 +115,65 @@ void main() {
       });
       expect((p.first as PreviewHeader).text,
           contains('workflow "default" — refactor the auth module'));
-      expect(p.whereType<PreviewContext>().map((e) => e.text),
-          anyElement(contains('2 more lines')));
+      // #51d: with every line under the 5-line cap there is no "rest" to
+      // count — lines 2..3 render in full, no marker.
+      final contexts =
+          p.whereType<PreviewContext>().map((e) => e.text).toList();
+      expect(contexts, contains('  split it in two'));
+      expect(contexts, contains('  add tests'));
+      expect(contexts, isNot(anyElement(contains('more lines'))));
     });
 
     test('launch_workflow with an empty task shows just the workflow',
         () async {
       final p = await previewToolCall('launch_workflow', {'input': '   '});
       expect((p.first as PreviewHeader).text, 'workflow "default"');
+    });
+
+    test('launch_workflow shows the first ~5 task lines verbatim (#51d)',
+        () async {
+      final p = await previewToolCall('launch_workflow', {
+        'workflow': 'refactor',
+        'input': [
+          'survey the auth module', // line 1 — rides in the header
+          'extract the token parser',
+          'split session.dart in two',
+          'port the existing tests',
+          'add regression coverage',
+          'wire the new module up',
+          'run the full suite',
+        ].join('\n'),
+      });
+      final header = (p.first as PreviewHeader).text;
+      expect(header, contains('workflow "refactor" — survey the auth module'));
+      // Lines 2..N render as context rows; the first five are visible…
+      final contexts =
+          p.whereType<PreviewContext>().map((e) => e.text).toList();
+      for (final line in [
+        'extract the token parser',
+        'split session.dart in two',
+        'port the existing tests',
+        'add regression coverage',
+      ]) {
+        expect(contexts, contains('  $line'),
+            reason: '#51d: early task lines must be readable at the ask');
+      }
+      expect(contexts, isNot(contains('  wire the new module up')),
+          reason: 'the cap still bounds how much renders');
+      // …and the remainder is counted, not silently dropped.
+      expect(contexts.last, contains('(2 more lines of task text)'));
+    });
+
+    test('each shown workflow task line is bounded to 80 chars (#51d)',
+        () async {
+      final long = 'x' * 120;
+      final p = await previewToolCall('launch_workflow', {
+        'input': ['first line', long].join('\n'),
+      });
+      final contexts = p.whereType<PreviewContext>().map((e) => e.text);
+      // The 120-char line renders as 77 chars + ellipsis, never in full.
+      expect(contexts, contains('  ${'x' * 77}…'));
+      expect(contexts, isNot(contains('  $long')));
     });
 
     test('preview is clipped past the line cap', () async {

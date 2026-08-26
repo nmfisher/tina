@@ -210,6 +210,137 @@ void main() {
     );
   });
 
+  test('approval affordances: spelled-out answers, mode chip, one-shot '
+      'ignored-key ack (#51)', () async {
+    // (a) The row must say what each key DECIDES — the old
+    // '[y/n/a/d] (a/d remember …)' said both were remembered, never that
+    // 'a' allows and 'd' denies. (b) The active permission mode must be
+    // visible AT THE ASK — the TUI has no footer bar. (c) The FIRST
+    // non-answer key that reaches the prompt echoes one dim ack; the second
+    // stays silent.
+    final io = FakeStdio();
+    final screen = Screen(
+      io: io,
+      layout: ScreenLayout.fromSize(120, 24),
+      ansi: AnsiCapable.yes,
+    );
+    final ed = LineEditor(screen: screen, escapeTimeout: Duration.zero);
+    final sink = FakeAgentSink();
+    final policy = PermissionPolicy()..mode = PermissionMode.allowEdits;
+    final asker = WorkflowPermissionAsker(
+      sink: sink,
+      screen: screen,
+      editor: ed,
+      policy: policy,
+    );
+
+    final ask = asker.ask(_bashPrompt('cargo test'));
+    await _flush();
+    expect(ed.isReadingKey, isTrue);
+
+    // The asker writes through the sink (showMessage → notice on the fake),
+    // never to the screen — assert on what the fake recorded.
+    String notices() => sink.notices.map((n) => n.message).join('\n');
+    expect(
+      notices(),
+      contains(
+        'approve? [y]es [n]o [a]lways allow [d]eny always '
+        '(a/d: "cargo test") ›',
+      ),
+      reason: '(a) the four answers are spelled out with their decisions',
+    );
+    expect(
+      notices(),
+      contains('[mode: allow-edits]'),
+      reason: '(b) the header carries the active mode, read from the policy',
+    );
+
+    // (c) first ignored key → one dim ack…
+    io.feedBytes([0x71]); // 'q' — not an answer
+    await _flush();
+    expect(ed.isReadingKey, isTrue, reason: 'the read stays armed');
+    expect(
+      notices(),
+      contains('…'),
+      reason: 'the first swallowed key gets a one-shot ack',
+    );
+    // …the second ignored key gets none.
+    io.feedBytes([0x72]); // 'r' — still not an answer
+    await _flush();
+    final afterSecond = notices().split('…').length - 1;
+    expect(
+      afterSecond,
+      1,
+      reason: 'the ack is ONE-SHOT — later ignored keys stay silent',
+    );
+
+    io.feedBytes([0x6e]); // 'n' — the answer
+    expect(
+      await ask.timeout(const Duration(seconds: 2)),
+      PermissionResponse.denyOnce,
+    );
+  });
+
+  test(
+    'mode chip tracks the policy live; absent without a policy (#51b)',
+    () async {
+      final io = FakeStdio();
+      final screen = Screen(
+        io: io,
+        layout: ScreenLayout.fromSize(120, 24),
+        ansi: AnsiCapable.yes,
+      );
+      final ed = LineEditor(screen: screen, escapeTimeout: Duration.zero);
+      final sink = FakeAgentSink();
+      final policy = PermissionPolicy()..mode = PermissionMode.ask;
+      final asker = WorkflowPermissionAsker(
+        sink: sink,
+        screen: screen,
+        editor: ed,
+        policy: policy,
+      );
+
+      String notices() => sink.notices.map((n) => n.message).join('\n');
+      var ask = asker.ask(_bashPrompt('ls'));
+      await _flush();
+      expect(notices(), contains('[mode: ask]'));
+      io.feedBytes([0x6e]); // 'n'
+      await ask.timeout(const Duration(seconds: 2));
+
+      // /permissions flips the mode on the same object — the next ask shows
+      // it without rebuilding the asker.
+      policy.mode = PermissionMode.readAll;
+      ask = asker.ask(_bashPrompt('ls'));
+      await _flush();
+      expect(notices(), contains('[mode: read-all]'));
+      io.feedBytes([0x6e]);
+      await ask.timeout(const Duration(seconds: 2));
+
+      // No policy attached → no chip, nothing else changes.
+      final io2 = FakeStdio();
+      final screen2 = Screen(
+        io: io2,
+        layout: ScreenLayout.fromSize(120, 24),
+        ansi: AnsiCapable.yes,
+      );
+      final ed2 = LineEditor(screen: screen2, escapeTimeout: Duration.zero);
+      final sink2 = FakeAgentSink();
+      final asker2 = WorkflowPermissionAsker(
+        sink: sink2,
+        screen: screen2,
+        editor: ed2,
+      );
+      final ask2 = asker2.ask(_bashPrompt('ls'));
+      await _flush();
+      expect(
+        sink2.notices.map((n) => n.message).join('\n'),
+        isNot(contains('[mode:')),
+      );
+      io2.feedBytes([0x6e]);
+      await ask2.timeout(const Duration(seconds: 2));
+    },
+  );
+
   test('non-interactive asker attaches a model-facing note to the denial '
       '(#27)', () async {
     // No screen/editor → the auto-deny path. The stderr-only refusal hint was

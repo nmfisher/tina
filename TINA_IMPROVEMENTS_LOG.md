@@ -1472,7 +1472,7 @@ approvals" (by design — `_heldPastes` holds them, line_editor.dart:376).
     **Would make:** head+tail truncation for bash commands (e.g. 52
     head + `…` + 25 tail chars) in `_describe`, same for `_summarize`;
     a unit test pinning that a trailing `| sh` survives an 80+-char
-    command render. Status: OPEN
+    command render. Status: DONE (round 8)
 
 50. **A failed tool call's error result is cut at 200 chars and the
     remainder is unrecoverable — `/output` only holds streamed chunks.**
@@ -1489,7 +1489,7 @@ approvals" (by design — `_heldPastes` holds them, line_editor.dart:376).
     `e.result` to the buffer / emit a CappedToolOutput when the result
     exceeds what was printed), print `… (/output for the full error)`
     when clipped, and a unit test with a >200-char error result
-    asserting the ring entry exists. Status: OPEN
+    asserting the ring entry exists. Status: DONE (round 8)
 
 51. **Approval-prompt affordance gaps, one combined polish item.**
     Driver-filed. (a) `approve? [y/n/a/d]` never states that a =
@@ -1508,7 +1508,7 @@ approvals" (by design — `_heldPastes` holds them, line_editor.dart:376).
     **Would make:** spell the four answers out (`[y]es [n]o [a]lways
     allow [d]eny always`); a dim mode chip on the ask header; a one-shot
     dim `…` echo (or bell) on the first ignored key; show the first ~5
-    task lines in the workflow preview. Status: OPEN
+    task lines in the workflow preview. Status: DONE (round 8)
 
 Round 7 close (driver, 2026-08-25): #47 and #48 implemented and
 verified; #49–#51 remain OPEN for a future round (driver-filed after
@@ -1546,3 +1546,28 @@ only what you can see is dirty.
 
 Verification: engine 809, console 832, root 803, all four analyzes
 clean; leak ritual 0/0 on both commits.
+
+Round 8 close (driver, 2026-08-26): #49, #50, #51 implemented and
+verified. Leg A (#49+#50, chat_agent_sink) completed cleanly: 812/812
+root after its 9 new tests. Leg B (#51, both askers) hit the per-turn
+token budget at 6.03M with the code written but nothing verified — the
+driver finished verification and made four repairs: (1) the prompt row
+was 75 chars, which with the answer/deny echo overflows a 76-column
+chat region and displaces the echo onto a wrapped second line — caught
+by the double-Esc coordinator regression test, compacted to 70
+(`(a/d: "<pattern>")`); (2) the workflow task lines shown by (d) were
+unbounded — now 80-char bounded like the header's first; (3) tina's
+two new asker tests asserted on screen bytes a FakeAgentSink never
+sees — rewritten against the sink's notices; (4) a stray whole-file
+`dart format` on the old-style coordinator (869 lines of churn) was
+reverted and tina's hunks re-applied in the file's existing style —
+CI has no format gate and the tree's drift is deliberate. One
+pre-existing preview test re-pinned to the 5-line contract. Root
+814/814, engine 811/811, both analyzers clean; leak ritual 0/0 on
+both commits.
+
+Config-side the same round: zai/glm-5.3 added to the pool (coding
+base https://api.z.ai/api/coding/paas/v4, OpenAI wire — the standard
+base 429s a coding-plan key), and per-member RPM limits set for zai
+and hetzner ([providers.<id>] requests_per_minute = 40, matching
+NIM's built-in hint; each member's queue spaces at 1500 ms).

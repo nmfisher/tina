@@ -112,12 +112,12 @@ void main() {
       expect(w.written(), '→ collect: scope=docs depth=3\n');
     });
 
-    test('toolStart truncates unknown tool summaries at 80 chars', () {
+    test('toolStart truncates unknown tool summaries head+tail at 80', () {
       final w = _sink();
-      // joined summary is 'x=' + 200 a's (202 chars); truncated to 80 ->
-      // 'x=' + 78 a's + ellipsis.
+      // joined summary is 'x=' + 200 a's (202 chars); kept as its first 52
+      // chars ('x=' + 50 a's), an ellipsis, and its last 27 a's — 80 total.
       w.sink.toolStart(ToolStartEvent('collect', 'c2', {'x': 'a' * 200}));
-      expect(w.written(), '→ collect: x=${'a' * 78}…\n');
+      expect(w.written(), '→ collect: x=${'a' * 50}…${'a' * 27}\n');
     });
 
     test('toolStart shows the bare name when input is empty', () {
@@ -126,10 +126,12 @@ void main() {
       expect(w.written(), '→ collect\n');
     });
 
-    test('toolStart truncates long bash commands at 80 chars', () {
+    test('toolStart truncates long bash commands head+tail at 80 chars', () {
       final w = _sink();
+      // 100 x's: kept as the first 52, an ellipsis, and the last 27 — 80
+      // total. The tail is what an approver needs (a `| sh`, a redirect).
       w.sink.toolStart(ToolStartEvent('bash', 'u3', {'command': 'x' * 100}));
-      expect(w.written(), '→ bash: ${'x' * 80}…\n');
+      expect(w.written(), '→ bash: ${'x' * 52}…${'x' * 27}\n');
     });
 
     test('toolComplete success', () {
@@ -143,7 +145,45 @@ void main() {
       final w = _sink();
       w.sink.toolComplete(ToolCompleteEvent(
           'bash', 'u1', isError: true, result: 'x' * 300));
-      expect(w.written(), '  failed: ${'x' * 200}…\n');
+      // #50: a result past the 200-char render gains a dim /output pointer
+      // line after the truncated failed line.
+      expect(w.written(),
+          '  failed: ${'x' * 200}…\n  … (/output for the full error)\n');
+    });
+
+    test('toolComplete error fires onCapped with the full result', () {
+      final capped = <CappedToolOutput>[];
+      final io = FakeStdio();
+      final screen = Screen.passthrough(io, ansi: AnsiCapable.no);
+      final sink =
+          ChatAgentSink(screen.chat, Spinner(enabled: false), onCapped: capped.add);
+      final result = 'E' * 250 + 'TAIL';
+
+      sink.toolStart(const ToolStartEvent('bash', 'u1', {'command': 'go'}));
+      sink.toolComplete(ToolCompleteEvent('bash', 'u1',
+          isError: true, result: result));
+
+      // The failed render cut the result: the ring must carry the full text,
+      // not the 200-char window the chat printed.
+      expect(capped, hasLength(1));
+      expect(capped.single.text, result);
+      expect(capped.single.toolName, 'bash');
+      expect(capped.single.input, {'command': 'go'});
+      expect(capped.single.hiddenChars, 54); // 254 - 200 printed chars
+    });
+
+    test('toolComplete error keeps a short result verbatim, no ring', () {
+      final capped = <CappedToolOutput>[];
+      final io = FakeStdio();
+      final screen = Screen.passthrough(io, ansi: AnsiCapable.no);
+      final sink =
+          ChatAgentSink(screen.chat, Spinner(enabled: false), onCapped: capped.add);
+
+      sink.toolComplete(const ToolCompleteEvent('bash', 'u1',
+          isError: true, result: 'boom'));
+
+      expect(io.written.toString(), '  failed: boom\n');
+      expect(capped, isEmpty);
     });
 
     test('toolOutput routes stdout→dim and stderr→red under color', () {

@@ -397,6 +397,9 @@ class TuiCoordinator {
         editor: editor,
         active: isActive,
       );
+      // #51b: the ask header's mode chip reads the app's base policy at
+      // render time; setPermissionMode flips this object's mode live.
+      host.policy = policy;
       host.onBackgroundActivity =
           () => handleBackgroundActivity?.call(conversationId);
       return host;
@@ -433,19 +436,28 @@ class TuiCoordinator {
           // WorkflowPermissionAsker — a run panel's host is inactive, so its
           // own asker can't be used). Wrapped with the auto-mode classifier
           // when wired, consulting the scheduler's base policy per call.
-          permissionAskerBuilder: (runSink) => classifier == null
-              ? WorkflowPermissionAsker(sink: runSink, screen: screen,
-                  editor: editor, attentionQueue: attentionQueue)
-                  .ask
-              : modeAwareAsker(
-                  policy: scheduler.basePolicy ?? policy,
-                  classifier: classifier,
-                  fallback: WorkflowPermissionAsker(sink: runSink,
-                      screen: screen, editor: editor,
-                      attentionQueue: attentionQueue)
-                      .ask,
-                  notice: runSink.notice,
-                ),
+          permissionAskerBuilder: (runSink) {
+            // #51b: the ask's mode chip must show the policy the RUN checks
+            // — scheduler.basePolicy (set once at composition; the app's
+            // policy when null). modeAwareAsker already consults the same
+            // object per call, so chip and check cannot diverge.
+            final runPolicy = scheduler.basePolicy ?? policy;
+            return classifier == null
+                ? WorkflowPermissionAsker(sink: runSink, screen: screen,
+                    editor: editor, attentionQueue: attentionQueue,
+                    policy: runPolicy)
+                    .ask
+                : modeAwareAsker(
+                    policy: scheduler.basePolicy ?? policy,
+                    classifier: classifier,
+                    fallback: WorkflowPermissionAsker(sink: runSink,
+                        screen: screen, editor: editor,
+                        attentionQueue: attentionQueue,
+                        policy: runPolicy)
+                        .ask,
+                    notice: runSink.notice,
+                  );
+          },
           attentionQueue: attentionQueue,
         );
     final supervisor = WorkflowSupervisor(
@@ -551,7 +563,7 @@ class TuiCoordinator {
       screen: screen,
       editor: editor,
       active: true,
-    );
+    )..policy = policy;
     initialHost.onBackgroundActivity =
         () => handleBackgroundActivity?.call(initialConversationId);
     final initialAgent = buildAgent(
@@ -1223,7 +1235,7 @@ class TuiCoordinator {
         editor: editor,
         active: false,
         primary: false,
-      );
+      )..policy = policy;
     }
 
     /// Create the [PanelFrame] for a spawned conversation, wire the
@@ -2163,6 +2175,9 @@ class TuiCoordinator {
             screen: screen,
             editor: editor,
             attentionQueue: attentionQueue,
+            // #51b: the ceremony checks the app policy (modeAwareAsker /
+            // the asker below), so its chip reads the same object.
+            policy: policy,
           );
           // Auto mode gates the environment ceremony too (it mostly runs
           // read-only scouts, but the ceremony's own bash/write calls pass
