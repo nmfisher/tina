@@ -20,6 +20,14 @@ import 'package:tina/tui/model_search_overlay.dart';
 ///
 /// Driven by [LineEditor.readKey] like the setup overlay. [readEvent] is
 /// injectable for tests.
+///
+/// [activeModelRef] (the `"provider/model"` the active conversation runs
+/// under, e.g. `"stub/stub-1"`) seeds pickers for configured providers whose
+/// registry catalog contributes ZERO entries — the usual case for user-defined
+/// providers, which have no compiled model list. When the active model belongs
+/// to such a provider, that model is offered as a single entry so the picker
+/// is not empty (and Enter isn't swallowed on `(no items available)`); it's
+/// deduplicated against the catalog entries and honors [disabledModelRefs].
 Future<String?> runSpawnOverlay({
   required Screen screen,
   required LineEditor editor,
@@ -27,16 +35,38 @@ Future<String?> runSpawnOverlay({
   required Set<String> configuredProviders,
   Set<String> disabledModelRefs = const {},
   List<String> recentlyUsed = const [],
+  String? activeModelRef,
   Future<InputEvent> Function()? readEvent,
 }) {
   final refs = <String>[];
   final names = <String, String>{};
+  final zeroCatalog = <String>[]; // configured ids that contributed no refs
   for (final id in registry.providerIds) {
     names[id] = registry.descriptor(id)?.name ?? id;
     if (!configuredProviders.contains(id)) continue;
+    var contributed = false;
     for (final m in registry.modelsFor(id)) {
       final ref = '$id/${m.id}';
-      if (!disabledModelRefs.contains(ref)) refs.add(ref);
+      if (!disabledModelRefs.contains(ref)) {
+        refs.add(ref);
+        contributed = true;
+      }
+    }
+    if (!contributed) zeroCatalog.add(id);
+  }
+  // Seed the active model into the first zero-catalog configured provider it
+  // belongs to (custom providers, primarily). Skipped when the active model
+  // is unchecked in /settings — the user explicitly excluded it from spawn.
+  if (activeModelRef != null) {
+    final slash = activeModelRef.indexOf('/');
+    final providerId = slash < 0 ? activeModelRef : activeModelRef.substring(0, slash);
+    final modelId = slash < 0 ? '' : activeModelRef.substring(slash + 1);
+    if (providerId.isNotEmpty && modelId.isNotEmpty) {
+      final idx = zeroCatalog.indexOf(providerId);
+      if (idx >= 0 && !disabledModelRefs.contains(activeModelRef)) {
+        zeroCatalog.removeAt(idx);
+        refs.add(activeModelRef);
+      }
     }
   }
   final available = refs.toSet();

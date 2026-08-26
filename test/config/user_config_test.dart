@@ -131,6 +131,32 @@ void main() {
       expect(c.providers['bogus']?.members, isNull);
       expect(c.providers['plain']?.members, isNull);
     });
+
+    test('parses provider models ("id" or "id|name"); empty → null', () {
+      final c = UserConfig.fromMap({
+        'providers': {
+          'zai': {
+            'base_url': 'https://api.z.ai/api/anthropic',
+            'wire': 'anthropic',
+            'models': ['glm-5.2', 'glm-5.2-air|GLM 5.2 Air'],
+          },
+          'empty': {'models': []},
+          'blank': {'models': ['', '  ']},
+          'bogus': {'models': 'glm-5.2'},
+          'plain': {'base_url': 'https://example.test'},
+        },
+      });
+      expect(c.providers['zai']?.models, [
+        const ProviderModelSpec(id: 'glm-5.2'),
+        const ProviderModelSpec(id: 'glm-5.2-air', name: 'GLM 5.2 Air'),
+      ], reason: '"id" and "id|display name" entries both parse');
+      expect(c.providers['empty']?.models, isNull,
+          reason: 'an empty list is not a models declaration');
+      expect(c.providers['blank']?.models, isNull,
+          reason: 'blank entries are dropped; nothing left to declare');
+      expect(c.providers['bogus']?.models, isNull);
+      expect(c.providers['plain']?.models, isNull);
+    });
   });
 
   group('buildEnvOverlay', () {
@@ -256,6 +282,24 @@ key = "typo"
       expect(c.providers['anthropic']?.apiKey, 'sk-x');
     });
 
+    test('models is a known provider key (no unknown-key warning, still loads)',
+        () {
+      // A hand-edited config listing models for a custom provider must load
+      // without the "unknown key" recovery path dropping or ignoring it.
+      writeConfig('''
+version = 1
+[providers.stub]
+base_url = "http://localhost:8080/v1"
+wire = "openai"
+models = ["stub-1", "stub-2|Stub Two"]
+''');
+      final c = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(c.providers['stub']?.models, const [
+        ProviderModelSpec(id: 'stub-1'),
+        ProviderModelSpec(id: 'stub-2', name: 'Stub Two'),
+      ]);
+    });
+
     test('userConfigToToml round-trips through loadUserConfig', () {
       final original = UserConfig(
         defaultProvider: 'anthropic',
@@ -269,6 +313,33 @@ key = "typo"
       expect(loaded.defaultModel, 'claude-sonnet-4-6');
       expect(loaded.defaultWorkflow, 'default');
       expect(loaded.providers['anthropic']?.apiKey, 'sk-ant-x');
+    });
+
+    test('provider models round-trip through the TOML file', () {
+      writeUserConfig(
+        UserConfig(providers: {
+          'zai': ProviderConfig(
+            baseUrl: 'https://api.z.ai/api/anthropic',
+            wire: 'anthropic',
+            models: const [
+              ProviderModelSpec(id: 'glm-5.2'),
+              ProviderModelSpec(id: 'glm-5.2-air', name: 'GLM 5.2 Air'),
+            ],
+          ),
+        }),
+        env: {},
+        tinaDir: tmp,
+      );
+      // The raw file carries both forms ("id" bare, "id|name" with a display
+      // name) — this is what a user hand-edits.
+      final raw = File(p.join(tmp.path, 'config')).readAsStringSync();
+      expect(raw, contains('glm-5.2-air|GLM 5.2 Air'));
+      expect(raw, contains('glm-5.2'));
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.providers['zai']?.models, const [
+        ProviderModelSpec(id: 'glm-5.2'),
+        ProviderModelSpec(id: 'glm-5.2-air', name: 'GLM 5.2 Air'),
+      ]);
     });
 
     test('[environment] auto_populate round-trips through loadUserConfig',

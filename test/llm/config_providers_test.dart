@@ -234,6 +234,50 @@ void main() {
       expect(desc.name, 'My Custom LLM');
     });
 
+    test('config models list becomes the descriptor catalog', () {
+      final config = UserConfig(providers: {
+        'stub': ProviderConfig(
+          baseUrl: 'http://localhost:8080/v1',
+          models: const [
+            ProviderModelSpec(id: 'stub-1'),
+            ProviderModelSpec(id: 'stub-2', name: 'Stub Two'),
+          ],
+        ),
+      });
+      final registry = builtinRegistry();
+      registerConfigProviders(registry, config);
+
+      // The pickers read modelsFor — this is what un-empties /spawn.
+      expect(registry.modelsFor('stub').map((m) => m.id), ['stub-1', 'stub-2']);
+      final two = registry.findModel('stub/stub-2')!;
+      expect(two.name, 'Stub Two');
+      // Live-catalog defaults for undeclared metadata (mirrors
+      // LiveModelsCatalog's synthetic shape).
+      expect(two.contextWindow, 131072);
+      expect(two.maxOutput, 8192);
+      // And the ref builds a servable provider with the bare wire id.
+      final provider = registry.build('stub/stub-1', apiKeyOverride: '');
+      expect(provider.model, 'stub-1');
+    });
+
+    test('models on a built-in override merge over the compiled catalog', () {
+      final config = UserConfig(providers: {
+        'glm': ProviderConfig(
+          baseUrl: 'https://api.z.ai/api/anthropic',
+          wire: 'anthropic',
+          models: const [ProviderModelSpec(id: 'glm-5.2', name: 'GLM 5.2')],
+        ),
+      });
+      final registry = builtinRegistry();
+      registerConfigProviders(registry, config);
+
+      // Declared entry replaces the same-id compiled entry (user name wins)…
+      expect(registry.findModel('glm/glm-5.2')!.name, 'GLM 5.2');
+      // …and undeclared compiled entries survive the merge.
+      expect(registry.modelsFor('glm'), isNotEmpty);
+      expect(registry.modelsFor('glm').map((m) => m.id), contains('glm-5.2'));
+    });
+
     test('no providers in config leaves registry unchanged', () {
       final registry = builtinRegistry();
       registerConfigProviders(registry, UserConfig.empty);

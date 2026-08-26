@@ -1558,6 +1558,13 @@ class TuiCoordinator {
           disabledModelRefs.add('${e.key}/$mid');
         }
       }
+      // The active conversation's model ref ("provider/model", captured by
+      // its recorder) — seeds the picker for catalog-less configured
+      // providers (custom ids), so a spawn-only setup isn't an empty list.
+      // Bare legacy refs (no "/") are ignored by the overlay's seeding.
+      final activeConv = sessionManager.activeConversation;
+      final activeModelRef = activeConv.recorder?.meta?.model ??
+          '${sessionManager.active.providerId}/${activeConv.provider.model}';
       final selected = await runSpawnOverlay(
         screen: screen,
         editor: editor,
@@ -1565,6 +1572,7 @@ class TuiCoordinator {
         configuredProviders: configured,
         disabledModelRefs: disabledModelRefs,
         recentlyUsed: loadSpawnMru(env: envMap),
+        activeModelRef: activeModelRef,
       );
       if (selected == null) return null;
       recordSpawnMru(selected, env: envMap);

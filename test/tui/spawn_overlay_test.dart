@@ -1,4 +1,5 @@
 import 'package:tina/tui/spawn_overlay.dart';
+import 'package:tina_engine/tina_engine.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:test/test.dart';
 
@@ -142,5 +143,93 @@ void main() {
     final result = await run(screen, recentlyUsed: ['gamma/g1', 'alpha/a2'])
         .timeout(overlayTimeout);
     expect(result, 'alpha/a2');
+  });
+
+  // -- Seeding for catalog-less (custom) providers ---------------------------
+  // A custom provider registered with no model catalog would otherwise show
+  // "(no items available)" and swallow Enter (tin-9x4m).
+
+  test('active model seeds a catalog-less configured provider', () async {
+    final screen = fakeScreen();
+    // Registry with a catalog-less custom provider + a configured catalog one.
+    final registry = ProviderRegistry(env: {})
+      ..register(fakeProviderDescriptor('alpha',
+          models: ['a1', 'a2'], authRequired: false))
+      ..register(fakeProviderDescriptor('stub',
+          models: const [], authRequired: false));
+    canned.events = [
+      ArrowKey(ArrowDirection.down), // alpha/a1 → alpha/a2
+      ArrowKey(ArrowDirection.down), // alpha/a2 → stub/stub-1 (the seeded ref)
+      ControlKey(ControlCode.enter), // select the seeded entry
+    ];
+    final result = await runSpawnOverlay(
+      screen: screen,
+      editor: LineEditor(screen: screen),
+      registry: registry,
+      configuredProviders: const {'alpha', 'stub'},
+      activeModelRef: 'stub/stub-1',
+      readEvent: canned.readEvent,
+    ).timeout(overlayTimeout);
+    expect(result, 'stub/stub-1');
+  });
+
+  test('seeding skips a provider the active model does not belong to',
+      () async {
+    final screen = fakeScreen();
+    final registry = ProviderRegistry(env: {})
+      ..register(fakeProviderDescriptor('alpha',
+          models: ['a1', 'a2'], authRequired: false))
+      ..register(fakeProviderDescriptor('stub',
+          models: const [], authRequired: false));
+    canned.events = [
+      ControlKey(ControlCode.enter), // focus 0 → alpha/a1 (no seed added)
+    ];
+    final result = await runSpawnOverlay(
+      screen: screen,
+      editor: LineEditor(screen: screen),
+      registry: registry,
+      configuredProviders: const {'alpha', 'stub'},
+      activeModelRef: 'alpha/a1',
+      readEvent: canned.readEvent,
+    ).timeout(overlayTimeout);
+    expect(result, 'alpha/a1');
+  });
+
+  test('a disabled active model is not seeded', () async {
+    final screen = fakeScreen();
+    final registry = ProviderRegistry(env: {})
+      ..register(fakeProviderDescriptor('stub',
+          models: const [], authRequired: false));
+    canned.events = [
+      ControlKey(ControlCode.enter), // Enter on the empty list is a no-op…
+      EscapeKey(), // …so cancel instead.
+    ];
+    final result = await runSpawnOverlay(
+      screen: screen,
+      editor: LineEditor(screen: screen),
+      registry: registry,
+      configuredProviders: const {'stub'},
+      disabledModelRefs: const {'stub/stub-1'},
+      activeModelRef: 'stub/stub-1',
+      readEvent: canned.readEvent,
+    ).timeout(overlayTimeout);
+    expect(result, isNull, reason: 'unchecked-in-/settings models stay hidden');
+  });
+
+  test('no seeding without an active ref: empty list still cancels cleanly',
+      () async {
+    final screen = fakeScreen();
+    final registry = ProviderRegistry(env: {})
+      ..register(fakeProviderDescriptor('stub',
+          models: const [], authRequired: false));
+    canned.events = [EscapeKey()];
+    final result = await runSpawnOverlay(
+      screen: screen,
+      editor: LineEditor(screen: screen),
+      registry: registry,
+      configuredProviders: const {'stub'},
+      readEvent: canned.readEvent,
+    ).timeout(overlayTimeout);
+    expect(result, isNull);
   });
 }

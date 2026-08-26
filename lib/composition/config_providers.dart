@@ -83,12 +83,37 @@ void registerConfigProviders(
           'no base_url; skipping.');
       continue;
     }
-    final catalog = existing?.models ?? const <String, ModelInfo>{};
+    final catalog = _configModels(id, pc, existing?.models ?? const {});
     _registerCustom(registry, id, pc, wire, catalog, baseUrl: pc.baseUrl);
   }
   for (final entry in pools) {
     _registerPool(registry, entry.key, entry.value, userConfig, warnOut);
   }
+}
+
+/// The descriptor catalog for a custom provider: the provider's own
+/// [ProviderDescriptor.models] (a built-in being re-pointed keeps its
+/// compiled entries) UNION any `models = [...]` the config declared — the
+/// common case, since a user-defined id has no compiled catalog and the list
+/// is its whole picker presence (`/spawn`, `/model`). A declared entry
+/// REPLACES a same-id compiled entry, so the user's display name wins over
+/// the compiled metadata.
+///
+/// Declared ids get the live-catalog defaults (128k context / 8k output) —
+/// the same shape [LiveModelsCatalog] synthesizes for ids it discovers from
+/// a remote `GET /v1/models`.
+Map<String, ModelInfo> _configModels(
+    String id, ProviderConfig pc, Map<String, ModelInfo> base) {
+  final catalog = Map<String, ModelInfo>.of(base);
+  for (final spec in (pc.models ?? const <ProviderModelSpec>[])) {
+    catalog[spec.id] = ModelInfo(
+      id: spec.id,
+      name: spec.name ?? spec.id,
+      contextWindow: 131072,
+      maxOutput: 8192,
+    );
+  }
+  return catalog;
 }
 
 /// Register `id` as a pool over `pc.members`: a synthetic descriptor whose
