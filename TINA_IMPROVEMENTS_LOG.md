@@ -1381,3 +1381,168 @@ concurrent sub-agents ever bites.
 Verification: engine 807 (804 + 3 new: band escalation, no-sink
 bookkeeping, funnel tallies), root 782 (incl. the healed version test),
 all four analyzes 0. tina's 4 regression tests verified with it.
+
+## Improvements run, round 7 — notcurses tool-call/approval audit (2026-08-25)
+
+Audit-only sweep of the notcurses path (input backend, askPermission,
+line-editor hooks, preview, policy, sink display). Two confirmed items
+filed below. Checked and CLEARED, in passing: `policy.dart`
+defaultAlwaysPatternFor — bash "always" remembers the exact command and
+both prompts print `(a/d remember "<pattern>")` before the answer, so
+the scope is shown, not hidden; `workflow_permission_asker.dart` is the
+headless/CI stdin asker, off the TUI path; stuck-"running" tool rows
+can't happen — ToolChip is dead code (zero consumers) and agent.dart
+pairs toolStart/toolComplete even on throw; Esc/double-Esc at approvals
+carry the #24 stamp through the readKey path (line_editor.dart:516);
+paste-at-approval holding (tin-w8dl/_heldPastes) verified intact.
+ANSI-only quirks excluded per scope.
+
+47. **Shift+Tab is unreachable on the notcurses backend — the #23
+    permission-mode cycle never fires there, and on kcbt terminals the
+    key lands as plain Tab instead.** Notcurses (default backend;
+    `--backend ansi` is opt-in) has no distinct backtab key:
+    nckeys.h defines only `NCKEY_TAB 0x09`, and upstream decodes the
+    terminfo `kcbt` sequence (CSI Z) as `id='\t'` with the shift
+    MODIFIER set (notcurses src/lib/in.c: `.tinfo = "kcbt", .key =
+    '\t', .shift = true`). tina drops that flag at the FFI boundary —
+    `_NotcursesKeySource.poll()` copies only id/alt/ctrl/synthesized
+    into `NcKeyEvent` (notcurses_input_backend.dart:51) — and
+    `translateNcKey` maps 0x09 unconditionally to plain
+    `ControlCode.tab` (:684), so `ControlCode.backtab` can never be
+    produced on this path. `LineEditor._handleBackTab` requires exactly
+    backtab (line_editor.dart:682), so the mode-cycling hook wired at
+    tui_coordinator.dart:1181 is dead under notcurses; worse, where the
+    terminal advertises kcbt, Shift+Tab arrives AS plain Tab and hits
+    the editor's Tab case (line_editor.dart:816) — accepting an open
+    completion picker, the opposite of cycling modes. The ANSI parser
+    handles CSI Z correctly (input_parser.dart:394), so the feature
+    silently works only on the opt-in backend.
+    **Would make:** (a) thread the shift modifier across FFI — add
+    `hasShift` to `NcKeyEvent` from `key.hasShift()` (dart_notcurses
+    key.dart:432 already wraps `ncinput_shift_p`);
+    (b) in `translateNcKey`, emit `ControlCode.backtab` for
+    tab-with-shift before the plain-tab case;
+    (c) a notcurses-input-backend regression test mirroring
+    backtab_hook_test.dart: tab+shift translates to backtab, plain tab
+    stays tab. Status: DONE (round 7)
+
+48. **An edit approval whose oldString fills the preview cap shows zero
+    added lines — you approve a change whose operative half is
+    invisible.** `_editPreview` renders removed-then-added blocks into
+    ONE shared list against the global 60-line cap
+    (preview.dart:97-99, `_maxPreviewLines` :7), and `_appendBounded`
+    computes the second block's budget from what's left:
+    `budget = _maxPreviewLines - (out.length - 1)`; if ≤ 0 it returns
+    WITHOUT emitting any added line or truncation marker
+    (preview.dart:149-150). An edit replacing ~60+ removed lines with
+   anything therefore prompts as a wall of `-` lines with no `+` line
+    and no "(N more)" note — the user answers y/n/a/d having never seen
+    what the edit inserts. The write preview clips fairly by contrast
+    (`_take` plus an explicit marker, preview.dart:113-116), and the
+    existing clip test (preview_test.dart:128) only asserts total
+    length and that SOME "more" exists — it never checks the added
+    side survived, which is how this slipped through.
+    **Would make:** (a) split the cap per side (half/half, remainder
+    rebalanced toward the shorter side) so both halves always render;
+    (b) a guaranteed truncation marker naming WHICH side was clipped
+    (e.g. `… (+12 more added)`), never a silent elide;
+    (c) a preview_test case where oldString alone exceeds the cap,
+    asserting added lines still appear. Status: DONE (round 7)
+
+Driver-side sweep the same round (verified, pinned with probes where
+noted; filed for a future round — NOT in this round's implementation):
+items #47/#48 below were found independently by both tina's audit and
+the driver and cross-verified. Dropped after verification: "bash
+approvals don't show the exact command" (false — `keyFor('bash')`
+returns the full command, policy.dart:176); "pastes land in armed
+approvals" (by design — `_heldPastes` holds them, line_editor.dart:376).
+
+49. **The running bash tool row head-truncates its command at 80 chars,
+    dropping the tail — where long pipelines keep their operative end.**
+    Driver-filed. `ChatAgentSink._describe` renders the live tool call
+    as `bash: ${_truncate(cmd, 80)}` (lib/chat_agent_sink.dart:230) —
+    head-only truncation. A command like `foo … | long pipeline | sh`
+    shows its first 80 chars; the `| sh`, a trailing `; rm`, or a
+    redirect target is invisible in the chat while the (correct,
+    untruncated) approval prompt scrolls away. `_summarize`'s generic
+    `name: k=v …` rendering truncates the same way (:267). The
+    approval header shows the full command (policy keyFor), so the
+    information exists in the system — only the durable chat row loses
+    the tail.
+    **Would make:** head+tail truncation for bash commands (e.g. 52
+    head + `…` + 25 tail chars) in `_describe`, same for `_summarize`;
+    a unit test pinning that a trailing `| sh` survives an 80+-char
+    command render. Status: OPEN
+
+50. **A failed tool call's error result is cut at 200 chars and the
+    remainder is unrecoverable — `/output` only holds streamed chunks.**
+    Driver-filed. `ChatAgentSink.toolComplete` prints
+    `failed: ${_truncate(e.result, 200)}` (lib/chat_agent_sink.dart:196),
+    but the capped-output ring that feeds the `/output` viewer is filled
+    only from streamed `toolOutput` chunks (`_buffer`, :169) — and only
+    when those exceeded `displayCap` (:185). A tool that fails with a
+    long `result` and no streamed output (permission-refusal text,
+    thrown-tool `e.toString()`, agent.dart:761) shows 200 chars and the
+    rest is gone: no ring entry, no viewer, no marker that anything was
+    clipped.
+    **Would make:** route the error result through the same ring (append
+    `e.result` to the buffer / emit a CappedToolOutput when the result
+    exceeds what was printed), print `… (/output for the full error)`
+    when clipped, and a unit test with a >200-char error result
+    asserting the ring entry exists. Status: OPEN
+
+51. **Approval-prompt affordance gaps, one combined polish item.**
+    Driver-filed. (a) `approve? [y/n/a/d]` never states that a =
+    always-ALLOW and d = always-DENY (both askers —
+    tui_conversation_host.dart:222, workflow_permission_asker.dart:99);
+    the `(a/d remember …)` parenthetical says they remember, not which
+    way they decide. (b) No active-permission-mode indicator exists
+    anywhere during an ask — the app has no persistent footer bar; the
+    mode surfaces only as a transient `showMessage` on Shift+Tab or
+    `/permissions` (tui_coordinator.dart:1185). (c) Keys that are not
+    answers at an armed approval echo nothing at all (by design,
+    host :268) — a user whose keystroke was swallowed gets no signal
+    the prompt is alive. (d) The launch_workflow preview elides all but
+    the first 80 chars of the task text with no way to see more
+    (preview.dart:75-83).
+    **Would make:** spell the four answers out (`[y]es [n]o [a]lways
+    allow [d]eny always`); a dim mode chip on the ask header; a one-shot
+    dim `…` echo (or bell) on the first ignored key; show the first ~5
+    task lines in the workflow preview. Status: OPEN
+
+Round 7 close (driver, 2026-08-25): #47 and #48 implemented and
+verified; #49–#51 remain OPEN for a future round (driver-filed after
+the audit leg — tina's audit independently found and filed #47/#48,
+converging with the driver's own sweep; both were cross-verified
+against code and, for #48, live probes reproducing the starvation
+before the fix and its absence after: a 60-line oldString replaced by
+ONE line now renders that line).
+
+Owner add-on shipped in the same round: `/save <path>` — export the
+active session as a markdown transcript to an arbitrary path (pure
+console-free renderer in lib/session_commands/session_export.dart,
+all-conversations manifest readback, ~ expansion, refuse-on-exist,
+no-mkdir; the markdown fence grows past any backtick run in tool
+results so the model's own code fences can't break the transcript).
+
+Legs: audit leg 1 died at 4.5 min on a 75s provider stream stall
+(pool rough that night — the #46(c) retried-spend notice escalated to
+11.3k tokens live in the resume leg); audit leg 2 (--resume, idle
+timeout raised to 240s) completed the sweep in ~6h and filed #47/#48
+with a clean closing message. Implementation leg finished code+tests
+(engine 809 + analyze green) but was watchdog-killed during its final
+console-suite verification — the turn crossed the 900s ceiling; the
+driver completed verification (console 832, root 782, all four
+analyzes 0). /save leg completed cleanly (33 handler + 11 export
+tests; root 803 after the driver's fence repair + regression test).
+
+Driver incident, recorded for the ritual: after reviewing the /save
+diff, a reflexive `git checkout --` on the handler file (guarding
+against a format write that `--output=none` never makes) reverted
+tina's unstaged wiring. Reconstructed verbatim from the reviewed diff;
+the handler suite's exact-string assertions (33) pass against the
+rebuild. Lesson: no `git checkout --` in compound commands; revert
+only what you can see is dirty.
+
+Verification: engine 809, console 832, root 803, all four analyzes
+clean; leak ritual 0/0 on both commits.

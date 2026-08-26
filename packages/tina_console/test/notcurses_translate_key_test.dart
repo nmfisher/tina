@@ -14,12 +14,14 @@ void main() {
     int id, {
     bool hasAlt = false,
     bool hasCtrl = false,
+    bool hasShift = false,
     bool isSynthesized = false,
   }) =>
       translateNcKey(
         id: id,
         hasAlt: hasAlt,
         hasCtrl: hasCtrl,
+        hasShift: hasShift,
         isSynthesized: isSynthesized,
       );
 
@@ -82,6 +84,19 @@ void main() {
 
     test('Tab (raw 0x09)', () {
       expect(translate(0x09), equals(ControlKey(ControlCode.tab)));
+    });
+
+    test('Shift+Tab (raw 0x09 + shift) → backtab', () {
+      // Notcurses has no distinct backtab key — the terminal's kcbt (CSI Z)
+      // surfaces as id='\t' with the shift modifier. Without this mapping
+      // Shift+Tab lands as plain Tab and the #23 mode cycle is unreachable.
+      expect(translate(0x09, hasShift: true),
+          equals(ControlKey(ControlCode.backtab)));
+    });
+
+    test('plain Tab stays Tab even when other modifiers are set', () {
+      expect(translate(0x09, hasAlt: true),
+          equals(ControlKey(ControlCode.tab)));
     });
 
     test('Backspace (raw 0x08)', () {

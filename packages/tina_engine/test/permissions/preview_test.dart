@@ -138,5 +138,41 @@ void main() {
       expect(p.whereType<PreviewContext>().map((e) => e.text),
           anyElement(contains('more')));
     });
+
+    test('edit whose oldString alone exceeds the cap still shows the addition',
+        () async {
+      // The filed failure mode: ~60 removals rendered, zero additions, no
+      // marker — an approval whose operative half was invisible.
+      final big = List.generate(70, (i) => 'old $i').join('\n');
+      final p = await previewToolCall('edit', {
+        'filePath': '/tmp/big.txt',
+        'oldString': big,
+        'newString': 'the single replacement',
+      });
+      expect(p.whereType<PreviewAdded>().map((e) => e.text),
+          ['the single replacement'],
+          reason: 'removals filling the cap must not starve the added side');
+      expect(p.whereType<PreviewContext>().map((e) => e.text),
+          anyElement(contains('more removed')),
+          reason: 'a clipped side is named, never silently elided');
+    });
+
+    test('both sides render their half of the cap, markers name each',
+        () async {
+      final oldBig = List.generate(100, (i) => 'old $i').join('\n');
+      final newBig = List.generate(100, (i) => 'new $i').join('\n');
+      final p = await previewToolCall('edit', {
+        'filePath': '/tmp/big.txt',
+        'oldString': oldBig,
+        'newString': newBig,
+      });
+      expect(p.whereType<PreviewRemoved>(), hasLength(30),
+          reason: 'half of the 60-line cap');
+      expect(p.whereType<PreviewAdded>(), hasLength(30));
+      expect(
+        p.whereType<PreviewContext>().map((e) => e.text).toList(),
+        ['… (-70 more removed)', '… (+70 more added)'],
+      );
+    });
   });
 }

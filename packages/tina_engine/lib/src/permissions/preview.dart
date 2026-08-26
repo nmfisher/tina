@@ -95,9 +95,48 @@ List<PreviewEntry> _editPreview(Map<String, dynamic> input) {
   final newLines = const LineSplitter().convert(newStr);
 
   final out = <PreviewEntry>[PreviewHeader(header)];
-  _appendBounded(out, oldLines, (s) => PreviewRemoved(s));
-  _appendBounded(out, newLines, (s) => PreviewAdded(s));
+  // The cap is split so neither side can starve the other. Sharing one
+  // budget meant a 60-line oldString consumed it entirely and the user
+  // approved an edit whose added half never rendered.
+  final removedBudget =
+      _sideCap(oldLines.length, newLines.length);
+  final addedBudget = _maxPreviewLines - removedBudget;
+  _appendBounded(out, oldLines, removedBudget, 'removed',
+      (s) => PreviewRemoved(s));
+  _appendBounded(out, newLines, addedBudget, 'added',
+      (s) => PreviewAdded(s));
   return out;
+}
+
+/// Per-side line budget for the edit preview: half the cap each, with any
+/// odd-cap remainder going to the shorter side. Fixed budgets — rather than
+/// letting the second block spend whatever the first left over — are the
+/// point: a long oldString used to eat the whole cap before the added side
+/// rendered a single line.
+int _sideCap(int oldCount, int newCount) {
+  final half = _maxPreviewLines ~/ 2;
+  final remainder = _maxPreviewLines - half * 2;
+  if (remainder == 0 || oldCount == newCount) return half;
+  return oldCount < newCount ? half + remainder : half;
+}
+
+void _appendBounded<T>(
+  List<PreviewEntry> out,
+  List<String> lines,
+  int budget,
+  String side,
+  PreviewEntry Function(String) make,
+) {
+  if (budget <= 0 || lines.isEmpty) return;
+  final shown = lines.length <= budget ? lines : lines.take(budget).toList();
+  for (final l in shown) {
+    out.add(make(l));
+  }
+  if (lines.length > budget) {
+    final sign = side == 'added' ? '+' : '-';
+    out.add(PreviewContext(
+        '… ($sign${lines.length - budget} more $side)'));
+  }
 }
 
 Future<List<PreviewEntry>> _writePreview(Map<String, dynamic> input) async {
@@ -139,22 +178,6 @@ Future<List<PreviewEntry>> _writePreview(Map<String, dynamic> input) async {
   }
   final hunks = _hunks(_lineDiff(oldLines, newLines));
   return [PreviewHeader(header), ..._renderHunks(hunks)];
-}
-
-void _appendBounded<T>(
-  List<PreviewEntry> out,
-  List<String> lines,
-  PreviewEntry Function(String) make,
-) {
-  final budget = _maxPreviewLines - (out.length - 1);
-  if (budget <= 0) return;
-  final shown = lines.length <= budget ? lines : lines.take(budget).toList();
-  for (final l in shown) {
-    out.add(make(l));
-  }
-  if (lines.length > budget) {
-    out.add(PreviewContext('… (${lines.length - budget} more)'));
-  }
 }
 
 Iterable<String> _take(List<String> xs, int n) =>

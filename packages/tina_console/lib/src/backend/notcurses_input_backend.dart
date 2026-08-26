@@ -22,7 +22,18 @@ class NcKeyEvent {
   final bool hasCtrl;
   final bool isSynthesized;
 
-  const NcKeyEvent(this.id, this.hasAlt, this.hasCtrl, this.isSynthesized);
+  /// Shift modifier as reported by `ncinput_shift_p`. Notcurses has no
+  /// distinct backtab key — Shift+Tab arrives as id=`\t` with this flag set —
+  /// so dropping it makes backtab indistinguishable from plain tab.
+  final bool hasShift;
+
+  const NcKeyEvent(
+    this.id,
+    this.hasAlt,
+    this.hasCtrl,
+    this.isSynthesized, {
+    this.hasShift = false,
+  });
 }
 
 /// Source of raw notcurses key events. Abstracted so
@@ -53,6 +64,7 @@ class _NotcursesKeySource implements KeySource {
       key.hasAlt(),
       key.hasCtrl(),
       key.keySynthesizedP(),
+      hasShift: key.hasShift(),
     );
     // Destroy immediately; callers treat the returned event as plain data.
     key.destroy();
@@ -396,6 +408,7 @@ class NotcursesInputBackend implements InputBackend {
       (modifiers & nc.KeyMod.alt) != 0,
       (modifiers & nc.KeyMod.ctrl) != 0,
       id >= nc.preterunicode(0) && id <= nc.NcKey.eof,
+      hasShift: (modifiers & nc.KeyMod.shift) != 0,
     ));
     if (event == null) {
       if (PasteAudit.enabled) {
@@ -601,6 +614,7 @@ class NotcursesInputBackend implements InputBackend {
         id: key.id,
         hasAlt: key.hasAlt,
         hasCtrl: key.hasCtrl,
+        hasShift: key.hasShift,
         isSynthesized: key.isSynthesized,
       );
 
@@ -646,13 +660,14 @@ class NotcursesInputBackend implements InputBackend {
 ///
 /// Exposed as a top-level function so the mapping logic can be unit-tested
 /// without a live notcurses runtime. [id] is the [nc.Key.id] codepoint;
-/// [hasAlt]/[hasCtrl] are modifier flags; [isSynthesized] is the result of
-/// [nc.Key.keySynthesizedP] (true for keys like arrows and function keys
-/// that notcurses encodes in the synthesized-key range).
+/// [hasAlt]/[hasCtrl]/[hasShift] are modifier flags; [isSynthesized] is the
+/// result of [nc.Key.keySynthesizedP] (true for keys like arrows and function
+/// keys that notcurses encodes in the synthesized-key range).
 InputEvent? translateNcKey({
   required int id,
   required bool hasAlt,
   required bool hasCtrl,
+  required bool hasShift,
   required bool isSynthesized,
 }) {
   // Notcurses with extended keyboard modes delivers Ctrl+letter as
@@ -681,6 +696,12 @@ InputEvent? translateNcKey({
 
   // Control keys.
   if (id == 0x0d || id == nc.NcKey.enter) return ControlKey(ControlCode.enter);
+  // Tab with shift is backtab. Notcurses has no distinct backtab key: on a
+  // terminal that advertises kcbt (CSI Z), upstream delivers id='\t' with
+  // the shift modifier — without this the #23 mode cycle is unreachable on
+  // the default backend, and the key lands as plain Tab (accepting an open
+  // completion picker) instead.
+  if (id == 0x09 && hasShift) return ControlKey(ControlCode.backtab);
   if (id == 0x09) return ControlKey(ControlCode.tab);
   if (id == 0x08 || id == 0x7f || id == nc.NcKey.backspace) {
     return ControlKey(ControlCode.backspace);

@@ -803,4 +803,48 @@ void main() {
           reason: 'the old failure mode was reply chars decoded as typing');
     });
   });
+
+  // The notcurses twin of backtab_hook_test.dart. Over a TTY Shift+Tab is
+  // ESC [ Z and the ANSI parser owns it; on this backend notcurses delivers
+  // id='\t' with the shift modifier (ncinput_shift_p), which used to be
+  // dropped at the FFI boundary — Shift+Tab landed as plain Tab and the #23
+  // mode cycle was unreachable. Driven through pumpedInputForTest with
+  // KeyMod.shift, no live terminal.
+  group('backtab via notcurses pump', () {
+    late NotcursesInputBackend backend;
+    late StreamSubscription sub;
+    final emitted = <InputEvent>[];
+
+    setUpAll(InputLatency.forceEnable);
+
+    setUp(() {
+      InputLatency.reset();
+      emitted.clear();
+      backend = NotcursesInputBackend(
+        _FakeKeySource(),
+        startupDrainMinWindow: Duration.zero,
+        startPolling: false,
+        temporalPasteDetection: false,
+      );
+      sub = backend.events.listen(emitted.add);
+    });
+
+    tearDown(() {
+      sub.cancel();
+      backend.dispose();
+    });
+
+    test('shift+tab (0x09 + shift) translates to backtab', () async {
+      backend.pumpedInputForTest(0x09, modifiers: nc.KeyMod.shift);
+      await pumpMicrotasks();
+      expect(emitted, [ControlKey(ControlCode.backtab)],
+          reason: 'shift must survive to translation; plain Tab is distinct');
+    });
+
+    test('plain tab stays tab', () async {
+      backend.pumpedInputForTest(0x09);
+      await pumpMicrotasks();
+      expect(emitted, [ControlKey(ControlCode.tab)]);
+    });
+  });
 }

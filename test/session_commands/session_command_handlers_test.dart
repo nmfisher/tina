@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/conversation.dart';
 import 'package:tina/session_commands/command_context.dart';
@@ -533,6 +535,171 @@ Future<void> main() async {
         host.styledMessages.map((m) => m.message).join(),
         contains('--permission-mode auto'),
       );
+    });
+  });
+
+  group('SessionCommandHandlers /save', () {
+    late FakeHostInterface host;
+    late FakeProvider provider;
+    late Conversation conv;
+    late Directory dir;
+
+    setUp(() async {
+      host = FakeHostInterface();
+      provider = FakeProvider.always(model: 'test-model');
+      conv = Conversation(
+        id: 'test-conv',
+        label: 'test-model',
+        agent: _fakeAgent(provider, host),
+        provider: provider,
+        host: host,
+        policy: PermissionPolicy(),
+      );
+      dir = await Directory.systemTemp.createTemp('tina_save_test');
+      addTearDown(() => dir.delete(recursive: true));
+    });
+
+    /// A conversation with a live recorder over [store], session `s1`.
+    Conversation recorded(Conversation c, SessionStore store) => Conversation(
+          id: c.id,
+          label: c.label,
+          agent: c.agent,
+          provider: c.provider,
+          host: c.host,
+          policy: c.policy,
+          recorder:
+              SessionRecorder(store, 's1', 'c-live', providerId: 'anthropic'),
+        );
+
+    test(
+        'writes a markdown transcript of every conversation and prints the '
+        'absolute path', () async {
+      final store = MemorySessionStore();
+      await store.createSession(providerId: 'anthropic', sessionId: 's1');
+      final cA = await store.createConversationWithMeta(
+          's1', const ConversationMetaInput(label: 'main'));
+      await store.append(
+          's1', cA, Message(role: Role.user, content: [TextBlock('hello')]));
+      await store.append('s1', cA,
+          Message(role: Role.assistant, content: [TextBlock('world')]));
+      final cB = await store.createConversationWithMeta(
+          's1',
+          const ConversationMetaInput(
+              label: 'helper', kind: ConversationKind.subAgent));
+      await store.append(
+          's1', cB, Message(role: Role.user, content: [TextBlock('sub job')]));
+
+      final handlers =
+          SessionCommandHandlers(_FakeCtx(conversation: recorded(conv, store)));
+      final target = p.join(dir.path, 'out.md');
+      final res = await handlers.dispatch('/save $target');
+
+      expect(res, isA<CmdHandled>());
+      final file = File(target);
+      expect(file.existsSync(), isTrue);
+      final text = file.readAsStringSync();
+      expect(text, startsWith('# Session transcript — s1\n'));
+      expect(text, contains('> hello\n'), reason: 'title from first user msg');
+      expect(text, contains('## main — primary\n'));
+      expect(text, contains('## helper — subAgent\n'));
+      expect(text, contains('### user\n\nhello\n'));
+      expect(text, contains('- conversations: 2, messages: 3\n'));
+      final joined = host.styledMessages.map((m) => m.message).join();
+      expect(joined, contains('saved 3 messages across 2 conversations'));
+      expect(joined, contains(target), reason: 'absolute target is echoed');
+    });
+
+    test('a relative path resolves against the cwd and still writes', () async {
+      final store = MemorySessionStore();
+      await store.createSession(providerId: 'anthropic', sessionId: 's1');
+      final cid = await store.createConversation('s1');
+      await store.append(
+          's1', cid, Message(role: Role.user, content: [TextBlock('rel')]));
+      final handlers =
+          SessionCommandHandlers(_FakeCtx(conversation: recorded(conv, store)));
+      final name = 'tina_save_rel_${DateTime.now().microsecondsSinceEpoch}.md';
+      await handlers.dispatch('/save $name');
+      final expected = File(p.join(Directory.current.path, name));
+      expect(expected.existsSync(), isTrue,
+          reason: 'relative paths land in the process cwd');
+      expect(host.styledMessages.map((m) => m.message).join(),
+          contains(expected.path));
+      expected.deleteSync();
+    });
+
+    test('no argument prints usage', () async {
+      final handlers =
+          SessionCommandHandlers(_FakeCtx(conversation: recorded(conv, MemorySessionStore())));
+      await handlers.dispatch('/save');
+      expect(
+        host.styledMessages.map((m) => m.message).join(),
+        contains('usage: /save <path>'),
+      );
+    });
+
+    test('extra arguments print usage too', () async {
+      final handlers =
+          SessionCommandHandlers(_FakeCtx(conversation: recorded(conv, MemorySessionStore())));
+      await handlers.dispatch('/save a b');
+      expect(
+        host.styledMessages.map((m) => m.message).join(),
+        contains('usage: /save <path>'),
+      );
+    });
+
+    test('without persistence reports there is nothing to save', () async {
+      // No recorder on the conversation, no ctx.sessionStore.
+      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+      await handlers.dispatch('/save ${p.join(dir.path, 'x.md')}');
+      expect(
+        host.styledMessages.map((m) => m.message).join(),
+        contains('session persistence is disabled'),
+      );
+      expect(host.styledMessages.map((m) => m.style),
+          contains(HostMessageStyle.error));
+    });
+
+    test('missing parent directory errors without creating it', () async {
+      final store = MemorySessionStore();
+      await store.createSession(providerId: 'anthropic', sessionId: 's1');
+      await store.createConversation('s1');
+      final handlers =
+          SessionCommandHandlers(_FakeCtx(conversation: recorded(conv, store)));
+      final target = p.join(dir.path, 'nope', 'out.md');
+      await handlers.dispatch('/save $target');
+      expect(Directory(p.join(dir.path, 'nope')).existsSync(), isFalse,
+          reason: '/save must not mkdir');
+      expect(File(target).existsSync(), isFalse);
+      expect(host.styledMessages.map((m) => m.message).join(),
+          contains('directory does not exist'));
+    });
+
+    test('an existing file is never overwritten', () async {
+      final store = MemorySessionStore();
+      await store.createSession(providerId: 'anthropic', sessionId: 's1');
+      await store.createConversation('s1');
+      final handlers =
+          SessionCommandHandlers(_FakeCtx(conversation: recorded(conv, store)));
+      final target = p.join(dir.path, 'existing.md');
+      File(target).writeAsStringSync('keep me');
+      await handlers.dispatch('/save $target');
+      expect(File(target).readAsStringSync(), 'keep me');
+      expect(host.styledMessages.map((m) => m.message).join(),
+          contains('refusing to overwrite'));
+    });
+
+    test('/help lists /save', () async {
+      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+      await handlers.dispatch('/help');
+      expect(host.messages.join(), contains('/save <path>'));
+    });
+
+    test('unknown commands still error after adding /save', () async {
+      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+      final res = await handlers.dispatch('/savee nope');
+      expect(res, isA<CmdHandled>());
+      expect(host.styledMessages.map((m) => m.message).join(),
+          contains('unknown command'));
     });
   });
 }
