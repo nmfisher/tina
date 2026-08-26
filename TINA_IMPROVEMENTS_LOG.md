@@ -1571,3 +1571,37 @@ base https://api.z.ai/api/coding/paas/v4, OpenAI wire — the standard
 base 429s a coding-plan key), and per-member RPM limits set for zai
 and hetzner ([providers.<id>] requests_per_minute = 40, matching
 NIM's built-in hint; each member's queue spaces at 1500 ms).
+
+Round 9 close (driver, 2026-08-26): tin-9x4m and tin-1h8p implemented
+and verified, both off the round-8 merge (9bb7a6b). tin-9x4m (#31,
+PR green): config [providers.<id>] models = ["id"|"id|name"] declares
+a custom provider's catalog (ProviderModelSpec; declared entries merge
+over a built-in override's compiled catalog, user name winning per id;
+declared ids get live-catalog 128k/8k defaults), and the /spawn picker
+seeds a configured provider that contributed zero refs with the active
+conversation's model ref (recorder meta.model, verified to be
+providerId/wire-model at creation). Driver repair: models joined ==
+but not hashCode — added. Tina's one deviation accepted: no
+empty-picker hint (no _ListPickerForm seam; the scenario can no longer
+produce an empty picker). Root 823/823.
+
+tin-1h8p (#32, PR green): the ticket's only unmet criterion — verdicts
+remembered. modeAwareAsker maps a classifier verdict to
+allowAlways/denyAlways so agent.dart's existing remember consumer
+installs the same session rule a manual a/d would; identical calls
+short-circuit before re-classifying. Five new gating tests with a
+call-counting classifier double (short-circuit, deny-side, null falls
+back without remembering and re-classifies, static-rule precedence,
+yolo bypass with explicit --deny holding). The other six criteria were
+already implemented; tina's audit pinned each at file:line. Root
+814/814, engine 816/816, both analyzers clean; leak ritual 0/0 on
+both commits.
+
+Round 9 incidents: both legs hit the per-turn budget at the very end
+(leg A 8.06M/8M after its closing message — raised from 6M this round,
+still clipped; the closing message lands before the abort fires both
+times, so the work survives). Mid-leg-B the working tree was stashed
+and switched to asb/recursive-improvement by an actor outside this
+session (reflog shows reset+checkout tina's allow-list cannot run);
+tina's uncommitted work was recovered intact from stash@{0} and
+verified against its closing report before committing.
