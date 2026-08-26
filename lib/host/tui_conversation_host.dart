@@ -50,6 +50,14 @@ class TuiConversationHost implements HostInterface {
   /// continuously; their [setActive] is render-neutral.
   final bool primary;
 
+  /// The conversation's policy, attached by the coordinator after
+  /// construction ([SessionManager] builds the policy AFTER the host, and
+  /// spawned/branch conversations build their policies outside the factory).
+  /// Null when nobody attached one. Read at ask time so `/permissions` /
+  /// Shift+Tab mode changes show up on the next ask's header chip (#51b);
+  /// [setPermissionMode] already flips this same object per conversation.
+  PermissionPolicy? policy;
+
   /// Tool calls whose streamed output was capped in the chat — the full text
   /// lives here for the `/output` viewer. Newest first; bounded to the last 10.
   /// Populated from the sink's [ChatAgentSink.onCapped].
@@ -198,6 +206,13 @@ class TuiConversationHost implements HostInterface {
     }
     chat.ensureNewline();
     chat.yellow('  ${p.toolName}: ${p.key}\n');
+    // The mode chip rides under the header (#51b) — the TUI has no
+    // persistent footer, so each ask is the one place the active mode is
+    // visible while its keys are being read.
+    final policy = this.policy;
+    if (policy != null) {
+      chat.dim('  ${permissionModeChip(policy.mode)}\n');
+    }
     final preview = await previewToolCall(p.toolName, p.input);
     for (final entry in preview) {
       switch (entry) {
@@ -220,8 +235,7 @@ class TuiConversationHost implements HostInterface {
     // prompt (tin-6a2f).
     final rowToken = Object();
     chat.write(
-      '  approve? [y/n/a/d]  '
-      '(a/d remember "${p.alwaysPattern}") › ',
+      approvalPromptRow(p.alwaysPattern),
       rowOwner: rowToken,
     );
     // If the user is mid-prompt (a readLine in flight WITH unsent content),
@@ -244,6 +258,12 @@ class TuiConversationHost implements HostInterface {
     // decide it: the read simply stays armed and the next key is heard (an
     // up-arrow used to fall into the default-deny and silently reject the
     // action). Esc still denies — the "get me out" key keeps its meaning.
+    //
+    // #51c: exactly ONE dimmed ack per ask — the first non-answer key proves
+    // the prompt is alive (its keys are being swallowed); later ones stay
+    // silent so a wheel spam can't flood the transcript. Keys the focus ring
+    // consumes (panel cycling) never surface here and get no ack.
+    var ackedIgnoredKey = false;
     while (true) {
       final event = await editor!.readKey(globalKeys: true);
       if (event is CharInput) {
@@ -265,7 +285,12 @@ class TuiConversationHost implements HostInterface {
         chat.write('esc\n', rowOwner: rowToken);
         return PermissionResponse.denyOnce;
       }
-      // Not an answer key: ignored, nothing echoed, keep listening.
+      // Not an answer key: ignored, keep listening. The FIRST one echoes a
+      // one-shot dim ack on the same row (#51c); the rest stay silent.
+      if (!ackedIgnoredKey) {
+        ackedIgnoredKey = true;
+        chat.write(ignoredKeyAck, rowOwner: rowToken);
+      }
     }
   }
 

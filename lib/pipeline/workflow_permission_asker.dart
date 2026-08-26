@@ -25,11 +25,18 @@ class WorkflowPermissionAsker {
   final LineEditor? editor;
   final AttentionQueue? attentionQueue;
 
+  /// The policy whose [PermissionPolicy.mode] the ask header reports (#51b).
+  /// Null when the caller has no policy to surface — the chip is omitted.
+  /// Read at ask time, so `/permissions` / Shift+Tab changes apply to the
+  /// next ask without rebuilding the asker.
+  final PermissionPolicy? policy;
+
   WorkflowPermissionAsker({
     required this.sink,
     this.screen,
     this.editor,
     this.attentionQueue,
+    this.policy,
   });
 
   bool get _interactive => screen != null && editor != null;
@@ -75,6 +82,12 @@ class WorkflowPermissionAsker {
       host.chat.ensureNewline();
     }
     _write('  ${p.toolName}: ${p.key}\n', HostMessageStyle.warning);
+    // The mode chip rides under the header (#51b) — dim, so it reads as
+    // metadata, not as part of the call being approved.
+    final policy = this.policy;
+    if (policy != null) {
+      _write('  ${permissionModeChip(policy.mode)}\n', HostMessageStyle.dim);
+    }
     final preview = await previewToolCall(p.toolName, p.input);
     for (final entry in preview) {
       switch (entry) {
@@ -96,10 +109,7 @@ class WorkflowPermissionAsker {
       final host = sink as TuiConversationHost;
       host.chat.ensureNewline();
     }
-    _write(
-      '  approve? [y/n/a/d]  (a/d remember "${p.alwaysPattern}") › ',
-      HostMessageStyle.normal,
-    );
+    _write(approvalPromptRow(p.alwaysPattern), HostMessageStyle.normal);
     // If the user is mid-prompt (a readLine in flight WITH unsent content),
     // the approval must not steal their typing — the prompt's Enter would
     // answer this readKey as a deny (it is not y/a/d) and the prompt would
@@ -123,6 +133,10 @@ class WorkflowPermissionAsker {
     // decide it: the read simply stays armed and the next key is heard (an
     // up-arrow used to fall into the default-deny and silently reject the
     // action). Esc still denies — the "get me out" key keeps its meaning.
+    // #51c: exactly ONE dimmed ack per ask — the first non-answer key proves
+    // the prompt is alive (its keys are being swallowed), later ones stay
+    // silent so a wheel spam or a stuck key can't flood the transcript.
+    var ackedIgnoredKey = false;
     while (true) {
       final event = await editor!.readKey(globalKeys: true);
       if (event is CharInput) {
@@ -144,7 +158,14 @@ class WorkflowPermissionAsker {
         _write('esc\n', HostMessageStyle.normal);
         return PermissionResponse.denyOnce;
       }
-      // Not an answer key: ignored, nothing echoed, keep listening.
+      // Not an answer key: the read stays armed. One-shot ack on the first
+      // one that surfaces here; keys the focus ring consumes (panel cycling)
+      // never reach this loop and get no ack — that is the point of #51c,
+      // feedback for keys the prompt itself swallowed.
+      if (!ackedIgnoredKey) {
+        ackedIgnoredKey = true;
+        _write(ignoredKeyAck, HostMessageStyle.dim);
+      }
     }
   }
 
