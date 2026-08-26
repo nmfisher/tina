@@ -44,8 +44,7 @@ void main() {
         userInput: 'write /tmp/out.txt',
       );
 
-      expect(fakeWrite.calls, isEmpty,
-          reason: 'deny should not reach execute');
+      expect(fakeWrite.calls, isEmpty, reason: 'deny should not reach execute');
       expect(asker.prompts, isEmpty,
           reason: 'static deny should not ask the user');
 
@@ -74,8 +73,7 @@ void main() {
         const [TextBlock('done.')],
       ]);
       final policy = PermissionPolicy();
-      final asker =
-          _RecordingAsker([PermissionResponse.allowAlways]);
+      final asker = _RecordingAsker([PermissionResponse.allowAlways]);
 
       final agent = Agent(
         provider: provider,
@@ -94,8 +92,7 @@ void main() {
           reason: 'second write should use the session rule');
       expect(fakeWrite.calls.length, 2);
       expect(policy.sessionRules.single.pattern, '/tmp/*');
-      expect(
-          policy.sessionRules.single.decision, PermissionDecision.allow);
+      expect(policy.sessionRules.single.decision, PermissionDecision.allow);
     });
 
     test('ask -> deny once does not remember', () async {
@@ -158,8 +155,7 @@ void main() {
         ],
         const [TextBlock('ok.')],
       ]);
-      final asker =
-          _RecordingAsker([]); // should never be called under yolo
+      final asker = _RecordingAsker([]); // should never be called under yolo
 
       final agent = Agent(
         provider: provider,
@@ -217,8 +213,7 @@ void main() {
       );
 
       expect(asker.prompts, isEmpty, reason: 'classifier decided both');
-      expect(
-          fakeBash.calls.map((c) => c['command']), ['ls'],
+      expect(fakeBash.calls.map((c) => c['command']), ['ls'],
           reason: 'the denied rm never reaches execute');
       // The deny surfaces to the model as an error tool_result.
       final results = history
@@ -227,9 +222,184 @@ void main() {
           .whereType<ToolResultBlock>()
           .toList();
       expect(results.any((r) => r.isError), isTrue);
-      expect(
-          results.firstWhere((r) => r.isError).content,
+      expect(results.firstWhere((r) => r.isError).content,
           contains('Denied by permission policy'));
+    });
+  });
+
+  group('auto mode: classifier verdicts are remembered', () {
+    // The agent-level consumer contract (agent.dart's check → ask →
+    // `policy.remember(name, prompt.alwaysPattern, decision)` when
+    // `resp.remember`), driven through the modeAwareAsker seam so a change in
+    // either half breaks here: the classifier's verdict lands in the policy
+    // as a session rule exactly like a manual a/d.
+    Future<PermissionDecision> decide(
+      PermissionPolicy policy,
+      PermissionAsker asker,
+      String tool,
+      Map<String, dynamic> input,
+    ) async {
+      final d = policy.check(tool, input);
+      if (d != PermissionDecision.ask) return d;
+      final prompt = PermissionPrompt(tool, input);
+      final resp = await asker(prompt);
+      if (resp.remember) {
+        policy.remember(tool, prompt.alwaysPattern, resp.decision);
+      }
+      return resp.decision;
+    }
+
+    test('a second identical call short-circuits the classifier', () async {
+      final llmCalls = <Map<String, dynamic>>[];
+      final policy = PermissionPolicy(mode: PermissionMode.auto);
+      final classifier =
+          PermissionClassifier(_ClassifierProvider('ALLOW', llmCalls));
+      final asker = modeAwareAsker(
+        policy: policy,
+        classifier: classifier,
+        fallback: (_) async => fail('no interactive ask expected'),
+      );
+
+      const input = {'command': 'git status'};
+      expect(
+          await decide(policy, asker, 'bash', input), PermissionDecision.allow);
+      expect(llmCalls.length, 1, reason: 'the first call classifies');
+      expect(policy.check('bash', input), PermissionDecision.allow,
+          reason: 'the verdict installed a session rule');
+
+      // Same call again — the session rule beats the ask fallback, so the
+      // classifier is never consulted a second time.
+      expect(
+          await decide(policy, asker, 'bash', input), PermissionDecision.allow);
+      expect(llmCalls.length, 1,
+          reason: 'the remembered rule short-circuits before the classifier');
+      final text = llmCalls.single['messages']!.first['content']!.first['text']
+          as String;
+      expect(text, contains('Tool: bash'));
+      expect(text, contains('git status'));
+    });
+
+    test('a denied verdict is remembered the same way', () async {
+      final llmCalls = <Map<String, dynamic>>[];
+      final policy = PermissionPolicy(mode: PermissionMode.auto);
+      final classifier =
+          PermissionClassifier(_ClassifierProvider('DENY', llmCalls));
+      final asker = modeAwareAsker(
+        policy: policy,
+        classifier: classifier,
+        fallback: (_) async => fail('no interactive ask expected'),
+      );
+
+      const input = {'command': 'rm -rf /'};
+      expect(
+          await decide(policy, asker, 'bash', input), PermissionDecision.deny);
+      expect(llmCalls.length, 1);
+      expect(policy.check('bash', input), PermissionDecision.deny,
+          reason: 'a deny verdict is remembered like a manual d');
+      expect(
+          await decide(policy, asker, 'bash', input), PermissionDecision.deny);
+      expect(llmCalls.length, 1,
+          reason: 'the remembered deny short-circuits the classifier');
+    });
+
+    test('an undecidable call falls back WITHOUT remembering', () async {
+      final llmCalls = <Map<String, dynamic>>[];
+      var fallbackCalls = 0;
+      final policy = PermissionPolicy(mode: PermissionMode.auto);
+      final classifier =
+          PermissionClassifier(_ClassifierProvider('maybe?', llmCalls));
+      final asker = modeAwareAsker(
+        policy: policy,
+        classifier: classifier,
+        fallback: (_) async {
+          fallbackCalls++;
+          return PermissionResponse.denyOnce;
+        },
+      );
+
+      const input = {'command': 'git status'};
+      expect(
+          await decide(policy, asker, 'bash', input), PermissionDecision.deny);
+      expect(llmCalls.length, 1, reason: 'the classifier was consulted');
+      expect(fallbackCalls, 1, reason: 'and the fallback answered');
+      expect(policy.check('bash', input), PermissionDecision.ask,
+          reason: 'the fallback answered y/n, not a/d — nothing remembered');
+      // The SAME call classifies again: the policy holds no rule for it.
+      expect(
+          await decide(policy, asker, 'bash', input), PermissionDecision.deny);
+      expect(llmCalls.length, 2);
+    });
+
+    test('a static --allow rule decides before the classifier runs', () async {
+      final llmCalls = <Map<String, dynamic>>[];
+      final policy = PermissionPolicy(
+        mode: PermissionMode.auto,
+        rules: const [
+          PermissionRule(
+            toolName: 'bash',
+            pattern: 'git *',
+            decision: PermissionDecision.allow,
+          ),
+        ],
+      );
+      final classifier =
+          PermissionClassifier(_ClassifierProvider('DENY', llmCalls));
+      final asker = modeAwareAsker(
+        policy: policy,
+        classifier: classifier,
+        fallback: (_) async => fail('no interactive ask expected'),
+      );
+
+      // `git status` matches the static rule — allow, and the classifier
+      // never sees the call at all.
+      expect(await decide(policy, asker, 'bash', {'command': 'git status'}),
+          PermissionDecision.allow);
+      expect(llmCalls, isEmpty, reason: 'explicit rules beat the classifier');
+
+      // ...but an UNmatched command still routes to the classifier (which
+      // here denies it) — precedence, not bypass.
+      expect(await decide(policy, asker, 'bash', {'command': 'curl x'}),
+          PermissionDecision.deny);
+      expect(llmCalls.length, 1);
+    });
+
+    test('yolo defaults bypass the classifier entirely', () async {
+      final llmCalls = <Map<String, dynamic>>[];
+      // The --yolo shape: every default flipped to allow (lib/config.dart's
+      // buildPolicy) with an explicit --deny layered on top, mode auto.
+      final policy = PermissionPolicy(
+        mode: PermissionMode.auto,
+        defaults: {
+          'read': PermissionDecision.allow,
+          'write': PermissionDecision.allow,
+          'edit': PermissionDecision.allow,
+          'bash': PermissionDecision.allow,
+        },
+        rules: const [
+          PermissionRule(
+            toolName: 'bash',
+            pattern: 'rm *',
+            decision: PermissionDecision.deny,
+          ),
+        ],
+      );
+      final classifier =
+          PermissionClassifier(_ClassifierProvider('DENY', llmCalls));
+      final asker = modeAwareAsker(
+        policy: policy,
+        classifier: classifier,
+        fallback: (_) async => fail('no interactive ask expected'),
+      );
+
+      expect(await decide(policy, asker, 'bash', {'command': 'git status'}),
+          PermissionDecision.allow);
+      expect(llmCalls, isEmpty,
+          reason: 'yolo allow-default skips the ask path');
+
+      // But an explicit --deny rule still holds under yolo.
+      expect(await decide(policy, asker, 'bash', {'command': 'rm -rf /'}),
+          PermissionDecision.deny);
+      expect(llmCalls, isEmpty);
     });
   });
 }
@@ -296,8 +466,29 @@ class _PerCallProvider extends LlmProvider {
     required List<Message> messages,
     required List<ToolSchema> tools,
   }) async* {
-    yield TextDelta(
-        _answers.isEmpty ? 'ALLOW' : _answers.removeFirst());
+    yield TextDelta(_answers.isEmpty ? 'ALLOW' : _answers.removeFirst());
+  }
+}
+
+/// Classifier-side LLM double: always answers the same word, and records
+/// every send() so tests can prove how many round-trips the classifier paid
+/// (and what it was shown).
+class _ClassifierProvider extends LlmProvider {
+  final String _answer;
+  final List<Map<String, dynamic>> calls;
+  _ClassifierProvider(this._answer, this.calls) : super('classifier');
+
+  @override
+  Stream<StreamEvent> send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+  }) async* {
+    calls.add({
+      'system': system,
+      'messages': [for (final m in messages) m.toJson()],
+    });
+    yield TextDelta(_answer);
   }
 }
 
@@ -315,4 +506,3 @@ class _RecordingAsker {
     return _scripted[_idx++];
   }
 }
-

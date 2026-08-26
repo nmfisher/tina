@@ -7,8 +7,8 @@ void main() {
 
     test('non-auto mode passes straight through to the fallback', () async {
       final policy = PermissionPolicy(mode: PermissionMode.ask);
-      final classifier = PermissionClassifier(
-          _ScriptedProvider('ALLOW', calls: []));
+      final classifier =
+          PermissionClassifier(_ScriptedProvider('ALLOW', calls: []));
       var fallbackCalls = 0;
       final asker = modeAwareAsker(
         policy: policy,
@@ -25,7 +25,7 @@ void main() {
           reason: 'no LLM call outside auto mode');
     });
 
-    test('auto + classifier allow returns allowOnce and notices', () async {
+    test('auto + classifier allow returns allowAlways and notices', () async {
       final policy = PermissionPolicy(mode: PermissionMode.auto);
       final classifier = PermissionClassifier(_ScriptedProvider('ALLOW'));
       final notices = <String>[];
@@ -40,11 +40,12 @@ void main() {
 
       final resp = await asker(prompt);
       expect(resp.decision, PermissionDecision.allow);
-      expect(resp.remember, isFalse);
+      expect(resp, PermissionResponse.allowAlways,
+          reason: 'a verdict is remembered like a manual a/d');
       expect(notices.single, contains('allowed by classifier'));
     });
 
-    test('auto + classifier deny returns denyOnce and notices', () async {
+    test('auto + classifier deny returns denyAlways and notices', () async {
       final policy = PermissionPolicy(mode: PermissionMode.auto);
       final classifier = PermissionClassifier(_ScriptedProvider('DENY'));
       final notices = <String>[];
@@ -55,7 +56,10 @@ void main() {
         notice: notices.add,
       );
 
-      expect((await asker(prompt)).decision, PermissionDecision.deny);
+      final resp = await asker(prompt);
+      expect(resp.decision, PermissionDecision.deny);
+      expect(resp, PermissionResponse.denyAlways,
+          reason: 'a deny verdict is remembered like a manual d');
       expect(notices.single, contains('denied by classifier'));
     });
 
@@ -102,8 +106,12 @@ void main() {
 class _ScriptedProvider extends LlmProvider {
   final String _answer;
   final List<Map<String, dynamic>> calls;
-  _ScriptedProvider(this._answer, {this.calls = const []})
-      : super('scripted');
+
+  /// [calls] defaults to a fresh growable list so the double still records
+  /// when the test doesn't need to read it.
+  _ScriptedProvider(this._answer, {List<Map<String, dynamic>>? calls})
+      : calls = calls ?? [],
+        super('scripted');
 
   @override
   Stream<StreamEvent> send({
@@ -111,6 +119,10 @@ class _ScriptedProvider extends LlmProvider {
     required List<Message> messages,
     required List<ToolSchema> tools,
   }) async* {
+    calls.add({
+      'system': system,
+      'messages': messages.map((m) => m.toJson()).toList(),
+    });
     yield TextDelta(_answer);
   }
 }
