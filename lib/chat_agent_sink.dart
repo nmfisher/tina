@@ -4,9 +4,10 @@ import 'package:tina_engine/tina_engine.dart';
 
 import 'tui/markdown_renderer.dart';
 
-/// A tool call whose streamed output was capped in the chat. The full text is
-/// preserved here for the `/output` viewer; the chat shows only the first
-/// [ChatAgentSink.displayCap] chars.
+/// A tool call whose chat render was capped — streamed output that exceeded
+/// [ChatAgentSink.displayCap], or a failed tool's error result that exceeded
+/// its printed 200-char render. The full text is preserved here for the
+/// `/output` viewer; the chat shows only the capped portion.
 class CappedToolOutput {
   final String toolName;
   final Map<String, dynamic> input;
@@ -42,8 +43,9 @@ class ChatAgentSink implements AgentSink {
   /// How much streamed tool output to print in the chat before capping.
   final int displayCap;
 
-  /// Fired when a tool call's streamed output exceeded [displayCap], with the
-  /// full text (the host keeps a ring for `/output`).
+  /// Fired when a tool call's streamed output exceeded [displayCap] — or a
+  /// failed tool's error result exceeded its printed 200-char render — with
+  /// the full text (the host keeps a ring for `/output`).
   final void Function(CappedToolOutput output)? onCapped;
 
   /// Fired whenever the current assistant turn's raw markdown grows a closed
@@ -193,7 +195,22 @@ class ChatAgentSink implements AgentSink {
       ));
     }
     if (e.isError) {
-      chat.red('  failed: ${_truncate(e.result, 200)}\n');
+      const cap = 200;
+      chat.red('  failed: ${_truncate(e.result, cap)}\n');
+      if (e.result.length > cap) {
+        // The printed render cut the error off. Mirror the capped-output
+        // pointer's voice, and carry the FULL result into the `/output`
+        // ring — the ring is fed only from streamed output, and a failure
+        // with no streamed chunks would otherwise lose everything past
+        // [cap] chars: no ring entry, no viewer, no marker.
+        chat.dim('  … (/output for the full error)\n');
+        onCapped?.call(CappedToolOutput(
+          toolName: _toolName,
+          input: _toolInput,
+          text: e.result,
+          hiddenChars: e.result.length - cap,
+        ));
+      }
     } else {
       chat.dim('  ok\n');
     }
@@ -227,7 +244,10 @@ class ChatAgentSink implements AgentSink {
     switch (name) {
       case 'bash':
         final cmd = input['command'] as String?;
-        return cmd != null ? 'bash: ${_truncate(cmd, 80)}' : name;
+        // Head+tail: the tail of a long command is where the risk lives (a
+        // `| sh`, a trailing `; rm`, the redirect target) and the approval
+        // prompt it came from has long since scrolled away.
+        return cmd != null ? 'bash: ${_truncateHeadTail(cmd)}' : name;
       case 'read':
       case 'write':
       case 'edit':
@@ -264,9 +284,23 @@ class ChatAgentSink implements AgentSink {
       parts.add('${entry.key}=$rendered');
     }
     final joined = parts.join(' ');
-    return joined.isEmpty ? name : '$name: ${_truncate(joined, 80)}';
+    // Same head+tail treatment as the bash row: a long `k=v` summary keeps
+    // both ends so the value's tail is still visible in the tool row.
+    return joined.isEmpty ? name : '$name: ${_truncateHeadTail(joined)}';
   }
 
   String _truncate(String s, int n) =>
       s.length <= n ? s : '${s.substring(0, n)}…';
+
+  /// [s] shortened to roughly [max] chars, keeping its head AND its tail —
+  /// for tool-row subjects whose tail carries meaning even though the head is
+  /// the familiar part. Up to [max] chars renders verbatim; longer input
+  /// renders as `<first [head] chars>…<last chars>` (total stays within
+  /// [max]).
+  String _truncateHeadTail(String s, {int max = 80, int head = 52}) {
+    final tail = max - head - 1;
+    return s.length <= max
+        ? s
+        : '${s.substring(0, head)}…${s.substring(s.length - tail)}';
+  }
 }
