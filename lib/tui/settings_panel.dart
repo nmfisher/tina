@@ -254,7 +254,7 @@ class _ProvidersForm {
     this._tinaDir,
     this._readEvent,
     UserConfig? initial,
-  ) {
+  ) : _existingProviders = initial?.providers ?? const {} {
     if (initial != null) {
       _checked.addAll(initial.providers.keys);
       for (final e in initial.providers.entries) {
@@ -274,6 +274,8 @@ class _ProvidersForm {
   final Map<String, String> _env;
   final Directory? _tinaDir;
   final Future<InputEvent> Function() _readEvent;
+
+  final Map<String, ProviderConfig> _existingProviders;
 
   late final OverlayRegion _overlay;
   late final Rect _rect;
@@ -536,6 +538,7 @@ class _ProvidersForm {
         id: ProviderConfig(
           apiKey: filteredKeys[id],
           baseUrl: filteredBaseUrls[id],
+          models: _existingProviders[id]?.models,
           disabledModels: dis[id],
         ),
     };

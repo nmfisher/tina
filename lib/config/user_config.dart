@@ -32,7 +32,7 @@ EnvironmentAutoPopulate parseEnvironmentAutoPopulate(String? raw) =>
       _ => EnvironmentAutoPopulate.ask,
     };
 const _knownDefaultKeys = {'provider', 'model', 'workflow'};
-const _knownProviderKeys = {'api_key', 'auth_token', 'base_url', 'wire', 'name', 'disabled_models', 'members', 'requests_per_minute'};
+const _knownProviderKeys = {'api_key', 'auth_token', 'base_url', 'wire', 'name', 'disabled_models', 'members', 'models', 'requests_per_minute'};
 const _knownPromptKeys = {'identity'};
 const _knownRegionsKeys = {'model'};
 const _knownPermissionsKeys = {'mode', 'model'};
@@ -87,6 +87,40 @@ class PermissionsConfig {
       };
 
   bool get isEmpty => mode == null && model == null;
+}
+
+/// One entry of a custom provider's `[providers.<id>] models` list: a wire
+/// model id plus (optionally) a display name — `"glm-5.2"` or
+/// `"glm-5.2|GLM 5.2"`. The wire id is what goes in the request body; the
+/// display name is what the model pickers show.
+class ProviderModelSpec {
+  /// The on-wire model id, also the `<id>/<model>` reference suffix.
+  final String id;
+
+  /// Optional human name shown in the pickers; defaults to [id].
+  final String? name;
+
+  const ProviderModelSpec({required this.id, this.name});
+
+  /// Parses `"id"` or `"id|name"`. An empty id parses to null.
+  static ProviderModelSpec? parse(String raw) {
+    final bar = raw.indexOf('|');
+    final id = (bar < 0 ? raw : raw.substring(0, bar)).trim();
+    if (id.isEmpty) return null;
+    final name = bar < 0 ? null : raw.substring(bar + 1).trim();
+    return ProviderModelSpec(
+        id: id, name: (name == null || name.isEmpty) ? null : name);
+  }
+
+  @override
+  String toString() => name == null ? id : '$id|$name';
+
+  @override
+  bool operator ==(Object other) =>
+      other is ProviderModelSpec && other.id == id && other.name == name;
+
+  @override
+  int get hashCode => Object.hash(id, name);
 }
 
 /// Per-provider overrides from a `[providers.<id>]` table in the user config.
@@ -147,6 +181,17 @@ class ProviderConfig {
   /// `[providers.<id>] requests_per_minute` in the user config.
   final int? requestsPerMinute;
 
+  /// Explicit model ids this provider serves (`models = ["glm-5.2"]`).
+  /// Meaningful for CUSTOM providers (`wire` set): those have no compiled
+  /// catalog, so without this list the model pickers (`/spawn`, `/model`)
+  /// show nothing to select. Each id is referenced as `<id>/<model>` and goes
+  /// on the wire as the bare model name. An entry may be `"id"` or
+  /// `"id|display-name"`. Null/empty (the default) leaves the descriptor's
+  /// catalog alone — a built-in override keeps its compiled models, and a
+  /// custom provider with no list stays catalog-less (only spawnable by
+  /// typing the ref directly).
+  final List<ProviderModelSpec>? models;
+
   const ProviderConfig({
     this.apiKey,
     this.authToken,
@@ -156,6 +201,7 @@ class ProviderConfig {
     this.disabledModels,
     this.members,
     this.requestsPerMinute,
+    this.models,
   });
 
   factory ProviderConfig.fromMap(Map<String, dynamic> m) {
@@ -171,6 +217,17 @@ class ProviderConfig {
       final l = rawMembers.whereType<String>().toList();
       if (l.isNotEmpty) members = l;
     }
+    List<ProviderModelSpec>? models;
+    final rawModels = m['models'];
+    if (rawModels is List) {
+      // `"id"` or `"id|name"` entries; blank/unparseable entries are dropped
+      // and an all-empty list means "not declared".
+      final l = [
+        for (final e in rawModels.whereType<String>())
+          if (ProviderModelSpec.parse(e) case final spec?) spec
+      ];
+      if (l.isNotEmpty) models = l;
+    }
     return ProviderConfig(
       apiKey: m['api_key'] as String?,
       authToken: m['auth_token'] as String?,
@@ -179,15 +236,17 @@ class ProviderConfig {
       name: m['name'] as String?,
       disabledModels: disabled,
       members: members,
+      models: models,
       // 0 is meaningful (explicitly disables spacing for this provider's
       // queues), so unlike the drop-empty lists above it is kept as-is.
       requestsPerMinute: m['requests_per_minute'] as int?,
     );
   }
 
-  /// Value equality — every field is an immutable scalar or set, so two configs
-  /// compare equal when their fields match (used to detect an edit that changed
-  /// nothing, `disabledModels` compared as sets).
+  /// Value equality — every field is an immutable scalar, set, or list of
+  /// immutable specs, so two configs compare equal when their fields match
+  /// (used to detect an edit that changed nothing, `disabledModels` compared
+  /// as sets).
   @override
   bool operator==(Object other) =>
       other is ProviderConfig &&
@@ -197,12 +256,13 @@ class ProviderConfig {
       wire == other.wire &&
       name == other.name &&
       members == other.members &&
+      models == other.models &&
       requestsPerMinute == other.requestsPerMinute &&
       _setsEqual(disabledModels, other.disabledModels);
 
   @override
   int get hashCode => Object.hash(apiKey, authToken, baseUrl, wire, name,
-      members, requestsPerMinute, Set.of(disabledModels ?? const {}));
+      members, models, requestsPerMinute, Set.of(disabledModels ?? const {}));
 
   static bool _setsEqual(Set<String>? a, Set<String>? b) {
     if (a == null && b == null) return true;
@@ -704,6 +764,8 @@ String userConfigToToml(UserConfig config) {
             if (e.value.name != null) 'name': e.value.name,
             if (e.value.disabledModels != null && e.value.disabledModels!.isNotEmpty)
               'disabled_models': e.value.disabledModels!.toList(),
+            if (e.value.models != null && e.value.models!.isNotEmpty)
+              'models': [for (final m in e.value.models!) m.toString()],
             // 0 is meaningful (explicitly disables spacing for this provider's
             // queues), so unlike the drop-empty lists above it is kept as-is.
             if (e.value.requestsPerMinute != null)
@@ -845,6 +907,8 @@ api_key = "sk-ant-..."
 # auth_token = "<z.ai key>"     # -> Authorization: Bearer
 # wire       = "anthropic"
 # # then reference as:  zai/glm-5.2   (the on-wire model name is the bare "glm-5.2")
+# # models = ["glm-5.2|GLM 5.2"]  # list it for the /spawn + /model pickers
+#                                # ("id" or "id|display name")
 #
 # Repoint the built-in `glm` at z.ai instead (bare `glm-5.2` still resolves):
 # [providers.glm]
