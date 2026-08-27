@@ -1,6 +1,6 @@
 ---
 id: tin-1h8p
-status: open
+status: done
 deps: []
 links: []
 created: 2026-08-08T04:29:06Z

@@ -10,6 +10,13 @@ import 'classifier.dart';
 /// effect immediately on agents already running. Any classifier failure
 /// (error, timeout, unparseable answer) falls back to [fallback] — the normal
 /// y/n prompt — never silently allows.
+///
+/// A classifier verdict is remembered like a manual a/d: allow maps to
+/// [PermissionResponse.allowAlways], deny to [PermissionResponse.denyAlways],
+/// so the agent installs the same session rule (exact bash command /
+/// parent-dir glob) the user's a/d would. Identical calls short-circuit the
+/// rule cascade before ever re-classifying — a fan-out of 30 identical bash
+/// calls pays one classifier round-trip, not 30.
 PermissionAsker modeAwareAsker({
   required PermissionPolicy policy,
   required PermissionClassifier classifier,
@@ -24,7 +31,7 @@ PermissionAsker modeAwareAsker({
         ? '  ${prompt.toolName} allowed by classifier: ${prompt.key}\n'
         : '  ${prompt.toolName} denied by classifier: ${prompt.key}\n');
     return verdict
-        ? PermissionResponse.allowOnce
-        : PermissionResponse.denyOnce;
+        ? PermissionResponse.allowAlways
+        : PermissionResponse.denyAlways;
   };
 }
