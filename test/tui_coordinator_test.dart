@@ -37,6 +37,29 @@ void main() {
     test('is silent when there is no session id', () {
       expect(resumeHintText(const ExitContext()), '');
     });
+
+    test('appends the tmux attach line when one is supplied (tin-f5xt)', () {
+      // Inside tmux the process dies on exit, so the hint must teach the
+      // reattach command instead of pretending --resume revives the agent.
+      final text = resumeHintText(
+        const ExitContext(sessionId: '20260703-143012-a1b2'),
+        tmuxAttach: 'tmux attach -t tin-20260703-143012-a1b2',
+      );
+      expect(text, contains('tina -c'));
+      expect(
+        text,
+        contains('\n        tmux attach -t tin-20260703-143012-a1b2'),
+      );
+      // It's an addition, not a replacement — the plain resume commands stay.
+      expect(text, contains('resume: tina --resume 20260703-143012-a1b2'));
+    });
+
+    test('stays unchanged outside tmux (no attach line)', () {
+      final text =
+          resumeHintText(const ExitContext(sessionId: 'sid', messageCount: 1));
+      expect(text, isNot(contains('tmux attach')));
+      expect(text, endsWith('        tina -c'));
+    });
   });
 
   test('first paint follows the alt-screen-enter escape', () async {

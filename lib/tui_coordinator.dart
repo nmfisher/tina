@@ -35,9 +35,11 @@ import 'package:tina/tui/workflow_viewer_overlay.dart';
 import 'package:tina/platform/terminal_geometry.dart';
 import 'package:tina/project/gitignore_guard.dart';
 import 'package:tina/session_controller.dart';
+import 'package:tina/session_commands/command_context.dart' show TmuxExitChoice;
 import 'package:tina/summaries/summary_index.dart';
 import 'package:tina/conversation.dart';
 import 'package:tina/session_manager.dart';
+import 'package:tina/tmux/tmux_support.dart';
 import 'package:tina/tui/spawn_overlay.dart';
 import 'package:tina/tui/tree_order.dart';
 import 'package:tina/tui/panel_manager.dart';
@@ -174,6 +176,12 @@ class TuiCoordinator {
   /// [create]; [run]'s SIGWINCH handler and the first-spawn blocks repoint at
   /// it via this field so the order lives in one place.
   late final ResizeCoordinator _resizeCoordinator;
+
+  /// The thin tmux integration (tin-f5xt): `$TMUX` checks, the detach seam,
+  /// and the attach-target the exit hint names. Set in [create]'s wiring
+  /// block; null when the coordinator is built without one (tests), which
+  /// reads as "not in tmux" everywhere it's consulted.
+  TmuxSupport? _tmux;
 
   /// The tmux-style session list rendered into the info column when no side
   /// panels are open. Refreshed on every session change and on resize.
@@ -423,6 +431,13 @@ class TuiCoordinator {
     final tinaDataDir = tinaDirFromEnv(app.environment.env);
     final workflowsDir = Directory(p.join(tinaDataDir.path, 'workflows'));
     final runsRoot = Directory(p.join(tinaDataDir.path, 'runs'));
+    // The thin tmux integration (tin-f5xt): detach/attach substrate + the
+    // once-per-install `--backend ansi` notice. Reads $TMUX from the app's
+    // environment seam; inert outside tmux.
+    final tmux = TmuxSupport(
+      env: app.environment.env,
+      tinaDir: tinaDataDir,
+    );
     PipelineRunner buildRunner() => PipelineRunner(
           scheduler: scheduler,
           pipeline: pipeline,
@@ -785,6 +800,12 @@ class TuiCoordinator {
           return true;
         case 0x73 /* s */ :
           unawaited(controller.openSessionPicker?.call());
+          return true;
+        case 0x64 /* d */ :
+          // Alt+D = /detach. Same seam the command uses, so both paths
+          // share the messaging. Consumed so the editor's Alt+D
+          // kill-word-forward never races the detach.
+          unawaited(controller.detachTmux?.call());
           return true;
       }
       return false;
@@ -2029,6 +2050,9 @@ class TuiCoordinator {
       resizeCoordinator: resizeCoordinator,
       sessionBar: sessionBar,
     );
+    // The tmux seam (tin-f5xt): `_teardownAndHint` names the attach target in
+    // the exit hint; the detach/dialog closures below consult `$TMUX` on it.
+    coordinator._tmux = tmux;
 
     // `/index`: the per-directory summary sidecar service built above (it
     // shares the region registry's allocations, so `/index` covers allocated
@@ -2376,6 +2400,43 @@ class TuiCoordinator {
     // `/spend`: the process-wide token ledger (all agents + sub-agents +
     // workflows + /index runs), persisted into the session manifest.
     controller.spendLedger = app.spendLedger;
+    // The in-tmux exit dialog: Detach / Exit / Cancel. Shown on /exit and on a
+    // quit attempt (Ctrl+C×2 / Ctrl+D / EOF). Detach leaves the agent running
+    // in the tmux server; Exit is today's behavior (session saved, lock
+    // released, process exits); Cancel keeps running.
+    Future<TmuxExitChoice> _runTmuxExitDialog() async {
+      final attach = tmux.attachLine;
+      final entries = [
+        (
+          display: 'Detach',
+          value: TmuxExitChoice.detach,
+        ),
+        (
+          display: 'Exit',
+          value: TmuxExitChoice.exit,
+        ),
+        (
+          display: 'Cancel',
+          value: TmuxExitChoice.cancel,
+        ),
+      ];
+      final choice = await runListOverlay<TmuxExitChoice>(
+        screen: screen,
+        editor: editor,
+        entries: entries,
+        title: 'Exit or detach?',
+        footer: '↑↓ move · enter select'
+            '${attach.isEmpty ? '' : ' · esc cancel'}',
+        accent: 'cyan',
+        body: attach.isEmpty
+            ? 'Detach keeps the agent running; reattach with tmux later.'
+            : 'Detach keeps the agent running; reattach with `$attach`.\n'
+                'Exit stops it (session saved, lock released).',
+      );
+      if (choice != null) return choice;
+      // Esc = cancel (stay).
+      return TmuxExitChoice.cancel;
+    }
     controller.confirm = (prompt) async {
       final title =
           prompt.replaceFirst(RegExp(r'\s*\[\s*y/N\s*\]\s*$'), '').trim();
@@ -2389,6 +2450,31 @@ class TuiCoordinator {
       );
       return choice ?? false;
     };
+    // /detach + Alt+D (tin-f5xt): the detach body lives here so both entry
+    // points share one implementation. Runs the tmux detach and reports the
+    // outcome into the active host. On success the client is back at the
+    // shell mid-await, so the notice lands in the (still-running) session's
+    // transcript — exactly what a later `tmux attach` shows first.
+    controller.detachTmux = () async {
+      if (!tmux.inTmux) {
+        initialHost.showMessage('${TmuxSupport.notInTmuxHint}\n',
+            style: HostMessageStyle.dim);
+        return;
+      }
+      final r = await tmux.detach();
+      if (r.ok) {
+        final attach = tmux.attachLine;
+        initialHost.showMessage('detached — the agent keeps running'
+            '${attach.isEmpty ? '' : '; reattach with `$attach`'}\n',
+            style: HostMessageStyle.dim);
+        return;
+      }
+      initialHost.showMessage(
+          'detach failed: ${r.error}\n', style: HostMessageStyle.warning);
+    };
+    // /exit + Ctrl+C×2 inside tmux: Detach / Exit / Cancel. Null (no dialog)
+    // outside tmux — exiting stays immediate there.
+    controller.onTmuxExit = tmux.inTmux ? _runTmuxExitDialog : null;
 
     return coordinator;
   }
@@ -2522,6 +2608,22 @@ class TuiCoordinator {
       await gitignoreAsk();
     }
 
+    // Once-per-install tmux notice (tin-f5xt): the first interactive run
+    // inside tmux on the notcurses backend notes that `--backend ansi`
+    // renders more predictably there. The marker under the tina data dir
+    // keeps it to one appearance per install; [TmuxSupport] is the single
+    // owner of the check, the text, and the marker write (best-effort — a
+    // failed write only means the notice can reappear once).
+    final tmux = _tmux;
+    final tmuxNotice = tmux?.tmuxAttachNotice(
+      notcursesBackend: screen.backend is NotcursesBackend,
+    );
+    if (tmuxNotice != null) {
+      tmux!.markTmuxNoticeShown();
+      sessionManager.activeConversation.host
+          .showMessage(tmuxNotice, style: HostMessageStyle.dim);
+    }
+
     try {
       await controller.run();
     } finally {
@@ -2552,7 +2654,7 @@ class TuiCoordinator {
     final ctx = _captureExitContext();
     await store.close();
     await _teardownUi();
-    final hint = resumeHintText(ctx);
+    final hint = resumeHintText(ctx, tmuxAttach: _tmux?.attachLine ?? '');
     if (hint.isNotEmpty) stdout.writeln(hint);
     _teardownEditor();
   }
@@ -2626,16 +2728,19 @@ class ExitContext {
 
 /// The resume hint printed after the alt screen is left on exit. Pure (no I/O)
 /// so it's unit-testable in isolation; [TuiCoordinator.run] writes the result to
-/// stdout in the teardown seam. Returns the empty string when there's nothing to
-/// show (empty session, nothing on disk).
-String resumeHintText(ExitContext ctx) {
+/// stdout in the teardown seam. [tmuxAttach] (tin-f5xt) is the `tmux attach`
+/// command to reattach when exiting inside tmux — empty (the default) outside
+/// tmux, where the agent can't outlive the terminal anyway. Returns the empty
+/// string when there's nothing to show (empty session, nothing on disk).
+String resumeHintText(ExitContext ctx, {String tmuxAttach = ''}) {
   final id = ctx.sessionId;
   if (id == null || id.isEmpty) return '';
   final count = ctx.messageCount;
   final suffix = count == null ? '' : ' ($count messages)';
+  final attach = tmuxAttach.isEmpty ? '' : '\n        $tmuxAttach';
   return 'session saved: $id$suffix\n'
       'resume: tina --resume $id\n'
-      '        tina -c';
+      '        tina -c$attach';
 }
 
 /// notcurses was explicitly requested (`--backend notcurses`) but couldn't be

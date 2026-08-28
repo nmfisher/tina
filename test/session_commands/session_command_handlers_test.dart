@@ -8,6 +8,7 @@ import 'package:tina/session_commands/command_context.dart';
 import 'package:tina/session_commands/session_command_handlers.dart';
 import 'package:tina/session_manager.dart';
 import 'package:tina/summaries/summary_index.dart';
+import 'package:tina/tmux/tmux_support.dart';
 import 'package:test/test.dart';
 
 import '../helpers/fake_host_interface.dart';
@@ -36,6 +37,7 @@ class _FakeCtx implements CommandContext {
     this.setPermissionMode,
     this.store,
     this.spendLedger,
+    this.detachTmux,
   });
 
   /// The conversation [active] returns. Tests mutate its provider for assertions.
@@ -78,6 +80,10 @@ class _FakeCtx implements CommandContext {
 
   @override
   SpendLedger? spendLedger;
+
+  /// The tmux detach seam (`/detach`); null in these tests unless set.
+  @override
+  Future<void> Function()? detachTmux;
 
   @override
   Map<String, FutureOr<void> Function()> get commandHooks => const {};
@@ -700,6 +706,82 @@ Future<void> main() async {
       expect(res, isA<CmdHandled>());
       expect(host.styledMessages.map((m) => m.message).join(),
           contains('unknown command'));
+    });
+  });
+
+  group('SessionCommandHandlers /detach (tin-f5xt)', () {
+    late FakeHostInterface host;
+    late FakeProvider provider;
+    late Conversation conv;
+
+    setUp(() {
+      host = FakeHostInterface();
+      provider = FakeProvider.always(model: 'test-model');
+      conv = Conversation(
+        id: 'test-conv',
+        label: 'test-model',
+        agent: _fakeAgent(provider, host),
+        provider: provider,
+        host: host,
+        policy: PermissionPolicy(),
+      );
+    });
+
+    test('wired seam is called and the coordinator owns the messaging',
+        () async {
+      var seamCalls = 0;
+      final handlers = SessionCommandHandlers(_FakeCtx(
+        conversation: conv,
+        detachTmux: () async => seamCalls++,
+      ));
+      final res = await handlers.dispatch('/detach');
+      expect(seamCalls, 1,
+          reason: 'the command delegates to the coordinator-owned closure');
+      expect(res, isA<CmdHandled>());
+      // The hint is the HEADLESS path's job — with the seam wired the handler
+      // itself prints nothing about tmux.
+      expect(
+          host.styledMessages
+              .map((m) => m.message)
+              .where((m) => m.contains('tmux')),
+          isEmpty,
+          reason: 'the wired closure owns every user-facing line');
+    });
+
+    test('headless (null seam) prints exactly the one-line hint', () async {
+      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+      final res = await handlers.dispatch('/detach');
+      expect(res, isA<CmdHandled>());
+      final tmuxLines = host.styledMessages
+          .map((m) => m.message)
+          .where((m) => m.contains('tmux'))
+          .toList();
+      expect(tmuxLines, hasLength(1), reason: 'one line, not a paragraph');
+      expect(tmuxLines.single, '${TmuxSupport.notInTmuxHint}\n',
+          reason: 'the exact hint string, with its newline');
+      expect(
+        host.styledMessages
+            .firstWhere((m) => m.message == '${TmuxSupport.notInTmuxHint}\n')
+            .style,
+        HostMessageStyle.dim,
+        reason: 'dim — it is a nudge, not an error',
+      );
+    });
+
+    test('/help lists /detach with the Alt+D keybind', () async {
+      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+      await handlers.dispatch('/help');
+      final help = host.messages.join();
+      expect(help, contains('/detach'));
+      expect(help, contains('Alt+D'));
+    });
+
+    test('/detach is a known command, not an unknown-command error', () async {
+      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+      final res = await handlers.dispatch('/detach');
+      expect(res, isA<CmdHandled>());
+      expect(host.styledMessages.map((m) => m.message).join(),
+          isNot(contains('unknown command')));
     });
   });
 }
