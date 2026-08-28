@@ -7,6 +7,7 @@ import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/conversation.dart';
 import 'package:tina/pipeline/default_workflow.dart';
 import 'package:tina/pipeline/workflow_supervisor.dart';
+import 'package:tina/session_commands/command_context.dart' show TmuxExitChoice;
 import 'package:tina/session_controller.dart';
 import 'package:tina/session_manager.dart';
 import 'helpers/memory_session_store.dart';
@@ -823,6 +824,129 @@ void main() {
         .join();
     expect(lastText,
         contains('[turn aborted: 402 payment required — no funds]'));
+  });
+
+  group('handleExitIntent — the in-tmux exit decision (tin-f5xt)', () {
+    // The controller consults two seams: onTmuxExit (the Detach/Exit/Cancel
+    // dialog) and detachTmux (the tmux spawn). Both are null outside tmux and
+    // in headless, so the default behavior — immediate exit — is covered by
+    // the null test below; the others pin the three dialog outcomes.
+    test('null seam (outside tmux / headless) exits immediately', () async {
+      final controller = _buildController(
+        readLine: FakeReadLine(),
+        provider: FakeProvider.done(),
+      );
+      expect(controller.onTmuxExit, isNull);
+      expect(await controller.handleExitIntent(), isFalse,
+          reason: 'stay=false → the REPL returns, exactly as before');
+    });
+
+    test('detach keeps running and runs the detach closure', () async {
+      final controller = _buildController(
+        readLine: FakeReadLine(),
+        provider: FakeProvider.done(),
+      );
+      var detachCalls = 0;
+      controller.detachTmux = () async => detachCalls++;
+      controller.onTmuxExit =
+          () async => TmuxExitChoice.detach;
+      expect(await controller.handleExitIntent(), isTrue,
+          reason: 'stay=true → the REPL loops, the process lives on');
+      expect(detachCalls, 1,
+          reason: 'choosing Detach must actually detach, not just stay');
+    });
+
+    test('cancel keeps running without touching the detach seam', () async {
+      final controller = _buildController(
+        readLine: FakeReadLine(),
+        provider: FakeProvider.done(),
+      );
+      var detachCalls = 0;
+      controller.detachTmux = () async => detachCalls++;
+      controller.onTmuxExit = () async => TmuxExitChoice.cancel;
+      expect(await controller.handleExitIntent(), isTrue);
+      expect(detachCalls, 0, reason: 'cancel means "do nothing"');
+    });
+
+    test('exit returns — today\'s behavior, session saved, process stops',
+        () async {
+      final controller = _buildController(
+        readLine: FakeReadLine(),
+        provider: FakeProvider.done(),
+      );
+      controller.onTmuxExit = () async => TmuxExitChoice.exit;
+      expect(await controller.handleExitIntent(), isFalse);
+    });
+
+    test('a throwing detach never blocks the exit decision', () async {
+      // tmux calls stay best-effort: a failed spawn must surface as a warning
+      // in the host, not crash the exit path.
+      final controller = _buildController(
+        readLine: FakeReadLine(),
+        provider: FakeProvider.done(),
+      );
+      controller.detachTmux = () async => throw StateError('no tmux here');
+      controller.onTmuxExit = () async => TmuxExitChoice.detach;
+      expect(await controller.handleExitIntent(), isTrue);
+      expect(
+        hostOf(controller).messages.any((m) => m.contains('detach failed')),
+        isTrue,
+        reason: 'a throwing detach closure warns instead of propagating',
+      );
+    });
+
+    test('null detach closure with a wired dialog still stays running',
+        () async {
+      // The dialog is only wired inside tmux, so this pairing is
+      // unreachable in production; it pins the defensive path anyway.
+      final controller = _buildController(
+        readLine: FakeReadLine(),
+        provider: FakeProvider.done(),
+      );
+      controller.onTmuxExit = () async => TmuxExitChoice.detach;
+      expect(await controller.handleExitIntent(), isTrue);
+    });
+
+    test('/exit consults the dialog and stays when the user cancels',
+        () async {
+      final rl = FakeReadLine();
+      final controller = _buildController(
+        readLine: rl,
+        provider: FakeProvider.done(),
+      );
+      controller.onTmuxExit = () async => TmuxExitChoice.cancel;
+      var returned = false;
+      final runFuture = controller.run().whenComplete(() => returned = true);
+      rl.enqueue('/exit');
+      await _pumpUntil(() =>
+          hostOf(controller).messages.any((m) => m.contains('/exit')));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(returned, isFalse,
+          reason: 'cancel must keep the REPL loop alive');
+      // Now let it exit for real so the test's run() future completes.
+      controller.onTmuxExit = () async => TmuxExitChoice.exit;
+      rl.close();
+      await runFuture;
+    });
+
+    test('EOF (a closed stdin) consults the dialog too', () async {
+      final rl = FakeReadLine();
+      final controller = _buildController(
+        readLine: rl,
+        provider: FakeProvider.done(),
+      );
+      controller.onTmuxExit = () async => TmuxExitChoice.cancel;
+      var returned = false;
+      final runFuture = controller.run().whenComplete(() => returned = true);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      rl.close();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(returned, isFalse,
+          reason: 'an EOF answered with cancel keeps the loop alive');
+      controller.onTmuxExit = () async => TmuxExitChoice.exit;
+      rl.close();
+      await runFuture;
+    });
   });
 }
 

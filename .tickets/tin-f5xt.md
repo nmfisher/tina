@@ -1,6 +1,6 @@
 ---
 id: tin-f5xt
-status: open
+status: done
 deps: []
 links: []
 created: 2026-08-06T11:36:51Z
@@ -36,3 +36,15 @@ Tina persists sessions to disk (`~/.tina/sessions/<id>/` — per-turn JSONL appe
 ## Acceptance Criteria
 
 Running tina inside tmux, `/detach` (and Alt+D) returns to the shell with the agent still running; reattaching with `tmux attach` shows the session exactly as left, including turns that completed while detached, with scrollback intact. Outside tmux, `/detach` prints only a one-line tmux hint and nothing else changes. `/exit` inside tmux offers Detach / Exit / Cancel — Exit behaves exactly as today (session saved, lock released); Detach leaves the agent running. Exiting inside tmux prints both the `tina --resume` and `tmux attach` commands. A first-run-in-tmux dim notice about `--backend ansi` appears exactly once. The per-session lock is unchanged: a second tina process on a locked session still exits 1, and `--force` still force-takes it.
+
+## Closure (2026-08-28, round 10)
+
+All five scope items implemented; acceptance criteria covered by tests
+(interactive tmux behaviors themselves need a live tmux server):
+/detach + Alt+D on one shared seam, /exit + Ctrl+C×2 Detach/Exit/Cancel
+dialog (tmux-only), teardown hint names `tmux attach -t <session>`,
+once-per-install `--backend ansi` notice (~/.tina/.tmux_notice_shown),
+docs/features/session_attach_detach.md + README + /help line. Lock and
+--force untouched. Non-tmux behavior pinned unchanged by the existing
+suites. Root 859/859, analyze clean; new: test/tmux (22) +
+controller/coordinator/handler tmux tests.

@@ -173,4 +173,33 @@ abstract class CommandContext {
   /// Open the visual node editor (`/workflow new` / `/workflow edit`). Wired by
   /// the TUI; null in headless.
   Future<void> Function({String? name, bool isNew})? get openWorkflowEditor;
+
+  /// Detach the tmux client, when running under tmux (`/detach` and Alt+D).
+  /// The wired function owns the messaging: the "detached — reattach with
+  /// tmux attach" notice, a failure notice, or the "not running in tmux" hint.
+  /// Wired by the TUI coordinator (it owns the tmux process seam); null in
+  /// headless, where `/detach` instead prints the hint itself.
+  Future<void> Function()? get detachTmux;
+
+  /// The exit decision when running inside tmux: shown on `/exit`/`/quit` and
+  /// on a quit attempt (Ctrl+C×2 / Ctrl+D / EOF). Returns [TmuxExitChoice] —
+  /// the controller detaches and keeps running on [TmuxExitChoice.detach],
+  /// exits (today's behavior) on [TmuxExitChoice.exit], and keeps running
+  /// without detaching on [TmuxExitChoice.cancel]. Null outside tmux or in
+  /// headless, where both paths take today's immediate-exit behavior. Wired by
+  /// the TUI coordinator, which owns the overlay; a headless runner leaves it
+  /// null (there's no overlay to show).
+  Future<TmuxExitChoice> Function()? get onTmuxExit;
+}
+
+/// The user's choice in the in-tmux exit dialog (`/exit` / Ctrl+C×2).
+enum TmuxExitChoice {
+  /// Detach the tmux client; the agent keeps running in the tmux server.
+  detach,
+
+  /// Exit tina: session saved, lock released, process exits (today's behavior).
+  exit,
+
+  /// Do nothing — stay in the TUI.
+  cancel,
 }

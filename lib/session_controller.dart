@@ -132,6 +132,19 @@ class SessionController implements CommandContext {
   @override
   Future<bool> Function(String prompt)? confirm;
 
+  /// Detach the tmux client (`/detach`, Alt+D). Wired by the TUI coordinator,
+  /// which owns the tmux process seam and all the messaging (detached notice,
+  /// failure notice, "not in tmux" hint); null in headless, in which case
+  /// `/detach` prints the "not in tmux" hint itself.
+  @override
+  Future<void> Function()? detachTmux;
+
+  /// The in-tmux exit dialog (`/exit`/`/quit`, Ctrl+C×2, Ctrl+D, EOF). Wired
+  /// by the TUI coordinator (it owns the overlay); null outside tmux or in
+  /// headless, where exiting is immediate. See [TmuxExitChoice].
+  @override
+  Future<TmuxExitChoice> Function()? onTmuxExit;
+
   /// Auto-compact: when an incoming turn's estimated input tokens exceed this,
   /// summarize the older history first (keeping [autoCompactPreserveRecent]
   /// recent human turns). 0 disables. Mutable at runtime via /auto-compact.
@@ -357,6 +370,10 @@ class SessionController implements CommandContext {
           : await readLine('> ');
       if (input == null) {
         active.host.newline();
+        // A quit attempt (Ctrl+C×2 / Ctrl+D / EOF): inside tmux this offers
+        // Detach / Exit / Cancel before the process actually stops.
+        final stay = await handleExitIntent();
+        if (stay) continue;
         unawaited(_flushUsage()); // persist spend on quit
         return;
       }
@@ -366,6 +383,8 @@ class SessionController implements CommandContext {
 
       final cmd = await _commands.dispatch(trimmed);
       if (cmd is CmdExit) {
+        final stay = await handleExitIntent();
+        if (stay) continue;
         unawaited(_flushUsage()); // persist spend on quit
         return;
       }
@@ -397,6 +416,37 @@ class SessionController implements CommandContext {
         _startTurn(s, trimmed);
       }
     }
+  }
+
+  /// An exit intent: `/exit`/`/quit` (a [CmdExit]) or a null readLine (Ctrl+C×2,
+  /// Ctrl+D, or EOF). Returns TRUE when the REPL should keep running (the user
+  /// cancelled, or chose Detach in tmux — the process stays alive either way),
+  /// FALSE when it should return (exit). Outside tmux (or headless, where
+  /// [onTmuxExit] is null) this is immediate — no dialog, exit as today.
+  /// Public (not private) so the tmux exit paths are unit-testable in
+  /// isolation without driving the whole REPL loop.
+  Future<bool> handleExitIntent() async {
+    final onExit = onTmuxExit;
+    if (onExit == null) return false;
+    final choice = await onExit();
+    if (choice == TmuxExitChoice.detach) {
+      // The dialog is tmux-only, so the detach closure (which owns the
+      // detached/failed messaging) is wired. Runs best-effort — a failed
+      // detach warns and keeps the session running; the user can retry.
+      final detach = detachTmux;
+      if (detach != null) {
+        try {
+          await detach();
+        } catch (e) {
+          // Defensive: the real closure swallows spawn errors itself, but a
+          // throwing closure must never block the exit decision.
+          active.host.showMessage('detach failed: $e\n',
+              style: HostMessageStyle.dim);
+        }
+      }
+      return true;
+    }
+    return choice != TmuxExitChoice.exit;
   }
 
   /// ESC handler: cancel the active conversation's in-flight turn, or a

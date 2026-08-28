@@ -42,6 +42,13 @@ For cross-platform bundles (Linux via Docker, macOS native):
 Tina writes its config, sessions, and caches under `~/.tina/`. Run `tina --setup`
 to configure providers and API keys.
 
+## Running inside tmux
+
+Run `tmux new -s tina && tina` and `/detach` (or **Alt+D**) returns to the shell
+with the agent still running; reattach any time with `tmux attach -t tina`.
+`/exit` inside tmux offers Detach / Exit / Cancel. Outside tmux nothing changes
+— see [`docs/features/session_attach_detach.md`](docs/features/session_attach_detach.md).
+
 ## Architecture
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`docs/`](docs/) for design notes.

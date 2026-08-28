@@ -9,6 +9,7 @@ import '../self_update/updater.dart';
 import '../version.g.dart';
 import '../summaries/summary_index.dart';
 import '../pipeline/pipeline_commands.dart';
+import '../tmux/tmux_support.dart';
 import 'command_context.dart';
 import 'session_export.dart';
 
@@ -35,7 +36,7 @@ class SessionCommandHandlers {
     '/permissions', '/sessions', '/session', '/resume', '/save', '/model',
     '/settings',
     '/prompts', '/spawn', '/branch', '/image', '/index', '/workflow', '/output',
-    '/spend', '/update',
+    '/spend', '/update', '/detach',
   ];
 
   Future<CmdResult> dispatch(String trimmed) async {
@@ -64,6 +65,8 @@ class SessionCommandHandlers {
       case '/exit':
       case '/quit':
         return const CmdExit();
+      case '/detach':
+        await _handleDetach();
       case '/help':
         _printHelp();
       case '/clear':
@@ -520,6 +523,23 @@ class SessionCommandHandlers {
         style: HostMessageStyle.dim);
   }
 
+  /// `/detach` — leave the terminal behind, keep the agent running. Only
+  /// meaningful under tmux, where the tina process survives the detach. The
+  /// TUI coordinator wires [ctx.detachTmux] and owns ALL the messaging (the
+  /// "detached"/"reattach" notice, the failure notice, and the "not running in
+  /// tmux" hint) so `/detach` and the Alt+D keybind — which calls the same
+  /// seam directly — read identically. When nothing is wired (headless) there's
+  /// no terminal to detach from, so we print just the one-line hint.
+  Future<void> _handleDetach() async {
+    final detach = ctx.detachTmux;
+    if (detach == null) {
+      ctx.active.host.showMessage('${TmuxSupport.notInTmuxHint}\n',
+          style: HostMessageStyle.dim);
+      return;
+    }
+    await detach();
+  }
+
   void _printHelp() {
     ctx.active.host.showMessage('Commands:\n'
         '  /help          show this list\n'
@@ -544,7 +564,9 @@ class SessionCommandHandlers {
         '  /settings      reconfigure providers/models/tiers (applies on restart)\n'
         '  /update        check GitHub for a newer release and install it\n'
         '  /prompts       edit each agent role\'s system prompt (applies on restart)\n'
-        '  /exit          quit\n'
+        '  /exit          quit (inside tmux: Detach / Exit / Cancel)\n'
+        '  /detach        return to the shell, keep the agent running '
+        '(tmux; also Alt+D)\n'
         'ESC cancels the active session\'s in-flight response.\n');
   }
 
