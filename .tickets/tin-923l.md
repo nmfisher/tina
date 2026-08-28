@@ -1,6 +1,6 @@
 ---
 id: tin-923l
-status: open
+status: done
 deps: []
 links: [tin-80ll]
 links: []
@@ -24,3 +24,22 @@ system prompt + model config; no AgentRole). Pick them up together — 80ll
 is the decided path; this ticket's remaining value is the
 single-source-of-truth unification ask.
 
+## Closure (2026-08-28, closed as realized by tin-80ll)
+
+This ticket's superseded role-based direction is moot, and its remaining
+ask — a single source of truth for identity/prompts/tools — is realized
+by the tin-80ll design:
+
+- One source: the DOT node's own attributes (`system_prompt` identity,
+  `prompt` task, `llm_model`/`llm_provider` model). No hardcoded role
+  identities exist to conflict with node prompts (AgentRole removed,
+  `9341944`; delegate catalog removed, `d7be7cd`).
+- Default chat experience: the manager loop (docs/features/manager_loop.md,
+  default_workflow.md) — one main agent OUTSIDE the workflow; the default
+  graph launches on demand via `launch_workflow`, its intake/executor
+  nodes delegating read-only/full sub-agents. The AC's "role main" wording
+  was superseded by this decided shape (the ticket's 2026-08-18 note
+  already deferred to tin-80ll as the decided path).
+- No duplicated/conflicting prompt sources remain: node task prompts and
+  node system prompts are the same attribute set a user edits with
+  /workflow edit.
