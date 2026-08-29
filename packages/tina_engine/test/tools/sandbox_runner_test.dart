@@ -50,6 +50,32 @@ void main() {
       );
       expect(profile, contains('(subpath "${a.resolveSymbolicLinksSync()}")'));
     });
+
+    test('--sandbox-readonly drops the project write grant, keeps it readable',
+        () {
+      final temp = Directory.systemTemp.createTempSync('tina-sb-ro-');
+      addTearDown(() {
+        try {
+          temp.deleteSync(recursive: true);
+        } catch (_) {}
+      });
+      final resolved = temp.resolveSymbolicLinksSync();
+      final profile = buildSandboxProfile(
+        projectRoot: temp.path,
+        sandboxReadOnly: true,
+      );
+      // The project is no longer writable…
+      expect(
+          profile,
+          isNot(contains(
+              '(allow file-write* (subpath "$resolved"))')));
+      // …but reads under $HOME are denied and the project is re-granted
+      // read-only, so a read/analyze run still works inside it.
+      expect(profile, contains('(deny file-read* (subpath "/Users"))'));
+      expect(profile, contains('(allow file-read* (subpath "$resolved"))'));
+      // Temp stays writable for scratch output.
+      expect(profile, contains('(allow file-write* (subpath "/tmp"))'));
+    });
   });
 
   group('SandboxedProcessRunner argv rewrite', () {
@@ -67,6 +93,10 @@ void main() {
         inner: inner,
         projectRoot: temp.path,
         enabled: true,
+        // Pinned so the macOS rewrite is exercised on every platform; the
+        // per-platform dispatch itself is covered in
+        // sandbox_runner_linux_test.dart.
+        backend: SandboxBackend.sandboxExec,
       );
       await runner.start('/bin/sh', ['-c', 'echo hi']);
 

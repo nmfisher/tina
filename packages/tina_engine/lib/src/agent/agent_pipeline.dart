@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../permissions/policy.dart';
@@ -26,6 +27,8 @@ import '../tools/which_tool.dart';
 import '../tools/web_search.dart';
 import '../tools/write_summary_tool.dart';
 import '../tools/write_tool.dart';
+
+final _log = Logger('tina.sandbox');
 
 /// The declarative identity + project context an agent runs under. There is no
 /// sub-agent *catalog*: a sub-agent's identity comes from its *parent's*
@@ -164,6 +167,8 @@ void configureToolSandbox({
   required String projectRoot,
   required Map<String, String> env,
   bool sandboxEnabled = true,
+  bool sandboxNet = false,
+  bool sandboxReadOnly = false,
 }) {
   final io = const IoFileSystem();
   final sandbox = SandboxedFileSystem(
@@ -193,19 +198,29 @@ void configureToolSandbox({
   _stat.sandbox = sandbox;
   _bash.projectRoot = projectRoot;
   _git.workingDirectory = projectRoot;
-  // Confine bash subprocess writes to the project root + temp via sandbox-exec
-  // (the structural guard against a destructive command reaching outside the
-  // project). No-op pass-through where sandbox-exec is unavailable. Extra
-  // write-roots come from the TINA_SANDBOX_ALLOW env var (colon-separated).
+  // Confine bash subprocess writes to the project root + temp via
+  // sandbox-exec (macOS) or bwrap (Linux) — the structural guard against a
+  // destructive command reaching outside the project. Pass-through with a
+  // one-time warning where no backend exists. Extra write-roots come from the
+  // TINA_SANDBOX_ALLOW env var (colon-separated).
   if (sandboxEnabled) {
     final extra = (env['TINA_SANDBOX_ALLOW'] ?? '')
         .split(':')
         .where((s) => s.isNotEmpty)
         .toList();
-    _bash.processRunner = SandboxedProcessRunner(
+    final runner = SandboxedProcessRunner(
       projectRoot: projectRoot,
       extraAllowPaths: extra,
+      sandboxNet: sandboxNet,
+      sandboxReadOnly: sandboxReadOnly,
     );
+    _bash.processRunner = runner;
+    // Startup diagnostic: name the active backend (or the pass-through
+    // reason) once per configure, so a session's log says how bash is boxed.
+    _log.info('bash sandbox: ${runner.backendDescription}');
+  } else {
+    _log.info(
+        'bash sandbox: pass-through (explicitly disabled via --no-sandbox)');
   }
   // The per-directory summaries sidecar: `<projectRoot>/.tina/summaries` —
   // project-local (so it tracks this repo, under the gitignored `.tina/`),

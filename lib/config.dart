@@ -126,12 +126,31 @@ class Config {
   /// off, so the `--help`/`--init-config`/`--list` short-circuits need no change.
   final bool safeMode;
 
-  /// `--no-sandbox`: when false (the default on macOS), bash subprocesses run
-  /// under `sandbox-exec` with writes confined to the project root + temp, so a
-  /// runaway `rm`/`find -delete` can't reach outside the project. `--no-sandbox`
-  /// disables it (e.g. for commands that must write to `$HOME`). No-op where
-  /// sandbox-exec is unavailable.
+  /// `--no-sandbox`: when false (the default), bash subprocesses run under an
+  /// OS-level write confinement — `sandbox-exec` on macOS, `bwrap` on Linux —
+  /// with writes limited to the project root + temp, so a runaway
+  /// `rm`/`find -delete` can't reach outside the project. `--no-sandbox`
+  /// disables it (e.g. for commands that must write to `$HOME`). Where no
+  /// backend exists (or bwrap/user namespaces are unavailable on Linux) the
+  /// sandbox degrades to pass-through with a one-time warning.
   final bool sandboxEnabled;
+
+  /// `--sandbox-net`: opt-in network isolation for the bash sandbox —
+  /// `--unshare-net` under bwrap on Linux, `(deny network*)` + remote-write
+  /// deny under sandbox-exec on macOS. Off by default: builds, installs, and
+  /// `git fetch` need egress. Covers bash subprocesses only; the `fetch` /
+  /// `web_search` tools are NOT gated (a known residual egress path — see
+  /// docs/features/sandbox.md).
+  final bool sandboxNet;
+
+  /// `--sandbox-readonly`: opt-in tighter containment — drop the sandbox's
+  /// writable project grant (project stays readable), keep temp writable. For
+  /// pure read/analyze runs (`--prompt` reviews, audits). Like `--no-sandbox`,
+  /// a no-op where no backend exists.
+  final bool sandboxReadOnly;
+  // Deferred (tin-k9q3): `--sandbox-cpu` — CPU quota has no portable story
+  // (cgroups on Linux, sandbox-exec limits are macOS-only); revisit if a
+  // need lands.
 
   /// `--trust` / `--no-trust`: an explicit override of the project-trust gate.
   /// Null (the default) means "use the normal ask/skip/default logic" in
@@ -218,6 +237,8 @@ class Config {
     this.theme = const Theme.defaults(),
     this.safeMode = false,
     this.sandboxEnabled = true,
+    this.sandboxNet = false,
+    this.sandboxReadOnly = false,
     this.trustOverride,
     this.trustDefault = TrustDefault.ask,
     this.environmentAutoPopulate = EnvironmentAutoPopulate.ask,
@@ -280,9 +301,27 @@ class Config {
       'no-sandbox',
       negatable: false,
       help:
-          'Disable the sandbox-exec confinement around bash (writes are '
-          'otherwise limited to the project root + temp). Use for commands '
-          'that must write to \$HOME or system paths.',
+          'Disable the OS-level confinement around bash (writes are '
+          'otherwise limited to the project root + temp; sandbox-exec on '
+          'macOS, bwrap on Linux). Use for commands that must write to '
+          '\$HOME or system paths.',
+    )
+    ..addFlag(
+      'sandbox-net',
+      negatable: false,
+      help:
+          'Isolate the bash sandbox from the network (bwrap --unshare-net on '
+          'Linux; deny network* on macOS). Off by default: builds, installs, '
+          'and git fetch need egress. Gates bash only — fetch/web_search '
+          'still reach the network.',
+    )
+    ..addFlag(
+      'sandbox-readonly',
+      negatable: false,
+      help:
+          'Tighten the bash sandbox for read/analyze runs: the project root '
+          'stays readable but writable only via temp. Composes with '
+          '--sandbox-net; no-op with --no-sandbox.',
     )
     ..addOption(
       'resume',
@@ -759,6 +798,8 @@ class Config {
       theme: _resolveTheme(userConfig),
       safeMode: res['safe-mode'] as bool,
       sandboxEnabled: !(res['no-sandbox'] as bool),
+      sandboxNet: res['sandbox-net'] as bool,
+      sandboxReadOnly: res['sandbox-readonly'] as bool,
       trustOverride: res.wasParsed('trust') ? res['trust'] as bool : null,
       trustDefault: _parseTrustDefault(userConfig?.trustDefault),
       environmentAutoPopulate: parseEnvironmentAutoPopulate(
