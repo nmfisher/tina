@@ -132,6 +132,9 @@ class SummaryRunner {
         configureToolSandbox(
           projectRoot: project,
           env: (environment ?? const PlatformEnvironment()).env,
+          sandboxEnabled: config.sandboxEnabled,
+          sandboxNet: config.sandboxNet,
+          sandboxReadOnly: config.sandboxReadOnly,
         );
       }
 

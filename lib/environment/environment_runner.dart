@@ -114,11 +114,15 @@ class EnvironmentRunner {
       );
       // Re-configure the shared tool singletons against the explicit
       // [projectRoot] so the agent's write/edit land in this repo regardless
-      // of the process cwd (idempotent).
+      // of the process cwd (idempotent). The sandbox flags ride along from
+      // the same config the composition used.
       if (projectRoot != null) {
         configureToolSandbox(
           projectRoot: project,
           env: (environment ?? const PlatformEnvironment()).env,
+          sandboxEnabled: config.sandboxEnabled,
+          sandboxNet: config.sandboxNet,
+          sandboxReadOnly: config.sandboxReadOnly,
         );
       }
 

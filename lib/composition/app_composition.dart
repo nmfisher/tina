@@ -201,6 +201,8 @@ Future<AppComposition> buildAppComposition({
     projectRoot: Directory.current.path,
     env: env.env,
     sandboxEnabled: config.sandboxEnabled,
+    sandboxNet: config.sandboxNet,
+    sandboxReadOnly: config.sandboxReadOnly,
   );
   // Build the store unconditionally — /sessions and /resume still work
   // (read-only), and the recorder gates writes.

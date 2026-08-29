@@ -1605,3 +1605,39 @@ and switched to asb/recursive-improvement by an actor outside this
 session (reflog shows reset+checkout tina's allow-list cannot run);
 tina's uncommitted work was recovered intact from stash@{0} and
 verified against its closing report before committing.
+
+Round 10 close (driver, 2026-08-29): tin-80ll and tin-923l closed as
+already-implemented (#33, squash 2769709) — no AgentRole remains in the
+engine, DOT workflow nodes carry `system_prompt` + optional
+`llm_model`/`llm_provider`, the delegate catalog is gone in favor of
+task + profile + optional model, the manager loop is the main agent
+outside workflows. tin-f5xt shipped (#34, squash 30b9f84): TmuxSupport
+(env-injected, ProcessRunner seam), Alt+D /detach, exit dialog via the
+TmuxExitChoice overlay, unified handleExitIntent on both exit paths
+(detach await now try/caught after tina's salvage leg caught the
+unprotected await), one-time attach notice (notcurses-aware),
+resumeHintText carries the attach line. tin-k9q3 shipped this PR:
+platform-dispatched bash sandbox — macOS sandbox-exec unchanged, Linux
+bwrap write-confinement (pure `buildBwrapArgs` argv builder; system
+dirs ro, project+temp rw, home deliberately unmounted — namespace-first
+default, stronger than macOS and documented as such in the new
+docs/features/sandbox.md), opt-in `--sandbox-net` (`--unshare-net` /
+Seatbelt network deny) and `--sandbox-readonly`, `--sandbox-cpu`
+deferred, pass-through warn-once degradation (binary missing or userns
+disabled), startup `bash sandbox:` diagnostic on `tina.sandbox`, and a
+bwrap-gated integration group for CI hosts that have it. Engine 830
+green, root 824 green, both analyzers clean; leak ritual 0/0.
+
+Round 10 incidents: three consecutive leg-B launches (r10b3/b4/b5) died
+mid-research with `error: member returned an empty completion`, each at
+nearly the same depth (~90-105 requests, tree clean). Not provider
+flakes: replaying the fatal request showed glm-5.3-flash reasoning at
+9-13k output tokens on deep-context turns, so tina's default
+`max_tokens: 8192` truncated the stream mid-reasoning
+(`finish_reason=length`, empty MessageComplete) — the pool's
+empty-completion path then aborts, and a single-member pool has no
+failover target. Fix: launch legs with `--max-tokens 32768` (driver
+flag, lib/config.dart:238); the fourth launch ran to completion at 177
+requests. Engine follow-up worth a ticket: render
+finish=length-with-empty-content as its own error, not "empty
+completion".

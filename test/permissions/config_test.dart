@@ -117,6 +117,22 @@ void main() {
       expect(_parse(['--no-sandbox']).sandboxEnabled, isFalse);
     });
 
+    test('--sandbox-net / --sandbox-readonly default off, flags turn them on',
+        () {
+      expect(_parse([]).sandboxNet, isFalse);
+      expect(_parse([]).sandboxReadOnly, isFalse);
+      expect(_parse(['--sandbox-net']).sandboxNet, isTrue);
+      expect(_parse(['--sandbox-readonly']).sandboxReadOnly, isTrue);
+      // They compose with each other and with --no-sandbox (which wins for
+      // the runner: disabled is disabled).
+      final both = _parse(['--sandbox-net', '--sandbox-readonly']);
+      expect(both.sandboxNet, isTrue);
+      expect(both.sandboxReadOnly, isTrue);
+      final off = _parse(['--no-sandbox', '--sandbox-net']);
+      expect(off.sandboxEnabled, isFalse);
+      expect(off.sandboxNet, isTrue);
+    });
+
     test('--max-steps defaults to 500 and accepts overrides', () {
       expect(_parse([]).maxSteps, 500);
       expect(_parse(['--max-steps', '200']).maxSteps, 200);

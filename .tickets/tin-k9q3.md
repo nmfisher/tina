@@ -1,6 +1,6 @@
 ---
 id: tin-k9q3
-status: open
+status: done
 deps: []
 links: []
 created: 2026-08-13T12:00:00Z
@@ -127,7 +127,27 @@ Compose with existing `--no-sandbox` and `TINA_SANDBOX_ALLOW`.
 
 ## Status
 
-Not started. Depends on the macOS write-sandbox, which shipped (Fix 2 of the tool-use
-approval audit). The open question that gates implementation: is `bwrap` present on the
-Linux environments this project actually targets? That determines whether the
-default-on-Linux path is worth building vs. documenting `TINA_SANDBOX_ALLOW` only.
+**Done (2026-08-29, round 10).** Platform dispatch landed inside
+`SandboxedProcessRunner` (`packages/tina_engine/lib/src/tools/sandbox_runner.dart`):
+`resolveSandboxBackendFor` (pure, unit-tested) → macOS `sandbox-exec`, Linux
+`bwrap` (requires binary **and** unprivileged user namespaces via `/proc` knob
+probe), everything else / `--no-sandbox` → pass-through with a one-time
+warning (injectable sink). Linux profile via `buildBwrapArgs()` — pure argv
+builder from `(projectRoot, tempDirs, allowExtras, readOnlyBinds, flags)`:
+system dirs ro-bound only when present, project + temp rw, `--dev/--proc`,
+`TINA_SANDBOX_ALLOW` extras, `--sandbox-net` → `--unshare-net`,
+`--sandbox-readonly` → project `--ro-bind`. Deliberate Linux default-posture
+asymmetry (namespace-first: `$HOME` unmounted = invisible, stronger than the
+macOS open-read baseline) documented in the new `docs/features/sandbox.md`,
+alongside the known residual (`--sandbox-net` gates bash only; `fetch` /
+`web_search` egress ungated). `--sandbox-cpu` deferred (no portable story —
+cgroups vs macOS-only resource limits). Flags wired through
+`lib/config.dart` (`--sandbox-net` / `--sandbox-readonly`, matching the
+`--no-sandbox` pattern) and every `configureToolSandbox` call site; startup
+diagnostic `bash sandbox: <backend>` on the `tina.sandbox` logger. Tests:
+`packages/tina_engine/test/tools/sandbox_runner_linux_test.dart` (dispatch
+matrix, degradation reasons, argv builder incl. mount-shadowing order,
+pinned-backend rewrite + warn-once, and 4 bwrap-gated integration tests that
+register only where bwrap exists); macOS tests unchanged in behavior with the
+backend pinned; +1 flag-composition test in `test/permissions/config_test.dart`.
+Engine suite 830 green, root 824 green, `dart analyze` clean in both.
