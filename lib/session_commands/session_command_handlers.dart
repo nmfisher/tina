@@ -13,6 +13,8 @@ import '../tmux/tmux_support.dart';
 import 'command_context.dart';
 import 'session_export.dart';
 
+part 'session_command_registry.dart';
+
 /// The slash-command handlers, lifted out of [SessionController] so they can be
 /// read and tested in isolation. Operates purely through a [CommandContext] —
 /// no input loop, no host of its own. [dispatch] is the entry point the
@@ -28,20 +30,23 @@ class SessionCommandHandlers {
   final ReleaseChecker? Function(Map<String, String> env)?
       releaseCheckerFactory;
 
-  /// Every recognized slash command, in display order. The single source of
-  /// truth for both [dispatch] and the `/` command-completion palette
-  /// ([CommandCompletionProvider]).
-  static const List<String> allCommands = [
-    '/exit', '/quit', '/help', '/clear', '/compact', '/auto-compact',
-    '/permissions', '/sessions', '/session', '/resume', '/save', '/model',
-    '/settings',
-    '/prompts', '/spawn', '/branch', '/image', '/index', '/workflow', '/output',
-    '/spend', '/update', '/detach',
-  ];
+  /// Every recognized slash command, in display order — derived from the
+  /// command registry ([registry], via [SessionCommandRegistry.allNames]),
+  /// which remains the single source of truth for [dispatch] and the `/`
+  /// command-completion palette ([CommandCompletionProvider]). Kept as a
+  /// getter (not deleted) because existing tests and callers name it; the
+  /// compiler-checked derivation cannot drift from the registry.
+  static List<String> get allCommands => registry.allNames;
+
+  /// The ordered command table every command surface dispatches, completes,
+  /// and renders help from.
+  static final SessionCommandRegistry registry =
+      SessionCommandRegistry(_kSessionCommandEntries);
 
   Future<CmdResult> dispatch(String trimmed) async {
     final word = trimmed.split(RegExp(r'\s+')).first;
-    if (!allCommands.contains(word)) {
+    final entry = registry.lookup(word);
+    if (entry == null) {
       if (word.startsWith('/')) {
         ctx.active.host.showMessage(
             '$word: unknown command\n',
@@ -56,59 +61,14 @@ class SessionCommandHandlers {
 
     // Run any registered hook for this command before the default action. The
     // hook may prepare or clear state that the default handler then acts on.
+    // Keyed by the typed word, so hooks fire for aliases too (`/quit` fires
+    // the `/quit` hook, not the `/exit` one).
     final hook = ctx.commandHooks[word];
     if (hook != null) {
       await hook();
     }
 
-    switch (word) {
-      case '/exit':
-      case '/quit':
-        return const CmdExit();
-      case '/detach':
-        await _handleDetach();
-      case '/help':
-        _printHelp();
-      case '/clear':
-        await _handleClear();
-      case '/compact':
-        await _handleCompact();
-      case '/auto-compact':
-        _handleAutoCompact(trimmed);
-      case '/permissions':
-        await _handlePermissions(trimmed);
-      case '/sessions':
-        await _printSavedSessions();
-      case '/session':
-        await _handleSessionCommand(trimmed);
-      case '/resume':
-        await _handleResume(trimmed);
-      case '/save':
-        await _handleSave(trimmed);
-      case '/model':
-        _handleModel(trimmed);
-      case '/settings':
-        await _handleSettings();
-      case '/prompts':
-        await _handlePrompts();
-      case '/spawn':
-        await _handleSpawn();
-      case '/branch':
-        await _handleBranch();
-      case '/image':
-        await _handleImage(trimmed);
-      case '/index':
-        return await _handleIndex();
-      case '/workflow':
-        await handleWorkflowCommand(ctx, trimmed);
-      case '/output':
-        await _handleOutput(trimmed);
-      case '/spend':
-        await _handleSpend();
-      case '/update':
-        await _handleUpdate();
-    }
-    return const CmdHandled();
+    return entry.handler(this, trimmed);
   }
 
   /// `/spend` — the session's token usage (all agents + sub-agents +
@@ -541,33 +501,10 @@ class SessionCommandHandlers {
   }
 
   void _printHelp() {
-    ctx.active.host.showMessage('Commands:\n'
-        '  /help          show this list\n'
-        '  /branch        fork the active conversation into a new panel '
-        '(copies its history)\n'
-        '  /clear         reset this session\'s history\n'
-        '  /compact       summarize history to free context\n'
-        '  /auto-compact  show/set the auto-compact threshold (off|<n>)\n'
-        '  /model         pick a provider/model for the active session\n'
-        '  /image <path>  render an image in the focused panel\n'
-        '  /index         refresh the per-directory summary index '
-        '(staleness-aware, runs in the background)\n'
-        '  /workflow      list/show/new/edit/run DOT pipelines '
-        '(/workflow show|new|edit|run <name>)\n'
-        '  /permissions   show permission rules; /permissions <mode> switches '
-            'mode\n'
-            '                 (ask | read-all | allow-edits | auto)\n'
-        '  /sessions      open the session picker (switch/resume); lists them headless\n'
-        '  /session       list live sessions; new/switch/close\n'
-        '  /resume <id>   load a saved session into the active session\n'
-        '  /save <path>   export this session as a markdown transcript\n'
-        '  /settings      reconfigure providers/models/tiers (applies on restart)\n'
-        '  /update        check GitHub for a newer release and install it\n'
-        '  /prompts       edit each agent role\'s system prompt (applies on restart)\n'
-        '  /exit          quit (inside tmux: Detach / Exit / Cancel)\n'
-        '  /detach        return to the shell, keep the agent running '
-        '(tmux; also Alt+D)\n'
-        'ESC cancels the active session\'s in-flight response.\n');
+    // Rendered structurally from the command registry — same bytes as the
+    // pre-registry literal (golden-tested in
+    // test/session_commands/session_command_registry_test.dart).
+    ctx.active.host.showMessage(registry.renderHelp());
   }
 
   /// `/permissions` — show rules; `/permissions <ask|read-all|allow-edits|
