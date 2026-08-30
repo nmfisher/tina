@@ -85,23 +85,28 @@ where the layering already allows it).
   order == old switch order and that `/help` output is byte-identical to
   today's (golden snapshot).
 
-### 4.2 Lifecycle event bus (engine, consumed app-side)
+### 4.2 Lifecycle event bus — DEFERRED (survey finding, 2026-08-29)
 
-- **Abstraction:** typed, observe-only event records with a subscribe API:
-  `sessionStart/End`, `turnStart/End`, `beforeToolCall`, `afterToolResult`,
-  `modelResponse`. Dispatch is host-side, registration-ordered, with a
-  per-subscriber error boundary (a throwing subscriber logs once and is
-  skipped, never kills the turn).
-- **Migrates:** existing ad-hoc listeners move onto it where they are already
-  observation-shaped — the spend ledger updates, the audit/redaction tap on
-  tool calls, the usage reporting. Sites that are *wiring*, not observation
-  (e.g. the completion turn injected when a workflow finishes) do **not**
-  become events in this refactor; they stay direct calls.
-- **Posture:** observe-only. Mutation points (rewrite tool input, veto) are
-  explicitly out of scope; the permission-policy seam remains the sole
-  arbiter.
-- **Tests:** existing suites green (subscribers are the same code, new
-  dispatch path); new unit tests for order + error containment.
+The planned abstraction — typed, observe-only event records with a subscribe
+API (`sessionStart/End`, `turnStart/End`, `beforeToolCall`, `afterToolResult`,
+`modelResponse`), host-side registration-ordered dispatch, per-subscriber
+error boundary — is **deferred until a real subscriber exists** (e.g. the
+future WASM host, or a new audit/telemetry consumer). The survey falsified the
+migration premise: every observation-shaped listener this section named is
+already seam-shaped —
+
+- the audit/redaction tap is already centralized through one function
+  (`auditDenial`, `packages/tina_engine/lib/src/tools/audit.dart:25`; its doc
+  comment: "this isn't a free-form event bus");
+- spend-ledger updates flow through the `MeteringProvider` decorator
+  (`packages/tina_engine/lib/src/llm/metering_provider.dart:45`), i.e. the
+  existing `ProviderDecorator` seam;
+- the chat sink (`onCapped`/`onRawText`) is an owned protocol object, not a
+  loose listener.
+
+Building the bus now would land a seam with no consumer — the exact
+speculative-generality failure §7.1 warns about. The design above is
+preserved as the shape to build when the first subscriber appears.
 
 ### 4.3 Workflow graph + node-kind registries (engine/app boundary)
 
@@ -153,15 +158,16 @@ where the layering already allows it).
 | Step | Slice | Size |
 | --- | --- | --- |
 | 1 | Command registry + built-in migration + `/help` from registry | small |
-| 2 | Event bus + migration of observation-shaped listeners | medium |
-| 3 | Workflow graph + node-kind registries + `default` seeding migration | medium |
-| 4 | Panel host seam + run-panel migration | medium |
-| 5 | Provider-path uniformity + cross-seam doc pass (`docs/features/` additions only where behavior-neutral) | small |
+| 2 | Workflow **graph catalog** + node-kind seam hardening (the node-kind registry already exists in attractor — `NodeHandlerRegistry`) | medium |
+| 3 | Panel host seam + run-panel migration | medium |
+| 4 | Provider-path uniformity + cross-seam doc pass (`docs/features/` additions only where behavior-neutral) | small |
 
 Order rationale: commands are the smallest closed set and prove the
-registration pattern; the event bus is next because later seams may want to
-emit through it; workflows and panels follow; providers last because least
-needs doing. Each step keeps all suites green and lands no config/CLI diff.
+registration pattern; workflows follow (their catalog has real hardcoded
+consumers); panels next; providers last because least needs doing. The event
+bus is not sequenced — it lands when its first consumer appears (§4.2).
+Resequenced per owner decision 2026-08-29 after the consumer survey. Each
+step keeps all suites green and lands no config/CLI diff.
 
 ## 6. Invariants (checked per step)
 
@@ -212,13 +218,12 @@ needs anyway.
 
 ## 10. Open questions
 
-1. **Event-bus migration depth:** migrate only the clean observation-shaped
-   listeners (spend ledger, audit tap) in step 2, or also the usage-reporting
-   path? (Default: only the clean ones; the rest follow when they fit without
-   behavior change.)
-2. **Node-kind registry now or later:** land it with the graph registry in
-   step 3 (default), or defer until a second node kind actually exists? The
-   registry is cheap but is the most speculative of the seams.
+1. ~~Event-bus migration depth~~ — resolved by deferral (§4.2, owner
+   decision 2026-08-29).
+2. ~~Node-kind registry now or later~~ — resolved by survey: the registry
+   already exists in attractor (`NodeHandlerRegistry`,
+   `packages/attractor/lib/src/node_handler.dart:52`); step 2 hardens and
+   uniformly routes tina's handler registrations through it, adding no kinds.
 3. **Panel host scope:** migrate only the run panel (default) or also the
    transcript/chat panels? (Default: run panel only.)
 
