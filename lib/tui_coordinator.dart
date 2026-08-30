@@ -28,7 +28,7 @@ import 'package:tina/self_update/release_checker.dart';
 import 'package:tina/self_update/updater.dart';
 import 'package:tina/tui/attention_queue.dart';
 import 'package:tina/tui/panel_maximize.dart';
-import 'package:tina/tui/run_panel_content.dart';
+import 'package:tina/tui/panel_host.dart';
 import 'package:tina/tui/tool_output_overlay.dart';
 import 'package:tina/tui/workflow_editor_overlay.dart';
 import 'package:tina/tui/workflow_viewer_overlay.dart';
@@ -1306,118 +1306,56 @@ class TuiCoordinator {
     // focused: `s` stops the run, `x` closes the panel (the run itself
     // continues unless stopped), PgUp/PgDn scroll the transcript. Input is
     // disabled — the frame never binds the shared editor.
-    final Map<String,
-            ({PanelFrame frame, RunPanelContent content, TuiConversationHost host})>
-        runPanels = {};
+    //
+    // Construction itself lives in [PanelHost] (the extension seam one level
+    // above the Panel hierarchy): this block keeps only run-specific policy —
+    // which run to stop, when to settle the busy cue, and dropping the run's
+    // completion hook on close.
+    final panelHost = PanelHost(
+      screen: screen,
+      panelManager: panelManager,
+      contentCoordinator: contentCoordinator,
+      resizeCoordinator: resizeCoordinator,
+      tree: tree,
+      initialHost: initialHost,
+      makeSinkHost: _makeSpawnedHost,
+    );
 
     void _closeRunPanel(String runId) {
-      final handle = runPanels.remove(runId);
+      final handle = panelHost.panelFor(runId);
       if (handle == null) return;
-      // Drop the hooks first so a late event can't repaint a torn-down panel
-      // (the frame is gone; its geometry is stale).
-      handle.frame.onPanelKey = null;
-      handle.frame.onScroll = null;
-      handle.frame.onWheel = null;
-      handle.host.chat.onScrollbackChanged = null;
+      // Drop the run's completion hook before the teardown: a finished run
+      // must not settle the busy cue of a panel that's already gone.
       supervisor.find(runId)?.onFinished = null;
-      handle.content.detach();
-      contentCoordinator.unbindExtra(handle.frame);
-      tree.parentOf.remove(handle.frame.conversationId);
-      tree.baseLabel.remove(handle.frame.conversationId);
-      panelManager.removeFrame(handle.frame);
-      if (!panelManager.hasSpawnedFrames) {
-        // Last panel: unsplit back to the full-width primary (mirror of the
-        // first-panel split).
-        initialHost.stayAttachedWhenInactive = false;
-        resizeCoordinator.handleResize(split: false, drawInfoFrame: true);
-      } else {
-        panelManager.layout();
-        contentCoordinator.relayContent();
-      }
-      // The run continues streaming into the detached region until it ends;
-      // the transcript buffers there and is discarded with the region.
+      panelHost.closePanel(handle);
     }
 
     /// Open the run's live transcript panel. SYNCHRONOUS: it runs inside the
     /// supervisor's `onLaunch` hook, before the run's stream can start, so
     /// [WorkflowRun.sink] is installed before any node can emit.
     void _openRunPanel(WorkflowRun run) {
-      // The run's stream sink: a spawned-style host whose region renders in
-      // this panel. Node text + progress land here instead of the chat.
-      final host = _makeSpawnedHost('wf-run-${run.id}');
-      run.sink = host;
-
-      // First panel: split the layout to make a right column (mirrors
-      // _buildSpawnPanel's first-panel block).
-      if (!panelManager.hasSpawnedFrames) {
-        initialHost.stayAttachedWhenInactive = true;
-        resizeCoordinator.handleResize(split: true, drawInfoFrame: false);
-      }
-
-      final frame = PanelFrame(
-        screen: screen,
-        label: 'wf ${run.workflowName} [run ${run.id}]',
-        conversationId: 'wf-run-${run.id}',
-        ownsCanvas: false,
+      final opened = panelHost.openPanel(
+        (
+          label: 'wf ${run.workflowName} [run ${run.id}]',
+          conversationId: 'wf-run-${run.id}',
+          placement: PanelPlacement.sideColumn,
+        ),
+        // The run's stream sink: the panel's spawned-style host, installed
+        // first — before the host splits/binds anything. Node text +
+        // progress land here instead of the chat.
+        installSink: (host) => run.sink = host,
+        // `s`: stop the run (the panel itself stays open).
+        onStop: () => supervisor.stop(run.id),
+        // `x`: the full close path — drop the run's completion hook, then
+        // the host teardown (which also drops the map entry).
+        onClose: () => _closeRunPanel(run.id),
       );
-      tree.parentOf[frame.conversationId] = tree.rootId; // depth-1, flush
-      tree.baseLabel[frame.conversationId] = frame.label;
-      final content = RunPanelContent(screen: screen, chat: host.chat);
-      contentCoordinator.bindExtra(frame: frame, content: content);
-      panelManager.layout();
-      contentCoordinator.relayContent();
-      // Scrollback: PgUp/PgDn + the mouse wheel scroll the transcript; the
-      // frame badge shows lines that arrived while scrolled up (mirrors
-      // _wireScrollback).
-      frame.onScroll = (deltaPages) {
-        final page = host.chat.usableHeight;
-        host.chat.scrollBy(deltaPages * (page > 0 ? page : 1));
-      };
-      frame.onWheel = (deltaRows) => host.chat.scrollBy(deltaRows);
-      host.chat.onScrollbackChanged = () {
-        frame.setScrollBadge(host.chat.newWhileScrolled);
-      };
+      final frame = opened.frame;
       // The comet sweeps the rails while the run is in flight.
       frame.setBusy(run.isRunning);
-      // Read-only like the environment panel (see
-      // ConversationPanelCoordinator._wireReadOnlyInput): text keystrokes are
-      // consumed with a one-time notice instead of falling through to the
-      // shared editor, where they would silently type into the main
-      // conversation. s/x keep their meaning; navigation passes through.
-      var inputNoticeShown = false;
-      frame.onPanelKey = (ev) {
-        if (ev is CharInput && ev.text == 's') {
-          supervisor.stop(run.id);
-          return true;
-        }
-        if (ev is CharInput && ev.text == 'x') {
-          _closeRunPanel(run.id);
-          return true;
-        }
-        final isText = ev is CharInput ||
-            ev is PasteInput ||
-            ev is EditingKey ||
-            (ev is ControlKey && ev.code == ControlCode.enter);
-        if (!isText) {
-          // Arrows/PgUp/PgDn are not consumed here — PgUp/PgDn reach the
-          // frame's scroll hook above; arrow keys do nothing (there is
-          // nothing to pan). Esc/Ctrl+C/Alt also fall through to the editor.
-          return false;
-        }
-        if (!inputNoticeShown) {
-          inputNoticeShown = true;
-          host.showMessage(
-            '(input disabled — read-only run panel; s stops the run, x '
-            'closes it; cycle focus back to a chat panel to type)\n',
-            style: HostMessageStyle.dim,
-          );
-        }
-        return true;
-      };
       // Completion settles the comet; the transcript already ends with the
       // engine's ✔/✖ workflow complete/failed line.
       run.onFinished = () => frame.setBusy(false);
-      runPanels[run.id] = (frame: frame, content: content, host: host);
     }
 
     // Wire the supervisor's onLaunch hook to the run-panel opener.
