@@ -3,8 +3,7 @@ import 'dart:io';
 import 'package:tina_engine/tina_engine.dart';
 
 import '../session_commands/command_context.dart';
-import 'default_workflow.dart';
-import 'pipeline_runner.dart';
+import 'workflow_catalog.dart';
 import 'workflow_names.dart';
 
 /// The `/workflow` slash command: `list`, `show`, `new`, `edit`. Dispatched
@@ -41,7 +40,8 @@ Future<void> _list(CommandContext ctx, {bool hints = false}) async {
         .showMessage('(workflows unavailable)\n', style: HostMessageStyle.dim);
     return;
   }
-  final names = PipelineRunner.listWorkflows(dir);
+  final catalog = WorkflowCatalog.standard(workflowsDir: dir);
+  final names = catalog.list();
   if (names.isEmpty) {
     ctx.active.host.showMessage(
         '(no workflows in ${dir.path} — add a .dot file)\n',
@@ -52,8 +52,7 @@ Future<void> _list(CommandContext ctx, {bool hints = false}) async {
   // Which workflow, if any, is the conventional "default" graph (the seeded
   // default.dot, or one named by [default] workflow) — the one the main agent
   // launches by default via its `launch_workflow` tool.
-  final defaultName = resolveDefaultWorkflowName(
-      configured: ctx.defaultWorkflow, workflowsDir: dir);
+  final defaultName = catalog.defaultWorkflowName(configured: ctx.defaultWorkflow);
   ctx.active.host.showMessage('workflows:\n');
   for (final n in names) {
     final isDefault = n == defaultName;
@@ -123,7 +122,7 @@ Future<void> _showText(CommandContext ctx, List<String> parts) async {
     return;
   }
   try {
-    final source = await PipelineRunner.readWorkflow(dir, parts[2]);
+    final source = await WorkflowCatalog.standard(workflowsDir: dir).read(parts[2]);
     ctx.active.host.showSeparator();
     for (final ln in source.split('\n')) {
       ctx.active.host.showMessage('$ln\n', style: HostMessageStyle.dim);

@@ -10,6 +10,7 @@ import '../tui/attention_queue.dart';
 import 'file_run_store.dart';
 import 'tina_codergen_backend.dart';
 import 'tina_interviewer.dart';
+import 'workflow_catalog.dart';
 import 'workflow_names.dart';
 
 /// The result of one workflow run: the engine's final [outcome] — whose
@@ -82,7 +83,8 @@ class PipelineRunner {
     Future<void>? cancelSignal,
     PipelineEventListener? onEvent,
   }) async {
-    final source = await readWorkflow(workflowsDir, workflowName);
+    final catalog = WorkflowCatalog.standard(workflowsDir: workflowsDir);
+    final source = await catalog.read(workflowName);
     final graph = parseDot(source);
 
     final diags = validate(graph);
@@ -217,29 +219,21 @@ class PipelineRunner {
   }
 
   /// The names of every `*.dot` file in [dir] (without extension), sorted.
-  static List<String> listWorkflows(Directory dir) {
-    if (!dir.existsSync()) return const [];
-    return dir
-        .listSync()
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.dot'))
-        .map((f) => p.basenameWithoutExtension(f.path))
-        .toList()
-      ..sort();
-  }
+  ///
+  /// Thin delegate over [WorkflowCatalog.list] — the catalog owns name
+  /// resolution; this keeps the long-standing static entry point for callers
+  /// that only have a dir.
+  static List<String> listWorkflows(Directory dir) =>
+      WorkflowCatalog(workflowsDir: dir).list();
 
   /// Read `<dir>/<name>.dot`, throwing a clear error if missing — or if the
   /// name could escape the workflows dir (see [isSafeWorkflowName]).
-  static Future<String> readWorkflow(Directory dir, String name) async {
-    if (!isSafeWorkflowName(name)) {
-      throw FileSystemException(nameRejection, p.join(dir.path, '<name>.dot'));
-    }
-    final file = File(p.join(dir.path, '$name.dot'));
-    if (!await file.exists()) {
-      throw FileSystemException('workflow not found', file.path);
-    }
-    return file.readAsString();
-  }
+  ///
+  /// Thin delegate over [WorkflowCatalog.read] (entry-less catalog: pure
+  /// on-disk resolution, so the read seam's semantics are exactly the
+  /// historical ones).
+  static Future<String> readWorkflow(Directory dir, String name) =>
+      WorkflowCatalog(workflowsDir: dir).read(name);
 }
 
 String _newRunId() {
