@@ -1691,3 +1691,30 @@ the step-1 command registry ("add /browse to allCommands (~line 19)") —
 enrollment now goes through the session command registry
 (session_command_handlers.dart:39 delegates to registry.allNames); a
 docs-only pass when /browse is next touched.
+
+Round 12 close (driver, 2026-08-31): ticket #28 — engine turn-survival on
+mid-stream transport errors (owner-greenlit). The gap: RetryingProvider only
+swallows retryable errors that arrive BEFORE any content was forwarded
+(the !forwarded guard, retrying_provider.dart), so a 500 landing mid-stream
+was forwarded as terminal and the agent aborted the turn — the mechanism
+behind every 2026-08-30 outage leg death. The fix carries the raw StreamError
+through TurnOutcome.streamError (the consumer had been discarding
+statusCode/transient/retryAfter, leaving the agent unable to classify),
+factors one shared predicate isTransportRetryable that both the
+policy-layer retry and the agent call, and adds a bounded in-turn ladder:
+notice → backoff (Retry-After capped at 120s, else 15s→30s→60s→120s),
+cancel-safe, re-send from the unchanged history (a failed step appends
+nothing). Exhausted attempts abort as the new AbortedKind.transport
+("retry spent"); with the ladder disabled the pre-#28 AbortedKind.provider
+stands, preserving the sub-agent scheduler's transient mapping for pipeline
+retries. Opt-in by construction: buildAgent's transportRetryAttempts
+defaults 0 (TUI and library callers byte-identical), the headless runner
+passes config default 5, --transport-retry-attempts 0 restores
+abort-on-first-error. Driver repair before commit: the leg's first cut
+classified retryable failures as transport even at zero attempts — its own
+test name said "preserves the pre-#28 abort" while asserting the new marker;
+fixed to require attemptsUsed > 0 (the retry-spent semantics the docs
+claim), with the sub_agent_scheduler.dart:808 transient:true path verified
+end to end. Engine 838→847 (+9), root 921→925 (+4), analyzers clean, leak
+ritual 0/0. The next long outage should cost legs minutes of backoff, not
+the whole run.
