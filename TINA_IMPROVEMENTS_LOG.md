@@ -1641,3 +1641,53 @@ flag, lib/config.dart:238); the fourth launch ran to completion at 177
 requests. Engine follow-up worth a ticket: render
 finish=length-with-empty-content as its own error, not "empty
 completion".
+Round 11 close (driver, 2026-08-31): the approved extension-seam refactor
+(docs/proposals/plugin_architecture.md) shipped all four internal steps, each
+its own PR, no user-visible change, no new deps, import boundary test
+untouched: step 1 command registry (#36, merged 997bc61), step 2 workflow
+catalog + node-kind seam hardening (#37, merged e6e50ca — WorkflowCatalog
+owns name→DOT resolution, one documented delta: the built-in seed entry
+answers `default` reads when default.dot is deleted; attractor
+resolution-order tests), step 3 panel host (#38, merged ebaee96 — PanelHost
+owns run-panel construction one level above the console Panel hierarchy, the
+stream sink installed synchronously before the launch stream can start),
+step 4 provider-path uniformity (#39 — lib/composition/provider_resolution
+.dart is the registry's one shared client: refProviderForBuild /
+appliesToStartupProvider / buildResolved / apiKeyForPickedRef; four
+copy-pasted build sites converged, per-site empty-key semantics kept
+explicit — the startup path passes config.apiKey even when empty (first-run
+placeholder) while providerFactory keeps its isNotEmpty guard so an empty
+typed key falls back to env resolution; engine got the builder/decorator
+negative tests: a throwing builder propagates unwrapped and never reaches
+the decorator, ''-override is handed verbatim while null falls back to env,
+the decorator wraps a pool exactly once). The event bus stayed DEFERRED per
+the plan (§4.2) after the consumer survey. Final counts: root 908→921,
+engine 830→838, attractor 89 (step 2), console 832 unchanged; leak ritual
+0/0 on every commit.
+
+Round 11 incidents: (1) the 2026-08-30 z.ai outage — 8+ hours of mid-stream
+"Zai 500: Internal network failure" killed six legs (r11c–h) at 90–200
+requests each. Tiny probes false-all-cleared twice (a passing 1-step probe
+is not evidence the 150-request leg shape survives), so the recovery probe
+escalated to workload-shaped file reads before any relaunch. The fix that
+worked: resume the dead session id instead of cold restarts — write-through
+persistence (#25) keeps completed exchanges on disk, so
+`--resume <id> --force` plus a continue-nudge loses only the in-flight turn
+(r11i finished after four deaths this way). Engine follow-ups worth
+tickets: a mid-stream 500 AFTER content was forwarded is session-fatal
+because _isRetryable is never consulted once `forwarded` is true
+(retrying_provider.dart:164) — the fix shape is abort the TURN, keep the
+SESSION (proposed to the owner, awaiting sign-off); and render
+finish=length-with-empty-content as its own error, not "empty completion"
+(carried from round 10). (2) The 05:36 stash incident — with the driver
+session down, an external actor (not tina: its bash allow-list is git
+status/diff/log only; not the driver) ran `git stash -u` + checkout away
+from the work branch, preserving the leg's WIP (untracked files land in the
+stash's third parent, invisible to plain `git stash show`). Recovery:
+`git stash apply` — never pop, keep the backup until the PR ships — then
+verify the exact file list and resume. Second such incident after round 9's.
+(3) Docs follow-up: docs/features/FILE_BROWSER.md's porting note predates
+the step-1 command registry ("add /browse to allCommands (~line 19)") —
+enrollment now goes through the session command registry
+(session_command_handlers.dart:39 delegates to registry.allNames); a
+docs-only pass when /browse is next touched.
