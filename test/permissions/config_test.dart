@@ -266,6 +266,31 @@ void main() {
       expect(_parse([]).modelExplicit, isFalse);
     });
   });
+
+  group('--transport-retry-attempts', () {
+    test('defaults to 5 (headless opt-in per #28)', () {
+      expect(_parse([]).transportRetryAttempts, 5);
+    });
+
+    test('accepts overrides and keeps 0 as the explicit off', () {
+      expect(_parse(['--transport-retry-attempts', '3'])
+          .transportRetryAttempts, 3);
+      expect(_parse(['--transport-retry-attempts', '0'])
+          .transportRetryAttempts, 0,
+          reason: '0 disables the ladder — abort on first mid-stream error');
+    });
+
+    test('rejects negative and non-integer', () {
+      expect(
+        () => _parse(['--transport-retry-attempts', '-1']),
+        throwsFormatException,
+      );
+      expect(
+        () => _parse(['--transport-retry-attempts', 'abc']),
+        throwsFormatException,
+      );
+    });
+  });
 }
 
 Config _parse(List<String> argv) =>

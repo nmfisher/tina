@@ -498,6 +498,11 @@ Future<void> _runNonInteractive(AppComposition app) async {
         _log.severe('session compact-replace failed', e, st);
       }
     },
+    // #28: headless turns survive mid-stream transport blips — the agent
+    // re-sends the failed step (15s→120s backoff) instead of aborting the
+    // leg. Defaults to 5; --transport-retry-attempts 0 restores the
+    // abort-on-first-error behavior.
+    transportRetryAttempts: app.config.transportRetryAttempts,
   );
 
   // Append concise summary instruction for headless --prompt runs.

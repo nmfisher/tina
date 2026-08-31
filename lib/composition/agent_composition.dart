@@ -92,6 +92,12 @@ Agent buildAgent({
   /// rely on the SessionController's turn-end flush (still safe, just coarser).
   HistoryAppendObserver? onHistoryAppend,
   HistoryReplaceObserver? onHistoryReplace,
+  /// Turn-level transport retries (#28) — opt-in so the TUI's conversation
+  /// construction is untouched by default. The HEADLESS runner passes
+  /// `config.transportRetryAttempts` (5 unless --transport-retry-attempts
+  /// overrides/disables it); every other caller keeps the engine default of 0
+  /// (a mid-stream transport error aborts the turn, pre-#28 behavior).
+  int transportRetryAttempts = 0,
 }) {
   // The entry agent's resolved system prompt — also the identity a delegated
   // sub-agent inherits. Resolved once so the agent and the delegation context
@@ -232,5 +238,6 @@ Agent buildAgent({
     resultVerifier: resultVerifier,
     onHistoryAppend: onHistoryAppend,
     onHistoryReplace: onHistoryReplace,
+    transportRetryAttempts: transportRetryAttempts,
   );
 }
