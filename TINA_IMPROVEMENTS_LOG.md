@@ -1677,9 +1677,9 @@ persistence (#25) keeps completed exchanges on disk, so
 tickets: a mid-stream 500 AFTER content was forwarded is session-fatal
 because _isRetryable is never consulted once `forwarded` is true
 (retrying_provider.dart:164) — the fix shape is abort the TURN, keep the
-SESSION (proposed to the owner, awaiting sign-off); and render
-finish=length-with-empty-content as its own error, not "empty completion"
-(carried from round 10). (2) The 05:36 stash incident — with the driver
+SESSION (greenlit as ticket #28; shipped in round 12 — PR #40, merged
+fe12a5b). Still carried: render finish=length-with-empty-content as its own
+error, not "empty completion" (from round 10). (2) The 05:36 stash incident — with the driver
 session down, an external actor (not tina: its bash allow-list is git
 status/diff/log only; not the driver) ran `git stash -u` + checkout away
 from the work branch, preserving the leg's WIP (untracked files land in the
