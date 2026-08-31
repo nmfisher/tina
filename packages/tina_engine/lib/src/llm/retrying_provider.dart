@@ -2,7 +2,7 @@ import 'dart:async';
 
 import '../agent/token_budget.dart' show TokenBudget;
 import '../tools/tool.dart';
-import 'http.dart' show applyBackoffJitter, isRetryableStatus, retryDelays;
+import 'http.dart' show applyBackoffJitter, isTransportRetryable, retryDelays;
 import 'message.dart';
 import 'provider.dart';
 import 'wire.dart';
@@ -161,8 +161,7 @@ class RetryingProvider implements LlmProvider {
     return controller.stream;
   }
 
-  static bool _isRetryable(StreamError e) =>
-      e.transient || (e.statusCode != null && isRetryableStatus(e.statusCode!));
+  static bool _isRetryable(StreamError e) => isTransportRetryable(e);
 }
 
 /// #46: book the spend of one FAILED transport attempt, before it is

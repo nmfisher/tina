@@ -35,6 +35,13 @@ class ProviderStreamConsumer {
     List<ContentBlock>? content;
     TokenUsage? usage;
     Object? error;
+
+    /// The raw [StreamError] behind [error], when the failure arrived as one
+    /// (#28). Carries statusCode / transient / retryAfter, which the agent's
+    /// turn-level retry ladder needs to classify the failure — the humanized
+    /// [error] string alone cannot. Stays null on the subscription `onError`
+    /// path (a bare exception below the stream), which remains unclassified.
+    StreamError? streamError;
     var cancelled = false;
     var sawTextThisTurn = false;
 
@@ -55,6 +62,7 @@ class ProviderStreamConsumer {
           usage = event.usage;
         } else if (event is StreamError) {
           error = event.error;
+          streamError = event;
         }
       },
       onDone: () {
@@ -90,6 +98,7 @@ class ProviderStreamConsumer {
       content: content,
       usage: usage,
       error: error,
+      streamError: streamError,
       cancelled: cancelled,
     );
   }
@@ -100,12 +109,20 @@ class TurnOutcome {
   final List<ContentBlock>? content;
   final TokenUsage? usage;
   final Object? error;
+
+  /// The raw [StreamError] when [error] came from one — with the transport
+  /// metadata (statusCode / transient / retryAfter) the [error] string alone
+  /// discards. Null when the failure arrived via the stream's `onError` path
+  /// or there was no failure; consumers classify retryability ONLY through
+  /// this (an unclassified error must not be retried).
+  final StreamError? streamError;
   final bool cancelled;
 
   const TurnOutcome({
     this.content,
     this.usage,
     this.error,
+    this.streamError,
     required this.cancelled,
   });
 }

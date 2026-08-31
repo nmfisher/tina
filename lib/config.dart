@@ -200,6 +200,15 @@ class Config {
   /// refuses to start.
   final bool forceLock;
 
+  /// Turn-level transport retries for the HEADLESS runner (#28): when a
+  /// provider stream fails MID-response with a transport-retryable error
+  /// (429/5xx, dropped connection), the agent re-sends the failed step up to
+  /// this many extra times (15s → 120s exponential backoff, or the server's
+  /// Retry-After capped at 120s when it supplies one) before aborting the
+  /// run. 0 disables — the first mid-stream error aborts as before. Read by
+  /// bin/tina.dart only; the TUI does not opt in.
+  final int transportRetryAttempts;
+
   const Config({
     required this.provider,
     required this.apiKey,
@@ -249,6 +258,7 @@ class Config {
     this.permissionClassifierModel,
     this.modelExplicit = false,
     this.forceLock = false,
+    this.transportRetryAttempts = 0,
     this.models,
   });
 
@@ -461,6 +471,16 @@ class Config {
           'Seconds to wait for response headers per attempt before '
           'aborting the request. Slow providers or large-context prompts '
           'may need more than the 30s default.',
+    )
+    ..addOption(
+      'transport-retry-attempts',
+      defaultsTo: '5',
+      help:
+          'Headless only: when a provider stream fails MID-response with a '
+          'retryable transport error (429/5xx, dropped connection), re-send '
+          'the failed step up to this many extra times before aborting the '
+          'run. Backs off 15s doubling to a 120s cap, or honors the server '
+          'Retry-After. 0 disables — the first mid-stream error aborts.',
     )
     ..addFlag(
       'version',
@@ -787,6 +807,8 @@ class Config {
         seconds: parsePositive('stream-idle-timeout', '60'),
       ),
       requestTimeout: Duration(seconds: parsePositive('request-timeout', '30')),
+      transportRetryAttempts:
+          parseBudget('transport-retry-attempts', '5'),
       backend: switch (res['backend'] as String) {
         'ansi' => BackendChoice.ansi,
         _ => BackendChoice.notcurses,

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:logging/logging.dart';
 
+import '../llm/http.dart' show isTransportRetryable;
 import '../llm/message.dart';
 import '../llm/provider.dart';
 import '../permissions/policy.dart';
@@ -22,6 +23,32 @@ final _log = Logger('tina.agent');
 /// tripped the turn stops with a notice. `--yolo` can't extend it (it only
 /// relaxes the ask-gate). No config surface by design.
 const int kMaxToolCallsPerRun = 5000;
+
+/// Turn-level transport retry ladder (#28) — first backoff. Generous by
+/// design: these errors land MID-stream, after a provider that was already
+/// answering hiccuped, so a sub-second retry (the transport ladder's 250ms)
+/// would hammer a wounded upstream. 15s doubling to [maxTransportBackoff].
+const firstTransportBackoff = Duration(seconds: 15);
+
+/// Ceiling on ONE agent-level transport backoff — a server `retryAfter` hint
+/// is honored up to this and the exponential ladder tops out here, so a
+/// misconfigured upstream can't park a headless run for hours per attempt.
+const maxTransportBackoff = Duration(seconds: 120);
+
+/// The backoff before ladder attempt [attempt] (1-based: the delay before the
+/// FIRST retry). The error's `retryAfter` overrides this when the server
+/// supplied one — capped at [maxTransportBackoff] like the hint itself.
+Duration transportBackoffFor(int attempt, {Duration? retryAfter}) {
+  if (retryAfter != null) {
+    return retryAfter > maxTransportBackoff ? maxTransportBackoff : retryAfter;
+  }
+  var d = firstTransportBackoff;
+  for (var i = 1; i < attempt; i++) {
+    d *= 2;
+    if (d >= maxTransportBackoff) return maxTransportBackoff;
+  }
+  return d;
+}
 
 /// Consecutive denials of the SAME tool after which the denial result gains a
 /// circuit-breaker line telling the model to stop calling that tool (#27).
@@ -117,10 +144,15 @@ int stubAgedToolResults(List<Message> history,
 }
 
 /// Why a turn stopped abnormally, classified by cause. Callers that decide
-/// whether to retry (e.g. the pipeline's codergen nodes) treat [provider]
-/// failures as transient — a rate limit or dropped stream may clear on its
-/// own — while [budget]/[steps] exhaustions and [cancel] never will.
-enum AbortedKind { none, provider, budget, steps, cancel }
+/// whether to retry (e.g. the pipeline's codergen nodes) treat [provider] and
+/// [transport] failures as transient — a rate limit or dropped stream may
+/// clear on its own — while [budget]/[steps] exhaustions and [cancel] never
+/// will. The split between [provider] and [transport]: a [transport] failure
+/// was transport-retryable and the agent's OWN retry ladder (#28) exhausted
+/// its attempts, so the retry decision is already spent; a [provider] failure
+/// is everything else that may still clear (auth, rate-limit-forever, empty
+/// completions, cut streams).
+enum AbortedKind { none, provider, transport, budget, steps, cancel }
 
 const _compactSystemPrompt = '''
 You are summarizing a coding-assistant conversation for context
@@ -229,6 +261,25 @@ class Agent {
   /// system prefix stays stable across a multi-step turn (cache-friendly).
   final String system;
 
+  /// Turn-level transport retry ladder (#28): how many EXTRA times a step
+  /// re-sends when the provider stream fails MID-stream with a
+  /// transport-retryable error ([isTransportRetryable] — the same predicate
+  /// the policy-layer [RetryingProvider] uses, which only covers failures
+  /// before any content). Each re-send is a fresh real send — metering books
+  /// per-attempt spend inside the provider stack, nothing is re-booked here.
+  ///
+  /// 0 (the default) preserves the pre-#28 behavior exactly: the first
+  /// mid-stream retryable error aborts the turn. The headless runner passes
+  /// 5; the TUI does not (yet) opt in.
+  final int transportRetryAttempts;
+
+  /// Wall-clock between ladder attempts: [Duration.zero] default is replaced
+  /// by the real schedule — the error's `retryAfter` (capped at
+  /// [maxTransportBackoff]) when the server supplied one, else exponential
+  /// 15s → 30s → 60s → 120s. Injectable ONLY so tests don't sleep; the
+  /// function still receives the computed duration so tests can assert it.
+  final Future<void> Function(Duration delay)? transportBackoffDelay;
+
   Agent({
     required LlmProvider provider,
     required this.tools,
@@ -243,6 +294,8 @@ class Agent {
     this.resultVerifier,
     this.onHistoryAppend,
     this.onHistoryReplace,
+    this.transportRetryAttempts = 0,
+    this.transportBackoffDelay,
     required this.system,
   }) : _provider = provider;
 
@@ -295,9 +348,13 @@ class Agent {
   String? abortedReason;
 
   /// The same stop classified by cause, for callers deciding whether a retry
-  /// could succeed: [AbortedKind.provider] failures (rate limit, dropped
-  /// stream, transient build failure) may clear on their own; budget/steps
-  /// exhaustions and cancellations will not. Reset alongside [abortedReason].
+  /// could succeed: [AbortedKind.provider] and [AbortedKind.transport]
+  /// failures (rate limit, dropped stream, transient build failure) may clear
+  /// on their own; budget/steps exhaustions and cancellations will not.
+  /// [AbortedKind.transport] means the failure was transport-retryable and
+  /// the agent's own turn-level ladder (#28) ALREADY exhausted its attempts —
+  /// the built-in retry is spent, unlike [AbortedKind.provider] which no
+  /// retry has touched. Reset alongside [abortedReason].
   AbortedKind abortedKind = AbortedKind.none;
 
   /// Whether the 90% per-turn budget SOFT margin (#37) has fired in the
@@ -496,17 +553,78 @@ class Agent {
         return;
       }
 
-      final stream = provider.send(
-        system: system,
-        messages: history,
-        tools: tools.schemas,
-      );
-      final outcome = await const ProviderStreamConsumer()
-          .consume(stream, sink: sink, cancelSignal: cancelSignal);
+      // #28: the transport-retry ladder. `outcome.error` with a
+      // transport-retryable [TurnOutcome.streamError] and attempts remaining
+      // re-sends this step from the UNCHANGED history: nothing was appended
+      // for the failed step (content is null on error, so the flow below
+      // never reached a history.add), the user message was appended ONCE by
+      // the turn preamble above, and the ladder is INVISIBLE to the step loop
+      // — the loop-back lands directly on the send. Cancel during the
+      // backoff exits the turn cleanly, like any cancel. Exhausted (or 0
+      // configured, or no metadata to classify with) falls through to the
+      // historical abort below.
+      var attemptsUsed = 0;
+      TurnOutcome outcome;
+      while (true) {
+        final stream = provider.send(
+          system: system,
+          messages: history,
+          tools: tools.schemas,
+        );
+        outcome = await const ProviderStreamConsumer()
+            .consume(stream, sink: sink, cancelSignal: cancelSignal);
+        final err = outcome.streamError;
+        if (outcome.error == null ||
+            err == null ||
+            !isTransportRetryable(err) ||
+            attemptsUsed >= transportRetryAttempts ||
+            cancelled) {
+          break;
+        }
+        attemptsUsed++;
+        final delay = transportBackoffFor(
+          attemptsUsed,
+          retryAfter: err.retryAfter,
+        );
+        sink.notice(
+          '\ntransport error: ${outcome.error} — retry '
+          '$attemptsUsed/$transportRetryAttempts in ${delay.inSeconds}s\n',
+          kind: NoticeKind.warning,
+        );
+        // Park on the backoff, honoring the cancel signal: a cancel that
+        // lands mid-wait exits the turn cleanly instead of sleeping out the
+        // full delay (mirrors [RetryingProvider]'s `Future.any` backoff).
+        final timer = transportBackoffDelay != null
+            ? transportBackoffDelay!(delay)
+            : Future<void>.delayed(delay);
+        if (cancelSignal != null) {
+          await Future.any([timer, cancelSignal]);
+        } else {
+          await timer;
+        }
+        if (cancelled) {
+          // Cancel during the backoff: exit the turn cleanly, exactly like a
+          // cancel that landed mid-stream — the consumer already printed
+          // [cancelled] for that path; print it for this one.
+          sink.notice('\n[cancelled]\n', kind: NoticeKind.warning);
+          abortedKind = AbortedKind.cancel;
+          return;
+        }
+      }
       if (outcome.error != null) {
         sink.notice('\nerror: ${outcome.error}\n', kind: NoticeKind.error);
         abortedReason = outcome.error.toString();
-        abortedKind = AbortedKind.provider;
+        // #28: transport-retryable failures the ladder actually TRIED are a
+        // distinct stop — the built-in retry is spent. With attempts at 0
+        // (the TUI/library default) nothing was tried, so a retryable
+        // failure keeps the pre-#28 [provider] classification that callers
+        // like the sub-agent scheduler map to transient. Auth (401),
+        // rate-limit-forever, and everything unclassified stay [provider].
+        abortedKind = attemptsUsed > 0 &&
+                outcome.streamError != null &&
+                isTransportRetryable(outcome.streamError!)
+            ? AbortedKind.transport
+            : AbortedKind.provider;
         return;
       }
       if (outcome.cancelled) {

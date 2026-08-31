@@ -94,6 +94,16 @@ bool isRetryableStatus(int code) =>
     // retry: 501 Not Implemented, 505 HTTP Version Not Supported.
     (code >= 500 && code < 600 && code != 501 && code != 505);
 
+/// Whether a [StreamError] is worth re-sending the request for: the transport
+/// folded in a transient cause (dropped socket, reset connection, header
+/// timeout) or the HTTP status is one that may succeed on a retry. ONE
+/// predicate shared by BOTH retry layers — the policy-level [RetryingProvider]
+/// (which re-attempts failures that precede any content) and the agent's
+/// turn-level ladder (#28, which re-sends mid-stream failures) — so their
+/// notion of "retryable" cannot drift.
+bool isTransportRetryable(StreamError e) =>
+    e.transient || (e.statusCode != null && isRetryableStatus(e.statusCode!));
+
 /// Whether a thrown transport exception may clear on its own (a dropped
 /// socket, a reset connection, a header timeout). Providers fold these into
 /// `StreamError(transient: true)`; the policy-layer retry re-attempts them.

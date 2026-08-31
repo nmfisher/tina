@@ -85,6 +85,52 @@ void main() {
       expect(agent.tools['send'], isNull);
     });
 
+    test('transportRetryAttempts is opt-in: default 0, flag value passes '
+        'through (#28)', () {
+      // The shared default: no caller passes anything → engine default 0,
+      // pre-#28 abort-on-first-mid-stream-error behavior (TUI included —
+      // bin/tina.dart is the only caller that forwards the config value).
+      final scheduler = createScheduler(
+        config: testConfig(),
+        registry: ProviderRegistry(env: {}),
+        pipeline: defaultPipeline,
+      );
+      Agent build(Config c, {int? attempts}) => attempts == null
+          ? buildAgent(
+              // Omitting the parameter entirely: the composition must not
+              // silently opt anyone in.
+              pipeline: defaultPipeline,
+              scheduler: scheduler,
+              conversationId: 'c1',
+              provider: FakeProvider(const [], model: 'm'),
+              host: FakeHostInterface(),
+              policy: c.buildPolicy(),
+              config: c,
+              withSubAgents: false,
+            )
+          : buildAgent(
+              pipeline: defaultPipeline,
+              scheduler: scheduler,
+              conversationId: 'c1',
+              provider: FakeProvider(const [], model: 'm'),
+              host: FakeHostInterface(),
+              policy: c.buildPolicy(),
+              config: c,
+              withSubAgents: false,
+              transportRetryAttempts: attempts,
+            );
+      expect(build(testConfig()).transportRetryAttempts, 0,
+          reason: 'composition must not silently opt anyone in');
+      expect(
+        build(
+          testConfig(),
+          attempts: 3,
+        ).transportRetryAttempts,
+        3,
+        reason: 'the headless runner forwards config.transportRetryAttempts',
+      );
+    });
+
     test('ask_user is wired when the coordinator provides an asker, absent '
         'otherwise', () {
       final config = testConfig();
