@@ -379,7 +379,16 @@ class ProviderRegistry {
   /// Auth: if [apiKeyOverride] is given it wins; otherwise the first of the
   /// descriptor's [AuthSource]s whose env var is set supplies the key. A
   /// missing key is an error unless the provider's auth is optional (a `none`
-  /// scheme, or no auth sources — e.g. local servers).
+  /// scheme, or no auth sources — e.g. local servers). Overrides are handed
+  /// to the builder verbatim: `''` is a real [apiKeyOverride] that skips
+  /// environment resolution, so a caller wanting the env fallback passes
+  /// null (pinned by the empty-override test in registry_build_test.dart).
+  ///
+  /// Tuning: [maxTokens], [streamIdleTimeout] and [requestTimeout] land in
+  /// the built [ProviderInstance] — registry defaults fill any that are
+  /// omitted, on direct builds and on pool members alike (the pool wrapper
+  /// itself only takes the session policy stack here; its members' knobs come
+  /// through [buildPooled]). They tune the provider; they never change wiring.
   LlmProvider build(
     String reference, {
     String? apiKeyOverride,
@@ -420,7 +429,9 @@ class ProviderRegistry {
   /// [_buildLimited] — its own launch slot on its own endpoint+key queue —
   /// but NOT the session policy stack: that wraps the POOL, exactly once,
   /// when [build] resolves a pool descriptor. Throws on an empty member list
-  /// or a member that is itself a pool.
+  /// or a member that is itself a pool. Same override rule as [build]: a
+  /// non-null [apiKeyOverride] — `''` included — goes to every member
+  /// verbatim; null resolves per member from the environment.
   LlmProvider buildPooled(
     List<String> references, {
     String? apiKeyOverride,

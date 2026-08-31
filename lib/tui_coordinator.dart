@@ -12,6 +12,7 @@ import 'package:tina/completion/command_completion_provider.dart';
 import 'package:tina/composition/agent_composition.dart';
 import 'package:tina/composition/app_composition.dart';
 import 'package:tina/config.dart';
+import 'package:tina/composition/provider_resolution.dart';
 import 'package:tina/config/spawn_mru.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina/environment/environment_index.dart';
@@ -346,16 +347,25 @@ class TuiCoordinator {
     // GLM_API_KEY rather than reusing the startup key).
     LlmProvider providerFactory(
         String providerId, String apiKey, String model, String? baseUrl) {
-      final sameProvider = providerId == config.provider;
-      return reg.build(
-        '$providerId/$model',
-        apiKeyOverride: sameProvider && apiKey.isNotEmpty ? apiKey : null,
-        baseUrlOverride: sameProvider ? baseUrl : null,
-        maxTokens: config.maxTokens,
-        streamIdleTimeout: config.streamIdleTimeout,
-        requestTimeout: config.requestTimeout,
-      );
+      // Empty key → null: the registry then consults the descriptor's auth
+      // sources (env) instead of building a keyless provider.
+      return buildResolved(reg, config, '$providerId/$model',
+          apiKeyOverride: apiKey.isNotEmpty ? apiKey : null,
+          baseUrlOverride: baseUrl);
     }
+
+    // Build the provider for a model picked by one of the TUI overlays
+    // (/spawn, /branch, /model): the shared `[providers.<id>] key` lookup,
+    // then a config-tuned registry build with the overlay's maxTokens. Throws
+    // on unresolvable refs — each overlay reports its own error message.
+    LlmProvider _buildPickedProvider(String selected, String? apiKeyOverride,
+            {int? maxTokens}) =>
+        scheduler.registry.build(
+          selected,
+          apiKeyOverride: apiKeyOverride,
+          maxTokens: maxTokens,
+          requestTimeout: config.requestTimeout,
+        );
 
     late final SessionManager sessionManager;
     // Forward-declared so the menu/session-menu closures below can reference
@@ -1576,17 +1586,12 @@ class TuiCoordinator {
       }
 
       // Build the no-tool provider for the picked model.
-      final slash = selected.indexOf('/');
-      final providerId = slash >= 0 ? selected.substring(0, slash) : '';
-      final apiKeyOverride = cfg.providers[providerId]?.apiKey;
+      final providerId = refProviderForBuild(selected) ?? '';
+      final apiKeyOverride = apiKeyForPickedRef(selected, cfg);
       final LlmProvider spawnProvider;
       try {
-        spawnProvider = scheduler.registry.build(
-          selected,
-          apiKeyOverride: apiKeyOverride,
-          maxTokens: 512,
-          requestTimeout: config.requestTimeout,
-        );
+        spawnProvider =
+            _buildPickedProvider(selected, apiKeyOverride, maxTokens: 512);
       } catch (e) {
         sessionManager.activeConversation.host.showMessage(
           'error: failed to build provider: $e\n',
@@ -1717,19 +1722,14 @@ class TuiCoordinator {
       }
 
       // Build the provider for the picked model (mirrors /spawn).
-      final slash = selected.indexOf('/');
-      final providerId = slash >= 0 ? selected.substring(0, slash) : '';
+      final providerId = refProviderForBuild(selected) ?? '';
       final envMap = app.environment.env;
       final cfg = loadUserConfig(env: envMap);
-      final apiKeyOverride = cfg.providers[providerId]?.apiKey;
+      final apiKeyOverride = apiKeyForPickedRef(selected, cfg);
       final LlmProvider branchProvider;
       try {
-        branchProvider = scheduler.registry.build(
-          selected,
-          apiKeyOverride: apiKeyOverride,
-          maxTokens: 512,
-          requestTimeout: config.requestTimeout,
-        );
+        branchProvider =
+            _buildPickedProvider(selected, apiKeyOverride, maxTokens: 512);
       } catch (e) {
         sessionManager.activeConversation.host.showMessage(
           'error: failed to build provider: $e\n',
@@ -1890,17 +1890,10 @@ class TuiCoordinator {
       if (selected == null) return;
 
       // Parse and build the new provider.
-      final slash = selected.indexOf('/');
-      final providerId =
-          slash >= 0 ? selected.substring(0, slash) : selected;
-      final apiKeyOverride = cfg.providers[providerId]?.apiKey;
+      final apiKeyOverride = apiKeyForPickedRef(selected, cfg);
       final LlmProvider nextProvider;
       try {
-        nextProvider = scheduler.registry.build(
-          selected,
-          apiKeyOverride: apiKeyOverride,
-          requestTimeout: config.requestTimeout,
-        );
+        nextProvider = _buildPickedProvider(selected, apiKeyOverride);
       } catch (e) {
         sessionManager.activeConversation.host.showMessage(
           'error: $e\n',

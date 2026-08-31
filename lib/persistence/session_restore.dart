@@ -1,6 +1,7 @@
 import 'package:tina_engine/tina_engine.dart';
 
 import '../composition/agent_composition.dart';
+import '../composition/provider_resolution.dart';
 import '../config.dart';
 import '../conversation.dart';
 import '../session_manager.dart' show HostFactory;
@@ -130,15 +131,14 @@ LlmProvider _restoreProvider(ConversationMeta meta, RestoreContext ctx) {
   final ref = meta.model;
   if (ref == null || ref.isEmpty) return ctx.accountProvider();
   try {
-    final refProvider = ref.contains('/') ? ref.split('/').first : null;
-    final sameProvider = refProvider == ctx.config.provider;
-    return ctx.registry.build(
+    // Startup key/base URL apply only when the ref's provider IS the config
+    // provider; buildResolved enforces that and plumbs the tuning knobs.
+    return buildResolved(
+      ctx.registry,
+      ctx.config,
       ref,
-      apiKeyOverride: sameProvider ? ctx.config.apiKey : null,
-      baseUrlOverride: sameProvider ? ctx.config.baseUrl : null,
-      maxTokens: ctx.config.maxTokens,
-      streamIdleTimeout: ctx.config.streamIdleTimeout,
-      requestTimeout: ctx.config.requestTimeout,
+      apiKeyOverride: ctx.config.apiKey,
+      baseUrlOverride: ctx.config.baseUrl,
     );
   } catch (_) {
     // Unknown/ambiguous model ref (provider removed, typo): fall back to a

@@ -6,6 +6,7 @@ import '../config.dart';
 import '../environment/environment_index.dart';
 import '../platform/environment.dart';
 import 'agent_composition.dart';
+import 'provider_resolution.dart';
 
 /// The assembled non-UI world shared by every frontend (the interactive TUI and
 /// the headless `--prompt` runner): the parsed config, the provider registry,
@@ -104,7 +105,7 @@ class AppComposition {
       if (ref != null &&
           ref.isNotEmpty &&
           ref != '${config.provider}/${config.model}') {
-        final refProvider = ref.contains('/') ? ref.split('/').first : null;
+        final refProvider = refProviderForBuild(ref);
         if (refProvider == null || registry.descriptor(refProvider) == null) {
           stderr.writeln(
             'resume: conversation model "$ref" is no longer resolvable — '
@@ -113,16 +114,10 @@ class AppComposition {
         } else {
           // The startup key/base URL apply only to the CONFIG provider; a
           // different provider resolves afresh from its descriptor + env (same
-          // guard as the TUI's providerFactory).
-          final sameProvider = refProvider == config.provider;
-          return registry.build(
-            ref,
-            apiKeyOverride: sameProvider ? config.apiKey : null,
-            baseUrlOverride: sameProvider ? config.baseUrl : null,
-            maxTokens: config.maxTokens,
-            streamIdleTimeout: config.streamIdleTimeout,
-            requestTimeout: config.requestTimeout,
-          );
+          // guard as the TUI's providerFactory). buildResolved applies that
+          // rule plus the config's tuning knobs.
+          return buildResolved(registry, config, ref,
+              apiKeyOverride: config.apiKey, baseUrlOverride: config.baseUrl);
         }
       }
     }
