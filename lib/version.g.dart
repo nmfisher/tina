@@ -2,4 +2,4 @@
 // with `dart run tool/generate_version.dart` after bumping pubspec.yaml.
 
 /// tina's version, from pubspec.yaml at build time.
-const String tinaVersion = '0.5.0';
+const String tinaVersion = '0.5.1';
