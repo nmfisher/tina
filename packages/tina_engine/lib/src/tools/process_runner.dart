@@ -36,7 +36,13 @@ abstract class RunningProcess {
   /// delivered. Carries no signal argument because every call site uses the
   /// default (SIGTERM) semantics of `dart:io`'s bare `Process.kill()`; keeping
   /// `ProcessSignal` off the interface leaves the seam free of `dart:io`.
-  bool kill();
+  ///
+  /// [force] marks the caller's last-resort escalation (bash_tool already ran
+  /// `killProcessTree` and now wants the process gone at any cost). The
+  /// dart:io-backed implementation has nothing stronger to send — real
+  /// SIGKILL escalation lives in `killProcessTree` — so it ignores the flag;
+  /// test doubles record it.
+  bool kill({bool force = false});
 }
 
 /// Hides `dart:io` process spawning behind a testable seam. Streaming tools
@@ -113,5 +119,5 @@ class _IoRunningProcess implements RunningProcess {
   Future<int> get exitCode =>
       _proc.exitCode.whenComplete(() => ChildProcessRegistry.instance.untrack(pid));
   @override
-  bool kill() => _proc.kill();
+  bool kill({bool force = false}) => _proc.kill();
 }

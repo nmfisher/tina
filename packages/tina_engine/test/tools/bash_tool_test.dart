@@ -111,6 +111,95 @@ void main() {
       expect(r.content, contains('exit:'));
     });
 
+    test('timed-out report says so explicitly', () async {
+      final runner = MemoryProcessRunner.always(MemoryRunningProcess(
+        hangUntilKilled: true,
+        exitCodeValue: 143,
+      ));
+      final t = BashTool(
+        timeout: const Duration(milliseconds: 150),
+        processRunner: runner,
+      );
+      final r = await t
+          .execute({'command': 'sleep 5'})
+          .timeout(const Duration(seconds: 3));
+      expect(r.isError, isTrue);
+      expect(r.content, contains('command timed out after 1s (exit: 143)'));
+      expect(r.content, isNot(contains('cancelled by user')));
+    });
+
+    test('timeoutSeconds is clamped to [1, 900]', () async {
+      // Boundary pinning via the pure clamp (no real timers — a live 900s
+      // wait would be absurd in a unit test).
+      expect(BashTool.clampTimeoutSeconds(0), 1);
+      expect(BashTool.clampTimeoutSeconds(-5), 1);
+      expect(BashTool.clampTimeoutSeconds(1), 1);
+      expect(BashTool.clampTimeoutSeconds(899), 899);
+      expect(BashTool.clampTimeoutSeconds(900), 900);
+      expect(BashTool.clampTimeoutSeconds(3600), 900);
+
+      // Wiring: a 0s override still runs the command for its clamped 1s (a
+      // non-positive override would otherwise kill it before it starts).
+      final runner = MemoryProcessRunner.always(MemoryRunningProcess(
+        hangUntilKilled: true,
+        exitCodeValue: 143,
+      ));
+      final r = await BashTool(
+        processRunner: runner,
+        timeout: Duration.zero,
+      )
+          .execute({'command': 'sleep 5', 'timeoutSeconds': 0})
+          .timeout(const Duration(seconds: 5));
+      expect(r.content, contains('command timed out after 1s'));
+    });
+
+    test('populates elapsed and emptyOutput metadata on ToolResult', () async {
+      final runner = MemoryProcessRunner.always(MemoryRunningProcess());
+      final r = await BashTool(
+        processRunner: runner,
+        timeout: Duration.zero,
+      ).execute({'command': 'silent'});
+      expect(r.elapsed, isNotNull);
+      expect(r.elapsed!, lessThan(const Duration(seconds: 10)));
+      expect(r.emptyOutput, isTrue);
+      expect(r.timedOut, isFalse);
+
+      final chatty = MemoryProcessRunner.always(MemoryRunningProcess(
+        stdoutChunks: ['loud\n'],
+      ));
+      final r2 = await BashTool(processRunner: chatty)
+          .execute({'command': 'echo loud'});
+      expect(r2.emptyOutput, isFalse);
+      expect(r2.elapsed, isNotNull);
+    });
+
+    test('process that survives the kill: grace unblocks with an honest '
+        'incomplete-output note', () async {
+      final runner = MemoryProcessRunner.always(MemoryRunningProcess(
+        stdoutChunks: ['partial\n'],
+        hangUntilKilled: true,
+        killCompletesExit: false,
+      ));
+      final t = BashTool(
+        timeout: const Duration(milliseconds: 150),
+        postKillGrace: const Duration(milliseconds: 100),
+        processRunner: runner,
+      );
+      final r = await t
+          .execute({'command': 'stuck-after-signal'})
+          .timeout(const Duration(seconds: 5));
+      expect(runner.processes.single.killed, isTrue);
+      expect(runner.processes.single.forceKilled, isTrue);
+      expect(r.content, contains('command timed out after 1s'));
+      expect(
+        r.content,
+        contains('process did not exit after kill; output may be incomplete'),
+      );
+      expect(r.content, contains('partial'));
+      expect(r.isError, isTrue);
+      expect(r.timedOut, isTrue);
+    });
+
     test('missing cwd is rejected early', () async {
       final r = await BashTool(
         processRunner: MemoryProcessRunner.always(MemoryRunningProcess()),

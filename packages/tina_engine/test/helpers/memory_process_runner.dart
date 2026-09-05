@@ -16,11 +16,17 @@ import 'package:tina_engine/tina_engine.dart';
 /// streams close and [exitCode] completes with [exitCodeValue] (set this
 /// non-zero — e.g. 143 — so a timeout-driven kill surfaces as a non-zero exit,
 /// matching real SIGTERM behaviour).
+///
+/// Setting [killCompletesExit] to false models a process that survives its
+/// kill signal (stuck in D-state, or a SIGKILL-proof descendant): `kill()` is
+/// recorded (both [killed] and [forceKilled]) but nothing closes — [exitCode]
+/// stays pending, so a caller racing a post-kill grace window wins the race.
 class MemoryRunningProcess implements RunningProcess {
   final List<String> stdoutChunks;
   final List<String> stderrChunks;
   final int exitCodeValue;
   final bool hangUntilKilled;
+  final bool killCompletesExit;
 
   /// Fake pid for the [RunningProcess.pid] seam. Meaningless in-memory; tests
   /// that exercise tree-kill can set it, otherwise it stays 0.
@@ -32,18 +38,21 @@ class MemoryRunningProcess implements RunningProcess {
 
   bool killed = false;
 
+  /// Set when `kill()` arrived with `force: true` (bash_tool's escalation).
+  bool forceKilled = false;
+
   MemoryRunningProcess({
     this.stdoutChunks = const [],
     this.stderrChunks = const [],
     this.exitCodeValue = 0,
     this.hangUntilKilled = false,
+    this.killCompletesExit = true,
     this.pid = 0,
   }) {
     scheduleMicrotask(_pump);
   }
 
   void _pump() {
-    if (hangUntilKilled) return; // wait for kill()
     if (_out.isClosed) return; // killed before this microtask ran
     for (final chunk in stdoutChunks) {
       _out.add(utf8.encode(chunk));
@@ -51,6 +60,7 @@ class MemoryRunningProcess implements RunningProcess {
     for (final chunk in stderrChunks) {
       _err.add(utf8.encode(chunk));
     }
+    if (hangUntilKilled || !killCompletesExit) return; // wait for kill()
     _close();
   }
 
@@ -68,8 +78,10 @@ class MemoryRunningProcess implements RunningProcess {
   Future<int> get exitCode => _exit.future;
 
   @override
-  bool kill() {
+  bool kill({bool force = false}) {
     killed = true;
+    if (force) forceKilled = true;
+    if (!killCompletesExit) return true; // survives its kill signal
     _close();
     return true;
   }
@@ -93,6 +105,10 @@ class MemoryProcessRunner implements ProcessRunner {
   final List<({String executable, List<String> arguments})> starts = [];
   final List<({String executable, List<String> arguments})> runs = [];
 
+  /// Every process this runner handed out from [start], in order — lets tests
+  /// assert on kill bookkeeping ([MemoryRunningProcess.killed] and friends).
+  final List<MemoryRunningProcess> processes = [];
+
   MemoryProcessRunner(this.factory);
 
   /// Convenience for the common case: every invocation returns the same
@@ -109,7 +125,9 @@ class MemoryProcessRunner implements ProcessRunner {
     String? workingDirectory,
   }) async {
     starts.add((executable: executable, arguments: arguments));
-    return factory(executable, arguments);
+    final proc = factory(executable, arguments);
+    processes.add(proc);
+    return proc;
   }
 
   @override

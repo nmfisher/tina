@@ -159,6 +159,25 @@ class BashTool implements Tool {
   /// "long_running_thing"` that we kill returns promptly.
   static const Duration _streamDrainGrace = Duration(milliseconds: 500);
 
+  /// How long to wait for the process to die after a kill before giving up on
+  /// it. If it hasn't exited within this window (a stuck/D-state process that
+  /// ignores SIGTERM and survives SIGKILL) we stop waiting, report what we
+  /// captured, and say so — rather than hanging the tool forever.
+  final Duration postKillGrace;
+
+  /// Hard clamp on the model-supplied `timeoutSeconds`: at least 1s (0 or
+  /// negative would kill instantly), at most 900s — comfortably above the
+  /// session watchdog's 300s default (lib/config.dart), so a legitimate long
+  /// command isn't raced by both timers.
+  static const int _minTimeoutSec = 1;
+  static const int _maxTimeoutSec = 900;
+
+  /// Clamps a model-supplied timeout into [_minTimeoutSec, _maxTimeoutSec].
+  /// Exposed (static, pure) so tests can pin the boundaries without waiting on
+  /// real timers.
+  static int clampTimeoutSeconds(int seconds) =>
+      seconds.clamp(_minTimeoutSec, _maxTimeoutSec).toInt();
+
   final Duration timeout;
 
   /// Subprocess execution is injected so the tool is unit-testable without
@@ -180,6 +199,7 @@ class BashTool implements Tool {
 
   BashTool({
     this.timeout = const Duration(seconds: 60),
+    this.postKillGrace = const Duration(seconds: 10),
     ProcessRunner? processRunner,
     this.projectRoot,
     Directory Function()? tempDirFactory,
@@ -210,7 +230,8 @@ class BashTool implements Tool {
             },
             'timeoutSeconds': {
               'type': 'integer',
-              'description': 'Override the default 60s timeout.',
+              'description':
+                  'Override the default 60s timeout. Clamped to 1–900s.',
             },
           },
           'required': ['command'],
@@ -229,7 +250,13 @@ class BashTool implements Tool {
     try {
       command = requiredString(input, 'command');
       cwd = optionalString(input, 'cwd');
-      timeoutSec = optionalInt(input, 'timeoutSeconds') ?? timeout.inSeconds;
+      final requested =
+          optionalInt(input, 'timeoutSeconds') ?? timeout.inSeconds;
+      // Clamp the model-supplied override to [1, 900]: 0 or negative would
+      // kill the command before it starts, and anything beyond 900s is long
+      // past the point where the session watchdog (300s default) has already
+      // pulled the plug — no honest timeout lives above that.
+      timeoutSec = clampTimeoutSeconds(requested);
     } on ToolValidationException catch (e) {
       return ToolResult.error(e.message);
     }
@@ -266,6 +293,7 @@ class BashTool implements Tool {
     } catch (e) {
       return ToolResult.error('Failed to start: $e');
     }
+    final stopwatch = Stopwatch()..start();
 
     // Each stream keeps a rolling tail (what the model sees) and spills the
     // full output to a temp file once it crosses the cap — so a multi-MB flood
@@ -314,31 +342,69 @@ class BashTool implements Tool {
     Future<void> terminate() async {
       await killProcessTree(proc.pid);
       try {
-        proc.kill();
+        // The tree-kill above has already SIGKILLed everything it can see;
+        // `force` marks this direct signal as the last-resort escalation (the
+        // in-memory test seam records it — see [postKillGrace] below).
+        proc.kill(force: true);
       } catch (e) {
         _log.fine('direct kill failed', e);
       }
     }
 
     var cancelled = false;
-    final timer = Timer(Duration(seconds: timeoutSec), terminate);
+    var timedOut = false;
+    // The exit wait is a race: [proc.exitCode] vs a [postKillGrace] window
+    // that opens only once a kill has been sent. A process that exits on its
+    // own — however slowly — gets unbounded time; the grace exists purely so
+    // a kill-proof (stuck/D-state) process can't hang the tool forever.
+    final exitOnce = Completer<int>();
+    unawaited(proc.exitCode
+        .then((c) { if (!exitOnce.isCompleted) exitOnce.complete(c); }));
+    var killedButStuck = false;
+    Future<void> terminateWithGrace() async {
+      await terminate();
+      Timer(postKillGrace, () {
+        if (!exitOnce.isCompleted) {
+          killedButStuck = true;
+          exitOnce.complete(-1);
+        }
+      });
+    }
+
+    final timer = Timer(Duration(seconds: timeoutSec), () {
+      timedOut = true;
+      terminateWithGrace();
+    });
     cancelSignal?.then((_) {
       cancelled = true;
-      terminate();
+      terminateWithGrace();
     });
 
-    final exitCode = await proc.exitCode;
+    final exitCode = await exitOnce.future;
     timer.cancel();
+    stopwatch.stop();
 
-    try {
-      await Future.wait([outDone.future, errDone.future])
-          .timeout(_streamDrainGrace);
-    } on TimeoutException {
-      // Pipes still held open by a forked descendant — keep what we've got.
-      _log.fine('stream drain timed out — keeping buffered output');
+    if (killedButStuck) {
+      // Nobody is coming: drop the subscriptions so the run() future can
+      // finish even though the pipes never close. Skips the bounded drain
+      // below — there is nothing more to drain from a process we abandoned.
+      await outSub.cancel();
+      await errSub.cancel();
+      _log.warning(
+        'bash: process did not exit within ${postKillGrace.inSeconds}s of '
+        'the kill — reporting with the output captured so far',
+      );
+    } else {
+      try {
+        await Future.wait([outDone.future, errDone.future])
+            .timeout(_streamDrainGrace);
+      } on TimeoutException {
+        // Pipes still held open by a forked descendant — keep what we've got.
+        _log.fine('stream drain timed out — keeping buffered output');
+      }
+      await outSub.cancel();
+      await errSub.cancel();
     }
-    await outSub.cancel();
-    await errSub.cancel();
     await stdoutAcc.close();
     await stderrAcc.close();
 
@@ -348,14 +414,30 @@ class BashTool implements Tool {
     if (cancelled) {
       report.writeln('cancelled by user');
     }
-    report.writeln('exit: $exitCode');
+    if (timedOut) {
+      report.writeln('command timed out after ${timeoutSec}s '
+          '(exit: $exitCode)');
+    } else {
+      report.writeln('exit: $exitCode');
+    }
+    if (killedButStuck) {
+      report.writeln(
+          'process did not exit after kill; output may be incomplete');
+    }
     report.writeln('stdout:');
     report.write(outTail.isEmpty ? '(empty)\n' : outTail);
     report.write(stdoutAcc.summaryLine());
     report.writeln('stderr:');
     report.write(errTail.isEmpty ? '(empty)\n' : errTail);
     report.write(stderrAcc.summaryLine());
-    return ToolResult(report.toString(), isError: cancelled || exitCode != 0);
+    return ToolResult(
+      report.toString(),
+      isError: cancelled || timedOut || exitCode != 0,
+      elapsed: stopwatch.elapsed,
+      timedOut: timedOut,
+      emptyOutput:
+          stdoutAcc.totalChars + stderrAcc.totalChars == 0,
+    );
   }
 }
 
