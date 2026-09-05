@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:logging/logging.dart';
 
@@ -58,6 +59,30 @@ Duration transportBackoffFor(int attempt, {Duration? retryAfter}) {
 /// rephrase between attempts. Not configurable by design, like
 /// [kMaxToolCallsPerRun].
 const int _consecutiveDenialNoticeThreshold = 3;
+
+/// Consecutive anomalous executions of the SAME command (per-command
+/// signature, #29) after which the tool_result gains a guardrail line telling
+/// the model to stop re-running it unchanged. Same tool as the #27 denial
+/// breaker above, one level down: the spiral it targets is not the policy
+/// refusing a call but the call itself going nowhere — timeout, empty output,
+/// or the identical error, over and over. Why 3: same reasoning as the denial
+/// breaker's three strikes. Not configurable by design, like
+/// [kMaxToolCallsPerRun].
+const int _consecutiveAnomalyNoticeThreshold = 3;
+
+/// The in-band guardrail line appended to an anomalous tool_result once the
+/// same command has hit [_consecutiveAnomalyNoticeThreshold] consecutive
+/// anomalies in one turn (#29). In-band on purpose (#27's lesson): prose
+/// outside tool results does not steer, so the instruction rides the result
+/// the model actually reads. A code constant, not config — same rationale as
+/// [kMaxToolCallsPerRun].
+const String _anomalyGuardrailNote =
+    '[guardrail] this exact command has now failed '
+    '$_consecutiveAnomalyNoticeThreshold times in a row this turn (timeout, '
+    'empty output, or an identical error). Do not re-run it unchanged. If the '
+    'failure is unrelated to your task, note it and return to the primary '
+    'objective. If it is essential, change the approach: narrow the target, '
+    'adjust the timeout, use a different tool, or fix the underlying cause.';
 
 /// How many of the most recent agent-loop STEPS keep their tool results at
 /// full size (#44). A result older than this window is dead weight at full
@@ -449,6 +474,12 @@ class Agent {
     // that tool, increments on each denial. Used to trip the circuit-breaker
     // message that tells the model to stop calling the same denied tool.
     final denialCounts = <String, int>{};
+    // #29 retry guard, per-turn like everything above: signature → consecutive
+    // anomalies, plus the pre-note content of the signature's last attempt.
+    // Created and discarded with this turn — a streak never survives into the
+    // next user turn.
+    final consecutiveAnomalyCounts = <String, int>{};
+    final previousAttemptContent = <String, String>{};
 
     // Soft margin (#37): the once-per-turn latch is the instance field
     // [_softMarginFired]; it resets here, at the top of every turn, so each
@@ -838,8 +869,39 @@ class Agent {
                   ToolOutputEvent(use.name, use.id, chunk, stderr: stderr));
             },
           );
+          // #29 retry guard, BEFORE anything mutates the result content: the
+          // identical-error class must compare what the tool actually
+          // returned last time, not last time plus an appended guardrail
+          // note (the note would otherwise make identical failures look
+          // changed).
+          final sig = Agent.anomalySignature(use.name, use.input);
+          final anomaly = Agent.isAnomalousResult(
+            out,
+            previousContent: previousAttemptContent[sig],
+          );
+          previousAttemptContent[sig] = out.content;
+          final streak = anomaly ? (consecutiveAnomalyCounts[sig] ?? 0) + 1 : 0;
+          if (anomaly) {
+            consecutiveAnomalyCounts[sig] = streak;
+          } else {
+            consecutiveAnomalyCounts.remove(sig);
+          }
+          // Ride the note on every anomaly from the threshold on; the
+          // operator notice fires exactly once, on the crossing.
+          var content = out.content;
+          if (anomaly && streak >= _consecutiveAnomalyNoticeThreshold) {
+            content = '$content\n$_anomalyGuardrailNote';
+            if (streak == _consecutiveAnomalyNoticeThreshold) {
+              sink.notice(
+                '${use.name} hit $_consecutiveAnomalyNoticeThreshold '
+                'consecutive anomalies this turn (timeout / empty output / '
+                'identical error) — guardrail note attached\n',
+                kind: NoticeKind.warning,
+              );
+            }
+          }
           sink.toolComplete(ToolCompleteEvent(use.name, use.id,
-              isError: out.isError, result: out.content));
+              isError: out.isError, result: content));
           // Success-only verifier gate (#22a): a post-tool check (e.g. a
           // headless post-edit `dart analyze`) can append a remediation block
           // to the result the model reads next step. Error results, the
@@ -852,7 +914,7 @@ class Agent {
               if (verdict != null && verdict.isNotEmpty) {
                 results.add(ToolResultBlock(
                   toolUseId: use.id,
-                  content: '${out.content}\n$verdict',
+                  content: '$content\n$verdict',
                   isError: out.isError,
                 ));
                 continue;
@@ -867,7 +929,7 @@ class Agent {
           }
           results.add(ToolResultBlock(
             toolUseId: use.id,
-            content: out.content,
+            content: content,
             isError: out.isError,
           ));
         } catch (e, st) {
@@ -1056,6 +1118,48 @@ class Agent {
           'shape or use one of those tools.',
     ];
     return lines.join('\n');
+  }
+
+  /// The retry-streak key for one tool invocation (#29): tool name plus a
+  /// normalized form of its input, so `ls -la`, `ls   -la`, and ` ls -la `
+  /// count as the same command while `ls -la` and `ls -la /tmp` stay
+  /// distinct. For `bash` the whitespace-collapsed command is the signature;
+  /// for every other tool the input map is serialized with sorted keys so the
+  /// key is stable regardless of map insertion order.
+  static String anomalySignature(String toolName, Map<String, dynamic> input) {
+    if (toolName == 'bash') {
+      final command = input['command'];
+      return '$toolName|'
+          '${command is String ? _collapseWhitespace(command) : command}';
+    }
+    final keys = input.keys.toList()..sort();
+    return '$toolName|${jsonEncode({
+          for (final k in keys) k: input[k],
+        })}';
+  }
+
+  /// Collapses every whitespace run (spaces, tabs, newlines) to a single
+  /// space, after trimming — the bash half of [anomalySignature].
+  static String _collapseWhitespace(String s) =>
+      s.trim().split(RegExp(r'\s+')).join(' ');
+
+  /// Whether [result] is an anomaly worth counting toward the #29 guardrail
+  /// for a command the agent keeps re-running. Three classes: the tool's own
+  /// timeout fired, the command produced zero output at any exit code, or it
+  /// errored with byte-identical output to the previous attempt of the SAME
+  /// signature this turn (a changed error means the model's retry is doing
+  /// something). The last comparison uses pre-note content only — the
+  /// appended guardrail line must never make identical failures look changed.
+  static bool isAnomalousResult(
+    ToolResult result, {
+    String? previousContent,
+  }) {
+    if (result.timedOut == true) return true;
+    if (result.emptyOutput == true) return true;
+    if (result.isError && previousContent != null) {
+      return result.content == previousContent;
+    }
+    return false;
   }
 
   /// Index in [history] of the [keep]-th-most-recent *human* turn (a user
