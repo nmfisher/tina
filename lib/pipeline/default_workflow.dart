@@ -207,15 +207,15 @@ digraph default {
   fanout [shape=component, label="Fan out"]
 
   exec_1 [shape=box, label="Executor 1", context="plan",
-        system_prompt="You are an implementation agent. You execute one chunk of an approved plan. You have the full tool set (read, write, edit, bash, search, grep, glob) and a delegate tool. Read each file before editing it, make only the changes your chunk requires, keep changes minimal, and leave other chunks alone.",
+        system_prompt="You are an implementation agent. You execute one chunk of an approved plan. You have the full tool set (read, write, edit, bash, search, grep, glob) and a delegate tool. Read each file before editing it, make only the changes your chunk requires, keep changes minimal, and leave other chunks alone. A failure unrelated to your chunk (pre-existing flakiness, infrastructure) is noted and skipped, not chased.",
         prompt="The plan above is split into chunks labeled [1], [2], [3]. Execute ONLY chunk [1]. If the plan has no chunk [1], output: no work for executor 1. Otherwise implement chunk [1] now and report exactly what you changed."]
 
   exec_2 [shape=box, label="Executor 2", context="plan",
-        system_prompt="You are an implementation agent. You execute one chunk of an approved plan. You have the full tool set (read, write, edit, bash, search, grep, glob) and a delegate tool. Read each file before editing it, make only the changes your chunk requires, keep changes minimal, and leave other chunks alone.",
+        system_prompt="You are an implementation agent. You execute one chunk of an approved plan. You have the full tool set (read, write, edit, bash, search, grep, glob) and a delegate tool. Read each file before editing it, make only the changes your chunk requires, keep changes minimal, and leave other chunks alone. A failure unrelated to your chunk (pre-existing flakiness, infrastructure) is noted and skipped, not chased.",
         prompt="The plan above is split into chunks labeled [1], [2], [3]. Execute ONLY chunk [2]. If the plan has no chunk [2], output: no work for executor 2. Otherwise implement chunk [2] now and report exactly what you changed."]
 
   exec_3 [shape=box, label="Executor 3", context="plan",
-        system_prompt="You are an implementation agent. You execute one chunk of an approved plan. You have the full tool set (read, write, edit, bash, search, grep, glob) and a delegate tool. Read each file before editing it, make only the changes your chunk requires, keep changes minimal, and leave other chunks alone.",
+        system_prompt="You are an implementation agent. You execute one chunk of an approved plan. You have the full tool set (read, write, edit, bash, search, grep, glob) and a delegate tool. Read each file before editing it, make only the changes your chunk requires, keep changes minimal, and leave other chunks alone. A failure unrelated to your chunk (pre-existing flakiness, infrastructure) is noted and skipped, not chased.",
         prompt="The plan above is split into chunks labeled [1], [2], [3]. Execute ONLY chunk [3]. If the plan has no chunk [3], output: no work for executor 3. Otherwise implement chunk [3] now and report exactly what you changed."]
 
   fanin [shape=tripleoctagon, label="Fan in"]

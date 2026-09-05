@@ -12,7 +12,26 @@ class ToolSchema {
 class ToolResult {
   final String content;
   final bool isError;
-  const ToolResult(this.content, {this.isError = false});
+
+  /// Optional execution metadata. Null unless the tool measures it; purely
+  /// informational today (no consumer reads these yet — they exist so a UI or
+  /// guardrail leg can start without re-plumbing every tool). `bash` populates
+  /// all three; other tools leave them null.
+  final Duration? elapsed;
+
+  /// True when the tool's own timeout fired and it killed the work.
+  final bool? timedOut;
+
+  /// True when the output channels carried zero characters (spilled output
+  /// still counts — this reports the channels, not the visible tail).
+  final bool? emptyOutput;
+  const ToolResult(
+    this.content, {
+    this.isError = false,
+    this.elapsed,
+    this.timedOut,
+    this.emptyOutput,
+  });
 
   factory ToolResult.error(String message) =>
       ToolResult(message, isError: true);
