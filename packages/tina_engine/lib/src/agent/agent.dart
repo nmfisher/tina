@@ -70,6 +70,16 @@ const int _consecutiveDenialNoticeThreshold = 3;
 /// [kMaxToolCallsPerRun].
 const int _consecutiveAnomalyNoticeThreshold = 3;
 
+/// The operator-interrupt line (#31) as it lands in history and in the
+/// notice the operator sees. Public so a caller (or test) can assert the
+/// exact text without hard-coding it.
+const String kOperatorInterruptedLine =
+    'interrupted by operator — new input pending';
+
+/// Result text for the tool calls a batch skips when the operator interrupt
+/// (#31) fires mid-batch. Public for the same reason.
+const String kOperatorInterruptedStub = 'skipped: operator interrupt';
+
 /// The in-band guardrail line appended to an anomalous tool_result once the
 /// same command has hit [_consecutiveAnomalyNoticeThreshold] consecutive
 /// anomalies in one turn (#29). In-band on purpose (#27's lesson): prose
@@ -405,6 +415,22 @@ class Agent {
   /// are invoked. [cancelSignal], when completed, aborts the current
   /// in-flight stream and exits the turn cleanly.
   ///
+  /// [toolInterruptSignal] is the operator's escape hatch (#31), distinct
+  /// from [cancelSignal]: completing it interrupts the turn WITHOUT
+  /// cancelling it. The interrupt is only observed around tool execution —
+  /// provider stream phases are never torn down mid-token. The tool batch
+  /// that is in flight when the signal fires still completes whole (every
+  /// tool_use gets its tool_result, appended to history in order), then the
+  /// turn ends cleanly: this method returns normally, with no `[cancelled]`
+  /// notice, no abort, and `abortedKind == AbortedKind.none`. The next
+  /// provider step is never taken. Null (the default) means the feature is
+  /// absent and behavior is unchanged.
+  ///
+  /// The signal is per-run: a caller that runs several turns must hand each
+  /// run its own fresh [Future] (e.g. `perTurnInterrupt.future`), never a
+  /// future from an earlier turn — a stale completed future would interrupt
+  /// the new turn's first tool batch immediately.
+  ///
   /// The activity lifecycle is owned HERE, not by each caller: when the sink
   /// is a full host ([HostInterface]), the run raises its activity signal on
   /// entry and clears it on every exit path — the turn-in-flight semantics of
@@ -417,6 +443,7 @@ class Agent {
     required List<Message> history,
     required String userInput,
     Future<void>? cancelSignal,
+    Future<void>? toolInterruptSignal,
   }) async {
     final HostInterface? activityHost =
         sink is HostInterface ? sink as HostInterface : null;
@@ -426,6 +453,7 @@ class Agent {
         history: history,
         userInput: userInput,
         cancelSignal: cancelSignal,
+        toolInterruptSignal: toolInterruptSignal,
       );
     } finally {
       activityHost?.setActivity(false);
@@ -436,6 +464,7 @@ class Agent {
     required List<Message> history,
     required String userInput,
     Future<void>? cancelSignal,
+    Future<void>? toolInterruptSignal,
   }) async {
     abortedReason = null;
     abortedKind = AbortedKind.none;
@@ -453,6 +482,16 @@ class Agent {
 
     var cancelled = false;
     cancelSignal?.then((_) => cancelled = true);
+
+    // Operator interrupt (#31), distinct from cancel: fires the turn-stop
+    // AROUND TOOL EXECUTION only — never mid-stream. Armed eagerly so an
+    // interrupt that lands before (or between) tool batches is already
+    // pending when the next batch starts (it then begins
+    // already-interrupted: the batch's first call ships the prefix line and
+    // the remainder stubs, and the turn ends). See the tool-execution block
+    // below for the full mechanics.
+    var toolInterrupted = false;
+    toolInterruptSignal?.then((_) => toolInterrupted = true);
     budget = budget?.resetTurn();
 
     // Action cap: count tool invocations across all steps of this turn. A step
@@ -765,8 +804,38 @@ class Agent {
       }
 
       final results = <ContentBlock>[];
+      // Operator interrupt (#31), batch-scope attribution. The signal is
+      // sampled when the batch STARTS and again right after every call:
+      //
+      //  * fired before the batch → index 0: call 1 is the "in flight" one.
+      //    It STILL EXECUTES — through the interrupt-armed cancel seam, so a
+      //    killable tool stops promptly and the prefix lands over a real
+      //    result ("call 1 prefixed as above"; its own isError is preserved).
+      //    Remaining calls stub without executing. There is no further
+      //    batch: the turn ends after this one.
+      //  * fired while call N executes → index N: that call finishes (its
+      //    result is prefixed) and later calls stub.
+      //
+      // Stream phases are never disturbed — the signal is only consulted
+      // here and in the effective cancel wiring around tool.execute.
+      var interruptedCallIndex = toolInterrupted ? 0 : -1;
+      if (interruptedCallIndex == 0) {
+        sink.notice('$kOperatorInterruptedLine\n');
+      }
       for (final use in toolUses) {
         if (cancelled) break;
+        final callIndex = results.length;
+        if (interruptedCallIndex >= 0 && callIndex > interruptedCallIndex) {
+          // Whole-batch invariant: every tool_use still gets its
+          // tool_result. Later calls of the batch stub as errors without
+          // executing.
+          results.add(ToolResultBlock(
+            toolUseId: use.id,
+            content: kOperatorInterruptedStub,
+            isError: true,
+          ));
+          continue;
+        }
         if (toolCalls >= kMaxToolCallsPerRun) {
           sink.notice('\n[action limit] reached, stopping\n',
               kind: NoticeKind.warning);
@@ -861,14 +930,35 @@ class Agent {
         denialCounts.remove(use.name);
         sink.toolStart(ToolStartEvent(use.name, use.id, use.input));
         try {
+          // #31: while THIS call runs, the operator interrupt rides the
+          // tool's existing cancel seam — bash kills via its existing
+          // cancel path; no new kill path is added. The agent-level cancel
+          // semantics ([cancelled]) are untouched: an interrupt is NOT a
+          // cancel. Runs without the feature keep the same shape as before
+          // it: the run's own (non-null) cancel signal.
+          final effectiveCancelSignal = toolInterrupted
+              ? cancelSignal
+              : (toolInterruptSignal ?? cancelSignal);
           final out = await tool.execute(
             use.input,
-            cancelSignal: cancelSignal,
+            cancelSignal: effectiveCancelSignal,
             onOutput: (chunk, {bool stderr = false}) {
               sink.toolOutput(
                   ToolOutputEvent(use.name, use.id, chunk, stderr: stderr));
             },
           );
+          // #31: the interrupt is re-sampled right after EVERY call, not
+          // only at batch start — a signal that fired while THIS call was
+          // in flight makes it the in-flight one: its result is the one the
+          // post-batch stamp prefixes, and every LATER call of the batch
+          // stubs without executing. Sampled before ANY result-shipping
+          // path runs (verifier block, plain add, thrown-tool catch adds
+          // from its own path), so `results.length` here is exactly the
+          // index this call's result occupies in the batch message.
+          if (interruptedCallIndex < 0 && toolInterrupted) {
+            interruptedCallIndex = results.length;
+            sink.notice('$kOperatorInterruptedLine\n');
+          }
           // #29 retry guard, BEFORE anything mutates the result content: the
           // identical-error class must compare what the tool actually
           // returned last time, not last time plus an appended guardrail
@@ -900,6 +990,10 @@ class Agent {
               );
             }
           }
+          // Operator interrupt (#31): this call was in flight when the
+          // signal fired. The operator line is stamped onto the FIRST
+          // result after the batch loop (one site, every result path), so
+          // here the text ships as the tool produced it.
           sink.toolComplete(ToolCompleteEvent(use.name, use.id,
               isError: out.isError, result: content));
           // Success-only verifier gate (#22a): a post-tool check (e.g. a
@@ -908,7 +1002,7 @@ class Agent {
           // parse-error / unknown-tool / denied / thrown paths above all skip
           // it, and a verifier crash must never kill the turn — the tool's
           // own content ships unchanged instead.
-          if (!out.isError && resultVerifier != null) {
+          if (!out.isError && resultVerifier != null && !toolInterrupted) {
             try {
               final verdict = await resultVerifier!(use.name, use.input);
               if (verdict != null && verdict.isNotEmpty) {
@@ -946,6 +1040,25 @@ class Agent {
           ));
         }
       }
+      // Operator interrupt (#31), in-flight stamp — ONE site so the line
+      // lands no matter which path produced that call's result (normal
+      // return, thrown-tool catch, malformed-arguments, denied). The
+      // in-flight call keeps its own result under the operator line and its
+      // own isError; the batch is otherwise untouched. toolComplete for the
+      // in-flight call already shipped above (the stamp never reaches
+      // observers retroactively — history and the live strip can disagree
+      // for this one call by design: the strip saw it happen live).
+      if (interruptedCallIndex >= 0 &&
+          interruptedCallIndex < results.length &&
+          results[interruptedCallIndex] is ToolResultBlock) {
+        final first = results[interruptedCallIndex] as ToolResultBlock;
+        results[interruptedCallIndex] = ToolResultBlock(
+          toolUseId: first.toolUseId,
+          content: '$kOperatorInterruptedLine\n${first.content}',
+          isError: first.isError,
+        );
+      }
+
       final toolResults = Message(role: Role.user, content: results);
       history.add(toolResults);
       // Written-through immediately: a kill after the tools ran but before the
@@ -953,6 +1066,13 @@ class Agent {
       // assistant message already references them (a dangling tool_use).
       final pendingResults = _notifyAppend(toolResults);
       if (pendingResults != null) await pendingResults;
+
+      // Operator interrupt (#31): the batch is complete and recorded — the
+      // whole-batch invariant holds and history is consistent. End the turn
+      // CLEANLY: return from [run] normally — no `[cancelled]` notice, no
+      // abort, abortedKind stays none. The next provider step is never
+      // taken; the queued operator input starts a fresh turn.
+      if (interruptedCallIndex >= 0) return;
     }
 
     sink.notice('(max steps reached)\n', kind: NoticeKind.warning);

@@ -62,13 +62,19 @@ SessionController _buildController({
   String? conversationId,
   Directory? workflowsDir,
   String? defaultWorkflow,
+  List<Tool>? tools,
 }) {
-  final policy = PermissionPolicy();
-  final tools = ToolRegistry(const []);
+  // Tests that pass real tools allow them statically — the asker seam
+  // (host.askPermission) stays wired but is never consulted for them.
+  final policy = PermissionPolicy(defaults: {
+    for (final t in tools ?? const <Tool>[]) t.schema.name:
+        PermissionDecision.allow,
+  });
+  final toolRegistry = ToolRegistry(tools ?? const []);
   final host = FakeHostInterface();
   final agent = Agent(
     provider: provider,
-    tools: tools,
+    tools: toolRegistry,
     sink: host,
     policy: policy,
     asker: host.askPermission,
@@ -113,7 +119,7 @@ SessionController _buildController({
     }) =>
         Agent(
       provider: provider,
-      tools: tools,
+      tools: toolRegistry,
       sink: host,
       policy: policy,
       asker: host.askPermission,
@@ -137,12 +143,13 @@ FakeHostInterface hostOf(SessionController c) =>
 /// Poll [pred] at a short interval until it holds, or fail. The controller's
 /// turns run fire-and-forget, so tests pump until the side-effect they care
 /// about (an echoed line, a queued notice, a cancelled exchange) has landed.
-Future<void> _pumpUntil(bool Function() pred, {int iterations = 300}) async {
+Future<void> _pumpUntil(bool Function() pred,
+    {int iterations = 300, String reason = 'condition'}) async {
   for (var i = 0; i < iterations; i++) {
     await Future<void>.delayed(const Duration(milliseconds: 10));
     if (pred()) return;
   }
-  throw TimeoutException('pumpUntil timed out');
+  fail('pumpUntil timed out waiting: $reason');
 }
 
 void main() {
@@ -415,6 +422,261 @@ void main() {
           reason: 'the force-cancelled turn is indicated');
       expect(controller.active.history, isEmpty,
           reason: 'the cancelled exchange is discarded');
+    });
+
+    test('#31: cancelling a turn keeps the queue and drains it into the next '
+        'turn (previously "[N queued messages discarded]")', () async {
+      final rl = FakeReadLine();
+      final controller =
+          _buildController(readLine: rl, provider: _SlowProvider());
+
+      rl.enqueue('hi'); // starts a never-ending turn
+      final runFuture = controller.run();
+      await _pumpUntil(() => controller.active.isRunning);
+      rl.enqueue('survivor 1');
+      rl.enqueue('survivor 2');
+      await _pumpUntil(() => controller.active.messageQueue.length == 2,
+          reason: 'both messages queued while running');
+
+      controller.cancelNow(); // rapid-Esc cancel
+      // The unwind rolls the cancelled exchange back and drains survivor 1
+      // into the next turn; pump until that turn is running.
+      await _pumpUntil(
+          () =>
+              controller.active.isRunning &&
+              hostOf(controller)
+                  .messages
+                  .any((m) => m.contains('survivor 1')),
+          reason: 'survivor 1 becomes a turn after the cancelled one');
+
+      // Rollback proof: the cancelled exchange is gone — the history starts
+      // at the SURVIVOR's user message, not at 'hi'.
+      expect(
+          (controller.active.history.first.content.first as TextBlock).text,
+          'survivor 1',
+          reason: "the cancelled exchange ('hi' + partial output) was rolled "
+              'back; the drain turn starts from a clean pre-turn history');
+      expect(controller.active.messageQueue.length, 1,
+          reason: 'survivor 2 waits for its own turn');
+      rl.close();
+      await runFuture;
+
+      expect(
+          hostOf(controller)
+              .messages
+              .any((m) => m.contains('discarded')),
+          isFalse,
+          reason: 'the discard notice is gone — the queue survives cancel');
+      expect(controller.active.messageQueue.length, 1,
+          reason: 'the turn loop is parked at readLine; survivor 2 waits '
+              'for its turn');
+    });
+
+    test('#31: a turn that ends on its own starts the queued next turn '
+        '(drain decision precedes clearing the run flag)', () async {
+      // Race regression: the run flag used to clear before the dequeue, so a
+      // submit landing in that window started a SECOND concurrent turn
+      // alongside the drained one. With the fix the drain decision is made
+      // while the flag still holds; a submit after it enqueues behind [next].
+      // A gated tool parks each of the first two turns mid-flight (a tool
+      // call in flight = the turn is observably running, no isRunning race);
+      // the third submit needs no gate — the turn loop has shut by then.
+      final gate1 = Completer<void>();
+      final gate2 = Completer<void>();
+      final tool = _TwoGateTool()
+        ..gate1 = gate1
+        ..gate2 = gate2;
+      final rl = FakeReadLine();
+      final controller = _buildController(
+          readLine: rl,
+          provider: FakeProvider([
+            [
+              const MessageComplete(
+                content: [
+                  ToolUseBlock(id: 't1', name: 'gated', input: {'n': 1}),
+                ],
+                stopReason: 'tool_use',
+              ),
+            ],
+            [
+              const MessageComplete(
+                content: [
+                  ToolUseBlock(id: 't2', name: 'gated', input: {'n': 2}),
+                ],
+                stopReason: 'tool_use',
+              ),
+            ],
+            _answer('third done'),
+          ]),
+          tools: [tool]);
+
+      rl.enqueue('first'); // parks turn 1 on gate1
+      final runFuture = controller.run();
+      await _pumpUntil(() => tool.calls == 1, reason: 'turn 1 in flight');
+
+      // 'second' is typed while the first turn runs — it must be QUEUED and
+      // drained as a sequential second turn, never run concurrently.
+      rl.enqueue('second');
+      await _pumpUntil(() => controller.active.messageQueue.isNotEmpty,
+          reason: "the submit landed in the queue while turn 1 ran");
+
+      gate1.complete(); // turn 1 finishes on its own (no cancel)
+      await _pumpUntil(() => tool.calls == 2,
+          reason: 'the drain dequeued "second" and turn 2 is in flight');
+
+      // A submit racing the next drain window queues behind the running
+      // turn instead of starting a third concurrent one.
+      rl.enqueue('third');
+      await _pumpUntil(() => controller.active.messageQueue.isNotEmpty,
+          reason: 'the raced submit queued behind the running turn 2');
+      gate2.complete();
+      await _pumpUntil(
+          () => hostOf(controller).sink.texts.join().contains('third done'),
+          reason: 'the third message ran as a sequential third turn');
+      rl.close();
+      await runFuture;
+
+      // Tool-result carriers are user-role too; count only the typed turns,
+      // in order — the race would show a duplicated/interleaved exchange.
+      expect(
+          controller.active.history
+              .where((m) =>
+                  m.role == Role.user &&
+                  m.content.any((b) => b is TextBlock))
+              .map((m) => (m.content.firstWhere((b) => b is TextBlock)
+                      as TextBlock)
+                  .text),
+          ['first', 'second', 'third'],
+          reason: 'three user turns ran SEQUENTIALLY — the race would show a '
+              'duplicated or interleaved exchange here');
+    });
+
+    test('#31 interrupt gesture: Enter on empty with queued work breaks into '
+        'the run; batch ships whole and the backlog drains after', () async {
+      final gate = Completer<void>();
+      final tool = _GatedTool(gate);
+      final rl = FakeReadLine();
+      final controller = _buildController(
+        readLine: rl,
+        provider: FakeProvider([
+          [
+            const MessageComplete(
+              content: [
+                ToolUseBlock(id: 'c1', name: 'gated', input: {'n': 1}),
+                ToolUseBlock(id: 'c2', name: 'gated', input: {'n': 2}),
+              ],
+              stopReason: 'tool_use',
+            ),
+          ],
+          // The drain turn's answer (the queue survives the interrupt).
+          _answer('drain turn done'),
+        ]),
+        tools: [tool],
+      );
+
+      rl.enqueue('go'); // starts the turn: c1 parks on the gate
+      final runFuture = controller.run();
+      await _pumpUntil(() => controller.active.isRunning);
+      await _pumpUntil(() => tool.calls == 1, reason: 'c1 in flight');
+
+      rl.enqueue('what I typed while waiting'); // lands in the queue
+      await _pumpUntil(() => controller.active.messageQueue.isNotEmpty,
+          reason: 'queued while the turn runs');
+
+      rl.enqueue(''); // THE GESTURE: empty Enter = interrupt
+      await _pumpUntil(
+          () => hostOf(controller)
+              .messages
+              .any((m) => m.contains('interrupting — queued input next')),
+          reason: 'the controller recognized the gesture and armed the '
+              'interrupt');
+
+      gate.complete(); // the in-flight call returns (kill landed in prod)
+      await _pumpUntil(
+          () => hostOf(controller)
+              .notices
+              .any((n) => n.contains('interrupted by operator')),
+          reason: 'the engine attributed the in-flight call: its result '
+              'ships with the operator line');
+      // (The queue length is NOT asserted here: ending the turn drains it
+      // into the next turn immediately — asserted below via the echo.)
+      expect(controller.active.history.any((m) =>
+          m.role == Role.user &&
+          m.content.any((b) =>
+              b is ToolResultBlock &&
+              b.content
+                  .startsWith('interrupted by operator'))), isTrue,
+          reason: 'the in-flight result carries the operator line');
+      expect(controller.active.agent.abortedKind, AbortedKind.none,
+          reason: 'an interrupt is not a cancel — no abort, no rollback');
+
+      // The backlog drains as a fresh turn and runs to its own completion.
+      await _pumpUntil(
+          () => hostOf(controller)
+              .sink
+              .texts
+              .join()
+              .contains('drain turn done'),
+          reason: 'the queued message became the next turn and completed');
+      rl.close();
+      await runFuture;
+
+      // The abortedReason the AGENT tracked for the turn that owned the
+      // batch: the interrupt ends it cleanly (an interrupt is not an abort),
+      // while the drain turn completed normally on its own script.
+      expect(controller.active.agent.abortedKind, AbortedKind.none,
+          reason: 'neither the interrupted turn nor the drain turn aborted');
+
+      expect(tool.calls, 1,
+          reason: 'c2 never executed — it stubbed (the fake provider has no '
+              'further step; the tool-call count is the observable)');
+      expect(
+          hostOf(controller)
+              .notices
+              .any((n) => n.contains('[cancelled]')),
+          isFalse,
+          reason: 'no cancel semantics fired');
+    });
+
+    test('#31 gesture is inert without queued work (empty Enter stays a '
+        'no-op when the queue is empty)', () async {
+      final gate = Completer<void>();
+      final tool = _GatedTool(gate);
+      final rl = FakeReadLine();
+      final controller = _buildController(
+        readLine: rl,
+        provider: FakeProvider([
+          [
+            const MessageComplete(
+              content: [
+                ToolUseBlock(id: 'c1', name: 'gated', input: {'n': 1}),
+              ],
+              stopReason: 'tool_use',
+            ),
+          ],
+        ]),
+        tools: [tool],
+      );
+
+      rl.enqueue('go');
+      final runFuture = controller.run();
+      await _pumpUntil(() => tool.calls == 1, reason: 'c1 in flight');
+
+      rl.enqueue(''); // running, but NOTHING queued — must stay inert
+      await _pumpUntil(() => hostOf(controller).messages.isNotEmpty);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(
+          hostOf(controller)
+              .notices
+              .any((n) => n.contains('interrupted by operator')),
+          isFalse,
+          reason: 'no queued work — the gesture does nothing');
+      expect(tool.calls, 1);
+      expect(controller.active.messageQueue, isEmpty);
+
+      gate.complete();
+      rl.close();
+      await runFuture;
     });
 
     test('cancelNow returns false when nothing runs (idle input-clear path)',
@@ -963,5 +1225,66 @@ class _SlowProvider extends LlmProvider {
     controller.add(const TextDelta('streaming'));
     // Intentionally NOT closed — stream stays open until subscription.cancel().
     return controller.stream;
+  }
+}
+
+/// Inline answer step: a plain streamed text completion (no tool calls).
+List<StreamEvent> _answer(String text) => [
+      TextDelta(text),
+      MessageComplete(content: [TextBlock(text)], stopReason: 'end_turn'),
+    ];
+
+/// A tool whose single gate parks execute until the test releases it, then
+/// returns a fixed result. `calls` is the observable for "this call ran".
+class _GatedTool implements Tool {
+  _GatedTool(this._gate);
+
+  final Completer<void> _gate;
+  int calls = 0;
+
+  @override
+  final ToolSchema schema = const ToolSchema(
+    name: 'gated',
+    description: 'parks on a gate',
+    inputSchema: {'type': 'object', 'properties': {}},
+  );
+
+  @override
+  Future<ToolResult> execute(
+    Map<String, dynamic> input, {
+    Future<void>? cancelSignal,
+    ToolOutputCallback? onOutput,
+  }) async {
+    calls++;
+    await _gate.future;
+    return const ToolResult('gated-ok');
+  }
+}
+
+/// A gated tool with TWO independently controlled calls, for scenarios where
+/// two successive turns must each park mid-flight (e.g. drain-race proofs:
+/// each turn is observably running while the test submits the next line).
+class _TwoGateTool implements Tool {
+  Completer<void>? gate1;
+  Completer<void>? gate2;
+  int calls = 0;
+
+  @override
+  final ToolSchema schema = const ToolSchema(
+    name: 'gated',
+    description: 'parks on a per-call gate',
+    inputSchema: {'type': 'object', 'properties': {}},
+  );
+
+  @override
+  Future<ToolResult> execute(
+    Map<String, dynamic> input, {
+    Future<void>? cancelSignal,
+    ToolOutputCallback? onOutput,
+  }) async {
+    final gate = calls == 0 ? gate1 : gate2;
+    calls++;
+    if (gate != null) await gate.future;
+    return const ToolResult('gated-ok');
   }
 }
