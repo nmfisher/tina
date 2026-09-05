@@ -1,8 +1,12 @@
 # Timer system — design spec (task #33)
 
-Status: SPEC FOR OWNER REVIEW — docs only, nothing implemented. Expands the
-2026-09-05 chat proposal to implementation depth at the owner's request
-("review a detailed spec BEFORE implementation"). Owner ask that created
+Status: SPEC FOR OWNER REVIEW (REV 2) — docs only, nothing implemented.
+REV 2 incorporates the owner's first review feedback (2026-09-05): timers
+are PERSISTED per session; resuming a session asks consent before
+restoring them; expired one-off timers surface as a warning, not a prompt.
+Expands the 2026-09-05 chat proposal to implementation depth at the
+owner's request ("review a detailed spec BEFORE implementation"). Owner
+ask that created
 the feature: "a timer tool and timer system inside tina... the agent within
 tina should be able to invoke a timer tool; the user instructs the agent to
 set a timer, e.g. every hour check this, or every five minutes check this.
@@ -20,7 +24,9 @@ interval and a self-contained check instruction. While tina runs, the
 runtime fires each timer on its schedule and executes the check as a REAL
 agent turn — the same model, tools, permissions, budgets, persistence, and
 display as a typed turn — for as long as the process lives. The operator
-can inspect and cancel timers without going through the agent.
+can inspect and cancel timers without going through the agent. Timers
+persist per session (REV 2, owner feedback): they survive the process, and
+resuming a session offers to restore its saved timers.
 
 ## 2. Decisions of record
 
@@ -34,7 +40,7 @@ design of record unless the owner vetoes in spec review:
 | 3  | Schedule | Fixed grid anchored at fire time, with busy-collapse |
 | 4  | Operator command | `/timers` (list / show / cancel) |
 | 5  | Runaway guard | Suspend after 6 consecutive aborted fire-turns |
-| 6  | Scope | Runtime-scoped, no persistence (v1) |
+| 6  | Scope | REVISED by owner 2026-09-05: persisted per session; resume restores with explicit consent; expired one-offs warn (was: runtime-only, no persistence) |
 
 New sub-decisions surfaced by this spec (each with a recommendation; the
 owner can veto any of them cheaply in review):
@@ -81,6 +87,11 @@ owner can veto any of them cheaply in review):
   lib/host/headless_watchdog.dart. No scheduler exists anywhere today.
 - TUI bootstrap (where the service gets constructed):
   lib/tui_coordinator.dart:857 (`SessionController(`).
+- Resume funnel: `resumeIntoActive` (lib/session_controller.dart:937) —
+  both the `/resume` command (session_command_handlers.dart:616) and the
+  CLI `--resume`/`-c` path (tui_coordinator.dart:928) land here; the
+  engine-side session store lives at
+  packages/tina_engine/lib/src/persistence/session_store.dart:350.
 
 ## 4. TimerService (engine — new packages/tina_engine/lib/src/timers/)
 
@@ -116,19 +127,25 @@ class TimerService {
     required TimerNoticeCallback onNotice,   // app wires host.showMessage
     TimerFactory? timerFactory,              // default: Dart Timer; tests fake it
     DateTime Function()? clock,              // default: DateTime.now; tests fake it
+    String? Function()? currentSessionId,    // tags entries for persistence (§10)
   });
   TimerSetOutcome set(TimerSpec spec);       // same name REPLACES (idempotent)
   bool cancel(String name);                  // false = unknown name
   List<TimerSnapshot> list();
   void ackStarted(String name);              // queued → running (no-op otherwise)
   void ackFinished(String name, {required bool aborted});  // running → idle
+  List<Map<String, Object?>> exportState();  // all entries, incl. counters/anchors
+  List<String> restoreState(                 // re-arm saved entries verbatim;
+      List<Map<String, Object?>> saved);     // returns names that hit the cap
   void dispose();                            // cancels every armed Dart Timer
 }
 ```
 
 The tools (§6) translate outcomes into `ToolResult` text; the service never
-builds tool text itself. Constants live engine-side, named (repo precedent:
-`_consecutiveAnomalyNoticeThreshold`):
+builds tool text itself and never touches disk — `exportState` /
+`restoreState` are plain data in, plain data out; the engine persistence
+package owns the file (§10). Constants live engine-side, named (repo
+precedent: `_consecutiveAnomalyNoticeThreshold`):
 
 ```dart
 const int kMaxActiveTimers = 8;
@@ -142,7 +159,11 @@ const int kMaxTimerInstructionChars = 2000;
 
 `name`, `interval`, `instruction`, `once`/`maxFires`, `fireCount`,
 `consecutiveAbortedFires`, `suspended`, `state` (idle/queued/running),
-`nextAnchor` (the grid position), and the currently armed Dart `Timer`.
+`nextAnchor` (the grid position), the `sessionId` captured at `set` time
+(via the `currentSessionId` callback — persistence groups by it, §10), and
+the currently armed Dart `Timer`. `restoreState` rebuilds entries from
+saved data preserving every counter and the anchor verbatim (queued/running
+save as idle — a restore never resumes a fire in flight).
 
 ### 4.3 The event loop
 
@@ -400,24 +421,85 @@ fake working); `SessionController` overrides it. Sub-commands:
   timers unavailable) → `/timers: timer system not available in this
   session.`
 
-## 10. Runtime scope & hosts
+## 10. Runtime scope, persistence & resume (REV 2 — owner feedback)
 
-- **Constructed only on the interactive path**: `TimerService` is built at
-  the TUI bootstrap beside `SessionController` (tui_coordinator.dart:857),
-  wired (`onFire` → controller, `onNotice` → `host.showMessage`), passed
-  to the controller (CommandContext exposure) and to `buildAgent(timers:)`.
-- **Headless never sees it**: the `--prompt` runner constructs no service,
-  so `buildAgent` gets `timers: null` and registers no timer tools — no
-  dead surface. Verified seam: agent_composition.dart:114.
-- **No persistence, no resume reinstatement (v1)**: timers live and die
-  with the process (the owner's framing: "within the tina runtime"). A
-  resumed session's history shows past check exchanges but no live timers;
-  the agent must re-set them. A keep-alive mode (`--run-timers <duration>`)
-  is deferred (§13).
-- **Session switch**: the service is controller-owned (sub-decision a) and
-  outlives individual conversations; fires target the active conversation,
-  and are skipped (dim notice) when none is active.
-- **Dispose**: TUI teardown calls `dispose()` (cancels all armed timers).
+- **Constructed only on the interactive path** (unchanged): `TimerService`
+  is built at the TUI bootstrap beside `SessionController`
+  (tui_coordinator.dart:857), wired (`onFire` → controller, `onNotice` →
+  `host.showMessage`), passed to the controller (CommandContext exposure)
+  and to `buildAgent(timers:)`.
+- **Headless never sees timers** (unchanged): the `--prompt` runner
+  constructs no service, registers no timer tools, and reads or writes no
+  sidecars.
+- **Per-session sidecar**: each session's active timers serialize to
+  `<session-id>.timers.json` in the same directory as that session's
+  transcript file, via a small store in the engine persistence package
+  (sibling of session_store.dart:350). Schema (**VERBATIM**, `version: 1`;
+  unknown FIELDS inside version 1 are ignored — forward-compat; an unknown
+  VERSION is ignored whole with a one-line notice):
+  ```json
+  {
+    "version": 1,
+    "timers": [
+      {"name": "check-build", "everyMs": 300000,
+       "instruction": "run dart test and report failures",
+       "once": false, "maxFires": null, "fireCount": 12,
+       "consecutiveAbortedFires": 0, "suspended": false,
+       "anchorEpochMs": 1730000000000}
+    ]
+  }
+  ```
+- **Write-through**: every mutation that changes durable state (`set`,
+  `cancel`, expiry/suspension inside `ackFinished`, `restoreState`) rewrites
+  the affected session's sidecar atomically (temp file + rename — the
+  recorder's `replace` pattern). Counter-only ticks do NOT rewrite; counters
+  flush on the next mutation and at dispose. Honest crash window: a crash
+  can lose a few `fireCount` increments, so a partially-consumed `max_fires`
+  timer may over-fire by that amount after a crash — accepted, documented
+  here.
+- **Restore flow** — one hook inside `resumeIntoActive`
+  (session_controller.dart:937), which both resume entry points already
+  funnel through (`/resume` at session_command_handlers.dart:616, CLI
+  `--resume`/`-c` at tui_coordinator.dart:928). After the transcript
+  loads, before the first turn:
+  1. Read the sidecar. Missing or empty → silent no-op.
+  2. Classify each saved timer at `now`: **EXPIRED** = `once &&
+     anchorEpochMs <= now`; **COMPLETED** = a `maxFires`/`once` timer whose
+     fire count is used up; **RESTORABLE** = everything else (recurring
+     always; a future one-off).
+  3. EXPIRED and COMPLETED: NO prompt — a single warning line each
+     (**VERBATIM**): `timer '<name>' (one-off, due <time>) expired while
+     the session was closed — discarded.` and `timer '<name>' completed
+     its <N> fires — discarded.` Pruned and the sidecar written back
+     immediately, so each warning fires exactly once.
+  4. RESTORABLE non-empty → ASK, defaulting NO (**VERBATIM**):
+     `This session has <N> saved timer(s):` then one line per timer
+     (`  <name> every <every><, suspended><, <M>/<K> fires used>`) then
+     `Restore them? [y/N]`. On y: `restoreState(...)` re-arms each verbatim
+     — anchor as saved; the §4.4 past-tick rule collapses missed grid
+     points, so the first fire lands on the first FUTURE grid point. On n
+     or EOF: the sidecar is left untouched (asked again next resume).
+  5. Cap interaction: the 8-timer cap is runtime-wide. A restore that
+     would exceed it restores what fits in saved order and appends
+     `timer '<name>' not restored — 8-timer limit reached.` Skipped
+     entries stay in the sidecar.
+  6. Suspended timers restore AS suspended (state is truth); the restore
+     listing marks them and the un-suspend path is unchanged (re-set).
+- **The consent seam**: new injectable
+  `Future<bool> Function(String summary)? timerRestorePrompt` on
+  SessionController (default null). The TUI coordinator wires it to a tty
+  y/N read (precedent: the pre-TUI project-trust ask, bin/tina.dart:169).
+  When null (tests, non-tty resume): no prompt, nothing restored, and a
+  dim notice `timers saved for this session — restore unavailable here;
+  they are kept on disk` — the sidecar persists for a later interactive
+  resume.
+- **Session switch does NOT rebind or re-ask**: timers of all sessions
+  live in the one runtime service (sub-decision a), each entry tagged with
+  its `sessionId` and serialized back to ITS OWN sidecar on exit; a fire
+  still targets the active conversation regardless of tag (instructions
+  are required to be self-contained precisely for this).
+- **Dispose** (unchanged): TUI teardown calls `dispose()`; write-through
+  has already flushed durable state.
 
 ## 11. Testing plan
 
@@ -438,6 +520,13 @@ Engine suite (packages/tina_engine) — fake factory + fake clock, no sleeps:
   table; instruction length bound; once/max_fires exclusion; cap
   rejection text; cancel unknown lists actives; list empty text; result
   texts byte-match §6 **VERBATIM** strings.
+- `timer_persistence_test.dart` (engine): sidecar round-trip (write → read
+  → `restoreState` equality, counters and anchor preserved); queued/running
+  save as idle; version-2 file ignored with a notice; unknown fields
+  tolerated; corrupt JSON treated as absent with a one-line warning, never
+  a crash; expired/completed classification table (boundary: anchor exactly
+  now = expired); write-through on set/cancel/suspend/restore; atomic
+  replace leaves no temp file behind on simulated failure.
 
 Root suite (test/):
 
@@ -448,6 +537,14 @@ Root suite (test/):
   suspension; thrown turn (stub provider error) counts; attribution map
   cannot be spoofed by a typed look-alike prompt (wrong `#<n>`); #31
   gesture still works when only a timer fire is queued (sub-decision f).
+- Resume/persistence (root): resume + saved timers + consent y → timers
+  armed with counters kept; consent n → sidecar intact, nothing armed;
+  expired one-off warns once and prunes (second resume silent); completed
+  max_fires warns; cap overflow restores first-k and reports the rest;
+  prompt seam null → dim notice, no restore, sidecar kept; no sidecar →
+  silent; suspension written through to disk is visible on the next
+  resume's listing; both entry points (`--resume` CLI and `/resume`
+  command) hit the same `resumeIntoActive` hook.
 - session-commands test: `/timers` list/show/cancel against a fake
   service (incl. unknown name and absent-service messages);
   `CommandContext.timers` default null compiles existing fakes unchanged.
@@ -462,18 +559,22 @@ Two legs driven through tina (the driver never implements), off
 post-#45 main:
 
 1. **Engine leg** — `timers/` (service, interval parser, three tools,
-   constants) + engine tests; this spec file rides the leg as a tracked
-   doc (paths updated if anchors moved).
-2. **App leg** — composition wiring, `SessionController` injection/acks,
-   `/timers` command + tests.
+   constants, `exportState`/`restoreState`) + the sidecar store in the
+   engine persistence package + engine tests; this spec file rides the leg
+   as a tracked doc (paths updated if anchors moved).
+2. **App leg** — composition wiring, `SessionController`
+   injection/acks/write-through, the `resumeIntoActive` restore hook with
+   the consent seam, `/timers` command + tests.
 
 Round-close-note style log entry at the end. Nothing merges without an
 explicit owner instruction.
 
 ## 13. Out of scope / deferred
 
-- Persistence across restarts; `--resume` reinstating timers.
-- Headless keep-alive (`--run-timers <duration>`).
+- Headless keep-alive (`--run-timers <duration>`) — headless still never
+  constructs timers, even though sidecars now persist.
+- Sidecar migration beyond version-1 forward-compat (a future format
+  change bumps `version` and rewrites on next save).
 - Cross-conversation/global timer targeting; per-conversation services.
 - Cron-expression schedules (v1 is interval-only).
 - Timer fires interrupting a hung tool — interrupts stay human-only (#31).
