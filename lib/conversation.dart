@@ -36,6 +36,15 @@ class Conversation {
   /// Completer for the currently running agent turn. Null when idle.
   Completer<void>? cancelCompleter;
 
+  /// Operator interrupt (#31) for the currently running turn: Enter on an
+  /// EMPTY input while the queue holds work completes this instead of the
+  /// cancel completer — the in-flight tool batch is broken into (its results
+  /// ship with the operator line) and the turn ends cleanly, after which the
+  /// backlog drains as usual. Fresh per turn (a stale, already-fired signal
+  /// would interrupt the next turn's first batch — the engine treats a
+  /// completed future as fired); null when idle.
+  Completer<void>? toolInterruptCompleter;
+
   /// Whether this conversation has an agent turn currently in flight.
   bool get isRunning =>
       cancelCompleter != null && !cancelCompleter!.isCompleted;

@@ -379,7 +379,29 @@ class SessionController implements CommandContext {
       }
 
       final trimmed = input.trim();
-      if (trimmed.isEmpty) continue;
+      if (trimmed.isEmpty) {
+        // #31 interrupt gesture: Enter on an EMPTY input while a turn is
+        // running and the queue holds work = "break into the run and process
+        // what I typed". Completes the turn's tool-interrupt signal — the
+        // in-flight tool batch finishes whole (in-flight result prefixed
+        // "interrupted by operator — new input pending", later calls stub)
+        // and the turn ends CLEANLY (distinct from Esc/Esc-Esc cancel,
+        // which rolls back). Without queued work the keypress stays inert —
+        // there is nothing to hand the run over TO; without a running turn
+        // it also stays inert (an empty submit was a no-op before; Esc
+        // still owns cancel).
+        final s0 = active;
+        final interrupt = s0.toolInterruptCompleter;
+        if (s0.isRunning &&
+            interrupt != null &&
+            !interrupt.isCompleted &&
+            s0.messageQueue.isNotEmpty) {
+          interrupt.complete();
+          s0.host.showMessage('interrupting — queued input next\n',
+              style: HostMessageStyle.dim);
+        }
+        continue;
+      }
 
       final cmd = await _commands.dispatch(trimmed);
       if (cmd is CmdExit) {
@@ -541,16 +563,22 @@ class SessionController implements CommandContext {
     s.host.showMessage('$input\n', style: HostMessageStyle.user);
     s.host.showSeparator();
 
-    // Auto-compact before the turn if the about-to-be-sent request is large.
-    // Runs before preLen is captured so the new turn's messages are all that's
-    // appended on completion (the summary itself is persisted via replace).
-    if (autoCompactThreshold > 0) {
-      await _maybeAutoCompact(s, input);
-    }
-
-    final preLen = s.history.length;
+    // #31: arm the busy markers BEFORE the first await. The unwind below
+    // (normal, cancelled, or interrupted) drains one queued message through
+    // _startTurn while the OLD completers may still sit assigned for a few
+    // more awaits (recorder writes, persistence); a submit landing in that
+    // window must see a BUSY session and queue behind the next turn — not
+    // an idle one it starts a second concurrent turn in. The previous
+    // ordering cleared the flag first and armed after an await, leaving
+    // exactly that window (pinned by the regression test).
     final cancel = Completer<void>();
     s.cancelCompleter = cancel;
+    // A FRESH interrupt signal per turn: a stale, already-fired one would
+    // interrupt the next turn's first tool batch (the engine treats a
+    // completed future as fired). Cleared alongside the cancel completer in
+    // the unwind below.
+    final toolInterrupt = Completer<void>();
+    s.toolInterruptCompleter = toolInterrupt;
     // The busy cue tracks THIS conversation's activity, not focus: raise it
     // whether or not the panel is on screen, so a turn that starts in the
     // background (queue drain, workflow-result injection) still lights its
@@ -558,38 +586,69 @@ class SessionController implements CommandContext {
     s.host.setActivity(true);
     onSessionsChanged?.call();
 
-    // Persist the user's message BEFORE the turn starts, so it survives a quit
-    // before the response completes and is restored by `-c`. `agent.run` adds
-    // the same message to in-memory history; the post-turn append below skips
-    // it, and a cancel rolls it back via replace — so cancel still discards the
-    // whole exchange, but a process killed mid-stream no longer loses the prompt.
-    final rec = s.recorder;
-    final userMessage = Message(role: Role.user, content: [TextBlock(input)]);
-    if (rec != null) {
+    // Auto-compact before the turn if the about-to-be-sent request is large.
+    // Runs before preLen is captured so the new turn's messages are all that's
+    // appended on completion (the summary itself is persisted via replace).
+    // Compact failure must not strand the markers armed above: the failure
+    // completes the cancel completer, so the turn unwinds through the cancel
+    // path (rollback + queue survival) instead of hanging busy.
+    if (autoCompactThreshold > 0) {
       try {
-        await rec.append(userMessage);
-      } catch (e) {
-        s.host.showMessage(
-            'session write failed: $e\n', style: HostMessageStyle.error);
+        await _maybeAutoCompact(s, input);
+      } catch (e, st) {
+        s.host.showMessage('error: $e\n', style: HostMessageStyle.error);
+        if (environment.env['COCOON_DEBUG'] == '1') {
+          s.host.showMessage('$st\n', style: HostMessageStyle.dim);
+        }
+        if (!cancel.isCompleted) cancel.complete();
       }
     }
 
-    // Normal turns run the plain agent. A workflow is launched on demand by the
-    // agent itself via its `launch_workflow` tool (the supervisor seam wired by
-    // the coordinator) — a fire-and-forget call: the run churns in the
-    // background while the chat stays open, and its completion injects a
-    // follow-up turn (see injectWorkflowResult) carrying the outcome.
-    // Workflows never wrap a chat turn.
-    try {
-      await s.agent.run(
-        history: s.history,
-        userInput: input,
-        cancelSignal: cancel.future,
-      );
-    } catch (e, st) {
-      s.host.showMessage('error: $e\n', style: HostMessageStyle.error);
-      if (environment.env['COCOON_DEBUG'] == '1') {
-        s.host.showMessage('$st\n', style: HostMessageStyle.dim);
+    // Turn-scope state the unwind below needs on every path — including the
+    // ESC-won skip, where the run never started and history is unchanged
+    // (rollback then removes nothing).
+    final preLen = s.history.length;
+    final rec = s.recorder;
+
+    // An Esc-Esc that landed while the pre-turn awaits were in flight (the
+    // user-message persist below, or a compaction) wins before the run
+    // starts: skip the doomed run and unwind through the cancel path.
+    if (!cancel.isCompleted) {
+      // Persist the user's message BEFORE the turn starts, so it survives a
+      // quit before the response completes and is restored by `-c`. `agent.run`
+      // adds the same message to in-memory history; the post-turn append below
+      // skips it, and a cancel rolls it back via replace — so cancel still
+      // discards the whole exchange, but a process killed mid-stream no longer
+      // loses the prompt.
+      final userMessage =
+          Message(role: Role.user, content: [TextBlock(input)]);
+      if (rec != null) {
+        try {
+          await rec.append(userMessage);
+        } catch (e) {
+          s.host.showMessage(
+              'session write failed: $e\n', style: HostMessageStyle.error);
+        }
+      }
+
+      // Normal turns run the plain agent. A workflow is launched on demand by
+      // the agent itself via its `launch_workflow` tool (the supervisor seam
+      // wired by the coordinator) — a fire-and-forget call: the run churns in
+      // the background while the chat stays open, and its completion injects a
+      // follow-up turn (see injectWorkflowResult) carrying the outcome.
+      // Workflows never wrap a chat turn.
+      try {
+        await s.agent.run(
+          history: s.history,
+          userInput: input,
+          cancelSignal: cancel.future,
+          toolInterruptSignal: toolInterrupt.future,
+        );
+      } catch (e, st) {
+        s.host.showMessage('error: $e\n', style: HostMessageStyle.error);
+        if (environment.env['COCOON_DEBUG'] == '1') {
+          s.host.showMessage('$st\n', style: HostMessageStyle.dim);
+        }
       }
     }
 
@@ -607,7 +666,11 @@ class SessionController implements CommandContext {
     }
 
     if (cancel.isCompleted) {
-      // Cancelled: drop any partial assistant/tool messages and the backlog.
+      // Cancelled: drop the exchange this turn appended (its user message +
+      // any partial assistant/tool messages). Nothing else can have appended
+      // during the unwind above: submissions and injected turns see
+      // isRunning still set (the markers are only torn down below) and queue
+      // instead; the drain is the sole next-turn starter and runs after.
       if (s.history.length > preLen) {
         s.history.removeRange(preLen, s.history.length);
       }
@@ -623,13 +686,10 @@ class SessionController implements CommandContext {
               'session write failed: $e\n', style: HostMessageStyle.error);
         }
       }
-      if (s.messageQueue.isNotEmpty) {
-        s.host.showMessage(
-            '[${s.messageQueue.length} queued message'
-            '${s.messageQueue.length == 1 ? '' : 's'} discarded]\n',
-            style: HostMessageStyle.dim);
-        s.messageQueue.clear();
-      }
+      // #31 queue survival: the backlog is the operator's typed work —
+      // cancelling a run must not destroy it (guardrails proposal §3C).
+      // The turn's exchange is rolled back above, but the queue is NOT
+      // cleared: it drains below, exactly as after a finished turn.
     } else {
       // Persist the turn's new messages, skipping the user message at index
       // preLen — it was persisted before the turn started above.
@@ -646,20 +706,38 @@ class SessionController implements CommandContext {
       }
     }
 
-    s.cancelCompleter = null;
-    _cancelArmed = false;
-    // Clear unconditionally too: a turn that ends while another panel holds
-    // focus must drop its busy cue, or an idle panel animates forever
-    // (tin-y4qn).
-    s.host.setActivity(false);
-    onSessionsChanged?.call();
+    // #31 race fix, ownership-guarded: a submit or an injected turn (workflow
+    // result, queue drain) that started while the unwind above awaited —
+    // recorder writes, persistence — has re-armed the markers with FRESH
+    // completers. This stale unwind must not clear them (that would mark a
+    // live turn idle mid-run), must not drop its busy cue, and must not
+    // drain the queue: the live turn drains it in order. Only the unwind
+    // that still OWNS the markers tears them down and starts the next turn.
+    final tookOver =
+        s.cancelCompleter != null && !identical(s.cancelCompleter, cancel);
+    if (!tookOver) {
+      // Capture the drain decision BEFORE the run flag clears (documented
+      // ordering): a submit arriving after the dequeue but before
+      // [_startTurn] enqueues behind [next] — the next turn's own drain
+      // picks it up. (No awaits in between, so the window is theoretical;
+      // the order documents intent.)
+      final next = s.messageQueue.dequeue();
+
+      s.cancelCompleter = null;
+      s.toolInterruptCompleter = null;
+      _cancelArmed = false;
+      // Clear unconditionally too: a turn that ends while another panel
+      // holds focus must drop its busy cue, or an idle panel animates
+      // forever (tin-y4qn).
+      s.host.setActivity(false);
+      onSessionsChanged?.call();
+
+      // Continue the session's backlog, if any.
+      if (next != null) _startTurn(s, next);
+    }
 
     // Persist the session's token spend so a resumed session restores it.
     unawaited(_flushUsage());
-
-    // Continue the session's backlog, if any.
-    final next = s.messageQueue.dequeue();
-    if (next != null) _startTurn(s, next);
   }
 
   /// Persist the ledger's current total into the active session's manifest
