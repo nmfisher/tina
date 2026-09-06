@@ -130,6 +130,9 @@ SessionController _buildController({
     sessionManager: sm,
     readLine: readLine.call,
     onActiveFocusChanged: () {},
+    // The persistence seam (§10 sidecar + /resume): only present when the
+    // caller supplied a store, mirroring the TUI bootstrap.
+    sessionStore: store,
   );
   controller.workflowsDir = workflowsDir;
   controller.defaultWorkflow = defaultWorkflow;
@@ -150,6 +153,72 @@ Future<void> _pumpUntil(bool Function() pred,
     if (pred()) return;
   }
   fail('pumpUntil timed out waiting: $reason');
+}
+
+/// Every timer fire test needs a wired service whose onFire drives the
+/// controller (the same wiring the TUI bootstrap does). Fires are driven the
+/// way the engine's own §11 tests drive them: a fake timer factory captures
+/// the armed one-shot, and `factory.last.fire()` runs its tick callback —
+/// which takes the entry idle→queued and calls onFire — so the app-level
+/// `controller.fireTimer` seam runs inside a REAL service fire window
+/// (ackStarted/ackFinished actually land). No wall-clock waiting.
+/// Returns the readLine too so tests can close it to end the REPL loop.
+(TimerService, SessionController, FakeReadLine, _FakeTimerFactory) wired() {
+  final rl = FakeReadLine();
+  final controller =
+      _buildController(readLine: rl, provider: FakeProvider.done());
+  final factory = _FakeTimerFactory();
+  final timers = TimerService(
+    onFire: controller.fireTimer,
+    onNotice: (_, {required warning}) {},
+    timerFactory: factory.call,
+  );
+  controller.timers = timers;
+  addTearDown(timers.dispose);
+  return (timers, controller, rl, factory);
+}
+
+/// Test double for the service's [Timer] seam (same shape as the engine's
+/// §11 fake): `fire()` simulates the event loop reaching the armed instant.
+class _FakeTimer implements Timer {
+  _FakeTimer(this.initialDelay);
+
+  final Duration initialDelay;
+  void Function()? callback;
+  bool cancelled = false;
+
+  @override
+  int get tick => initialDelay.inMilliseconds;
+
+  @override
+  bool get isActive => !cancelled && callback != null;
+
+  @override
+  void cancel() {
+    cancelled = true;
+    callback = null;
+  }
+
+  /// Runs the one-shot tick callback the service armed.
+  void fire() {
+    if (!isActive) throw StateError('timer not active');
+    final cb = callback;
+    callback = null;
+    cb!();
+  }
+}
+
+class _FakeTimerFactory {
+  final List<_FakeTimer> timers = [];
+
+  Timer call(Duration duration, void Function() callback) {
+    final t = _FakeTimer(duration);
+    t.callback = callback;
+    timers.add(t);
+    return t;
+  }
+
+  _FakeTimer get last => timers.last;
 }
 
 void main() {
@@ -1208,6 +1277,882 @@ void main() {
       controller.onTmuxExit = () async => TmuxExitChoice.exit;
       rl.close();
       await runFuture;
+    });
+  });
+
+  group('timer fires (§7, §11)', () {
+    test('fire while idle starts a real user turn with the VERBATIM prompt',
+        () async {
+      final (timers, controller, rl, factory) = wired();
+      expect(
+          timers.set(const TimerSpec(
+            name: 'check-build',
+            interval: Duration(seconds: 29),
+            instruction: 'run dart test',
+          )),
+          isA<TimerSetCreated>());
+
+      final prompt = '[timer check-build #1] scheduled check. '
+          'Instruction: run dart test\n'
+          '(Report concisely; if there is nothing to report, say so in '
+          'one line.)';
+      factory.last.fire(); // idle → queued → onFire → controller.fireTimer
+      await _pumpUntil(
+          () => controller.active.history.any((m) =>
+              m.role == Role.user &&
+              m.content.any((b) => b is TextBlock && b.text == prompt)),
+          reason: 'the fire became a real user turn');
+      await _pumpUntil(
+          () => !controller.active.isRunning,
+          reason: 'the fire turn completed');
+      expect(timers.list().single.state, TimerEntryState.idle,
+          reason: 'the clean turn end-acked its fire window (§7.3)');
+      expect(timers.list().single.fireCount, 1,
+          reason: 'the SERVICE counted the fire (the app seam fired inside '
+              'a real window, §4.4 step 2)');
+      hostOf(controller).messages.clear(); // drop the echoed prompt itself
+      hostOf(controller).styledMessages.clear();
+      expect(
+        hostOf(controller).messages.any((m) =>
+            m.contains('[timer check-build #1 fired]') ||
+            m.contains('queued')),
+        isFalse,
+        reason: 'an idle fire gets the origin line exactly once — at turn '
+            'start in the echoed history, not as a second message');
+      rl.close();
+      await controller.run();
+    });
+
+    test('a clean fire turn end-acks the service (entry returns to idle)',
+        () async {
+      final (timers, controller, rl, factory) = wired();
+      expect(
+          timers.set(const TimerSpec(
+            name: 'chk',
+            interval: Duration(minutes: 5),
+            instruction: 'check',
+            maxFires: 3,
+          )),
+          isA<TimerSetCreated>());
+
+      factory.last.fire(); // service fires: fireCount 1, window opens queued
+      await _pumpUntil(
+          () => timers.list().single.state == TimerEntryState.idle &&
+              !controller.active.isRunning,
+          reason: 'the turn ran and end-acked: queued/running → idle');
+      expect(timers.list().single.fireCount, 1,
+          reason: 'the clean fire counted once (§7.3)');
+      expect(timers.list().single.consecutiveAbortedFires, 0,
+          reason: 'a clean fire resets the §8 counter');
+      rl.close();
+      await controller.run();
+    });
+
+    test('a typed look-alike prompt never acks the timer (§7.2 spoof '
+        'refusal)', () async {
+      final (timers, controller, rl, factory) = wired();
+      expect(
+          timers.set(const TimerSpec(
+            name: 'chk',
+            interval: Duration(minutes: 5),
+            instruction: 'check',
+            maxFires: 3,
+          )),
+          isA<TimerSetCreated>());
+
+      factory.last.fire(); // the REAL fire: exactly one service window opens
+      await _pumpUntil(
+          () => timers.list().single.state == TimerEntryState.idle &&
+              !controller.active.isRunning,
+          reason: 'the real fire turn ran and end-acked');
+
+      // The exact bytes of a fire prompt — but typed (never passed through
+      // fireTimer, so the attribution set never held these turns' prompts).
+      // A WRONG #<n>, and then the RIGHT one: neither may ack anything.
+      for (final n in [7, 1]) {
+        rl.enqueue('[timer chk #$n] scheduled check. Instruction: check\n'
+            '(Report concisely; if there is nothing to report, say so in '
+            'one line.)');
+        await _pumpUntil(() => !controller.active.isRunning);
+      }
+
+      final snap = timers.list().single;
+      expect(snap.fireCount, 1,
+          reason: 'only the real fire counted — a typed turn never acks '
+              'start nor end, because attribution is exact-prompt-set '
+              'membership and typed bytes never enter that set');
+      expect(snap.consecutiveAbortedFires, 0,
+          reason: 'no typed turn touched the §8 counter either');
+      expect(snap.state, TimerEntryState.idle);
+      expect(
+        hostOf(controller)
+            .styledMessages
+            .where((e) => e.style == HostMessageStyle.dim)
+            .map((e) => e.message)
+            .where((m) => m.contains('[timer chk #7 fired]'))
+            .length,
+        0,
+        reason: 'typed look-alikes get no dim origin cue either');
+      expect(
+        hostOf(controller)
+            .styledMessages
+            .where((e) => e.style == HostMessageStyle.dim)
+            .map((e) => e.message)
+            .where((m) => m.contains('[timer chk #1 fired]'))
+            .length,
+        1,
+        reason: 'exactly the REAL fire showed its cue — the typed #1 '
+            'look-alike added no second one');
+      rl.close();
+      await controller.run();
+    });
+
+    test('the dim origin line renders dim, exactly once per fire', () async {
+      final (timers, controller, rl, factory) = wired();
+      expect(
+          timers.set(const TimerSpec(
+            name: 'watch',
+            interval: Duration(minutes: 5),
+            instruction: 'watch it',
+          )),
+          isA<TimerSetCreated>());
+      final notices = <String>[];
+      // Re-wire the service's notice sink so the §7.1 skip notice is
+      // observable (the default wired() sink drops notices on the floor).
+      controller.timers = TimerService(
+        onFire: controller.fireTimer,
+        onNotice: (text, {required warning}) => notices.add(text),
+        timerFactory: factory.call,
+      );
+      addTearDown(controller.timers!.dispose);
+      controller.timers!.set(const TimerSpec(
+        name: 'watch',
+        interval: Duration(minutes: 5),
+        instruction: 'watch it',
+      ));
+
+      factory.last.fire(); // fire #1 — turn runs, turns the timer idle
+      await _pumpUntil(() => !controller.active.isRunning);
+      factory.last.fire(); // fire #2 while still idle → origin line #2
+
+      int dimsOf(String needle) => hostOf(controller)
+          .styledMessages
+          .where((e) =>
+              e.style == HostMessageStyle.dim &&
+              e.message.contains(needle))
+          .length;
+      await _pumpUntil(() => dimsOf('[timer watch #2 fired]') >= 1,
+          reason: 'fire #2 shows its own dim origin line');
+      expect(dimsOf('[timer watch #1 fired]'), 1,
+          reason: 'fire #1 showed its own dim origin line too');
+      expect(dimsOf('[timer watch #2 fired]'), 1,
+          reason: 'exactly one dim fired cue per fire (§7.1)');
+      rl.close();
+      await controller.run();
+    });
+
+    test('fire while busy enqueues FIFO behind a typed message', () async {
+      final gate = Completer<void>();
+      final tool = _GatedTool(gate);
+      final rl = FakeReadLine();
+      final controller = _buildController(
+        readLine: rl,
+        provider: FakeProvider([
+          [
+            const MessageComplete(
+              content: [ToolUseBlock(id: 'c1', name: 'gated', input: {})],
+              stopReason: 'tool_use',
+            ),
+          ],
+          _answer('typed turn done'),
+          _answer('timer turn done'),
+        ]),
+        tools: [tool],
+      );
+      final busyFactory = _FakeTimerFactory();
+      final timers = TimerService(
+        onFire: controller.fireTimer,
+        onNotice: (_, {required warning}) {},
+        timerFactory: busyFactory.call,
+      );
+      controller.timers = timers;
+      addTearDown(timers.dispose);
+      expect(
+          timers.set(const TimerSpec(
+            name: 'check-build',
+            interval: Duration(minutes: 5),
+            instruction: 'watch build',
+          )),
+          isA<TimerSetCreated>());
+
+      rl.enqueue('typed question'); // starts the gated turn
+      final runFuture = controller.run();
+      await _pumpUntil(() => controller.active.isRunning);
+      await _pumpUntil(() => tool.calls == 1, reason: 'gated call parked');
+
+      busyFactory.last.fire(); // the service's tick fires while the typed
+      // turn is running — the fire joins the message queue, NOT a new turn.
+      await _pumpUntil(() => controller.active.messageQueue.isNotEmpty,
+          reason: 'the fire queued behind the running turn');
+      expect(
+        hostOf(controller).messages.any(
+            (m) => m.contains('[queued — 1 pending]') && m.contains('timer')),
+        isTrue,
+        reason: 'queued fires get the standard queue cue');
+      expect(timers.list().single.state, TimerEntryState.queued,
+          reason: 'the service knows the fire is in flight');
+
+      // FIFO order here: the typed turn is already RUNNING (not queued), and
+      // the fire joined the queue before the second typed submit — so the
+      // drain is fire first, then the second typed message. Both land.
+      rl.enqueue('second typed question');
+      gate.complete();
+      await _pumpUntil(
+          () => hostOf(controller)
+              .sink
+              .texts
+              .join()
+              .contains('timer turn done'),
+          reason: 'the queue drains fully: fire, then typed');
+
+      final userTexts = controller.active.history
+          .where((m) => m.role == Role.user)
+          .expand((m) => m.content)
+          .whereType<TextBlock>()
+          .map((b) => b.text)
+          .toList();
+      final typedIdx =
+          userTexts.indexWhere((t) => t == 'second typed question');
+      final fireIdx = userTexts
+          .indexWhere((t) => t.startsWith('[timer check-build #1]'));
+      expect(typedIdx, greaterThan(-1));
+      expect(fireIdx, greaterThan(-1));
+      expect(fireIdx, lessThan(typedIdx),
+          reason: 'FIFO: the fire drains before the message submitted '
+              'after it');
+      expect(timers.list().single.state, TimerEntryState.idle,
+          reason: 'the fire turn completed and end-acked');
+      rl.close();
+      await runFuture;
+    });
+
+    test('the queue shows the full prompt dim with a pending cue (§7.1)',
+        () async {
+      final gate = Completer<void>();
+      final tool = _GatedTool(gate);
+      final rl = FakeReadLine();
+      final controller = _buildController(
+        readLine: rl,
+        provider: FakeProvider([
+          [
+            const MessageComplete(
+              content: [ToolUseBlock(id: 'c1', name: 'gated', input: {})],
+              stopReason: 'tool_use',
+            ),
+          ],
+          _answer('done'),
+        ]),
+        tools: [tool],
+      );
+      final queueFactory = _FakeTimerFactory();
+      final timers = TimerService(
+        onFire: controller.fireTimer,
+        onNotice: (_, {required warning}) {},
+        timerFactory: queueFactory.call,
+      );
+      controller.timers = timers;
+      addTearDown(timers.dispose);
+      expect(
+          timers.set(const TimerSpec(
+            name: 'watch',
+            interval: Duration(minutes: 5),
+            instruction: 'watch it',
+          )),
+          isA<TimerSetCreated>());
+
+      rl.enqueue('go');
+      final runFuture = controller.run();
+      await _pumpUntil(() => controller.active.isRunning);
+      await _pumpUntil(() => tool.calls == 1);
+
+      queueFactory.last.fire(); // tick → fire → queued behind the turn
+      await _pumpUntil(() => controller.active.messageQueue.isNotEmpty);
+      final queuedLine = hostOf(controller)
+          .styledMessages
+          .where((e) => e.style == HostMessageStyle.dim)
+          .map((e) => e.message)
+          .toList();
+      expect(
+        queuedLine.any((m) =>
+            m.contains('[timer watch #1] scheduled check.') &&
+            m.contains('  [queued — 1 pending]\n')),
+        isTrue,
+        reason: 'the full fire prompt echoes dim with the pending count');
+      expect(timers.list().single.state, TimerEntryState.queued);
+
+      gate.complete();
+      await _pumpUntil(() => !controller.active.isRunning);
+      rl.close();
+      await runFuture;
+    });
+
+    test('#31 gesture works when only a timer fire is queued (sub-decision '
+        'f)', () async {
+      final gate = Completer<void>();
+      final tool = _GatedTool(gate);
+      final rl = FakeReadLine();
+      final controller = _buildController(
+        readLine: rl,
+        provider: FakeProvider([
+          [
+            const MessageComplete(
+              content: [ToolUseBlock(id: 'c1', name: 'gated', input: {})],
+              stopReason: 'tool_use',
+            ),
+          ],
+          _answer('timer turn done'),
+        ]),
+        tools: [tool],
+      );
+      final gestureFactory = _FakeTimerFactory();
+      final timers = TimerService(
+        onFire: controller.fireTimer,
+        onNotice: (_, {required warning}) {},
+        timerFactory: gestureFactory.call,
+      );
+      controller.timers = timers;
+      addTearDown(timers.dispose);
+      expect(
+          timers.set(const TimerSpec(
+            name: 'chk',
+            interval: Duration(minutes: 5),
+            instruction: 'check',
+          )),
+          isA<TimerSetCreated>());
+
+      rl.enqueue('go'); // busy turn parks on the gate
+      final runFuture = controller.run();
+      await _pumpUntil(() => controller.active.isRunning);
+      await _pumpUntil(() => tool.calls == 1);
+
+      gestureFactory.last.fire(); // tick → fire → queued (turn still busy)
+      await _pumpUntil(() => controller.active.messageQueue.length == 1,
+          reason: 'only the fire is queued');
+
+      rl.enqueue(''); // the #31 gesture
+      await _pumpUntil(
+          () => hostOf(controller)
+              .messages
+              .any((m) => m.contains('interrupting — queued input next')),
+          reason: 'the gesture fires with ONLY a timer fire queued — the '
+              'attribution set must not block it');
+
+      gate.complete();
+      await _pumpUntil(
+          () => hostOf(controller)
+              .sink
+              .texts
+              .join()
+              .contains('timer turn done'),
+          reason: 'the queued fire drained as the next turn');
+      expect(timers.list().single.fireCount, 1);
+      rl.close();
+      await runFuture;
+    });
+  });
+
+  group('timer failures (§7.3, §8, §11)', () {
+    test('ESC-cancelled fire counts toward suspension (§8 at 6)', () async {
+      final rl = FakeReadLine();
+      final controller = _buildController(
+        readLine: rl,
+        provider: _SlowProvider(), // streams, never completes: hangs till ESC
+      );
+      final factory = _FakeTimerFactory();
+      final timers = TimerService(
+        onFire: controller.fireTimer,
+        // The production wiring (tui_coordinator.dart): notices hit the
+        // active host — warnings in warning style, so the §8 VERBATIM
+        // suspension warning is observable exactly as the operator sees it.
+        onNotice: (text, {required warning}) => hostOf(controller)
+            .showMessage('$text\n',
+                style: warning
+                    ? HostMessageStyle.warning
+                    : HostMessageStyle.dim),
+        timerFactory: factory.call,
+      );
+      controller.timers = timers;
+      addTearDown(timers.dispose);
+      expect(
+          timers.set(const TimerSpec(
+            name: 'flaky',
+            interval: Duration(minutes: 5),
+            instruction: 'check',
+          )),
+          isA<TimerSetCreated>());
+
+      // Five PREVIOUS failures, each observed end to end the way the service
+      // counts them: the armed tick fires (idle → queued → onFire), the turn
+      // starts (the app acks started), the operator ESCs it twice (arm +
+      // cancel) and the end-ack reports the turn aborted.
+      for (var i = 0; i < 5; i++) {
+        factory.last.fire();
+        await _pumpUntil(() => controller.active.isRunning,
+            reason: 'fire #${i + 1} became a live turn');
+        await controller.cancelActiveTurn(); // arm
+        await controller.cancelActiveTurn(); // cancel
+        await _pumpUntil(() => !controller.active.isRunning,
+            reason: 'the ESC-cancelled fire turn ended');
+      }
+      expect(timers.list().single.consecutiveAbortedFires, 5,
+          reason: 'five ESC-cancelled fire turns counted (§8)');
+      expect(timers.list().single.suspended, isFalse);
+
+      // The SIXTH failure is the last straw: the service suspends and emits
+      // the §8 VERBATIM warning through the notice seam.
+      factory.last.fire();
+      await _pumpUntil(() => controller.active.isRunning,
+          reason: 'fire #6 became a live turn');
+      await controller.cancelActiveTurn(); // arm
+      await controller.cancelActiveTurn(); // cancel
+      await _pumpUntil(() => !controller.active.isRunning);
+
+      final snap = timers.list().single;
+      expect(snap.suspended, isTrue,
+          reason: '6 consecutive failed fires suspend (§8)');
+      expect(
+        hostOf(controller).messages.any((m) => m.contains(
+            '[timer flaky suspended after 6 consecutive failed '
+            'checks — /timers cancel flaky, or ask the agent to fix and '
+            're-set it]')),
+        isTrue,
+        reason: 'the §8 VERBATIM warning reaches the operator');
+      rl.close();
+      await controller.run();
+    });
+
+    test('a thrown turn (provider stream dies) counts as a failed fire',
+        () async {
+      final rl = FakeReadLine();
+      final controller = _buildController(
+        readLine: rl,
+        // A stream that CLOSES without ever yielding MessageComplete —
+        // the agent surfaces "stream ended without a complete response"
+        // and aborts the turn on its own (agent.dart).
+        provider: FakeProvider(const []),
+      );
+      final factory = _FakeTimerFactory();
+      final timers = TimerService(
+        onFire: controller.fireTimer,
+        onNotice: (_, {required warning}) {},
+        timerFactory: factory.call,
+      );
+      controller.timers = timers;
+      addTearDown(timers.dispose);
+      expect(
+          timers.set(const TimerSpec(
+            name: 'chk',
+            interval: Duration(minutes: 5),
+            instruction: 'check',
+            maxFires: 2,
+          )),
+          isA<TimerSetCreated>());
+
+      factory.last.fire(); // the service's tick opens the in-flight window
+      await _pumpUntil(() => !controller.active.isRunning,
+          reason: 'the dead stream aborted the turn');
+      expect(controller.active.agent.abortedReason, isNotNull,
+          reason: 'the turn aborted on its own (provider cut us off)');
+      expect(timers.list().single.consecutiveAbortedFires, 1,
+          reason: 'a thrown turn is a failed fire (§7.3)');
+      rl.close();
+      await controller.run();
+    });
+
+    test('a dropped fire (empty instruction) never touches the service',
+        () async {
+      final (timers, controller, rl, factory) = wired();
+      controller.fireTimer('never-was', 1); // no such timer → dropped
+      expect(factory.timers, isEmpty, reason: 'nothing was ever armed');
+      expect(hostOf(controller).messages, isEmpty,
+          reason: 'unknown/empty instruction → silent drop (§7.1)');
+      expect(timers.list(), isEmpty);
+      rl.close();
+      await controller.run();
+    });
+
+    test('max_fires expiry removes the entry at the clean end-ack',
+        () async {
+      final (timers, controller, rl, factory) = wired();
+      expect(
+          timers.set(const TimerSpec(
+            name: 'once-thrice',
+            interval: Duration(minutes: 5),
+            instruction: 'check',
+            maxFires: 1,
+          )),
+          isA<TimerSetCreated>());
+
+      factory.last.fire(); // the service's only fire
+      await _pumpUntil(() => !controller.active.isRunning);
+      expect(timers.list(), isEmpty,
+          reason: 'the clean first fire of a capped-1 timer removes it '
+              '(§7.3 engine contract, end-ack observed end to end)');
+      rl.close();
+      await controller.run();
+    });
+  });
+
+  group('timer resume (§10, §11)', () {
+    final suspendFactory = _FakeTimerFactory();
+    late Directory tmp;
+    late JsonlSessionStore store;
+    late String sid;
+    late String cid;
+
+    setUp(() async {
+      tmp = await Directory.systemTemp.createTemp('tina_timer_resume_');
+      addTearDown(() => tmp.delete(recursive: true));
+      store = JsonlSessionStore(tmp);
+      sid = await store.createSession(providerId: 'anthropic');
+      cid = await store.createConversation(sid);
+    });
+
+    String sidecarPath() =>
+        TimerSidecarStore.sidecarPathFor('${tmp.path}/$sid/$sid.jsonl', sid);
+
+    Future<void> writeSidecar(List<Map<String, Object?>> timers) =>
+        TimerSidecarStore().write(sidecarPath(), sid, timers);
+
+    Future<List<Map<String, Object?>>?> readSidecar() =>
+        TimerSidecarStore().read(sidecarPath(), sid);
+
+    /// A controller over the temp store: the recorder attaches to the
+    /// on-disk session (so `active.recorder.sessionId` and the sidecar dir
+    /// resolve through the same code the live REPL uses). [yes] answers the
+    /// consent ask; the ask summary is recorded in [receivedAsks].
+    final receivedAsks = <String>[];
+    final makeRl = FakeReadLine();
+    Future<SessionController> make({required bool yes}) async {
+      final rl = makeRl;
+      receivedAsks.clear(); // each controller starts with a clean ask log
+      receivedAsks.clear(); // each controller starts with a clean ask log
+      final controller = _buildController(
+        readLine: rl,
+        provider: FakeProvider.done(),
+        store: store,
+        sessionId: sid,
+        conversationId: cid,
+      );
+      controller.timerRestorePrompt = (summary) async {
+        receivedAsks.add(summary);
+        return yes;
+      };
+      return controller;
+    }
+
+    TimerService attachTimers(SessionController controller,
+        {_FakeTimerFactory? factory}) {
+      final f = factory ?? _FakeTimerFactory();
+      final timers = TimerService(
+        onFire: controller.fireTimer,
+        onNotice: (_, {required warning}) {},
+        timerFactory: f,
+      );
+      controller.timers = timers;
+      addTearDown(timers.dispose);
+      return timers;
+    }
+
+    Map<String, Object?> record({
+      String name = 'recurring',
+      int everyMs = 300000,
+      String instruction = 'check it',
+      bool once = false,
+      int? maxFires,
+      int fireCount = 0,
+      int consecutiveAbortedFires = 0,
+      bool suspended = false,
+      required int anchorEpochMs,
+    }) =>
+        {
+          'name': name,
+          'everyMs': everyMs,
+          'instruction': instruction,
+          'once': once,
+          'maxFires': maxFires,
+          'fireCount': fireCount,
+          'consecutiveAbortedFires': consecutiveAbortedFires,
+          'suspended': suspended,
+          'anchorEpochMs': anchorEpochMs,
+        };
+
+    test('no sidecar: silent no-op', () async {
+      final controller = await make(yes: true);
+      final timers = attachTimers(controller);
+
+      await controller.restoreTimerStateForResume();
+      expect(hostOf(controller).messages, isEmpty,
+          reason: 'nothing on disk → nothing said');
+      expect(timers.list(), isEmpty);
+      expect(receivedAsks, isEmpty);
+    });
+
+    test('null prompt seam: dim notice, nothing armed, sidecar kept',
+        () async {
+      final future = DateTime.now().add(const Duration(hours: 1));
+      await writeSidecar([
+        record(
+            name: 'held',
+            fireCount: 1,
+            anchorEpochMs: future.millisecondsSinceEpoch),
+      ]);
+      final controller = await make(yes: true);
+      controller.timerRestorePrompt = null; // the null seam under test
+      final timers = attachTimers(controller);
+
+      await controller.restoreTimerStateForResume();
+      expect(
+        hostOf(controller).messages.any((m) => m.contains(
+            'timers saved for this session — restore unavailable here; '
+            'they are kept on disk')),
+        isTrue,
+      );
+      expect(timers.list(), isEmpty, reason: 'nothing armed');
+      expect(receivedAsks, isEmpty, reason: 'no ask happened');
+      expect(await readSidecar(), hasLength(1), reason: 'the sidecar is '
+          'kept');
+    });
+
+    test('consent y: timers armed verbatim, counters kept, entries '
+        're-tagged for write-through', () async {
+      final future = DateTime.now().add(const Duration(hours: 1));
+      final anchor = future.millisecondsSinceEpoch;
+      await writeSidecar([
+        record(name: 'recurring', fireCount: 7, maxFires: 10,
+            anchorEpochMs: anchor),
+        record(name: 'suspended-one', suspended: true,
+            consecutiveAbortedFires: 6, maxFires: 9, fireCount: 3,
+            anchorEpochMs: anchor),
+        record(name: 'future-one', once: true, anchorEpochMs: anchor),
+      ]);
+      final controller = await make(yes: true);
+      final timers = attachTimers(controller);
+
+      await controller.restoreTimerStateForResume();
+
+      final live = timers.list();
+      expect(live.map((t) => t.name),
+          ['recurring', 'suspended-one', 'future-one']);
+      expect(live[0].fireCount, 7, reason: 'counters are kept (§10 step 4)');
+      expect(live[0].maxFires, 10);
+      expect(live[1].suspended, isTrue,
+          reason: 'suspended restores AS suspended (§10 step 6)');
+      expect(live[1].nextFireAt, isNull,
+          reason: 'a suspended entry stays disarmed');
+      expect(live[2].once, isTrue);
+      // The consent ask was the VERBATIM summary (§10 step 4).
+      expect(receivedAsks.single,
+          'This session has 3 saved timer(s):'
+          '\n  recurring every 5m, 7/10 fires used'
+          '\n  suspended-one every 5m, suspended, 3/9 fires used'
+          '\n  future-one every 5m'
+          '\nRestore them? [y/N]');
+      // Write-through: cancel mutates → the flush groups by the restored
+      // sessionId tag and rewrites THIS sidecar (§10 sub-decision a).
+      expect(timers.cancel('recurring'), isTrue);
+      await controller.flushTimerState();
+      final onDisk = await readSidecar();
+      expect(onDisk!.map((t) => t['name']).toList(),
+          ['suspended-one', 'future-one'],
+          reason: 'the restored entries write back to THEIR sidecar');
+    });
+
+    test('consent n: nothing armed, sidecar intact for next resume',
+        () async {
+      final future = DateTime.now().add(const Duration(hours: 1));
+      await writeSidecar([
+        record(
+            name: 'held',
+            fireCount: 2,
+            anchorEpochMs: future.millisecondsSinceEpoch),
+      ]);
+      final controller = await make(yes: false);
+      final timers = attachTimers(controller);
+
+      await controller.restoreTimerStateForResume();
+
+      expect(timers.list(), isEmpty, reason: 'declined → nothing armed');
+      expect(receivedAsks, hasLength(1));
+      expect(await readSidecar(), hasLength(1),
+          reason: 'the sidecar is left untouched (§10 step 4)');
+    });
+
+    test('expired one-off warns once with the VERBATIM line, prunes, and '
+        'the second resume is silent', () async {
+      final past = DateTime.now().subtract(const Duration(minutes: 5));
+      await writeSidecar([
+        record(name: 'gone-off', once: true,
+            anchorEpochMs: past.millisecondsSinceEpoch),
+        record(name: 'survivor', anchorEpochMs: DateTime.now()
+            .add(const Duration(hours: 1))
+            .millisecondsSinceEpoch),
+      ]);
+      final controller = await make(yes: false);
+      attachTimers(controller); // the hook needs the service attached even
+      // to classify-and-discard (it returns early without one).
+      // service — even to classify-and-discard.
+
+      await controller.restoreTimerStateForResume();
+      expect(
+        hostOf(controller).messages.any((m) => m.contains(
+            "timer 'gone-off' (one-off, due ") &&
+            m.contains(') expired while the session was closed — '
+                'discarded.')),
+        isTrue,
+        reason: 'the §10 step 3 VERBATIM expired warning');
+      expect((await readSidecar())!.map((t) => t['name']).toList(),
+          ['survivor'],
+          reason: 'pruned immediately so the warning fires exactly once');
+
+      hostOf(controller).messages.clear();
+      receivedAsks.clear();
+      await controller.restoreTimerStateForResume();
+      expect(
+        hostOf(controller).messages.any((m) => m.contains('expired while')),
+        isFalse,
+        reason: 'the second resume is silent — already pruned');
+      expect(receivedAsks, hasLength(1),
+          reason: 'only the survivor is asked about');
+    });
+
+    test('completed max_fires warns with the VERBATIM line', () async {
+      final future = DateTime.now().add(const Duration(hours: 1));
+      await writeSidecar([
+        record(name: 'done-thing', maxFires: 4, fireCount: 4,
+            anchorEpochMs: future.millisecondsSinceEpoch),
+      ]);
+      final controller = await make(yes: false);
+      attachTimers(controller); // the hook needs the service attached even
+      // to classify-and-discard (it returns early without one).
+      // service — even to classify-and-discard.
+
+      await controller.restoreTimerStateForResume();
+      expect(
+        hostOf(controller).messages.any((m) => m.contains(
+            "timer 'done-thing' completed its 4 fires — discarded.")),
+        isTrue,
+        reason: 'the §10 step 3 VERBATIM completed warning');
+      expect(await readSidecar(), isNull,
+          reason: 'the sole timer pruned → the empty write DELETES the '
+              'sidecar file (§10 write-on-empty contract)');
+    });
+
+    test('cap overflow restores first-k and reports the rest (skipped stay '
+        'in the sidecar)', () async {
+      final future = DateTime.now().add(const Duration(hours: 1));
+      final anchor = future.millisecondsSinceEpoch;
+      await writeSidecar([
+        for (var i = 0; i < 8; i++) record(name: 'fill$i', anchorEpochMs: anchor),
+        record(name: 'overflow1', anchorEpochMs: anchor),
+        record(name: 'overflow2', anchorEpochMs: anchor),
+      ]);
+      final controller = await make(yes: true);
+      final timers = attachTimers(controller);
+
+      await controller.restoreTimerStateForResume();
+      expect(timers.list().map((t) => t.name),
+          [for (var i = 0; i < 8; i++) 'fill$i'],
+          reason: 'saved order, first-k restored');
+      expect(
+        hostOf(controller).messages.any((m) => m.contains(
+            "timer 'overflow1' not restored — 8-timer limit reached.")),
+        isTrue,
+      );
+      expect(
+        hostOf(controller).messages.any((m) => m.contains(
+            "timer 'overflow2' not restored — 8-timer limit reached.")),
+        isTrue,
+      );
+      expect(
+          (await readSidecar())!
+              .where((t) => (t['name'] as String).startsWith('overflow')),
+          hasLength(2),
+          reason: 'skipped entries stay in the sidecar (§10 step 5)');
+    });
+
+    test('suspension write-through reaches disk and the next resume lists '
+        'and restores it AS suspended', () async {
+      final future = DateTime.now().add(const Duration(hours: 1));
+      await writeSidecar([
+        record(name: 'held', anchorEpochMs: future.millisecondsSinceEpoch),
+      ]);
+      // Resume #1: arm the timer, suspend it with six failed fires, flush —
+      // the write-through must reach THIS session's sidecar.
+      final controller = await make(yes: true);
+      final timers = attachTimers(controller, factory: suspendFactory);
+      await controller.restoreTimerStateForResume();
+      for (var i = 0; i < 6; i++) {
+        // fire() runs the tick callback: idle→queued (§4.4 step 2), the
+        // in-flight window opens. The acks land synchronously, before the
+        // fire-turn's own end-ack (that one no-ops on the closed window) —
+        // six consecutive aborted fires → §8 suspension.
+        suspendFactory.last.fire();
+        timers.ackStarted('held');
+        timers.ackFinished('held', aborted: true);
+      }
+      expect(timers.list().single.suspended, isTrue);
+      await controller.flushTimerState();
+      expect((await readSidecar())!.single['suspended'], isTrue,
+          reason: 'suspension is durable (§10 write-through)');
+
+      // Resume #2: a fresh controller over the same session sees the
+      // suspension in the consent listing and restores it AS suspended.
+      final controller2 = await make(yes: true);
+      final timers2 = attachTimers(controller2, factory: suspendFactory);
+      await controller2.restoreTimerStateForResume();
+      expect(receivedAsks.single,
+          contains('\n  held every 5m, suspended'),
+          reason: 'the restore listing marks suspended entries (§10 '
+              'step 6)');
+      expect(timers2.list().single.suspended, isTrue);
+    });
+
+    test('both entry points hit the same hook (§10): /resume path and the '
+        'boot restore call', () async {
+      final future = DateTime.now().add(const Duration(hours: 1));
+      await writeSidecar([
+        record(name: 'via-resume',
+            anchorEpochMs: future.millisecondsSinceEpoch),
+      ]);
+
+      // /resume funnels through resumeIntoActive → restoreTimerStateForResume.
+      // make() builds its own FakeReadLine, so expose it: the /resume line
+      // must reach THAT reader, the one this controller's run loop polls.
+      final rl = makeRl;
+      final controller = await make(yes: false);
+      final timers = attachTimers(controller);
+      final runFuture = controller.run();
+      rl.enqueue('/resume $sid');
+      await _pumpUntil(
+          () => receivedAsks.isNotEmpty,
+          reason: 'the /resume path reached the restore hook and asked '
+              'about the resumed session\'s timers');
+      expect(receivedAsks.single, contains('via-resume'));
+      expect(timers.list(), isEmpty, reason: 'answered no → nothing armed');
+      rl.close();
+      await runFuture;
+
+      // Boot path: TuiCoordinator.run() calls the same hook after seeding
+      // --resume/--continue history (tui_coordinator.dart :1268). The
+      // coordinator-level wiring has its own composition test; here we pin
+      // that the hook is THE seam by calling it the way run() does — same
+      // hook, same observable flow on the boot entry point.
+      await controller.restoreTimerStateForResume();
+      expect(receivedAsks, hasLength(2),
+          reason: 'the boot entry point asks again (the sidecar was kept '
+              'after the declined ask, §10 step 4)');
+      expect(receivedAsks.last, contains('via-resume'));
     });
   });
 }

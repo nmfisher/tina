@@ -88,6 +88,8 @@ void main() {
           'them headless\n'
           '  /session       list live sessions; new/switch/close\n'
           '  /resume <id>   load a saved session into the active session\n'
+          '  /timers [show|cancel <name>]list this session\'s scheduled '
+          'checks; show or cancel one\n'
           '  /save <path>   export this session as a markdown transcript\n'
           '  /settings      reconfigure providers/models/tiers (applies on '
           'restart)\n'
@@ -116,14 +118,15 @@ void main() {
           SessionCommandHandlers.registry.allNames);
     });
 
-    test('still contains exactly the pre-refactor 23 names', () {
+    test('still contains exactly the pre-refactor names plus /timers', () {
       expect(
         SessionCommandHandlers.registry.allNames,
         [
           '/exit', '/quit', '/help', '/clear', '/compact', '/auto-compact',
-          '/permissions', '/sessions', '/session', '/resume', '/save',
-          '/model', '/settings', '/prompts', '/spawn', '/branch', '/image',
-          '/index', '/workflow', '/output', '/spend', '/update', '/detach',
+          '/permissions', '/sessions', '/session', '/resume', '/timers',
+          '/save', '/model', '/settings', '/prompts', '/spawn', '/branch',
+          '/image', '/index', '/workflow', '/output', '/spend', '/update',
+          '/detach',
         ],
       );
     });
@@ -257,6 +260,8 @@ String _goldenHelpBody() =>
         'them headless\n'
         '  /session       list live sessions; new/switch/close\n'
         '  /resume <id>   load a saved session into the active session\n'
+        '  /timers [show|cancel <name>]list this session\'s scheduled '
+        'checks; show or cancel one\n'
         '  /save <path>   export this session as a markdown transcript\n'
         '  /settings      reconfigure providers/models/tiers (applies on '
         'restart)\n'

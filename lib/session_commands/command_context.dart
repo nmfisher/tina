@@ -123,6 +123,11 @@ abstract class CommandContext {
   /// `/index` up-to-date branch simply reports and stops.
   Future<bool> Function(String prompt)? get confirm;
 
+  /// The runtime-wide timer service (§9), wired by the TUI bootstrap; null in
+  /// headless, which never constructs timers (`/timers` reports its
+  /// absent-service line and `buildAgent` registers no timer tools).
+  TimerService? get timers => null;
+
   /// Create a new session and switch to it (`/session new`).
   Future<void> newSession({String? providerId, String? model});
 
