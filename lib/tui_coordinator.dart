@@ -554,6 +554,22 @@ class TuiCoordinator {
       ];
     };
 
+    // The runtime-wide timer service (§10): constructed on the interactive
+    // path only, wired onFire → the controller's fire seam (a turn on the
+    // ACTIVE conversation — `controller` is late-final, assigned below; every
+    // fire happens long after create() returns) and onNotice → the active
+    // host (suspension warnings in warning style, busy-collapse skips dim).
+    // `sessionManager` is likewise assigned below, before any fire can land.
+    final timers = TimerService(
+      onFire: (name, fireNumber) => controller.fireTimer(name, fireNumber),
+      onNotice: (text, {required warning}) => controller.active.host
+          .showMessage('$text\n',
+              style: warning
+                  ? HostMessageStyle.warning
+                  : HostMessageStyle.dim),
+      currentSessionId: () => sessionManager.activeId,
+    );
+
     // Build the initial session. Its host adopts screen.chat as its (active)
     // region and the shared spinner (bound to the status row), so it is on
     // screen from construction — active: true gives it an interactive asker.
@@ -605,6 +621,7 @@ class TuiCoordinator {
       askUser: askUser,
       classifier: classifier,
       system: initialSystem,
+      timers: timers,
     );
     final initialConversation = Conversation(
       id: initialConversationId,
@@ -645,6 +662,7 @@ class TuiCoordinator {
         summaryIndex: summaryIndex,
         askUser: askUser,
         classifier: classifier,
+        timers: timers,
       ),
       sessionStore: store,
     );
@@ -2331,6 +2349,10 @@ class TuiCoordinator {
     // `/spend`: the process-wide token ledger (all agents + sub-agents +
     // workflows + /index runs), persisted into the session manifest.
     controller.spendLedger = app.spendLedger;
+    // §9 timers: hand the service to the controller so turns can ack, fire
+    // prompts enqueue on the message queue, and state flushes to the sidecar
+    // at each turn end. Same object the agent's `timers` tool group uses.
+    controller.timers = timers;
     // The in-tmux exit dialog: Detach / Exit / Cancel. Shown on /exit and on a
     // quit attempt (Ctrl+C×2 / Ctrl+D / EOF). Detach leaves the agent running
     // in the tmux server; Exit is today's behavior (session saved, lock
@@ -2381,6 +2403,9 @@ class TuiCoordinator {
       );
       return choice ?? false;
     };
+    // The §10 consent seam: the restore summary (header + one line per timer
+    // + `Restore them? [y/N]`) renders as a Yes/No overlay, defaulting No.
+    controller.timerRestorePrompt = (summary) => controller.confirm!(summary);
     // /detach + Alt+D (tin-f5xt): the detach body lives here so both entry
     // points share one implementation. Runs the tmux detach and reports the
     // outcome into the active host. On success the client is back at the
@@ -2515,6 +2540,12 @@ class TuiCoordinator {
       replayHistory(conv.host, conv.history);
     }
 
+    // §10 restore hook, boot entry points: after the loaded history is on
+    // screen, before the first turn — the same flow `resumeIntoActive` runs
+    // for the `/resume` path (expired/completed warnings, then the consent
+    // ask). A fresh session has no sidecar and this is a silent no-op.
+    await controller.restoreTimerStateForResume();
+
     // ESC cancels the active conversation's in-flight turn. The controller is
     // UI-agnostic and never touches the editor, so the TUI owns this wiring.
     editor.onEscape = controller.cancelActiveTurn;
@@ -2623,6 +2654,10 @@ class TuiCoordinator {
     pauseSub.cancel();
     panelManager.dispose();
     _contentCoordinator.dispose();
+    // §10 dispose: disarm every timer. Write-through has already flushed
+    // durable state at each turn end; the service arms nothing after this
+    // (in-flight acks settle without re-arming).
+    controller.timers?.dispose();
     sessionManager.closeAll();
     await subAgentScheduler.dispose();
     subAgentScheduler.registry.catalog?.close();

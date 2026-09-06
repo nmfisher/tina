@@ -98,6 +98,9 @@ Agent buildAgent({
   /// overrides/disables it); every other caller keeps the engine default of 0
   /// (a mid-stream transport error aborts the turn, pre-#28 behavior).
   int transportRetryAttempts = 0,
+  /// The runtime-wide timer service (§5). Non-null registers exactly the
+  /// three timer tools on the agent; null (headless, tests) registers none.
+  TimerService? timers,
 }) {
   // The entry agent's resolved system prompt — also the identity a delegated
   // sub-agent inherits. Resolved once so the agent and the delegation context
@@ -112,6 +115,11 @@ Agent buildAgent({
   // bash are stripped under --safe-mode). Start from a list so the orchestration
   // tools below can append without re-wrapping the registry.
   var tools = [...buildTools(safeMode: config.safeMode).all];
+  // The timer surface (§5): exactly the three tools, only when a service is
+  // wired. Headless builds no service — the agent never sees these.
+  if (timers != null) {
+    tools.addAll(timerToolsFor(timers));
+  }
   // The workflow surface, when the host provides a supervisor: launch a DOT
   // workflow in the background (the run's input/output streams into a live run
   // panel; the chat keeps the launch + completion notices) and stop a running

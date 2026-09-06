@@ -69,7 +69,7 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     names: const ['/exit', '/quit'],
     argsHint: '',
     summary: 'quit (inside tmux: Detach / Exit / Cancel)',
-    helpOrder: 18,
+    helpOrder: 19,
     handler: (_, _) async => const CmdExit(),
   ),
   SessionCommandEntry(
@@ -130,10 +130,19 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     handler: (h, t) => _handled(() => h._handleResume(t)),
   ),
   SessionCommandEntry(
+    names: const ['/timers'],
+    argsHint: '[show|cancel <name>]',
+    summary: "list this session's scheduled checks; show or cancel one",
+    // Sits between /resume and /save (§9: "helpOrder next to the session
+    // commands" — the /resume / /timers / /save block).
+    helpOrder: 14,
+    handler: (h, t) => _handled(() => h._handleTimers(t)),
+  ),
+  SessionCommandEntry(
     names: const ['/save'],
     argsHint: '<path>',
     summary: 'export this session as a markdown transcript',
-    helpOrder: 14,
+    helpOrder: 15,
     handler: (h, t) => _handled(() => h._handleSave(t)),
   ),
   SessionCommandEntry(
@@ -147,14 +156,14 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     names: const ['/settings'],
     argsHint: '',
     summary: 'reconfigure providers/models/tiers (applies on restart)',
-    helpOrder: 15,
+    helpOrder: 16,
     handler: (h, _) => _handled(h._handleSettings),
   ),
   SessionCommandEntry(
     names: const ['/prompts'],
     argsHint: '',
     summary: "edit each agent role's system prompt (applies on restart)",
-    helpOrder: 17,
+    helpOrder: 18,
     handler: (h, _) => _handled(h._handlePrompts),
   ),
   SessionCommandEntry(
@@ -217,14 +226,14 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     names: const ['/update'],
     argsHint: '',
     summary: 'check GitHub for a newer release and install it',
-    helpOrder: 16,
+    helpOrder: 17,
     handler: (h, _) => _handled(h._handleUpdate),
   ),
   SessionCommandEntry(
     names: const ['/detach'],
     argsHint: '',
     summary: 'return to the shell, keep the agent running (tmux; also Alt+D)',
-    helpOrder: 19,
+    helpOrder: 20,
     handler: (h, _) => _handled(h._handleDetach),
   ),
 ];

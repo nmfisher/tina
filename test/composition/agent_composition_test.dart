@@ -268,4 +268,63 @@ void main() {
       }
     });
   });
+
+  group('buildAgent timer tools (§5, §11)', () {
+    Config configFor() => Config.parse(const ['--backend', 'ansi']);
+
+    test('timers: null registers no timer tools (headless shape)', () {
+      final config = configFor();
+      final scheduler = createScheduler(
+        config: config,
+        registry: ProviderRegistry(env: {}),
+        pipeline: defaultPipeline,
+      );
+      final agent = buildAgent(
+        pipeline: defaultPipeline,
+        scheduler: scheduler,
+        conversationId: 'c1',
+        provider: FakeProvider(const [], model: 'm'),
+        host: FakeHostInterface(),
+        policy: config.buildPolicy(),
+        config: config,
+      );
+      for (final t in ['set_timer', 'cancel_timer', 'list_timers']) {
+        expect(agent.tools[t], isNull, reason: t);
+      }
+    });
+
+    test('timers: non-null registers exactly the three timer tools', () {
+      final config = configFor();
+      final scheduler = createScheduler(
+        config: config,
+        registry: ProviderRegistry(env: {}),
+        pipeline: defaultPipeline,
+      );
+      final timers = TimerService(
+        onFire: (_, _) {},
+        onNotice: (_, {required warning}) {},
+      );
+      addTearDown(timers.dispose);
+      final agent = buildAgent(
+        pipeline: defaultPipeline,
+        scheduler: scheduler,
+        conversationId: 'c1',
+        provider: FakeProvider(const [], model: 'm'),
+        host: FakeHostInterface(),
+        policy: config.buildPolicy(),
+        config: config,
+        timers: timers,
+      );
+      for (final t in ['set_timer', 'cancel_timer', 'list_timers']) {
+        expect(agent.tools[t], isNotNull, reason: t);
+      }
+      // No timer tool leaks beyond the three-spec surface (§5).
+      final timerNamed = agent.tools.all
+          .map((t) => t.schema.name)
+          .where((n) => n.contains('timer'))
+          .toSet();
+      expect(timerNamed,
+          {'set_timer', 'cancel_timer', 'list_timers'});
+    });
+  });
 }

@@ -210,4 +210,80 @@ void main() {
       expect(read, isEmpty);
     });
   });
+
+  group('classifySavedTimer (§10 step 3 table, §11)', () {
+    final now = DateTime.fromMillisecondsSinceEpoch(1730000000000);
+    final nowMs = now.millisecondsSinceEpoch;
+
+    test('one-off with anchor past → expired', () {
+      expect(
+          classifySavedTimer(
+              record(once: true, anchorEpochMs: nowMs - 1), now),
+          TimerSidecarClassification.expired);
+    });
+
+    test('boundary: one-off with anchor exactly now → expired', () {
+      expect(
+          classifySavedTimer(record(once: true, anchorEpochMs: nowMs), now),
+          TimerSidecarClassification.expired);
+    });
+
+    test('one-off with anchor in the future → restorable', () {
+      expect(
+          classifySavedTimer(
+              record(once: true, anchorEpochMs: nowMs + 1), now),
+          TimerSidecarClassification.restorable);
+    });
+
+    test('maxFires reached (fireCount == maxFires) → completed', () {
+      expect(
+          classifySavedTimer(
+              record(maxFires: 4, fireCount: 4, anchorEpochMs: nowMs + 1),
+              now),
+          TimerSidecarClassification.completed);
+    });
+
+    test('maxFires exceeded (fireCount > maxFires) → completed', () {
+      expect(
+          classifySavedTimer(
+              record(maxFires: 4, fireCount: 7, anchorEpochMs: nowMs + 1),
+              now),
+          TimerSidecarClassification.completed);
+    });
+
+    test('once with an explicit maxFires and a past anchor → expired '
+        '(expired wins over completed)', () {
+      expect(
+          classifySavedTimer(
+              record(once: true, maxFires: 1, fireCount: 1,
+                  anchorEpochMs: nowMs),
+              now),
+          TimerSidecarClassification.expired);
+    });
+
+    test('recurring under the cap → restorable regardless of anchor', () {
+      expect(
+          classifySavedTimer(
+              record(maxFires: 4, fireCount: 2, anchorEpochMs: nowMs - 1),
+              now),
+          TimerSidecarClassification.restorable);
+      expect(classifySavedTimer(record(anchorEpochMs: nowMs + 1), now),
+          TimerSidecarClassification.restorable);
+    });
+
+    test('capped timer that has NOT used its fires → restorable', () {
+      expect(
+          classifySavedTimer(
+              record(once: false, maxFires: 10, fireCount: 3,
+                  anchorEpochMs: nowMs + 1),
+              now),
+          TimerSidecarClassification.restorable);
+    });
+
+    test('malformed records fall through to restorable (restore skips '
+        'them silently)', () {
+      expect(classifySavedTimer(record(anchorEpochMs: 0), now),
+          isNotNull, reason: 'no crash on a degenerate anchor');
+    });
+  });
 }

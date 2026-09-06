@@ -38,6 +38,7 @@ class _FakeCtx implements CommandContext {
     this.store,
     this.spendLedger,
     this.detachTmux,
+    this.timers,
   });
 
   /// The conversation [active] returns. Tests mutate its provider for assertions.
@@ -84,6 +85,10 @@ class _FakeCtx implements CommandContext {
   /// The tmux detach seam (`/detach`); null in these tests unless set.
   @override
   Future<void> Function()? detachTmux;
+
+  /// The timer service (`/timers`); null keeps the absent-service path.
+  @override
+  TimerService? timers;
 
   @override
   Map<String, FutureOr<void> Function()> get commandHooks => const {};
@@ -784,4 +789,168 @@ Future<void> main() async {
           isNot(contains('unknown command')));
     });
   });
+
+  group('SessionCommandHandlers /timers (§9, §11)', () {
+    late FakeHostInterface host;
+    late FakeProvider provider;
+    late Conversation conv;
+    late TimerService timers;
+
+    setUp(() {
+      host = FakeHostInterface();
+      provider = FakeProvider.always(model: 'test-model');
+      conv = Conversation(
+        id: 'test-conv',
+        label: 'test-model',
+        agent: _fakeAgent(provider, host),
+        provider: provider,
+        host: host,
+        policy: PermissionPolicy(),
+      );
+      // A real service with a fake one-shot factory: `fire()` advances
+      // nothing here, but arms/cancel/list behavior is what /timers exercises.
+      final factory = _FakeTimerFactory();
+      timers = TimerService(
+        onFire: (_, _) {},
+        onNotice: (_, {required warning}) {},
+        timerFactory: factory.call,
+      );
+      addTearDown(timers.dispose);
+    });
+
+    test('service absent → the §9 absent-service line', () async {
+      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+      await handlers.dispatch('/timers');
+      // dispatch echoes the command line first; assert on what follows.
+      expect(host.messages.skip(1).single,
+          '/timers: timer system not available in this session.\n');
+    });
+
+    test('empty service lists "no active timers."', () async {
+      final handlers =
+          SessionCommandHandlers(_FakeCtx(conversation: conv, timers: timers));
+      await handlers.dispatch('/timers');
+      expect(host.messages.skip(1).single, 'no active timers.\n');
+    });
+
+    test('list shows one dim row per timer plus the count and footer',
+        () async {
+      timers.set(TimerSpec(
+          name: 'check-build',
+          interval: const Duration(minutes: 5),
+          instruction: 'run dart test and report failures'));
+      timers.set(TimerSpec(
+          name: 'watch-log',
+          interval: const Duration(hours: 1),
+          instruction: 'tail the log'));
+      final handlers =
+          SessionCommandHandlers(_FakeCtx(conversation: conv, timers: timers));
+      await handlers.dispatch('/timers');
+      expect(host.messages[1], 'timers: 2/$kMaxActiveTimers active\n');
+      expect(host.styledMessages.where((m) => m.style == HostMessageStyle.dim),
+          hasLength(3), // two rows + the footer
+          reason: 'rows and footer are dim (§9 indicative shape)');
+      expect(host.messages.join(),
+          contains('check-build'));
+      expect(host.messages.join(), contains('instructions truncated; '
+          '/timers show <name> for the full text'));
+    });
+
+    test('/timers show <name> prints interval, fires, state, instruction',
+        () async {
+      timers.set(TimerSpec(
+          name: 'check-build',
+          interval: const Duration(minutes: 5),
+          instruction: 'run dart test and report failures'));
+      final handlers =
+          SessionCommandHandlers(_FakeCtx(conversation: conv, timers: timers));
+      await handlers.dispatch('/timers show check-build');
+      final out = host.messages.join();
+      expect(out, contains('check-build: every 5m'));
+      expect(out, contains('fires: 0'));
+      expect(out, contains('instruction: run dart test and report failures'));
+    });
+
+    test('/timers show <unknown> warns and names the missing timer',
+        () async {
+      final handlers =
+          SessionCommandHandlers(_FakeCtx(conversation: conv, timers: timers));
+      await handlers.dispatch('/timers show nope');
+      expect(host.messages.skip(1).single, "no timer named 'nope'.\n");
+    });
+
+    test('/timers cancel <name> cancels; unknown name lists the actives',
+        () async {
+      timers.set(TimerSpec(
+          name: 'check-build',
+          interval: const Duration(minutes: 5),
+          instruction: 'run dart test and report failures'));
+      final handlers =
+          SessionCommandHandlers(_FakeCtx(conversation: conv, timers: timers));
+
+      await handlers.dispatch('/timers cancel check-build');
+      expect(host.messages[1], "cancelled timer 'check-build'\n");
+      expect(timers.list(), isEmpty,
+          reason: 'the service really cancelled it');
+
+      host.messages.clear();
+      host.styledMessages.clear();
+      await handlers.dispatch('/timers cancel check-build');
+      expect(host.messages[1], "no timer named 'check-build'.\n");
+      expect(host.messages.join(), contains('no active timers.'),
+          reason: 'unknown cancel falls back to the active list (§9)');
+    });
+
+    test('unknown sub-command → one usage line', () async {
+      final handlers =
+          SessionCommandHandlers(_FakeCtx(conversation: conv, timers: timers));
+      await handlers.dispatch('/timers frobnicate');
+      expect(host.messages.skip(1).single,
+          'usage: /timers [show <name>|cancel <name>]\n');
+    });
+
+    test('show/cancel without a name → the per-sub usage line', () async {
+      final handlers =
+          SessionCommandHandlers(_FakeCtx(conversation: conv, timers: timers));
+      await handlers.dispatch('/timers show');
+      expect(host.messages.skip(1).single, 'usage: /timers show <name>\n');
+      host.messages.clear();
+      await handlers.dispatch('/timers cancel');
+      expect(host.messages.skip(1).single, 'usage: /timers cancel <name>\n');
+    });
+  });
+}
+
+/// One-shot fake timer (§11 engine-suite pattern): `fire()` runs the tick
+/// callback the service armed. These tests never fire; they only observe the
+/// armed/cancelled state through [FakeFactory.timers].
+class _FakeTimer implements Timer {
+  _FakeTimer(this.initialDelay);
+
+  final Duration initialDelay;
+  void Function()? callback;
+  bool cancelled = false;
+
+  @override
+  int get tick => initialDelay.inMilliseconds;
+
+  @override
+  bool get isActive => !cancelled && callback != null;
+
+  @override
+  void cancel() {
+    cancelled = true;
+    callback = null;
+  }
+}
+
+class _FakeTimerFactory {
+  final List<_FakeTimer> timers = [];
+
+  Timer call(Duration duration, void Function() callback) {
+    final t = _FakeTimer(duration);
+    t.callback = callback;
+    timers.add(t);
+    return t;
+  }
 }
