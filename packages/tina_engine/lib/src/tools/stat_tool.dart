@@ -8,6 +8,9 @@ import 'tool_input.dart';
 /// symlink — what it points at. Read-only companion to `ls`; follows a link
 /// one level so the caller learns both the link and its target's shape.
 class StatTool implements Tool {
+  /// Captured project root; null retains standalone cwd-relative behavior.
+  String? projectRoot;
+
   /// Validates the runtime `path` against the project root + tina tree.
   /// Null in tests.
   SandboxedFileSystem? sandbox;
@@ -41,7 +44,7 @@ class StatTool implements Tool {
   }) async {
     final String path;
     try {
-      path = requiredString(input, 'path');
+      path = resolveToolPath(requiredString(input, 'path'), projectRoot);
     } on ToolValidationException catch (e) {
       return ToolResult.error(e.message);
     }

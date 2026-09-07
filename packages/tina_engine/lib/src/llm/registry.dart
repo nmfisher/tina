@@ -192,15 +192,70 @@ class ProviderRegistryException implements Exception {
   String toString() => 'ProviderRegistryException: $message';
 }
 
-/// Holds registered [ProviderDescriptor]s and resolves `"provider/model"`
-/// references into concrete [LlmProvider]s.
-///
-/// Constructed once in `main()` and threaded into the components that build
-/// providers — the same injection pattern as the existing `providerFactory` /
-/// `agentBuilder` typedefs. NOT a static singleton: the codebase keeps global
-/// state out of testable boundaries (docs/testing_architecture.md), and the
-/// registry is no exception. The environment map is injectable for tests.
-class ProviderRegistry {
+/// Constructs conversation-owned providers without exposing catalog mutation or
+/// the execution policy used to decorate them.
+abstract interface class LlmProviderFactory {
+  LlmProvider build(
+    String reference, {
+    String? apiKeyOverride,
+    String? baseUrlOverride,
+    int? maxTokens,
+    Duration? streamIdleTimeout,
+    Duration? requestTimeout,
+  });
+}
+
+/// Immutable execution policy over a shared provider catalog and endpoint
+/// limiter. Providers returned by [build] belong to the caller; this factory
+/// neither owns nor closes the registry's catalog or other runtimes' providers.
+/// A null [decorator] means no decoration. [maxSendRetries] is captured at factory
+/// construction; later changes to the registry's legacy policy do not affect it.
+class RuntimeProviderFactory implements LlmProviderFactory {
+  final ProviderRegistry _registry;
+  bool _closed = false;
+
+  /// Stops provider acquisition; existing providers still belong to callers.
+  void close() {
+    _closed = true;
+  }
+
+  final ProviderDecorator? decorator;
+  final int maxSendRetries;
+
+  RuntimeProviderFactory(
+    ProviderRegistry registry, {
+    this.decorator,
+    int? maxSendRetries,
+  })  : _registry = registry,
+        maxSendRetries = maxSendRetries ?? registry.maxSendRetries;
+
+  @override
+  LlmProvider build(
+    String reference, {
+    String? apiKeyOverride,
+    String? baseUrlOverride,
+    int? maxTokens,
+    Duration? streamIdleTimeout,
+    Duration? requestTimeout,
+  }) {
+    if (_closed) throw StateError('Runtime provider factory is closed');
+    return _registry._buildWithPolicy(
+      reference,
+      decorator: decorator,
+      maxSendRetries: maxSendRetries,
+      apiKeyOverride: apiKeyOverride,
+      baseUrlOverride: baseUrlOverride,
+      maxTokens: maxTokens,
+      streamIdleTimeout: streamIdleTimeout,
+      requestTimeout: requestTimeout,
+    );
+  }
+}
+
+/// Shared descriptors, model catalog, credential resolution and endpoint queues.
+/// Runtime construction uses [RuntimeProviderFactory]; direct [build] remains
+/// available for standalone consumers and backwards compatibility.
+class ProviderRegistry implements LlmProviderFactory {
   final Map<String, String> _env;
   final Map<String, ProviderDescriptor> _providers = {};
 
@@ -208,11 +263,9 @@ class ProviderRegistry {
   /// historical default in [Config] and the existing providers.
   static const int defaultMaxTokens = 8192;
 
-  /// Optional wrapper applied to every built provider. Set by the composition
-  /// root (`buildAppComposition`) once the session-scoped [MeteringProvider] /
-  /// `SpendLedger` exist — BEFORE the first [build] call, since the startup
-  /// provider is built inside that composition step. `null` (the default and in
-  /// tests that build a registry directly) leaves providers unwrapped.
+  /// Optional wrapper for legacy direct [build] calls. Application runtimes
+  /// use [RuntimeProviderFactory] instead; its policy never reads or changes
+  /// this field. A null runtime decorator means no decoration, not inheritance.
   ProviderDecorator? decorator;
 
   /// Built-in per-provider request spacing, applied inside [build] beneath the
@@ -248,8 +301,7 @@ class ProviderRegistry {
   /// calling this any time before/around [build] is safe.
   void setRequestRate(String providerId, int rpm) {
     if (rpm < 0) {
-      throw ArgumentError.value(
-          rpm, 'rpm', 'requests per minute must be >= 0');
+      throw ArgumentError.value(rpm, 'rpm', 'requests per minute must be >= 0');
     }
     _requestRates[providerId] = rpm;
   }
@@ -264,8 +316,9 @@ class ProviderRegistry {
     final rpm = override ?? desc.requestsPerMinute;
     if (rpm == null) return null;
     if (rpm == 0) return Duration.zero;
-    return Duration(microseconds:
-        (60 * 1000 * 1000 + rpm - 1) ~/ rpm); // ceil to whole µs ≡ ms
+    return Duration(
+        microseconds:
+            (60 * 1000 * 1000 + rpm - 1) ~/ rpm); // ceil to whole µs ≡ ms
   }
 
   /// Optional overlay catalog. When set, [modelsFor] / [findModel] / [resolve]
@@ -396,6 +449,27 @@ class ProviderRegistry {
     int? maxTokens,
     Duration? streamIdleTimeout,
     Duration? requestTimeout,
+  }) =>
+      _buildWithPolicy(
+        reference,
+        decorator: decorator,
+        maxSendRetries: maxSendRetries,
+        apiKeyOverride: apiKeyOverride,
+        baseUrlOverride: baseUrlOverride,
+        maxTokens: maxTokens,
+        streamIdleTimeout: streamIdleTimeout,
+        requestTimeout: requestTimeout,
+      );
+
+  LlmProvider _buildWithPolicy(
+    String reference, {
+    required ProviderDecorator? decorator,
+    required int maxSendRetries,
+    String? apiKeyOverride,
+    String? baseUrlOverride,
+    int? maxTokens,
+    Duration? streamIdleTimeout,
+    Duration? requestTimeout,
   }) {
     final resolved = resolve(reference);
     // A pool descriptor's builder returns the [PooledProvider] itself, its
@@ -414,14 +488,17 @@ class ProviderRegistry {
         requestTimeout: requestTimeout ?? defaultRequestTimeout,
         authScheme: AuthScheme.none,
       ));
-      return _policyStack(pool);
+      return _policyStack(pool, decorator, maxSendRetries);
     }
-    return _policyStack(_buildLimited(resolved,
-        apiKeyOverride: apiKeyOverride,
-        baseUrlOverride: baseUrlOverride,
-        maxTokens: maxTokens,
-        streamIdleTimeout: streamIdleTimeout,
-        requestTimeout: requestTimeout));
+    return _policyStack(
+        _buildLimited(resolved,
+            apiKeyOverride: apiKeyOverride,
+            baseUrlOverride: baseUrlOverride,
+            maxTokens: maxTokens,
+            streamIdleTimeout: streamIdleTimeout,
+            requestTimeout: requestTimeout),
+        decorator,
+        maxSendRetries);
   }
 
   /// Build [references] as the members of one [PooledProvider] (see there
@@ -450,15 +527,26 @@ class ProviderRegistry {
             'nested pool "$reference" — pools cannot pool pools');
       }
     }
-    final members = [
-      for (final reference in references)
-        _buildLimited(resolve(reference),
+    final members = <LlmProvider>[];
+    try {
+      for (final reference in references) {
+        members.add(_buildLimited(resolve(reference),
             apiKeyOverride: apiKeyOverride,
             maxTokens: maxTokens,
             streamIdleTimeout: streamIdleTimeout,
-            requestTimeout: requestTimeout)
-    ];
-    return PooledProvider(members);
+            requestTimeout: requestTimeout));
+      }
+      return PooledProvider(members);
+    } catch (_) {
+      for (final member in members.reversed) {
+        try {
+          member.close();
+        } catch (_) {
+          // Preserve the construction failure and release the remaining members.
+        }
+      }
+      rethrow;
+    }
   }
 
   /// Resolve + auth + build one provider and give it its per-key launch
@@ -480,8 +568,9 @@ class ProviderRegistry {
       apiKey = apiKeyOverride;
       // An explicit override doesn't carry a scheme; assume the descriptor's
       // primary (the OpenAI-compatible adapter ignores this regardless).
-      scheme =
-          desc.authSources.isEmpty ? AuthScheme.none : desc.authSources.first.scheme;
+      scheme = desc.authSources.isEmpty
+          ? AuthScheme.none
+          : desc.authSources.first.scheme;
     } else {
       final auth = authFor(desc);
       apiKey = auth.key;
@@ -546,11 +635,22 @@ class ProviderRegistry {
 
   /// The session policy stack above one built provider (or one pool):
   /// metering, then retry. See [_buildLimited] for the layering rationale.
-  LlmProvider _policyStack(LlmProvider inner) {
-    final metered = decorator == null ? inner : decorator!(inner);
-    return maxSendRetries > 0
-        ? RetryingProvider(metered, maxRetries: maxSendRetries)
-        : metered;
+  static LlmProvider _policyStack(
+      LlmProvider inner, ProviderDecorator? decorator, int maxSendRetries) {
+    var owned = inner;
+    try {
+      owned = decorator == null ? inner : decorator(inner);
+      return maxSendRetries > 0
+          ? RetryingProvider(owned, maxRetries: maxSendRetries)
+          : owned;
+    } catch (_) {
+      try {
+        owned.close();
+      } catch (_) {
+        // Cleanup must not replace the original construction failure.
+      }
+      rethrow;
+    }
   }
 
   /// First [AuthSource] whose env var is set in [env] (defaulting to this

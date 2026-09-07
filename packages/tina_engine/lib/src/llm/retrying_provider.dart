@@ -33,8 +33,12 @@ import 'wire.dart';
 class RetryingProvider implements LlmProvider {
   final LlmProvider inner;
   final int maxRetries;
+  final void Function(AttemptUsage) _recordAttemptUsage;
 
-  RetryingProvider(this.inner, {this.maxRetries = 3});
+  RetryingProvider(this.inner, {this.maxRetries = 3})
+      : _recordAttemptUsage = inner is AttemptUsageRecorder
+            ? (inner as AttemptUsageRecorder).recordAttemptUsage
+            : Wire.reportAttemptUsage;
 
   /// Delegate so `/model <name>` reaches the real underlying provider.
   @override
@@ -81,39 +85,38 @@ class RetryingProvider implements LlmProvider {
       StreamError? swallowed;
       var forwarded = false;
       late final StreamSubscription<StreamEvent> sub;
-      sub = inner
-          .send(system: system, messages: messages, tools: tools)
-          .listen(
-            (event) {
-              // Cancelled or already swallowed: drop the rest of this
-              // attempt — a retry (or teardown) supersedes it.
-              if (cancelled.isCompleted || swallowed != null) return;
-              if (!forwarded &&
-                  event is StreamError &&
-                  retriesLeft > 0 &&
-                  _isRetryable(event)) {
-                swallowed = event;
-                bookFailedAttemptUsage(
-                    system: system,
-                    messages: messages,
-                    tools: tools,
-                    error: event,
-                    attempt: attemptNumber,
-                    member: 'single');
-                return;
-              }
-              forwarded = true;
-              if (!controller.isClosed) controller.add(event);
-            },
-            onError: (Object e, StackTrace st) {
-              if (cancelled.isCompleted || swallowed != null) return;
-              forwarded = true;
-              if (!controller.isClosed) controller.addError(e, st);
-            },
-            onDone: () {
-              if (!done.isCompleted) done.complete();
-            },
-          );
+      sub = inner.send(system: system, messages: messages, tools: tools).listen(
+        (event) {
+          // Cancelled or already swallowed: drop the rest of this
+          // attempt — a retry (or teardown) supersedes it.
+          if (cancelled.isCompleted || swallowed != null) return;
+          if (!forwarded &&
+              event is StreamError &&
+              retriesLeft > 0 &&
+              _isRetryable(event)) {
+            swallowed = event;
+            bookFailedAttemptUsage(
+                system: system,
+                messages: messages,
+                tools: tools,
+                error: event,
+                onUsage: _recordAttemptUsage,
+                attempt: attemptNumber,
+                member: 'single');
+            return;
+          }
+          forwarded = true;
+          if (!controller.isClosed) controller.add(event);
+        },
+        onError: (Object e, StackTrace st) {
+          if (cancelled.isCompleted || swallowed != null) return;
+          forwarded = true;
+          if (!controller.isClosed) controller.addError(e, st);
+        },
+        onDone: () {
+          if (!done.isCompleted) done.complete();
+        },
+      );
       activeSub = sub;
       return done.future.then((_) async {
         await sub.cancel();
@@ -185,6 +188,7 @@ void bookFailedAttemptUsage({
   required StreamError error,
   required int attempt,
   String member = 'single',
+  void Function(AttemptUsage)? onUsage,
 }) {
   final measured = error.usage;
   final usage = measured != null
@@ -197,7 +201,7 @@ void bookFailedAttemptUsage({
       : WireUsage(
           inputTokens:
               TokenBudget.estimateInputTokens(system, messages, tools));
-  Wire.reportAttemptUsage(AttemptUsage(
+  (onUsage ?? Wire.reportAttemptUsage)(AttemptUsage(
     member: member,
     attempt: attempt,
     usage: usage,

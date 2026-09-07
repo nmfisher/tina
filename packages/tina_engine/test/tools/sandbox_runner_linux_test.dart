@@ -134,7 +134,11 @@ void main() {
       // The project + temp trees are writable binds.
       expect(binds[root], root);
       for (final t in ['/tmp', '/var/tmp']) {
-        expect(binds.containsKey(t), isTrue,
+        // The builder canonicalizes bind paths on every host, including when
+        // these Linux argument tests run on macOS (/tmp -> /private/tmp).
+        final dir = Directory(t);
+        final canonical = dir.existsSync() ? dir.resolveSymbolicLinksSync() : t;
+        expect(binds.containsKey(canonical), isTrue,
             reason: '$t should be bound writable');
       }
       // Pseudo-devices provided fresh; network stays on (no --unshare-net);
@@ -203,7 +207,8 @@ void main() {
       expect(args[rootIdx - 1], '--ro-bind');
       // …while temp (bound before the project, so it wins inside its own
       // subtree) stays writable.
-      final tmpIdx = args.indexOf('/tmp');
+      final tmpIdx = args.indexOf(Directory('/tmp').resolveSymbolicLinksSync());
+      expect(tmpIdx, greaterThan(0));
       expect(args[tmpIdx - 1], '--bind');
       expect(tmpIdx, lessThan(rootIdx));
     });

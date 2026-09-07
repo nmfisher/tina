@@ -2,7 +2,7 @@
 // that [index_command_test] stubs out. Runs the real fleet (orchestrator →
 // delegate → summarizer → write_summary) via the shared [fleet_test_harness]
 // against a temp git repo, and asserts the sidecar is populated + committed,
-// the registry decorator is restored (so an in-process /index doesn't leak),
+// the registry decorator is unchanged (so an in-process /index doesn't leak),
 // and `repartition` forces a re-run even when the index is up to date.
 
 import 'dart:async';
@@ -57,11 +57,11 @@ void main() {
     return store;
   }
 
-  test('refresh runs the fleet, writes the sidecar, restores the decorator',
+  test('refresh runs the fleet, writes the sidecar, preserves the decorator',
       () async {
     final registry = anthropicRegistry(provider);
-    // Sentinel the live session would have set at startup; refresh must leave
-    // it intact despite SummaryRunner's buildAppComposition re-setting it.
+    // A background runtime uses its own factory and leaves the legacy
+    // registry construction policy untouched.
     final sentinel = (LlmProvider p) => p;
     registry.decorator = sentinel;
     final idx = _index(registry);

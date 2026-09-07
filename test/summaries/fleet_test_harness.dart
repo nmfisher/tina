@@ -73,7 +73,9 @@ ProviderRegistry anthropicRegistry(LlmProvider provider) {
 class ScriptedFleetProvider extends LlmProvider {
   int callCount = 0;
 
-  ScriptedFleetProvider() : super('fleet');
+  final void Function()? onSend;
+
+  ScriptedFleetProvider({this.onSend}) : super('fleet');
 
   @override
   Stream<StreamEvent> send({
@@ -81,6 +83,7 @@ class ScriptedFleetProvider extends LlmProvider {
     required List<Message> messages,
     required List<ToolSchema> tools,
   }) async* {
+    onSend?.call();
     callCount++;
     // Every completion carries usage so the metering decorator records it —
     // the fleet-merge test asserts the live ledger absorbed the fleet's spend.

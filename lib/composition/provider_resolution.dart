@@ -47,14 +47,14 @@ bool appliesToStartupProvider(String ref, String configProvider) =>
 /// whatever the registry builds. Throws what the registry throws (e.g.
 /// [ProviderRegistryException]) — callers own fallback and reporting.
 LlmProvider buildResolved(
-  ProviderRegistry registry,
+  LlmProviderFactory providers,
   Config config,
   String ref, {
   String? apiKeyOverride,
   String? baseUrlOverride,
 }) {
   final sameProvider = appliesToStartupProvider(ref, config.provider);
-  return registry.build(
+  return providers.build(
     ref,
     apiKeyOverride: sameProvider ? apiKeyOverride : null,
     baseUrlOverride: sameProvider ? baseUrlOverride : null,

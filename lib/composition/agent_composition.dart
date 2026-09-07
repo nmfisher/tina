@@ -17,12 +17,14 @@ import '../summaries/summary_index.dart';
 SubAgentScheduler createScheduler({
   required Config config,
   required ProviderRegistry registry,
+  LlmProviderFactory? providers,
   required AgentPipeline pipeline,
   AgentQuota? quota,
   PauseGate? pauseGate,
 }) {
   final scheduler = SubAgentScheduler(
     registry: registry,
+    providers: providers,
     pipeline: pipeline,
     promptOverrides: config.promptOverrides,
     maxTokens: config.maxTokens,
@@ -84,6 +86,7 @@ Agent buildAgent({
   // result the model reads next step. Headless passes a DartAnalyzeVerifier;
   // interactive deliberately passes null (no analyze latency in the loop).
   ToolResultVerifier? resultVerifier,
+
   /// Write-through observers (#25): awaited by the engine after every history
   /// append (user message, assistant completion, tool-result batch) and once
   /// after a compact (with the final post-compact list). Headless passes the
@@ -92,6 +95,7 @@ Agent buildAgent({
   /// rely on the SessionController's turn-end flush (still safe, just coarser).
   HistoryAppendObserver? onHistoryAppend,
   HistoryReplaceObserver? onHistoryReplace,
+
   /// Turn-level transport retries (#28) — opt-in so the TUI's conversation
   /// construction is untouched by default. The HEADLESS runner passes
   /// `config.transportRetryAttempts` (5 unless --transport-retry-attempts
@@ -102,24 +106,32 @@ Agent buildAgent({
   // The entry agent's resolved system prompt — also the identity a delegated
   // sub-agent inherits. Resolved once so the agent and the delegation context
   // can't drift (and the recorder's captured prompt matches the live one).
-  final resolvedSystem = system ??
-      resolveMainPrompt(pipeline,
-          overrides: config.promptOverrides,
-          safeMode: config.safeMode,
-          loadProjectContext: pipeline.loadProjectContext);
+  final resolvedSystem =
+      system ??
+      resolveMainPrompt(
+        pipeline,
+        overrides: config.promptOverrides,
+        safeMode: config.safeMode,
+        loadProjectContext: pipeline.loadProjectContext,
+      );
 
   // Base registry both modes share: the full file/shell tool set (write/edit/
   // bash are stripped under --safe-mode). Start from a list so the orchestration
   // tools below can append without re-wrapping the registry.
-  var tools = [...buildTools(safeMode: config.safeMode).all];
+  var tools = [...pipeline.tools.buildTools(safeMode: config.safeMode).all];
   // The workflow surface, when the host provides a supervisor: launch a DOT
   // workflow in the background (the run's input/output streams into a live run
   // panel; the chat keeps the launch + completion notices) and stop a running
   // launch. The completion turn is injected by the supervisor's onComplete
   // hook — not returned by the tool.
   if (supervisor != null) {
-    tools.add(LaunchWorkflowTool(
-        supervisor: supervisor, conversationId: conversationId, sink: host));
+    tools.add(
+      LaunchWorkflowTool(
+        supervisor: supervisor,
+        conversationId: conversationId,
+        sink: host,
+      ),
+    );
     tools.add(StopWorkflowTool(supervisor: supervisor));
   }
   // The region surface, when the coordinator wired a registry: discover /
@@ -131,10 +143,16 @@ Agent buildAgent({
       RepoStructureTool(regions),
       ListRegionsTool(regions),
       ReadSummaryTool(regions),
-      QueryRegionTool(regions, scheduler,
-          parentReference: '${config.provider}/${provider.model}'),
-      BroadcastRegionTool(regions, scheduler,
-          parentReference: '${config.provider}/${provider.model}'),
+      QueryRegionTool(
+        regions,
+        scheduler,
+        parentReference: '${config.provider}/${provider.model}',
+      ),
+      BroadcastRegionTool(
+        regions,
+        scheduler,
+        parentReference: '${config.provider}/${provider.model}',
+      ),
       // allocate/forget exist only when the index does — the fleet that
       // summarizes allocations runs at /index.
       if (summaryIndex != null) AllocateRegionTool(regions),
@@ -196,7 +214,10 @@ Agent buildAgent({
     );
     // Interactive main renders images, delegates, and talks on channels, on top
     // of the file tools + workflow launcher shared with headless.
-    var reg = ToolRegistry([...tools, RenderTool()]);
+    var reg = ToolRegistry([
+      ...tools,
+      RenderTool(renderer: pipeline.imageRenderer),
+    ]);
     reg = withChannelTools(withDelegateTool(reg, ctx), ctx);
     agentTools = reg;
     effectivePolicy = mainPolicy;

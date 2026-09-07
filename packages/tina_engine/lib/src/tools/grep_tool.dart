@@ -27,6 +27,8 @@ final _log = Logger('tina.tools.grep');
 /// [sandbox] asserts the path directly (the review's H1 fix for the grep/glob
 /// bypass). When [sandbox] is null (tests), the assert is skipped.
 class GrepTool implements Tool {
+  /// Captured project root; null retains standalone cwd-relative behavior.
+  String? projectRoot;
   static const int _defaultMaxResults = 100;
 
   /// Per-match line cap. A single match on a minified/bundled multi-KB line
@@ -85,7 +87,7 @@ class GrepTool implements Tool {
               'type': 'string',
               'description':
                   'Optional file glob to limit which files are searched '
-                  '(e.g. "*.dart", "lib/**/*.ts").',
+                      '(e.g. "*.dart", "lib/**/*.ts").',
             },
             'maxResults': {
               'type': 'integer',
@@ -113,7 +115,11 @@ class GrepTool implements Tool {
     final bool caseInsensitive;
     try {
       pattern = requiredString(input, 'pattern');
-      path = optionalString(input, 'path') ?? Directory.current.path;
+      path = resolveToolPath(
+          optionalString(input, 'path') ??
+              projectRoot ??
+              Directory.current.path,
+          projectRoot);
       glob = optionalString(input, 'glob');
       maxResults = optionalInt(input, 'maxResults') ?? _defaultMaxResults;
       caseInsensitive = optionalBool(input, 'caseInsensitive') ?? false;
@@ -212,39 +218,39 @@ class GrepTool implements Tool {
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen(
-      (line) {
-        if (matchCount >= maxResults) {
-          if (!truncated) {
-            truncated = true;
-            try {
-              proc.kill();
-            } catch (e) {
-              _log.fine('truncation kill failed', e);
+          (line) {
+            if (matchCount >= maxResults) {
+              if (!truncated) {
+                truncated = true;
+                try {
+                  proc.kill();
+                } catch (e) {
+                  _log.fine('truncation kill failed', e);
+                }
+              }
+              return;
             }
-          }
-          return;
-        }
-        buf.writeln(_truncate(line));
-        matchCount++;
-        if (matchCount >= maxResults) {
-          truncated = true;
-          try {
-            proc.kill();
-          } catch (e) {
-            _log.fine('truncation kill failed', e);
-          }
-        }
-      },
-      onDone: () => done.complete(),
-      onError: (Object e, StackTrace st) {
-        _log.fine('rg stdout stream error', e, st);
-        done.complete();
-      },
-    );
+            buf.writeln(_truncate(line));
+            matchCount++;
+            if (matchCount >= maxResults) {
+              truncated = true;
+              try {
+                proc.kill();
+              } catch (e) {
+                _log.fine('truncation kill failed', e);
+              }
+            }
+          },
+          onDone: () => done.complete(),
+          onError: (Object e, StackTrace st) {
+            _log.fine('rg stdout stream error', e, st);
+            done.complete();
+          },
+        );
 
     final exitCode = await proc.exitCode;
-    await done.future.timeout(const Duration(milliseconds: 500),
-        onTimeout: () {});
+    await done.future
+        .timeout(const Duration(milliseconds: 500), onTimeout: () {});
     await sub.cancel();
 
     // rg: 0 = matches, 1 = no matches, 2+ = error.
@@ -254,8 +260,7 @@ class GrepTool implements Tool {
           .bind(proc.stderr)
           .join()
           .timeout(const Duration(milliseconds: 250), onTimeout: () => '');
-      return ToolResult.error(
-          'ripgrep failed (exit $exitCode): ${err.trim()}');
+      return ToolResult.error('ripgrep failed (exit $exitCode): ${err.trim()}');
     }
     if (matchCount == 0) return const ToolResult('(no matches)');
     if (truncated) {

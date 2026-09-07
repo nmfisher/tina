@@ -1,23 +1,11 @@
 import 'tool.dart';
 
-/// A screen-bound capability a [RenderTool] invokes.  The TUI coordinator sets
-/// [render] during composition (see [RenderTool.coordinate]); in headless it
-/// stays null and the tool reports that it is unavailable.  Mirrors the
-/// mutable-singleton injection [configureToolSandbox] uses for file tools — the
-/// agent layer stays UI-agnostic, and the tool just forwards a path.
-///
-/// [render] returns an error message on failure, or null on success.
-abstract class ImageRenderer {
-  /// The live render callback, or null when no TUI is hosting the agent.
-  static Future<String?> Function(String path)? _render;
-
-  /// Install the callback.  Called once by the TUI coordinator.
-  static void coordinate(Future<String?> Function(String path)? render) {
-    _render = render;
+/// A runtime-local screen capability, installed and cleared by its TUI.
+class ImageRenderer {
+  Future<String?> Function(String path)? render;
+  void coordinate(Future<String?> Function(String path)? callback) {
+    render = callback;
   }
-
-  /// Current callback (null in headless).
-  static Future<String?> Function(String path)? get render => _render;
 }
 
 /// Renders a local image into the terminal panel so the user can see it.
@@ -30,7 +18,8 @@ abstract class ImageRenderer {
 /// Null in headless — [buildAgent] only attaches this tool to the interactive
 /// main agent, which is never built outside a TUI.
 class RenderTool implements Tool {
-  const RenderTool();
+  final ImageRenderer? renderer;
+  const RenderTool({this.renderer});
 
   static const _name = 'render_image';
 
@@ -65,7 +54,7 @@ class RenderTool implements Tool {
       return ToolResult.error(
           'render_image requires a non-empty "path" string');
     }
-    final render = ImageRenderer.render;
+    final render = renderer?.render;
     if (render == null) {
       return ToolResult.error(
           'render_image is unavailable outside the interactive TUI');

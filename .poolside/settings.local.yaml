@@ -1,0 +1,9 @@
+tools:
+    shell:
+        allow:
+            - find *
+            - cd *
+            - grep *
+            - head *
+            - echo *
+            - ls *

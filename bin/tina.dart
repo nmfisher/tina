@@ -167,61 +167,65 @@ Future<void> _run(List<String> argv) async {
       // Project-trust gate: decide once, before any agent is built, whether this
       // cwd's AGENTS.md may enter system prompts. Withholds it for an untrusted
       // project (headless skips, TUI asks on the tty before the TUI takes over)
-      // unless --trust / [trust] default override. Stored on the shared pipeline
+      // unless --trust / [trust] default override. Captured by the runtime pipeline
       // so every agent (main, sub, /spawn) honors the same decision.
-      defaultPipeline.loadProjectContext = await _resolveProjectTrust(
-        config,
-        mergedEnv,
-      );
+      final loadProjectContext = await _resolveProjectTrust(config, mergedEnv);
 
       final app = await buildAppComposition(
         config: config,
         registry: registry,
         store: sessionStore,
+        ownsStore: true,
+        loadProjectContext: loadProjectContext,
       );
 
-      // Acquire the per-session lock when resuming/continuing an on-disk
-      // session, so a second process can't corrupt this session's history
-      // (concurrent appends to one .jsonl / racing manifest rewrites). Fresh
-      // sessions have nothing on disk yet — no other process can know their id
-      // — so they need no lock. initialManifest is non-null exactly when a
-      // real session was loaded (resume, or --continue that found a match).
-      await _acquireSessionLock(app, config);
+      try {
+        // Acquire the per-session lock when resuming/continuing an on-disk
+        // session, so a second process can't corrupt this session's history
+        // (concurrent appends to one .jsonl / racing manifest rewrites). Fresh
+        // sessions have nothing on disk yet — no other process can know their id
+        // — so they need no lock. initialManifest is non-null exactly when a
+        // real session was loaded (resume, or --continue that found a match).
+        await _acquireSessionLock(app, config);
 
-      // Logging inits after config parses (so a parse error still goes to the
-      // pre-logging stderr path) and before any service runs. Idempotent, so a
-      // relaunch after setup re-enters harmlessly. Verbose via --verbose or the
-      // existing COCOON_DEBUG=1 convention; mirror to stderr when non-interactive.
-      initLogging(
-        level: (config.verbose || environment.env['COCOON_DEBUG'] == '1')
-            ? Level.FINE
-            : Level.INFO,
-        mirrorToStderr: config.nonInteractive,
-      );
-
-      if (config.nonInteractive) {
-        await _runNonInteractive(app);
-        return;
-      }
-
-      // Setup mode = forced (--setup) or unconfigured on a tty (no resolvable
-      // key for the default provider). The overlay collects config and writes
-      // ~/.tina/config; on setupWrote we loop to re-parse + re-launch with it.
-      final isTty = stdioType(stdin) == StdioType.terminal;
-      final setupMode = config.setup || (config.apiKey.isEmpty && isTty);
-      final outcome = await _runInteractive(app, setupMode: setupMode);
-      if (outcome == RunOutcome.setupWrote) {
-        // Relaunch: release the lock so the next iteration re-acquires cleanly
-        // (the lockfile still carries our PID, which is alive).
-        await _releaseSessionLock();
-        continue;
-      }
-      if (outcome == RunOutcome.setupCancelled) {
-        stderr.writeln(
-          'Setup cancelled. Re-run with --setup or set ANTHROPIC_API_KEY.',
+        // Logging inits after config parses (so a parse error still goes to the
+        // pre-logging stderr path) and before any service runs. Idempotent, so a
+        // relaunch after setup re-enters harmlessly. Verbose via --verbose or the
+        // existing COCOON_DEBUG=1 convention; mirror to stderr when non-interactive.
+        initLogging(
+          level: (config.verbose || environment.env['COCOON_DEBUG'] == '1')
+              ? Level.FINE
+              : Level.INFO,
+          mirrorToStderr: config.nonInteractive,
         );
+
+        if (config.nonInteractive) {
+          await _runNonInteractive(app);
+          return;
+        }
+
+        // Setup mode = forced (--setup) or unconfigured on a tty (no resolvable
+        // key for the default provider). The overlay collects config and writes
+        // ~/.tina/config; on setupWrote we loop to re-parse + re-launch with it.
+        final isTty = stdioType(stdin) == StdioType.terminal;
+        final setupMode = config.setup || (config.apiKey.isEmpty && isTty);
+        final outcome = await _runInteractive(app, setupMode: setupMode);
+        if (outcome == RunOutcome.setupWrote) {
+          // Relaunch: release the lock so the next iteration re-acquires cleanly
+          // (the lockfile still carries our PID, which is alive).
+          await _releaseSessionLock();
+          continue;
+        }
+        if (outcome == RunOutcome.setupCancelled) {
+          stderr.writeln(
+            'Setup cancelled. Re-run with --setup or set ANTHROPIC_API_KEY.',
+          );
+        }
+        return;
+      } finally {
+        await app.dispose();
+        registry.catalog?.close();
       }
-      return;
     }
     // Unreachable — the loop only exits via return.
   } on BackendUnavailableError catch (e) {
@@ -246,7 +250,7 @@ Future<void> _run(List<String> argv) async {
     await _releaseSessionLock();
     await ChildProcessRegistry.instance.reapAll();
     await closeLogging();
-    exit(0);
+    exit(exitCode);
   }
 }
 
@@ -363,271 +367,277 @@ Future<void> _runNonInteractive(AppComposition app) async {
   // to stdout, notices to stderr, and permission `ask`s refused with a flag
   // hint. Wiring it as both `sink` and `asker` keeps bin/ free of any terminal
   // type — no Screen, ChatRegion, or Spinner reaches the non-interactive path.
-  final host = HeadlessHost();
+  final resources = RuntimeResources();
+  return resources.run(() async {
+    final host = HeadlessHost();
+    resources.own(host.dispose);
 
-  // `--workflow <name>` headless: run a DOT pipeline to completion. Each `box`
-  // node runs as a real agent turn via the scheduler (headless auto-approves at
-  // any human gate). Input comes from `--prompt`. The run is audited under
-  // ~/.tina/runs/<id>; a non-success outcome exits non-zero. Node agents'
-  // write/edit asks auto-deny headless (there is no one to prompt) — run with
-  // `--yolo` or `--allow write`/`--allow edit` to let a workflow change files.
-  final workflow = app.config.workflow;
-  if (workflow != null) {
-    final tinaDataDir = tinaDirFromEnv(app.environment.env);
-    final runner = PipelineRunner(
-      scheduler: app.scheduler,
-      pipeline: app.pipeline,
-      workflowsDir: Directory(p.join(tinaDataDir.path, 'workflows')),
-      runsRoot: Directory(p.join(tinaDataDir.path, 'runs')),
-      defaultModelReference: '${app.config.provider}/${app.config.model}',
-    );
-    final rawInput = app.config.prompt?.trim();
-    try {
-      final result = await runner.run(
-        workflowName: workflow,
-        sink: host,
-        input: (rawInput == null || rawInput.isEmpty) ? null : rawInput,
+    // `--workflow <name>` headless: run a DOT pipeline to completion. Each `box`
+    // node runs as a real agent turn via the scheduler (headless auto-approves at
+    // any human gate). Input comes from `--prompt`. The run is audited under
+    // ~/.tina/runs/<id>; a non-success outcome exits non-zero. Node agents'
+    // write/edit asks auto-deny headless (there is no one to prompt) — run with
+    // `--yolo` or `--allow write`/`--allow edit` to let a workflow change files.
+    final workflow = app.config.workflow;
+    if (workflow != null) {
+      final tinaDataDir = tinaDirFromEnv(app.environment.env);
+      final runner = PipelineRunner(
+        scheduler: app.scheduler,
+        pipeline: app.pipeline,
+        workflowsDir: Directory(p.join(tinaDataDir.path, 'workflows')),
+        runsRoot: Directory(p.join(tinaDataDir.path, 'runs')),
+        defaultModelReference: '${app.config.provider}/${app.config.model}',
       );
-      if (result.runDir.isNotEmpty) {
-        stderr.writeln('run transcript: ${result.runDir}');
-      }
-      if (!result.outcome.status.isOk) exit(1);
-    } finally {
-      await host.dispose();
-      await app.store.close();
-      await closeLogging();
-    }
-    return;
-  }
-
-  // `/index` headless: run the staleness dance directly (no agent turn). The
-  // summary fleet runs via SummaryIndex.refresh (its own ephemeral composition),
-  // so the non-interactive agent isn't needed — the dance's notices stream to
-  // the HeadlessHost (stdout/stderr). confirm is null (no interactive input),
-  // so the up-to-date branch reports and stops, matching the deleted bin's
-  // `--dry-run` behavior.
-  final prompt = app.config.prompt?.trim() ?? '';
-  if (prompt == '/index') {
-    // Load the on-disk allocations (a TUI session's approved layout) so the
-    // headless run measures the SAME partition. Without this, every allocated
-    // dir falls outside the default partition and gets classified as deleted —
-    // destroying the approved layout's summaries.
-    final idx = SummaryIndex(
-      config: app.config,
-      registry: app.registry,
-      environment: app.environment,
-      projectRoot: Directory.current.path,
-      allocations: AllocationsStore.forProject(Directory.current.path),
-    );
-    try {
-      await runIndexDance(host: host, summaryIndex: idx, confirm: null);
-    } finally {
-      await host.dispose();
-      await closeLogging();
-    }
-    return;
-  }
-
-  // Normal headless turns run the plain agent. Workflows are launched on demand
-  // (use `--workflow <name>` for an explicit, run-to-completion pipeline);
-  // there is no default-workflow routing of ordinary prompts.
-
-  // The headless agent runs one turn with the base tools and the un-widened
-  // policy — withSubAgents: false preserves the pre-composition behavior (a
-  // non-interactive run does not gain delegate/channel tools). The provider is
-  // built here because this turn owns it: built on demand, closed in the
-  // finally below (no other path shares the instance).
-  final provider = app.buildStartupProvider();
-  final history = app.initialHistory;
-  final recorder = SessionRecorder(
-    app.store,
-    app.initialSessionId,
-    app.initialConversationId,
-    providerId: app.config.provider,
-    baseUrl: app.config.baseUrl,
-    cwd: Directory.current.path,
-    // Stamp the conversation meta at creation, mirroring the TUI's
-    // initialRecorder: the model this run ACTUALLY used (the --model flag or
-    // the config default) lands in the manifest, so a later headless
-    // --resume/--continue resolves it via buildStartupProvider instead of
-    // silently falling back to the config default. The system prompt stays
-    // null (re-derived from the static main role on resume, like
-    // session_manager's capture). On resume the recorder attaches to an
-    // existing conversation, so this meta is write-once for fresh sessions
-    // only — it never clobbers a persisted swap.
-    meta: ConversationMetaInput.primary(
-      providerId: app.config.provider,
-      provider: provider,
-      baseUrl: app.config.baseUrl,
-      policy: app.policy,
-    ),
-  );
-
-  // Write-through persistence (#25): the engine AWAITS these observers at the
-  // moment each message is produced, so a mid-turn kill (SIGKILL, OOM, crash)
-  // leaves the completed exchanges on disk instead of losing the whole turn to
-  // a turn-end flush. The store's append is crash-safe per line (flush +
-  // torn-tail repair), so no batching is needed here. A compact is observed
-  // once with the final post-compact list and rewrites the session file
-  // wholesale (no synthetic marker message exists to intercept). Observer
-  // failures are logged and swallowed — persistence must never abort a run
-  // (the engine likewise catches, logs, and continues).
-  final agent = buildAgent(
-    pipeline: app.pipeline,
-    scheduler: app.scheduler,
-    conversationId: app.initialConversationId,
-    provider: provider,
-    host: host,
-    policy: app.policy,
-    config: app.config,
-    withSubAgents: false,
-    // Headless (#22a): pass the post-edit compile gate so a failed edit
-    // feeds its `dart analyze` errors back to the model mid-turn.
-    resultVerifier: DartAnalyzeVerifier(),
-    onHistoryAppend: (m) async {
+      final rawInput = app.config.prompt?.trim();
       try {
-        await recorder.append(m);
-      } catch (e, st) {
-        _log.severe('session write-through failed', e, st);
-      }
-    },
-    onHistoryReplace: (messages) async {
-      try {
-        await recorder.replace(messages);
-      } catch (e, st) {
-        _log.severe('session compact-replace failed', e, st);
-      }
-    },
-    // #28: headless turns survive mid-stream transport blips — the agent
-    // re-sends the failed step (15s→120s backoff) instead of aborting the
-    // leg. Defaults to 5; --transport-retry-attempts 0 restores the
-    // abort-on-first-error behavior.
-    transportRetryAttempts: app.config.transportRetryAttempts,
-  );
-
-  // Append concise summary instruction for headless --prompt runs.
-  final rawPrompt = app.config.prompt!;
-  var userInput =
-      rawPrompt +
-      (rawPrompt.trim().isNotEmpty ? '\n' : '') +
-      HeadlessHost.kHeadlessSummaryInstruction;
-
-  // Startup tree-health check (#22b): a killed run persists its edits but not
-  // the model's awareness of them; compaction can drop old per-edit verdicts;
-  // and the break may pre-date the session or come from outside entirely (a
-  // kill, a manual edit). The CURRENT tree state at startup is authoritative
-  // regardless of transcript history — so analyze it here and, when it does
-  // not compile, prepend a <tree-health> notice. (#27) Whether the notice may
-  // say "fix FIRST" depends on whether this run can actually edit: in a
-  // read-only run that framing invites an edit-refusal spiral (Run A burned
-  // 12 steps on refused edits), so wrapTreeHealth appends a do-not-try line
-  // and the model answers with read-only tools instead.
-  if (File('pubspec.yaml').existsSync()) {
-    final notice = await DartAnalyzeVerifier().projectCheck();
-    if (notice != null) {
-      userInput =
-          '<tree-health>\n'
-          '${DartAnalyzeVerifier.wrapTreeHealth(notice, editActionable: DartAnalyzeVerifier.editActionable(app.policy))}'
-          '\n</tree-health>\n\n$userInput';
-    }
-  }
-
-  var aborted = false;
-  // Liveness watchdog (#26): a wedge below the provider stack (an internal
-  // await that never resolves — Run D sat silent 25+ minutes past its last
-  // wire request) emits no agent-sink event AND has no request in flight, so
-  // neither the stream-idle nor the request timeout can fire. Every sink call
-  // lands on the host's event bus; the watchdog resets on each one and, when
-  // the idle clock expires, tears the turn down through the cancel signal
-  // with a diagnostic — the headless analogue of the budget guard's clean
-  // exit-2. 0 disables.
-  //
-  // #45: the transport retry ladder is agent-event-silent, so the watchdog
-  // ALSO drinks from the wire feed ([Wire.onWireEvent] — attempt rungs, pool
-  // rotation, backoff parks) — a run grinding through a bad provider patch
-  // then reads as alive, not wedged. And the timeout itself is reconciled
-  // against the ladder's worst case (watchdog≥ladder): the conservative
-  // floor (no body bytes, no pool) already exceeds the 300s default, and a
-  // real payload only lengthens the rungs the feed resets on.
-  final cancelWatchdog = Completer<void>();
-  HeadlessWatchdog? watchdog;
-  StreamSubscription<AgentEvent>? watchdogSub;
-  Timer? watchdogGrace;
-  var watchdogSeconds = app.config.watchdogSeconds;
-  if (watchdogSeconds > 0) {
-    final reconciled = reconcileWatchdogWithLadder(
-        watchdogSeconds: watchdogSeconds, bodyBytes: 0, members: 1);
-    if (reconciled.raised) {
-      stderr.writeln(
-        '[watchdog] ${watchdogSeconds}s is tighter than the retry '
-        'ladder\'s worst case (${reconciled.seconds}s) — raising to it so a '
-        'legitimately slow ladder is not aborted. 0 disables.',
-      );
-      watchdogSeconds = reconciled.seconds;
-    }
-    watchdog = HeadlessWatchdog(
-      timeout: Duration(seconds: watchdogSeconds),
-      onFire: (diagnostic) {
-        // #45: name what the wire was last doing — the difference between
-        // "wedged below the provider stack" and "parked on backoff" is the
-        // first thing the postmortem needs.
-        final wire = Wire.last;
-        if (wire != null) {
-          diagnostic += ' Wire: $wire'
-              '${wire.inFlight ? ' (in flight ${Wire.inFlightFor.inSeconds}s)' : ''}';
+        final result = await runner.run(
+          workflowName: workflow,
+          sink: host,
+          input: (rawInput == null || rawInput.isEmpty) ? null : rawInput,
+        );
+        if (result.runDir.isNotEmpty) {
+          stderr.writeln('run transcript: ${result.runDir}');
         }
-        stderr.writeln(diagnostic);
-        // Give the cancel path a grace period to tear down cleanly (flushes,
-        // session writes), then take the hard exit the budget guard would.
-        cancelWatchdog.complete();
-        watchdogGrace = Timer(const Duration(seconds: 5), () {
-          stderr.writeln(
-            '[watchdog] graceful teardown missed the 5s grace — '
-            'exiting hard',
-          );
-          exit(2);
-        });
-      },
-    )..start();
-    Wire.onWireEvent =
-        (s) => watchdog?.record('wire:${s.event}(${s.member})');
-    watchdogSub = host.eventBus.events.listen(
-      (e) => watchdog?.record(e.runtimeType.toString()),
-      onDone: watchdog.dispose,
+        if (!result.outcome.status.isOk) exitCode = 1;
+      } finally {
+        await closeLogging();
+      }
+      return;
+    }
+
+    // `/index` headless: run the staleness dance directly (no agent turn). The
+    // summary fleet runs via SummaryIndex.refresh (its own ephemeral composition),
+    // so the non-interactive agent isn't needed — the dance's notices stream to
+    // the HeadlessHost (stdout/stderr). confirm is null (no interactive input),
+    // so the up-to-date branch reports and stops, matching the deleted bin's
+    // `--dry-run` behavior.
+    final prompt = app.config.prompt?.trim() ?? '';
+    if (prompt == '/index') {
+      // Load the on-disk allocations (a TUI session's approved layout) so the
+      // headless run measures the SAME partition. Without this, every allocated
+      // dir falls outside the default partition and gets classified as deleted —
+      // destroying the approved layout's summaries.
+      final idx = SummaryIndex(
+        config: app.config,
+        registry: app.registry,
+        environment: app.environment,
+        toolScope: app.pipeline.tools,
+        promptContext: app.pipeline.promptContext,
+        projectRoot: Directory.current.path,
+        allocations: AllocationsStore.forProject(Directory.current.path),
+      );
+      try {
+        await runIndexDance(host: host, summaryIndex: idx, confirm: null);
+      } finally {
+        await closeLogging();
+      }
+      return;
+    }
+
+    // Normal headless turns run the plain agent. Workflows are launched on demand
+    // (use `--workflow <name>` for an explicit, run-to-completion pipeline);
+    // there is no default-workflow routing of ordinary prompts.
+
+    // The headless agent runs one turn with the base tools and the un-widened
+    // policy — withSubAgents: false preserves the pre-composition behavior (a
+    // non-interactive run does not gain delegate/channel tools). The provider is
+    // built here because this turn owns it: built on demand, closed in the
+    // finally below (no other path shares the instance).
+    final provider = app.buildStartupProvider();
+    resources.own(provider.close);
+    resources.own(app.scheduler.dispose);
+    final history = app.initialHistory;
+    final recorder = SessionRecorder(
+      app.store,
+      app.initialSessionId,
+      app.initialConversationId,
+      providerId: app.config.provider,
+      baseUrl: app.config.baseUrl,
+      cwd: Directory.current.path,
+      // Stamp the conversation meta at creation, mirroring the TUI's
+      // initialRecorder: the model this run ACTUALLY used (the --model flag or
+      // the config default) lands in the manifest, so a later headless
+      // --resume/--continue resolves it via buildStartupProvider instead of
+      // silently falling back to the config default. The system prompt stays
+      // null (re-derived from the static main role on resume, like
+      // session_manager's capture). On resume the recorder attaches to an
+      // existing conversation, so this meta is write-once for fresh sessions
+      // only — it never clobbers a persisted swap.
+      meta: ConversationMetaInput.primary(
+        providerId: app.config.provider,
+        provider: provider,
+        baseUrl: app.config.baseUrl,
+        policy: app.policy,
+      ),
     );
-    cancelWatchdog.future.whenComplete(() {
+
+    // Write-through persistence (#25): the engine AWAITS these observers at the
+    // moment each message is produced, so a mid-turn kill (SIGKILL, OOM, crash)
+    // leaves the completed exchanges on disk instead of losing the whole turn to
+    // a turn-end flush. The store's append is crash-safe per line (flush +
+    // torn-tail repair), so no batching is needed here. A compact is observed
+    // once with the final post-compact list and rewrites the session file
+    // wholesale (no synthetic marker message exists to intercept). Observer
+    // failures are logged and swallowed — persistence must never abort a run
+    // (the engine likewise catches, logs, and continues).
+    final agent = buildAgent(
+      pipeline: app.pipeline,
+      scheduler: app.scheduler,
+      conversationId: app.initialConversationId,
+      provider: provider,
+      host: host,
+      policy: app.policy,
+      config: app.config,
+      withSubAgents: false,
+      // Headless (#22a): pass the post-edit compile gate so a failed edit
+      // feeds its `dart analyze` errors back to the model mid-turn.
+      resultVerifier: DartAnalyzeVerifier(),
+      onHistoryAppend: (m) async {
+        try {
+          await recorder.append(m);
+        } catch (e, st) {
+          _log.severe('session write-through failed', e, st);
+        }
+      },
+      onHistoryReplace: (messages) async {
+        try {
+          await recorder.replace(messages);
+        } catch (e, st) {
+          _log.severe('session compact-replace failed', e, st);
+        }
+      },
+      // #28: headless turns survive mid-stream transport blips — the agent
+      // re-sends the failed step (15s→120s backoff) instead of aborting the
+      // leg. Defaults to 5; --transport-retry-attempts 0 restores the
+      // abort-on-first-error behavior.
+      transportRetryAttempts: app.config.transportRetryAttempts,
+    );
+
+    // Append concise summary instruction for headless --prompt runs.
+    final rawPrompt = app.config.prompt!;
+    var userInput =
+        rawPrompt +
+        (rawPrompt.trim().isNotEmpty ? '\n' : '') +
+        HeadlessHost.kHeadlessSummaryInstruction;
+
+    // Startup tree-health check (#22b): a killed run persists its edits but not
+    // the model's awareness of them; compaction can drop old per-edit verdicts;
+    // and the break may pre-date the session or come from outside entirely (a
+    // kill, a manual edit). The CURRENT tree state at startup is authoritative
+    // regardless of transcript history — so analyze it here and, when it does
+    // not compile, prepend a <tree-health> notice. (#27) Whether the notice may
+    // say "fix FIRST" depends on whether this run can actually edit: in a
+    // read-only run that framing invites an edit-refusal spiral (Run A burned
+    // 12 steps on refused edits), so wrapTreeHealth appends a do-not-try line
+    // and the model answers with read-only tools instead.
+    if (File('pubspec.yaml').existsSync()) {
+      final notice = await DartAnalyzeVerifier().projectCheck();
+      if (notice != null) {
+        userInput =
+            '<tree-health>\n'
+            '${DartAnalyzeVerifier.wrapTreeHealth(notice, editActionable: DartAnalyzeVerifier.editActionable(app.policy))}'
+            '\n</tree-health>\n\n$userInput';
+      }
+    }
+
+    var aborted = false;
+    // Liveness watchdog (#26): a wedge below the provider stack (an internal
+    // await that never resolves — Run D sat silent 25+ minutes past its last
+    // wire request) emits no agent-sink event AND has no request in flight, so
+    // neither the stream-idle nor the request timeout can fire. Every sink call
+    // lands on the host's event bus; the watchdog resets on each one and, when
+    // the idle clock expires, tears the turn down through the cancel signal
+    // with a diagnostic — the headless analogue of the budget guard's clean
+    // exit-2. 0 disables.
+    //
+    // #45: the transport retry ladder is agent-event-silent, so the watchdog
+    // ALSO drinks from the wire feed ([Wire.onWireEvent] — attempt rungs, pool
+    // rotation, backoff parks) — a run grinding through a bad provider patch
+    // then reads as alive, not wedged. And the timeout itself is reconciled
+    // against the ladder's worst case (watchdog≥ladder): the conservative
+    // floor (no body bytes, no pool) already exceeds the 300s default, and a
+    // real payload only lengthens the rungs the feed resets on.
+    final cancelWatchdog = Completer<void>();
+    HeadlessWatchdog? watchdog;
+    StreamSubscription<AgentEvent>? watchdogSub;
+    Timer? watchdogGrace;
+    var watchdogSeconds = app.config.watchdogSeconds;
+    if (watchdogSeconds > 0) {
+      final reconciled = reconcileWatchdogWithLadder(
+        watchdogSeconds: watchdogSeconds,
+        bodyBytes: 0,
+        members: 1,
+      );
+      if (reconciled.raised) {
+        stderr.writeln(
+          '[watchdog] ${watchdogSeconds}s is tighter than the retry '
+          'ladder\'s worst case (${reconciled.seconds}s) — raising to it so a '
+          'legitimately slow ladder is not aborted. 0 disables.',
+        );
+        watchdogSeconds = reconciled.seconds;
+      }
+      watchdog = HeadlessWatchdog(
+        timeout: Duration(seconds: watchdogSeconds),
+        onFire: (diagnostic) {
+          // #45: name what the wire was last doing — the difference between
+          // "wedged below the provider stack" and "parked on backoff" is the
+          // first thing the postmortem needs.
+          final wire = Wire.last;
+          if (wire != null) {
+            diagnostic +=
+                ' Wire: $wire'
+                '${wire.inFlight ? ' (in flight ${Wire.inFlightFor.inSeconds}s)' : ''}';
+          }
+          stderr.writeln(diagnostic);
+          // Give the cancel path a grace period to tear down cleanly (flushes,
+          // session writes), then take the hard exit the budget guard would.
+          cancelWatchdog.complete();
+          watchdogGrace = Timer(const Duration(seconds: 5), () {
+            stderr.writeln(
+              '[watchdog] graceful teardown missed the 5s grace — '
+              'exiting hard',
+            );
+            exit(2);
+          });
+        },
+      )..start();
+      Wire.onWireEvent = (s) =>
+          watchdog?.record('wire:${s.event}(${s.member})');
+      watchdogSub = host.eventBus.events.listen(
+        (e) => watchdog?.record(e.runtimeType.toString()),
+        onDone: watchdog.dispose,
+      );
+      cancelWatchdog.future.whenComplete(() {
+        Wire.onWireEvent = null;
+        watchdog?.dispose();
+      });
+    }
+    try {
+      await agent.run(
+        history: history,
+        userInput: userInput,
+        cancelSignal: cancelWatchdog.future,
+      );
+      aborted = agent.abortedReason != null || (watchdog?.fired ?? false);
+    } finally {
+      watchdogGrace?.cancel();
+      await watchdogSub?.cancel();
       Wire.onWireEvent = null;
       watchdog?.dispose();
-    });
-  }
-  try {
-    await agent.run(
-      history: history,
-      userInput: userInput,
-      cancelSignal: cancelWatchdog.future,
-    );
-    aborted = agent.abortedReason != null || (watchdog?.fired ?? false);
-  } finally {
-    watchdogGrace?.cancel();
-    await watchdogSub?.cancel();
-    Wire.onWireEvent = null;
-    watchdog?.dispose();
-    // Non-interactive hint goes to stderr so callers parsing stdout for the
-    // agent's answer aren't disrupted. The RECORDER's id, not the
-    // pre-allocation from startup: a store that couldn't honor our id mints
-    // its own at first write, and the printed hint must point at the session
-    // that actually exists on disk.
-    if (app.initialSessionId.isNotEmpty) {
-      stderr.writeln(
-        'session: ${recorder.sessionId}  (resume: tina --resume ${recorder.sessionId})',
-      );
+      // Non-interactive hint goes to stderr so callers parsing stdout for the
+      // agent's answer aren't disrupted. The RECORDER's id, not the
+      // pre-allocation from startup: a store that couldn't honor our id mints
+      // its own at first write, and the printed hint must point at the session
+      // that actually exists on disk.
+      if (app.initialSessionId.isNotEmpty) {
+        stderr.writeln(
+          'session: ${recorder.sessionId}  (resume: tina --resume ${recorder.sessionId})',
+        );
+      }
+      await closeLogging();
     }
-    await host.dispose();
-    await app.store.close();
-    provider.close();
-    await closeLogging();
-  }
-  if (aborted) exit(2);
+    if (aborted) exitCode = 2;
+  });
 }
 
 /// Whether to run the first-run setup wizard over **stdin** — the non-tty

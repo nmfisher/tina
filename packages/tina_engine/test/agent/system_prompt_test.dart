@@ -15,7 +15,8 @@ void main() {
       tmp.deleteSync(recursive: true);
     });
 
-    test('returns the identity + environment block when no AGENTS.md exists', () {
+    test('returns the identity + environment block when no AGENTS.md exists',
+        () {
       final s = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
       expect(s, contains('coding assistant'));
       expect(s, contains('<environment>'));
@@ -169,7 +170,8 @@ void main() {
     test('carries a non-empty identity, sans wrapper', () {
       expect(defaultPipeline.mainIdentity, isNotEmpty);
       expect(defaultPipeline.mainIdentity, isNot(contains('<environment>')));
-      expect(defaultPipeline.mainIdentity, isNot(contains('<project-context>')));
+      expect(
+          defaultPipeline.mainIdentity, isNot(contains('<project-context>')));
     });
 
     test('the identity carries its distinctive marker', () {
@@ -179,8 +181,21 @@ void main() {
 
   group('projectEnvironmentSource hook', () {
     late Directory tmp;
+    String? Function()? projectEnvironmentSource;
+    String? Function()? repoSummarySource;
+
+    AgentPipeline pipeline() => AgentPipeline(
+          mainIdentity: defaultPipeline.mainIdentity,
+          promptContext: PromptContext(
+            projectRoot: tmp.path,
+            projectEnvironmentSource: projectEnvironmentSource,
+            repoSummarySource: repoSummarySource,
+          ),
+        );
 
     setUp(() {
+      projectEnvironmentSource = null;
+      repoSummarySource = null;
       tmp = Directory.systemTemp.createTempSync('tina_sysprompt_env_');
     });
 
@@ -190,8 +205,9 @@ void main() {
     });
 
     test('injects the block inside <environment> when the hook is set', () {
-      projectEnvironmentSource = () => '<project-environment>\ntoolchain: Dart\n</project-environment>';
-      final s = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
+      projectEnvironmentSource = () =>
+          '<project-environment>\ntoolchain: Dart\n</project-environment>';
+      final s = resolveMainPrompt(pipeline(), cwd: tmp.path);
       expect(s, contains('<project-environment>'));
       expect(s, contains('toolchain: Dart'));
       // The block rides inside the environment funnel, after the date line.
@@ -200,22 +216,22 @@ void main() {
 
     test('withholds the block when loadProjectContext is false', () {
       projectEnvironmentSource = () => 'LEAKED ENVIRONMENT';
-      final s = resolveMainPrompt(defaultPipeline,
+      final s = resolveMainPrompt(pipeline(),
           cwd: tmp.path, loadProjectContext: false);
       expect(s, isNot(contains('LEAKED ENVIRONMENT')));
     });
 
     test('a throwing source cannot break prompt assembly', () {
       projectEnvironmentSource = () => throw StateError('boom');
-      final s = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
+      final s = resolveMainPrompt(pipeline(), cwd: tmp.path);
       expect(s, contains('<environment>'));
       expect(s, contains('cwd:'));
     });
 
     test('no hook (default): byte-identical output to a null source', () {
       projectEnvironmentSource = null;
-      final a = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
-      final b = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
+      final a = resolveMainPrompt(pipeline(), cwd: tmp.path);
+      final b = resolveMainPrompt(pipeline(), cwd: tmp.path);
       expect(a, equals(b));
       expect(a, isNot(contains('<project-environment>')));
     });
@@ -223,8 +239,21 @@ void main() {
 
   group('repoSummarySource hook', () {
     late Directory tmp;
+    String? Function()? projectEnvironmentSource;
+    String? Function()? repoSummarySource;
+
+    AgentPipeline pipeline() => AgentPipeline(
+          mainIdentity: defaultPipeline.mainIdentity,
+          promptContext: PromptContext(
+            projectRoot: tmp.path,
+            projectEnvironmentSource: projectEnvironmentSource,
+            repoSummarySource: repoSummarySource,
+          ),
+        );
 
     setUp(() {
+      projectEnvironmentSource = null;
+      repoSummarySource = null;
       tmp = Directory.systemTemp.createTempSync('tina_sysprompt_repo_');
     });
 
@@ -233,13 +262,14 @@ void main() {
       tmp.deleteSync(recursive: true);
     });
 
-    test('injects the block inside <environment>, before any '
+    test(
+        'injects the block inside <environment>, before any '
         '<project-environment>', () {
       repoSummarySource = () => '<repo>\nbranch: main @ abc1234\n</repo>';
-      projectEnvironmentSource =
-          () => '<project-environment>\ntoolchain: Dart\n</project-environment>';
+      projectEnvironmentSource = () =>
+          '<project-environment>\ntoolchain: Dart\n</project-environment>';
       addTearDown(() => projectEnvironmentSource = null);
-      final s = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
+      final s = resolveMainPrompt(pipeline(), cwd: tmp.path);
       expect(s, contains('<repo>'));
       expect(s, contains('branch: main @ abc1234'));
       expect(s.indexOf('date:'), lessThan(s.indexOf('<repo>')));
@@ -248,14 +278,14 @@ void main() {
 
     test('withholds the block when loadProjectContext is false', () {
       repoSummarySource = () => 'LEAKED REPO SUMMARY';
-      final s = resolveMainPrompt(defaultPipeline,
+      final s = resolveMainPrompt(pipeline(),
           cwd: tmp.path, loadProjectContext: false);
       expect(s, isNot(contains('LEAKED REPO SUMMARY')));
     });
 
     test('a throwing source cannot break prompt assembly', () {
       repoSummarySource = () => throw StateError('boom');
-      final s = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
+      final s = resolveMainPrompt(pipeline(), cwd: tmp.path);
       expect(s, contains('<environment>'));
       expect(s, contains('cwd:'));
     });

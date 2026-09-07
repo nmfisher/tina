@@ -25,6 +25,8 @@ class SummaryRunner {
     required this.config,
     required this.registry,
     this.environment,
+    this.toolScope,
+    this.promptContext,
     this.projectRoot,
     this.dryRun = false,
     this.repartition = false,
@@ -38,6 +40,13 @@ class SummaryRunner {
   final Config config;
   final ProviderRegistry registry;
   final Environment? environment;
+
+  /// Borrowed tools and mutation lock for an in-session, same-project run.
+  /// Standalone callers omit this to create an independent project scope.
+  final ProjectToolScope? toolScope;
+
+  /// Parent runtime context, including its captured trust decision.
+  final PromptContext? promptContext;
 
   /// Where the fleet's agent prose + notices go. Defaults to a
   /// [HeadlessHost] (raw stdout/stderr — correct headless, terminal-corrupting
@@ -79,7 +88,7 @@ class SummaryRunner {
   Future<StaleSet> run() async {
     // The sidecar repo root is `<projectRoot>/.tina`, so its `summaries/`
     // dir lands at `<projectRoot>/.tina/summaries` — the same path
-    // `configureToolSandbox` sets as the `write_summary` tool's sidecarRoot.
+    // the project tool scope sets as the `write_summary` tool's sidecarRoot.
     // Keeping the two in sync is what lets the summarizer children write into
     // the very repo this driver commits.
     final project = projectRoot ?? _projectRoot();
@@ -100,7 +109,9 @@ class SummaryRunner {
         ? stale.toRegenerate
         : stale.toRegenerate.where(dirs!.contains).toList();
     final effective = StaleSet(
-        toRegenerate: toRegenerate, deleted: stale.deleted);
+      toRegenerate: toRegenerate,
+      deleted: stale.deleted,
+    );
 
     if (dryRun) {
       return effective;
@@ -109,40 +120,24 @@ class SummaryRunner {
       return effective;
     }
 
-    // buildAppComposition (below) re-sets the shared registry's `decorator` to a
-    // fresh ephemeral MeteringProvider/SpendLedger. When this runner is driven
-    // in-process (e.g. /index inside a live session), that mutation would leak
-    // to the caller's registry and silently break /spend metering on later
-    // /spawn /model builds. Save/restore here — at the layer that owns the
-    // mutation — so every caller is protected, and so the save/restore is
-    // testable via the summary_runner harness without standing up the caller.
-    final savedDecorator = registry.decorator;
-    try {
-      // Build the composition — this configures the shared tool singletons,
-      // including _writeSummary.sidecarRoot (via configureToolSandbox, which uses
-      // Directory.current.path). Re-configure with the runner's explicit
-      // [projectRoot] so the write_summary tool targets this repo regardless of
-      // the process cwd (configureToolSandbox is idempotent).
-      final app = await buildAppComposition(
-        config: config,
-        registry: registry,
-        environment: environment,
-      );
-      if (projectRoot != null) {
-        configureToolSandbox(
-          projectRoot: project,
-          env: (environment ?? const PlatformEnvironment()).env,
-          sandboxEnabled: config.sandboxEnabled,
-          sandboxNet: config.sandboxNet,
-          sandboxReadOnly: config.sandboxReadOnly,
-        );
-      }
+    final app = await buildAppComposition(
+      config: config,
+      registry: registry,
+      environment: environment,
+      projectRoot: project,
+      toolScope: toolScope,
+      promptContext: promptContext,
+    );
 
+    final resources = RuntimeResources()..own(app.dispose);
+    return resources.run(() async {
       final host = this.host ?? HeadlessHost();
-      final ownedHost = this.host == null; // we created it; we dispose it.
+      if (this.host == null) resources.own(host.dispose);
       // The fleet's own provider, built on demand from this ephemeral
       // composition and closed with it below — no other path shares it.
       final provider = app.buildStartupProvider();
+      resources.own(provider.close);
+      resources.own(app.scheduler.dispose);
       // The top agent is the orchestrator with a summarization identity: it has
       // only `delegate` + channels (no file tools, structurally — see
       // buildAgent's withSubAgents path), which is exactly the shape we want.
@@ -159,17 +154,14 @@ class SummaryRunner {
       );
 
       final history = <Message>[];
-      try {
-        await agent.run(
-          history: history,
-          userInput: _userPrompt(effective.toRegenerate),
-          cancelSignal: cancelSignal,
-        );
-      } finally {
-        if (ownedHost) await host.dispose();
-        await app.scheduler.dispose();
-        provider.close();
-      }
+      await agent.run(
+        history: history,
+        userInput: _userPrompt(effective.toRegenerate),
+        cancelSignal: cancelSignal,
+      );
+
+      // Finish owned work before recording results or merging usage.
+      await resources.dispose();
 
       // After the fleet ran, record the regenerated + deleted dirs and commit.
       final updated = repo.record(
@@ -189,11 +181,8 @@ class SummaryRunner {
       // fleet's ephemeral ledger into the live one (the fleet ran on its own
       // composition + throttle, so only tokens are merged).
       spendLedger?.merge(app.spendLedger);
-    } finally {
-      registry.decorator = savedDecorator;
-    }
-
-    return effective;
+      return effective;
+    });
   }
 
   String _projectRoot() => Directory.current.path;
@@ -203,10 +192,12 @@ class SummaryRunner {
       return 'No directories are stale. Nothing to summarize.';
     }
     final lines = StringBuffer()
-      ..writeln('Regenerate per-directory summaries for the following stale '
-          'directories. For each, delegate a sub-agent with the task "read '
-          '<dir> and write its summary with write_summary". Batch at most 8 '
-          'per `delegate` call.\n');
+      ..writeln(
+        'Regenerate per-directory summaries for the following stale '
+        'directories. For each, delegate a sub-agent with the task "read '
+        '<dir> and write its summary with write_summary". Batch at most 8 '
+        'per `delegate` call.\n',
+      );
     for (final dir in staleDirs) {
       lines.writeln('- $dir');
     }

@@ -1,3 +1,4 @@
+import '../composition/runtime_resources.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 import '../composition/agent_composition.dart';
@@ -11,6 +12,7 @@ import '../session_manager.dart' show HostFactory;
 /// terminal host factory) and threaded into [restoreConversation] for every meta.
 class RestoreContext {
   final ProviderRegistry registry;
+  final LlmProviderFactory providers;
   final AgentPipeline pipeline;
   final Config config;
   final SessionStore store;
@@ -34,6 +36,7 @@ class RestoreContext {
 
   const RestoreContext({
     required this.registry,
+    LlmProviderFactory? providers,
     required this.pipeline,
     required this.config,
     required this.store,
@@ -43,7 +46,7 @@ class RestoreContext {
     required this.activeConversationId,
     required this.accountProvider,
     this.classifier,
-  });
+  }) : providers = providers ?? registry;
 }
 
 /// Rebuild the exact agent a [meta] describes. [provider] is already resolved
@@ -56,11 +59,14 @@ Agent _restoreAgent({
   required PermissionPolicy policy,
   required RestoreContext ctx,
 }) {
-  final system = meta.promptOverride ??
-      resolveMainPrompt(ctx.pipeline,
-          overrides: ctx.config.promptOverrides,
-          safeMode: ctx.config.safeMode,
-          loadProjectContext: ctx.pipeline.loadProjectContext);
+  final system =
+      meta.promptOverride ??
+      resolveMainPrompt(
+        ctx.pipeline,
+        overrides: ctx.config.promptOverrides,
+        safeMode: ctx.config.safeMode,
+        loadProjectContext: ctx.pipeline.loadProjectContext,
+      );
 
   switch (meta.kind) {
     case ConversationKind.primary:
@@ -88,8 +94,8 @@ Agent _restoreAgent({
       // (inheriting its own identity); spawns and branches are leaves.
       final tools = <Tool>[
         ...(ctx.config.safeMode
-            ? stripForSafeMode(toolsFromPolicy(policy))
-            : toolsFromPolicy(policy)),
+            ? stripForSafeMode(ctx.pipeline.tools.toolsFromPolicy(policy))
+            : ctx.pipeline.tools.toolsFromPolicy(policy)),
       ];
       if (meta.kind == ConversationKind.subAgent) {
         final ctx2 = AgentToolContext(
@@ -134,7 +140,7 @@ LlmProvider _restoreProvider(ConversationMeta meta, RestoreContext ctx) {
     // Startup key/base URL apply only when the ref's provider IS the config
     // provider; buildResolved enforces that and plumbs the tuning knobs.
     return buildResolved(
-      ctx.registry,
+      ctx.providers,
       ctx.config,
       ref,
       apiKeyOverride: ctx.config.apiKey,
@@ -170,52 +176,69 @@ Future<Conversation> restoreConversation(
   RestoreContext ctx,
 ) async {
   final provider = _restoreProvider(meta, ctx);
-  final policy = _restorePolicy(meta, ctx);
-  final host = ctx.hostFactory(
-    conversationId: meta.id,
-    isActive: meta.id == ctx.activeConversationId,
-  );
-  final agent = _restoreAgent(
-    meta: meta,
-    provider: provider,
-    host: host,
-    policy: policy,
-    ctx: ctx,
-  );
-
-  // providerId is recorded in the session manifest on first write; derive it
-  // from the stored ref (or the model the account provider runs under).
-  final providerId = meta.providerId ??
-      (meta.model?.contains('/') == true ? meta.model!.split('/').first : null) ??
-      provider.model;
-  // Load the history BEFORE attaching the recorder: if the message file is
-  // missing, fail now with a clear error rather than landing in a
-  // half-attached recorder. (The coordinator's restore loop catches this and
-  // skips the conversation — the clear message is the point.)
-  final List<Message> history;
+  final resources = RuntimeResources()..own(provider.close);
   try {
-    history = await ctx.store.loadConversation(ctx.sessionId, meta.id);
-  } on StateError {
-    throw StateError(
+    final policy = _restorePolicy(meta, ctx);
+    final host = ctx.hostFactory(
+      conversationId: meta.id,
+      isActive: meta.id == ctx.activeConversationId,
+    );
+    resources.own(host.dispose);
+    final agent = _restoreAgent(
+      meta: meta,
+      provider: provider,
+      host: host,
+      policy: policy,
+      ctx: ctx,
+    );
+
+    // providerId is recorded in the session manifest on first write; derive it
+    // from the stored ref (or the model the account provider runs under).
+    final providerId =
+        meta.providerId ??
+        (meta.model?.contains('/') == true
+            ? meta.model!.split('/').first
+            : null) ??
+        provider.model;
+    // Load the history BEFORE attaching the recorder: if the message file is
+    // missing, fail now with a clear error rather than landing in a
+    // half-attached recorder. (The coordinator's restore loop catches this and
+    // skips the conversation — the clear message is the point.)
+    final List<Message> history;
+    try {
+      history = await ctx.store.loadConversation(ctx.sessionId, meta.id);
+    } on StateError {
+      throw StateError(
         'Cannot restore conversation ${meta.id}: message history not found '
-        'on disk (session ${ctx.sessionId})');
+        'on disk (session ${ctx.sessionId})',
+      );
+    }
+
+    final recorder = SessionRecorder(
+      ctx.store,
+      ctx.sessionId,
+      meta.id,
+      providerId: providerId,
+    );
+    // Point at the existing conversation — its meta is already on disk.
+    recorder.attach(ctx.sessionId, meta.id);
+
+    return Conversation(
+      id: meta.id,
+      label: meta.label.isNotEmpty ? meta.label : provider.model,
+      agent: agent,
+      provider: provider,
+      host: host,
+      policy: policy,
+      recorder: recorder,
+      initialHistory: history,
+    );
+  } catch (_) {
+    try {
+      await resources.dispose();
+    } catch (_) {}
+    rethrow;
   }
-
-  final recorder = SessionRecorder(ctx.store, ctx.sessionId, meta.id,
-      providerId: providerId);
-  // Point at the existing conversation — its meta is already on disk.
-  recorder.attach(ctx.sessionId, meta.id);
-
-  return Conversation(
-    id: meta.id,
-    label: meta.label.isNotEmpty ? meta.label : provider.model,
-    agent: agent,
-    provider: provider,
-    host: host,
-    policy: policy,
-    recorder: recorder,
-    initialHistory: history,
-  );
 }
 
 /// The working directory a resumed session should restore to, or null when
@@ -246,7 +269,9 @@ Future<String?> resumeCwdFor(SessionStore store, String sessionId) async {
 /// surfaced by [resolveSession] (which calls loadSession directly) later in the
 /// boot path, so swallowing only the documented "not found" error here is safe.
 Future<SessionManifest?> _safeLoadSession(
-    SessionStore store, String sessionId) async {
+  SessionStore store,
+  String sessionId,
+) async {
   try {
     return await store.loadSession(sessionId);
   } on StateError {

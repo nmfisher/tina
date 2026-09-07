@@ -93,14 +93,14 @@ final List<(RegExp, String)> kBashDenylist = [
   // Pipe-to-shell: `curl|wget … | sh|bash|zsh|dash`. Misses command
   // substitution (`bash -c "$(curl …)"`) and `curl … | /bin/bash`.
   (
-    RegExp(
-        r'\b(curl|wget)\b[^;&|]*\|[^;&|]*\b(sh|bash|zsh|dash)\b'),
+    RegExp(r'\b(curl|wget)\b[^;&|]*\|[^;&|]*\b(sh|bash|zsh|dash)\b'),
     'piping fetched content straight into a shell',
   ),
   // Writing to a /dev device other than the common pseudo-devices (writing
   // `/dev/null` is normal; writing `/dev/sda` is not).
   (
-    RegExp(r'[>]{1,2}\s*/dev/(?!null|zero|random|urandom|stdin|stderr|stdout|tty|f{1,2}d\w*|/)\S+'),
+    RegExp(
+        r'[>]{1,2}\s*/dev/(?!null|zero|random|urandom|stdin|stderr|stdout|tty|f{1,2}d\w*|/)\S+'),
     'writing to a device node (/dev/...)',
   ),
   // Wholesale deletion via tools other than `rm`.
@@ -226,7 +226,7 @@ class BashTool implements Tool {
               'type': 'string',
               'description':
                   'Working directory for the command. Absolute or relative '
-                  'to the agent cwd. Defaults to the agent cwd.',
+                      'to the agent cwd. Defaults to the agent cwd.',
             },
             'timeoutSeconds': {
               'type': 'integer',
@@ -249,7 +249,10 @@ class BashTool implements Tool {
     final int timeoutSec;
     try {
       command = requiredString(input, 'command');
-      cwd = optionalString(input, 'cwd');
+      final requestedCwd = optionalString(input, 'cwd') ?? projectRoot;
+      cwd = requestedCwd == null
+          ? null
+          : resolveToolPath(requestedCwd, projectRoot);
       final requested =
           optionalInt(input, 'timeoutSeconds') ?? timeout.inSeconds;
       // Clamp the model-supplied override to [1, 900]: 0 or negative would
@@ -310,27 +313,27 @@ class BashTool implements Tool {
     }
 
     final outSub = proc.stdout.transform(utf8.decoder).listen(
-      (s) {
-        stdoutAcc.append(s);
-        if (onOutput != null) onOutput(s);
-      },
-      onDone: () => completeOnce(outDone),
-      onError: (Object e, StackTrace st) {
-        _log.fine('stdout stream error', e, st);
-        completeOnce(outDone);
-      },
-    );
+          (s) {
+            stdoutAcc.append(s);
+            if (onOutput != null) onOutput(s);
+          },
+          onDone: () => completeOnce(outDone),
+          onError: (Object e, StackTrace st) {
+            _log.fine('stdout stream error', e, st);
+            completeOnce(outDone);
+          },
+        );
     final errSub = proc.stderr.transform(utf8.decoder).listen(
-      (s) {
-        stderrAcc.append(s);
-        if (onOutput != null) onOutput(s, stderr: true);
-      },
-      onDone: () => completeOnce(errDone),
-      onError: (Object e, StackTrace st) {
-        _log.fine('stderr stream error', e, st);
-        completeOnce(errDone);
-      },
-    );
+          (s) {
+            stderrAcc.append(s);
+            if (onOutput != null) onOutput(s, stderr: true);
+          },
+          onDone: () => completeOnce(errDone),
+          onError: (Object e, StackTrace st) {
+            _log.fine('stderr stream error', e, st);
+            completeOnce(errDone);
+          },
+        );
 
     // Terminate the whole descendant tree on cancel/timeout — not just the
     // /bin/sh child — so a backgrounded/forked process can't outlive the
@@ -358,8 +361,9 @@ class BashTool implements Tool {
     // own — however slowly — gets unbounded time; the grace exists purely so
     // a kill-proof (stuck/D-state) process can't hang the tool forever.
     final exitOnce = Completer<int>();
-    unawaited(proc.exitCode
-        .then((c) { if (!exitOnce.isCompleted) exitOnce.complete(c); }));
+    unawaited(proc.exitCode.then((c) {
+      if (!exitOnce.isCompleted) exitOnce.complete(c);
+    }));
     var killedButStuck = false;
     Future<void> terminateWithGrace() async {
       await terminate();
@@ -421,8 +425,8 @@ class BashTool implements Tool {
       report.writeln('exit: $exitCode');
     }
     if (killedButStuck) {
-      report.writeln(
-          'process did not exit after kill; output may be incomplete');
+      report
+          .writeln('process did not exit after kill; output may be incomplete');
     }
     report.writeln('stdout:');
     report.write(outTail.isEmpty ? '(empty)\n' : outTail);
@@ -435,8 +439,7 @@ class BashTool implements Tool {
       isError: cancelled || timedOut || exitCode != 0,
       elapsed: stopwatch.elapsed,
       timedOut: timedOut,
-      emptyOutput:
-          stdoutAcc.totalChars + stderrAcc.totalChars == 0,
+      emptyOutput: stdoutAcc.totalChars + stderrAcc.totalChars == 0,
     );
   }
 }
@@ -500,8 +503,8 @@ class _BashOutput {
   void _openSpill() {
     try {
       _counter++;
-      final file =
-          File(p.join(_tempDirFactory().path, 'tina-bash-$_label-$_counter.log'));
+      final file = File(
+          p.join(_tempDirFactory().path, 'tina-bash-$_label-$_counter.log'));
       _spill = file.openWrite();
       spillPath = file.path;
     } catch (e) {

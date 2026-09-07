@@ -1,3 +1,5 @@
+import 'dart:async';
+
 /// Attempt-level liveness feed (#45): the transport retry ladder
 /// ([RetryingProvider], [PooledProvider], [sendOnce] callers) is
 /// agent-event-silent by design, so a run grinding through a bad provider
@@ -8,7 +10,7 @@
 /// here ([Wire.onWireEvent]) once at startup and every layer reports its
 /// transitions through [Wire.report]. A null hook makes reporting free.
 ///
-/// This library deliberately imports nothing — it sits at the bottom of the
+/// This library depends only on the SDK — it sits at the bottom of the
 /// provider stack so every layer above ([http.dart], [retrying_provider.dart],
 /// [pooled_provider.dart]) can depend on it without cycles. The ladder
 /// ARITHMETIC that pairs with it ([wireLadderWorstCase],
@@ -64,14 +66,13 @@ class WireUsage {
   int get total => inputTokens + outputTokens;
 
   @override
-  String toString() =>
-      '$inputTokens in / $outputTokens out'
+  String toString() => '$inputTokens in / $outputTokens out'
       '${cacheCreationInputTokens > 0 ? ' / +$cacheCreationInputTokens write' : ''}'
       '${cacheReadInputTokens > 0 ? ' / $cacheReadInputTokens read' : ''}';
 }
 
 /// #46: usage booked for one FAILED transport attempt. Emitted through
-/// [Wire.onAttemptUsage] by the retry ladder ([RetryingProvider],
+/// an instance recorder or [Wire.reportAttemptUsage] by the retry ladder ([RetryingProvider],
 /// [PooledProvider]) — the layers that swallow a before-content failure and
 /// re-send the full body, so they are also the only layers that know an
 /// attempt died and what it cost.
@@ -105,9 +106,14 @@ class AttemptUsage {
   });
 
   @override
-  String toString() =>
-      'attempt#$attempt member=$member $usage'
+  String toString() => 'attempt#$attempt member=$member $usage'
       '${estimated ? ' (est)' : ''}';
+}
+
+/// A provider layer that owns failed-attempt accounting. An outer retry layer
+/// reports to this instance rather than a process-wide meter.
+abstract interface class AttemptUsageRecorder {
+  void recordAttemptUsage(AttemptUsage usage);
 }
 
 abstract final class Wire {
@@ -115,11 +121,17 @@ abstract final class Wire {
   /// Null everywhere else — every report is then a no-op.
   static void Function(WireState state)? onWireEvent;
 
-  /// #46: installed by the metering layer ([MeteringProvider]) at startup.
-  /// The retry ladder reports failed-attempt usage through this hook so
-  /// the funnel (metering) sees spend that was previously invisible. A null
-  /// hook keeps reports free when no meter is installed.
+  /// Optional fallback for unmetered callers. Runtime meters never assign this
+  /// hook: nested pool retries use the current send's scoped recorder instead.
   static void Function(AttemptUsage usage)? onAttemptUsage;
+
+  static final Object _attemptUsageKey = Object();
+
+  /// Bind nested asynchronous pool/transport work to its owning send. No error
+  /// zone is installed, so stream errors and cancellation keep their semantics.
+  static T withAttemptUsage<T>(
+          void Function(AttemptUsage) recorder, T Function() body) =>
+      runZoned(body, zoneValues: {_attemptUsageKey: recorder});
 
   static WireState? _last;
   static DateTime _inFlightSince = DateTime.now();
@@ -133,15 +145,16 @@ abstract final class Wire {
     final f = inFlight ?? _inFlight;
     if (f && !_inFlight) _inFlightSince = DateTime.now();
     _inFlight = f;
-    _last = WireState(event,
-        member: member, attempt: attempt, inFlight: f);
+    _last = WireState(event, member: member, attempt: attempt, inFlight: f);
     onWireEvent?.call(_last!);
   }
 
   /// #46: report usage booked for one failed transport attempt. Free (no-op)
   /// when no meter is installed — mirroring [report].
   static void reportAttemptUsage(AttemptUsage usage) {
-    onAttemptUsage?.call(usage);
+    final recorder =
+        Zone.current[_attemptUsageKey] as void Function(AttemptUsage)?;
+    (recorder ?? onAttemptUsage)?.call(usage);
   }
 
   /// Elapsed time of the current (or last) in-flight request.

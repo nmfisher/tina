@@ -75,16 +75,14 @@ void main() {
     expect(manifest.dirs['lib']!.file, 'lib.md');
   });
 
-  test('run() restores the registry decorator it temporarily mutates',
+  test('run() never changes the registry decorator, including during sends',
       () async {
-    // buildAppComposition re-sets registry.decorator to a fresh
-    // MeteringProvider/SpendLedger during the run. SummaryRunner must restore
-    // the caller's decorator afterward so an in-process /index run doesn't
-    // leak the ephemeral (disposed) ledger into later /spawn /model builds.
-    final registry = anthropicRegistry(provider);
-    // Pin a sentinel decorator the live session would have set at startup.
+    late ProviderRegistry registry;
+    final observed = <ProviderDecorator?>[];
     final sentinel = (LlmProvider p) => p;
-    registry.decorator = sentinel;
+    provider = ScriptedFleetProvider(
+        onSend: () => observed.add(registry.decorator));
+    registry = anthropicRegistry(provider)..decorator = sentinel;
     final runner = SummaryRunner(
       config: testFleetConfig(registry),
       registry: registry,
@@ -95,7 +93,9 @@ void main() {
     await runner.run().timeout(const Duration(seconds: 30));
 
     expect(registry.decorator, same(sentinel),
-        reason: 'the caller\'s registry.decorator must be restored after run');
+        reason: 'the caller\'s registry.decorator must remain unchanged');
+    expect(observed, isNotEmpty);
+    expect(observed, everyElement(same(sentinel)));
   });
 
   test('dry-run reports stale dirs without calling the model', () async {

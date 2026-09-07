@@ -1,3 +1,4 @@
+import 'tool_input.dart';
 import 'atomic_write.dart';
 import 'file_system.dart';
 import 'mutation_lock.dart';
@@ -5,6 +6,9 @@ import 'sandbox.dart';
 import 'tool.dart';
 
 class EditTool implements Tool {
+  /// Captured project root; null retains standalone cwd-relative behavior.
+  String? projectRoot;
+
   /// The filesystem this tool reads/writes through. Mutable so app composition
   /// can inject a [SandboxedFileSystem] once. Defaults to the real filesystem.
   late FileSystem fs;
@@ -38,7 +42,7 @@ class EditTool implements Tool {
               'type': 'string',
               'description':
                   'Exact substring to replace. Include enough surrounding '
-                  'context to make it unique.',
+                      'context to make it unique.',
             },
             'newString': {
               'type': 'string',
@@ -48,7 +52,7 @@ class EditTool implements Tool {
               'type': 'boolean',
               'description':
                   'If true, replace every occurrence; otherwise the match '
-                  'must be unique. Defaults to false.',
+                      'must be unique. Defaults to false.',
             },
           },
           'required': ['filePath', 'oldString', 'newString'],
@@ -61,14 +65,15 @@ class EditTool implements Tool {
     Future<void>? cancelSignal,
     ToolOutputCallback? onOutput,
   }) async {
-    final path = input['filePath'] as String?;
+    final rawPath = input['filePath'] as String?;
     final oldStr = input['oldString'] as String?;
     final newStr = input['newString'] as String?;
     final replaceAll = (input['replaceAll'] as bool?) ?? false;
 
-    if (path == null || path.isEmpty) {
+    if (rawPath == null || rawPath.isEmpty) {
       return ToolResult.error('filePath is required');
     }
+    final path = resolveToolPath(rawPath, projectRoot);
     if (oldStr == null || newStr == null) {
       return ToolResult.error('oldString and newString are required');
     }

@@ -9,6 +9,9 @@ import 'tool_input.dart';
 const int _defaultMaxResults = 200;
 
 class GlobTool implements Tool {
+  /// Captured project root; null retains standalone cwd-relative behavior.
+  String? projectRoot;
+
   /// Source of the file list glob patterns are matched against. Defaults to
   /// [RepoFileEnumerator] (git-aware); tests inject a fake for determinism.
   final FileEnumerator fileEnumerator;
@@ -63,7 +66,11 @@ class GlobTool implements Tool {
     final int maxResults;
     try {
       pattern = requiredString(input, 'pattern');
-      path = optionalString(input, 'path') ?? Directory.current.path;
+      path = resolveToolPath(
+          optionalString(input, 'path') ??
+              projectRoot ??
+              Directory.current.path,
+          projectRoot);
       maxResults = optionalInt(input, 'maxResults') ?? _defaultMaxResults;
     } on ToolValidationException catch (e) {
       return ToolResult.error(e.message);

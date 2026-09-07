@@ -1,17 +1,19 @@
 import 'package:tina_engine/tina_engine.dart';
 
 import 'conversation.dart';
+import 'composition/runtime_resources.dart';
 import 'session.dart';
 
 /// Factory function that constructs an [LlmProvider] for a given
 /// configuration. Passed in from `bin/tina.dart` to keep the session
 /// manager decoupled from concrete provider implementations and the registry.
-typedef ProviderFactory = LlmProvider Function(
-  String providerId,
-  String apiKey,
-  String model,
-  String? baseUrl,
-);
+typedef ProviderFactory =
+    LlmProvider Function(
+      String providerId,
+      String apiKey,
+      String model,
+      String? baseUrl,
+    );
 
 /// Constructs the per-conversation [HostInterface]. Supplied by the app layer
 /// (which owns the terminal widgets) so [SessionManager] never touches a UI
@@ -19,10 +21,11 @@ typedef ProviderFactory = LlmProvider Function(
 /// routed to the screen from construction; every conversation created later
 /// starts in the background and is routed up by [switchSession] /
 /// [switchConversation] via [HostInterface.setActive].
-typedef HostFactory = HostInterface Function({
-  required String conversationId,
-  required bool isActive,
-});
+typedef HostFactory =
+    HostInterface Function({
+      required String conversationId,
+      required bool isActive,
+    });
 
 /// Builds an [Agent] for a conversation. Supplied by the app layer so the
 /// agent's host (its [AgentSink]) is wired in exactly one place without
@@ -31,12 +34,13 @@ typedef HostFactory = HostInterface Function({
 /// builder; the host is passed as the agent's sink (a [HostInterface] is an
 /// [AgentSink]) and as the source of its `asker`. App-level config (tools,
 /// max steps, token budget) is captured in the builder's closure.
-typedef AgentBuilder = Agent Function({
-  required String conversationId,
-  required LlmProvider provider,
-  required HostInterface host,
-  required PermissionPolicy policy,
-});
+typedef AgentBuilder =
+    Agent Function({
+      required String conversationId,
+      required LlmProvider provider,
+      required HostInterface host,
+      required PermissionPolicy policy,
+    });
 
 /// Manages multiple independent sessions. Each session is a workspace that can
 /// hold several conversations; each conversation has its own agent, provider,
@@ -73,9 +77,9 @@ class SessionManager {
     required AgentBuilder agentBuilder,
     this.sessionStore,
     this.cwd,
-  })  : _providerFactory = providerFactory,
-        _hostFactory = hostFactory,
-        _agentBuilder = agentBuilder {
+  }) : _providerFactory = providerFactory,
+       _hostFactory = hostFactory,
+       _agentBuilder = agentBuilder {
     final session = Session(
       id: (initialSessionId != null && initialSessionId.isNotEmpty)
           ? initialSessionId
@@ -141,7 +145,10 @@ class SessionManager {
   /// not repoint the anchor at a non-primary, or resume would promote the side
   /// panel to the full-width slot and drop the real primary to a background
   /// replay with no panel.
-  Future<Conversation> switchConversation(String id, {bool persist = true}) async {
+  Future<Conversation> switchConversation(
+    String id, {
+    bool persist = true,
+  }) async {
     final session = active;
     if (id == session.activeConversationId) return session.activeConversation;
     final next = session.conversationById(id);
@@ -187,7 +194,10 @@ class SessionManager {
 
     final sid = sessionStore != null
         ? await sessionStore!.createSession(
-            providerId: pid, baseUrl: url, cwd: cwd)
+            providerId: pid,
+            baseUrl: url,
+            cwd: cwd,
+          )
         : _generateId();
 
     final conversation = await _buildConversation(
@@ -243,62 +253,81 @@ class SessionManager {
     String? label,
     required PermissionPolicy basePolicy,
   }) async {
+    if (_closing != null) throw StateError('Session manager is closing');
     final provider = _providerFactory(providerId, apiKey, model, baseUrl);
+    final resources = RuntimeResources()..own(provider.close);
+    try {
+      // Fresh policy per conversation so remembered (always) rules don't leak
+      // across conversations — only the immutable defaults + static rules +
+      // the current mode are inherited; sessionRules starts clean.
+      final policy = PermissionPolicy(
+        defaults: basePolicy.defaults,
+        rules: basePolicy.staticRules,
+        mode: basePolicy.mode,
+      );
 
-    // Fresh policy per conversation so remembered (always) rules don't leak
-    // across conversations — only the immutable defaults + static rules +
-    // the current mode are inherited; sessionRules starts clean.
-    final policy = PermissionPolicy(
-      defaults: basePolicy.defaults,
-      rules: basePolicy.staticRules,
-      mode: basePolicy.mode,
-    );
+      // Capture the full per-conversation identity NOW (before the first write)
+      // so the manifest meta carries the model, provider, and the policy this
+      // conversation actually runs under — everything needed to rebuild the
+      // exact agent on resume. The system prompt is left null here: it is
+      // re-derived from the static main role on resume, so it needs no storage.
+      final meta = ConversationMetaInput.primary(
+        providerId: providerId,
+        provider: provider,
+        baseUrl: baseUrl,
+        policy: policy,
+        label: label ?? model,
+      );
 
-    // Capture the full per-conversation identity NOW (before the first write)
-    // so the manifest meta carries the model, provider, and the policy this
-    // conversation actually runs under — everything needed to rebuild the
-    // exact agent on resume. The system prompt is left null here: it is
-    // re-derived from the static main role on resume, so it needs no storage.
-    final meta = ConversationMetaInput.primary(
-      providerId: providerId,
-      provider: provider,
-      baseUrl: baseUrl,
-      policy: policy,
-      label: label ?? model,
-    );
+      final conversationId = sessionStore != null
+          ? await sessionStore!.createConversationWithMeta(sessionId, meta)
+          : _generateId();
+      final recorder = sessionStore != null
+          ? SessionRecorder(
+              sessionStore!,
+              sessionId,
+              conversationId,
+              providerId: providerId,
+              baseUrl: baseUrl,
+              cwd: cwd,
+              meta: meta,
+            )
+          : null;
 
-    final conversationId = sessionStore != null
-        ? await sessionStore!.createConversationWithMeta(sessionId, meta)
-        : _generateId();
-    final recorder = sessionStore != null
-        ? SessionRecorder(sessionStore!, sessionId, conversationId,
-            providerId: providerId, baseUrl: baseUrl, cwd: cwd, meta: meta)
-        : null;
+      // The host is built by the app layer (a terminal host wraps a fresh,
+      // detached region + spinner; a headless host wires stdio). isActive is
+      // false — created conversations start in the background and are routed up
+      // only on switch.
+      final host = _hostFactory(
+        conversationId: conversationId,
+        isActive: false,
+      );
+      resources.own(host.dispose);
 
-    // The host is built by the app layer (a terminal host wraps a fresh,
-    // detached region + spinner; a headless host wires stdio). isActive is
-    // false — created conversations start in the background and are routed up
-    // only on switch.
-    final host = _hostFactory(conversationId: conversationId, isActive: false);
+      // The host is the agent's sink AND the source of its asker, so the agent
+      // speaks only to the host seam — no UI type reaches [Agent].
+      final agent = _agentBuilder(
+        conversationId: conversationId,
+        provider: provider,
+        host: host,
+        policy: policy,
+      );
 
-    // The host is the agent's sink AND the source of its asker, so the agent
-    // speaks only to the host seam — no UI type reaches [Agent].
-    final agent = _agentBuilder(
-      conversationId: conversationId,
-      provider: provider,
-      host: host,
-      policy: policy,
-    );
-
-    return Conversation(
-      id: conversationId,
-      label: label ?? model,
-      agent: agent,
-      provider: provider,
-      host: host,
-      policy: policy,
-      recorder: recorder,
-    );
+      return Conversation(
+        id: conversationId,
+        label: label ?? model,
+        agent: agent,
+        provider: provider,
+        host: host,
+        policy: policy,
+        recorder: recorder,
+      );
+    } catch (_) {
+      try {
+        await resources.dispose();
+      } catch (_) {}
+      rethrow;
+    }
   }
 
   /// Close and remove a session (and all its conversations). Cannot close the
@@ -331,7 +360,8 @@ class SessionManager {
     }
     final c = session.conversationById(conversationId);
     if (c == null) throw ArgumentError('Unknown conversation: $conversationId');
-    final wasScreened = conversationId == session.activeConversationId &&
+    final wasScreened =
+        conversationId == session.activeConversationId &&
         sessionId == _activeSessionId;
     c.provider.close();
     c.host.dispose();
@@ -348,23 +378,28 @@ class SessionManager {
   }
 
   /// List sessions with metadata for display.
-  List<({
-    String id,
-    String label,
-    bool isActive,
-    bool isRunning,
-    int msgCount,
-    int unread
-  })> listSessions() {
+  List<
+    ({
+      String id,
+      String label,
+      bool isActive,
+      bool isRunning,
+      int msgCount,
+      int unread,
+    })
+  >
+  listSessions() {
     return _sessions.values
-        .map((s) => (
-              id: s.id,
-              label: s.label,
-              isActive: s.id == _activeSessionId,
-              isRunning: s.isRunning,
-              msgCount: s.conversations.fold(0, (n, c) => n + c.history.length),
-              unread: s.unread,
-            ))
+        .map(
+          (s) => (
+            id: s.id,
+            label: s.label,
+            isActive: s.id == _activeSessionId,
+            isRunning: s.isRunning,
+            msgCount: s.conversations.fold(0, (n, c) => n + c.history.length),
+            unread: s.unread,
+          ),
+        )
         .toList();
   }
 
@@ -398,14 +433,19 @@ class SessionManager {
   }
 
   /// Close all sessions and release resources.
-  void closeAll() {
+  Future<void>? _closing;
+
+  Future<void> closeAll() {
+    if (_closing != null) return _closing!;
+    final resources = RuntimeResources();
     for (final session in _sessions.values) {
       for (final c in session.conversations) {
-        c.provider.close();
-        c.host.dispose();
+        resources.own(c.host.dispose);
+        resources.own(c.provider.close);
       }
     }
     _sessions.clear();
+    return _closing = resources.dispose();
   }
 
   // -- Internals -----------------------------------------------------------

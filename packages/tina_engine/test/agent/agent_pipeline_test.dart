@@ -5,11 +5,12 @@ import '../helpers/fake_tool.dart';
 
 void main() {
   group('AgentPipeline', () {
-    test('carries the entry identity and a mutable project-context flag', () {
-      final p = AgentPipeline(mainIdentity: 'the main agent');
+    test('carries the entry identity and a captured project-context flag', () {
+      final p = AgentPipeline(
+        mainIdentity: 'the main agent',
+        promptContext: PromptContext(loadProjectContext: false),
+      );
       expect(p.mainIdentity, 'the main agent');
-      expect(p.loadProjectContext, isTrue); // default
-      p.loadProjectContext = false; // mutable (a late startup decision)
       expect(p.loadProjectContext, isFalse);
     });
 
@@ -22,16 +23,30 @@ void main() {
   group('ToolProfile tool sets', () {
     test('read-only has the read/explore tools + write_summary, no mutations',
         () {
-      final names = toolSetFor(ToolProfile.readOnly).map((t) => t.schema.name).toSet();
-      expect(names, containsAll(['read', 'search', 'grep', 'glob', 'write_summary']));
+      final names =
+          toolSetFor(ToolProfile.readOnly).map((t) => t.schema.name).toSet();
+      expect(names,
+          containsAll(['read', 'search', 'grep', 'glob', 'write_summary']));
       expect(names, isNot(containsAny(['write', 'edit', 'bash'])));
     });
 
     test('full is a superset of read-only plus the mutating tools', () {
-      final ro = toolSetFor(ToolProfile.readOnly).map((t) => t.schema.name).toSet();
-      final full = toolSetFor(ToolProfile.full).map((t) => t.schema.name).toSet();
-      expect(full, containsAll(['read', 'write', 'edit', 'bash', 'search', 'grep',
-          'glob', 'write_summary']));
+      final ro =
+          toolSetFor(ToolProfile.readOnly).map((t) => t.schema.name).toSet();
+      final full =
+          toolSetFor(ToolProfile.full).map((t) => t.schema.name).toSet();
+      expect(
+          full,
+          containsAll([
+            'read',
+            'write',
+            'edit',
+            'bash',
+            'search',
+            'grep',
+            'glob',
+            'write_summary'
+          ]));
       // read-only's tools are all in full.
       expect(full.containsAll(ro), isTrue);
     });
@@ -96,5 +111,5 @@ void main() {
 }
 
 /// Matches when the set contains none of [names].
-Matcher containsAny(Iterable<String> names) =>
-    predicate<Set<String>>((s) => names.any(s.contains), 'contains any of $names');
+Matcher containsAny(Iterable<String> names) => predicate<Set<String>>(
+    (s) => names.any(s.contains), 'contains any of $names');

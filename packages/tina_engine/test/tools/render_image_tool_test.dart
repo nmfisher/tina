@@ -10,18 +10,22 @@ void main() {
     expect(tool.schema.inputSchema['required'], contains('path'));
   });
 
-  test('empty/missing path is a validation error (render never invoked)', () async {
-    ImageRenderer.coordinate((path) async => fail('render must not be called'));
-    const tool = RenderTool();
+  test('empty/missing path is a validation error (render never invoked)',
+      () async {
+    final renderer = ImageRenderer();
+    renderer.coordinate((path) async => fail('render must not be called'));
+    final tool = RenderTool(renderer: renderer);
 
     expect((await tool.execute({'path': ''})).isError, isTrue);
     expect((await tool.execute({})).isError, isTrue);
     expect((await tool.execute({'path': 123})).isError, isTrue);
   });
 
-  test('null renderer (headless) reports unavailable without throwing', () async {
-    ImageRenderer.coordinate(null);
-    const tool = RenderTool();
+  test('null renderer (headless) reports unavailable without throwing',
+      () async {
+    final renderer = ImageRenderer();
+    renderer.coordinate(null);
+    final tool = RenderTool(renderer: renderer);
     final res = await tool.execute({'path': '/x/y.png'});
     expect(res.isError, isTrue);
     expect(res.content, contains('unavailable'));
@@ -29,11 +33,12 @@ void main() {
 
   test('delegates to the render callback and reports success', () async {
     var calledWith = '';
-    ImageRenderer.coordinate((path) async {
+    final renderer = ImageRenderer();
+    renderer.coordinate((path) async {
       calledWith = path;
       return null;
     });
-    const tool = RenderTool();
+    final tool = RenderTool(renderer: renderer);
     final res = await tool.execute({'path': 'cat.png'});
     expect(res.isError, isFalse);
     expect(calledWith, 'cat.png');
@@ -41,8 +46,9 @@ void main() {
   });
 
   test('surfaces the render callback error to the caller', () async {
-    ImageRenderer.coordinate((path) async => 'could not decode image: $path');
-    const tool = RenderTool();
+    final renderer = ImageRenderer();
+    renderer.coordinate((path) async => 'could not decode image: $path');
+    final tool = RenderTool(renderer: renderer);
     final res = await tool.execute({'path': 'cat.png'});
     expect(res.isError, isTrue);
     expect(res.content, contains('could not decode image'));

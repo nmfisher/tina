@@ -1,3 +1,4 @@
+import 'tool_input.dart';
 import 'package:path/path.dart' as p;
 
 import 'atomic_write.dart';
@@ -7,6 +8,9 @@ import 'sandbox.dart';
 import 'tool.dart';
 
 class WriteTool implements Tool {
+  /// Captured project root; null retains standalone cwd-relative behavior.
+  String? projectRoot;
+
   /// The filesystem this tool writes through. Mutable so app composition can
   /// inject a [SandboxedFileSystem] once. Defaults to the real filesystem.
   late FileSystem fs;
@@ -51,11 +55,12 @@ class WriteTool implements Tool {
     Future<void>? cancelSignal,
     ToolOutputCallback? onOutput,
   }) async {
-    final path = input['filePath'] as String?;
+    final rawPath = input['filePath'] as String?;
     final content = input['content'] as String?;
-    if (path == null || path.isEmpty) {
+    if (rawPath == null || rawPath.isEmpty) {
       return ToolResult.error('filePath is required');
     }
+    final path = resolveToolPath(rawPath, projectRoot);
     if (content == null) {
       return ToolResult.error('content is required');
     }

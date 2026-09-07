@@ -27,6 +27,10 @@ void main() {
   setUp(() async {
     home = await Directory.systemTemp.createTemp('tina-resolve-home');
     project = await Directory.systemTemp.createTemp('tina-resolve-proj');
+    // Directory.current resolves symlinks on macOS (/var -> /private/var).
+    // Stamp the same canonical path into manifests so the folder filter tests
+    // exercise transcript selection rather than a temporary-path alias.
+    project = Directory(await project.resolveSymbolicLinks());
     store = JsonlSessionStore(Directory('${home.path}/sessions'));
     // --continue scopes candidates to the sessions' recorded cwd, matching it
     // against the PROCESS cwd — run from inside the fake project or the folder

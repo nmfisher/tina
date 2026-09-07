@@ -1,3 +1,4 @@
+import 'tool_input.dart';
 import 'dart:convert';
 
 import 'file_system.dart';
@@ -5,6 +6,9 @@ import 'sandbox.dart';
 import 'tool.dart';
 
 class ReadTool implements Tool {
+  /// Captured project root; null retains standalone cwd-relative behavior.
+  String? projectRoot;
+
   /// The filesystem this tool reads through. Mutable so app composition can
   /// inject a [SandboxedFileSystem] once (the codebase's established injection
   /// style). Defaults to the real filesystem when constructed with no argument,
@@ -50,10 +54,11 @@ class ReadTool implements Tool {
     Future<void>? cancelSignal,
     ToolOutputCallback? onOutput,
   }) async {
-    final path = input['filePath'] as String?;
-    if (path == null || path.isEmpty) {
+    final rawPath = input['filePath'] as String?;
+    if (rawPath == null || rawPath.isEmpty) {
       return ToolResult.error('filePath is required');
     }
+    final path = resolveToolPath(rawPath, projectRoot);
     // Validate against the sandbox BEFORE any existence probe, so an
     // out-of-project target's existence can't be probed. Sandboxed only;
     // MemoryFileSystem skips the is-check.

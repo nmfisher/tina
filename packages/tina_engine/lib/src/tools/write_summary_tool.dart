@@ -22,14 +22,13 @@ import 'tool.dart';
 /// That makes the tracking header unforgeable: a summarizer cannot claim a
 /// commit or tree it didn't summarize against.
 ///
-/// Like the other shared tool singletons ([WriteTool], [ReadTool]), the sidecar
-/// root is injected at composition (a mutable [sidecarRoot] field, set once);
-/// tests construct the tool with a temp directory directly.
+/// The project tool scope supplies the sidecar root at construction time;
+/// tests can construct the tool with a temp directory directly.
 class WriteSummaryTool implements Tool {
   WriteSummaryTool({this.sidecarRoot, this.projectRoot});
 
   /// The sidecar summaries repo root (`<projectRoot>/.tina/summaries`).
-  /// Injected at app composition (see `configureToolSandbox`); a test passes a
+  /// Injected at app composition (see `ProjectToolScope`); a test passes a
   /// temp directory via the constructor. Must be set before [execute] runs
   /// against the live path.
   Directory? sidecarRoot;

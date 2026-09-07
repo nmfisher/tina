@@ -28,6 +28,8 @@ class SummaryIndex {
     this.config,
     this.registry,
     this.environment,
+    this.toolScope,
+    this.promptContext,
     this.allocations,
     this.spendLedger,
   });
@@ -42,6 +44,13 @@ class SummaryIndex {
   final Config? config;
   final ProviderRegistry? registry;
   final Environment? environment;
+
+  /// Borrowed tools and mutation lock for an in-session, same-project run.
+  /// Standalone callers omit this to create an independent project scope.
+  final ProjectToolScope? toolScope;
+
+  /// Parent runtime context, including its captured trust decision.
+  final PromptContext? promptContext;
 
   /// User-allocated regions (main-agent-chosen directories beyond the default
   /// partition). null = the default partition only (headless `/index`).
@@ -59,9 +68,9 @@ class SummaryIndex {
       partitionFor(repo, allocations);
 
   SidecarSummaryRepo _repo() => SidecarSummaryRepo(
-        root: Directory('$projectRoot/.tina'),
-        projectRoot: Directory(projectRoot),
-      );
+    root: Directory('$projectRoot/.tina'),
+    projectRoot: Directory(projectRoot),
+  );
 
   /// The underlying sidecar repo, for tests that seed a manifest before probing
   /// [status]. Not for production callers — [status]/[refresh] are the API.
@@ -98,8 +107,9 @@ class SummaryIndex {
       firstRun: manifest.dirs.isEmpty,
       hasAllocations: (allocations?.dirs.isNotEmpty ?? false),
       envFirstLoad: !EnvironmentRecord.exists(projectRoot),
-      envStaleReason: EnvironmentTrackingStore(projectRoot: projectRoot)
-          .staleReason(),
+      envStaleReason: EnvironmentTrackingStore(
+        projectRoot: projectRoot,
+      ).staleReason(),
     );
   }
 
@@ -129,6 +139,8 @@ class SummaryIndex {
       config: cfg,
       registry: reg,
       environment: environment,
+      toolScope: toolScope,
+      promptContext: promptContext,
       projectRoot: projectRoot,
       dryRun: false,
       repartition: repartition,
@@ -138,18 +150,13 @@ class SummaryIndex {
       host: host,
       cancelSignal: cancelSignal,
     );
-    // SummaryRunner.run() owns the registry.decorator save/restore (it calls
-    // buildAppComposition, which re-sets the shared decorator). The live
-    // session's spend funnel is therefore preserved across an in-process
-    // /index run — see SummaryRunner.run.
     final stale = await runner.run();
     // Report what actually landed, not what was planned: a summarizer that
     // failed or skipped its write_summary call leaves no file, and record()
     // leaves the dir unrecorded (still stale). The counts the user sees must
     // match the summaries on disk.
     final repo = _repo();
-    final landed =
-        stale.toRegenerate.where(repo.summaryWritten).toList();
+    final landed = stale.toRegenerate.where(repo.summaryWritten).toList();
     return SummaryIndexResult(
       status: await status(),
       regenerated: landed.length,

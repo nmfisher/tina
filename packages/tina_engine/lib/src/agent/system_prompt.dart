@@ -24,33 +24,10 @@ and the change cannot be made.
 </safe-mode>
 ''';
 
-/// Supplies the `<project-environment>` block injected inside the shared
-/// `<environment>` block — the warm-load seam for the environment record
-/// (docs/proposals/environment_agent.md, "Warm load"). Set by the app at
-/// composition to read the repo's `.tina/ENVIRONMENT.md` + tracking entry; null (the
-/// default) omits the block. The same [loadProjectContext] flag that withholds
-/// an untrusted project's `AGENTS.md` withholds this block, so a cloned repo's
-/// environment claims never reach the prompt untrusted.
-///
-/// Mutable and process-global by design, mirroring `defaultPipeline` and the
-/// shared tool singletons: set once at composition, read per prompt build. The
-/// closure must not throw (a read failure returns null, not an error).
-String? Function()? projectEnvironmentSource;
-
-/// Supplies the `<repo>` block — branch/HEAD, dirty counts, recent commits,
-/// and a shallow tree — also injected inside the shared `<environment>`
-/// block, ahead of `<project-environment>`. Same contract as
-/// [projectEnvironmentSource]: set once at app composition, read per prompt
-/// build, must not throw (a failure returns null), and gated by the same
-/// [loadProjectContext] trust flag. The point is that basic repo context
-/// arrives without the model spending tool calls on `git status` / `ls`
-/// round trips at the start of every conversation.
-String? Function()? repoSummarySource;
-
 /// Assembles a system prompt from a role-specific [identity] (the agent's
 /// purpose and tool guidance) followed by the shared environment block and any
 /// AGENTS.md project context discovered upward from [cwd]. [cwd] defaults to the
-/// process cwd. Resolved fresh on each call so a new date or edited AGENTS.md
+/// runtime project root. Resolved fresh on each call so a new date or edited AGENTS.md
 /// lands on the next resolution.
 ///
 /// When [loadProjectContext] is false the AGENTS.md walk is skipped — used by
@@ -58,14 +35,16 @@ String? Function()? repoSummarySource;
 /// the system prompt. The `<project-environment>` block is gated the same way.
 String _buildAgentPrompt({
   required String identity,
+  required PromptContext context,
   String? cwd,
   bool safeMode = false,
-  bool loadProjectContext = true,
+  bool? loadProjectContext,
 }) {
-  final resolvedCwd = cwd ?? Directory.current.path;
+  final resolvedCwd = cwd ?? context.projectRoot;
+  final trusted = context.loadProjectContext && (loadProjectContext ?? true);
   final os = Platform.operatingSystem;
   final today = DateTime.now().toIso8601String().split('T').first;
-  final agents = loadProjectContext
+  final agents = trusted
       ? _loadAgentsFiles(resolvedCwd)
       : const <({String path, String content})>[];
 
@@ -75,14 +54,14 @@ String _buildAgentPrompt({
   // environment record follows (measured setup/test baseline).
   String? repoSummary;
   String? projectEnv;
-  if (loadProjectContext) {
+  if (trusted) {
     try {
-      repoSummary = repoSummarySource?.call();
+      repoSummary = context.repoSummarySource?.call();
     } catch (_) {
       repoSummary = null;
     }
     try {
-      projectEnv = projectEnvironmentSource?.call();
+      projectEnv = context.projectEnvironmentSource?.call();
     } catch (_) {
       projectEnv = null;
     }
@@ -129,13 +108,15 @@ String resolveMainPrompt(
   Map<String, String>? overrides,
   String? cwd,
   bool safeMode = false,
-  bool loadProjectContext = true,
+  bool? loadProjectContext,
 }) {
   final override = overrides?['main'];
-  final identity =
-      (override != null && override.isNotEmpty) ? override : pipeline.mainIdentity;
+  final identity = (override != null && override.isNotEmpty)
+      ? override
+      : pipeline.mainIdentity;
   return _buildAgentPrompt(
       identity: identity,
+      context: pipeline.promptContext,
       cwd: cwd,
       safeMode: safeMode,
       loadProjectContext: loadProjectContext);
@@ -151,12 +132,14 @@ String resolveMainPrompt(
 /// is omitted.
 String resolveIdentityPrompt(
   String identity, {
+  PromptContext? context,
   String? cwd,
   bool safeMode = false,
-  bool loadProjectContext = true,
+  bool? loadProjectContext,
 }) =>
     _buildAgentPrompt(
         identity: identity,
+        context: context ?? PromptContext(),
         cwd: cwd,
         safeMode: safeMode,
         loadProjectContext: loadProjectContext);

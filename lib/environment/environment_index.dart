@@ -22,6 +22,8 @@ class EnvironmentIndex {
     this.config,
     this.registry,
     this.environment,
+    this.toolScope,
+    this.promptContext,
     this.spendLedger,
   });
 
@@ -35,6 +37,13 @@ class EnvironmentIndex {
   final ProviderRegistry? registry;
   final Environment? environment;
 
+  /// Borrowed tools and mutation lock for an in-session, same-project run.
+  /// Standalone callers omit this to create an independent project scope.
+  final ProjectToolScope? toolScope;
+
+  /// Parent runtime context, including its captured trust decision.
+  final PromptContext? promptContext;
+
   /// The LIVE session's ledger: the agent run's usage merges into it after an
   /// in-process refresh. Null headless (throwaway ledger).
   final SpendLedger? spendLedger;
@@ -42,9 +51,9 @@ class EnvironmentIndex {
   /// The pure-read probe. No LLM, no side effects — the answer to "does a
   /// record exist, and is it current?".
   EnvironmentStatus status() => EnvironmentStatus(
-        recordPresent: EnvironmentRecord.exists(projectRoot),
-        staleReason: store.staleReason(),
-      );
+    recordPresent: EnvironmentRecord.exists(projectRoot),
+    staleReason: store.staleReason(),
+  );
 
   /// The machine-owned tracking store (Dart-only writer).
   EnvironmentTrackingStore get store =>
@@ -79,6 +88,8 @@ class EnvironmentIndex {
       config: cfg,
       registry: reg,
       environment: environment,
+      toolScope: toolScope,
+      promptContext: promptContext,
       projectRoot: projectRoot,
       host: host,
       cancelSignal: cancelSignal,
@@ -113,9 +124,9 @@ class EnvironmentStatus {
 String? projectEnvironmentBlock(String projectRoot) {
   final record = EnvironmentRecord.load(projectRoot);
   if (record == null) return null;
-  final reason =
-      EnvironmentTrackingStore(projectRoot: projectRoot).staleReason();
-  final block =
-      record.promptBlock(stale: reason != null, staleReason: reason);
+  final reason = EnvironmentTrackingStore(
+    projectRoot: projectRoot,
+  ).staleReason();
+  final block = record.promptBlock(stale: reason != null, staleReason: reason);
   return block.isEmpty ? null : block;
 }

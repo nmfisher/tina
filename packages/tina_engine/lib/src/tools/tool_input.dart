@@ -1,3 +1,5 @@
+import 'package:path/path.dart' as p;
+
 import 'tool.dart';
 
 /// Thrown by the shared input helpers when a tool's input map is missing a
@@ -37,3 +39,9 @@ bool? optionalBool(Map<String, dynamic> input, String key) {
   final value = input[key];
   return value is bool ? value : null;
 }
+
+/// Resolve a model-supplied path against the owning runtime, when scoped.
+String resolveToolPath(String path, String? projectRoot) =>
+    projectRoot == null || p.isAbsolute(path)
+        ? path
+        : p.normalize(p.join(projectRoot, path));

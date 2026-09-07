@@ -2,7 +2,7 @@
 // environment agent (a doing worker on the ephemeral composition) against a
 // stub [LlmProvider], and asserts the record lands at the repo root AND the
 // machine-owned tracking entry is recorded by Dart after the finish — plus the
-// registry-decorator restore the ephemeral pattern promises.
+// provider-policy isolation the ephemeral pattern promises.
 //
 // Reuses the summary-fleet harness (temp committed project, scripted provider,
 // registry/config wiring); `--yolo` pre-approves the agent's `write` so no
@@ -45,8 +45,9 @@ class ScriptedEnvProvider extends LlmProvider {
 
   final String projectPath;
   final bool writesRecord;
+  final void Function()? onSend;
 
-  ScriptedEnvProvider(this.projectPath, {this.writesRecord = true})
+  ScriptedEnvProvider(this.projectPath, {this.writesRecord = true, this.onSend})
       : super('env');
 
   @override
@@ -55,6 +56,7 @@ class ScriptedEnvProvider extends LlmProvider {
     required List<Message> messages,
     required List<ToolSchema> tools,
   }) async* {
+    onSend?.call();
     const usage = TokenUsage(inputTokens: 100, outputTokens: 50);
     // A scout (the folder survey) has no write tool: answer in prose at once.
     // Streamed as a delta + complete, like a real provider — the delta is
@@ -291,16 +293,19 @@ void main() {
         isNull);
   });
 
-  test('run() restores the registry decorator it temporarily mutates',
+  test('run() never changes the registry decorator, including during sends',
       () async {
-    final provider = ScriptedEnvProvider(project.path);
-    final registry = anthropicRegistry(provider);
+    late ProviderRegistry registry;
+    final observed = <ProviderDecorator?>[];
+    final before = (LlmProvider p) => p;
+    final provider = ScriptedEnvProvider(project.path,
+        onSend: () => observed.add(registry.decorator));
+    registry = anthropicRegistry(provider)..decorator = before;
     final config = Config.parse(
       const ['--backend', 'ansi', '--yolo'],
       env: const {'TEST_KEY': 'k', 'ANTHROPIC_API_KEY': 'k'},
       registry: registry,
     );
-    final before = registry.decorator;
 
     await EnvironmentRunner(
       config: config,
@@ -310,7 +315,9 @@ void main() {
     ).run().timeout(const Duration(seconds: 30));
 
     expect(identical(registry.decorator, before), isTrue,
-        reason: 'the ephemeral composition must not leak its decorator');
+        reason: 'the ephemeral composition must not change the registry');
+    expect(observed, isNotEmpty);
+    expect(observed, everyElement(same(before)));
   });
 
   // A registry offering TWO providers, each serving its own scripted provider

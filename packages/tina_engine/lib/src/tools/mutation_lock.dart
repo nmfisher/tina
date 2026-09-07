@@ -4,10 +4,10 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 /// Serializes file-mutating operations ([EditTool], [WriteTool]) per file, across
-/// *all* agents.
+/// all agents sharing a project tool scope.
 ///
-/// Edit and write are process-global singletons shared by every agent/sub-agent
-/// (see `agent_pipeline.dart`), and [AgentQuota] permits several agents to run
+/// Edit and write borrow the same project-owned lock (see `ProjectToolScope`),
+/// and [AgentQuota] permits several agents to run
 /// concurrently. Without serialization, two agents editing the same file can
 /// interleave their read-modify-write cycles and lose an update (or corrupt the
 /// file). This lock chains same-file ops so they run one at a time; different

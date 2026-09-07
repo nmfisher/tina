@@ -23,7 +23,7 @@ const kDefaultEnvironmentModelRef = 'nim/google/diffusiongemma-26b-a4b-it';
 /// The background environment agent: one doing worker on the ephemeral
 /// composition pattern (docs/proposals/environment_agent.md, "Agent
 /// lifecycle") — build its own composition, run one agent, record, dispose.
-/// Modeled on [SummaryRunner]: same decorator save/restore, same
+/// Modeled on [SummaryRunner]: independent provider policy, same
 /// build-then-dispose ownership, same in-process spend merge.
 ///
 /// The agent measures the environment (toolchain, manifests, build/test
@@ -39,6 +39,8 @@ class EnvironmentRunner {
     required this.config,
     required this.registry,
     this.environment,
+    this.toolScope,
+    this.promptContext,
     this.projectRoot,
     this.host,
     this.cancelSignal,
@@ -51,6 +53,13 @@ class EnvironmentRunner {
   final Config config;
   final ProviderRegistry registry;
   final Environment? environment;
+
+  /// Borrowed tools and mutation lock for an in-session, same-project run.
+  /// Standalone callers omit this to create an independent project scope.
+  final ProjectToolScope? toolScope;
+
+  /// Parent runtime context, including its captured trust decision.
+  final PromptContext? promptContext;
 
   /// The repo whose environment is measured. Defaults to the process cwd at
   /// [run] time (bin/tina.dart's convention); overridable so tests point at a
@@ -101,33 +110,19 @@ class EnvironmentRunner {
     final store = EnvironmentTrackingStore(projectRoot: project);
     final recordBefore = _recordBytes(project);
 
-    // buildAppComposition re-sets the shared registry's decorator to a fresh
-    // ephemeral MeteringProvider/SpendLedger. Save/restore here — at the layer
-    // that owns the mutation — so the caller's registry is untouched (the
-    // SummaryRunner rule).
-    final savedDecorator = registry.decorator;
-    try {
-      final app = await buildAppComposition(
-        config: config,
-        registry: registry,
-        environment: environment,
-      );
-      // Re-configure the shared tool singletons against the explicit
-      // [projectRoot] so the agent's write/edit land in this repo regardless
-      // of the process cwd (idempotent). The sandbox flags ride along from
-      // the same config the composition used.
-      if (projectRoot != null) {
-        configureToolSandbox(
-          projectRoot: project,
-          env: (environment ?? const PlatformEnvironment()).env,
-          sandboxEnabled: config.sandboxEnabled,
-          sandboxNet: config.sandboxNet,
-          sandboxReadOnly: config.sandboxReadOnly,
-        );
-      }
+    final app = await buildAppComposition(
+      config: config,
+      registry: registry,
+      environment: environment,
+      projectRoot: project,
+      toolScope: toolScope,
+      promptContext: promptContext,
+    );
 
+    final resources = RuntimeResources()..own(app.dispose);
+    return resources.run(() async {
       final host = this.host ?? HeadlessHost();
-      final ownedHost = this.host == null; // we created it; we dispose it.
+      if (this.host == null) resources.own(host.dispose);
       // The environment agent runs on its OWN model — not the session's
       // startup model: a dedicated one-off worker deserves a dedicated pick
       // (and the startup model may be a weak-tool-calling one). Explicit
@@ -136,13 +131,12 @@ class EnvironmentRunner {
       // registry without that provider — e.g. a stubbed test registry, or the
       // user's configured model was retired) falls back to the startup
       // provider rather than failing the run outright.
-      final envRef = modelRef ??
-          config.environmentModel ??
-          kDefaultEnvironmentModelRef;
+      final envRef =
+          modelRef ?? config.environmentModel ?? kDefaultEnvironmentModelRef;
       LlmProvider provider;
       var agentModelRef = envRef;
       try {
-        provider = registry.build(
+        provider = app.providers.build(
           envRef,
           maxTokens: config.maxTokens,
           streamIdleTimeout: config.streamIdleTimeout,
@@ -152,6 +146,8 @@ class EnvironmentRunner {
         agentModelRef = '${config.provider}/${config.model}';
         provider = app.buildStartupProvider();
       }
+      resources.own(provider.close);
+      resources.own(app.scheduler.dispose);
       final agent = buildAgent(
         pipeline: app.pipeline,
         scheduler: app.scheduler,
@@ -171,38 +167,39 @@ class EnvironmentRunner {
       // whole run (the folder survey AND the main agent; the scouts light
       // their own panels from runStandalone). The finally guarantees a
       // thrown/cancelled run can't leave it stuck on.
+      resources.own(() => host.setActivity(false));
       host.setActivity(true);
-      try {
-        // First load: before the main ceremony, fan out one read-only scout
-        // per folder — the repo root and each top-level subfolder — each
-        // describing its folder and what type of project it is. The assembled
-        // report feeds the task prompt below, so the record's layout section
-        // comes from real parallel inspection (and the scouts' prose streams
-        // into the same host, visible in the side panel). A warm re-verify
-        // skips it: the layout already exists and re-verify is about
-        // re-measuring the observed sections.
-        final survey = firstLoad
-            ? await _surveyFolders(
-                scheduler: app.scheduler,
-                host: host,
-                modelRef: agentModelRef,
-                cancelSignal: cancelSignal,
-                project: project,
-                sinkFactory: scoutSinkFactory,
-              )
-            : null;
-        await agent.run(
-          history: history,
-          userInput:
-              _taskPrompt(project, firstLoad, store.staleReason(), survey: survey),
-          cancelSignal: cancelSignal,
-        );
-      } finally {
-        host.setActivity(false);
-        if (ownedHost) await host.dispose();
-        await app.scheduler.dispose();
-        provider.close();
-      }
+      // First load: before the main ceremony, fan out one read-only scout
+      // per folder — the repo root and each top-level subfolder — each
+      // describing its folder and what type of project it is. The assembled
+      // report feeds the task prompt below, so the record's layout section
+      // comes from real parallel inspection (and the scouts' prose streams
+      // into the same host, visible in the side panel). A warm re-verify
+      // skips it: the layout already exists and re-verify is about
+      // re-measuring the observed sections.
+      final survey = firstLoad
+          ? await _surveyFolders(
+              scheduler: app.scheduler,
+              host: host,
+              modelRef: agentModelRef,
+              cancelSignal: cancelSignal,
+              project: project,
+              sinkFactory: scoutSinkFactory,
+            )
+          : null;
+      await agent.run(
+        history: history,
+        userInput: _taskPrompt(
+          project,
+          firstLoad,
+          store.staleReason(),
+          survey: survey,
+        ),
+        cancelSignal: cancelSignal,
+      );
+
+      // Finish owned work before recording results or merging usage.
+      await resources.dispose();
 
       spendLedger?.merge(app.spendLedger);
 
@@ -219,15 +216,16 @@ class EnvironmentRunner {
       // still absent or stale, and the first-load path would re-run the
       // ceremony (a provider round-trip) on every launch, each time claiming
       // success.
-      if (!_recordAdvanced(project,
-          firstLoad: firstLoad, before: recordBefore)) {
+      if (!_recordAdvanced(
+        project,
+        firstLoad: firstLoad,
+        before: recordBefore,
+      )) {
         return false;
       }
       store.record();
       return true;
-    } finally {
-      registry.decorator = savedDecorator;
-    }
+    });
   }
 
   /// The record's bytes before the run, or null when it is absent — the
@@ -241,8 +239,11 @@ class EnvironmentRunner {
   /// Whether the record advanced during the run: present after a first-load
   /// population, content-changed after a re-verify. An unreadable or vanished
   /// record cannot prove a change, so it does not count.
-  bool _recordAdvanced(String project,
-      {required bool firstLoad, required List<int>? before}) {
+  bool _recordAdvanced(
+    String project, {
+    required bool firstLoad,
+    required List<int>? before,
+  }) {
     final file = EnvironmentRecord.fileFor(project);
     if (!file.existsSync()) return false;
     if (firstLoad) return true;
@@ -330,9 +331,10 @@ class EnvironmentRunner {
     final targets = <String>['.', ...subdirs.take(kMaxSurveyFolders)];
 
     host.showMessage(
-        'Surveying folders with read-only sub-agents (repository root'
-        '${targets.length > 1 ? ' + ${targets.length - 1} subfolders' : ''})…\n',
-        style: HostMessageStyle.dim);
+      'Surveying folders with read-only sub-agents (repository root'
+      '${targets.length > 1 ? ' + ${targets.length - 1} subfolders' : ''})…\n',
+      style: HostMessageStyle.dim,
+    );
 
     // Scout sinks: with a [sinkFactory] (the TUI), each scout streams live
     // into its OWN panel — no interleaving, since one agent owns one surface.
@@ -340,7 +342,7 @@ class EnvironmentRunner {
     // finished text below instead.
     final silent = _NoopSink();
     Future<RunAgentResult> runScout(String dir) async {
-      for (var attempt = 0;; attempt++) {
+      for (var attempt = 0; ; attempt++) {
         try {
           final out = await scheduler.runStandalone(
             systemPrompt: _surveyorIdentity,
@@ -384,9 +386,7 @@ class EnvironmentRunner {
     }
 
     await Future.wait([
-      for (var i = 0;
-          i < kSurveyConcurrency && i < targets.length;
-          i++)
+      for (var i = 0; i < kSurveyConcurrency && i < targets.length; i++)
         worker(),
     ]);
 
@@ -394,8 +394,7 @@ class EnvironmentRunner {
     var succeeded = 0;
     // Target order (root first, then sorted subfolders), not completion
     // order — the report reads top-down like the tree it describes.
-    results.sort((a, b) =>
-        targets.indexOf(a.dir) - targets.indexOf(b.dir));
+    results.sort((a, b) => targets.indexOf(a.dir) - targets.indexOf(b.dir));
     for (final r in results) {
       if (r.out.isError) continue;
       succeeded++;
@@ -404,27 +403,30 @@ class EnvironmentRunner {
       buf.writeln();
     }
     host.showMessage(
-        'Folder survey complete — $succeeded/${results.length} folders '
-        'described; environment agent taking over…\n',
-        style: HostMessageStyle.dim);
+      'Folder survey complete — $succeeded/${results.length} folders '
+      'described; environment agent taking over…\n',
+      style: HostMessageStyle.dim,
+    );
     if (succeeded == 0) return null;
     if (skipped.isNotEmpty) {
-      buf.writeln('(folder survey capped at $kMaxSurveyFolders subfolders; '
-          'skipped: ${skipped.join(', ')})');
+      buf.writeln(
+        '(folder survey capped at $kMaxSurveyFolders subfolders; '
+        'skipped: ${skipped.join(', ')})',
+      );
     }
     return buf.toString().trimRight();
   }
 
   String _surveyorTask(String dir) => dir == '.'
       ? 'Describe the repository at its root: what type of project this is '
-          '(language, framework, build system) and what the top-level layout '
-          'contains. Read the manifests (pubspec.yaml, package.json, '
-          'Cargo.toml, go.mod, pyproject.toml, …) and a few key files. Keep '
-          'it to a short paragraph.'
+            '(language, framework, build system) and what the top-level layout '
+            'contains. Read the manifests (pubspec.yaml, package.json, '
+            'Cargo.toml, go.mod, pyproject.toml, …) and a few key files. Keep '
+            'it to a short paragraph.'
       : 'Describe the folder "$dir": what type of project or content it is '
-          '(language, framework, build system, purpose) and what it contains. '
-          'Read its manifests and a few key files. Keep it to a short '
-          'paragraph.';
+            '(language, framework, build system, purpose) and what it contains. '
+            'Read its manifests and a few key files. Keep it to a short '
+            'paragraph.';
 
   static const _surveyorIdentity = '''
 You are a folder surveyor: a read-only sub-agent that describes one folder of a repository. Look at the folder's manifests, config files, and source layout, then answer with one short prose paragraph: what type of project or content the folder holds (language, framework, build system, purpose) and what it contains. Never invent details you did not read; if the folder is trivial (empty, generated, assets only), say so in one line. Your entire answer is quoted verbatim into a report — no preamble, no tool-call recap.''';
@@ -444,10 +446,15 @@ Rules:
 
 Finish with a short report: what you ran, what passed, what failed, what needs user action.''';
 
-  String _taskPrompt(String project, bool firstLoad, String? staleReason,
-      {String? survey}) {
+  String _taskPrompt(
+    String project,
+    bool firstLoad,
+    String? staleReason, {
+    String? survey,
+  }) {
     if (firstLoad) {
-      final base = 'No .tina/ENVIRONMENT.md exists at $project yet. Populate '
+      final base =
+          'No .tina/ENVIRONMENT.md exists at $project yet. Populate '
           'it from measurements: inspect the dependency manifests and '
           'toolchain, run the setup, build, and tests, check git identity / '
           'SSH key / GitHub auth, then write .tina/ENVIRONMENT.md with the '

@@ -1,40 +1,19 @@
-import 'dart:io';
-
-import 'package:logging/logging.dart';
-import 'package:path/path.dart' as p;
-
 import '../permissions/policy.dart';
-import '../platform/paths.dart';
-import '../tools/atomic_write.dart';
-import '../tools/bash_tool.dart';
-import '../tools/file_system.dart';
-import '../tools/brave_search.dart';
-import '../tools/edit_tool.dart';
-import '../tools/fetch_tool.dart';
-import '../tools/tavily_search.dart';
-import '../tools/glob_tool.dart';
-import '../tools/grep_tool.dart';
-import '../tools/git_tool.dart';
-import '../tools/ls_tool.dart';
-import '../tools/mutation_lock.dart';
-import '../tools/read_tool.dart';
-import '../tools/sandbox.dart';
-import '../tools/sandbox_runner.dart';
-import '../tools/search_tool.dart';
-import '../tools/stat_tool.dart';
 import '../tools/tool.dart';
-import '../tools/which_tool.dart';
-import '../tools/web_search.dart';
-import '../tools/write_summary_tool.dart';
-import '../tools/write_tool.dart';
+import '../tools/render_image_tool.dart';
+import 'project_tool_scope.dart';
+import 'prompt_context.dart';
+import 'tool_profile.dart';
 
-final _log = Logger('tina.sandbox');
+export 'project_tool_scope.dart';
+export 'prompt_context.dart';
+export 'tool_profile.dart';
 
 /// The declarative identity + project context an agent runs under. There is no
 /// sub-agent *catalog*: a sub-agent's identity comes from its *parent's*
 /// resolved system prompt plus the task the parent writes when delegating (see
 /// the `delegate` tool). What stays here is the entry agent's identity and the
-/// shared plumbing — the tool singletons, the tool profiles a delegation picks
+/// shared plumbing — the project tool scope, the tool profiles a delegation picks
 /// from, and the safe-mode stripping.
 class AgentPipeline {
   /// Identity prose for the entry (user-facing) agent — the main coding
@@ -43,226 +22,35 @@ class AgentPipeline {
   /// the shared `<environment>` / AGENTS.md context at resolution time.
   final String mainIdentity;
 
-  /// Whether to load project context (`AGENTS.md`) into agents' system prompts.
-  /// Set ONCE at startup by the project-trust gate (see `project/project_trust`)
-  /// — `false` withholds an untrusted project's instructions from every agent.
-  /// Mutable (a late-bound startup decision) like the tool singletons configured
-  /// in [configureToolSandbox]; default `true` preserves prior behavior when the
-  /// gate isn't wired (e.g. tests).
-  bool loadProjectContext = true;
+  final ImageRenderer imageRenderer = ImageRenderer();
 
-  AgentPipeline({this.mainIdentity = ''});
+  final PromptContext promptContext;
+
+  /// The trust decision captured for this runtime.
+  bool get loadProjectContext => promptContext.loadProjectContext;
+
+  final ProjectToolScope tools;
+
+  AgentPipeline({
+    this.mainIdentity = '',
+    ProjectToolScope? tools,
+    PromptContext? promptContext,
+  })  : tools = tools ?? ProjectToolScope.unconfined(),
+        promptContext =
+            promptContext ?? PromptContext(projectRoot: tools?.projectRoot);
 }
 
-// ---------------------------------------------------------------------------
-// Tool profiles — the fixed set a delegation picks from.
-//
-// A sub-agent no longer carries its own tool set (there are no roles). The
-// parent chooses one of these named profiles when delegating. `read-only` is
-// the safe default so research-style sub-agents can't mutate the project;
-// `full` adds the file/shell tools an implementer needs.
-// ---------------------------------------------------------------------------
+/// Standalone assembly. Application callers use their pipeline's tool scope.
+List<Tool> toolSetFor(ToolProfile profile) =>
+    ProjectToolScope.unconfined().toolSetFor(profile);
 
-/// The fixed set of tool profiles a delegation may grant a sub-agent.
-enum ToolProfile {
-  /// Source-read-only: read/explore the project, fetch the web, and capture a
-  /// directory summary into the sidecar. Cannot write, edit, or run shell
-  /// against the project — the safe profile for research/exploration.
-  readOnly,
+/// Standalone policy reconstruction; application restore uses its live scope.
+List<Tool> toolsFromPolicy(PermissionPolicy policy) =>
+    ProjectToolScope.unconfined().toolsFromPolicy(policy);
 
-  /// `read-only` plus the mutating tools (write, edit, bash) and web search.
-  /// For sub-agents that must change the project or run commands.
-  full,
-}
-
-final _read = ReadTool();
-final _write = WriteTool();
-final _edit = EditTool();
-final _fetch = FetchTool();
-final _bash = BashTool();
-final _search = SearchTool();
-final _grep = GrepTool();
-final _glob = GlobTool();
-final _ls = LsTool();
-final _stat = StatTool();
-final _which = WhichTool();
-final _git = GitTool(workingDirectory: Directory.current.path);
-final _writeSummary = WriteSummaryTool();
-
-/// The concrete tool set for [profile]. `read-only` is the read/explore tools
-/// plus the sidecar `write_summary` capture (which never touches source); `full`
-/// is the whole base set ([buildTools]) plus `write_summary`. Under
-/// `--safe-mode` the caller strips the mutating tools from whichever set a
-/// sub-agent received (see [stripForSafeMode]).
-List<Tool> toolSetFor(ToolProfile profile) {
-  switch (profile) {
-    case ToolProfile.readOnly:
-      return [_read, _fetch, _search, _grep, _glob, _ls, _stat, _which, _git, _writeSummary];
-    case ToolProfile.full:
-      return [...buildTools().all, _writeSummary];
-  }
-}
-
-/// Resolve a [ToolProfile] from the string a delegation carries (`"read-only"`
-/// / `"full"`). Unknown / empty → [ToolProfile.readOnly] (the safe default).
-ToolProfile parseToolProfile(String? raw) {
-  switch (raw) {
-    case 'full':
-      return ToolProfile.full;
-    default:
-      return ToolProfile.readOnly;
-  }
-}
-
-/// Reconstruct a tool set from the names a stored permission policy *allows* —
-/// used when restoring a persisted sub-agent/spawn conversation (its exact
-/// profile isn't stored, but its policy is, and that determines its tools).
-/// Evaluates the full policy (defaults + static rules) for each shared
-/// singleton, so it works whether the policy was built from `defaults`
-/// (sub-agents) or `rules` (spawns/branches).
-List<Tool> toolsFromPolicy(PermissionPolicy policy) {
-  final singletons = [
-    _read, _write, _edit, _fetch, _bash, _search, _grep, _glob,
-    _ls, _stat, _which, _git, _writeSummary
-  ];
-  return [
-    for (final t in singletons)
-      if (policy.check(t.schema.name, const {}) ==
-          PermissionDecision.allow)
-        t,
-  ];
-}
-
-// ---------------------------------------------------------------------------
-// Shared tool instances + safe mode.
-//
-// The tool instances are constructed once at top level so a stateful tool
-// (notably SearchTool's call-graph cache) is shared across every agent that
-// references it.
-// ---------------------------------------------------------------------------
-
-/// Tool names disabled under `--safe-mode`: every tool that can mutate the
-/// filesystem or run an arbitrary shell. Removing these from a registry leaves
-/// only read-only tools; the per-profile policy is derived from the same
-/// filtered set, so it tracks. `write_summary` writes to the sidecar summaries
-/// store, so it is a filesystem-mutating tool and is stripped under read-only
-/// mode too.
-const Set<String> kSafeModeDisabledTools = {'write', 'edit', 'bash', 'write_summary'};
-
-/// Drop the safe-mode-disabled tools. Called at each registry site when
-/// `--safe-mode` is on.
-List<Tool> stripForSafeMode(Iterable<Tool> tools) =>
-    tools.where((t) => !kSafeModeDisabledTools.contains(t.schema.name)).toList();
-
-/// Inject the path sandbox + atomic-write backup store into the shared tool
-/// singletons. Called once at app composition (idempotent — may re-run on setup
-/// relaunch, review L6). [projectRoot] confines every file tool; [env] resolves
-/// the Tina data dir to deny and the backup store location.
-///
-/// The backup store uses the *real* [IoFileSystem], not the sandboxed one: it
-/// writes to `~/.tina/backups/`, which [SandboxedFileSystem] would deny as
-/// inside the Tina tree. Tests that inject [MemoryFileSystem] directly never
-/// call this, so they skip sandboxing + backups (the plan's M2 fix).
-void configureToolSandbox({
-  required String projectRoot,
-  required Map<String, String> env,
-  bool sandboxEnabled = true,
-  bool sandboxNet = false,
-  bool sandboxReadOnly = false,
-}) {
-  final io = const IoFileSystem();
-  final sandbox = SandboxedFileSystem(
-    io,
-    projectRoot: projectRoot,
-    tinaDir: tinaDirFromEnv(env),
-  );
-  final backups = BackupStore(
-    fs: io,
-    storeDir: Directory(p.join(tinaDirFromEnv(env).path, 'backups')),
-  );
-  // One shared per-file lock so concurrent agents editing/writing the same file
-  // serialize (AgentQuota allows several to run at once). On the singletons so
-  // every agent/sub-agent shares it.
-  final mutationLock = FileMutationLock();
-  _read.fs = sandbox;
-  _write.fs = sandbox;
-  _write.backupStore = backups;
-  _write.mutationLock = mutationLock;
-  _edit.fs = sandbox;
-  _edit.backupStore = backups;
-  _edit.mutationLock = mutationLock;
-  _grep.fs = sandbox;
-  _grep.sandbox = sandbox;
-  _glob.sandbox = sandbox;
-  _ls.sandbox = sandbox;
-  _stat.sandbox = sandbox;
-  _bash.projectRoot = projectRoot;
-  _git.workingDirectory = projectRoot;
-  // Confine bash subprocess writes to the project root + temp via
-  // sandbox-exec (macOS) or bwrap (Linux) — the structural guard against a
-  // destructive command reaching outside the project. Pass-through with a
-  // one-time warning where no backend exists. Extra write-roots come from the
-  // TINA_SANDBOX_ALLOW env var (colon-separated).
-  if (sandboxEnabled) {
-    final extra = (env['TINA_SANDBOX_ALLOW'] ?? '')
-        .split(':')
-        .where((s) => s.isNotEmpty)
-        .toList();
-    final runner = SandboxedProcessRunner(
-      projectRoot: projectRoot,
-      extraAllowPaths: extra,
-      sandboxNet: sandboxNet,
-      sandboxReadOnly: sandboxReadOnly,
-    );
-    _bash.processRunner = runner;
-    // Startup diagnostic: name the active backend (or the pass-through
-    // reason) once per configure, so a session's log says how bash is boxed.
-    _log.info('bash sandbox: ${runner.backendDescription}');
-  } else {
-    _log.info(
-        'bash sandbox: pass-through (explicitly disabled via --no-sandbox)');
-  }
-  // The per-directory summaries sidecar: `<projectRoot>/.tina/summaries` —
-  // project-local (so it tracks this repo, under the gitignored `.tina/`),
-  // and distinct from the global `~/.tina` data tree the sandbox denies.
-  // Summaries reflect committed main-repo HEAD, so the sidecar is pinned to
-  // the project, not the user's home.
-  _writeSummary.sidecarRoot =
-      Directory(p.join(projectRoot, '.tina', 'summaries'));
-  _writeSummary.projectRoot = projectRoot;
-}
-
-/// Env var supplying the Brave Search API key. The tool only registers when it
-/// is set (via env or the merged `~/.tina/config` overlay), so the model
-/// never sees `web_search` unless the user has opted in with a key.
-const _braveKeyEnv = 'BRAVE_API_KEY';
-const _tavilyKeyEnv = 'TAVILY_API_KEY';
-
-/// The full base tool set — read/write/edit/bash/search/grep/glob — plus
-/// `web_search` when a search API key is configured. Used by the headless
-/// `--prompt` path (main as a direct worker), by [ToolProfile.full], and by the
-/// node run (attractor seam).
-///
-/// Both Brave and Tavily register under the same `web_search` tool name; a
-/// user only needs one index. [ToolRegistry] is deliberately last-wins, so
-/// when *both* keys are set, Tavily answers `web_search`. The model doesn't
-/// care which backend responds.
-ToolRegistry buildTools({bool safeMode = false}) {
-  var tools = [
-    _read, _write, _edit, _fetch, _bash, _search, _grep, _glob,
-    _ls, _stat, _which, _git,
-  ];
-  if (safeMode) tools = stripForSafeMode(tools);
-  final braveKey = Platform.environment[_braveKeyEnv];
-  if (braveKey != null && braveKey.isNotEmpty) {
-    tools.add(WebSearchTool(BraveSearchProvider(braveKey)));
-  }
-  final tavilyKey = Platform.environment[_tavilyKeyEnv];
-  if (tavilyKey != null && tavilyKey.isNotEmpty) {
-    tools.add(WebSearchTool(TavilySearchProvider(tavilyKey)));
-  }
-  return ToolRegistry(tools);
-}
+/// Standalone base tools; application agents use their live scope.
+ToolRegistry buildTools({bool safeMode = false}) =>
+    ProjectToolScope.unconfined().buildTools(safeMode: safeMode);
 
 /// The shipped pipeline: the entry agent's identity. Sub-agent identities are
 /// not declared here — they inherit this (resolved) at delegation time.

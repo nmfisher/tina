@@ -11,6 +11,9 @@ const int _defaultMaxResults = 200;
 /// permission prompt — the point is that the model inspects a directory
 /// without shelling out through `bash`.
 class LsTool implements Tool {
+  /// Captured project root; null retains standalone cwd-relative behavior.
+  String? projectRoot;
+
   /// Validates the runtime `path` against the project root + tina tree.
   /// Null in tests.
   SandboxedFileSystem? sandbox;
@@ -54,7 +57,11 @@ class LsTool implements Tool {
     final bool all;
     final int maxResults;
     try {
-      path = optionalString(input, 'path') ?? Directory.current.path;
+      path = resolveToolPath(
+          optionalString(input, 'path') ??
+              projectRoot ??
+              Directory.current.path,
+          projectRoot);
       all = optionalBool(input, 'all') ?? false;
       maxResults = optionalInt(input, 'maxResults') ?? _defaultMaxResults;
     } on ToolValidationException catch (e) {
@@ -89,9 +96,8 @@ class LsTool implements Tool {
     });
 
     if (visible.isEmpty) return const ToolResult('(empty)');
-    final shown = visible.length <= maxResults
-        ? visible
-        : visible.sublist(0, maxResults);
+    final shown =
+        visible.length <= maxResults ? visible : visible.sublist(0, maxResults);
     final buf = StringBuffer();
     for (final e in shown) {
       final stat = e.statSync();

@@ -103,8 +103,7 @@ void main() {
         successUsage: const TokenUsage(inputTokens: 100, outputTokens: 10),
       );
       final metered = MeteringProvider(inner, ledger);
-      // Meters install themselves on the static Wire slot; close them on
-      // teardown so they don't leak into later tests' funnel assertions.
+      // The outer retry layer reports directly to this meter.
       addTearDown(metered.close);
       final provider = RetryingProvider(metered, maxRetries: 3);
 
@@ -182,7 +181,7 @@ void main() {
 
     test(
         'the funnel survives an ephemeral metering close() '
-        '(LRU live-tracking keeps the hook alive for remaining meters)',
+        '(recorders belong to each provider)',
         () async {
       final ledger = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
       // Two meters over one shared session ledger — the ephemeral-runner
@@ -212,9 +211,9 @@ void main() {
           reason: 'session meter must still book after the ephemeral close');
 
       session.close();
-      // The session was the last live meter; now the hook clears.
+      // Neither constructing nor closing meters installs a global recorder.
       expect(Wire.onAttemptUsage, isNull,
-          reason: 'last meter out nulls the hook');
+          reason: 'runtime meters do not install a global hook');
     });
   });
 

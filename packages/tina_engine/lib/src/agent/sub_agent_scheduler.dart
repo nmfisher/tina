@@ -20,7 +20,12 @@ import 'system_prompt.dart';
 import 'token_budget.dart';
 
 /// Lifecycle of a [SubAgentJob].
-enum SubAgentJobStatus { queued, running, done, errored, cancelled;
+enum SubAgentJobStatus {
+  queued,
+  running,
+  done,
+  errored,
+  cancelled;
 
   /// Done, errored, or cancelled — no further work will happen. Used by the
   /// background tools (`collect`, `continue`) to tell a finished job from one
@@ -115,8 +120,8 @@ typedef SubAgentPersistenceFactory = Future<(String, SessionRecorder)> Function(
 /// Returns the built agent for [_run]'s loop. When null (or when the job
 /// has no panel host) the old inline build is used and the sub-agent stays
 /// telemetry-only. All parameters come from [_run]; see it for semantics.
-typedef SubAgentSessionFactory = Agent Function(SubAgentScheduler scheduler,
-    SubAgentJob job,
+typedef SubAgentSessionFactory = Agent Function(
+    SubAgentScheduler scheduler, SubAgentJob job,
     {required LlmProvider provider,
     required ToolRegistry tools,
     required PermissionPolicy policy,
@@ -248,6 +253,7 @@ class SubAgentJob {
 /// from its tool profile, its profile's tool set, and an event bus.
 class SubAgentScheduler {
   final ProviderRegistry registry;
+  final LlmProviderFactory providers;
   final AgentPipeline pipeline;
 
   /// `[prompts.main]` override forwarded to [resolveMainPrompt] so the entry
@@ -307,9 +313,24 @@ class SubAgentScheduler {
   final Map<String, StreamSubscription<AgentEvent>> _jobSubs = {};
   int _nextId = 0;
   bool _disposed = false;
+  final _shutdown = Completer<void>();
+  final _pending = <Future<void>>{};
+  Future<void>? _disposal;
+
+  Future<T> _track<T>(Future<T> work) async {
+    final settled =
+        work.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _pending.add(settled);
+    try {
+      return await work;
+    } finally {
+      _pending.remove(settled);
+    }
+  }
 
   SubAgentScheduler({
     required this.registry,
+    LlmProviderFactory? providers,
     required this.pipeline,
     required this.maxTokens,
     required this.streamIdleTimeout,
@@ -324,7 +345,8 @@ class SubAgentScheduler {
     this.pauseGate,
     this.safeMode = false,
     this.delegateToolBuilder,
-  })  : quota = quota ?? AgentQuota(maxDepth: maxDepth, maxLive: maxConcurrent);
+  })  : providers = providers ?? registry,
+        quota = quota ?? AgentQuota(maxDepth: maxDepth, maxLive: maxConcurrent);
 
   /// Merged stream of every job's tagged events — the single progress channel
   /// the TUI subscribes to.
@@ -379,8 +401,8 @@ class SubAgentScheduler {
     _jobSubs[job.id]?.cancel();
     _jobSubs[job.id] = job._bus.events.listen(_merged.add);
     job.status = SubAgentJobStatus.queued;
-    unawaited(
-        _run(job, text, cancelSignal: job._cancel.future, seedHistory: job.history));
+    unawaited(_track(_run(job, text,
+        cancelSignal: job._cancel.future, seedHistory: job.history)));
   }
 
   /// The channel's current state for the `read` tool: its resolved result when
@@ -444,13 +466,17 @@ class SubAgentScheduler {
     // maxed-out agent in [_toolsForProfile], but that's only a UX nicety — this
     // is the real guard. Return a pre-errored job (not tracked in [_jobs]) so
     // callers like `delegate` still resolve cleanly.
-    if (!quota.allowsDepth(depth)) {
-      job._bus.emit(JobAgentEvent(job.id, job.label,
-          NoticeAgentEvent('depth cap', NoticeKind.error)));
+    if (_disposed || !quota.allowsDepth(depth)) {
+      job._bus.emit(JobAgentEvent(
+          job.id,
+          job.label,
+          NoticeAgentEvent(_disposed ? 'scheduler disposed' : 'depth cap',
+              NoticeKind.error)));
       _finish(
           job,
-          DelegationResult.error(
-              'max nesting depth (${quota.maxDepth}) exceeded'),
+          DelegationResult.error(_disposed
+              ? 'scheduler disposed'
+              : 'max nesting depth (${quota.maxDepth}) exceeded'),
           SubAgentJobStatus.errored);
       return job;
     }
@@ -471,13 +497,13 @@ class SubAgentScheduler {
     // before the agent streams into it. spawn() itself stays synchronous and
     // returns the job immediately (callers use it before the run starts),
     // matching its pre-panelization contract.
-    final run = () => _run(job, task, cancelSignal: job._cancel.future,
-        seedHistory: seedHistory);
+    final run = () => _run(job, task,
+        cancelSignal: job._cancel.future, seedHistory: seedHistory);
     if (persistence != null) {
-      unawaited(_persistJob(job, originConversationId)
-          .then((_) => unawaited(run())));
+      unawaited(
+          _track(_persistJob(job, originConversationId).then((_) => run())));
     } else {
-      unawaited(run());
+      unawaited(_track(run()));
     }
     return job;
   }
@@ -495,7 +521,8 @@ class SubAgentScheduler {
     final system = job.systemPrompt;
     // The model ref carries the provider prefix; the stored providerId is just
     // the prefix portion for quick resumption without a registry lookup.
-    final providerId = reference.contains('/') ? reference.split('/').first : null;
+    final providerId =
+        reference.contains('/') ? reference.split('/').first : null;
     final meta = ConversationMetaInput.subAgent(
       model: reference,
       providerId: providerId,
@@ -542,8 +569,8 @@ class SubAgentScheduler {
       try {
         result = await _runAgent(job, task, cancelSignal, seedHistory);
       } on _ProviderBuildFailure catch (e) {
-        _finish(job, DelegationResult.error(e.message),
-            SubAgentJobStatus.errored);
+        _finish(
+            job, DelegationResult.error(e.message), SubAgentJobStatus.errored);
         return;
       }
       if (job.isCancelled) {
@@ -558,8 +585,8 @@ class SubAgentScheduler {
                 : SubAgentJobStatus.done);
       }
     } catch (e) {
-      _finish(job, DelegationResult.error(e.toString()),
-          SubAgentJobStatus.errored);
+      _finish(
+          job, DelegationResult.error(e.toString()), SubAgentJobStatus.errored);
     } finally {
       quota.release();
     }
@@ -573,7 +600,7 @@ class SubAgentScheduler {
   ) async {
     final LlmProvider provider;
     try {
-      provider = registry.build(
+      provider = providers.build(
         job.modelReference,
         maxTokens: maxTokens,
         streamIdleTimeout: streamIdleTimeout,
@@ -583,105 +610,121 @@ class SubAgentScheduler {
       throw _ProviderBuildFailure('failed to build provider: $e');
     }
 
-    // One context for the tools + policy this sub-agent runs with. The policy
-    // is derived from its tool profile (plus `delegate` when nesting is wired),
-    // so a sub-agent may use exactly what its profile grants — never the
-    // parent's allow-list. The sub-agent inherits the parent's identity
-    // ([parentSystemPrompt]) via the nested context.
-    final ctx = AgentToolContext(
-      scheduler: this,
-      pipeline: pipeline,
-      parentSystemPrompt: job.systemPrompt,
-      parentReference: job.modelReference,
-      parentPolicy: _policyForProfile(job.toolProfile, job.parentPolicy),
-      originConversationId: job.originConversationId,
-      depth: job.depth,
-    );
-    final tools = _toolsForProfile(job.toolProfile, ctx, job.depth);
-    // A panelized job has its sink supplied by the coordinator (a BusSink over
-    // the panel's host); otherwise fall back to the telemetry-only SubAgentSink
-    // that streams progress into the parent's chat.
-    final sink = job.panelSink ??
-        SubAgentSink(jobId: job.id, label: job.label, bus: job.eventBus);
+    var transferred = false;
+    var failed = false;
+    try {
+      // One context for the tools + policy this sub-agent runs with. The policy
+      // is derived from its tool profile (plus `delegate` when nesting is wired),
+      // so a sub-agent may use exactly what its profile grants — never the
+      // parent's allow-list. The sub-agent inherits the parent's identity
+      // ([parentSystemPrompt]) via the nested context.
+      final ctx = AgentToolContext(
+        scheduler: this,
+        pipeline: pipeline,
+        parentSystemPrompt: job.systemPrompt,
+        parentReference: job.modelReference,
+        parentPolicy: _policyForProfile(job.toolProfile, job.parentPolicy),
+        originConversationId: job.originConversationId,
+        depth: job.depth,
+      );
+      final tools = _toolsForProfile(job.toolProfile, ctx, job.depth);
+      // A panelized job has its sink supplied by the coordinator (a BusSink over
+      // the panel's host); otherwise fall back to the telemetry-only SubAgentSink
+      // that streams progress into the parent's chat.
+      final sink = job.panelSink ??
+          SubAgentSink(jobId: job.id, label: job.label, bus: job.eventBus);
 
-    final system = job.systemPrompt;
-    final factory = subAgentSessionFactory;
-    // A live-panelized job with a wired factory becomes a first-class session:
-    // the coordinator builds its Agent (with the panel host's asker, so tool
-    // calls can prompt on the focused panel) and registers the Conversation so
-    // focusing the panel makes it the active input target. Otherwise fall back
-    // to the telemetry-only inline build (auto-deny asker, no session).
-    final agent = factory != null && job.panelHost != null
-        ? factory(this, job,
-            provider: provider,
-            tools: tools,
-            policy: ctx.parentPolicy,
-            sink: sink,
-            host: job.panelHost!,
-            recorder: job._recorder!,
-            conversationId: job.conversationId!,
-            label: job.label,
-            system: system,
-            maxSteps: defaultMaxSteps,
-            budget: subAgentBudgetLimit == 0
-                ? null
-                : TokenBudget(perSessionLimit: subAgentBudgetLimit),
-            pauseGate: pauseGate,
-            wirePanelFocus: job.wirePanelFocus!)
-        : _buildDefaultAgent(
-            provider: provider,
-            tools: tools,
-            sink: sink,
-            policy: ctx.parentPolicy,
-            system: system,
-            maxSteps: defaultMaxSteps,
-            budget: subAgentBudgetLimit == 0
-                ? null
-                : TokenBudget(perSessionLimit: subAgentBudgetLimit),
-          );
+      final system = job.systemPrompt;
+      final factory = subAgentSessionFactory;
+      // A live-panelized job with a wired factory becomes a first-class session:
+      // the coordinator builds its Agent (with the panel host's asker, so tool
+      // calls can prompt on the focused panel) and registers the Conversation so
+      // focusing the panel makes it the active input target. Otherwise fall back
+      // to the telemetry-only inline build (auto-deny asker, no session).
+      final agent = factory != null && job.panelHost != null
+          ? factory(this, job,
+              provider: provider,
+              tools: tools,
+              policy: ctx.parentPolicy,
+              sink: sink,
+              host: job.panelHost!,
+              recorder: job._recorder!,
+              conversationId: job.conversationId!,
+              label: job.label,
+              system: system,
+              maxSteps: defaultMaxSteps,
+              budget: subAgentBudgetLimit == 0
+                  ? null
+                  : TokenBudget(perSessionLimit: subAgentBudgetLimit),
+              pauseGate: pauseGate,
+              wirePanelFocus: job.wirePanelFocus!)
+          : _buildDefaultAgent(
+              provider: provider,
+              tools: tools,
+              sink: sink,
+              policy: ctx.parentPolicy,
+              system: system,
+              maxSteps: defaultMaxSteps,
+              budget: subAgentBudgetLimit == 0
+                  ? null
+                  : TokenBudget(perSessionLimit: subAgentBudgetLimit),
+            );
 
-    // Seed from a prior conversation when present (the `continue` primitive);
-    // otherwise start fresh. `agent.run` appends the user turn, so a reseeded
-    // leaf replays the prior exchange and continues from it.
-    final history =
-        seedHistory != null ? List<Message>.from(seedHistory) : <Message>[];
-    await agent.run(
-      history: history,
-      userInput: task,
-      cancelSignal: cancelSignal,
-    );
+      transferred = factory != null && job.panelHost != null;
+      // Seed from a prior conversation when present (the `continue` primitive);
+      // otherwise start fresh. `agent.run` appends the user turn, so a reseeded
+      // leaf replays the prior exchange and continues from it.
+      final history =
+          seedHistory != null ? List<Message>.from(seedHistory) : <Message>[];
+      await agent.run(
+        history: history,
+        userInput: task,
+        cancelSignal: cancelSignal,
+      );
 
-    // Retain the grown history so a later `continue` can build on this job too.
-    job._history = history;
+      // Retain the grown history so a later `continue` can build on this job too.
+      job._history = history;
 
-    // Extract the result BEFORE any abort message is appended, so an aborted
-    // job's synthetic message can't masquerade as a real answer.
-    final result = _extractResult(job.label, history);
+      // Extract the result BEFORE any abort message is appended, so an aborted
+      // job's synthetic message can't masquerade as a real answer.
+      final result = _extractResult(job.label, history);
 
-    // Persist the complete transcript to the job's conversation (if it has one).
-    // Completion-time persistence is enough; mid-turn incremental writes are a
-    // follow-up. Best-effort: a write failure must not fail the job. `replace`
-    // rewrites the whole file atomically, so a `send`/re-run that rewrites the
-    // grown history stays consistent. An aborted turn (budget trip, provider
-    // error, …) appends its reason so a restored sub-agent panel shows why it
-    // stopped — the live notice is display-only.
-    final recorder = job._recorder;
-    if (recorder != null) {
-      final aborted = agent.abortedReason;
-      if (aborted != null) {
-        history.add(Message(
-          role: Role.assistant,
-          content: [TextBlock('[turn aborted: $aborted]')],
-        ));
+      // Persist the complete transcript to the job's conversation (if it has one).
+      // Completion-time persistence is enough; mid-turn incremental writes are a
+      // follow-up. Best-effort: a write failure must not fail the job. `replace`
+      // rewrites the whole file atomically, so a `send`/re-run that rewrites the
+      // grown history stays consistent. An aborted turn (budget trip, provider
+      // error, …) appends its reason so a restored sub-agent panel shows why it
+      // stopped — the live notice is display-only.
+      final recorder = job._recorder;
+      if (recorder != null) {
+        final aborted = agent.abortedReason;
+        if (aborted != null) {
+          history.add(Message(
+            role: Role.assistant,
+            content: [TextBlock('[turn aborted: $aborted]')],
+          ));
+        }
+        try {
+          await recorder.replace(history);
+        } catch (_) {
+          // Ignore: the in-memory result still returns to the orchestrator.
+        }
       }
-      try {
-        await recorder.replace(history);
-      } catch (_) {
-        // Ignore: the in-memory result still returns to the orchestrator.
+
+      return result;
+    } catch (_) {
+      failed = true;
+      rethrow;
+    } finally {
+      if (!transferred) {
+        try {
+          provider.close();
+        } catch (_) {
+          if (!failed) rethrow;
+        }
       }
     }
-
-    return result;
   }
 
   /// Run a single agent turn for a codergen node with [systemPrompt] as the
@@ -726,11 +769,45 @@ class SubAgentScheduler {
     PermissionPolicy? policy,
     PermissionAsker? asker,
   }) async {
+    if (_disposed) return RunAgentResult.error('scheduler disposed');
+    return _track(_runStandalone(
+      systemPrompt: systemPrompt,
+      task: task,
+      parentReference: parentReference,
+      modelReference: modelReference,
+      seedHistory: seedHistory,
+      cancelSignal: Future.any(
+          [_shutdown.future, if (cancelSignal != null) cancelSignal]),
+      sink: sink,
+      toolProfile: toolProfile,
+      includeDelegate: includeDelegate,
+      parentPolicy: parentPolicy,
+      gateWrites: gateWrites,
+      policy: policy,
+      asker: asker,
+    ));
+  }
+
+  Future<RunAgentResult> _runStandalone({
+    required String systemPrompt,
+    required String task,
+    String parentReference = '',
+    String? modelReference,
+    List<Message>? seedHistory,
+    Future<void>? cancelSignal,
+    required AgentSink sink,
+    ToolProfile toolProfile = ToolProfile.full,
+    bool includeDelegate = true,
+    PermissionPolicy? parentPolicy,
+    bool gateWrites = false,
+    PermissionPolicy? policy,
+    PermissionAsker? asker,
+  }) async {
     final LlmProvider provider;
     final String reference;
     try {
       reference = modelReference ?? parentReference;
-      provider = registry.build(
+      provider = providers.build(
         reference,
         maxTokens: maxTokens,
         streamIdleTimeout: streamIdleTimeout,
@@ -741,73 +818,87 @@ class SubAgentScheduler {
           transient: true);
     }
 
-    // A node agent runs with the selected tool profile plus `delegate` (when
-    // nesting is wired and [includeDelegate] is set), so it can work directly
-    // AND reach further sub-agents. Identity comes from [systemPrompt]; the
-    // model from [reference].
-    final base = _effectiveProfileTools(toolProfile).toList();
-    final PermissionPolicy effectivePolicy;
-    if (policy != null) {
-      // Caller-owned instance (shared across a whole run): widen it in place
-      // so remembered session rules survive past this node.
-      _widenPolicyInPlace(policy, toolProfile, gateWrites: gateWrites);
-      effectivePolicy = policy;
-    } else {
-      effectivePolicy = _policyForProfile(
-          toolProfile, parentPolicy ?? basePolicy ?? PermissionPolicy(),
-          gateWrites: gateWrites);
-    }
-    final tools = <Tool>[...base];
-    final system = resolveIdentityPrompt(systemPrompt,
-        safeMode: safeMode, loadProjectContext: pipeline.loadProjectContext);
-    if (includeDelegate && delegateToolBuilder != null) {
-      final nestedCtx = AgentToolContext(
-        scheduler: this,
-        pipeline: pipeline,
-        parentSystemPrompt: system,
-        parentReference: reference,
-        parentPolicy: effectivePolicy,
-        originConversationId: '',
-        depth: 1,
+    var failed = false;
+    try {
+      // A node agent runs with the selected tool profile plus `delegate` (when
+      // nesting is wired and [includeDelegate] is set), so it can work directly
+      // AND reach further sub-agents. Identity comes from [systemPrompt]; the
+      // model from [reference].
+      final base = _effectiveProfileTools(toolProfile).toList();
+      final PermissionPolicy effectivePolicy;
+      if (policy != null) {
+        // Caller-owned instance (shared across a whole run): widen it in place
+        // so remembered session rules survive past this node.
+        _widenPolicyInPlace(policy, toolProfile, gateWrites: gateWrites);
+        effectivePolicy = policy;
+      } else {
+        effectivePolicy = _policyForProfile(
+            toolProfile, parentPolicy ?? basePolicy ?? PermissionPolicy(),
+            gateWrites: gateWrites);
+      }
+      final tools = <Tool>[...base];
+      final system = resolveIdentityPrompt(systemPrompt,
+          context: pipeline.promptContext,
+          safeMode: safeMode,
+          loadProjectContext: pipeline.loadProjectContext);
+      if (includeDelegate && delegateToolBuilder != null) {
+        final nestedCtx = AgentToolContext(
+          scheduler: this,
+          pipeline: pipeline,
+          parentSystemPrompt: system,
+          parentReference: reference,
+          parentPolicy: effectivePolicy,
+          originConversationId: '',
+          depth: 1,
+        );
+        tools.add(delegateToolBuilder!(nestedCtx));
+      }
+
+      final agent = Agent(
+        provider: provider,
+        tools: ToolRegistry(tools),
+        sink: sink,
+        policy: effectivePolicy,
+        asker: asker ?? _autoDenyAsker,
+        maxSteps: defaultMaxSteps,
+        budget: subAgentBudgetLimit == 0
+            ? null
+            : TokenBudget(perSessionLimit: subAgentBudgetLimit),
+        pauseGate: pauseGate,
+        system: system,
       );
-      tools.add(delegateToolBuilder!(nestedCtx));
+
+      final history =
+          seedHistory != null ? List<Message>.from(seedHistory) : <Message>[];
+
+      // The activity lifecycle is driven by [Agent.run] itself: when the sink
+      // is a full host — the TUI's per-scout panel host — its busy cue rises
+      // for the run's duration and clears on every exit path. A plain sink
+      // (the headless _NoopSink) has no signal and skips it.
+      await agent.run(
+        history: history,
+        userInput: task,
+        cancelSignal: cancelSignal,
+      );
+
+      final extracted = _extractResult('node', history);
+      if (extracted.isError) {
+        return RunAgentResult.error(extracted.content,
+            // A provider failure (rate limit, dropped stream) may clear on a
+            // retry; budget/steps exhaustions and everything else will not.
+            transient: agent.abortedKind == AbortedKind.provider);
+      }
+      return RunAgentResult(extracted.content);
+    } catch (_) {
+      failed = true;
+      rethrow;
+    } finally {
+      try {
+        provider.close();
+      } catch (_) {
+        if (!failed) rethrow;
+      }
     }
-
-    final agent = Agent(
-      provider: provider,
-      tools: ToolRegistry(tools),
-      sink: sink,
-      policy: effectivePolicy,
-      asker: asker ?? _autoDenyAsker,
-      maxSteps: defaultMaxSteps,
-      budget: subAgentBudgetLimit == 0
-          ? null
-          : TokenBudget(perSessionLimit: subAgentBudgetLimit),
-      pauseGate: pauseGate,
-      system: system,
-    );
-
-    final history =
-        seedHistory != null ? List<Message>.from(seedHistory) : <Message>[];
-
-    // The activity lifecycle is driven by [Agent.run] itself: when the sink
-    // is a full host — the TUI's per-scout panel host — its busy cue rises
-    // for the run's duration and clears on every exit path. A plain sink
-    // (the headless _NoopSink) has no signal and skips it.
-    await agent.run(
-      history: history,
-      userInput: task,
-      cancelSignal: cancelSignal,
-    );
-
-    final extracted = _extractResult('node', history);
-    if (extracted.isError) {
-      return RunAgentResult.error(extracted.content,
-          // A provider failure (rate limit, dropped stream) may clear on a
-          // retry; budget/steps exhaustions and everything else will not.
-          transient: agent.abortedKind == AbortedKind.provider);
-    }
-    return RunAgentResult(extracted.content);
   }
 
   /// Inline, telemetry-only Agent build used when the job has no panel host
@@ -839,7 +930,7 @@ class SubAgentScheduler {
   /// `--safe-mode` is on. The single source of truth for both the registry and
   /// the derived policy, so the two never drift.
   Iterable<Tool> _effectiveProfileTools(ToolProfile profile) {
-    final tools = toolSetFor(profile);
+    final tools = pipeline.tools.toolSetFor(profile);
     return safeMode ? stripForSafeMode(tools) : tools;
   }
 
@@ -947,8 +1038,8 @@ class SubAgentScheduler {
     return DelegationResult(text);
   }
 
-  void _finish(SubAgentJob job, DelegationResult result,
-      SubAgentJobStatus status) {
+  void _finish(
+      SubAgentJob job, DelegationResult result, SubAgentJobStatus status) {
     job.status = status;
     job._resolved = result;
     // Every terminal path lands here (done/errored/cancelled): drop the
@@ -967,15 +1058,19 @@ class SubAgentScheduler {
 
   /// Release resources. After this, [events] closes and further spawns are
   /// finished as cancelled.
-  Future<void> dispose() async {
-    _disposed = true;
-    await cancelAll();
-    for (final sub in _jobSubs.values) {
-      sub.cancel();
-    }
-    _jobSubs.clear();
-    await _merged.close();
-  }
+  Future<void> dispose() => _disposal ??= Future.sync(() async {
+        _disposed = true;
+        _shutdown.complete();
+        await cancelAll();
+        while (_pending.isNotEmpty) {
+          await Future.wait(_pending.toList());
+        }
+        for (final sub in _jobSubs.values) {
+          await sub.cancel();
+        }
+        _jobSubs.clear();
+        await _merged.close();
+      });
 
   static final PermissionAsker _autoDenyAsker =
       (_) async => PermissionResponse.denyOnce;
