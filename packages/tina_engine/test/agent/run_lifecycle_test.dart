@@ -104,6 +104,19 @@ void main() {
     scope.complete();
     expect(sink.signals.where((b) => !b), hasLength(1));
   });
+  test('inner completion while an outer scope stays active never re-raises '
+      'the cue (tin-y4qn)', () {
+    final sink = _Sink();
+    final outer = RunActivity(sink);
+    final inner = RunActivity(sink);
+    inner.complete();
+    // The activity VALUE is unchanged (the outer scope still holds the host),
+    // so no signal may fire — a re-raised true here re-lit an unfocused
+    // panel's busy cue after its turn had ended.
+    expect(sink.signals, [true]);
+    outer.complete();
+    expect(sink.signals, [true, false]);
+  });
   test('provider stream error completes lifecycle', () async {
     final sink = _Sink();
     final provider = _Pending();
