@@ -12,9 +12,10 @@ files, not external issue-tracker tickets. No external tickets were created.
 The program is complete. Remaining work is the ratchet, not new structure:
 new application code goes straight into `tina_app`; baseline entries are
 deleted as their dependencies get fixed; the TUI's notcurses backend access
-waits on a public console factory. One pre-existing failure remains tracked
-separately: `test/tui/panel_busy_cue_test.dart` (tin-y4qn) fails at HEAD and
-in this tree; A06 did not change its behavior.
+waits on a public console factory. The tin-y4qn busy-cue failure is resolved:
+`HostLifecycleAdapter` now emits activity only on value transitions
+(fixed in `5bb7272`), and the full CI pipeline is green across all seven
+owned-package jobs.
 
 | Task | Spec | Next concrete work | Depends on |
 | --- | --- | --- | --- |
