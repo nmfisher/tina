@@ -1,12 +1,11 @@
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
 
-import '../config.dart';
-import '../environment/environment_index.dart';
+import '../config/runtime_config.dart';
+import '../config/resume_request.dart';
 import '../platform/environment.dart';
-import 'agent_composition.dart';
+import 'execution_runtime.dart';
 import 'provider_resolution.dart';
 import 'runtime_resources.dart';
 
@@ -25,7 +24,7 @@ export 'runtime_resources.dart';
 /// conversations build their own through the runtime factory (SessionManager's
 /// `providerFactory`), and each owner closes what it built.
 class AppComposition {
-  final Config config;
+  final RuntimeConfig config;
   final Environment environment;
   final ProviderRegistry registry;
   final LlmProviderFactory providers;
@@ -166,15 +165,17 @@ class AppComposition {
 /// leaves them null so `buildStartupProvider` builds the real registry-built
 /// provider and the on-disk store is used.
 ///
-/// Config parsing (argv → [Config]) and the `--help` / parse-error early exits
+/// Argument parsing and the `--help` / parse-error early exits
 /// stay at the entry point — they must happen before any provider/store is
-/// built, so this function takes the already-parsed [config], not argv.
+/// built. This function takes resolved [config] and an explicit [resumeRequest].
+/// A legacy config implementing ResumeRequest is accepted during migration;
+/// background runs with plain RuntimeConfig start fresh.
 /// [projectRoot] selects the tool sandbox and search root (defaults to cwd).
 /// A same-project background run borrows [toolScope] to retain the live tools
 /// and write lock; other runs acquire a fresh scope. A borrowed [promptContext]
 /// carries the parent runtime's project sources and trust decision.
 Future<AppComposition> buildAppComposition({
-  required Config config,
+  required RuntimeConfig config,
   required ProviderRegistry registry,
   LlmProvider? provider,
   SessionStore? store,
@@ -182,119 +183,39 @@ Future<AppComposition> buildAppComposition({
   Environment? environment,
   String? projectRoot,
   ProjectToolScope? toolScope,
+  ResumeRequest? resumeRequest,
   PromptContext? promptContext,
   bool? loadProjectContext,
 }) async {
-  final env = environment ?? const PlatformEnvironment();
-  final root = p.normalize(
-    p.absolute(
-      projectRoot ??
-          toolScope?.projectRoot ??
-          promptContext?.projectRoot ??
-          Directory.current.path,
-    ),
-  );
-  if (toolScope != null && toolScope.projectRoot != root) {
-    throw ArgumentError('toolScope must belong to the requested projectRoot');
-  }
-  if (promptContext != null &&
-      (promptContext.projectRoot != root ||
-          (loadProjectContext != null &&
-              loadProjectContext != promptContext.loadProjectContext))) {
-    throw ArgumentError(
-      'promptContext must match the requested project and trust',
-    );
-  }
-  // The spend ledger is created BEFORE anything can build a provider, so the
-  // runtime factory meters every provider built from here on — the startup
-  // provider (AppComposition.buildStartupProvider), per-conversation
-  // providers, and every sub-agent. (An injected test provider bypasses
-  // the factory and so isn't metered, which is fine for fakes.)
-  final ledger = SpendLedger(
-    maxGlobalTokens: config.maxGlobalTokens,
-    requestsPerMinute: config.requestsPerMinute,
-  );
-  // #46 (c): make a degrading provider patch visible while it burns — the
-  // ledger notices when retried (failed-attempt) spend crosses a tenth of
-  // total spend and escalates by further tenths. stderr is the default sink
-  // (visible headless and in nohup logs, same channel as the watchdog); a
-  // TUI may replace it with a chat renderer.
-  ledger.onRetriedSpendNotice = stderr.writeln;
-  final pauseGate = PauseGate();
-  final providers = RuntimeProviderFactory(
-    registry,
-    decorator: (inner) => MeteringProvider(inner, ledger, pauseGate),
-  );
-  final policy = config.buildPolicy();
   final resources = RuntimeResources();
   try {
     final sessionStore = store ?? JsonlSessionStore.defaultLocation();
     if (store == null || ownsStore) resources.own(sessionStore.close);
-    resources.own(providers.close);
-    // The auto-mode classifier: a dedicated cheap model when `[permissions]
-    // model` is set, else the main model. Best-effort — an unbuildable ref
-    // (unknown provider, missing key) leaves it null and auto mode degrades to
-    // plain prompting.
-    final classifierRef =
-        config.permissionClassifierModel ??
-        '${config.provider}/${config.model}';
-    PermissionClassifier? classifier;
-    try {
-      classifier = PermissionClassifier(
-        providers.build(
-          classifierRef,
-          apiKeyOverride: classifierRef.startsWith('${config.provider}/')
-              ? config.apiKey
-              : null,
-          maxTokens: config.maxTokens,
-          streamIdleTimeout: config.streamIdleTimeout,
-          requestTimeout: config.requestTimeout,
-        ),
-      );
-    } catch (_) {
-      classifier = null;
-    }
-    if (classifier != null) resources.own(classifier.provider.close);
-    // A nested same-project run borrows the live scope (including its write
-    // lock). Independent compositions construct independent tool instances.
-    final tools =
-        toolScope ??
-        ProjectToolScope(
-          projectRoot: root,
-          env: env.env,
-          sandboxEnabled: config.sandboxEnabled,
-          sandboxNet: config.sandboxNet,
-          sandboxReadOnly: config.sandboxReadOnly,
-        );
-    // Build the store unconditionally — /sessions and /resume still work
-    // (read-only), and the recorder gates writes.
-    final pipeline = AgentPipeline(
-      mainIdentity: defaultPipeline.mainIdentity,
-      tools: tools,
-      promptContext:
-          promptContext ??
-          PromptContext(
-            projectRoot: root,
-            loadProjectContext: loadProjectContext ?? true,
-            projectEnvironmentSource: () => projectEnvironmentBlock(root),
-            repoSummarySource: () => repoSummaryBlock(root),
-          ),
-    );
-    // One runtime quota shared by this scheduler's delegated jobs.
-    final quota = AgentQuota(
-      maxDepth: config.maxSubAgentDepth,
-      maxLive: config.maxSubAgentConcurrency,
-    );
-    final scheduler = createScheduler(
+    final runtime = await buildExecutionRuntime(
       config: config,
       registry: registry,
-      providers: providers,
-      pipeline: pipeline,
-      pauseGate: pauseGate,
-      quota: quota,
+      environment: environment,
+      projectRoot: projectRoot,
+      toolScope: toolScope,
+      promptContext: promptContext,
+      loadProjectContext: loadProjectContext,
     );
-    resources.own(scheduler.dispose);
-    final resolved = await resolveSession(config, sessionStore);
+    resources.own(runtime.dispose);
+    final env = runtime.environment;
+    final providers = runtime.providers;
+    final policy = runtime.policy;
+    final pipeline = runtime.pipeline;
+    final scheduler = runtime.scheduler;
+    final ledger = runtime.spendLedger;
+    final pauseGate = runtime.pauseGate;
+    final classifier = runtime.classifier;
+    final resolved = await resolveSession(
+      resumeRequest ??
+          (config is ResumeRequest
+              ? config as ResumeRequest
+              : const ResumeRequest()),
+      sessionStore,
+    );
     // Restore the resumed session's recorded token spend into the ledger, so
     // `/spend` shows the true session total across processes. Seeding never
     // trips the ceiling (the cap guards what THIS process spends).
@@ -354,7 +275,7 @@ class ResolvedSession {
 /// [SessionRecorder] does that lazily on the first write. An empty session
 /// leaves no trace on disk.
 Future<ResolvedSession> resolveSession(
-  Config config,
+  ResumeRequest config,
   SessionStore store,
 ) async {
   if (config.resumeSessionId != null) {

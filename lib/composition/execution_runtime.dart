@@ -1,0 +1,192 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+import 'package:tina_engine/tina_engine.dart';
+
+import '../config/runtime_config.dart';
+import '../environment/environment_prompt.dart';
+import '../platform/environment.dart';
+import 'agent_composition.dart';
+import 'runtime_resources.dart';
+
+import '../application/project_execution.dart';
+
+class ExecutionRuntime implements ProjectExecution {
+  final RuntimeConfig config;
+  final Environment environment;
+  @override
+  final LlmProviderFactory providers;
+  @override
+  final PermissionPolicy policy;
+  @override
+  final AgentPipeline pipeline;
+  @override
+  final SubAgentScheduler scheduler;
+  @override
+  final SpendLedger spendLedger;
+  final PauseGate pauseGate;
+  final PermissionClassifier? classifier;
+  final RuntimeResources resources;
+  ExecutionRuntime({
+    required this.config,
+    required this.environment,
+    required this.providers,
+    required this.policy,
+    required this.pipeline,
+    required this.scheduler,
+    required this.spendLedger,
+    required this.pauseGate,
+    required this.classifier,
+    required this.resources,
+  });
+  @override
+  Future<void> dispose() => resources.dispose();
+  @override
+  LlmProvider buildStartupProvider() {
+    if (resources.isClosing) throw StateError('Runtime is closing');
+    return providers.build(
+      '${config.provider}/${config.model}',
+      apiKeyOverride: config.apiKey,
+      baseUrlOverride: config.baseUrl,
+      maxTokens: config.maxTokens,
+      streamIdleTimeout: config.streamIdleTimeout,
+      requestTimeout: config.requestTimeout,
+    );
+  }
+}
+
+/// Owns providers, classifier and scheduler; borrows the catalog and optional
+/// same-project tool/prompt scopes. No session store or resume lookup is created.
+Future<ExecutionRuntime> buildExecutionRuntime({
+  required RuntimeConfig config,
+  required ProviderRegistry registry,
+  Environment? environment,
+  String? projectRoot,
+  ProjectToolScope? toolScope,
+  PromptContext? promptContext,
+  bool? loadProjectContext,
+}) async {
+  final env = environment ?? const PlatformEnvironment();
+  final root = p.normalize(
+    p.absolute(
+      projectRoot ??
+          toolScope?.projectRoot ??
+          promptContext?.projectRoot ??
+          Directory.current.path,
+    ),
+  );
+  if (toolScope != null && toolScope.projectRoot != root) {
+    throw ArgumentError('toolScope must belong to the requested projectRoot');
+  }
+  if (promptContext != null &&
+      (promptContext.projectRoot != root ||
+          (loadProjectContext != null &&
+              loadProjectContext != promptContext.loadProjectContext))) {
+    throw ArgumentError(
+      'promptContext must match the requested project and trust',
+    );
+  }
+  // The spend ledger is created BEFORE anything can build a provider, so the
+  // runtime factory meters every provider built from here on — the startup
+  // provider (AppComposition.buildStartupProvider), per-conversation
+  // providers, and every sub-agent. (An injected test provider bypasses
+  // the factory and so isn't metered, which is fine for fakes.)
+  final ledger = SpendLedger(
+    maxGlobalTokens: config.maxGlobalTokens,
+    requestsPerMinute: config.requestsPerMinute,
+  );
+  // #46 (c): make a degrading provider patch visible while it burns — the
+  // ledger notices when retried (failed-attempt) spend crosses a tenth of
+  // total spend and escalates by further tenths. stderr is the default sink
+  // (visible headless and in nohup logs, same channel as the watchdog); a
+  // TUI may replace it with a chat renderer.
+  ledger.onRetriedSpendNotice = stderr.writeln;
+  final pauseGate = PauseGate();
+  final providers = RuntimeProviderFactory(
+    registry,
+    decorator: (inner) => MeteringProvider(inner, ledger, pauseGate),
+  );
+  final policy = config.buildPolicy();
+  final resources = RuntimeResources();
+  try {
+    resources.own(providers.close);
+    // The auto-mode classifier: a dedicated cheap model when `[permissions]
+    // model` is set, else the main model. Best-effort — an unbuildable ref
+    // (unknown provider, missing key) leaves it null and auto mode degrades to
+    // plain prompting.
+    final classifierRef =
+        config.permissionClassifierModel ??
+        '${config.provider}/${config.model}';
+    PermissionClassifier? classifier;
+    try {
+      classifier = PermissionClassifier(
+        providers.build(
+          classifierRef,
+          apiKeyOverride: classifierRef.startsWith('${config.provider}/')
+              ? config.apiKey
+              : null,
+          maxTokens: config.maxTokens,
+          streamIdleTimeout: config.streamIdleTimeout,
+          requestTimeout: config.requestTimeout,
+        ),
+      );
+    } catch (_) {
+      classifier = null;
+    }
+    if (classifier != null) resources.own(classifier.provider.close);
+    // A nested same-project run borrows the live scope (including its write
+    // lock). Independent compositions construct independent tool instances.
+    final tools =
+        toolScope ??
+        ProjectToolScope(
+          projectRoot: root,
+          env: env.env,
+          sandboxEnabled: config.sandboxEnabled,
+          sandboxNet: config.sandboxNet,
+          sandboxReadOnly: config.sandboxReadOnly,
+        );
+    final pipeline = AgentPipeline(
+      mainIdentity: defaultPipeline.mainIdentity,
+      tools: tools,
+      promptContext:
+          promptContext ??
+          PromptContext(
+            projectRoot: root,
+            loadProjectContext: loadProjectContext ?? true,
+            projectEnvironmentSource: () => projectEnvironmentBlock(root),
+            repoSummarySource: () => repoSummaryBlock(root),
+          ),
+    );
+    // One runtime quota shared by this scheduler's delegated jobs.
+    final quota = AgentQuota(
+      maxDepth: config.maxSubAgentDepth,
+      maxLive: config.maxSubAgentConcurrency,
+    );
+    final scheduler = createScheduler(
+      config: config,
+      registry: registry,
+      providers: providers,
+      pipeline: pipeline,
+      pauseGate: pauseGate,
+      quota: quota,
+    );
+    resources.own(scheduler.dispose);
+    return ExecutionRuntime(
+      config: config,
+      environment: env,
+      providers: providers,
+      policy: policy,
+      pipeline: pipeline,
+      scheduler: scheduler,
+      spendLedger: ledger,
+      pauseGate: pauseGate,
+      classifier: classifier,
+      resources: resources,
+    );
+  } catch (_) {
+    try {
+      await resources.dispose();
+    } catch (_) {}
+    rethrow;
+  }
+}

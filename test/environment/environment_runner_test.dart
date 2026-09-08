@@ -10,10 +10,11 @@
 
 import 'dart:io';
 
+import 'package:tina/composition/project_services.dart';
+
 import 'package:tina/config.dart';
 import 'package:tina/config/user_config.dart';
-import 'package:tina/environment/environment_index.dart';
-import 'package:tina/environment/environment_runner.dart';
+import 'package:tina/environment/environment_prompt.dart';
 import 'package:tina/environment/environment_store.dart';
 import 'package:tina/platform/environment.dart';
 import 'package:tina_engine/tina_engine.dart';
@@ -192,7 +193,7 @@ void main() {
       env: const {'TEST_KEY': 'k', 'ANTHROPIC_API_KEY': 'k'},
       registry: registry,
     );
-    final runner = EnvironmentRunner(
+    final runner = buildEnvironmentRun(
       config: config,
       registry: registry,
       environment: const PlatformEnvironment(),
@@ -223,7 +224,7 @@ void main() {
       registry: registry,
     );
 
-    final ok = await EnvironmentRunner(
+    final ok = await buildEnvironmentRun(
       config: config,
       registry: registry,
       environment: const PlatformEnvironment(),
@@ -255,7 +256,7 @@ void main() {
       registry: registry,
     );
 
-    final ok = await EnvironmentRunner(
+    final ok = await buildEnvironmentRun(
       config: config,
       registry: registry,
       environment: const PlatformEnvironment(),
@@ -279,7 +280,7 @@ void main() {
       registry: registry,
     );
 
-    final ok = await EnvironmentRunner(
+    final ok = await buildEnvironmentRun(
       config: config,
       registry: registry,
       environment: const PlatformEnvironment(),
@@ -307,7 +308,7 @@ void main() {
       registry: registry,
     );
 
-    await EnvironmentRunner(
+    await buildEnvironmentRun(
       config: config,
       registry: registry,
       environment: const PlatformEnvironment(),
@@ -359,7 +360,7 @@ void main() {
       registry: registry,
     );
 
-    final ok = await EnvironmentRunner(
+    final ok = await buildEnvironmentRun(
       config: config,
       registry: registry,
       environment: const PlatformEnvironment(),
@@ -387,7 +388,7 @@ void main() {
           const UserConfig(environmentModel: 'nim/a-model'),
     );
 
-    await EnvironmentRunner(
+    await buildEnvironmentRun(
       config: config,
       registry: registry,
       environment: const PlatformEnvironment(),
@@ -411,7 +412,7 @@ void main() {
       registry: registry,
     );
 
-    final ok = await EnvironmentRunner(
+    final ok = await buildEnvironmentRun(
       config: config,
       registry: registry,
       environment: const PlatformEnvironment(),
@@ -436,7 +437,7 @@ void main() {
       registry: registry,
     );
     final asked = <String>[];
-    final ok = await EnvironmentRunner(
+    final ok = await buildEnvironmentRun(
       config: config,
       registry: registry,
       environment: const PlatformEnvironment(),
@@ -464,7 +465,7 @@ void main() {
       registry: registry,
     );
 
-    final ok = await EnvironmentRunner(
+    final ok = await buildEnvironmentRun(
       config: config,
       registry: registry,
       environment: const PlatformEnvironment(),
@@ -494,7 +495,7 @@ void main() {
 
     final openedDirs = <String>[];
     final textsByDir = <String, String>{};
-    await EnvironmentRunner(
+    await buildEnvironmentRun(
       config: config,
       registry: registry,
       environment: const PlatformEnvironment(),
@@ -531,7 +532,7 @@ void main() {
     );
     final host = FakeHostInterface();
     var raisedBeforeFirstScout = false;
-    final ok = await EnvironmentRunner(
+    final ok = await buildEnvironmentRun(
       config: config,
       registry: registry,
       environment: const PlatformEnvironment(),

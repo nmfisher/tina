@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'application/conversation_selection.dart';
+import 'host/selection_presenter.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 import 'conversation.dart';
@@ -122,58 +125,53 @@ class SessionManager {
   /// Switch to a different session. Routes the conversation currently on
   /// screen off it and the new session's active conversation onto it via the
   /// hosts' [HostInterface.setActive].
-  Session switchSession(String id) {
-    if (id == _activeSessionId) return _sessions[id]!;
-    if (!_sessions.containsKey(id)) {
-      throw ArgumentError('Unknown session: $id');
-    }
-    _present(old: activeConversation, next: _sessions[id]!.activeConversation);
+  ConversationSelection selectSession(String id) {
+    final session = _sessions[id];
+    if (session == null) throw ArgumentError('Unknown session: $id');
+    final previous = activeConversation;
     _activeSessionId = id;
-    // Foregrounding clears the unread badge for the now-visible session.
-    active.unread = 0;
+    session.unread = 0;
+    return ConversationSelection(id, previous, session.activeConversation);
+  }
+
+  ConversationSelection selectConversation(String id) {
+    final session = active;
+    final next = session.conversationById(id);
+    if (next == null) throw ArgumentError('Unknown conversation: $id');
+    final selection = ConversationSelection(
+      session.id,
+      session.activeConversation,
+      next,
+    );
+    session.setActiveConversation(id);
+    return selection;
+  }
+
+  /// Persist only deliberate primary selections. Side-panel focus passes false.
+  Future<void> persistSelection(
+    ConversationSelection selection, {
+    bool persist = true,
+  }) async {
+    if (persist && selection.changed) {
+      await selection.next.recorder?.setActiveConversation(selection.next.id);
+    }
+  }
+
+  /// Compatibility presentation wrappers. New frontend callers use selection
+  /// results and apply their own presentation adapter.
+  Session switchSession(String id) {
+    presentConversationSelection(selectSession(id));
     return active;
   }
 
-  /// Switch to a different conversation within the active session.
-  ///
-  /// Updates the in-memory active pointer and routes the conversation to the
-  /// screen. When [persist] is true (the default), also rewrites the session
-  /// manifest's `activeConversationId` to [id]. That persist should only happen
-  /// for the **primary** conversation: the manifest anchor is what resume uses to
-  /// decide which conversation becomes the full-width slot, so it must always be
-  /// the primary. Focusing a side panel routes input to it (in-memory) but must
-  /// not repoint the anchor at a non-primary, or resume would promote the side
-  /// panel to the full-width slot and drop the real primary to a background
-  /// replay with no panel.
   Future<Conversation> switchConversation(
     String id, {
     bool persist = true,
   }) async {
-    final session = active;
-    if (id == session.activeConversationId) return session.activeConversation;
-    final next = session.conversationById(id);
-    if (next == null) throw ArgumentError('Unknown conversation: $id');
-    _present(old: session.activeConversation, next: next);
-    session.setActiveConversation(id);
-    if (persist) {
-      final recorder = next.recorder;
-      if (recorder != null) await recorder.setActiveConversation(id);
-    }
-    return next;
-  }
-
-  /// Route [old] off the screen and [next] onto it via the hosts. Shared by
-  /// [switchSession] and [switchConversation]. After routing [next] on, its
-  /// activity signal reflects whether a turn is in flight so its (host's)
-  /// spinner state is restored.
-  void _present({required Conversation old, required Conversation next}) {
-    old.host.setActive(false);
-    next.host.setActive(true);
-    if (next.isRunning) {
-      next.host.setActivity(true);
-    } else {
-      next.host.setIdle(true);
-    }
+    final selection = selectConversation(id);
+    presentConversationSelection(selection);
+    await persistSelection(selection, persist: persist);
+    return selection.next;
   }
 
   /// Create a new session with one fresh conversation. Defaults to the active
@@ -339,11 +337,7 @@ class SessionManager {
     final session = _sessions.remove(id);
     if (session != null) {
       for (final c in session.conversations) {
-        c.provider.close();
-        // dispose()'s body is synchronous (no awaits): it detaches the host's
-        // region and tears down its spinner + bus before returning, so the
-        // discarded future has already completed its observable work.
-        c.host.dispose();
+        _deferRelease(c);
       }
     }
   }
@@ -363,8 +357,7 @@ class SessionManager {
     final wasScreened =
         conversationId == session.activeConversationId &&
         sessionId == _activeSessionId;
-    c.provider.close();
-    c.host.dispose();
+    _deferRelease(c);
     session.removeConversation(conversationId);
     if (wasScreened) {
       final next = session.activeConversation;
@@ -434,18 +427,40 @@ class SessionManager {
 
   /// Close all sessions and release resources.
   Future<void>? _closing;
+  final _pendingReleases = <Future<void>>[];
+  void _deferRelease(Conversation conversation) {
+    final future = _releaseConversation(conversation);
+    _pendingReleases.add(future);
+    unawaited(future.catchError((Object _) {}));
+  }
 
   Future<void> closeAll() {
     if (_closing != null) return _closing!;
     final resources = RuntimeResources();
     for (final session in _sessions.values) {
       for (final c in session.conversations) {
-        resources.own(c.host.dispose);
-        resources.own(c.provider.close);
+        c.beginClose();
+        resources.own(() => _releaseConversation(c));
       }
+    }
+    for (final pending in _pendingReleases) {
+      resources.own(() => pending);
     }
     _sessions.clear();
     return _closing = resources.dispose();
+  }
+
+  Future<void> _releaseConversation(Conversation conversation) {
+    conversation.beginClose();
+    final resources = RuntimeResources()
+      ..own(conversation.host.dispose)
+      ..own(conversation.provider.close);
+    final pending = conversation.turnCompletion;
+    if (pending == null) return resources.dispose();
+    return () async {
+      await pending;
+      await resources.dispose();
+    }();
   }
 
   // -- Internals -----------------------------------------------------------

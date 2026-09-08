@@ -1,10 +1,12 @@
+export 'environment_options.dart';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:toml/toml.dart';
 
 import 'package:tina_engine/tina_engine.dart';
-import 'package:tina_console/tina_console.dart';
+import 'theme_overrides.dart';
+export 'theme_overrides.dart';
 
 /// The config schema version this build understands. The file declares its
 /// version with a top-level `version = N`; [loadUserConfig] refuses (with a
@@ -15,24 +17,32 @@ const int kCurrentConfigVersion = 1;
 
 /// Top-level keys [loadUserConfig] recognizes. Anything else is reported as a
 /// likely typo (e.g. `[limit]` for `[limits]`) rather than silently ignored.
-const _knownTopLevelKeys = {'version', 'default', 'providers', 'limits', 'prompts', 'theme', 'trust', 'regions', 'environment', 'tui', 'permissions'};
+const _knownTopLevelKeys = {
+  'version',
+  'default',
+  'providers',
+  'limits',
+  'prompts',
+  'theme',
+  'trust',
+  'regions',
+  'environment',
+  'tui',
+  'permissions',
+};
 
-/// Whether the first-load environment agent (ENVIRONMENT.md population) may
-/// run in the background without asking. From `[environment] auto_populate`
-/// in ~/.tina/config; `ask` is the default so a token-spending agent turn
-/// never starts silently.
-enum EnvironmentAutoPopulate { ask, always, never }
-
-/// Parse the raw `[environment] auto_populate` value. Unknown / absent →
-/// [EnvironmentAutoPopulate.ask] (the safe default).
-EnvironmentAutoPopulate parseEnvironmentAutoPopulate(String? raw) =>
-    switch (raw) {
-      'always' => EnvironmentAutoPopulate.always,
-      'never' => EnvironmentAutoPopulate.never,
-      _ => EnvironmentAutoPopulate.ask,
-    };
 const _knownDefaultKeys = {'provider', 'model', 'workflow'};
-const _knownProviderKeys = {'api_key', 'auth_token', 'base_url', 'wire', 'name', 'disabled_models', 'members', 'models', 'requests_per_minute'};
+const _knownProviderKeys = {
+  'api_key',
+  'auth_token',
+  'base_url',
+  'wire',
+  'name',
+  'disabled_models',
+  'members',
+  'models',
+  'requests_per_minute',
+};
 const _knownPromptKeys = {'identity'};
 const _knownRegionsKeys = {'model'};
 const _knownPermissionsKeys = {'mode', 'model'};
@@ -79,12 +89,15 @@ class PermissionsConfig {
   const PermissionsConfig({this.mode, this.model});
 
   factory PermissionsConfig.fromMap(Map<String, dynamic> m) =>
-      PermissionsConfig(mode: m['mode'] as String?, model: m['model'] as String?);
+      PermissionsConfig(
+        mode: m['mode'] as String?,
+        model: m['model'] as String?,
+      );
 
   Map<String, dynamic> toMap() => {
-        if (mode != null) 'mode': mode,
-        if (model != null) 'model': model,
-      };
+    if (mode != null) 'mode': mode,
+    if (model != null) 'model': model,
+  };
 
   bool get isEmpty => mode == null && model == null;
 }
@@ -109,7 +122,9 @@ class ProviderModelSpec {
     if (id.isEmpty) return null;
     final name = bar < 0 ? null : raw.substring(bar + 1).trim();
     return ProviderModelSpec(
-        id: id, name: (name == null || name.isEmpty) ? null : name);
+      id: id,
+      name: (name == null || name.isEmpty) ? null : name,
+    );
   }
 
   @override
@@ -224,7 +239,7 @@ class ProviderConfig {
       // and an all-empty list means "not declared".
       final l = [
         for (final e in rawModels.whereType<String>())
-          if (ProviderModelSpec.parse(e) case final spec?) spec
+          if (ProviderModelSpec.parse(e) case final spec?) spec,
       ];
       if (l.isNotEmpty) models = l;
     }
@@ -248,7 +263,7 @@ class ProviderConfig {
   /// (used to detect an edit that changed nothing, `disabledModels` compared
   /// as sets).
   @override
-  bool operator==(Object other) =>
+  bool operator ==(Object other) =>
       other is ProviderConfig &&
       apiKey == other.apiKey &&
       authToken == other.authToken &&
@@ -261,8 +276,17 @@ class ProviderConfig {
       _setsEqual(disabledModels, other.disabledModels);
 
   @override
-  int get hashCode => Object.hash(apiKey, authToken, baseUrl, wire, name,
-      members, models, requestsPerMinute, Set.of(disabledModels ?? const {}));
+  int get hashCode => Object.hash(
+    apiKey,
+    authToken,
+    baseUrl,
+    wire,
+    name,
+    members,
+    models,
+    requestsPerMinute,
+    Set.of(disabledModels ?? const {}),
+  );
 
   static bool _setsEqual(Set<String>? a, Set<String>? b) {
     if (a == null && b == null) return true;
@@ -327,17 +351,17 @@ class LimitsConfig {
   });
 
   factory LimitsConfig.fromMap(Map<String, dynamic> m) => LimitsConfig(
-        maxGlobalTokens: m['max_global_tokens'] as int?,
-        maxSubAgentTokens: m['max_sub_agent_tokens'] as int?,
-        maxSubAgentDepth: m['max_sub_agent_depth'] as int?,
-        maxSubAgentConcurrency: m['max_sub_agent_concurrency'] as int?,
-        requestsPerMinute: m['requests_per_minute'] as int?,
-        minRequestIntervalMs: m['min_request_interval_ms'] as int?,
-        maxConcurrentRequests: m['max_concurrent_requests'] as int?,
-        maxTurnTokens: m['max_turn_tokens'] as int?,
-        maxSessionTokens: m['max_session_tokens'] as int?,
-        maxRequestTokens: m['max_request_tokens'] as int?,
-      );
+    maxGlobalTokens: m['max_global_tokens'] as int?,
+    maxSubAgentTokens: m['max_sub_agent_tokens'] as int?,
+    maxSubAgentDepth: m['max_sub_agent_depth'] as int?,
+    maxSubAgentConcurrency: m['max_sub_agent_concurrency'] as int?,
+    requestsPerMinute: m['requests_per_minute'] as int?,
+    minRequestIntervalMs: m['min_request_interval_ms'] as int?,
+    maxConcurrentRequests: m['max_concurrent_requests'] as int?,
+    maxTurnTokens: m['max_turn_tokens'] as int?,
+    maxSessionTokens: m['max_session_tokens'] as int?,
+    maxRequestTokens: m['max_request_tokens'] as int?,
+  );
 
   bool get isEmpty =>
       maxGlobalTokens == null &&
@@ -369,16 +393,17 @@ class LimitsConfig {
 
   @override
   int get hashCode => Object.hash(
-      maxGlobalTokens,
-      maxSubAgentTokens,
-      maxSubAgentDepth,
-      maxSubAgentConcurrency,
-      requestsPerMinute,
-      minRequestIntervalMs,
-      maxConcurrentRequests,
-      maxTurnTokens,
-      maxSessionTokens,
-      maxRequestTokens);
+    maxGlobalTokens,
+    maxSubAgentTokens,
+    maxSubAgentDepth,
+    maxSubAgentConcurrency,
+    requestsPerMinute,
+    minRequestIntervalMs,
+    maxConcurrentRequests,
+    maxTurnTokens,
+    maxSessionTokens,
+    maxRequestTokens,
+  );
 }
 
 /// The parsed `~/.tina/config`. [defaultProvider]/[defaultModel] flow into
@@ -401,7 +426,7 @@ class UserConfig {
 
   /// Terminal color overrides from the `[theme]` table. Null means "use the
   /// shipped default theme".
-  final Theme? theme;
+  final ThemeOverrides? theme;
 
   /// Named theme variant from `[theme] variant`. Null when absent or when
   /// per-key overrides are present. One of `"light"` or `"dark"`.
@@ -493,7 +518,7 @@ class UserConfig {
     String? defaultWorkflow,
     Map<String, ProviderConfig>? providers,
     LimitsConfig? limits,
-    Theme? theme,
+    ThemeOverrides? theme,
     String? themeVariant,
     Map<String, String>? prompts,
     String? trustDefault,
@@ -502,25 +527,24 @@ class UserConfig {
     bool? mouseWheel,
     RegionsConfig? regions,
     PermissionsConfig? permissions,
-  }) =>
-      UserConfig(
-        defaultProvider: defaultProvider ?? this.defaultProvider,
-        defaultModel: defaultModel ?? this.defaultModel,
-        defaultWorkflow: defaultWorkflow ?? this.defaultWorkflow,
-        providers: providers ?? this.providers,
-        limits: limits ?? this.limits,
-        theme: theme ?? this.theme,
-        themeVariant: themeVariant ?? this.themeVariant,
-        prompts: prompts ?? this.prompts,
-        trustDefault: trustDefault ?? this.trustDefault,
-        environmentAutoPopulate:
-            environmentAutoPopulate ?? this.environmentAutoPopulate,
-        environmentModel: environmentModel ?? this.environmentModel,
-        mouseWheel: mouseWheel ?? this.mouseWheel,
-        regions: regions ?? this.regions,
-        permissions: permissions ?? this.permissions,
-        version: version,
-      );
+  }) => UserConfig(
+    defaultProvider: defaultProvider ?? this.defaultProvider,
+    defaultModel: defaultModel ?? this.defaultModel,
+    defaultWorkflow: defaultWorkflow ?? this.defaultWorkflow,
+    providers: providers ?? this.providers,
+    limits: limits ?? this.limits,
+    theme: theme ?? this.theme,
+    themeVariant: themeVariant ?? this.themeVariant,
+    prompts: prompts ?? this.prompts,
+    trustDefault: trustDefault ?? this.trustDefault,
+    environmentAutoPopulate:
+        environmentAutoPopulate ?? this.environmentAutoPopulate,
+    environmentModel: environmentModel ?? this.environmentModel,
+    mouseWheel: mouseWheel ?? this.mouseWheel,
+    regions: regions ?? this.regions,
+    permissions: permissions ?? this.permissions,
+    version: version,
+  );
 
   /// Builds a [UserConfig] from the `toml` package's `toMap()` output. Unknown
   /// keys are ignored.
@@ -530,25 +554,25 @@ class UserConfig {
     final limitsRaw = (m['limits'] as Map?)?.cast<String, dynamic>();
     final themeRaw = (m['theme'] as Map?)?.cast<String, dynamic>();
     final themeVariant = themeRaw?['variant'] as String?;
-    final theme =
-        themeRaw == null ? null : Theme.fromMap(themeRaw);
+    final theme = themeRaw == null
+        ? null
+        : ThemeOverrides(Map.of(themeRaw)..remove('variant'));
     final promptsRaw = (m['prompts'] as Map?)?.cast<String, dynamic>();
     final trustRaw = (m['trust'] as Map?)?.cast<String, dynamic>();
     final trustDefault = trustRaw?['default'] as String?;
     final environmentRaw = (m['environment'] as Map?)?.cast<String, dynamic>();
-    final environmentAutoPopulate =
-        environmentRaw?['auto_populate'] as String?;
+    final environmentAutoPopulate = environmentRaw?['auto_populate'] as String?;
     final environmentModel = environmentRaw?['model'] as String?;
     final tuiRaw = (m['tui'] as Map?)?.cast<String, dynamic>();
     final mouseWheel = tuiRaw?['mouse_wheel'] as bool?;
     final regionsRaw = (m['regions'] as Map?)?.cast<String, dynamic>();
-    final permissionsRaw =
-        (m['permissions'] as Map?)?.cast<String, dynamic>();
+    final permissionsRaw = (m['permissions'] as Map?)?.cast<String, dynamic>();
     final providers = <String, ProviderConfig>{};
     for (final e in (providersRaw ?? const <String, dynamic>{}).entries) {
       if (e.value is Map) {
-        providers[e.key] =
-            ProviderConfig.fromMap((e.value as Map).cast<String, dynamic>());
+        providers[e.key] = ProviderConfig.fromMap(
+          (e.value as Map).cast<String, dynamic>(),
+        );
       }
     }
     // [prompts.main] (and any [prompts.<name>]) tables: each holds an `identity`
@@ -609,9 +633,11 @@ UserConfig loadUserConfig({
     if (version != kCurrentConfigVersion) {
       // Future: if version < current, migrate(map, version) here; if version >
       // current, the user downgraded tina. Either way, refuse for now.
-      stderr.writeln('warning: ${file.path} is config version $version, but '
-          'this tina supports version $kCurrentConfigVersion; ignoring it. '
-          'Run --init-config for a fresh template.');
+      stderr.writeln(
+        'warning: ${file.path} is config version $version, but '
+        'this tina supports version $kCurrentConfigVersion; ignoring it. '
+        'Run --init-config for a fresh template.',
+      );
       return UserConfig.empty;
     }
     _warnUnknownKeys(map, file.path);
@@ -628,7 +654,8 @@ UserConfig loadUserConfig({
 /// the caller still loads the recognized sections.
 void _warnUnknownKeys(Map<String, dynamic> m, String path) {
   void warn(String key, Set<String> known) => stderr.writeln(
-      'warning: $path: unknown key "$key" (known: ${known.join(', ')}).');
+    'warning: $path: unknown key "$key" (known: ${known.join(', ')}).',
+  );
   for (final k in m.keys) {
     if (!_knownTopLevelKeys.contains(k)) warn(k, _knownTopLevelKeys);
   }
@@ -750,8 +777,7 @@ String userConfigToToml(UserConfig config) {
       'default': {
         if (config.defaultProvider != null) 'provider': config.defaultProvider,
         if (config.defaultModel != null) 'model': config.defaultModel,
-        if (config.defaultWorkflow != null)
-          'workflow': config.defaultWorkflow,
+        if (config.defaultWorkflow != null) 'workflow': config.defaultWorkflow,
       },
     if (config.providers.isNotEmpty)
       'providers': {
@@ -762,7 +788,8 @@ String userConfigToToml(UserConfig config) {
             if (e.value.baseUrl != null) 'base_url': e.value.baseUrl,
             if (e.value.wire != null) 'wire': e.value.wire,
             if (e.value.name != null) 'name': e.value.name,
-            if (e.value.disabledModels != null && e.value.disabledModels!.isNotEmpty)
+            if (e.value.disabledModels != null &&
+                e.value.disabledModels!.isNotEmpty)
               'disabled_models': e.value.disabledModels!.toList(),
             if (e.value.models != null && e.value.models!.isNotEmpty)
               'models': [for (final m in e.value.models!) m.toString()],

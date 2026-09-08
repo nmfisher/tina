@@ -1,3 +1,4 @@
+import 'host_lifecycle_adapter.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -18,7 +19,7 @@ import 'host_interface.dart';
 ///
 /// Output destinations are injected as write callbacks so the host is unit-
 /// testable without faking [IOSink].
-class HeadlessHost implements HostInterface {
+class HeadlessHost with HostLifecycleAdapter implements HostInterface {
   static const String kHeadlessSummaryInstruction =
       'Please end your response with a concise written summary of what you did and the results.';
 

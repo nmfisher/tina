@@ -10,6 +10,7 @@ import '../persistence/session_store.dart';
 import '../tools/delegation_typedefs.dart';
 import '../tools/tool.dart';
 import 'agent.dart';
+import 'run_lifecycle.dart';
 import 'agent_event_bus.dart';
 import 'agent_pipeline.dart';
 import 'agent_quota.dart';
@@ -230,6 +231,7 @@ class SubAgentJob {
   /// [_run] hands this to [subAgentSessionFactory] to build a first-class
   /// session; a focused sub-agent panel then becomes the active conversation.
   HostInterface? panelHost;
+  RunActivity? _activity;
 
   /// Installs the focus job on a panel's `onFocus`. Set by the persistence hook
   /// (which owns the concrete panel). The session factory calls it with the
@@ -564,7 +566,7 @@ class SubAgentScheduler {
       // host's activity signal itself. Raised here, cleared in [_finish] on
       // every terminal path, so a live sub-agent panel's busy cue reflects
       // the job's real state (tin-y4qn).
-      job.panelHost?.setActivity(true);
+      if (job.panelHost != null) job._activity = RunActivity(job.panelHost!);
       final DelegationResult result;
       try {
         result = await _runAgent(job, task, cancelSignal, seedHistory);
@@ -1044,7 +1046,7 @@ class SubAgentScheduler {
     job._resolved = result;
     // Every terminal path lands here (done/errored/cancelled): drop the
     // panel's busy cue so a finished sub-agent shows a static border.
-    job.panelHost?.setActivity(false);
+    job._activity?.complete();
     if (!job._result.isCompleted) job._result.complete(result);
     job._bus.dispose();
   }

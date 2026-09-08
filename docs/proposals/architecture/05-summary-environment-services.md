@@ -1,8 +1,96 @@
 # A05 — Inject repositories and execution factories into project services
 
-Status: proposed. Uses scoped execution from A01 and configuration from A02.
+Status: implemented and validated (2026-09-08). Uses scoped execution from A01 and configuration from A02.
 
-## Problem and source anchors
+## Implementation and migration
+
+The existing `SummaryIndex` and `EnvironmentIndex` names remain the refresh-capable
+services. Their constructors require a repository and a fleet/runner; they no
+longer accept nullable configuration/registry dependencies or construct storage.
+`SummaryInspection` and `EnvironmentInspection` provide status-only access with
+just a repository. `repoForTest` is removed: integration tests seed the supplied
+sidecar adapter; service tests use memory repositories.
+
+- `summaries/summary_repository.dart` defines `SummaryRepository`, `SummarySnapshot`,
+  `SummaryPlan` and the pure `planSummaries` function. Plain manifest/status/result
+  values live in `summary_models.dart`; the old sidecar module re-exports its
+  persistence types for existing consumers. Planning selects ordinary or
+  empty-manifest staleness, applies directory restrictions only to regeneration,
+  and preserves reset/deletion behavior.
+- `GitSummaryRepository` adapts `SidecarSummaryRepo`, allocations and environment
+  inspection. Git staleness probes remain in the adapter; they are not called
+  “pure.” Inspection does not initialize the sidecar. `prepare` initializes it
+  before actual execution, since the atomic writer needs its parent directory.
+  Dry-run and empty ordinary work skip preparation and model execution.
+- `EnvironmentRepository` exposes inspection, verified advancement, tracking and
+  folder enumeration. `FileEnvironmentRepository` adapts the existing record and
+  tracking store. Status inspection avoids reading record bytes; refresh captures
+  an immutable byte baseline. Prompt rendering moved to `environment_prompt.dart`.
+- `SummaryFleet` and `EnvironmentAgentRunner` are injected execution interfaces.
+  The concrete runners accept `ProjectExecutionFactory`; they do not construct
+  an application or read files/process state directly. Folder enumeration is
+  injected into the environment runner. Existing prompts, scouting limits,
+  retries, model fallback and permission behavior remain in the runner.
+- `application/project_execution.dart` supplies `ProjectExecution` and
+  `RunInteraction`. Interaction carries a borrowed host, cancellation future,
+  permission asker and scout-sink factory. The selected environment model is an
+  explicit per-run argument. The first-load attention-queue asker is preserved.
+- `composition/execution_runtime.dart` builds providers, ledger, quota, pipeline,
+  classifier and scheduler without a session store or resume lookup. Application
+  startup reuses this factory and adds session persistence/resolution. Runtime
+  cleanup remains exhaustive and idempotent. Runners dispose owned work before
+  returning usage to the service; injected hosts and frontend scout sinks remain
+  borrowed. Scout retries can request another sink; their frontend owns disposal.
+- `composition/project_services.dart` binds repositories, runtime configuration,
+  execution factories and accounting for TUI and headless consumers. It also
+  supplies standalone run adapters for explicitly bound run options. Refresh
+  factories capture absolute project roots at construction.
+
+## Recording and accounting policy
+
+This refactor preserves the existing summary verification boundary: a requested
+summary counts when its slug-derived file exists. A missing file remains stale;
+a pre-existing file can satisfy verification even if the current agent did not
+rewrite it. Recording stamps the **current HEAD/tree at record time**, which can
+differ from the state the agent read or the header it wrote. This is characterized
+by real-Git tests; there is no transaction or new content-freshness guarantee.
+Repartition begins with an empty manifest; previously tracked keys outside the
+new plan are forgotten, not synthesized into deletions.
+
+A settled summary fleet, including cancellation, records whatever files landed
+and applies planned deletions. Execution exceptions skip recording. Summary spend
+merges only after successful record/save/commit; recording failures remain visible
+and skip the merge, preserving prior accounting. Environment spend merges after
+settled execution, even for cancelled/no-answer/no-write outcomes, and before
+tracking. Execution exceptions skip that merge. Only a completed environment
+answer plus a present first-load record or changed verification bytes advances
+tracking; tracking-write errors propagate.
+
+One adapter correctness fix was necessary: `SidecarSummaryRepo.init` previously
+accepted any directory *inside* a Git worktree, including the main project. It now
+requires a Git root at the sidecar path and initializes its own repository when
+needed. Tests assert that a summary commit leaves the project HEAD unchanged.
+Existing misplaced history is not rewritten or migrated. Also, unlike the former
+runner's eager initialization, dry-run and empty ordinary work no longer create
+an unused sidecar directory/repository.
+
+## Validation and remaining orchestration
+
+Memory-only tests cover first/unchanged state, allocations, restricted plans,
+repartition, dry-run, missing and partial writes, cancellation, recording failures
+and accounting. Environment decision tests cover absent, unchanged, advanced and
+vanished records, incomplete runs, interaction forwarding and tracking failures.
+An injected-execution failure test verifies cleanup without disposing the borrowed
+host. Real-Git integration tests retain fleet writes, layout and commits, and add
+HEAD-change, pre-existing-file and independent-sidecar characterization.
+
+Dependency checks reject direct IO in services/runners, transitive IO in pure
+summary planning, and transitive imports of application/execution/service assembly
+from services/runners. See [HANDOFF.md](HANDOFF.md) for the validation command and
+result. A04 subsequently integrated these cancellation/result boundaries with
+its background-job supervisor; see [the A04 implementation](04-session-orchestration.md).
+
+## Original problem and source anchors
 
 [`SummaryIndex`](../../../lib/summaries/summary_index.dart) constructs its
 `SidecarSummaryRepo` internally, exposes `repoForTest`, and creates a concrete

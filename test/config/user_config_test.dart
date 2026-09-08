@@ -1,3 +1,4 @@
+import 'package:tina/config/theme_mapper.dart';
 import 'dart:io';
 
 import 'package:tina/config/user_config.dart';
@@ -48,18 +49,15 @@ void main() {
           'chat': {'user_bar': '92;100'},
           'border': {
             'focus': '35',
-            'busy': {
-              'rail': '38;2;11;22;33',
-              'head': '1;38;2;44;55;66',
-            },
+            'busy': {'rail': '38;2;11;22;33', 'head': '1;38;2;44;55;66'},
           },
         },
       });
       expect(c.theme, isNotNull);
-      expect(c.theme!.chat.userBar, '92;100');
-      expect(c.theme!.border.focus, '35');
-      expect(c.theme!.border.busy.rail, '38;2;11;22;33');
-      expect(c.theme!.border.busy.headRgb, [44, 55, 66]);
+      expect(themeFromOverrides(c.theme).chat.userBar, '92;100');
+      expect(themeFromOverrides(c.theme).border.focus, '35');
+      expect(themeFromOverrides(c.theme).border.busy.rail, '38;2;11;22;33');
+      expect(themeFromOverrides(c.theme).border.busy.headRgb, [44, 55, 66]);
       expect(c.isEmpty, isFalse);
     });
 
@@ -116,21 +114,29 @@ void main() {
       expect(c.prompts, {'main': 'kept'});
     });
 
-    test('parses provider members (a pool block); empty or non-list → null', () {
-      final c = UserConfig.fromMap({
-        'providers': {
-          'mypool': {'members': ['nim', 'openrouter']},
-          'empty': {'members': []},
-          'bogus': {'members': 'nim'},
-          'plain': {'base_url': 'https://example.test'},
-        },
-      });
-      expect(c.providers['mypool']?.members, ['nim', 'openrouter']);
-      expect(c.providers['empty']?.members, isNull,
-          reason: 'an empty list is not a pool declaration');
-      expect(c.providers['bogus']?.members, isNull);
-      expect(c.providers['plain']?.members, isNull);
-    });
+    test(
+      'parses provider members (a pool block); empty or non-list → null',
+      () {
+        final c = UserConfig.fromMap({
+          'providers': {
+            'mypool': {
+              'members': ['nim', 'openrouter'],
+            },
+            'empty': {'members': []},
+            'bogus': {'members': 'nim'},
+            'plain': {'base_url': 'https://example.test'},
+          },
+        });
+        expect(c.providers['mypool']?.members, ['nim', 'openrouter']);
+        expect(
+          c.providers['empty']?.members,
+          isNull,
+          reason: 'an empty list is not a pool declaration',
+        );
+        expect(c.providers['bogus']?.members, isNull);
+        expect(c.providers['plain']?.members, isNull);
+      },
+    );
 
     test('parses provider models ("id" or "id|name"); empty → null', () {
       final c = UserConfig.fromMap({
@@ -141,19 +147,31 @@ void main() {
             'models': ['glm-5.2', 'glm-5.2-air|GLM 5.2 Air'],
           },
           'empty': {'models': []},
-          'blank': {'models': ['', '  ']},
+          'blank': {
+            'models': ['', '  '],
+          },
           'bogus': {'models': 'glm-5.2'},
           'plain': {'base_url': 'https://example.test'},
         },
       });
-      expect(c.providers['zai']?.models, [
-        const ProviderModelSpec(id: 'glm-5.2'),
-        const ProviderModelSpec(id: 'glm-5.2-air', name: 'GLM 5.2 Air'),
-      ], reason: '"id" and "id|display name" entries both parse');
-      expect(c.providers['empty']?.models, isNull,
-          reason: 'an empty list is not a models declaration');
-      expect(c.providers['blank']?.models, isNull,
-          reason: 'blank entries are dropped; nothing left to declare');
+      expect(
+        c.providers['zai']?.models,
+        [
+          const ProviderModelSpec(id: 'glm-5.2'),
+          const ProviderModelSpec(id: 'glm-5.2-air', name: 'GLM 5.2 Air'),
+        ],
+        reason: '"id" and "id|display name" entries both parse',
+      );
+      expect(
+        c.providers['empty']?.models,
+        isNull,
+        reason: 'an empty list is not a models declaration',
+      );
+      expect(
+        c.providers['blank']?.models,
+        isNull,
+        reason: 'blank entries are dropped; nothing left to declare',
+      );
       expect(c.providers['bogus']?.models, isNull);
       expect(c.providers['plain']?.models, isNull);
     });
@@ -161,11 +179,18 @@ void main() {
 
   group('buildEnvOverlay', () {
     test('maps each provider field to <PREFIX>_*', () {
-      final overlay = buildEnvOverlay(UserConfig(providers: {
-        'anthropic': ProviderConfig(
-            apiKey: 'sk-ant', authToken: 'tok', baseUrl: 'https://x.test'),
-        'glm': ProviderConfig(apiKey: 'glm-key'),
-      }));
+      final overlay = buildEnvOverlay(
+        UserConfig(
+          providers: {
+            'anthropic': ProviderConfig(
+              apiKey: 'sk-ant',
+              authToken: 'tok',
+              baseUrl: 'https://x.test',
+            ),
+            'glm': ProviderConfig(apiKey: 'glm-key'),
+          },
+        ),
+      );
       expect(overlay, {
         'ANTHROPIC_API_KEY': 'sk-ant',
         'ANTHROPIC_AUTH_TOKEN': 'tok',
@@ -179,9 +204,11 @@ void main() {
     });
 
     test('omits null fields', () {
-      final overlay = buildEnvOverlay(UserConfig(providers: {
-        'openai': ProviderConfig(authToken: 'only-token'),
-      }));
+      final overlay = buildEnvOverlay(
+        UserConfig(
+          providers: {'openai': ProviderConfig(authToken: 'only-token')},
+        ),
+      );
       expect(overlay, {'OPENAI_AUTH_TOKEN': 'only-token'});
     });
   });
@@ -282,23 +309,25 @@ key = "typo"
       expect(c.providers['anthropic']?.apiKey, 'sk-x');
     });
 
-    test('models is a known provider key (no unknown-key warning, still loads)',
-        () {
-      // A hand-edited config listing models for a custom provider must load
-      // without the "unknown key" recovery path dropping or ignoring it.
-      writeConfig('''
+    test(
+      'models is a known provider key (no unknown-key warning, still loads)',
+      () {
+        // A hand-edited config listing models for a custom provider must load
+        // without the "unknown key" recovery path dropping or ignoring it.
+        writeConfig('''
 version = 1
 [providers.stub]
 base_url = "http://localhost:8080/v1"
 wire = "openai"
 models = ["stub-1", "stub-2|Stub Two"]
 ''');
-      final c = loadUserConfig(env: {}, tinaDir: tmp);
-      expect(c.providers['stub']?.models, const [
-        ProviderModelSpec(id: 'stub-1'),
-        ProviderModelSpec(id: 'stub-2', name: 'Stub Two'),
-      ]);
-    });
+        final c = loadUserConfig(env: {}, tinaDir: tmp);
+        expect(c.providers['stub']?.models, const [
+          ProviderModelSpec(id: 'stub-1'),
+          ProviderModelSpec(id: 'stub-2', name: 'Stub Two'),
+        ]);
+      },
+    );
 
     test('userConfigToToml round-trips through loadUserConfig', () {
       final original = UserConfig(
@@ -317,16 +346,18 @@ models = ["stub-1", "stub-2|Stub Two"]
 
     test('provider models round-trip through the TOML file', () {
       writeUserConfig(
-        UserConfig(providers: {
-          'zai': ProviderConfig(
-            baseUrl: 'https://api.z.ai/api/anthropic',
-            wire: 'anthropic',
-            models: const [
-              ProviderModelSpec(id: 'glm-5.2'),
-              ProviderModelSpec(id: 'glm-5.2-air', name: 'GLM 5.2 Air'),
-            ],
-          ),
-        }),
+        UserConfig(
+          providers: {
+            'zai': ProviderConfig(
+              baseUrl: 'https://api.z.ai/api/anthropic',
+              wire: 'anthropic',
+              models: const [
+                ProviderModelSpec(id: 'glm-5.2'),
+                ProviderModelSpec(id: 'glm-5.2-air', name: 'GLM 5.2 Air'),
+              ],
+            ),
+          },
+        ),
         env: {},
         tinaDir: tmp,
       );
@@ -342,8 +373,7 @@ models = ["stub-1", "stub-2|Stub Two"]
       ]);
     });
 
-    test('[environment] auto_populate round-trips through loadUserConfig',
-        () {
+    test('[environment] auto_populate round-trips through loadUserConfig', () {
       writeUserConfig(
         UserConfig(trustDefault: 'ask', environmentAutoPopulate: 'always'),
         env: {},
@@ -352,13 +382,18 @@ models = ["stub-1", "stub-2|Stub Two"]
       final loaded = loadUserConfig(env: {}, tinaDir: tmp);
       expect(loaded.environmentAutoPopulate, 'always');
       // Absent → null (the caller resolves null → ask).
-      writeUserConfig(UserConfig(trustDefault: 'ask'), env: {}, tinaDir: tmp);
-      expect(loadUserConfig(env: {}, tinaDir: tmp).environmentAutoPopulate,
-          isNull);
+      writeUserConfig(
+        UserConfig(trustDefault: 'ask'),
+        env: {},
+        tinaDir: tmp,
+      );
+      expect(
+        loadUserConfig(env: {}, tinaDir: tmp).environmentAutoPopulate,
+        isNull,
+      );
     });
 
-    test('[environment] model round-trips and coexists with auto_populate',
-        () {
+    test('[environment] model round-trips and coexists with auto_populate', () {
       // Both keys live in ONE table: writing the model must not drop a
       // previously-persisted auto_populate (or vice versa).
       writeUserConfig(
@@ -367,121 +402,168 @@ models = ["stub-1", "stub-2|Stub Two"]
         tinaDir: tmp,
       );
       writeUserConfig(
-        loadUserConfig(env: {}, tinaDir: tmp)
-            .copyWith(environmentModel: 'nim/google/diffusiongemma-26b-a4b-it'),
+        loadUserConfig(
+          env: {},
+          tinaDir: tmp,
+        ).copyWith(environmentModel: 'nim/google/diffusiongemma-26b-a4b-it'),
         env: {},
         tinaDir: tmp,
       );
       final loaded = loadUserConfig(env: {}, tinaDir: tmp);
       expect(loaded.environmentModel, 'nim/google/diffusiongemma-26b-a4b-it');
-      expect(loaded.environmentAutoPopulate, 'always',
-          reason: 'the model write must not clobber the sibling key');
+      expect(
+        loaded.environmentAutoPopulate,
+        'always',
+        reason: 'the model write must not clobber the sibling key',
+      );
       // Absent → null (the caller resolves null → the shipped default).
       writeUserConfig(const UserConfig(), env: {}, tinaDir: tmp);
       expect(loadUserConfig(env: {}, tinaDir: tmp).environmentModel, isNull);
     });
 
-    test('[limits] min_request_interval_ms round-trips beside the other limits',
-        () {
+    test(
+      '[limits] min_request_interval_ms round-trips beside the other limits',
+      () {
+        writeUserConfig(
+          const UserConfig(
+            limits: LimitsConfig(requestsPerMinute: 30, maxTurnTokens: 1000),
+          ),
+          env: {},
+          tinaDir: tmp,
+        );
+        writeUserConfig(
+          loadUserConfig(env: {}, tinaDir: tmp).copyWith(
+            limits: const LimitsConfig(
+              requestsPerMinute: 30,
+              maxTurnTokens: 1000,
+              minRequestIntervalMs: 250,
+            ),
+          ),
+          env: {},
+          tinaDir: tmp,
+        );
+        final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+        expect(loaded.limits!.minRequestIntervalMs, 250);
+        expect(
+          loaded.limits!.requestsPerMinute,
+          30,
+          reason: 'the interval write must not clobber sibling limits',
+        );
+        // Absent → null (the app default of 1 request/sec applies).
+        writeUserConfig(const UserConfig(), env: {}, tinaDir: tmp);
+        expect(loadUserConfig(env: {}, tinaDir: tmp).limits, isNull);
+      },
+    );
+
+    test('[providers.<id>] requests_per_minute round-trips, 0 kept as-is', () {
       writeUserConfig(
         const UserConfig(
-            limits: LimitsConfig(requestsPerMinute: 30, maxTurnTokens: 1000)),
-        env: {},
-        tinaDir: tmp,
-      );
-      writeUserConfig(
-        loadUserConfig(env: {}, tinaDir: tmp).copyWith(
-            limits: const LimitsConfig(
-                requestsPerMinute: 30,
-                maxTurnTokens: 1000,
-                minRequestIntervalMs: 250)),
-        env: {},
-        tinaDir: tmp,
-      );
-      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
-      expect(loaded.limits!.minRequestIntervalMs, 250);
-      expect(loaded.limits!.requestsPerMinute, 30,
-          reason: 'the interval write must not clobber sibling limits');
-      // Absent → null (the app default of 1 request/sec applies).
-      writeUserConfig(const UserConfig(), env: {}, tinaDir: tmp);
-      expect(loadUserConfig(env: {}, tinaDir: tmp).limits, isNull);
-    });
-
-    test('[providers.<id>] requests_per_minute round-trips, 0 kept as-is',
-        () {
-      writeUserConfig(
-        const UserConfig(providers: {
-          'nim': ProviderConfig(requestsPerMinute: 40),
-          'hetzner': ProviderConfig(requestsPerMinute: 0),
-          'anthropic': ProviderConfig(apiKey: 'sk-ant-x'),
-        }),
+          providers: {
+            'nim': ProviderConfig(requestsPerMinute: 40),
+            'hetzner': ProviderConfig(requestsPerMinute: 0),
+            'anthropic': ProviderConfig(apiKey: 'sk-ant-x'),
+          },
+        ),
         env: {},
         tinaDir: tmp,
       );
       final loaded = loadUserConfig(env: {}, tinaDir: tmp);
       expect(loaded.providers['nim']?.requestsPerMinute, 40);
-      expect(loaded.providers['hetzner']?.requestsPerMinute, 0,
-          reason: '0 is meaningful (explicitly disables spacing for that '
-              'provider) and must survive the round trip');
-      expect(loaded.providers['anthropic']?.requestsPerMinute, isNull,
-          reason: 'absent → no override: descriptor hint / global default');
+      expect(
+        loaded.providers['hetzner']?.requestsPerMinute,
+        0,
+        reason:
+            '0 is meaningful (explicitly disables spacing for that '
+            'provider) and must survive the round trip',
+      );
+      expect(
+        loaded.providers['anthropic']?.requestsPerMinute,
+        isNull,
+        reason: 'absent → no override: descriptor hint / global default',
+      );
       // A sibling key must survive a requests_per_minute rewrite, and vice
       // versa — both live in one [providers.<id>] table.
       writeUserConfig(
-        loaded.copyWith(providers: {
-          ...loaded.providers,
-          'nim': const ProviderConfig(
-              apiKey: 'test-key-x', requestsPerMinute: 30),
-        }),
+        loaded.copyWith(
+          providers: {
+            ...loaded.providers,
+            'nim': const ProviderConfig(
+              apiKey: 'test-key-x',
+              requestsPerMinute: 30,
+            ),
+          },
+        ),
         env: {},
         tinaDir: tmp,
       );
       final reloaded = loadUserConfig(env: {}, tinaDir: tmp);
       expect(reloaded.providers['nim']?.requestsPerMinute, 30);
       expect(reloaded.providers['nim']?.apiKey, 'test-key-x');
-      expect(reloaded.providers['hetzner']?.requestsPerMinute, 0,
-          reason: 'the nim write must not clobber sibling providers');
+      expect(
+        reloaded.providers['hetzner']?.requestsPerMinute,
+        0,
+        reason: 'the nim write must not clobber sibling providers',
+      );
     });
 
-    test('[limits] max_concurrent_requests round-trips beside the interval',
-        () {
-      writeUserConfig(
-        const UserConfig(
-            limits:
-                LimitsConfig(minRequestIntervalMs: 500, maxTurnTokens: 1000)),
-        env: {},
-        tinaDir: tmp,
-      );
-      writeUserConfig(
-        loadUserConfig(env: {}, tinaDir: tmp).copyWith(
+    test(
+      '[limits] max_concurrent_requests round-trips beside the interval',
+      () {
+        writeUserConfig(
+          const UserConfig(
+            limits: LimitsConfig(
+              minRequestIntervalMs: 500,
+              maxTurnTokens: 1000,
+            ),
+          ),
+          env: {},
+          tinaDir: tmp,
+        );
+        writeUserConfig(
+          loadUserConfig(env: {}, tinaDir: tmp).copyWith(
             limits: const LimitsConfig(
-                minRequestIntervalMs: 500,
-                maxTurnTokens: 1000,
-                maxConcurrentRequests: 2)),
-        env: {},
-        tinaDir: tmp,
-      );
-      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
-      expect(loaded.limits!.maxConcurrentRequests, 2);
-      expect(loaded.limits!.minRequestIntervalMs, 500,
-          reason: 'the concurrency write must not clobber the interval');
-    });
+              minRequestIntervalMs: 500,
+              maxTurnTokens: 1000,
+              maxConcurrentRequests: 2,
+            ),
+          ),
+          env: {},
+          tinaDir: tmp,
+        );
+        final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+        expect(loaded.limits!.maxConcurrentRequests, 2);
+        expect(
+          loaded.limits!.minRequestIntervalMs,
+          500,
+          reason: 'the concurrency write must not clobber the interval',
+        );
+      },
+    );
 
     test('parseEnvironmentAutoPopulate maps raw values', () {
-      expect(parseEnvironmentAutoPopulate('always'),
-          EnvironmentAutoPopulate.always);
-      expect(parseEnvironmentAutoPopulate('never'),
-          EnvironmentAutoPopulate.never);
+      expect(
+        parseEnvironmentAutoPopulate('always'),
+        EnvironmentAutoPopulate.always,
+      );
+      expect(
+        parseEnvironmentAutoPopulate('never'),
+        EnvironmentAutoPopulate.never,
+      );
       expect(parseEnvironmentAutoPopulate('ask'), EnvironmentAutoPopulate.ask);
       // Unknown / absent fall to ask (the safe default: never auto-spend).
-      expect(parseEnvironmentAutoPopulate('sometimes'),
-          EnvironmentAutoPopulate.ask);
+      expect(
+        parseEnvironmentAutoPopulate('sometimes'),
+        EnvironmentAutoPopulate.ask,
+      );
       expect(parseEnvironmentAutoPopulate(null), EnvironmentAutoPopulate.ask);
     });
 
     test('[tui] mouse_wheel round-trips through loadUserConfig', () {
-      writeUserConfig(const UserConfig(mouseWheel: false),
-          env: {}, tinaDir: tmp);
+      writeUserConfig(
+        const UserConfig(mouseWheel: false),
+        env: {},
+        tinaDir: tmp,
+      );
       expect(loadUserConfig(env: {}, tinaDir: tmp).mouseWheel, isFalse);
       // Absent → null (the caller resolves null → true: wheel capture on).
       writeUserConfig(const UserConfig(), env: {}, tinaDir: tmp);
@@ -515,17 +597,24 @@ models = ["stub-1", "stub-2|Stub Two"]
         ),
       );
       writeUserConfig(
-        UserConfig(theme: theme),
+        UserConfig(theme: ThemeOverrides(theme.toMap())),
         env: {},
         tinaDir: tmp,
       );
       final loaded = loadUserConfig(env: {}, tinaDir: tmp);
       expect(loaded.theme, isNotNull);
-      expect(loaded.theme!.chat.userBar, '92;100');
-      expect(loaded.theme!.border.focus, '35');
-      expect(loaded.theme!.border.busy.rail, '38;2;11;22;33');
-      expect(loaded.theme!.border.busy.headRgb, [44, 55, 66]);
-      expect(loaded.theme!.border.busy.tailLength, 5);
+      expect(themeFromOverrides(loaded.theme).chat.userBar, '92;100');
+      expect(themeFromOverrides(loaded.theme).border.focus, '35');
+      expect(
+        themeFromOverrides(loaded.theme).border.busy.rail,
+        '38;2;11;22;33',
+      );
+      expect(themeFromOverrides(loaded.theme).border.busy.headRgb, [
+        44,
+        55,
+        66,
+      ]);
+      expect(themeFromOverrides(loaded.theme).border.busy.tailLength, 5);
     });
 
     test('[theme] TOML file with chat overrides loads correctly', () {
@@ -540,16 +629,20 @@ focus = "32"
 ''');
       final c = loadUserConfig(env: {}, tinaDir: tmp);
       expect(c.theme, isNotNull);
-      expect(c.theme!.chat.userBar, '93;41');
-      expect(c.theme!.chat.agentText, '34');
-      expect(c.theme!.border.focus, '32');
+      expect(themeFromOverrides(c.theme).chat.userBar, '93;41');
+      expect(themeFromOverrides(c.theme).chat.agentText, '34');
+      expect(themeFromOverrides(c.theme).border.focus, '32');
       // Defaults preserved for unset keys:
-      expect(c.theme!.chat.dim, '2');
-      expect(c.theme!.border.busy.rail, '38;2;30;110;130');
+      expect(themeFromOverrides(c.theme).chat.dim, '2');
+      expect(themeFromOverrides(c.theme).border.busy.rail, '38;2;30;110;130');
     });
 
     test('an empty theme is omitted from the written file', () {
-      writeUserConfig(const UserConfig(defaultProvider: 'a', defaultModel: 'b'), env: {}, tinaDir: tmp);
+      writeUserConfig(
+        const UserConfig(defaultProvider: 'a', defaultModel: 'b'),
+        env: {},
+        tinaDir: tmp,
+      );
       final raw = File(p.join(tmp.path, 'config')).readAsStringSync();
       expect(raw, isNot(contains('[theme')));
     });
@@ -583,14 +676,14 @@ focus = "32"
     test('themeVariant coexists with explicit per-key theme overrides', () {
       const theme = Theme(chat: ChatTheme(userBar: '44;40'));
       writeUserConfig(
-        const UserConfig(theme: theme, themeVariant: 'light'),
+        UserConfig(theme: ThemeOverrides(theme.toMap()), themeVariant: 'light'),
         env: {},
         tinaDir: tmp,
       );
       final loaded = loadUserConfig(env: {}, tinaDir: tmp);
       expect(loaded.themeVariant, 'light');
       expect(loaded.theme, isNotNull);
-      expect(loaded.theme!.chat.userBar, '44;40');
+      expect(themeFromOverrides(loaded.theme).chat.userBar, '44;40');
       final raw = File(p.join(tmp.path, 'config')).readAsStringSync();
       expect(raw, contains('[theme.chat]'));
       expect(raw, contains('user_bar'));
@@ -608,9 +701,10 @@ focus = "32"
 
     test('userConfigToToml omits empty sections', () {
       writeUserConfig(
-          const UserConfig(providers: {'a': ProviderConfig(apiKey: 'k')}),
-          env: {},
-          tinaDir: tmp);
+        const UserConfig(providers: {'a': ProviderConfig(apiKey: 'k')}),
+        env: {},
+        tinaDir: tmp,
+      );
       final raw = File(p.join(tmp.path, 'config')).readAsStringSync();
       expect(raw, contains('[providers'));
       expect(raw, isNot(contains('[default]')));
@@ -630,7 +724,9 @@ focus = "32"
 
     test('[regions] round-trips through loadUserConfig', () {
       writeUserConfig(
-        const UserConfig(regions: RegionsConfig(model: 'deepseek/deepseek-chat')),
+        const UserConfig(
+          regions: RegionsConfig(model: 'deepseek/deepseek-chat'),
+        ),
         env: {},
         tinaDir: tmp,
       );
@@ -640,14 +736,16 @@ focus = "32"
 
     test('[limits] round-trips through loadUserConfig', () {
       writeUserConfig(
-        const UserConfig(limits: LimitsConfig(
-          maxGlobalTokens: 12345,
-          maxSubAgentTokens: 678,
-          requestsPerMinute: 12,
-          maxTurnTokens: 111,
-          maxSessionTokens: 222,
-          maxRequestTokens: 333,
-        )),
+        const UserConfig(
+          limits: LimitsConfig(
+            maxGlobalTokens: 12345,
+            maxSubAgentTokens: 678,
+            requestsPerMinute: 12,
+            maxTurnTokens: 111,
+            maxSessionTokens: 222,
+            maxRequestTokens: 333,
+          ),
+        ),
         env: {},
         tinaDir: tmp,
       );
@@ -671,34 +769,44 @@ max_tokns = 5
       expect(c.limits?.maxGlobalTokens, 999);
     });
 
-    test('[prompts.<role>] round-trips through loadUserConfig (incl. multiline)',
-        () {
-      const identity = 'You are a custom main agent.\n\nBe terse.\nCite paths.';
+    test(
+      '[prompts.<role>] round-trips through loadUserConfig (incl. multiline)',
+      () {
+        const identity =
+            'You are a custom main agent.\n\nBe terse.\nCite paths.';
+        writeUserConfig(
+          const UserConfig(prompts: {'main': identity, 'research': 'short'}),
+          env: {},
+          tinaDir: tmp,
+        );
+        final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+        expect(loaded.prompts, {'main': identity, 'research': 'short'});
+      },
+    );
+
+    test('an empty prompts map is omitted from the written file', () {
       writeUserConfig(
-        const UserConfig(prompts: {'main': identity, 'research': 'short'}),
+        const UserConfig(defaultProvider: 'a', defaultModel: 'b'),
         env: {},
         tinaDir: tmp,
       );
-      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
-      expect(loaded.prompts, {'main': identity, 'research': 'short'});
-    });
-
-    test('an empty prompts map is omitted from the written file', () {
-      writeUserConfig(const UserConfig(defaultProvider: 'a', defaultModel: 'b'), env: {}, tinaDir: tmp);
       final raw = File(p.join(tmp.path, 'config')).readAsStringSync();
       expect(raw, isNot(contains('[prompts')));
     });
 
-    test('unknown key inside [prompts.<role>] warns but the identity loads', () {
-      writeConfig('''
+    test(
+      'unknown key inside [prompts.<role>] warns but the identity loads',
+      () {
+        writeConfig('''
 version = 1
 [prompts.main]
 identity = "kept"
 identiy = "typo"
 ''');
-      final c = loadUserConfig(env: {}, tinaDir: tmp);
-      expect(c.prompts, {'main': 'kept'});
-    });
+        final c = loadUserConfig(env: {}, tinaDir: tmp);
+        expect(c.prompts, {'main': 'kept'});
+      },
+    );
   });
 
   group('UserConfig.fromMap version', () {

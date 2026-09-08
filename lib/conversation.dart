@@ -19,14 +19,29 @@ class Conversation {
   final Agent agent;
   LlmProvider _provider;
 
-  /// The provider for this conversation. The setter closes the old provider and
-  /// syncs the new one onto the agent, so both references stay in agreement.
+  /// The provider for this conversation. Replacement updates both references
+  /// before releasing the old provider, keeping the agent in agreement even
+  /// if old-provider cleanup throws.
   LlmProvider get provider => _provider;
   set provider(LlmProvider value) {
-    _provider.close();
+    final failure = replaceProvider(value);
+    if (failure != null) throw failure;
+  }
+
+  /// Installs the replacement atomically; reports old-provider cleanup failure.
+  Object? replaceProvider(LlmProvider value) {
+    if (identical(_provider, value)) return null;
+    final previous = _provider;
     _provider = value;
     agent.provider = value;
+    try {
+      previous.close();
+    } catch (e) {
+      return e;
+    }
+    return null;
   }
+
   final HostInterface host;
   final PermissionPolicy policy;
   final List<Message> history = [];
@@ -45,9 +60,17 @@ class Conversation {
   /// completed future as fired); null when idle.
   Completer<void>? toolInterruptCompleter;
 
-  /// Whether this conversation has an agent turn currently in flight.
-  bool get isRunning =>
-      cancelCompleter != null && !cancelCompleter!.isCompleted;
+  bool isClosed = false;
+  Future<void>? turnCompletion;
+  void beginClose() {
+    isClosed = true;
+    messageQueue.clear();
+    final cancel = cancelCompleter;
+    if (cancel != null && !cancel.isCompleted) cancel.complete();
+  }
+
+  /// Busy through cancellation acknowledgement and recording.
+  bool get isRunning => cancelCompleter != null;
 
   Conversation({
     required this.id,
@@ -58,7 +81,7 @@ class Conversation {
     required this.policy,
     this.recorder,
     List<Message> initialHistory = const [],
-  })  : _provider = provider {
+  }) : _provider = provider {
     history.addAll(initialHistory);
   }
 }

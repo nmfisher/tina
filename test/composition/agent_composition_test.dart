@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:tina/composition/project_services.dart';
+
 import 'package:attractor/attractor.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/composition/agent_composition.dart';
@@ -7,7 +9,6 @@ import 'package:tina/config.dart';
 import 'package:tina/pipeline/pipeline_runner.dart';
 import 'package:tina/pipeline/workflow_supervisor.dart';
 import 'package:tina/regions/region_registry.dart';
-import 'package:tina/summaries/summary_index.dart';
 import 'package:test/test.dart';
 
 import '../helpers/fake_host_interface.dart';
@@ -252,7 +253,7 @@ void main() {
           config: config,
           supervisor: noopSupervisor(),
           regions: RegionRegistry(projectRoot: tmp.path),
-          summaryIndex: SummaryIndex(projectRoot: tmp.path),
+          summaryIndex: buildSummaryInspection(projectRoot: tmp.path),
         );
         final schemas = agent.tools.schemas;
         // The sweep is actually sweeping — not vacuously passing over one tool.

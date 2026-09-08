@@ -1,16 +1,11 @@
 import 'dart:async';
-import 'dart:io';
-
-import 'package:path/path.dart' as p;
-
 import 'package:tina/composition/agent_composition.dart';
-import 'package:tina/composition/app_composition.dart';
-import 'package:tina/config.dart';
-import 'package:tina/platform/environment.dart';
+import 'package:tina/composition/runtime_resources.dart';
+import 'package:tina/config/runtime_config.dart';
 import 'package:tina_engine/tina_engine.dart';
-
-import 'environment_record.dart';
-import 'environment_store.dart';
+import '../application/project_execution.dart';
+import 'environment_repository.dart';
+import 'environment_index.dart';
 
 /// The shipped default model for the environment agent
 /// (`[environment] model` in ~/.tina/config overrides it): Google's Diffusion
@@ -20,109 +15,32 @@ import 'environment_store.dart';
 /// env agent's large real payload (see the muse-glimmer tool-call mangling).
 const kDefaultEnvironmentModelRef = 'nim/google/diffusiongemma-26b-a4b-it';
 
-/// The background environment agent: one doing worker on the ephemeral
-/// composition pattern (docs/proposals/environment_agent.md, "Agent
-/// lifecycle") — build its own composition, run one agent, record, dispose.
-/// Modeled on [SummaryRunner]: independent provider policy, same
-/// build-then-dispose ownership, same in-process spend merge.
-///
-/// The agent measures the environment (toolchain, manifests, build/test
-/// commands, auth), RUNS the setup, and writes `.tina/ENVIRONMENT.md` through the
-/// ordinary sandboxed write/edit tools — under the real permission policy with
-/// the host's asker, so every write and shell command prompts unless the user
-/// allowed it (`--yolo` / `--allow bash:…`).
-///
-/// After the run, Dart code here — never the agent — records the tracking
-/// entry, the machine-owned stale/fresh verdict under `.tina/environment/`.
-class EnvironmentRunner {
+/// Executes environment/scout work using an injected project execution scope.
+/// Scout sinks are borrowed; the frontend owns their panels and disposal.
+class EnvironmentRunner implements EnvironmentAgentRunner {
+  final RuntimeConfig config;
+  final ProjectExecutionFactory executionFactory;
+  final String projectRoot;
+  final List<String> Function() surveyFolders;
   EnvironmentRunner({
     required this.config,
-    required this.registry,
-    this.environment,
-    this.toolScope,
-    this.promptContext,
-    this.projectRoot,
-    this.host,
-    this.cancelSignal,
-    this.spendLedger,
-    this.modelRef,
-    this.asker,
-    this.scoutSinkFactory,
+    required this.executionFactory,
+    required this.projectRoot,
+    required this.surveyFolders,
   });
-
-  final Config config;
-  final ProviderRegistry registry;
-  final Environment? environment;
-
-  /// Borrowed tools and mutation lock for an in-session, same-project run.
-  /// Standalone callers omit this to create an independent project scope.
-  final ProjectToolScope? toolScope;
-
-  /// Parent runtime context, including its captured trust decision.
-  final PromptContext? promptContext;
-
-  /// The repo whose environment is measured. Defaults to the process cwd at
-  /// [run] time (bin/tina.dart's convention); overridable so tests point at a
-  /// temp repo without mutating the process-wide cwd.
-  final String? projectRoot;
-
-  /// Where the agent's prose + notices go. Defaults to a [HeadlessHost]; an
-  /// in-session run passes the conversation's host so output streams into the
-  /// chat panel instead of raw stdout over the TUI.
-  final HostInterface? host;
-
-  /// Completes to cancel the run mid-flight (Esc-Esc in the TUI).
-  final Future<void>? cancelSignal;
-
-  /// The LIVE session's ledger when driven in-process: the run's ephemeral
-  /// ledger is merged into it after, so the spend counts toward the session
-  /// total. Null headless (throwaway ledger).
-  final SpendLedger? spendLedger;
-
-  /// Explicit `"provider/model"` override for this run (the first-load picker's
-  /// just-chosen model, which the in-memory [config] predates). Null → resolve
-  /// from [Config.environmentModel], else [kDefaultEnvironmentModelRef].
-  final String? modelRef;
-
-  /// Overrides the agent's permission asker. The TUI's first-load run passes
-  /// an attention-queue asker here: the environment panel's host is a
-  /// background host whose own asker auto-denies, which would silently starve
-  /// the ceremony of every gated tool (bash, write, edit). Null → the host's
-  /// asker (correct headless and for an interactive in-conversation run).
-  final PermissionAsker? asker;
-
-  /// Optional per-scout sink factory for the folder survey: called once per
-  /// target right before its scout starts. The TUI passes a factory that
-  /// opens a spawned side panel per folder and returns its host, so each
-  /// scout's transcript streams into its own panel. Null (headless, tests) →
-  /// scouts run silently and post their finished text into the run host.
-  final AgentSink Function(String dir)? scoutSinkFactory;
-
-  /// Run the environment agent. Returns true when the agent completed, the
-  /// record actually advanced (created on first load, changed on a
-  /// re-verify), and the tracking entry was recorded; false when it was
-  /// cancelled, produced no final answer, or finished without touching
-  /// `.tina/ENVIRONMENT.md` — in which case nothing is recorded and the region
-  /// stays stale, so it resurfaces on the next dance.
-  Future<bool> run() async {
-    final project = projectRoot ?? Directory.current.path;
-    final firstLoad = !EnvironmentRecord.exists(project);
-    final store = EnvironmentTrackingStore(projectRoot: project);
-    final recordBefore = _recordBytes(project);
-
-    final app = await buildAppComposition(
-      config: config,
-      registry: registry,
-      environment: environment,
-      projectRoot: project,
-      toolScope: toolScope,
-      promptContext: promptContext,
-    );
-
+  @override
+  Future<EnvironmentExecutionResult> execute(
+    EnvironmentSnapshot before,
+    RunInteraction interaction, {
+    String? modelRef,
+  }) async {
+    final project = projectRoot;
+    final firstLoad = !before.recordPresent;
+    final app = await executionFactory();
     final resources = RuntimeResources()..own(app.dispose);
     return resources.run(() async {
-      final host = this.host ?? HeadlessHost();
-      if (this.host == null) resources.own(host.dispose);
+      final host = interaction.host ?? HeadlessHost();
+      if (interaction.host == null) resources.own(host.dispose);
       // The environment agent runs on its OWN model — not the session's
       // startup model: a dedicated one-off worker deserves a dedicated pick
       // (and the startup model may be a weak-tool-calling one). Explicit
@@ -151,13 +69,13 @@ class EnvironmentRunner {
       final agent = buildAgent(
         pipeline: app.pipeline,
         scheduler: app.scheduler,
-        conversationId: app.initialConversationId,
+        conversationId: 'environment',
         provider: provider,
         host: host,
         policy: app.policy,
         config: config,
         withSubAgents: true,
-        asker: asker,
+        asker: interaction.asker,
         system: _identity,
       );
 
@@ -167,8 +85,8 @@ class EnvironmentRunner {
       // whole run (the folder survey AND the main agent; the scouts light
       // their own panels from runStandalone). The finally guarantees a
       // thrown/cancelled run can't leave it stuck on.
-      resources.own(() => host.setActivity(false));
-      host.setActivity(true);
+      final activity = RunActivity(host);
+      resources.own(activity.complete);
       // First load: before the main ceremony, fan out one read-only scout
       // per folder — the repo root and each top-level subfolder — each
       // describing its folder and what type of project it is. The assembled
@@ -182,9 +100,9 @@ class EnvironmentRunner {
               scheduler: app.scheduler,
               host: host,
               modelRef: agentModelRef,
-              cancelSignal: cancelSignal,
+              cancelSignal: interaction.cancelSignal,
               project: project,
-              sinkFactory: scoutSinkFactory,
+              sinkFactory: interaction.scoutSinkFactory,
             )
           : null;
       await agent.run(
@@ -192,74 +110,20 @@ class EnvironmentRunner {
         userInput: _taskPrompt(
           project,
           firstLoad,
-          store.staleReason(),
+          before.staleReason,
           survey: survey,
         ),
-        cancelSignal: cancelSignal,
+        cancelSignal: interaction.cancelSignal,
       );
 
       // Finish owned work before recording results or merging usage.
       await resources.dispose();
 
-      spendLedger?.merge(app.spendLedger);
-
-      // Record only on a real finish: an aborted, cancelled, or
-      // step-exhausted run leaves no final answer, and pinning the region
-      // fresh at the current inputs would deadlock it until the code changed
-      // (the unwritten-summary rule).
-      if (agent.abortedReason != null || !_finished(history)) {
-        return false;
-      }
-      // …and only when the record actually advanced. A prose-only finish —
-      // an agent that answered without ever invoking its write tool — must
-      // not count: the region would be pinned fresh while the record is
-      // still absent or stale, and the first-load path would re-run the
-      // ceremony (a provider round-trip) on every launch, each time claiming
-      // success.
-      if (!_recordAdvanced(
-        project,
-        firstLoad: firstLoad,
-        before: recordBefore,
-      )) {
-        return false;
-      }
-      store.record();
-      return true;
+      return EnvironmentExecutionResult(
+        agent.abortedReason == null && _finished(history),
+        app.spendLedger,
+      );
     });
-  }
-
-  /// The record's bytes before the run, or null when it is absent — the
-  /// baseline the post-run advance check compares against.
-  List<int>? _recordBytes(String project) {
-    final file = EnvironmentRecord.fileFor(project);
-    if (!file.existsSync()) return null;
-    return file.readAsBytesSync();
-  }
-
-  /// Whether the record advanced during the run: present after a first-load
-  /// population, content-changed after a re-verify. An unreadable or vanished
-  /// record cannot prove a change, so it does not count.
-  bool _recordAdvanced(
-    String project, {
-    required bool firstLoad,
-    required List<int>? before,
-  }) {
-    final file = EnvironmentRecord.fileFor(project);
-    if (!file.existsSync()) return false;
-    if (firstLoad) return true;
-    try {
-      return !_bytesEqual(before ?? const [], file.readAsBytesSync());
-    } on FileSystemException {
-      return false;
-    }
-  }
-
-  bool _bytesEqual(List<int> a, List<int> b) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
   }
 
   /// A finished run ends on an assistant text turn (the agent loop returns the
@@ -271,21 +135,6 @@ class EnvironmentRunner {
     if (last.role != Role.assistant) return false;
     return last.content.any((b) => b is TextBlock && b.text.trim().isNotEmpty);
   }
-
-  /// Folders a scout is pointless on: build output, vendored trees, caches.
-  /// Hidden dirs (leading `.`) are skipped separately. Mirrors the summary
-  /// partition's skip idea, extended with the usual heavy vendored dirs.
-  static const _surveySkip = <String>{
-    '.dart_tool',
-    'build',
-    'dist',
-    'node_modules',
-    'target',
-    'vendor',
-    'out',
-    'obj',
-    'coverage',
-  };
 
   /// Subfolders surveyed beyond the repo root. One read-only agent per
   /// folder; the cap bounds a first-load's fan-out cost, and the report names
@@ -317,14 +166,7 @@ class EnvironmentRunner {
     required String project,
     AgentSink Function(String dir)? sinkFactory,
   }) async {
-    final subdirs = <String>[];
-    for (final entry in Directory(project).listSync(followLinks: false)) {
-      if (entry is! Directory) continue;
-      final name = p.basename(entry.path);
-      if (name.startsWith('.') || _surveySkip.contains(name)) continue;
-      subdirs.add(name);
-    }
-    subdirs.sort();
+    final subdirs = surveyFolders();
     final skipped = subdirs.length > kMaxSurveyFolders
         ? subdirs.sublist(kMaxSurveyFolders)
         : const <String>[];

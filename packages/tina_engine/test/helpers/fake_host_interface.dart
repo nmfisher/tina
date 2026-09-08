@@ -9,7 +9,7 @@ import 'fake_agent_sink.dart';
 /// [FakeAgentSink], so sink assertions reuse the same vocabulary as
 /// [FakeAgentSink]-based tests. Touches no terminal type, so tests using it
 /// need not import `tina_console`.
-class FakeHostInterface implements HostInterface {
+class FakeHostInterface with HostLifecycleAdapter implements HostInterface {
   FakeHostInterface({this.permissionResponse = PermissionResponse.denyOnce});
 
   /// Answer returned by [askPermission]. Tests override to drive allow/deny.

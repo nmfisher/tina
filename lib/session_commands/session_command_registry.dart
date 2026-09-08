@@ -33,8 +33,11 @@ class SessionCommandEntry {
 
   /// Runs the command. Returns the dispatch result — `CmdExit` for `/exit`,
   /// `CmdHandled` for everything else (see [_handled]).
-  final Future<CmdResult> Function(SessionCommandHandlers handlers,
-      String trimmed) handler;
+  final Future<CmdResult> Function(
+    SessionCommandHandlers handlers,
+    String trimmed,
+  )
+  handler;
 
   /// Position in the `/help` listing. The help order is the historical
   /// documentation order, which differs from the registry (completion) order.
@@ -84,21 +87,21 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     argsHint: '',
     summary: "reset this session's history",
     helpOrder: 3,
-    handler: (h, _) => _handled(h._handleClear),
+    handler: (h, _) => _handled(h.history._handleClear),
   ),
   SessionCommandEntry(
     names: const ['/compact'],
     argsHint: '',
     summary: 'summarize history to free context',
     helpOrder: 4,
-    handler: (h, _) => _handled(h._handleCompact),
+    handler: (h, _) => _handled(h.history._handleCompact),
   ),
   SessionCommandEntry(
     names: const ['/auto-compact'],
     argsHint: '',
     summary: 'show/set the auto-compact threshold (off|<n>)',
     helpOrder: 5,
-    handler: (h, t) => _handled(() => h._handleAutoCompact(t)),
+    handler: (h, t) => _handled(() => h.history._handleAutoCompact(t)),
   ),
   SessionCommandEntry(
     names: const ['/permissions'],
@@ -106,56 +109,56 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     summary: 'show permission rules; /permissions <mode> switches mode',
     helpContinuation: '(ask | read-all | allow-edits | auto)',
     helpOrder: 10,
-    handler: (h, t) => _handled(() => h._handlePermissions(t)),
+    handler: (h, t) => _handled(() => h.permissions._handlePermissions(t)),
   ),
   SessionCommandEntry(
     names: const ['/sessions'],
     argsHint: '',
     summary: 'open the session picker (switch/resume); lists them headless',
     helpOrder: 11,
-    handler: (h, _) => _handled(h._printSavedSessions),
+    handler: (h, _) => _handled(h.sessions._printSavedSessions),
   ),
   SessionCommandEntry(
     names: const ['/session'],
     argsHint: '',
     summary: 'list live sessions; new/switch/close',
     helpOrder: 12,
-    handler: (h, t) => _handled(() => h._handleSessionCommand(t)),
+    handler: (h, t) => _handled(() => h.sessions._handleSessionCommand(t)),
   ),
   SessionCommandEntry(
     names: const ['/resume'],
     argsHint: '<id>',
     summary: 'load a saved session into the active session',
     helpOrder: 13,
-    handler: (h, t) => _handled(() => h._handleResume(t)),
+    handler: (h, t) => _handled(() => h.sessions._handleResume(t)),
   ),
   SessionCommandEntry(
     names: const ['/save'],
     argsHint: '<path>',
     summary: 'export this session as a markdown transcript',
     helpOrder: 14,
-    handler: (h, t) => _handled(() => h._handleSave(t)),
+    handler: (h, t) => _handled(() => h.sessions._handleSave(t)),
   ),
   SessionCommandEntry(
     names: const ['/model'],
     argsHint: '',
     summary: 'pick a provider/model for the active session',
     helpOrder: 6,
-    handler: (h, t) => _handled(() => h._handleModel(t)),
+    handler: (h, t) => _handled(() => h.frontend._handleModel(t)),
   ),
   SessionCommandEntry(
     names: const ['/settings'],
     argsHint: '',
     summary: 'reconfigure providers/models/tiers (applies on restart)',
     helpOrder: 15,
-    handler: (h, _) => _handled(h._handleSettings),
+    handler: (h, _) => _handled(h.frontend._handleSettings),
   ),
   SessionCommandEntry(
     names: const ['/prompts'],
     argsHint: '',
     summary: "edit each agent role's system prompt (applies on restart)",
     helpOrder: 17,
-    handler: (h, _) => _handled(h._handlePrompts),
+    handler: (h, _) => _handled(h.frontend._handlePrompts),
   ),
   SessionCommandEntry(
     names: const ['/spawn'],
@@ -163,47 +166,51 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     summary: 'open the spawn overlay (interactive TUI)',
     helpOrder: 0,
     inHelp: false,
-    handler: (h, _) => _handled(h._handleSpawn),
+    handler: (h, _) => _handled(h.frontend._handleSpawn),
   ),
   SessionCommandEntry(
     names: const ['/branch'],
     argsHint: '',
-    summary: 'fork the active conversation into a new panel (copies its '
+    summary:
+        'fork the active conversation into a new panel (copies its '
         'history)',
     helpOrder: 2,
-    handler: (h, _) => _handled(h._handleBranch),
+    handler: (h, _) => _handled(h.frontend._handleBranch),
   ),
   SessionCommandEntry(
     names: const ['/image'],
     argsHint: '<path>',
     summary: 'render an image in the focused panel',
     helpOrder: 7,
-    handler: (h, t) => _handled(() => h._handleImage(t)),
+    handler: (h, t) => _handled(() => h.frontend._handleImage(t)),
   ),
   SessionCommandEntry(
     names: const ['/index'],
     argsHint: '',
-    summary: 'refresh the per-directory summary index (staleness-aware, runs '
+    summary:
+        'refresh the per-directory summary index (staleness-aware, runs '
         'in the background)',
     helpOrder: 8,
-    handler: (h, _) => h._handleIndex(),
+    handler: (h, _) => h.index._handleIndex(),
   ),
   SessionCommandEntry(
     names: const ['/workflow'],
     argsHint: '',
-    summary: 'list/show/new/edit/run DOT pipelines (/workflow '
+    summary:
+        'list/show/new/edit/run DOT pipelines (/workflow '
         'show|new|edit|run <name>)',
     helpOrder: 9,
-    handler: (h, t) => _handled(() => handleWorkflowCommand(h.ctx, t)),
+    handler: (h, t) => _handled(() => handleWorkflowCommand(h.workflow, t)),
   ),
   SessionCommandEntry(
     names: const ['/output'],
     argsHint: '[n]',
-    summary: 'full output of the most recent capped tool call, or the n-th '
+    summary:
+        'full output of the most recent capped tool call, or the n-th '
         '(newest first)',
     helpOrder: 0,
     inHelp: false,
-    handler: (h, t) => _handled(() => h._handleOutput(t)),
+    handler: (h, t) => _handled(() => h.frontend._handleOutput(t)),
   ),
   SessionCommandEntry(
     names: const ['/spend'],
@@ -211,21 +218,21 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     summary: "show this session's token usage and spend caps",
     helpOrder: 0,
     inHelp: false,
-    handler: (h, _) => _handled(h._handleSpend),
+    handler: (h, _) => _handled(h.usage._handleSpend),
   ),
   SessionCommandEntry(
     names: const ['/update'],
     argsHint: '',
     summary: 'check GitHub for a newer release and install it',
     helpOrder: 16,
-    handler: (h, _) => _handled(h._handleUpdate),
+    handler: (h, _) => _handled(h.update._handleUpdate),
   ),
   SessionCommandEntry(
     names: const ['/detach'],
     argsHint: '',
     summary: 'return to the shell, keep the agent running (tmux; also Alt+D)',
     helpOrder: 19,
-    handler: (h, _) => _handled(h._handleDetach),
+    handler: (h, _) => _handled(h.frontend._handleDetach),
   ),
 ];
 
@@ -241,9 +248,7 @@ class SessionCommandRegistry {
 
   /// Every recognized name (primary names and aliases, flattened in registry
   /// order) — the `/` completion palette's offering.
-  List<String> get allNames => [
-        for (final entry in commands) ...entry.names,
-      ];
+  List<String> get allNames => [for (final entry in commands) ...entry.names];
 
   /// Looks a typed word up by name. Aliases resolve to their shared entry.
   /// Returns null for anything unrecognized (the caller decides between the

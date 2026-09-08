@@ -1,7 +1,6 @@
 import 'package:tina_engine/tina_engine.dart';
 
-import '../config.dart';
-import '../config/user_config.dart';
+import '../config/runtime_config.dart';
 
 /// One convention for turning a `"provider/model"` ref into a registry call.
 ///
@@ -21,9 +20,6 @@ import '../config/user_config.dart';
 ///   requestTimeout). An override still only reaches the registry when its
 ///   provider matches — a key minted for one vendor must not be sent to
 ///   another.
-/// - [apiKeyForPickedRef] — the TUI overlays' `[providers.<id>] key` lookup
-///   for a picked ref (null → the registry falls back to the descriptor's
-///   auth sources).
 ///
 /// Deliberately NOT here: fallback, warning, and error reporting. An
 /// unresolvable ref degrades differently per path (a stderr warning at
@@ -48,7 +44,7 @@ bool appliesToStartupProvider(String ref, String configProvider) =>
 /// [ProviderRegistryException]) — callers own fallback and reporting.
 LlmProvider buildResolved(
   LlmProviderFactory providers,
-  Config config,
+  RuntimeConfig config,
   String ref, {
   String? apiKeyOverride,
   String? baseUrlOverride,
@@ -62,18 +58,4 @@ LlmProvider buildResolved(
     streamIdleTimeout: config.streamIdleTimeout,
     requestTimeout: config.requestTimeout,
   );
-}
-
-/// The `[providers.<id>] key` from a loaded [UserConfig] for a picked
-/// `"provider/model"` ref — null when the config block doesn't name the ref's
-/// provider, so the registry falls back to the provider's configured auth
-/// sources (environment variables).
-///
-/// `/model`'s picker only ever offers `provider/model` refs, but `/spawn` and
-/// `/branch` historically tolerated a bare model id (empty provider id → no
-/// override); that tolerance is preserved here.
-String? apiKeyForPickedRef(String ref, UserConfig cfg) {
-  final slash = ref.indexOf('/');
-  final providerId = slash >= 0 ? ref.substring(0, slash) : '';
-  return cfg.providers[providerId]?.apiKey;
 }

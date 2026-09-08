@@ -1,3 +1,4 @@
+import 'headless_interviewer.dart';
 import 'package:attractor/attractor.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
@@ -24,18 +25,13 @@ class TinaInterviewer implements Interviewer {
   /// modal — normally the run's own sink (its run panel).
   final AgentSink? sink;
 
-  TinaInterviewer({
-    this.screen,
-    this.editor,
-    this.attentionQueue,
-    this.sink,
-  });
+  TinaInterviewer({this.screen, this.editor, this.attentionQueue, this.sink});
 
   bool get _interactive => screen != null && editor != null;
 
   @override
   Future<Answer> ask(Question question) async {
-    if (!_interactive) return _autoApprove(question);
+    if (!_interactive) return const HeadlessInterviewer().ask(question);
     final queue = attentionQueue;
     if (queue == null) return _ask(question);
     return queue.run(() => _ask(question), onQueued: _notifyQueued);
@@ -54,8 +50,10 @@ class TinaInterviewer implements Interviewer {
   }
 
   void _notifyQueued() {
-    sink?.notice('waiting for your input — another dialog is open…',
-        kind: NoticeKind.info);
+    sink?.notice(
+      'waiting for your input — another dialog is open…',
+      kind: NoticeKind.info,
+    );
   }
 
   Future<Answer> _multipleChoice(Question q) async {
@@ -107,21 +105,6 @@ class TinaInterviewer implements Interviewer {
 
   /// Headless / non-interactive fallback: always confirm, pick the first
   /// option, or empty freeform — so a `--workflow` run isn't blocked.
-  Answer _autoApprove(Question q) {
-    switch (q.type) {
-      case QuestionType.yesNo:
-      case QuestionType.confirmation:
-        return const Answer(kind: AnswerValue.yes, value: 'yes');
-      case QuestionType.multipleChoice:
-        final first = (q.options ?? const <Option>[]);
-        return first.isEmpty
-            ? const Answer.cancelled()
-            : Answer(value: first.first.key, selectedOption: first.first);
-      case QuestionType.freeform:
-        return const Answer(text: '', value: '');
-    }
-  }
-
   @override
   Future<void> inform(String message, {String? stage}) async {}
 }

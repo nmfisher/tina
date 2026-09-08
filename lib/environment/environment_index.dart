@@ -1,74 +1,41 @@
-import 'dart:async';
-
-import 'package:tina/config.dart';
-import 'package:tina/platform/environment.dart';
 import 'package:tina_engine/tina_engine.dart';
+import '../application/project_execution.dart';
+import 'environment_repository.dart';
 
-import 'environment_record.dart';
-import 'environment_runner.dart';
-import 'environment_store.dart';
+class EnvironmentExecutionResult {
+  final bool completed;
+  final SpendLedger usage;
+  const EnvironmentExecutionResult(this.completed, this.usage);
+}
 
-/// The in-app seam for the environment feature (docs/proposals/
-/// environment_agent.md): a pure-read [status] (no LLM — the record's presence
-/// plus the tracking entry's stale verdict) and [refresh], which runs the
-/// environment agent on the ephemeral composition and so requires a live
-/// [config] + [registry].
-///
-/// Mirrors [SummaryIndex]: [status] needs nothing but the project root;
-/// [refresh] asserts the composition parts.
-class EnvironmentIndex {
+abstract interface class EnvironmentAgentRunner {
+  Future<EnvironmentExecutionResult> execute(
+    EnvironmentSnapshot before,
+    RunInteraction interaction, {
+    String? modelRef,
+  });
+}
+
+class EnvironmentInspection {
+  final EnvironmentRepository repository;
+  EnvironmentInspection({required this.repository});
+  EnvironmentStatus status() {
+    final snapshot = repository.inspect();
+    return EnvironmentStatus(
+      recordPresent: snapshot.recordPresent,
+      staleReason: snapshot.staleReason,
+    );
+  }
+}
+
+class EnvironmentIndex extends EnvironmentInspection {
+  final EnvironmentAgentRunner runner;
+  final SpendLedger? spendLedger;
   EnvironmentIndex({
-    required this.projectRoot,
-    this.config,
-    this.registry,
-    this.environment,
-    this.toolScope,
-    this.promptContext,
+    required super.repository,
+    required this.runner,
     this.spendLedger,
   });
-
-  /// The repo root. The record lives at `$projectRoot/.tina/ENVIRONMENT.md`; the
-  /// machine-owned tracking entry at `$projectRoot/.tina/environment/`.
-  final String projectRoot;
-
-  /// Live-session composition parts; only required for [refresh]. Nullable so
-  /// [status] can run without a composition (startup, tests, the dance probe).
-  final Config? config;
-  final ProviderRegistry? registry;
-  final Environment? environment;
-
-  /// Borrowed tools and mutation lock for an in-session, same-project run.
-  /// Standalone callers omit this to create an independent project scope.
-  final ProjectToolScope? toolScope;
-
-  /// Parent runtime context, including its captured trust decision.
-  final PromptContext? promptContext;
-
-  /// The LIVE session's ledger: the agent run's usage merges into it after an
-  /// in-process refresh. Null headless (throwaway ledger).
-  final SpendLedger? spendLedger;
-
-  /// The pure-read probe. No LLM, no side effects — the answer to "does a
-  /// record exist, and is it current?".
-  EnvironmentStatus status() => EnvironmentStatus(
-    recordPresent: EnvironmentRecord.exists(projectRoot),
-    staleReason: store.staleReason(),
-  );
-
-  /// The machine-owned tracking store (Dart-only writer).
-  EnvironmentTrackingStore get store =>
-      EnvironmentTrackingStore(projectRoot: projectRoot);
-
-  /// Run the environment agent (first-load population or a stale re-verify).
-  /// [host] routes the agent's output (defaults to a HeadlessHost — pass the
-  /// conversation host in-session); [cancelSignal] cancels mid-run;
-  /// [modelRef] overrides the environment agent's model for this run (the
-  /// first-load picker's just-chosen model, which the in-memory [config]
-  /// predates); [asker] overrides its permission asker (the TUI passes an
-  /// attention-queue asker so the background panel's prompts reach the user);
-  /// [scoutSinkFactory] opens a per-scout sink (the TUI: one side panel per
-  /// surveyed folder) for the first-load survey.
-  /// Returns true when the run completed and the tracking entry was recorded.
   Future<bool> refresh({
     HostInterface? host,
     Future<void>? cancelSignal,
@@ -76,28 +43,23 @@ class EnvironmentIndex {
     PermissionAsker? asker,
     AgentSink Function(String dir)? scoutSinkFactory,
   }) async {
-    final cfg = config;
-    final reg = registry;
-    if (cfg == null || reg == null) {
-      throw StateError(
-        'EnvironmentIndex.refresh requires a Config + ProviderRegistry; '
-        'the caller must wire them (status() does not).',
-      );
-    }
-    return EnvironmentRunner(
-      config: cfg,
-      registry: reg,
-      environment: environment,
-      toolScope: toolScope,
-      promptContext: promptContext,
-      projectRoot: projectRoot,
-      host: host,
-      cancelSignal: cancelSignal,
-      spendLedger: spendLedger,
+    final before = repository.inspect(captureRecord: true);
+    final result = await runner.execute(
+      before,
+      RunInteraction(
+        host: host,
+        cancelSignal: cancelSignal,
+        asker: asker,
+        scoutSinkFactory: scoutSinkFactory,
+      ),
       modelRef: modelRef,
-      asker: asker,
-      scoutSinkFactory: scoutSinkFactory,
-    ).run();
+    );
+    // Existing environment accounting includes cancelled/no-write runs, but
+    // excludes executions that throw before returning a settled result.
+    spendLedger?.merge(result.usage);
+    if (!result.completed || !repository.advanced(before)) return false;
+    repository.record();
+    return true;
   }
 }
 
@@ -114,19 +76,4 @@ class EnvironmentStatus {
   const EnvironmentStatus({required this.recordPresent, this.staleReason});
 
   bool get stale => staleReason != null;
-}
-
-/// The warm-load block for the system prompt's `<environment>` funnel: the
-/// record's claims as compact lines plus the machine-rendered `status:`
-/// verdict. Null when there is no record (nothing to load), when it is
-/// unreadable, or on any read failure — a bad record must never break prompt
-/// assembly.
-String? projectEnvironmentBlock(String projectRoot) {
-  final record = EnvironmentRecord.load(projectRoot);
-  if (record == null) return null;
-  final reason = EnvironmentTrackingStore(
-    projectRoot: projectRoot,
-  ).staleReason();
-  final block = record.promptBlock(stale: reason != null, staleReason: reason);
-  return block.isEmpty ? null : block;
 }

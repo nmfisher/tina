@@ -99,7 +99,8 @@ void main() {
           );
           final store = _Store();
           final build = buildAppComposition(
-            config: config,
+            config: config.runtime,
+            resumeRequest: config.resumeRequest,
             registry: registry,
             projectRoot: root.path,
             store: store,

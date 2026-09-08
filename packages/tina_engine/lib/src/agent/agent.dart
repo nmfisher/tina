@@ -9,7 +9,7 @@ import '../llm/provider.dart';
 import '../permissions/policy.dart';
 import '../permissions/prompt.dart';
 import '../tools/tool.dart';
-import '../host/host_interface.dart';
+import 'run_lifecycle.dart';
 import 'agent_sink.dart';
 import 'pause_gate.dart';
 import 'stream_consumer.dart';
@@ -137,8 +137,7 @@ const int kToolResultStubThreshold = 4096;
 /// EXCEEDS the retention window (blocks in a batch age together). The stub
 /// names the tool by looking its `tool_use_id` up in the history's
 /// tool_use blocks (defensive fallback if the use was summarized away).
-int stubAgedToolResults(List<Message> history,
-    {required int currentStep}) {
+int stubAgedToolResults(List<Message> history, {required int currentStep}) {
   // id → tool name, from every tool_use block in history (the assistant
   // message each result batch answers). One cheap pre-pass; the pairing
   // itself is never modified — only the result body is.
@@ -168,8 +167,7 @@ int stubAgedToolResults(List<Message> history,
       m.content[b] = ToolResultBlock(
         toolUseId: block.toolUseId,
         isError: block.isError,
-        content:
-            '[elided after $ageSteps steps: $toolName result, '
+        content: '[elided after $ageSteps steps: $toolName result, '
             '$originalBytes bytes — re-run to recover]',
       );
       stubbed++;
@@ -431,23 +429,14 @@ class Agent {
   /// future from an earlier turn — a stale completed future would interrupt
   /// the new turn's first tool batch immediately.
   ///
-  /// The activity lifecycle is owned HERE, not by each caller: when the sink
-  /// is a full host ([HostInterface]), the run raises its activity signal on
-  /// entry and clears it on every exit path — the turn-in-flight semantics of
-  /// HostInterface.setActivity (tin-y4qn). Callers that wrap a run with extra
-  /// scope (the scheduler's job-level signal for panelized delegation, the
-  /// environment ceremony's survey phase) may signal too; hosts treat repeats
-  /// as idempotent. A sink that is only an [AgentSink] (telemetry sinks, the
-  /// headless no-op) has no signal to drive and skips this.
+  /// Each run emits identity-based lifecycle signals to sinks that opt in.
   Future<void> run({
     required List<Message> history,
     required String userInput,
     Future<void>? cancelSignal,
     Future<void>? toolInterruptSignal,
   }) async {
-    final HostInterface? activityHost =
-        sink is HostInterface ? sink as HostInterface : null;
-    activityHost?.setActivity(true);
+    final activity = RunActivity(sink);
     try {
       await _runTurn(
         history: history,
@@ -456,7 +445,7 @@ class Agent {
         toolInterruptSignal: toolInterruptSignal,
       );
     } finally {
-      activityHost?.setActivity(false);
+      activity.complete();
     }
   }
 
@@ -592,10 +581,9 @@ class Agent {
         // below bounds it to once per turn; the size floor
         // (estimate > threshold/2) skips compaction when the context is
         // small enough that compacting buys little.
-        final spendTriggered =
-            !_turnSpendCompactFired &&
-                budget?.turnSpendCompactTrigger() == true &&
-                estimate > autoCompactThreshold ~/ 2;
+        final spendTriggered = !_turnSpendCompactFired &&
+            budget?.turnSpendCompactTrigger() == true &&
+            estimate > autoCompactThreshold ~/ 2;
         if ((sizeTriggered || spendTriggered) &&
             _assistantMessageBoundary(history, autoCompactKeepMessages) >= 2) {
           if (spendTriggered && !sizeTriggered) {
@@ -608,7 +596,8 @@ class Agent {
           }
           lastCompactAttempt = step;
           _turnSpendCompactFired = true;
-          await compact(history, preserveRecentMessages: autoCompactKeepMessages);
+          await compact(history,
+              preserveRecentMessages: autoCompactKeepMessages);
         }
       }
 
@@ -1102,7 +1091,9 @@ class Agent {
   /// follows its tool_use's assistant message). Ignored when
   /// [preserveRecent] is set.
   Future<bool> compact(List<Message> history,
-      {int preserveRecent = 0, int preserveRecentMessages = 0}) async {
+      {int preserveRecent = 0,
+      int preserveRecentMessages = 0,
+      Future<void>? cancelSignal}) async {
     if (history.isEmpty) {
       sink.notice('(nothing to compact)\n');
       return false;
@@ -1153,34 +1144,53 @@ class Agent {
     Object? err;
     var sawText = false;
 
-    // compact uses a simpler listen than ProviderStreamConsumer because it
-    // only needs text deltas — no tool calls or usage tracking.
-    stream.listen(
+    // Cancellation waits for the stream subscription before returning, so a
+    // closing conversation never releases its provider underneath compaction.
+    final subscription = stream.listen(
       (event) {
-        if (event is TextDelta) {
-          if (!sawText) {
-            sink.activityStop();
-            sawText = true;
+        try {
+          if (event is TextDelta) {
+            if (!sawText) {
+              sink.activityStop();
+              sawText = true;
+            }
+            sink.text(event.text);
+            buf.write(event.text);
+          } else if (event is StreamError) {
+            err = event.error;
           }
-          sink.text(event.text);
-          buf.write(event.text);
-        } else if (event is StreamError) {
-          err = event.error;
+        } catch (e) {
+          err = e;
+          if (!done.isCompleted) done.complete();
         }
       },
       onDone: () {
-        sink.activityStop();
-        if (sawText) sink.newline();
-        if (!done.isCompleted) done.complete();
+        try {
+          sink.activityStop();
+          if (sawText) sink.newline();
+        } catch (e) {
+          err = e;
+        } finally {
+          if (!done.isCompleted) done.complete();
+        }
       },
       onError: (Object e) {
-        sink.activityStop();
         err = e;
+        try {
+          sink.activityStop();
+        } catch (_) {}
         if (!done.isCompleted) done.complete();
       },
     );
-
-    await done.future;
+    try {
+      final cancelled = await Future.any([
+        done.future.then((_) => false),
+        if (cancelSignal != null) cancelSignal.then((_) => true),
+      ]);
+      if (cancelled) return false;
+    } finally {
+      await subscription.cancel();
+    }
 
     if (err != null) {
       sink.notice('compact failed: $err\n', kind: NoticeKind.error);

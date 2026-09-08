@@ -1,8 +1,82 @@
 # A03 — Extract application operations from TUI composition
 
-Status: proposed. Depends on A01/A02 for complete migration.
+Status: implemented and validated (2026-09-08).
 
-## Current problem
+## Implementation
+
+`lib/application/conversation_operations.dart` provides `ConversationOperations`
+with spawn, branch and changeModel operations. Requests contain a captured
+`ConversationTarget` (session and source IDs), selected model/profile, explicit
+credential override and immutable prompt overrides. Spawn and branch use the
+same `CreateConversationRequest`; the method selects history-copy semantics.
+The service consumes A01 provider/tool/prompt scopes and A02 runtime settings.
+Its host factory is terminal-independent and creates an unattached host. There
+is no second session registry: successful operations register in SessionManager.
+
+The coordinator captures targets before opening pickers, reloads prompt and key
+settings at the existing boundary, delegates application work, and then attaches
+and focuses panels. A focus change during the picker cannot redirect the request.
+If the user switches sessions meanwhile, the conversation remains in its captured
+session without attaching a panel to the wrong session. The default presenter
+uses the existing tree/layout/focus helpers; an optional frontend presenter is
+also injectable. Detached hosts receive valid prospective bounds without splitting
+the visible layout before creation succeeds.
+
+Spawn/branch retain 512 output tokens, registry-default stream idle timeout,
+runtime request timeout and 50 agent steps. Profile tools are pre-approved except
+bash, which inherits the configured decision. Safe mode strips the same tools.
+Both paths resolve the current main prompt exactly as before. Branching a running
+source remains supported: one deep message snapshot is taken at operation entry,
+before the first await. That same snapshot seeds persistence and memory. Nested
+tool-input structures are copied through the existing message JSON codec.
+
+Lazy primary registration may remint its on-disk conversation ID. Persisted
+ancestry now uses the source recorder's ID; frontend tree results retain the
+source's stable in-memory ID. Primary registration precedes side-record creation,
+and side selection never changes the persisted primary resume anchor.
+
+Model changes preserve the existing immediate-swap rule, including while a turn
+is running; this refactor does not introduce a cancel/defer policy. The replacement
+is built before touching the current provider. `Conversation.replaceProvider`
+synchronizes both conversation and agent references before releasing the old
+provider. Cleanup failures are returned to the application caller while the valid
+replacement remains installed. Model persistence retains existing best-effort
+semantics; non-missing-record failures are exposed in `ModelChanged` and rendered
+as a warning. Existing model-label formatting and request tuning are preserved.
+
+`ConversationSelection` separates selection state from host presentation.
+SessionManager's selectSession/selectConversation methods return it without
+calling hosts; the controller and panel coordinator apply `selection_presenter`
+and persist only deliberate primary selections. Legacy switch methods remain
+compatibility wrappers. Restore still uses the existing restoration service.
+
+## Failure and ownership policy
+
+- Provider, new metadata, detached host and recorder are acquired before in-memory
+  registration. On failure, cleanup releases the host/provider and deletes only
+  the newly returned conversation ID. The materialized primary is retained.
+- If compensation itself fails, `ConversationOperationFailure` reports the
+  original error, cleanup error and allocated ID; other cleanup still runs.
+  A store that writes then throws before returning its new ID cannot be reliably
+  compensated through the current interface; this operation does not claim a
+  transaction or delete records by guessing which one was created.
+- The host factory owns partially constructed resources until it returns; after
+  successful registration the conversation/session owns the host and provider.
+- A failed panel presenter retains the valid registered and persisted conversation.
+  The TUI reports its ID for recovery/resume. Terminal attachment is not treated
+  as a filesystem transaction. Provider/recorder failure leaves layout unsplit.
+
+## Validation evidence
+
+Application tests use fake providers/hosts and memory storage, without creating a
+terminal. Coverage includes target focus/session changes, deep branch snapshots,
+running branches and model swaps, provider construction/closure, safe mode,
+primary ancestry and resume anchors, failure compensation and selection without
+presentation. TUI tests verify the real panel/fork wiring and retain-on-presentation-
+failure policy. The transitive dependency test now includes ConversationOperations.
+See [HANDOFF.md](HANDOFF.md) for the final command and test count.
+
+## Original problem
 
 [`TuiCoordinator.create`](../../../lib/tui_coordinator.dart) builds terminal
 objects and implements application behavior in long closures, notably

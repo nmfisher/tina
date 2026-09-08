@@ -1,10 +1,10 @@
+import 'command_capabilities.dart';
 import 'dart:async';
 import 'dart:io';
 
 import 'package:tina_engine/tina_engine.dart';
 
 import '../conversation.dart';
-import '../environment/environment_index.dart';
 import '../session_manager.dart';
 import '../summaries/summary_index.dart';
 
@@ -45,7 +45,18 @@ class CmdRun extends CmdResult {
 /// Exposing it as an interface lets the handlers live in their own module and
 /// be exercised against a fake, without standing up the input loop or a host.
 /// [SessionController] implements this with its own public fields and methods.
-abstract class CommandContext {
+/// Legacy aggregate retained for external adapters; handlers use narrow capabilities.
+abstract class CommandContext
+    implements
+        UsageCapabilities,
+        UpdateCapabilities,
+        FrontendCapabilities,
+        SessionsCapabilities,
+        HistoryCapabilities,
+        PermissionsCapabilities,
+        IndexCapabilities,
+        DispatchCapabilities,
+        WorkflowCapabilities {
   /// The active conversation — handlers read/write its history, host, policy,
   /// recorder, and provider.
   Conversation get active;
@@ -112,11 +123,6 @@ abstract class CommandContext {
   /// available, in which case `/index` falls back to an ad-hoc in-chat review.
   SummaryIndex? get summaryIndex;
 
-  /// The environment agent service (first load + the `/index` dance's
-  /// environment branch). Wired by the TUI from the live [AppComposition];
-  /// null in headless, which never auto-runs setup.
-  EnvironmentIndex? get environmentIndex;
-
   /// Ask a yes/no confirmation, returning true on "y". Wired by the TUI via the
   /// shared line editor's single-keystroke read (the same primitive the
   /// permission modal uses); null in headless (no interactive input), where the
@@ -160,8 +166,12 @@ abstract class CommandContext {
   /// TUI): the prompt returns immediately, fleet output streams into the
   /// conversation's host, and ESC cancels. Wired by the TUI's
   /// [SessionController]; null in headless (which runs the fleet inline).
-  Future<void> Function(Conversation conv, List<String>? dirs,
-      {bool repartition})? get runBackgroundIndex;
+  Future<void> Function(
+    Conversation conv,
+    List<String>? dirs, {
+    bool repartition,
+  })?
+  get runBackgroundIndex;
 
   /// Launch the environment agent as a background task on [conv] (the `/index`
   /// dance's environment branch, and first load): returns immediately, the
@@ -180,16 +190,6 @@ abstract class CommandContext {
   /// Wired by the TUI coordinator (it owns the tmux process seam); null in
   /// headless, where `/detach` instead prints the hint itself.
   Future<void> Function()? get detachTmux;
-
-  /// The exit decision when running inside tmux: shown on `/exit`/`/quit` and
-  /// on a quit attempt (Ctrl+C×2 / Ctrl+D / EOF). Returns [TmuxExitChoice] —
-  /// the controller detaches and keeps running on [TmuxExitChoice.detach],
-  /// exits (today's behavior) on [TmuxExitChoice.exit], and keeps running
-  /// without detaching on [TmuxExitChoice.cancel]. Null outside tmux or in
-  /// headless, where both paths take today's immediate-exit behavior. Wired by
-  /// the TUI coordinator, which owns the overlay; a headless runner leaves it
-  /// null (there's no overlay to show).
-  Future<TmuxExitChoice> Function()? get onTmuxExit;
 }
 
 /// The user's choice in the in-tmux exit dialog (`/exit` / Ctrl+C×2).

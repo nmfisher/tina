@@ -25,29 +25,27 @@ void main() {
     // token wins (and resolves to Bearer at build time).
     final env = const {
       'ANTHROPIC_AUTH_TOKEN': 'tok',
-      'ANTHROPIC_API_KEY': 'sk'
+      'ANTHROPIC_API_KEY': 'sk',
     };
-    final cfg = Config.parse(
-      const [],
-      env: env,
-      registry: testRegistry(env),
-    );
+    final cfg = Config.parse(const [], env: env, registry: testRegistry(env));
     expect(cfg.apiKey, 'tok');
   });
 
-  test('Config env wins even when the registry was built with a different one',
-      () {
-    // The registry here is built from Platform.environment, but Config's
-    // injected env must drive key resolution. This is the divergence case the
-    // `env` parameter on authFor exists to handle: Config and the registry may
-    // legitimately hold different env maps.
-    final cfg = Config.parse(
-      const [],
-      env: const {'ANTHROPIC_API_KEY': 'sk-from-config-env'},
-      registry: builtinRegistry(),
-    );
-    expect(cfg.apiKey, 'sk-from-config-env');
-  });
+  test(
+    'Config env wins even when the registry was built with a different one',
+    () {
+      // The registry here is built from Platform.environment, but Config's
+      // injected env must drive key resolution. This is the divergence case the
+      // `env` parameter on authFor exists to handle: Config and the registry may
+      // legitimately hold different env maps.
+      final cfg = Config.parse(
+        const [],
+        env: const {'ANTHROPIC_API_KEY': 'sk-from-config-env'},
+        registry: builtinRegistry(),
+      );
+      expect(cfg.apiKey, 'sk-from-config-env');
+    },
+  );
 
   test('a missing key returns an unconfigured Config instead of throwing', () {
     // First-run setup boots before any key is configured; Config.parse no
@@ -97,10 +95,7 @@ void main() {
     });
 
     test('file defaultModel beats the per-provider <PROVIDER>_MODEL env', () {
-      final env = const {
-        'ANTHROPIC_API_KEY': 'sk',
-        'ANTHROPIC_MODEL': 'env-m',
-      };
+      final env = const {'ANTHROPIC_API_KEY': 'sk', 'ANTHROPIC_MODEL': 'env-m'};
       final cfg = Config.parse(
         const [],
         env: env,
@@ -115,10 +110,12 @@ void main() {
         const [],
         env: const {'ANTHROPIC_API_KEY': 'sk'},
         registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
-        userConfig: const UserConfig(prompts: {
-          'main': 'Custom main identity.',
-          'research': 'Custom research identity.',
-        }),
+        userConfig: const UserConfig(
+          prompts: {
+            'main': 'Custom main identity.',
+            'research': 'Custom research identity.',
+          },
+        ),
       );
       expect(cfg.promptOverrides, {
         'main': 'Custom main identity.',
@@ -126,8 +123,7 @@ void main() {
       });
     });
 
-    test('[tui] mouse_wheel flows from the file into Config (default off)',
-        () {
+    test('[tui] mouse_wheel flows from the file into Config (default off)', () {
       final env = const {'ANTHROPIC_API_KEY': 'sk'};
       final cfg = Config.parse(
         const [],
@@ -162,7 +158,8 @@ void main() {
         env: const {'ANTHROPIC_API_KEY': 'sk'},
         registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
         userConfig: const UserConfig(
-            regions: RegionsConfig(model: 'deepseek/deepseek-chat')),
+          regions: RegionsConfig(model: 'deepseek/deepseek-chat'),
+        ),
       );
       expect(cfg.regionsModel, 'deepseek/deepseek-chat');
     });
@@ -190,16 +187,18 @@ void main() {
       expect(cfg.requestsPerMinute, 0);
     });
 
-    test('depth/concurrency caps default when neither CLI nor file sets them',
-        () {
-      final cfg = Config.parse(
-        const [],
-        env: const {'ANTHROPIC_API_KEY': 'sk'},
-        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
-      );
-      expect(cfg.maxSubAgentDepth, 3);
-      expect(cfg.maxSubAgentConcurrency, 6);
-    });
+    test(
+      'depth/concurrency caps default when neither CLI nor file sets them',
+      () {
+        final cfg = Config.parse(
+          const [],
+          env: const {'ANTHROPIC_API_KEY': 'sk'},
+          registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
+        );
+        expect(cfg.maxSubAgentDepth, 3);
+        expect(cfg.maxSubAgentConcurrency, 6);
+      },
+    );
 
     test('CLI depth/concurrency flags override file and default', () {
       final cfg = Config.parse(
@@ -207,15 +206,13 @@ void main() {
           '--max-sub-agent-depth',
           '5',
           '--max-sub-agent-concurrency',
-          '2'
+          '2',
         ],
         env: const {'ANTHROPIC_API_KEY': 'sk'},
         registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
         userConfig: const UserConfig(
-            limits: LimitsConfig(
-          maxSubAgentDepth: 9,
-          maxSubAgentConcurrency: 4,
-        )),
+          limits: LimitsConfig(maxSubAgentDepth: 9, maxSubAgentConcurrency: 4),
+        ),
       );
       expect(cfg.maxSubAgentDepth, 5); // CLI beats file
       expect(cfg.maxSubAgentConcurrency, 2); // CLI beats file
@@ -227,10 +224,8 @@ void main() {
         env: const {'ANTHROPIC_API_KEY': 'sk'},
         registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
         userConfig: const UserConfig(
-            limits: LimitsConfig(
-          maxSubAgentDepth: 7,
-          maxSubAgentConcurrency: 1,
-        )),
+          limits: LimitsConfig(maxSubAgentDepth: 7, maxSubAgentConcurrency: 1),
+        ),
       );
       expect(cfg.maxSubAgentDepth, 7);
       expect(cfg.maxSubAgentConcurrency, 1);
@@ -241,8 +236,9 @@ void main() {
         const ['--max-global-tokens', '111'],
         env: const {'ANTHROPIC_API_KEY': 'sk'},
         registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
-        userConfig:
-            const UserConfig(limits: LimitsConfig(maxGlobalTokens: 222)),
+        userConfig: const UserConfig(
+          limits: LimitsConfig(maxGlobalTokens: 222),
+        ),
       );
       expect(cfg.maxGlobalTokens, 111);
     });
@@ -253,11 +249,12 @@ void main() {
         env: const {'ANTHROPIC_API_KEY': 'sk'},
         registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
         userConfig: const UserConfig(
-            limits: LimitsConfig(
-          maxGlobalTokens: 999,
-          maxSubAgentTokens: 888,
-          requestsPerMinute: 30,
-        )),
+          limits: LimitsConfig(
+            maxGlobalTokens: 999,
+            maxSubAgentTokens: 888,
+            requestsPerMinute: 30,
+          ),
+        ),
       );
       expect(cfg.maxGlobalTokens, 999);
       expect(cfg.maxSubAgentTokens, 888);
@@ -271,18 +268,22 @@ void main() {
         registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
         userConfig: const UserConfig(limits: LimitsConfig(maxGlobalTokens: 0)),
       );
-      expect(cfg.maxGlobalTokens, 0,
-          reason: 'an explicit 0 in the file is "unbounded", not "absent"');
+      expect(
+        cfg.maxGlobalTokens,
+        0,
+        reason: 'an explicit 0 in the file is "unbounded", not "absent"',
+      );
     });
 
     test('a negative CLI value throws', () {
       expect(
-          () => Config.parse(
-                const ['--max-global-tokens', '-5'],
-                env: const {'ANTHROPIC_API_KEY': 'sk'},
-                registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
-              ),
-          throwsA(isA<FormatException>()));
+        () => Config.parse(
+          const ['--max-global-tokens', '-5'],
+          env: const {'ANTHROPIC_API_KEY': 'sk'},
+          registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
+        ),
+        throwsA(isA<FormatException>()),
+      );
     });
 
     test('buildSubAgentBudget: null when 0, else a per-session budget', () {
@@ -311,11 +312,12 @@ void main() {
         env: const {'ANTHROPIC_API_KEY': 'sk'},
         registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
         userConfig: const UserConfig(
-            limits: LimitsConfig(
-          maxTurnTokens: 7,
-          maxSessionTokens: 8,
-          maxRequestTokens: 9,
-        )),
+          limits: LimitsConfig(
+            maxTurnTokens: 7,
+            maxSessionTokens: 8,
+            maxRequestTokens: 9,
+          ),
+        ),
       );
       expect(cfg.maxTurnTokens, 7);
       expect(cfg.maxSessionTokens, 8);
@@ -324,32 +326,35 @@ void main() {
 
     test('main-agent budgets: CLI beats file', () {
       final cfg = Config.parse(
-        const [
-          '--max-turn-tokens',
-          '5',
-          '--max-session-tokens',
-          '6',
-        ],
+        const ['--max-turn-tokens', '5', '--max-session-tokens', '6'],
         env: const {'ANTHROPIC_API_KEY': 'sk'},
         registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
         userConfig: const UserConfig(
-            limits: LimitsConfig(maxTurnTokens: 7, maxSessionTokens: 8)),
+          limits: LimitsConfig(maxTurnTokens: 7, maxSessionTokens: 8),
+        ),
       );
       expect(cfg.maxTurnTokens, 5);
       expect(cfg.maxSessionTokens, 6);
     });
 
-    test('main-agent budgets: file 0 means unbounded (honored over default)',
-        () {
-      final cfg = Config.parse(
-        const [],
-        env: const {'ANTHROPIC_API_KEY': 'sk'},
-        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
-        userConfig: const UserConfig(limits: LimitsConfig(maxSessionTokens: 0)),
-      );
-      expect(cfg.maxSessionTokens, 0,
-          reason: 'an explicit 0 in the file disables the cap, not "absent"');
-    });
+    test(
+      'main-agent budgets: file 0 means unbounded (honored over default)',
+      () {
+        final cfg = Config.parse(
+          const [],
+          env: const {'ANTHROPIC_API_KEY': 'sk'},
+          registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
+          userConfig: const UserConfig(
+            limits: LimitsConfig(maxSessionTokens: 0),
+          ),
+        );
+        expect(
+          cfg.maxSessionTokens,
+          0,
+          reason: 'an explicit 0 in the file disables the cap, not "absent"',
+        );
+      },
+    );
   });
 
   group('--safe-mode flag', () {
@@ -389,7 +394,7 @@ void main() {
         const [],
         env: const {'ANTHROPIC_API_KEY': 'sk'},
         registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
-        userConfig: const UserConfig(theme: theme),
+        userConfig: UserConfig(theme: ThemeOverrides(theme.toMap())),
       );
       expect(cfg.theme.chat.userBar, '92;100');
     });
@@ -434,11 +439,7 @@ void main() {
     });
 
     test('--models is null when the flag is absent', () {
-      final cfg = Config.parse(
-        const [],
-        env: env,
-        registry: testRegistry(env),
-      );
+      final cfg = Config.parse(const [], env: env, registry: testRegistry(env));
       expect(cfg.models, isNull);
     });
 
@@ -462,9 +463,9 @@ void main() {
     // winning) and passes the merged env + the UserConfig into Config.parse.
     // These tests mirror that wiring.
     UserConfig _fileProvider(String apiKey) => UserConfig(
-          defaultProvider: 'anthropic',
-          providers: {'anthropic': ProviderConfig(apiKey: apiKey)},
-        );
+      defaultProvider: 'anthropic',
+      providers: {'anthropic': ProviderConfig(apiKey: apiKey)},
+    );
 
     const realEnv = {'ANTHROPIC_API_KEY': 'sk-from-env'};
 

@@ -73,6 +73,36 @@ class _RunControl {
 }
 
 void main() {
+  test('shutdown waits for acknowledgement and suppresses late completion callbacks', () async {
+    final gate = Completer<PipelineRunResult>();
+    final cancelled = Completer<void>();
+    var completions = 0;
+    final supervisor = WorkflowSupervisor(
+      run: ({required workflowName, required sink, input, history, cancelSignal, onEvent}) {
+        cancelSignal!.then((_) => cancelled.complete());
+        return gate.future;
+      }, onComplete: (_) => completions++);
+    final run = supervisor.launch(name: 'test', conversationId: 'one', sink: FakeAgentSink());
+    final closed = supervisor.shutdown();
+    await cancelled.future;
+    expect(() => supervisor.launch(name: 'late', conversationId: 'one', sink: FakeAgentSink()), throwsStateError);
+    gate.complete(_result(Outcome.fail('cancelled')));
+    await closed;
+    await run.done;
+    expect(completions, 0);
+    expect(run.status, WorkflowRunStatus.cancelled);
+  });
+  test('workflow observer failures still settle completion', () async {
+    final supervisor = WorkflowSupervisor(
+      run: ({required workflowName, required sink, input, history, cancelSignal, onEvent}) async => _result(Outcome.fail('failed')),
+      onLaunch: (run) { run.onFinished = () => throw StateError('finish'); throw StateError('launch'); },
+      onComplete: (_) => throw StateError('complete'));
+    final run = supervisor.launch(name: 'test', conversationId: 'one', sink: FakeAgentSink());
+    await run.done;
+    expect(run.status, WorkflowRunStatus.failed);
+    await supervisor.shutdown();
+  });
+
   group('WorkflowSupervisor', () {
     test('launch returns immediately with a running handle (does not block)',
         () async {

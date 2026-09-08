@@ -1,3 +1,4 @@
+import '../host/selection_presenter.dart';
 import 'dart:async';
 
 import 'package:tina_console/tina_console.dart';
@@ -196,11 +197,13 @@ class ConversationPanelCoordinator {
     // across /clear), so it identifies the primary reliably here — exactly the
     // pre-extraction `conv.id == initialConversationId` check.
     final isPrimary = binding.conversationId == _primaryConversationId;
-    unawaited(sessionManager
-        .switchConversation(binding.conversationId, persist: isPrimary)
-        .then((_) {
-      panelManager.relocateInput(frame);
-    }));
+    final selection = sessionManager.selectConversation(binding.conversationId);
+    presentConversationSelection(selection);
+    unawaited(
+      sessionManager.persistSelection(selection, persist: isPrimary).then((_) {
+        panelManager.relocateInput(frame);
+      }),
+    );
   }
 
   /// Disable text input on a read-only (host-only) panel: text-bearing
@@ -214,7 +217,8 @@ class ConversationPanelCoordinator {
   void _wireReadOnlyInput(PanelFrame frame, _ContentBinding binding) {
     var noticed = false;
     frame.onPanelKey = (event) {
-      final isText = event is CharInput ||
+      final isText =
+          event is CharInput ||
           event is PasteInput ||
           event is EditingKey ||
           (event is ControlKey && event.code == ControlCode.enter);

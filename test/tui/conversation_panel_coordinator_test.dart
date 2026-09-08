@@ -1,3 +1,4 @@
+import 'package:tina/application/conversation_selection.dart';
 import 'package:tina/conversation.dart';
 import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina/platform/terminal_geometry.dart';
@@ -33,8 +34,12 @@ void main() {
 
   setUp(() {
     io = FakeStdio()..columns = 120;
-    final layout = ScreenLayout.fromSize(120, 24,
-        split: true, drawInfoFrame: false);
+    final layout = ScreenLayout.fromSize(
+      120,
+      24,
+      split: true,
+      drawInfoFrame: false,
+    );
     screen = Screen(io: io, layout: layout, ansi: AnsiCapable.yes);
     focusManager = FocusManager();
     editor = LineEditor(screen: screen);
@@ -85,9 +90,13 @@ void main() {
 
     test('inverts the busy cue onto onBusyChanged', () {
       final host = sessionManager.initialHost;
-      expect(host.onBusyChanged, isNotNull,
-          reason: 'busy cue must reach the frame via the callback, '
-              'not panel.setBusy directly');
+      expect(
+        host.onBusyChanged,
+        isNotNull,
+        reason:
+            'busy cue must reach the frame via the callback, '
+            'not panel.setBusy directly',
+      );
       // The callback drives the frame's comet through its setBusy: the
       // recording frame captures every setBusy the coordinator wires up.
       expect(primaryFrame.busyCalls, isEmpty);
@@ -98,29 +107,43 @@ void main() {
   });
 
   group('relayContent', () {
-    test('fits content into every frame interior and attaches detached ones',
-        () {
-      // The primary chat starts attached; relayContent must not detach it.
-      final primaryChat = sessionManager.initialHost.chat;
-      expect(primaryChat.isDetached, isFalse);
-      coordinator.relayContent();
-      expect(primaryChat.isDetached, isFalse,
-          reason: 'relayContent never detaches — it only ever attaches');
+    test(
+      'fits content into every frame interior and attaches detached ones',
+      () {
+        // The primary chat starts attached; relayContent must not detach it.
+        final primaryChat = sessionManager.initialHost.chat;
+        expect(primaryChat.isDetached, isFalse);
+        coordinator.relayContent();
+        expect(
+          primaryChat.isDetached,
+          isFalse,
+          reason: 'relayContent never detaches — it only ever attaches',
+        );
 
-      // A background conversation's chat starts detached; relayContent must
-      // attach it once its frame is laid out.
-      final conv = _dummyConversation('side');
-      sessionManager.register(conv);
-      final host = conv.host as TuiConversationHost;
-      final frame =
-          coordinator.bindSpawned(host: host, label: sideLabel('side'));
-      panelManager.layout();
-      expect(host.chat.isDetached, isTrue, reason: 'background chat detached');
-      coordinator.relayContent();
-      expect(host.chat.isDetached, isFalse,
-          reason: 'relayContent attaches the laid-out frame\'s content');
-      frame.dispose();
-    });
+        // A background conversation's chat starts detached; relayContent must
+        // attach it once its frame is laid out.
+        final conv = _dummyConversation('side');
+        sessionManager.register(conv);
+        final host = conv.host as TuiConversationHost;
+        final frame = coordinator.bindSpawned(
+          host: host,
+          label: sideLabel('side'),
+        );
+        panelManager.layout();
+        expect(
+          host.chat.isDetached,
+          isTrue,
+          reason: 'background chat detached',
+        );
+        coordinator.relayContent();
+        expect(
+          host.chat.isDetached,
+          isFalse,
+          reason: 'relayContent attaches the laid-out frame\'s content',
+        );
+        frame.dispose();
+      },
+    );
 
     test('relayContent never detaches the primary when a side panel shows', () {
       // Regression guard for the primary-stays-visible invariant the host's
@@ -129,12 +152,17 @@ void main() {
       final conv = _dummyConversation('side2');
       sessionManager.register(conv);
       final host = conv.host as TuiConversationHost;
-      final frame =
-          coordinator.bindSpawned(host: host, label: sideLabel('side2'));
+      final frame = coordinator.bindSpawned(
+        host: host,
+        label: sideLabel('side2'),
+      );
       panelManager.layout();
       coordinator.relayContent();
-      expect(sessionManager.initialHost.chat.isDetached, isFalse,
-          reason: 'primary must stay attached through relayContent');
+      expect(
+        sessionManager.initialHost.chat.isDetached,
+        isFalse,
+        reason: 'primary must stay attached through relayContent',
+      );
       frame.dispose();
     });
   });
@@ -144,8 +172,10 @@ void main() {
       final conv = _dummyConversation('side');
       sessionManager.register(conv);
       final host = conv.host as TuiConversationHost;
-      final frame =
-          coordinator.bindSpawned(host: host, label: sideLabel('side'));
+      final frame = coordinator.bindSpawned(
+        host: host,
+        label: sideLabel('side'),
+      );
       expect(panelManager.spawnedFrames, contains(frame));
       // Registered in the focus ring -> focusable directly.
       focusManager.focusPanel(frame);
@@ -157,11 +187,17 @@ void main() {
       final conv = _dummyConversation('side');
       sessionManager.register(conv);
       final host = conv.host as TuiConversationHost;
-      final frame =
-          coordinator.bindSpawned(host: host, label: sideLabel('side'));
-      expect(host.onBusyChanged, isNotNull,
-          reason: 'the busy cue is inverted onto the callback for secondary '
-              'hosts too, never reaching into a frame directly');
+      final frame = coordinator.bindSpawned(
+        host: host,
+        label: sideLabel('side'),
+      );
+      expect(
+        host.onBusyChanged,
+        isNotNull,
+        reason:
+            'the busy cue is inverted onto the callback for secondary '
+            'hosts too, never reaching into a frame directly',
+      );
       // The frame created by bindSpawed is driven by that callback; capture
       // the wiring by reading the bound closure back through a recording frame
       // is not possible, so assert the callback is the inversion seam itself
@@ -178,8 +214,10 @@ void main() {
       final conv = _dummyConversation('side');
       sessionManager.register(conv);
       final host = conv.host as TuiConversationHost;
-      final frame =
-          coordinator.bindSpawned(host: host, label: sideLabel('side'));
+      final frame = coordinator.bindSpawned(
+        host: host,
+        label: sideLabel('side'),
+      );
       panelManager.layout();
 
       coordinator.onFrameFocused(frame);
@@ -195,8 +233,11 @@ void main() {
 
     test('focusing the already-active panel only repoints input', () {
       coordinator.onFrameFocused(primaryFrame);
-      expect(sessionManager.switchCalls, isEmpty,
-          reason: 'the primary is already active — no switch, just relocate');
+      expect(
+        sessionManager.switchCalls,
+        isEmpty,
+        reason: 'the primary is already active — no switch, just relocate',
+      );
     });
 
     test('focusing a host-only panel keeps input on the primary instead of '
@@ -207,16 +248,24 @@ void main() {
       // (which would throw 'Unknown conversation') — it behaves like an extra
       // panel and leaves the shared input on the primary chat.
       final host = _RecordingHost('env-123');
-      final frame =
-          coordinator.bindSpawned(host: host, label: 'Environment (model)');
+      final frame = coordinator.bindSpawned(
+        host: host,
+        label: 'Environment (model)',
+      );
       panelManager.layout();
 
       coordinator.onFrameFocused(frame);
 
-      expect(sessionManager.switchCalls, isEmpty,
-          reason: 'no Conversation exists — there is nothing to switch to');
-      expect(sessionManager.active.activeConversationId, 'primary',
-          reason: 'focus on a host-only panel never moves the active pointer');
+      expect(
+        sessionManager.switchCalls,
+        isEmpty,
+        reason: 'no Conversation exists — there is nothing to switch to',
+      );
+      expect(
+        sessionManager.active.activeConversationId,
+        'primary',
+        reason: 'focus on a host-only panel never moves the active pointer',
+      );
 
       // Text keystrokes are consumed with a single notice — never routed to
       // the shared editor (which would silently type into the main panel).
@@ -224,32 +273,52 @@ void main() {
       expect(frame.handleEvent(CharInput('i')), isTrue);
       expect(frame.handleEvent(PasteInput('pasted')), isTrue);
       expect(frame.handleEvent(ControlKey(ControlCode.enter)), isTrue);
-      expect(host.messages.length, 1,
-          reason: 'the notice is shown once per focus gain, not per key');
+      expect(
+        host.messages.length,
+        1,
+        reason: 'the notice is shown once per focus gain, not per key',
+      );
       expect(host.messages.single, contains('input disabled'));
 
       // Navigation keys keep working: PgUp and the wheel are consumed by the
       // frame's own scroll handler (wired by _wireScrollback at bind time),
       // and everything else — Esc (cancel turn), Ctrl+C, Alt+letter — falls
       // through to the editor untouched.
-      expect(frame.handleEvent(ArrowKey(ArrowDirection.pageUp)), isTrue,
-          reason: 'PgUp still scrolls the panel\'s transcript');
-      expect(frame.handleEvent(ScrollEvent(up: true)), isTrue,
-          reason: 'the wheel still scrolls the panel\'s transcript');
-      expect(frame.handleEvent(EscapeKey()), isFalse,
-          reason: 'Esc still falls through to cancel the active turn');
-      expect(frame.handleEvent(ControlKey(ControlCode.ctrlC)), isFalse,
-          reason: 'Ctrl+C still falls through to the editor (exit path)');
-      expect(host.messages.length, 1,
-          reason: 'navigation keys never post the input-disabled notice');
+      expect(
+        frame.handleEvent(ArrowKey(ArrowDirection.pageUp)),
+        isTrue,
+        reason: 'PgUp still scrolls the panel\'s transcript',
+      );
+      expect(
+        frame.handleEvent(ScrollEvent(up: true)),
+        isTrue,
+        reason: 'the wheel still scrolls the panel\'s transcript',
+      );
+      expect(
+        frame.handleEvent(EscapeKey()),
+        isFalse,
+        reason: 'Esc still falls through to cancel the active turn',
+      );
+      expect(
+        frame.handleEvent(ControlKey(ControlCode.ctrlC)),
+        isFalse,
+        reason: 'Ctrl+C still falls through to the editor (exit path)',
+      );
+      expect(
+        host.messages.length,
+        1,
+        reason: 'navigation keys never post the input-disabled notice',
+      );
       frame.dispose();
     });
   });
 
   group('surfaceOf', () {
     test('returns the chat surface for the focused panel', () {
-      expect(coordinator.surfaceOf('primary'),
-          same(sessionManager.initialHost.chat.surface));
+      expect(
+        coordinator.surfaceOf('primary'),
+        same(sessionManager.initialHost.chat.surface),
+      );
     });
   });
 }
@@ -259,8 +328,10 @@ String sideLabel(String id) => 'role ($id)';
 /// A detached, full-width screen for background-host chats that are never
 /// rendered in these tests — only their region's attach/detached state and
 /// surface are inspected.
-Screen _backgroundScreen() =>
-    Screen(io: FakeStdio()..columns = 120, layout: ScreenLayout.fromSize(120, 24));
+Screen _backgroundScreen() => Screen(
+  io: FakeStdio()..columns = 120,
+  layout: ScreenLayout.fromSize(120, 24),
+);
 
 /// Minimal [TerminalGeometry] backed by fixed columns/lines for tests.
 class _Geometry implements TerminalGeometry {
@@ -280,15 +351,15 @@ class _Geometry implements TerminalGeometry {
 /// so the coordinator tests can assert focus→active wiring.
 class _RecordingSessionManager extends SessionManager {
   _RecordingSessionManager({required Conversation initialConversation})
-      : initialHost = initialConversation.host as TuiConversationHost,
-        super(
-          initialConversation: initialConversation,
-          initialProviderId: 'test',
-          initialApiKey: '',
-          providerFactory: (id, key, model, url) => FakeProvider.done(),
-          hostFactory: _hostFactory,
-          agentBuilder: _agentBuilder,
-        );
+    : initialHost = initialConversation.host as TuiConversationHost,
+      super(
+        initialConversation: initialConversation,
+        initialProviderId: 'test',
+        initialApiKey: '',
+        providerFactory: (id, key, model, url) => FakeProvider.done(),
+        hostFactory: _hostFactory,
+        agentBuilder: _agentBuilder,
+      );
 
   /// The primary host (built for the initial conversation before this manager
   /// exists), exposed so the coordinator can bind it.
@@ -300,41 +371,41 @@ class _RecordingSessionManager extends SessionManager {
   void register(Conversation c) => active.addConversation(c);
 
   @override
-  Future<Conversation> switchConversation(String id, {bool persist = true}) async {
-    switchCalls.add((id: id, persist: persist));
-    return super.switchConversation(id, persist: persist);
+  Future<void> persistSelection(
+    ConversationSelection selection, {
+    bool persist = true,
+  }) async {
+    switchCalls.add((id: selection.next.id, persist: persist));
+    await super.persistSelection(selection, persist: persist);
   }
 }
 
 HostInterface _hostFactory({
   required String conversationId,
   required bool isActive,
-}) =>
-    TuiConversationHost(
-      conversationId: conversationId,
-      chat: ScrollingTextRegion(_backgroundScreen())
-        ..detach(),
-      spinner: Spinner(enabled: false),
-      screen: _backgroundScreen(),
-      active: isActive,
-      // background conversations get their own (detached) screen reference;
-      // the host's chat region is what matters for relayContent.
-    );
+}) => TuiConversationHost(
+  conversationId: conversationId,
+  chat: ScrollingTextRegion(_backgroundScreen())..detach(),
+  spinner: Spinner(enabled: false),
+  screen: _backgroundScreen(),
+  active: isActive,
+  // background conversations get their own (detached) screen reference;
+  // the host's chat region is what matters for relayContent.
+);
 
 Agent _agentBuilder({
   required String conversationId,
   required LlmProvider provider,
   required HostInterface host,
   required PermissionPolicy policy,
-}) =>
-    Agent(
-      provider: provider,
-      tools: ToolRegistry(const []),
-      sink: host,
-      policy: policy,
-      asker: (_) async => PermissionResponse.denyOnce,
-      system: 'sys',
-    );
+}) => Agent(
+  provider: provider,
+  tools: ToolRegistry(const []),
+  sink: host,
+  policy: policy,
+  asker: (_) async => PermissionResponse.denyOnce,
+  system: 'sys',
+);
 
 Conversation _dummyConversation(String id, {bool detached = true}) {
   // Background conversation chats start detached (buffered) exactly like the
@@ -368,18 +439,21 @@ Conversation _dummyConversation(String id, {bool detached = true}) {
 /// can assert the notice without a rendered screen.
 class _RecordingHost extends TuiConversationHost {
   _RecordingHost(String id)
-      : super(
-          conversationId: id,
-          chat: ScrollingTextRegion(_backgroundScreen())..detach(),
-          spinner: Spinner(enabled: false),
-          screen: _backgroundScreen(),
-          primary: false,
-        );
+    : super(
+        conversationId: id,
+        chat: ScrollingTextRegion(_backgroundScreen())..detach(),
+        spinner: Spinner(enabled: false),
+        screen: _backgroundScreen(),
+        primary: false,
+      );
 
   final List<String> messages = [];
 
   @override
-  void showMessage(String message, {HostMessageStyle style = HostMessageStyle.normal}) {
+  void showMessage(
+    String message, {
+    HostMessageStyle style = HostMessageStyle.normal,
+  }) {
     messages.add(message);
   }
 }

@@ -13,9 +13,10 @@
 
 import 'dart:io';
 
+import 'package:tina/composition/project_services.dart';
+
 import 'package:tina/platform/environment.dart';
 import 'package:tina/summaries/sidecar_repo.dart';
-import 'package:tina/summaries/summary_runner.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
 
@@ -44,7 +45,7 @@ void main() {
   test('the fleet writes a summary file + records a sidecar commit', () async {
     final registry = anthropicRegistry(provider);
     final config = testFleetConfig(registry);
-    final runner = SummaryRunner(
+    final runner = buildSummaryRun(
       config: config,
       registry: registry,
       environment: const PlatformEnvironment(),
@@ -83,7 +84,7 @@ void main() {
     provider = ScriptedFleetProvider(
         onSend: () => observed.add(registry.decorator));
     registry = anthropicRegistry(provider)..decorator = sentinel;
-    final runner = SummaryRunner(
+    final runner = buildSummaryRun(
       config: testFleetConfig(registry),
       registry: registry,
       environment: const PlatformEnvironment(),
@@ -100,7 +101,7 @@ void main() {
 
   test('dry-run reports stale dirs without calling the model', () async {
     final registry = anthropicRegistry(provider);
-    final runner = SummaryRunner(
+    final runner = buildSummaryRun(
       config: testFleetConfig(registry),
       registry: registry,
       environment: const PlatformEnvironment(),

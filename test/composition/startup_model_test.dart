@@ -11,42 +11,32 @@ void main() {
   group('buildStartupProvider', () {
     /// Build an [AppComposition] with a fake manifest for resume tests.
     AppComposition buildWith({
-      required Config config,
+      required RuntimeConfig config,
       SessionManifest? manifest,
       String? initialSessionId,
       String? initialConversationId,
     }) => AppComposition(
-          config: config,
-          environment: const PlatformEnvironment(),
-          registry: testRegistry({
-            'ANTHROPIC_API_KEY': 'test-key',
-          }),
-          policy: config.buildPolicy(),
-          store: MemorySessionStore(),
-          pipeline: defaultPipeline,
-          scheduler: SubAgentScheduler(
-            registry: testRegistry({
-              'ANTHROPIC_API_KEY': 'test-key',
-            }),
-            pipeline: defaultPipeline,
-            maxTokens: config.maxTokens,
-            streamIdleTimeout: config.streamIdleTimeout,
-            requestTimeout: config.requestTimeout,
-            quota: AgentQuota(
-              maxDepth: 3,
-              maxLive: 6,
-            ),
-          ),
-          spendLedger: SpendLedger(
-            maxGlobalTokens: 0,
-            requestsPerMinute: 0,
-          ),
-          pauseGate: PauseGate(),
-          initialSessionId: initialSessionId ?? 's1',
-          initialConversationId: initialConversationId ?? 'c1',
-          initialHistory: const [],
-          initialManifest: manifest,
-        );
+      config: config,
+      environment: const PlatformEnvironment(),
+      registry: testRegistry({'ANTHROPIC_API_KEY': 'test-key'}),
+      policy: config.buildPolicy(),
+      store: MemorySessionStore(),
+      pipeline: defaultPipeline,
+      scheduler: SubAgentScheduler(
+        registry: testRegistry({'ANTHROPIC_API_KEY': 'test-key'}),
+        pipeline: defaultPipeline,
+        maxTokens: config.maxTokens,
+        streamIdleTimeout: config.streamIdleTimeout,
+        requestTimeout: config.requestTimeout,
+        quota: AgentQuota(maxDepth: 3, maxLive: 6),
+      ),
+      spendLedger: SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0),
+      pauseGate: PauseGate(),
+      initialSessionId: initialSessionId ?? 's1',
+      initialConversationId: initialConversationId ?? 'c1',
+      initialHistory: const [],
+      initialManifest: manifest,
+    );
 
     test('fresh session uses config default', () {
       final config = Config.parse(
@@ -78,7 +68,7 @@ void main() {
         ],
       );
       final app = buildWith(
-        config: config,
+        config: config.runtime,
         manifest: manifest,
         initialSessionId: 's-resume',
         initialConversationId: 'c-meta',
@@ -107,7 +97,7 @@ void main() {
         ],
       );
       final app = buildWith(
-        config: config,
+        config: config.runtime,
         manifest: manifest,
         initialSessionId: 's-resume',
         initialConversationId: 'c-meta',
@@ -146,7 +136,7 @@ void main() {
         ],
       );
       final app = buildWith(
-        config: config,
+        config: config.runtime,
         manifest: manifest,
         initialSessionId: 's-resume',
         initialConversationId: 'c-meta',
@@ -183,7 +173,7 @@ void main() {
         ],
       );
       final app = buildWith(
-        config: config,
+        config: config.runtime,
         manifest: manifest,
         initialSessionId: 's-resume',
         initialConversationId: 'c-unknown',
@@ -217,7 +207,7 @@ void main() {
         ],
       );
       final app = buildWith(
-        config: config,
+        config: config.runtime,
         manifest: manifest,
         initialSessionId: 's-resume',
         initialConversationId: 'c-null',

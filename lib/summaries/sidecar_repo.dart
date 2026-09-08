@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'summary_models.dart';
+export 'summary_models.dart';
+
 import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart' show summarySlug;
 
@@ -48,7 +51,7 @@ class SidecarSummaryRepo {
     if (!_summariesDir.existsSync()) {
       _summariesDir.createSync(recursive: true);
     }
-    if (!_isGitRepo(_summariesDir.path)) {
+    if (!_isGitRoot(_summariesDir.path)) {
       _gitIn(_summariesDir.path, ['init']);
     }
   }
@@ -339,13 +342,15 @@ class SidecarSummaryRepo {
     return out.isEmpty ? '' : _fnv1a(out);
   }
 
-  bool _isGitRepo(String path) {
+  bool _isGitRoot(String path) {
     final result = Process.runSync(
       'git',
-      ['-C', path, 'rev-parse', '--is-inside-work-tree'],
+      ['-C', path, 'rev-parse', '--show-prefix'],
       runInShell: false,
     );
-    return result.exitCode == 0;
+    // Being inside the parent project is insufficient: this must be the
+    // root of its own repository, or summary commits would modify project HEAD.
+    return result.exitCode == 0 && (result.stdout as String).trim().isEmpty;
   }
 
   String _gitIn(String dir, List<String> args) {
@@ -378,75 +383,4 @@ String _fnv1a(String s) {
     hash = (hash * 0x100000001b3) & 0x7fffffffffffffff;
   }
   return hash.toRadixString(16);
-}
-
-/// One directory's recorded summary tracking state.
-class DirSummary {
-  final String commit;
-
-  /// The dir's HEAD tree hash when summarized; null when the dir wasn't at
-  /// HEAD at all (never committed — tracked by [dirtyDigest] alone).
-  final String? tree;
-
-  /// The working-tree digest when summarized (`''` = clean, null = unknown —
-  /// a manifest written before digests existed). A recorded non-null digest
-  /// only differs from a probe on real change; null always re-summarizes once.
-  final String? dirtyDigest;
-  final String file;
-
-  const DirSummary({
-    required this.commit,
-    required this.tree,
-    required this.file,
-    this.dirtyDigest,
-  });
-
-  Map<String, dynamic> toJson() => {
-        'commit': commit,
-        if (tree != null) 'tree': tree,
-        // Written even when '' (known clean) — absent means unknown (a
-        // pre-digest manifest), which the probe conservatively re-summarizes.
-        if (dirtyDigest != null) 'dirty': dirtyDigest,
-        'file': file,
-      };
-
-  factory DirSummary.fromJson(Map<String, dynamic> json) => DirSummary(
-        commit: json['commit'] as String,
-        tree: json['tree'] as String?,
-        file: json['file'] as String,
-        dirtyDigest: json['dirty'] as String?,
-      );
-}
-
-/// The manifest: the authoritative partition (its key set) + per-dir tracking.
-class SummaryManifest {
-  final Map<String, DirSummary> dirs;
-
-  const SummaryManifest({required this.dirs});
-
-  factory SummaryManifest.empty() => const SummaryManifest(dirs: {});
-
-  factory SummaryManifest.fromJson(Map<String, dynamic> json) {
-    final raw = json['dirs'] as Map<String, dynamic>? ?? const {};
-    return SummaryManifest(
-      dirs: {
-        for (final entry in raw.entries)
-          entry.key: DirSummary.fromJson(entry.value as Map<String, dynamic>),
-      },
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-        'dirs': {for (final entry in dirs.entries) entry.key: entry.value.toJson()},
-      };
-}
-
-/// The staleness result: which dirs to regenerate, which to delete.
-class StaleSet {
-  final List<String> toRegenerate;
-  final List<String> deleted;
-
-  const StaleSet({required this.toRegenerate, required this.deleted});
-
-  bool get isEmpty => toRegenerate.isEmpty && deleted.isEmpty;
 }

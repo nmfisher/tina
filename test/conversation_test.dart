@@ -51,7 +51,7 @@ void main() {
       expect(c.history, hasLength(1));
     });
 
-    test('isRunning tracks the cancelCompleter', () {
+    test('isRunning remains busy until cancellation cleanup clears the completer', () {
       final c = _conversation();
 
       expect(c.isRunning, isFalse); // no cancelCompleter set
@@ -60,7 +60,9 @@ void main() {
       expect(c.isRunning, isTrue); // set and uncompleted
 
       c.cancelCompleter!.complete();
-      expect(c.isRunning, isFalse); // completed → idle
+      expect(c.isRunning, isTrue); // requested, not yet acknowledged
+      c.cancelCompleter = null;
+      expect(c.isRunning, isFalse);
     });
 
     test('messageQueue is a working queue on the instance', () {

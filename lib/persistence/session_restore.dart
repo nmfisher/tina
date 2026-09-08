@@ -3,7 +3,7 @@ import 'package:tina_engine/tina_engine.dart';
 
 import '../composition/agent_composition.dart';
 import '../composition/provider_resolution.dart';
-import '../config.dart';
+import '../config/runtime_config.dart';
 import '../conversation.dart';
 import '../session_manager.dart' show HostFactory;
 
@@ -14,7 +14,7 @@ class RestoreContext {
   final ProviderRegistry registry;
   final LlmProviderFactory providers;
   final AgentPipeline pipeline;
-  final Config config;
+  final RuntimeConfig config;
   final SessionStore store;
   final SubAgentScheduler scheduler;
   final HostFactory hostFactory;

@@ -90,3 +90,6 @@ export 'src/tools/web_search.dart';
 export 'src/tools/which_tool.dart';
 export 'src/tools/write_summary_tool.dart';
 export 'src/tools/write_tool.dart';
+
+export 'src/agent/run_lifecycle.dart';
+export 'src/host/host_lifecycle_adapter.dart';

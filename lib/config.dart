@@ -7,260 +7,152 @@ import 'package:tina_engine/tina_engine.dart';
 
 import 'config/user_config.dart';
 import 'project/project_trust.dart';
+import 'config/runtime_config.dart';
+import 'config/terminal_config.dart';
+import 'config/startup_options.dart';
+import 'config/resolved_launch.dart';
+import 'config/theme_mapper.dart';
 
-/// Which rendering backend to use. [BackendChoice.notcurses] is the default and
-/// is required — it fails loudly if notcurses can't initialize. Only
-/// [BackendChoice.ansi] uses the ANSI renderer (opt in via `--backend ansi`).
-enum BackendChoice { ansi, notcurses }
+export 'config/runtime_config.dart';
+export 'config/terminal_config.dart';
+export 'config/startup_options.dart';
+export 'config/resolved_launch.dart';
 
-class Config {
-  /// Registry provider id, e.g. "anthropic", "openai", "glm".
-  final String provider;
-  final String apiKey;
-  final String model;
-  final String baseUrl;
-  final int maxTokens;
-  final bool yolo;
+/// Root compatibility facade. Application code consumes [runtime].
+class Config extends RuntimeConfig implements ResumeRequest {
   final bool showHelp;
-
-  /// Print the resolved model list for one provider id (one `<id> — <name>` per
-  /// line), exit 0. Reuse the startup catalog attach, await its load, print
-  /// registry.modelsFor(id). No value passed → print known provider ids, exit 0.
-  /// Unknown provider → stderr naming the known providers, non-zero exit.
   final String? models;
-
-  /// Print `tina <version>` and exit (`--version`). Short-circuits like
-  /// [showHelp] — resolved before provider/key lookup.
   final bool showVersion;
   final String? prompt;
-  final List<PermissionRule> permissionRules;
-
-  /// Persistence options.
   final String? resumeSessionId;
   final bool continueLatest;
   final bool listSessions;
-
-  /// Startup permission mode (`--permission-mode` / `[permissions] mode`).
-  final PermissionMode permissionMode;
-
-  /// `"provider/model"` for the "auto" mode's safety classifier
-  /// (`[permissions] model`); null = inherit the main model.
-  final String? permissionClassifierModel;
-
-  /// A DOT pipeline to run to completion in headless mode (`--workflow <name>`).
   final String? workflow;
-
-  /// DOT workflow every normal chat turn routes through (`[default] workflow`
-  /// in ~/.tina/config). `"none"` disables the presence-based `default.dot`
-  /// routing; null/absent means "use `default.dot` when it exists".
-  final String? defaultWorkflow;
-
-  /// Token budgets — 0 means "no cap".
-  final int maxTurnTokens;
-  final int maxSessionTokens;
-  final int maxRequestTokens;
-
-  /// Global spend / rate-limit guardrails. One session-scoped ledger covers
-  /// every agent (main + orchestrator + all scouts). 0 in any field means "no
-  /// limit" for that field.
-  final int maxGlobalTokens;
-  final int maxSubAgentTokens;
-  final int maxSubAgentDepth;
-  final int maxSubAgentConcurrency;
-  final int requestsPerMinute;
-
-  /// Auto-compact: summarize the older history when an incoming turn's
-  /// estimated input tokens exceed this, keeping recent turns. 0 disables.
-  final int autoCompactThreshold;
-
-  /// Hard cap on tool-calling steps per user turn. Catches a model that
-  /// keeps invoking tools without converging on an answer.
-  final int maxSteps;
-
-  /// Headless liveness timeout (#26): no agent-sink event for this long
-  /// aborts the run with a diagnostic and exit 2 — Run D sat in a silent
-  /// futex wait 25+ minutes past its last wire request because the hang was
-  /// below the provider stack where no request timeout applies. 0 disables.
-  final int watchdogSeconds;
-
-  /// How long an SSE stream may be silent before we treat it as dead.
-  /// Generous default so a slow completion doesn't fail spuriously.
-  final Duration streamIdleTimeout;
-
-  /// How long to wait for response headers on a single HTTP attempt (LLM
-  /// requests). Threaded through to [sendWithRetry]. Distinct from
-  /// [streamIdleTimeout], which covers silence *during* the SSE stream.
-  final Duration requestTimeout;
-
-  /// Which rendering backend to use. [BackendChoice.notcurses] is the default
-  /// and is required; [BackendChoice.ansi] forces the ANSI renderer. Set from
-  /// `--backend`.
   final BackendChoice backend;
-
-  /// Verbose logging (`--verbose` / `-v`, or `COCOON_DEBUG=1`). Selects
-  /// `Level.FINE` at logging init so swallowed-exception and lifecycle records
-  /// are captured.
   final bool verbose;
-
-  /// Write a commented TOML template to `~/.tina/config` (chmod 600) and exit
-  /// (`--init-config`). Lets a new user bootstrap the persistent config.
   final bool initConfig;
-
-  /// Force the first-run setup overlay (`--setup`), even when the app is already
-  /// configured. Also fires automatically when no key resolves for the default
-  /// provider. Stored on [Config] so `main` can read it post-parse.
   final bool setup;
-
-  /// `name → identity` system-prompt override from the `[prompts.main]` config
-  /// table. The entry agent's identity is overridable here; a sub-agent inherits
-  /// its parent's resolved prompt, so the override propagates down. An absent
-  /// `main` entry means "use the built-in default identity". Empty by default.
-  final Map<String, String> promptOverrides;
-
-  /// Terminal color theme; carried through to the TUI's [Screen].
   final Theme theme;
-
-  /// Read-only session (`--safe-mode`): `write`/`edit`/`bash` are removed from
-  /// every agent and each is told it may only read. Inherently `--yolo`-proof
-  /// (yolo only relaxes the ask-gate; the tools simply don't exist). Defaults
-  /// off, so the `--help`/`--init-config`/`--list` short-circuits need no change.
-  final bool safeMode;
-
-  /// `--no-sandbox`: when false (the default), bash subprocesses run under an
-  /// OS-level write confinement — `sandbox-exec` on macOS, `bwrap` on Linux —
-  /// with writes limited to the project root + temp, so a runaway
-  /// `rm`/`find -delete` can't reach outside the project. `--no-sandbox`
-  /// disables it (e.g. for commands that must write to `$HOME`). Where no
-  /// backend exists (or bwrap/user namespaces are unavailable on Linux) the
-  /// sandbox degrades to pass-through with a one-time warning.
-  final bool sandboxEnabled;
-
-  /// `--sandbox-net`: opt-in network isolation for the bash sandbox —
-  /// `--unshare-net` under bwrap on Linux, `(deny network*)` + remote-write
-  /// deny under sandbox-exec on macOS. Off by default: builds, installs, and
-  /// `git fetch` need egress. Covers bash subprocesses only; the `fetch` /
-  /// `web_search` tools are NOT gated (a known residual egress path — see
-  /// docs/features/sandbox.md).
-  final bool sandboxNet;
-
-  /// `--sandbox-readonly`: opt-in tighter containment — drop the sandbox's
-  /// writable project grant (project stays readable), keep temp writable. For
-  /// pure read/analyze runs (`--prompt` reviews, audits). Like `--no-sandbox`,
-  /// a no-op where no backend exists.
-  final bool sandboxReadOnly;
-  // Deferred (tin-k9q3): `--sandbox-cpu` — CPU quota has no portable story
-  // (cgroups on Linux, sandbox-exec limits are macOS-only); revisit if a
-  // need lands.
-
-  /// `--trust` / `--no-trust`: an explicit override of the project-trust gate.
-  /// Null (the default) means "use the normal ask/skip/default logic" in
-  /// `resolveProjectTrust`. `true` forces loading AGENTS.md; `false` withholds
-  /// it. Useful for CI / known-good / known-bad directories.
   final bool? trustOverride;
-
-  /// Default trust behavior from `[trust] default` in ~/.tina/config
-  /// (`ask`/`always`/`never`). `ask` (the default) prompts in the TUI and skips
-  /// AGENTS.md headless.
   final TrustDefault trustDefault;
-
-  /// First-load environment-agent behavior from `[environment] auto_populate`
-  /// in ~/.tina/config (`ask`/`always`/`never`). `ask` (the default) shows a
-  /// picker on first load; `always` runs without asking; `never` skips.
-  final EnvironmentAutoPopulate environmentAutoPopulate;
-
-  /// The environment agent's `"provider/model"` from `[environment] model` in
-  /// ~/.tina/config. Null when absent → the shipped default
-  /// (`kDefaultEnvironmentModelRef`). Distinct from the startup model: the
-  /// environment agent is a dedicated one-off worker with its own model pick.
-  final String? environmentModel;
-
-  /// Whether the TUI captures the mouse wheel for chat scrollback from
-  /// `[tui] mouse_wheel` in ~/.tina/config. True enables xterm mouse-button
-  /// reporting so the wheel scrolls the transcript — which also routes
-  /// click-drags to the app, so native text selection needs Option/Alt
-  /// (macOS Terminal) or Shift (most terminals) held. False (the default)
-  /// leaves selection native and the wheel with the terminal (PgUp/PgDn
-  /// still scrolls the transcript).
   final bool mouseWheel;
-
-  /// The default `"provider/model"` for region agents from `[regions] model` —
-  /// the fast tier the main agent routes scoped questions to. null = region
-  /// agents inherit the main agent's model.
-  final String? regionsModel;
-
-  /// Whether `--model` was explicitly passed by the user. Must be carried
-  /// separately from [model] because resume precedence depends on whether
-  /// the user explicitly overrode the model: when `modelExplicit` is false,
-  /// a resumed session's active conversation meta model ref takes precedence
-  /// over the config file / default; when true, the CLI flag wins.
-  final bool modelExplicit;
-
-  /// Whether to force-acquire the per-session lock (`--force`). Only set when
-  /// the user explicitly opts in; otherwise the second process on a session
-  /// refuses to start.
   final bool forceLock;
 
-  /// Turn-level transport retries for the HEADLESS runner (#28): when a
-  /// provider stream fails MID-response with a transport-retryable error
-  /// (429/5xx, dropped connection), the agent re-sends the failed step up to
-  /// this many extra times (15s → 120s exponential backoff, or the server's
-  /// Retry-After capped at 120s when it supplies one) before aborting the
-  /// run. 0 disables — the first mid-stream error aborts as before. Read by
-  /// bin/tina.dart only; the TUI does not opt in.
-  final int transportRetryAttempts;
-
-  const Config({
-    required this.provider,
-    required this.apiKey,
-    required this.model,
-    required this.baseUrl,
-    required this.maxTokens,
-    required this.yolo,
+  Config({
+    required super.provider,
+    required super.apiKey,
+    required super.model,
+    required super.baseUrl,
+    required super.maxTokens,
+    required super.yolo,
     required this.showHelp,
     this.showVersion = false,
     required this.prompt,
-    required this.permissionRules,
+    required super.permissionRules,
     required this.resumeSessionId,
     required this.continueLatest,
     required this.listSessions,
     this.workflow,
-    this.defaultWorkflow,
-    required this.maxTurnTokens,
-    required this.maxSessionTokens,
-    required this.maxRequestTokens,
-    required this.maxGlobalTokens,
-    required this.maxSubAgentTokens,
-    required this.maxSubAgentDepth,
-    required this.maxSubAgentConcurrency,
-    required this.requestsPerMinute,
-    required this.autoCompactThreshold,
-    required this.maxSteps,
-    required this.watchdogSeconds,
-    required this.streamIdleTimeout,
-    required this.requestTimeout,
+    super.defaultWorkflow,
+    required super.maxTurnTokens,
+    required super.maxSessionTokens,
+    required super.maxRequestTokens,
+    required super.maxGlobalTokens,
+    required super.maxSubAgentTokens,
+    required super.maxSubAgentDepth,
+    required super.maxSubAgentConcurrency,
+    required super.requestsPerMinute,
+    required super.autoCompactThreshold,
+    required super.maxSteps,
+    required super.watchdogSeconds,
+    required super.streamIdleTimeout,
+    required super.requestTimeout,
     required this.backend,
     required this.verbose,
     required this.initConfig,
     required this.setup,
-    this.promptOverrides = const {},
+    super.promptOverrides = const {},
     this.theme = const Theme.defaults(),
-    this.safeMode = false,
-    this.sandboxEnabled = true,
-    this.sandboxNet = false,
-    this.sandboxReadOnly = false,
+    super.safeMode = false,
+    super.sandboxEnabled = true,
+    super.sandboxNet = false,
+    super.sandboxReadOnly = false,
     this.trustOverride,
     this.trustDefault = TrustDefault.ask,
-    this.environmentAutoPopulate = EnvironmentAutoPopulate.ask,
-    this.environmentModel,
+    super.environmentAutoPopulate = EnvironmentAutoPopulate.ask,
+    super.environmentModel,
     this.mouseWheel = false,
-    this.regionsModel,
-    this.permissionMode = PermissionMode.ask,
-    this.permissionClassifierModel,
-    this.modelExplicit = false,
+    super.regionsModel,
+    super.permissionMode = PermissionMode.ask,
+    super.permissionClassifierModel,
+    super.modelExplicit = false,
     this.forceLock = false,
-    this.transportRetryAttempts = 0,
+    super.transportRetryAttempts = 0,
     this.models,
   });
+
+  RuntimeConfig get runtime => RuntimeConfig(
+    provider: provider,
+    apiKey: apiKey,
+    model: model,
+    baseUrl: baseUrl,
+    maxTokens: maxTokens,
+    yolo: yolo,
+    permissionRules: permissionRules,
+    permissionMode: permissionMode,
+    permissionClassifierModel: permissionClassifierModel,
+    defaultWorkflow: defaultWorkflow,
+    maxTurnTokens: maxTurnTokens,
+    maxSessionTokens: maxSessionTokens,
+    maxRequestTokens: maxRequestTokens,
+    maxGlobalTokens: maxGlobalTokens,
+    maxSubAgentTokens: maxSubAgentTokens,
+    maxSubAgentDepth: maxSubAgentDepth,
+    maxSubAgentConcurrency: maxSubAgentConcurrency,
+    requestsPerMinute: requestsPerMinute,
+    autoCompactThreshold: autoCompactThreshold,
+    maxSteps: maxSteps,
+    watchdogSeconds: watchdogSeconds,
+    streamIdleTimeout: streamIdleTimeout,
+    requestTimeout: requestTimeout,
+    promptOverrides: promptOverrides,
+    safeMode: safeMode,
+    sandboxEnabled: sandboxEnabled,
+    sandboxNet: sandboxNet,
+    sandboxReadOnly: sandboxReadOnly,
+    environmentAutoPopulate: environmentAutoPopulate,
+    environmentModel: environmentModel,
+    regionsModel: regionsModel,
+    modelExplicit: modelExplicit,
+    transportRetryAttempts: transportRetryAttempts,
+  );
+
+  TerminalConfig get terminal =>
+      TerminalConfig(backend: backend, theme: theme, mouseWheel: mouseWheel);
+
+  ResumeRequest get resumeRequest => ResumeRequest(
+    resumeSessionId: resumeSessionId,
+    continueLatest: continueLatest,
+  );
+
+  StartupOptions get startup => StartupOptions(
+    showHelp: showHelp,
+    models: models,
+    showVersion: showVersion,
+    prompt: prompt,
+    listSessions: listSessions,
+    workflow: workflow,
+    verbose: verbose,
+    initConfig: initConfig,
+    setup: setup,
+    trustOverride: trustOverride,
+    trustDefault: trustDefault,
+    forceLock: forceLock,
+    resume: resumeRequest,
+  );
+
+  ResolvedLaunch get launch =>
+      ResolvedLaunch(runtime: runtime, terminal: terminal, startup: startup);
 
   bool get nonInteractive => prompt != null || workflow != null;
 
@@ -807,8 +699,7 @@ class Config {
         seconds: parsePositive('stream-idle-timeout', '60'),
       ),
       requestTimeout: Duration(seconds: parsePositive('request-timeout', '30')),
-      transportRetryAttempts:
-          parseBudget('transport-retry-attempts', '5'),
+      transportRetryAttempts: parseBudget('transport-retry-attempts', '5'),
       backend: switch (res['backend'] as String) {
         'ansi' => BackendChoice.ansi,
         _ => BackendChoice.notcurses,
@@ -839,48 +730,6 @@ class Config {
       forceLock: res['force'] as bool,
     );
   }
-
-  /// Build a token budget from the parsed flags. 0 in any field disables
-  /// that particular cap; if all three are 0 the budget is itself null.
-  TokenBudget? buildTokenBudget() {
-    if (maxTurnTokens == 0 && maxSessionTokens == 0 && maxRequestTokens == 0) {
-      return null;
-    }
-    return TokenBudget(
-      perTurnLimit: maxTurnTokens == 0 ? null : maxTurnTokens,
-      perSessionLimit: maxSessionTokens == 0 ? null : maxSessionTokens,
-      perRequestInputLimit: maxRequestTokens == 0 ? null : maxRequestTokens,
-    );
-  }
-
-  /// Build the per-session token budget applied to each sub-agent (orchestrator
-  /// / scouts / delegated work). Sub-agents otherwise run uncapped. null when
-  /// [maxSubAgentTokens] is 0 (no limit), matching [buildTokenBudget]'s null-when-
-  /// disabled convention.
-  TokenBudget? buildSubAgentBudget() {
-    if (maxSubAgentTokens == 0) return null;
-    return TokenBudget(perSessionLimit: maxSubAgentTokens);
-  }
-
-  /// Build a policy from the parsed config. `--yolo` makes every default
-  /// `allow`; CLI rules layer on top (so `--yolo --deny 'bash:rm *'` works).
-  /// The permission mode rides along on the policy (consulted at check time,
-  /// switchable at runtime via `/permissions <mode>`).
-  PermissionPolicy buildPolicy() {
-    final defaults = yolo
-        ? {
-            'read': PermissionDecision.allow,
-            'write': PermissionDecision.allow,
-            'edit': PermissionDecision.allow,
-            'bash': PermissionDecision.allow,
-          }
-        : null;
-    return PermissionPolicy(
-      defaults: defaults,
-      rules: permissionRules,
-      mode: permissionMode,
-    );
-  }
 }
 
 /// Resolve the startup permission mode: CLI flag > `[permissions] mode` file
@@ -903,7 +752,7 @@ PermissionMode _resolvePermissionMode(String? flagValue, String? fileValue) {
 ///
 /// Priority: explicit per-key [Theme] overrides > named variant > shipped defaults.
 Theme _resolveTheme(UserConfig? uc) {
-  if (uc?.theme != null) return uc!.theme!;
+  if (uc?.theme != null) return themeFromOverrides(uc!.theme);
   if (uc?.themeVariant != null) {
     return switch (uc!.themeVariant) {
       'light' => const Theme.light(),

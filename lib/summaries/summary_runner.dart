@@ -1,138 +1,24 @@
-import 'dart:async';
-import 'dart:io';
-
 import 'package:tina/composition/agent_composition.dart';
-import 'package:tina/composition/app_composition.dart';
-import 'package:tina/config.dart';
-import 'package:tina/platform/environment.dart';
+import 'package:tina/composition/runtime_resources.dart';
+import 'package:tina/config/runtime_config.dart';
 import 'package:tina_engine/tina_engine.dart';
+import '../application/project_execution.dart';
+import 'summary_index.dart';
+import 'summary_repository.dart';
 
-import 'sidecar_repo.dart';
-
-/// Drives the per-directory summary fleet: a headless orchestrator agent that
-/// fans out one sub-agent per stale directory, each writing its summary to the
-/// sidecar via [WriteSummaryTool]. After the run, the sidecar manifest is
-/// updated and a commit records the change.
-///
-/// Reuses the live agent fleet (`buildAppComposition` + `buildAgent` + a real
-/// [SubAgentScheduler] + [DelegateTool]) rather than a bespoke loop. The
-/// orchestrator is the entry agent with a summarization-specific `system:`
-/// prompt; each delegated sub-agent inherits that identity and runs read-only
-/// (read/search/grep/glob + `write_summary`), so it can read the directory and
-/// capture its summary but cannot touch source files.
-class SummaryRunner {
-  SummaryRunner({
-    required this.config,
-    required this.registry,
-    this.environment,
-    this.toolScope,
-    this.promptContext,
-    this.projectRoot,
-    this.dryRun = false,
-    this.repartition = false,
-    this.dirs,
-    this.spendLedger,
-    this.partition,
-    this.host,
-    this.cancelSignal,
-  });
-
-  final Config config;
-  final ProviderRegistry registry;
-  final Environment? environment;
-
-  /// Borrowed tools and mutation lock for an in-session, same-project run.
-  /// Standalone callers omit this to create an independent project scope.
-  final ProjectToolScope? toolScope;
-
-  /// Parent runtime context, including its captured trust decision.
-  final PromptContext? promptContext;
-
-  /// Where the fleet's agent prose + notices go. Defaults to a
-  /// [HeadlessHost] (raw stdout/stderr — correct headless, terminal-corrupting
-  /// inside the ncurses TUI); an in-session `/index` passes the conversation's
-  /// host so the fleet streams into the chat panel instead.
-  final HostInterface? host;
-
-  /// Completes to cancel the fleet mid-run (ESC in the TUI); forwarded to
-  /// [Agent.run], which aborts at the next step boundary.
-  final Future<void>? cancelSignal;
-
-  /// The LIVE session's ledger, when this runner is driven in-process
-  /// (`/index` inside a session): the fleet's ephemeral ledger is merged into
-  /// it after the run, so the fleet's spend counts toward the session total.
-  /// null headless (the fleet's ledger stays throwaway).
-  final SpendLedger? spendLedger;
-
-  /// The main repo root to summarize. Defaults to the process cwd at [run]
-  /// time (matching `bin/tina.dart`'s convention). Overridable so tests can
-  /// point at a temp repo without mutating the process-wide cwd (which would
-  /// race with concurrent tests).
-  final String? projectRoot;
-  final bool dryRun;
-  final bool repartition;
-
-  /// Restrict regeneration to these directories (e.g. a freshly allocated
-  /// region). null = everything stale.
-  final List<String>? dirs;
-
-  /// The partition to measure staleness against. When null, the runner falls
-  /// back to the repo's default partition (top-level dirs + packages/*/lib).
-  /// Callers that own allocations (SummaryIndex) pass the allocated layout —
-  /// the probe and the fleet MUST measure the same partition or the dance
-  /// reports one count and regenerates another.
-  final List<String>? partition;
-
-  /// Run the summary fleet against [projectRoot]. Returns the stale set that
-  /// was (or would be) regenerated.
-  Future<StaleSet> run() async {
-    // The sidecar repo root is `<projectRoot>/.tina`, so its `summaries/`
-    // dir lands at `<projectRoot>/.tina/summaries` — the same path
-    // the project tool scope sets as the `write_summary` tool's sidecarRoot.
-    // Keeping the two in sync is what lets the summarizer children write into
-    // the very repo this driver commits.
-    final project = projectRoot ?? _projectRoot();
-    final repo = SidecarSummaryRepo(
-      root: Directory('$project/.tina'),
-      projectRoot: Directory(project),
-    );
-    repo.init();
-    var manifest = repo.loadManifest();
-    if (repartition) {
-      manifest = SummaryManifest.empty();
-    }
-    final partition = this.partition ?? repo.defaultPartition();
-    final stale = repo.staleDirs(partition, manifest);
-    // A dirs filter restricts regeneration to the named dirs (allocations);
-    // deletions are never filtered — a dir out of the partition is gone.
-    final toRegenerate = dirs == null
-        ? stale.toRegenerate
-        : stale.toRegenerate.where(dirs!.contains).toList();
-    final effective = StaleSet(
-      toRegenerate: toRegenerate,
-      deleted: stale.deleted,
-    );
-
-    if (dryRun) {
-      return effective;
-    }
-    if (effective.isEmpty && !repartition) {
-      return effective;
-    }
-
-    final app = await buildAppComposition(
-      config: config,
-      registry: registry,
-      environment: environment,
-      projectRoot: project,
-      toolScope: toolScope,
-      promptContext: promptContext,
-    );
-
+/// Executes an already-planned fleet. Owns the execution scope and provider;
+/// borrows interaction hosts and the factory's project tool scope.
+class SummaryRunner implements SummaryFleet {
+  final RuntimeConfig config;
+  final ProjectExecutionFactory executionFactory;
+  SummaryRunner({required this.config, required this.executionFactory});
+  @override
+  Future<SpendLedger> run(SummaryPlan plan, RunInteraction interaction) async {
+    final app = await executionFactory();
     final resources = RuntimeResources()..own(app.dispose);
     return resources.run(() async {
-      final host = this.host ?? HeadlessHost();
-      if (this.host == null) resources.own(host.dispose);
+      final host = interaction.host ?? HeadlessHost();
+      if (interaction.host == null) resources.own(host.dispose);
       // The fleet's own provider, built on demand from this ephemeral
       // composition and closed with it below — no other path shares it.
       final provider = app.buildStartupProvider();
@@ -144,48 +30,28 @@ class SummaryRunner {
       final agent = buildAgent(
         pipeline: app.pipeline,
         scheduler: app.scheduler,
-        conversationId: app.initialConversationId,
+        conversationId: 'summary',
         provider: provider,
         host: host,
         policy: app.policy,
         config: config,
         withSubAgents: true,
-        system: _orchestratorPrompt(effective.toRegenerate),
+        system: _orchestratorPrompt(plan.work.toRegenerate),
       );
 
       final history = <Message>[];
       await agent.run(
         history: history,
-        userInput: _userPrompt(effective.toRegenerate),
-        cancelSignal: cancelSignal,
+        userInput: _userPrompt(plan.work.toRegenerate),
+        cancelSignal: interaction.cancelSignal,
       );
 
       // Finish owned work before recording results or merging usage.
       await resources.dispose();
 
-      // After the fleet ran, record the regenerated + deleted dirs and commit.
-      final updated = repo.record(
-        manifest: manifest,
-        regenerated: effective.toRegenerate,
-        deleted: effective.deleted,
-      );
-      repo.saveManifest(updated);
-      final commitSha = repo.headCommit();
-      repo.commit(
-        regenerated: effective.toRegenerate,
-        deleted: effective.deleted,
-        commitSha: commitSha,
-      );
-
-      // An in-process /index counts toward the session's spend: fold the
-      // fleet's ephemeral ledger into the live one (the fleet ran on its own
-      // composition + throttle, so only tokens are merged).
-      spendLedger?.merge(app.spendLedger);
-      return effective;
+      return app.spendLedger;
     });
   }
-
-  String _projectRoot() => Directory.current.path;
 
   String _userPrompt(List<String> staleDirs) {
     if (staleDirs.isEmpty) {

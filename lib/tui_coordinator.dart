@@ -1,3 +1,7 @@
+import 'package:tina/composition/project_services.dart';
+import 'application/conversation_operations.dart';
+import 'pipeline/tina_interviewer.dart';
+import 'package:tina/config/provider_selection.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
@@ -15,7 +19,6 @@ import 'package:tina/config.dart';
 import 'package:tina/composition/provider_resolution.dart';
 import 'package:tina/config/spawn_mru.dart';
 import 'package:tina/config/user_config.dart';
-import 'package:tina/environment/environment_index.dart';
 import 'package:tina/environment/environment_record.dart';
 import 'package:tina/environment/environment_runner.dart'
     show kDefaultEnvironmentModelRef;
@@ -37,7 +40,6 @@ import 'package:tina/platform/terminal_geometry.dart';
 import 'package:tina/project/gitignore_guard.dart';
 import 'package:tina/session_controller.dart';
 import 'package:tina/session_commands/command_context.dart' show TmuxExitChoice;
-import 'package:tina/summaries/summary_index.dart';
 import 'package:tina/conversation.dart';
 import 'package:tina/session_manager.dart';
 import 'package:tina/tmux/tmux_support.dart';
@@ -138,7 +140,8 @@ String panelLabel({required String role, required String model}) {
 /// top-level entry point.
 class TuiCoordinator {
   final AppComposition app;
-  final Config config;
+  final RuntimeConfig config;
+  final TerminalConfig terminal;
   final LlmProvider provider;
   final PermissionPolicy policy;
   final SessionStore store;
@@ -217,6 +220,7 @@ class TuiCoordinator {
 
   TuiCoordinator._({
     required this.app,
+    required this.terminal,
     required this.config,
     required this.provider,
     required this.policy,
@@ -251,6 +255,9 @@ class TuiCoordinator {
 
   static Future<TuiCoordinator> create({
     required AppComposition app,
+    TerminalConfig? terminal,
+    // Optional frontend presenter; the default attaches a tiled side panel.
+    void Function(ConversationCreated created)? sideConversationPresenter,
     Stdio? io,
     TerminalGeometry? terminalGeometry,
     Future<UserConfig?> Function()? setupOverlay,
@@ -262,6 +269,9 @@ class TuiCoordinator {
     Future<({String ref, ToolProfile profile})?> Function()? spawnTargetPicker,
   }) async {
     final config = app.config;
+    final terminalConfig =
+        terminal ??
+        (config is Config ? config.terminal : const TerminalConfig());
     final reg = app.registry;
     // The initial conversation's provider, built on demand and owned by that
     // Conversation (closed with it on teardown / model swap). Later
@@ -318,7 +328,7 @@ class TuiCoordinator {
         hasMenuBar: _menuBarEnabled,
         split: false,
       );
-      final (:screen, :warning) = _createScreen(config, stdio, layout);
+      final (:screen, :warning) = _createScreen(terminalConfig, stdio, layout);
       acquired.own(screen.leaveAltScreen);
 
       // Use the notcurses native input backend when rendering through notcurses.
@@ -383,17 +393,6 @@ class TuiCoordinator {
       // (/spawn, /branch, /model): the shared `[providers.<id>] key` lookup,
       // then a config-tuned registry build with the overlay's maxTokens. Throws
       // on unresolvable refs — each overlay reports its own error message.
-      LlmProvider _buildPickedProvider(
-        String selected,
-        String? apiKeyOverride, {
-        int? maxTokens,
-      }) => scheduler.providers.build(
-        selected,
-        apiKeyOverride: apiKeyOverride,
-        maxTokens: maxTokens,
-        requestTimeout: config.requestTimeout,
-      );
-
       late final SessionManager sessionManager;
       // Forward-declared so the menu/session-menu closures below can reference
       // them; they're assigned before the closures ever run.
@@ -478,8 +477,21 @@ class TuiCoordinator {
         workflowsDir: workflowsDir,
         runsRoot: runsRoot,
         defaultModelReference: '${app.config.provider}/${app.config.model}',
-        screen: screen,
-        editor: editor,
+        interviewerBuilder: (sink) => TinaInterviewer(
+          screen: screen,
+          editor: editor,
+          attentionQueue: attentionQueue,
+          sink: sink,
+        ),
+        onNodeStart: (sink, id, task) {
+          if (sink is TuiConversationHost) {
+            sink.showMessage(
+              '──── node: $id ────',
+              style: HostMessageStyle.dim,
+            );
+            sink.showMessage(task, style: HostMessageStyle.user);
+          }
+        },
         // Workflow node agents prompt per write like the main agent; the
         // prompt renders into the run's own panel (see
         // WorkflowPermissionAsker — a run panel's host is inactive, so its
@@ -512,7 +524,6 @@ class TuiCoordinator {
                   notice: runSink.notice,
                 );
         },
-        attentionQueue: attentionQueue,
       );
       final supervisor = WorkflowSupervisor(
         run:
@@ -544,7 +555,7 @@ class TuiCoordinator {
         projectRoot: Directory.current.path,
         defaultModel: config.regionsModel,
       );
-      final summaryIndex = SummaryIndex(
+      final summaryIndex = buildSummaryIndex(
         config: app.config,
         registry: app.registry,
         environment: app.environment,
@@ -938,6 +949,7 @@ class TuiCoordinator {
         autoCompactThreshold: config.autoCompactThreshold,
         environment: app.environment,
       );
+      controller.shutdownWorkflows = supervisor.shutdown;
       // Workflow completion → agent turn: the supervisor's onComplete hook wakes
       // the launching conversation with a synthetic turn carrying the outcome
       // (auto agent turn on completion), so the agent reports and acts on it.
@@ -1376,8 +1388,15 @@ class TuiCoordinator {
       /// surface tracking). Centralized so every spawn site gets the same
       /// detach-then-relay sequence and a future site can't drift.
       TuiConversationHost _makeSpawnedHost(String conversationId) {
-        final chat = ScrollingTextRegion(screen, bounds: screen.layout.info)
-          ..detach();
+        // Allocate a valid detached surface before registration, without
+        // splitting the visible layout. Attachment supplies its final bounds.
+        final bounds = ScreenLayout.fromSize(
+          screen.layout.width,
+          screen.layout.height,
+          hasMenuBar: _menuBarEnabled,
+          split: true,
+        ).info;
+        final chat = ScrollingTextRegion(screen, bounds: bounds)..detach();
         return TuiConversationHost(
           conversationId: conversationId,
           chat: chat,
@@ -1698,336 +1717,85 @@ class TuiCoordinator {
       // and `/branch` capture this local.
       final pickTarget = spawnTargetPicker ?? pickSpawnedTarget;
 
-      // `/spawn`: pick a model and add a real (no-tool) Conversation rendered as
-      // a focusable panel in the right column. Splits the layout to make room.
-      controller.openSpawn = () async {
+      final operations = ConversationOperations(
+        sessions: sessionManager,
+        config: config,
+        pipeline: pipeline,
+        providers: scheduler.providers,
+        store: store,
+        pauseGate: scheduler.pauseGate,
+        hostFactory: _makeSpawnedHost,
+      );
+
+      Future<void> createSideConversation({required bool branch}) async {
+        final target = ConversationTarget(
+          sessionManager.activeId,
+          sessionManager.activeConversationId,
+        );
+        final sourceHost = sessionManager.activeConversation.host;
         final pick = await pickTarget();
         if (pick == null) return;
-        final selected = pick.ref;
-        final profile = pick.profile;
-
-        // The shared helper loaded the user config internally; load it again for
-        // the spawn-side provider + prompt assembly below (cheap, reused by the
-        // model-picker cache).
-        final envMap = app.environment.env;
-        final cfg = loadUserConfig(env: envMap);
-
-        // Split the layout on the first spawned panel; the primary stays visible
-        // (its host won't detach while spawned panels share the screen). The
-        // canonical sequence lives in [ResizeCoordinator.handleResize]; set
-        // stayAttachedWhenInactive first (first-spawn-specific), then repoint.
-        if (!panelManager.hasSpawnedFrames) {
-          initialHost.stayAttachedWhenInactive = true;
-          resizeCoordinator.handleResize(split: true, drawInfoFrame: false);
-        }
-
-        // Build the no-tool provider for the picked model.
-        final providerId = refProviderForBuild(selected) ?? '';
-        final apiKeyOverride = apiKeyForPickedRef(selected, cfg);
-        final LlmProvider spawnProvider;
+        final cfg = loadUserConfig(env: app.environment.env);
+        final request = CreateConversationRequest(
+          target: target,
+          modelReference: pick.ref,
+          profile: pick.profile,
+          apiKeyOverride: apiKeyForPickedRef(pick.ref, cfg),
+          promptOverrides: cfg.prompts,
+        );
+        final ConversationCreated created;
         try {
-          spawnProvider = _buildPickedProvider(
-            selected,
-            apiKeyOverride,
-            maxTokens: 512,
-          );
+          created = branch
+              ? await operations.branch(request)
+              : await operations.spawn(request);
         } catch (e) {
-          sessionManager.activeConversation.host.showMessage(
-            'error: failed to build provider: $e\n',
+          sourceHost.showMessage(
+            'error: failed to create conversation: $e\n',
             style: HostMessageStyle.error,
           );
           return;
         }
-
-        // Derive the agent from the chosen tool profile: its tool set (the
-        // spawned panel runs under the entry agent's identity, honoring any
-        // [prompts.main] override) and a policy that allows exactly those tools so
-        // the side panel never prompts for them. --safe-mode: drop write/edit/bash
-        // from the spawned side panel too.
-        final eff = config.safeMode
-            ? stripForSafeMode(pipeline.tools.toolSetFor(profile))
-            : pipeline.tools.toolSetFor(profile);
-        final spawnSystem = resolveMainPrompt(
-          pipeline,
-          overrides: cfg.prompts,
-          safeMode: config.safeMode,
-          loadProjectContext: pipeline.loadProjectContext,
-        );
-        final profileToolNames = eff.map((t) => t.schema.name).toList();
-        final spawnTools = ToolRegistry(eff);
-        // Profile tools are pre-approved, EXCEPT bash: it's the uncontained
-        // destructive vector, so it inherits the user's bash decision (ask → the
-        // panel prompts; allow under --yolo/--allow bash:…; deny under --deny).
-        final bashDecision = config.buildPolicy().check('bash', const {});
-        final spawnPolicy = PermissionPolicy(
-          rules: [
-            for (final n in profileToolNames)
-              if (n != 'bash')
-                PermissionRule(
-                  toolName: n,
-                  pattern: '*',
-                  decision: PermissionDecision.allow,
-                ),
-            if (profileToolNames.contains('bash'))
-              PermissionRule(
-                toolName: 'bash',
-                pattern: '*',
-                decision: bashDecision,
-              ),
-          ],
-        );
-
-        // Register the spawn in the session manifest — this mints the
-        // conversation id AND records the spawn meta (role, model, policy, system
-        // prompt, parent link) so the side panel is rebuilt on resume. The
-        // recorder's _lazyInit only registers meta for a brand-new session; since
-        // the primary session already exists, an explicit call is required.
-        //
-        // A fresh session persists lazily, so its directory may not exist yet
-        // when /spawn is the first action (or before the primary's first write
-        // resolves). createConversationWithMeta throws on a missing session, so
-        // materialize the primary session first — a no-op once it has written.
-        // The spawn must live in the SAME on-disk session as the primary. The
-        // primary always persists through initialRecorder, whose session id is
-        // therefore the source of truth: on a fresh start the on-disk id is
-        // minted at first-write time and diverges from the in-memory placeholder
-        // (sessionManager.active.id), so we must not use the latter here.
-        await initialRecorder.ensureRegistered();
-        final spawnSessionId = initialRecorder.sessionId;
-        final chatId = await store.createConversationWithMeta(
-          spawnSessionId,
-          ConversationMetaInput.spawn(
-            providerId: providerId,
-            providerModel: spawnProvider.model,
-            policy: spawnPolicy,
-            systemPrompt: spawnSystem,
-            targetName: profile.name,
-            parentConversationId: sessionManager.activeConversationId,
-          ),
-        );
-        // Record the tree edge so the layout can nest this panel under its parent
-        // (the focused conversation at spawn time) and indent it by depth.
-        tree.parentOf[chatId] = sessionManager.activeConversationId;
-        tree.baseLabel[chatId] = panelLabel(
-          role: profile.name,
-          model: selected,
-        );
-        // Bounded chat region for the side column, detached until laid out.
-        final host = _makeSpawnedHost(chatId);
-        final spawnAgent = Agent(
-          provider: spawnProvider,
-          tools: spawnTools,
-          sink: host,
-          policy: spawnPolicy,
-          asker: host.askPermission,
-          system: spawnSystem,
-          pauseGate: scheduler.pauseGate,
-          maxSteps: 50,
-        );
-        // Point a recorder at the already-registered conversation so the side
-        // panel's transcript is persisted into the real file. The conversation
-        // meta was written above via createConversationWithMeta, so attach()
-        // (not _lazyInit) points the recorder at the existing file — subsequent
-        // appends from the session controller write it automatically.
-        final spawnRecorder = SessionRecorder(
-          store,
-          spawnSessionId,
-          chatId,
-          providerId: providerId,
-        );
-        spawnRecorder.attach(spawnSessionId, chatId);
-        final conv = Conversation(
-          id: chatId,
-          label: '${profile.name} (${selected})',
-          agent: spawnAgent,
-          provider: spawnProvider,
-          host: host,
-          policy: spawnPolicy,
-          recorder: spawnRecorder,
-        );
-        sessionManager.active.addConversation(conv);
-        // Bind the conversation to a frame (chrome, content adapter, focus, busy
-        // cue) and register it in the tiling list + focus ring. Focus resolves to
-        // this conversation (by id) at focus time via the coordinator.
-        final panel = contentCoordinator.bindSpawned(
-          host: host,
-          label: panelLabel(role: profile.name, model: selected),
-        );
-
-        panelManager.layout();
-        contentCoordinator.relayContent();
-        focusManager.focusPanel(panel);
-      };
-
-      // `/branch`: fork the active conversation into a brand-new side panel. Runs
-      // the SAME model+role overlay sequence as `/spawn` (via pickSpawnedTarget),
-      // then creates a new conversation whose transcript is a copy of the parent's
-      // history. The parent is left untouched — only focus moves to the branch,
-      // and the secondary host's focus wiring (resolved by id) keeps the manifest
-      // anchor on the primary (persist:false) — and the branch persists under its own id in the same session so
-      // it resumes (kind=branch, parentConversationId set) with the fork history.
-      controller.openBranch = () async {
-        final pick = await pickTarget();
-        if (pick == null) return;
-        final selected = pick.ref;
-        final profile = pick.profile;
-
-        // Split the layout on the first branched panel, exactly like /spawn. The
-        // canonical sequence lives in [ResizeCoordinator.handleResize]; set
-        // stayAttachedWhenInactive first (first-spawn-specific), then repoint.
-        if (!panelManager.hasSpawnedFrames) {
-          initialHost.stayAttachedWhenInactive = true;
-          resizeCoordinator.handleResize(split: true, drawInfoFrame: false);
-        }
-
-        // Build the provider for the picked model (mirrors /spawn).
-        final providerId = refProviderForBuild(selected) ?? '';
-        final envMap = app.environment.env;
-        final cfg = loadUserConfig(env: envMap);
-        final apiKeyOverride = apiKeyForPickedRef(selected, cfg);
-        final LlmProvider branchProvider;
-        try {
-          branchProvider = _buildPickedProvider(
-            selected,
-            apiKeyOverride,
-            maxTokens: 512,
-          );
-        } catch (e) {
-          sessionManager.activeConversation.host.showMessage(
-            'error: failed to build provider: $e\n',
-            style: HostMessageStyle.error,
+        // Keep the valid persisted conversation if presentation fails.
+        final conv = created.conversation;
+        if (sessionManager.activeId != created.sessionId) {
+          sourceHost.showMessage(
+            'Created ${conv.label} in its original session.\n',
+            style: HostMessageStyle.dim,
           );
           return;
         }
+        try {
+          if (sideConversationPresenter != null) {
+            sideConversationPresenter(created);
+            return;
+          }
+          final panel = _buildSpawnPanel(
+            conversationId: conv.id,
+            parentConversationId: created.parentConversationId,
+            label: panelLabel(role: pick.profile.name, model: pick.ref),
+            sinkHost: conv.host as TuiConversationHost,
+          );
+          if (branch && conv.history.isNotEmpty)
+            replayHistory(conv.host, conv.history);
+          focusManager.focusPanel(panel);
+        } catch (e) {
+          sourceHost.showMessage(
+            'Conversation ${conv.id} was saved, but its panel could not be attached: $e\n',
+            style: HostMessageStyle.error,
+          );
+        }
+      }
 
-        // Derive the agent from the chosen tool profile (mirrors /spawn).
-        final eff = config.safeMode
-            ? stripForSafeMode(pipeline.tools.toolSetFor(profile))
-            : pipeline.tools.toolSetFor(profile);
-        final branchSystem = resolveMainPrompt(
-          pipeline,
-          overrides: cfg.prompts,
-          safeMode: config.safeMode,
-          loadProjectContext: pipeline.loadProjectContext,
-        );
-        final profileToolNames = eff.map((t) => t.schema.name).toList();
-        final branchTools = ToolRegistry(eff);
-        // As with /spawn: profile tools pre-approved except bash, which inherits
-        // the user's bash decision (ask → prompt; allow under --yolo; deny …).
-        final bashDecision = config.buildPolicy().check('bash', const {});
-        final branchPolicy = PermissionPolicy(
-          rules: [
-            for (final n in profileToolNames)
-              if (n != 'bash')
-                PermissionRule(
-                  toolName: n,
-                  pattern: '*',
-                  decision: PermissionDecision.allow,
-                ),
-            if (profileToolNames.contains('bash'))
-              PermissionRule(
-                toolName: 'bash',
-                pattern: '*',
-                decision: bashDecision,
-              ),
-          ],
-        );
-
-        // Register the branch in the session manifest, exactly as /spawn does —
-        // minting a new conversation id and recording the branch meta (role,
-        // model, policy, system prompt, parent link). Materialize the primary
-        // session first on the lazy-start path. Documented at the /spawn
-        // createConversationWithMeta block: the branch lives in the SAME on-disk
-        // session as the primary, and initialRecorder.sessionId is the source of
-        // truth for that id.
-        await initialRecorder.ensureRegistered();
-        final branchSessionId = initialRecorder.sessionId;
-        final branchMeta = ConversationMetaInput.branch(
-          providerId: providerId,
-          providerModel: branchProvider.model,
-          policy: branchPolicy,
-          systemPrompt: branchSystem,
-          targetName: profile.name,
-          parentConversationId: sessionManager.activeConversationId,
-        );
-        final chatId = await store.createConversationWithMeta(
-          branchSessionId,
-          branchMeta,
-        );
-        tree.parentOf[chatId] = sessionManager.activeConversationId;
-        tree.baseLabel[chatId] = panelLabel(
-          role: profile.name,
-          model: selected,
-        );
-
-        // Build the panel + host via the shared spawn/branch helper. The parent
-        // is read here (its history) but never mutated — .toList() copies, and the
-        // on-disk write below is a separate file.
-        final parent = sessionManager.activeConversation;
-        final host = _makeSpawnedHost(chatId);
-        // conv is built below (it owns the conversation we focus), but focus is
-        // resolved by id at focus time via the coordinator, so no rebind is
-        // needed after conv exists.
-        final panel = _buildSpawnPanel(
-          conversationId: chatId,
-          parentConversationId: sessionManager.activeConversationId,
-          label: panelLabel(role: profile.name, model: selected),
-          sinkHost: host,
-        );
-
-        // Point a recorder at the already-registered conversation, then write the
-        // forked history into its .jsonl. The meta was written above via
-        // createConversationWithMeta, so attach() (not _lazyInit) points the
-        // recorder at the existing file. replace() atomically seeds the file with
-        // a copy of the parent's messages so the branch is resumable with the
-        // fork — and independent of the parent from here on.
-        final branchRecorder = SessionRecorder(
-          store,
-          branchSessionId,
-          chatId,
-          providerId: providerId,
-        );
-        branchRecorder.attach(branchSessionId, chatId);
-        await branchRecorder.replace(parent.history.toList());
-
-        final conv = Conversation(
-          id: chatId,
-          label: '${profile.name} (${selected})',
-          agent: Agent(
-            provider: branchProvider,
-            tools: branchTools,
-            sink: host,
-            policy: branchPolicy,
-            asker: host.askPermission,
-            system: branchSystem,
-            pauseGate: scheduler.pauseGate,
-            maxSteps: 50,
-          ),
-          provider: branchProvider,
-          host: host,
-          policy: branchPolicy,
-          recorder: branchRecorder,
-          // Seed the in-memory history with the parent's turns so the live panel
-          // renders the fork immediately; the on-disk .jsonl written above makes
-          // resume find them too. A fresh copy — never the parent's list.
-          initialHistory: parent.history.toList(),
-        );
-
-        sessionManager.active.addConversation(conv);
-        // Paint the forked history into the panel's chat region — `initialHistory`
-        // above only seeds the Conversation's in-memory list (and the .jsonl);
-        // it does NOT render anything. Without this, the branch carries the
-        // parent's turns (sends to the model, persists) but the panel is blank
-        // until the first live turn. Mirrors the restore path (line ~926).
-        if (conv.history.isNotEmpty) replayHistory(conv.host, conv.history);
-        // The panel's focus was already wired by bindSpawned when the panel was
-        // built — it resolves to this branch conversation (by id) at focus time,
-        // leaving the manifest anchor on the parent (secondary host → persist:false).
-        focusManager.focusPanel(panel);
-      };
+      controller.openSpawn = () => createSideConversation(branch: false);
+      controller.openBranch = () => createSideConversation(branch: true);
 
       // `/model`: pick a provider/model and switch the active conversation to it.
       controller.openModelPicker = () async {
+        final target = ConversationTarget(
+          sessionManager.activeId,
+          sessionManager.activeConversationId,
+        );
+        final sourceHost = sessionManager.activeConversation.host;
         final envMap = app.environment.env;
         final cfg = loadUserConfig(env: envMap);
         final configured = cfg.providers.keys.toSet();
@@ -2071,33 +1839,31 @@ class TuiCoordinator {
         );
         if (selected == null) return;
 
-        // Parse and build the new provider.
-        final apiKeyOverride = apiKeyForPickedRef(selected, cfg);
-        final LlmProvider nextProvider;
+        final ModelChanged changed;
         try {
-          nextProvider = _buildPickedProvider(selected, apiKeyOverride);
-        } catch (e) {
-          sessionManager.activeConversation.host.showMessage(
-            'error: $e\n',
-            style: HostMessageStyle.error,
+          changed = await operations.changeModel(
+            ChangeModelRequest(
+              target: target,
+              modelReference: selected,
+              apiKeyOverride: apiKeyForPickedRef(selected, cfg),
+            ),
           );
+        } catch (e) {
+          sourceHost.showMessage('error: $e\n', style: HostMessageStyle.error);
           return;
         }
-
-        final conv = sessionManager.activeConversation;
-        final prev = '${conv.label}';
-        // The label is `role (model)`; keep the role, swap only the model.
-        final role = prev.contains(' (') ? prev.split(' (').first : 'main';
-        conv.provider = nextProvider;
-        conv.label = panelLabel(role: role, model: selected);
-        // Persist the swap so a resume rebuilds this conversation under the
-        // model it ended with, not the one it was created with.
-        final rec = conv.recorder;
-        if (rec != null) {
-          unawaited(
-            rec
-                .updateModel(selected, label: conv.label)
-                .catchError((Object e) {}),
+        final conv = changed.conversation;
+        final prev = changed.previousLabel;
+        if (changed.cleanupError != null) {
+          conv.host.showMessage(
+            'Model changed, but closing the old provider failed: ${changed.cleanupError}\n',
+            style: HostMessageStyle.warning,
+          );
+        }
+        if (changed.persistenceError != null) {
+          conv.host.showMessage(
+            'Model changed, but saving it failed: ${changed.persistenceError}\n',
+            style: HostMessageStyle.warning,
           );
         }
         final panel = (conv.host as TuiConversationHost).panel;
@@ -2137,6 +1903,7 @@ class TuiCoordinator {
 
       final coordinator = TuiCoordinator._(
         app: app,
+        terminal: terminalConfig,
         config: config,
         provider: provider,
         policy: policy,
@@ -2180,7 +1947,7 @@ class TuiCoordinator {
       controller.summaryIndex = summaryIndex;
       // The environment agent service: `/index`'s environment branch runs it in
       // the background, and first load (below) populates the record.
-      final environmentIndex = EnvironmentIndex(
+      final environmentIndex = buildEnvironmentIndex(
         config: app.config,
         registry: app.registry,
         environment: app.environment,
@@ -2321,7 +2088,6 @@ class TuiCoordinator {
               return host;
             }
 
-            final cancel = Completer<void>();
             // The env panel's host is a BACKGROUND host — its own asker
             // auto-denies, which would silently starve the ceremony of every
             // gated tool (bash/write/edit all "denied", nothing ever sticks).
@@ -2352,18 +2118,20 @@ class TuiCoordinator {
             // Esc-Esc cancels the in-flight environment run. The main REPL remains responsive.
             // For simplicity we bind cancellation to the initial conversation's host busy state;
             // the agent run respects cancelSignal.
-            unawaited(() async {
+            controller.jobs.start('environment', app.initialConversationId, (
+              job,
+            ) async {
               try {
                 final idx = controller.environmentIndex;
                 if (idx == null) return;
                 final ok = await idx.refresh(
                   host: envHost,
-                  cancelSignal: cancel.future,
+                  cancelSignal: job.cancelled,
                   modelRef: envModelRef,
                   asker: envAskerResolved,
                   scoutSinkFactory: scoutPanelSink,
                 );
-                if (cancel.isCompleted) {
+                if (job.cancellationRequested) {
                   initialHost.showMessage(
                     '[environment agent cancelled]\n',
                     style: HostMessageStyle.warning,
@@ -2388,7 +2156,7 @@ class TuiCoordinator {
                   style: HostMessageStyle.error,
                 );
               }
-            }());
+            });
             return;
           }
 
@@ -2699,7 +2467,7 @@ class TuiCoordinator {
     // and burn the stream so the REPL's input backend can't subscribe
     // ("Stream has already been listened to"). With a terminal there's no
     // input yet at this point, so the probe is safe and worth running.
-    if (config.theme == const Theme.defaults() &&
+    if (terminal.theme == const Theme.defaults() &&
         screen.backend is! NotcursesBackend &&
         screen.io.hasTerminal) {
       final detected = await probeTerminalBg(probeStdin: screen.io.stdin);
@@ -2871,7 +2639,8 @@ class TuiCoordinator {
       ..own(menuBar.dispose)
       ..own(editor.disposeInput)
       ..own(() => app.pipeline.imageRenderer.coordinate(null))
-      ..own(subAgentScheduler.dispose);
+      ..own(subAgentScheduler.dispose)
+      ..own(controller.shutdown);
     await resources.dispose();
   }
 
@@ -2968,7 +2737,7 @@ void emergencyTerminalRestore() {
 /// - `notcurses`: force notcurses. If it can't initialize, throw
 ///   [BackendUnavailableError] — never fall back silently.
 ({Screen screen, String? warning}) _createScreen(
-  Config config,
+  TerminalConfig config,
   Stdio io,
   ScreenLayout layout,
 ) {

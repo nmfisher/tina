@@ -8,6 +8,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:tina/composition/project_services.dart';
+
 import 'package:tina/platform/environment.dart';
 import 'package:tina/summaries/allocations_store.dart';
 import 'package:tina/summaries/sidecar_repo.dart';
@@ -38,7 +40,7 @@ void main() {
     } catch (_) {}
   });
 
-  SummaryIndex _index(ProviderRegistry registry) => SummaryIndex(
+  SummaryIndex _index(ProviderRegistry registry) => buildSummaryIndex(
         config: testFleetConfig(registry),
         registry: registry,
         environment: const PlatformEnvironment(),
@@ -163,7 +165,7 @@ void main() {
       () async {
     final registry = anthropicRegistry(provider);
     final live = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
-    final idx = SummaryIndex(
+    final idx = buildSummaryIndex(
       config: testFleetConfig(registry),
       registry: registry,
       environment: const PlatformEnvironment(),
@@ -181,7 +183,7 @@ void main() {
 
   test('refresh respects the allocated partition only (finding A)', () async {
     final registry = anthropicRegistry(provider);
-    final idx = SummaryIndex(
+    final idx = buildSummaryIndex(
       config: testFleetConfig(registry),
       registry: registry,
       environment: const PlatformEnvironment(),

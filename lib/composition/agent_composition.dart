@@ -1,7 +1,7 @@
 import 'package:attractor/attractor.dart';
 import 'package:tina_engine/tina_engine.dart';
 
-import '../config.dart';
+import '../config/runtime_config.dart';
 import '../pipeline/ask_user_tool.dart';
 import '../pipeline/launch_workflow_tool.dart';
 import '../pipeline/workflow_supervisor.dart';
@@ -15,7 +15,7 @@ import '../summaries/summary_index.dart';
 /// role with `canDelegate` can fan out further (capped by the scheduler's
 /// maxDepth). Pass a non-default [pipeline] to reuse the wiring in tests.
 SubAgentScheduler createScheduler({
-  required Config config,
+  required RuntimeConfig config,
   required ProviderRegistry registry,
   LlmProviderFactory? providers,
   required AgentPipeline pipeline,
@@ -65,11 +65,11 @@ Agent buildAgent({
   required LlmProvider provider,
   required HostInterface host,
   required PermissionPolicy policy,
-  required Config config,
+  required RuntimeConfig config,
   bool withSubAgents = true,
   WorkflowSupervisor? supervisor,
   RegionRegistry? regions,
-  SummaryIndex? summaryIndex,
+  SummaryInspection? summaryIndex,
   Future<List<Answer>> Function(List<Question>)? askUser,
   // Overrides the agent's permission asker (defaults to the host's). The
   // first-load environment agent runs on a background panel host whose own

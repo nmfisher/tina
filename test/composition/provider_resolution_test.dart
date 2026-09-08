@@ -1,6 +1,7 @@
+import 'package:tina/config/provider_selection.dart';
 import 'package:test/test.dart';
 import 'package:tina/composition/provider_resolution.dart';
-import 'package:tina/config.dart';
+import 'package:tina/config/runtime_config.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina_engine/tina_engine.dart';
 
@@ -8,9 +9,9 @@ import 'package:tina_engine/tina_engine.dart';
 /// returns a throwaway provider. Lets us assert exactly what [buildResolved]
 /// handed to the registry without standing up a real provider.
 ProviderBuilder _recording(List<ProviderInstance> into) => (c) {
-      into.add(c);
-      return _NoopProvider(c.model);
-    };
+  into.add(c);
+  return _NoopProvider(c.model);
+};
 
 ProviderDescriptor _desc(
   String id, {
@@ -20,15 +21,14 @@ ProviderDescriptor _desc(
   ],
   Map<String, ModelInfo> models = const {},
   required ProviderBuilder builder,
-}) =>
-    ProviderDescriptor(
-      id: id,
-      name: id,
-      authSources: auth,
-      defaultBaseUrl: baseUrl,
-      builder: builder,
-      models: models,
-    );
+}) => ProviderDescriptor(
+  id: id,
+  name: id,
+  authSources: auth,
+  defaultBaseUrl: baseUrl,
+  builder: builder,
+  models: models,
+);
 
 class _NoopProvider extends LlmProvider {
   _NoopProvider(super.model);
@@ -41,29 +41,29 @@ class _NoopProvider extends LlmProvider {
   }) async* {}
 }
 
-/// A [Config] whose startup provider is [id], parsed the way main() parses it
-/// (a full `id/model` ref on the command line) with the provider registered so
-/// the descriptor lookup succeeds. [Config.apiKey] resolves from [env] via the
-/// descriptor's auth source.
-Config _config(
+/// Explicit runtime fixture: parser precedence is covered by config tests.
+RuntimeConfig _config(
   String id, {
   Map<String, String> env = const {'TEST_KEY': 'startup-key'},
-}) {
-  final parseRegistry =
-      ProviderRegistry(env: env)..register(_desc(id, builder: _recording([])));
-  return Config.parse(
-    ['--model', '$id/m1', '--max-tokens', '4096'],
-    env: env,
-    registry: parseRegistry,
-  );
-}
+}) => RuntimeConfig(
+  provider: id,
+  model: 'm1',
+  apiKey: env['TEST_KEY'] ?? '',
+  baseUrl: 'https://example.test',
+  maxTokens: 4096,
+);
 
 /// A registry holding recording builders for every provider [buildResolved]
 /// may name in these tests: the startup provider `prov`, a second provider
 /// `other`, and a provider named like a bare model id (`bare-model`) so a
 /// bare-ref build has something to resolve against.
-({ProviderRegistry registry, List<ProviderInstance> prov, List<ProviderInstance> other, List<ProviderInstance> bare})
-    _recordingRegistry() {
+({
+  ProviderRegistry registry,
+  List<ProviderInstance> prov,
+  List<ProviderInstance> other,
+  List<ProviderInstance> bare,
+})
+_recordingRegistry() {
   final prov = <ProviderInstance>[];
   final other = <ProviderInstance>[];
   final bare = <ProviderInstance>[];
@@ -76,28 +76,32 @@ Config _config(
         builder: _recording(other),
       ),
     )
-    ..register(_desc('bare-model', builder: _recording(bare), models: const {
-      'm1': ModelInfo(
-        id: 'm1',
-        name: 'm1',
-        contextWindow: 8192,
-        maxOutput: 4096,
+    ..register(
+      _desc(
+        'bare-model',
+        builder: _recording(bare),
+        models: const {
+          'm1': ModelInfo(
+            id: 'm1',
+            name: 'm1',
+            contextWindow: 8192,
+            maxOutput: 4096,
+          ),
+        },
       ),
-    }));
-  return (
-    registry: registry,
-    prov: prov,
-    other: other,
-    bare: bare,
-  );
+    );
+  return (registry: registry, prov: prov, other: other, bare: bare);
 }
 
 void main() {
   group('refProviderForBuild', () {
-    test('a "provider/model" ref names the provider before the first slash', () {
-      expect(refProviderForBuild('openai/gpt-5'), 'openai');
-      expect(refProviderForBuild('a/b/c'), 'a');
-    });
+    test(
+      'a "provider/model" ref names the provider before the first slash',
+      () {
+        expect(refProviderForBuild('openai/gpt-5'), 'openai');
+        expect(refProviderForBuild('a/b/c'), 'a');
+      },
+    );
 
     test('a bare model ref has no provider', () {
       expect(refProviderForBuild('glm-5.2'), isNull);
@@ -113,8 +117,7 @@ void main() {
       expect(appliesToStartupProvider('other/m1', 'prov'), isFalse);
     });
 
-    test('a bare model ref may not inherit (historical restore semantics)',
-        () {
+    test('a bare model ref may not inherit (historical restore semantics)', () {
       expect(appliesToStartupProvider('m1', 'prov'), isFalse);
     });
   });
@@ -202,9 +205,7 @@ void main() {
     });
 
     test('only the first segment names the provider', () {
-      final cfg = UserConfig(
-        providers: {'a': ProviderConfig(apiKey: 'a-key')},
-      );
+      final cfg = UserConfig(providers: {'a': ProviderConfig(apiKey: 'a-key')});
       expect(apiKeyForPickedRef('a/b/c', cfg), 'a-key');
     });
 

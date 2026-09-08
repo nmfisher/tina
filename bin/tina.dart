@@ -1,3 +1,4 @@
+import 'package:tina/composition/project_services.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -16,7 +17,6 @@ import 'package:tina/host/headless_watchdog.dart';
 import 'package:tina/session_commands/session_command_handlers.dart';
 import 'package:tina/persistence/session_restore.dart';
 import 'package:tina/summaries/allocations_store.dart';
-import 'package:tina/summaries/summary_index.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/project/project_trust.dart';
 import 'package:tina/tui_coordinator.dart';
@@ -146,6 +146,8 @@ Future<void> _run(List<String> argv) async {
         return;
       }
 
+      final launch = config.launch;
+
       // First-run seeding of the default DOT workflow (idempotent; also runs
       // for interactive launches so `default.dot` exists before the agent may
       // launch it via its launch_workflow tool).
@@ -169,10 +171,14 @@ Future<void> _run(List<String> argv) async {
       // project (headless skips, TUI asks on the tty before the TUI takes over)
       // unless --trust / [trust] default override. Captured by the runtime pipeline
       // so every agent (main, sub, /spawn) honors the same decision.
-      final loadProjectContext = await _resolveProjectTrust(config, mergedEnv);
+      final loadProjectContext = await _resolveProjectTrust(
+        launch.startup,
+        mergedEnv,
+      );
 
       final app = await buildAppComposition(
-        config: config,
+        config: launch.runtime,
+        resumeRequest: launch.startup.resume,
         registry: registry,
         store: sessionStore,
         ownsStore: true,
@@ -186,7 +192,7 @@ Future<void> _run(List<String> argv) async {
         // sessions have nothing on disk yet — no other process can know their id
         // — so they need no lock. initialManifest is non-null exactly when a
         // real session was loaded (resume, or --continue that found a match).
-        await _acquireSessionLock(app, config);
+        await _acquireSessionLock(app, launch.startup);
 
         // Logging inits after config parses (so a parse error still goes to the
         // pre-logging stderr path) and before any service runs. Idempotent, so a
@@ -200,7 +206,7 @@ Future<void> _run(List<String> argv) async {
         );
 
         if (config.nonInteractive) {
-          await _runNonInteractive(app);
+          await _runNonInteractive(app, launch.startup);
           return;
         }
 
@@ -209,7 +215,11 @@ Future<void> _run(List<String> argv) async {
         // ~/.tina/config; on setupWrote we loop to re-parse + re-launch with it.
         final isTty = stdioType(stdin) == StdioType.terminal;
         final setupMode = config.setup || (config.apiKey.isEmpty && isTty);
-        final outcome = await _runInteractive(app, setupMode: setupMode);
+        final outcome = await _runInteractive(
+          app,
+          terminal: launch.terminal,
+          setupMode: setupMode,
+        );
         if (outcome == RunOutcome.setupWrote) {
           // Relaunch: release the lock so the next iteration re-acquires cleanly
           // (the lockfile still carries our PID, which is alive).
@@ -282,7 +292,10 @@ void _installShutdownReaper() {
 /// the process exits — unless `--force` overrode the lock. Sets
 /// [_activeSessionLock] so every exit path can release it. No-op for fresh
 /// sessions (no manifest on disk) and non-file-backed stores.
-Future<void> _acquireSessionLock(AppComposition app, Config config) async {
+Future<void> _acquireSessionLock(
+  AppComposition app,
+  StartupOptions config,
+) async {
   if (app.initialManifest == null) return; // fresh session — nothing to guard
   final store = app.store;
   if (store is! JsonlSessionStore) return; // tests / non-file backends
@@ -335,8 +348,9 @@ Future<void> _restoreSessionCwd(SessionStore store, String sessionId) async {
 Future<RunOutcome> _runInteractive(
   AppComposition app, {
   bool setupMode = false,
+  required TerminalConfig terminal,
 }) async {
-  final coordinator = await TuiCoordinator.create(app: app);
+  final coordinator = await TuiCoordinator.create(app: app, terminal: terminal);
   final result = await coordinator.run(setupMode: setupMode);
   return result;
 }
@@ -362,7 +376,10 @@ void _seedDefaultWorkflowQuietly(Map<String, String> env) {
   }
 }
 
-Future<void> _runNonInteractive(AppComposition app) async {
+Future<void> _runNonInteractive(
+  AppComposition app,
+  StartupOptions startup,
+) async {
   // HeadlessHost is a UI-agnostic HostInterface: agent prose and tool lifecycle
   // to stdout, notices to stderr, and permission `ask`s refused with a flag
   // hint. Wiring it as both `sink` and `asker` keeps bin/ free of any terminal
@@ -378,7 +395,7 @@ Future<void> _runNonInteractive(AppComposition app) async {
     // ~/.tina/runs/<id>; a non-success outcome exits non-zero. Node agents'
     // write/edit asks auto-deny headless (there is no one to prompt) — run with
     // `--yolo` or `--allow write`/`--allow edit` to let a workflow change files.
-    final workflow = app.config.workflow;
+    final workflow = startup.workflow;
     if (workflow != null) {
       final tinaDataDir = tinaDirFromEnv(app.environment.env);
       final runner = PipelineRunner(
@@ -388,7 +405,7 @@ Future<void> _runNonInteractive(AppComposition app) async {
         runsRoot: Directory(p.join(tinaDataDir.path, 'runs')),
         defaultModelReference: '${app.config.provider}/${app.config.model}',
       );
-      final rawInput = app.config.prompt?.trim();
+      final rawInput = startup.prompt?.trim();
       try {
         final result = await runner.run(
           workflowName: workflow,
@@ -411,13 +428,13 @@ Future<void> _runNonInteractive(AppComposition app) async {
     // the HeadlessHost (stdout/stderr). confirm is null (no interactive input),
     // so the up-to-date branch reports and stops, matching the deleted bin's
     // `--dry-run` behavior.
-    final prompt = app.config.prompt?.trim() ?? '';
+    final prompt = startup.prompt?.trim() ?? '';
     if (prompt == '/index') {
       // Load the on-disk allocations (a TUI session's approved layout) so the
       // headless run measures the SAME partition. Without this, every allocated
       // dir falls outside the default partition and gets classified as deleted —
       // destroying the approved layout's summaries.
-      final idx = SummaryIndex(
+      final idx = buildSummaryIndex(
         config: app.config,
         registry: app.registry,
         environment: app.environment,
@@ -514,7 +531,7 @@ Future<void> _runNonInteractive(AppComposition app) async {
     );
 
     // Append concise summary instruction for headless --prompt runs.
-    final rawPrompt = app.config.prompt!;
+    final rawPrompt = startup.prompt!;
     var userInput =
         rawPrompt +
         (rawPrompt.trim().isNotEmpty ? '\n' : '') +
@@ -732,7 +749,7 @@ List<Future<void>> _attachModelsDevCatalog(
 /// tty run prompts on stdin before the TUI takes over the terminal — the same
 /// pre-TUI stdin window the setup wizard uses.
 Future<bool> _resolveProjectTrust(
-  Config config,
+  StartupOptions config,
   Map<String, String> env,
 ) async {
   final hasUi =

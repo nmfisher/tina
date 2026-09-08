@@ -2,14 +2,11 @@ import 'dart:io';
 
 import 'package:attractor/attractor.dart';
 import 'package:path/path.dart' as p;
-import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 
-import '../host/tui_conversation_host.dart';
-import '../tui/attention_queue.dart';
 import 'file_run_store.dart';
 import 'tina_codergen_backend.dart';
-import 'tina_interviewer.dart';
+import 'headless_interviewer.dart';
 import 'workflow_catalog.dart';
 import 'workflow_names.dart';
 
@@ -28,7 +25,7 @@ class PipelineRunResult {
 }
 
 /// Assembles the attractor engine with tina's two seams (a [TinaCodergenBackend]
-/// over the [SubAgentScheduler], and a [TinaInterviewer] over the TUI) and runs
+/// over the [SubAgentScheduler], and an injected [Interviewer]) and runs
 /// a workflow file. One runner per run; constructed by the coordinator (which
 /// owns the scheduler, pipeline, host, screen, and editor).
 class PipelineRunner {
@@ -38,9 +35,9 @@ class PipelineRunner {
   final Directory workflowsDir;
   final Directory runsRoot;
 
-  /// TUI primitives for human gates. null in headless mode (auto-approve).
-  final Screen? screen;
-  final LineEditor? editor;
+  /// Frontend adapters are supplied by the composition root.
+  final Interviewer Function(AgentSink sink)? interviewerBuilder;
+  final void Function(AgentSink sink, String nodeId, String task)? onNodeStart;
 
   /// The conversation's resolved `"provider/model"`, inherited by nodes that
   /// omit `llm_model`/`llm_provider`. Threaded to [TinaCodergenBackend].
@@ -52,22 +49,15 @@ class PipelineRunner {
   /// `--allow` there.
   final PermissionAsker Function(AgentSink runSink)? permissionAskerBuilder;
 
-  /// The TUI's shared modal queue: gates, loop-budget confirms, and
-  /// permission asks from ANY run serialize through it, so concurrent runs
-  /// can't race on `editor.readKey()`. Null (headless) → each ask runs
-  /// directly.
-  final AttentionQueue? attentionQueue;
-
   PipelineRunner({
     required this.scheduler,
     required this.pipeline,
     required this.workflowsDir,
     required this.runsRoot,
     required this.defaultModelReference,
-    this.screen,
-    this.editor,
+    this.interviewerBuilder,
+    this.onNodeStart,
     this.permissionAskerBuilder,
-    this.attentionQueue,
   });
 
   /// Run `<workflowsDir>/<workflowName>.dot` to completion. [sink] is where the
@@ -91,10 +81,14 @@ class PipelineRunner {
     final errors = diags.where((d) => d.severity == Severity.error);
     if (errors.isNotEmpty) {
       final msg = errors.map((d) => '  $d').join('\n');
-      sink.notice('workflow "$workflowName" is invalid:\n$msg',
-          kind: NoticeKind.error);
+      sink.notice(
+        'workflow "$workflowName" is invalid:\n$msg',
+        kind: NoticeKind.error,
+      );
       return PipelineRunResult(
-          outcome: Outcome.fail('invalid workflow:\n$msg'), runDir: '');
+        outcome: Outcome.fail('invalid workflow:\n$msg'),
+        runDir: '',
+      );
     }
     for (final w in diags.where((d) => d.severity == Severity.warning)) {
       sink.notice('$w', kind: NoticeKind.info);
@@ -121,20 +115,12 @@ class PipelineRunner {
       defaultModelReference: defaultModelReference,
       permissionPolicy: runPolicy,
       permissionAsker: permissionAskerBuilder?.call(sink),
-      onNodeStart: sink is TuiConversationHost
-          ? (id, task) {
-              sink.showMessage('──── node: $id ────',
-                  style: HostMessageStyle.dim);
-              sink.showMessage(task, style: HostMessageStyle.user);
-            }
-          : null,
+      onNodeStart: onNodeStart == null
+          ? null
+          : (id, task) => onNodeStart!(sink, id, task),
     );
-    final interviewer = TinaInterviewer(
-      screen: screen,
-      editor: editor,
-      attentionQueue: attentionQueue,
-      sink: sink,
-    );
+    final interviewer =
+        interviewerBuilder?.call(sink) ?? const HeadlessInterviewer();
 
     final runId = _newRunId();
     final runDir = Directory(p.join(runsRoot.path, runId));
@@ -153,8 +139,10 @@ class PipelineRunner {
     registry.register('parallel.fan_in', ParallelFanInHandler());
     registry.defaultHandler = codergen;
 
-    sink.notice('▶ workflow: $workflowName'
-        '${graph.goal.isEmpty ? '' : ' — ${graph.goal}'}');
+    sink.notice(
+      '▶ workflow: $workflowName'
+      '${graph.goal.isEmpty ? '' : ' — ${graph.goal}'}',
+    );
 
     final engine = PipelineEngine(
       graph: graph,
@@ -165,15 +153,20 @@ class PipelineRunner {
       cancelSignal: cancelSignal,
       // Loop budgets pause for a human decision in the TUI; headless runs
       // pass no hook and abort instead of burning budget on a runaway loop.
-      onLoopBudgetExceeded: screen != null && editor != null
+      onLoopBudgetExceeded: interviewerBuilder != null
           ? (reason) async {
-              sink.notice('loop budget exhausted: $reason',
-                  kind: NoticeKind.warning);
-              final answer = await interviewer.ask(Question(
-                text: 'Workflow loop budget exhausted: $reason\n'
-                    'Continue (budget resets)?',
-                type: QuestionType.confirmation,
-              ));
+              sink.notice(
+                'loop budget exhausted: $reason',
+                kind: NoticeKind.warning,
+              );
+              final answer = await interviewer.ask(
+                Question(
+                  text:
+                      'Workflow loop budget exhausted: $reason\n'
+                      'Continue (budget resets)?',
+                  type: QuestionType.confirmation,
+                ),
+              );
               return answer.kind == AnswerValue.yes;
             }
           : null,
@@ -238,6 +231,8 @@ class PipelineRunner {
 
 String _newRunId() {
   final ts = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
-  final suffix = DateTime.now().microsecondsSinceEpoch.toRadixString(36).substring(6);
+  final suffix = DateTime.now().microsecondsSinceEpoch
+      .toRadixString(36)
+      .substring(6);
   return '$ts$suffix';
 }

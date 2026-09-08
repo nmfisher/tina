@@ -29,9 +29,12 @@ Agent _fakeAgent(LlmProvider provider, FakeHostInterface host) => Agent(
 
 /// A [SummaryIndex] whose probe + fleet run are stubbed, so the dance can be
 /// driven without a composition or LLM. Captures refresh calls + repartition.
-class _StubIndex extends SummaryIndex {
-  _StubIndex(this._status, {this.refreshResult})
-      : super(projectRoot: '/nonexistent-in-test');
+class _StubIndex implements SummaryIndex {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  @override
+  void markProposalShown() => _proposalShown = true;
+  _StubIndex(this._status, {this.refreshResult});
   SummaryIndexStatus _status;
   SummaryIndexResult? refreshResult;
   int refreshCalls = 0;
@@ -47,6 +50,7 @@ class _StubIndex extends SummaryIndex {
   @override
   Future<SummaryIndexResult> refresh({
     bool repartition = false,
+    bool dryRun = false,
     List<String>? dirs,
     HostInterface? host,
     Future<void>? cancelSignal,

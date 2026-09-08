@@ -20,7 +20,7 @@ final _log = Logger('tina.agent.bus');
 /// and buffered — and [setActive] is what routes it onto the [Screen]. While a
 /// conversation is in the background ([_active] is false) its [askPermission]
 /// auto-denies, exactly as the old per-session asker did.
-class TuiConversationHost implements HostInterface {
+class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
   TuiConversationHost({
     required this.conversationId,
     required this.chat,
@@ -111,12 +111,17 @@ class TuiConversationHost implements HostInterface {
 
   /// The [ChatAgentSink] that renders this host's agent output. Held directly
   /// (besides the bus-composing [_sink]) for the turn-boundary hook.
-  late final ChatAgentSink _chatSink = ChatAgentSink(chat, spinner, onCapped: (o) {
-    cappedOutputs.insert(0, o);
-    if (cappedOutputs.length > 10) cappedOutputs.removeLast();
-  }, onRawText: (text) {
-    lastRawMarkdown = text;
-  });
+  late final ChatAgentSink _chatSink = ChatAgentSink(
+    chat,
+    spinner,
+    onCapped: (o) {
+      cappedOutputs.insert(0, o);
+      if (cappedOutputs.length > 10) cappedOutputs.removeLast();
+    },
+    onRawText: (text) {
+      lastRawMarkdown = text;
+    },
+  );
 
   /// Forwards [AgentSink] calls to the chat region (via [ChatAgentSink]) and,
   /// for the calls that carry an [AgentEvent], mirrors them on [eventBus] (via
@@ -234,10 +239,7 @@ class TuiConversationHost implements HostInterface {
     // approval pends starts its own row instead of merging its text onto the
     // prompt (tin-6a2f).
     final rowToken = Object();
-    chat.write(
-      approvalPromptRow(p.alwaysPattern),
-      rowOwner: rowToken,
-    );
+    chat.write(approvalPromptRow(p.alwaysPattern), rowOwner: rowToken);
     // If the user is mid-prompt (a readLine in flight WITH unsent content),
     // the approval must not steal their typing — the prompt's Enter would
     // answer this readKey as a deny (it is not y/a/d) and the prompt would
@@ -382,6 +384,10 @@ class TuiConversationHost implements HostInterface {
 
   @override
   void setIdle(bool active) {
+    if (active && hasActiveRuns) {
+      setActivity(true);
+      return;
+    }
     // idle ≡ not busy: clear this conversation's busy cue so switching to an
     // idle conversation doesn't leave a stale signal from the previous one
     // (_present calls this on the incoming conversation when it isn't running).

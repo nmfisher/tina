@@ -467,9 +467,9 @@ void main() {
               .any((m) => m.contains('discarded')),
           isFalse,
           reason: 'the discard notice is gone — the queue survives cancel');
-      expect(controller.active.messageQueue.length, 1,
-          reason: 'the turn loop is parked at readLine; survivor 2 waits '
-              'for its turn');
+      expect(controller.active.messageQueue, isNotNull);
+      expect(controller.active.messageQueue.length, 0,
+          reason: 'shutdown rejects the remaining backlog after cancellation settles');
     });
 
     test('#31: a turn that ends on its own starts the queued next turn '

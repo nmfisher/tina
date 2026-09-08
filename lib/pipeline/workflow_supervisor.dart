@@ -13,14 +13,15 @@ import 'pipeline_runner.dart';
 /// supervisor's `onLaunch` hook — see [WorkflowRun.sink]); the [cancelSignal]
 /// future, when completed, aborts the run with a `cancelled` outcome — exactly
 /// the engine's existing contract.
-typedef RunWorkflow = Future<PipelineRunResult> Function({
-  required String workflowName,
-  required AgentSink sink,
-  String? input,
-  String? history,
-  Future<void>? cancelSignal,
-  PipelineEventListener? onEvent,
-});
+typedef RunWorkflow =
+    Future<PipelineRunResult> Function({
+      required String workflowName,
+      required AgentSink sink,
+      String? input,
+      String? history,
+      Future<void>? cancelSignal,
+      PipelineEventListener? onEvent,
+    });
 
 /// Where a [WorkflowRun] is in its lifecycle.
 enum WorkflowRunStatus {
@@ -85,6 +86,8 @@ class WorkflowRun {
   String? runDir;
 
   final Completer<void> _cancel;
+  final _done = Completer<void>();
+  Future<void> get done => _done.future;
 
   WorkflowRunStatus status;
   Outcome? outcome;
@@ -96,8 +99,8 @@ class WorkflowRun {
     required this.goal,
     required this.input,
     required Completer<void> cancel,
-  })  : _cancel = cancel,
-        status = WorkflowRunStatus.running;
+  }) : _cancel = cancel,
+       status = WorkflowRunStatus.running;
 
   /// Whether the run is still in flight.
   bool get isRunning => status == WorkflowRunStatus.running;
@@ -152,9 +155,17 @@ class WorkflowSupervisor {
   final Map<String, WorkflowRun> _runs = {};
   final List<String> _launchOrder = [];
   int _seq = 0;
+  bool _closing = false;
+  Future<void>? _shutdown;
+  Future<void> shutdown() => _shutdown ??= _stopAndWait();
+  Future<void> _stopAndWait() async {
+    _closing = true;
+    stopAll();
+    await Future.wait(_runs.values.map((r) => r.done));
+  }
 
   WorkflowSupervisor({required RunWorkflow run, this.onComplete, this.onLaunch})
-      : _run = run;
+    : _run = run;
 
   /// Launch `<name>` as a background child run for the conversation
   /// [conversationId]. [sink] is where the supervisor's own notices (launch +
@@ -177,6 +188,7 @@ class WorkflowSupervisor {
     String? goal,
     PipelineEventListener? onEvent,
   }) {
+    if (_closing) throw StateError('Workflow supervisor is closing');
     final id = _newId();
     final cancel = Completer<void>();
     final run = WorkflowRun(
@@ -193,54 +205,58 @@ class WorkflowSupervisor {
     _runs[id] = run;
     _launchOrder.add(id);
 
-    sink.notice('▶ workflow launched: $name [run $id]'
-        '${goal == null || goal.isEmpty ? '' : ' — $goal'}');
-
-    // Fire-and-forget: report back on completion without blocking launch.
-    // onLaunch fires synchronously BEFORE the runner starts — the host opens
-    // the run's live view here, installs the run's stream sink
-    // ([WorkflowRun.sink], a panel host), and attaches listeners. Nothing can
-    // be missed: `_run` is invoked after the hook returns, and its first await
-    // (reading the workflow file) gates the engine's first emission.
-    onLaunch?.call(run);
-
-    final future = _run(
-      workflowName: name,
-      // The run's stream lands on the panel host when onLaunch installed one;
-      // otherwise it falls back to the launching chat's sink.
-      sink: run.sink ?? sink,
-      input: input,
-      history: null,
-      cancelSignal: cancel.future,
-      onEvent: (e) {
-        _applyNodeStatus(run, e);
-        run.onEvent?.call(e);
-      },
-    );
-    unawaited(future.then(
-      (result) {
+    unawaited(() async {
+      RunActivity? activity;
+      try {
+        try {
+          sink.notice(
+            '▶ workflow launched: $name [run $id]'
+            '${goal == null || goal.isEmpty ? '' : ' — $goal'}',
+          );
+        } catch (_) {}
+        try {
+          onLaunch?.call(run);
+        } catch (_) {}
+        activity = RunActivity(run.sink ?? sink);
+        final result = await _run(
+          workflowName: name,
+          sink: run.sink ?? sink,
+          input: input,
+          history: null,
+          cancelSignal: cancel.future,
+          onEvent: (e) {
+            _applyNodeStatus(run, e);
+            try {
+              run.onEvent?.call(e);
+            } catch (_) {}
+          },
+        );
         run.outcome = result.outcome;
         if (result.runDir.isNotEmpty) run.runDir = result.runDir;
-        run.status =
-            _classify(result.outcome, cancelledByStop: cancel.isCompleted);
-        _reportBack(sink, run);
-        onComplete?.call(run);
-        run.onFinished?.call();
-        _pruneFinished();
-      },
-      // A thrown runner error (e.g. the workflow file is missing) never yields
-      // a result — surface it as a failed run so the launch still reports
-      // back and the completion turn still fires, instead of an unhandled
-      // async error.
-      onError: (Object e) {
+        run.status = _classify(
+          result.outcome,
+          cancelledByStop: cancel.isCompleted,
+        );
+      } catch (e) {
         run.outcome = Outcome.fail('$e');
-        run.status = WorkflowRunStatus.failed;
-        _reportBack(sink, run);
-        onComplete?.call(run);
-        run.onFinished?.call();
+        run.status = cancel.isCompleted
+            ? WorkflowRunStatus.cancelled
+            : WorkflowRunStatus.failed;
+      } finally {
+        try {
+          _reportBack(sink, run);
+        } catch (_) {}
+        try {
+          if (!_closing) onComplete?.call(run);
+        } catch (_) {}
+        try {
+          run.onFinished?.call();
+        } catch (_) {}
+        activity?.complete();
+        run._done.complete();
         _pruneFinished();
-      },
-    ));
+      }
+    }());
 
     return run;
   }
@@ -282,8 +298,11 @@ class WorkflowSupervisor {
   }
 
   /// Still-running launches, newest first.
-  List<WorkflowRun> get active =>
-      _launchOrder.reversed.map((id) => _runs[id]).whereType<WorkflowRun>().where((r) => r.isRunning).toList();
+  List<WorkflowRun> get active => _launchOrder.reversed
+      .map((id) => _runs[id])
+      .whereType<WorkflowRun>()
+      .where((r) => r.isRunning)
+      .toList();
 
   /// Look up a run by id (active or a recently-finished one — older finished
   /// runs are pruned, see [maxFinishedRuns]).
@@ -297,8 +316,7 @@ class WorkflowSupervisor {
         if (_runs[id]?.isRunning == false) id,
     ];
     if (finishedIds.length <= maxFinishedRuns) return;
-    for (final id
-        in finishedIds.take(finishedIds.length - maxFinishedRuns)) {
+    for (final id in finishedIds.take(finishedIds.length - maxFinishedRuns)) {
       _runs.remove(id);
       _launchOrder.remove(id);
     }
@@ -312,10 +330,13 @@ class WorkflowSupervisor {
     return null;
   }
 
-  WorkflowRunStatus _classify(Outcome outcome,
-      {required bool cancelledByStop}) {
+  WorkflowRunStatus _classify(
+    Outcome outcome, {
+    required bool cancelledByStop,
+  }) {
     if (cancelledByStop) return WorkflowRunStatus.cancelled;
-    if (outcome.failureReason == 'cancelled') return WorkflowRunStatus.cancelled;
+    if (outcome.failureReason == 'cancelled')
+      return WorkflowRunStatus.cancelled;
     return outcome.status.isOk
         ? WorkflowRunStatus.completed
         : WorkflowRunStatus.failed;
@@ -324,18 +345,23 @@ class WorkflowSupervisor {
   void _reportBack(AgentSink sink, WorkflowRun run) {
     switch (run.status) {
       case WorkflowRunStatus.completed:
-        sink.notice('✔ workflow complete: ${run.workflowName} [run ${run.id}]',
-            kind: NoticeKind.info);
+        sink.notice(
+          '✔ workflow complete: ${run.workflowName} [run ${run.id}]',
+          kind: NoticeKind.info,
+        );
       case WorkflowRunStatus.cancelled:
-        sink.notice('✖ workflow cancelled: ${run.workflowName} [run ${run.id}]',
-            kind: NoticeKind.warning);
+        sink.notice(
+          '✖ workflow cancelled: ${run.workflowName} [run ${run.id}]',
+          kind: NoticeKind.warning,
+        );
       case WorkflowRunStatus.failed:
         final reason = run.outcome?.failureReason.isNotEmpty == true
             ? run.outcome!.failureReason
             : 'failed';
         sink.notice(
-            '✖ workflow failed: ${run.workflowName} [run ${run.id}]: $reason',
-            kind: NoticeKind.error);
+          '✖ workflow failed: ${run.workflowName} [run ${run.id}]: $reason',
+          kind: NoticeKind.error,
+        );
       case WorkflowRunStatus.running:
         break; // unreachable: report only fires on completion.
     }

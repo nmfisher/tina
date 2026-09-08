@@ -1,8 +1,103 @@
 # A02 — Separate runtime, terminal and startup configuration
 
-Status: proposed. See the [program index](README.md).
+Status: implemented and validated (2026-09-08). See the [program index](README.md).
 
-## Problem and source anchors
+## Implementation
+
+`lib/config/runtime_config.dart` now owns immutable runtime values and policy /
+budget construction. Permission rules and prompt overrides are defensive copies.
+`TerminalConfig`, `StartupOptions`, `ResumeRequest` and `ResolvedLaunch` separate
+frontend settings, root actions and session selection. `Config.parse` remains the
+root resolver and compatibility facade, preserving the existing parser's defaults,
+validation and early-exit order; `.launch` projects it into the three owned values.
+The CLI passes plain runtime settings, an explicit resume request and terminal
+settings to their respective consumers. Explicit model-source metadata remains
+`RuntimeConfig.modelExplicit` so provider resolution retains resume precedence.
+
+Composition, provider resolution, agents, summary/environment services and restore
+now accept `RuntimeConfig`. `resolveSession` accepts `ResumeRequest`. During
+migration, `Config` extends the runtime value and implements the resume contract;
+`buildAppComposition` accepts that legacy selection when no explicit request is
+supplied. New code should pass `.runtime` and `.resumeRequest`, or construct runtime
+fixtures directly. The TUI likewise has a legacy facade fallback when no explicit
+`TerminalConfig` is supplied; production supplies it explicitly.
+
+`UserConfig.theme` is now `ThemeOverrides`, a deeply copied plain-data value.
+`theme_mapper.dart` constructs the existing console theme with the same defaults.
+Variant selection remains separate from the override map, including on reload and
+`copyWith`. The TOML schema and existing valid color/style values are unchanged;
+raw override values are retained until the frontend mapper applies defaults.
+No user-config schema version or persisted session fields were added.
+
+The fresh picker credential lookup moved to `config/provider_selection.dart`;
+neutral provider resolution no longer imports the TOML loader. Existing settings
+and model-picker reload points remain intact. Closing the final transitive
+terminal dependency required `PipelineRunner` to accept an interviewer builder
+and node-start callback. The TUI supplies its existing interviewer, shared modal
+queue and panel formatting; `HeadlessInterviewer` preserves noninteractive gate
+answers. Loop-budget extension remains available only with a supplied interviewer.
+
+The application closures tested in `test/config/runtime_boundary_test.dart`
+contain no terminal packages, argument parser or TOML loader. The test walks
+imports, exports, parts and conditional alternatives using the analyzer AST and
+package map, including transitive third-party dependencies. Persisted config has
+its own terminal-free closure check. Broader repository rules remain A07's task.
+
+## Field and resolution inventory
+
+The defaults below describe normal launch. Informational early exits deliberately
+retain their existing placeholder values and bypass provider/value resolution.
+The resolver remains authoritative for validation, including the historical
+`maxTokens` integer fallback; this change does not tighten accepted CLI values.
+Runtime fixtures may construct values directly without parsing arguments.
+
+| Runtime fields | Resolution / normal default |
+| --- | --- |
+| `provider` | Full CLI `--model provider/model` > file default provider > `anthropic` |
+| `model`, `modelExplicit` | Nonempty CLI model > file default model > provider MODEL environment > descriptor first model; explicit flag metadata controls resumed-model precedence |
+| `apiKey` | Registry auth-source scan over root's file-over-environment overlay; empty remains legal for setup; no CLI key flag |
+| `baseUrl` | CLI base URL > selected provider BASE_URL environment (including root's file overlay) > descriptor URL |
+| `maxTokens` | CLI integer / 8192 fallback |
+| `permissionRules`, `yolo` | CLI deny rules before allow rules; yolo defaults false; fresh mutable policies are constructed from the immutable rules |
+| `permissionMode`, `permissionClassifierModel` | CLI permission mode > file mode > ask; classifier ref from file, otherwise inherit main model |
+| `defaultWorkflow` | File default workflow; null retains default.dot discovery; `none` disables it |
+| `maxTurnTokens`, `maxSessionTokens`, `maxRequestTokens` | CLI > file limit > 1,000,000 / 10,000,000 / 200,000; zero disables cap |
+| `maxGlobalTokens`, `maxSubAgentTokens` | CLI > file limit > 50,000,000 / 2,000,000; zero disables cap |
+| `maxSubAgentDepth`, `maxSubAgentConcurrency` | CLI > file limit > 3 / 6 |
+| `requestsPerMinute` | CLI > file limit > 0 (unlimited) |
+| `autoCompactThreshold`, `maxSteps` | CLI > 120,000 / 500; compaction accepts zero, steps must be positive |
+| `watchdogSeconds`, `transportRetryAttempts` | CLI > 300 / 5; zero disables; currently consumed by headless execution |
+| `streamIdleTimeout`, `requestTimeout` | CLI positive seconds > 60 / 30 |
+| `promptOverrides` | File prompts; default empty; runtime takes immutable snapshot |
+| `safeMode`, `sandboxEnabled`, `sandboxNet`, `sandboxReadOnly` | CLI flags; false / true / false / false |
+| `environmentAutoPopulate`, `environmentModel`, `regionsModel` | File values; ask / null / null; model pickers may supply a fresh explicit override per operation |
+
+| Terminal/startup fields | Resolution / ownership |
+| --- | --- |
+| `backend`, `theme`, `mouseWheel` | Backend CLI > notcurses; theme from file overrides / named preset / existing console defaults; wheel from file > false |
+| `showHelp`, `showVersion`, `initConfig`, `listSessions` | CLI early actions, in existing precedence order; no provider construction |
+| `models`, `setup` | CLI actions; existing registry/parse ordering retained |
+| `prompt`, `workflow`, `nonInteractive` | CLI inputs; either input selects headless mode |
+| `resumeSessionId`, `continueLatest` | ResumeRequest; CLI options are mutually exclusive; no selection means fresh session |
+| `verbose`, `forceLock` | CLI flags; existing root logging also consults COCOON_DEBUG |
+| `trustOverride`, `trustDefault` | Explicit CLI trust override; file default ask/always/never, otherwise ask |
+
+Persisted `UserConfig` fields remain the same: default provider/model/workflow,
+provider descriptors/credentials/pools/model lists/rate settings, limits, prompts,
+theme overrides/variant, trust default, environment settings, mouse wheel,
+regions and permissions. Parsing and writes stay root-owned. Credentials are not
+added to diagnostic strings or copied into new persistence fields. Runtime
+snapshots do not replace fresh loads performed by settings and picker flows.
+
+## Validation evidence
+
+Coverage includes parser/file/env/CLI precedence, early exits, resume model
+selection, immutable runtime/theme collections, fresh policy construction,
+provider override scoping, TUI setup, background execution and injected workflow
+adapters. All 437 targeted tests passed and `dart analyze` reported no issues.
+See [HANDOFF.md](HANDOFF.md) for the exact validation command.
+
+## Original problem and source anchors
 
 [`Config`](../../../lib/config.dart) combines CLI parsing, runtime policy,
 provider credentials, terminal backend selection and a console `Theme`.

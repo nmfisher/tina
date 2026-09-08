@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/conversation.dart';
@@ -74,6 +75,22 @@ void main() {
       addTearDown(sm.closeAll);
       return sm;
     }
+
+    test('closeAll waits for turn acknowledgement before host disposal', () async {
+      final sm = build();
+      final conversation = sm.activeConversation;
+      final host = hostOf(conversation);
+      final acknowledged = Completer<void>();
+      conversation.cancelCompleter = Completer<void>();
+      conversation.turnCompletion = acknowledged.future;
+      final closed = sm.closeAll();
+      expect(conversation.isClosed, isTrue);
+      expect(conversation.cancelCompleter!.isCompleted, isTrue);
+      expect(host.disposeCalls, 0);
+      acknowledged.complete();
+      await closed;
+      expect(host.disposeCalls, 1);
+    });
 
     test('starts with the initial conversation active', () {
       final sm = build();
