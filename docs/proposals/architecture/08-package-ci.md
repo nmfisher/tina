@@ -1,6 +1,7 @@
 # A08 — Give every owned package explicit CI coverage
 
-Status: proposed; independent of the production refactors.
+Status: implemented (2026-09-08). `tina_app` joins the inventory, resolution
+prep and jobs in A06's PR.
 
 ## Problem
 

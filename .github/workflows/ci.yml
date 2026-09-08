@@ -1,8 +1,16 @@
 # Continuous integration for tina: `dart analyze` + `dart test` for the root
-# package and the three sub-packages, on every PR to main and every push to
+# package and the five owned packages, on every PR to main and every push to
 # main. (tina_index joined the matrix when log item #39 — its seedQuery
-# pre-existing failure — shipped; engine 775 + console 811 + root 758 +
-# tina_index 56 tests gate here.)
+# pre-existing failure — shipped; attractor and fuzzy_ranker joined with A08;
+# engine 775 + console 811 + root 758 + tina_index 56 + attractor 89 +
+# fuzzy_ranker 11 tests gate here.)
+#
+# Owned-package inventory (A08): tool/architecture/policy.json lists the owned
+# packages plus the vendored dart_notcurses submodule exception. The root job's
+# architecture test (test/import_boundary_test.dart → policy.validateWorkspace)
+# FAILS on any packages/*/pubspec.yaml outside that list — a new package must
+# join the policy AND gain a job here or an explicitly reviewed exclusion; it
+# cannot silently inherit root-only coverage.
 #
 # No dart format gate on purpose: the tree has format drift, and analyze +
 # test are the contract this repo actually tracks (TINA_IMPROVEMENTS_LOG.md).
@@ -193,4 +201,54 @@ jobs:
 
       - name: test (index)
         working-directory: packages/tina_index
+        run: dart test
+
+  # attractor and fuzzy_ranker are terminal-free (attractor: logging + path;
+  # fuzzy_ranker: no runtime deps — A08 verified both suites green in their
+  # own dependency context: attractor 89 tests, fuzzy_ranker 11, analyze
+  # clean). No submodule checkout and no notcurses/linker apt step here: the
+  # absence of native terminal dependencies must stay observable, per the A08
+  # spec — these jobs fail loudly if either package ever grows one.
+  attractor:
+    name: attractor (packages/attractor)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: pub get (attractor)
+        working-directory: packages/attractor
+        run: dart pub get
+
+      - name: analyze (attractor)
+        working-directory: packages/attractor
+        run: dart analyze
+
+      - name: test (attractor)
+        working-directory: packages/attractor
+        run: dart test
+
+  fuzzy_ranker:
+    name: fuzzy_ranker (packages/fuzzy_ranker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: pub get (fuzzy_ranker)
+        working-directory: packages/fuzzy_ranker
+        run: dart pub get
+
+      - name: analyze (fuzzy_ranker)
+        working-directory: packages/fuzzy_ranker
+        run: dart analyze
+
+      - name: test (fuzzy_ranker)
+        working-directory: packages/fuzzy_ranker
         run: dart test

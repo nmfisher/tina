@@ -1,7 +1,6 @@
 # Application architecture refactoring specifications
 
-Status: A01–A05 implemented and validated. A07 implemented with a 51-entry
-baseline. A06 and A08 remain proposed.
+Status: A01–A05, A07 and A08 implemented. A06 remains proposed.
 Start a new agent session with [the handoff](HANDOFF.md).
 Date: 2026-09-08.
 

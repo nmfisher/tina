@@ -1,7 +1,6 @@
 # Architecture refactor handoff
 
-Updated: 2026-09-08. A01–A05 are implemented. A07's dependency checker is
-implemented with a 51-entry baseline. A06 and A08 are pending.
+Updated: 2026-09-08. A01–A05, A07 and A08 are implemented. A06 is pending.
 
 ## Start here
 
@@ -9,9 +8,9 @@ Read [README.md](README.md) for the dependency graph and program scope, then the
 individual spec for your task. These A-numbers identify local specification
 files, not external issue-tracker tickets. No external tickets were created.
 
-The next task is **A06 application package extraction**. A08 package CI can
-proceed independently. The A07 baseline is established; keep it ratcheting down
-as migrations fix their dependency chains.
+The next task is **A06 application package extraction**. The A07 baseline is
+established and A08's per-package CI exists; A06's PR adds `tina_app` to both.
+Keep the A07 baseline ratcheting down as migrations fix their dependency chains.
 
 | Task | Spec | Next concrete work | Depends on |
 | --- | --- | --- | --- |
@@ -22,7 +21,7 @@ as migrations fix their dependency chains.
 | A05 | [Summary/environment services](05-summary-environment-services.md) | Complete; preserve injected repositories/execution, verification/accounting policy and independent sidecar Git commits | A01, A02 |
 | A06 | [Application package](06-application-package.md) | Move the established frontend-independent application layer into tina_app and enforce its package boundary | A01–A05, A07 |
 | A07 | [Dependency enforcement](07-dependency-enforcement.md) | Complete; keep the baseline ratcheting down (facade-fixture entries owned by A02, TUI backend exception, probe and test-helper exceptions). A06 adds the tina_app manifest closure | Independent baseline; ratchet during migrations |
-| A08 | [Package CI](08-package-ci.md) | Add explicit validation for all owned packages, including attractor and fuzzy_ranker; extend for tina_app later | Independent |
+| A08 | [Package CI](08-package-ci.md) | Complete; A06's PR adds tina_app to the jobs, inventory policy and root resolution prep | Independent |
 
 Each linked spec includes the original problem, proposed interfaces or boundaries,
 migration work, validation/acceptance criteria and risks. Read the current source
@@ -209,7 +208,32 @@ make the CLI support multiple simultaneous terminal frontends.
   reaching console internals intentionally. 3 × A07 — pre-existing relative
   imports of other packages' test helpers.
 
+## A08 implementation map
+
+- `.github/workflows/ci.yml` gains `attractor` and `fuzzy_ranker` jobs: pub
+  get, `dart analyze` and `dart test` with the package directory as the
+  working directory. Both are terminal-free, so the jobs perform no submodule
+  checkout and no notcurses/linker installation — a grown native dependency
+  fails loudly. Existing job names are unchanged.
+- The owned-package inventory is `tool/architecture/policy.json`
+  (`ownedPackages` plus the vendored `dart_notcurses` submodule exception);
+  `policy.validateWorkspace`, executed by the root job's architecture test,
+  fails on any unlisted `packages/*/pubspec.yaml`. The workflow header
+  documents this contract and the exclusion.
+- Root resolution prep (pub get for all five owned packages) landed with A07.
+
 ## Validation
+
+Current A08 validation, locally:
+
+```sh
+(cd packages/attractor && dart pub get && dart analyze && dart test)
+(cd packages/fuzzy_ranker && dart pub get && dart analyze && dart test)
+```
+
+A08 results: attractor passes 89 tests and fuzzy_ranker 11, both with clean
+in-package analysis; the workflow parses with six jobs; existing check names
+are unchanged. The live CI run on push is the remaining confirmation.
 
 Current A07 validation, from the repository root:
 
@@ -297,8 +321,8 @@ during sends, not just after completion.
 
 ## Workspace state
 
-A01 was committed as `54e136e`. A02–A05 are committed as `b12c80d`. A07's
-checker, policy, baseline, tests and documentation follow in the next commit.
+A01 was committed as `54e136e`, A02–A05 as `b12c80d`, and A07 as `0881fdc`.
+A08's CI jobs and documentation follow in the next commit.
 The user requested a commit of the entire working tree after A01 validation.
 The specifications, implementation and tests are included together with the
 pre-existing `.claude/`, `.poolside/` and `releases/` files. Those existing files
