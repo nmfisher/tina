@@ -69,11 +69,13 @@ jobs:
       # the first live run: without these pub gets, root analyze saw 23
       # URI_DOES_NOT_EXIST errors for console's test-only imports. This
       # mirrors a dev machine, where every package has been pub-got.
-      - name: pub get (sub-packages, for root analyze)
+      - name: pub get (owned packages, for analyze and architecture checks)
         run: |
           (cd packages/tina_engine && dart pub get)
           (cd packages/tina_console && dart pub get)
           (cd packages/tina_index && dart pub get)
+          (cd packages/attractor && dart pub get)
+          (cd packages/fuzzy_ranker && dart pub get)
 
       # Root's own tests import tina_console → the dart_notcurses build hook
       # runs on dart test → the system linker deps must be present (see the

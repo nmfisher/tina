@@ -1,0 +1,109 @@
+{
+  "ownedPackages": [
+    "tina",
+    "tina_engine",
+    "tina_console",
+    "tina_index",
+    "attractor",
+    "fuzzy_ranker"
+  ],
+  "vendoredPackages": [
+    "dart_notcurses"
+  ],
+  "terminalPackages": [
+    "tina_console",
+    "dart_notcurses"
+  ],
+  "sourceRoots": {
+    "tina": [
+      "lib",
+      "bin",
+      "test",
+      "tool"
+    ],
+    "tina_engine": [
+      "lib",
+      "test"
+    ],
+    "tina_console": [
+      "lib",
+      "bin",
+      "test",
+      "tool"
+    ],
+    "tina_index": [
+      "lib",
+      "test"
+    ],
+    "attractor": [
+      "lib",
+      "test"
+    ],
+    "fuzzy_ranker": [
+      "lib",
+      "test"
+    ]
+  },
+  "frontendRoots": [
+    "lib/tui/",
+    "lib/host/",
+    "lib/frontend/",
+    "bin/",
+    "tool/",
+    "test/tui/",
+    "test/host/",
+    "test/config/",
+    "test/composition/"
+  ],
+  "frontendFiles": [
+    "lib/config.dart",
+    "lib/config/terminal_config.dart",
+    "lib/config/theme_mapper.dart",
+    "lib/config/resolved_launch.dart",
+    "lib/tui_coordinator.dart",
+    "lib/chat_agent_sink.dart",
+    "test/tui_coordinator_test.dart",
+    "test/config_test.dart",
+    "lib/pipeline/tina_interviewer.dart",
+    "lib/pipeline/workflow_permission_asker.dart",
+    "test/cli_session_flags_test.dart",
+    "test/permissions/config_test.dart",
+    "test/helpers/fake_stdio.dart",
+    "test/helpers/markdown_line_matchers.dart",
+    "test/helpers/overlay_fixtures.dart",
+    "test/tools/nc_key_dump.dart"
+  ],
+  "assemblyRoots": [
+    "lib/composition/"
+  ],
+  "finalComposition": [
+    "lib/composition/app_composition.dart",
+    "lib/composition/execution_runtime.dart",
+    "lib/composition/project_services.dart",
+    "lib/tui_coordinator.dart",
+    "lib/config.dart"
+  ],
+  "serviceRoots": [
+    "lib/application/",
+    "lib/summaries/",
+    "lib/environment/"
+  ],
+  "pureFiles": [
+    "lib/summaries/summary_repository.dart",
+    "lib/summaries/summary_models.dart"
+  ],
+  "noDirectIoFiles": [
+    "lib/summaries/summary_index.dart",
+    "lib/summaries/summary_repository.dart",
+    "lib/summaries/summary_runner.dart",
+    "lib/environment/environment_index.dart",
+    "lib/environment/environment_repository.dart",
+    "lib/environment/environment_runner.dart"
+  ],
+  "baseline": "baseline.json",
+  "excludedRoots": {
+    "tina": [
+      "examples"
+    ]
+  }
+}

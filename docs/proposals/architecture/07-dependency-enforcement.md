@@ -1,6 +1,7 @@
 # A07 — Enforce package and module dependency boundaries
 
-Status: proposed. Start with a baseline and strengthen alongside A01–A06.
+Status: implemented (2026-09-08) with a 51-entry baseline; ratchet down during
+A02–A06 migrations.
 
 ## Existing gap
 

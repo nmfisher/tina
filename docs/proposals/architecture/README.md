@@ -1,8 +1,9 @@
 # Application architecture refactoring specifications
 
-Status: A01 implemented and validated. A02–A08 remain proposed.
+Status: A01–A05 implemented and validated. A07 implemented with a 51-entry
+baseline. A06 and A08 remain proposed.
 Start a new agent session with [the handoff](HANDOFF.md).
-Date: 2026-09-07.
+Date: 2026-09-08.
 
 These specifications develop the review of `packages/` and `lib/` into
 independently reviewable changes. They describe the intended implementation,
