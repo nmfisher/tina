@@ -272,6 +272,16 @@ jobs:
         working-directory: packages/tina_app
         run: dart pub get
 
+      # The sidecar tests commit in their temporary repositories through the
+      # product's own SidecarSummaryRepo paths, which inherit the runner's git
+      # identity — a fresh runner has none (Author identity unknown, 19
+      # failures on live run 34207745591). Mirrors the root job's identity
+      # step; confined to this ephemeral runner.
+      - name: Configure git identity (sidecar tests commit in temp repos)
+        run: |
+          git config --global user.name "tina-ci"
+          git config --global user.email "tina-ci@example.com"
+
       - name: analyze (tina_app)
         working-directory: packages/tina_app
         run: dart analyze

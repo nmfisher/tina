@@ -14,7 +14,9 @@ void main() {
       final files = await walker.walk();
       expect(files, isNotEmpty);
       expect(files, contains('lib/config.dart'));
-      expect(files, contains('lib/session.dart'));
+      // A06 moved the application layer into its own package; the walker sees
+      // the whole repo, so it must find it there too.
+      expect(files, contains('packages/tina_app/lib/src/session/session.dart'));
       expect(files.every((f) => f.endsWith('.dart')), isTrue);
     });
 
