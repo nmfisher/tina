@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:attractor/attractor.dart';
 import 'package:tina_engine/tina_engine.dart';
-import 'package:tina/pipeline/default_workflow.dart';
+import 'package:tina_app/tina_app.dart';
 import 'package:tina/tui/workflow_editor_overlay.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:test/test.dart';

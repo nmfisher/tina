@@ -1,4 +1,4 @@
-import 'package:tina/platform/environment.dart';
+import 'package:tina_app/tina_app.dart';
 
 /// An [Environment] with overrideable fields, for tests that need to control env
 /// vars or the OS without touching the real process.

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
-
-import 'package:tina/composition/app_composition.dart';
+import 'package:tina_app/tina_app.dart';
 import 'package:tina/config.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina_engine/tina_engine.dart';

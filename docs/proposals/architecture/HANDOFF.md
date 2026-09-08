@@ -1,6 +1,7 @@
 # Architecture refactor handoff
 
-Updated: 2026-09-08. A01–A05, A07 and A08 are implemented. A06 is pending.
+Updated: 2026-09-08. A01–A08 are all implemented. The A07 baseline stands at
+26 exact exceptions.
 
 ## Start here
 
@@ -8,9 +9,12 @@ Read [README.md](README.md) for the dependency graph and program scope, then the
 individual spec for your task. These A-numbers identify local specification
 files, not external issue-tracker tickets. No external tickets were created.
 
-The next task is **A06 application package extraction**. The A07 baseline is
-established and A08's per-package CI exists; A06's PR adds `tina_app` to both.
-Keep the A07 baseline ratcheting down as migrations fix their dependency chains.
+The program is complete. Remaining work is the ratchet, not new structure:
+new application code goes straight into `tina_app`; baseline entries are
+deleted as their dependencies get fixed; the TUI's notcurses backend access
+waits on a public console factory. One pre-existing failure remains tracked
+separately: `test/tui/panel_busy_cue_test.dart` (tin-y4qn) fails at HEAD and
+in this tree; A06 did not change its behavior.
 
 | Task | Spec | Next concrete work | Depends on |
 | --- | --- | --- | --- |
@@ -19,7 +23,7 @@ Keep the A07 baseline ratcheting down as migrations fix their dependency chains.
 | A03 | [Application operations](03-application-operations.md) | Complete; preserve explicit targets, ownership, snapshot and selection/presentation boundaries | A01, A02 |
 | A04 | [Session orchestration](04-session-orchestration.md) | Complete; preserve admission/acknowledgement, shutdown, command capability and activity identity boundaries | A03, A05 |
 | A05 | [Summary/environment services](05-summary-environment-services.md) | Complete; preserve injected repositories/execution, verification/accounting policy and independent sidecar Git commits | A01, A02 |
-| A06 | [Application package](06-application-package.md) | Move the established frontend-independent application layer into tina_app and enforce its package boundary | A01–A05, A07 |
+| A06 | [Application package](06-application-package.md) | Complete; move future application code straight into tina_app and delete baseline entries as dependencies are fixed | A01–A05, A07 |
 | A07 | [Dependency enforcement](07-dependency-enforcement.md) | Complete; keep the baseline ratcheting down (facade-fixture entries owned by A02, TUI backend exception, probe and test-helper exceptions). A06 adds the tina_app manifest closure | Independent baseline; ratchet during migrations |
 | A08 | [Package CI](08-package-ci.md) | Complete; A06's PR adds tina_app to the jobs, inventory policy and root resolution prep | Independent |
 
@@ -222,7 +226,61 @@ make the CLI support multiple simultaneous terminal frontends.
   documents this contract and the exclusion.
 - Root resolution prep (pub get for all five owned packages) landed with A07.
 
+## A06 implementation map
+
+- `packages/tina_app`: 56 application files under
+  `lib/src/{session,execution,commands,config,platform,persistence,summaries,
+  environment,workflows,regions,project,composition}/`, plus
+  `host/selection_presenter.dart` (it touches only the neutral host activity
+  API). `lib/tina_app.dart` exports the 34 libraries root consumers use; root
+  code never imports `package:tina_app/src/...`. Its manifest depends on
+  `tina_engine`, `attractor` and `path` only — no terminal packages, no root.
+- Stays at root: CLI (`bin/`), TUI (`lib/tui/`, `lib/host/`, `lib/frontend/`),
+  the `Config` facade with `terminal_config`/`theme_mapper`/`user_config`
+  (TOML loader), `provider_selection`/`config_providers`/`setup`/`spawn_mru`/
+  `git_file_provider` (CLI/TUI-only consumers), `logging`, tmux, self-update,
+  `headless_watchdog`, `attention_queue`/`tree_order`, `session_controller`,
+  and the command handlers with their parts. Facade compatibility is kept by
+  re-exports: `config.dart` re-exports `RuntimeConfig`/`StartupOptions`/
+  `ResumeRequest` and `user_config.dart` re-exports
+  `EnvironmentAutoPopulate`/`parseEnvironmentAutoPopulate` through the public
+  tina_app library.
+- Tests: 36 files moved to `tina_app/test` (359 pass). The facade-based
+  fixtures (`fleet_test_harness`, `environment_runner_test`,
+  `session_restore_test`) now build `RuntimeConfig` values directly — the 24
+  A02 baseline entries are resolved, not re-baselined.
+  `runtime_boundary_test.dart` moved and retargeted to the tina_app closure;
+  a residual root test keeps the TOML loader's terminal-free closure checked.
+  The edit-verifier escape is gone (engine test helper copied into
+  `tina_app/test/helpers`).
+- Enforcement: policy.json owns `tina_app` with its full source tree;
+  serviceRoots/finalComposition/pure/no-direct-IO lists point at the new
+  paths, and assembly-direction now applies to tina_app services, not just
+  root files. CI gains the `tina_app` job and root pub-get prep. The baseline
+  ratcheted 51 → 26 exact exceptions.
+- Engine: `HostLifecycleAdapter.runStarted` raises activity only on the
+  empty→non-empty transition, so nested producers can no longer re-fire a
+  conversation's busy cue mid-turn.
+- Fixed in passing: the summary temp-project harness now gitignores `.tina/`,
+  so `git add -A` no longer collides with the sidecar's own Git repository
+  (pre-existing `region_registry_test` failure at HEAD).
+
 ## Validation
+
+Current A06 validation, from the repository root:
+
+```sh
+dart analyze && dart test --concurrency=1
+(cd packages/tina_app && dart analyze && dart test --concurrency=1)
+(cd packages/tina_engine && dart analyze && dart test --concurrency=1)
+dart run tool/check_architecture.dart
+```
+
+A06 results: root analysis is clean with 680 tests passing; tina_app adds 359
+passing tests; the engine suite stays at 892. The checker scans 598 owned
+files against 26 exact exceptions; all 16 checker tests pass. The single root
+failure is the pre-existing tin-y4qn busy-cue test, which fails identically
+at HEAD.
 
 Current A08 validation, locally:
 
@@ -321,8 +379,9 @@ during sends, not just after completion.
 
 ## Workspace state
 
-A01 was committed as `54e136e`, A02–A05 as `b12c80d`, and A07 as `0881fdc`.
-A08's CI jobs and documentation follow in the next commit.
+A01 was committed as `54e136e`, A02–A05 as `b12c80d`, A07 as `0881fdc`, and
+A08 as `69926e3`. A06's extraction, enforcement updates and documentation
+follow in the next commit.
 The user requested a commit of the entire working tree after A01 validation.
 The specifications, implementation and tests are included together with the
 pre-existing `.claude/`, `.poolside/` and `releases/` files. Those existing files

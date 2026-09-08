@@ -1,6 +1,6 @@
 import 'package:tina_console/tina_console.dart';
 
-import '../session_manager.dart';
+import 'package:tina_app/tina_app.dart';
 import 'panel_manager.dart';
 
 /// Owns the single canonical resize sequence.

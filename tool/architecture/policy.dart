@@ -39,7 +39,7 @@ class ArchitecturePolicy {
                   values('frontendFiles').contains(path)));
       if (!frontend)
         found.addAll(graph.forbidden(file, 'frontend-exclusion', isTerminal));
-      if (rootPackage && matches(path, 'serviceRoots')) {
+      if (matches(path, 'serviceRoots')) {
         found.addAll(
           graph.forbidden(
             file,

@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:attractor/attractor.dart';
-import 'package:tina/conversation.dart';
+import 'package:tina_app/tina_app.dart';
 import 'package:tina/host/tui_conversation_host.dart';
-import 'package:tina/pipeline/workflow_supervisor.dart';
+
 import 'package:tina/platform/terminal_geometry.dart';
 import 'package:tina/session_controller.dart';
-import 'package:tina/session_manager.dart';
+
 import 'package:tina/tui_coordinator.dart' show SpawnTree;
 import 'package:tina/tui/conversation_panel_coordinator.dart';
 import 'package:tina/tui/panel_manager.dart';

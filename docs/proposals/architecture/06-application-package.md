@@ -1,6 +1,8 @@
 # A06 — Extract the frontend-independent application package
 
-Status: proposed; perform after A01–A05 and dependency enforcement from A07.
+Status: implemented (2026-09-08). `tina_app` carries the application layer
+with its own manifest, test suite and CI job; root keeps the CLI, TUI and
+final composition facades.
 
 ## Rationale
 

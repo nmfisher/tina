@@ -1,6 +1,7 @@
 {
   "ownedPackages": [
     "tina",
+    "tina_app",
     "tina_engine",
     "tina_console",
     "tina_index",
@@ -20,6 +21,10 @@
       "bin",
       "test",
       "tool"
+    ],
+    "tina_app": [
+      "lib",
+      "test"
     ],
     "tina_engine": [
       "lib",
@@ -74,31 +79,40 @@
     "test/tools/nc_key_dump.dart"
   ],
   "assemblyRoots": [
-    "lib/composition/"
+    "lib/composition/",
+    "packages/tina_app/lib/src/composition/"
   ],
   "finalComposition": [
-    "lib/composition/app_composition.dart",
-    "lib/composition/execution_runtime.dart",
-    "lib/composition/project_services.dart",
+    "packages/tina_app/lib/src/composition/app_composition.dart",
+    "packages/tina_app/lib/src/composition/execution_runtime.dart",
+    "packages/tina_app/lib/src/composition/project_services.dart",
     "lib/tui_coordinator.dart",
     "lib/config.dart"
   ],
   "serviceRoots": [
-    "lib/application/",
-    "lib/summaries/",
-    "lib/environment/"
+    "packages/tina_app/lib/src/session/",
+    "packages/tina_app/lib/src/execution/",
+    "packages/tina_app/lib/src/commands/",
+    "packages/tina_app/lib/src/config/",
+    "packages/tina_app/lib/src/platform/",
+    "packages/tina_app/lib/src/persistence/",
+    "packages/tina_app/lib/src/summaries/",
+    "packages/tina_app/lib/src/environment/",
+    "packages/tina_app/lib/src/workflows/",
+    "packages/tina_app/lib/src/regions/",
+    "packages/tina_app/lib/src/project/"
   ],
   "pureFiles": [
-    "lib/summaries/summary_repository.dart",
-    "lib/summaries/summary_models.dart"
+    "packages/tina_app/lib/src/summaries/summary_repository.dart",
+    "packages/tina_app/lib/src/summaries/summary_models.dart"
   ],
   "noDirectIoFiles": [
-    "lib/summaries/summary_index.dart",
-    "lib/summaries/summary_repository.dart",
-    "lib/summaries/summary_runner.dart",
-    "lib/environment/environment_index.dart",
-    "lib/environment/environment_repository.dart",
-    "lib/environment/environment_runner.dart"
+    "packages/tina_app/lib/src/summaries/summary_index.dart",
+    "packages/tina_app/lib/src/summaries/summary_repository.dart",
+    "packages/tina_app/lib/src/summaries/summary_runner.dart",
+    "packages/tina_app/lib/src/environment/environment_index.dart",
+    "packages/tina_app/lib/src/environment/environment_repository.dart",
+    "packages/tina_app/lib/src/environment/environment_runner.dart"
   ],
   "baseline": "baseline.json",
   "excludedRoots": {

@@ -1,22 +1,12 @@
 import 'session_commands/controller_command_adapter.dart';
-import 'application/background_job_supervisor.dart';
-import 'application/project_background_jobs.dart';
-import 'application/turn_executor.dart';
+import 'package:tina_app/tina_app.dart';
 import 'frontend/session_input_state.dart';
-import 'host/selection_presenter.dart';
 import 'dart:async';
 import 'dart:io';
 
 import 'package:tina_engine/tina_engine.dart';
 
-import 'conversation.dart';
-import 'environment/environment_index.dart';
-import 'pipeline/workflow_supervisor.dart';
-import 'platform/environment.dart';
-import 'session_commands/command_context.dart';
 import 'session_commands/session_command_handlers.dart';
-import 'session_manager.dart';
-import 'summaries/summary_index.dart';
 
 /// Reads a single line of user input given the [prompt]. Returns null when the
 /// host's input closed (EOF). Abstracts the terminal's line editor so the

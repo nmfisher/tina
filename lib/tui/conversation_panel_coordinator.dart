@@ -1,11 +1,10 @@
-import '../host/selection_presenter.dart';
 import 'dart:async';
 
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart' show HostMessageStyle;
 
 import '../host/tui_conversation_host.dart';
-import '../session_manager.dart';
+import 'package:tina_app/tina_app.dart';
 import 'panel_manager.dart';
 
 /// Whether spawned panels use the frame-owns-canvas model: the [PanelFrame]

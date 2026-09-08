@@ -1,6 +1,7 @@
 # Application architecture refactoring specifications
 
-Status: A01–A05, A07 and A08 implemented. A06 remains proposed.
+Status: A01–A08 all implemented. The A07 baseline stands at 26 exact
+exceptions; remaining work is the ratchet, not new structure.
 Start a new agent session with [the handoff](HANDOFF.md).
 Date: 2026-09-08.
 

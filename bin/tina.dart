@@ -1,24 +1,21 @@
-import 'package:tina/composition/project_services.dart';
+import 'package:tina_app/tina_app.dart';
 import 'dart:async';
 import 'dart:io';
 
-import 'package:tina/composition/agent_composition.dart';
-import 'package:tina/composition/app_composition.dart';
-import 'package:tina/composition/edit_verifier.dart';
+
 import 'package:tina/config.dart';
 import 'package:tina/config/setup.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina/composition/config_providers.dart';
 import 'package:tina/logging.dart';
-import 'package:tina/pipeline/default_workflow.dart';
-import 'package:tina/pipeline/pipeline_runner.dart';
-import 'package:tina/platform/environment.dart';
+
+
 import 'package:tina/host/headless_watchdog.dart';
 import 'package:tina/session_commands/session_command_handlers.dart';
-import 'package:tina/persistence/session_restore.dart';
-import 'package:tina/summaries/allocations_store.dart';
+
+
 import 'package:tina_engine/tina_engine.dart';
-import 'package:tina/project/project_trust.dart';
+
 import 'package:tina/tui_coordinator.dart';
 import 'package:tina/version.g.dart';
 import 'package:logging/logging.dart';

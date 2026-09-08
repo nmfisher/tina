@@ -1,7 +1,7 @@
 import 'package:tina_engine/tina_engine.dart';
-import 'package:tina/conversation.dart';
+import 'package:tina_app/tina_app.dart';
 import 'package:tina/session_controller.dart';
-import 'package:tina/session_manager.dart';
+
 import 'package:test/test.dart';
 
 import 'helpers/fake_host_interface.dart';

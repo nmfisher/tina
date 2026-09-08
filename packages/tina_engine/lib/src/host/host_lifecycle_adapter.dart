@@ -7,8 +7,10 @@ mixin HostLifecycleAdapter implements RunLifecycleSink {
   void setActivity(bool active);
   @override
   void runStarted(Object identity) {
-    _activeRuns.add(identity);
-    setActivity(true);
+    // Nested producers (turn slot + Agent.run) start the same host's activity:
+    // raise only on the empty→non-empty transition so the cue is not re-fired
+    // mid-turn (tin-y4qn busy-cue race).
+    if (_activeRuns.add(identity)) setActivity(true);
   }
 
   @override

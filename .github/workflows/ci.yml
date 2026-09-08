@@ -1,9 +1,9 @@
 # Continuous integration for tina: `dart analyze` + `dart test` for the root
-# package and the five owned packages, on every PR to main and every push to
+# package and the six owned packages, on every PR to main and every push to
 # main. (tina_index joined the matrix when log item #39 — its seedQuery
 # pre-existing failure — shipped; attractor and fuzzy_ranker joined with A08;
-# engine 775 + console 811 + root 758 + tina_index 56 + attractor 89 +
-# fuzzy_ranker 11 tests gate here.)
+# tina_app joined with A06; engine 775 + console 811 + root 758 + tina_index
+# 56 + attractor 89 + fuzzy_ranker 11 + tina_app 359 tests gate here.)
 #
 # Owned-package inventory (A08): tool/architecture/policy.json lists the owned
 # packages plus the vendored dart_notcurses submodule exception. The root job's
@@ -79,6 +79,7 @@ jobs:
       # mirrors a dev machine, where every package has been pub-got.
       - name: pub get (owned packages, for analyze and architecture checks)
         run: |
+          (cd packages/tina_app && dart pub get)
           (cd packages/tina_engine && dart pub get)
           (cd packages/tina_console && dart pub get)
           (cd packages/tina_index && dart pub get)
@@ -251,4 +252,30 @@ jobs:
 
       - name: test (fuzzy_ranker)
         working-directory: packages/fuzzy_ranker
+        run: dart test
+
+  # tina_app (A06): the frontend-independent application layer. Terminal-free
+  # like attractor/fuzzy_ranker — no submodule checkout, no native deps — so
+  # its job doubles as the live proof that the application closure never grew
+  # a terminal dependency back.
+  tina_app:
+    name: tina_app (packages/tina_app)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: pub get (tina_app)
+        working-directory: packages/tina_app
+        run: dart pub get
+
+      - name: analyze (tina_app)
+        working-directory: packages/tina_app
+        run: dart analyze
+
+      - name: test (tina_app)
+        working-directory: packages/tina_app
         run: dart test

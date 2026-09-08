@@ -28,6 +28,8 @@ dependencies:
     path: packages/tina_console
   tina_engine:
     path: packages/tina_engine
+  tina_app:
+    path: packages/tina_app
   tina_index:
     path: packages/tina_index
 

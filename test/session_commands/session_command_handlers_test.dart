@@ -3,11 +3,11 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
-import 'package:tina/conversation.dart';
-import 'package:tina/session_commands/command_context.dart';
+import 'package:tina_app/tina_app.dart';
+
 import 'package:tina/session_commands/session_command_handlers.dart';
-import 'package:tina/session_manager.dart';
-import 'package:tina/summaries/summary_index.dart';
+
+
 import 'package:tina/tmux/tmux_support.dart';
 import 'package:test/test.dart';
 

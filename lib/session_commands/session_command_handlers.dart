@@ -7,13 +7,9 @@ import 'package:tina_engine/tina_engine.dart';
 import '../self_update/release_checker.dart';
 import '../self_update/updater.dart';
 import '../version.g.dart';
-import '../summaries/summary_index.dart';
-import '../pipeline/pipeline_commands.dart';
+import 'package:tina_app/tina_app.dart';
 import '../tmux/tmux_support.dart';
-import 'command_context.dart';
-import 'session_export.dart';
 
-import 'command_capabilities.dart';
 part 'session_command_registry.dart';
 part 'command_families.dart';
 

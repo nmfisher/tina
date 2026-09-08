@@ -6,16 +6,14 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 import 'config/user_config.dart';
-import 'project/project_trust.dart';
-import 'config/runtime_config.dart';
+import 'package:tina_app/tina_app.dart';
 import 'config/terminal_config.dart';
-import 'config/startup_options.dart';
 import 'config/resolved_launch.dart';
 import 'config/theme_mapper.dart';
 
-export 'config/runtime_config.dart';
+export 'package:tina_app/tina_app.dart'
+    show ResumeRequest, RuntimeConfig, StartupOptions;
 export 'config/terminal_config.dart';
-export 'config/startup_options.dart';
 export 'config/resolved_launch.dart';
 
 /// Root compatibility facade. Application code consumes [runtime].

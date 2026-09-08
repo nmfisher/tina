@@ -1,4 +1,4 @@
-export 'environment_options.dart';
+import 'package:tina_app/tina_app.dart';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -6,6 +6,8 @@ import 'package:toml/toml.dart';
 
 import 'package:tina_engine/tina_engine.dart';
 import 'theme_overrides.dart';
+export 'package:tina_app/tina_app.dart'
+    show EnvironmentAutoPopulate, parseEnvironmentAutoPopulate;
 export 'theme_overrides.dart';
 
 /// The config schema version this build understands. The file declares its

@@ -4,12 +4,11 @@ import 'dart:io';
 import 'package:attractor/attractor.dart';
 import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
-import 'package:tina/conversation.dart';
-import 'package:tina/pipeline/default_workflow.dart';
-import 'package:tina/pipeline/workflow_supervisor.dart';
-import 'package:tina/session_commands/command_context.dart' show TmuxExitChoice;
+import 'package:tina_app/tina_app.dart';
+
+
 import 'package:tina/session_controller.dart';
-import 'package:tina/session_manager.dart';
+
 import 'helpers/memory_session_store.dart';
 import 'package:test/test.dart';
 

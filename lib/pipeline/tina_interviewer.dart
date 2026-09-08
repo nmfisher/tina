@@ -1,4 +1,4 @@
-import 'headless_interviewer.dart';
+import 'package:tina_app/tina_app.dart';
 import 'package:attractor/attractor.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';

@@ -3,12 +3,9 @@ import 'dart:io';
 
 import 'package:tina_engine/tina_engine.dart';
 
-import '../conversation.dart';
-import '../session_manager.dart';
-import '../summaries/summary_index.dart';
+import 'package:tina_app/tina_app.dart';
 
 import '../session_controller.dart';
-import 'command_context.dart';
 
 class ControllerCommandAdapter implements CommandContext {
   final SessionController controller;

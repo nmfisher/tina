@@ -1,6 +1,5 @@
-import 'runtime_config.dart';
+import 'package:tina_app/tina_app.dart';
 import 'terminal_config.dart';
-import 'startup_options.dart';
 
 /// Resolved root inputs. Explicit model-source metadata lives in runtime.modelExplicit.
 class ResolvedLaunch {

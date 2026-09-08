@@ -1,7 +1,7 @@
 import 'package:tina/config/provider_selection.dart';
 import 'package:test/test.dart';
-import 'package:tina/composition/provider_resolution.dart';
-import 'package:tina/config/runtime_config.dart';
+import 'package:tina_app/tina_app.dart';
+
 import 'package:tina/config/user_config.dart';
 import 'package:tina_engine/tina_engine.dart';
 

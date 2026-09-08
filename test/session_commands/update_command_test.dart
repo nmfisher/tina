@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
-import 'package:tina/conversation.dart';
+import 'package:tina_app/tina_app.dart';
 import 'package:tina/self_update/release_checker.dart';
-import 'package:tina/session_commands/command_context.dart';
+
 import 'package:tina/session_commands/session_command_handlers.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';

@@ -1,5 +1,5 @@
-import 'package:tina/composition/project_services.dart';
-import 'application/conversation_operations.dart';
+
+import 'package:tina_app/tina_app.dart';
 import 'pipeline/tina_interviewer.dart';
 import 'package:tina/config/provider_selection.dart';
 import 'dart:async';
@@ -13,21 +13,19 @@ import 'package:attractor/attractor.dart';
 
 import 'package:tina/completion/git_file_provider.dart';
 import 'package:tina/completion/command_completion_provider.dart';
-import 'package:tina/composition/agent_composition.dart';
-import 'package:tina/composition/app_composition.dart';
+
+
 import 'package:tina/config.dart';
-import 'package:tina/composition/provider_resolution.dart';
+
 import 'package:tina/config/spawn_mru.dart';
 import 'package:tina/config/user_config.dart';
-import 'package:tina/environment/environment_record.dart';
-import 'package:tina/environment/environment_runner.dart'
-    show kDefaultEnvironmentModelRef;
+
 import 'package:tina/host/tui_conversation_host.dart';
-import 'package:tina/persistence/session_restore.dart';
-import 'package:tina/pipeline/pipeline_runner.dart';
+
+
 import 'package:tina/pipeline/workflow_permission_asker.dart';
-import 'package:tina/pipeline/workflow_supervisor.dart';
-import 'package:tina/regions/region_registry.dart';
+
+
 import 'package:tina/self_update/release_checker.dart';
 import 'package:tina/self_update/updater.dart';
 import 'package:tina/tui/attention_queue.dart';
@@ -37,11 +35,10 @@ import 'package:tina/tui/tool_output_overlay.dart';
 import 'package:tina/tui/workflow_editor_overlay.dart';
 import 'package:tina/tui/workflow_viewer_overlay.dart';
 import 'package:tina/platform/terminal_geometry.dart';
-import 'package:tina/project/gitignore_guard.dart';
+
 import 'package:tina/session_controller.dart';
-import 'package:tina/session_commands/command_context.dart' show TmuxExitChoice;
-import 'package:tina/conversation.dart';
-import 'package:tina/session_manager.dart';
+
+
 import 'package:tina/tmux/tmux_support.dart';
 import 'package:tina/tui/spawn_overlay.dart';
 import 'package:tina/tui/tree_order.dart';

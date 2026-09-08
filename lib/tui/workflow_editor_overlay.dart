@@ -8,7 +8,7 @@ import 'package:tina_console/tina_console.dart';
 import 'spawn_overlay.dart';
 import 'workflow_node_attr_form.dart';
 
-import '../pipeline/workflow_names.dart';
+import 'package:tina_app/tina_app.dart';
 
 /// The visual node editor (`/workflow new` and `/workflow edit <name>`). A
 /// full-screen, live-rendered graph with a keyboard-driven selection cursor:
