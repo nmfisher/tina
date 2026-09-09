@@ -138,11 +138,31 @@ fi
 # --- install --------------------------------------------------------------------
 mkdir -p "$INSTALL_DIR" || die "cannot create $INSTALL_DIR"
 tar -xzf "$TMP/$ASSET" -C "$TMP"
-# The bundle contains the `tina` binary at its root; find it if nested.
 BIN=$(find "$TMP" -name tina -type f | head -1)
 [ -n "$BIN" ] || die 'tina binary not found in the bundle'
+BUNDLE_ROOT=$(dirname "$(dirname "$BIN")")   # …/bundle (contains bin/ + lib/)
 chmod +x "$BIN" && mv "$BIN" "$INSTALL_DIR/tina"
-say "installed: $INSTALL_DIR/tina"
+
+# The native notcurses asset resolves at `../lib/` RELATIVE TO THE EXECUTABLE
+# (dart native-assets layout: <root>/bin/tina + <root>/lib/libnotcurses_merged.*).
+# Installing the binary alone leaves a tina that cannot start — install the
+# bundle's lib/ beside it. exe at <dir>/tina → libs at <dir>/../lib.
+LIB_DIR="$(dirname "$INSTALL_DIR")/lib"
+if [ -d "$BUNDLE_ROOT/lib" ]; then
+  mkdir -p "$LIB_DIR" || die "cannot create $LIB_DIR"
+  cp -R "$BUNDLE_ROOT/lib/." "$LIB_DIR/"
+fi
+
+# Prove the installed layout can load its native asset before claiming
+# success — `--version` does NOT exercise this (it exits before backend init),
+# which is exactly how a binary-only install once shipped as "verified".
+NATIVE_LIB=$(find "$LIB_DIR" -name 'libnotcurses_merged.*' 2>/dev/null | head -1)
+if [ -n "$NATIVE_LIB" ]; then
+  say "installed: $INSTALL_DIR/tina (+ native libs in $LIB_DIR)"
+else
+  say "installed: $INSTALL_DIR/tina"
+  say "WARNING: bundle contains no libnotcurses_merged — the notcurses backend will fail to start."
+fi
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
   *) say "NOTE: $INSTALL_DIR is not on your PATH — add it to your shell profile." ;;

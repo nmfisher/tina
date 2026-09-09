@@ -279,3 +279,26 @@ jobs:
           make_latest: ${{ github.event_name != 'workflow_dispatch' }}
           files: ${{ steps.assets.outputs.files }}
           fail_on_unmatched_files: true
+
+      # Install-path regression guard: v0.6.1's installer copied only the
+      # binary, and nothing caught it — `tina --version` (the only smoke test
+      # anywhere) exits before native-asset loading, so the notcurses lib was
+      # never exercised at the installed layout. This runs the actual
+      # installer (pinned to the tag that just shipped) and asserts the
+      # layout the dart native-assets loader expects: <dir>/tina plus the
+      # merged notcurses library at <dir>/../lib/.
+      - name: Verify installer against the published release
+        if: github.event_name == 'push'
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q minisign
+          curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/${{ env.TAG }}/install.sh" \
+            -o install-check.sh
+          dir="$RUNNER_TEMP/tina-installed"
+          sh install-check.sh --dir "$dir" --version "${{ env.TAG }}"
+          test -x "$dir/tina"
+          lib="$(find "$(dirname "$dir")/lib" -name 'libnotcurses_merged.*' | head -1)"
+          test -n "$lib" || {
+            echo "installed layout is missing libnotcurses_merged at $(dirname "$dir")/lib — the notcurses backend cannot start" >&2
+            exit 1
+          }
+          "$dir/tina" --version
