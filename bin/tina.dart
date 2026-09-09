@@ -7,6 +7,7 @@ import 'package:tina/config.dart';
 import 'package:tina/config/setup.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina/composition/config_providers.dart';
+import 'package:tina/composition/models_dev_seed.dart';
 import 'package:tina/logging.dart';
 
 
@@ -78,10 +79,23 @@ Future<void> _run(List<String> argv) async {
       final mergedEnv = {...environment.env, ...buildEnvOverlay(userConfig)};
       final registry = builtinRegistry(env: mergedEnv);
       registerConfigProviders(registry, userConfig);
+      // Providers discovered from models.dev's api.json register BEFORE the
+      // catalogs attach: LiveModelsCatalog enumerates registry.descriptors at
+      // attach time, so a seeded provider must already be in the registry for
+      // its own GET /v1/models to refine the models.dev list. A config-declared
+      // id wins — registerConfigProviders ran first and the seed skips
+      // collisions (id, credential env var, base-URL host).
+      final providerCatalog = await _seedModelsDevProviders(registry, mergedEnv);
       // mergedEnv (not the raw environment): a key configured in ~/.tina/config
       // rather than the shell must reach the live-models catalog too, or it
       // sees no credentials and silently skips that provider's /v1/models.
-      _attachModelsDevCatalog(registry, mergedEnv);
+      final catalogFutures = <Future<void>>[
+        ..._attachModelsDevCatalog(registry, mergedEnv),
+        // Fire-and-forget: the result applies on the NEXT launch (the registry
+        // is already built from the cache), so startup never waits on it.
+        if (providerCatalog != null)
+          providerCatalog.refresh().catchError((Object _) {}),
+      ];
       // Built-in per-provider rate limiting: every provider built from one
       // descriptor shares a launch-slot queue, so concurrent agents on the
       // same provider (folder-survey scouts, sub-agents, side panels) space
@@ -139,7 +153,7 @@ Future<void> _run(List<String> argv) async {
         return;
       }
       if (config.models != null) {
-        await _printModels(config.models, registry);
+        await _printModels(config.models, registry, catalogFutures);
         return;
       }
 
@@ -711,6 +725,35 @@ String _shortStamp(DateTime t) {
       '${pad(l.hour)}:${pad(l.minute)}';
 }
 
+/// Register the providers models.dev knows about that tina can actually call,
+/// and return the discovery catalog (null when disabled via
+/// `COCOON_MODELS_DEV=0`).
+///
+/// Seeds from the on-disk cache ONLY — never the network — so startup stays off
+/// the critical path: on a first run there is no cache, nothing is seeded, and
+/// the caller's background [ModelsDevProviderCatalog.refresh] writes one for the
+/// next launch. The cache is read ignoring its age, so a cold start is
+/// deterministic rather than racing a TTL boundary.
+///
+/// Seeded providers land in the registry — `/settings` and `--models` see them —
+/// but stay out of `/model` and `/spawn` until curated in `/settings`; see
+/// `registerModelsDevProviders` for the gating contract.
+Future<ModelsDevProviderCatalog?> _seedModelsDevProviders(
+  ProviderRegistry registry,
+  Map<String, String> env,
+) async {
+  if (env['COCOON_MODELS_DEV'] == '0') return null;
+  final catalog = ModelsDevProviderCatalog(env: env);
+  await catalog.loadFromCache();
+  registerModelsDevProviders(
+    registry: registry,
+    env: env,
+    providers: catalog.providers,
+  );
+  registry.providerCatalog = catalog;
+  return catalog;
+}
+
 /// Attach the model catalogs to [registry] and kick off a non-blocking
 /// load. Two layers:
 ///
@@ -777,13 +820,18 @@ Future<bool> _askTrustStdin(String cwd) async {
 }
 
 /// Print the resolved model list for one provider id (one `<id> — <name>` per
-/// line), exit 0. Reuse the startup catalog attach, await its load, print
-/// registry.modelsFor(id). No value passed → print known provider ids, exit 0.
-/// Unknown provider → stderr naming the known providers, non-zero exit.
-Future<void> _printModels(String? providerId, ProviderRegistry registry) async {
-  // Await a complete catalog: models.dev + every listable provider's own
-  // /v1/models, so the listing matches what the TUI picker would show.
-  await Future.wait(_attachModelsDevCatalog(registry, Platform.environment));
+/// line), exit 0. Await the startup catalog loads, print registry.modelsFor(id).
+/// No value passed → print known provider ids, exit 0. Unknown provider →
+/// stderr naming the known providers, non-zero exit.
+Future<void> _printModels(
+  String? providerId,
+  ProviderRegistry registry,
+  List<Future<void>> catalogFutures,
+) async {
+  // Await a complete catalog: the models.dev provider seed + model overlay +
+  // every listable provider's own /v1/models, so the listing matches what the
+  // TUI picker would show.
+  await Future.wait(catalogFutures);
 
   // Bare `--models ""` (an addOption can't distinguish no-value from
   // absent) lists the known provider ids instead.

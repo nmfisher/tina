@@ -797,9 +797,23 @@ class _ProvidersForm {
       lines[0] = _row(false, '  ↑ $nAbove more');
     }
 
+    // How fresh the models.dev provider feed is. Absent when discovery is off
+    // (`COCOON_MODELS_DEV=0`), in tests, and on headless runs — the registry
+    // only carries a catalog when the CLI seeded one.
+    final providerCatalog = _registry.providerCatalog;
+    if (providerCatalog != null) {
+      lines.add(_row(false, '  ${_providerFeedLine(providerCatalog)}'));
+    }
+
     final warning = _registry.catalog?.loadWarning;
     if (warning != null) {
       lines.add(_row(false, ' ⚠ $warning'));
+    }
+    // The provider feed's failure reason gets its own line: the freshness row
+    // is too narrow to carry it without truncating.
+    final providerWarning = providerCatalog?.loadWarning;
+    if (providerWarning != null) {
+      lines.add(_row(false, ' ⚠ $providerWarning'));
     }
     if (_writeError != null) {
       lines.add(_row(false, '⚠ $_writeError'));
@@ -809,6 +823,35 @@ class _ProvidersForm {
 
   String _footer() =>
       '↑↓ move · → expand · ← collapse · space toggle · enter save · esc cancel';
+}
+
+/// One freshness line for the models.dev provider feed: how old the cache this
+/// launch seeded from is, and what the background refresh is doing.
+///
+/// The refresh's result is deliberately NOT applied to the running registry
+/// (providers must be registered before the TUI starts), so a pending refresh
+/// is described as taking effect next launch rather than left to look current.
+String _providerFeedLine(ModelsDevProviderCatalog catalog) {
+  final cachedAt = catalog.cachedAt;
+  final age = cachedAt == null
+      ? 'no cache yet'
+      : 'cached ${_ageLabel(DateTime.now().difference(cachedAt))} ago';
+  // A failed refresh reports only that it failed here (the reason follows on
+  // its own ⚠ line); `refreshPending` is implied by it.
+  if (catalog.loadWarning != null) {
+    return 'models.dev providers: $age — refresh failed';
+  }
+  if (catalog.refreshPending) {
+    return 'models.dev providers: $age — pending (next launch)';
+  }
+  return 'models.dev providers: $age — up to date';
+}
+
+String _ageLabel(Duration d) {
+  if (d.inDays >= 1) return '${d.inDays}d';
+  if (d.inHours >= 1) return '${d.inHours}h';
+  if (d.inMinutes >= 1) return '${d.inMinutes}m';
+  return '${d.inSeconds}s';
 }
 
 

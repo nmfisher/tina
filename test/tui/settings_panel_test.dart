@@ -1,4 +1,10 @@
 
+import 'dart:async';
+import 'dart:io';
+
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
+import 'package:tina/composition/models_dev_seed.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina/tui/settings_panel.dart';
@@ -562,4 +568,185 @@ void main() {
       expect(loaded.defaultModel, 'claude-sonnet-4-6');
     });
   });
+
+  // -- models.dev discovery -------------------------------------------------
+
+  group('models.dev discovery', () {
+    // A provider registered from the discovery feed: no `[providers.<id>]`
+    // block yet, so it renders unchecked with every model disabled.
+    ProviderRegistry seededRegistry() {
+      final r = ProviderRegistry(env: const {});
+      registerModelsDevProviders(
+        registry: r,
+        env: const {'MOONSHOT_API_KEY': 'sk-test'},
+        providers: {
+          'moonshotai': ModelsDevProviderInfo(
+            key: 'moonshotai',
+            name: 'Moonshot AI',
+            envVars: const ['MOONSHOT_API_KEY'],
+            npm: '@ai-sdk/openai-compatible',
+            apiBase: 'https://api.moonshot.ai/v1',
+            models: const {
+              'kimi-k2': ModelInfo(
+                id: 'kimi-k2',
+                name: 'Kimi K2',
+                contextWindow: 262144,
+                maxOutput: 16384,
+              ),
+              'kimi-k1': ModelInfo(
+                id: 'kimi-k1',
+                name: 'Kimi K1',
+                contextWindow: 131072,
+                maxOutput: 8192,
+              ),
+            },
+          ),
+        },
+      );
+      return r;
+    }
+
+    /// A [Screen] whose [FakeStdio] the test can inspect (`fakeScreen` hides it).
+    (Screen, FakeStdio) screenWithIo() {
+      final io = FakeStdio()..hasTerminalValue = false;
+      return (
+        Screen(io: io, layout: ScreenLayout.fromSize(80, 24, hasMenuBar: false)),
+        io,
+      );
+    }
+
+    /// A discovery catalog seeded from a cache file aged [age].
+    Future<ModelsDevProviderCatalog> catalogWithCache(
+      Duration age, {
+      http.Client? client,
+      bool failRefresh = false,
+    }) async {
+      final dir = Directory(p.join(tmp.dir.path, '.tina', 'cache'))
+        ..createSync(recursive: true);
+      final f = File(p.join(dir.path, 'models.dev.providers.json'))
+        ..writeAsStringSync('{}');
+      f.setLastModifiedSync(DateTime.now().subtract(age));
+
+      final catalog = ModelsDevProviderCatalog(
+        env: {'HOME': tmp.dir.path},
+        client: client ?? _CrashClient(),
+      );
+      await catalog.loadFromCache();
+      if (failRefresh) await catalog.refresh();
+      return catalog;
+    }
+
+    test('a seeded provider renders and curating a model writes its block',
+        () async {
+      final (screen, io) = screenWithIo();
+      canned.events = [
+        ControlKey(ControlCode.enter), // index → providers
+        CharInput(' '), // check moonshotai (was unchecked: no config block)
+        ArrowKey(ArrowDirection.right), // expand
+        ArrowKey(ArrowDirection.down), // key row
+        ArrowKey(ArrowDirection.down), // base URL row
+        ArrowKey(ArrowDirection.down), // models separator
+        ArrowKey(ArrowDirection.down), // kimi-k2 (disabled by default)
+        CharInput(' '), // enable kimi-k2
+        ControlKey(ControlCode.enter), // providers → save
+        EscapeKey(), // index → close
+      ];
+      final wrote =
+          await runIndex(screen, reg: seededRegistry()).timeout(overlayTimeout);
+      expect(wrote, isNotNull);
+      expect(io.written.toString(), contains('Moonshot AI'),
+          reason: 'the discovered provider gets a settings row');
+
+      final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+      final md = loaded.providers['moonshotai'];
+      expect(md, isNotNull, reason: 'curating writes the config block');
+      expect(md?.apiKey, isNull, reason: 'the key came from the environment');
+      expect(md?.disabledModels, {'kimi-k1'},
+          reason: 'kimi-k2 enabled, kimi-k1 left disabled');
+    });
+
+    test('the freshness row reports the cache age', () async {
+      final (screen, io) = screenWithIo();
+      final reg = seededRegistry()
+        ..providerCatalog = await catalogWithCache(const Duration(days: 3));
+      canned.events = [
+        ControlKey(ControlCode.enter), // index → providers
+        EscapeKey(), // providers → cancel
+        EscapeKey(), // index → close
+      ];
+      await runIndex(screen, reg: reg).timeout(overlayTimeout);
+
+      expect(
+        io.written.toString(),
+        contains('models.dev providers: cached 3d ago — up to date'),
+      );
+    });
+
+    test('a failed refresh is reported and pending', () async {
+      final (screen, io) = screenWithIo();
+      final reg = seededRegistry()
+        ..providerCatalog =
+            await catalogWithCache(const Duration(hours: 2), failRefresh: true);
+      canned.events = [
+        ControlKey(ControlCode.enter), // index → providers
+        EscapeKey(), // providers → cancel
+        EscapeKey(), // index → close
+      ];
+      await runIndex(screen, reg: reg).timeout(overlayTimeout);
+
+      final out = io.written.toString();
+      expect(out, contains('models.dev providers: cached 2h ago — refresh failed'));
+      expect(out, contains('⚠ models.dev provider list unavailable'));
+    });
+
+    test('a refresh in flight renders as pending, not up to date', () async {
+      final (screen, io) = screenWithIo();
+      final catalog = await catalogWithCache(
+        const Duration(hours: 1),
+        client: _HangClient(),
+      );
+      final reg = seededRegistry()..providerCatalog = catalog;
+      // Never completes: the flag the row reads is the only observable.
+      unawaited(catalog.refresh());
+
+      canned.events = [
+        ControlKey(ControlCode.enter), // index → providers
+        EscapeKey(), // providers → cancel
+        EscapeKey(), // index → close
+      ];
+      await runIndex(screen, reg: reg).timeout(overlayTimeout);
+
+      expect(
+        io.written.toString(),
+        contains('models.dev providers: cached 1h ago — pending (next launch)'),
+      );
+    });
+
+    test('no discovery catalog renders no freshness row', () async {
+      final (screen, io) = screenWithIo();
+      canned.events = [
+        ControlKey(ControlCode.enter), // index → providers
+        EscapeKey(), // providers → cancel
+        EscapeKey(), // index → close
+      ];
+      await runIndex(screen, reg: setupRegistry()).timeout(overlayTimeout);
+
+      expect(io.written.toString(), isNot(contains('models.dev providers:')));
+    });
+  });
+}
+
+/// An HTTP client whose requests fail — for the refresh-failure row.
+class _CrashClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    throw http.ClientException('connection refused');
+  }
+}
+
+/// An HTTP client whose request never completes — a refresh in flight.
+class _HangClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      Completer<http.StreamedResponse>().future;
 }

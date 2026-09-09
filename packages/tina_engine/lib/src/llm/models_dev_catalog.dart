@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import '../platform/paths.dart';
 import 'model_catalog.dart';
+import 'models_dev_parse.dart';
 import 'registry.dart';
 
 final _log = Logger('tina.llm.models_dev');
@@ -134,7 +135,7 @@ class ModelsDevCatalog implements ModelCatalog {
       final modelId = key.substring(slash + 1);
       final v = entry.value;
       if (v is! Map) continue;
-      final info = _toModelInfo(modelId, v.cast<String, dynamic>());
+      final info = modelsDevModelInfo(modelId, v.cast<String, dynamic>());
       if (info != null) {
         byMdKey.putIfAbsent(mdProv, () => []).add(info);
       }
@@ -152,27 +153,6 @@ class ModelsDevCatalog implements ModelCatalog {
       if (e.value == mdKey) return e.key;
     }
     return null;
-  }
-
-  ModelInfo? _toModelInfo(String modelId, Map<String, dynamic> m) {
-    final limit = m['limit'];
-    if (limit is! Map) return null;
-    final context = (limit['context'] as num?)?.toInt();
-    final output = (limit['output'] as num?)?.toInt();
-    if (context == null || output == null) return null;
-    final mods = m['modalities'];
-    final inputs = (mods is Map
-            ? (mods['input'] as List?)?.cast<String>()
-            : null) ??
-        const <String>[];
-    return ModelInfo(
-      id: modelId,
-      name: (m['name'] as String?) ?? modelId,
-      contextWindow: context,
-      maxOutput: output,
-      supportsTools: m['tool_call'] == true,
-      supportsVision: inputs.contains('image'),
-    );
   }
 
   @override

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'http.dart';
 import 'model_catalog.dart';
+import 'models_dev_providers_catalog.dart';
 import 'pooled_provider.dart';
 import 'provider.dart';
 import 'provider_rate_limit.dart';
@@ -327,6 +328,12 @@ class ProviderRegistry implements LlmProviderFactory {
   /// the hand-seeded descriptor catalogs. `null` (the default) means the
   /// compiled maps are authoritative.
   ModelCatalog? catalog;
+
+  /// Optional provider-discovery feed (models.dev `api.json`). Set by the
+  /// composition root after seeding its entries into [register]; the settings
+  /// panel reads it for the catalog freshness row. `null` (the default, and
+  /// whenever `COCOON_MODELS_DEV=0`) means discovery is off.
+  ModelsDevProviderCatalog? providerCatalog;
 
   ProviderRegistry({Map<String, String>? env})
       : _env = env ?? Platform.environment;

@@ -1,3 +1,4 @@
+import 'package:tina/composition/models_dev_seed.dart';
 import 'package:tina/config/provider_selection.dart';
 import 'package:test/test.dart';
 import 'package:tina_app/tina_app.dart';
@@ -136,6 +137,53 @@ void main() {
         (pid) => pid == 'alpha' ? ['m1', 'm2'] : [],
       );
       expect(refs, {'alpha/m1'});
+    });
+
+    test('a seeded models.dev provider is fully disabled until curated', () {
+      final registry = builtinRegistry(env: const {});
+      registerModelsDevProviders(
+        registry: registry,
+        env: const {'MOONSHOT_API_KEY': 'sk-test'},
+        providers: {
+          'moonshotai': ModelsDevProviderInfo(
+            key: 'moonshotai',
+            name: 'Moonshot AI',
+            envVars: const ['MOONSHOT_API_KEY'],
+            npm: '@ai-sdk/openai-compatible',
+            apiBase: 'https://api.moonshot.ai/v1',
+            models: const {
+              'kimi-k2': ModelInfo(
+                id: 'kimi-k2',
+                name: 'Kimi K2',
+                contextWindow: 262144,
+                maxOutput: 16384,
+              ),
+            },
+          ),
+        },
+      );
+      List<String> modelsFor(String pid) =>
+          registry.modelsFor(pid).map((m) => m.id).toList();
+
+      // Registered (so /settings and --models see it) but uncurated: no
+      // `[providers.moonshotai]` block, so every model is disabled and neither
+      // /model nor /spawn offers one.
+      final refs = disabledModelRefsFor(
+        UserConfig.empty,
+        registry.providerIds,
+        modelsFor,
+      );
+      expect(refs, contains('moonshotai/kimi-k2'));
+
+      // Checking a model in /settings writes the block; the explicit set is
+      // then honored as-is.
+      final curated = UserConfig(providers: {
+        'moonshotai': ProviderConfig(disabledModels: const {}),
+      });
+      expect(
+        disabledModelRefsFor(curated, const ['moonshotai'], modelsFor),
+        isEmpty,
+      );
     });
 
     test('an empty set enables everything (the curated all-on state)', () {

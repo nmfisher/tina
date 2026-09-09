@@ -1,3 +1,4 @@
+import 'package:tina/composition/models_dev_seed.dart';
 import 'package:tina/config.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina_engine/tina_engine.dart';
@@ -506,6 +507,62 @@ void main() {
         userConfig: const UserConfig(defaultProvider: 'anthropic'),
       );
       expect(cfg.apiKey, 'sk-from-env');
+    });
+  });
+
+  group('a discovered provider as the configured default', () {
+    const env = {'MOONSHOT_API_KEY': 'sk-moonshot'};
+    const defaultToMoonshot = UserConfig(defaultProvider: 'moonshotai');
+
+    void seed(ProviderRegistry registry) => registerModelsDevProviders(
+      registry: registry,
+      env: env,
+      providers: {
+        'moonshotai': ModelsDevProviderInfo(
+          key: 'moonshotai',
+          name: 'Moonshot AI',
+          envVars: const ['MOONSHOT_API_KEY'],
+          npm: '@ai-sdk/openai-compatible',
+          apiBase: 'https://api.moonshot.ai/v1',
+          models: const {
+            'kimi-k2': ModelInfo(
+              id: 'kimi-k2',
+              name: 'Kimi K2',
+              contextWindow: 262144,
+              maxOutput: 16384,
+            ),
+          },
+        ),
+      },
+    );
+
+    test('is unknown before discovery seeds it', () {
+      expect(
+        () => Config.parse(
+          const [],
+          env: env,
+          registry: testRegistry(env),
+          userConfig: defaultToMoonshot,
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('resolves once a seeded descriptor is registered', () {
+      final registry = testRegistry(env);
+      seed(registry);
+
+      final cfg = Config.parse(
+        const [],
+        env: env,
+        registry: registry,
+        userConfig: defaultToMoonshot,
+      );
+
+      expect(cfg.provider, 'moonshotai');
+      expect(cfg.model, 'kimi-k2', reason: 'first of the discovered models');
+      expect(cfg.baseUrl, 'https://api.moonshot.ai/v1');
+      expect(cfg.apiKey, 'sk-moonshot');
     });
   });
 }
