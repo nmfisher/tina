@@ -145,6 +145,25 @@ void main() {
         reason: 'alpha was filtered out and never checked');
   });
 
+  test('providers: typing a key auto-selects the provider', () async {
+    final screen = fakeScreen();
+    // No initial config: alpha is unchecked. Expand, focus the key row, and
+    // type — the provider must check ITSELF (no separate space toggle), and
+    // the save must write the credential.
+    canned.events = [
+      ControlKey(ControlCode.enter), // index → providers
+      ArrowKey(ArrowDirection.right), // expand alpha
+      ArrowKey(ArrowDirection.down), // alpha/key
+      CharInput('k'), CharInput('a'), // type "ka"
+      ControlKey(ControlCode.enter), // providers → save
+      EscapeKey(), // index → close
+    ];
+    final wrote = await runIndex(screen).timeout(overlayTimeout);
+    expect(wrote, isNotNull);
+    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+    expect(loaded.providers['alpha']?.apiKey, 'ka');
+  });
+
   // -- providers panel ------------------------------------------------------
 
   test('providers: cancel (Esc) writes nothing', () async {

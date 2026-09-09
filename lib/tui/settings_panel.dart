@@ -597,6 +597,9 @@ class _ProvidersForm {
 
   void _appendField(_Row f, String c) {
     final id = _providerIds[f.providerIndex];
+    // Entering a credential or endpoint IS configuring the provider: select
+    // it automatically instead of requiring a separate checkbox toggle.
+    _checked.add(id);
     if (f.type == _RowType.key) {
       _keys[id] = (_keys[id] ?? '') + c;
     } else {
@@ -643,6 +646,14 @@ class _ProvidersForm {
       _disabledModels.remove(ref);
       _checked.add(id);
     }
+  }
+
+  /// Hint shown in an empty API-key field: the environment variable that
+  /// can supply the credential instead, when the descriptor declares one.
+  String _unsetKeyHint(String id) {
+    final sources = _registry.descriptor(id)?.authSources;
+    if (sources == null || sources.isEmpty) return '';
+    return '(or env ${sources.first.envVar})';
   }
 
   bool _requiresKey(String id) {
@@ -717,12 +728,19 @@ class _ProvidersForm {
           final id = _providerIds[r.providerIndex];
           final k = _keys[id] ?? '';
           final cursor = focused ? '_' : ' ';
-          lines.add(_row(focused, '  API key: ${'*' * k.length}$cursor'));
+          final hint = k.isEmpty ? _unsetKeyHint(id) : '';
+          lines.add(_row(
+              focused, '  API key: ${'*' * k.length}$hint$cursor'));
         case _RowType.url:
           final id = _providerIds[r.providerIndex];
           final u = _baseUrls[id] ?? '';
           final cursor = focused ? '_' : ' ';
-          lines.add(_row(focused, '  Base URL: $u$cursor'));
+          // Built-ins ship a compiled defaultBaseUrl; show it so the field
+          // reads as optional and the effective value is never a mystery.
+          final hint = u.isEmpty
+              ? '(default: ${_registry.descriptor(id)?.defaultBaseUrl ?? 'none'})'
+              : '';
+          lines.add(_row(focused, '  Base URL: $u$hint$cursor'));
         case _RowType.separator:
           if (r.emptyModels) {
             lines.add(_row(false, '  (no known models)'));
