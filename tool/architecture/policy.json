@@ -111,8 +111,7 @@
     "packages/tina_app/lib/src/summaries/summary_repository.dart",
     "packages/tina_app/lib/src/summaries/summary_runner.dart",
     "packages/tina_app/lib/src/environment/environment_index.dart",
-    "packages/tina_app/lib/src/environment/environment_repository.dart",
-    "packages/tina_app/lib/src/environment/environment_runner.dart"
+    "packages/tina_app/lib/src/environment/environment_repository.dart"
   ],
   "baseline": "baseline.json",
   "excludedRoots": {

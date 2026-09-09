@@ -1,5 +1,4 @@
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_console/src/term_width.dart';
 
 typedef ConversationSidebarEntry = ({String id, String label, int depth});
 

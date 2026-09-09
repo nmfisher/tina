@@ -180,21 +180,15 @@ Future<CmdResult> runIndexDance({
 
   final status = await summaryIndex.status();
 
-  // The environment region: the dance flags, the environment agent acts
-  // (docs/proposals/environment_agent.md, "Region integration"). Independent
-  // of the dir branches below, so it runs whichever way they go. The TUI hands
-  // it to its background task; headless only reports (an unattended run must
-  // not install dependencies or touch git config).
+  // Environment work belongs to the main conversation. Finish that task
+  // before offering directory-summary dialogs or launching an index fleet.
   if (status.envStale) {
     if (runEnvironment != null) {
-      host.showMessage(
-        status.envFirstLoad
-            ? 'No environment record yet — running the environment agent in the '
-                  'background (Esc-Esc to cancel)…\n'
-            : 'Environment record is stale (${status.envStaleReason}) — running '
-                  'the environment agent in the background…\n',
-      );
       await runEnvironment();
+      host.showMessage(
+        'Run /index again after environment setup to refresh directory summaries.\n',
+      );
+      return const CmdHandled();
     } else {
       host.showMessage(
         'Environment record is ${status.envFirstLoad ? 'missing' : 'stale'}'

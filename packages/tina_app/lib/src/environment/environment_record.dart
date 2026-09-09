@@ -8,11 +8,11 @@ import 'dart:io';
 /// Two kinds of content live in one file: **intent** (Setup, Build, Test,
 /// Toolchain, Auth — usually human-written) and **observed state** (the test
 /// baseline and "verified at" stamps — agent-maintained). The user may edit
-/// anything; the environment agent treats intent as authoritative and rewrites
+/// anything; the main agent treats intent as authoritative and rewrites
 /// only the observed sections from fresh measurements.
 ///
 /// This class is the read side: a tolerant section parser plus the size-capped
-/// warm-load block. The file itself is written by the environment agent through
+/// warm-load block. The file itself is written by the main agent through
 /// the ordinary sandboxed `write`/`edit` tools — there is deliberately no
 /// machine writer here, and no machine-owned state in the file (the tracking
 /// entry lives under `.tina/environment/`, see [EnvironmentTrackingStore]).
@@ -54,7 +54,7 @@ class EnvironmentRecord {
       File('$projectRoot/.tina/${EnvironmentRecord.fileName}');
 
   /// Whether a record exists at [projectRoot] — the first-load signal: no
-  /// record means the environment agent should populate one from measurements.
+  /// record means the main agent should populate one from measurements.
   static bool exists(String projectRoot) =>
       fileFor(projectRoot).existsSync();
 

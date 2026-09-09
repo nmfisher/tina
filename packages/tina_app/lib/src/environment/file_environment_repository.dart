@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:path/path.dart' as p;
 import 'package:tina_app/src/environment/environment_record.dart';
 import 'package:tina_app/src/environment/environment_store.dart';
 import 'package:tina_app/src/environment/environment_repository.dart';
@@ -42,25 +41,4 @@ class FileEnvironmentRepository implements EnvironmentRepository {
 
   @override
   void record() => tracking.record();
-  @override
-  List<String> surveyFolders() {
-    const skip = {
-      '.dart_tool',
-      'build',
-      'dist',
-      'node_modules',
-      'target',
-      'vendor',
-      'out',
-      'obj',
-      'coverage',
-    };
-    return [
-      for (final entry in Directory(projectRoot).listSync(followLinks: false))
-        if (entry is Directory &&
-            !p.basename(entry.path).startsWith('.') &&
-            !skip.contains(p.basename(entry.path)))
-          p.basename(entry.path),
-    ]..sort();
-  }
 }

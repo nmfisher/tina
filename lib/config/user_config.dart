@@ -1,4 +1,3 @@
-import 'package:tina_app/tina_app.dart';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -447,15 +446,13 @@ class UserConfig {
   /// [Config.trustDefault].
   final String? trustDefault;
 
-  /// First-load environment-agent behavior from `[environment]
+  /// First-load environment-setup behavior from `[environment]
   /// auto_populate` (`ask`/`always`/`never`). Null when absent → `ask`.
   /// Flows into `Config.parse` as [Config.environmentAutoPopulate].
   final String? environmentAutoPopulate;
 
-  /// The environment agent's `"provider/model"` from `[environment] model`.
-  /// Null when absent → the shipped default (see
-  /// [kDefaultEnvironmentModelRef] in environment_runner.dart). Flows into
-  /// `Config.parse` as [Config.environmentModel].
+  /// Legacy `[environment] model`, preserved on save for compatibility.
+  /// Environment tasks now use the main conversation's model; this is ignored.
   final String? environmentModel;
 
   /// Mouse-wheel capture from `[tui] mouse_wheel`. False (the default, null

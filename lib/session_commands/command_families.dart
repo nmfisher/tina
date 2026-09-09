@@ -817,7 +817,7 @@ class IndexCommands {
     // cancels); headless has no wiring and runs it inline, blocking to
     // completion.
     final bg = ctx.runBackgroundIndex;
-    final env = ctx.runBackgroundEnvironment;
+    final env = ctx.runEnvironment;
     return runIndexDance(
       host: conversation.host,
       summaryIndex: idx,

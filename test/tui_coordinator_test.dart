@@ -489,111 +489,117 @@ void main() {
     });
   }
 
-  test(
-    'first load asks before the REPL; Enter runs the environment agent',
-    () async {
-      // With no ENVIRONMENT.md (the fresh temp cwd) and a trusted
-      // project, run() shows the picker after the first paint and before the
-      // REPL takes the keyboard. Enter selects "Run now" → the launch notice
-      // lands in the chat and the agent starts in the background.
-      chdirToFreshProject();
-      final io = FakeStdio()..hasTerminalValue = false;
-      final config = Config.parse(const ['--backend', 'ansi']);
-      final app = await buildAppComposition(
-        config: config,
-        registry: builtinRegistry(),
-        provider: FakeProvider.done(),
-        store: MemorySessionStore(),
-      );
-      final coordinator = await TuiCoordinator.create(
-        app: app,
-        io: io,
-        terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
-      );
-      expect(
-        coordinator.pendingFirstLoadEnvironmentAsk,
-        isNotNull,
-        reason: 'no ENVIRONMENT.md → the ask must be pending',
-      );
+  for (final choice in ['now', 'later', 'always', 'never']) {
+    test(
+      'first load environment setup: $choice uses the normal main turn',
+      () async {
+        chdirToFreshProject();
+        final io = FakeStdio()..hasTerminalValue = false;
+        final provider = FakeProvider.done();
+        final config = Config.parse(
+          const ['--backend', 'ansi'],
+          userConfig: UserConfig(
+            environmentAutoPopulate: choice == 'always' || choice == 'never'
+                ? choice
+                : 'ask',
+          ),
+        );
+        final store = MemorySessionStore();
+        final app = await buildAppComposition(
+          config: config,
+          registry: builtinRegistry(),
+          provider: provider,
+          store: store,
+          environment: FakeEnvironment(
+            env: Map.of(Platform.environment)..['COCOON_UPDATE_CHECK'] = '0',
+          ),
+        );
+        final coordinator = await TuiCoordinator.create(
+          app: app,
+          io: io,
+          terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 40),
+        );
+        coordinator.pendingGitignoreAsk = null;
+        expect(coordinator.pendingFirstLoadEnvironmentAsk, isNotNull);
+        final run = coordinator.run();
+        if (choice == 'now' || choice == 'later') {
+          await pumpEventQueue();
+          expect(coordinator.editor.isReadingKey, isTrue);
+          expect(provider.calls, isEmpty);
+          if (choice == 'later') {
+            io.feedBytes([0x1b, 0x5b, 0x42, 0x1b, 0x5b, 0x42]); // Not now
+            await pumpEventQueue();
+          }
+          io.feedBytes([0x0d]);
+        }
+        await pumpEventQueue(times: 100);
+        final main = coordinator.sessionManager.activeConversation;
+        await coordinator.controller.turns.whenIdle(main.id);
+        final runs = choice == 'now' || choice == 'always';
+        expect(provider.calls.length, runs ? 1 : 0);
+        expect(coordinator.spawnedPanels, isEmpty);
+        expect(coordinator.sessionManager.active.conversationCount, 1);
+        if (runs) {
+          expect(
+            main.history.first.content.whereType<TextBlock>().single.text,
+            contains('how many sub-agents to spawn'),
+          );
+          expect(main.recorder, isNotNull);
+        }
+        io.feedBytes([0x03, 0x03]);
+        await run.timeout(const Duration(seconds: 5));
+        io.close();
+      },
+    );
+  }
 
-      // Escape cancels the picker (choosing "Run now" here would launch the
-      // environment agent against the REAL provider registry — the injected
-      // FakeProvider covers the REPL only — so the test exercises the
-      // dismiss path instead). /exit then leaves the REPL. Both fed after a
-      // beat so the picker is already listening.
-      io.feedLater([0x1b], const Duration(milliseconds: 200));
-      io.feedLater([
-        0x2f,
-        0x65,
-        0x78,
-        0x69,
-        0x74,
-        0x0d,
-        0x0d,
-      ], const Duration(milliseconds: 500));
-
-      await coordinator.run().timeout(const Duration(seconds: 5));
-      io.close();
-
-      final out = io.written.toString();
-      // The picker title wraps at the overlay width, so match short fragments.
-      expect(
-        out,
-        contains('No ENVIRONMENT.md yet'),
-        reason: 'the picker must render',
-      );
-      expect(out, contains('Run now'), reason: 'the entries must render');
-      expect(
-        out,
-        isNot(contains('the environment agent will populate it')),
-        reason: 'cancelling the picker must NOT launch the agent',
-      );
-    },
-  );
-
-  test('first load explainer mentions side panel spawn', () async {
+  test('environment setup spawns exactly the children the main agent delegates', () async {
     chdirToFreshProject();
-    final io = FakeStdio()..hasTerminalValue = false;
-    final config = Config.parse(const ['--backend', 'ansi']);
-    final app = await buildAppComposition(
-      config: config,
-      registry: builtinRegistry(),
-      provider: FakeProvider.done(),
-      store: MemorySessionStore(),
-    );
-    final coordinator = await TuiCoordinator.create(
-      app: app,
-      io: io,
-      terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
-    );
-    expect(coordinator.pendingFirstLoadEnvironmentAsk, isNotNull);
-
-    // Cancel the picker and exit.
-    io.feedLater([0x1b], const Duration(milliseconds: 200));
-    io.feedLater([
-      0x2f,
-      0x65,
-      0x78,
-      0x69,
-      0x74,
-      0x0d,
-      0x0d,
-    ], const Duration(milliseconds: 500));
-
-    await coordinator.run().timeout(const Duration(seconds: 5));
-    io.close();
-
-    final out = io.written.toString();
-    expect(
-      out,
-      contains('spawns its own side panel agent'),
-      reason: 'the first-load explainer must mention side panel spawn',
-    );
-    expect(
-      out,
-      contains('Run now in side panel'),
-      reason: 'the picker entry must mention side panel',
-    );
+    final children = <FakeProvider>[];
+    final registry = ProviderRegistry(env: const {})..register(ProviderDescriptor(
+      id: 'test', name: 'Test', authSources: const [],
+      defaultBaseUrl: 'https://example.test',
+      builder: (options) {
+        final provider = FakeProvider.done(model: options.model);
+        children.add(provider);
+        return provider;
+      },
+    ));
+    final provider = FakeProvider([
+      [MessageComplete(content: [ToolUseBlock(id: 'delegate-env', name: 'delegate', input: {
+        'delegations': [
+          {'task': 'Inspect the toolchain'},
+          {'task': 'Identify test commands'},
+        ],
+      })], stopReason: 'tool_use')],
+      [MessageComplete(content: [TextBlock('Inspection finished; setup still needed.')],
+        stopReason: 'end_turn')],
+    ], model: 'main-model');
+    final config = Config.parse(['--model', 'test/main-model', '--backend', 'ansi'],
+      env: const {}, registry: registry);
+    final app = await buildAppComposition(config: config, registry: registry,
+      provider: provider, store: MemorySessionStore(),
+      environment: FakeEnvironment(env: const {'COCOON_UPDATE_CHECK': '0'}));
+    final coordinator = await TuiCoordinator.create(app: app,
+      io: FakeStdio()..hasTerminalValue = false,
+      terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 40));
+    final main = coordinator.sessionManager.activeConversation;
+    expect(coordinator.spawnedPanels, isEmpty);
+    // Composition may build an idle classifier provider. Only work launched
+    // by this task counts toward its delegation choices.
+    expect(children.every((child) => child.calls.isEmpty), isTrue);
+    children.clear();
+    await coordinator.controller.runEnvironment(main);
+    await coordinator.controller.turns.whenIdle(main.id);
+    expect(provider.calls, hasLength(2));
+    expect(children, hasLength(2));
+    expect(coordinator.spawnedPanels, hasLength(2));
+    expect(coordinator.sessionManager.active.conversationCount, 3);
+    expect(coordinator.panelManager.sidebar!.entries.map((e) => e.depth), [0, 1, 1]);
+    expect(coordinator.panelManager.selectedFrame, same(coordinator.panelManager.primaryFrame));
+    expect(main.history.expand((m) => m.content).whereType<ToolResultBlock>(), isNotEmpty);
+    await coordinator.controller.shutdown();
+    await app.dispose();
   });
 
   group('resume restores the panel structure', () {
@@ -1678,7 +1684,7 @@ void main() {
   });
 
   test(
-    'Ctrl+C cancels an environment approval without quitting the app',
+    'Ctrl+C cancels a background approval without quitting the app',
     () async {
       final io = FakeStdio()..hasTerminalValue = false;
       final app = await buildAppComposition(
@@ -1707,7 +1713,7 @@ void main() {
         editor: editor,
       );
       PermissionResponse? response;
-      final job = coordinator.controller.jobs.start('environment', 'env-test', (
+      final job = coordinator.controller.jobs.start('index', 'index-test', (
         job,
       ) async {
         response = await asker.ask(

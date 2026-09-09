@@ -110,16 +110,10 @@ class RuntimeConfig {
   /// a no-op where no backend exists.
   final bool sandboxReadOnly;
 
-  /// First-load environment-agent behavior from `[environment] auto_populate`
+  /// First-load environment-setup behavior from `[environment] auto_populate`
   /// in ~/.tina/config (`ask`/`always`/`never`). `ask` (the default) shows a
   /// picker on first load; `always` runs without asking; `never` skips.
   final EnvironmentAutoPopulate environmentAutoPopulate;
-
-  /// The environment agent's `"provider/model"` from `[environment] model` in
-  /// ~/.tina/config. Null when absent → the shipped default
-  /// (`kDefaultEnvironmentModelRef`). Distinct from the startup model: the
-  /// environment agent is a dedicated one-off worker with its own model pick.
-  final String? environmentModel;
 
   /// The default `"provider/model"` for region agents from `[regions] model` —
   /// the fast tier the main agent routes scoped questions to. null = region
@@ -172,7 +166,6 @@ class RuntimeConfig {
     this.sandboxNet = false,
     this.sandboxReadOnly = false,
     this.environmentAutoPopulate = EnvironmentAutoPopulate.ask,
-    this.environmentModel,
     this.regionsModel,
     this.modelExplicit = false,
     this.transportRetryAttempts = 5,

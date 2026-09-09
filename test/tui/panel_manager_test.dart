@@ -5,7 +5,7 @@ import 'package:tina/platform/terminal_geometry.dart';
 import 'package:test/test.dart';
 
 import '../helpers/fake_stdio.dart';
-import '../../packages/tina_console/test/virtual_terminal.dart';
+import 'package:tina_console/testing.dart';
 
 /// Content-agnostic unit tests for [PanelManager]: the geometry + focus-ring
 /// seams that Phase 3 extracted out of [TuiCoordinator.create]. Driving

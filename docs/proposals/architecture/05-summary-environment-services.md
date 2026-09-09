@@ -2,6 +2,15 @@
 
 Status: implemented and validated (2026-09-08). Uses scoped execution from A01 and configuration from A02.
 
+Update (2026-09-09): environment execution now belongs to the main conversation.
+`EnvironmentIndex` prepares task instructions and verifies record advancement;
+`TurnExecutor` supplies the completion of that specific turn. The dedicated
+`EnvironmentRunner`, its model selection, fixed folder survey, and separate
+usage merge have been removed. Normal conversation delegation, approvals,
+persistence, cancellation, and accounting apply. The environment execution
+description below records the earlier implementation; the summary-service
+architecture remains in use.
+
 ## Implementation and migration
 
 The existing `SummaryIndex` and `EnvironmentIndex` names remain the refresh-capable

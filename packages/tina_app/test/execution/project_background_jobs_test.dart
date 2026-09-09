@@ -60,7 +60,6 @@ void main() {
     final jobs = ProjectBackgroundJobs(
       supervisor: BackgroundJobSupervisor(),
       summaryIndex: () => idx,
-      environmentIndex: () => null,
       persistUsage: (_) async {},
       modelRefOf: (conv) => 'nim/existing-model',
     );

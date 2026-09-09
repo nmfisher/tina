@@ -1,20 +1,4 @@
-import 'package:tina_engine/tina_engine.dart';
-import 'package:tina_app/src/execution/project_execution.dart';
 import 'package:tina_app/src/environment/environment_repository.dart';
-
-class EnvironmentExecutionResult {
-  final bool completed;
-  final SpendLedger usage;
-  const EnvironmentExecutionResult(this.completed, this.usage);
-}
-
-abstract interface class EnvironmentAgentRunner {
-  Future<EnvironmentExecutionResult> execute(
-    EnvironmentSnapshot before,
-    RunInteraction interaction, {
-    String? modelRef,
-  });
-}
 
 class EnvironmentInspection {
   final EnvironmentRepository repository;
@@ -28,52 +12,50 @@ class EnvironmentInspection {
   }
 }
 
+/// Prepares work for the main conversation and verifies its record update.
+/// This service never creates an agent, provider, or scout fleet.
 class EnvironmentIndex extends EnvironmentInspection {
-  final EnvironmentAgentRunner runner;
-  final SpendLedger? spendLedger;
-  EnvironmentIndex({
-    required super.repository,
-    required this.runner,
-    this.spendLedger,
-  });
-  Future<bool> refresh({
-    HostInterface? host,
-    Future<void>? cancelSignal,
-    String? modelRef,
-    PermissionAsker? asker,
-    AgentSink Function(String dir)? scoutSinkFactory,
-  }) async {
-    final before = repository.inspect(captureRecord: true);
-    final result = await runner.execute(
-      before,
-      RunInteraction(
-        host: host,
-        cancelSignal: cancelSignal,
-        asker: asker,
-        scoutSinkFactory: scoutSinkFactory,
-      ),
-      modelRef: modelRef,
-    );
-    // Existing environment accounting includes cancelled/no-write runs, but
-    // excludes executions that throw before returning a settled result.
-    spendLedger?.merge(result.usage);
-    if (!result.completed || !repository.advanced(before)) return false;
+  EnvironmentIndex({required super.repository});
+
+  String taskPrompt() {
+    final current = status();
+    final reason = !current.recordPresent
+        ? 'No .tina/ENVIRONMENT.md exists yet.'
+        : 'Re-verify .tina/ENVIRONMENT.md${current.staleReason == null ? '' : ': ${current.staleReason}'}.';
+    return '$reason\n\n$_task';
+  }
+
+  /// Capture at turn start, including when the request waited in the queue.
+  EnvironmentSnapshot beginVerification() =>
+      repository.inspect(captureRecord: true);
+
+  bool finishVerification(
+    EnvironmentSnapshot before, {
+    required bool completed,
+  }) {
+    if (!completed || !repository.advanced(before)) return false;
     repository.record();
     return true;
   }
+
+  static const _task = '''
+Establish and record this repository's environment in this conversation. You own the task. Inspect the repository and decide whether delegation is useful, how many sub-agents to spawn, and each one's scope, within the configured limits. Use the normal delegate tool when helpful; there is no required scout count or one-agent-per-folder partition. Coordinate mutating work to avoid conflicts.
+
+Read any existing .tina/ENVIRONMENT.md first. Preserve user-authored intent; change setup/build/test instructions only when your measurements show they need correction, and explain those changes.
+
+- Describe the repository layout and the purpose of its important areas.
+- Identify the toolchain and dependency manifests. Run the relevant setup, build, and tests using the normal tools and approval policy.
+- Record real outcomes: commands, test counts where available, failures, skipped checks, and blockers. Never invent a baseline or describe an unrun check as passed.
+- Check git identity and relevant authentication status. Record references only, never tokens, passwords, or key material. If credentials or other user input are needed, record the required action.
+- Write .tina/ENVIRONMENT.md with Layout, Toolchain, Setup, Build, Test, and Auth sections, plus the observed test baseline and a verified-at stamp with the current commit. Keep observations distinct from intended commands.
+
+Finish with a short report of what you ran, what passed or failed, and what needs user action. A prose-only response does not complete this task: the environment record must actually be created or updated.
+''';
 }
 
-/// The pure-read staleness answer for the environment region.
 class EnvironmentStatus {
-  /// Whether `.tina/ENVIRONMENT.md` exists — false means first load: the environment
-  /// agent should populate it from measurements.
   final bool recordPresent;
-
-  /// Why the region is stale, or null when current. From the machine-owned
-  /// tracking entry, never from the record's prose.
   final String? staleReason;
-
   const EnvironmentStatus({required this.recordPresent, this.staleReason});
-
   bool get stale => staleReason != null;
 }

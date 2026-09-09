@@ -72,6 +72,19 @@ layout = "tiled"
 
 The `--layout` option overrides the saved preference.
 
+On first load, Tina offers to have the main agent set up the project and write
+`.tina/ENVIRONMENT.md`. It uses the main conversation's current model, history,
+tools, and approvals, and decides whether and how many sub-agents to delegate
+to within the configured limits. Ctrl+C cancels the task.
+
+Set `[environment] auto_populate` to `"ask"` (default), `"always"`, or `"never"`
+to control that startup behavior. The former `[environment] model` setting is
+ignored. `/index` requests setup in the main conversation when the record is
+missing or stale; run `/index` again afterward for directory summaries.
+
+Tina marks the record verified only after a completed setup turn creates or
+updates the file. Cancelled, failed, or prose-only attempts remain unverified.
+
 ## Running inside tmux
 
 Run `tmux new -s tina && tina` and `/detach` (or **Alt+D**) returns to the shell

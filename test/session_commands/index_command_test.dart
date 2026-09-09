@@ -70,7 +70,7 @@ class _FakeCtx implements CommandContext {
     this.confirm,
     this.spendLedger,
     this.runBackgroundIndex,
-    this.runBackgroundEnvironment,
+    this.runEnvironment,
   });
 
   final Conversation conversation;
@@ -96,7 +96,7 @@ class _FakeCtx implements CommandContext {
 
   /// null by default (headless: the environment agent never auto-runs).
   @override
-  Future<void> Function(Conversation conv)? runBackgroundEnvironment;
+  Future<void> Function(Conversation conv)? runEnvironment;
 
   @override
   Map<String, FutureOr<void> Function()> get commandHooks => const {};
@@ -408,7 +408,7 @@ void main() {
     expect(_notices().join(), isNot(contains('Indexed')));
   });
 
-  test('stale environment region: runs the background environment agent',
+  test('stale environment region: requests main setup before summary work',
       () async {
     final idx = _StubIndex(
       SummaryIndexStatus(
@@ -425,14 +425,15 @@ void main() {
     final handlers = SessionCommandHandlers(_FakeCtx(
       conversation: conv,
       summaryIndex: idx,
-      runBackgroundEnvironment: (c) async => envRuns++,
+      runEnvironment: (c) async => envRuns++,
     ));
     final res = await handlers.dispatch('/index');
 
     expect(res, isA<CmdHandled>());
     expect(envRuns, 1);
+    expect(idx.refreshCalls, 0);
     expect(_notices().join(),
-        contains('running the environment agent in the background'));
+        contains('Run /index again after environment setup'));
   });
 
   test('stale environment region, headless: only reports, never runs', () async {
@@ -451,7 +452,7 @@ void main() {
     final handlers = SessionCommandHandlers(_FakeCtx(
       conversation: conv,
       summaryIndex: idx,
-      runBackgroundEnvironment: null, // headless wiring
+      runEnvironment: null, // headless wiring
     ));
     final res = await handlers.dispatch('/index');
 
@@ -470,7 +471,7 @@ void main() {
     final handlers = SessionCommandHandlers(_FakeCtx(
       conversation: conv,
       summaryIndex: idx,
-      runBackgroundEnvironment: (c) async => envRuns++,
+      runEnvironment: (c) async => envRuns++,
     ));
     await handlers.dispatch('/index');
 

@@ -20,6 +20,11 @@ class TurnExecutor {
   final Conversation? Function(String id) findConversation;
   final Future<void> Function(Conversation conversation)? persistUsage;
   final void Function()? onChanged;
+
+  /// Called when an admitted turn starts (after any queue wait). The returned
+  /// callback observes that exact turn's completion, before the queue drains.
+  final void Function(bool completed)? Function(Conversation, String)?
+  onTurnStarted;
   final Environment environment;
   int autoCompactThreshold;
   final int autoCompactPreserveRecent;
@@ -31,6 +36,7 @@ class TurnExecutor {
     required this.findConversation,
     this.persistUsage,
     this.onChanged,
+    this.onTurnStarted,
     this.environment = const PlatformEnvironment(),
     this.autoCompactThreshold = 0,
     this.autoCompactPreserveRecent = 2,
@@ -136,11 +142,22 @@ class TurnExecutor {
         s.toolInterruptCompleter = Completer<void>();
         final activity = RunActivity(s.host);
         _changed();
+        void Function(bool)? finish;
+        var completed = false;
         try {
-          await _runTurn(s, next);
+          finish = onTurnStarted?.call(s, next);
+          completed = await _runTurn(s, next);
         } catch (_) {
           // Cosmetic host failures must not strand admission or shutdown.
         } finally {
+          try {
+            finish?.call(completed);
+          } catch (e) {
+            s.host.showMessage(
+              'Could not record turn result: $e\n',
+              style: HostMessageStyle.warning,
+            );
+          }
           activity.complete();
           try {
             await persistUsage?.call(s);
@@ -159,7 +176,7 @@ class TurnExecutor {
     }
   }
 
-  Future<void> _runTurn(Conversation s, String input) async {
+  Future<bool> _runTurn(Conversation s, String input) async {
     final cancel = s.cancelCompleter!;
     final toolInterrupt = s.toolInterruptCompleter!;
     s.host.showSeparator();
@@ -189,6 +206,7 @@ class TurnExecutor {
     // (rollback then removes nothing).
     final preLen = s.history.length;
     final rec = s.recorder;
+    var failed = false;
 
     // An Esc-Esc that landed while the pre-turn awaits were in flight (the
     // user-message persist below, or a compaction) wins before the run
@@ -226,6 +244,7 @@ class TurnExecutor {
           toolInterruptSignal: toolInterrupt.future,
         );
       } catch (e, st) {
+        failed = true;
         s.host.showMessage('error: $e\n', style: HostMessageStyle.error);
         if (environment.env['COCOON_DEBUG'] == '1') {
           s.host.showMessage('$st\n', style: HostMessageStyle.dim);
@@ -294,6 +313,15 @@ class TurnExecutor {
         }
       }
     }
+    return !cancel.isCompleted &&
+        !toolInterrupt.isCompleted &&
+        !failed &&
+        aborted == null &&
+        s.history.length > preLen &&
+        s.history.last.role == Role.assistant &&
+        s.history.last.content.any(
+          (b) => b is TextBlock && b.text.trim().isNotEmpty,
+        );
   }
 
   Future<void> _maybeAutoCompact(Conversation s, String input) async {

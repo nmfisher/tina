@@ -71,10 +71,7 @@ Agent buildAgent({
   RegionRegistry? regions,
   SummaryInspection? summaryIndex,
   Future<List<Answer>> Function(List<Question>)? askUser,
-  // Overrides the agent's permission asker (defaults to the host's). The
-  // first-load environment agent runs on a background panel host whose own
-  // asker auto-denies; the coordinator passes an attention-queue asker so
-  // its bash/write prompts actually reach the user.
+  // Optional permission adapter; defaults to the conversation host's asker.
   PermissionAsker? asker,
   // The "auto" permission mode's classifier. Non-null wraps the asker with
   // modeAwareAsker so `/permissions auto` decides calls without a modal;

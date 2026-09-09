@@ -79,7 +79,6 @@ class Config extends RuntimeConfig implements ResumeRequest {
     this.trustOverride,
     this.trustDefault = TrustDefault.ask,
     super.environmentAutoPopulate = EnvironmentAutoPopulate.ask,
-    super.environmentModel,
     this.mouseWheel = false,
     this.layout = LayoutStyle.sidebar,
     super.regionsModel,
@@ -121,7 +120,6 @@ class Config extends RuntimeConfig implements ResumeRequest {
     sandboxNet: sandboxNet,
     sandboxReadOnly: sandboxReadOnly,
     environmentAutoPopulate: environmentAutoPopulate,
-    environmentModel: environmentModel,
     regionsModel: regionsModel,
     modelExplicit: modelExplicit,
     transportRetryAttempts: transportRetryAttempts,
@@ -732,7 +730,6 @@ class Config extends RuntimeConfig implements ResumeRequest {
       environmentAutoPopulate: parseEnvironmentAutoPopulate(
         userConfig?.environmentAutoPopulate,
       ),
-      environmentModel: userConfig?.environmentModel,
       mouseWheel: userConfig?.mouseWheel ?? false,
       layout: _resolveLayout(res['layout'] as String?, userConfig?.layout),
       regionsModel: userConfig?.regions?.model,

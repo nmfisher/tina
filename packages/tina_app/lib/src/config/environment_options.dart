@@ -1,5 +1,5 @@
-/// Whether the first-load environment agent (ENVIRONMENT.md population) may
-/// run in the background without asking. From `[environment] auto_populate`
+/// Whether a first-load environment setup task may start in the main
+/// conversation without asking. From `[environment] auto_populate`
 /// in ~/.tina/config; `ask` is the default so a token-spending agent turn
 /// never starts silently.
 enum EnvironmentAutoPopulate { ask, always, never }

@@ -63,7 +63,7 @@ abstract interface class IndexCapabilities {
     bool repartition,
   })?
   get runBackgroundIndex;
-  Future<void> Function(Conversation conv)? get runBackgroundEnvironment;
+  Future<void> Function(Conversation conv)? get runEnvironment;
 }
 
 abstract interface class DispatchCapabilities {

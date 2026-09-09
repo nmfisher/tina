@@ -173,12 +173,10 @@ abstract class CommandContext
   })?
   get runBackgroundIndex;
 
-  /// Launch the environment agent as a background task on [conv] (the `/index`
-  /// dance's environment branch, and first load): returns immediately, the
-  /// agent's output streams into the conversation's host, and ESC cancels.
-  /// Wired by the TUI's [SessionController]; null in headless, which never
-  /// auto-runs setup.
-  Future<void> Function(Conversation conv)? get runBackgroundEnvironment;
+  /// Queue environment setup in the session's main conversation. Returns
+  /// after admission; execution uses the normal turn/approval/delegate path.
+  /// Null in headless, which never auto-runs setup.
+  Future<void> Function(Conversation conv)? get runEnvironment;
 
   /// Open the visual node editor (`/workflow new` / `/workflow edit`). Wired by
   /// the TUI; null in headless.

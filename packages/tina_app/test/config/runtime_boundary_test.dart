@@ -88,7 +88,6 @@ Future<void> main() async {
     'lib/src/composition/app_composition.dart',
     'lib/src/composition/agent_composition.dart',
     'lib/src/summaries/summary_runner.dart',
-    'lib/src/environment/environment_runner.dart',
     'lib/src/persistence/session_restore.dart',
   ]) {
     test('$source has no transitive parser or terminal dependency', () {
@@ -109,7 +108,6 @@ Future<void> main() async {
     'lib/src/summaries/summary_index.dart',
     'lib/src/summaries/summary_runner.dart',
     'lib/src/environment/environment_index.dart',
-    'lib/src/environment/environment_runner.dart',
   ]) {
     test('$source cannot construct application or execution composition', () {
       expect(
@@ -127,7 +125,6 @@ Future<void> main() async {
     'lib/src/summaries/summary_repository.dart',
     'lib/src/environment/environment_index.dart',
     'lib/src/environment/environment_repository.dart',
-    'lib/src/environment/environment_runner.dart',
     'lib/src/summaries/summary_runner.dart',
   ]) {
     test('$source does not perform filesystem or process IO', () {

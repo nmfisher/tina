@@ -9,7 +9,6 @@ import 'package:tina_app/src/summaries/git_summary_repository.dart';
 import 'package:tina_app/src/summaries/summary_index.dart';
 import 'package:tina_app/src/summaries/summary_runner.dart';
 import 'package:tina_app/src/environment/environment_index.dart';
-import 'package:tina_app/src/environment/environment_runner.dart';
 import 'package:tina_app/src/environment/file_environment_repository.dart';
 import 'package:tina_app/src/composition/execution_runtime.dart';
 
@@ -62,35 +61,12 @@ SummaryIndex buildSummaryIndex({
   );
 }
 
-EnvironmentIndex buildEnvironmentIndex({
-  required RuntimeConfig config,
-  required ProviderRegistry registry,
-  required String projectRoot,
-  Environment? environment,
-  ProjectToolScope? toolScope,
-  PromptContext? promptContext,
-  SpendLedger? spendLedger,
-}) {
-  projectRoot = p.normalize(p.absolute(projectRoot));
-  final repository = FileEnvironmentRepository(projectRoot: projectRoot);
-  return EnvironmentIndex(
-    repository: repository,
-    spendLedger: spendLedger,
-    runner: EnvironmentRunner(
-      config: config,
-      projectRoot: projectRoot,
-      surveyFolders: repository.surveyFolders,
-      executionFactory: () => buildExecutionRuntime(
-        config: config,
-        registry: registry,
-        environment: environment,
-        projectRoot: projectRoot,
-        toolScope: toolScope,
-        promptContext: promptContext,
+EnvironmentIndex buildEnvironmentIndex({required String projectRoot}) =>
+    EnvironmentIndex(
+      repository: FileEnvironmentRepository(
+        projectRoot: p.normalize(p.absolute(projectRoot)),
       ),
-    ),
-  );
-}
+    );
 
 /// Standalone adapter binds run options at composition, never inside services.
 class ProjectServiceRun<T> {
@@ -131,39 +107,5 @@ ProjectServiceRun<StaleSet> buildSummaryRun({
       host: host,
       cancelSignal: cancelSignal,
     )).planned,
-  );
-}
-
-ProjectServiceRun<bool> buildEnvironmentRun({
-  required RuntimeConfig config,
-  required ProviderRegistry registry,
-  required String projectRoot,
-  Environment? environment,
-  ProjectToolScope? toolScope,
-  PromptContext? promptContext,
-  SpendLedger? spendLedger,
-  HostInterface? host,
-  Future<void>? cancelSignal,
-  String? modelRef,
-  PermissionAsker? asker,
-  AgentSink Function(String dir)? scoutSinkFactory,
-}) {
-  final service = buildEnvironmentIndex(
-    config: config,
-    registry: registry,
-    projectRoot: projectRoot,
-    environment: environment,
-    toolScope: toolScope,
-    promptContext: promptContext,
-    spendLedger: spendLedger,
-  );
-  return ProjectServiceRun(
-    () => service.refresh(
-      host: host,
-      cancelSignal: cancelSignal,
-      modelRef: modelRef,
-      asker: asker,
-      scoutSinkFactory: scoutSinkFactory,
-    ),
   );
 }

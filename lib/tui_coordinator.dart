@@ -1334,6 +1334,12 @@ class TuiCoordinator {
       );
       contentCoordinator.bindPrimary(conversationId: initialConversationId);
       panelManager.onSelectFrame = (frame) => frame.onFocus?.call();
+      controller.onConversationFocusRequested = (id) {
+        final frame = panelManager.allFrames
+            .where((frame) => frame.conversationId == id)
+            .firstOrNull;
+        if (frame != null) focusManager.focusPanel(frame);
+      };
       // Repoint the forward-declared [relocateInput] at the coordinator, which
       // resolves the active frame and performs the content-agnostic retarget.
       relocateInput = contentCoordinator.relocateInput;
@@ -2015,277 +2021,45 @@ class TuiCoordinator {
       // regions too). The y/n confirm renders as the same arrow-key picker the
       // other choices use (Yes/No entries), not a bare key read.
       controller.summaryIndex = summaryIndex;
-      // The environment agent service: `/index`'s environment branch runs it in
-      // the background, and first load (below) populates the record.
-      final environmentIndex = buildEnvironmentIndex(
-        config: app.config,
-        registry: app.registry,
-        environment: app.environment,
-        toolScope: app.pipeline.tools,
-        promptContext: app.pipeline.promptContext,
+      controller.environmentIndex = buildEnvironmentIndex(
         projectRoot: Directory.current.path,
-        spendLedger: app.spendLedger,
       );
-      controller.environmentIndex = environmentIndex;
-      // First load: no ENVIRONMENT.md → offer to populate it in the background
-      // (docs/proposals/environment_agent.md, "First load"). Interactive only —
-      // headless never auto-runs setup — and only for a trusted project (the
-      // same gate that withholds AGENTS.md) and not under --safe-mode (a doing
-      // worker with no shell is pointless). `[environment] auto_populate`
-      // decides how: `ask` (the default) shows a picker — a token-spending
-      // agent turn never starts silently — `always` runs without asking,
-      // `never` skips. A merely stale record does not auto-run: `/index` flags
-      // it and the user decides there.
-      //
-      // The ask is *recorded* here but *performed* in [run], after the first
-      // paint and before the REPL loop takes the keyboard — the picker needs
-      // the editor's key stream, which the REPL line loop would otherwise hold
-      // ("Stream has already been listened to").
+      // Offer a normal main-conversation task on first load. Defer admission
+      // until startup dialogs have finished so approvals cannot race them.
       if (!config.safeMode &&
           pipeline.loadProjectContext &&
           !EnvironmentRecord.exists(Directory.current.path)) {
         coordinator.pendingFirstLoadEnvironmentAsk = () async {
-          // The effective model the environment agent runs under for this run:
-          // the just-picked ref, else the persisted `[environment] model`, else
-          // the shipped default. Passed explicitly (not read from [config])
-          // because the in-memory config predates the picker's fresh choice.
-          Future<String> pickEnvironmentModel() async {
-            final stored =
-                config.environmentModel ?? kDefaultEnvironmentModelRef;
-            final envMap = app.environment.env;
-            final cfg = loadUserConfig(env: envMap);
-            final configured = cfg.providers.keys.toSet();
-            if (configured.isEmpty) return stored; // nothing to pick from
-            // Never-curated providers (disabledModels absent) disable every
-            // model by default; an explicitly saved set is honored as-is.
-            final disabledModelRefs = disabledModelRefsFor(
-              cfg,
-              scheduler.registry.providerIds,
-              (pid) => [
-                for (final m in scheduler.registry.modelsFor(pid)) m.id,
-              ],
-            );
-            final refs = <String>[];
-            for (final pid in scheduler.registry.providerIds) {
-              if (!configured.contains(pid)) continue;
-              for (final m in scheduler.registry.modelsFor(pid)) {
-                final ref = '$pid/${m.id}';
-                if (!disabledModelRefs.contains(ref)) refs.add(ref);
-              }
-            }
-            if (refs.isEmpty) return stored;
-            // Surface the effective default at the top — the cursor starts on
-            // index 0, so the default is also the preselected choice.
-            final ordered = [
-              if (refs.contains(stored)) stored,
-              ...refs.where((r) => r != stored),
-            ];
-            final selected = await runListOverlay<String>(
-              screen: screen,
-              editor: editor,
-              entries: [
-                for (final r in ordered)
-                  (display: r == stored ? '$r  (default)' : r, value: r),
-              ],
-              title: 'Environment agent — pick its model',
-              footer: '↑↓ move · enter select · esc keep default',
-              accent: 'cyan',
-              body:
-                  'The environment agent is a one-off side-panel worker that measures '
-                  'this repo (toolchain, setup, build, tests, auth) and writes '
-                  'ENVIRONMENT.md. It runs on its own model, separate from the '
-                  'main conversation.\n'
-                  '\n'
-                  'The choice is saved to [environment] model in ~/.tina/config '
-                  'and reused for later environment runs.',
-            );
-            final ref = selected ?? stored;
-            if (selected != null && selected != cfg.environmentModel) {
-              // Best-effort persist (re-loaded fresh so a concurrent
-              // auto_populate write in the same ask isn't clobbered).
-              try {
-                writeUserConfig(
-                  loadUserConfig(
-                    env: envMap,
-                  ).copyWith(environmentModel: selected),
-                  env: envMap,
-                );
-                initialHost.showMessage(
-                  'Saved: environment agent model → $selected '
-                  '(`[environment] model` in ~/.tina/config)\n',
-                  style: HostMessageStyle.dim,
-                );
-              } catch (_) {}
-            }
-            return ref;
-          }
-
-          Future<void> launch(String envModelRef) async {
-            initialHost.showMessage(
-              'No ENVIRONMENT.md yet — spawning environment agent in side panel: '
-              'read-only scouts will describe the repo root and each top-level '
-              'subfolder, then the agent inspects toolchain, runs setup/build/test '
-              'and writes .tina/ENVIRONMENT.md (Ctrl+C to cancel)…\n',
-            );
-            // Spawn a side panel for the environment agent so its work does not clutter the main panel.
-            final envConvId = 'env-${DateTime.now().millisecondsSinceEpoch}';
-            final envHost = _makeSpawnedHost(envConvId);
-            _buildSpawnPanel(
-              conversationId: envConvId,
-              parentConversationId: initialConversation.id,
-              // Every conversation panel names the model it runs under; the
-              // environment agent runs on its OWN model ([environment] model,
-              // default DiffusionGemma on NIM) — not the session's startup
-              // model — so name the ref the run actually uses.
-              label: panelLabel(role: 'Environment', model: envModelRef),
-              sinkHost: envHost,
-            );
-            // One scout panel per surveyed folder, nested UNDER the environment
-            // panel (depth 2): each folder's read-only scout streams its own
-            // transcript (tool reads + description) into its own surface. The
-            // panels are host-only (like the env panel itself) — read-only, and
-            // they stay after the scout finishes as its transcript.
-            var scoutSeq = 0;
-            AgentSink scoutPanelSink(String dir) {
-              final id = '$envConvId-scout-${scoutSeq++}';
-              final host = _makeSpawnedHost(id);
-              _buildSpawnPanel(
-                conversationId: id,
-                parentConversationId: envConvId,
-                label: panelLabel(
-                  role: dir == '.' ? 'scout root' : 'scout $dir',
-                  model: envModelRef,
-                ),
-                sinkHost: host,
-              );
-              return host;
-            }
-
-            // The env panel's host is a BACKGROUND host — its own asker
-            // auto-denies, which would silently starve the ceremony of every
-            // gated tool (bash/write/edit all "denied", nothing ever sticks).
-            // Route its permission asks through the attention queue instead:
-            // the prompt renders in the env panel, the y/n/a/d key is read via
-            // the shared editor — the same seam workflow run panels use.
-            final envAsker = WorkflowPermissionAsker(
-              sink: envHost,
-              screen: screen,
-              editor: editor,
-              attentionQueue: attentionQueue,
-              // #51b: the ceremony checks the app policy (modeAwareAsker /
-              // the asker below), so its chip reads the same object.
-              policy: policy,
-            );
-            // Auto mode gates the environment ceremony too (it mostly runs
-            // read-only scouts, but the ceremony's own bash/write calls pass
-            // through here).
-            PermissionAsker envAskerResolved = envAsker.ask;
-            if (classifier != null) {
-              envAskerResolved = modeAwareAsker(
-                policy: policy,
-                classifier: classifier,
-                fallback: envAsker.ask,
-                notice: envHost.showMessage,
-              );
-            }
-            // Ctrl+C cancels the in-flight environment run. The main REPL remains responsive.
-            // For simplicity we bind cancellation to the initial conversation's host busy state;
-            // the agent run respects cancelSignal.
-            controller.jobs.start('environment', app.initialConversationId, (
-              job,
-            ) async {
-              try {
-                final idx = controller.environmentIndex;
-                if (idx == null) return;
-                final ok = await idx.refresh(
-                  host: envHost,
-                  cancelSignal: job.cancelled,
-                  modelRef: envModelRef,
-                  asker: envAskerResolved,
-                  scoutSinkFactory: scoutPanelSink,
-                );
-                if (job.cancellationRequested) {
-                  initialHost.showMessage(
-                    '[environment agent cancelled]\n',
-                    style: HostMessageStyle.warning,
-                  );
-                } else if (ok) {
-                  initialHost.showMessage(
-                    'Environment record updated (.tina/ENVIRONMENT.md).\n',
-                    style: HostMessageStyle.success,
-                  );
-                } else {
-                  initialHost.showMessage(
-                    'environment agent did not update .tina/ENVIRONMENT.md — the '
-                    'record stays stale, so first load will offer to run it '
-                    'again on the next launch (details in the Environment '
-                    'panel)\n',
-                    style: HostMessageStyle.warning,
-                  );
-                }
-              } catch (e) {
-                initialHost.showMessage(
-                  'environment agent failed: $e\n',
-                  style: HostMessageStyle.error,
-                );
-              }
-            });
-            return;
-          }
-
           switch (config.environmentAutoPopulate) {
             case EnvironmentAutoPopulate.never:
               return;
             case EnvironmentAutoPopulate.always:
-              // "Don't ask" also means no model picker: run on the persisted
-              // `[environment] model`, else the shipped default.
-              launch(config.environmentModel ?? kDefaultEnvironmentModelRef);
+              coordinator._environmentSetupRequested = true;
             case EnvironmentAutoPopulate.ask:
-              // The explainer renders INSIDE the picker panel (as body text)
-              // rather than being posted to the chat, so it scrolls with the
-              // picker instead of landing at the bottom of the main panel.
-              const explainer =
-                  'No .tina/ENVIRONMENT.md found.\n'
-                  '\n'
-                  'Tina uses .tina/ENVIRONMENT.md to build a <project-environment> block for every agent. '
-                  'It describes how the repo is built, tested and authenticated so agents can run '
-                  'setup/build/test reliably and avoid guessing.\n'
-                  '\n'
-                  'The environment agent is a one-off doing worker that spawns its own side panel agent '
-                  'so the work does not clutter the main conversation; only start/completion notices '
-                  'are posted to the main panel. It will:\n'
-                  '- Spawn one read-only scout per folder (repo root + each top-level subfolder, each in its own side panel), each describing its folder and project type\n'
-                  '- Inspect dependency manifests and toolchain, e.g. package.json, Cargo.toml, go.mod, pyproject.toml, Gemfile\n'
-                  '- Run the setup step, then build and run the test suite, recording real pass/fail/skipped counts\n'
-                  '- Check git identity, SSH keys and GitHub auth, recording references only — no secrets are written to the file\n'
-                  '- Write .tina/ENVIRONMENT.md with intent sections Toolchain/Setup/Build/Test/Auth you can edit, '
-                  '  and observed sections Test baseline + verified-at stamp that the agent maintains from measurements\n'
-                  '\n'
-                  'It uses the normal sandboxed bash/write/edit tools and will ask for permission for each action. '
-                  'Ctrl+C cancels. Success is only reported when the file '
-                  'is created/changed by the agent, not on a prose-only answer.\n';
               final choice = await runListOverlay<String>(
                 screen: screen,
                 editor: editor,
                 entries: const [
                   (
-                    display: 'Run now in side panel (this session)',
+                    display: 'Set up with the main agent (this session)',
                     value: 'now',
                   ),
-                  (display: 'Always auto-run on first load', value: 'always'),
+                  (display: 'Always set up on first load', value: 'always'),
                   (display: 'Not now', value: 'later'),
                 ],
-                title:
-                    'No ENVIRONMENT.md yet — populate the environment record?',
+                title: 'No ENVIRONMENT.md yet — set up this project?',
                 footer: '↑↓ move · enter select · esc cancel',
                 accent: 'cyan',
-                body: explainer,
+                body:
+                    'The main agent will inspect the repository, run relevant '
+                    'setup/build/test commands, check authentication status, and '
+                    'write .tina/ENVIRONMENT.md from real results.\n\n'
+                    'It decides whether to delegate, how many sub-agents to use, '
+                    'and what each should do. Work stays in the main conversation '
+                    'with its current model and normal approvals. Ctrl+C cancels.',
               );
               if (choice == null || choice == 'later') return;
               if (choice == 'always') {
-                // Persist the "don't ask again" answer before launching, so an
-                // interrupt mid-run still leaves the preference recorded.
-                // Best-effort: a failed write never blocks the launch.
                 try {
                   final cfg = loadUserConfig(env: app.environment.env);
                   writeUserConfig(
@@ -2293,14 +2067,13 @@ class TuiCoordinator {
                     env: app.environment.env,
                   );
                   initialHost.showMessage(
-                    'Saved: the environment agent will run automatically on '
-                    'first load (`[environment] auto_populate` in '
-                    '~/.tina/config)\n',
+                    'Saved: the main agent will set up new projects automatically '
+                    '(`[environment] auto_populate` in ~/.tina/config).\n',
                     style: HostMessageStyle.dim,
                   );
                 } catch (_) {}
               }
-              launch(await pickEnvironmentModel());
+              coordinator._environmentSetupRequested = true;
           }
         };
       }
@@ -2601,6 +2374,10 @@ class TuiCoordinator {
       pendingGitignoreAsk = null;
       await gitignoreAsk();
     }
+    if (_environmentSetupRequested) {
+      _environmentSetupRequested = false;
+      await controller.runEnvironment(sessionManager.activeConversation);
+    }
 
     // Once-per-install tmux notice (tin-f5xt): the first interactive run
     // inside tmux on the notcurses backend notes that `--backend ansi`
@@ -2628,7 +2405,7 @@ class TuiCoordinator {
     return RunOutcome.normal;
   }
 
-  /// The first-load environment-agent ask, recorded by [create] when
+  /// The first-load environment-setup ask, recorded by [create] when
   /// `ENVIRONMENT.md` is absent and the project is trusted, and performed by
   /// [run] after the first paint but before the REPL loop starts — the picker
   /// needs the editor's key stream, which the line loop would otherwise
@@ -2636,6 +2413,7 @@ class TuiCoordinator {
   /// (a factory) can set it on the instance it is building; tests can clear
   /// it to skip the picker.
   Future<void> Function()? pendingFirstLoadEnvironmentAsk;
+  bool _environmentSetupRequested = false;
 
   /// The .gitignore ask, recorded by [create] when the cwd is inside a git
   /// repo whose `.gitignore` doesn't cover `.tina` (and the user hasn't

@@ -98,10 +98,10 @@ class SessionController {
   /// in-chat review).
   SummaryIndex? summaryIndex;
 
-  /// The environment agent service (the `/index` dance's environment branch
-  /// and first load). Wired by the TUI coordinator from the live
-  /// [AppComposition]; null in headless, which never auto-runs setup.
+  /// Environment task instructions and record verification. Execution uses
+  /// the main conversation and its normal turn lifecycle. Null in headless.
   EnvironmentIndex? environmentIndex;
+  void Function(String conversationId)? onConversationFocusRequested;
 
   /// Ask a yes/no confirmation (`/index` up-to-date re-run prompt, `/model`'s
   /// "make this the global default"). [body] is optional explanatory text
@@ -177,7 +177,6 @@ class SessionController {
   late final ProjectBackgroundJobs background = ProjectBackgroundJobs(
     supervisor: jobs,
     summaryIndex: () => summaryIndex,
-    environmentIndex: () => environmentIndex,
     persistUsage: _flushUsageFor,
     // The conversation's proven model ref: the live ref a `/model` swap
     // leaves on the conversation (kept in step with the persisted meta by
@@ -186,12 +185,77 @@ class SessionController {
     modelRefOf: (conv) => conv.modelReference.isNotEmpty
         ? conv.modelReference
         : conv.recorder?.meta?.model ??
-            '${sessionManager.active.providerId}/${conv.provider.model}',
+              '${sessionManager.active.providerId}/${conv.provider.model}',
   );
   bool get isIndexRunning => jobs.running('index');
-  bool get isEnvironmentRunning => jobs.running('environment');
-  Future<void> Function(Conversation)? get runBackgroundEnvironment =>
-      background.runEnvironment;
+  final Map<String, String> _environmentRequests = {};
+  bool get isEnvironmentRunning => _environmentRequests.isNotEmpty;
+
+  /// Submit to the session's main conversation, even when a child is focused.
+  /// No new provider, host, job, or fixed scout population is created.
+  Future<void> runEnvironment(Conversation source) async {
+    final index = environmentIndex;
+    if (index == null) return;
+    final session = sessionManager.all.firstWhere(
+      (s) => s.conversationById(source.id) != null,
+    );
+    final main = session.conversations.first;
+    if (main.isClosed) return;
+    if (sessionManager.activeId != session.id) switchSession(session.id);
+    presentConversationSelection(sessionManager.selectConversation(main.id));
+    onConversationFocusRequested?.call(main.id);
+    if (_environmentRequests.containsKey(main.id)) {
+      source.host.showMessage(
+        'Environment setup is already queued or running in the main conversation.\n',
+        style: HostMessageStyle.dim,
+      );
+      return;
+    }
+    // MessageQueue normalizes submissions; keep the same text as the key
+    // used to recognize this task when a queued turn eventually starts.
+    final prompt = index.taskPrompt().trim();
+    _environmentRequests[main.id] = prompt;
+    final submission = turns.submit(main.id, prompt);
+    if (submission == TurnSubmission.rejected) {
+      _environmentRequests.remove(main.id);
+      return;
+    }
+    source.host.showMessage(
+      submission == TurnSubmission.queued
+          ? 'Environment setup queued in the main conversation.\n'
+          : 'Environment setup started in the main conversation (Ctrl+C to cancel).\n',
+      style: HostMessageStyle.dim,
+    );
+  }
+
+  void Function(bool)? _beginEnvironmentTurn(
+    Conversation conversation,
+    String prompt,
+  ) {
+    if (_environmentRequests[conversation.id] != prompt) return null;
+    final index = environmentIndex!;
+    try {
+      final before = index.beginVerification();
+      return (completed) {
+        _environmentRequests.remove(conversation.id);
+        final updated = index.finishVerification(before, completed: completed);
+        conversation.host.showMessage(
+          updated
+              ? 'Environment record updated (.tina/ENVIRONMENT.md).\n'
+              : 'Environment record was not verified; setup remains incomplete.\n',
+          style: updated ? HostMessageStyle.success : HostMessageStyle.warning,
+        );
+      };
+    } catch (e) {
+      _environmentRequests.remove(conversation.id);
+      conversation.host.showMessage(
+        'Environment verification unavailable: $e\n',
+        style: HostMessageStyle.warning,
+      );
+      return null;
+    }
+  }
+
   Future<void> Function(Conversation, List<String>?, {bool repartition})?
   get runBackgroundIndex => background.runIndex;
   Future<void> Function()? shutdownWorkflows;
@@ -205,6 +269,7 @@ class SessionController {
       jobStop,
       if (shutdownWorkflows != null) shutdownWorkflows!(),
     ]);
+    _environmentRequests.clear();
     await _flushUsage();
   }
 
@@ -364,7 +429,7 @@ class SessionController {
     }
     if (!s.isRunning) {
       // No turn, but a background index run may be cancellable.
-      if (isIndexRunning || isEnvironmentRunning) {
+      if (isIndexRunning) {
         if (!_cancelArmed) {
           _cancelArmed = true;
           s.host.showMessage(
@@ -398,22 +463,17 @@ class SessionController {
     return true;
   }
 
-  /// Force-cancel the active conversation's in-flight turn — the rapid
-  /// Esc-Esc gesture. Unlike [cancelActiveTurn] there is no arming step: the
-  /// first Esc has already served as the warning (it may have answered a
-  /// permission modal, which swallows single Escs as "deny" and would
-  /// otherwise reset the arm count). Background `/index` / environment runs
-  /// get the same treatment — the first Esc armed THEIR warning. Returns true
-  /// when something was running — the caller consumes the second Esc only
-  /// then, so the idle-prompt double-Esc input clear still works.
+  /// Cancel the active conversation and background index work immediately.
+  /// Used by Ctrl+C and rapid Esc-Esc, including across approval prompts.
+  /// Returns false when idle so input clearing and quit behavior still work.
   bool cancelNow() {
     final s = active;
     _cancelArmed = false;
-    // Background jobs (/index, environment) cancel INDEPENDENTLY of the
+    // Background index jobs cancel INDEPENDENTLY of the
     // conversation's turn: a concurrent proposal turn must not shield a
     // doomed fleet from the operator's Esc-Esc.
     var hit = false;
-    if (isIndexRunning || isEnvironmentRunning) {
+    if (isIndexRunning) {
       jobs.cancelAll();
       hit = true;
     }
@@ -437,6 +497,7 @@ class SessionController {
       onSessionsChanged?.call();
     },
     persistUsage: (conversation) => _flushUsageFor(conversation),
+    onTurnStarted: _beginEnvironmentTurn,
   );
   void _startTurn(Conversation conversation, String input) =>
       turns.submit(conversation.id, input);

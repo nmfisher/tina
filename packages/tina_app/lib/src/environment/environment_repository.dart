@@ -17,5 +17,4 @@ abstract interface class EnvironmentRepository {
   /// Verify presence on first load or changed bytes on re-verification.
   bool advanced(EnvironmentSnapshot before);
   void record();
-  List<String> surveyFolders();
 }

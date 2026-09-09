@@ -44,7 +44,7 @@ class EnvironmentTrackingStore {
   }
 
   /// Measure the inputs now and record the entry. Dart-only writer: called by
-  /// the runner after an environment-agent run, never by the agent. Best-effort
+  /// the runner after an environment setup turn, never by the agent. Best-effort
   /// on write (a read-only sidecar must not fail the run) — an unwritten entry
   /// just leaves the region stale.
   EnvironmentTrackingEntry record() {

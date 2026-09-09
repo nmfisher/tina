@@ -1,6 +1,5 @@
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina_app/src/session/conversation.dart';
-import 'package:tina_app/src/environment/environment_index.dart';
 import 'package:tina_app/src/summaries/summary_index.dart';
 import 'package:tina_app/src/execution/background_job_supervisor.dart';
 
@@ -8,7 +7,6 @@ import 'package:tina_app/src/execution/background_job_supervisor.dart';
 class ProjectBackgroundJobs {
   final BackgroundJobSupervisor supervisor;
   final SummaryIndex? Function() summaryIndex;
-  final EnvironmentIndex? Function() environmentIndex;
   final Future<void> Function(Conversation) persistUsage;
 
   /// The conversation's proven `"provider/model"` ref — persisted meta ref
@@ -17,71 +15,10 @@ class ProjectBackgroundJobs {
   ProjectBackgroundJobs({
     required this.supervisor,
     required this.summaryIndex,
-    required this.environmentIndex,
     required this.persistUsage,
     required this.modelRefOf,
   });
   bool get isIndexRunning => supervisor.running('index');
-  bool get isEnvironmentRunning => supervisor.running('environment');
-  Future<void> runEnvironment(Conversation conv) {
-    if (conv.isClosed) return Future.value();
-    if (isEnvironmentRunning) {
-      conv.host.showMessage(
-        'the environment agent is already running in the background\n',
-        style: HostMessageStyle.warning,
-      );
-      return Future.value();
-    }
-    supervisor.start(
-      'environment',
-      conv.id,
-      (job) => _doBackgroundEnvironment(conv, cancel: job),
-    );
-    return Future.value();
-  }
-
-  /// The background environment-agent task. Posts start/completion notices to
-  /// [conv]'s host and clears the guard when done.
-  Future<void> _doBackgroundEnvironment(
-    Conversation conv, {
-    required BackgroundJob cancel,
-  }) async {
-    final idx = environmentIndex();
-    if (idx == null) {
-      return;
-    }
-    try {
-      final ok = await idx.refresh(
-        host: conv.host,
-        cancelSignal: cancel.cancelled,
-      );
-      if (cancel.cancellationRequested) {
-        conv.host.showMessage(
-          '[environment agent cancelled]\n',
-          style: HostMessageStyle.warning,
-        );
-      } else if (ok) {
-        conv.host.showMessage(
-          'Environment record updated (.tina/ENVIRONMENT.md).\n',
-          style: HostMessageStyle.success,
-        );
-      } else {
-        conv.host.showMessage(
-          'environment agent did not update .tina/ENVIRONMENT.md — the record '
-          'stays stale\n',
-          style: HostMessageStyle.warning,
-        );
-      }
-    } catch (e) {
-      conv.host.showMessage(
-        'environment agent failed: $e\n',
-        style: HostMessageStyle.error,
-      );
-    } finally {
-      await persistUsage(conv);
-    }
-  }
-
   Future<void> runIndex(
     Conversation conv,
     List<String>? dirs, {
