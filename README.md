@@ -11,8 +11,22 @@ persistence/resume, and live spend metering across a fleet of sub-agents.
 
 ## Install
 
-Prebuilt bundles (Linux x64/arm64, macOS arm64) are attached to each
-[release](../../releases). Unpack and run:
+One-liner (Linux x64/arm64, macOS arm64) — verifies a minisign signature over
+the release checksum manifest before installing anything:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nmfisher/tina/main/install.sh | sh
+```
+
+Requires `curl` or `wget`, a `sha256` tool, and `minisign` for signature
+verification (`apt install minisign` / `brew install minisign`; without it,
+append `--insecure-checksum-only` for checksum-only verification). Installs to
+`~/.local/bin` (override with `--dir`), and you can pin a version with
+`--version v0.6.1`. The script's header documents its trust model: the pinned
+key detects tampered release assets, not a compromised GitHub account.
+
+Prebuilt bundles are also attached to each
+[release](../../releases) to unpack by hand:
 
 ```sh
 tar xzf tina-<tag>-<target>.tar.gz
