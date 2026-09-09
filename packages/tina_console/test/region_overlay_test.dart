@@ -6,19 +6,117 @@ import 'virtual_terminal.dart';
 
 void main() {
   group('OverlayRegion', () {
-    late FakeStdio io;
+    late _FrameStdio io;
     late Screen screen;
     late VirtualTerminal vt;
     late ScreenLayout layout;
 
     setUp(() {
-      io = FakeStdio();
+      io = _FrameStdio();
       layout = ScreenLayout.fromSize(100, 24);
       screen = Screen(io: io, layout: layout, ansi: AnsiCapable.yes);
       vt = VirtualTerminal(width: 100, height: 24);
       screen.redrawFrame();
       vt.feed(io.written.toString());
       io.written.clear();
+      io.frames.clear();
+    });
+
+    test('update moves and shrinks in one presentation, clearing old bounds',
+        () {
+      final overlay = OverlayRegion(screen, Rect.empty);
+      addTearDown(overlay.dispose);
+      overlay.update(
+        bounds: const Rect(row: 5, col: 5, width: 12, height: 3),
+        lines: ['first', 'second', 'third'],
+      );
+      expect(io.frames, hasLength(1));
+      vt.feed(io.frames.single);
+      io.frames.clear();
+
+      overlay.update(
+        bounds: const Rect(row: 6, col: 7, width: 8, height: 2),
+        lines: ['new', 'last'],
+      );
+      expect(io.frames, hasLength(1),
+          reason: 'cleanup, replacement, and border repairs must batch');
+      vt.feed(io.frames.single);
+      expect(vt.rowText(5).substring(5, 17).trim(), isEmpty);
+      expect(vt.rowText(6).substring(5, 17), '  new       ');
+      expect(vt.rowText(7).substring(5, 17), '  last      ');
+    });
+
+    test('show and hide each present once and join an enclosing frame', () {
+      final overlay = OverlayRegion(
+          screen, const Rect(row: 5, col: 5, width: 12, height: 3));
+      addTearDown(overlay.dispose);
+      screen.frame(() {
+        overlay.show(['one', 'two', 'three']);
+        overlay.show(['final']);
+        expect(io.frames, isEmpty);
+      });
+      expect(io.frames, hasLength(1));
+      vt.feed(io.frames.single);
+      expect(vt.rowText(5).substring(5, 17).trim(), 'final');
+      expect(vt.rowText(6).substring(5, 17).trim(), isEmpty);
+      io.frames.clear();
+
+      overlay.hide();
+      expect(io.frames, hasLength(1));
+      expect(overlay.isVisible, isFalse);
+      vt.feed(io.frames.single);
+      expect(vt.rowText(5).substring(5, 17).trim(), isEmpty);
+      io.frames.clear();
+      overlay.hide();
+      expect(io.frames, isEmpty);
+    });
+
+    test('update to offscreen bounds dismisses the old overlay atomically', () {
+      final overlay = OverlayRegion(
+          screen, const Rect(row: 5, col: 5, width: 12, height: 3));
+      addTearDown(overlay.dispose);
+      overlay.show(['one', 'two', 'three']);
+      vt.feed(io.frames.single);
+      io.frames.clear();
+      overlay.update(
+        bounds: const Rect(row: 30, col: 5, width: 12, height: 3),
+        lines: ['offscreen'],
+      );
+      expect(io.frames, hasLength(1));
+      expect(overlay.isVisible, isFalse);
+      vt.feed(io.frames.single);
+      for (var row = 5; row < 8; row++) {
+        expect(vt.rowText(row).substring(5, 17).trim(), isEmpty);
+      }
+    });
+
+    test('command navigation reuses its surface and presents once per key',
+        () async {
+      var created = 0;
+      final counting = _CountingScreen(
+        io: io,
+        layout: layout,
+        ansi: AnsiCapable.yes,
+        onCreate: () => created++,
+      );
+      final picker =
+          CompletionPicker.commandPicker(counting, provider: _Commands());
+      addTearDown(picker.dispose);
+      picker.open(0);
+      await picker.refresh('/', 1);
+      final initialSurfaces = created;
+      io.frames.clear();
+
+      for (final navigate in [picker.navigateDown, picker.navigateUp]) {
+        navigate();
+        expect(created, initialSurfaces,
+            reason: 'selection changes must preserve the existing surface');
+        expect(io.frames, hasLength(1));
+        expect(io.frames.single, contains('/help'));
+        expect(io.frames.single, contains('/quit'));
+        io.frames.clear();
+      }
+      expect(picker.accept('/', 1)!.text, '/help ');
     });
 
     test('show writes lines, hide clears and repaints borders', () {
@@ -40,8 +138,8 @@ void main() {
       }
       // Info-box borders intact.
       for (var r = 10; r <= 12; r++) {
-        vt.assertBorders(r, layout.infoLeftCol, layout.infoRightCol,
-            layout.infoRightCol);
+        vt.assertBorders(
+            r, layout.infoLeftCol, layout.infoRightCol, layout.infoRightCol);
       }
       overlay.dispose();
     });
@@ -105,7 +203,7 @@ void main() {
       overlay.dispose();
     });
 
-    test('repeated shows reuse the plane; only reposition recycles it', () {
+    test('same-bounds updates and reposition reuse the surface', () {
       // Destroying + recreating the plane per show made notcurses rasterize
       // frames without the overlay — a visible flash on every arrow key of a
       // picker that re-renders per event.
@@ -125,6 +223,14 @@ void main() {
       overlay.show(['three']);
       expect(created, 1, reason: 'same-bounds shows must reuse the live plane');
 
+      overlay.update(
+        bounds: const Rect(row: 6, col: 4, width: 12, height: 3),
+        lines: ['updated'],
+      );
+      overlay.reposition(const Rect(row: 6, col: 4, width: 12, height: 3));
+      expect(overlay.isVisible, isTrue);
+      expect(created, 1);
+
       overlay.reposition(const Rect(row: 12, col: 4, width: 12, height: 3));
       overlay.show(['moved']);
       expect(created, 2, reason: 'a bounds change must recycle the plane');
@@ -135,6 +241,21 @@ void main() {
       overlay.dispose();
     });
   });
+}
+
+class _FrameStdio extends FakeStdio {
+  final frames = <String>[];
+
+  @override
+  void write(String s) {
+    frames.add(s);
+    super.write(s);
+  }
+}
+
+class _Commands implements CompletionProvider {
+  @override
+  Future<List<String>> complete(String query) async => ['/help', '/quit'];
 }
 
 class _CountingScreen extends Screen {

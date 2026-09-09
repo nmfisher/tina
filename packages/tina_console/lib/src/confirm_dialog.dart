@@ -42,8 +42,7 @@ class ConfirmDialog {
 
   void render() {
     if (!_confirmQuit) return;
-    _overlay.reposition(_defaultBounds(_screen));
-    _overlay.show(_lines());
+    _overlay.update(bounds: _defaultBounds(_screen), lines: _lines());
   }
 
   void dispose() {

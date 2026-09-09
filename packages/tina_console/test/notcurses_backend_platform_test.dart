@@ -315,6 +315,33 @@ void main() {
   });
 
   group('retained screen scheduling', () {
+    test('overlay fallback presents complete updates and dismissal once', () {
+      // This platform declines child surfaces, exercising the overlay's
+      // standard-plane fallback through the real backend frame machinery.
+      final screen = Screen.withBackend(
+        backend: backend,
+        io: io,
+        layout: ScreenLayout.fromSize(80, 24),
+      );
+      final overlay = OverlayRegion(screen, Rect.empty);
+      addTearDown(overlay.dispose);
+      for (final bounds in [
+        const Rect(row: 5, col: 5, width: 12, height: 3),
+        const Rect(row: 5, col: 5, width: 12, height: 3),
+        const Rect(row: 6, col: 7, width: 10, height: 2),
+      ]) {
+        plat.calls.clear();
+        overlay.update(bounds: bounds, lines: ['one', 'two']);
+        expect(plat.calls.where((c) => c == 'render'), hasLength(1));
+        expect(plat.calls.indexOf('render'),
+            greaterThan(plat.calls.lastIndexWhere((c) => c.startsWith('putStrYX'))),
+            reason: 'all row writes and repairs must precede presentation');
+      }
+      plat.calls.clear();
+      overlay.hide();
+      expect(plat.calls.where((c) => c == 'render'), hasLength(1));
+    });
+
     // Phase 5: leading/trailing chat presentation. The FIRST idle write
     // presents immediately (no perceptible delay); sustained writes within the
     // 8 ms window coalesce onto ONE trailing render at the window boundary.

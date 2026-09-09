@@ -744,13 +744,15 @@ class _QuestionForm {
       slice[slice.length - 1] = _dim('  ↓ ${body.length - end} more');
     }
     final inputBounds = _screen.input.bounds;
-    _overlay.reposition(Rect(
-      row: (inputBounds.row - 1) - h + 1,
-      col: inputBounds.col,
-      width: inputBounds.width,
-      height: h,
-    ));
-    _overlay.show([...slice, footer]);
+    _overlay.update(
+      bounds: Rect(
+        row: (inputBounds.row - 1) - h + 1,
+        col: inputBounds.col,
+        width: inputBounds.width,
+        height: h,
+      ),
+      lines: [...slice, footer],
+    );
     _renderInputRow();
   }
 

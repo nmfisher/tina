@@ -1706,9 +1706,10 @@ class InputRegion extends Region {
 /// Floating, absolutely-positioned overlay. Used for dialogs and the
 /// completion picker popup.
 ///
-/// Caller passes the bounds (clipped to the screen). [show] writes each
-/// line at its row (clipped to width); [hide] blanks the rows. After both,
-/// the screen repaints any border cells that fall within the bounds.
+/// [update] applies geometry and content in one frame, retaining the surface
+/// while its bounds are unchanged. [show] updates content at the current
+/// bounds; [hide] dismisses the overlay in one frame. Border repairs join
+/// the same frame, so callers never present a partially updated overlay.
 class OverlayRegion extends Region {
   Rect _bounds;
   bool _visible = false;
@@ -1733,11 +1734,29 @@ class OverlayRegion extends Region {
   @override
   Rect get bounds => _bounds;
 
-  /// Move the overlay to [bounds]. If currently visible, clears the old
-  /// rectangle first.
+  /// Change geometry without supplying content. Changed bounds hide the old
+  /// overlay; unchanged bounds leave it visible. Prefer [update] when painting
+  /// new content so geometry and content are presented together.
   void reposition(Rect bounds) {
-    if (_visible) hide();
-    _bounds = _clipToScreen(bounds, screen);
+    final clipped = _clipToScreen(bounds, screen);
+    if (_sameRect(_bounds, clipped)) return;
+    screen.frame(() {
+      _hide();
+      _bounds = clipped;
+    });
+  }
+
+  /// Apply geometry, surface lifetime changes, content, and border repairs as
+  /// one visual update. Empty clipped bounds dismiss the overlay. A geometry
+  /// change clears the old rectangle and recreates the surface within the
+  /// same frame; unchanged bounds preserve the live surface.
+  void update({required Rect bounds, required List<String> lines}) {
+    final clipped = _clipToScreen(bounds, screen);
+    screen.frame(() {
+      if (!_sameRect(_bounds, clipped)) _hide();
+      _bounds = clipped;
+      _show(lines);
+    });
   }
 
   bool get isVisible => _visible;
@@ -1752,11 +1771,10 @@ class OverlayRegion extends Region {
   /// Render [lines] one per row. Lines beyond `bounds.height` are dropped.
   /// Each line clipped to `bounds.width`. Marks the overlay visible.
   ///
-  /// Reuses the live surface across shows: destroying + recreating the plane
-  /// per show makes notcurses rasterize frames without the overlay — a visible
-  /// flash on every keystroke of a picker that re-renders per event. Only a
-  /// bounds change (reposition, or hide) recycles the plane.
-  void show(List<String> lines) {
+  /// Uses the same atomic update path as geometry-changing callers.
+  void show(List<String> lines) => update(bounds: _bounds, lines: lines);
+
+  void _show(List<String> lines) {
     if (_bounds.isEmpty) return;
     _visible = true;
     if (_surface != null && !_sameRect(_surfaceBounds, _bounds)) {
@@ -1828,7 +1846,9 @@ class OverlayRegion extends Region {
   }
 
   /// Erase every row of the overlay. Marks invisible.
-  void hide() {
+  void hide() => screen.frame(_hide);
+
+  void _hide() {
     if (!_visible) return;
     _visible = false;
     final s = _surface;

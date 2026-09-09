@@ -188,15 +188,15 @@ class CompletionPicker {
       return;
     }
     final topRow = bottomRow - h + 1;
-    _overlay.reposition(
-      Rect(
+    _overlay.update(
+      bounds: Rect(
         row: topRow,
         col: _screen.input.bounds.col,
         width: _screen.input.bounds.width,
         height: h,
       ),
+      lines: _lines(h),
     );
-    _overlay.show(_lines(h));
   }
 
   int _visibleCount() {

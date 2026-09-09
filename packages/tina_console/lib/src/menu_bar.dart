@@ -359,13 +359,6 @@ class MenuBar implements Focusable {
         ? _screen.layout.menuBottomBorderRow + 1
         : _screen.layout.topBorderRow + 1;
 
-    _dropdown.reposition(Rect(
-      row: dropRow,
-      col: dropCol,
-      width: dropWidth,
-      height: dropHeight,
-    ));
-
     final lines = <String>[];
     // Top border.
     lines.add('┌${'─' * (dropWidth - 2)}┐');
@@ -394,7 +387,15 @@ class MenuBar implements Focusable {
     // Bottom border.
     lines.add('└${'─' * (dropWidth - 2)}┘');
 
-    _dropdown.show(lines);
+    _dropdown.update(
+      bounds: Rect(
+        row: dropRow,
+        col: dropCol,
+        width: dropWidth,
+        height: dropHeight,
+      ),
+      lines: lines,
+    );
   }
 
   // -- Navigation helpers --------------------------------------------------
