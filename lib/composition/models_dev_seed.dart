@@ -2,8 +2,8 @@ import 'package:tina_engine/tina_engine.dart';
 
 /// AI SDK packages whose wire format tina can actually speak. Everything else
 /// models.dev lists (Anthropic, Google, Azure, Bedrock, Vertex, the one-off
-/// community packages) is skipped rather than guessed: a descriptor that can
-/// never authenticate is worse than no row at all.
+/// community packages) is skipped rather than guessed: a row whose requests
+/// could never be built is worse than no row at all.
 const _openAiCompatibleNpm = <String>{
   '@ai-sdk/openai-compatible',
   '@ai-sdk/openai',
@@ -17,12 +17,10 @@ const _openAiCompatibleNpm = <String>{
 
 /// Register the models.dev providers that tina can actually call.
 ///
-/// A provider is seeded only when ALL hold:
+/// A provider is seeded only when BOTH hold:
 ///
-/// * **wire** — its `npm` is in [_openAiCompatibleNpm] and it has a base URL;
-/// * **credential** — one of its models.dev env vars, or the `<ID>_API_KEY` /
-///   `<ID>_AUTH_TOKEN` pair a `~/.tina/config` block exports (see
-///   `buildEnvOverlay`), is set and non-empty in [env];
+/// * **wire** — its `npm` is in [_openAiCompatibleNpm] and it has a base URL
+///   and at least one model;
 /// * **no collision** — its id is unregistered, and neither its env vars nor
 ///   its base-URL host match a descriptor tina already had (compiled or
 ///   config-declared). This is what keeps a models.dev `nvidia` entry from
@@ -33,6 +31,12 @@ const _openAiCompatibleNpm = <String>{
 ///   would hide the endpoint the user actually needs. Both rows appear, and
 ///   curation decides.
 ///
+/// Deliberately NOT gated on a credential being present: `/settings` is where
+/// a provider gets keyed, so it must list the providers you might key — the
+/// same way every compiled provider is listed whether or not you hold its key.
+/// Discovery adds ~170 rows; `/settings` search filters them, and
+/// `COCOON_MODELS_DEV=0` turns the whole feed off.
+///
 /// Seeded providers land in the registry but stay out of `/model` and
 /// `/spawn` until the user checks them in `/settings`: those pickers only
 /// offer providers with a `[providers.<id>]` config block, and
@@ -42,7 +46,6 @@ const _openAiCompatibleNpm = <String>{
 /// Returns the number of providers newly registered.
 int registerModelsDevProviders({
   required ProviderRegistry registry,
-  required Map<String, String> env,
   required Map<String, ModelsDevProviderInfo> providers,
 }) {
   var added = 0;
@@ -54,7 +57,6 @@ int registerModelsDevProviders({
     // A provider with no models would be an empty picker row, and an empty
     // descriptor catalog breaks the `models.keys.first` default-model path.
     if (info.models.isEmpty) continue;
-    if (!_hasCredential(info, env)) continue;
     if (_collides(registry, info, baseUrl, seeded)) continue;
 
     final prefix = info.key.toUpperCase();
@@ -78,15 +80,6 @@ int registerModelsDevProviders({
     added++;
   }
   return added;
-}
-
-bool _hasCredential(ModelsDevProviderInfo info, Map<String, String> env) {
-  final prefix = info.key.toUpperCase();
-  for (final v in [...info.envVars, '${prefix}_API_KEY', '${prefix}_AUTH_TOKEN']) {
-    final value = env[v];
-    if (value != null && value.isNotEmpty) return true;
-  }
-  return false;
 }
 
 bool _collides(

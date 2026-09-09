@@ -22,13 +22,14 @@ void main() {
   ProviderDescriptor desc({
     String id = 'nim',
     String authVar = 'NVIDIA_API_KEY',
+    String baseUrl = 'https://example.test',
     Map<String, ModelInfo> models = const {},
   }) =>
       ProviderDescriptor(
         id: id,
         name: id,
         authSources: [AuthSource(authVar, AuthScheme.bearerToken)],
-        defaultBaseUrl: 'https://example.test',
+        defaultBaseUrl: baseUrl,
         builder: (_) => throw UnimplementedError(),
         models: models,
         listsRemoteModels: true,
@@ -148,6 +149,29 @@ void main() {
 
     expect(http.requests.single.url.toString(),
         'https://proxy.test/v1/models');
+  });
+
+  test('a versioned base gets only /models appended', () async {
+    // `/api/v1` must not double up to `/api/v1/v1/models` (a 404 on every
+    // versioned provider: cerebras, mistral, grok, glm, openrouter, qwen…).
+    final d = desc(baseUrl: 'https://api.mistral.ai/v1');
+    final http = client('{"data":[{"id":"x"}]}');
+    final c = catalog(env: {'NVIDIA_API_KEY': 'k'}, httpClient: http);
+    await c.load([d]);
+
+    expect(http.requests.single.url.toString(),
+        'https://api.mistral.ai/v1/models');
+  });
+
+  test('a base with a trailing slash is normalized', () async {
+    // models.dev publishes some bases as `…/v1/` (its `inception` entry).
+    final d = desc(baseUrl: 'https://api.inceptionlabs.ai/v1/');
+    final http = client('{"data":[{"id":"x"}]}');
+    final c = catalog(env: {'NVIDIA_API_KEY': 'k'}, httpClient: http);
+    await c.load([d]);
+
+    expect(http.requests.single.url.toString(),
+        'https://api.inceptionlabs.ai/v1/models');
   });
 
   test('a fresh cache is used without a fetch', () async {

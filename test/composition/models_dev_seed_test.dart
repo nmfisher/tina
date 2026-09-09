@@ -30,11 +30,10 @@ ModelsDevProviderInfo info({
 
 void main() {
   group('registerModelsDevProviders', () {
-    test('registers a credentialed OpenAI-compatible provider', () {
+    test('registers an OpenAI-compatible provider', () {
       final registry = builtinRegistry(env: const {});
       final added = registerModelsDevProviders(
         registry: registry,
-        env: const {'MOONSHOT_API_KEY': 'sk-test'},
         providers: {
           'moonshotai': info(
             key: 'moonshotai',
@@ -59,47 +58,32 @@ void main() {
       expect(registry.modelsFor('moonshotai').map((m) => m.id), ['m-1']);
     });
 
-    test('the <ID>_API_KEY a config block exports is enough on its own', () {
+    test('registers a provider you hold no key for yet', () {
+      // /settings is where a provider gets keyed, so it must list the
+      // providers you might key — the same way every compiled provider is
+      // listed whether or not you hold its key.
       final registry = builtinRegistry(env: const {});
       final added = registerModelsDevProviders(
         registry: registry,
-        env: const {'MOONSHOTAI_API_KEY': 'sk-config'},
         providers: {
-          'moonshotai': info(
-            key: 'moonshotai',
-            envVars: ['MOONSHOT_API_KEY'],
-            apiBase: 'https://api.moonshot.ai/v1',
+          'inception': info(
+            key: 'inception',
+            name: 'Inception',
+            envVars: ['INCEPTION_API_KEY'],
+            apiBase: 'https://api.inceptionlabs.ai/v1/',
           ),
         },
       );
 
       expect(added, 1);
-      expect(registry.descriptor('moonshotai'), isNotNull);
+      expect(registry.descriptor('inception'), isNotNull);
+      expect(registry.modelsFor('inception').map((m) => m.id), ['m-1']);
     });
 
-    test('skips a provider with no credential in the environment', () {
+    test('skips wires tina cannot speak', () {
       final registry = builtinRegistry(env: const {});
       final added = registerModelsDevProviders(
         registry: registry,
-        env: const {},
-        providers: {
-          'moonshotai': info(
-            key: 'moonshotai',
-            envVars: ['MOONSHOT_API_KEY'],
-            apiBase: 'https://api.moonshot.ai/v1',
-          ),
-        },
-      );
-
-      expect(added, 0);
-      expect(registry.descriptor('moonshotai'), isNull);
-    });
-
-    test('skips wires tina cannot speak, however credentialed', () {
-      final registry = builtinRegistry(env: const {});
-      final added = registerModelsDevProviders(
-        registry: registry,
-        env: const {'GEMINI_API_KEY': 'x', 'OLLAMA_API_KEY': 'y'},
         providers: {
           'google': info(
             key: 'google',
@@ -125,7 +109,6 @@ void main() {
       final registry = builtinRegistry(env: const {});
       final added = registerModelsDevProviders(
         registry: registry,
-        env: const {'A_API_KEY': 'x', 'B_API_KEY': 'y'},
         providers: {
           'no-base': info(key: 'no-base', envVars: ['A_API_KEY']),
           'no-models': info(
@@ -147,7 +130,6 @@ void main() {
       final compiledNimModels = registry.modelsFor('nim').length;
       final added = registerModelsDevProviders(
         registry: registry,
-        env: const {'NVIDIA_API_KEY': 'nvapi-test'},
         providers: {
           // models.dev's key for what tina compiles as `nim`: same credential
           // env var, same host. Registering it would give one key two provider
@@ -172,7 +154,6 @@ void main() {
       final registry = builtinRegistry(env: const {});
       final added = registerModelsDevProviders(
         registry: registry,
-        env: const {'ANTHROPIC_API_KEY': 'sk-ant'},
         providers: {
           // A gateway on a different host, but the same env var — its key
           // would resolve to the wrong provider.
@@ -192,7 +173,6 @@ void main() {
       final registry = builtinRegistry(env: const {});
       final added = registerModelsDevProviders(
         registry: registry,
-        env: const {'MISTRAL_API_KEY': 'sk-mistral'},
         providers: {
           'mistral': info(
             key: 'mistral',
@@ -214,7 +194,6 @@ void main() {
       final registry = builtinRegistry(env: const {});
       final added = registerModelsDevProviders(
         registry: registry,
-        env: const {'MOONSHOT_API_KEY': 'sk-test'},
         providers: {
           'moonshotai-cn': info(
             key: 'moonshotai-cn',
@@ -240,7 +219,6 @@ void main() {
       final registry = builtinRegistry(env: const {});
       final added = registerModelsDevProviders(
         registry: registry,
-        env: const {'A_API_KEY': 'x', 'B_API_KEY': 'y'},
         providers: {
           'alpha': info(
             key: 'alpha',
@@ -260,10 +238,10 @@ void main() {
         },
       );
 
-      expect(added, 2);
+      expect(added, 3);
       expect(registry.descriptor('alpha'), isNotNull);
       expect(registry.descriptor('beta'), isNotNull);
-      expect(registry.descriptor('gamma'), isNull);
+      expect(registry.descriptor('gamma'), isNotNull);
     });
   });
 }

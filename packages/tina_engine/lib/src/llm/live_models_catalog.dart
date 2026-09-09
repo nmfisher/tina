@@ -126,8 +126,18 @@ class LiveModelsCatalog implements ModelCatalog {
   }
 
   Uri _modelsUri(ProviderDescriptor desc) {
-    final base =
-        _env[_baseUrlVar(desc)] ?? desc.defaultBaseUrl;
+    var base = (_env[_baseUrlVar(desc)] ?? desc.defaultBaseUrl).trim();
+    // Providers publish bases with or without a trailing slash (models.dev's
+    // `inception` entry ends in `/v1/`); strip it before appending a path.
+    while (base.endsWith('/')) {
+      base = base.substring(0, base.length - 1);
+    }
+    // Same rule as [OpenAiCompatibleAdapter.chatEndpoint]: a base that already
+    // carries a version segment gets only `/models` appended. Without this,
+    // every versioned base (cerebras, mistral, grok, glm, openrouter, the
+    // `compatible-mode/v1` pair, and nearly every models.dev base) doubled to
+    // `/v1/v1/models`, 404'd, and silently fell back to the compiled list.
+    if (RegExp(r'/v\d+$').hasMatch(base)) return Uri.parse('$base/models');
     return Uri.parse('$base/v1/models');
   }
 

@@ -516,7 +516,6 @@ void main() {
 
     void seed(ProviderRegistry registry) => registerModelsDevProviders(
       registry: registry,
-      env: env,
       providers: {
         'moonshotai': ModelsDevProviderInfo(
           key: 'moonshotai',

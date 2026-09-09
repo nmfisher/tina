@@ -578,7 +578,6 @@ void main() {
       final r = ProviderRegistry(env: const {});
       registerModelsDevProviders(
         registry: r,
-        env: const {'MOONSHOT_API_KEY': 'sk-test'},
         providers: {
           'moonshotai': ModelsDevProviderInfo(
             key: 'moonshotai',

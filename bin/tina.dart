@@ -747,7 +747,6 @@ Future<ModelsDevProviderCatalog?> _seedModelsDevProviders(
   await catalog.loadFromCache();
   registerModelsDevProviders(
     registry: registry,
-    env: env,
     providers: catalog.providers,
   );
   registry.providerCatalog = catalog;
