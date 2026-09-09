@@ -38,6 +38,10 @@ env:
   TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || format('0.0.0-dev.{0}', github.run_number) }}
   MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
   NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
+  # Content of the minisign SECRET key (the pair whose public half is pinned
+  # in install.sh and committed as minisign.pub). Empty → releases stay
+  # checksum-only and install.sh says so.
+  MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
 
 # Least privilege: the default for every job is read-only; only the publish
 # job escalates to contents:write (it creates the Release). The build jobs
@@ -219,6 +223,52 @@ jobs:
           ( cd assets && find . -name '*.tar.gz' | sed 's#^\./#- #' ) >> body.md
           echo "---"; find assets -name '*.tar.gz' -exec ls -lh {} \;
 
+      # Aggregate checksum manifest — the file install.sh verifies (and what
+      # the minisign signature below covers, authenticating every tarball).
+      - name: Generate checksum manifest
+        run: |
+          ( cd assets && sha256sum -- *.tar.gz > sha256sums.txt )
+          cat assets/sha256sums.txt
+
+      # ── Minisign manifest signature ─────────────────────────────────────
+      # Signs sha256sums.txt so install.sh can pin authenticity to the
+      # committed minisign.pub. Skips cleanly when the secret isn't
+      # configured (forks) — those releases stay checksum-only.
+      - name: Sign manifest (minisign)
+        if: env.MINISIGN_SECRET_KEY != ''
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q minisign
+          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
+          chmod 600 "$RUNNER_TEMP/minisign.key"
+          # The key is unencrypted; minisign still prompts for the (empty)
+          # password, and CI has no tty — feed it one empty line.
+          printf '\n' | minisign -S -q -s "$RUNNER_TEMP/minisign.key" \
+            -m assets/sha256sums.txt -x assets/sha256sums.txt.minisig
+          # Prove the signature verifies against the PUBLIC key pinned in
+          # install.sh — the whole chain is worthless if the pair drifted.
+          printf '%s\n%s\n' "untrusted comment: minisign public key 998FE64CB07F896A" \
+            "RWRqiX+wTOaPmS7+JVz0pccep+0NBr6xDpLrf37v054BXCPDnGbpma92" \
+            > "$RUNNER_TEMP/release.pub"
+          minisign -V -q -p "$RUNNER_TEMP/release.pub" \
+            -x assets/sha256sums.txt.minisig -m assets/sha256sums.txt
+          rm -f "$RUNNER_TEMP/minisign.key"
+
+      - name: Compute asset list
+        id: assets
+        run: |
+          list="assets/*.tar.gz
+          assets/*.sha256
+          assets/sha256sums.txt"
+          [ -f assets/sha256sums.txt.minisig ] && list="$list
+          assets/sha256sums.txt.minisig"
+          {
+            echo 'files<<EOF'
+            echo "$list"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create / attach release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
@@ -227,7 +277,5 @@ jobs:
           body_path: body.md
           draft: ${{ github.event_name == 'workflow_dispatch' }}
           make_latest: ${{ github.event_name != 'workflow_dispatch' }}
-          files: |
-            assets/*.tar.gz
-            assets/*.sha256
+          files: ${{ steps.assets.outputs.files }}
           fail_on_unmatched_files: true
