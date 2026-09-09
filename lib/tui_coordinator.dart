@@ -1676,6 +1676,7 @@ class TuiCoordinator {
         // model by default; an explicitly saved set is honored as-is.
         final disabledModelRefs = disabledModelRefsFor(
           cfg,
+          scheduler.registry.providerIds,
           (pid) => [for (final m in scheduler.registry.modelsFor(pid)) m.id],
         );
         // The active conversation's model ref ("provider/model", captured by
@@ -1807,6 +1808,7 @@ class TuiCoordinator {
         // model by default; an explicitly saved set is honored as-is.
         final disabledModelRefs = disabledModelRefsFor(
           cfg,
+          scheduler.registry.providerIds,
           (pid) => [for (final m in scheduler.registry.modelsFor(pid)) m.id],
         );
         // Build the list of provider/model refs limited to configured providers.
@@ -1987,6 +1989,7 @@ class TuiCoordinator {
             // model by default; an explicitly saved set is honored as-is.
             final disabledModelRefs = disabledModelRefsFor(
               cfg,
+              scheduler.registry.providerIds,
               (pid) => [for (final m in scheduler.registry.modelsFor(pid)) m.id],
             );
             final refs = <String>[];

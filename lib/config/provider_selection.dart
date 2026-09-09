@@ -24,18 +24,19 @@ String? apiKeyForPickedRef(String ref, UserConfig cfg) {
 /// distinction (empty list written and parsed as non-null).
 Set<String> disabledModelRefsFor(
   UserConfig cfg,
+  Iterable<String> providerIds,
   List<String> Function(String providerId) modelIdsFor,
 ) {
   final out = <String>{};
-  for (final e in cfg.providers.entries) {
-    final disabled = e.value.disabledModels;
+  for (final pid in providerIds) {
+    final disabled = cfg.providers[pid]?.disabledModels;
     if (disabled == null) {
-      for (final mid in modelIdsFor(e.key)) {
-        out.add('${e.key}/$mid');
+      for (final mid in modelIdsFor(pid)) {
+        out.add('$pid/$mid');
       }
     } else {
       for (final mid in disabled) {
-        out.add('${e.key}/$mid');
+        out.add('$pid/$mid');
       }
     }
   }

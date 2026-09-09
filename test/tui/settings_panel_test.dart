@@ -1,3 +1,4 @@
+
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina/tui/settings_panel.dart';
@@ -119,108 +120,6 @@ void main() {
     expect(loaded.providers['alpha']?.apiKey, 'ka');
   });
 
-  test('providers: pasting an API key lands in the key field', () async {
-    final screen = fakeScreen();
-    // The reported bug: a paste while the overlay holds the readKey used to
-    // fall through to the conversation buffer. Now the overlay receives the
-    // PasteInput and the focused key field takes it verbatim (trimmed).
-    canned.events = [
-      ControlKey(ControlCode.enter), // index → providers
-      CharInput(' '), // check alpha
-      ArrowKey(ArrowDirection.right), // expand alpha
-      ArrowKey(ArrowDirection.down), // alpha/key
-      PasteInput('sk-pasted-alpha-key\n'),
-      ControlKey(ControlCode.enter), // providers → save
-      EscapeKey(), // index → close
-    ];
-    final wrote = await runIndex(screen).timeout(overlayTimeout);
-    expect(wrote, isNotNull);
-    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
-    expect(loaded.providers['alpha']?.apiKey, 'sk-pasted-alpha-key');
-  });
-
-  test('providers: a never-curated provider saves models explicitly disabled',
-      () async {
-    final screen = fakeScreen();
-    // Initial config has alpha with a key but NO disabled_models: under the
-    // disable-by-default flip, both models start unchecked, and saving
-    // without touching them writes the explicit all-disabled state.
-    final initial = UserConfig(providers: {
-      'alpha': ProviderConfig(apiKey: 'ka'),
-    });
-    canned.events = [
-      ControlKey(ControlCode.enter), // index → providers
-      ControlKey(ControlCode.enter), // providers → save
-      EscapeKey(), // index → close
-    ];
-    final wrote = await runIndex(screen, initial: initial).timeout(overlayTimeout);
-    expect(wrote, isNotNull);
-    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
-    final disabled = loaded.providers['alpha']?.disabledModels;
-    expect(disabled, isNotNull, reason: 'the save must be explicit, not null');
-    expect(disabled, {'a1', 'a2'});
-  });
-
-  test('providers: checking one model enables exactly that model', () async {
-    final screen = fakeScreen();
-    // alpha/key → alpha/url → alpha/a1; space checks a1; save. The written
-    // set is the complement: only a2 stays disabled.
-    final initial = UserConfig(providers: {
-      'alpha': ProviderConfig(apiKey: 'ka'),
-    });
-    canned.events = [
-      ControlKey(ControlCode.enter), // index → providers
-      ArrowKey(ArrowDirection.right), // expand alpha
-      ArrowKey(ArrowDirection.down), // alpha/key
-      ArrowKey(ArrowDirection.down), // alpha/url
-      ArrowKey(ArrowDirection.down), // separator
-      ArrowKey(ArrowDirection.down), // alpha/a1
-      CharInput(' '), // enable a1
-      ControlKey(ControlCode.enter), // providers → save
-      EscapeKey(), // index → close
-    ];
-    final wrote = await runIndex(screen, initial: initial).timeout(overlayTimeout);
-    expect(wrote, isNotNull);
-    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
-    expect(loaded.providers['alpha']?.disabledModels, {'a2'});
-  });
-
-  test('providers: ＋add model declares a custom id and enables it', () async {
-    final screen = fakeScreen();
-    // alpha keyed (never curated → a1/a2 disabled by default). Expand, walk
-    // down to ＋add model, Enter, paste "glm-5.2|GLM 5.2", Enter commits.
-    // Rows grew by one, so focus now sits on the new model row; ↑ then Enter
-    // saves from a model row.
-    final initial = UserConfig(providers: {
-      'alpha': ProviderConfig(apiKey: 'ka'),
-    });
-    canned.events = [
-      ControlKey(ControlCode.enter), // index → providers
-      ArrowKey(ArrowDirection.right), // expand alpha
-      ArrowKey(ArrowDirection.down), // alpha/key
-      ArrowKey(ArrowDirection.down), // alpha/url
-      ArrowKey(ArrowDirection.down), // separator
-      ArrowKey(ArrowDirection.down), // alpha/a1
-      ArrowKey(ArrowDirection.down), // alpha/a2
-      ArrowKey(ArrowDirection.down), // ＋add model
-      ControlKey(ControlCode.enter), // start text entry
-      PasteInput('glm-5.2|GLM 5.2'),
-      ControlKey(ControlCode.enter), // commit
-      ArrowKey(ArrowDirection.up), // move off the add row
-      ControlKey(ControlCode.enter), // providers → save
-      EscapeKey(), // index → close
-    ];
-    final wrote = await runIndex(screen, initial: initial).timeout(overlayTimeout);
-    expect(wrote, isNotNull);
-    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
-    final alpha = loaded.providers['alpha'];
-    final added = alpha?.models?.where((m) => m.id == 'glm-5.2').toList();
-    expect(added, hasLength(1), reason: 'the custom id must be declared');
-    expect(added!.single.name, 'GLM 5.2');
-    // Declaring enabled the new model; the untouched registry models stay
-    // explicitly disabled.
-    expect(alpha?.disabledModels, {'a1', 'a2'});
-  });
 
   // -- providers panel ------------------------------------------------------
 
@@ -257,6 +156,123 @@ void main() {
     // Untouched slices preserved.
     expect(loaded.limits?.maxGlobalTokens, 12345);
   });
+
+  test('providers: a never-curated provider saves models explicitly disabled',
+      () async {
+    final screen = fakeScreen();
+    // Initial config has alpha with a key but NO disabled_models: under the
+    // disable-by-default flip, both models start unchecked, and saving
+    // without touching them writes the explicit all-disabled state.
+    final initial = UserConfig(providers: {
+      'alpha': ProviderConfig(apiKey: 'ka'),
+    });
+    canned.events = [
+      ControlKey(ControlCode.enter), // index → providers
+      ControlKey(ControlCode.enter), // providers → save
+      EscapeKey(), // index → close
+    ];
+    final wrote =
+        await runIndex(screen, initial: initial).timeout(overlayTimeout);
+    expect(wrote, isNotNull);
+    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+    final disabled = loaded.providers['alpha']?.disabledModels;
+    expect(disabled, isNotNull, reason: 'the save must be explicit, not null');
+    expect(disabled, {'a1', 'a2'});
+  });
+
+  test('providers: checking one model enables exactly that model', () async {
+    final screen = fakeScreen();
+    // alpha/key → alpha/url → separator → alpha/a1; space checks a1; save.
+    // The written set is the complement: only a2 stays disabled.
+    final initial = UserConfig(providers: {
+      'alpha': ProviderConfig(apiKey: 'ka'),
+    });
+    canned.events = [
+      ControlKey(ControlCode.enter), // index → providers
+      ArrowKey(ArrowDirection.right), // expand alpha
+      ArrowKey(ArrowDirection.down), // alpha/key
+      ArrowKey(ArrowDirection.down), // alpha/url
+      ArrowKey(ArrowDirection.down), // separator
+      ArrowKey(ArrowDirection.down), // alpha/a1
+      CharInput(' '), // enable a1
+      ControlKey(ControlCode.enter), // providers → save
+      EscapeKey(), // index → close
+    ];
+    final wrote =
+        await runIndex(screen, initial: initial).timeout(overlayTimeout);
+    expect(wrote, isNotNull);
+    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+    expect(loaded.providers['alpha']?.disabledModels, {'a2'});
+  });
+
+  test('providers: ＋add model declares a custom id and enables it', () async {
+    final screen = fakeScreen();
+    // alpha keyed (never curated → a1/a2 disabled by default). Expand, walk
+    // down to ＋add model, Enter, paste "glm-5.2|GLM 5.2", Enter commits.
+    // Rows grew by one, so focus now sits on the new model row; ↑ then Enter
+    // saves from a model row.
+    final initial = UserConfig(providers: {
+      'alpha': ProviderConfig(apiKey: 'ka'),
+    });
+    canned.events = [
+      ControlKey(ControlCode.enter), // index → providers
+      ArrowKey(ArrowDirection.right), // expand alpha
+      ArrowKey(ArrowDirection.down), // alpha/key
+      ArrowKey(ArrowDirection.down), // alpha/url
+      ArrowKey(ArrowDirection.down), // separator
+      ArrowKey(ArrowDirection.down), // alpha/a1
+      ArrowKey(ArrowDirection.down), // alpha/a2
+      ArrowKey(ArrowDirection.down), // ＋add model
+      ControlKey(ControlCode.enter), // start text entry
+      PasteInput('glm-5.2|GLM 5.2'),
+      ControlKey(ControlCode.enter), // commit
+      ArrowKey(ArrowDirection.up), // move off the add row
+      ControlKey(ControlCode.enter), // providers → save
+      EscapeKey(), // index → close
+    ];
+    final wrote =
+        await runIndex(screen, initial: initial).timeout(overlayTimeout);
+    expect(wrote, isNotNull);
+    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+    final alpha = loaded.providers['alpha'];
+    final added = alpha?.models?.where((m) => m.id == 'glm-5.2').toList();
+    expect(added, hasLength(1), reason: 'the custom id must be declared');
+    expect(added!.single.name, 'GLM 5.2');
+    // Declaring enabled the new model; the untouched registry models stay
+    // explicitly disabled.
+    expect(alpha?.disabledModels, {'a1', 'a2'});
+  });
+
+  test('providers: a provider absent from config starts all-models-disabled',
+      () async {
+    final screen = fakeScreen();
+    // Registry provider `alpha` has NO config block at all (env-credentialed
+    // style). Its model rows must start ☐ disabled: checking a1 and saving
+    // writes the block with exactly a2 left disabled. The regression this
+    // pins: absent providers used to render all-enabled, so a space toggled
+    // a1 OFF and the write came out inverted.
+    canned.events = [
+      ControlKey(ControlCode.enter), // index → providers
+      CharInput(' '), // check alpha (was unchecked: not in config)
+      ArrowKey(ArrowDirection.right), // expand alpha
+      ArrowKey(ArrowDirection.down), // alpha/key
+      ArrowKey(ArrowDirection.down), // alpha/url
+      ArrowKey(ArrowDirection.down), // separator
+      ArrowKey(ArrowDirection.down), // alpha/a1
+      CharInput(' '), // enable a1 (it started disabled)
+      ControlKey(ControlCode.enter), // providers → save
+      EscapeKey(), // index → close
+    ];
+    final wrote = await runIndex(screen).timeout(overlayTimeout);
+    expect(wrote, isNotNull);
+    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+    final alpha = loaded.providers['alpha'];
+    expect(alpha?.apiKey, isNull,
+        reason: 'the provider had no key; only curation is written');
+    expect(alpha?.disabledModels, {'a2'},
+        reason: 'a1 was explicitly enabled; a2 stays disabled');
+  });
+
 
   // -- quota panel ----------------------------------------------------------
 

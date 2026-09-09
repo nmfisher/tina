@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:tina/config/provider_selection.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
@@ -262,20 +263,17 @@ class _ProvidersForm {
         if (k != null && k.isNotEmpty) _keys[e.key] = k;
         final u = e.value.baseUrl;
         if (u != null && u.isNotEmpty) _baseUrls[e.key] = u;
-        final disabled = e.value.disabledModels;
-        if (disabled == null) {
-          // Never curated: every model starts disabled — the picker offers
-          // nothing from this provider until models are checked here.
-          for (final m in _registry.modelsFor(e.key)) {
-            _disabledModels.add('${e.key}/${m.id}');
-          }
-        } else {
-          for (final mid in disabled) {
-            _disabledModels.add('${e.key}/$mid');
-          }
-        }
       }
     }
+    // The curation policy lives in ONE place (disabledModelRefsFor) shared
+    // with the pickers: every registry provider without an explicitly saved
+    // set — including providers with no config block at all — starts with
+    // every model disabled.
+    _disabledModels.addAll(disabledModelRefsFor(
+      initial ?? UserConfig.empty,
+      _providerIds,
+      (pid) => [for (final m in _registry.modelsFor(pid)) m.id],
+    ));
   }
 
   final Screen _screen;
@@ -626,10 +624,6 @@ class _ProvidersForm {
   }
 
   UserConfig? _write() {
-    final filteredKeys = <String, String>{
-      for (final id in _checked)
-        if (_keys.containsKey(id)) id: _keys[id]!,
-    };
     final filteredBaseUrls = <String, String>{
       for (final id in _checked)
         if (_baseUrls.containsKey(id)) id: _baseUrls[id]!,
@@ -643,9 +637,11 @@ class _ProvidersForm {
       dis.putIfAbsent(pid, () => <String>{}).add(mid);
     }
     final providers = <String, ProviderConfig>{
-      for (final id in filteredKeys.keys)
+      // Every CHECKED provider is written, key or not: env-credentialed
+      // providers carry no stored key, and their model curation must save.
+      for (final id in _checked)
         id: ProviderConfig(
-          apiKey: filteredKeys[id],
+          apiKey: _keys[id],
           baseUrl: filteredBaseUrls[id],
           models: _mergedModels(id),
           // Explicit, never null: an empty set is the curated
@@ -865,6 +861,7 @@ class _QuotaForm {
     _render();
     while (true) {
       final ev = await _readEvent();
+      // ignore: avoid_print
       if (ev is EscapeKey ||
           (ev is ControlKey && ev.code == ControlCode.ctrlC)) {
         _dispose();

@@ -107,6 +107,20 @@ void main() {
       });
       final refs = disabledModelRefsFor(
         c,
+        ['alpha', 'beta'],
+        (pid) => pid == 'alpha' ? ['m1', 'm2'] : [],
+      );
+      expect(refs, {'alpha/m1', 'alpha/m2'});
+    });
+
+    test('a provider with NO config block disables every model too', () {
+      // The hole behind "a provider that isn't in config shows all enabled":
+      // the universe is the REGISTRY, not the config keys — an env-only
+      // provider must be disabled by default exactly like any other.
+      final c = UserConfig.empty;
+      final refs = disabledModelRefsFor(
+        c,
+        ['alpha'],
         (pid) => pid == 'alpha' ? ['m1', 'm2'] : [],
       );
       expect(refs, {'alpha/m1', 'alpha/m2'});
@@ -118,6 +132,7 @@ void main() {
       });
       final refs = disabledModelRefsFor(
         c,
+        ['alpha'],
         (pid) => pid == 'alpha' ? ['m1', 'm2'] : [],
       );
       expect(refs, {'alpha/m1'});
@@ -129,6 +144,7 @@ void main() {
       });
       final refs = disabledModelRefsFor(
         c,
+        ['alpha'],
         (pid) => pid == 'alpha' ? ['m1', 'm2'] : [],
       );
       expect(refs, isEmpty);
