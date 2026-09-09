@@ -262,8 +262,17 @@ class _ProvidersForm {
         if (k != null && k.isNotEmpty) _keys[e.key] = k;
         final u = e.value.baseUrl;
         if (u != null && u.isNotEmpty) _baseUrls[e.key] = u;
-        for (final mid in (e.value.disabledModels ?? const <String>[])) {
-          _disabledModels.add('${e.key}/$mid');
+        final disabled = e.value.disabledModels;
+        if (disabled == null) {
+          // Never curated: every model starts disabled — the picker offers
+          // nothing from this provider until models are checked here.
+          for (final m in _registry.modelsFor(e.key)) {
+            _disabledModels.add('${e.key}/${m.id}');
+          }
+        } else {
+          for (final mid in disabled) {
+            _disabledModels.add('${e.key}/$mid');
+          }
         }
       }
     }
@@ -494,10 +503,10 @@ class _ProvidersForm {
       _expanded.remove(id);
       _keys.remove(id);
       _baseUrls.remove(id);
-      _disabledModels.removeWhere((ref) => ref.startsWith('$id/'));
-    } else {
-      _disabledModels.removeWhere((ref) => ref.startsWith('$id/'));
     }
+    // Model enablement is independent of the provider checkbox: models stay
+    // disabled until each is checked (the 2026-09-09 disable-by-default
+    // flip). A configured provider offers nothing until its models are picked.
   }
 
   void _toggleModel(_Row f) {
@@ -539,7 +548,11 @@ class _ProvidersForm {
           apiKey: filteredKeys[id],
           baseUrl: filteredBaseUrls[id],
           models: _existingProviders[id]?.models,
-          disabledModels: dis[id],
+          // Explicit, never null: an empty set is the curated
+          // "every model enabled" state, distinct from an absent key (=
+          // never curated = all disabled). The config round-trip preserves
+          // empty lists for exactly this reason.
+          disabledModels: dis[id] ?? const <String>{},
         ),
     };
     return writeUserConfigPatch(

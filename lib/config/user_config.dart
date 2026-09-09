@@ -225,8 +225,10 @@ class ProviderConfig {
     Set<String>? disabled;
     final raw = m['disabled_models'];
     if (raw is List) {
-      final s = raw.whereType<String>().toSet();
-      if (s.isNotEmpty) disabled = s;
+      // An empty list is the explicit "every model enabled" state and must
+      // survive the round-trip: an ABSENT key means never curated, which
+      // disables every model by default (2026-09-09 flip).
+      disabled = raw.whereType<String>().toSet();
     }
     List<String>? members;
     final rawMembers = m['members'];
@@ -790,8 +792,11 @@ String userConfigToToml(UserConfig config) {
             if (e.value.baseUrl != null) 'base_url': e.value.baseUrl,
             if (e.value.wire != null) 'wire': e.value.wire,
             if (e.value.name != null) 'name': e.value.name,
-            if (e.value.disabledModels != null &&
-                e.value.disabledModels!.isNotEmpty)
+            // An EMPTY disabled_models is meaningful: it is the explicit
+            // "every model enabled" state, distinct from an absent key (=
+            // never curated = every model disabled by default). Like
+            // requestsPerMinute 0, it is kept even when empty.
+            if (e.value.disabledModels != null)
               'disabled_models': e.value.disabledModels!.toList(),
             if (e.value.models != null && e.value.models!.isNotEmpty)
               'models': [for (final m in e.value.models!) m.toString()],
@@ -938,6 +943,12 @@ api_key = "sk-ant-..."
 # # then reference as:  zai/glm-5.2   (the on-wire model name is the bare "glm-5.2")
 # # models = ["glm-5.2|GLM 5.2"]  # list it for the /spawn + /model pickers
 #                                # ("id" or "id|display name")
+# #
+# # Models are DISABLED until you curate them: a provider whose config has no
+# # `disabled_models` key offers NOTHING in the /spawn and /model pickers.
+# # Check the models you want in /settings → providers & models (that writes
+# # `disabled_models` listing the un-checked rest), or set
+# # `disabled_models = []` to enable every registry model.
 #
 # Repoint the built-in `glm` at z.ai instead (bare `glm-5.2` still resolves):
 # [providers.glm]

@@ -139,6 +139,52 @@ void main() {
     expect(loaded.providers['alpha']?.apiKey, 'sk-pasted-alpha-key');
   });
 
+  test('providers: a never-curated provider saves models explicitly disabled',
+      () async {
+    final screen = fakeScreen();
+    // Initial config has alpha with a key but NO disabled_models: under the
+    // disable-by-default flip, both models start unchecked, and saving
+    // without touching them writes the explicit all-disabled state.
+    final initial = UserConfig(providers: {
+      'alpha': ProviderConfig(apiKey: 'ka'),
+    });
+    canned.events = [
+      ControlKey(ControlCode.enter), // index → providers
+      ControlKey(ControlCode.enter), // providers → save
+      EscapeKey(), // index → close
+    ];
+    final wrote = await runIndex(screen, initial: initial).timeout(overlayTimeout);
+    expect(wrote, isNotNull);
+    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+    final disabled = loaded.providers['alpha']?.disabledModels;
+    expect(disabled, isNotNull, reason: 'the save must be explicit, not null');
+    expect(disabled, {'a1', 'a2'});
+  });
+
+  test('providers: checking one model enables exactly that model', () async {
+    final screen = fakeScreen();
+    // alpha/key → alpha/url → alpha/a1; space checks a1; save. The written
+    // set is the complement: only a2 stays disabled.
+    final initial = UserConfig(providers: {
+      'alpha': ProviderConfig(apiKey: 'ka'),
+    });
+    canned.events = [
+      ControlKey(ControlCode.enter), // index → providers
+      ArrowKey(ArrowDirection.right), // expand alpha
+      ArrowKey(ArrowDirection.down), // alpha/key
+      ArrowKey(ArrowDirection.down), // alpha/url
+      ArrowKey(ArrowDirection.down), // separator
+      ArrowKey(ArrowDirection.down), // alpha/a1
+      CharInput(' '), // enable a1
+      ControlKey(ControlCode.enter), // providers → save
+      EscapeKey(), // index → close
+    ];
+    final wrote = await runIndex(screen, initial: initial).timeout(overlayTimeout);
+    expect(wrote, isNotNull);
+    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+    expect(loaded.providers['alpha']?.disabledModels, {'a2'});
+  });
+
   // -- providers panel ------------------------------------------------------
 
   test('providers: cancel (Esc) writes nothing', () async {

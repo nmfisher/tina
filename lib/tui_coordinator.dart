@@ -1672,12 +1672,12 @@ class TuiCoordinator {
           );
           return null;
         }
-        final disabledModelRefs = <String>{};
-        for (final e in cfg.providers.entries) {
-          for (final mid in (e.value.disabledModels ?? const <String>[])) {
-            disabledModelRefs.add('${e.key}/$mid');
-          }
-        }
+        // Never-curated providers (disabledModels absent) disable every
+        // model by default; an explicitly saved set is honored as-is.
+        final disabledModelRefs = disabledModelRefsFor(
+          cfg,
+          (pid) => [for (final m in scheduler.registry.modelsFor(pid)) m.id],
+        );
         // The active conversation's model ref ("provider/model", captured by
         // its recorder) — seeds the picker for catalog-less configured
         // providers (custom ids), so a spawn-only setup isn't an empty list.
@@ -1803,12 +1803,12 @@ class TuiCoordinator {
           );
           return;
         }
-        final disabledModelRefs = <String>{};
-        for (final e in cfg.providers.entries) {
-          for (final mid in (e.value.disabledModels ?? const <String>[])) {
-            disabledModelRefs.add('${e.key}/$mid');
-          }
-        }
+        // Never-curated providers (disabledModels absent) disable every
+        // model by default; an explicitly saved set is honored as-is.
+        final disabledModelRefs = disabledModelRefsFor(
+          cfg,
+          (pid) => [for (final m in scheduler.registry.modelsFor(pid)) m.id],
+        );
         // Build the list of provider/model refs limited to configured providers.
         final refs = <String>[];
         final names = <String, String>{};
@@ -1983,12 +1983,12 @@ class TuiCoordinator {
             final cfg = loadUserConfig(env: envMap);
             final configured = cfg.providers.keys.toSet();
             if (configured.isEmpty) return stored; // nothing to pick from
-            final disabledModelRefs = <String>{};
-            for (final e in cfg.providers.entries) {
-              for (final mid in (e.value.disabledModels ?? const <String>[])) {
-                disabledModelRefs.add('${e.key}/$mid');
-              }
-            }
+            // Never-curated providers (disabledModels absent) disable every
+            // model by default; an explicitly saved set is honored as-is.
+            final disabledModelRefs = disabledModelRefsFor(
+              cfg,
+              (pid) => [for (final m in scheduler.registry.modelsFor(pid)) m.id],
+            );
             final refs = <String>[];
             for (final pid in scheduler.registry.providerIds) {
               if (!configured.contains(pid)) continue;

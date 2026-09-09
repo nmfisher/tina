@@ -257,6 +257,35 @@ base_url = "https://example.test"
       expect(c.isEmpty, isTrue);
     });
 
+    test('empty disabled_models parses as the explicit all-enabled state',
+        () {
+      // Distinct from an absent key (= never curated = all models disabled
+      // by default): the round-trip must preserve the empty list.
+      writeConfig('''
+[providers.alpha]
+api_key = "k"
+disabled_models = []
+''');
+      final c = loadUserConfig(env: {}, tinaDir: tmp);
+      final disabled = c.providers['alpha']?.disabledModels;
+      expect(disabled, isNotNull,
+          reason: 'an empty list is curated all-on, not never-curated');
+      expect(disabled, isEmpty);
+    });
+
+    test('writeUserConfig serializes an empty disabled_models', () {
+      final path = writeUserConfig(
+        UserConfig(providers: {
+          'alpha': ProviderConfig(apiKey: 'k', disabledModels: const {}),
+        }),
+        env: {},
+        tinaDir: tmp,
+      );
+      expect(File(path).readAsStringSync(), contains('disabled_models = []'));
+      final c = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(c.providers['alpha']?.disabledModels, isEmpty);
+    });
+
     test('explicit version = 1 loads', () {
       writeConfig('''
 version = 1

@@ -94,6 +94,46 @@ _recordingRegistry() {
 }
 
 void main() {
+  group('disabledModelRefsFor', () {
+    ProviderConfig p({
+      String? key,
+      Set<String>? disabled,
+    }) =>
+        ProviderConfig(apiKey: key, disabledModels: disabled);
+
+    test('a never-curated provider disables every registry model', () {
+      final c = UserConfig(providers: {
+        'alpha': p(key: 'k'), // disabledModels absent
+      });
+      final refs = disabledModelRefsFor(
+        c,
+        (pid) => pid == 'alpha' ? ['m1', 'm2'] : [],
+      );
+      expect(refs, {'alpha/m1', 'alpha/m2'});
+    });
+
+    test('an explicitly saved set is honored as-is', () {
+      final c = UserConfig(providers: {
+        'alpha': p(key: 'k', disabled: {'m1'}),
+      });
+      final refs = disabledModelRefsFor(
+        c,
+        (pid) => pid == 'alpha' ? ['m1', 'm2'] : [],
+      );
+      expect(refs, {'alpha/m1'});
+    });
+
+    test('an empty set enables everything (the curated all-on state)', () {
+      final c = UserConfig(providers: {
+        'alpha': p(key: 'k', disabled: {}),
+      });
+      final refs = disabledModelRefsFor(
+        c,
+        (pid) => pid == 'alpha' ? ['m1', 'm2'] : [],
+      );
+      expect(refs, isEmpty);
+    });
+  });
   group('refProviderForBuild', () {
     test(
       'a "provider/model" ref names the provider before the first slash',
