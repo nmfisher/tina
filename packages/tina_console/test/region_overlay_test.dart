@@ -104,5 +104,51 @@ void main() {
       expect(overlay.bounds.bottom <= layout.height - 1, isTrue);
       overlay.dispose();
     });
+
+    test('repeated shows reuse the plane; only reposition recycles it', () {
+      // Destroying + recreating the plane per show made notcurses rasterize
+      // frames without the overlay — a visible flash on every arrow key of a
+      // picker that re-renders per event.
+      var created = 0;
+      final counting = _CountingScreen(
+        io: io,
+        layout: layout,
+        ansi: AnsiCapable.yes,
+        onCreate: () => created++,
+      );
+      final overlay = OverlayRegion(
+        counting,
+        const Rect(row: 6, col: 4, width: 12, height: 3),
+      );
+      overlay.show(['one']);
+      overlay.show(['two']);
+      overlay.show(['three']);
+      expect(created, 1, reason: 'same-bounds shows must reuse the live plane');
+
+      overlay.reposition(const Rect(row: 12, col: 4, width: 12, height: 3));
+      overlay.show(['moved']);
+      expect(created, 2, reason: 'a bounds change must recycle the plane');
+
+      overlay.hide();
+      overlay.show(['again']);
+      expect(created, 3, reason: 'hide destroys the surface; show recreates');
+      overlay.dispose();
+    });
   });
+}
+
+class _CountingScreen extends Screen {
+  final void Function() onCreate;
+  _CountingScreen({
+    required super.io,
+    required super.layout,
+    required super.ansi,
+    required this.onCreate,
+  });
+
+  @override
+  BackendSurface createSurface(Rect bounds) {
+    onCreate();
+    return super.createSurface(bounds);
+  }
 }

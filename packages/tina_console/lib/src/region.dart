@@ -1720,6 +1720,11 @@ class OverlayRegion extends Region {
   /// hidden — the surface is created on [show] and destroyed on [hide].
   BackendSurface? _surface;
 
+  /// The bounds [_surface] was created for (Rect has no value equality).
+  /// Shows that keep the same bounds reuse the live plane; only a bounds
+  /// change (or hide) destroys it.
+  Rect? _surfaceBounds;
+
   OverlayRegion(super.screen, Rect bounds)
       : _bounds = _clipToScreen(bounds, screen) {
     screen.registerOverlay(this);
@@ -1737,32 +1742,49 @@ class OverlayRegion extends Region {
 
   bool get isVisible => _visible;
 
+  static bool _sameRect(Rect? a, Rect b) =>
+      a != null &&
+      a.row == b.row &&
+      a.col == b.col &&
+      a.width == b.width &&
+      a.height == b.height;
+
   /// Render [lines] one per row. Lines beyond `bounds.height` are dropped.
   /// Each line clipped to `bounds.width`. Marks the overlay visible.
+  ///
+  /// Reuses the live surface across shows: destroying + recreating the plane
+  /// per show makes notcurses rasterize frames without the overlay — a visible
+  /// flash on every keystroke of a picker that re-renders per event. Only a
+  /// bounds change (reposition, or hide) recycles the plane.
   void show(List<String> lines) {
     if (_bounds.isEmpty) return;
     _visible = true;
-    // Recreate the surface each show: the bounds may have changed since the
-    // last show (reposition), and destroying the prior plane clears its cells.
-    _surface?.destroy();
-    _surface = null;
-    BackendSurface? s;
-    try {
-      s = screen.createSurface(_bounds);
-    } catch (_) {
-      // Backend can't provide a plane (test fakes / notcurses allocation
-      // failure) — fall back to standard-plane writes below.
-      s = null;
+    if (_surface != null && !_sameRect(_surfaceBounds, _bounds)) {
+      _surface!.destroy();
+      screen.releaseOverlaySurface(_surface!);
+      _surface = null;
+      _surfaceBounds = null;
     }
-    _surface = s;
-    final surface = s;
+    if (_surface == null) {
+      BackendSurface? s;
+      try {
+        s = screen.createSurface(_bounds);
+      } catch (_) {
+        // Backend can't provide a plane (test fakes / notcurses allocation
+        // failure) — fall back to standard-plane writes below.
+        s = null;
+      }
+      _surface = s;
+      _surfaceBounds = s == null ? null : _bounds;
+      if (s != null) screen.adoptOverlaySurface(s);
+    }
+    final surface = _surface;
     if (surface == null) {
       // Backend declined (e.g. passthrough, or a throwing test fake) — fall
       // back to standard-plane writes.
       _showViaStandardPlane(lines);
       return;
     }
-    screen.adoptOverlaySurface(surface);
     final count = lines.length > _bounds.height ? _bounds.height : lines.length;
     for (var i = 0; i < count; i++) {
       surface.putAt(
@@ -1825,6 +1847,7 @@ class OverlayRegion extends Region {
       s.destroy();
       screen.releaseOverlaySurface(s);
       _surface = null;
+      _surfaceBounds = null;
       screen.scheduleBorderRepairs(
           List.generate(_bounds.height, (i) => _bounds.row + i));
       return;
