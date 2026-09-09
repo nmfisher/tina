@@ -16,9 +16,16 @@ bool get sandboxExecAvailable =>
 /// Canonical system directories the Linux sandbox mounts read-only: visible
 /// inside the namespace so toolchains/compilers keep working, but not
 /// writable. Each is bound only when it exists on the host (bwrap fails on a
-/// missing source). `$HOME` is deliberately NOT in this set — bwrap is
-/// namespace-first, so an unmounted home is simply invisible (see
-/// docs/features/sandbox.md).
+/// missing source).
+///
+/// `/home`, `/mnt`, `/media`, `/srv` and `/var` are mounted READ-ONLY so
+/// files outside the project actually EXIST inside the namespace — venvs and
+/// toolchains under `$HOME`, datasets on mounted volumes, logs under `/var`.
+/// Without these binds a command like `cat /home/me/data.csv` failed with
+/// "No such file or directory" for a file that plainly exists (bwrap is
+/// namespace-first: unmounted means invisible). Writes outside the project
+/// still fail — read-only is exactly the point; `TINA_SANDBOX_ALLOW` remains
+/// the escape hatch for a writable grant (see docs/features/sandbox.md).
 const List<String> kLinuxSandboxReadOnlyBinds = <String>[
   '/usr',
   '/bin',
@@ -27,6 +34,11 @@ const List<String> kLinuxSandboxReadOnlyBinds = <String>[
   '/lib64',
   '/etc',
   '/opt',
+  '/home',
+  '/mnt',
+  '/media',
+  '/srv',
+  '/var',
 ];
 
 /// True when the `bwrap` binary is on PATH.
@@ -157,8 +169,9 @@ String describeSandboxBackend(SandboxBackend backend,
       'sandbox-exec (macOS): bash writes confined to the project root + '
           'temp; reads/network stay open',
     SandboxBackend.bwrap =>
-      'bwrap (Linux): bash confined to read-only system dirs + writable '
-          'project/temp; home and the rest of the filesystem are not mounted',
+      'bwrap (Linux): bash confined to read-only system dirs (home, mounts, '
+          'var included) + writable project/temp; writes outside the project '
+          'fail',
     SandboxBackend.passThrough =>
       'pass-through ($passThroughReason): bash runs unsandboxed — the '
           'denylist + permission gate still apply',

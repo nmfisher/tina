@@ -450,44 +450,64 @@ class Screen {
 
   String? _errorStrip;
   bool _errorStripIsError = false;
+  String? _modeLabel;
 
-  /// Show [text] on the bottom border row — red for errors, yellow for
-  /// warnings. The corner glyphs stay; the ─ line is replaced for the call's
-  /// lifetime. A newer call replaces the text; [clearErrorStrip] restores.
+  /// The always-visible permission-mode indicator on the strip (e.g.
+  /// 'mode: ask'). Survives error show/clear.
+  void setModeLabel(String? label) {
+    if (passthrough) return;
+    if (_modeLabel == label) return;
+    _modeLabel = label;
+    _renderStrip();
+  }
+
+  /// Show [text] on the strip — red for errors, yellow for warnings.
+  /// Replaces any previous status; [clearErrorStrip] removes it (the mode
+  /// label stays).
   void setErrorStrip(String text, {required bool error}) {
     if (passthrough) return;
     if (_errorStrip == text && _errorStripIsError == error) return;
     _errorStrip = text;
     _errorStripIsError = error;
-    _renderErrorStrip();
+    _renderStrip();
   }
 
-  /// Remove the strip and restore the bottom border row.
+  /// Remove the status text. The mode label (if set) remains on the strip.
   void clearErrorStrip() {
     if (_errorStrip == null) return;
     _errorStrip = null;
-    final be = _backend!;
-    be.saveCursor();
-    be.eraseCells(_layout.bottomBorderRow, 1, _layout.width - 2);
-    be.restoreCursor();
-    redrawFrame();
+    _renderStrip();
   }
 
-  void _renderErrorStrip() {
-    final text = _errorStrip;
-    if (text == null) return;
+  /// Compose and paint the strip: the mode label (dim, always) followed by
+  /// the active status text (yellow/red). The row is erased first so a
+  /// shorter status never leaves residue; border corners are re-asserted.
+  void _renderStrip() {
+    if (passthrough) return;
     final be = _backend!;
     final row = _layout.bottomBorderRow;
     final inner = _layout.width - 2;
-    var t = text.replaceAll('\n', ' ').trim();
-    if (t.length > inner) t = t.substring(0, inner);
-    // Host-message theme carries the warning/error pair with light/dark
-    // variants — the same colors chat-level notices render with.
-    final host = theme.hostMessage;
-    final color = _errorStripIsError ? host.error : host.warning;
+    final segs = <String>[];
+    if (_modeLabel != null) segs.add(colorize('2', _modeLabel!));
+    if (_errorStrip != null) {
+      var t = _errorStrip!.replaceAll('\n', ' ').trim();
+      final host = theme.hostMessage;
+      final color = _errorStripIsError ? host.error : host.warning;
+      if (t.length > inner) t = t.substring(0, inner);
+      segs.add(colorize(color, t));
+    }
     be.saveCursor();
+    // Erase first: a shorter status must never leave residue, and an empty
+    // strip hands the row back to the border painter below.
+    be.eraseCells(row, 1, inner);
+    if (segs.isEmpty) {
+      // Nothing on the strip: the plain border row returns.
+      be.restoreCursor();
+      redrawFrame();
+      return;
+    }
     be.moveCursor(row, 1);
-    be.writeText(colorize(color, t.padRight(inner)));
+    be.writeText(segs.join('  '));
     be.restoreCursor();
     // The write spans the info box's bottom-border corners; re-assert them.
     _repairBordersForRow(row);
@@ -504,9 +524,9 @@ class Screen {
       be.eraseCells(_layout.menuBarRow, 1, w - 2);
     }
     _repaintBoxBorders();
-    // The error strip owns the bottom border row while active — repaint it
-    // after the borders so it wins.
-    if (_errorStrip != null) _renderErrorStrip();
+    // The strip owns the bottom border row while active — repaint it after
+    // the borders so it wins.
+    if (_errorStrip != null || _modeLabel != null) _renderStrip();
     // Park the cursor at the chat region's top-left.
     be.moveCursor(_layout.chat.row, _layout.chat.col);
     be.flush();

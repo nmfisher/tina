@@ -151,7 +151,14 @@ class LineEditor {
   /// Timestamp of the last standalone ESC at the prompt, for double-Esc
   /// detection. Null after a double completes or the window elapses.
   DateTime? _lastEsc;
+  /// [debugDoubleEscWindow] overrides it in tests: a fresh kernel compile
+  /// reshuffles async timing enough to overflow a fixed window
+  /// nondeterministically (the coordinator's double-Esc test flips per
+  /// compile without this seam).
   static const Duration _doubleEscWindow = Duration(milliseconds: 450);
+  static Duration? debugDoubleEscWindow;
+  static Duration get _activeDoubleEscWindow =>
+      debugDoubleEscWindow ?? _doubleEscWindow;
 
   /// Called when a non-fatal error is caught (e.g. a [CompletionProvider]
   /// that throws).
@@ -522,7 +529,7 @@ class LineEditor {
         // Esc to close its row while the run underneath stops.
         final now = DateTime.now();
         final isDouble = _lastEsc != null &&
-            now.difference(_lastEsc!) <= _doubleEscWindow;
+            now.difference(_lastEsc!) <= _activeDoubleEscWindow;
         _lastEsc = isDouble ? null : now;
         if (isDouble) onDoubleEscape?.call();
       }
@@ -929,7 +936,7 @@ class LineEditor {
         // through to the input clear below.
         final now = DateTime.now();
         final isDouble =
-            _lastEsc != null && now.difference(_lastEsc!) <= _doubleEscWindow;
+            _lastEsc != null && now.difference(_lastEsc!) <= _activeDoubleEscWindow;
         _lastEsc = isDouble ? null : now;
         if (isDouble && (onDoubleEscape?.call() ?? false)) {
           break;

@@ -57,4 +57,30 @@ void main() {
     vt.feed(io.written.toString());
     expect(vt.rowText(layout.bottomBorderRow), contains('line one line two'));
   });
+
+  test('the mode label renders and survives error clear', () {
+    screen.setModeLabel('mode: auto');
+    screen.setErrorStrip('provider error: 502', error: true);
+    vt.feed(io.written.toString());
+    final row = vt.rowText(layout.bottomBorderRow);
+    expect(row, contains('mode: auto'));
+    expect(row, contains('provider error: 502'));
+
+    screen.clearErrorStrip();
+    vt.feed(io.written.toString());
+    final after = vt.rowText(layout.bottomBorderRow);
+    expect(after, contains('mode: auto'),
+        reason: 'the mode label is the always-visible part of the strip');
+    expect(after, isNot(contains('provider error')),
+        reason: 'the status text is gone');
+  });
+
+  test('a mode-label update repaints the strip in place', () {
+    screen.setModeLabel('mode: ask');
+    screen.setModeLabel('mode: auto');
+    vt.feed(io.written.toString());
+    final row = vt.rowText(layout.bottomBorderRow);
+    expect(row, contains('mode: auto'));
+    expect(row, isNot(contains('mode: ask')));
+  });
 }
