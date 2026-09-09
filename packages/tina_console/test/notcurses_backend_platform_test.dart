@@ -19,6 +19,7 @@ class RecordingPlatform implements NotcursesPlatform {
   bool stopThrows = false;
   bool stopped = false;
   InputBackend? lastInputBackend;
+  BackendSurface? Function(Rect)? surfaceFactory;
 
   RecordingPlatform({this.columns = 80, this.palette = 256});
 
@@ -120,7 +121,7 @@ class RecordingPlatform implements NotcursesPlatform {
   @override
   BackendSurface? createSurface(Rect bounds) {
     calls.add('createSurface');
-    return null;
+    return surfaceFactory?.call(bounds);
   }
 
   @override
@@ -171,6 +172,28 @@ class _StubInputBackend implements InputBackend {
     _controller.close();
     if (throwOnDispose) throw StateError('dispose boom');
   }
+}
+
+// Only destruction is legal in these lifecycle tests. Any plane operation
+// after backend shutdown fails through noSuchMethod instead of risking FFI.
+class _LifecyclePlane implements nc.Plane {
+  final RecordingPlatform platform;
+  int destroyCount = 0;
+  bool throwOnDestroy = false;
+
+  _LifecyclePlane(this.platform);
+
+  @override
+  void destroy() {
+    expect(platform.stopped, isFalse,
+        reason: 'planes must be destroyed before their context');
+    destroyCount++;
+    platform.calls.add('destroyPlane');
+    if (throwOnDestroy) throw StateError('plane cleanup failed');
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {
@@ -457,6 +480,62 @@ void main() {
   });
 
   group('NotcursesBackend lifecycle / stop guard', () {
+    test('shutdown destroys live child surfaces before stopping the context', () {
+      final planes = <_LifecyclePlane>[];
+      plat.surfaceFactory = (bounds) {
+        final plane = _LifecyclePlane(plat);
+        planes.add(plane);
+        return NotcursesBackendSurface(plane, plat, bounds);
+      };
+      backend.enterAltScreen();
+      const bounds = Rect(row: 5, col: 5, width: 20, height: 3);
+      final first = backend.createSurface(bounds);
+      final second = backend.createSurface(bounds);
+      final disposed = backend.createSurface(bounds)..destroy();
+      backend.leaveAltScreen();
+      expect(planes.map((p) => p.destroyCount), everyElement(1));
+      expect(plat.calls.where((c) => c == 'destroyPlane'), hasLength(3));
+      expect(plat.calls.last, 'stop');
+      plat.calls.clear();
+
+      // Late editor cleanup and animation/resize work must never dereference
+      // a freed plane, even when the caller still holds its surface handle.
+      for (final surface in [first, second, disposed]) {
+        surface.putAt(
+          relRow: 0,
+          relCol: 0,
+          text: 'late',
+          maxCols: 20,
+          moveCursor: false,
+        );
+        surface.eraseAt(relRow: 0, relCol: 0, n: 20, moveCursor: false);
+        surface.scrollRows(1);
+        surface.moveTo(1, 1);
+        surface.resize(10, 2);
+        surface.raiseToTop();
+        surface.lowerToBottom();
+        surface.destroy();
+      }
+      expect(plat.calls, isEmpty);
+      expect(planes.map((p) => p.destroyCount), everyElement(1));
+    });
+
+    test('failed child cleanup still invalidates handles and stops context', () {
+      final plane = _LifecyclePlane(plat)..throwOnDestroy = true;
+      plat.surfaceFactory = (bounds) =>
+          NotcursesBackendSurface(plane, plat, bounds);
+      backend.enterAltScreen();
+      final surface = backend.createSurface(
+          const Rect(row: 5, col: 5, width: 20, height: 3));
+      expect(backend.leaveAltScreen, returnsNormally);
+      expect(plat.calls.last, 'stop');
+      plat.calls.clear();
+      surface.eraseAt(relRow: 0, relCol: 0, n: 20, moveCursor: false);
+      surface.destroy();
+      expect(plat.calls, isEmpty);
+      expect(plane.destroyCount, 1);
+    });
+
     test('enterAltScreen + leaveAltScreen calls stop exactly once', () {
       backend.enterAltScreen();
       backend.leaveAltScreen();

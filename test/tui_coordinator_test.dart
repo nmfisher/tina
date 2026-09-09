@@ -125,6 +125,36 @@ void main() {
     });
   });
 
+  test('quit confirmation is disposed before leaving the alternate screen', () async {
+    final io = FakeStdio()..hasTerminalValue = false;
+    final config = Config.parse(const ['--backend', 'ansi']);
+    final app = await buildAppComposition(
+      config: config,
+      registry: builtinRegistry(),
+      provider: FakeProvider.done(),
+      store: MemorySessionStore(),
+    );
+    final coordinator = await TuiCoordinator.create(
+      app: app,
+      io: io,
+      terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
+    );
+    coordinator.pendingFirstLoadEnvironmentAsk = null;
+    coordinator.pendingGitignoreAsk = null;
+    // Ctrl-C opens the confirmation; the second quits with it still visible.
+    io.feedBytes([0x03, 0x03]);
+    await coordinator.run().timeout(const Duration(seconds: 5));
+    io.close();
+
+    final out = io.written.toString();
+    expect(out, contains('Ctrl+C again to exit'));
+    const leave = '\x1b[?1049l';
+    final leaveAt = out.indexOf(leave);
+    expect(leaveAt, greaterThanOrEqualTo(0));
+    expect(out.substring(leaveAt + leave.length), isEmpty,
+        reason: 'editor cleanup must not paint after the backend is stopped');
+  });
+
   test('first paint follows the alt-screen-enter escape', () async {
     // Regression guard for the startup first-paint ordering. The first paint
     // (the chat frame) must happen AFTER screen.enterAltScreen(): enterAltScreen

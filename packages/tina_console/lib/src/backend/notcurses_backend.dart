@@ -286,7 +286,7 @@ class NotcursesBackend implements TerminalBackend {
   /// Whether [enterAltScreen] has been called.
   bool _inAltScreen = false;
 
-  /// Set once [NotcursesPlatform.stop] has been called. After this, every
+  /// Set when context shutdown starts. After this, every
   /// terminal-touching method becomes a no-op so callers that follow
   /// notcurses' "leave alt screen" with a `flush()` (as
   /// [Screen.leaveAltScreen] does) don't dereference the destroyed context.
@@ -303,6 +303,11 @@ class NotcursesBackend implements TerminalBackend {
   /// error escaping the TUI run loop) reaches the context through here, so
   /// the join must happen here too or the pump races the free.
   final List<InputBackend> _inputBackends = [];
+
+  // Child surfaces outlive their native planes unless we invalidate them at
+  // context shutdown. In particular, editor overlays may be disposed after
+  // an emergency terminal restore. Keep only live surfaces in this set.
+  final Set<NotcursesBackendSurface> _surfaces = {};
 
   NotcursesBackend._(this._io, this._platform);
 
@@ -472,6 +477,9 @@ class NotcursesBackend implements TerminalBackend {
   void leaveAltScreen() {
     if (!_inAltScreen || _stopped) return;
     _inAltScreen = false;
+    // Guard reentrant and late writes even if a cleanup or platform stop
+    // throws. Screen.leaveAltScreen also flushes after this method returns.
+    _stopped = true;
     // Join every input pump thread BEFORE freeing the context it polls
     // (tin-j3mk: a live pump thread inside notcurses_get_nblock during
     // notcurses_stop was the teardown SIGSEGV in notcurses_stdplane).
@@ -484,12 +492,18 @@ class NotcursesBackend implements TerminalBackend {
       } catch (_) {}
     }
     _inputBackends.clear();
+    // Destroy planes while their context is still alive. This also marks the
+    // surface handles inert, so late writes/erases/destroy calls cannot reach
+    // freed native memory. destroy removes itself from the live-surface set.
+    for (final surface in _surfaces.toList()) {
+      try {
+        surface.destroy();
+      } catch (_) {
+        // Restore the terminal even when an individual surface fails cleanup.
+        // Its handle is already invalidated; stop frees any remaining planes.
+      }
+    }
     _platform.stop();
-    // After stop, the platform is unusable: every method that touches the
-    // terminal (flush, moveCursor, eraseCells, writeText, enterAltScreen)
-    // becomes a no-op. Screen.leaveAltScreen() calls flush() right after
-    // this — that call is now safe.
-    _stopped = true;
   }
 
   // -- Bracketed paste ----------------------------------------------------
@@ -566,6 +580,8 @@ class NotcursesBackend implements TerminalBackend {
     }
     if (surface is NotcursesBackendSurface) {
       surface._requestPresent = _surfaceMutated;
+      surface._onDestroy = () => _surfaces.remove(surface);
+      _surfaces.add(surface);
     }
     return surface;
   }
@@ -630,6 +646,7 @@ class NotcursesBackendSurface implements BackendSurface {
   Rect _bounds;
   bool _destroyed = false;
   void Function()? _requestPresent;
+  void Function()? _onDestroy;
 
   /// Whether [_plane.setScrolling] has been enabled. notcurses requires a
   /// plane to be a "scrolling plane" before [nc.Plane.scrollUp] succeeds
@@ -765,7 +782,13 @@ class NotcursesBackendSurface implements BackendSurface {
   void destroy() {
     if (_destroyed) return;
     _destroyed = true;
-    _plane.destroy();
+    _requestPresent = null;
+    try {
+      _plane.destroy();
+    } finally {
+      _onDestroy?.call();
+      _onDestroy = null;
+    }
   }
 }
 

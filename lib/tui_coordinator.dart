@@ -2739,6 +2739,10 @@ class TuiCoordinator {
       ..own(progressSub.cancel)
       ..own(_sessionBar.hide)
       ..own(menuBar.dispose)
+      // close can erase a visible confirmation/picker or deliver a held paste.
+      // It must run before panels are destroyed and notcurses_stop frees the
+      // planes. Print latency diagnostics later, on the normal scrollback.
+      ..own(() => editor.close(reportLatency: false))
       ..own(editor.disposeInput)
       ..own(() => app.pipeline.imageRenderer.coordinate(null))
       ..own(subAgentScheduler.dispose)
@@ -2747,7 +2751,7 @@ class TuiCoordinator {
   }
 
   void _teardownEditor() {
-    editor.close();
+    editor.reportInputLatency();
     _sigintSub?.cancel();
     _sigwinchSub?.cancel();
   }

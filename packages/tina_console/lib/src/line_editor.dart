@@ -409,7 +409,10 @@ class LineEditor {
   /// has 30+ ms between key events.
   static const _burstWindowMs = 10;
 
-  void close() {
+  /// Release input and UI resources while the screen is still alive. Hosts
+  /// leaving an alternate screen can defer diagnostics until normal stdout
+  /// is restored by passing false and then calling [reportInputLatency].
+  void close({bool reportLatency = true}) {
     // tin-w8dl: pastes still held behind an open readKey must reach the
     // buffer before the input stream dies, or a shutdown mid-prompt drops
     // them. Direct dispatch — no readKey can usefully complete at close.
@@ -428,6 +431,11 @@ class LineEditor {
     _dialog.dispose();
     _picker.dispose();
     _commandPicker.dispose();
+    if (reportLatency) reportInputLatency();
+  }
+
+  /// Print optional latency diagnostics after the terminal has been restored.
+  void reportInputLatency() {
     if (InputLatency.enabled) {
       final s = InputLatency.snapshot();
       stderr.writeln(
