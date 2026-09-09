@@ -2311,6 +2311,14 @@ class TuiCoordinator {
       // `/spend`: the process-wide token ledger (all agents + sub-agents +
       // workflows + /index runs), persisted into the session manifest.
       controller.spendLedger = app.spendLedger;
+      // The degrading-provider notice (`[retries] failed-attempt spend …`)
+      // defaults to stderr — invisible or frame-corrupting under notcurses.
+      // Route it into the active conversation as a real, scrollable message
+      // instead; the runtime's stderr default still serves headless runs.
+      app.spendLedger.onRetriedSpendNotice = (line) {
+        sessionManager.activeConversation.host
+            .showMessage('$line\n', style: HostMessageStyle.warning);
+      };
       // The in-tmux exit dialog: Detach / Exit / Cancel. Shown on /exit and on a
       // quit attempt (Ctrl+C×2 / Ctrl+D / EOF). Detach leaves the agent running
       // in the tmux server; Exit is today's behavior (session saved, lock

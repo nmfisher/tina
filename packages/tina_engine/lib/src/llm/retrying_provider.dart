@@ -65,6 +65,11 @@ class RetryingProvider implements LlmProvider {
     // The attempt currently on the wire; cancelled from the controller's
     // onCancel so a downstream cancel aborts an in-flight attempt too.
     StreamSubscription<StreamEvent>? activeSub;
+    // The in-flight attempt's done gate. Cancelling a subscription never
+    // fires its onDone, so onCancel must complete this too — otherwise run()
+    // stays parked on `await _runAttempt` after a downstream cancel and the
+    // turn's stream never closes (busy forever after Esc).
+    Completer<void>? activeDone;
 
     /// Stream one inner attempt, forwarding its events to [controller].
     /// Returns the swallowed retryable error when the attempt failed before
@@ -118,6 +123,7 @@ class RetryingProvider implements LlmProvider {
         },
       );
       activeSub = sub;
+      activeDone = done;
       return done.future.then((_) async {
         await sub.cancel();
         return swallowed;
@@ -139,7 +145,10 @@ class RetryingProvider implements LlmProvider {
         Wire.report('attempt_end', attempt: attempt + 1, inFlight: false);
         if (retryOf == null || cancelled.isCompleted) {
           // Terminal attempt (its events — including any surfaced error —
-          // were forwarded): close the send's stream.
+          // were forwarded), or a downstream cancel unwound us mid-attempt.
+          if (cancelled.isCompleted) {
+            Wire.report('cancelled', inFlight: false);
+          }
           if (!controller.isClosed) controller.close();
           return;
         }
@@ -149,7 +158,10 @@ class RetryingProvider implements LlmProvider {
         Wire.report('backoff', attempt: attempt + 1, inFlight: false);
         // Park on the backoff; a cancel during it ends the send quietly.
         await Future.any([Future<void>.delayed(delay), cancelled.future]);
-        if (cancelled.isCompleted) return;
+        if (cancelled.isCompleted) {
+          Wire.report('cancelled', inFlight: false);
+          return;
+        }
       }
       if (!controller.isClosed) controller.close();
     }
@@ -158,6 +170,9 @@ class RetryingProvider implements LlmProvider {
       onListen: () => unawaited(run()),
       onCancel: () {
         if (!cancelled.isCompleted) cancelled.complete();
+        if (activeDone != null && !activeDone!.isCompleted) {
+          activeDone!.complete();
+        }
         return activeSub?.cancel();
       },
     );

@@ -120,6 +120,11 @@ class PooledProvider implements LlmProvider {
     // The member stream currently on the wire; cancelled from the
     // controller's onCancel so a downstream cancel aborts it too.
     StreamSubscription<StreamEvent>? activeSub;
+    // The in-flight member attempt's done gate. Cancelling a subscription
+    // never fires its onDone, so onCancel must complete this too — otherwise
+    // run() stays parked on `await _attempt` after a downstream cancel and
+    // the turn's stream never closes (busy forever after Esc).
+    Completer<void>? activeDone;
 
     /// Pump one member's stream to [controller]. Returns the swallowed
     /// before-content error when this member failed and a failover is
@@ -194,6 +199,7 @@ class PooledProvider implements LlmProvider {
             },
           );
       activeSub = sub;
+      activeDone = done;
       return done.future.then((_) async {
         await sub.cancel();
         return swallowed;
@@ -234,7 +240,10 @@ class PooledProvider implements LlmProvider {
             member: 'pool-$index', attempt: tried + 1);
         final failure = await _attempt(member,
             memberIndex: index, tryNumber: tried + 1);
-        if (cancelled.isCompleted) return;
+        if (cancelled.isCompleted) {
+          Wire.report('cancelled', member: 'pool-$index', inFlight: false);
+          return;
+        }
         if (failure == null) {
           // Terminal attempt — its events (including any error that
           // surfaced after content) were forwarded. Close the send.
@@ -260,6 +269,9 @@ class PooledProvider implements LlmProvider {
       onListen: () => unawaited(run()),
       onCancel: () {
         if (!cancelled.isCompleted) cancelled.complete();
+        if (activeDone != null && !activeDone!.isCompleted) {
+          activeDone!.complete();
+        }
         return activeSub?.cancel();
       },
     );

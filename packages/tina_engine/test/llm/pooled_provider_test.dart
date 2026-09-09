@@ -253,5 +253,39 @@ void main() {
       expect(a.model, 'm2');
       expect(b.model, 'm2');
     });
+
+    test('cancel during a hung member attempt unwinds the pool', () async {
+      // Same hang as the single-provider ladder: the member attempt's done
+      // gate completed only via onDone, which a cancelled subscription never
+      // delivers — run() stayed parked on the attempt after a downstream
+      // cancel and never reported its unwind.
+      final events = <String>[];
+      Wire.onWireEvent = (s) => events.add(s.event);
+      final pool = PooledProvider([_HangingMember(), _HangingMember()]);
+      final sub = pool
+          .send(system: 's', messages: const [], tools: const [])
+          .listen(null);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await sub.cancel();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      Wire.onWireEvent = null;
+      expect(events, contains('cancelled'),
+          reason: 'the pool must observe the cancel mid-attempt and '
+              'unwind, not stay parked forever');
+    });
   });
+}
+
+/// A degraded endpoint: send never yields and never ends.
+class _HangingMember extends LlmProvider {
+  _HangingMember() : super('hanging');
+  @override
+  Stream<StreamEvent> send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+  }) {
+    // Never closed, never yielded: only cancelling the subscription ends it.
+    return StreamController<StreamEvent>().stream;
+  }
 }

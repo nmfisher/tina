@@ -141,5 +141,41 @@ void main() {
       expect(inner.calls, 1,
           reason: 'the cancelled send forfeited its retry');
     });
+
+    test('cancel during a hung in-flight attempt unwinds the ladder',
+        () async {
+      // The per-attempt done gate completed only via the inner stream's
+      // onDone — which a CANCELLED subscription never delivers — so run()
+      // stayed parked on `await _runAttempt` after a downstream cancel: the
+      // turn's stream never closed and the unwind was never reported.
+      final events = <String>[];
+      Wire.onWireEvent = (s) => events.add(s.event);
+      final provider = RetryingProvider(_HangingProvider(), maxRetries: 3);
+      final sub = provider
+          .send(system: 's', messages: const [], tools: const [])
+          .listen(null);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await sub.cancel();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      Wire.onWireEvent = null;
+      expect(events, contains('cancelled'),
+          reason: 'the ladder must observe the cancel mid-attempt and '
+              'unwind, not stay parked forever');
+    });
   });
+}
+
+/// A degraded endpoint: send never yields and never ends — the connection
+/// just sits there open, which is exactly when Esc must still unwind.
+class _HangingProvider extends LlmProvider {
+  _HangingProvider() : super('hanging');
+  @override
+  Stream<StreamEvent> send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+  }) {
+    // Never closed, never yielded: only cancelling the subscription ends it.
+    return StreamController<StreamEvent>().stream;
+  }
 }
