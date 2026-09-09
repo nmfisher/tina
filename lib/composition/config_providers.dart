@@ -75,8 +75,26 @@ void registerConfigProviders(
     final existing = registry.descriptor(id);
     final wire = _normalizeWire(id, pc.wire, existing);
 
-    // null wire = built-in id with no explicit wire → leave to the env overlay.
-    if (wire == null) continue;
+    // null wire = built-in id with no explicit wire → leave the built-in's
+    // wire, builder and auth alone, but still merge any `models = [...]` the
+    // config declared into its catalog: custom ids the compiled catalog
+    // predates (a renamed upstream model, a private deployment) must reach
+    // the pickers the same way they do for custom-wire providers.
+    if (wire == null) {
+      if (pc.models != null && pc.models!.isNotEmpty && existing != null) {
+        registry.register(ProviderDescriptor(
+          id: existing.id,
+          name: existing.name,
+          authSources: existing.authSources,
+          defaultBaseUrl: existing.defaultBaseUrl,
+          builder: existing.builder,
+          models: _configModels(id, pc, existing.models),
+          listsRemoteModels: existing.listsRemoteModels,
+          requestsPerMinute: existing.requestsPerMinute,
+        ));
+      }
+      continue;
+    }
 
     if (pc.baseUrl == null || pc.baseUrl!.isEmpty) {
       stderr.writeln('warning: [providers.$id] defines a custom provider but has '

@@ -235,7 +235,7 @@ Future<UserConfig?> runProvidersPanel({
 
 enum _ProvidersResult { changed, wrote, cancelled }
 
-enum _RowType { provider, key, url, separator, model }
+enum _RowType { provider, key, url, separator, model, addModel }
 
 class _Row {
   final _RowType type;
@@ -294,6 +294,14 @@ class _ProvidersForm {
   final _baseUrls = <String, String>{};
   final _expanded = <String>{};
   final _disabledModels = <String>{};
+  // Panel-added custom model specs, keyed by provider id — merged over the
+  // registry catalog in the rows and written back into the provider's
+  // `models` list on save.
+  final _addedModels = <String, List<ProviderModelSpec>>{};
+  // Non-null while the ＋add-model row is in text-entry mode: [_addBuf]
+  // collects chars until Enter (commit) or Esc (cancel).
+  String? _addingFor;
+  String _addBuf = '';
   int _focus = 0;
   int _scrollOffset = 0;
   String? _writeError; // set when a save-time write failed (e.g. read-only)
@@ -314,6 +322,58 @@ class _ProvidersForm {
     _render();
     while (true) {
       final ev = await _readEvent();
+      if (_addingFor != null) {
+        // ＋add-model text entry: Esc cancels the ENTRY (not the panel);
+        // Enter commits; ctrlC still tears the panel down.
+        if (ev is EscapeKey) {
+          _addingFor = null;
+          _addBuf = '';
+          _render();
+          continue;
+        }
+        if (ev is ControlKey && ev.code == ControlCode.ctrlC) {
+          _dispose();
+          return null;
+        }
+        if (ev is ControlKey && ev.code == ControlCode.enter) {
+          final spec = ProviderModelSpec.parse(_addBuf);
+          final id = _addingFor!;
+          if (spec != null) {
+            _addedModels
+                .putIfAbsent(id, () => [])
+                ..removeWhere((s0) => s0.id == spec.id)
+                ..add(spec);
+            // Declaring a model is an explicit act: enable it immediately,
+            // regardless of the provider's curation state.
+            _disabledModels.remove('$id/${spec.id}');
+            _checked.add(id);
+          }
+          _addingFor = null;
+          _addBuf = '';
+          _render();
+          continue;
+        }
+        if (ev is ControlKey && ev.code == ControlCode.backspace) {
+          if (_addBuf.isNotEmpty) {
+            final runes = _addBuf.runes.toList();
+            runes.removeLast();
+            _addBuf = String.fromCharCodes(runes);
+          }
+          _render();
+          continue;
+        }
+        if (ev is CharInput) {
+          _addBuf += ev.text;
+          _render();
+          continue;
+        }
+        if (ev is PasteInput) {
+          _addBuf += ev.text;
+          _render();
+          continue;
+        }
+        continue; // arrows etc. are inert while typing the id
+      }
       if (ev is EscapeKey ||
           (ev is ControlKey && ev.code == ControlCode.ctrlC)) {
         _dispose();
@@ -430,10 +490,49 @@ class _ProvidersForm {
     }
 
     if (ev is ControlKey && ev.code == ControlCode.enter) {
+      final f = rows[_focus];
+      if (f.type == _RowType.addModel) {
+        _addingFor = _providerIds[f.providerIndex];
+        _addBuf = '';
+        return _ProvidersResult.changed;
+      }
       if (_checked.isEmpty) return _ProvidersResult.changed;
       return _ProvidersResult.wrote;
     }
     return _ProvidersResult.changed;
+  }
+
+  /// The provider's model entries — the registry catalog plus panel-added
+  /// specs (added wins on id conflicts, mirroring the catalog's
+  /// declared-replaces-compiled rule).
+  List<({String id, String name})> _modelEntries(String pid) {
+    final entries = [
+      for (final m in _registry.modelsFor(pid)) (id: m.id, name: m.name),
+    ];
+    for (final spec in (_addedModels[pid] ?? const <ProviderModelSpec>[])) {
+      final i = entries.indexWhere((e) => e.id == spec.id);
+      final e = (id: spec.id, name: spec.name ?? spec.id);
+      if (i >= 0) {
+        entries[i] = e;
+      } else {
+        entries.add(e);
+      }
+    }
+    return entries;
+  }
+
+  /// Config-declared models for [id]: the provider's existing declarations
+  /// with this session's additions merged in (added wins on id conflicts).
+  /// Null when there is nothing to declare, preserving an untouched config.
+  List<ProviderModelSpec>? _mergedModels(String id) {
+    final added = _addedModels[id];
+    if (added == null || added.isEmpty) return _existingProviders[id]?.models;
+    final merged = [...?_existingProviders[id]?.models];
+    for (final spec in added) {
+      merged.removeWhere((s0) => s0.id == spec.id);
+      merged.add(spec);
+    }
+    return merged;
   }
 
   List<_Row> _computeRows() {
@@ -446,7 +545,7 @@ class _ProvidersForm {
           rows.add(_Row(_RowType.url, pi, null));
         }
         rows.add(_Row(_RowType.separator, pi, null));
-        final models = _registry.modelsFor(_providerIds[pi]);
+        final models = _modelEntries(_providerIds[pi]);
         if (models.isEmpty) {
           rows.add(_Row(_RowType.separator, pi, null, emptyModels: true));
         } else {
@@ -454,6 +553,7 @@ class _ProvidersForm {
             rows.add(_Row(_RowType.model, pi, mi));
           }
         }
+        rows.add(_Row(_RowType.addModel, pi, null));
       }
     }
     return rows;
@@ -511,7 +611,7 @@ class _ProvidersForm {
 
   void _toggleModel(_Row f) {
     final id = _providerIds[f.providerIndex];
-    final models = _registry.modelsFor(id);
+    final models = _modelEntries(id);
     if (f.modelIndex! >= models.length) return;
     final ref = '$id/${models[f.modelIndex!].id}';
     if (!_disabledModels.add(ref)) {
@@ -547,7 +647,7 @@ class _ProvidersForm {
         id: ProviderConfig(
           apiKey: filteredKeys[id],
           baseUrl: filteredBaseUrls[id],
-          models: _existingProviders[id]?.models,
+          models: _mergedModels(id),
           // Explicit, never null: an empty set is the curated
           // "every model enabled" state, distinct from an absent key (=
           // never curated = all disabled). The config round-trip preserves
@@ -606,9 +706,16 @@ class _ProvidersForm {
           } else {
             lines.add(_row(false, '  ── models ──'));
           }
+        case _RowType.addModel:
+          final id = _providerIds[r.providerIndex];
+          if (_addingFor == id) {
+            lines.add(_row(focused, '  ＋ $_addBuf▏'));
+          } else {
+            lines.add(_row(focused, '  ＋ add model id (or id|Name)'));
+          }
         case _RowType.model:
           final id = _providerIds[r.providerIndex];
-          final models = _registry.modelsFor(id);
+          final models = _modelEntries(id);
           if (r.modelIndex! < models.length) {
             final ref = '$id/${models[r.modelIndex!].id}';
             final check = _disabledModels.contains(ref) ? '☐' : '☑';

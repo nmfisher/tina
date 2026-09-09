@@ -185,6 +185,43 @@ void main() {
     expect(loaded.providers['alpha']?.disabledModels, {'a2'});
   });
 
+  test('providers: ＋add model declares a custom id and enables it', () async {
+    final screen = fakeScreen();
+    // alpha keyed (never curated → a1/a2 disabled by default). Expand, walk
+    // down to ＋add model, Enter, paste "glm-5.2|GLM 5.2", Enter commits.
+    // Rows grew by one, so focus now sits on the new model row; ↑ then Enter
+    // saves from a model row.
+    final initial = UserConfig(providers: {
+      'alpha': ProviderConfig(apiKey: 'ka'),
+    });
+    canned.events = [
+      ControlKey(ControlCode.enter), // index → providers
+      ArrowKey(ArrowDirection.right), // expand alpha
+      ArrowKey(ArrowDirection.down), // alpha/key
+      ArrowKey(ArrowDirection.down), // alpha/url
+      ArrowKey(ArrowDirection.down), // separator
+      ArrowKey(ArrowDirection.down), // alpha/a1
+      ArrowKey(ArrowDirection.down), // alpha/a2
+      ArrowKey(ArrowDirection.down), // ＋add model
+      ControlKey(ControlCode.enter), // start text entry
+      PasteInput('glm-5.2|GLM 5.2'),
+      ControlKey(ControlCode.enter), // commit
+      ArrowKey(ArrowDirection.up), // move off the add row
+      ControlKey(ControlCode.enter), // providers → save
+      EscapeKey(), // index → close
+    ];
+    final wrote = await runIndex(screen, initial: initial).timeout(overlayTimeout);
+    expect(wrote, isNotNull);
+    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+    final alpha = loaded.providers['alpha'];
+    final added = alpha?.models?.where((m) => m.id == 'glm-5.2').toList();
+    expect(added, hasLength(1), reason: 'the custom id must be declared');
+    expect(added!.single.name, 'GLM 5.2');
+    // Declaring enabled the new model; the untouched registry models stay
+    // explicitly disabled.
+    expect(alpha?.disabledModels, {'a1', 'a2'});
+  });
+
   // -- providers panel ------------------------------------------------------
 
   test('providers: cancel (Esc) writes nothing', () async {

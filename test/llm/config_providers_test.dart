@@ -75,6 +75,24 @@ void main() {
       expect(resolved.descriptor.id, 'glm');
     });
 
+    test('built-in id with no wire merges config models into its catalog', () {
+      final config = UserConfig(providers: {
+        'glm': ProviderConfig(
+          apiKey: 'k',
+          models: [ProviderModelSpec(id: 'glm-9-private', name: 'GLM 9 Private')],
+        ), // no wire, no base_url — a key + declarations only
+      });
+      final registry = builtinRegistry();
+      registerConfigProviders(registry, config);
+
+      final d = registry.descriptor('glm')!;
+      expect(d.models.containsKey('glm-9-private'), isTrue,
+          reason: 'a key-only built-in block must still list declared models');
+      expect(d.models.containsKey('glm-5.2'), isTrue,
+          reason: 'the compiled catalog must survive the merge');
+      expect(d.models['glm-9-private']!.name, 'GLM 9 Private');
+    });
+
     test('built-in id with no wire is left unchanged', () {
       final config = UserConfig(providers: {
         'glm': ProviderConfig(baseUrl: 'https://custom.url'), // no wire
