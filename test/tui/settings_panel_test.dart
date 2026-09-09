@@ -170,6 +170,57 @@ void main() {
     expect(loaded.providers['alpha']?.apiKey, 'ka');
   });
 
+  test('providers: backspace/delete dismisses the empty-key env placeholder',
+      () async {
+    // The `(or env ALPHA_KEY)` hint sits in an empty API-key field. Pressing
+    // Backspace (or Delete) there must make it go away — previously both were
+    // silently ignored on an empty field, so the placeholder read as text that
+    // could not be removed.
+    for (final dismiss in [
+      ControlKey(ControlCode.backspace),
+      EditingKey(EditingAction.delete),
+    ]) {
+      final io = FakeStdio()..hasTerminalValue = false;
+      final screen = Screen(
+          io: io, layout: ScreenLayout.fromSize(80, 24, hasMenuBar: false));
+      // Snapshot the painted output before each event is handled, so we can
+      // compare the frame before and after the dismissal.
+      final frames = <String>[];
+      var i = 0;
+      final events = [
+        ControlKey(ControlCode.enter), // index → providers
+        ArrowKey(ArrowDirection.right), // expand alpha
+        ArrowKey(ArrowDirection.down), // alpha/key row
+        dismiss,
+        EscapeKey(), // providers → cancel
+        EscapeKey(), // index → close
+      ];
+      Future<InputEvent> pump() async {
+        frames.add(io.written.toString());
+        return events[i++];
+      }
+
+      await runSettingsPanel(
+        screen: screen,
+        editor: LineEditor(screen: screen),
+        registry: setupRegistry(),
+        env: const {},
+        tinaDir: tmp.dir,
+        readEvent: pump,
+      ).timeout(overlayTimeout);
+
+      expect(frames[3], contains('(or env ALPHA_KEY)'),
+          reason: 'the hint shows while the field is empty and untouched');
+      // The frame painted BY the dismissal event is the tail written after the
+      // previous snapshot (the buffer accumulates every frame).
+      final repaint = frames[4].substring(frames[3].length);
+      expect(repaint, isNot(contains('(or env ALPHA_KEY)')),
+          reason: '$dismiss should clear the placeholder');
+      expect(repaint, contains('API key: _'),
+          reason: 'the field itself stays, cursor and all');
+    }
+  });
+
   // -- providers panel ------------------------------------------------------
 
   test('providers: cancel (Esc) writes nothing', () async {
@@ -698,7 +749,7 @@ void main() {
       expect(out, contains('⚠ models.dev provider list unavailable'));
     });
 
-    test('a refresh in flight renders as pending, not up to date', () async {
+    test('a refresh in flight renders as refreshing, not up to date', () async {
       final (screen, io) = screenWithIo();
       final catalog = await catalogWithCache(
         const Duration(hours: 1),
@@ -717,7 +768,7 @@ void main() {
 
       expect(
         io.written.toString(),
-        contains('models.dev providers: cached 1h ago — pending (next launch)'),
+        contains('models.dev providers: cached 1h ago — refreshing'),
       );
     });
 

@@ -304,6 +304,30 @@ void main() {
       expect(registry.descriptor('anthropic'), isNotNull);
       expect(registry.descriptor('glm'), isNotNull);
     });
+
+    test('re-running against a config that gained a provider registers it', () {
+      // The coordinator re-runs this on /settings, /model and /spawn, so a
+      // `[providers.<id>]` block added while tina runs — by hand, or by another
+      // process — becomes pickable without a restart. Registration is additive
+      // and id-keyed: the repeat pass must not duplicate or drop anything.
+      final registry = builtinRegistry();
+      registerConfigProviders(registry, UserConfig.empty);
+      expect(registry.descriptor('ollama'), isNull);
+
+      final gained = UserConfig(providers: {
+        'ollama': ProviderConfig(
+          baseUrl: 'http://localhost:11434/v1',
+          disabledModels: const <String>{},
+        ),
+      });
+      registerConfigProviders(registry, gained);
+      registerConfigProviders(registry, gained); // idempotent
+
+      expect(registry.descriptor('ollama'), isNotNull);
+      expect(registry.providerIds.where((id) => id == 'ollama'), hasLength(1));
+      expect(registry.build('ollama/llama3', apiKeyOverride: ''),
+          isA<OpenAiCompatibleAdapter>());
+    });
   });
 
   group('registerConfigProviders pools', () {

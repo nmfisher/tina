@@ -215,6 +215,49 @@ void main() {
           'https://api.moonshot.ai/v1');
     });
 
+    test('a second pass after a refresh registers only the new providers', () {
+      // bin/tina.dart re-runs this the moment the background api.json refresh
+      // lands, so a provider discovered since the last cache write reaches
+      // /settings without a restart. The pass must be additive and idempotent:
+      // an already-seeded id keeps the descriptor the running session is built
+      // from, and only genuinely new entries register.
+      final registry = builtinRegistry(env: const {});
+      registerModelsDevProviders(
+        registry: registry,
+        providers: {
+          'moonshotai': info(
+            key: 'moonshotai',
+            envVars: ['MOONSHOT_API_KEY'],
+            apiBase: 'https://api.moonshot.ai/v1',
+          ),
+        },
+      );
+      final before = registry.descriptor('moonshotai');
+
+      final added = registerModelsDevProviders(
+        registry: registry,
+        providers: {
+          'moonshotai': info(
+            key: 'moonshotai',
+            name: 'Moonshot AI (renamed upstream)',
+            envVars: ['MOONSHOT_API_KEY'],
+            apiBase: 'https://api.moonshot.ai/v1',
+          ),
+          'inception': info(
+            key: 'inception',
+            name: 'Inception',
+            envVars: ['INCEPTION_API_KEY'],
+            apiBase: 'https://api.inceptionlabs.ai/v1',
+          ),
+        },
+      );
+
+      expect(added, 1, reason: 'only the newly discovered provider registers');
+      expect(registry.descriptor('inception'), isNotNull);
+      expect(registry.descriptor('moonshotai'), same(before),
+          reason: 'an already-seeded id is left exactly as it was');
+    });
+
     test('registers every eligible provider and counts them', () {
       final registry = builtinRegistry(env: const {});
       final added = registerModelsDevProviders(

@@ -197,6 +197,46 @@ void main() {
       expect(refs, isEmpty);
     });
   });
+  group('sameProviderBlocks', () {
+    test('identical blocks compare equal regardless of key order', () {
+      final a = {
+        'alpha': ProviderConfig(apiKey: 'k', disabledModels: const {'m1'}),
+        'beta': ProviderConfig(baseUrl: 'https://b.test/v1'),
+      };
+      final b = {
+        'beta': ProviderConfig(baseUrl: 'https://b.test/v1'),
+        'alpha': ProviderConfig(apiKey: 'k', disabledModels: const {'m1'}),
+      };
+      expect(sameProviderBlocks(a, b), isTrue);
+      expect(sameProviderBlocks(const {}, const {}), isTrue);
+    });
+
+    test('an added, removed or edited block compares unequal', () {
+      final base = {'alpha': ProviderConfig(apiKey: 'k')};
+      expect(
+        sameProviderBlocks(base, {
+          ...base,
+          'beta': ProviderConfig(baseUrl: 'https://b.test/v1'),
+        }),
+        isFalse,
+        reason: 'a provider added to the config must re-register',
+      );
+      expect(sameProviderBlocks(base, const {}), isFalse);
+      expect(
+        sameProviderBlocks(base, {'alpha': ProviderConfig(apiKey: 'k2')}),
+        isFalse,
+        reason: 'an edited key must re-register',
+      );
+      expect(
+        sameProviderBlocks(base, {
+          'alpha': ProviderConfig(apiKey: 'k', disabledModels: const {'m1'}),
+        }),
+        isFalse,
+        reason: 'curation is part of the block',
+      );
+    });
+  });
+
   group('refProviderForBuild', () {
     test(
       'a "provider/model" ref names the provider before the first slash',

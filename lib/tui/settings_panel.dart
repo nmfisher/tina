@@ -306,6 +306,11 @@ class _ProvidersForm {
 
   final _checked = <String>{};
   final _keys = <String, String>{};
+  // Provider ids whose empty-field env-var placeholder the user dismissed with
+  // Backspace/Delete. The hint is a first-run affordance, not field content:
+  // once the user has touched the field it stays gone — including after the
+  // key is backspaced away to empty again.
+  final _hintDismissed = <String>{};
   final _baseUrls = <String, String>{};
   final _expanded = <String>{};
   final _disabledModels = <String>{};
@@ -485,6 +490,18 @@ class _ProvidersForm {
       }
     }
 
+    // Delete (CSI 3~) has no cursor to act on here — the key/URL fields are
+    // append-only, so forward-delete at the end of the text is a no-op. In the
+    // API-key field it still clears the env-var placeholder, exactly like
+    // Backspace on an already-empty field.
+    if (ev is EditingKey && ev.action == EditingAction.delete) {
+      final f = rows[_focus];
+      if (f.type == _RowType.key) {
+        _hintDismissed.add(_providerIds[f.providerIndex]);
+        return _ProvidersResult.changed;
+      }
+    }
+
     // A paste into a focused key/URL field appends verbatim (the whole point
     // of these rows — pasting an API key). Elsewhere a paste is ignored.
     if (ev is PasteInput) {
@@ -627,6 +644,7 @@ class _ProvidersForm {
   void _backspaceField(_Row f) {
     final id = _providerIds[f.providerIndex];
     if (f.type == _RowType.key) {
+      _hintDismissed.add(id);
       final v = _keys[id] ?? '';
       if (v.isNotEmpty) _keys[id] = v.substring(0, v.length - 1);
     } else {
@@ -745,7 +763,9 @@ class _ProvidersForm {
           final id = _providerIds[r.providerIndex];
           final k = _keys[id] ?? '';
           final cursor = focused ? '_' : ' ';
-          final hint = k.isEmpty ? _unsetKeyHint(id) : '';
+          final hint = k.isEmpty && !_hintDismissed.contains(id)
+              ? _unsetKeyHint(id)
+              : '';
           lines.add(_row(
               focused, '  API key: ${'*' * k.length}$hint$cursor'));
         case _RowType.url:
@@ -828,9 +848,9 @@ class _ProvidersForm {
 /// One freshness line for the models.dev provider feed: how old the cache this
 /// launch seeded from is, and what the background refresh is doing.
 ///
-/// The refresh's result is deliberately NOT applied to the running registry
-/// (providers must be registered before the TUI starts), so a pending refresh
-/// is described as taking effect next launch rather than left to look current.
+/// A refresh that lands registers whatever it added into the live registry
+/// (see `bin/tina.dart`), so a pending fetch is just "still fetching" — the new
+/// providers appear here as soon as it completes, no restart.
 String _providerFeedLine(ModelsDevProviderCatalog catalog) {
   final cachedAt = catalog.cachedAt;
   final age = cachedAt == null
@@ -842,7 +862,7 @@ String _providerFeedLine(ModelsDevProviderCatalog catalog) {
     return 'models.dev providers: $age — refresh failed';
   }
   if (catalog.refreshPending) {
-    return 'models.dev providers: $age — pending (next launch)';
+    return 'models.dev providers: $age — refreshing';
   }
   return 'models.dev providers: $age — up to date';
 }

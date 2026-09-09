@@ -13,6 +13,7 @@ import 'package:attractor/attractor.dart';
 
 import 'package:tina/completion/git_file_provider.dart';
 import 'package:tina/completion/command_completion_provider.dart';
+import 'package:tina/composition/config_providers.dart';
 
 
 import 'package:tina/config.dart';
@@ -1147,11 +1148,36 @@ class TuiCoordinator {
           isNew: isNew,
         );
       };
+      // The `[providers]` blocks the registry was last registered from —
+      // seeded from disk here, refreshed by [reloadConfigProviders].
+      var registeredConfig = loadUserConfig(env: app.environment.env);
+
+      // Re-read ~/.tina/config and (re)register anything it declares that the
+      // running registry doesn't have yet: a `[providers.<id>]` block added by
+      // hand — or by another tina process — must reach /settings and the model
+      // pickers without a restart. Registration is id-keyed and additive, so an
+      // existing provider is rebuilt from the fresh config, never dropped (a
+      // provider removed from the config stops being pickable, because the
+      // pickers gate on the config's own provider keys).
+      //
+      // Only an actual edit re-registers: an identical pass would reset a
+      // pool's warn-once flag (re-printing its rotation notice) and re-report a
+      // malformed block every time a picker opens.
+      void reloadConfigProviders() {
+        final fresh = loadUserConfig(env: app.environment.env);
+        if (sameProviderBlocks(fresh.providers, registeredConfig.providers)) {
+          return;
+        }
+        registeredConfig = fresh;
+        registerConfigProviders(scheduler.registry, fresh);
+      }
+
       // `/settings`: open the index menu of independently-saved subpanels
       // (providers/models, tiers/roles, token quota, theme) pre-filled with the
       // current config. Each panel writes its own slice on exit; the message
       // reflects whether the last-opened panel changed anything.
       controller.openSettings = () async {
+        reloadConfigProviders();
         final envMap = app.environment.env;
         final host = sessionManager.activeConversation.host;
         UserConfig? wrote;
@@ -1171,8 +1197,8 @@ class TuiCoordinator {
         }
         if (wrote != null) {
           host.showMessage(
-            'Settings saved to ~/.tina/config — restart tina to apply '
-            '(/exit, then re-launch; /resume or -c to return).\n',
+            'Settings saved to ~/.tina/config — provider and model changes '
+            'apply now; quota and theme on the next launch.\n',
             style: HostMessageStyle.success,
           );
         } else {
@@ -1760,6 +1786,7 @@ class TuiCoordinator {
       );
 
       Future<void> createSideConversation({required bool branch}) async {
+        reloadConfigProviders();
         final target = ConversationTarget(
           sessionManager.activeId,
           sessionManager.activeConversationId,
@@ -1823,6 +1850,7 @@ class TuiCoordinator {
 
       // `/model`: pick a provider/model and switch the active conversation to it.
       controller.openModelPicker = () async {
+        reloadConfigProviders();
         final target = ConversationTarget(
           sessionManager.activeId,
           sessionManager.activeConversationId,

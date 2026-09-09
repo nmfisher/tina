@@ -14,6 +14,22 @@ String? apiKeyForPickedRef(String ref, UserConfig cfg) {
   return cfg.providers[providerId]?.apiKey;
 }
 
+/// Whether two `[providers]` maps hold the same blocks. [ProviderConfig] is a
+/// value type, so this is an exact comparison — the signal that a config file
+/// gained, lost or edited a provider block since it was last registered, used
+/// to skip a re-registration whose only effects would be resets (a pool's
+/// warn-once flag) and repeated warnings.
+bool sameProviderBlocks(
+  Map<String, ProviderConfig> a,
+  Map<String, ProviderConfig> b,
+) {
+  if (a.length != b.length) return false;
+  for (final entry in a.entries) {
+    if (b[entry.key] != entry.value) return false;
+  }
+  return true;
+}
+
 /// The `"provider/model"` refs the pickers must not offer.
 ///
 /// [ProviderConfig.disabledModels] being null means the provider's model list

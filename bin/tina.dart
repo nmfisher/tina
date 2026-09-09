@@ -91,10 +91,24 @@ Future<void> _run(List<String> argv) async {
       // sees no credentials and silently skips that provider's /v1/models.
       final catalogFutures = <Future<void>>[
         ..._attachModelsDevCatalog(registry, mergedEnv),
-        // Fire-and-forget: the result applies on the NEXT launch (the registry
-        // is already built from the cache), so startup never waits on it.
+        // Fire-and-forget for STARTUP — the registry is already seeded from
+        // the cache, so the TUI never waits on the network. But the result must
+        // not be deferred to the next launch either: the moment the fresh
+        // api.json lands, register whatever it adds into the LIVE registry, so
+        // a provider discovered since the last cache write shows up in
+        // /settings and the pickers without a restart. Registration is
+        // idempotent (id-keyed, collision-checked), so a no-op run costs
+        // nothing.
         if (providerCatalog != null)
-          providerCatalog.refresh().catchError((Object _) {}),
+          providerCatalog
+              .refresh()
+              .then((_) {
+                registerModelsDevProviders(
+                  registry: registry,
+                  providers: providerCatalog.providers,
+                );
+              })
+              .catchError((Object _) {}),
       ];
       // Built-in per-provider rate limiting: every provider built from one
       // descriptor shares a launch-slot queue, so concurrent agents on the
@@ -730,10 +744,11 @@ String _shortStamp(DateTime t) {
 /// `COCOON_MODELS_DEV=0`).
 ///
 /// Seeds from the on-disk cache ONLY — never the network — so startup stays off
-/// the critical path: on a first run there is no cache, nothing is seeded, and
-/// the caller's background [ModelsDevProviderCatalog.refresh] writes one for the
-/// next launch. The cache is read ignoring its age, so a cold start is
-/// deterministic rather than racing a TTL boundary.
+/// the critical path: on a first run there is no cache, nothing is seeded yet,
+/// and the caller's background [ModelsDevProviderCatalog.refresh] writes one and
+/// registers what it found into the live registry (no restart). The cache is
+/// read ignoring its age, so a cold start is deterministic rather than racing a
+/// TTL boundary.
 ///
 /// Seeded providers land in the registry — `/settings` and `--models` see them —
 /// but stay out of `/model` and `/spawn` until curated in `/settings`; see

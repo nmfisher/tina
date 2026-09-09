@@ -92,9 +92,9 @@ class ModelsDevProviderCatalog {
   /// cache was present (first run) — the freshness indicator's input.
   DateTime? get cachedAt => _cachedAt;
 
-  /// True while a refresh is in flight, or after one failed. The refresh's
-  /// result only applies to the next launch, so a pending refresh is worth
-  /// showing rather than hiding.
+  /// True while a refresh is in flight, or after one failed. Worth showing
+  /// rather than hiding: the seeded [providers] are still the cache's set
+  /// until it completes (or failed and never will this session).
   bool get refreshPending => _refreshing || _loadError != null;
 
   /// Non-null when a refresh failed. Rendered by the settings panel.
@@ -103,7 +103,8 @@ class ModelsDevProviderCatalog {
           '($_loadError)';
 
   /// Seed from the on-disk cache. Idempotent; a missing or unreadable cache
-  /// leaves [providers] empty (the refresh fills it for the next launch).
+  /// leaves [providers] empty until a [refresh] fills them (which the caller
+  /// applies to the live registry as soon as it lands).
   Future<void> loadFromCache() async {
     if (_cacheRead) return;
     _cacheRead = true;
