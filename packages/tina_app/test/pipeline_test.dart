@@ -34,6 +34,7 @@ class _RecordingScheduler extends SubAgentScheduler {
     required String task,
     String parentReference = '',
     String? modelReference,
+    String originConversationId = '',
     List<Message>? seedHistory,
     Future<void>? cancelSignal,
     required AgentSink sink,

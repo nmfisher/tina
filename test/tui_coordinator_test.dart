@@ -1718,4 +1718,97 @@ void main() {
       );
     });
   });
+
+  group('openModelPicker: offer the pick as the global default', () {
+    /// A coordinator over a temp HOME whose `~/.tina/config` declares one
+    /// configured provider with its single model explicitly enabled, so the
+    /// picker shows exactly `anthropic/claude-sonnet-4-6`.
+    Future<
+      ({TuiCoordinator coordinator, FakeStdio io, Directory home})
+    > setUpPicker({UserConfig? seed}) async {
+      final home = await Directory.systemTemp.createTemp('tina_model_default_');
+      addTearDown(() => home.delete(recursive: true));
+      final env = {'HOME': home.path};
+      writeUserConfig(
+        seed ??
+            const UserConfig(
+              providers: {
+                'anthropic': ProviderConfig(
+                  apiKey: 'test-key',
+                  disabledModels: {},
+                ),
+              },
+            ),
+        env: env,
+      );
+      final io = FakeStdio()..hasTerminalValue = false;
+      final app = await buildAppComposition(
+        config: Config.parse(const ['--backend', 'ansi']),
+        registry: builtinRegistry(),
+        provider: FakeProvider.done(),
+        store: MemorySessionStore(),
+        environment: FakeEnvironment(env: env),
+      );
+      final coordinator = await TuiCoordinator.create(
+        app: app,
+        io: io,
+        terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 24),
+      );
+      return (coordinator: coordinator, io: io, home: home);
+    }
+
+    test('confirming Yes persists [default] and preserves [providers]',
+        () async {
+      final t = await setUpPicker();
+      // Enter picks the highlighted model, then — once the confirm has armed —
+      // Enter accepts it (Yes is focused first).
+      t.io.feedBytes([0x0d]);
+      t.io.feedLater([0x0d], const Duration(milliseconds: 300));
+      await t.coordinator.controller.openModelPicker!();
+      final saved = loadUserConfig(env: {'HOME': t.home.path});
+      expect(saved.defaultProvider, 'anthropic');
+      expect(saved.defaultModel, 'claude-sonnet-4-6');
+      // The read-modify-write keeps the provider block (and the enabled set).
+      expect(saved.providers['anthropic']?.apiKey, 'test-key');
+      expect(saved.providers['anthropic']?.disabledModels, isEmpty);
+    });
+
+    test('answering No leaves the config untouched (switch still applies)',
+        () async {
+      final t = await setUpPicker();
+      // Enter picks; then Down moves to No; Enter accepts.
+      t.io.feedBytes([0x0d]);
+      t.io.feedLater(
+        [0x1b, 0x5b, 0x42, 0x0d],
+        const Duration(milliseconds: 300),
+      );
+      await t.coordinator.controller.openModelPicker!();
+      final saved = loadUserConfig(env: {'HOME': t.home.path});
+      expect(saved.defaultProvider, isNull);
+      expect(saved.defaultModel, isNull);
+      expect(saved.providers['anthropic']?.apiKey, 'test-key');
+    });
+
+    test('picking the stored default asks nothing', () async {
+      final t = await setUpPicker(
+        seed: const UserConfig(
+          defaultProvider: 'anthropic',
+          defaultModel: 'claude-sonnet-4-6',
+          providers: {
+            'anthropic': ProviderConfig(
+              apiKey: 'test-key',
+              disabledModels: {},
+            ),
+          },
+        ),
+      );
+      // ONE Enter: a second would only be needed if the confirm opened, so the
+      // call returning at all proves the prompt was skipped.
+      t.io.feedBytes([0x0d]);
+      await t.coordinator.controller.openModelPicker!();
+      final saved = loadUserConfig(env: {'HOME': t.home.path});
+      expect(saved.defaultProvider, 'anthropic');
+      expect(saved.defaultModel, 'claude-sonnet-4-6');
+    });
+  });
 }

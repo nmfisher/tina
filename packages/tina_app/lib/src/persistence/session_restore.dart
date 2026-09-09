@@ -230,6 +230,7 @@ Future<Conversation> restoreConversation(
       provider: provider,
       host: host,
       policy: policy,
+      modelReference: meta.model ?? '',
       recorder: recorder,
       initialHistory: history,
     );

@@ -318,6 +318,7 @@ class SessionManager {
         provider: provider,
         host: host,
         policy: policy,
+        modelReference: '$providerId/$model',
         recorder: recorder,
       );
     } catch (_) {

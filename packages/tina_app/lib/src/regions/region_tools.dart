@@ -263,7 +263,8 @@ class ReadSummaryTool implements Tool {
 /// `query_region` — dispatch one fast, read-only agent to a region and get
 /// its report.
 class QueryRegionTool implements Tool {
-  QueryRegionTool(this._regions, this._scheduler, {required this.parentReference});
+  QueryRegionTool(this._regions, this._scheduler,
+      {required this.parentReference, this.originConversationId = ''});
 
   final RegionRegistry _regions;
   final SubAgentScheduler _scheduler;
@@ -271,6 +272,11 @@ class QueryRegionTool implements Tool {
   /// The main agent's `"provider/model"` — the inherit fallback when neither
   /// the region's allocation nor the tool input specifies a model.
   final String parentReference;
+
+  /// The conversation that owns this tool, so the region agent follows its
+  /// LIVE model (a `/model` swap mid-session) instead of [parentReference],
+  /// which is frozen at build time. Empty → [parentReference].
+  final String originConversationId;
 
   @override
   ToolSchema get schema => const ToolSchema(
@@ -328,6 +334,7 @@ class QueryRegionTool implements Tool {
       systemPrompt: _regionSystemPrompt(region),
       task: task,
       parentReference: parentReference,
+      originConversationId: originConversationId,
       modelReference: _modelOverride(input) ?? _regions.modelFor(region.dir),
       cancelSignal: cancelSignal,
       sink: _SilentSink(),
@@ -346,11 +353,14 @@ class QueryRegionTool implements Tool {
 /// agent answers, the main agent synthesizes.
 class BroadcastRegionTool implements Tool {
   BroadcastRegionTool(this._regions, this._scheduler,
-      {required this.parentReference});
+      {required this.parentReference, this.originConversationId = ''});
 
   final RegionRegistry _regions;
   final SubAgentScheduler _scheduler;
   final String parentReference;
+
+  /// See [QueryRegionTool.originConversationId].
+  final String originConversationId;
 
   /// Mirrors the delegate tool's per-call fan-out cap.
   static const kMaxRegions = 8;
@@ -401,6 +411,7 @@ class BroadcastRegionTool implements Tool {
         systemPrompt: _regionSystemPrompt(r),
         task: task,
         parentReference: parentReference,
+        originConversationId: originConversationId,
         modelReference:
             _modelOverride(input) ?? _regions.modelFor(r.dir),
         cancelSignal: cancelSignal,

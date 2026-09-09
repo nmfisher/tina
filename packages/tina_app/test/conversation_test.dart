@@ -36,6 +36,15 @@ Conversation _conversation({List<Message> initialHistory = const []}) {
 
 void main() {
   group('Conversation', () {
+    test('modelReference defaults to empty and is mutable', () {
+      final c = _conversation();
+      // Legacy/unknown refs (and test literals) stay valid without the field.
+      expect(c.modelReference, isEmpty);
+      // `/model` writes it in place; sub-agents read it at spawn time.
+      c.modelReference = 'glm/glm-5.2';
+      expect(c.modelReference, 'glm/glm-5.2');
+    });
+
     test('initialHistory is copied and not aliased with the source list', () {
       final seed = <Message>[
         const Message(role: Role.user, content: [TextBlock('hi')]),

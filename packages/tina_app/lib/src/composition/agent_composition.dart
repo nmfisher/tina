@@ -147,11 +147,13 @@ Agent buildAgent({
         regions,
         scheduler,
         parentReference: '${config.provider}/${provider.model}',
+        originConversationId: conversationId,
       ),
       BroadcastRegionTool(
         regions,
         scheduler,
         parentReference: '${config.provider}/${provider.model}',
+        originConversationId: conversationId,
       ),
       // allocate/forget exist only when the index does — the fleet that
       // summarizes allocations runs at /index.

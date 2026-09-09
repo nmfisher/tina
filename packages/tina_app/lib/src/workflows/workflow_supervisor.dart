@@ -12,11 +12,14 @@ import 'package:tina_app/src/workflows/pipeline_runner.dart';
 /// chat's host; the coordinator swaps in a live panel host for the run via the
 /// supervisor's `onLaunch` hook — see [WorkflowRun.sink]); the [cancelSignal]
 /// future, when completed, aborts the run with a `cancelled` outcome — exactly
-/// the engine's existing contract.
+/// the engine's existing contract. [conversationId] identifies the launching
+/// conversation, so the runner can resolve its *live* model for nodes that omit
+/// `llm_model` (a `/model` swap mid-session carries into the run).
 typedef RunWorkflow =
     Future<PipelineRunResult> Function({
       required String workflowName,
       required AgentSink sink,
+      required String conversationId,
       String? input,
       String? history,
       Future<void>? cancelSignal,
@@ -221,6 +224,7 @@ class WorkflowSupervisor {
         final result = await _run(
           workflowName: name,
           sink: run.sink ?? sink,
+          conversationId: run.conversationId,
           input: input,
           history: null,
           cancelSignal: cancel.future,

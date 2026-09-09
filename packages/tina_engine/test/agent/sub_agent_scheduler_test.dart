@@ -183,6 +183,102 @@ void main() {
       expect(result.content, 'from-a');
       await scheduler.dispose();
     });
+
+    // -- the live-ref resolver (a `/model` swap mid-session) ----------------
+
+    /// A scheduler whose registry scripts both `a-model` and `b-model`, with
+    /// [modelRefResolver] wired to [resolve].
+    SubAgentScheduler withResolver(String? Function(String) resolve) =>
+        testScheduler(
+          scriptedRegistry({
+            'a': answerEvents('from-a'),
+            'b': answerEvents('from-b'),
+          }),
+          pipeline: pipeline,
+        )..modelRefResolver = resolve;
+
+    test('a depth-0 spawn with no override uses the resolver\'s live ref',
+        () async {
+      final scheduler = withResolver(
+        (id) => id == 'conv1' ? 'b/b-model' : null,
+      );
+      final job = scheduler.spawn(
+        task: 'do it',
+        toolProfile: ToolProfile.readOnly,
+        parentSystemPrompt: 'P',
+        parentReference: 'a/a-model',
+        parentPolicy: PermissionPolicy(),
+        originConversationId: 'conv1',
+      );
+      final result = await job.result;
+      expect(result.content, 'from-b');
+      expect(job.modelReference, 'b/b-model');
+      await scheduler.dispose();
+    });
+
+    test('an explicit delegation override beats the resolver', () async {
+      final scheduler = withResolver((_) => 'b/b-model');
+      final job = scheduler.spawn(
+        task: 'do it',
+        toolProfile: ToolProfile.readOnly,
+        modelReference: 'a/a-model',
+        parentSystemPrompt: 'P',
+        parentReference: 'a/a-model',
+        parentPolicy: PermissionPolicy(),
+        originConversationId: 'conv1',
+      );
+      final result = await job.result;
+      expect(result.content, 'from-a');
+      await scheduler.dispose();
+    });
+
+    test('a nested (depth-1) spawn ignores the resolver', () async {
+      final scheduler = withResolver((_) => 'b/b-model');
+      final job = scheduler.spawn(
+        task: 'do it',
+        toolProfile: ToolProfile.readOnly,
+        parentSystemPrompt: 'P',
+        parentReference: 'a/a-model',
+        parentPolicy: PermissionPolicy(),
+        originConversationId: 'conv1',
+        depth: 1,
+      );
+      final result = await job.result;
+      expect(result.content, 'from-a');
+      await scheduler.dispose();
+    });
+
+    test('an unknown/empty conversation id falls back to the parent ref',
+        () async {
+      final scheduler = withResolver((id) => id.isEmpty ? null : 'b/b-model');
+      final job = scheduler.spawn(
+        task: 'do it',
+        toolProfile: ToolProfile.readOnly,
+        parentSystemPrompt: 'P',
+        parentReference: 'a/a-model',
+        parentPolicy: PermissionPolicy(),
+        originConversationId: '',
+      );
+      final result = await job.result;
+      expect(result.content, 'from-a');
+      await scheduler.dispose();
+    });
+
+    test('a resolver returning an empty ref falls back to the parent ref',
+        () async {
+      final scheduler = withResolver((_) => '');
+      final job = scheduler.spawn(
+        task: 'do it',
+        toolProfile: ToolProfile.readOnly,
+        parentSystemPrompt: 'P',
+        parentReference: 'a/a-model',
+        parentPolicy: PermissionPolicy(),
+        originConversationId: 'conv1',
+      );
+      final result = await job.result;
+      expect(result.content, 'from-a');
+      await scheduler.dispose();
+    });
   });
 
   group('identity inheritance', () {
@@ -1137,6 +1233,61 @@ void main() {
         sink: FakeAgentSink(),
       );
       expect(result.text, 'from-b');
+      await scheduler.dispose();
+    });
+
+    test('originConversationId resolves through the live-ref resolver',
+        () async {
+      final scheduler = testScheduler(
+        scriptedRegistry(
+            {'a': answerEvents('from-a'), 'b': answerEvents('from-b')}),
+        pipeline: pipeline,
+      )..modelRefResolver = (id) => id == 'conv1' ? 'b/b-model' : null;
+      // A region agent: no explicit model, a stale build-time parent ref.
+      final result = await scheduler.runStandalone(
+        systemPrompt: 'id',
+        task: 'go',
+        parentReference: 'a/a-model',
+        originConversationId: 'conv1',
+        sink: FakeAgentSink(),
+      );
+      expect(result.text, 'from-b');
+      await scheduler.dispose();
+    });
+
+    test('a node modelReference beats the live-ref resolver', () async {
+      final scheduler = testScheduler(
+        scriptedRegistry(
+            {'a': answerEvents('from-a'), 'b': answerEvents('from-b')}),
+        pipeline: pipeline,
+      )..modelRefResolver = (_) => 'b/b-model';
+      final result = await scheduler.runStandalone(
+        systemPrompt: 'id',
+        task: 'go',
+        parentReference: 'a/a-model',
+        modelReference: 'a/a-model',
+        originConversationId: 'conv1',
+        sink: FakeAgentSink(),
+      );
+      expect(result.text, 'from-a');
+      await scheduler.dispose();
+    });
+
+    test('an unknown conversation id keeps the build-time parent ref',
+        () async {
+      final scheduler = testScheduler(
+        scriptedRegistry(
+            {'a': answerEvents('from-a'), 'b': answerEvents('from-b')}),
+        pipeline: pipeline,
+      )..modelRefResolver = (id) => id == 'conv1' ? 'b/b-model' : null;
+      final result = await scheduler.runStandalone(
+        systemPrompt: 'id',
+        task: 'go',
+        parentReference: 'a/a-model',
+        originConversationId: 'ghost',
+        sink: FakeAgentSink(),
+      );
+      expect(result.text, 'from-a');
       await scheduler.dispose();
     });
 

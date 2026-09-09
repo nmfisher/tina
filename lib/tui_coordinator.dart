@@ -468,12 +468,31 @@ class TuiCoordinator {
       // once-per-install `--backend ansi` notice. Reads $TMUX from the app's
       // environment seam; inert outside tmux.
       final tmux = TmuxSupport(env: app.environment.env, tinaDir: tinaDataDir);
-      PipelineRunner buildRunner() => PipelineRunner(
+      /// The live `"provider/model"` of [conversationId] across every session,
+      /// or null when the id is unknown/empty or the conversation has no ref
+      /// recorded. The single source of truth for "which model does work
+      /// launched by this conversation run on" — `/model` keeps it current.
+      String? liveModelRefOrNull(String conversationId) {
+        if (conversationId.isEmpty) return null;
+        for (final session in sessionManager.all) {
+          final conv = session.conversationById(conversationId);
+          if (conv != null) {
+            return conv.modelReference.isEmpty ? null : conv.modelReference;
+          }
+        }
+        return null;
+      }
+
+      PipelineRunner buildRunner(String conversationId) => PipelineRunner(
         scheduler: scheduler,
         pipeline: pipeline,
         workflowsDir: workflowsDir,
         runsRoot: runsRoot,
-        defaultModelReference: '${app.config.provider}/${app.config.model}',
+        // Workflow nodes that omit `llm_model` run under the model the
+        // LAUNCHING conversation is on right now, not the one the process
+        // started with.
+        defaultModelReference: liveModelRefOrNull(conversationId) ??
+            '${app.config.provider}/${app.config.model}',
         interviewerBuilder: (sink) => TinaInterviewer(
           screen: screen,
           editor: editor,
@@ -527,11 +546,12 @@ class TuiCoordinator {
             ({
               required workflowName,
               required sink,
+              required conversationId,
               input,
               history,
               cancelSignal,
               onEvent,
-            }) => buildRunner().run(
+            }) => buildRunner(conversationId).run(
               workflowName: workflowName,
               sink: sink,
               input: input,
@@ -662,6 +682,11 @@ class TuiCoordinator {
         provider: provider,
         host: initialHost,
         policy: policy,
+        // The live ref sub-agents/workflow nodes inherit. On resume the
+        // provider can come from the stored meta rather than the startup
+        // config, so prefer it; the config pair is the fresh-launch case.
+        modelReference:
+            activeMeta?.model ?? '${config.provider}/${config.model}',
         recorder: initialRecorder,
         initialHistory: initialHistory,
       );
@@ -700,6 +725,14 @@ class TuiCoordinator {
       transferred = true;
       acquired.own(sessionManager.closeAll);
       acquired.own(app.scheduler.dispose);
+
+      // Sub-agents spawned by a conversation's MAIN agent follow that
+      // conversation's live model ref, so a `/model` swap mid-session carries
+      // down to delegates and region agents instead of reverting to the ref
+      // frozen at process start. Depth-0 only (nested sub-agents keep their
+      // parent's resolved ref) and null for unknown ids — a workflow node's
+      // delegate context passes '' — both handled by the scheduler.
+      scheduler.modelRefResolver = liveModelRefOrNull;
 
       // On resume, rehydrate every conversation the session contained — not just
       // the active one — so sub-agent transcripts, /spawn panels, and /clear'd
@@ -1615,6 +1648,7 @@ class TuiCoordinator {
               provider: provider,
               host: host,
               policy: policy,
+              modelReference: job.modelReference,
               recorder: recorder,
             );
             sessionManager.active.addConversation(conv);
@@ -1873,6 +1907,37 @@ class TuiCoordinator {
           'model: $prev → ${conv.label}\n',
           style: HostMessageStyle.dim,
         );
+
+        // Offer to persist the pick as the global default — the `[default]`
+        // pair a fresh launch starts on. Skipped when the pick already IS the
+        // stored default, so re-picking the same model stays quiet. The
+        // in-session sub-agents already follow the swap via the conversation's
+        // live modelReference; this is only about future launches.
+        final storedDefault =
+            cfg.defaultProvider == null || cfg.defaultModel == null
+                ? null
+                : '${cfg.defaultProvider}/${cfg.defaultModel}';
+        if (selected == storedDefault) return;
+        final confirm = controller.confirm;
+        if (confirm == null) return; // headless: no prompt, no write
+        final makeDefault = await confirm(
+          'Set global default?',
+          body: 'Make $selected the default model on startup and for '
+              'subagents?',
+        );
+        if (!makeDefault) return;
+        try {
+          final wrote = writeUserConfigPatch(env: envMap, defaultRef: selected);
+          if (wrote != null) {
+            conv.host.showMessage(
+              'global default: $selected (saved to ~/.tina/config — '
+              'applies on next launch)\n',
+              style: HostMessageStyle.success,
+            );
+          }
+        } on ConfigWriteException catch (e) {
+          conv.host.showMessage('$e\n', style: HostMessageStyle.warning);
+        }
       };
 
       // Keep a minimal progress subscription so teardown can cancel it.
@@ -2352,7 +2417,7 @@ class TuiCoordinator {
         return TmuxExitChoice.cancel;
       }
 
-      controller.confirm = (prompt) async {
+      controller.confirm = (prompt, {String? body}) async {
         final title = prompt
             .replaceFirst(RegExp(r'\s*\[\s*y/N\s*\]\s*$'), '')
             .trim();
@@ -2364,6 +2429,7 @@ class TuiCoordinator {
             (display: 'No', value: false),
           ],
           title: title,
+          body: body,
           footer: '↑↓ move · enter select · esc cancel',
           accent: 'cyan',
         );

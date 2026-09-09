@@ -30,7 +30,7 @@ Future<void> _pumpUntil(bool Function() pred, {int iterations = 200}) async {
 /// assert monitoring), and resolves to either a test-supplied outcome or — when
 /// its cancel signal fires — `Outcome.fail('cancelled')` (mirroring the engine).
 class _ScriptedRunner {
-  final List<({String name, String? input})> calls = [];
+  final List<({String name, String? input, String conversationId})> calls = [];
   final List<_RunControl> controls = [];
 
   /// When true, each launch emits a scripted `node_started` event for node
@@ -40,13 +40,18 @@ class _ScriptedRunner {
   RunWorkflow build() {
     return ({
       required workflowName,
+      required conversationId,
       required sink,
       input,
       history,
       cancelSignal,
       onEvent,
     }) async {
-      calls.add((name: workflowName, input: input));
+      calls.add((
+        name: workflowName,
+        input: input,
+        conversationId: conversationId,
+      ));
       final control = _RunControl(sink);
       controls.add(control);
       // Simulate an engine progress event surfacing to the chat host.
@@ -78,10 +83,21 @@ void main() {
     final cancelled = Completer<void>();
     var completions = 0;
     final supervisor = WorkflowSupervisor(
-      run: ({required workflowName, required sink, input, history, cancelSignal, onEvent}) {
-        cancelSignal!.then((_) => cancelled.complete());
-        return gate.future;
-      }, onComplete: (_) => completions++);
+      run:
+          ({
+            required workflowName,
+            required sink,
+            required conversationId,
+            input,
+            history,
+            cancelSignal,
+            onEvent,
+          }) {
+            cancelSignal!.then((_) => cancelled.complete());
+            return gate.future;
+          },
+      onComplete: (_) => completions++,
+    );
     final run = supervisor.launch(name: 'test', conversationId: 'one', sink: FakeAgentSink());
     final closed = supervisor.shutdown();
     await cancelled.future;
@@ -94,7 +110,16 @@ void main() {
   });
   test('workflow observer failures still settle completion', () async {
     final supervisor = WorkflowSupervisor(
-      run: ({required workflowName, required sink, input, history, cancelSignal, onEvent}) async => _result(Outcome.fail('failed')),
+      run:
+          ({
+            required workflowName,
+            required sink,
+            required conversationId,
+            input,
+            history,
+            cancelSignal,
+            onEvent,
+          }) async => _result(Outcome.fail('failed')),
       onLaunch: (run) { run.onFinished = () => throw StateError('finish'); throw StateError('launch'); },
       onComplete: (_) => throw StateError('complete'));
     final run = supervisor.launch(name: 'test', conversationId: 'one', sink: FakeAgentSink());
@@ -124,6 +149,9 @@ void main() {
       expect(supervisor.active.single, run);
       expect(runner.calls.single.name, 'default');
       expect(runner.calls.single.input, 'fix the bug');
+      // The launching conversation's id reaches the run seam, so the runner can
+      // resolve that conversation's LIVE model for nodes that omit `llm_model`.
+      expect(runner.calls.single.conversationId, 'conv-1');
 
       // Let it finish so the test tears down cleanly.
       runner.controls.single.done.complete(_result(const Outcome.success()));
@@ -210,6 +238,7 @@ void main() {
       final supervisor = WorkflowSupervisor(
         run: ({
           required workflowName,
+          required conversationId,
           required sink,
           input,
           history,
@@ -284,6 +313,7 @@ void main() {
       final supervisor = WorkflowSupervisor(
         run: ({
           required workflowName,
+          required conversationId,
           required sink,
           input,
           history,
@@ -310,6 +340,7 @@ void main() {
       final supervisor = WorkflowSupervisor(
         run: ({
           required workflowName,
+          required conversationId,
           required sink,
           input,
           history,
@@ -334,6 +365,7 @@ void main() {
       final supervisor = WorkflowSupervisor(
         run: ({
           required workflowName,
+          required conversationId,
           required sink,
           input,
           history,

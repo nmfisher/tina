@@ -483,4 +483,83 @@ void main() {
       expect(setup.panel.hasFocus, isTrue);
     });
   });
+
+  // -- writeUserConfigPatch: the `/model` "global default" write -------------
+
+  group('writeUserConfigPatch', () {
+    /// A config exercising every slice the old hand-built literal dropped —
+    /// the regression the copyWith switch prevents.
+    UserConfig fullConfig() => const UserConfig(
+      defaultProvider: 'anthropic',
+      defaultModel: 'claude-sonnet-4-6',
+      defaultWorkflow: 'house.dot',
+      providers: {'alpha': ProviderConfig(apiKey: 'ka')},
+      themeVariant: 'dark',
+      trustDefault: 'always',
+      environmentAutoPopulate: 'always',
+      environmentModel: 'glm/glm-5.2',
+      mouseWheel: true,
+      regions: RegionsConfig(model: 'glm/glm-5.2'),
+      permissions: PermissionsConfig(mode: 'allow_edits', model: 'glm/glm-5.2'),
+    );
+
+    test('defaultRef writes [default] and preserves every other slice', () {
+      writeUserConfig(fullConfig(), env: const {}, tinaDir: tmp.dir);
+      final wrote = writeUserConfigPatch(
+        env: const {},
+        tinaDir: tmp.dir,
+        defaultRef: 'glm/glm-5.2',
+      );
+      expect(wrote, isNotNull);
+      final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+      expect(loaded.defaultProvider, 'glm');
+      expect(loaded.defaultModel, 'glm-5.2');
+      // Slices this call did not name survive the read-modify-write.
+      expect(loaded.defaultWorkflow, 'house.dot');
+      expect(loaded.providers['alpha']?.apiKey, 'ka');
+      expect(loaded.themeVariant, 'dark');
+      expect(loaded.trustDefault, 'always');
+      expect(loaded.environmentAutoPopulate, 'always');
+      expect(loaded.environmentModel, 'glm/glm-5.2');
+      expect(loaded.mouseWheel, isTrue);
+      expect(loaded.regions?.model, 'glm/glm-5.2');
+      expect(loaded.permissions?.mode, 'allow_edits');
+    });
+
+    test('splits on the FIRST slash, so a model id may contain slashes', () {
+      final wrote = writeUserConfigPatch(
+        env: const {},
+        tinaDir: tmp.dir,
+        defaultRef: 'openrouter/x-ai/grok-4',
+      );
+      expect(wrote, isNotNull);
+      final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+      expect(loaded.defaultProvider, 'openrouter');
+      expect(loaded.defaultModel, 'x-ai/grok-4');
+    });
+
+    test('re-picking the stored default writes nothing', () {
+      writeUserConfig(fullConfig(), env: const {}, tinaDir: tmp.dir);
+      final wrote = writeUserConfigPatch(
+        env: const {},
+        tinaDir: tmp.dir,
+        defaultRef: 'anthropic/claude-sonnet-4-6',
+      );
+      expect(wrote, isNull);
+    });
+
+    test('a slashless defaultRef leaves the stored pair alone', () {
+      writeUserConfig(fullConfig(), env: const {}, tinaDir: tmp.dir);
+      // No slash → not a ref; the slice is skipped, so nothing changed → null.
+      final wrote = writeUserConfigPatch(
+        env: const {},
+        tinaDir: tmp.dir,
+        defaultRef: 'grok-4',
+      );
+      expect(wrote, isNull);
+      final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+      expect(loaded.defaultProvider, 'anthropic');
+      expect(loaded.defaultModel, 'claude-sonnet-4-6');
+    });
+  });
 }

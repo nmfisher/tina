@@ -28,6 +28,7 @@ class _ScriptedRunner {
   RunWorkflow build() {
     return ({
       required workflowName,
+      required conversationId,
       required sink,
       input,
       history,

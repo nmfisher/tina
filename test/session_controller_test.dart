@@ -844,6 +844,27 @@ void main() {
       expect(seen, ['before']);
       expect(host.messages.any((m) => m.contains('(history cleared)')), isTrue);
     });
+
+    test('the /index fleet runs on the conversation\'s live model ref',
+        () async {
+      final rl = FakeReadLine();
+      final controller =
+          _buildController(readLine: rl, provider: FakeProvider.done());
+      // A `/model` swap leaves the new ref on the conversation. The fleet must
+      // run on it — not the session's startup provider/model (the config
+      // default, which can name a model the provider cannot serve).
+      final conv = controller.active;
+      conv.modelReference = 'nim/live-swap';
+      String? seen;
+      controller.summaryIndex = _CapturingSummaryIndex((ref) => seen = ref);
+
+      await controller.runBackgroundIndex!(conv, null);
+      while (controller.isIndexRunning) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+
+      expect(seen, 'nim/live-swap');
+    });
   });
 
   group('workflow launch (manager loop)', () {
@@ -1257,6 +1278,43 @@ class _GatedTool implements Tool {
     calls++;
     await _gate.future;
     return const ToolResult('gated-ok');
+  }
+}
+
+/// A [SummaryIndex] whose fleet run is stubbed to capture the `modelRef` the
+/// controller threads into it — the seam that proves the /index fleet runs on
+/// the conversation's live ref. Everything else throws.
+class _CapturingSummaryIndex implements SummaryIndex {
+  _CapturingSummaryIndex(this.onRefresh);
+
+  final void Function(String? modelRef) onRefresh;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  @override
+  Future<SummaryIndexResult> refresh({
+    bool repartition = false,
+    bool dryRun = false,
+    List<String>? dirs,
+    HostInterface? host,
+    String? modelRef,
+    Future<void>? cancelSignal,
+  }) async {
+    onRefresh(modelRef);
+    return const SummaryIndexResult(
+      status: SummaryIndexStatus(
+        totalDirs: 1,
+        staleDirs: [],
+        deletedDirs: [],
+        headSha: 'abc1234',
+        firstRun: false,
+        hasAllocations: false,
+      ),
+      regenerated: 1,
+      regeneratedDirs: ['lib'],
+      deletedDirs: [],
+    );
   }
 }
 

@@ -16,6 +16,7 @@ class _RecordingScheduler extends SubAgentScheduler {
         String systemPrompt,
         String task,
         String? modelReference,
+        String originConversationId,
         ToolProfile toolProfile,
         bool includeDelegate,
       })> calls = [];
@@ -35,6 +36,7 @@ class _RecordingScheduler extends SubAgentScheduler {
     required String task,
     String parentReference = '',
     String? modelReference,
+    String originConversationId = '',
     List<Message>? seedHistory,
     Future<void>? cancelSignal,
     required AgentSink sink,
@@ -49,6 +51,7 @@ class _RecordingScheduler extends SubAgentScheduler {
       systemPrompt: systemPrompt,
       task: task,
       modelReference: modelReference,
+      originConversationId: originConversationId,
       toolProfile: toolProfile,
       includeDelegate: includeDelegate,
     ));
@@ -144,7 +147,7 @@ void main() {
 
   group('query_region', () {
     QueryRegionTool tool() => QueryRegionTool(regions, scheduler,
-        parentReference: 'main/main-model');
+        parentReference: 'main/main-model', originConversationId: 'conv1');
 
     test('dispatches one read-only agent primed with the region summary',
         () async {
@@ -160,6 +163,10 @@ void main() {
       expect(call.includeDelegate, isFalse);
       // No allocation model on lib, no input override → inherit the main model.
       expect(call.modelReference, isNull);
+      // The owning conversation travels with the query, so the scheduler can
+      // resolve its LIVE ref (a `/model` swap mid-session) instead of the
+      // build-time parentReference.
+      expect(call.originConversationId, 'conv1');
     });
 
     test('an input model override wins over the region allocation', () async {

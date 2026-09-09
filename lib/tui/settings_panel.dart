@@ -126,14 +126,30 @@ Future<void> _runSettingsSession(
 ///
 /// Each slice arg is null when the panel didn't touch it; comparing the
 /// assembled config against the loaded one then isolates the panel's own edit.
+///
+/// [defaultRef] is a full `"provider/model"` ref for `[default]` (the `/model`
+/// picker's "make this the global default"): split on the FIRST slash, since
+/// model ids may contain slashes. A value with no slash leaves the slice
+/// untouched.
 UserConfig? writeUserConfigPatch({
   required Map<String, String> env,
   Directory? tinaDir,
   Map<String, ProviderConfig>? providers,
   LimitsConfig? limits,
   String? themeVariant,
+  String? defaultRef,
 }) {
   final loaded = loadUserConfig(env: env, tinaDir: tinaDir);
+
+  var nextDefaultProvider = loaded.defaultProvider;
+  var nextDefaultModel = loaded.defaultModel;
+  if (defaultRef != null) {
+    final slash = defaultRef.indexOf('/');
+    if (slash > 0) {
+      nextDefaultProvider = defaultRef.substring(0, slash);
+      nextDefaultModel = defaultRef.substring(slash + 1);
+    }
+  }
 
   final nextProviders = providers ?? loaded.providers;
   final nextLimits = limits ?? loaded.limits;
@@ -142,20 +158,21 @@ UserConfig? writeUserConfigPatch({
   // Nothing actually changed — skip the write.
   if (_mapsEqual(nextProviders, loaded.providers) &&
       nextLimits == loaded.limits &&
-      nextThemeVariant == loaded.themeVariant) {
+      nextThemeVariant == loaded.themeVariant &&
+      nextDefaultProvider == loaded.defaultProvider &&
+      nextDefaultModel == loaded.defaultModel) {
     return null;
   }
 
-  final built = UserConfig(
-    defaultProvider: loaded.defaultProvider,
-    defaultModel: loaded.defaultModel,
+  // copyWith, not a hand-built literal: the literal used to drop every slice
+  // it didn't name (`[default] workflow`, `[regions]`, `[permissions]`, the
+  // environment/tui keys) on any write — including this one.
+  final built = loaded.copyWith(
     providers: nextProviders,
     limits: nextLimits,
-    theme: loaded.theme,
     themeVariant: nextThemeVariant,
-    prompts: loaded.prompts,
-    trustDefault: loaded.trustDefault,
-    version: loaded.version,
+    defaultProvider: nextDefaultProvider,
+    defaultModel: nextDefaultModel,
   );
   writeUserConfig(built, env: env, tinaDir: tinaDir);
   return built;

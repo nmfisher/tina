@@ -16,6 +16,13 @@ import 'package:tina_app/src/session/message_queue.dart';
 class Conversation {
   final String id;
   String label;
+
+  /// The live `"provider/model"` this conversation runs under. Set at
+  /// construction and updated by `/model`, so a sub-agent or workflow node
+  /// spawned after a swap inherits the CURRENT model rather than the one the
+  /// process started with. Empty when unknown (e.g. a bare legacy ref).
+  String modelReference;
+
   final Agent agent;
   LlmProvider _provider;
 
@@ -79,6 +86,7 @@ class Conversation {
     required LlmProvider provider,
     required this.host,
     required this.policy,
+    this.modelReference = '',
     this.recorder,
     List<Message> initialHistory = const [],
   }) : _provider = provider {

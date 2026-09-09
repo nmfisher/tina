@@ -103,9 +103,11 @@ class SessionController {
   /// [AppComposition]; null in headless, which never auto-runs setup.
   EnvironmentIndex? environmentIndex;
 
-  /// Ask a yes/no confirmation (`/index` up-to-date re-run prompt). Wired by
-  /// the TUI via the shared line editor; null in headless.
-  Future<bool> Function(String prompt)? confirm;
+  /// Ask a yes/no confirmation (`/index` up-to-date re-run prompt, `/model`'s
+  /// "make this the global default"). [body] is optional explanatory text
+  /// rendered inside the box under the title. Wired by the TUI via the shared
+  /// line editor; null in headless.
+  Future<bool> Function(String prompt, {String? body})? confirm;
 
   /// Detach the tmux client (`/detach`, Alt+D). Wired by the TUI coordinator,
   /// which owns the tmux process seam and all the messaging (detached notice,
@@ -177,10 +179,14 @@ class SessionController {
     summaryIndex: () => summaryIndex,
     environmentIndex: () => environmentIndex,
     persistUsage: _flushUsageFor,
-    // The conversation's proven model ref: the persisted meta ref when
-    // present, else the session's provider + the live provider model.
-    modelRefOf: (conv) => conv.recorder?.meta?.model ??
-        '${sessionManager.active.providerId}/${conv.provider.model}',
+    // The conversation's proven model ref: the live ref a `/model` swap
+    // leaves on the conversation (kept in step with the persisted meta by
+    // changeModel — and correct even when that write failed), else the
+    // persisted meta ref, else the session's provider + the live model.
+    modelRefOf: (conv) => conv.modelReference.isNotEmpty
+        ? conv.modelReference
+        : conv.recorder?.meta?.model ??
+            '${sessionManager.active.providerId}/${conv.provider.model}',
   );
   bool get isIndexRunning => jobs.running('index');
   bool get isEnvironmentRunning => jobs.running('environment');

@@ -301,6 +301,17 @@ class SubAgentScheduler {
   /// [persistence]: the wiring sets it once at the composition root.
   SubAgentSessionFactory? subAgentSessionFactory;
 
+  /// Set by the wiring to make a sub-agent spawned by a conversation's MAIN
+  /// agent inherit that conversation's *live* `"provider/model"` — the one
+  /// `/model` just swapped to — instead of the build-time [parentReference],
+  /// which is frozen at process start. Consulted by [spawn] only at depth 0 (a
+  /// nested sub-agent keeps its parent's resolved ref, so an explicit parent
+  /// override survives) and by [runStandalone] for callers that pass an
+  /// [originConversationId] (region agents). The callback must return null for
+  /// an unknown or empty [conversationId]. Null (default) → today's behavior:
+  /// inherit [parentReference]. Set once at the composition root.
+  String? Function(String conversationId)? modelRefResolver;
+
   /// The app's configured permission policy, threaded in by the wiring so
   /// unattended agents (notably [runStandalone] workflow nodes, which have no
   /// parent conversation) inherit the user's tool decisions — critically the
@@ -430,7 +441,9 @@ class SubAgentScheduler {
   /// [parentSystemPrompt] is the identity the sub-agent runs under (its
   /// parent's resolved prompt). [toolProfile] picks its tools. [modelReference]
   /// (a `"provider/model"` from the delegation's `llm_provider`/`llm_model`)
-  /// overrides the inherited model; null inherits [parentReference].
+  /// overrides the inherited model; null inherits — at depth 0 the spawning
+  /// conversation's live ref via [modelRefResolver] when wired, else
+  /// [parentReference].
   SubAgentJob spawn({
     required String task,
     required ToolProfile toolProfile,
@@ -446,7 +459,18 @@ class SubAgentScheduler {
   }) {
     final id = 'j$_nextId';
     _nextId++;
-    final resolvedReference = modelReference ?? parentReference;
+    // An explicit delegation override wins; otherwise, at depth 0, the spawning
+    // conversation's LIVE ref (so a `/model` swap mid-session carries down);
+    // otherwise the build-time parent ref. A resolver that returns ''/null —
+    // an unknown or empty conversation id, e.g. a workflow node's delegate
+    // context — falls through to [parentReference].
+    String? liveReference;
+    if (modelReference == null && depth == 0) {
+      final resolved = modelRefResolver?.call(originConversationId);
+      if (resolved != null && resolved.isNotEmpty) liveReference = resolved;
+    }
+    final resolvedReference =
+        modelReference ?? liveReference ?? parentReference;
     final job = SubAgentJob(
       id: id,
       label: label ?? 'sub-agent',
@@ -742,11 +766,13 @@ class SubAgentScheduler {
   /// is reserved for the `full`-fidelity phase.
   ///
   /// [modelReference] is the node's resolved `"provider/model"` (from
-  /// `llm_model`/`llm_provider`); when null, [parentReference] (the
-  /// conversation's resolved model) is used. [toolProfile] selects the agent's
-  /// tool set (default `full`); [includeDelegate] adds the nested `delegate`
-  /// tool when nesting is wired — set both for a read-only, non-spawning
-  /// one-shot agent (e.g. a region query).
+  /// `llm_model`/`llm_provider`); when null, [originConversationId] is resolved
+  /// through [modelRefResolver] (a region agent follows a `/model` swap) and
+  /// falls back to [parentReference] (the conversation's build-time resolved
+  /// model). [toolProfile] selects the agent's tool set (default `full`);
+  /// [includeDelegate] adds the nested `delegate` tool when nesting is wired —
+  /// set both for a read-only, non-spawning one-shot agent (e.g. a region
+  /// query).
   ///
   /// **Gated writes.** [gateWrites] (used by the workflow path) stops
   /// `write`/`edit` from being pre-approved: they fall back to the policy's
@@ -761,6 +787,7 @@ class SubAgentScheduler {
     required String task,
     String parentReference = '',
     String? modelReference,
+    String originConversationId = '',
     List<Message>? seedHistory,
     Future<void>? cancelSignal,
     required AgentSink sink,
@@ -777,6 +804,7 @@ class SubAgentScheduler {
       task: task,
       parentReference: parentReference,
       modelReference: modelReference,
+      originConversationId: originConversationId,
       seedHistory: seedHistory,
       cancelSignal: Future.any(
           [_shutdown.future, if (cancelSignal != null) cancelSignal]),
@@ -795,6 +823,7 @@ class SubAgentScheduler {
     required String task,
     String parentReference = '',
     String? modelReference,
+    String originConversationId = '',
     List<Message>? seedHistory,
     Future<void>? cancelSignal,
     required AgentSink sink,
@@ -808,7 +837,17 @@ class SubAgentScheduler {
     final LlmProvider provider;
     final String reference;
     try {
-      reference = modelReference ?? parentReference;
+      // Same precedence as [spawn]: an explicit model wins, then the launching
+      // conversation's LIVE ref (region agents — a `/model` swap carries into
+      // their queries), then the build-time fallback. Workflow nodes pass no
+      // conversation id, so they keep their caller-supplied
+      // [parentReference] (already the launching conversation's live ref).
+      String? liveReference;
+      if (modelReference == null) {
+        final resolved = modelRefResolver?.call(originConversationId);
+        if (resolved != null && resolved.isNotEmpty) liveReference = resolved;
+      }
+      reference = modelReference ?? liveReference ?? parentReference;
       provider = providers.build(
         reference,
         maxTokens: maxTokens,

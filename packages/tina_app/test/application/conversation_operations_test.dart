@@ -198,6 +198,9 @@ void main() {
         isNot(contains('bash')),
       );
       expect(created.parentConversationId, source.id);
+      // The live ref is seeded so sub-agents this conversation spawns inherit
+      // its model rather than the build-time parent ref.
+      expect(conv.modelReference, 'test/picked');
       expect(manager.activeConversation, same(source));
       expect((await store.loadSession(sid)).activeConversationId, source.id);
       expect(hosts.single.activeChanges, isEmpty);
@@ -359,6 +362,9 @@ void main() {
       expect(original.closes, 1);
       expect(source.agent.provider, same(source.provider));
       expect(source.label, 'main (new)');
+      // The swap updates the live ref too, so sub-agents spawned after it
+      // inherit the new model.
+      expect(source.modelReference, 'test/new');
       expect(source.isRunning, isTrue);
       expect(store.metaFor(sid, source.id)!.model, 'test/new');
       expect(side.provider.model, 'picked');

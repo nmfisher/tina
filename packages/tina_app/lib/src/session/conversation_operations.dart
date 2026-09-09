@@ -243,6 +243,7 @@ class ConversationOperations {
         provider: provider,
         host: host,
         policy: policy,
+        modelReference: request.modelReference,
         recorder: recorder,
         initialHistory: history,
       );
@@ -273,6 +274,9 @@ class ConversationOperations {
     final role = previous.contains(' (') ? previous.split(' (').first : 'main';
     final cleanupError = conversation.replaceProvider(provider);
     conversation.label = '$role (${request.modelReference.split('/').last})';
+    // Keep the live ref in step: sub-agents and workflow nodes spawned after
+    // the swap inherit the new model, not the one the process started on.
+    conversation.modelReference = request.modelReference;
     Object? persistenceError;
     try {
       await conversation.recorder?.updateModel(
