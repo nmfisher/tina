@@ -1,4 +1,5 @@
 import 'package:tina_app/src/composition/agent_composition.dart';
+import 'package:tina_app/src/composition/provider_resolution.dart';
 import 'package:tina_app/src/composition/runtime_resources.dart';
 import 'package:tina_app/src/config/runtime_config.dart';
 import 'package:tina_engine/tina_engine.dart';
@@ -21,7 +22,12 @@ class SummaryRunner implements SummaryFleet {
       if (interaction.host == null) resources.own(host.dispose);
       // The fleet's own provider, built on demand from this ephemeral
       // composition and closed with it below — no other path shares it.
-      final provider = app.buildStartupProvider();
+      // A caller-supplied modelRef (the active conversation's model) wins
+      // over the config defaults: those can name a model the provider
+      // cannot serve, which dooms every request in the run.
+      final provider = interaction.modelRef == null
+          ? app.buildStartupProvider()
+          : buildResolved(app.providers, config, interaction.modelRef!);
       resources.own(provider.close);
       resources.own(app.scheduler.dispose);
       // The top agent is the orchestrator with a summarization identity: it has

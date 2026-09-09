@@ -20,10 +20,18 @@ class RunInteraction {
   final Future<void>? cancelSignal;
   final PermissionAsker? asker;
   final AgentSink Function(String dir)? scoutSinkFactory;
+
+  /// The `"provider/model"` ref the run's agents should use, when the caller
+  /// has a proven one (e.g. the active conversation's model). Null → the
+  /// composition builds from the config defaults as before. A stale config
+  /// default that the provider cannot serve must never doom a background
+  /// run when a working ref is one field away.
+  final String? modelRef;
   const RunInteraction({
     this.host,
     this.cancelSignal,
     this.asker,
     this.scoutSinkFactory,
+    this.modelRef,
   });
 }

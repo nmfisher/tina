@@ -10,11 +10,16 @@ class ProjectBackgroundJobs {
   final SummaryIndex? Function() summaryIndex;
   final EnvironmentIndex? Function() environmentIndex;
   final Future<void> Function(Conversation) persistUsage;
+
+  /// The conversation's proven `"provider/model"` ref — persisted meta ref
+  /// when present, else the session provider + the live provider model.
+  final String Function(Conversation) modelRefOf;
   ProjectBackgroundJobs({
     required this.supervisor,
     required this.summaryIndex,
     required this.environmentIndex,
     required this.persistUsage,
+    required this.modelRefOf,
   });
   bool get isIndexRunning => supervisor.running('index');
   bool get isEnvironmentRunning => supervisor.running('environment');
@@ -117,12 +122,18 @@ class ProjectBackgroundJobs {
       'Indexing ${n == null ? 'all dirs' : '$n ${n == 1 ? 'dir' : 'dirs'}'} '
       'in the background (Esc-Esc to cancel)…\n',
     );
+    // The fleet runs on the conversation's PROVEN model — the one this
+    // conversation is actively serving — not the config default, which can
+    // name a model the provider cannot serve (every request then 404s and
+    // the run dies as unfinished nodes).
+    final modelRef = modelRefOf(conv);
     try {
       final r = await idx.refresh(
         repartition: repartition,
         dirs: dirs,
         host: conv.host,
         cancelSignal: cancel.cancelled,
+        modelRef: modelRef,
       );
       if (cancel.cancellationRequested) {
         conv.host.showMessage(

@@ -52,6 +52,7 @@ class _StubIndex implements SummaryIndex {
     bool dryRun = false,
     List<String>? dirs,
     HostInterface? host,
+    String? modelRef,
     Future<void>? cancelSignal,
   }) async {
     refreshCalls++;

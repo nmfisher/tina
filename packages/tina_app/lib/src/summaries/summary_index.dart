@@ -34,6 +34,7 @@ class SummaryIndex extends SummaryInspection {
     List<String>? dirs,
     HostInterface? host,
     Future<void>? cancelSignal,
+    String? modelRef,
   }) async {
     final plan = planSummaries(
       repository.inspect(),
@@ -46,7 +47,8 @@ class SummaryIndex extends SummaryInspection {
       repository.prepare();
       final usage = await fleet.run(
         plan,
-        RunInteraction(host: host, cancelSignal: cancelSignal),
+        RunInteraction(
+            host: host, cancelSignal: cancelSignal, modelRef: modelRef),
       );
       landed = repository.record(plan);
       // Preserve accounting: summary spend merges only after recording/commit.

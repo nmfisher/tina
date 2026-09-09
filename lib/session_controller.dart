@@ -177,6 +177,10 @@ class SessionController {
     summaryIndex: () => summaryIndex,
     environmentIndex: () => environmentIndex,
     persistUsage: _flushUsageFor,
+    // The conversation's proven model ref: the persisted meta ref when
+    // present, else the session's provider + the live provider model.
+    modelRefOf: (conv) => conv.recorder?.meta?.model ??
+        '${sessionManager.active.providerId}/${conv.provider.model}',
   );
   bool get isIndexRunning => jobs.running('index');
   bool get isEnvironmentRunning => jobs.running('environment');
@@ -399,18 +403,21 @@ class SessionController {
   bool cancelNow() {
     final s = active;
     _cancelArmed = false;
-    if (!s.isRunning) {
-      if (isIndexRunning || isEnvironmentRunning) {
-        jobs.cancelAll();
-        return true;
-      }
-      return false;
+    // Background jobs (/index, environment) cancel INDEPENDENTLY of the
+    // conversation's turn: a concurrent proposal turn must not shield a
+    // doomed fleet from the operator's Esc-Esc.
+    var hit = false;
+    if (isIndexRunning || isEnvironmentRunning) {
+      jobs.cancelAll();
+      hit = true;
     }
+    if (!s.isRunning) return hit;
     final c = s.cancelCompleter;
     if (c != null && !c.isCompleted) {
       if (!turns.cancel(s.id)) c.complete();
+      hit = true;
     }
-    return true;
+    return hit;
   }
 
   // -- Turn execution facade ----------------------------------------------
