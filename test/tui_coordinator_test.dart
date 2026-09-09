@@ -125,35 +125,41 @@ void main() {
     });
   });
 
-  test('quit confirmation is disposed before leaving the alternate screen', () async {
-    final io = FakeStdio()..hasTerminalValue = false;
-    final config = Config.parse(const ['--backend', 'ansi']);
-    final app = await buildAppComposition(
-      config: config,
-      registry: builtinRegistry(),
-      provider: FakeProvider.done(),
-      store: MemorySessionStore(),
-    );
-    final coordinator = await TuiCoordinator.create(
-      app: app,
-      io: io,
-      terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
-    );
-    coordinator.pendingFirstLoadEnvironmentAsk = null;
-    coordinator.pendingGitignoreAsk = null;
-    // Ctrl-C opens the confirmation; the second quits with it still visible.
-    io.feedBytes([0x03, 0x03]);
-    await coordinator.run().timeout(const Duration(seconds: 5));
-    io.close();
+  test(
+    'quit confirmation is disposed before leaving the alternate screen',
+    () async {
+      final io = FakeStdio()..hasTerminalValue = false;
+      final config = Config.parse(const ['--backend', 'ansi']);
+      final app = await buildAppComposition(
+        config: config,
+        registry: builtinRegistry(),
+        provider: FakeProvider.done(),
+        store: MemorySessionStore(),
+      );
+      final coordinator = await TuiCoordinator.create(
+        app: app,
+        io: io,
+        terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
+      );
+      coordinator.pendingFirstLoadEnvironmentAsk = null;
+      coordinator.pendingGitignoreAsk = null;
+      // Ctrl-C opens the confirmation; the second quits with it still visible.
+      io.feedBytes([0x03, 0x03]);
+      await coordinator.run().timeout(const Duration(seconds: 5));
+      io.close();
 
-    final out = io.written.toString();
-    expect(out, contains('Ctrl+C again to exit'));
-    const leave = '\x1b[?1049l';
-    final leaveAt = out.indexOf(leave);
-    expect(leaveAt, greaterThanOrEqualTo(0));
-    expect(out.substring(leaveAt + leave.length), isEmpty,
-        reason: 'editor cleanup must not paint after the backend is stopped');
-  });
+      final out = io.written.toString();
+      expect(out, contains('Ctrl+C again to exit'));
+      const leave = '\x1b[?1049l';
+      final leaveAt = out.indexOf(leave);
+      expect(leaveAt, greaterThanOrEqualTo(0));
+      expect(
+        out.substring(leaveAt + leave.length),
+        isEmpty,
+        reason: 'editor cleanup must not paint after the backend is stopped',
+      );
+    },
+  );
 
   test('first paint follows the alt-screen-enter escape', () async {
     // Regression guard for the startup first-paint ordering. The first paint
@@ -742,7 +748,51 @@ void main() {
     );
 
     test(
-      'a session with spawns resumes split with right-column panels',
+      'tiled layout restores simultaneous panels without a sidebar',
+      () async {
+        final store = MemorySessionStore();
+        final seeded = await seedSession(store, spawnCount: 2);
+        final config = Config.parse([
+          '--resume',
+          seeded.sessionId,
+          '--backend',
+          'ansi',
+          '--layout',
+          'tiled',
+        ]);
+        final app = await buildAppComposition(
+          config: config,
+          registry: builtinRegistry(),
+          provider: FakeProvider.done(),
+          store: store,
+        );
+        final coordinator = await TuiCoordinator.create(
+          app: app,
+          io: FakeStdio()..hasTerminalValue = false,
+          terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 40),
+        );
+        final manager = coordinator.panelManager;
+        expect(manager.sidebar, isNull);
+        expect(coordinator.screen.layout.sidebar.isEmpty, isTrue);
+        expect(coordinator.screen.layout.isSplit, isTrue);
+        expect(manager.allFrames, hasLength(3));
+        expect(manager.allFrames.every((frame) => !frame.isParked), isTrue);
+        expect(manager.primaryFrame.bounds.col, 0);
+        expect(
+          manager.spawnedFrames.first.bounds.col,
+          greaterThan(manager.primaryFrame.bounds.col),
+        );
+        coordinator.focusManager.focusPanel(manager.spawnedFrames.first);
+        expect(
+          coordinator.sessionManager.activeConversationId,
+          manager.spawnedFrames.first.conversationId,
+        );
+        expect(manager.allFrames.every((frame) => !frame.isParked), isTrue);
+      },
+    );
+
+    test(
+      'a session with spawns restores the sidebar and selected transcript',
       () async {
         final store = MemorySessionStore();
         final seeded = await seedSession(store, spawnCount: 2);
@@ -765,55 +815,64 @@ void main() {
           terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 24),
         );
 
-        // The restore + panelize + replay loops run synchronously inside
-        // create(), so both the real Screen layout and the rendered byte stream
-        // already reflect the restored structure BEFORE the REPL starts. (The
-        // panel borders/labels/history are written by putAtAbsolute, which
-        // flushes immediately.) We assert here rather than driving run() to stay
-        // on the deterministic create() path.
         final layout = coordinator.screen.layout;
+        expect(layout.isSplit, isFalse);
+        expect(layout.sidebar.width, 24);
+        final manager = coordinator.panelManager;
+        final sidebar = manager.sidebar!;
         expect(
-          layout.isSplit,
-          isTrue,
-          reason: 'spawns must restore as a right-column split',
+          sidebar.entries.map((e) => e.label),
+          containsAll([
+            'scout-0 (anthropic-small)',
+            'scout-1 (anthropic-small)',
+          ]),
         );
+        expect(sidebar.entries.map((e) => e.depth), [0, 1, 1]);
+        expect(coordinator.sessionManager.activeConversationId, primaryId);
+        expect(manager.selectedFrame, same(manager.primaryFrame));
+        expect(coordinator.spawnedPanels.every((p) => p.isParked), isTrue);
+
+        final line = coordinator.editor.readLine('> ');
+        await pumpEventQueue();
+        coordinator.editor.loadEditState('main draft', 10);
+
+        // Restored history is retained while hidden and rendered on selection.
+        coordinator.focusManager.focusPanel(sidebar);
+        sidebar.handleEvent(ArrowKey(ArrowDirection.down));
+        expect(coordinator.focusManager.focused, same(sidebar));
+        expect(manager.selectedFrame, same(coordinator.spawnedPanels.first));
         expect(
-          layout.infoLeftCol,
-          greaterThan(0),
-          reason: 'right column must start to the right of the chat',
+          coordinator.sessionManager.activeConversationId,
+          coordinator.spawnedPanels.first.conversationId,
+        );
+        expect(io.written.toString(), contains('spawn 0 q'));
+        coordinator.editor.loadEditState('scout draft', 11);
+        sidebar.handleEvent(ArrowKey(ArrowDirection.down));
+        expect(io.written.toString(), contains('spawn 1 q'));
+        sidebar.handleEvent(ControlKey(ControlCode.enter));
+        expect(
+          coordinator.focusManager.focused,
+          same(coordinator.spawnedPanels.last),
         );
 
-        final out = io.written.toString();
-        // Each spawn's panel title (`scout-<i> (anthropic-small)`) is drawn into
-        // the right column — both labels appearing proves two panels restored.
-        expect(
-          out,
-          contains('scout-0 (anthropic-small)'),
-          reason: 'first spawn panel must restore',
-        );
-        expect(
-          out,
-          contains('scout-1 (anthropic-small)'),
-          reason: 'second spawn panel must restore',
-        );
-        // And the restored spawn transcripts replay into their panels.
-        expect(
-          out,
-          contains('spawn 0 q'),
-          reason: 'first spawn history must replay',
-        );
-        expect(
-          out,
-          contains('spawn 1 q'),
-          reason: 'second spawn history must replay',
-        );
-        // Primary must remain the active conversation — restoring side panels
-        // must not steal focus from it.
-        expect(
-          coordinator.sessionManager.active.activeConversationId,
+        // Returning to a conversation restores its draft, and background
+        // output is buffered until the conversation becomes visible again.
+        final primary = coordinator.sessionManager.active.conversationById(
           primaryId,
-          reason: 'primary must stay active after panel restore',
-        );
+        )!;
+        primary.host.showMessage('background primary message\n');
+        coordinator.focusManager.focusPanel(sidebar);
+        sidebar.handleEvent(ArrowKey(ArrowDirection.up));
+        expect(coordinator.editor.editState.buffer, 'scout draft');
+        sidebar.handleEvent(ArrowKey(ArrowDirection.up));
+        expect(coordinator.editor.editState.buffer, 'main draft');
+        expect(io.written.toString(), contains('background primary message'));
+        expect(manager.selectedFrame, same(manager.primaryFrame));
+        sidebar.handleEvent(ControlKey(ControlCode.enter));
+        io.feedBytes([0x0d]);
+        expect(await line, 'main draft');
+        coordinator.editor.close();
+        manager.dispose();
       },
     );
 
@@ -845,6 +904,12 @@ void main() {
 
         // One branch panel restored (the branch role label + parent model ref).
         expect(coordinator.spawnedPanels, hasLength(1));
+        expect(
+          coordinator.sessionManager.activeConversationId,
+          primaryId,
+          reason: 'restoring a branch must not steal focus',
+        );
+        coordinator.focusManager.focusPanel(coordinator.spawnedPanels.single);
         final out = io.written.toString();
         expect(
           out,
@@ -882,11 +947,10 @@ void main() {
           reason: 'the branch follow-up turn must replay',
         );
 
-        // Primary stays active — restoring a branch panel must not steal focus.
+        // Selecting the branch changes the in-memory active conversation.
         expect(
           coordinator.sessionManager.active.activeConversationId,
-          primaryId,
-          reason: 'primary must stay active after branch panel restore',
+          coordinator.spawnedPanels.single.conversationId,
         );
       },
     );
@@ -1025,7 +1089,7 @@ void main() {
     // silently change panel geometry or where the shared input lands. ---
 
     test(
-      'spawned panels tile the right column: perPanel height, last absorbs the remainder, contiguous and aligned',
+      'sidebar selection gives each conversation the full transcript area',
       () async {
         final store = MemorySessionStore();
         final seeded = await seedSession(store, spawnCount: 3);
@@ -1052,56 +1116,23 @@ void main() {
         );
 
         final layout = coordinator.screen.layout;
-        expect(
-          layout.isSplit,
-          isTrue,
-          reason: '3 spawns must restore as a right-column split',
-        );
+        expect(layout.isSplit, isFalse);
         final panels = coordinator.treeOrderedPanels;
         expect(panels, hasLength(3));
-
-        final boxTop = layout.topBorderRow;
-        final boxHeight = layout.bottomBorderRow - layout.topBorderRow + 1;
-        final perPanel = boxHeight ~/ 3;
-
-        // First panel's top aligns with the primary's top border row.
-        expect(
-          panels.first.bounds.row,
-          boxTop,
-          reason: 'first panel starts at the box top',
-        );
-        // Every panel is perPanel tall except the last, which absorbs the
-        // remainder so the column is fully covered with no gap or overlap.
-        for (var i = 0; i < panels.length; i++) {
-          final p = panels[i];
-          final expectedH = i < panels.length - 1
-              ? perPanel
-              : boxTop + boxHeight - p.bounds.row;
-          expect(p.bounds.height, expectedH, reason: 'panel $i height');
-        }
-        // Contiguity: each panel begins exactly where the previous ended.
-        for (var i = 0; i < panels.length - 1; i++) {
-          expect(
-            panels[i + 1].bounds.row,
-            panels[i].bounds.row + panels[i].bounds.height,
-            reason: 'panel $i is contiguous with the next',
-          );
-        }
-        // Full vertical coverage: last panel bottom == boxTop + boxHeight (the
-        // primary's bottom border row).
-        final last = panels.last;
-        expect(
-          last.bounds.row + last.bounds.height,
-          boxTop + boxHeight,
-          reason: 'panels fill the box top-to-bottom',
-        );
-        // Flat spawns share one depth, so they share the same left col/width
-        // (same indent under the info box).
-        final col0 = panels.first.bounds.col;
-        final w0 = panels.first.bounds.width;
-        for (final p in panels) {
-          expect(p.bounds.col, col0, reason: 'flat spawns share indent');
-          expect(p.bounds.width, w0, reason: 'flat spawns share width');
+        final manager = coordinator.panelManager;
+        final sidebar = manager.sidebar!;
+        coordinator.focusManager.focusPanel(sidebar);
+        for (final panel in panels) {
+          sidebar.handleEvent(ArrowKey(ArrowDirection.down));
+          expect(manager.selectedFrame, same(panel));
+          expect(panel.isParked, isFalse);
+          expect(panel.bounds.col, layout.sidebar.width);
+          expect(panel.bounds.right, layout.width - 1);
+          expect(panel.bounds.row, layout.topBorderRow);
+          expect(panel.bounds.bottom, layout.bottomBorderRow);
+          expect(manager.allFrames.where((p) => !p.isParked), [panel]);
+          expect(manager.primaryFrame.canFocus, isFalse);
+          expect(coordinator.screen.input.bounds.row, panel.inputRect.row);
         }
       },
     );
@@ -1763,9 +1794,8 @@ void main() {
     /// A coordinator over a temp HOME whose `~/.tina/config` declares one
     /// configured provider with its single model explicitly enabled, so the
     /// picker shows exactly `anthropic/claude-sonnet-4-6`.
-    Future<
-      ({TuiCoordinator coordinator, FakeStdio io, Directory home})
-    > setUpPicker({UserConfig? seed}) async {
+    Future<({TuiCoordinator coordinator, FakeStdio io, Directory home})>
+    setUpPicker({UserConfig? seed}) async {
       final home = await Directory.systemTemp.createTemp('tina_model_default_');
       addTearDown(() => home.delete(recursive: true));
       final env = {'HOME': home.path};
@@ -1797,37 +1827,43 @@ void main() {
       return (coordinator: coordinator, io: io, home: home);
     }
 
-    test('confirming Yes persists [default] and preserves [providers]',
-        () async {
-      final t = await setUpPicker();
-      // Enter picks the highlighted model, then — once the confirm has armed —
-      // Enter accepts it (Yes is focused first).
-      t.io.feedBytes([0x0d]);
-      t.io.feedLater([0x0d], const Duration(milliseconds: 300));
-      await t.coordinator.controller.openModelPicker!();
-      final saved = loadUserConfig(env: {'HOME': t.home.path});
-      expect(saved.defaultProvider, 'anthropic');
-      expect(saved.defaultModel, 'claude-sonnet-4-6');
-      // The read-modify-write keeps the provider block (and the enabled set).
-      expect(saved.providers['anthropic']?.apiKey, 'test-key');
-      expect(saved.providers['anthropic']?.disabledModels, isEmpty);
-    });
+    test(
+      'confirming Yes persists [default] and preserves [providers]',
+      () async {
+        final t = await setUpPicker();
+        // Enter picks the highlighted model, then — once the confirm has armed —
+        // Enter accepts it (Yes is focused first).
+        t.io.feedBytes([0x0d]);
+        t.io.feedLater([0x0d], const Duration(milliseconds: 300));
+        await t.coordinator.controller.openModelPicker!();
+        final saved = loadUserConfig(env: {'HOME': t.home.path});
+        expect(saved.defaultProvider, 'anthropic');
+        expect(saved.defaultModel, 'claude-sonnet-4-6');
+        // The read-modify-write keeps the provider block (and the enabled set).
+        expect(saved.providers['anthropic']?.apiKey, 'test-key');
+        expect(saved.providers['anthropic']?.disabledModels, isEmpty);
+      },
+    );
 
-    test('answering No leaves the config untouched (switch still applies)',
-        () async {
-      final t = await setUpPicker();
-      // Enter picks; then Down moves to No; Enter accepts.
-      t.io.feedBytes([0x0d]);
-      t.io.feedLater(
-        [0x1b, 0x5b, 0x42, 0x0d],
-        const Duration(milliseconds: 300),
-      );
-      await t.coordinator.controller.openModelPicker!();
-      final saved = loadUserConfig(env: {'HOME': t.home.path});
-      expect(saved.defaultProvider, isNull);
-      expect(saved.defaultModel, isNull);
-      expect(saved.providers['anthropic']?.apiKey, 'test-key');
-    });
+    test(
+      'answering No leaves the config untouched (switch still applies)',
+      () async {
+        final t = await setUpPicker();
+        // Enter picks; then Down moves to No; Enter accepts.
+        t.io.feedBytes([0x0d]);
+        t.io.feedLater([
+          0x1b,
+          0x5b,
+          0x42,
+          0x0d,
+        ], const Duration(milliseconds: 300));
+        await t.coordinator.controller.openModelPicker!();
+        final saved = loadUserConfig(env: {'HOME': t.home.path});
+        expect(saved.defaultProvider, isNull);
+        expect(saved.defaultModel, isNull);
+        expect(saved.providers['anthropic']?.apiKey, 'test-key');
+      },
+    );
 
     test('picking the stored default asks nothing', () async {
       final t = await setUpPicker(
@@ -1835,10 +1871,7 @@ void main() {
           defaultProvider: 'anthropic',
           defaultModel: 'claude-sonnet-4-6',
           providers: {
-            'anthropic': ProviderConfig(
-              apiKey: 'test-key',
-              disabledModels: {},
-            ),
+            'anthropic': ProviderConfig(apiKey: 'test-key', disabledModels: {}),
           },
         ),
       );

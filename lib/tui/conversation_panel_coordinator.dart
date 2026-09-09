@@ -38,6 +38,8 @@ const _frameOwnedCanvas = true;
 /// host's job — the one exception is a panel scrolled out of the side
 /// column's visible window, whose content is parked (detached) until the
 /// window scrolls back to it.
+/// In sidebar mode this parking policy also applies to the primary: only the
+/// selected transcript is attached, while all other hosts keep buffering.
 class ConversationPanelCoordinator {
   ConversationPanelCoordinator({
     required this.panelManager,
@@ -168,6 +170,7 @@ class ConversationPanelCoordinator {
     // resize can land on an off-window panel — scroll it in first so the
     // input line relocates onto a real rect.
     _scrollIntoView(frame);
+    panelManager.refreshSidebar();
     final binding = _bindings.values.firstWhere((b) => b.frame == frame);
     final s = binding.content.surface;
     if (s != null) panelManager.screen.raiseChatSurface(s);
@@ -185,7 +188,11 @@ class ConversationPanelCoordinator {
     // notice instead of silently typing into the main conversation's editor.
     if (session.conversationById(binding.conversationId) == null) {
       _wireReadOnlyInput(frame, binding);
-      panelManager.relocateInput(panelManager.primaryFrame);
+      if (panelManager.sidebar != null) {
+        panelManager.screen.input.setBoundsOverride(Rect.empty);
+      } else {
+        panelManager.relocateInput(panelManager.primaryFrame);
+      }
       return;
     }
     // Focusing a side panel routes input to it (in-memory active follows
@@ -198,10 +205,11 @@ class ConversationPanelCoordinator {
     final isPrimary = binding.conversationId == _primaryConversationId;
     final selection = sessionManager.selectConversation(binding.conversationId);
     presentConversationSelection(selection);
+    // Retarget immediately: a delayed persistence completion must not restore
+    // an older draft after the user has already selected another sidebar row.
+    panelManager.relocateInput(frame);
     unawaited(
-      sessionManager.persistSelection(selection, persist: isPrimary).then((_) {
-        panelManager.relocateInput(frame);
-      }),
+      sessionManager.persistSelection(selection, persist: isPrimary),
     );
   }
 
@@ -254,8 +262,10 @@ class ConversationPanelCoordinator {
   /// window doesn't show). No-op while every panel fits.
   void _scrollIntoView(PanelFrame frame) {
     if (panelManager.ensureVisible(frame)) {
-      panelManager.layout();
-      relayContent();
+      panelManager.screen.frame(() {
+        panelManager.layout();
+        relayContent();
+      });
     }
   }
 
@@ -271,7 +281,7 @@ class ConversationPanelCoordinator {
     // The primary frame is never parked — it isn't part of the scrolled
     // column, and detaching it would regress the primary-stays-visible
     // invariant even when its bounds are momentarily empty (pre-layout).
-    if (frame != panelManager.primaryFrame &&
+    if ((frame != panelManager.primaryFrame || panelManager.sidebar != null) &&
         (frame.isParked || frame.bounds.isEmpty)) {
       if (!content.isDetached) content.detach();
       content.bindSurface(null);
@@ -295,7 +305,15 @@ class ConversationPanelCoordinator {
   void bindExtra({required PanelFrame frame, required PanelContent content}) {
     _extra[frame] = content;
     frame.setReservesInput(false);
-    frame.onFocus = () => panelManager.relocateInput(panelManager.primaryFrame);
+    frame.onFocus = () {
+      _scrollIntoView(frame);
+      panelManager.refreshSidebar();
+      if (panelManager.sidebar != null) {
+        panelManager.screen.input.setBoundsOverride(Rect.empty);
+      } else {
+        panelManager.relocateInput(panelManager.primaryFrame);
+      }
+    };
     frame.onHighlight = () => _scrollIntoView(frame);
     panelManager.addFrame(frame);
   }
@@ -311,6 +329,13 @@ class ConversationPanelCoordinator {
   /// `_activeFrame` did, then delegates the content-agnostic retarget to the
   /// manager.
   void relocateInput({bool force = false}) {
+    if (panelManager.sidebar != null) {
+      final selected = panelManager.selectedFrame;
+      if (sessionManager.active.conversationById(selected.conversationId) == null) {
+        panelManager.screen.input.setBoundsOverride(Rect.empty);
+        return;
+      }
+    }
     panelManager.relocateInput(_activeFrame(), force: force);
   }
 
@@ -326,6 +351,7 @@ class ConversationPanelCoordinator {
 
   void relabel(String conversationId, String label) {
     _bindings[conversationId]?.frame.relabel(label);
+    panelManager.refreshSidebar();
   }
 
   /// The chat transcript + frame label behind [frame], when the frame presents
@@ -350,6 +376,7 @@ class ConversationPanelCoordinator {
     for (final c in _extra.values) {
       c.repaint();
     }
+    panelManager.refreshSidebar();
   }
 
   /// The chat surface for [conversationId], for callers that parent overlays

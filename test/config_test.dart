@@ -124,6 +124,46 @@ void main() {
       });
     });
 
+    test('layout uses CLI, then saved preference, then sidebar', () {
+      for (final (args, saved, expected) in [
+        (<String>[], null, LayoutStyle.sidebar),
+        (<String>[], 'tiled', LayoutStyle.tiled),
+        (['--layout', 'sidebar'], 'tiled', LayoutStyle.sidebar),
+        (['--layout', 'tiled'], 'sidebar', LayoutStyle.tiled),
+      ]) {
+        final config = Config.parse(
+          args,
+          env: const {},
+          userConfig: UserConfig.fromMap({
+            'tui': {if (saved != null) 'layout': saved},
+          }),
+        );
+        expect(config.layout, expected);
+        expect(config.launch.terminal.layout, expected);
+      }
+    });
+
+    test('invalid layout values fail with a configuration error', () {
+      expect(
+        () => Config.parse(['--layout', 'unknown'], env: const {}),
+        throwsFormatException,
+      );
+      expect(
+        () => Config.parse(
+          [],
+          env: const {},
+          userConfig: const UserConfig(layout: 'unknown'),
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('[tui] layout'),
+          ),
+        ),
+      );
+    });
+
     test('[tui] mouse_wheel flows from the file into Config (default off)', () {
       final env = const {'ANTHROPIC_API_KEY': 'sk'};
       final cfg = Config.parse(

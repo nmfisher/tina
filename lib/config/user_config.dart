@@ -466,6 +466,10 @@ class UserConfig {
   /// `Config.parse` as [Config.mouseWheel].
   final bool? mouseWheel;
 
+  /// Panel arrangement from `[tui] layout` (`sidebar`/`tiled`).
+  /// Null when absent; the terminal defaults to sidebar.
+  final String? layout;
+
   /// The `[regions]` table: defaults for region agents (fast model, etc.).
   /// Null when absent.
   final RegionsConfig? regions;
@@ -491,6 +495,7 @@ class UserConfig {
     this.environmentAutoPopulate,
     this.environmentModel,
     this.mouseWheel,
+    this.layout,
     this.regions,
     this.permissions,
     this.version = kCurrentConfigVersion,
@@ -510,6 +515,7 @@ class UserConfig {
       environmentAutoPopulate == null &&
       environmentModel == null &&
       mouseWheel == null &&
+      layout == null &&
       (regions == null || regions!.isEmpty) &&
       (permissions == null || permissions!.isEmpty);
 
@@ -529,6 +535,7 @@ class UserConfig {
     String? environmentAutoPopulate,
     String? environmentModel,
     bool? mouseWheel,
+    String? layout,
     RegionsConfig? regions,
     PermissionsConfig? permissions,
   }) => UserConfig(
@@ -545,6 +552,7 @@ class UserConfig {
         environmentAutoPopulate ?? this.environmentAutoPopulate,
     environmentModel: environmentModel ?? this.environmentModel,
     mouseWheel: mouseWheel ?? this.mouseWheel,
+    layout: layout ?? this.layout,
     regions: regions ?? this.regions,
     permissions: permissions ?? this.permissions,
     version: version,
@@ -602,6 +610,7 @@ class UserConfig {
       environmentAutoPopulate: environmentAutoPopulate,
       environmentModel: environmentModel,
       mouseWheel: mouseWheel,
+      layout: tuiRaw?['layout'] as String?,
       regions: regionsRaw == null ? null : RegionsConfig.fromMap(regionsRaw),
       permissions: permissionsRaw == null
           ? null
@@ -846,7 +855,11 @@ String userConfigToToml(UserConfig config) {
           'auto_populate': config.environmentAutoPopulate,
         if (config.environmentModel != null) 'model': config.environmentModel,
       },
-    if (config.mouseWheel != null) 'tui': {'mouse_wheel': config.mouseWheel},
+    if (config.mouseWheel != null || config.layout != null)
+      'tui': {
+        if (config.mouseWheel != null) 'mouse_wheel': config.mouseWheel,
+        if (config.layout != null) 'layout': config.layout,
+      },
     if (config.regions != null && !config.regions!.isEmpty)
       'regions': config.regions!.toMap(),
     if (config.permissions != null && !config.permissions!.isEmpty)
@@ -1010,5 +1023,6 @@ api_key = "sk-ant-..."
 # button-1 drags to the app too, so native selection needs Option/Alt held
 # (macOS Terminal) or Shift (most others).
 # [tui]
+# layout = "sidebar" # "sidebar" (conversation list) or "tiled" (side by side)
 # mouse_wheel = false
 ''';

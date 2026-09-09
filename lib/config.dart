@@ -34,6 +34,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
   final bool? trustOverride;
   final TrustDefault trustDefault;
   final bool mouseWheel;
+  final LayoutStyle layout;
   final bool forceLock;
 
   Config({
@@ -80,6 +81,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     super.environmentAutoPopulate = EnvironmentAutoPopulate.ask,
     super.environmentModel,
     this.mouseWheel = false,
+    this.layout = LayoutStyle.sidebar,
     super.regionsModel,
     super.permissionMode = PermissionMode.ask,
     super.permissionClassifierModel,
@@ -125,8 +127,12 @@ class Config extends RuntimeConfig implements ResumeRequest {
     transportRetryAttempts: transportRetryAttempts,
   );
 
-  TerminalConfig get terminal =>
-      TerminalConfig(backend: backend, theme: theme, mouseWheel: mouseWheel);
+  TerminalConfig get terminal => TerminalConfig(
+    backend: backend,
+    theme: theme,
+    mouseWheel: mouseWheel,
+    layout: layout,
+  );
 
   ResumeRequest get resumeRequest => ResumeRequest(
     resumeSessionId: resumeSessionId,
@@ -402,6 +408,14 @@ class Config extends RuntimeConfig implements ResumeRequest {
           'Run the interactive first-run setup wizard (provider/model '
           'selection). Also runs automatically when no config exists and '
           'stdin is a terminal.',
+    )
+    ..addOption(
+      'layout',
+      allowed: ['sidebar', 'tiled'],
+      help:
+          'Panel layout: sidebar shows a conversation list beside the active '
+          'transcript; tiled shows conversations side by side. Overrides '
+          '[tui] layout in ~/.tina/config (default: sidebar).',
     )
     ..addOption(
       'backend',
@@ -696,7 +710,9 @@ class Config extends RuntimeConfig implements ResumeRequest {
       streamIdleTimeout: Duration(
         seconds: parsePositive('stream-idle-timeout', '60'),
       ),
-      requestTimeout: Duration(seconds: parsePositive('request-timeout', '120')),
+      requestTimeout: Duration(
+        seconds: parsePositive('request-timeout', '120'),
+      ),
       transportRetryAttempts: parseBudget('transport-retry-attempts', '5'),
       backend: switch (res['backend'] as String) {
         'ansi' => BackendChoice.ansi,
@@ -718,6 +734,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
       ),
       environmentModel: userConfig?.environmentModel,
       mouseWheel: userConfig?.mouseWheel ?? false,
+      layout: _resolveLayout(res['layout'] as String?, userConfig?.layout),
       regionsModel: userConfig?.regions?.model,
       permissionMode: _resolvePermissionMode(
         res['permission-mode'] as String?,
@@ -729,6 +746,15 @@ class Config extends RuntimeConfig implements ResumeRequest {
     );
   }
 }
+
+LayoutStyle _resolveLayout(String? flagValue, String? fileValue) =>
+    switch (flagValue ?? fileValue) {
+      null || 'sidebar' => LayoutStyle.sidebar,
+      'tiled' => LayoutStyle.tiled,
+      final value => throw FormatException(
+        'Invalid [tui] layout "$value": expected sidebar or tiled.',
+      ),
+    };
 
 /// Resolve the startup permission mode: CLI flag > `[permissions] mode` file
 /// value > ask. An unknown file value is a config error at load time, but be

@@ -32,6 +32,10 @@ class PanelFrame implements Focusable {
   String _label;
   String get label => _label;
 
+  /// Tiled layouts cycle onto offscreen slots; a sidebar selects hidden views
+  /// instead, so those frames can opt out of the keyboard focus ring.
+  bool cycleWhenParked = true;
+
   /// Replace the label and repaint the panel chrome. The framed content is
   /// untouched (it's a separate surface). Use this when `/model` changes the
   /// active conversation's provider/model reference.
@@ -145,7 +149,7 @@ class PanelFrame implements Focusable {
   bool get hasFocus => _hasFocus;
 
   @override
-  bool get canFocus => !bounds.isEmpty;
+  bool get canFocus => !bounds.isEmpty && (!_parked || cycleWhenParked);
 
   // -- Focusable ---------------------------------------------------------
 

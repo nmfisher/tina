@@ -18,6 +18,8 @@ import 'rect.dart';
 ///
 /// All region rectangles ([chat], [input], [info]) are interior — they
 /// exclude the border cells on their box.
+/// Requesting a sidebar reserves a narrow box on the left and places the
+/// status strip below both boxes, outside their input/content rectangles.
 class ScreenLayout {
   /// Terminal width threshold below which the info box vanishes and chat
   /// spans the full width.
@@ -40,6 +42,9 @@ class ScreenLayout {
   final Rect input;
   final Rect info;
 
+  /// Border-inclusive conversation sidebar; empty when not requested.
+  final Rect sidebar;
+
   /// Alias for [info] — kept because callers still say `screen.status`.
   Rect get status => info;
 
@@ -56,9 +61,11 @@ class ScreenLayout {
   final int topBorderRow;
   final int bottomBorderRow;
 
-  /// Row where the prompt lives, inside the chat box just above the bottom
-  /// border.
+  /// Row where the prompt lives, inside the chat box above its bottom border.
   final int inputRow;
+
+  /// Mode/status row: below the sidebar boxes, or on the tiled bottom border.
+  final int stripRow;
 
   /// Whether a menu bar box is reserved at the top of the screen.
   final bool hasMenuBar;
@@ -100,6 +107,7 @@ class ScreenLayout {
     required this.chat,
     required this.input,
     required this.info,
+    required this.sidebar,
     required this.chatLeftCol,
     required this.chatRightCol,
     required this.infoLeftCol,
@@ -107,6 +115,7 @@ class ScreenLayout {
     required this.topBorderRow,
     required this.bottomBorderRow,
     required this.inputRow,
+    required this.stripRow,
     required this.hasMenuBar,
     required this.menuBarRow,
     required this.menuTopBorderRow,
@@ -120,28 +129,34 @@ class ScreenLayout {
   /// inside the chat box just above the bottom border, and the bottom border
   /// row.
   factory ScreenLayout.fromSize(int width, int height,
-      {bool hasMenuBar = false, bool? split, bool drawInfoFrame = true}) {
+      {bool hasMenuBar = false, bool? split, bool drawInfoFrame = true,
+      int sidebarWidth = 0}) {
     final w = width < 1 ? 1 : width;
     final minH = hasMenuBar ? 8 : 5;
     final h = height < minH ? minH : height;
     final menuOffset = hasMenuBar ? 3 : 0; // menu box = border/content/border
 
     final topBorder = menuOffset; // 3 with menu, 0 without.
-    final bottomBorder = h - 1;
-    final inputRow = h - 2;
+    // Reserve space for a usable transcript even on small terminals.
+    final sideWidth = sidebarWidth <= 0 || w < 30
+        ? 0 : sidebarWidth.clamp(10, (w ~/ 3).clamp(10, w - 20));
+    final bottomBorder = sideWidth > 0 ? h - 2 : h - 1;
+    final stripRow = h - 1;
+    final inputRow = sideWidth > 0 ? h - 3 : h - 2;
 
     // Menu box geometry (rows 0–2 when present).
     final menuTop = hasMenuBar ? 0 : -1;
     final menuContent = hasMenuBar ? 1 : -1;
     final menuBottom = hasMenuBar ? 2 : -1;
 
-    final isSplit = split ?? w >= splitThreshold;
-    final chatWidth = isSplit ? (w * 0.65).round().clamp(30, w - 20) : w;
-    final infoWidth = isSplit ? w - chatWidth : 0;
+    final available = w - sideWidth;
+    final isSplit = (split ?? available >= splitThreshold) && available >= 50;
+    final chatWidth = isSplit ? (available * 0.65).round().clamp(30, available - 20) : available;
+    final infoWidth = isSplit ? available - chatWidth : 0;
 
-    final chatLeftCol = 0;
-    final chatRightCol = chatWidth - 1;
-    final infoLeftCol = isSplit ? chatWidth : -1;
+    final chatLeftCol = sideWidth;
+    final chatRightCol = sideWidth + chatWidth - 1;
+    final infoLeftCol = isSplit ? sideWidth + chatWidth : -1;
     final infoRightCol = isSplit ? w - 1 : -1;
 
     // Chat scrollback: rows between top border and input row, inside the
@@ -184,6 +199,10 @@ class ScreenLayout {
       chat: chat,
       input: input,
       info: info,
+      sidebar: sideWidth == 0 ? Rect.empty : Rect(
+        row: topBorder, col: 0, width: sideWidth,
+        height: bottomBorder - topBorder + 1,
+      ),
       chatLeftCol: chatLeftCol,
       chatRightCol: chatRightCol,
       infoLeftCol: infoLeftCol,
@@ -191,6 +210,7 @@ class ScreenLayout {
       topBorderRow: topBorder,
       bottomBorderRow: bottomBorder,
       inputRow: inputRow,
+      stripRow: stripRow,
       hasMenuBar: hasMenuBar,
       menuBarRow: menuContent,
       menuTopBorderRow: menuTop,

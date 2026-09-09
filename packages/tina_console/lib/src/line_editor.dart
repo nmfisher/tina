@@ -521,6 +521,10 @@ class LineEditor {
       if (_keyCompleterGlobal && _handleFocusRingKeys(event)) {
         return;
       }
+      if (_keyCompleterGlobal &&
+          (_focusManager?.focused?.handleEvent(event) ?? false)) {
+        return;
+      }
       final c = _keyCompleter!;
       _keyCompleter = null;
       if (PasteAudit.enabled) {
@@ -565,6 +569,8 @@ class LineEditor {
       return;
     }
     if (_cancelHandler != null) {
+      if (_handleFocusRingKeys(event)) return;
+      if (_focusManager?.focused?.handleEvent(event) ?? false) return;
       final isCtrlC = event is ControlKey && event.code == ControlCode.ctrlC;
       final isEsc = event is EscapeKey;
       if (_queueModeActive) {

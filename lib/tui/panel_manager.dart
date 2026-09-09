@@ -2,6 +2,7 @@ import 'package:tina_console/tina_console.dart';
 
 import '../platform/terminal_geometry.dart';
 import 'tree_order.dart';
+import 'conversation_sidebar.dart';
 import '../tui_coordinator.dart' show SpawnTree;
 
 /// Content-agnostic panel geometry, focus ring, and shared-input relocation.
@@ -12,6 +13,8 @@ import '../tui_coordinator.dart' show SpawnTree;
 /// content those frames hold — content positioning is the
 /// [ConversationPanelCoordinator]'s job (Phase 5), so this stays a pure-geometry
 /// seam that can be unit-tested against the real [Screen]/[FocusManager].
+/// With [sidebar] enabled, it instead parks every unselected frame and gives
+/// the selected frame the full transcript area to the right of the tree.
 class PanelManager {
   PanelManager({
     required this.screen,
@@ -21,7 +24,18 @@ class PanelManager {
     required this.terminalGeometry,
     required this.menuBarEnabled,
     required this.tree,
-  });
+    bool showSidebar = false,
+  }) : sidebar = showSidebar ? ConversationSidebar(screen) : null {
+    final side = sidebar;
+    if (side != null) {
+      primaryFrame.cycleWhenParked = false;
+      focusManager.register(side);
+      side.onSelect = (id) => onSelectFrame?.call(
+          allFrames.firstWhere((frame) => frame.conversationId == id));
+      side.onEnter = (id) => focusManager.focusPanel(
+          allFrames.firstWhere((frame) => frame.conversationId == id));
+    }
+  }
 
   final Screen screen;
   final FocusManager focusManager;
@@ -30,6 +44,19 @@ class PanelManager {
   final TerminalGeometry terminalGeometry;
   final bool menuBarEnabled;
   final SpawnTree tree;
+  final ConversationSidebar? sidebar;
+  void Function(PanelFrame frame)? onSelectFrame;
+  PanelFrame? _selectedFrame;
+  PanelFrame get selectedFrame => _selectedFrame ?? primaryFrame;
+
+  void refreshSidebar() {
+    sidebar?.update([
+      (id: primaryFrame.conversationId, label: primaryFrame.label, depth: 0),
+      for (final frame in tree.ordered(spawnedFrames))
+        (id: frame.conversationId, label: frame.label,
+          depth: tree.depthOf(frame.conversationId)),
+    ], activeId: selectedFrame.conversationId);
+  }
 
   final List<PanelFrame> spawnedFrames = [];
 
@@ -60,15 +87,23 @@ class PanelManager {
   /// (Tab-cyclable); the primary stays active. Content relay into the frame's
   /// interior is the coordinator's job (after every [layout]).
   void addFrame(PanelFrame f) {
+    f.cycleWhenParked = sidebar == null;
     spawnedFrames.add(f);
     focusManager.register(f);
+    refreshSidebar();
   }
 
   /// Remove a spawned frame from the ring + list and release its busy timer.
   void removeFrame(PanelFrame f) {
     focusManager.unregister(f);
     spawnedFrames.remove(f);
+    if (f == _selectedFrame) {
+      focusManager.home = primaryFrame;
+      focusManager.focusPanel(primaryFrame);
+      _selectedFrame = primaryFrame;
+    }
     f.dispose();
+    refreshSidebar();
   }
 
   /// Resize the screen to the current terminal size with the given split/info
@@ -79,8 +114,9 @@ class PanelManager {
       terminalGeometry.columns,
       terminalGeometry.lines,
       hasMenuBar: menuBarEnabled,
-      split: split,
-      drawInfoFrame: drawInfoFrame,
+      split: sidebar == null && split,
+      drawInfoFrame: sidebar == null && drawInfoFrame,
+      sidebarWidth: sidebar == null ? 0 : 24,
     ));
   }
 
@@ -90,6 +126,24 @@ class PanelManager {
   /// is positioned separately.
   void layout() {
     final layout = screen.layout;
+    if (sidebar != null) {
+      screen.frame(() {
+        final rect = Rect(
+          row: layout.topBorderRow, col: layout.chatLeftCol,
+          width: layout.chatRightCol - layout.chatLeftCol + 1,
+          height: layout.bottomBorderRow - layout.topBorderRow + 1,
+        );
+        for (final frame in allFrames) {
+          if (frame != selectedFrame) frame.setOuter(rect, parked: true);
+        }
+        // Resizing the sidebar erases its old rectangle on ANSI. Do that
+        // before repainting the view, since shrinking can release columns
+        // which now belong to the conversation's left border/content.
+        refreshSidebar();
+        selectedFrame.setOuter(rect);
+      });
+      return;
+    }
     // The primary panel owns the chat box (border-inclusive): the full width
     // when not split, or the left column up to the divider when split.
     primaryFrame.setOuter(Rect(
@@ -203,6 +257,13 @@ class PanelManager {
   /// relay content. False when [frame] is unknown, everything already fits, or
   /// it was already in the window.
   bool ensureVisible(PanelFrame frame) {
+    if (sidebar != null) {
+      if (!allFrames.contains(frame)) return false;
+      focusManager.home = frame;
+      if (selectedFrame == frame) return false;
+      _selectedFrame = frame;
+      return true;
+    }
     final ordered = tree.ordered(spawnedFrames);
     final idx = ordered.indexOf(frame);
     if (idx < 0) return false;
@@ -265,6 +326,11 @@ class PanelManager {
   }
 
   void dispose() {
+    final side = sidebar;
+    if (side != null) {
+      focusManager.unregister(side);
+      side.dispose();
+    }
     primaryFrame.dispose();
     for (final f in spawnedFrames) {
       f.dispose();

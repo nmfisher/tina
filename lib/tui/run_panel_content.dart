@@ -72,6 +72,7 @@ class RunPanelContent implements PanelContent {
   /// The dim read-only notice in the panel's bottom row. Plain-then-colorize
   /// so the fit never splits an SGR sequence.
   void _paintLabel() {
+    if (isDetached) return;
     final b = _interior;
     if (b.isEmpty || b.height < 1) return;
     const plain = 's stop · x close · read-only workflow view';

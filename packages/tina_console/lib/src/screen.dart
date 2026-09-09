@@ -485,7 +485,7 @@ class Screen {
   void _renderStrip() {
     if (passthrough) return;
     final be = _backend!;
-    final row = _layout.bottomBorderRow;
+    final row = _layout.stripRow;
     final inner = _layout.width - 2;
     final segs = <String>[];
     if (_modeLabel != null) segs.add(colorize('2', _modeLabel!));
@@ -524,8 +524,7 @@ class Screen {
       be.eraseCells(_layout.menuBarRow, 1, w - 2);
     }
     _repaintBoxBorders();
-    // The strip owns the bottom border row while active — repaint it after
-    // the borders so it wins.
+    // Repaint the strip after borders; tiled layouts share their bottom row.
     if (_errorStrip != null || _modeLabel != null) _renderStrip();
     // Park the cursor at the chat region's top-left.
     be.moveCursor(_layout.chat.row, _layout.chat.col);

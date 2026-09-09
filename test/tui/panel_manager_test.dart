@@ -5,6 +5,7 @@ import 'package:tina/platform/terminal_geometry.dart';
 import 'package:test/test.dart';
 
 import '../helpers/fake_stdio.dart';
+import '../../packages/tina_console/test/virtual_terminal.dart';
 
 /// Content-agnostic unit tests for [PanelManager]: the geometry + focus-ring
 /// seams that Phase 3 extracted out of [TuiCoordinator.create]. Driving
@@ -58,6 +59,47 @@ void main() {
   }
 
   group('layout (geometry)', () {
+    test('sidebar keeps tree order while only the selected frame is visible', () {
+      final pm = PanelManager(
+        screen: screen, focusManager: focusManager, editor: editor,
+        primaryFrame: primary, terminalGeometry: geometry,
+        menuBarEnabled: false, tree: tree, showSidebar: true,
+      );
+      pm.applyScreenLayout(split: true, drawInfoFrame: false);
+      final sibling = _spawn('sibling');
+      final child = _spawn('child');
+      final nested = _spawn('nested', parent: 'child');
+      pm.addFrame(child);
+      pm.addFrame(sibling);
+      pm.addFrame(nested);
+      pm.layout();
+      expect(pm.sidebar!.entries.map((e) => e.id),
+          ['primary', 'child', 'nested', 'sibling']);
+      expect(pm.sidebar!.entries.map((e) => e.depth), [0, 1, 2, 1]);
+      expect(pm.allFrames.where((f) => !f.isParked), [primary]);
+      expect(pm.ensureVisible(nested), isTrue);
+      pm.layout();
+      expect(pm.allFrames.where((f) => !f.isParked), [nested]);
+      expect(nested.bounds.col, screen.layout.sidebar.width);
+      expect(nested.bounds.right, screen.layout.width - 1);
+      expect(nested.canFocus, isTrue);
+      expect(primary.canFocus, isFalse);
+      expect(pm.sidebar!.activeId, 'nested');
+      final vt = VirtualTerminal(width: 120, height: 24);
+      vt.feed(io.written.toString());
+      io.written.clear();
+      screen.resize(ScreenLayout.fromSize(60, 16, sidebarWidth: 24, split: false));
+      pm.layout();
+      vt.feed(io.written.toString());
+      final resized = screen.layout;
+      expect(resized.sidebar.width, 20);
+      expect(vt.rowText(resized.topBorderRow)[resized.chatLeftCol], '┌',
+          reason: 'shrinking the sidebar must not erase the new view border');
+      expect(nested.bounds.right, 59);
+      expect(pm.sidebar!.activeId, 'nested');
+      pm.dispose();
+    });
+
     test('no spawned frames: primary owns the full chat width', () {
       final pm = PanelManager(
         screen: screen,

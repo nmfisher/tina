@@ -1,4 +1,3 @@
-
 import 'package:tina_app/tina_app.dart';
 import 'pipeline/tina_interviewer.dart';
 import 'package:tina/config/provider_selection.dart';
@@ -15,7 +14,6 @@ import 'package:tina/completion/git_file_provider.dart';
 import 'package:tina/completion/command_completion_provider.dart';
 import 'package:tina/composition/config_providers.dart';
 
-
 import 'package:tina/config.dart';
 
 import 'package:tina/config/spawn_mru.dart';
@@ -23,9 +21,7 @@ import 'package:tina/config/user_config.dart';
 
 import 'package:tina/host/tui_conversation_host.dart';
 
-
 import 'package:tina/pipeline/workflow_permission_asker.dart';
-
 
 import 'package:tina/self_update/release_checker.dart';
 import 'package:tina/self_update/updater.dart';
@@ -39,14 +35,12 @@ import 'package:tina/platform/terminal_geometry.dart';
 
 import 'package:tina/session_controller.dart';
 
-
 import 'package:tina/tmux/tmux_support.dart';
 import 'package:tina/tui/spawn_overlay.dart';
 import 'package:tina/tui/tree_order.dart';
 import 'package:tina/tui/panel_manager.dart';
 import 'package:tina/tui/conversation_panel_coordinator.dart';
 import 'package:tina/tui/resize_coordinator.dart';
-import 'package:tina/tui/session_bar.dart';
 import 'package:tina/tui/session_picker_overlay.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina_console/tina_console.dart';
@@ -186,12 +180,8 @@ class TuiCoordinator {
   /// reads as "not in tmux" everywhere it's consulted.
   TmuxSupport? _tmux;
 
-  /// The tmux-style session list rendered into the info column when no side
-  /// panels are open. Refreshed on every session change and on resize.
-  final SessionBar _sessionBar;
-
-  /// The spawned (side-panel) conversations currently tiled in the right
-  /// column. Exposed so tests can drive a real focus change through the focus
+  /// The spawned conversations listed in the sidebar. Exposed so tests can
+  /// drive a real focus change through the focus
   /// ring without running the REPL.
   List<PanelFrame> get spawnedPanels => panelManager.spawnedFrames;
 
@@ -242,14 +232,12 @@ class TuiCoordinator {
     required Future<UserConfig?> Function() setupOverlay,
     required SpawnTree tree,
     required ResizeCoordinator resizeCoordinator,
-    required SessionBar sessionBar,
   }) : _warning = warning,
        _refreshSessionMenu = refreshSessionMenu,
        _setupOverlay = setupOverlay,
        _tree = tree,
        _contentCoordinator = contentCoordinator,
-       _resizeCoordinator = resizeCoordinator,
-       _sessionBar = sessionBar;
+       _resizeCoordinator = resizeCoordinator;
 
   static Future<TuiCoordinator> create({
     required AppComposition app,
@@ -319,12 +307,13 @@ class TuiCoordinator {
       final store = app.store;
       final stdio = io ?? const LiveStdio();
       final geometry = terminalGeometry ?? const StdoutTerminalGeometry();
-      // Start full-width — no right column until a spawned agent creates one.
+      // In tiled mode, a spawned agent creates the right column.
       final layout = ScreenLayout.fromSize(
         geometry.columns,
         geometry.lines,
         hasMenuBar: _menuBarEnabled,
         split: false,
+        sidebarWidth: terminalConfig.layout == LayoutStyle.sidebar ? 24 : 0,
       );
       final (:screen, :warning) = _createScreen(terminalConfig, stdio, layout);
       acquired.own(screen.leaveAltScreen);
@@ -397,12 +386,9 @@ class TuiCoordinator {
       late final MenuBar menuBar;
       late final SessionController controller;
 
-      // Session bar lives in the info column; hidden when side panels are open.
-      // The side-panel check is a late closure (assigned once [panelManager]
-      // exists below) so [refreshSessionMenu] — declared before panelManager —
-      // can call it without a forward reference.
-      final sessionBar = SessionBar(screen);
-      late bool Function() hasSidePanels;
+      // Assigned when the panel manager is constructed; session/model changes
+      // refresh the same conversation tree as resize and panel creation.
+      void Function() refreshSidebar = () {};
 
       // Background-activity handler. Declared up here (nullable) so [hostFactory]
       // and the initial host can capture it; assigned once [refreshSessionMenu]
@@ -469,6 +455,7 @@ class TuiCoordinator {
       // once-per-install `--backend ansi` notice. Reads $TMUX from the app's
       // environment seam; inert outside tmux.
       final tmux = TmuxSupport(env: app.environment.env, tinaDir: tinaDataDir);
+
       /// The live `"provider/model"` of [conversationId] across every session,
       /// or null when the id is unknown/empty or the conversation has no ref
       /// recorded. The single source of truth for "which model does work
@@ -492,7 +479,8 @@ class TuiCoordinator {
         // Workflow nodes that omit `llm_model` run under the model the
         // LAUNCHING conversation is on right now, not the one the process
         // started with.
-        defaultModelReference: liveModelRefOrNull(conversationId) ??
+        defaultModelReference:
+            liveModelRefOrNull(conversationId) ??
             '${app.config.provider}/${app.config.model}',
         interviewerBuilder: (sink) => TinaInterviewer(
           screen: screen,
@@ -823,23 +811,7 @@ class TuiCoordinator {
           ..clear()
           ..addAll(items);
         menuBar.render();
-        // Refresh the session bar too (same data, persistent form). Hidden when
-        // side panels own the info column or there's just one session.
-        sessionBar.refresh(
-          sessions: sessionManager
-              .listSessions()
-              .map(
-                (s) => (
-                  id: s.id,
-                  label: s.label,
-                  isActive: s.isActive,
-                  isRunning: s.isRunning,
-                  unread: s.unread,
-                ),
-              )
-              .toList(),
-          hasSidePanels: hasSidePanels(),
-        );
+        refreshSidebar();
       }
 
       /// A background conversation produced output: bump its session's unread
@@ -1342,8 +1314,9 @@ class TuiCoordinator {
         terminalGeometry: geometry,
         menuBarEnabled: _menuBarEnabled,
         tree: tree,
+        showSidebar: terminalConfig.layout == LayoutStyle.sidebar,
       );
-      hasSidePanels = () => panelManager.spawnedFrames.isNotEmpty;
+      refreshSidebar = panelManager.refreshSidebar;
 
       // The single place that knows about both panels and conversations: the
       // conversation→frame mapping, content relay, focus→active wiring, and the
@@ -1357,6 +1330,7 @@ class TuiCoordinator {
         primaryHost: initialHost,
       );
       contentCoordinator.bindPrimary(conversationId: initialConversationId);
+      panelManager.onSelectFrame = (frame) => frame.onFocus?.call();
       // Repoint the forward-declared [relocateInput] at the coordinator, which
       // resolves the active frame and performs the content-agnostic retarget.
       relocateInput = contentCoordinator.relocateInput;
@@ -1930,6 +1904,7 @@ class TuiCoordinator {
         final panel = (conv.host as TuiConversationHost).panel;
         if (panel != null) {
           tree.relabelPanel(panel, conv.label);
+          panelManager.refreshSidebar();
         }
         conv.host.showMessage(
           'model: $prev → ${conv.label}\n',
@@ -1943,14 +1918,15 @@ class TuiCoordinator {
         // live modelReference; this is only about future launches.
         final storedDefault =
             cfg.defaultProvider == null || cfg.defaultModel == null
-                ? null
-                : '${cfg.defaultProvider}/${cfg.defaultModel}';
+            ? null
+            : '${cfg.defaultProvider}/${cfg.defaultModel}';
         if (selected == storedDefault) return;
         final confirm = controller.confirm;
         if (confirm == null) return; // headless: no prompt, no write
         final makeDefault = await confirm(
           'Set global default?',
-          body: 'Make $selected the default model on startup and for '
+          body:
+              'Make $selected the default model on startup and for '
               'subagents?',
         );
         if (!makeDefault) return;
@@ -2026,7 +2002,6 @@ class TuiCoordinator {
               env: app.environment.env,
             ),
         resizeCoordinator: resizeCoordinator,
-        sessionBar: sessionBar,
       );
       // The tmux seam (tin-f5xt): `_teardownAndHint` names the attach target in
       // the exit hint; the detach/dialog closures below consult `$TMUX` on it.
@@ -2083,7 +2058,9 @@ class TuiCoordinator {
             final disabledModelRefs = disabledModelRefsFor(
               cfg,
               scheduler.registry.providerIds,
-              (pid) => [for (final m in scheduler.registry.modelsFor(pid)) m.id],
+              (pid) => [
+                for (final m in scheduler.registry.modelsFor(pid)) m.id,
+              ],
             );
             final refs = <String>[];
             for (final pid in scheduler.registry.providerIds) {
@@ -2412,8 +2389,10 @@ class TuiCoordinator {
       // Route it into the active conversation as a real, scrollable message
       // instead; the runtime's stderr default still serves headless runs.
       app.spendLedger.onRetriedSpendNotice = (line) {
-        sessionManager.activeConversation.host
-            .showMessage('$line\n', style: HostMessageStyle.warning);
+        sessionManager.activeConversation.host.showMessage(
+          '$line\n',
+          style: HostMessageStyle.warning,
+        );
       };
       // The in-tmux exit dialog: Detach / Exit / Cancel. Shown on /exit and on a
       // quit attempt (Ctrl+C×2 / Ctrl+D / EOF). Detach leaves the agent running
@@ -2505,27 +2484,6 @@ class TuiCoordinator {
     }
   }
 
-  /// Repaint the session bar from current state. Called on resize (the info
-  /// region's bounds change) — the per-change refresh happens inside
-  /// [refreshSessionMenu] in [create].
-  void _refreshSessionBar() {
-    _sessionBar.refresh(
-      sessions: sessionManager
-          .listSessions()
-          .map(
-            (s) => (
-              id: s.id,
-              label: s.label,
-              isActive: s.isActive,
-              isRunning: s.isRunning,
-              unread: s.unread,
-            ),
-          )
-          .toList(),
-      hasSidePanels: panelManager.hasSpawnedFrames,
-    );
-  }
-
   Future<RunOutcome> run({bool setupMode = false}) async {
     _sigintSub = ProcessSignal.sigint.watch().listen((_) {
       // Delegate to the line editor so it can clear the buffer or confirm quit.
@@ -2539,8 +2497,7 @@ class TuiCoordinator {
         split: panelManager.hasSpawnedFrames,
         drawInfoFrame: !panelManager.hasSpawnedFrames,
       );
-      // The info region's bounds changed; repaint the session bar into them.
-      _refreshSessionBar();
+      panelManager.refreshSidebar();
     });
 
     try {
@@ -2737,7 +2694,6 @@ class TuiCoordinator {
       ..own(panelManager.dispose)
       ..own(pauseSub.cancel)
       ..own(progressSub.cancel)
-      ..own(_sessionBar.hide)
       ..own(menuBar.dispose)
       // close can erase a visible confirmation/picker or deliver a held paste.
       // It must run before panels are destroyed and notcurses_stop frees the

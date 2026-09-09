@@ -257,8 +257,7 @@ base_url = "https://example.test"
       expect(c.isEmpty, isTrue);
     });
 
-    test('empty disabled_models parses as the explicit all-enabled state',
-        () {
+    test('empty disabled_models parses as the explicit all-enabled state', () {
       // Distinct from an absent key (= never curated = all models disabled
       // by default): the round-trip must preserve the empty list.
       writeConfig('''
@@ -268,16 +267,21 @@ disabled_models = []
 ''');
       final c = loadUserConfig(env: {}, tinaDir: tmp);
       final disabled = c.providers['alpha']?.disabledModels;
-      expect(disabled, isNotNull,
-          reason: 'an empty list is curated all-on, not never-curated');
+      expect(
+        disabled,
+        isNotNull,
+        reason: 'an empty list is curated all-on, not never-curated',
+      );
       expect(disabled, isEmpty);
     });
 
     test('writeUserConfig serializes an empty disabled_models', () {
       final path = writeUserConfig(
-        UserConfig(providers: {
-          'alpha': ProviderConfig(apiKey: 'k', disabledModels: const {}),
-        }),
+        UserConfig(
+          providers: {
+            'alpha': ProviderConfig(apiKey: 'k', disabledModels: const {}),
+          },
+        ),
         env: {},
         tinaDir: tmp,
       );
@@ -597,6 +601,21 @@ models = ["stub-1", "stub-2|Stub Two"]
       // Absent → null (the caller resolves null → true: wheel capture on).
       writeUserConfig(const UserConfig(), env: {}, tinaDir: tmp);
       expect(loadUserConfig(env: {}, tinaDir: tmp).mouseWheel, isNull);
+    });
+
+    test('[tui] layout survives settings updates and round-trips', () {
+      const original = UserConfig(layout: 'tiled');
+      expect(original.isEmpty, isFalse);
+      writeUserConfig(original, env: {}, tinaDir: tmp);
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.layout, 'tiled');
+      expect(loaded.mouseWheel, isNull);
+      writeUserConfig(loaded.copyWith(mouseWheel: true), env: {}, tinaDir: tmp);
+      final patched = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(patched.layout, 'tiled');
+      expect(patched.mouseWheel, isTrue);
+      expect(patched.copyWith(layout: 'sidebar').layout, 'sidebar');
+      expect(UserConfig.empty.layout, isNull);
     });
 
     test('copyWith patches one field without dropping the others', () {
