@@ -5,6 +5,19 @@ import 'package:test/test.dart';
 
 void main() {
   group('HeadlessHost', () {
+    test('directory refusal points to startup grants, not command allow rules',
+        () async {
+      final err = StringBuffer();
+      final host = HeadlessHost(writeErr: err.write);
+      final response = await host.askPermission(PermissionPrompt(
+          'bash', const {'command': 'dart test'},
+          sandboxAccess: SandboxAccessRequest(['/sdk/cache'], 'metadata')));
+      expect(response.decision, PermissionDecision.deny);
+      expect(response.note, contains('TINA_SANDBOX_ALLOW'));
+      expect(err.toString(), contains('/sdk/cache'));
+      expect(err.toString(), isNot(contains('--yolo')));
+    });
+
     test('is a HostInterface and an AgentSink seam for Agent', () {
       final host = HeadlessHost();
       expect(host, isA<HostInterface>());

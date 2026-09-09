@@ -119,7 +119,9 @@ class ProjectToolScope {
     // sandbox-exec (macOS) or bwrap (Linux) — the structural guard against a
     // destructive command reaching outside the project. Pass-through with a
     // one-time warning where no backend exists. Extra write-roots come from the
-    // TINA_SANDBOX_ALLOW env var (colon-separated).
+    // TINA_SANDBOX_ALLOW env var (colon-separated), then explicit runtime
+    // approvals. The runner owns their access policy for all borrowers of this
+    // scope; an allow-once invocation uses a separate snapshot.
     if (sandboxEnabled) {
       final extra = (env['TINA_SANDBOX_ALLOW'] ?? '')
           .split(':')

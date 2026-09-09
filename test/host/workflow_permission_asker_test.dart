@@ -18,6 +18,59 @@ Future<void> _flush() async {
 }
 
 void main() {
+  for (final (key, decision, remember) in [
+    (0x79, PermissionDecision.allow, false),
+    (0x61, PermissionDecision.allow, true),
+    (0x6e, PermissionDecision.deny, false),
+    (0x1b, PermissionDecision.deny, false),
+    (0x03, PermissionDecision.deny, false),
+  ]) {
+    test('directory approval displays authority and handles key $key', () async {
+      final io = FakeStdio();
+      final screen = Screen(
+        io: io,
+        layout: ScreenLayout.fromSize(120, 24),
+        ansi: AnsiCapable.yes,
+      );
+      final editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
+      final sink = FakeAgentSink();
+      final asker = WorkflowPermissionAsker(
+        sink: sink,
+        screen: screen,
+        editor: editor,
+      );
+      final prompt = PermissionPrompt(
+        'bash',
+        const {'command': 'dart test'},
+        sandboxAccess: SandboxAccessRequest([
+          '/sdk/cache',
+        ], 'launcher metadata'),
+        retryExplanation:
+            'The command failed writing /sdk/cache/stamp: Read-only file system.',
+        retrySafety: 'Checked the launcher output; tests never started.',
+      );
+      final pending = asker.ask(prompt);
+      await _flush();
+      final notices = sink.notices.map((n) => n.message).join('\n');
+      expect(notices, contains('/sdk/cache'));
+      expect(notices, contains('launcher metadata'));
+      expect(notices, contains('Read-only file system'));
+      expect(notices, contains('tests never started'));
+      expect(notices, contains('so the command can be retried'));
+      expect(notices, contains('[a] session directories'));
+      expect(notices, isNot(contains('[d]eny always')));
+      // The old deny-always shortcut must not silently install a command rule.
+      io.feedBytes([0x64]);
+      await _flush();
+      expect(editor.isReadingKey, isTrue);
+      io.feedBytes([key]);
+      final response = await pending.timeout(const Duration(seconds: 2));
+      expect(response.decision, decision);
+      expect(response.remember, remember);
+      editor.close();
+    });
+  }
+
   test(
     'askPermission readKey waits while the user is typing a prompt',
     () async {

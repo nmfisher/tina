@@ -25,6 +25,28 @@ void main() {
         sandboxEnabled: sandboxEnabled,
       );
 
+  test(
+      'sandbox session grants belong to the project scope and all its borrowers',
+      () {
+    env['TINA_SANDBOX_ALLOW'] = second.path;
+    final a = scope(first, sandboxEnabled: true);
+    final initial = (a.buildTools()['bash'] as BashTool).processRunner
+        as SandboxedProcessRunner;
+    expect(initial.accessPolicy.writablePaths,
+        contains(second.resolveSymbolicLinksSync()));
+    final cache = Directory('${temp.path}/cache')..createSync();
+    initial.accessPolicy.grantForSession(
+        SandboxAccessRequest([cache.resolveSymbolicLinksSync()], 'cache'));
+    final borrowed = (a.buildTools()['bash'] as BashTool).processRunner
+        as SandboxedProcessRunner;
+    expect(borrowed.accessPolicy, same(initial.accessPolicy));
+    final b = scope(second, sandboxEnabled: true);
+    final independent = (b.buildTools()['bash'] as BashTool).processRunner
+        as SandboxedProcessRunner;
+    expect(independent.accessPolicy.writablePaths,
+        isNot(contains(cache.resolveSymbolicLinksSync())));
+  });
+
   test('a second project cannot reconfigure existing file tools', () async {
     final source = File('${first.path}/source.txt')..writeAsStringSync('first');
     final other = File('${second.path}/source.txt')

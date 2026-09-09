@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 
 import '../llm/http.dart' show isTransportRetryable;
 import '../llm/message.dart';
@@ -9,6 +10,10 @@ import '../llm/provider.dart';
 import '../permissions/policy.dart';
 import '../permissions/prompt.dart';
 import '../tools/tool.dart';
+import '../tools/bash_tool.dart';
+import '../tools/sandbox_failure.dart';
+import '../tools/tool_input.dart';
+import '../permissions/sandbox_access.dart';
 import 'run_lifecycle.dart';
 import 'agent_sink.dart';
 import 'pause_gate.dart';
@@ -508,6 +513,13 @@ class Agent {
     // next user turn.
     final consecutiveAnomalyCounts = <String, int>{};
     final previousAttemptContent = <String, String>{};
+    // Recovery is keyed by exact shell text and cwd, not the anomaly signature
+    // (which collapses whitespace, including meaningful quoted whitespace).
+    final sandboxFailures = <String,
+        ({SandboxWriteFailure failure, int step, List<String> priorPaths})>{};
+    final promptedSandboxRetries = <String>{};
+    final deniedSandboxRetries = <String>{};
+    final deniedSandboxDirectories = <String>{};
 
     // Soft margin (#37): the once-per-turn latch is the instance field
     // [_softMarginFired]; it resets here, at the top of every turn, so each
@@ -867,20 +879,108 @@ class Agent {
         }
 
         var decision = policy.check(use.name, use.input);
+        Tool executionTool = tool;
+        var executionInput = use.input;
+        final retryKey = tool is BashTool
+            ? jsonEncode([
+                optionalString(use.input, 'command')?.trim(),
+                p.normalize(resolveToolPath(
+                    optionalString(use.input, 'cwd') ?? tool.projectRoot ?? '.',
+                    tool.projectRoot)),
+              ])
+            : null;
+        final recovery = sandboxFailures[retryKey];
+        String? retrySafety;
+        SandboxAccessRequest? access;
+        try {
+          if (decision != PermissionDecision.deny && tool is BashTool) {
+            if (recovery != null) {
+              if (deniedSandboxRetries.contains(retryKey)) {
+                throw const ToolValidationException(
+                    'The user denied this sandbox retry. Do not request it again this turn; proceed without this access.');
+              }
+              if (promptedSandboxRetries.contains(retryKey)) {
+                throw const ToolValidationException(
+                    'The approved sandbox retry also failed. Do not keep requesting approval; investigate the failure and report it to the user.');
+              }
+              if (step <= recovery.step) {
+                throw const ToolValidationException(
+                    'Inspect the sandbox failure and possible partial effects before submitting a retry in a subsequent step.');
+              }
+              retrySafety = requiredString(use.input, 'retrySafety').trim();
+              if (retrySafety.isEmpty ||
+                  RegExp(r'[\x00-\x1f\x7f]').hasMatch(retrySafety)) {
+                throw const ToolValidationException(
+                    'retrySafety must explain the partial-effects checks and why replay is safe, on one line.');
+              }
+              final requested = use.input['writablePaths'] ?? const [];
+              if (requested is! List ||
+                  requested.any((path) => path is! String)) {
+                throw const ToolValidationException(
+                    'writablePaths must be a list of directory paths.');
+              }
+              executionInput = {
+                ...use.input,
+                'writablePaths': {
+                  ...recovery.priorPaths,
+                  ...recovery.failure.writablePaths,
+                  ...requested
+                }.toList(),
+                'accessReason': optionalString(use.input, 'accessReason') ??
+                    'Retry the failed command with access to the directory named in its read-only filesystem error.',
+              };
+            }
+            access = tool.requestAccess(executionInput);
+            // A retry is explicit even if another agent granted the directory
+            // while this agent was inspecting partial effects.
+            if (recovery != null) {
+              access ??= SandboxAccessRequest(recovery.failure.writablePaths,
+                  executionInput['accessReason'] as String);
+            }
+            if (access != null) {
+              if (access.paths.any((path) => deniedSandboxDirectories.any(
+                  (denied) =>
+                      path == denied ||
+                      p.isWithin(denied, path) ||
+                      p.isWithin(path, denied)))) {
+                throw const ToolValidationException(
+                    'The user denied writable access to this directory this turn. Do not request it again under another command.');
+              }
+              decision = PermissionDecision.ask;
+            }
+          }
+        } on ToolValidationException catch (e) {
+          results.add(ToolResultBlock(
+              toolUseId: use.id, content: e.message, isError: true));
+          continue;
+        }
         // The asker's response, when the decision went through the asker
         // (ask → refused). Null for a static deny RULE — a rule deny is a
         // policy choice; the allowed-shapes text is its remedy, so no asker
         // note is expected there.
         PermissionResponse? resp;
         if (decision == PermissionDecision.ask) {
-          final prompt = PermissionPrompt(use.name, use.input);
+          final prompt = PermissionPrompt(use.name, executionInput,
+              sandboxAccess: access,
+              retryExplanation: recovery?.failure.explanation,
+              retrySafety: retrySafety);
+          if (recovery != null) promptedSandboxRetries.add(retryKey!);
           resp = await asker(prompt);
-          decision = resp.decision;
-          if (resp.remember) {
+          decision = resp.decision == PermissionDecision.allow &&
+                  !cancelled &&
+                  !toolInterrupted
+              ? PermissionDecision.allow
+              : PermissionDecision.deny;
+          if (resp.remember &&
+              access == null &&
+              !cancelled &&
+              !toolInterrupted) {
             policy.remember(use.name, prompt.alwaysPattern, decision);
           }
         }
         if (decision == PermissionDecision.deny) {
+          if (recovery != null) deniedSandboxRetries.add(retryKey!);
+          if (access != null) deniedSandboxDirectories.addAll(access.paths);
           sink.notice('  ${use.name} denied\n');
           // Circuit breaker (#27): a model that keeps re-denying the SAME
           // tool never gets new information from the plain denial text, and
@@ -889,7 +989,10 @@ class Agent {
           // threshold the denial result itself says "stop calling this".
           final denials = (denialCounts[use.name] ?? 0) + 1;
           denialCounts[use.name] = denials;
-          var content = _deniedContent(use.name);
+          var content = access == null
+              ? _deniedContent(use.name)
+              : 'Command and additional writable directory access denied. '
+                  'The command was not executed. Proceed without this access.';
           final note = resp?.note;
           if (note != null && note.isNotEmpty) {
             content = '$content\n$note';
@@ -913,11 +1016,22 @@ class Agent {
           continue;
         }
 
+        if (access != null) {
+          try {
+            executionTool = (tool as BashTool)
+                .withApprovedAccess(access, remember: resp?.remember ?? false);
+          } on ToolValidationException catch (e) {
+            results.add(ToolResultBlock(
+                toolUseId: use.id, content: e.message, isError: true));
+            continue;
+          }
+        }
+
         // An ALLOWED call resets this tool's denial streak — the policy
         // let the shape through, so the refusal pattern it was counting is
         // over (whether the execution then succeeds or errors).
         denialCounts.remove(use.name);
-        sink.toolStart(ToolStartEvent(use.name, use.id, use.input));
+        sink.toolStart(ToolStartEvent(use.name, use.id, executionInput));
         try {
           // #31: while THIS call runs, the operator interrupt rides the
           // tool's existing cancel seam — bash kills via its existing
@@ -928,14 +1042,34 @@ class Agent {
           final effectiveCancelSignal = toolInterrupted
               ? cancelSignal
               : (toolInterruptSignal ?? cancelSignal);
-          final out = await tool.execute(
-            use.input,
+          final out = await executionTool.execute(
+            executionInput,
             cancelSignal: effectiveCancelSignal,
             onOutput: (chunk, {bool stderr = false}) {
               sink.toolOutput(
                   ToolOutputEvent(use.name, use.id, chunk, stderr: stderr));
             },
           );
+          if (retryKey != null &&
+              out is BashToolResult &&
+              out.sandboxFailure != null &&
+              !cancelled &&
+              !toolInterrupted) {
+            sandboxFailures.putIfAbsent(
+                retryKey,
+                () => (
+                      failure: out.sandboxFailure!,
+                      step: step,
+                      priorPaths: List<String>.from(
+                          executionInput['writablePaths'] as List? ?? const [])
+                    ));
+            sink.notice(
+                '${out.sandboxFailure!.explanation}\n'
+                'The agent must check partial effects before requesting approval to retry.\n',
+                kind: NoticeKind.warning);
+          } else if (!out.isError && retryKey != null) {
+            sandboxFailures.remove(retryKey);
+          }
           // #31: the interrupt is re-sampled right after EVERY call, not
           // only at batch start — a signal that fired while THIS call was
           // in flight makes it the in-flight one: its result is the one the

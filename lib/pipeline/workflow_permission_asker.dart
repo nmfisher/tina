@@ -88,6 +88,9 @@ class WorkflowPermissionAsker {
     if (policy != null) {
       _write('  ${permissionModeChip(policy.mode)}\n', HostMessageStyle.dim);
     }
+    if (p.sandboxAccess != null) {
+      _write(p.accessDescription, HostMessageStyle.warning);
+    }
     final preview = await previewToolCall(p.toolName, p.input);
     for (final entry in preview) {
       switch (entry) {
@@ -109,7 +112,7 @@ class WorkflowPermissionAsker {
       final host = sink as TuiConversationHost;
       host.chat.ensureNewline();
     }
-    _write(approvalPromptRow(p.alwaysPattern), HostMessageStyle.normal);
+    _write(p.approvalRow, HostMessageStyle.normal);
     // If the user is mid-prompt (a readLine in flight WITH unsent content),
     // the approval must not steal their typing — the prompt's Enter would
     // answer this readKey as a deny (it is not y/a/d) and the prompt would
@@ -148,6 +151,7 @@ class WorkflowPermissionAsker {
             _write('a\n', HostMessageStyle.normal);
             return PermissionResponse.allowAlways;
           case 'd':
+            if (p.sandboxAccess != null) break;
             _write('d\n', HostMessageStyle.normal);
             return PermissionResponse.denyAlways;
           case 'n':

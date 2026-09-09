@@ -1,9 +1,33 @@
 import 'policy.dart';
+import 'sandbox_access.dart';
 
 class PermissionPrompt {
   final String toolName;
   final Map<String, dynamic> input;
-  const PermissionPrompt(this.toolName, this.input);
+  final SandboxAccessRequest? sandboxAccess;
+  final String? retryExplanation;
+  final String? retrySafety;
+  const PermissionPrompt(this.toolName, this.input,
+      {this.sandboxAccess, this.retryExplanation, this.retrySafety});
+
+  String get approvalRow => sandboxAccess == null
+      ? approvalPromptRow(alwaysPattern)
+      : '  approve? [y] once [a] session directories [n] deny › ';
+
+  String get accessDescription {
+    final access = sandboxAccess;
+    if (access == null) return '';
+    final retry = retryExplanation;
+    final context = retry == null
+        ? ''
+        : '  $retry\n  Agent’s partial-effects assessment: $retrySafety\n'
+            '  Allow these directories so the command can be retried?\n';
+    return '${context}  Additional writable directories (including contents):\n'
+        '${access.paths.map((path) => '    $path\n').join()}'
+        '  Reason: ${access.reason}\n'
+        '  y: this command only; a: directories shared by this project’s agents '
+        'for this session. The command is approved once.\n';
+  }
 
   String get key => PermissionPolicy.keyFor(toolName, input);
   String get alwaysPattern =>
@@ -14,7 +38,8 @@ class PermissionResponse {
   final PermissionDecision decision;
 
   /// If true and decision is allow/deny, the policy will add a session rule
-  /// using the prompt's [PermissionPrompt.alwaysPattern].
+  /// using the prompt's [PermissionPrompt.alwaysPattern]. For a sandbox access
+  /// prompt, allow remembers only the directories for this project session.
   final bool remember;
 
   /// Optional model-facing explanation an auto-refusing asker supplies (e.g.

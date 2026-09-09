@@ -362,29 +362,23 @@ void main() {
     });
 
     test('--sandbox-net blocks localhost egress', () async {
-      final withNet = SandboxedProcessRunner(projectRoot: project.path);
-      final netArgs = buildBwrapArgs(
-        projectRoot: project.path,
-        sandboxNet: true,
-      );
-      // curl's exit code for "couldn't resolve/connect" — connection refused
-      // on the discard port proves the loopback namespace is unshared.
-      const probe =
-          'curl -sS -m 5 -o /dev/null http://127.0.0.1:1/ ; echo -n \$?';
-      final unshared = await withNet.run(
-          'bwrap', [...netArgs, '/bin/sh', '-c', probe]);
-      expect(unshared.stdout, '7',
-          reason: 'with --unshare-net loopback is unreachable (curl exit 7)');
-
-      // The default posture keeps network on: the same probe must NOT see
-      // the unshared error (it may connect, time out, or fail on DNS — any
-      // code but the can't-create-socket one).
-      final shared = await withNet.run(
-          'bwrap',
-          [...buildBwrapArgs(projectRoot: project.path), '/bin/sh', '-c',
-              probe]);
-      expect(shared.stdout, isNot('7'),
-          reason: 'without --unshare-net the socket is creatable');
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) => request.response.close());
+      // Use a live endpoint: curl exit 7 also means connection refused on a
+      // closed port, so probing port 1 cannot distinguish network namespaces.
+      final args = [
+        '--noproxy', '*', '-sS', '-m', '5', '-o', '/dev/null',
+        'http://127.0.0.1:${server.port}/',
+      ];
+      final shared = await SandboxedProcessRunner(projectRoot: project.path)
+          .run('curl', args);
+      expect(shared.exitCode, 0, reason: shared.stderr);
+      final unshared = await SandboxedProcessRunner(
+              projectRoot: project.path, sandboxNet: true)
+          .run('curl', args);
+      expect(unshared.exitCode, 7,
+          reason: 'isolated loopback cannot reach the host server');
     });
 
     test('--sandbox-readonly blocks a project write but reads still work',

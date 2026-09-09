@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import '../permissions/sandbox_access.dart';
 import 'process_runner.dart';
 
 final _log = Logger('tina.sandbox');
@@ -340,7 +341,7 @@ String _escape(String s) => s.replaceAll('\\', r'\\').replaceAll('"', r'\"');
 class SandboxedProcessRunner implements ProcessRunner {
   final ProcessRunner _inner;
   final String _projectRoot;
-  final List<String> _extraAllowPaths;
+  final SandboxAccessPolicy accessPolicy;
   final bool _enabled;
   final bool _sandboxNet;
   final bool _sandboxReadOnly;
@@ -357,21 +358,58 @@ class SandboxedProcessRunner implements ProcessRunner {
     ProcessRunner? inner,
     required String projectRoot,
     List<String> extraAllowPaths = const [],
+    SandboxAccessPolicy? accessPolicy,
     bool? enabled, // false = deliberate disable (--no-sandbox / tests)
     bool sandboxNet = false,
     bool sandboxReadOnly = false,
-    SandboxBackend? backend, // test override; defaults to [resolveSandboxBackend]
-    String? unavailableReason, // test override; defaults to [sandboxPassThroughReason]
+    SandboxBackend?
+        backend, // test override; defaults to [resolveSandboxBackend]
+    String?
+        unavailableReason, // test override; defaults to [sandboxPassThroughReason]
     void Function(String message)? warn, // test sink; defaults to the logger
   })  : _inner = inner ?? const IoProcessRunner(),
         _projectRoot = projectRoot,
-        _extraAllowPaths = extraAllowPaths,
+        accessPolicy = accessPolicy ??
+            SandboxAccessPolicy(
+              writablePaths: extraAllowPaths,
+              readOnlyPaths: [if (sandboxReadOnly) projectRoot],
+              implicitWritablePaths: [
+                if (!sandboxReadOnly) projectRoot,
+                if ((backend ?? resolveSandboxBackend()) ==
+                    SandboxBackend.sandboxExec) ...[
+                  '/private/var/folders',
+                  '/private/tmp',
+                  '/tmp'
+                ] else
+                  ..._defaultBwrapTempDirs(),
+              ],
+            ),
         _enabled = enabled ?? true,
         _sandboxNet = sandboxNet,
         _sandboxReadOnly = sandboxReadOnly,
-        _backend = backend ?? resolveSandboxBackend(sandboxEnabled: enabled ?? true),
+        _backend =
+            backend ?? resolveSandboxBackend(sandboxEnabled: enabled ?? true),
         _passThroughReason = unavailableReason,
         _warn = warn ?? _log.warning;
+
+  /// Snapshot the approved access for one invocation. Never change the shared
+  /// runner for an allow-once answer: other agents may be executing it.
+  SandboxedProcessRunner withApprovedAccess(SandboxAccessRequest request,
+      {required bool remember}) {
+    final invocationPolicy = accessPolicy.forInvocation(request);
+    if (remember) accessPolicy.grantForSession(request);
+    return SandboxedProcessRunner(
+      inner: _inner,
+      projectRoot: _projectRoot,
+      accessPolicy: invocationPolicy,
+      enabled: _enabled,
+      sandboxNet: _sandboxNet,
+      sandboxReadOnly: _sandboxReadOnly,
+      backend: _backend,
+      unavailableReason: _passThroughReason,
+      warn: _warn,
+    );
+  }
 
   /// The backend this runner resolved to (startup diagnostics).
   SandboxBackend get backend => _backend;
@@ -420,9 +458,11 @@ class SandboxedProcessRunner implements ProcessRunner {
   }) async {
     final wrapped = _wrap(executable, arguments);
     if (wrapped == null) {
-      return _inner.run(executable, arguments, workingDirectory: workingDirectory);
+      return _inner.run(executable, arguments,
+          workingDirectory: workingDirectory);
     }
-    return _inner.run(wrapped.$1, wrapped.$2, workingDirectory: workingDirectory);
+    return _inner.run(wrapped.$1, wrapped.$2,
+        workingDirectory: workingDirectory);
   }
 
   /// The (executable, argv) to actually spawn, or null for pass-through.
@@ -431,14 +471,14 @@ class SandboxedProcessRunner implements ProcessRunner {
       case SandboxBackend.sandboxExec:
         final profile = buildSandboxProfile(
           projectRoot: _projectRoot,
-          extraAllowPaths: _extraAllowPaths,
+          extraAllowPaths: accessPolicy.writablePaths,
           sandboxReadOnly: _sandboxReadOnly,
         );
         return ('sandbox-exec', ['-p', profile, executable, ...arguments]);
       case SandboxBackend.bwrap:
         final args = buildBwrapArgs(
           projectRoot: _projectRoot,
-          extraAllowPaths: _extraAllowPaths,
+          extraAllowPaths: accessPolicy.writablePaths,
           sandboxNet: _sandboxNet,
           sandboxReadOnly: _sandboxReadOnly,
         );

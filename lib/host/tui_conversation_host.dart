@@ -220,6 +220,9 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     if (policy != null) {
       chat.dim('  ${permissionModeChip(policy.mode)}\n');
     }
+    if (p.sandboxAccess != null) {
+      chat.yellow(p.accessDescription);
+    }
     final preview = await previewToolCall(p.toolName, p.input);
     for (final entry in preview) {
       switch (entry) {
@@ -241,7 +244,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     // approval pends starts its own row instead of merging its text onto the
     // prompt (tin-6a2f).
     final rowToken = Object();
-    chat.write(approvalPromptRow(p.alwaysPattern), rowOwner: rowToken);
+    chat.write(p.approvalRow, rowOwner: rowToken);
     // If the user is mid-prompt (a readLine in flight WITH unsent content),
     // the approval must not steal their typing — the prompt's Enter would
     // answer this readKey as a deny (it is not y/a/d) and the prompt would
@@ -279,6 +282,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
             chat.write('a\n', rowOwner: rowToken);
             return PermissionResponse.allowAlways;
           case 'd':
+            if (p.sandboxAccess != null) break;
             chat.write('d\n', rowOwner: rowToken);
             return PermissionResponse.denyAlways;
           case 'n':

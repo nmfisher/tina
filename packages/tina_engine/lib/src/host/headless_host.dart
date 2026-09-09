@@ -50,6 +50,14 @@ class HeadlessHost with HostLifecycleAdapter implements HostInterface {
     const note = 'Non-interactive run: permission asks are auto-refused — '
         'rephrasing will not change this. Proceed without this tool or answer '
         'from what you have.';
+    if (p.sandboxAccess != null) {
+      _writeErr('${p.toolName}: ${p.key}\n${p.accessDescription}'
+          '  refused (configure TINA_SANDBOX_ALLOW before starting a headless run)\n');
+      return const PermissionResponse(PermissionDecision.deny,
+          note:
+              '$note Writable directory grants require interactive approval or '
+              'operator configuration through TINA_SANDBOX_ALLOW at startup.');
+    }
     _writeErr('${p.toolName}: ${p.key}\n  '
         'refused (use --allow "${p.toolName}:${p.alwaysPattern}" or --yolo)\n');
     return const PermissionResponse(PermissionDecision.deny, note: note);

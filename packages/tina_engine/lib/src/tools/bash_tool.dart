@@ -5,6 +5,9 @@ import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import '../permissions/sandbox_access.dart';
+import 'sandbox_runner.dart';
+import 'sandbox_failure.dart';
 import 'audit.dart';
 import 'process_runner.dart';
 import 'process_tree.dart';
@@ -228,6 +231,27 @@ class BashTool implements Tool {
                   'Working directory for the command. Absolute or relative '
                       'to the agent cwd. Defaults to the agent cwd.',
             },
+            'writablePaths': {
+              'type': 'array',
+              'items': {'type': 'string'},
+              'description': 'Existing absolute directories needing write access '
+                  'outside the sandbox, e.g. a toolchain cache. Requires explicit '
+                  'user approval even when the command is already allowed. '
+                  'Request only the narrow directories needed.',
+            },
+            'retrySafety': {
+              'type': 'string',
+              'description': 'For a retry after an identified sandbox write failure, '
+                  'summarize checks for partial effects and why replaying the '
+                  'command is safe. Inspect the failed result before supplying this. '
+                  'Tina will request directory approval before the retry runs.',
+            },
+            'accessReason': {
+              'type': 'string',
+              'description':
+                  'Why this command needs the requested writablePaths. '
+                      'Required when writablePaths is nonempty.',
+            },
             'timeoutSeconds': {
               'type': 'integer',
               'description':
@@ -236,6 +260,44 @@ class BashTool implements Tool {
           },
           'required': ['command'],
         },
+      );
+
+  /// Validate model input and identify access not already granted. This is
+  /// also checked by execute, so calling the tool directly cannot skip approval.
+  SandboxAccessRequest? requestAccess(Map<String, dynamic> input) {
+    final raw = input['writablePaths'];
+    if (raw == null && !input.containsKey('writablePaths')) return null;
+    if (raw is! List || raw.any((path) => path is! String)) {
+      throw const ToolValidationException(
+          'writablePaths must be a list of directory paths.');
+    }
+    if (raw.isEmpty) return null;
+    final reason = requiredString(input, 'accessReason').trim();
+    if (reason.isEmpty || RegExp(r'[\x00-\x1f\x7f]').hasMatch(reason)) {
+      throw const ToolValidationException(
+          'accessReason must be a nonempty single-line explanation.');
+    }
+    final paths = raw
+        .cast<String>()
+        .map(SandboxAccessPolicy.resolveRequestedPath)
+        .toSet();
+    final runner = processRunner;
+    if (runner is! SandboxedProcessRunner ||
+        runner.backend == SandboxBackend.passThrough) return null;
+    final missing =
+        paths.where((path) => !runner.accessPolicy.allows(path)).toList();
+    return missing.isEmpty ? null : SandboxAccessRequest(missing, reason);
+  }
+
+  BashTool withApprovedAccess(SandboxAccessRequest request,
+          {required bool remember}) =>
+      BashTool(
+        timeout: timeout,
+        postKillGrace: postKillGrace,
+        projectRoot: projectRoot,
+        tempDirFactory: tempDirFactory,
+        processRunner: (processRunner as SandboxedProcessRunner)
+            .withApprovedAccess(request, remember: remember),
       );
 
   @override
@@ -248,6 +310,10 @@ class BashTool implements Tool {
     final String? cwd;
     final int timeoutSec;
     try {
+      if (requestAccess(input) != null) {
+        return ToolResult.error(
+            'Writable directory access requires explicit user approval.');
+      }
       command = requiredString(input, 'command');
       final requestedCwd = optionalString(input, 'cwd') ?? projectRoot;
       cwd = requestedCwd == null
@@ -434,8 +500,32 @@ class BashTool implements Tool {
     report.writeln('stderr:');
     report.write(errTail.isEmpty ? '(empty)\n' : errTail);
     report.write(stderrAcc.summaryLine());
-    return ToolResult(
+    SandboxWriteFailure? failure;
+    if (!cancelled &&
+        !timedOut &&
+        exitCode != 0 &&
+        processRunner is SandboxedProcessRunner &&
+        (processRunner as SandboxedProcessRunner).backend !=
+            SandboxBackend.passThrough &&
+        RegExp(r'read-only file system|permission denied|operation not permitted',
+                caseSensitive: false)
+            .hasMatch('$outTail\n$errTail')) {
+      failure = SandboxWriteFailure.detect(
+          '$outTail\n$errTail', processRunner as SandboxedProcessRunner);
+      if (failure != null) {
+        report.writeln('\n${failure.recoveryInstructions}');
+      } else {
+        report.writeln(
+            '\nSandbox access may be responsible. If this command needs '
+            'to write outside the project/temp directories, request the narrow '
+            'existing directory in writablePaths with an accessReason. Command '
+            'approval alone does not grant filesystem access. Check for partial '
+            'effects before retrying; this command has not been retried automatically.');
+      }
+    }
+    return BashToolResult(
       report.toString(),
+      sandboxFailure: failure,
       isError: cancelled || timedOut || exitCode != 0,
       elapsed: stopwatch.elapsed,
       timedOut: timedOut,
