@@ -2,6 +2,7 @@ import 'package:tina_app/tina_app.dart';
 
 import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina/platform/terminal_geometry.dart';
+import 'package:tina/pipeline/workflow_permission_asker.dart';
 
 import 'package:tina/tui_coordinator.dart' show SpawnTree;
 import 'package:tina/tui/conversation_panel_coordinator.dart';
@@ -239,6 +240,42 @@ void main() {
         reason: 'the primary is already active — no switch, just relocate',
       );
     });
+
+    test(
+      'a focused environment panel accepts approvals but blocks chat input',
+      () async {
+        final host = _RecordingHost('env-approval');
+        final frame = coordinator.bindSpawned(host: host, label: 'Environment');
+        panelManager.layout();
+        focusManager.focusPanel(frame);
+        editor.focusManager = focusManager;
+        final asker = WorkflowPermissionAsker(
+          sink: host,
+          screen: screen,
+          editor: editor,
+        );
+        for (final (key, expected) in [
+          ('y', PermissionResponse.allowOnce),
+          ('n', PermissionResponse.denyOnce),
+          ('a', PermissionResponse.allowAlways),
+          ('d', PermissionResponse.denyAlways),
+        ]) {
+          final response = asker.ask(
+            PermissionPrompt('bash', {'command': 'pwd'}),
+          );
+          await pumpEventQueue();
+          expect(editor.isReadingKey, isTrue);
+          io.feedBytes(key.codeUnits);
+          expect(await response.timeout(const Duration(seconds: 2)), expected);
+        }
+        expect(host.messages.join(), isNot(contains('input disabled')));
+        // Outside an approval, text still cannot become a main-chat draft.
+        expect(frame.handleEvent(CharInput('h')), isTrue);
+        expect(host.messages.last, contains('input disabled'));
+        editor.close();
+        frame.dispose();
+      },
+    );
 
     test('focusing a host-only panel keeps input on the primary instead of '
         'throwing', () {

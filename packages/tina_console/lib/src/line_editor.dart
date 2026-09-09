@@ -119,6 +119,12 @@ class LineEditor {
   /// row while the run underneath is stopping.
   bool Function()? onDoubleEscape;
 
+  /// Cancel running work on Ctrl+C, including while a global approval is
+  /// open. Return false when idle to keep normal input-clear/quit behavior.
+  /// Local overlays retain their own Ctrl+C handling. A global readKey still
+  /// receives Ctrl+C after cancellation so its prompt can settle as denied.
+  bool Function()? onInterrupt;
+
   /// Called for Ctrl+O — the panel-maximize toggle. Offered after the
   /// modal layer but before the focus ring (so it works both while cycling —
   /// for the *highlighted* panel — and on the focused panel). Return `true`
@@ -151,6 +157,7 @@ class LineEditor {
   /// Timestamp of the last standalone ESC at the prompt, for double-Esc
   /// detection. Null after a double completes or the window elapses.
   DateTime? _lastEsc;
+
   /// [debugDoubleEscWindow] overrides it in tests: a fresh kernel compile
   /// reshuffles async timing enough to overflow a fixed window
   /// nondeterministically (the coordinator's double-Esc test flips per
@@ -482,6 +489,14 @@ class LineEditor {
     if (debugKeys) {
       stderr.writeln('[keys] event: $event');
     }
+    final interrupted = event is ControlKey &&
+        event.code == ControlCode.ctrlC &&
+        (_keyCompleter == null || _keyCompleterGlobal) &&
+        (onInterrupt?.call() ?? false);
+    if (interrupted) {
+      _lastEsc = null;
+      if (_keyCompleter == null) return;
+    }
     if (_keyCompleterGlobal && event is PasteInput) {
       // tin-w8dl: a paste arriving while a GLOBAL readKey (approval / gate
       // prompt) is armed must not land in the editor buffer underneath the
@@ -518,10 +533,13 @@ class LineEditor {
       // modal over every key. Consumed here, the key never answers the prompt
       // — pre-fix, Ctrl+G at an open approval landed in the prompt's readKey
       // and answered it as a deny (tin-c5nw).
-      if (_keyCompleterGlobal && _handleFocusRingKeys(event)) {
+      if (_keyCompleterGlobal && !interrupted && _handleFocusRingKeys(event)) {
         return;
       }
+      // The prompt owns answer keys, even on a read-only panel. Only
+      // navigation is offered to the focused view while an approval is open.
       if (_keyCompleterGlobal &&
+          (event is ArrowKey || event is ScrollEvent) &&
           (_focusManager?.focused?.handleEvent(event) ?? false)) {
         return;
       }
@@ -604,8 +622,8 @@ class LineEditor {
     _dispatchEvent(event);
   }
 
-  int _pendingChars() => _pending
-      .fold(0, (n, e) => n + (e is CharInput ? e.text.length : 0));
+  int _pendingChars() =>
+      _pending.fold(0, (n, e) => n + (e is CharInput ? e.text.length : 0));
 
   /// macOS Option+Arrow fallback. When ESC arrived as a standalone event and a
   /// letter follows within 150ms, treat the pair as an Alt+letter word-motion
@@ -949,8 +967,8 @@ class LineEditor {
         // something was actually running; otherwise the gesture falls
         // through to the input clear below.
         final now = DateTime.now();
-        final isDouble =
-            _lastEsc != null && now.difference(_lastEsc!) <= _activeDoubleEscWindow;
+        final isDouble = _lastEsc != null &&
+            now.difference(_lastEsc!) <= _activeDoubleEscWindow;
         _lastEsc = isDouble ? null : now;
         if (isDouble && (onDoubleEscape?.call() ?? false)) {
           break;

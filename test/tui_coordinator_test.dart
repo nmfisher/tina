@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:tina_app/tina_app.dart';
 import 'package:tina/config.dart';
 import 'package:tina/config/user_config.dart';
+import 'package:tina/pipeline/workflow_permission_asker.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/tui_coordinator.dart';
@@ -1675,6 +1676,69 @@ void main() {
       expect(io.written.toString(), contains('permission mode: read-all'));
     });
   });
+
+  test(
+    'Ctrl+C cancels an environment approval without quitting the app',
+    () async {
+      final io = FakeStdio()..hasTerminalValue = false;
+      final app = await buildAppComposition(
+        config: Config.parse(const ['--backend', 'ansi']),
+        registry: builtinRegistry(),
+        provider: FakeProvider.done(),
+        store: MemorySessionStore(),
+        environment: FakeEnvironment(
+          env: Map.of(Platform.environment)..['COCOON_UPDATE_CHECK'] = '0',
+        ),
+      );
+      final coordinator = await TuiCoordinator.create(
+        app: app,
+        io: io,
+        terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 24),
+      );
+      coordinator.pendingFirstLoadEnvironmentAsk = null;
+      coordinator.pendingGitignoreAsk = null;
+      var exited = false;
+      final run = coordinator.run().then((_) => exited = true);
+      await pumpEventQueue();
+      final editor = coordinator.editor;
+      final asker = WorkflowPermissionAsker(
+        sink: coordinator.sessionManager.activeConversation.host,
+        screen: coordinator.screen,
+        editor: editor,
+      );
+      PermissionResponse? response;
+      final job = coordinator.controller.jobs.start('environment', 'env-test', (
+        job,
+      ) async {
+        response = await asker.ask(
+          PermissionPrompt('bash', {'command': 'pwd'}),
+        );
+        await job.cancelled;
+      })!;
+      await pumpEventQueue();
+      expect(editor.isReadingKey, isTrue);
+      // Cancellation also works while the focus ring is navigating the sidebar.
+      coordinator.focusManager.focusPanel(coordinator.panelManager.sidebar!);
+      io.feedBytes([0x07]);
+      await pumpEventQueue();
+      io.feedBytes([0x03]);
+      await job.done.timeout(const Duration(seconds: 2));
+      expect(job.cancellationRequested, isTrue);
+      expect(response, PermissionResponse.denyOnce);
+      expect(editor.isReadingKey, isFalse);
+      expect(exited, isFalse);
+      expect(coordinator.controller.isEnvironmentRunning, isFalse);
+
+      // Once idle, Ctrl+C retains the existing quit confirmation.
+      coordinator.focusManager.cancel();
+      coordinator.focusManager.focusPanel(
+        coordinator.panelManager.primaryFrame,
+      );
+      io.feedBytes([0x03, 0x03]);
+      await run.timeout(const Duration(seconds: 5));
+      io.close();
+    },
+  );
 
   group('double-Esc force-cancels through an open approval', () {
     // Owner bug 2026-08-24: "I pressed Escape twice and the border was still

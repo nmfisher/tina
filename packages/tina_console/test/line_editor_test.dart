@@ -23,9 +23,8 @@ class _CommandProvider implements CompletionProvider {
   final List<String> all;
   _CommandProvider(this.all);
   @override
-  Future<List<String>> complete(String query) async => query.isEmpty
-      ? all
-      : all.where((c) => c.startsWith('/$query')).toList();
+  Future<List<String>> complete(String query) async =>
+      query.isEmpty ? all : all.where((c) => c.startsWith('/$query')).toList();
 }
 
 /// Records every event it's offered. [active] gates [isActive]; [consume]
@@ -109,6 +108,37 @@ void main() {
       await _flush();
       io.feedBytes([0x03]);
       expect(await f, isNull);
+    });
+
+    test('Ctrl-C cancels running work before clearing the draft', () async {
+      final ed = _editor(io);
+      var running = true;
+      ed.onInterrupt = () {
+        if (!running) return false;
+        running = false;
+        return true;
+      };
+      final line = ed.readLine('> ');
+      await _flush();
+      io.feedBytes([0x61, 0x62, 0x03]);
+      await _flush();
+      expect(running, isFalse);
+      expect(ed.editState.buffer, 'ab');
+      io.feedBytes([0x03, 0x78, 0x0d]);
+      expect(await line, 'x', reason: 'idle Ctrl+C still clears the draft');
+      ed.close();
+    });
+
+    test('Ctrl-C in a local overlay leaves running work alone', () async {
+      final ed = _editor(io);
+      var interrupted = false;
+      ed.onInterrupt = () => interrupted = true;
+      final overlay = ed.readKey();
+      await _flush();
+      io.feedBytes([0x03]);
+      expect(await overlay, ControlKey(ControlCode.ctrlC));
+      expect(interrupted, isFalse);
+      ed.close();
     });
 
     test('Ctrl-C with non-empty buffer clears it', () async {
@@ -248,8 +278,7 @@ void main() {
     test('onError fires when provider throws', () async {
       Object? caught;
       final ed = _editor(io,
-          provider: _ThrowingProvider(),
-          onError: (e, _) => caught = e);
+          provider: _ThrowingProvider(), onError: (e, _) => caught = e);
       ed.readLine('> ');
       await _flush();
       io.feedBytes([0x40]);
@@ -279,8 +308,8 @@ void main() {
     });
 
     test('/ mid-text does NOT open the picker', () async {
-      final ed = _editor(io,
-          commandProvider: _CommandProvider(['/help', '/exit']));
+      final ed =
+          _editor(io, commandProvider: _CommandProvider(['/help', '/exit']));
       final f = ed.readLine('> ');
       await _flush();
       io.feedBytes([0x68, 0x69, 0x2f, 0x0d]); // 'h','i','/',Enter
@@ -306,8 +335,8 @@ void main() {
 
     test('typing after / filters results by prefix', () async {
       final ed = _editor(io,
-          commandProvider: _CommandProvider(
-              ['/help', '/exit', '/clear', '/model']));
+          commandProvider:
+              _CommandProvider(['/help', '/exit', '/clear', '/model']));
       final f = ed.readLine('> ');
       await _flush();
       io.feedBytes([0x2f, 0x65]); // '/', 'e' → only /exit matches
@@ -319,8 +348,8 @@ void main() {
     });
 
     test('ESC dismisses the picker without submitting', () async {
-      final ed = _editor(io,
-          commandProvider: _CommandProvider(['/help', '/exit']));
+      final ed =
+          _editor(io, commandProvider: _CommandProvider(['/help', '/exit']));
       final f = ed.readLine('> ');
       await _flush();
       io.feedBytes([0x2f]); // /
@@ -468,7 +497,8 @@ void main() {
       expect((e2 as CharInput).text, 'y');
     });
 
-    test('paste burst flush never answers a GLOBAL readKey (approval stays open)',
+    test(
+        'paste burst flush never answers a GLOBAL readKey (approval stays open)',
         () async {
       // The paste-burst detector holds a typed prompt (chars + a trailing
       // Enter arrive faster than the join window) and emits ONE PasteInput on
@@ -500,10 +530,12 @@ void main() {
       final e = await approval.timeout(const Duration(seconds: 2));
       expect((e as CharInput).text, 'y');
       await _flush();
-      expect(ed.editState.buffer, 'Read packages/core/lib/src/naive_cache.dart');
+      expect(
+          ed.editState.buffer, 'Read packages/core/lib/src/naive_cache.dart');
     });
 
-    test('a paste answers a non-global (overlay) readKey, not the buffer', () async {
+    test('a paste answers a non-global (overlay) readKey, not the buffer',
+        () async {
       // Screen-owning overlays (settings, prompts, model search) read keys
       // with a non-global readKey. A paste while one is armed must reach the
       // overlay's focused text field — pre-fix it fell through to the

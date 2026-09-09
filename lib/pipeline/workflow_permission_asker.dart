@@ -157,6 +157,9 @@ class WorkflowPermissionAsker {
       } else if (event is EscapeKey) {
         _write('esc\n', HostMessageStyle.normal);
         return PermissionResponse.denyOnce;
+      } else if (event is ControlKey && event.code == ControlCode.ctrlC) {
+        _write('cancelled\n', HostMessageStyle.normal);
+        return PermissionResponse.denyOnce;
       }
       // Not an answer key: the read stays armed. One-shot ack on the first
       // one that surfaces here; keys the focus ring consumes (panel cycling)

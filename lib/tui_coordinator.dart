@@ -2122,7 +2122,7 @@ class TuiCoordinator {
               'No ENVIRONMENT.md yet — spawning environment agent in side panel: '
               'read-only scouts will describe the repo root and each top-level '
               'subfolder, then the agent inspects toolchain, runs setup/build/test '
-              'and writes .tina/ENVIRONMENT.md (Esc-Esc to cancel)…\n',
+              'and writes .tina/ENVIRONMENT.md (Ctrl+C to cancel)…\n',
             );
             // Spawn a side panel for the environment agent so its work does not clutter the main panel.
             final envConvId = 'env-${DateTime.now().millisecondsSinceEpoch}';
@@ -2185,7 +2185,7 @@ class TuiCoordinator {
                 notice: envHost.showMessage,
               );
             }
-            // Esc-Esc cancels the in-flight environment run. The main REPL remains responsive.
+            // Ctrl+C cancels the in-flight environment run. The main REPL remains responsive.
             // For simplicity we bind cancellation to the initial conversation's host busy state;
             // the agent run respects cancelSignal.
             controller.jobs.start('environment', app.initialConversationId, (
@@ -2259,7 +2259,7 @@ class TuiCoordinator {
                   '  and observed sections Test baseline + verified-at stamp that the agent maintains from measurements\n'
                   '\n'
                   'It uses the normal sandboxed bash/write/edit tools and will ask for permission for each action. '
-                  'Esc-Esc cancels. Success is only reported when the file '
+                  'Ctrl+C cancels. Success is only reported when the file '
                   'is created/changed by the agent, not on a prose-only answer.\n';
               final choice = await runListOverlay<String>(
                 screen: screen,
@@ -2581,6 +2581,7 @@ class TuiCoordinator {
     // 2026-08-24: an approval modal swallows single Escs as "deny", so the
     // prompt's arm-then-cancel never fires and the border keeps animating).
     editor.onDoubleEscape = controller.cancelNow;
+    editor.onInterrupt = controller.cancelNow;
 
     // First-load environment ask (recorded by create): run it now, after the
     // first paint and before the REPL takes the keyboard. Consumed once.

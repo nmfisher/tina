@@ -136,9 +136,9 @@ void main() {
         isFalse,
         reason: 'navigation must not answer the approval',
       );
-      focus.focusPanel(view);
       io.feedBytes([0x79]);
       expect(await approval, CharInput('y'));
+      expect(focus.focused, same(sidebar));
       editor.close();
       view.dispose();
     },

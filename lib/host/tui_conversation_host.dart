@@ -288,8 +288,10 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
       } else if (event is EscapeKey) {
         chat.write('esc\n', rowOwner: rowToken);
         return PermissionResponse.denyOnce;
-      } else if (event is ControlKey &&
-          event.code == ControlCode.backtab) {
+      } else if (event is ControlKey && event.code == ControlCode.ctrlC) {
+        chat.write('cancelled\n', rowOwner: rowToken);
+        return PermissionResponse.denyOnce;
+      } else if (event is ControlKey && event.code == ControlCode.backtab) {
         // Cycle the permission mode while the approval pends — the strip's
         // mode label updates live; the answer keys are unaffected.
         editor!.onBackTab?.call();

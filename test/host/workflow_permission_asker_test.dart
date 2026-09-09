@@ -167,6 +167,33 @@ void main() {
     },
   );
 
+  test(
+    'Ctrl+C settles an approval as denied even without an interrupt handler',
+    () async {
+      final io = FakeStdio();
+      final screen = Screen(
+        io: io,
+        ansi: AnsiCapable.yes,
+        layout: ScreenLayout.fromSize(80, 24),
+      );
+      final editor = LineEditor(screen: screen);
+      final asker = WorkflowPermissionAsker(
+        sink: FakeAgentSink(),
+        screen: screen,
+        editor: editor,
+      );
+      final response = asker.ask(_bashPrompt('pwd'));
+      await _flush();
+      io.feedBytes([0x03]);
+      expect(
+        await response.timeout(const Duration(seconds: 2)),
+        PermissionResponse.denyOnce,
+      );
+      expect(editor.isReadingKey, isFalse);
+      editor.close();
+    },
+  );
+
   test('Esc explicitly denies; n denies; d denies always', () async {
     final io = FakeStdio();
     final screen = Screen(
