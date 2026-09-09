@@ -44,7 +44,10 @@ const maxRetryAfter = Duration(seconds: 60);
 
 /// How long to wait for response headers before giving up on a single
 /// attempt. The body is then read with a separate stall timeout.
-const defaultRequestTimeout = Duration(seconds: 30);
+// 2026-09-09: 30s starved slow/degraded providers that routinely take
+// 40s+ to first byte; the base default is now 120s. scaledRequestTimeout
+// still adds the per-4KB body allowance on top.
+const defaultRequestTimeout = Duration(seconds: 120);
 
 /// Wall-clock between two consecutive SSE events before we treat the stream
 /// as dead. Generous enough for slow/long completions; tight enough that a

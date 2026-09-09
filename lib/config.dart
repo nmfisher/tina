@@ -356,11 +356,11 @@ class Config extends RuntimeConfig implements ResumeRequest {
     )
     ..addOption(
       'request-timeout',
-      defaultsTo: '30',
+      defaultsTo: '120',
       help:
           'Seconds to wait for response headers per attempt before '
-          'aborting the request. Slow providers or large-context prompts '
-          'may need more than the 30s default.',
+          'aborting the request (scaled up for large request bodies). '
+          'Slow providers may need more than the 120s default.',
     )
     ..addOption(
       'transport-retry-attempts',
@@ -696,7 +696,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
       streamIdleTimeout: Duration(
         seconds: parsePositive('stream-idle-timeout', '60'),
       ),
-      requestTimeout: Duration(seconds: parsePositive('request-timeout', '30')),
+      requestTimeout: Duration(seconds: parsePositive('request-timeout', '120')),
       transportRetryAttempts: parseBudget('transport-retry-attempts', '5'),
       backend: switch (res['backend'] as String) {
         'ansi' => BackendChoice.ansi,

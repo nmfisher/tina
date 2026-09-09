@@ -121,6 +121,8 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     onRawText: (text) {
       lastRawMarkdown = text;
     },
+    onStrip: (text, {required bool error}) =>
+        screen.setErrorStrip(text, error: error),
   );
 
   /// Forwards [AgentSink] calls to the chat region (via [ChatAgentSink]) and,
@@ -319,6 +321,9 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
         // [lastRawMarkdown].
         _chatSink.beginAssistantTurn();
         lastRawMarkdown = '';
+        // The user has moved on: the error strip beneath the input had its
+        // chance. A new notice re-renders it.
+        screen.clearErrorStrip();
         // A bullet line slightly lighter than agent prose — the old
         // reverse-video bar was heavier than the message it carried.
         final body = message.endsWith('\n')

@@ -165,7 +165,7 @@ class RuntimeConfig {
     this.maxSteps = 500,
     this.watchdogSeconds = 300,
     this.streamIdleTimeout = const Duration(seconds: 60),
-    this.requestTimeout = const Duration(seconds: 30),
+    this.requestTimeout = const Duration(seconds: 120),
     Map<String, String> promptOverrides = const {},
     this.safeMode = false,
     this.sandboxEnabled = true,

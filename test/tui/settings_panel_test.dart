@@ -121,6 +121,30 @@ void main() {
   });
 
 
+  test('providers: the search field filters providers live', () async {
+    final screen = fakeScreen();
+    // Row 0 is the /search field (initial focus starts on the first
+    // provider row below it). Typing 'be' from the search row narrows the
+    // list to beta; the next ↓+space therefore checks BETA, not alpha.
+    canned.events = [
+      ControlKey(ControlCode.enter), // index → providers
+      ArrowKey(ArrowDirection.up), // onto the /search row
+      CharInput('b'),
+      CharInput('e'), // filter → beta only
+      ArrowKey(ArrowDirection.down), // first (only) provider: beta
+      CharInput(' '), // check beta
+      ControlKey(ControlCode.enter), // providers → save
+      EscapeKey(), // index → close
+    ];
+    final wrote = await runIndex(screen).timeout(overlayTimeout);
+    expect(wrote, isNotNull);
+    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+    expect(loaded.providers['beta']?.apiKey, isNull,
+        reason: 'checked with no key typed — block carries curation only');
+    expect(loaded.providers.containsKey('alpha'), isFalse,
+        reason: 'alpha was filtered out and never checked');
+  });
+
   // -- providers panel ------------------------------------------------------
 
   test('providers: cancel (Esc) writes nothing', () async {

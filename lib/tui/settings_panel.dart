@@ -236,7 +236,7 @@ Future<UserConfig?> runProvidersPanel({
 
 enum _ProvidersResult { changed, wrote, cancelled }
 
-enum _RowType { provider, key, url, separator, model, addModel }
+enum _RowType { provider, key, url, separator, model, addModel, search }
 
 class _Row {
   final _RowType type;
@@ -300,7 +300,10 @@ class _ProvidersForm {
   // collects chars until Enter (commit) or Esc (cancel).
   String? _addingFor;
   String _addBuf = '';
-  int _focus = 0;
+  // Provider filter — typing while the /row is focused narrows the list to
+  // providers whose id or display name matches (case-insensitive).
+  String _searchBuf = '';
+  int _focus = 1; // row 0 is the search field; start on the first provider
   int _scrollOffset = 0;
   String? _writeError; // set when a save-time write failed (e.g. read-only)
 
@@ -451,6 +454,14 @@ class _ProvidersForm {
 
     if (ev is ControlKey && ev.code == ControlCode.backspace) {
       final f = rows[_focus];
+      if (f.type == _RowType.search) {
+        if (_searchBuf.isNotEmpty) {
+          final runes = _searchBuf.runes.toList();
+          runes.removeLast();
+          _searchBuf = String.fromCharCodes(runes);
+        }
+        return _ProvidersResult.changed;
+      }
       if (f.type == _RowType.key || f.type == _RowType.url) {
         _backspaceField(f);
         return _ProvidersResult.changed;
@@ -471,6 +482,10 @@ class _ProvidersForm {
     if (ev is CharInput) {
       final c = ev.text;
       final f = rows[_focus];
+      if (f.type == _RowType.search) {
+        _searchBuf += c;
+        return _ProvidersResult.changed;
+      }
       if (f.type == _RowType.key || f.type == _RowType.url) {
         _appendField(f, c);
         return _ProvidersResult.changed;
@@ -489,6 +504,9 @@ class _ProvidersForm {
 
     if (ev is ControlKey && ev.code == ControlCode.enter) {
       final f = rows[_focus];
+      if (f.type == _RowType.search) {
+        return _ProvidersResult.changed; // not a save trigger
+      }
       if (f.type == _RowType.addModel) {
         _addingFor = _providerIds[f.providerIndex];
         _addBuf = '';
@@ -533,9 +551,18 @@ class _ProvidersForm {
     return merged;
   }
 
+  bool _matchesSearch(String id) {
+    final q = _searchBuf.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    if (id.toLowerCase().contains(q)) return true;
+    final name = _registry.descriptor(id)?.name ?? '';
+    return name.toLowerCase().contains(q);
+  }
+
   List<_Row> _computeRows() {
-    final rows = <_Row>[];
+    final rows = <_Row>[_Row(_RowType.search, 0, null)];
     for (var pi = 0; pi < _providerIds.length; pi++) {
+      if (!_matchesSearch(_providerIds[pi])) continue;
       rows.add(_Row(_RowType.provider, pi, null));
       if (_expanded.contains(_providerIds[pi])) {
         if (_requiresKey(_providerIds[pi])) {
@@ -702,6 +729,12 @@ class _ProvidersForm {
           } else {
             lines.add(_row(false, '  ── models ──'));
           }
+        case _RowType.search:
+          final cursor = focused ? '▏' : '';
+          final q = _searchBuf.isEmpty && !focused
+              ? '(type to filter providers)'
+              : _searchBuf;
+          lines.add(_row(focused, '  / $q$cursor'));
         case _RowType.addModel:
           final id = _providerIds[r.providerIndex];
           if (_addingFor == id) {

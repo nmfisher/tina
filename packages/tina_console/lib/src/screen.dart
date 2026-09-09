@@ -442,6 +442,58 @@ class Screen {
 
   /// Paint the entire frame: menu box + chat box + info box (when split),
   /// each tinted per the current focus/highlight state.
+  // -- Error strip -----------------------------------------------------------
+  // The dedicated error section directly beneath the input box: while set,
+  // the bottom border row renders the latest warning/error notice instead of
+  // the plain border line (statusline style — no layout shift). Info notices
+  // never touch it; the strip clears when the user submits a new message.
+
+  String? _errorStrip;
+  bool _errorStripIsError = false;
+
+  /// Show [text] on the bottom border row — red for errors, yellow for
+  /// warnings. The corner glyphs stay; the ─ line is replaced for the call's
+  /// lifetime. A newer call replaces the text; [clearErrorStrip] restores.
+  void setErrorStrip(String text, {required bool error}) {
+    if (passthrough) return;
+    if (_errorStrip == text && _errorStripIsError == error) return;
+    _errorStrip = text;
+    _errorStripIsError = error;
+    _renderErrorStrip();
+  }
+
+  /// Remove the strip and restore the bottom border row.
+  void clearErrorStrip() {
+    if (_errorStrip == null) return;
+    _errorStrip = null;
+    final be = _backend!;
+    be.saveCursor();
+    be.eraseCells(_layout.bottomBorderRow, 1, _layout.width - 2);
+    be.restoreCursor();
+    redrawFrame();
+  }
+
+  void _renderErrorStrip() {
+    final text = _errorStrip;
+    if (text == null) return;
+    final be = _backend!;
+    final row = _layout.bottomBorderRow;
+    final inner = _layout.width - 2;
+    var t = text.replaceAll('\n', ' ').trim();
+    if (t.length > inner) t = t.substring(0, inner);
+    // Host-message theme carries the warning/error pair with light/dark
+    // variants — the same colors chat-level notices render with.
+    final host = theme.hostMessage;
+    final color = _errorStripIsError ? host.error : host.warning;
+    be.saveCursor();
+    be.moveCursor(row, 1);
+    be.writeText(colorize(color, t.padRight(inner)));
+    be.restoreCursor();
+    // The write spans the info box's bottom-border corners; re-assert them.
+    _repairBordersForRow(row);
+    be.flush();
+  }
+
   void redrawFrame() {
     if (passthrough) return;
     final be = _backend!;
@@ -452,6 +504,9 @@ class Screen {
       be.eraseCells(_layout.menuBarRow, 1, w - 2);
     }
     _repaintBoxBorders();
+    // The error strip owns the bottom border row while active — repaint it
+    // after the borders so it wins.
+    if (_errorStrip != null) _renderErrorStrip();
     // Park the cursor at the chat region's top-left.
     be.moveCursor(_layout.chat.row, _layout.chat.col);
     be.flush();
