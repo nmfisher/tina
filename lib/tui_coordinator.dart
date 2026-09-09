@@ -982,7 +982,10 @@ class TuiCoordinator {
             conv.policy.mode = mode;
           }
         }
+        screen.setModeLabel('mode: ${policy.mode.label}');
       };
+      // Set initial mode label
+      screen.setModeLabel('mode: ${policy.mode.label}');
       // Session picker (Alt+S): switch among live sessions or resume a saved one.
       controller.openSessionPicker = () async {
         final live = sessionManager

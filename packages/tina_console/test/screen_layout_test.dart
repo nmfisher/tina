@@ -10,8 +10,9 @@ void main() {
       // Chat box spans full width; content interior is width-2 (borders).
       expect(l.chat.col, 1);
       expect(l.chat.width, 78);
-      // Input lives inside the chat box, just above the bottom border.
-      expect(l.input.row, 22);
+      // Input lives above the reserved mode/status strip.
+      expect(l.input.row, 21);
+      expect(l.stripRow, 22);
       expect(l.bottomBorderRow, 23);
     });
 
@@ -33,7 +34,7 @@ void main() {
       // Border rows.
       expect(l.topBorderRow, 0);
       expect(l.bottomBorderRow, 23);
-      expect(l.input.row, 22);
+      expect(l.input.row, 21);
     });
 
     test('border characters at the info box corners', () {
@@ -127,8 +128,8 @@ void main() {
       expect(l.menuBarRow, 1);
       // Chat interior starts at row 4 (rows 0–2 = menu box, row 3 = top border).
       expect(l.chat.row, 4);
-      // Input row still just above the bottom border.
-      expect(l.input.row, 22);
+      // Input row stays above the reserved mode/status strip.
+      expect(l.input.row, 21);
     });
   });
 }

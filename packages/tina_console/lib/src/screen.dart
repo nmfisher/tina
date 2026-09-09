@@ -524,7 +524,8 @@ class Screen {
       be.eraseCells(_layout.menuBarRow, 1, w - 2);
     }
     _repaintBoxBorders();
-    // Repaint the strip after borders; tiled layouts share their bottom row.
+    // The strip sits between input and bottom border; repaint it after the
+    // borders so it wins.
     if (_errorStrip != null || _modeLabel != null) _renderStrip();
     // Park the cursor at the chat region's top-left.
     be.moveCursor(_layout.chat.row, _layout.chat.col);

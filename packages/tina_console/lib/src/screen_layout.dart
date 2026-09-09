@@ -61,10 +61,10 @@ class ScreenLayout {
   final int topBorderRow;
   final int bottomBorderRow;
 
-  /// Row where the prompt lives, inside the chat box above its bottom border.
+  /// Row where the prompt lives, inside the chat box just above the strip.
   final int inputRow;
 
-  /// Mode/status row: below the sidebar boxes, or on the tiled bottom border.
+  /// Row where the mode/status strip lives, between input and bottom border.
   final int stripRow;
 
   /// Whether a menu bar box is reserved at the top of the screen.
@@ -132,7 +132,7 @@ class ScreenLayout {
       {bool hasMenuBar = false, bool? split, bool drawInfoFrame = true,
       int sidebarWidth = 0}) {
     final w = width < 1 ? 1 : width;
-    final minH = hasMenuBar ? 8 : 5;
+    final minH = hasMenuBar ? 8 : 6;
     final h = height < minH ? minH : height;
     final menuOffset = hasMenuBar ? 3 : 0; // menu box = border/content/border
 
@@ -141,8 +141,8 @@ class ScreenLayout {
     final sideWidth = sidebarWidth <= 0 || w < 30
         ? 0 : sidebarWidth.clamp(10, (w ~/ 3).clamp(10, w - 20));
     final bottomBorder = sideWidth > 0 ? h - 2 : h - 1;
-    final stripRow = h - 1;
-    final inputRow = sideWidth > 0 ? h - 3 : h - 2;
+    final stripRow = sideWidth > 0 ? h - 1 : h - 2;
+    final inputRow = h - 3;
 
     // Menu box geometry (rows 0–2 when present).
     final menuTop = hasMenuBar ? 0 : -1;
@@ -179,9 +179,11 @@ class ScreenLayout {
       height: 1,
     );
 
-    // Info content spans from the top border row+1 to the bottom border-1
+    // Chat scrollback now ends at input row - 1 (strip is at stripRow).
+
+    // Info content spans from the top border row+1 to the stripRow-1
     // — it does NOT reserve an input row because the info box has none.
-    final infoContentHeight = bottomBorder - topBorder - 1;
+    final infoContentHeight = stripRow - topBorder - 1;
     final info = isSplit
         ? Rect(
             row: topBorder + 1,
