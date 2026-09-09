@@ -77,6 +77,14 @@ On first load, Tina offers to have the main agent set up the project and write
 tools, and approvals, and decides whether and how many sub-agents to delegate
 to within the configured limits. Ctrl+C cancels the task.
 
+Environment setup begins with an enforced inspection phase: the main agent uses
+read/list/search tools and can delegate read-only scouts. Bash, file edits, and
+workflow launches are unavailable during inspection. After inspecting the repo,
+the main agent calls `begin_environment_execution` with its findings and setup,
+build, and test commands. This needs no confirmation; it enables the normal
+tools on the next step, with normal command/write approvals. The main agent
+keeps ownership throughout, and the phase restriction ends with that turn.
+
 Set `[environment] auto_populate` to `"ask"` (default), `"always"`, or `"never"`
 to control that startup behavior. The former `[environment] model` setting is
 ignored. `/index` requests setup in the main conversation when the record is

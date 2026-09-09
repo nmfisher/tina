@@ -498,6 +498,10 @@ class SessionController {
     },
     persistUsage: (conversation) => _flushUsageFor(conversation),
     onTurnStarted: _beginEnvironmentTurn,
+    toolsForTurn: (conversation, prompt) =>
+        _environmentRequests[conversation.id] == prompt
+        ? EnvironmentToolStage(conversation.agent.tools)
+        : null,
   );
   void _startTurn(Conversation conversation, String input) =>
       turns.submit(conversation.id, input);

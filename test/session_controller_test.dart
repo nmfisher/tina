@@ -1369,16 +1369,48 @@ void _environmentTests() {
         stopReason: 'tool_use',
       ),
     ];
+    List<List<StreamEvent>> prepareRecord() => [
+      [
+        MessageComplete(
+          content: [
+            ToolUseBlock(
+              id: 'inspect',
+              name: 'ls',
+              input: {'path': project.path, 'all': true},
+            ),
+          ],
+          stopReason: 'tool_use',
+        ),
+      ],
+      [
+        MessageComplete(
+          content: [
+            ToolUseBlock(
+              id: 'plan',
+              name: 'begin_environment_execution',
+              input: {
+                'findings': 'Inspected the repository.',
+                'setup': 'No dependencies in this fixture.',
+                'build': 'No build applies.',
+                'test': 'Record the observed test fixture result.',
+              },
+            ),
+          ],
+          stopReason: 'tool_use',
+        ),
+      ],
+    ];
     SessionController build(LlmProvider provider) => _buildController(
       readLine: FakeReadLine(),
       provider: provider,
-      tools: [WriteTool()],
+      tools: [LsTool(), WriteTool()],
     )..environmentIndex = buildEnvironmentIndex(projectRoot: project.path);
 
     test(
       'uses the existing main agent, transcript and model without automatic scouts',
       () async {
         final provider = FakeProvider([
+          ...prepareRecord(),
           writeRecord(),
           _answer('Measured and recorded.'),
         ], model: 'chosen-main');
@@ -1389,8 +1421,14 @@ void _environmentTests() {
         );
         await controller.runEnvironment(main);
         await controller.turns.whenIdle(main.id);
-        expect(provider.calls, hasLength(2));
+        expect(provider.calls, hasLength(4));
         expect(provider.calls.first.system, 'sys');
+        expect(provider.calls.first.tools.map((t) => t.name), ['ls']);
+        expect(
+          provider.calls[1].tools.map((t) => t.name),
+          contains('begin_environment_execution'),
+        );
+        expect(provider.calls[2].tools.map((t) => t.name), contains('write'));
         expect(
           provider.calls.first.messages.first.content
               .whereType<TextBlock>()
@@ -1399,7 +1437,10 @@ void _environmentTests() {
           'existing context',
         );
         expect(main.provider.model, 'chosen-main');
-        expect(main.history.expand((m) => m.content).whereType<ToolResultBlock>(), isNotEmpty);
+        expect(
+          main.history.expand((m) => m.content).whereType<ToolResultBlock>(),
+          isNotEmpty,
+        );
         expect(controller.sessionManager.active.conversationCount, 1);
         expect(controller.jobs.running('environment'), isFalse);
         expect(
@@ -1426,34 +1467,47 @@ void _environmentTests() {
       await controller.shutdown();
     });
 
-    test('a queued setup captures the record when its own turn starts', () async {
-      final gate = Completer<void>();
-      final tool = _GatedTool(gate);
-      final provider = FakeProvider([
-        [MessageComplete(content: [ToolUseBlock(id: 'wait', name: 'gated', input: {})],
-          stopReason: 'tool_use')],
-        _answer('Earlier task done.'),
-        _answer('Environment looks fine.'),
-      ]);
-      final controller = _buildController(readLine: FakeReadLine(), provider: provider,
-        tools: [tool])..environmentIndex = buildEnvironmentIndex(projectRoot: project.path);
-      final main = controller.active;
-      controller.turns.submit(main.id, 'Earlier task');
-      await _pumpUntil(() => tool.calls == 1);
-      await controller.runEnvironment(main);
-      await controller.runEnvironment(main);
-      expect(main.messageQueue.length, 1);
-      final record = File('${project.path}/.tina/ENVIRONMENT.md');
-      record.parent.createSync(recursive: true);
-      record.writeAsStringSync('Written by the earlier task.');
-      gate.complete();
-      await controller.turns.whenIdle(main.id);
-      expect(provider.calls, hasLength(3));
-      expect(controller.isEnvironmentRunning, isFalse);
-      expect(File('${project.path}/.tina/environment/tracking.json').existsSync(), isFalse,
-        reason: 'a queued prose-only setup must not claim the earlier write');
-      await controller.shutdown();
-    });
+    test(
+      'a queued setup captures the record when its own turn starts',
+      () async {
+        final gate = Completer<void>();
+        final tool = _GatedTool(gate);
+        final provider = FakeProvider([
+          [
+            MessageComplete(
+              content: [ToolUseBlock(id: 'wait', name: 'gated', input: {})],
+              stopReason: 'tool_use',
+            ),
+          ],
+          _answer('Earlier task done.'),
+          _answer('Environment looks fine.'),
+        ]);
+        final controller = _buildController(
+          readLine: FakeReadLine(),
+          provider: provider,
+          tools: [tool],
+        )..environmentIndex = buildEnvironmentIndex(projectRoot: project.path);
+        final main = controller.active;
+        controller.turns.submit(main.id, 'Earlier task');
+        await _pumpUntil(() => tool.calls == 1);
+        await controller.runEnvironment(main);
+        await controller.runEnvironment(main);
+        expect(main.messageQueue.length, 1);
+        final record = File('${project.path}/.tina/ENVIRONMENT.md');
+        record.parent.createSync(recursive: true);
+        record.writeAsStringSync('Written by the earlier task.');
+        gate.complete();
+        await controller.turns.whenIdle(main.id);
+        expect(provider.calls, hasLength(3));
+        expect(controller.isEnvironmentRunning, isFalse);
+        expect(
+          File('${project.path}/.tina/environment/tracking.json').existsSync(),
+          isFalse,
+          reason: 'a queued prose-only setup must not claim the earlier write',
+        );
+        await controller.shutdown();
+      },
+    );
 
     test('a prose-only response leaves the record unverified', () async {
       final controller = build(FakeProvider.done());
@@ -1473,7 +1527,9 @@ void _environmentTests() {
     test(
       'a provider failure after writing does not advance verification',
       () async {
-        final controller = build(FakeProvider([writeRecord(), []]));
+        final controller = build(
+          FakeProvider([...prepareRecord(), writeRecord(), []]),
+        );
         await controller.runEnvironment(controller.active);
         await controller.turns.whenIdle(controller.active.id);
         expect(
@@ -1491,11 +1547,14 @@ void _environmentTests() {
     test(
       'cancellation after writing stays unverified and permits a retry',
       () async {
-        final provider = _WriteThenWaitProvider(writeRecord());
+        final provider = _WriteThenWaitProvider([
+          ...prepareRecord(),
+          writeRecord(),
+        ]);
         final controller = build(provider);
         final main = controller.active;
         await controller.runEnvironment(main);
-        await _pumpUntil(() => provider.calls == 2);
+        await _pumpUntil(() => provider.calls == 4);
         // Repeated requests while running must not enqueue another paid turn.
         await controller.runEnvironment(main);
         expect(main.messageQueue.isEmpty, isTrue);
@@ -1511,7 +1570,15 @@ void _environmentTests() {
           isFalse,
         );
         expect(controller.isEnvironmentRunning, isFalse);
-        expect(main.history.last.content.whereType<TextBlock>().single.text, 'Follow-up done.');
+        expect(
+          main.history.last.content.whereType<TextBlock>().single.text,
+          'Follow-up done.',
+        );
+        expect(
+          provider.schemas.last,
+          contains('write'),
+          reason: 'queued ordinary work keeps the base tool set',
+        );
         main.provider = FakeProvider.done();
         await controller.runEnvironment(main);
         await controller.turns.whenIdle(main.id);
@@ -1528,16 +1595,19 @@ void _environmentTests() {
 
 class _WriteThenWaitProvider extends LlmProvider {
   _WriteThenWaitProvider(this.first) : super('main');
-  final List<StreamEvent> first;
+  final List<List<StreamEvent>> first;
   int calls = 0;
+  final schemas = <List<String>>[];
   @override
   Stream<StreamEvent> send({
     required String system,
     required List<Message> messages,
     required List<ToolSchema> tools,
   }) {
-    if (++calls == 1) return Stream.fromIterable(first);
-    if (calls > 2) return Stream.fromIterable(_answer('Follow-up done.'));
+    schemas.add(tools.map((tool) => tool.name).toList());
+    if (++calls <= first.length) return Stream.fromIterable(first[calls - 1]);
+    if (calls > first.length + 1)
+      return Stream.fromIterable(_answer('Follow-up done.'));
     return StreamController<StreamEvent>().stream;
   }
 }

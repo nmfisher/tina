@@ -16,6 +16,7 @@ export 'src/config/environment_options.dart';
 export 'src/config/runtime_config.dart';
 export 'src/config/startup_options.dart';
 export 'src/environment/environment_index.dart';
+export 'src/environment/environment_tool_stage.dart';
 export 'src/environment/environment_record.dart';
 export 'src/execution/background_job_supervisor.dart';
 export 'src/execution/project_background_jobs.dart';

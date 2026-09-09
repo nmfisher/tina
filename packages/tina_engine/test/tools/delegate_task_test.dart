@@ -37,6 +37,69 @@ void main() {
       testContext(scheduler,
           pipeline: pipeline, parentSystemPrompt: parentSystemPrompt);
 
+  test(
+      'a scoped read-only delegate refuses full access without changing its parent',
+      () async {
+    final scheduler = sched(scriptedRegistry({'a': answerEvents('done')}));
+    final full = DelegateTool(ctx(scheduler));
+    final scout = full.readOnly();
+    final request = {
+      'delegations': [
+        {'task': 'inspect', 'tools': 'full'}
+      ]
+    };
+    expect((await scout.execute(request)).isError, isTrue);
+    expect(scheduler.jobs, isEmpty);
+    expect(full.resolve(request).error, isNull);
+    await scheduler.dispose();
+  });
+
+  test('read-only scouts cannot spawn full-access grandchildren', () async {
+    final provider = FakeProvider([
+      [
+        const MessageComplete(content: [
+          ToolUseBlock(id: 'nested', name: 'delegate', input: {
+            'delegations': [
+              {'task': 'write through a grandchild', 'tools': 'full'}
+            ],
+          })
+        ], stopReason: 'tool_use')
+      ],
+      answerEvents('reported'),
+    ]);
+    final registry = ProviderRegistry(env: const {'TEST_KEY': 'k'})
+      ..register(ProviderDescriptor(
+        id: 'a',
+        name: 'a',
+        authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
+        defaultBaseUrl: 'https://a.test',
+        builder: (_) => provider,
+        models: const {
+          'a-model': ModelInfo(
+              id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+        },
+      ));
+    final scheduler = sched(registry)..delegateToolBuilder = DelegateTool.new;
+    final result = await DelegateTool(ctx(scheduler)).readOnly().execute({
+      'delegations': [
+        {'task': 'inspect'}
+      ],
+    });
+    expect(result.isError, isFalse);
+    expect(scheduler.jobs, hasLength(1));
+    final schema =
+        provider.calls.first.tools.firstWhere((t) => t.name == 'delegate');
+    final properties = schema.inputSchema['properties'] as Map;
+    final items = (properties['delegations'] as Map)['items'] as Map;
+    expect(
+        ((items['properties'] as Map)['tools'] as Map)['enum'], ['read-only']);
+    final errors = provider.calls.last.messages
+        .expand((m) => m.content)
+        .whereType<ToolResultBlock>();
+    expect(errors.single.content, contains('cannot delegate full access'));
+    await scheduler.dispose();
+  });
+
   group('schema', () {
     test('name is "delegate"; no agent enum; task is required', () {
       final tool =

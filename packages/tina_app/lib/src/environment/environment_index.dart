@@ -41,6 +41,10 @@ class EnvironmentIndex extends EnvironmentInspection {
   static const _task = '''
 Establish and record this repository's environment in this conversation. You own the task. Inspect the repository and decide whether delegation is useful, how many sub-agents to spawn, and each one's scope, within the configured limits. Use the normal delegate tool when helpful; there is no required scout count or one-agent-per-folder partition. Coordinate mutating work to avoid conflicts.
 
+Start in the inspection phase: use read, ls (all: true for hidden entries), stat, which, glob, grep, search, and git for repository discovery. Bash, write/edit, workflow launches, and full-access delegation are unavailable during inspection. Optional delegates must use the read-only profile and remain read-only when delegating further.
+
+After inspecting the repository, call begin_environment_execution with your findings and the setup, build, and test commands you identified (or explain why a check does not apply). The transition becomes available after a successful inspection tool call. It needs no user confirmation, executes nothing, and enables the normal tool set on the next step. Continue in this same conversation, using normal command/write approvals. Do not delegate the overall task to a workflow.
+
 Read any existing .tina/ENVIRONMENT.md first. Preserve user-authored intent; change setup/build/test instructions only when your measurements show they need correction, and explain those changes.
 
 - Describe the repository layout and the purpose of its important areas.

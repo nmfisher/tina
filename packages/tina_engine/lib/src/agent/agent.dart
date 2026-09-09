@@ -440,6 +440,7 @@ class Agent {
     required String userInput,
     Future<void>? cancelSignal,
     Future<void>? toolInterruptSignal,
+    ToolRegistry? turnTools,
   }) async {
     final activity = RunActivity(sink);
     try {
@@ -448,6 +449,7 @@ class Agent {
         userInput: userInput,
         cancelSignal: cancelSignal,
         toolInterruptSignal: toolInterruptSignal,
+        turnTools: turnTools,
       );
     } finally {
       activity.complete();
@@ -459,6 +461,7 @@ class Agent {
     required String userInput,
     Future<void>? cancelSignal,
     Future<void>? toolInterruptSignal,
+    ToolRegistry? turnTools,
   }) async {
     abortedReason = null;
     abortedKind = AbortedKind.none;
@@ -527,6 +530,9 @@ class Agent {
     // model on every step once spend stays past 90%).
 
     for (var step = 0; step < maxSteps; step++) {
+      // Match dispatch to the exact registry advertised for this model step.
+      // A phase transition cannot enable hidden calls from the same batch.
+      final stepTools = ToolRegistry((turnTools ?? tools).all.toList());
       if (cancelled) {
         sink.notice('\n[cancelled]\n', kind: NoticeKind.warning);
         abortedKind = AbortedKind.cancel;
@@ -582,7 +588,7 @@ class Agent {
 
       if (autoCompactThreshold > 0 && step - lastCompactAttempt >= 3) {
         final estimate =
-            TokenBudget.estimateInputTokens(system, history, tools.schemas);
+            TokenBudget.estimateInputTokens(system, history, stepTools.schemas);
         final sizeTriggered = estimate > autoCompactThreshold;
         // Spend trigger: the per-turn cap counts every round trip's
         // input+output, so a many-step turn on a mid-size context burns
@@ -616,7 +622,8 @@ class Agent {
       // Pre-flight: refuse a request whose input alone would blow past the
       // per-request cap. Catches the "single tool returned 5MB of context"
       // scenario before we put it on the wire.
-      final reject = budget?.checkRequestInput(system, history, tools.schemas);
+      final reject =
+          budget?.checkRequestInput(system, history, stepTools.schemas);
       if (reject != null) {
         sink.notice('\n[budget] $reject\n', kind: NoticeKind.error);
         abortedReason = reject;
@@ -640,7 +647,7 @@ class Agent {
         final stream = provider.send(
           system: system,
           messages: history,
-          tools: tools.schemas,
+          tools: stepTools.schemas,
         );
         outcome = await const ProviderStreamConsumer()
             .consume(stream, sink: sink, cancelSignal: cancelSignal);
@@ -867,7 +874,7 @@ class Agent {
           ));
           continue;
         }
-        final tool = tools[use.name];
+        final tool = stepTools[use.name];
         if (tool == null) {
           sink.notice('  unknown tool: ${use.name}\n', kind: NoticeKind.error);
           results.add(ToolResultBlock(
@@ -878,7 +885,9 @@ class Agent {
           continue;
         }
 
-        var decision = policy.check(use.name, use.input);
+        var decision = tool is LocalControlTool
+            ? PermissionDecision.allow
+            : policy.check(use.name, use.input);
         Tool executionTool = tool;
         var executionInput = use.input;
         final retryKey = tool is BashTool

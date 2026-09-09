@@ -25,6 +25,9 @@ class TurnExecutor {
   /// callback observes that exact turn's completion, before the queue drains.
   final void Function(bool completed)? Function(Conversation, String)?
   onTurnStarted;
+
+  /// A registry owned by this turn, created when queued work actually starts.
+  final ToolRegistry? Function(Conversation, String)? toolsForTurn;
   final Environment environment;
   int autoCompactThreshold;
   final int autoCompactPreserveRecent;
@@ -37,6 +40,7 @@ class TurnExecutor {
     this.persistUsage,
     this.onChanged,
     this.onTurnStarted,
+    this.toolsForTurn,
     this.environment = const PlatformEnvironment(),
     this.autoCompactThreshold = 0,
     this.autoCompactPreserveRecent = 2,
@@ -145,8 +149,9 @@ class TurnExecutor {
         void Function(bool)? finish;
         var completed = false;
         try {
+          final turnTools = toolsForTurn?.call(s, next);
           finish = onTurnStarted?.call(s, next);
-          completed = await _runTurn(s, next);
+          completed = await _runTurn(s, next, turnTools: turnTools);
         } catch (_) {
           // Cosmetic host failures must not strand admission or shutdown.
         } finally {
@@ -176,7 +181,11 @@ class TurnExecutor {
     }
   }
 
-  Future<bool> _runTurn(Conversation s, String input) async {
+  Future<bool> _runTurn(
+    Conversation s,
+    String input, {
+    ToolRegistry? turnTools,
+  }) async {
     final cancel = s.cancelCompleter!;
     final toolInterrupt = s.toolInterruptCompleter!;
     s.host.showSeparator();
@@ -191,7 +200,7 @@ class TurnExecutor {
     // path (rollback + queue survival) instead of hanging busy.
     if (autoCompactThreshold > 0) {
       try {
-        await _maybeAutoCompact(s, input);
+        await _maybeAutoCompact(s, input, turnTools: turnTools);
       } catch (e, st) {
         s.host.showMessage('error: $e\n', style: HostMessageStyle.error);
         if (environment.env['COCOON_DEBUG'] == '1') {
@@ -242,6 +251,7 @@ class TurnExecutor {
           userInput: input,
           cancelSignal: cancel.future,
           toolInterruptSignal: toolInterrupt.future,
+          turnTools: turnTools,
         );
       } catch (e, st) {
         failed = true;
@@ -324,11 +334,15 @@ class TurnExecutor {
         );
   }
 
-  Future<void> _maybeAutoCompact(Conversation s, String input) async {
+  Future<void> _maybeAutoCompact(
+    Conversation s,
+    String input, {
+    ToolRegistry? turnTools,
+  }) async {
     final estimate = TokenBudget.estimateInputTokens(s.agent.system, [
       ...s.history,
       Message(role: Role.user, content: [TextBlock(input)]),
-    ], s.agent.tools.schemas);
+    ], (turnTools ?? s.agent.tools).schemas);
     if (estimate <= autoCompactThreshold) return;
 
     final before = s.history.length;

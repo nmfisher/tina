@@ -69,11 +69,16 @@ abstract class DelegationToolBase implements Tool {
                   },
                   'tools': {
                     'type': 'string',
-                    'enum': ['read-only', 'full'],
-                    'description': 'Tool profile. "read-only" (default): read/'
-                        'explore only, no file or shell mutation — safe for '
-                        'research and review. "full": also write, edit, and run '
-                        'shell. Omit for read-only.',
+                    'enum': [
+                      'read-only',
+                      if (ctx.maxToolProfile == ToolProfile.full) 'full'
+                    ],
+                    'description': ctx.maxToolProfile == ToolProfile.readOnly
+                        ? 'Only read-only scouts are available in this scope. Descendants cannot receive shell or source-write access.'
+                        : 'Tool profile. "read-only" (default): read/'
+                            'explore only, no file or shell mutation — safe for '
+                            'research and review. "full": also write, edit, and run '
+                            'shell. Omit for read-only.',
                   },
                   'llm_provider': {
                     'type': 'string',
@@ -98,8 +103,11 @@ abstract class DelegationToolBase implements Tool {
 
   /// Formats the description lead plus a note on the profiles + model override.
   String describe(String lead) {
+    final profiles = ctx.maxToolProfile == ToolProfile.readOnly
+        ? '"read-only" only'
+        : '"read-only" default, or "full"';
     return '$lead\nEach delegation is an object: `task` (required), optional '
-        '`tools` ("read-only" default, or "full"), and optional `llm_provider` '
+        '`tools` ($profiles), and optional `llm_provider` '
         '+ `llm_model` to run it on a different model.';
   }
 
@@ -132,14 +140,24 @@ abstract class DelegationToolBase implements Tool {
         );
       }
       final profile = parseToolProfile(m['tools'] as String?);
+      if (ctx.maxToolProfile == ToolProfile.readOnly &&
+          profile == ToolProfile.full) {
+        return (
+          delegations: const [],
+          error:
+              '$toolName: this scout is read-only and cannot delegate full access. Use the read-only profile.'
+        );
+      }
       final provider = (m['llm_provider'] as String?)?.trim();
       final model = (m['llm_model'] as String?)?.trim();
       // A model override needs both halves; either alone is a partial spec and
       // is ignored (falling back to the inherited model) rather than guessing.
-      final modelReference =
-          (provider != null && provider.isNotEmpty && model != null && model.isNotEmpty)
-              ? '$provider/$model'
-              : null;
+      final modelReference = (provider != null &&
+              provider.isNotEmpty &&
+              model != null &&
+              model.isNotEmpty)
+          ? '$provider/$model'
+          : null;
       delegations.add(Delegation(
         task: task,
         toolProfile: profile,
@@ -174,8 +192,9 @@ abstract class DelegationToolBase implements Tool {
 
 /// Derive a short label from a task's first line, for the merged result header.
 String _labelFor(String task) {
-  final line = task.split('\n').firstWhere((l) => l.trim().isNotEmpty,
-      orElse: () => task.trim());
+  final line = task
+      .split('\n')
+      .firstWhere((l) => l.trim().isNotEmpty, orElse: () => task.trim());
   const cap = 60;
   final trimmed = line.trim();
   return trimmed.length <= cap ? trimmed : '${trimmed.substring(0, cap)}…';

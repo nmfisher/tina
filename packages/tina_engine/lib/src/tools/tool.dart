@@ -59,6 +59,11 @@ abstract class Tool {
   });
 }
 
+/// A tool that only changes local orchestration state. It must never run a
+/// subprocess, mutate files, or grant permissions. Such transitions do not
+/// require an approval prompt; actions enabled afterwards retain their policy.
+abstract class LocalControlTool implements Tool {}
+
 /// Registry of tools keyed by schema name. Construction is **last-wins**: if
 /// two tools share a name, the later entry in [tools] shadows the earlier
 /// (the map literal assigns each name in iteration order). This is deliberate

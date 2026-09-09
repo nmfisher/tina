@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../agent/sub_agent_scheduler.dart';
+import '../agent/tool_profile.dart';
 import 'delegation_base.dart';
 import 'tool.dart';
 
@@ -20,6 +21,18 @@ import 'tool.dart';
 /// [DelegationToolBase]; only the post-spawn await + merge is specific here.
 class DelegateTool extends DelegationToolBase {
   DelegateTool(AgentToolContext ctx) : super(ctx);
+
+  /// A fresh delegate handle, leaving the conversation's normal one intact.
+  DelegateTool readOnly() => DelegateTool(AgentToolContext(
+        scheduler: ctx.scheduler,
+        pipeline: ctx.pipeline,
+        parentReference: ctx.parentReference,
+        parentPolicy: ctx.parentPolicy,
+        originConversationId: ctx.originConversationId,
+        depth: ctx.depth,
+        parentSystemPrompt: ctx.parentSystemPrompt,
+        maxToolProfile: ToolProfile.readOnly,
+      ));
 
   @override
   String get toolName => 'delegate';

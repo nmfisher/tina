@@ -77,6 +77,9 @@ class AgentToolContext {
   final String originConversationId;
   final int depth;
 
+  /// Descendants cannot receive a broader tool profile than this ceiling.
+  final ToolProfile maxToolProfile;
+
   /// The parent agent's resolved system prompt. A spawned sub-agent runs under
   /// this verbatim (plus its own task) — there is no per-sub-agent identity
   /// catalog, so the parent's identity is the single source. Threaded here so
@@ -91,6 +94,7 @@ class AgentToolContext {
     required this.originConversationId,
     required this.depth,
     required this.parentSystemPrompt,
+    this.maxToolProfile = ToolProfile.full,
   });
 }
 
@@ -891,6 +895,7 @@ class SubAgentScheduler {
           parentPolicy: effectivePolicy,
           originConversationId: '',
           depth: 1,
+          maxToolProfile: toolProfile,
         );
         tools.add(delegateToolBuilder!(nestedCtx));
       }
@@ -992,6 +997,7 @@ class SubAgentScheduler {
         parentPolicy: ctx.parentPolicy,
         originConversationId: ctx.originConversationId,
         depth: depth + 1,
+        maxToolProfile: profile,
       );
       tools.add(delegateToolBuilder!(nestedCtx));
     }
