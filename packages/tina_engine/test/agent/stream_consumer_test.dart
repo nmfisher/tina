@@ -34,6 +34,23 @@ void main() {
       expect(outcome.cancelled, isFalse);
     });
 
+    test('StreamNotice → sink notice (warning), not content', () async {
+      final stream = _scripted([
+        const StreamNotice('provider error: 503 — retry 1/3 in 0.3s'),
+        const MessageComplete(
+          content: [TextBlock('ok')],
+          stopReason: 'end_turn',
+        ),
+      ]);
+
+      final outcome = await consumer.consume(stream, sink: sink);
+      expect(sink.notices, hasLength(1));
+      expect(sink.notices.single.message, contains('retry 1/3'));
+      expect(sink.notices.single.kind, NoticeKind.warning);
+      expect(outcome.content!.single, isA<TextBlock>(),
+          reason: 'the notice is not transcript content');
+    });
+
     test('TextDelta + MessageComplete → chat received text', () async {
       final stream = _scripted([
         const TextDelta('hi '),

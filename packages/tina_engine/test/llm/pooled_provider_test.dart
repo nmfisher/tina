@@ -79,6 +79,9 @@ void main() {
           pool.send(system: 's', messages: const [], tools: const []));
       expect(events1.whereType<StreamError>(), isEmpty,
           reason: 'the failed attempt is invisible — nothing duplicated');
+      expect(events1.whereType<StreamNotice>().single.text,
+          contains('member 1 failed'),
+          reason: 'failover must be visible, not a silent stall');
       expect(events1.whereType<MessageComplete>(), isNotEmpty);
       expect(a.calls, 1);
       expect(b.calls, 1, reason: 'b picked up the failed send');

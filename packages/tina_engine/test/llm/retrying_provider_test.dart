@@ -53,6 +53,10 @@ void main() {
       expect(inner.calls, 2, reason: 'exactly one re-attempt');
       expect(events.whereType<StreamError>(), isEmpty,
           reason: 'the failed attempt is invisible — nothing duplicated');
+      expect(events.whereType<StreamNotice>().single.text,
+          contains('retry 1/3'),
+          reason: 'a pending retry must be visible in the UI, not a silent '
+              'stall with a loading border');
       expect(
           events.whereType<MessageComplete>().single.content.single,
           isA<TextBlock>(),

@@ -254,6 +254,12 @@ class PooledProvider implements LlmProvider {
         if (cooldown > Duration.zero) {
           _coolingUntil[member] = _clock.elapsed + cooldown;
         }
+        // Surface the rotation: the user sees which member failed and that
+        // failover is happening, instead of a silent stall.
+        if (!controller.isClosed) {
+          controller.add(StreamNotice('pool: member ${index + 1} failed '
+              '(${failure.error}) — rotating to the next member'));
+        }
         tried++;
       }
       if (!controller.isClosed) {

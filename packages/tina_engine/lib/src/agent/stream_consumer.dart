@@ -53,6 +53,8 @@ class ProviderStreamConsumer {
           sink.activityStop();
           sink.text(event.text);
           sawTextThisTurn = true;
+        } else if (event is StreamNotice) {
+          sink.notice('\n${event.text}\n', kind: NoticeKind.warning);
         } else if (event is ToolCallStart) {
           sink.activityStop();
           if (sawTextThisTurn) sink.newline();

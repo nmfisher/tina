@@ -59,6 +59,15 @@ class TextDelta extends StreamEvent {
   const TextDelta(this.text);
 }
 
+/// A status notice emitted mid-stream by the policy layer (retry ladders,
+/// pool failover): the send is still alive, but the user should see WHY
+/// nothing is happening. Rendered by the consumer as a sink notice — never
+/// message content, never transcript text.
+class StreamNotice extends StreamEvent {
+  final String text;
+  const StreamNotice(this.text);
+}
+
 class ToolCallStart extends StreamEvent {
   final String id;
   final String name;

@@ -156,6 +156,14 @@ class RetryingProvider implements LlmProvider {
             applyBackoffJitter(
                 retryDelays[attempt.clamp(0, retryDelays.length - 1)]);
         Wire.report('backoff', attempt: attempt + 1, inFlight: false);
+        // Surface the swallowed failure: a pending retry must be visible in
+        // the UI, not a silent multi-second stall with a loading border.
+        if (!controller.isClosed) {
+          controller.add(StreamNotice(
+              'provider error: ${retryOf.error} — retry '
+              '${attempt + 1}/$maxRetries in '
+              '${(delay.inMilliseconds / 1000).toStringAsFixed(1)}s'));
+        }
         // Park on the backoff; a cancel during it ends the send quietly.
         await Future.any([Future<void>.delayed(delay), cancelled.future]);
         if (cancelled.isCompleted) {
