@@ -70,6 +70,108 @@ void main() {
     expect(runtime.spendLedger.totalTokens, 10);
   });
 
+  test('the default runtime mounts no provider decorator contributions',
+      () async {
+    final registry = _registryWithUsageProvider();
+    final runtime = await buildExecutionRuntime(
+      config: RuntimeConfig(provider: 'test', model: 'a'),
+      registry: registry,
+      environment: FakeEnvironment(),
+    );
+    addTearDown(runtime.dispose);
+
+    // No decorator plugin mounted (the default): the scope carries no
+    // decorator contributions, so the factory's policy stack is metering
+    // only — the pre-plugin composition.
+    expect(providerDecoratorsFromScope(runtime.pluginScope), isEmpty);
+  });
+
+  test('a decorator contribution runs around the metered provider and '
+      'metering still records every send', () async {
+    var decorated = 0;
+    var decoratedSends = 0;
+    final runtime = PluginRuntime(
+      name: 'execution-decorator-test',
+      plugins: [
+        spendLedgerPlugin(RuntimeConfig(provider: 'test', model: 'a')),
+        providerDecoratorsPlugin([
+          (inner) {
+            decorated++;
+            return _TaggedProvider(inner, () => decoratedSends++);
+          },
+        ]),
+        providerFactoryPlugin(
+          RuntimeConfig(provider: 'test', model: 'a'),
+          _registryWithUsageProvider(),
+          PauseGate(),
+        ),
+      ],
+    );
+    await runtime.activate();
+    addTearDown(runtime.dispose);
+
+    final factory = runtime.scope.lookup(providerFactoryServiceKey)!;
+    final ledger = runtime.scope.lookup(spendLedgerServiceKey)!;
+    final provider = factory.build('test/a');
+    try {
+      await provider.send(system: '', messages: [], tools: []).drain<void>();
+    } finally {
+      provider.close();
+    }
+    // The decorator contribution wrapped the provider once...
+    expect(decorated, 1);
+    // ...and its wrapper saw the send go through it...
+    expect(decoratedSends, 1);
+    // ...while metering still saw the same send (7 + 3 tokens).
+    expect(ledger.totalTokens, 10);
+  });
+
+  test('the first declared decorator is the outermost wrapper', () async {
+    final wrapped = <LlmProvider>[];
+    _TaggedProvider? firstMarker;
+    final runtime = PluginRuntime(
+      name: 'execution-decorator-order-test',
+      plugins: [
+        spendLedgerPlugin(RuntimeConfig(provider: 'test', model: 'a')),
+        providerDecoratorsPlugin([
+          // Declared FIRST: the factory applies decorators in reverse, so this
+          // runs LAST against the bare metering wrapper and ends up the
+          // outermost custom layer.
+          (inner) {
+            wrapped.add(inner);
+            return firstMarker = _TaggedProvider(inner, () {});
+          },
+          // Declared SECOND: applied FIRST, wrapping metering directly.
+          (inner) {
+            wrapped.add(inner);
+            return _TaggedProvider(inner, () {});
+          },
+        ]),
+        providerFactoryPlugin(
+          RuntimeConfig(provider: 'test', model: 'a'),
+          _registryWithUsageProvider(),
+          PauseGate(),
+        ),
+      ],
+    );
+    await runtime.activate();
+    addTearDown(runtime.dispose);
+
+    final provider = runtime.scope.lookup(providerFactoryServiceKey)!.build(
+          'test/a',
+        );
+    provider.close();
+
+    expect(wrapped, hasLength(2));
+    // The provider the factory hands out IS the first-declared decorator's
+    // wrapper: first declared = outermost.
+    expect(identical(provider, firstMarker), isTrue);
+    // The first-declared wrapper's inner is the second-declared wrapper,
+    // whose inner is the always-present metering layer.
+    final second = firstMarker!.inner as _TaggedProvider;
+    expect(second.inner, isA<MeteringProvider>());
+  });
+
   test('after dispose the runtime rejects new providers and dispose stays '
       'idempotent', () async {
     final registry = _registryWithUsageProvider();
@@ -229,4 +331,27 @@ class _UsageProvider extends LlmProvider {
       usage: TokenUsage(inputTokens: 7, outputTokens: 3),
     );
   }
+}
+
+/// A decorator wrapper that forwards to [inner] and fires [onSend] on every
+/// send — lets the decorator tests observe both wrap order and that sends
+/// actually traverse each declared layer.
+class _TaggedProvider extends LlmProvider {
+  final LlmProvider inner;
+  final void Function() onSend;
+
+  _TaggedProvider(this.inner, this.onSend) : super(inner.model);
+
+  @override
+  Stream<StreamEvent> send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+  }) {
+    onSend();
+    return inner.send(system: system, messages: messages, tools: tools);
+  }
+
+  @override
+  void close() => inner.close();
 }

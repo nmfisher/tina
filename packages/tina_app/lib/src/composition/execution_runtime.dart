@@ -111,7 +111,14 @@ Future<ExecutionRuntime> buildExecutionRuntime({
     name: 'execution',
     plugins: [
       spendLedgerPlugin(config),
-      providerFactoryPlugin(config, registry, pauseGate),
+      // Decorator contributions mount BEFORE the factory: the factory plugin
+      // requires the ProviderDecoratorStage marker (an order-only edge), so
+      // every registered decorator contribution exists before the factory
+      // builds its policy stack. Empty by default — the factory then wraps
+      // metering only, exactly the pre-plugin behavior.
+      providerDecoratorsPlugin(const []),
+      providerFactoryPlugin(config, registry, pauseGate,
+          orderOnDecoratorStage: true),
       if (toolScope == null) ...[
         projectCapabilitiesPlugin(
           projectRoot: root,
