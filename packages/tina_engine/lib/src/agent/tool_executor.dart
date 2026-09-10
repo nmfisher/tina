@@ -13,8 +13,24 @@ import '../tools/tool_input.dart';
 import '../permissions/sandbox_access.dart';
 import 'agent_sink.dart';
 import 'tool_guards.dart';
+import 'tool_hooks.dart';
 
 final _log = Logger('tina.agent');
+
+/// Marks an error escaping the delegate chain of an around-execution hook —
+/// the tool itself failed, or a deeper hook's violation propagated. A hook
+/// must not be able to rebrand a delegate failure as its own: the executor's
+/// hook-level catch unwraps this and rethrows the original error with its
+/// original stack trace, so the thrown-tool path keeps its exact content and
+/// log severity.
+class _DelegateFailure implements Exception {
+  final Object error;
+  final StackTrace stackTrace;
+  _DelegateFailure(this.error, this.stackTrace);
+  @override
+  String toString() => 'delegate failure: $error';
+}
+
 
 /// Consecutive denials of the SAME tool after which the denial result gains a
 /// circuit-breaker line telling the model to stop calling that tool (#27).
@@ -214,6 +230,29 @@ class ToolExecutor {
   /// preserves the pre-guard behavior exactly.
   final List<ToolGuard> executionGuards;
 
+  /// AROUND-execution hooks ([ToolExecutionHook]), awaited in order around
+  /// the actual `executionTool.execute(...)` call only — the guard gates and
+  /// the dispatch-boundary guard recheck stay outside the wrapper, exactly
+  /// where they are. The FIRST hook is the outermost wrapper. Exactly-once
+  /// delegation is enforced per hook (fail closed — see [ToolExecutionHook]);
+  /// empty by default, which preserves the pre-hook behavior exactly.
+  final List<ToolExecutionHook> executionHooks;
+
+  /// POST-tool hooks ([ToolResultHook]) plus the legacy verifier, run in
+  /// order on a successful result: the verifier (adapted as
+  /// [_VerifierHook], so `Agent.resultVerifier` keeps its exact API and
+  /// behavior) runs first, then these, first-verdict-wins /
+  /// crash-logs-and-skips — the verifier-gate semantics, unchanged.
+  final List<ToolResultHook> resultHooks;
+
+  /// OBSERVATION-only hooks ([ToolObserver]), notified additively at the
+  /// existing toolStart / toolOutput / toolComplete points, each call
+  /// individually exception-contained — an observer can never change
+  /// execution. The sink calls themselves are UNCHANGED;
+  /// [AgentSink] implementations (and BusSink) remain the built-in
+  /// observe-only adapters. Empty by default.
+  final List<ToolObserver> observers;
+
   /// Batch-scope attribution mirror (#31): the executor's copy of the run
   /// loop's batch-local `interruptedCallIndex`. One step produces exactly
   /// one tool-result batch, so a [ToolCallState.step] change is a batch
@@ -236,6 +275,9 @@ class ToolExecutor {
     this.toolInterruptSignal,
     this.toolStopSignal,
     this.executionGuards = const [],
+    this.executionHooks = const [],
+    this.resultHooks = const [],
+    this.observers = const [],
   });
 
   /// Dispatch ONE tool call ([use]) against the step's [stepTools] snapshot.
@@ -480,7 +522,12 @@ class ToolExecutor {
     // let the shape through, so the refusal pattern it was counting is
     // over (whether the execution then succeeds or errors).
     state.denialCounts.remove(use.name);
+    // Observation is additive: the sink call is unchanged (AgentSink /
+    // BusSink remain the built-in observe-only adapters); observers get the
+    // same payload, each individually exception-contained.
     sink.toolStart(ToolStartEvent(use.name, use.id, executionInput));
+    _notifyObservers((observer) =>
+        observer.onToolStart(ToolStartEvent(use.name, use.id, executionInput)));
     try {
       // #31: while THIS call runs, the operator interrupt rides the
       // tool's existing cancel seam — bash kills via its existing
@@ -495,19 +542,30 @@ class ToolExecutor {
       if (finalBlock != null) {
         sink.toolComplete(ToolCompleteEvent(use.name, use.id,
             isError: true, result: finalBlock));
+        _notifyObservers((observer) => observer.onToolComplete(
+            ToolCompleteEvent(use.name, use.id,
+                isError: true, result: finalBlock)));
         return (
           result: ToolResultBlock(
               toolUseId: use.id, content: finalBlock, isError: true),
           interruptedInFlight: interruptedInFlight,
         );
       }
-      final out = await executionTool.execute(
-        executionInput,
-        cancelSignal: effectiveCancelSignal,
-        onOutput: (chunk, {bool stderr = false}) {
-          sink.toolOutput(
-              ToolOutputEvent(use.name, use.id, chunk, stderr: stderr));
-        },
+      final out = await _runWithExecutionHooks(
+        toolName: use.name,
+        toolId: use.id,
+        input: executionInput,
+        isCancelled: isCancelled,
+        delegate: () => executionTool.execute(
+          executionInput,
+          cancelSignal: effectiveCancelSignal,
+          onOutput: (chunk, {bool stderr = false}) {
+            sink.toolOutput(
+                ToolOutputEvent(use.name, use.id, chunk, stderr: stderr));
+            _notifyObservers((observer) => observer.onToolOutput(
+                ToolOutputEvent(use.name, use.id, chunk, stderr: stderr)));
+          },
+        ),
       );
       if (retryKey != null &&
           out is BashToolResult &&
@@ -584,32 +642,34 @@ class ToolExecutor {
       // here the text ships as the tool produced it.
       sink.toolComplete(ToolCompleteEvent(use.name, use.id,
           isError: out.isError, result: content));
-      // Success-only verifier gate (#22a): a post-tool check (e.g. a
-      // headless post-edit `dart analyze`) can append a remediation block
-      // to the result the model reads next step. Error results, the
-      // parse-error / unknown-tool / denied / thrown paths above all skip
-      // it, and a verifier crash must never kill the turn — the tool's
-      // own content ships unchanged instead.
-      if (!out.isError && resultVerifier != null && !state.toolInterrupted) {
-        try {
-          final verdict = await resultVerifier!(use.name, use.input);
-          if (verdict != null && verdict.isNotEmpty) {
-            return (
-              result: ToolResultBlock(
-                toolUseId: use.id,
-                content: '$content\n$verdict',
-                isError: out.isError,
-              ),
-              interruptedInFlight: interruptedInFlight,
-            );
-          }
-        } catch (e, st) {
-          _log.warning(
-              'result verifier for ${use.name} failed — shipping the '
-              'tool content unchanged',
-              e,
-              st);
-        }
+      _notifyObservers((observer) => observer.onToolComplete(
+          ToolCompleteEvent(use.name, use.id,
+              isError: out.isError, result: content)));
+      // Post-tool stage: the success-only gate (#22a), now as hooks. The
+      // legacy verifier runs first (adapted as [_VerifierHook], which
+      // calls it with (name, input) and ignores the result — so
+      // `Agent.resultVerifier` keeps its exact public API and behavior),
+      // then any declared [ToolResultHook]s, in declared order. Exactly
+      // today's semantics: the FIRST non-null verdict is appended to the
+      // result content and the rest are skipped; a throwing hook is
+      // logged and processing continues with the content unchanged. Error
+      // results, the parse-error / unknown-tool / denied / thrown paths
+      // above all skip the stage, and it never fires when the batch is
+      // operator-interrupted.
+      if (!out.isError && !state.toolInterrupted) {
+        content = await _runResultHooks(
+          toolName: use.name,
+          input: use.input,
+          result: ToolResultBlock(
+            toolUseId: use.id,
+            content: content,
+            isError: out.isError,
+          ),
+          hooks: [
+            if (resultVerifier != null) _VerifierHook(resultVerifier!),
+            ...resultHooks,
+          ],
+        );
       }
       return (
         result: ToolResultBlock(
@@ -626,6 +686,9 @@ class ToolExecutor {
       _log.severe('unhandled exception in tool ${use.name}', e, st);
       sink.toolComplete(ToolCompleteEvent(use.name, use.id,
           isError: true, result: e.toString()));
+      _notifyObservers((observer) => observer.onToolComplete(
+          ToolCompleteEvent(use.name, use.id,
+              isError: true, result: e.toString())));
       return (
         result: ToolResultBlock(
           toolUseId: use.id,
@@ -635,5 +698,164 @@ class ToolExecutor {
         interruptedInFlight: interruptedInFlight,
       );
     }
+  }
+
+  /// Runs the AROUND-execution hook chain around [delegate]. The FIRST
+  /// declared hook is the outermost wrapper (`hooks.reversed.fold`); the
+  /// guard gates and the dispatch-boundary guard recheck stay OUTSIDE this
+  /// wrapper, exactly where they are today (moving the recheck inside the
+  /// delegate is deliberately deferred until a real preparation hook needs
+  /// it — there is no async preparation between recheck and execute, so the
+  /// order is unobservable).
+  ///
+  /// Each hook's [delegate] is exactly-once and fail closed:
+  ///  * a second delegation throws, and ANY hook error is converted into an
+  ///    error tool result;
+  ///  * a hook that returns WITHOUT delegating becomes an error tool result
+  ///    (`hook did not execute the tool`).
+  /// The delegate closure captures the tool, the input, the effective cancel
+  /// signal, and the output routing — a hook cannot swap the tool identity
+  /// or arguments and cannot detach cancellation.
+  Future<ToolResult> _runWithExecutionHooks({
+    required String toolName,
+    required String toolId,
+    required Map<String, dynamic> input,
+    required bool Function() isCancelled,
+    required Future<ToolResult> Function() delegate,
+  }) async {
+    Future<ToolResult> chain(int index) async {
+      if (index >= executionHooks.length) return delegate();
+      final hook = executionHooks[index];
+      var delegations = 0;
+      Future<ToolResult> delegateOnce() {
+        delegations++;
+        if (delegations > 1) {
+          // Raised by this hook's own delegate handle, so it is a hook
+          // violation (not a delegate-chain failure) and fails THIS hook
+          // closed below.
+          throw StateError(
+              'execution hook for $toolName called the delegate more than '
+              'once');
+        }
+        return chain(index + 1).then((result) => result,
+            onError: (Object e, StackTrace st) {
+          // Mark it: a failure escaping the delegate belongs to the tool
+          // (or a deeper hook), not to this hook.
+          Error.throwWithStackTrace(_DelegateFailure(e, st), st);
+        });
+      }
+
+      ToolResult result;
+      try {
+        result = await hook.run(
+          ToolCallContext(
+            toolName: toolName,
+            toolId: toolId,
+            input: input,
+            isCancelled: isCancelled,
+          ),
+          delegateOnce,
+        );
+      } on _DelegateFailure catch (f) {
+        // The delegate chain failed and the hook let it through: rethrow
+        // unchanged so the executor's thrown-tool path ships today's exact
+        // content and log severity.
+        Error.throwWithStackTrace(f.error, f.stackTrace);
+      } catch (e, st) {
+        _log.warning('execution hook for $toolName failed — failing the '
+            'tool call closed',
+            e, st);
+        return ToolResult(
+          'tool execution hook failed: $e',
+          isError: true,
+        );
+      }
+      // Fail closed on BOTH exactly-once violations, even when the hook
+      // swallowed the throw above: zero delegations (`hook did not execute
+      // the tool`) or more than one.
+      if (delegations == 0) {
+        _log.warning('execution hook for $toolName did not execute the '
+            'tool — failing the tool call closed');
+        return ToolResult(
+          'tool execution hook failed: execution hook for $toolName did '
+          'not execute the tool',
+          isError: true,
+        );
+      }
+      if (delegations > 1) {
+        _log.warning('execution hook for $toolName called the delegate '
+            'more than once — failing the tool call closed');
+        return ToolResult(
+          'tool execution hook failed: execution hook for $toolName called '
+          'the delegate more than once',
+          isError: true,
+        );
+      }
+      return result;
+    }
+
+    return chain(0);
+  }
+
+  /// Runs the POST-tool stage: the legacy verifier (adapted as
+  /// [_VerifierHook], first) plus the declared [ToolResultHook]s, in order.
+  /// The FIRST non-null verdict is appended to the result content and the
+  /// rest are skipped; a throwing hook is logged and processing continues
+  /// with the content unchanged.
+  Future<String> _runResultHooks({
+    required String toolName,
+    required Map<String, dynamic> input,
+    required ToolResultBlock result,
+    required List<ToolResultHook> hooks,
+  }) async {
+    var content = result.content;
+    for (final hook in hooks) {
+      try {
+        final verdict = await hook.process(
+          toolName,
+          input,
+          ToolResult(content, isError: result.isError),
+        );
+        if (verdict != null && verdict.isNotEmpty) {
+          return '$content\n$verdict';
+        }
+      } catch (e, st) {
+        _log.warning(
+            'result hook for $toolName failed — shipping the '
+            'tool content unchanged',
+            e,
+            st);
+      }
+    }
+    return content;
+  }
+
+  /// Notifies every observer through [body], each call individually
+  /// exception-contained — observers are notify-only and can never change
+  /// execution.
+  void _notifyObservers(void Function(ToolObserver observer) body) {
+    for (final observer in observers) {
+      try {
+        body(observer);
+      } catch (e, st) {
+        _log.warning('tool observer failed — continuing', e, st);
+      }
+    }
+  }
+}
+
+/// Adapter that presents the legacy `Agent.resultVerifier` as the first
+/// [ToolResultHook] of the post-tool stage: it calls the verifier with
+/// (name, input) and ignores the hook's (toolName, input, result) arguments —
+/// so `Agent.resultVerifier` keeps its exact public API and behavior.
+class _VerifierHook implements ToolResultHook {
+  final ToolResultVerifier verifier;
+
+  const _VerifierHook(this.verifier);
+
+  @override
+  Future<String?> process(
+      String toolName, Map<String, dynamic> input, ToolResult result) {
+    return verifier(toolName, input);
   }
 }

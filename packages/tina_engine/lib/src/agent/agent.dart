@@ -16,6 +16,7 @@ import 'token_budget.dart';
 import 'tool_executor.dart';
 import 'tool_executor.dart' as tool_executor;
 import 'tool_guards.dart';
+import 'tool_hooks.dart';
 
 final _log = Logger('tina.agent');
 
@@ -283,6 +284,23 @@ class Agent {
   /// closed. Empty (the default) = behavior unchanged.
   final List<ToolGuard> executionGuards;
 
+  /// AROUND-execution hooks ([ToolExecutionHook]) wrapping each tool's
+  /// execute call (first hook outermost), after the guards. Empty (the
+  /// default) = behavior unchanged.
+  final List<ToolExecutionHook> executionHooks;
+
+  /// POST-tool hooks ([ToolResultHook]) running after the legacy verifier
+  /// on successful results: first non-null verdict is appended to the tool
+  /// content, a throwing hook is skipped. Empty (the default) = behavior
+  /// unchanged.
+  final List<ToolResultHook> resultHooks;
+
+  /// Observation-only hooks ([ToolObserver]) notified additively at the
+  /// toolStart / toolOutput / toolComplete points; an observer exception is
+  /// contained and can never change execution. Empty (the default) =
+  /// behavior unchanged.
+  final List<ToolObserver> toolObservers;
+
   Agent({
     required LlmProvider provider,
     required this.tools,
@@ -302,6 +320,9 @@ class Agent {
     this.emptyCompletionRetryAttempts = 3,
     this.emptyCompletionBackoffDelay,
     this.executionGuards = const [],
+    this.executionHooks = const [],
+    this.resultHooks = const [],
+    this.toolObservers = const [],
     required this.system,
   }) : _provider = provider;
 
@@ -482,6 +503,9 @@ class Agent {
       toolInterruptSignal: toolInterruptSignal,
       toolStopSignal: toolStopSignal,
       executionGuards: executionGuards,
+      executionHooks: executionHooks,
+      resultHooks: resultHooks,
+      observers: toolObservers,
     );
 
     // Action cap: count tool invocations across all steps of this turn. A step
