@@ -96,7 +96,10 @@ void main() {
   late List<FakeHostInterface> hosts;
   late bool failHost;
 
-  Future<void> setup({bool safeMode = false}) async {
+  Future<void> setup({
+    bool safeMode = false,
+    PermissionMode mode = PermissionMode.ask,
+  }) async {
     store = _Store();
     factory = _Factory();
     hosts = [];
@@ -108,7 +111,7 @@ void main() {
     );
     final provider = _Provider('original');
     final host = FakeHostInterface();
-    final policy = PermissionPolicy();
+    final policy = PermissionPolicy(mode: mode);
     source = Conversation(
       id: cid,
       label: 'main (original)',
@@ -152,7 +155,7 @@ void main() {
     );
     operations = ConversationOperations(
       sessions: manager,
-      config: RuntimeConfig(safeMode: safeMode),
+      config: RuntimeConfig(safeMode: safeMode, permissionMode: mode),
       pipeline: AgentPipeline(
         promptContext: PromptContext(loadProjectContext: false),
       ),
@@ -205,6 +208,19 @@ void main() {
       expect((await store.loadSession(sid)).activeConversationId, source.id);
       expect(hosts.single.activeChanges, isEmpty);
       expect(store.metaFor(sid, conv.id)!.kind, ConversationKind.spawn);
+    },
+  );
+
+  test(
+    'spawned policy follows mode changes without baking in read-all denial',
+    () async {
+      await setup(mode: PermissionMode.readAll);
+      final conv = (await operations.spawn(request())).conversation;
+      expect(conv.agent.policy.check('bash', {}), PermissionDecision.deny);
+      source.policy.mode = PermissionMode.ask;
+      expect(conv.agent.policy.check('bash', {}), PermissionDecision.ask);
+      source.policy.mode = PermissionMode.readAll;
+      expect(conv.agent.policy.check('write', {}), PermissionDecision.deny);
     },
   );
 

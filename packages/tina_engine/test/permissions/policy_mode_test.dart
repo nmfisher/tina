@@ -11,12 +11,12 @@ void main() {
       expect(p.check('fetch', const {}), PermissionDecision.ask);
     });
 
-    test('readAll widens reads (including network) but not writes', () {
+    test('readAll allows reads and blocks shell and writes', () {
       final p = PermissionPolicy(mode: PermissionMode.readAll);
       expect(p.check('fetch', const {}), PermissionDecision.allow);
       expect(p.check('web_search', const {}), PermissionDecision.allow);
-      expect(p.check('write', const {'filePath': '/x'}), PermissionDecision.ask);
-      expect(p.check('bash', const {'command': 'ls'}), PermissionDecision.ask);
+      expect(p.check('write', const {'filePath': '/x'}), PermissionDecision.deny);
+      expect(p.check('bash', const {'command': 'ls'}), PermissionDecision.deny);
     });
 
     test('allowEdits widens write/edit but bash still asks', () {

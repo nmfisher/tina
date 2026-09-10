@@ -977,6 +977,7 @@ class TuiCoordinator {
       // so the change applies immediately.
       controller.setPermissionMode = (mode) {
         policy.mode = mode;
+        scheduler.basePolicy?.mode = mode;
         for (final session in sessionManager.all) {
           for (final conv in session.conversations) {
             conv.policy.mode = mode;

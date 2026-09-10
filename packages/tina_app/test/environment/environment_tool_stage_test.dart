@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:test/test.dart';
 import 'package:tina_app/tina_app.dart';
@@ -31,12 +32,13 @@ void main() {
       _Tool('launch_workflow'),
       _Tool('send'),
       _Tool('unrecognized_plugin'),
+      EnvironmentToolStage.transitionTool,
     ]);
   });
 
-  test('inspection hides mutation, workflow and indirect execution tools', () {
+  test('inspection gates execution without changing advertised schemas', () {
     final stage = EnvironmentToolStage(base);
-    expect(stage.schemas.map((t) => t.name), ['read']);
+    expect(schemaJson(stage.schemas), schemaJson(base.schemas));
     for (final name in [
       'bash',
       'write',
@@ -44,7 +46,8 @@ void main() {
       'send',
       'unrecognized_plugin',
     ]) {
-      expect(stage[name], isNull);
+      expect(stage[name], isNotNull);
+      expect(stage.executionBlock(name, {}), isNotNull);
     }
     expect(base['bash'], same(bash));
   });
@@ -76,7 +79,10 @@ void main() {
     });
     expect(result.isError, isTrue);
     expect(scheduler.jobs, isEmpty);
-    expect(stage['begin_environment_execution'], isNull);
+    expect(
+      stage.executionBlock('begin_environment_execution', plan),
+      isNotNull,
+    );
     await scheduler.dispose();
   });
 
@@ -84,10 +90,16 @@ void main() {
     'transition requires successful inspection and a concrete plan',
     () async {
       final stage = EnvironmentToolStage(base);
-      expect(stage['begin_environment_execution'], isNull);
+      expect(
+        stage.executionBlock('begin_environment_execution', plan),
+        isNotNull,
+      );
       read.error = true;
       await stage['read']!.execute({});
-      expect(stage['begin_environment_execution'], isNull);
+      expect(
+        stage.executionBlock('begin_environment_execution', plan),
+        isNotNull,
+      );
       read.error = false;
       await stage['read']!.execute({});
       final transition = stage['begin_environment_execution']!;
@@ -95,16 +107,19 @@ void main() {
         (await transition.execute({'findings': 'guessed'})).isError,
         isTrue,
       );
-      expect(stage['bash'], isNull);
+      expect(stage.executionBlock('bash', {}), isNotNull);
       expect((await transition.execute(plan)).isError, isFalse);
       expect(stage['bash'], same(bash));
-      expect(stage['begin_environment_execution'], isNull);
+      expect(
+        stage.executionBlock('begin_environment_execution', plan),
+        isNotNull,
+      );
       expect(bash.calls, 0, reason: 'transition does not execute the plan');
     },
   );
 
   test(
-    'hidden calls are blocked even when pre-approved; phase applies next step',
+    'pre-approved calls are gated by step while the catalog stays identical',
     () async {
       final provider = _Provider([
         [call('bash'), call('read'), call('begin_environment_execution', plan)],
@@ -135,10 +150,7 @@ void main() {
         userInput: 'setup',
         turnTools: EnvironmentToolStage(base),
       );
-      expect(provider.schemas[0], ['read']);
-      expect(provider.schemas[1], contains('begin_environment_execution'));
-      expect(provider.schemas[1], isNot(contains('bash')));
-      expect(provider.schemas[2], contains('bash'));
+      expect(provider.schemas, everyElement(schemaJson(base.schemas)));
       expect(bash.calls, 1);
       expect(write.calls, 1);
       expect(asks, 0, reason: 'phase transition requires no approval');
@@ -185,7 +197,7 @@ void main() {
       final other = EnvironmentToolStage(base);
       await stage['read']!.execute({});
       await stage['begin_environment_execution']!.execute(plan);
-      expect(other['bash'], isNull);
+      expect(other.executionBlock('bash', {}), isNotNull);
       final provider = _Provider([
         [call('bash')],
       ]);
@@ -231,7 +243,12 @@ void main() {
         turnTools: EnvironmentToolStage(base),
       );
       expect(base['bash'], same(bash));
-      expect(EnvironmentToolStage(base)['begin_environment_execution'], isNull);
+      expect(
+        EnvironmentToolStage(
+          base,
+        ).executionBlock('begin_environment_execution', plan),
+        isNotNull,
+      );
     },
   );
 }
@@ -262,7 +279,7 @@ class _Tool implements Tool {
 
 class _Provider extends LlmProvider {
   final List<List<ContentBlock>> steps;
-  final schemas = <List<String>>[];
+  final schemas = <String>[];
   int index = 0;
   _Provider(this.steps) : super('test');
   @override
@@ -271,7 +288,7 @@ class _Provider extends LlmProvider {
     required List<Message> messages,
     required List<ToolSchema> tools,
   }) async* {
-    schemas.add(tools.map((t) => t.name).toList());
+    schemas.add(schemaJson(tools));
     yield MessageComplete(
       content: index < steps.length
           ? steps[index++]
@@ -280,3 +297,12 @@ class _Provider extends LlmProvider {
     );
   }
 }
+
+String schemaJson(List<ToolSchema> tools) => jsonEncode([
+  for (final tool in tools)
+    {
+      'name': tool.name,
+      'description': tool.description,
+      'input_schema': tool.inputSchema,
+    },
+]);

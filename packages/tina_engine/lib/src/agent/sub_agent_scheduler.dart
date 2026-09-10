@@ -1035,6 +1035,7 @@ class SubAgentScheduler {
           if (delegateToolBuilder != null) 'delegate': PermissionDecision.allow,
         },
         rules: parent.staticRules,
+        modeSource: parent,
       );
 
   /// Widen [policy] in place with the profile's tool set — the caller keeps

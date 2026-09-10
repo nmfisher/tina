@@ -261,7 +261,7 @@ class SessionManager {
       final policy = PermissionPolicy(
         defaults: basePolicy.defaults,
         rules: basePolicy.staticRules,
-        mode: basePolicy.mode,
+        modeSource: basePolicy,
       );
 
       // Capture the full per-conversation identity NOW (before the first write)

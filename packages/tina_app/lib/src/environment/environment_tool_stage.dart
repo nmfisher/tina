@@ -1,26 +1,35 @@
 import 'package:tina_engine/tina_engine.dart';
 
-/// A fresh instance belongs to one admitted environment turn. The underlying
-/// conversation registry is never mutated, including on cancellation or error.
+/// Advertised schemas never depend on the phase. Execution is gated locally;
+/// a fresh instance belongs to one admitted environment turn.
 class EnvironmentToolStage extends ToolRegistry {
   final ToolRegistry _base;
-  late final List<Tool> _inspectionTools;
+  late final ToolRegistry _catalog;
+  late final Map<String, Tool> _inspectionTools;
   late final Tool _transition;
   bool _inspected = false;
   bool _executing = false;
 
+  /// Register on the normal conversation too, so entering/leaving an
+  /// environment turn does not change the catalog or cache prefix.
+  static Tool get transitionTool => _BeginExecution(null);
+
   EnvironmentToolStage(this._base) : super(const []) {
-    _inspectionTools = [
-      for (final tool in _base.all) ...[
-        if (_inspectionNames.contains(tool.schema.name))
-          _ObservedInspection(tool, () => _inspected = true),
-        // Only the known await-driven delegate can spawn scouts. Do not
-        // admit arbitrary launch/channel/plugin tools through this boundary.
-        if (tool is DelegateTool)
-          _ObservedInspection(tool.readOnly(), () => _inspected = true),
-      ],
-    ];
     _transition = _BeginExecution(this);
+    _catalog = ToolRegistry([
+      ..._base.all,
+      if (_base['begin_environment_execution'] == null) transitionTool,
+    ]);
+    _inspectionTools = {
+      for (final tool in _base.all)
+        if (_inspectionNames.contains(tool.schema.name))
+          tool.schema.name: _ObservedInspection(tool, () => _inspected = true),
+      if (_base['delegate'] case final DelegateTool delegate)
+        'delegate': _ObservedInspection(
+          delegate.readOnly(),
+          () => _inspected = true,
+        ),
+    };
   }
 
   static const _inspectionNames = {
@@ -42,19 +51,54 @@ class EnvironmentToolStage extends ToolRegistry {
   };
 
   @override
-  Iterable<Tool> get all => _executing
-      ? _base.all
-      : [..._inspectionTools, if (_inspected) _transition];
-
+  Iterable<Tool> get all => _catalog.all;
   @override
-  List<ToolSchema> get schemas => all.map((tool) => tool.schema).toList();
+  List<ToolSchema> get schemas => _catalog.schemas;
+  @override
+  Tool? operator [](String name) => forStep()[name];
+  @override
+  String? executionBlock(String name, Map<String, dynamic> input) =>
+      forStep().executionBlock(name, input);
+  @override
+  ToolRegistry forStep() => _EnvironmentStep(this, _inspected, _executing);
+}
 
+class _EnvironmentStep extends ToolRegistry {
+  final EnvironmentToolStage stage;
+  final bool inspected;
+  final bool executing;
+  _EnvironmentStep(this.stage, this.inspected, this.executing)
+    : super(const []);
+  @override
+  Iterable<Tool> get all => stage.all;
+  @override
+  List<ToolSchema> get schemas => stage.schemas;
   @override
   Tool? operator [](String name) {
-    for (final tool in all) {
-      if (tool.schema.name == name) return tool;
+    if (name == 'begin_environment_execution') return stage._transition;
+    return (!executing ? stage._inspectionTools[name] : null) ??
+        stage._base[name];
+  }
+
+  @override
+  String? executionBlock(String name, Map<String, dynamic> input) {
+    if (name == 'begin_environment_execution') {
+      if (executing) return 'Environment execution is already enabled.';
+      return inspected
+          ? null
+          : 'Inspect the repository with read, ls, grep, glob, stat, which, or git first. Submit the execution plan on a later step, after seeing the inspection results.';
     }
-    return null;
+    if (executing) return null;
+    if (name == 'delegate' && stage._inspectionTools.containsKey(name)) {
+      final entries = input['delegations'];
+      if (entries is List &&
+          entries.any((entry) => entry is Map && entry['tools'] == 'full')) {
+        return 'Environment scouts must use the read-only profile during inspection.';
+      }
+      return null;
+    }
+    if (stage._inspectionTools.containsKey(name)) return null;
+    return '$name is disabled during environment inspection. Use read, ls, grep, glob, stat, which, or git. After inspection, submit findings and setup/build/test commands with begin_environment_execution. Do not retry with bash.';
   }
 }
 
@@ -83,7 +127,7 @@ class _ObservedInspection implements Tool {
 }
 
 class _BeginExecution implements LocalControlTool {
-  final EnvironmentToolStage _stage;
+  final EnvironmentToolStage? _stage;
   _BeginExecution(this._stage);
 
   @override
@@ -125,7 +169,12 @@ class _BeginExecution implements LocalControlTool {
     Future<void>? cancelSignal,
     ToolOutputCallback? onOutput,
   }) async {
-    if (!_stage._inspected) {
+    final stage = _stage;
+    if (stage == null)
+      return ToolResult.error(
+        'This transition is only available during an environment setup task.',
+      );
+    if (!stage._inspected) {
       return ToolResult.error(
         'Inspect the repository before enabling execution.',
       );
@@ -140,7 +189,7 @@ class _BeginExecution implements LocalControlTool {
           'Each plan field must contain findings, commands, or a reason no check applies.',
         );
       }
-      _stage._executing = true;
+      stage._executing = true;
       return ToolResult(
         'Environment execution phase started.\n'
         '${plan.entries.map((entry) => '${entry.key}: ${entry.value}').join('\n')}\n'

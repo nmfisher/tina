@@ -3,8 +3,8 @@ enum PermissionDecision { allow, deny, ask }
 /// Session-wide permission mode, layered on top of the per-tool defaults.
 ///
 /// - [ask]: the built-in defaults — read-only tools run, mutating tools prompt.
-/// - [readAll]: every read-only tool (including network reads) runs without
-///   prompting; writes still prompt.
+/// - [readAll]: read-only tools (including network reads) run without
+///   prompting; shell, writes, and indirect execution are blocked.
 /// - [allowEdits]: reads plus `write`/`edit` run; `bash` still prompts.
 /// - [auto]: gate level identical to [ask], but the asker is an LLM
 ///   classifier that decides each call (see `modeAwareAsker`) — falling back
@@ -72,13 +72,27 @@ class PermissionPolicy {
   /// Current mode. Mutable so `/permissions <mode>` can switch at runtime;
   /// consulted by [check] on every call, so a change applies immediately to
   /// agents already holding this policy.
-  PermissionMode mode;
+  PermissionMode _mode;
+
+  /// Derived policies keep independent allow rules but share live mode state.
+  final PermissionPolicy? modeSource;
+  PermissionMode get mode => modeSource?.mode ?? _mode;
+  set mode(PermissionMode value) {
+    final source = modeSource;
+    if (source == null) {
+      _mode = value;
+    } else {
+      source.mode = value;
+    }
+  }
 
   PermissionPolicy({
     Map<String, PermissionDecision>? defaults,
     List<PermissionRule>? rules,
-    this.mode = PermissionMode.ask,
-  })  : defaults = Map.from(defaults ?? _builtinDefaults),
+    PermissionMode mode = PermissionMode.ask,
+    this.modeSource,
+  })  : _mode = mode,
+        defaults = Map.from(defaults ?? _builtinDefaults),
         staticRules = List.unmodifiable(rules ?? const []);
 
   static const _builtinDefaults = {
@@ -105,6 +119,7 @@ class PermissionPolicy {
   };
 
   PermissionDecision check(String tool, Map<String, dynamic> input) {
+    if (executionBlock(tool, input) != null) return PermissionDecision.deny;
     final key = keyFor(tool, input);
     // Session memory wins over static rules; latest decision wins within it.
     for (final r in sessionRules.reversed) {
@@ -114,6 +129,34 @@ class PermissionPolicy {
       if (_appliesTo(r, tool, key)) return r.decision;
     }
     return _widen(tool, defaults[tool] ?? PermissionDecision.ask);
+  }
+
+  /// Hard mode boundary, evaluated before remembered/static allows and again
+  /// immediately before execution. It never opens an approval prompt.
+  String? executionBlock(String tool, Map<String, dynamic> input) {
+    if (mode != PermissionMode.readAll) return null;
+    if (tool == 'delegate') {
+      final delegations = input['delegations'];
+      if (delegations is List &&
+          delegations
+              .any((entry) => entry is Map && entry['tools'] == 'full')) {
+        return 'Full-access delegation is disabled in read-all (read-only) mode. Use read-only scouts.';
+      }
+      return null;
+    }
+    if (_readOnlyTools.contains(tool) ||
+        const {
+          'broadcast_region',
+          'receive',
+          'close',
+          'ask_user',
+          'stop_workflow',
+          'render_image',
+        }.contains(tool)) return null;
+    return '$tool is disabled in read-all (read-only) mode. '
+        'Use read, grep, search, ls, glob, stat, which, or read-only git. '
+        'Do not retry through bash or another agent. The user must switch '
+        'to an execution-capable mode before setup, builds, tests, or writes.';
   }
 
   /// Tools that only ever read. [PermissionMode.readAll] and [allowEdits]

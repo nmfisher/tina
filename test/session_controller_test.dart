@@ -1423,7 +1423,12 @@ void _environmentTests() {
         await controller.turns.whenIdle(main.id);
         expect(provider.calls, hasLength(4));
         expect(provider.calls.first.system, 'sys');
-        expect(provider.calls.first.tools.map((t) => t.name), ['ls']);
+        expect(provider.calls.first.tools.map((t) => t.name),
+            ['ls', 'write', 'begin_environment_execution']);
+        for (final call in provider.calls) {
+          expect(call.tools.map((t) => t.name),
+              provider.calls.first.tools.map((t) => t.name));
+        }
         expect(
           provider.calls[1].tools.map((t) => t.name),
           contains('begin_environment_execution'),

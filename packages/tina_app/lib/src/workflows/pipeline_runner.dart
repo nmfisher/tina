@@ -108,6 +108,7 @@ class PipelineRunner {
     final runPolicy = PermissionPolicy(
       defaults: {...?basePolicy?.defaults},
       rules: basePolicy?.staticRules,
+      modeSource: basePolicy,
     );
     final backend = TinaCodergenBackend(
       scheduler: scheduler,

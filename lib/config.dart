@@ -189,7 +189,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
       allowed: ['ask', 'read-all', 'allow-edits', 'auto'],
       help:
           'Permission gating: ask (prompt for mutating tools), read-all '
-          '(also auto-approve network reads), allow-edits (also auto-approve '
+          '(read-only; shell and writes blocked), allow-edits (also auto-approve '
           'file edits; bash still prompts), auto (a classifier model decides '
           'each call, falling back to a prompt).',
     )
@@ -270,7 +270,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     )
     ..addOption(
       'max-turn-tokens',
-      defaultsTo: '1000000',
+      defaultsTo: '10000000',
       help:
           'Abort a user turn if input+output exceeds this many tokens. '
           'Guard against runaway tool loops. 0 to disable.',

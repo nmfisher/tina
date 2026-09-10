@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:tina_app/tina_app.dart';
 
 import 'package:attractor/attractor.dart';
@@ -58,6 +59,28 @@ void main() {
       // No supervisor wired → no workflow surface.
       expect(agent.tools['launch_workflow'], isNull);
       expect(agent.tools['stop_workflow'], isNull);
+    });
+
+    test('main policy follows live mode while the environment catalog stays stable', () async {
+      final config = testConfig();
+      final scheduler = createScheduler(config: config,
+          registry: ProviderRegistry(env: {}), pipeline: defaultPipeline);
+      addTearDown(scheduler.dispose);
+      final policy = config.buildPolicy();
+      final agent = buildAgent(pipeline: defaultPipeline, scheduler: scheduler,
+          conversationId: 'main', provider: FakeProvider(const []),
+          host: FakeHostInterface(), policy: policy, config: config);
+      String schemas(ToolRegistry tools) => jsonEncode([
+        for (final t in tools.schemas)
+          {'name': t.name, 'description': t.description, 'input_schema': t.inputSchema},
+      ]);
+      final before = schemas(agent.tools);
+      policy.mode = PermissionMode.readAll;
+      expect(agent.policy.check('bash', {}), PermissionDecision.deny);
+      expect(schemas(EnvironmentToolStage(agent.tools)), before);
+      policy.mode = PermissionMode.ask;
+      expect(agent.policy.check('bash', {}), PermissionDecision.ask);
+      expect(schemas(agent.tools), before);
     });
 
     test('headless main gets the full base set, no delegate/channels', () {

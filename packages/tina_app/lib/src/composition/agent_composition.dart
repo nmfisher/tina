@@ -2,6 +2,7 @@ import 'package:attractor/attractor.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 import 'package:tina_app/src/config/runtime_config.dart';
+import 'package:tina_app/src/environment/environment_tool_stage.dart';
 import 'package:tina_app/src/workflows/ask_user_tool.dart';
 import 'package:tina_app/src/workflows/launch_workflow_tool.dart';
 import 'package:tina_app/src/workflows/workflow_supervisor.dart';
@@ -115,7 +116,10 @@ Agent buildAgent({
   // Base registry both modes share: the full file/shell tool set (write/edit/
   // bash are stripped under --safe-mode). Start from a list so the orchestration
   // tools below can append without re-wrapping the registry.
-  var tools = [...pipeline.tools.buildTools(safeMode: config.safeMode).all];
+  var tools = [
+    ...pipeline.tools.buildTools(safeMode: config.safeMode).all,
+    EnvironmentToolStage.transitionTool,
+  ];
   // The workflow surface, when the host provides a supervisor: launch a DOT
   // workflow in the background (the run's input/output streams into a live run
   // panel; the chat keeps the launch + completion notices) and stop a running
@@ -200,6 +204,7 @@ Agent buildAgent({
         'ask_user': PermissionDecision.allow,
       },
       rules: policy.staticRules,
+      modeSource: policy,
     );
     final ctx = AgentToolContext(
       scheduler: scheduler,

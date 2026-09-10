@@ -229,6 +229,8 @@ class Agent {
   LlmProvider get provider => _provider;
   set provider(LlmProvider value) => _provider = value;
   final ToolRegistry tools;
+  PermissionMode? _announcedMode;
+  Message? _modeNotice;
   final AgentSink sink;
   final PermissionPolicy policy;
   final PermissionAsker asker;
@@ -530,9 +532,32 @@ class Agent {
     // model on every step once spend stays past 90%).
 
     for (var step = 0; step < maxSteps; step++) {
-      // Match dispatch to the exact registry advertised for this model step.
-      // A phase transition cannot enable hidden calls from the same batch.
-      final stepTools = ToolRegistry((turnTools ?? tools).all.toList());
+      // Snapshot phase authorization for this step while keeping the catalog
+      // stable. A transition cannot authorize execution in the same batch.
+      final stepTools = (turnTools ?? tools).forStep();
+      // Cancellation, clear, or compaction can remove an earlier notice.
+      if (_modeNotice != null && !history.contains(_modeNotice)) {
+        _announcedMode = null;
+      }
+      if (_announcedMode == null &&
+          _modeNotice == null &&
+          policy.mode == PermissionMode.ask) {
+        _announcedMode = policy.mode;
+      }
+      if (_announcedMode != policy.mode) {
+        // Append only: neither the system prompt nor the existing history or
+        // tool schemas change when the user switches mode.
+        final mode = policy.mode;
+        final notice = Message(role: Role.user, content: [
+          TextBlock('Runtime permission mode: ${mode.label}. '
+              '${mode == PermissionMode.readAll ? 'Read-only: shell, writes, and full-access delegation are disabled. Use dedicated inspection tools.' : 'Actions follow the current permission policy.'}')
+        ]);
+        history.add(notice);
+        final pending = _notifyAppend(notice);
+        if (pending != null) await pending;
+        _announcedMode = mode;
+        _modeNotice = notice;
+      }
       if (cancelled) {
         sink.notice('\n[cancelled]\n', kind: NoticeKind.warning);
         abortedKind = AbortedKind.cancel;
@@ -885,6 +910,16 @@ class Agent {
           continue;
         }
 
+        String? runtimeBlock() =>
+            policy.executionBlock(use.name, use.input) ??
+            stepTools.executionBlock(use.name, use.input);
+        final initialBlock = runtimeBlock();
+        if (initialBlock != null) {
+          sink.notice('$initialBlock\n', kind: NoticeKind.warning);
+          results.add(ToolResultBlock(
+              toolUseId: use.id, content: initialBlock, isError: true));
+          continue;
+        }
         var decision = tool is LocalControlTool
             ? PermissionDecision.allow
             : policy.check(use.name, use.input);
@@ -968,6 +1003,7 @@ class Agent {
         // policy choice; the allowed-shapes text is its remedy, so no asker
         // note is expected there.
         PermissionResponse? resp;
+        String? changedModeBlock;
         if (decision == PermissionDecision.ask) {
           final prompt = PermissionPrompt(use.name, executionInput,
               sandboxAccess: access,
@@ -975,12 +1011,15 @@ class Agent {
               retrySafety: retrySafety);
           if (recovery != null) promptedSandboxRetries.add(retryKey!);
           resp = await asker(prompt);
-          decision = resp.decision == PermissionDecision.allow &&
+          changedModeBlock = runtimeBlock();
+          decision = changedModeBlock == null &&
+                  resp.decision == PermissionDecision.allow &&
                   !cancelled &&
                   !toolInterrupted
               ? PermissionDecision.allow
               : PermissionDecision.deny;
-          if (resp.remember &&
+          if (changedModeBlock == null &&
+              resp.remember &&
               access == null &&
               !cancelled &&
               !toolInterrupted) {
@@ -998,10 +1037,11 @@ class Agent {
           // threshold the denial result itself says "stop calling this".
           final denials = (denialCounts[use.name] ?? 0) + 1;
           denialCounts[use.name] = denials;
-          var content = access == null
-              ? _deniedContent(use.name)
-              : 'Command and additional writable directory access denied. '
-                  'The command was not executed. Proceed without this access.';
+          var content = changedModeBlock ??
+              (access == null
+                  ? _deniedContent(use.name)
+                  : 'Command and additional writable directory access denied. '
+                      'The command was not executed. Proceed without this access.');
           final note = resp?.note;
           if (note != null && note.isNotEmpty) {
             content = '$content\n$note';
@@ -1051,6 +1091,14 @@ class Agent {
           final effectiveCancelSignal = toolInterrupted
               ? cancelSignal
               : (toolInterruptSignal ?? cancelSignal);
+          final finalBlock = runtimeBlock();
+          if (finalBlock != null) {
+            sink.toolComplete(ToolCompleteEvent(use.name, use.id,
+                isError: true, result: finalBlock));
+            results.add(ToolResultBlock(
+                toolUseId: use.id, content: finalBlock, isError: true));
+            continue;
+          }
           final out = await executionTool.execute(
             executionInput,
             cancelSignal: effectiveCancelSignal,

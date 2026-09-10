@@ -167,8 +167,14 @@ class ConversationOperations {
       final tools = pipeline.tools.toolSetFor(request.profile);
       final effective = config.safeMode ? stripForSafeMode(tools) : tools;
       final names = effective.map((t) => t.schema.name).toList();
-      final bashDecision = config.buildPolicy().check('bash', const {});
+      final configuredPolicy = config.buildPolicy();
+      // Capture command rules, not the current mode's temporary execution gate.
+      final bashDecision = PermissionPolicy(
+        defaults: configuredPolicy.defaults,
+        rules: configuredPolicy.staticRules,
+      ).check('bash', const {});
       final policy = PermissionPolicy(
+        modeSource: source.policy,
         rules: [
           for (final name in names)
             PermissionRule(

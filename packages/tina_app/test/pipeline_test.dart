@@ -17,6 +17,7 @@ class _RecordingScheduler extends SubAgentScheduler {
   String? seenModelReference;
   String? seenParentReference;
   String? seenSystemPrompt;
+  PermissionPolicy? seenPolicy;
   int calls = 0;
 
   _RecordingScheduler()
@@ -49,6 +50,7 @@ class _RecordingScheduler extends SubAgentScheduler {
     seenModelReference = modelReference;
     seenParentReference = parentReference;
     seenSystemPrompt = systemPrompt;
+    seenPolicy = policy;
     return const RunAgentResult('done');
   }
 }
@@ -82,6 +84,8 @@ void main() {
         work -> exit;
       }''');
         final scheduler = _RecordingScheduler();
+        final basePolicy = PermissionPolicy();
+        scheduler.basePolicy = basePolicy;
         addTearDown(scheduler.dispose);
         final interviewer = _RecordingInterviewer();
         final sink = FakeAgentSink();
@@ -108,6 +112,13 @@ void main() {
         expect(result.outcome.status.isOk, isTrue);
         expect(scheduler.calls, 1);
         expect(seen, ['work']);
+        basePolicy.mode = PermissionMode.readAll;
+        expect(
+          scheduler.seenPolicy!.check('bash', {}),
+          PermissionDecision.deny,
+        );
+        basePolicy.mode = PermissionMode.ask;
+        expect(scheduler.seenPolicy!.check('bash', {}), PermissionDecision.ask);
         expect(interviewer.questions.length, injected ? 1 : 0);
       },
     );

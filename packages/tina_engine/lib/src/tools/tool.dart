@@ -76,6 +76,12 @@ class ToolRegistry {
   ToolRegistry(List<Tool> tools)
       : _tools = {for (final t in tools) t.schema.name: t};
 
+  /// Runtime authorization is separate from the stable advertised catalog.
+  String? executionBlock(String name, Map<String, dynamic> input) => null;
+
+  /// Capture phase state for one model step; live permission mode is checked
+  /// separately so a mode switch during the request takes effect immediately.
+  ToolRegistry forStep() => this;
   Tool? operator [](String name) => _tools[name];
   Iterable<Tool> get all => _tools.values;
   List<ToolSchema> get schemas => _tools.values.map((t) => t.schema).toList();
