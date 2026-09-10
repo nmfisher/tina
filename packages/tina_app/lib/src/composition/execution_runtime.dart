@@ -7,6 +7,7 @@ import 'package:tina_app/src/config/runtime_config.dart';
 import 'package:tina_app/src/environment/environment_prompt.dart';
 import 'package:tina_app/src/platform/environment.dart';
 import 'package:tina_app/src/composition/agent_composition.dart';
+import 'package:tina_app/src/composition/runtime_plugins.dart';
 import 'package:tina_app/src/composition/runtime_resources.dart';
 
 import 'package:tina_app/src/execution/project_execution.dart';
@@ -86,30 +87,30 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       'promptContext must match the requested project and trust',
     );
   }
-  // The spend ledger is created BEFORE anything can build a provider, so the
-  // runtime factory meters every provider built from here on — the startup
-  // provider (AppComposition.buildStartupProvider), per-conversation
-  // providers, and every sub-agent. (An injected test provider bypasses
-  // the factory and so isn't metered, which is fine for fakes.)
-  final ledger = SpendLedger(
-    maxGlobalTokens: config.maxGlobalTokens,
-    requestsPerMinute: config.requestsPerMinute,
-  );
-  // #46 (c): make a degrading provider patch visible while it burns — the
-  // ledger notices when retried (failed-attempt) spend crosses a tenth of
-  // total spend and escalates by further tenths. stderr is the default sink
-  // (visible headless and in nohup logs, same channel as the watchdog); a
-  // TUI may replace it with a chat renderer.
-  ledger.onRetriedSpendNotice = stderr.writeln;
   final pauseGate = PauseGate();
-  final providers = RuntimeProviderFactory(
-    registry,
-    decorator: (inner) => MeteringProvider(inner, ledger, pauseGate),
-  );
   final policy = config.buildPolicy();
+  // The two built-in plugins hold the ledger and the provider factory. The
+  // ledger is created BEFORE anything can build a provider, so the runtime
+  // factory meters every provider built from here on — the startup provider
+  // (AppComposition.buildStartupProvider), per-conversation providers, and
+  // every sub-agent. (An injected test provider bypasses the factory and so
+  // isn't metered, which is fine for fakes.) The ordering is guaranteed by
+  // declaration order and by the factory plugin's explicit `requires` edge.
+  final runtime = PluginRuntime(
+    name: 'execution',
+    plugins: [
+      spendLedgerPlugin(config),
+      providerFactoryPlugin(config, registry, pauseGate),
+    ],
+  );
   final resources = RuntimeResources();
   try {
-    resources.own(providers.close);
+    await runtime.activate();
+    // The runtime owns its own scope resources; disposing it releases the
+    // provider factory (and any plugin-owned cleanup) exactly once.
+    resources.own(runtime.dispose);
+    final ledger = runtime.scope.lookup(spendLedgerServiceKey)!;
+    final providers = runtime.scope.lookup(providerFactoryServiceKey)!;
     // The auto-mode classifier: a dedicated cheap model when `[permissions]
     // model` is set, else the main model. Best-effort — an unbuildable ref
     // (unknown provider, missing key) leaves it null and auto mode degrades to
