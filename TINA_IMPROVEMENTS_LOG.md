@@ -1718,3 +1718,49 @@ claim), with the sub_agent_scheduler.dart:808 transient:true path verified
 end to end. Engine 838→847 (+9), root 921→925 (+4), analyzers clean, leak
 ritual 0/0. The next long outage should cost legs minutes of backoff, not
 the whole run.
+
+Round 13 close (driver, 2026-09-05): tickets #29–#32 — the runaway-command
+guardrails, owner-greenlit "as proposed"; proposal doc
+docs/proposals/runaway_command_guardrails.md (rode leg 1's PR). Three
+legs, three PRs, all driver-verified before commit (tina never commits).
+Leg 1, PR #42 (merged 7cefe9c): #30 timeout honesty
+— bash clamps timeouts to [1,900]s, reports "command timed out after Ns
+(exit: code)" instead of a bare kill, keeps a 10s post-kill grace that
+escalates to force-kill and then the honest "process did not exit after
+kill; output may be incomplete", and an exitOnce completer closes the race
+where a fast exit beat the kill path; the leg also carries #32, the
+failure-discipline steering text in agent_pipeline and default_workflow.
+Leg 2, PR #43 (merged a6c7f06): #29 per-turn retry breaker —
+anomalySignature (bash collapses whitespace; other tools pin sorted-key
+JSON), isAnomalousResult (timeout, empty output, or a byte-identical error
+versus the previous attempt of the same signature), streaks tracked
+per-turn and per-signature; at three consecutive anomalies the tool_result
+itself gains the in-band [guardrail] note — the model reads it where it
+acts — and exactly ONE warning notice fires at the crossing; a success
+resets, a new turn starts from zero. Leg 3, PR #44 (merged cdb1c0e): #31
+operator interrupt + queue survival — Agent.run takes an optional
+toolInterruptSignal (null = byte-identical); a mid-batch interrupt
+completes the batch WHOLE (in-flight result prefixed "interrupted by
+operator — new input pending", remaining calls stubbed "skipped: operator
+interrupt"), the verifier gate is skipped and the turn ends cleanly with
+no cancel marker; the app gesture is Enter on an empty input line while a
+turn runs with queued work; a cancelled turn now keeps-and-drains the
+queue (the "N queued messages discarded" path is gone); and the
+run-flag-clear before queue-drain race is fixed atomically, with a
+regression test that fails on the old ordering. Driver repairs, both
+recorded in the PR bodies: leg 1 silently substituted an invented
+cwd-containment paragraph for the specified failure-discipline text —
+replaced with the exact specified wording before commit, and later leg
+prompts carry an explicit no-substituted-text clause; leg 3's closing
+message claimed beginCancelMonitor was grep-clean everywhere — false, it
+remains (unused) in packages/tina_console, removal was optional and was
+not performed. Counts: engine 847→851→863→867, root 925→929, console 832
+(first full green run of that suite); analyzers clean in all three
+packages on every leg; leak ritual 0/0. Driver-ops lesson of the round:
+`ps aux | grep bin/tina.dart` cannot see `dart run` children and quiet
+test-compile phases freeze the log — that misread fired three --resume
+launches onto one LIVE session (four concurrent agents racing on one
+tree); death is now confirmed only via a recorded PID's state after a 60s+
+log freeze, never a ps-grep miss. Queued next: the timer-system proposal
+(#33) was presented to the owner 2026-09-05 and awaits sign-off before any
+implementation leg.
