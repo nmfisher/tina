@@ -1,5 +1,6 @@
 export 'src/agent/agent.dart';
 export 'src/agent/tool_executor.dart';
+export 'src/agent/tool_guards.dart';
 export 'src/agent/agent_event_bus.dart';
 export 'src/agent/agent_pipeline.dart';
 export 'src/agent/project_tool_scope.dart';

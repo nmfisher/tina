@@ -12,6 +12,7 @@ import '../tools/sandbox_failure.dart';
 import '../tools/tool_input.dart';
 import '../permissions/sandbox_access.dart';
 import 'agent_sink.dart';
+import 'tool_guards.dart';
 
 final _log = Logger('tina.agent');
 
@@ -207,6 +208,12 @@ class ToolExecutor {
   /// The either-signal tool stop future (see [cancelSignal]).
   final Future<void>? toolStopSignal;
 
+  /// Extra deny-preserving guards beyond the mandatory policy and phase
+  /// guards ([PolicyToolGuard], [RegistryPhaseGuard]). Checked in order after
+  /// those two at every gate ([combineGuardBlocks]); empty by default, which
+  /// preserves the pre-guard behavior exactly.
+  final List<ToolGuard> executionGuards;
+
   /// Batch-scope attribution mirror (#31): the executor's copy of the run
   /// loop's batch-local `interruptedCallIndex`. One step produces exactly
   /// one tool-result batch, so a [ToolCallState.step] change is a batch
@@ -228,6 +235,7 @@ class ToolExecutor {
     this.cancelSignal,
     this.toolInterruptSignal,
     this.toolStopSignal,
+    this.executionGuards = const [],
   });
 
   /// Dispatch ONE tool call ([use]) against the step's [stepTools] snapshot.
@@ -284,9 +292,19 @@ class ToolExecutor {
       );
     }
 
-    String? runtimeBlock() =>
-        policy.executionBlock(use.name, use.input) ??
-        stepTools.executionBlock(use.name, use.input);
+    // One ordered guard chain shared by the three gates below (initial,
+    // post-approval, dispatch boundary): mandatory policy guard, then the
+    // phase guard over this step's registry view, then any extra guards.
+    // [combineGuardBlocks] combines by denial — the FIRST non-null block
+    // wins and a throwing guard fails closed — so policy-then-phase
+    // preserves the old
+    // `policy.executionBlock ?? stepTools.executionBlock` precedence
+    // exactly, with extras checked only after both allowed.
+    String? runtimeBlock() => combineGuardBlocks([
+          PolicyToolGuard(policy),
+          RegistryPhaseGuard(stepTools),
+          ...executionGuards,
+        ], use.name, use.input);
     final initialBlock = runtimeBlock();
     if (initialBlock != null) {
       sink.notice('$initialBlock\n', kind: NoticeKind.warning);

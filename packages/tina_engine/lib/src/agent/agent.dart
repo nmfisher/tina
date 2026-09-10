@@ -15,6 +15,7 @@ import 'stream_consumer.dart';
 import 'token_budget.dart';
 import 'tool_executor.dart';
 import 'tool_executor.dart' as tool_executor;
+import 'tool_guards.dart';
 
 final _log = Logger('tina.agent');
 
@@ -273,6 +274,15 @@ class Agent {
   final int emptyCompletionRetryAttempts;
   final Future<void> Function(Duration delay)? emptyCompletionBackoffDelay;
 
+  /// Extra deny-preserving guards ([ToolGuard]) for this agent's tool calls.
+  /// The [ToolExecutor] always runs the mandatory policy and phase guards
+  /// first ([PolicyToolGuard], [RegistryPhaseGuard]); these are appended
+  /// after them in the ordered, denial-combining chain
+  /// ([combineGuardBlocks]) — checked at the same three gates, never able to
+  /// override an earlier guard's rejection, and a throwing guard fails
+  /// closed. Empty (the default) = behavior unchanged.
+  final List<ToolGuard> executionGuards;
+
   Agent({
     required LlmProvider provider,
     required this.tools,
@@ -291,6 +301,7 @@ class Agent {
     this.transportBackoffDelay,
     this.emptyCompletionRetryAttempts = 3,
     this.emptyCompletionBackoffDelay,
+    this.executionGuards = const [],
     required this.system,
   }) : _provider = provider;
 
@@ -470,6 +481,7 @@ class Agent {
       cancelSignal: cancelSignal,
       toolInterruptSignal: toolInterruptSignal,
       toolStopSignal: toolStopSignal,
+      executionGuards: executionGuards,
     );
 
     // Action cap: count tool invocations across all steps of this turn. A step

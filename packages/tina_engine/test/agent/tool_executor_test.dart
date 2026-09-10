@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
 
 import '../helpers/fake_agent_sink.dart';
 import '../helpers/fake_tool.dart';
+import '../helpers/memory_process_runner.dart';
 
 void main() {
   group('ToolExecutor', () {
@@ -208,5 +210,69 @@ void main() {
       expect(flaky.result.isError, isFalse);
       expect(flaky.result.content, 'ok');
     });
+
+    test('an extra guard denies a call before the sandbox access request '
+        'runs (no ask prompt, no execute)', () async {
+      final sink = FakeAgentSink();
+      var prompts = 0;
+      var ran = false;
+      final temp = Directory.systemTemp.createTempSync('tina-guard-sandbox-');
+      final cache = Directory('${temp.path}/cache')..createSync();
+      addTearDown(() => temp.deleteSync(recursive: true));
+      // A sandboxed bash whose writablePaths request WOULD produce an access
+      // request (the default policy treats /tmp as external) — the guard must
+      // deny upstream of it.
+      final bash = BashTool(
+        processRunner: SandboxedProcessRunner(
+          projectRoot: temp.path,
+          inner: MemoryProcessRunner((_, __) {
+            ran = true;
+            return MemoryRunningProcess(stdoutChunks: ['ok']);
+          }),
+          backend: SandboxBackend.bwrap,
+          accessPolicy: SandboxAccessPolicy(),
+        ),
+        projectRoot: temp.path,
+      );
+      final executor = ToolExecutor(
+        policy: PermissionPolicy(defaults: {
+          'bash': PermissionDecision.allow,
+        }),
+        asker: (_) async {
+          prompts++;
+          return PermissionResponse.denyOnce;
+        },
+        sink: sink,
+        state: ToolCallState(),
+        cancelSignal: Completer<void>().future,
+        executionGuards: [_DenyBashGuard('no shell while the operator is away')],
+      );
+      final outcome = await executor.execute(
+        use: ToolUseBlock(id: 'u1', name: 'bash', input: {
+          'command': 'echo test',
+          'writablePaths': [cache.path],
+          'accessReason': 'The launcher updates its cache metadata.',
+        }),
+        stepTools: ToolRegistry([bash]).forStep(),
+        step: 0,
+        isCancelled: () => false,
+      );
+      expect(outcome.result.isError, isTrue);
+      expect(outcome.result.content, 'no shell while the operator is away');
+      expect(prompts, 0,
+          reason: 'the guard denies before the ask gate is reached');
+      expect(ran, isFalse, reason: 'the guard denies before execution');
+      expect(sink.toolStarts, isEmpty);
+    });
   });
+}
+
+/// An extra guard that denies every bash call with a fixed message.
+class _DenyBashGuard implements ToolGuard {
+  final String message;
+  const _DenyBashGuard(this.message);
+
+  @override
+  String? block(String toolName, Map<String, dynamic> input) =>
+      toolName == 'bash' ? message : null;
 }
