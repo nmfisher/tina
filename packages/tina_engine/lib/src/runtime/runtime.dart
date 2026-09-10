@@ -33,6 +33,81 @@ class PluginCompositionError implements Exception {
   }
 }
 
+/// Immutable diagnostics for one plugin, derived from its descriptor and its
+/// lifecycle state at describe() time.
+///
+/// Plain data only. Service keys appear as their `.id` strings (declared
+/// order), never as key instances, and config is skipped entirely —
+/// diagnostics never materialize keys merely to render them.
+class PluginDescription {
+  /// Id of the described plugin.
+  final String id;
+
+  /// Lifecycle state when the description was taken.
+  final PluginLifecycleState state;
+
+  /// Ids of the service keys the plugin provides, in declared order.
+  final List<String> provides;
+
+  /// Ids of the service keys the plugin requires, in declared order.
+  final List<String> requires;
+
+  /// Ids of the runtime plugins this plugin depends on through its requires
+  /// keys, sorted ascending. Resolution follows activation's rules: a key
+  /// with a single runtime provider yields that provider; a key whose
+  /// selected provider is another plugin yields the selection; a key
+  /// satisfied only through the parent scope, and a multi-provider key whose
+  /// selected provider is not resolvable, yield no edge.
+  final List<String> dependsOn;
+
+  const PluginDescription({
+    required this.id,
+    required this.state,
+    this.provides = const <String>[],
+    this.requires = const <String>[],
+    this.dependsOn = const <String>[],
+  });
+
+  @override
+  String toString() =>
+      'plugin(id: $id, state: ${state.name}, '
+      'provides: [${provides.join(', ')}], '
+      'requires: [${requires.join(', ')}], '
+      'dependsOn: [${dependsOn.join(', ')}])';
+}
+
+/// Immutable diagnostics for a whole runtime: one [PluginDescription] per
+/// plugin (id-ascending) plus the activation order. Safe to take before
+/// activation — see [PluginRuntime.describe].
+class RuntimeDescription {
+  /// Name of the runtime.
+  final String name;
+
+  /// Per-plugin descriptions, id-ascending.
+  final List<PluginDescription> plugins;
+
+  /// Plugin ids in activation order; empty before activation. A frozen copy
+  /// of the runtime's real activation data.
+  final List<String> activationOrder;
+
+  const RuntimeDescription({
+    required this.name,
+    this.plugins = const <PluginDescription>[],
+    this.activationOrder = const <String>[],
+  });
+
+  @override
+  String toString() {
+    final buffer = StringBuffer('runtime($name):');
+    for (final plugin in plugins) {
+      buffer
+        ..write('\n')
+        ..write(plugin.toString());
+    }
+    return buffer.toString();
+  }
+}
+
 /// Root scope that reports every child scope created from it, directly or
 /// transitively, so the runtime can dispose children before parents.
 final class _RuntimeScope extends PluginScope {
@@ -301,6 +376,73 @@ class PluginRuntime {
   /// Decoded config per plugin id, for plugins that declare a decoder.
   /// Populated by [activate].
   Map<String, Object?> get decodedConfigs => Map.unmodifiable(_configs);
+
+  /// Diagnostics snapshot: one [PluginDescription] per plugin (id-ascending)
+  /// plus the activation order so far.
+  ///
+  /// Safe to call BEFORE activation: it derives everything from the
+  /// descriptors and current state without activating, without looking up or
+  /// constructing any service, and without mutating the runtime — no state
+  /// changes, and the root scope is never touched. `dependsOn` follows the
+  /// same provider resolution as activation (single provider wins; the
+  /// selected provider wins; parent-scope satisfaction yields no edge; a
+  /// multi-provider key resolved to another plugin yields no edge). Only key
+  /// ID strings appear in the output — key instances and config VALUES never
+  /// do, and config is skipped entirely: diagnostics never materialize keys
+  /// merely to render them.
+  RuntimeDescription describe() {
+    // Same provider resolution as validation in _activateAll, but over id
+    // strings only and without any validation errors (multi-provider keys
+    // with no selection simply yield no edge).
+    final providers = <String, List<String>>{};
+    for (final plugin in plugins) {
+      for (final key in plugin.provides) {
+        (providers[key.id] ??= []).add(plugin.id);
+      }
+    }
+    final providerOf = <String, String>{};
+    for (final entry in providers.entries) {
+      if (entry.value.length == 1) {
+        providerOf[entry.key] = entry.value.single;
+        continue;
+      }
+      final selected = _selections[entry.key];
+      if (selected != null && entry.value.contains(selected)) {
+        providerOf[entry.key] = selected;
+      }
+    }
+
+    final described = [...plugins]..sort((a, b) => a.id.compareTo(b.id));
+    return RuntimeDescription(
+      name: name,
+      plugins: [
+        for (final plugin in described)
+          PluginDescription(
+            id: plugin.id,
+            state: _states[plugin.id] ?? PluginLifecycleState.pending,
+            provides: [for (final key in plugin.provides) key.id],
+            requires: [for (final key in plugin.requires) key.id],
+            dependsOn: _dependsOnOf(plugin, providerOf),
+          ),
+      ],
+      activationOrder: List.unmodifiable(_activationOrder),
+    );
+  }
+
+  /// Provider PLUGIN ids [plugin] depends on through its requires keys,
+  /// sorted ascending. Parent-scope satisfaction and unselected
+  /// multi-provider keys yield no edge — see [describe].
+  List<String> _dependsOnOf(
+    PluginDescriptor plugin,
+    Map<String, String> providerOf,
+  ) {
+    final edges = <String>{};
+    for (final key in plugin.requires) {
+      final provider = providerOf[key.id];
+      if (provider != null) edges.add(provider);
+    }
+    return List.unmodifiable(edges.toList()..sort());
+  }
 
   /// Creates and tracks a child of the root scope.
   ///

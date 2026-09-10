@@ -75,5 +75,10 @@ Progress log (updated as phases land):
 - P5 done: AgentDriver contract + default adapter; both plain scheduler
   builds route through it; Conversation and TurnExecutor speak to the
   driver; SessionManager/restore take a driverWrapper seam.
-- P6 in progress: composition-level driver/persistence factory mounting.
+- P6 done: driver/persistence factories mount at the composition
+  (createScheduler -> buildExecutionRuntime -> buildAppComposition); null
+  defaults keep the built-in loop and in-memory transcripts.
+- P7 in progress: PluginRuntime.describe() diagnostics + the default
+  execution profile extracted from buildExecutionRuntime, overrides
+  validated before any factory runs.
 

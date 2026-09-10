@@ -7,7 +7,7 @@ import 'package:tina_app/src/config/runtime_config.dart';
 import 'package:tina_app/src/environment/environment_prompt.dart';
 import 'package:tina_app/src/platform/environment.dart';
 import 'package:tina_app/src/composition/agent_composition.dart';
-import 'package:tina_app/src/composition/runtime_plugins.dart';
+import 'package:tina_app/src/composition/execution_profile.dart';
 import 'package:tina_app/src/composition/runtime_resources.dart';
 
 import 'package:tina_app/src/execution/project_execution.dart';
@@ -68,6 +68,13 @@ class ExecutionRuntime implements ProjectExecution {
 /// replacement seams on the built scheduler (see [AppComposition.driverFactory]
 /// / [AppComposition.persistence]); null (the default) keeps the built-in
 /// behavior.
+///
+/// [executionPlugins] overrides the default execution plugin profile
+/// ([defaultExecutionPlugins]) wholesale. Null (the default) builds the
+/// default profile; a borrowed [toolScope] mounts only the profile's
+/// conversation-owned plugins. An override is validated by the runtime BEFORE
+/// any factory runs, so a bad profile fails before any provider, ledger, or
+/// scheduler exists.
 Future<ExecutionRuntime> buildExecutionRuntime({
   required RuntimeConfig config,
   required ProviderRegistry registry,
@@ -78,6 +85,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
   bool? loadProjectContext,
   AgentDriverFactory? driverFactory,
   SubAgentPersistenceFactory? persistence,
+  List<PluginDescriptor>? executionPlugins,
 }) async {
   final env = environment ?? const PlatformEnvironment();
   final root = p.normalize(
@@ -101,42 +109,30 @@ Future<ExecutionRuntime> buildExecutionRuntime({
   }
   final pauseGate = PauseGate();
   final policy = config.buildPolicy();
-  // The two built-in plugins hold the ledger and the provider factory. The
-  // ledger is created BEFORE anything can build a provider, so the runtime
-  // factory meters every provider built from here on — the startup provider
-  // (AppComposition.buildStartupProvider), per-conversation providers, and
-  // every sub-agent. (An injected test provider bypasses the factory and so
-  // isn't metered, which is fine for fakes.) The ordering is guaranteed by
-  // declaration order and by the factory plugin's explicit `requires` edge.
-  //
-  // The third stage owns the project itself: capabilities, then the tool
-  // scope assembled from them (the scope plugin `requires` the capabilities
-  // key, which fixes the order). When BORROWING a live same-project scope the
-  // stage runs no plugins — the borrowed scope's capabilities stay exactly
-  // the ones its owner built.
+  // The plugin profile: the default five-plugin list by default, or the
+  // caller's override. See [defaultExecutionPlugins] for the ordering story:
+  // the ledger is created BEFORE anything can build a provider, the
+  // decorators stage mounts before the factory (order-only edge), and the
+  // third stage owns the project itself — capabilities, then the tool scope
+  // assembled from them. When BORROWING a live same-project scope the profile
+  // (default or override) is trimmed to the conversation-owned plugins — the
+  // borrowed scope's capabilities stay exactly the ones its owner built.
+  final profile = executionPlugins ??
+      defaultExecutionPlugins(
+        config: config,
+        registry: registry,
+        pauseGate: pauseGate,
+        providerDecorators: const [],
+        projectRoot: root,
+        environment: env,
+        sandboxEnabled: config.sandboxEnabled,
+        sandboxNet: config.sandboxNet,
+        sandboxReadOnly: config.sandboxReadOnly,
+      );
   final runtime = PluginRuntime(
     name: 'execution',
-    plugins: [
-      spendLedgerPlugin(config),
-      // Decorator contributions mount BEFORE the factory: the factory plugin
-      // requires the ProviderDecoratorStage marker (an order-only edge), so
-      // every registered decorator contribution exists before the factory
-      // builds its policy stack. Empty by default — the factory then wraps
-      // metering only, exactly the pre-plugin behavior.
-      providerDecoratorsPlugin(const []),
-      providerFactoryPlugin(config, registry, pauseGate,
-          orderOnDecoratorStage: true),
-      if (toolScope == null) ...[
-        projectCapabilitiesPlugin(
-          projectRoot: root,
-          env: env.env,
-          sandboxEnabled: config.sandboxEnabled,
-          sandboxNet: config.sandboxNet,
-          sandboxReadOnly: config.sandboxReadOnly,
-        ),
-        projectToolScopePlugin(),
-      ],
-    ],
+    plugins:
+        toolScope == null ? profile : borrowedScopePlugins(profile),
   );
   final resources = RuntimeResources();
   try {
@@ -146,6 +142,21 @@ Future<ExecutionRuntime> buildExecutionRuntime({
     resources.own(runtime.dispose);
     final ledger = runtime.scope.lookup(spendLedgerServiceKey)!;
     final providers = runtime.scope.lookup(providerFactoryServiceKey)!;
+    // A nested same-project run borrows the live scope (including its write
+    // lock). Independent compositions construct independent tool instances —
+    // each runtime's plugins build their own scope under
+    // [projectToolScopeServiceKey]; the lookup is non-null because the two
+    // project plugins above activated, or `toolScope` was borrowed verbatim.
+    // A profile that omits the tool-scope plugin surfaces HERE, before any
+    // provider is built, as a composition error.
+    final tools =
+        toolScope ?? runtime.scope.lookup(projectToolScopeServiceKey);
+    if (tools == null) {
+      throw PluginCompositionError(
+        'the execution profile provides no project tool scope',
+        pluginId: 'tina.engine.project-tool-scope',
+      );
+    }
     // The auto-mode classifier: a dedicated cheap model when `[permissions]
     // model` is set, else the main model. Best-effort — an unbuildable ref
     // (unknown provider, missing key) leaves it null and auto mode degrades to
@@ -175,8 +186,6 @@ Future<ExecutionRuntime> buildExecutionRuntime({
     // each runtime's plugins build their own scope under
     // [projectToolScopeServiceKey]; the lookup is non-null because the two
     // project plugins above activated, or `toolScope` was borrowed verbatim.
-    final tools =
-        toolScope ?? runtime.scope.lookup(projectToolScopeServiceKey)!;
     final pipeline = AgentPipeline(
       mainIdentity: defaultPipeline.mainIdentity,
       tools: tools,

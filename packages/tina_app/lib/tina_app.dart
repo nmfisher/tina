@@ -10,6 +10,7 @@ export 'src/commands/session_export.dart';
 export 'src/composition/agent_composition.dart';
 export 'src/composition/app_composition.dart';
 export 'src/composition/edit_verifier.dart';
+export 'src/composition/execution_profile.dart';
 export 'src/composition/project_services.dart';
 export 'src/composition/provider_resolution.dart';
 export 'src/composition/runtime_plugins.dart';
