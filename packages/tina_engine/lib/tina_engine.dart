@@ -97,3 +97,6 @@ export 'src/tools/write_tool.dart';
 
 export 'src/agent/run_lifecycle.dart';
 export 'src/host/host_lifecycle_adapter.dart';
+export 'src/runtime/contracts.dart';
+export 'src/runtime/plugin.dart';
+export 'src/runtime/runtime.dart';

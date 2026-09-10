@@ -7,6 +7,7 @@ import 'pooled_provider.dart';
 import 'provider.dart';
 import 'provider_rate_limit.dart';
 import 'retrying_provider.dart';
+import '../runtime/contracts.dart';
 
 /// How a credential sourced from an env var is sent on the wire.
 ///
@@ -698,3 +699,9 @@ class ProviderRegistry implements LlmProviderFactory {
     return desc.authSources.any((s) => s.scheme == AuthScheme.none);
   }
 }
+
+/// Composition identity of the conversation-owned provider factory. Provided
+/// by the app's `providerFactoryPlugin`; consumers build their providers from
+/// it so the runtime's metering decorator applies to every wire call.
+final ServiceKey<LlmProviderFactory> providerFactoryServiceKey =
+    ServiceKey<LlmProviderFactory>('tina.engine.provider_factory');
