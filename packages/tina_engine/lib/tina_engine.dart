@@ -1,4 +1,5 @@
 export 'src/agent/agent.dart';
+export 'src/agent/agent_driver.dart';
 export 'src/agent/tool_executor.dart';
 export 'src/agent/tool_guards.dart';
 export 'src/agent/tool_hooks.dart';
