@@ -63,6 +63,11 @@ class ExecutionRuntime implements ProjectExecution {
 
 /// Owns providers, classifier and scheduler; borrows the catalog and optional
 /// same-project tool/prompt scopes. No session store or resume lookup is created.
+///
+/// [driverFactory] / [persistence] mount the composition-level P5/P6
+/// replacement seams on the built scheduler (see [AppComposition.driverFactory]
+/// / [AppComposition.persistence]); null (the default) keeps the built-in
+/// behavior.
 Future<ExecutionRuntime> buildExecutionRuntime({
   required RuntimeConfig config,
   required ProviderRegistry registry,
@@ -71,6 +76,8 @@ Future<ExecutionRuntime> buildExecutionRuntime({
   ProjectToolScope? toolScope,
   PromptContext? promptContext,
   bool? loadProjectContext,
+  AgentDriverFactory? driverFactory,
+  SubAgentPersistenceFactory? persistence,
 }) async {
   final env = environment ?? const PlatformEnvironment();
   final root = p.normalize(
@@ -194,6 +201,8 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       pipeline: pipeline,
       pauseGate: pauseGate,
       quota: quota,
+      driverFactory: driverFactory,
+      persistence: persistence,
     );
     resources.own(scheduler.dispose);
     return ExecutionRuntime(

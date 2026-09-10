@@ -55,3 +55,25 @@ verifies and ships.
 
 Started 2026-09-10. `tk` is not installed in this container (same as
 tin-h8uw/tin-vb4k), so status changes land as frontmatter edits here.
+
+Progress log (updated as phases land):
+
+- P0 done: baseline green everywhere; creation/cleanup paths inventoried.
+- P1 done: engine runtime primitives (contracts, plugin, runtime) + 30
+  tests; RuntimeResources aliased to ScopeResources; ledger + provider
+  factory mounted as the first execution plugins.
+- P2 done: ProjectCapabilities split; per-tool plugins behind a frozen
+  catalog; ProjectToolScope consumes an internal plugin runtime; app
+  mounts capabilities + scope as plugins (borrow path untouched).
+- P3 done: ToolExecutor extracted verbatim from agent.dart; guards are
+  deny-preserving contributions (policy + phase first, extras additive);
+  typed hooks (around / post-tool / observation) with the verifier and
+  sink adapters as built-in consumers.
+- P4 done: system prompt assembled from ordered contributors
+  (byte-identical); provider decorators are ordered contributions around
+  the always-present metering layer.
+- P5 done: AgentDriver contract + default adapter; both plain scheduler
+  builds route through it; Conversation and TurnExecutor speak to the
+  driver; SessionManager/restore take a driverWrapper seam.
+- P6 in progress: composition-level driver/persistence factory mounting.
+

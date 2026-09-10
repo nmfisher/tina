@@ -15,6 +15,11 @@ import 'package:tina_app/src/summaries/summary_index.dart';
 /// gate is forwarded to every sub-agent. The nested-delegation hook is set so a
 /// role with `canDelegate` can fan out further (capped by the scheduler's
 /// maxDepth). Pass a non-default [pipeline] to reuse the wiring in tests.
+///
+/// [driverFactory] / [persistence] mount the composition-level P5/P6
+/// replacement seams (see [AppComposition.driverFactory] /
+/// [AppComposition.persistence]): null (the default) keeps the built-in agent
+/// loop and the in-memory-only sub-agent transcripts.
 SubAgentScheduler createScheduler({
   required RuntimeConfig config,
   required ProviderRegistry registry,
@@ -22,6 +27,8 @@ SubAgentScheduler createScheduler({
   required AgentPipeline pipeline,
   AgentQuota? quota,
   PauseGate? pauseGate,
+  AgentDriverFactory? driverFactory,
+  SubAgentPersistenceFactory? persistence,
 }) {
   final scheduler = SubAgentScheduler(
     registry: registry,
@@ -35,12 +42,17 @@ SubAgentScheduler createScheduler({
     pauseGate: pauseGate,
     safeMode: config.safeMode,
     quota: quota,
+    driverFactory: driverFactory,
   );
   scheduler.delegateToolBuilder = (ctx) => DelegateTool(ctx);
   // Thread the user's configured policy to unattended agents (workflow nodes)
   // so the bash decision (--yolo / --allow bash:… / default ask) is inherited
   // rather than blanket-allowed.
   scheduler.basePolicy = config.buildPolicy();
+  // Sub-agent transcript persistence is a wiring-set field on the scheduler
+  // (not a constructor param) — mount the composition-level choice the same
+  // way. null = the scheduler's default in-memory-only behavior.
+  scheduler.persistence = persistence;
   return scheduler;
 }
 
