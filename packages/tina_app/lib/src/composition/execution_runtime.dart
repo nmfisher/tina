@@ -28,6 +28,10 @@ class ExecutionRuntime implements ProjectExecution {
   final PauseGate pauseGate;
   final PermissionClassifier? classifier;
   final RuntimeResources resources;
+
+  /// The runtime's own plugin scope (ledger, provider factory, and — when the
+  /// runtime owns the project — the built capabilities and tool scope).
+  final PluginScope pluginScope;
   ExecutionRuntime({
     required this.config,
     required this.environment,
@@ -39,6 +43,7 @@ class ExecutionRuntime implements ProjectExecution {
     required this.pauseGate,
     required this.classifier,
     required this.resources,
+    required this.pluginScope,
   });
   @override
   Future<void> dispose() => resources.dispose();
@@ -96,11 +101,27 @@ Future<ExecutionRuntime> buildExecutionRuntime({
   // every sub-agent. (An injected test provider bypasses the factory and so
   // isn't metered, which is fine for fakes.) The ordering is guaranteed by
   // declaration order and by the factory plugin's explicit `requires` edge.
+  //
+  // The third stage owns the project itself: capabilities, then the tool
+  // scope assembled from them (the scope plugin `requires` the capabilities
+  // key, which fixes the order). When BORROWING a live same-project scope the
+  // stage runs no plugins — the borrowed scope's capabilities stay exactly
+  // the ones its owner built.
   final runtime = PluginRuntime(
     name: 'execution',
     plugins: [
       spendLedgerPlugin(config),
       providerFactoryPlugin(config, registry, pauseGate),
+      if (toolScope == null) ...[
+        projectCapabilitiesPlugin(
+          projectRoot: root,
+          env: env.env,
+          sandboxEnabled: config.sandboxEnabled,
+          sandboxNet: config.sandboxNet,
+          sandboxReadOnly: config.sandboxReadOnly,
+        ),
+        projectToolScopePlugin(),
+      ],
     ],
   );
   final resources = RuntimeResources();
@@ -136,16 +157,12 @@ Future<ExecutionRuntime> buildExecutionRuntime({
     }
     if (classifier != null) resources.own(classifier.provider.close);
     // A nested same-project run borrows the live scope (including its write
-    // lock). Independent compositions construct independent tool instances.
+    // lock). Independent compositions construct independent tool instances —
+    // each runtime's plugins build their own scope under
+    // [projectToolScopeServiceKey]; the lookup is non-null because the two
+    // project plugins above activated, or `toolScope` was borrowed verbatim.
     final tools =
-        toolScope ??
-        ProjectToolScope(
-          projectRoot: root,
-          env: env.env,
-          sandboxEnabled: config.sandboxEnabled,
-          sandboxNet: config.sandboxNet,
-          sandboxReadOnly: config.sandboxReadOnly,
-        );
+        toolScope ?? runtime.scope.lookup(projectToolScopeServiceKey)!;
     final pipeline = AgentPipeline(
       mainIdentity: defaultPipeline.mainIdentity,
       tools: tools,
@@ -183,6 +200,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       pauseGate: pauseGate,
       classifier: classifier,
       resources: resources,
+      pluginScope: runtime.scope,
     );
   } catch (_) {
     try {

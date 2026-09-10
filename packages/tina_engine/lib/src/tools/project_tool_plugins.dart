@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../agent/project_tool_scope.dart';
 import '../agent/tool_profile.dart';
 import '../runtime/plugin.dart';
 import 'bash_tool.dart';
@@ -43,6 +44,45 @@ const List<String> kProjectToolCatalog = [
 
 const _braveKeyEnv = 'BRAVE_API_KEY';
 const _tavilyKeyEnv = 'TAVILY_API_KEY';
+
+/// Composition plugin that builds the project's [ProjectCapabilities] via
+/// [ProjectCapabilities.build] (confined) and exposes it under
+/// [projectCapabilitiesServiceKey].
+PluginDescriptor projectCapabilitiesPlugin({
+  required String projectRoot,
+  required Map<String, String> env,
+  bool sandboxEnabled = true,
+  bool sandboxNet = false,
+  bool sandboxReadOnly = false,
+}) =>
+    PluginDescriptor(
+      id: 'tina.engine.project-capabilities',
+      provides: [projectCapabilitiesServiceKey],
+      factory: FnPluginFactory((context) {
+        final caps = ProjectCapabilities.build(
+          projectRoot: projectRoot,
+          env: env,
+          confineFiles: true,
+          sandboxEnabled: sandboxEnabled,
+          sandboxNet: sandboxNet,
+          sandboxReadOnly: sandboxReadOnly,
+        );
+        return caps;
+      }),
+    );
+
+/// Composition plugin that assembles the [ProjectToolScope] from the already
+/// built capabilities. Requires [projectCapabilitiesServiceKey], so it
+/// activates strictly after the capabilities plugin.
+PluginDescriptor projectToolScopePlugin() => PluginDescriptor(
+      id: 'tina.engine.project-tool-scope',
+      requires: {projectCapabilitiesServiceKey},
+      provides: [projectToolScopeServiceKey],
+      factory: FnPluginFactory((context) {
+        final caps = context.require(projectCapabilitiesServiceKey);
+        return ProjectToolScope.fromCapabilities(caps);
+      }),
+    );
 
 /// Service key under which the write-summary plugin exposes the sidecar
 /// capture tool. `write_summary` is composed by the runtime but is

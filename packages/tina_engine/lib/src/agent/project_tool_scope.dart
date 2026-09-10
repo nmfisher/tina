@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../permissions/policy.dart';
+import '../runtime/contracts.dart';
 import '../runtime/runtime.dart';
 import '../tools/mutation_lock.dart';
 import '../tools/project_capabilities.dart';
@@ -8,6 +9,11 @@ import '../tools/project_tool_plugins.dart';
 import '../tools/tool.dart';
 
 import 'tool_profile.dart';
+
+/// Service key under which a composition registers/resolves the assembled
+/// [ProjectToolScope].
+final ServiceKey<ProjectToolScope> projectToolScopeServiceKey =
+    ServiceKey<ProjectToolScope>('tina.engine.project_tool_scope');
 
 /// Project-owned tools and write coordination. Main agents, delegates and
 /// same-project background runs borrow this scope. Creating another scope never
@@ -57,6 +63,12 @@ class ProjectToolScope {
             sandboxReadOnly: false,
           ),
         );
+
+  /// Composition seam: assembles the scope from already-built [capabilities].
+  /// The app-level plugin that provides the scope as a service uses this; the
+  /// two public constructors above keep building the capabilities themselves.
+  ProjectToolScope.fromCapabilities(ProjectCapabilities capabilities)
+      : this._(capabilities: capabilities);
 
   ProjectToolScope._({required ProjectCapabilities capabilities})
       : projectRoot = capabilities.projectRoot,

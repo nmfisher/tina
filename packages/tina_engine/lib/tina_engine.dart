@@ -1,6 +1,7 @@
 export 'src/agent/agent.dart';
 export 'src/agent/agent_event_bus.dart';
 export 'src/agent/agent_pipeline.dart';
+export 'src/agent/project_tool_scope.dart';
 export 'src/agent/repo_summary.dart';
 export 'src/agent/agent_quota.dart';
 export 'src/agent/agent_sink.dart';
@@ -81,6 +82,7 @@ export 'src/tools/process_registry.dart';
 export 'src/tools/process_runner.dart';
 export 'src/tools/process_tree.dart';
 export 'src/tools/project_capabilities.dart';
+export 'src/tools/project_tool_plugins.dart';
 export 'src/tools/read_tool.dart';
 export 'src/tools/render_image_tool.dart';
 export 'src/tools/sandbox.dart';
