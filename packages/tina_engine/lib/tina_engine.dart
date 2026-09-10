@@ -80,6 +80,7 @@ export 'src/tools/mutation_lock.dart';
 export 'src/tools/process_registry.dart';
 export 'src/tools/process_runner.dart';
 export 'src/tools/process_tree.dart';
+export 'src/tools/project_capabilities.dart';
 export 'src/tools/read_tool.dart';
 export 'src/tools/render_image_tool.dart';
 export 'src/tools/sandbox.dart';
