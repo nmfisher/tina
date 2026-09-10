@@ -60,6 +60,16 @@ class SessionManager {
   final HostFactory _hostFactory;
   final AgentBuilder _agentBuilder;
 
+  /// The P5 replacement seam: wraps (or replaces) the driver every
+  /// conversation built by this manager runs through. Receives the built
+  /// [Agent] and returns the [AgentDriver] handed to the [Conversation];
+  /// the executor then speaks to that driver instead of the agent. A test (or
+  /// profile) can therefore script the whole turn loop without editing this
+  /// coordinator. Null (the default) means [AgentDriverAdapter.new] — each
+  /// conversation gets an adapter around its own agent, which reproduces
+  /// today's behavior byte for byte.
+  final AgentDriver Function(Agent agent)? driverWrapper;
+
   /// Working directory this process is operating in, stamped into the manifest
   /// of any session created in-REPL so `--continue` can scope to the current
   /// folder. Supplied by the app layer; null disables folder scoping.
@@ -79,6 +89,7 @@ class SessionManager {
     required HostFactory hostFactory,
     required AgentBuilder agentBuilder,
     this.sessionStore,
+    this.driverWrapper,
     this.cwd,
   }) : _providerFactory = providerFactory,
        _hostFactory = hostFactory,
@@ -320,6 +331,9 @@ class SessionManager {
         policy: policy,
         modelReference: '$providerId/$model',
         recorder: recorder,
+        // The P5 seam: the wrapper (default: AgentDriverAdapter.new) receives
+        // the built agent and its result becomes the conversation's driver.
+        driver: driverWrapper?.call(agent) ?? AgentDriverAdapter(agent),
       );
     } catch (_) {
       try {

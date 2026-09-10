@@ -24,6 +24,17 @@ class Conversation {
   String modelReference;
 
   final Agent agent;
+
+  /// The driver this conversation's turns run through — the P5 seam the
+  /// [TurnExecutor] speaks to (one turn, abort classification, system prompt,
+  /// tool registry, provider swap, compaction). Defaults to an
+  /// [AgentDriverAdapter] wrapping [agent], which forwards every member
+  /// verbatim — behavior identical to driving the agent directly. A caller
+  /// may pass any [AgentDriver] instead (see the `driver` constructor
+  /// parameter); the given driver is accepted AS-IS — the constructor does
+  /// not verify the pairing, so a caller passing one must ensure it drives
+  /// [agent] (shares its history list and provider surface).
+  late final AgentDriver driver;
   LlmProvider _provider;
 
   /// The provider for this conversation. Replacement updates both references
@@ -36,11 +47,14 @@ class Conversation {
   }
 
   /// Installs the replacement atomically; reports old-provider cleanup failure.
+  /// Routes through [driver] so a replacement driver stays the single owner of
+  /// the provider surface — the adapter forwards to [agent], keeping both
+  /// references in agreement exactly as a direct assignment did.
   Object? replaceProvider(LlmProvider value) {
     if (identical(_provider, value)) return null;
     final previous = _provider;
     _provider = value;
-    agent.provider = value;
+    driver.provider = value;
     try {
       previous.close();
     } catch (e) {
@@ -89,7 +103,15 @@ class Conversation {
     this.modelReference = '',
     this.recorder,
     List<Message> initialHistory = const [],
-  }) : _provider = provider {
+
+    /// Optional replacement driver. Null (the default) wires an
+    /// [AgentDriverAdapter] around [agent] — byte-identical to the
+    /// pre-driver behavior. When given, it is installed as-is and MUST drive
+    /// [agent] (same history list, same provider surface); the constructor
+    /// does not assert that pairing.
+    AgentDriver? driver,
+  }) : _provider = provider,
+       driver = driver ?? AgentDriverAdapter(agent) {
     history.addAll(initialHistory);
   }
 }

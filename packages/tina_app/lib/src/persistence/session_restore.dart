@@ -171,10 +171,18 @@ PermissionPolicy _restorePolicy(ConversationMeta meta, RestoreContext ctx) {
 /// without recreating it. The host starts detached (background) unless this is
 /// the active conversation — the coordinator routes the active one onto the
 /// screen.
+///
+/// [driverWrapper] is the P5 replacement seam — the same hook
+/// [SessionManager] exposes at construction: it receives the restored agent
+/// and its result becomes the restored conversation's driver, so a test (or
+/// profile) can wrap or replace the driver on resume without editing this
+/// coordinator. Null (the default) wires an [AgentDriverAdapter] around the
+/// agent, which keeps today's behavior byte for byte.
 Future<Conversation> restoreConversation(
   ConversationMeta meta,
-  RestoreContext ctx,
-) async {
+  RestoreContext ctx, {
+  AgentDriver Function(Agent agent)? driverWrapper,
+}) async {
   final provider = _restoreProvider(meta, ctx);
   final resources = RuntimeResources()..own(provider.close);
   try {
@@ -233,6 +241,10 @@ Future<Conversation> restoreConversation(
       modelReference: meta.model ?? '',
       recorder: recorder,
       initialHistory: history,
+      // P5 seam: same contract as SessionManager — the wrapper (default:
+      // AgentDriverAdapter.new) receives the restored agent and its result
+      // becomes the conversation's driver.
+      driver: driverWrapper?.call(agent) ?? AgentDriverAdapter(agent),
     );
   } catch (_) {
     try {
