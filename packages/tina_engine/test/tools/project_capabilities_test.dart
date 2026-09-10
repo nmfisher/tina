@@ -4,12 +4,19 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'package:tina_engine/src/agent/project_tool_scope.dart';
+import 'package:tina_engine/src/agent/tool_profile.dart';
 import 'package:tina_engine/src/tools/atomic_write.dart';
 import 'package:tina_engine/src/tools/mutation_lock.dart';
 import 'package:tina_engine/src/tools/process_runner.dart';
 import 'package:tina_engine/src/tools/project_capabilities.dart';
+import 'package:tina_engine/src/tools/project_tool_plugins.dart';
 import 'package:tina_engine/src/tools/sandbox.dart';
 import 'package:tina_engine/src/tools/sandbox_runner.dart';
+import 'package:tina_engine/src/runtime/runtime.dart';
+import 'package:tina_engine/src/tools/edit_tool.dart';
+import 'package:tina_engine/src/tools/write_tool.dart';
+import 'package:tina_engine/src/tools/tavily_search.dart';
+import 'package:tina_engine/src/tools/web_search.dart';
 
 void main() {
   late Directory tempDir;
@@ -128,6 +135,200 @@ void main() {
           reason: 'separately built scopes never share a lock');
       expect(identical(scopeA.mutationLock, shared.mutationLock), isFalse);
       expect(scopeA.mutationLock, isA<FileMutationLock>());
+    });
+  });
+
+  group('project tool plugins', () {
+    test('built catalog names and order are exactly the frozen catalog, plus '
+        'web_search only when a key is present', () {
+      final caps = ProjectCapabilities.build(
+        projectRoot: tempDir.path,
+        env: const {},
+        sandboxEnabled: false,
+      );
+      final runtime = PluginRuntime(
+        name: 'project-tools-test',
+        plugins: projectToolPlugins(caps),
+      )..activateSync();
+
+      expect(
+        toolRegistryFromScope(runtime.scope)
+            .all
+            .map((t) => t.schema.name)
+            .toList(),
+        [
+          'read',
+          'write',
+          'edit',
+          'fetch',
+          'bash',
+          'search',
+          'grep',
+          'glob',
+          'ls',
+          'stat',
+          'which',
+          'git',
+        ],
+        reason: 'no API key in env, so no web_search and no extras',
+      );
+
+      final withKey = PluginRuntime(
+        name: 'project-tools-test',
+        plugins: projectToolPlugins(ProjectCapabilities.build(
+          projectRoot: tempDir.path,
+          env: const {'BRAVE_API_KEY': 'brave-test-key'},
+          sandboxEnabled: false,
+        )),
+      )..activateSync();
+      final names = toolRegistryFromScope(withKey.scope).all
+          .map((t) => t.schema.name)
+          .toList();
+      expect(names.last, 'web_search',
+          reason: 'web_search joins after the catalog');
+      expect(
+        names.take(12).toList(),
+        containsAllInOrder([
+          'read',
+          'write',
+          'edit',
+          'fetch',
+          'bash',
+          'search',
+          'grep',
+          'glob',
+          'ls',
+          'stat',
+          'which',
+          'git',
+        ]),
+      );
+    });
+
+    test('with both keys set, web_search resolves to the Tavily-backed tool',
+        () {
+      final caps = ProjectCapabilities.build(
+        projectRoot: tempDir.path,
+        env: const {
+          'BRAVE_API_KEY': 'brave-test-key',
+          'TAVILY_API_KEY': 'tavily-test-key',
+        },
+        sandboxEnabled: false,
+      );
+      final runtime = PluginRuntime(
+        name: 'project-tools-test',
+        plugins: projectToolPlugins(caps),
+      )..activateSync();
+
+      final webSearch = toolRegistryFromScope(runtime.scope)['web_search']!;
+      expect(webSearch, isA<WebSearchTool>());
+      expect((webSearch as WebSearchTool).provider, isA<TavilySearchProvider>(),
+          reason: 'a configured Tavily key supersedes Brave');
+    });
+
+    test('safeMode strips write/edit/bash (and write_summary is not in the '
+        'base registry)', () {
+      final caps = ProjectCapabilities.build(
+        projectRoot: tempDir.path,
+        env: const {},
+        sandboxEnabled: false,
+      );
+      final runtime = PluginRuntime(
+        name: 'project-tools-test',
+        plugins: projectToolPlugins(caps),
+      )..activateSync();
+
+      final safe = toolRegistryFromScope(runtime.scope, safeMode: true);
+      final names = safe.all.map((t) => t.schema.name).toList();
+      expect(names, isNot(contains('write')));
+      expect(names, isNot(contains('edit')));
+      expect(names, isNot(contains('bash')));
+      expect(names.length, 9, reason: '12 catalog tools minus write/edit/bash');
+      expect(names, everyElement(isNot(anyOf('write', 'edit', 'bash'))));
+    });
+
+    test('two scopes from two capabilities objects have independent tool '
+        'instances; two scopes from ONE capabilities object share the lock',
+        () {
+      final caps = ProjectCapabilities.build(
+        projectRoot: tempDir.path,
+        env: const {},
+        sandboxEnabled: false,
+      );
+      final capsB = ProjectCapabilities.build(
+        projectRoot: tempDir.path,
+        env: const {},
+        sandboxEnabled: false,
+      );
+
+      // Two capabilities objects → fully independent runtimes and tools.
+      final runtimeA = PluginRuntime(
+          name: 'project-tools-a', plugins: projectToolPlugins(caps))
+        ..activateSync();
+      final runtimeB = PluginRuntime(
+          name: 'project-tools-b', plugins: projectToolPlugins(capsB))
+        ..activateSync();
+      final writeA = toolRegistryFromScope(runtimeA.scope)['write']!;
+      final writeB = toolRegistryFromScope(runtimeB.scope)['write']!;
+      expect(identical(writeA, writeB), isFalse,
+          reason: 'independent capabilities never share tool instances');
+
+      // One capabilities object → two runtimes, one shared mutation lock
+      // (the lock's identity comes from the capabilities, not the runtime).
+      final runtimeC = PluginRuntime(
+          name: 'project-tools-c', plugins: projectToolPlugins(caps))
+        ..activateSync();
+      final writeC = toolRegistryFromScope(runtimeC.scope)['write']!;
+      expect(identical(writeA, writeC), isFalse,
+          reason: 'each runtime builds its own tool instances');
+      final editC = toolRegistryFromScope(runtimeC.scope)['edit']!;
+      expect(identical((writeC as WriteTool).mutationLock, caps.mutationLock),
+          isTrue);
+      expect(
+          identical((editC as EditTool).mutationLock, caps.mutationLock),
+          isTrue,
+          reason:
+              'write and edit share the capabilities-level lock within one '
+              'runtime');
+    });
+
+    test('read-only profile list and order matches the fixed profile', () {
+      final scope = ProjectToolScope(
+        projectRoot: tempDir.path,
+        env: const {},
+        sandboxEnabled: false,
+      );
+
+      expect(
+        scope.toolSetFor(ToolProfile.readOnly)
+            .map((t) => t.schema.name)
+            .toList(),
+        [
+          'read',
+          'fetch',
+          'search',
+          'grep',
+          'glob',
+          'ls',
+          'stat',
+          'which',
+          'git',
+          'write_summary',
+        ],
+      );
+    });
+
+    test('buildTools exposes web_search through the scope with one key set',
+        () {
+      final scope = ProjectToolScope(
+        projectRoot: tempDir.path,
+        env: const {'BRAVE_API_KEY': 'brave-test-key'},
+        sandboxEnabled: false,
+      );
+
+      final names = scope.buildTools().all.map((t) => t.schema.name).toList();
+      expect(names, contains('web_search'));
+      expect(names.length, 13, reason: '12 catalog tools plus web_search');
     });
   });
 }

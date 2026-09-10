@@ -127,7 +127,27 @@ class PluginRuntime {
   /// runs. A failing factory rolls back the partial scope and rethrows a
   /// [PluginCompositionError] with the original stack trace. Services that
   /// come from the parent scope are borrowed, never stopped.
+  ///
+  /// Plugin factories are synchronous, so activation runs to completion
+  /// synchronously; this async form stays for API stability. On failure the
+  /// rollback disposal starts immediately (its errors are swallowed — see
+  /// [_rollback]) and the composition error propagates without waiting for
+  /// teardown to drain.
   Future<void> activate() async {
+    activateSync();
+  }
+
+  /// Synchronous twin of [activate]: same validation, same activation path,
+  /// same errors — plugin factories are synchronous, so activation is too.
+  /// Usable from synchronous constructors (e.g. a tool scope building its
+  /// registry at construction time).
+  void activateSync() {
+    _activateAll();
+  }
+
+  /// Shared validation + activation body behind [activate] and
+  /// [activateSync]. Runs synchronously end to end.
+  void _activateAll() {
     if (_activationStarted) {
       throw StateError('Runtime $name has already been activated');
     }
@@ -246,10 +266,10 @@ class PluginRuntime {
           scope.provide(key, instance);
         }
       } on PluginCompositionError {
-        await _rollback();
+        _rollback();
         rethrow;
       } catch (error, stackTrace) {
-        await _rollback();
+        _rollback();
         Error.throwWithStackTrace(
           PluginCompositionError(
             'plugin ${plugin.id} failed during activation: $error',

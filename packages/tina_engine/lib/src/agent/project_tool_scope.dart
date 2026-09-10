@@ -1,37 +1,31 @@
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
-
 import '../permissions/policy.dart';
-import '../tools/bash_tool.dart';
-import '../tools/brave_search.dart';
-import '../tools/edit_tool.dart';
-import '../tools/fetch_tool.dart';
-import '../tools/tavily_search.dart';
-import '../tools/glob_tool.dart';
-import '../tools/grep_tool.dart';
-import '../tools/git_tool.dart';
-import '../tools/ls_tool.dart';
+import '../runtime/runtime.dart';
 import '../tools/mutation_lock.dart';
 import '../tools/project_capabilities.dart';
-import '../tools/read_tool.dart';
-import '../tools/search_tool.dart';
-import '../tools/stat_tool.dart';
+import '../tools/project_tool_plugins.dart';
 import '../tools/tool.dart';
-import '../tools/which_tool.dart';
-import '../tools/web_search.dart';
-import '../tools/write_summary_tool.dart';
-import '../tools/write_tool.dart';
 
 import 'tool_profile.dart';
 
 /// Project-owned tools and write coordination. Main agents, delegates and
 /// same-project background runs borrow this scope. Creating another scope never
 /// changes these tool instances or their sandbox configuration.
+///
+/// The tools are no longer wired by hand here: the scope composes a
+/// [PluginRuntime] from [projectToolPlugins] and activates it synchronously —
+/// one plugin per tool, each factory building the tool from the shared
+/// [ProjectCapabilities]. The scope keeps only the capabilities' identity
+/// fields; every tool lives in the runtime's scope as contributions.
 class ProjectToolScope {
   final String projectRoot;
   final Map<String, String> environment;
   final FileMutationLock mutationLock;
+
+  /// The runtime this scope composed and activated; its root scope holds the
+  /// tool contributions.
+  final PluginRuntime runtime;
 
   ProjectToolScope({
     required String projectRoot,
@@ -67,58 +61,13 @@ class ProjectToolScope {
   ProjectToolScope._({required ProjectCapabilities capabilities})
       : projectRoot = capabilities.projectRoot,
         environment = capabilities.environment,
-        mutationLock = capabilities.mutationLock {
-    _search = SearchTool(repoRoot: projectRoot);
-    _which = WhichTool(environment: environment);
-    _git = GitTool(workingDirectory: projectRoot);
-    _write.mutationLock = mutationLock;
-    _edit.mutationLock = mutationLock;
-    if (!capabilities.confineFiles) return;
-    _read.projectRoot = projectRoot;
-    _write.projectRoot = projectRoot;
-    _edit.projectRoot = projectRoot;
-    _grep.projectRoot = projectRoot;
-    _glob.projectRoot = projectRoot;
-    _ls.projectRoot = projectRoot;
-    _stat.projectRoot = projectRoot;
-
-    final sandbox = capabilities.fileSystem!;
-    final backups = capabilities.backups!;
-    _read.fs = sandbox;
-    _write.fs = sandbox;
-    _write.backupStore = backups;
-    _edit.fs = sandbox;
-    _edit.backupStore = backups;
-    _grep.fs = sandbox;
-    _grep.sandbox = sandbox;
-    _glob.sandbox = sandbox;
-    _ls.sandbox = sandbox;
-    _stat.sandbox = sandbox;
-    _bash.projectRoot = projectRoot;
-    _bash.processRunner = capabilities.processRunner;
-    // The per-directory summaries sidecar: `<projectRoot>/.tina/summaries` —
-    // project-local (so it tracks this repo, under the gitignored `.tina/`),
-    // and distinct from the global `~/.tina` data tree the sandbox denies.
-    // Summaries reflect committed main-repo HEAD, so the sidecar is pinned to
-    // the project, not the user's home.
-    _writeSummary.sidecarRoot =
-        Directory(p.join(projectRoot, '.tina', 'summaries'));
-    _writeSummary.projectRoot = projectRoot;
+        mutationLock = capabilities.mutationLock,
+        runtime = PluginRuntime(
+          name: 'project-tools',
+          plugins: projectToolPlugins(capabilities),
+        ) {
+    runtime.activateSync();
   }
-
-  final _read = ReadTool();
-  final _write = WriteTool();
-  final _edit = EditTool();
-  final _fetch = FetchTool();
-  final _bash = BashTool();
-  late final SearchTool _search;
-  final _grep = GrepTool();
-  final _glob = GlobTool();
-  final _ls = LsTool();
-  final _stat = StatTool();
-  late final WhichTool _which;
-  late final GitTool _git;
-  final _writeSummary = WriteSummaryTool();
 
   /// The concrete tool set for [profile]. `read-only` is the read/explore tools
   /// plus the sidecar `write_summary` capture (which never touches source); `full`
@@ -128,18 +77,18 @@ class ProjectToolScope {
   List<Tool> toolSetFor(ToolProfile profile) {
     switch (profile) {
       case ToolProfile.readOnly:
-        return [
-          _read,
-          _fetch,
-          _search,
-          _grep,
-          _glob,
-          _ls,
-          _stat,
-          _which,
-          _git,
-          _writeSummary
-        ];
+        return _toolsByName(const [
+          'read',
+          'fetch',
+          'search',
+          'grep',
+          'glob',
+          'ls',
+          'stat',
+          'which',
+          'git',
+          'write_summary',
+        ]);
       case ToolProfile.full:
         return [...buildTools().all, _writeSummary];
     }
@@ -152,21 +101,21 @@ class ProjectToolScope {
   /// tool, so it works whether the policy was built from `defaults`
   /// (sub-agents) or `rules` (spawns/branches).
   List<Tool> toolsFromPolicy(PermissionPolicy policy) {
-    final candidates = [
-      _read,
-      _write,
-      _edit,
-      _fetch,
-      _bash,
-      _search,
-      _grep,
-      _glob,
-      _ls,
-      _stat,
-      _which,
-      _git,
-      _writeSummary
-    ];
+    final candidates = _toolsByName(const [
+      'read',
+      'write',
+      'edit',
+      'fetch',
+      'bash',
+      'search',
+      'grep',
+      'glob',
+      'ls',
+      'stat',
+      'which',
+      'git',
+      'write_summary',
+    ]);
     return [
       for (final t in candidates)
         if (policy.check(t.schema.name, const {}) == PermissionDecision.allow)
@@ -179,37 +128,40 @@ class ProjectToolScope {
   /// `--prompt` path (main as a direct worker), by [ToolProfile.full], and by
   /// the node run (attractor seam).
   ///
-  /// Both Brave and Tavily register under the same `web_search` tool name; a
-  /// user only needs one index. [ToolRegistry] is deliberately last-wins, so
-  /// when *both* keys are set, Tavily answers `web_search`. The model doesn't
+  /// Both Brave and Tavily answer the same `web_search` tool name; a user only
+  /// needs one index. When *both* keys are set, Tavily answers `web_search`
+  /// (the plugin contributes only the winning provider). The model doesn't
   /// care which backend responds.
-  ToolRegistry buildTools({bool safeMode = false}) {
-    var tools = [
-      _read,
-      _write,
-      _edit,
-      _fetch,
-      _bash,
-      _search,
-      _grep,
-      _glob,
-      _ls,
-      _stat,
-      _which,
-      _git,
-    ];
-    if (safeMode) tools = stripForSafeMode(tools);
-    final braveKey = environment[_braveKeyEnv];
-    if (braveKey != null && braveKey.isNotEmpty) {
-      tools.add(WebSearchTool(BraveSearchProvider(braveKey)));
-    }
-    final tavilyKey = environment[_tavilyKeyEnv];
-    if (tavilyKey != null && tavilyKey.isNotEmpty) {
-      tools.add(WebSearchTool(TavilySearchProvider(tavilyKey)));
-    }
-    return ToolRegistry(tools);
-  }
-}
+  ToolRegistry buildTools({bool safeMode = false}) =>
+      toolRegistryFromScope(runtime.scope, safeMode: safeMode);
 
-const _braveKeyEnv = 'BRAVE_API_KEY';
-const _tavilyKeyEnv = 'TAVILY_API_KEY';
+  /// The scope's tool contributions by declared tool name, in [names] order.
+  /// A name missing from the runtime (an unconfigured `web_search`, say) is
+  /// simply absent from the result — callers compose from what exists.
+  List<Tool> _toolsByName(List<String> names) {
+    final tools = <Tool>[];
+    for (final name in names) {
+      final tool = _toolNamed(name);
+      if (tool != null) tools.add(tool);
+    }
+    return tools;
+  }
+
+  Tool? _toolNamed(String name) {
+    for (final contribution in runtime.scope.contributions) {
+      final tool = contribution.contribution;
+      if (tool is Tool && tool.schema.name == name) return tool;
+    }
+    // The sidecar capture is composed by the runtime as a singleton under
+    // [writeSummaryToolServiceKey], not as a registry contribution — see
+    // [projectToolPlugins].
+    if (name == 'write_summary') return _writeSummary;
+    return null;
+  }
+
+  /// The sidecar summaries capture: composed by the runtime under its
+  /// [writeSummaryToolServiceKey] singleton (it is deliberately not a registry
+  /// contribution — see [projectToolPlugins]).
+  Tool get _writeSummary =>
+      runtime.scope.lookup(writeSummaryToolServiceKey) as Tool;
+}
