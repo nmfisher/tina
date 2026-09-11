@@ -212,6 +212,84 @@ void main() {
     expect(failure, isA<PluginCompositionError>());
     expect(builderCalls, 0);
   });
+
+  group('borrowedScopePlugins', () {
+    test('drops exactly the project-owned stages, keeps the conversation '
+        'prefix', () {
+      final borrowed = borrowedScopePlugins(_defaultProfile());
+      expect(
+        [for (final plugin in borrowed) plugin.id],
+        [
+          _ledgerPluginId,
+          _decoratorsPluginId,
+          _factoryPluginId,
+        ],
+        reason: 'capabilities + tool scope stay with the owner',
+      );
+    });
+
+    test('keeps conversation extensions the allowlist never knew about '
+        '(regression: borrowed runtime lost its driver factory)', () {
+      final factory = _CountingDriverFactory();
+      final extended = [..._defaultProfile(), driverPlugin(factory)];
+      final borrowed = borrowedScopePlugins(extended);
+      expect(
+        [for (final plugin in borrowed) plugin.id],
+        contains('tina.engine.driver'),
+        reason: 'a custom conversation plugin must survive the borrow trim',
+      );
+      expect(
+        [for (final plugin in borrowed) plugin.id],
+        isNot(contains(_capabilitiesPluginId)),
+      );
+    });
+  });
+
+  test('a borrowed runtime with a driver-extension profile resolves the '
+      'factory on its scheduler', () async {
+    final root = await _tempProject();
+    addTearDown(() => root.delete(recursive: true));
+    final borrowed = ProjectToolScope(projectRoot: root.path, env: const {});
+    final factory = _CountingDriverFactory();
+    final extended = [
+      ...defaultExecutionPlugins(
+        config: RuntimeConfig(provider: 'test', model: 'a'),
+        registry: _registryWithUsageProvider(),
+        providerDecorators: const [],
+        projectRoot: root.path,
+        environment: FakeEnvironment(),
+        sandboxEnabled: RuntimeConfig().sandboxEnabled,
+        sandboxNet: RuntimeConfig().sandboxNet,
+        sandboxReadOnly: RuntimeConfig().sandboxReadOnly,
+      ),
+      driverPlugin(factory),
+    ];
+    final runtime = await buildExecutionRuntime(
+      config: RuntimeConfig(provider: 'test', model: 'a'),
+      registry: _registryWithUsageProvider(),
+      environment: FakeEnvironment(),
+      toolScope: borrowed,
+      executionPlugins: extended,
+    );
+    addTearDown(runtime.dispose);
+
+    expect(runtime.scheduler.driverFactory, same(factory),
+        reason: 'the borrowed runtime mounted the extension-provided '
+            'driver factory — the old allowlist resolved null here');
+    expect(identical(runtime.pipeline.tools, borrowed), isTrue,
+        reason: 'the borrow semantics are unchanged');
+  });
+}
+
+/// A driver factory that counts create() calls and defers to the default.
+class _CountingDriverFactory implements AgentDriverFactory {
+  int calls = 0;
+
+  @override
+  AgentDriver create(AgentDriverRequest request) {
+    calls++;
+    return const DefaultAgentDriverFactory().create(request);
+  }
 }
 
 class _UsageProvider extends LlmProvider {

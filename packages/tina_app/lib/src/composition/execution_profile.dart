@@ -3,15 +3,20 @@ import 'package:tina_engine/tina_engine.dart';
 import 'package:tina_app/src/composition/runtime_plugins.dart';
 import 'package:tina_app/src/config/runtime_config.dart';
 import 'package:tina_app/src/platform/environment.dart';
-/// Plugin ids of the conversation-owned prefix of the default profile: the
-/// ledger, the decorator stage, and the provider factory. A runtime that
-/// BORROWS a live same-project tool scope mounts only plugins with these ids
-/// — the borrowed scope's capabilities stay exactly the ones its owner built,
-/// so project-owned plugins (capabilities, tool scope) are never mounted.
-const List<String> _conversationOwnedPluginIds = [
-  'tina.app.spend-ledger',
-  'tina.app.provider-decorators',
-  'tina.app.provider-factory',
+
+/// Plugin ids of the PROJECT-OWNED stages of the default profile: the
+/// capabilities stage and the tool scope assembled from it. A runtime that
+/// BORROWS a live same-project tool scope never mounts these — the borrowed
+/// scope's capabilities stay exactly the ones its owner built. Everything
+/// else mounts: the conversation-owned prefix (ledger, decorator stage,
+/// provider factory) AND any conversation extension the profile carries
+/// (a [driverPlugin], a custom conversation plugin). Selecting by what is
+/// project-owned — not by an allowlist of known ids — is the point: an
+/// allowlist silently dropped every extension it did not know, so a
+/// borrowed runtime lost its driver factory.
+const List<String> _projectOwnedPluginIds = [
+  'tina.engine.project-capabilities',
+  'tina.engine.project-tool-scope',
 ];
 
 /// The default execution plugin profile — the exact plugin list
@@ -71,12 +76,13 @@ List<PluginDescriptor> defaultExecutionPlugins({
   ];
 }
 
-/// The plugins of [plugins] a borrowing runtime mounts: only the
-/// conversation-owned prefix ids ([_conversationOwnedPluginIds]), in the
-/// list's own order. Project-owned plugins are dropped — the borrowed scope
-/// keeps the capabilities its owner built.
-List<PluginDescriptor> borrowedScopePlugins(List<PluginDescriptor> plugins) =>
-    [
+/// The plugins of [plugins] a borrowing runtime mounts: everything EXCEPT the
+/// project-owned stages ([_projectOwnedPluginIds]) — the conversation-owned
+/// prefix rides along in the list's own order, and so does any conversation
+/// extension (a driver factory plugin, a custom conversation plugin). The
+/// borrowed scope keeps the capabilities its owner built; the borrowing
+/// conversation keeps its own extensions.
+List<PluginDescriptor> borrowedScopePlugins(List<PluginDescriptor> plugins) => [
       for (final plugin in plugins)
-        if (_conversationOwnedPluginIds.contains(plugin.id)) plugin,
+        if (!_projectOwnedPluginIds.contains(plugin.id)) plugin,
     ];
