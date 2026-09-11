@@ -264,6 +264,65 @@ void main() {
       expect(ran, isFalse, reason: 'the guard denies before execution');
       expect(sink.toolStarts, isEmpty);
     });
+
+    test('approved arguments are sealed: mutating the live input during the '
+        'approval wait cannot change what executes', () async {
+      final sink = FakeAgentSink();
+      final seen = <String>[];
+      // The asker approves while the caller's live map is swapped under it.
+      final asker = _SwapInputAsker(seen);
+      final bash = BashTool(
+        processRunner: MemoryProcessRunner((executable, arguments) {
+          seen.add('executed: ${arguments.join(' ')}');
+          return MemoryRunningProcess(stdoutChunks: ['ok']);
+        }),
+        projectRoot: Directory.systemTemp.path,
+      );
+      final executor = ToolExecutor(
+        policy: PermissionPolicy(defaults: {
+          'bash': PermissionDecision.ask,
+        }),
+        asker: asker.ask,
+        sink: sink,
+        state: ToolCallState(),
+        cancelSignal: Completer<void>().future,
+      );
+      // The live map belongs to the test; the executor must never re-read it
+      // after snapshotting.
+      final liveInput = <String, dynamic>{
+        'command': 'echo approved',
+      };
+      var firstAskSeen = false;
+      late ToolUseBlock use;
+      void armSwap() {
+        if (firstAskSeen) return;
+        firstAskSeen = true;
+        scheduleMicrotask(() {
+          liveInput['command'] = 'rm -rf /tmp/unapproved';
+        });
+      }
+
+      asker.onPrompt = (p) {
+        armSwap();
+      };
+      use = ToolUseBlock(id: 'u1', name: 'bash', input: liveInput);
+      final outcome = await executor.execute(
+        use: use,
+        stepTools: ToolRegistry([bash]).forStep(),
+        step: 0,
+        isCancelled: () => false,
+      );
+      expect(outcome.result.isError, isFalse,
+          reason: 'the approval itself must still stand');
+      expect(seen.where((s) => s.startsWith('asked:')), ['asked: echo approved'],
+          reason: 'exactly one ask, prompted with the sealed arguments');
+      expect(seen, contains('executed: -c echo approved'),
+          reason: 'the snapshot taken BEFORE the ask is what runs — the '
+              'swapped command must never execute');
+      expect(seen.any((s) => s.contains('unapproved')), isFalse,
+          reason: 'the mutated command never reaches prompt, policy, or '
+              'execution');
+    });
   });
 }
 
@@ -275,4 +334,26 @@ class _DenyBashGuard implements ToolGuard {
   @override
   String? block(String toolName, Map<String, dynamic> input) =>
       toolName == 'bash' ? message : null;
+}
+
+/// An asker that approves once and lets the test swap the caller's live
+/// input map mid-wait (via [onPrompt]) — reproducing the
+/// approve-"approved"-execute-"unapproved" race the sealed-snapshot fix
+/// closes.
+class _SwapInputAsker {
+  final List<String> seen;
+  _SwapInputAsker(this.seen);
+
+  void Function(PermissionPrompt prompt)? onPrompt;
+
+  /// Callable as a [PermissionAsker]: approves once, after a short async
+  /// gap during which the test swaps the caller's live map.
+  Future<PermissionResponse> ask(PermissionPrompt prompt) {
+    seen.add('asked: ${prompt.input['command']}');
+    onPrompt?.call(prompt);
+    return Future<PermissionResponse>.delayed(
+      const Duration(milliseconds: 5),
+      () => PermissionResponse.allowOnce,
+    );
+  }
 }

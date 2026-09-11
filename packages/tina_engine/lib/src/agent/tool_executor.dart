@@ -425,8 +425,10 @@ class ToolExecutor {
     // prompt, the hooks' context, the observers' event, and the tool itself —
     // sees exactly these values. A caller mutating its original map during an
     // approval wait (or a hook mutating what it can see) cannot change what
-    // executes. The retry merge below builds a NEW snapshot from this one, so
-    // the explicit sandbox-retry authorization path is preserved.
+    // executes. The snapshot is NEVER refreshed from the live input after the
+    // wait — approval seals the decision, not new arguments — and the
+    // sandbox-retry merge (below) builds its snapshot from this one before
+    // the ask, so the explicit retry authorization path is preserved.
     var executionInput = snapshotToolInput(use.input);
     // What the hooks and observers may see: a deeply unmodifiable view of the
     // SAME snapshot — built once, after the retry merge, so it reflects the
@@ -480,6 +482,9 @@ class ToolExecutor {
             'accessReason': optionalString(use.input, 'accessReason') ??
                 'Retry the failed command with access to the directory named in its read-only filesystem error.',
           };
+          // The hook/observer view tracks the merged snapshot — still the
+          // one sealed snapshot's lineage, still built BEFORE the ask.
+          executionView = asDeepUnmodifiable(executionInput);
         }
         access = tool.requestAccess(executionInput);
         // A retry is explicit even if another agent granted the directory
@@ -534,28 +539,16 @@ class ToolExecutor {
           !state.toolInterrupted) {
         policy.remember(use.name, prompt.alwaysPattern, decision);
       }
-      // The wait was asynchronous: re-snapshot so the approved arguments are
-      // exactly what executes even if the caller mutated its original map
-      // while the asker was pending, and refresh the hook/observer view to
-      // match. The sandbox-retry merge is re-derived from the same recovery
-      // record, so a merged retry rebuilds identically; an UNMERGED call
-      // (recovery == null) simply re-snapshots.
-      if (recovery != null) {
-        final requested = executionInput['writablePaths'] ?? const [];
-        executionInput = {
-          ...executionInput,
-          'writablePaths': {
-            ...recovery.priorPaths,
-            ...recovery.failure.writablePaths,
-            ...requested
-          }.toList(),
-          'accessReason': optionalString(use.input, 'accessReason') ??
-              'Retry the failed command with access to the directory named in its read-only filesystem error.',
-        };
-      } else {
-        executionInput = snapshotToolInput(use.input);
-      }
-      executionView = asDeepUnmodifiable(executionInput);
+      // Sealed arguments: the snapshot taken BEFORE authorization stays the
+      // one truth for the whole dispatch — nothing is re-read from the live
+      // input after the approval wait. Re-snapshotting here let a caller
+      // mutate its original map while the asker was pending and swap what a
+      // JUST-APPROVED call would execute (a probe got "approved" approved and
+      // ran "unapproved", past a deny rule covering it). The merged
+      // sandbox-retry snapshot was already re-derived from the recovery
+      // record + the sealed snapshot BEFORE the ask, so both branches of the
+      // old re-snapshot are simply gone: approval changes the DECISION, never
+      // the arguments.
     }
     if (decision == PermissionDecision.deny) {
       if (recovery != null) state.deniedSandboxRetries.add(retryKey!);
