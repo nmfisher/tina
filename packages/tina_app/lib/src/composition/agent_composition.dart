@@ -29,6 +29,16 @@ SubAgentScheduler createScheduler({
   PauseGate? pauseGate,
   AgentDriverFactory? driverFactory,
   SubAgentPersistenceFactory? persistence,
+
+  /// Plugin-scope contributions resolved at the composition boundary
+  /// (execution_runtime.dart) and threaded to their consumers. Null (the
+  /// default) means no plugin contributed any — the built-ins run bare.
+  /// Empty-by-default keeps every caller that has no plugin runtime
+  /// byte-identical to the pre-plugin wiring.
+  List<ToolGuard>? guards,
+  List<ToolExecutionHook>? executionHooks,
+  List<ToolResultHook>? resultHooks,
+  List<ToolObserver>? observers,
 }) {
   final scheduler = SubAgentScheduler(
     registry: registry,
@@ -53,8 +63,41 @@ SubAgentScheduler createScheduler({
   // (not a constructor param) — mount the composition-level choice the same
   // way. null = the scheduler's default in-memory-only behavior.
   scheduler.persistence = persistence;
+  // Plugin contributions resolved from the active scope: carried on the
+  // scheduler so every delegated driver build receives them (see
+  // [schedulerExecutionGuards] et al.); null stays null — no contribution,
+  // no behavior change.
+  schedulerExecutionGuards[scheduler] = guards;
+  schedulerExecutionHooks[scheduler] = executionHooks;
+  schedulerResultHooks[scheduler] = resultHooks;
+  schedulerToolObservers[scheduler] = observers;
   return scheduler;
 }
+
+/// Per-scheduler carrier for scope-resolved plugin contributions. A side
+/// table rather than constructor fields because the scheduler's public
+/// constructor is engine-stable; the composition boundary is the only
+/// writer, consumers read through the typed getters below.
+final schedulerExecutionGuards =
+    Expando<List<ToolGuard>>('scheduler.executionGuards');
+final schedulerExecutionHooks =
+    Expando<List<ToolExecutionHook>>('scheduler.executionHooks');
+final schedulerResultHooks =
+    Expando<List<ToolResultHook>>('scheduler.resultHooks');
+final schedulerToolObservers =
+    Expando<List<ToolObserver>>('scheduler.toolObservers');
+
+/// The scope-resolved contributions a delegated run inherits, falling back
+/// to the empty list (built-ins only) when composition mounted none.
+List<ToolGuard> schedulerGuardsOf(SubAgentScheduler scheduler) =>
+    schedulerExecutionGuards[scheduler] ?? const [];
+List<ToolExecutionHook> schedulerExecutionHooksOf(SubAgentScheduler s) =>
+    schedulerExecutionHooks[s] ?? const [];
+List<ToolResultHook> schedulerResultHooksOf(SubAgentScheduler scheduler) =>
+    schedulerResultHooks[scheduler] ?? const [];
+List<ToolObserver> schedulerObserversOf(SubAgentScheduler scheduler) =>
+    schedulerToolObservers[scheduler] ?? const [];
+
 
 /// Build an [Agent] for one conversation from [pipeline]'s main role.
 ///

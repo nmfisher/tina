@@ -203,6 +203,15 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       maxDepth: config.maxSubAgentDepth,
       maxLive: config.maxSubAgentConcurrency,
     );
+    // Resolve the SELECTED driver factory from the active scope (fix: the
+    // scheduler's driverFactory param and a mounted driverPlugin were two
+    // disconnected seams). Explicit param wins (a caller-level override);
+    // otherwise the scope's mounted factory; otherwise null — the default
+    // factory behavior. Missing service keys produce actionable composition
+    // errors, never a null assertion after activation.
+    final scopeDriverFactory =
+        runtime.scope.lookup(agentDriverFactoryServiceKey);
+    final resolvedDriverFactory = driverFactory ?? scopeDriverFactory;
     final scheduler = createScheduler(
       config: config,
       registry: registry,
@@ -210,8 +219,15 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       pipeline: pipeline,
       pauseGate: pauseGate,
       quota: quota,
-      driverFactory: driverFactory,
+      driverFactory: resolvedDriverFactory,
       persistence: persistence,
+      // Scope-resolved plugin contributions, in registration order, wired to
+      // their actual consumers (guards/hooks/observers ride the scheduler;
+      // prompt contributors resolve in buildAgent through the scope).
+      guards: toolGuardsFromScope(runtime.scope),
+      executionHooks: toolExecutionHooksFromScope(runtime.scope),
+      resultHooks: toolResultHooksFromScope(runtime.scope),
+      observers: toolObserversFromScope(runtime.scope),
     );
     resources.own(scheduler.dispose);
     return ExecutionRuntime(
