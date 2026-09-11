@@ -52,6 +52,23 @@ permissions:
   contents: read
 
 jobs:
+  macos_interactive:
+    name: macOS interactive startup
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: '3.12'
+      - name: Resolve dependencies
+        run: dart pub get
+      - name: Build native CLI
+        run: dart build cli --target bin/tina.dart
+      - name: Open first-load picker and quit at small and normal sizes
+        run: python3 tool/smoke_interactive.py build/cli/macos_arm64/bundle/bin/tina
+
   root:
     name: root (tina)
     runs-on: ubuntu-latest

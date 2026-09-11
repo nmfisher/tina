@@ -57,6 +57,10 @@ auto_populate = "ask"
             [str(binary), "--trust", "--backend", "notcurses"],
             cwd=project, env=env, stdin=slave, stdout=slave, stderr=slave,
             start_new_session=True,
+            # setsid detaches the controlling terminal. Attach the slave again
+            # before exec: Darwin's native initialization requires a real
+            # controlling terminal, not just tty-shaped stdin/stdout pipes.
+            preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0),
         )
         os.close(slave)
         output = bytearray()
