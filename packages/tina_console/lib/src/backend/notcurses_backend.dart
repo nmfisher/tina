@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:typed_data';
 
+import 'terminfo_environment.dart';
+
 import 'package:dart_notcurses/dart_notcurses.dart' as nc;
 
 import '../rect.dart';
@@ -111,6 +113,7 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
   _LiveNotcursesPlatform._(this._nc, this._plane);
 
   factory _LiveNotcursesPlatform.init({bool mouseWheel = false}) {
+    configureMacosTerminfo();
     // suppressBanners: skip the version/performance banners that notcurses
     // prints during init and stop.
     //
