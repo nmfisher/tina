@@ -109,6 +109,9 @@ class PipelineRunner {
       defaults: {...?basePolicy?.defaults},
       rules: basePolicy?.staticRules,
       modeSource: basePolicy,
+      // `--yolo` rides along: every node inherits the allow-all posture
+      // without restating the four-tool map that used to hide it.
+      allowAllByDefault: basePolicy?.allowAllByDefault ?? false,
     );
     final backend = TinaCodergenBackend(
       scheduler: scheduler,

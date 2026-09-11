@@ -205,6 +205,11 @@ Agent buildAgent({
       },
       rules: policy.staticRules,
       modeSource: policy,
+      // Interactive main agent: `--yolo`'s posture rides along so the added
+      // channel/region defaults do not mask it (they're allow anyway) and the
+      // unmapped tools (launch_workflow, broadcast_region…) stay ask — yolo
+      // does not pre-approve an autonomous fleet run.
+      allowAllByDefault: policy.allowAllByDefault,
     );
     final ctx = AgentToolContext(
       scheduler: scheduler,

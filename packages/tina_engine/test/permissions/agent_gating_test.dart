@@ -174,6 +174,45 @@ void main() {
       expect(fakeBash.calls.length, 1);
     });
 
+    test('--yolo widens every tool: allow-by-default tools never ask', () async {
+      // The reported regression: under `tina --yolo`, glob/ls/grep/git were
+      // refused headless because the four-entry defaults map replaced the
+      // policy's table and let them fall through to ask. The flag must widen
+      // every default instead — mapped or not.
+      final tools = ToolRegistry([
+        _RecordingTool('glob'),
+        _RecordingTool('grep'),
+        _RecordingTool('git'),
+        _RecordingTool('fetch'),
+        _RecordingTool('custom_future_tool'),
+      ]);
+      final provider = _ScriptedProvider([
+        [
+          const ToolUseBlock(id: 'u1', name: 'glob', input: {}),
+          const ToolUseBlock(id: 'u2', name: 'grep', input: {}),
+          const ToolUseBlock(id: 'u3', name: 'git', input: {}),
+          const ToolUseBlock(id: 'u4', name: 'fetch', input: {}),
+          const ToolUseBlock(id: 'u5', name: 'custom_future_tool', input: {}),
+        ],
+        const [TextBlock('done.')],
+      ]);
+      final policy = PermissionPolicy(allowAllByDefault: true);
+      final asker = _RecordingAsker(const []);
+
+      final agent = Agent(
+        provider: provider,
+        tools: tools,
+        sink: FakeAgentSink(),
+        policy: policy,
+        asker: asker.ask,
+        system: 'sys',
+      );
+      await agent.run(history: <Message>[], userInput: 'use every tool');
+
+      expect(asker.prompts, isEmpty,
+          reason: 'no tool may resolve to ask under --yolo');
+    });
+
     test('auto mode: classifier allow executes, deny short-circuits', () async {
       final fakeBash = _RecordingTool('bash');
       final tools = ToolRegistry([fakeBash]);

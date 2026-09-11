@@ -172,6 +172,7 @@ class ConversationOperations {
       final bashDecision = PermissionPolicy(
         defaults: configuredPolicy.defaults,
         rules: configuredPolicy.staticRules,
+        allowAllByDefault: configuredPolicy.allowAllByDefault,
       ).check('bash', const {});
       final policy = PermissionPolicy(
         modeSource: source.policy,
@@ -185,6 +186,9 @@ class ConversationOperations {
                   : PermissionDecision.allow,
             ),
         ],
+        // Side conversations expose every mapped tool as an allow rule, so the
+        // posture matters only for anything unmapped; carry it for fidelity.
+        allowAllByDefault: configuredPolicy.allowAllByDefault,
       );
       final system = resolveMainPrompt(
         pipeline,

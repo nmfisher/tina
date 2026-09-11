@@ -26,13 +26,20 @@ class HeadlessHost with HostLifecycleAdapter implements HostInterface {
   HeadlessHost({
     void Function(Object? object)? write,
     void Function(Object? object)? writeErr,
+    bool permissionHints = true,
   })  : _write = write ?? stdout.write,
         // `write` (not `writeln`): agent notices/tool chunks carry their own
         // newlines, so an auto-appended one would double-space the output.
-        _writeErr = writeErr ?? stderr.write;
+        _writeErr = writeErr ?? stderr.write,
+        _permissionHints = permissionHints;
 
   final void Function(Object?) _write;
   final void Function(Object?) _writeErr;
+
+  /// Whether a refusal may suggest the `--allow`/`--yolo` flags. Off under
+  /// an active `--yolo` run: the hint tells the operator to pass a flag they
+  /// already passed, so it is noise (see the yolo regression, asb/yolo-fix).
+  final bool _permissionHints;
   final AgentEventBus _bus = AgentEventBus();
 
   @override
@@ -58,8 +65,11 @@ class HeadlessHost with HostLifecycleAdapter implements HostInterface {
               '$note Writable directory grants require interactive approval or '
               'operator configuration through TINA_SANDBOX_ALLOW at startup.');
     }
-    _writeErr('${p.toolName}: ${p.key}\n  '
-        'refused (use --allow "${p.toolName}:${p.alwaysPattern}" or --yolo)\n');
+    _writeErr('${p.toolName}: ${p.key}\n  refused\n');
+    if (_permissionHints) {
+      _writeErr('  (use --allow "${p.toolName}:${p.alwaysPattern}"'
+          ' or --yolo)\n');
+    }
     return const PermissionResponse(PermissionDecision.deny, note: note);
   }
 

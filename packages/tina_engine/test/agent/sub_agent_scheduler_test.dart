@@ -186,6 +186,41 @@ void main() {
 
     // -- the live-ref resolver (a `/model` swap mid-session) ----------------
 
+    test('a --yolo parent policy widens a gated write without an explicit '
+        'default', () async {
+      // The reported regression shape: a policy whose defaults table does not
+      // mention the tool, relying on the allow-all posture instead. The
+      // derived (profile-widened) policy must keep that posture so the gated
+      // write allows instead of ask — an ask under the headless auto-deny
+      // asker is what made --yolo less capable than the default.
+      final dir = await Directory.systemTemp.createTemp('standalone-yolo-flag');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final path = p.join(dir.path, 'a.txt');
+      final scheduler = testScheduler(
+        _writeOnceRegistry([path]),
+        pipeline: pipeline,
+      );
+      final asker = _ScriptedAsker(const []);
+      final policy = PermissionPolicy(allowAllByDefault: true);
+
+      final result = await scheduler.runStandalone(
+        systemPrompt: 'id',
+        task: 'write the file',
+        parentReference: 'w/w-model',
+        sink: FakeAgentSink(),
+        gateWrites: true,
+        policy: policy,
+        asker: asker.ask,
+      );
+
+      expect(result.isError, isFalse);
+      expect(asker.prompts, isEmpty,
+          reason: 'the posture must widen the gated write with no mapped '
+              'default for write');
+      expect(File(path).readAsStringSync(), 'node output');
+      await scheduler.dispose();
+    });
+
     /// A scheduler whose registry scripts both `a-model` and `b-model`, with
     /// [modelRefResolver] wired to [resolve].
     SubAgentScheduler withResolver(String? Function(String) resolve) =>

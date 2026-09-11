@@ -17,6 +17,11 @@ class StartupOptions {
   final bool? trustOverride;
   final TrustDefault trustDefault;
   final bool forceLock;
+
+  /// `--yolo` posture. Startup-facing twin of [RuntimeConfig.yolo]: the
+  /// headless host uses it to drop refusal hints that would point at a flag
+  /// already in effect.
+  final bool yolo;
   const StartupOptions({
     this.resume = const ResumeRequest(),
     this.showHelp = false,
@@ -31,6 +36,7 @@ class StartupOptions {
     this.trustOverride,
     this.trustDefault = TrustDefault.ask,
     this.forceLock = false,
+    this.yolo = false,
   });
   bool get nonInteractive => prompt != null || workflow != null;
 }
