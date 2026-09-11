@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:typed_data';
 
 import 'package:dart_notcurses/dart_notcurses.dart' as nc;
@@ -137,7 +138,9 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
     final guard = TerminalReplyGuard()..prepare();
     try {
       final nc_ = nc.NotCurses(nc.CursesOptions(
-        loglevel: nc.LogLevel.silent,
+        loglevel: Platform.environment['COCOON_DEBUG'] == '1'
+            ? nc.LogLevel.debug
+            : nc.LogLevel.silent,
         flags: nc.OptionFlags.suppressBanners,
       ));
       if (nc_.notInitialized) {

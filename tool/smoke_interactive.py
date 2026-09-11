@@ -49,6 +49,7 @@ auto_populate = "ask"
             "LANG": "en_US.UTF-8",
             "COCOON_MODELS_DEV": "0",
             "COCOON_UPDATE_CHECK": "0",
+            "COCOON_DEBUG": "1",
         }
         master, slave = pty.openpty()
         tty.setraw(slave)
