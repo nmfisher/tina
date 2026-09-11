@@ -285,7 +285,13 @@ Agent buildAgent({
     );
   }
 
-  return Agent(
+  // Fix (P1): main-agent construction goes through the SAME resolved
+  // dependencies delegated agents use — the scope-selected driver factory and
+  // the mounted scope contributions (guards, hooks, observers). Building
+  // `Agent` directly here let a plugin-selected factory, its guards, and its
+  // hooks be skipped entirely for the main agent (probes: zero guard
+  // invocations, zero factory calls on the main path).
+  final request = AgentDriverRequest(
     provider: provider,
     tools: agentTools,
     sink: host,
@@ -294,15 +300,40 @@ Agent buildAgent({
     budget: config.buildTokenBudget(),
     pauseGate: scheduler.pauseGate,
     maxSteps: config.maxSteps,
-    // The engine fires this MID-turn (estimating the next request before it
-    // ships), so long autonomous turns — headless --prompt tasks especially,
-    // which have no SessionController to run the between-turns pass — compact
-    // instead of drowning in accumulated tool results.
-    autoCompactThreshold: config.autoCompactThreshold,
     system: resolvedSystem,
+    // The scope contributions mounted for this scheduler ride along, so the
+    // main build runs under the same guards/hooks/observers as delegates.
+    executionGuards: scheduler.scopeGuards,
+    executionHooks: scheduler.scopeExecutionHooks,
+    resultHooks: scheduler.scopeResultHooks,
+    observers: scheduler.scopeObservers,
     resultVerifier: resultVerifier,
     onHistoryAppend: onHistoryAppend,
     onHistoryReplace: onHistoryReplace,
     transportRetryAttempts: transportRetryAttempts,
+    autoCompactThreshold: config.autoCompactThreshold,
   );
+  final factory = scheduler.driverFactory ?? const DefaultAgentDriverFactory();
+  final driver = factory.create(request);
+
+  // The driver seam's default pairing is the adapter over the plain build —
+  // callers need the concrete Agent (Conversation holds one, SessionManager
+  // rebuilds per conversation, the summary runner drives it directly). An
+  // adapter unwraps to its agent verbatim; a replacement driver must expose
+  // the agent it drives through `driver.agent`.
+  final agent = driver.agent;
+
+  // A replacement factory gets its contribution surface mirrored onto the
+  // scheduler, so delegated builds observe the same contributions the main
+  // build was created with.
+  if (driver is! AgentDriverAdapter) {
+    scheduler.mountScopeContributions(
+      guards: request.executionGuards,
+      executionHooks: request.executionHooks,
+      resultHooks: request.resultHooks,
+      observers: request.observers,
+    );
+  }
+
+  return agent;
 }

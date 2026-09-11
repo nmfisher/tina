@@ -290,4 +290,197 @@ void main() {
       }
     });
   });
+
+  group('buildAgent routes through the resolved driver dependencies', () {
+    test('a scope-selected driver factory builds the MAIN agent, and the '
+        'factory receives the mounted guards', () async {
+      final config = testConfig();
+      var factoryCalls = 0;
+      var guardChecks = 0;
+      _CapturingDriver? builtDriver;
+      final factory = _CountingDriverFactory((request) {
+        factoryCalls++;
+        builtDriver ??= _CapturingDriver(request);
+        return builtDriver;
+      }, onGuard: () => guardChecks++);
+      final scheduler = createScheduler(
+        config: config,
+        registry: ProviderRegistry(env: {}),
+        pipeline: defaultPipeline,
+        driverFactory: factory,
+        guards: [factory.guard],
+      );
+      addTearDown(scheduler.dispose);
+      expect(scheduler.driverFactory, same(factory),
+          reason: 'precondition: the factory is mounted on the scheduler');
+
+      final agent = buildAgent(
+        pipeline: defaultPipeline,
+        scheduler: scheduler,
+        conversationId: 'c1',
+        provider: FakeProvider(const [], model: 'm'),
+        host: FakeHostInterface(),
+        policy: config.buildPolicy(),
+        config: config,
+      );
+
+      expect(factoryCalls, 1,
+          reason: 'main-agent construction must go through the resolved '
+              'factory, exactly like a delegated build');
+      expect(scheduler.scopeGuards, contains(factory.guard),
+          reason: 'the mounted guard rode the main build request');
+      // The guard probe: the built agent's executor chain includes the
+      // mounted guard — visible through the request the factory captured.
+      final request = builtDriver!.request;
+      expect(request.executionGuards, contains(factory.guard));
+      // Guard invocation: run one bash call through the built agent and
+      // count guard checks at the executor boundary.
+      agent.provider = FakeProvider(const [
+        [
+          MessageComplete(
+            content: [
+              ToolUseBlock(id: 't1', name: 'bash', input: {'command': 'echo hi'})
+            ],
+            stopReason: 'tool_use',
+          ),
+        ],
+        [MessageComplete(content: [TextBlock('done')], stopReason: 'end_turn')],
+      ], model: 'm');
+      final history = <Message>[Message(role: Role.user, content: [TextBlock('hi')])];
+      await agent.run(history: history, userInput: 'hi');
+      expect(guardChecks, greaterThanOrEqualTo(1),
+          reason: 'the mounted guard must be consulted by the main agent\'s '
+              'tool dispatch, not just present in a list');
+    });
+
+    test('the default path still builds a working agent through the '
+        'factory seam (no factory mounted)', () async {
+      final config = testConfig();
+      final scheduler = createScheduler(
+        config: config,
+        registry: ProviderRegistry(env: {}),
+        pipeline: defaultPipeline,
+      );
+      addTearDown(scheduler.dispose);
+      final agent = buildAgent(
+        pipeline: defaultPipeline,
+        scheduler: scheduler,
+        conversationId: 'c1',
+        provider: FakeProvider(const [
+          [MessageComplete(content: [TextBlock('ok')], stopReason: 'end_turn')
+          ],
+        ], model: 'm'),
+        host: FakeHostInterface(),
+        policy: config.buildPolicy(),
+        config: config,
+      );
+      expect(agent.tools['read'], isNotNull,
+          reason: 'the tool set survives the seam unchanged');
+      final history = <Message>[Message(role: Role.user, content: [TextBlock('go')])];
+      await agent.run(history: history, userInput: 'go');
+      expect(history.last.role, Role.assistant);
+    });
+  });
+}
+
+/// A guard that counts checks and denies nothing.
+class _CountingGuard implements ToolGuard {
+  final void Function() onCheck;
+  _CountingGuard(this.onCheck);
+
+  @override
+  String? block(String toolName, Map<String, dynamic> input) {
+    onCheck();
+    return null;
+  }
+}
+
+/// A factory that counts create() calls and captures the built driver.
+class _CountingDriverFactory implements AgentDriverFactory {
+  final AgentDriver? Function(AgentDriverRequest request) build;
+  final void Function() onGuard;
+  late final _CountingGuard guard = _CountingGuard(onGuard);
+
+  _CountingDriverFactory(this.build, {required this.onGuard});
+
+  @override
+  AgentDriver create(AgentDriverRequest request) =>
+      build(request) ?? _CapturingDriver(request);
+}
+
+/// Records the request it was created from and drives a real inner agent.
+class _CapturingDriver implements AgentDriver {
+  final AgentDriverRequest request;
+  _CapturingDriver(this.request);
+
+  late final Agent _agent = Agent(
+    provider: request.provider,
+    tools: request.tools,
+    sink: request.sink,
+    policy: request.policy,
+    asker: request.asker,
+    maxSteps: request.maxSteps,
+    budget: request.budget,
+    pauseGate: request.pauseGate,
+    system: request.system,
+    executionGuards: request.executionGuards,
+    executionHooks: request.executionHooks,
+    resultHooks: request.resultHooks,
+    toolObservers: request.observers,
+    resultVerifier: request.resultVerifier,
+    onHistoryAppend: request.onHistoryAppend,
+    onHistoryReplace: request.onHistoryReplace,
+    transportRetryAttempts: request.transportRetryAttempts,
+  );
+
+  @override
+  Agent get agent => _agent;
+
+  @override
+  Future<void> run({
+    required List<Message> history,
+    required String userInput,
+    Future<void>? cancelSignal,
+    Future<void>? toolInterruptSignal,
+    ToolRegistry? turnTools,
+  }) =>
+      agent.run(
+        history: history,
+        userInput: userInput,
+        cancelSignal: cancelSignal,
+        toolInterruptSignal: toolInterruptSignal,
+        turnTools: turnTools,
+      );
+
+  @override
+  String? get abortedReason => agent.abortedReason;
+
+  @override
+  AbortedKind get abortedKind => agent.abortedKind;
+
+  @override
+  String get system => agent.system;
+
+  @override
+  ToolRegistry get tools => agent.tools;
+
+  @override
+  LlmProvider get provider => agent.provider;
+
+  @override
+  set provider(LlmProvider value) => agent.provider = value;
+
+  @override
+  Future<bool> compact(
+    List<Message> history, {
+    int preserveRecent = 0,
+    int preserveRecentMessages = 0,
+    Future<void>? cancelSignal,
+  }) =>
+      agent.compact(
+        history,
+        preserveRecent: preserveRecent,
+        preserveRecentMessages: preserveRecentMessages,
+        cancelSignal: cancelSignal,
+      );
 }

@@ -10,6 +10,7 @@ import 'pause_gate.dart';
 import 'token_budget.dart';
 import 'tool_guards.dart';
 import 'tool_hooks.dart';
+import 'tool_executor.dart' show ToolResultVerifier;
 
 /// The replaceable unit behind the agent loop (the P5 seam): the operations
 /// coordinators actually use — one turn, the last abort classification, the
@@ -81,6 +82,12 @@ abstract class AgentDriver {
     int preserveRecentMessages = 0,
     Future<void>? cancelSignal,
   });
+
+  /// The agent this driver drives. Composition callers need the concrete
+  /// [Agent] (a Conversation holds one, the summary runner drives one), so
+  /// every driver must be honest about the agent behind it. For
+  /// [AgentDriverAdapter] this is the wrapped build verbatim.
+  Agent get agent;
 }
 
 /// Trivial driver: forwards EVERY member verbatim to the wrapped [agent].
@@ -88,7 +95,8 @@ abstract class AgentDriver {
 /// the adapter that lets a coordinator hand a plain [Agent] to code that
 /// speaks [AgentDriver].
 class AgentDriverAdapter implements AgentDriver {
-  /// The wrapped agent — every operation below delegates to it.
+  /// The wrapped agent — every operation below delegates to it, and the
+  /// interface's `agent` getter is satisfied by this field directly.
   final Agent agent;
 
   const AgentDriverAdapter(this.agent);
@@ -192,6 +200,27 @@ class AgentDriverRequest {
   /// points. Empty (the default) = none.
   final List<ToolObserver> observers;
 
+  /// Post-tool verifier appended to successful edit/write results. Null = no
+  /// verifier. Main-agent-only today; a replacement driver that cannot honor
+  /// it should say so rather than silently drop it.
+  final ToolResultVerifier? resultVerifier;
+
+  /// Write-through history observers (persist each append/replace as it
+  /// happens). Null = none. Main-agent-only today.
+  final HistoryAppendObserver? onHistoryAppend;
+  final HistoryReplaceObserver? onHistoryReplace;
+
+  /// Transport retry budget for failed provider requests. Main-agent-only
+  /// today.
+  final int transportRetryAttempts;
+
+  /// Mid-turn auto-compact threshold in characters of accumulated tool
+  /// output (0 = disabled). Main-agent-only today.
+  final int autoCompactThreshold;
+
+  /// Recent messages kept intact by auto-compact. Main-agent-only today.
+  final int autoCompactKeepMessages;
+
   const AgentDriverRequest({
     required this.provider,
     required this.tools,
@@ -206,6 +235,12 @@ class AgentDriverRequest {
     this.executionHooks = const [],
     this.resultHooks = const [],
     this.observers = const [],
+    this.resultVerifier,
+    this.onHistoryAppend,
+    this.onHistoryReplace,
+    this.transportRetryAttempts = 0,
+    this.autoCompactThreshold = 0,
+    this.autoCompactKeepMessages = 6,
   });
 }
 
@@ -239,6 +274,12 @@ class DefaultAgentDriverFactory implements AgentDriverFactory {
         executionHooks: request.executionHooks,
         resultHooks: request.resultHooks,
         toolObservers: request.observers,
+        resultVerifier: request.resultVerifier,
+        onHistoryAppend: request.onHistoryAppend,
+        onHistoryReplace: request.onHistoryReplace,
+        transportRetryAttempts: request.transportRetryAttempts,
+        autoCompactThreshold: request.autoCompactThreshold,
+        autoCompactKeepMessages: request.autoCompactKeepMessages,
       ));
 }
 

@@ -47,6 +47,10 @@ class _ScriptedDriver implements AgentDriver {
   _ScriptedDriver(this.resultText);
 
   @override
+  Agent get agent => throw UnimplementedError(
+      'the scripted driver drives no concrete agent');
+
+  @override
   Future<void> run({
     required List<Message> history,
     required String userInput,
