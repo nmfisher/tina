@@ -11,6 +11,11 @@ import '../helpers/fake_environment.dart';
 const _ledgerPluginId = 'tina.app.spend-ledger';
 const _factoryPluginId = 'tina.app.provider-factory';
 
+/// Witness key an extension binds from the borrowed tool scope; lets the
+/// test prove the extension activated and which instance it received.
+final ServiceKey<ProjectToolScope> _extensionToolScopeWitnessServiceKey =
+    ServiceKey<ProjectToolScope>('test.extension.tool_scope_witness');
+
 ProviderRegistry _registryWithUsageProvider() {
   final registry = ProviderRegistry(env: const {})
     ..register(
@@ -286,7 +291,11 @@ void main() {
     expect(identical(runtime.pipeline.tools, borrowed), isTrue);
     // The capability stage ran no plugins — nothing of its own was built.
     expect(runtime.pluginScope.lookup(projectCapabilitiesServiceKey), isNull);
-    expect(runtime.pluginScope.lookup(projectToolScopeServiceKey), isNull);
+    // The borrowed tool scope resolves through the borrowed parent scope —
+    // still the lender's object, exposed to this runtime's plugins but never
+    // rebuilt or owned here.
+    expect(runtime.pluginScope.lookup(projectToolScopeServiceKey),
+        same(borrowed));
   });
 
   test('the tool catalog is unchanged (search tools need keys in the env map)',
@@ -319,6 +328,81 @@ void main() {
         'git',
       ],
     );
+  });
+
+  test('a borrowed tool scope satisfies an extension that requires '
+      'projectToolScopeServiceKey, without being disposed by the borrower',
+      () async {
+    final root = await Directory.systemTemp.createTemp('tina_rt_borrow_req_');
+    addTearDown(() async => await root.delete(recursive: true));
+    var borrowedDisposals = 0;
+    final borrowed = ProjectToolScope(
+      projectRoot: root.path,
+      env: const {},
+    );
+    // The borrowed scope's runtime owns the tool-scope service: validation
+    // resolves the extension's requires edge through it, and nothing here
+    // ever disposes the borrowed runtime.
+    final ownerScope = borrowed.runtime.scope;
+    // A resource the LENDER registered on its own scope. The borrower must
+    // never release it: if it did, the lender's later teardown would dispose
+    // the same resource twice.
+    ownerScope.resources.own(() => borrowedDisposals++);
+
+    final runtime = await buildExecutionRuntime(
+      config: RuntimeConfig(provider: 'test', model: 'a'),
+      registry: _registryWithUsageProvider(),
+      environment: FakeEnvironment(),
+      toolScope: borrowed,
+      executionPlugins: [
+        ...borrowedScopePlugins(
+          defaultExecutionPlugins(
+            config: RuntimeConfig(provider: 'test', model: 'a'),
+            registry: _registryWithUsageProvider(),
+            providerDecorators: const [],
+            projectRoot: root.path,
+            environment: FakeEnvironment(),
+            sandboxEnabled: false,
+            sandboxNet: false,
+            sandboxReadOnly: false,
+          ),
+        ),
+        // A conversation extension that needs the borrowed tool scope.
+        PluginDescriptor(
+          id: 'extension.needs-tool-scope',
+          requires: {projectToolScopeServiceKey},
+          provides: [_extensionToolScopeWitnessServiceKey],
+          factory: FnPluginFactory((context) {
+            final tools = context.require(projectToolScopeServiceKey);
+            expect(identical(tools, borrowed), isTrue);
+            return tools;
+          }),
+        ),
+      ],
+    );
+    addTearDown(runtime.dispose);
+
+    // Dependency validation succeeded (activation reached the extension and
+    // the built runtime resolves the borrowed scope through the parent).
+    expect(
+      runtime.pluginScope.lookup(_extensionToolScopeWitnessServiceKey),
+      same(borrowed),
+    );
+    expect(identical(runtime.pipeline.tools, borrowed), isTrue);
+
+    // Borrowing must not transfer ownership: the borrowed resource stays
+    // open while the borrower runs, and disposing the borrowing runtime
+    // releases nothing of the lender's.
+    expect(ownerScope.resources.isClosing, isFalse);
+    await runtime.dispose();
+
+    expect(ownerScope.state, ScopeLifecycleState.active,
+        reason: 'the borrowed scope is never stopped by the borrower');
+    expect(ownerScope.resources.isClosing, isFalse,
+        reason: 'borrowing must not take over the resource');
+    expect(borrowedDisposals, 0,
+        reason: 'the borrowed resource must not be disposed a second time '
+            'when the borrowing scope ends');
   });
 
   test('an incomplete profile fails BEFORE any factory runs, with a '

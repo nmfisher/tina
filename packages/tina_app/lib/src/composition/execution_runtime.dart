@@ -152,9 +152,21 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       );
     }
   }
+  // A borrowed tool scope stays with its owner: expose it to this runtime's
+  // plugins through a BORROWED parent scope. A parent binding resolves for
+  // pre-activation validation and for every plugin factory's require(), yet
+  // teardown never touches parent-owned bindings or resources — disposing
+  // this runtime releases only its own root scope, so the lender's resources
+  // are released exactly once, by the lender. Without it, an extension that
+  // requires projectToolScopeServiceKey fails dependency validation even
+  // though composition handed it the scope.
   final runtime = PluginRuntime(
     name: 'execution',
     plugins: mounted,
+    parent: toolScope == null
+        ? null
+        : (PluginScope('borrowed-project-tools')
+          ..provide(projectToolScopeServiceKey, toolScope)),
   );
   final resources = RuntimeResources();
   try {
