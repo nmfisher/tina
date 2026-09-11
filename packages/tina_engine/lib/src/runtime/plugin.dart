@@ -106,45 +106,43 @@ class PluginContext {
   /// Registers one contribution (tool, command, contributor) under [id] in the
   /// scope's contribution registry and returns its [Registration] handle.
   ///
-  /// Dual ownership, deliberately: the scope owns [dispose] — teardown
-  /// releases the contribution exactly once, in reverse acquisition order,
-  /// and remains the backstop so a plugin that drops the returned handle
-  /// still tears down cleanly. The returned handle is only for releasing
-  /// early; [Registration.dispose] is idempotent, so releasing through it and
-  /// again at scope teardown (or a plain double release) is safe.
+  /// The registration OWNS both registry membership and the optional
+  /// [dispose] cleanup: disposal revokes membership first, then runs the
+  /// cleanup, and the id becomes reusable only after the awaited disposal
+  /// completes. Dual ownership, deliberately: the scope also keeps the same
+  /// registration as its teardown backstop, so a plugin that drops the
+  /// handle still tears down cleanly; [Registration.dispose] is idempotent
+  /// with one shared completion future, so early release plus scope
+  /// teardown (or a plain double release) runs the callback exactly once.
   ///
-  /// Throws [StateError] naming the id and both plugin ids if [id] is already
-  /// taken in the same scope.
+  /// Throws [StateError] naming the id and both plugin ids if [id] is
+  /// already taken (and not disposed) in the same scope, or if the scope has
+  /// stopped admitting registrations.
   Registration register(
     Object contribution, {
     required String id,
     FutureOr<void> Function()? dispose,
   }) {
-    scope.addContribution(
-      Contribution(
-        id: id,
-        pluginId: plugin.id,
-        contribution: contribution,
-        dispose: dispose,
-      ),
+    return scope.registerContribution(
+      pluginId: plugin.id,
+      contribution: contribution,
+      id: id,
+      dispose: dispose,
     );
-    final registration = Registration.create(id, dispose);
-    if (dispose != null) {
-      // The scope keeps the same Registration as its backstop: teardown calls
-      // the idempotent dispose, so releasing early through the returned
-      // handle and again at scope teardown runs the callback exactly once.
-      scope.resources.own(registration.dispose);
-    }
-    return registration;
   }
 
   /// Creates a child scope of [scope].
   PluginScope child(String name) => scope.child(name);
 }
 
+/// Lifecycle of a scope: admission is open while [active], closes the
+/// moment [stopping] begins (registration, provision, and child creation
+/// all reject), and [disposed] is terminal.
+enum ScopeLifecycleState { active, stopping, disposed }
+
 /// One contribution a plugin registered in a scope.
 class Contribution {
-  /// Id of the contribution, unique within its scope.
+  /// Id of the contribution, unique among LIVE contributions in its scope.
   final String id;
 
   /// Id of the plugin that registered it.
@@ -169,6 +167,12 @@ class Contribution {
 }
 
 /// Activation-time view of one plugin's services and contributions.
+///
+/// Registrations are REVERSIBLE: each owns its registry membership (and any
+/// cleanup), disposal revokes membership before running the cleanup, and a
+/// released id may be reused once the awaited disposal completed. Teardown
+/// removes owned services and contributions but never touches anything
+/// borrowed from the parent scope.
 class PluginScope {
   /// Name of the scope.
   final String name;
@@ -177,12 +181,32 @@ class PluginScope {
   final PluginScope? parent;
   final _services = <ServiceKey, Object>{};
   final _contributions = <Contribution>[];
-  final _contributionIds = <String>{};
+  final _registrations = <String, Registration>{};
+  ScopeLifecycleState _state = ScopeLifecycleState.active;
 
   PluginScope(this.name, {this.parent}) : resources = ScopeResources();
 
-  /// Looks up one service by key, falling back to the parent scope.
+  /// Current lifecycle state of this scope.
+  ScopeLifecycleState get state => _state;
+
+  /// Whether the scope still admits registration, provisioning, and child
+  /// creation. Closes the moment stopping starts.
+  bool get isAdmitting => _state == ScopeLifecycleState.active;
+
+  void _assertAdmitting(String what) {
+    if (isAdmitting) return;
+    throw StateError(
+      'Scope $name is ${_state.name}; cannot $what',
+    );
+  }
+
+  /// Looks up one service by key, falling back to the parent scope. A
+  /// disposed scope resolves nothing of its own (and cannot reach its
+  /// parent's borrowed services through a dead scope: lookup throws).
   T? lookup<T>(ServiceKey<T> key) {
+    if (_state == ScopeLifecycleState.disposed) {
+      throw StateError('Scope $name is disposed; cannot look up $key');
+    }
     final value = _services[key];
     if (value != null) return value as T;
     return parent?.lookup<T>(key);
@@ -195,6 +219,7 @@ class PluginScope {
   /// explicit decision. Keys inherited from the parent scope are shadowed
   /// silently — that is lookup fallback, not replacement.
   void provide(ServiceKey key, Object instance, {bool replace = false}) {
+    _assertAdmitting('provide $key');
     final existing = _services[key];
     if (!replace && existing != null) {
       throw StateError(
@@ -205,9 +230,16 @@ class PluginScope {
     _services[key] = instance;
   }
 
-  /// Adds one contribution; duplicate ids in this scope throw [StateError].
-  void addContribution(Contribution contribution) {
-    if (!_contributionIds.add(contribution.id)) {
+  /// Adds one contribution with its owning registration; duplicate ids among
+  /// LIVE contributions in this scope throw [StateError].
+  ///
+  /// Visible to the runtime for activation-time wiring; application code
+  /// goes through [PluginContext.register], which builds the registration
+  /// and its membership/cleanup ownership in one step.
+  void addContribution(Contribution contribution, Registration registration) {
+    _assertAdmitting('register contribution ${contribution.id}');
+    if (_registrations.containsKey(contribution.id) &&
+        !_registrations[contribution.id]!.isDisposed) {
       final existing = _byId(contribution.id);
       throw StateError(
         'Contribution id ${contribution.id} is already registered in scope '
@@ -215,8 +247,45 @@ class PluginScope {
         '${contribution.pluginId}',
       );
     }
+    // Membership revocation is owned by the registration: the moment
+    // disposal begins (early release OR scope teardown), the contribution
+    // leaves the registry — before the cleanup runs.
+    registration.onDisposeStart(() {
+      _contributions.removeWhere((c) => c.id == contribution.id);
+      _registrations.remove(contribution.id);
+    });
     _contributions.add(contribution);
+    _registrations[contribution.id] = registration;
+    // Scope teardown backstop: the SAME idempotent registration, so early
+    // release plus teardown runs the cleanup exactly once.
+    resources.own(registration.dispose);
   }
+
+  /// Builds the registration, adds the contribution, and hands back the
+  /// handle — the one reversible-registration entry point.
+  Registration registerContribution({
+    required String pluginId,
+    required Object contribution,
+    required String id,
+    FutureOr<void> Function()? dispose,
+  }) {
+    final registration = Registration.create(id, dispose);
+    addContribution(
+      Contribution(
+        id: id,
+        pluginId: pluginId,
+        contribution: contribution,
+        dispose: dispose,
+      ),
+      registration,
+    );
+    return registration;
+  }
+
+  /// Removes one service binding from this scope. Teardown-only helper: a
+  /// disposed scope must not resolve a released service. Borrowed (parent)
+  /// services are never touched — they stay with their owner.
+  void removeService(ServiceKey key) => _services.remove(key);
 
   Contribution? _byId(String id) {
     for (final c in _contributions) {
@@ -225,9 +294,31 @@ class PluginScope {
     return null;
   }
 
-  /// All contributions registered in this scope, in registration order.
+  /// All LIVE contributions registered in this scope, in registration
+  /// order. Revoked contributions are gone from the list the moment their
+  /// disposal begins.
   List<Contribution> get contributions => List.unmodifiable(_contributions);
 
-  /// Creates a child scope that inherits services from this one.
-  PluginScope child(String name) => PluginScope(name, parent: this);
+  /// Creates a child scope that inherits services from this one. Rejected
+  /// once stopping starts.
+  PluginScope child(String name) {
+    _assertAdmitting('create child scope $name');
+    return PluginScope(name, parent: this);
+  }
+
+  /// Tears the scope down: children of children are NOT handled here (the
+  /// runtime drives those); this scope closes admission, then drains
+  /// contributions and resources in reverse acquisition order, removing
+  /// owned services as each drains. Parent-owned (borrowed) resources are
+  /// never disposed. Idempotent: every caller shares one completion future.
+  Future<void> dispose() {
+    if (_state == ScopeLifecycleState.disposed) return resources.dispose();
+    _state = ScopeLifecycleState.stopping;
+    return resources.dispose().whenComplete(() {
+      // Owned services leave the registry; borrowed parent bindings are
+      // untouched (they were never in _services).
+      _services.clear();
+      _state = ScopeLifecycleState.disposed;
+    });
+  }
 }

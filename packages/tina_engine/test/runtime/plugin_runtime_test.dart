@@ -462,11 +462,13 @@ void main() {
       final scope = PluginScope('solo');
       scope.addContribution(
         const Contribution(id: 'cmd', pluginId: 'a', contribution: 'A'),
+        Registration.create('cmd', null),
       );
 
       expect(
         () => scope.addContribution(
           const Contribution(id: 'cmd', pluginId: 'b', contribution: 'B'),
+          Registration.create('cmd-b', null),
         ),
         throwsA(
           isA<StateError>().having(
@@ -520,6 +522,7 @@ void main() {
       final child = rt.childScope('child');
       child.addContribution(
         const Contribution(id: 'tool', pluginId: 'guest', contribution: 'x'),
+        Registration.create('tool', null),
       );
 
       expect(rt.scope.contributions.single.id, 'tool');

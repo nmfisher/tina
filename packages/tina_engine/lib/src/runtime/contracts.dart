@@ -63,24 +63,40 @@ class Registration {
   final String id;
 
   final FutureOr<void> Function()? _dispose;
-  bool _disposed = false;
   Future<void>? _disposedFuture;
+  bool _started = false;
+  void Function()? _onDisposeStart;
 
   Registration._(this.id, this._dispose);
 
-  /// Creates a registration that runs [onDispose] at most once.
+  /// Creates a registration that runs [onDispose] at most once, sharing one
+  /// completion future across every caller.
   factory Registration.create(String id, FutureOr<void> Function()? onDispose) =>
       Registration._(id, onDispose);
 
+  /// True once [dispose] has been called (started, not necessarily
+  /// finished).
+  bool get isDisposed => _started;
+
+  /// Registers [hook] to run the moment disposal begins — BEFORE the
+  /// dispose callback — so an owner (e.g. the scope) can revoke registry
+  /// membership as disposal starts rather than after cleanup drains.
+  void onDisposeStart(void Function() hook) {
+    assert(_onDisposeStart == null, 'onDisposeStart is single-shot');
+    _onDisposeStart = hook;
+  }
+
   /// Runs the dispose callback once; later calls are no-ops that return the
-  /// same future.
+  /// same future, so concurrent disposers share one completion.
   Future<void> dispose() {
-    if (_disposed) return _disposedFuture!;
-    _disposed = true;
+    if (_started) return _disposedFuture!;
+    _started = true;
     final onDispose = _dispose;
-    return _disposedFuture = onDispose == null
-        ? Future<void>.value()
-        : Future<void>.microtask(onDispose);
+    final onStart = _onDisposeStart;
+    return _disposedFuture = Future<void>.microtask(() {
+      if (onStart != null) onStart();
+      if (onDispose != null) return onDispose();
+    });
   }
 }
 
