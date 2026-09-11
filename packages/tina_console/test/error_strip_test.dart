@@ -4,9 +4,8 @@ import 'package:test/test.dart';
 import 'stdio_fake.dart';
 import 'virtual_terminal.dart';
 
-/// The dedicated error section beneath the input box: the bottom border row
-/// renders the latest warning/error notice, then restores the border on
-/// clear. See Screen.setErrorStrip / clearErrorStrip.
+/// The dedicated strip beneath the input row renders the latest notice,
+/// independently of the bottom border. See Screen.setErrorStrip / clearErrorStrip.
 void main() {
   late FakeStdio io;
   late Screen screen;
@@ -23,52 +22,52 @@ void main() {
     io.written.clear();
   });
 
-  test('error strip renders on the bottom border row; corners intact', () {
+  test('error strip renders above the bottom border; corners intact', () {
     screen.setErrorStrip('provider error: 502 — retry 1/3 in 0.8s',
         error: true);
     vt.feed(io.written.toString());
-    final row = vt.rowText(layout.bottomBorderRow);
+    final row = vt.rowText(layout.stripRow);
     expect(row, contains('provider error: 502'));
-    expect(row, contains('└'), reason: 'corner glyphs stay');
-    expect(row, contains('┘'));
+    expect(vt.rowText(layout.bottomBorderRow), contains('└'));
+    expect(vt.rowText(layout.bottomBorderRow), contains('┘'));
   });
 
   test('a newer notice replaces the text', () {
     screen.setErrorStrip('first failure', error: true);
     screen.setErrorStrip('second warning — retry 2/3', error: false);
     vt.feed(io.written.toString());
-    final row = vt.rowText(layout.bottomBorderRow);
+    final row = vt.rowText(layout.stripRow);
     expect(row, contains('second warning — retry 2/3'));
     expect(row, isNot(contains('first failure')),
         reason: 'the strip shows the LATEST notice only');
   });
 
-  test('clear restores the border line', () {
+  test('clear removes the notice and preserves the border', () {
     screen.setErrorStrip('transient', error: true);
     screen.clearErrorStrip();
     vt.feed(io.written.toString());
-    final row = vt.rowText(layout.bottomBorderRow);
-    expect(row, contains('─'), reason: 'the border line returns');
+    final row = vt.rowText(layout.stripRow);
+    expect(vt.rowText(layout.bottomBorderRow), contains('─'));
     expect(row, isNot(contains('transient')));
   });
 
   test('multi-line notice text collapses to one strip line', () {
     screen.setErrorStrip('line one\nline two', error: true);
     vt.feed(io.written.toString());
-    expect(vt.rowText(layout.bottomBorderRow), contains('line one line two'));
+    expect(vt.rowText(layout.stripRow), contains('line one line two'));
   });
 
   test('the mode label renders and survives error clear', () {
     screen.setModeLabel('mode: auto');
     screen.setErrorStrip('provider error: 502', error: true);
     vt.feed(io.written.toString());
-    final row = vt.rowText(layout.bottomBorderRow);
+    final row = vt.rowText(layout.stripRow);
     expect(row, contains('mode: auto'));
     expect(row, contains('provider error: 502'));
 
     screen.clearErrorStrip();
     vt.feed(io.written.toString());
-    final after = vt.rowText(layout.bottomBorderRow);
+    final after = vt.rowText(layout.stripRow);
     expect(after, contains('mode: auto'),
         reason: 'the mode label is the always-visible part of the strip');
     expect(after, isNot(contains('provider error')),
@@ -79,7 +78,7 @@ void main() {
     screen.setModeLabel('mode: ask');
     screen.setModeLabel('mode: auto');
     vt.feed(io.written.toString());
-    final row = vt.rowText(layout.bottomBorderRow);
+    final row = vt.rowText(layout.stripRow);
     expect(row, contains('mode: auto'));
     expect(row, isNot(contains('mode: ask')));
   });

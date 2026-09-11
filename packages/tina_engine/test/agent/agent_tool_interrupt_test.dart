@@ -103,6 +103,28 @@ Agent agentWith({
     );
 
 void main() {
+  test('normal cancellation reaches a tool with a pending interrupt signal', () async {
+    final cancel = Completer<void>();
+    final interrupt = Completer<void>();
+    final gate = Completer<void>();
+    final tool = GatedTool('slow', [gate]);
+    final sink = FakeAgentSink();
+    final agent = agentWith(
+      provider: FakeProvider([
+        [const MessageComplete(content: [ToolUseBlock(id: 'c1', name: 'slow', input: {})], stopReason: 'tool_use')],
+        answerEvents('must not run'),
+      ]), tools: [tool], sink: sink,
+    );
+    final run = agent.run(history: [], userInput: 'go', cancelSignal: cancel.future,
+      toolInterruptSignal: interrupt.future);
+    await waitFor(() => tool.calls == 1, 'tool started');
+    cancel.complete();
+    gate.complete();
+    await run.timeout(const Duration(seconds: 2));
+    expect(tool.sawSignalFired, [true]);
+    expect(interrupt.isCompleted, isFalse);
+  });
+
   test('mid-batch interrupt: batch completes whole, in-flight result '
       'prefixed, rest stubbed, turn ends cleanly', () async {
     final interrupt = Completer<void>();

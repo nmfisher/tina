@@ -37,6 +37,7 @@ Agent _agent({
   ToolResultVerifier? resultVerifier,
   HistoryAppendObserver? onHistoryAppend,
   HistoryReplaceObserver? onHistoryReplace,
+  Future<void> Function(Duration)? emptyCompletionBackoffDelay,
 }) =>
     Agent(
       provider: provider,
@@ -49,6 +50,7 @@ Agent _agent({
       resultVerifier: resultVerifier,
       onHistoryAppend: onHistoryAppend,
       onHistoryReplace: onHistoryReplace,
+      emptyCompletionBackoffDelay: emptyCompletionBackoffDelay ?? (_) async {},
     );
 
 /// A tool that emits incremental output via [onOutput] (like a real BashTool
@@ -228,11 +230,9 @@ void main() {
           reason: 'the retry is visible, not silent');
     });
 
-    test('two consecutive empty completions abort the run loudly', () async {
+    test('four consecutive empty completions exhaust the bounded retries', () async {
       final provider = FakeProvider([
-        [
-          const MessageComplete(content: [], stopReason: 'end_turn'),
-        ],
+        for (var i = 0; i < 4; i++)
         [
           const MessageComplete(content: [], stopReason: 'end_turn'),
         ],
@@ -248,7 +248,50 @@ void main() {
       await agent.run(history: history, userInput: 'hi');
 
       expect(agent.abortedReason, 'model returned an empty completion');
+      expect(provider.calls, hasLength(4));
       expect(history.where((m) => m.role == Role.assistant), isEmpty);
+    });
+
+    test('repeated empty responses recover without rerunning tools or consuming steps', () async {
+      var executions = 0;
+      final delays = <Duration>[];
+      final provider = FakeProvider([
+        [const MessageComplete(content: [ToolUseBlock(id: 't', name: 'write', input: {})], stopReason: 'tool_use')],
+        [const MessageComplete(content: [], stopReason: 'end_turn')],
+        [const MessageComplete(content: [TextBlock('  ')], stopReason: 'end_turn')],
+        [const MessageComplete(content: [TextBlock('recovered')], stopReason: 'end_turn')],
+      ]);
+      final history = <Message>[];
+      final agent = _agent(provider: provider, sink: FakeAgentSink(), maxSteps: 2,
+        tools: ToolRegistry([FakeTool('write', (_) { executions++; return const ToolResult('done'); })]),
+        policy: PermissionPolicy(defaults: {'write': PermissionDecision.allow}),
+        emptyCompletionBackoffDelay: (delay) async {
+          delays.add(delay);
+          expect(history, hasLength(3)); // prompt, tool call, tool result
+        });
+      await agent.run(history: history, userInput: 'go');
+      expect(agent.abortedReason, isNull);
+      expect(executions, 1);
+      expect(provider.calls, hasLength(4));
+      expect(delays, [const Duration(seconds: 1), const Duration(seconds: 2)]);
+      expect(history, hasLength(4));
+    });
+
+    test('cancellation interrupts empty-completion backoff', () async {
+      final cancel = Completer<void>();
+      final waiting = Completer<void>();
+      final gate = Completer<void>();
+      final provider = FakeProvider([[const MessageComplete(content: [], stopReason: 'end_turn')]]);
+      final agent = _agent(provider: provider, sink: FakeAgentSink(), tools: ToolRegistry([]),
+        emptyCompletionBackoffDelay: (_) { waiting.complete(); return gate.future; });
+      final run = agent.run(history: [], userInput: 'go', cancelSignal: cancel.future);
+      await waiting.future;
+      cancel.complete();
+      try {
+        await run.timeout(const Duration(seconds: 1));
+        expect(agent.abortedKind, AbortedKind.cancel);
+        expect(provider.calls, hasLength(1));
+      } finally { gate.complete(); }
     });
   });
 

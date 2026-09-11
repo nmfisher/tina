@@ -382,6 +382,16 @@ class LineEditor {
     screen.input.render(prompt: _prompt, buffer: buffer, cursor: cursor);
   }
 
+  /// Seed Up/Down recall from a restored conversation's user messages.
+  /// Transcript rendering is separate from the editor's command history.
+  void restoreHistory(Iterable<String> lines) {
+    var restored = _edit.copyWith(history: const []).resetNavigation();
+    for (final line in lines) {
+      restored = restored.addHistory(line);
+    }
+    _edit = restored;
+  }
+
   /// Overflow CharInput events from a paste burst, queued between readKey
   /// calls so they reach the overlay instead of _dispatchEvent.
   final List<InputEvent> _pending = [];

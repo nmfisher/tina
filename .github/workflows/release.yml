@@ -138,6 +138,17 @@ jobs:
         if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != ''
         run: build/cli/${{ matrix.os_dir }}/bundle/bin/tina --version
 
+      - name: Install runtime libraries for interactive smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y libtinfo6 libunistring5 libdeflate0
+
+      # Run the actual native UI before uploading any release artifacts.
+      # --version cannot catch first-load modal or notcurses lifecycle failures.
+      - name: Smoke-test interactive startup and shutdown
+        run: python3 tool/smoke_interactive.py build/cli/${{ matrix.os_dir }}/bundle/bin/tina
+
       - name: Notarize (macOS)
         if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != '' && env.NOTARY_API_KEY != ''
         env:

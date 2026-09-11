@@ -396,6 +396,25 @@ void main() {
           reason: 'cancelled exchange should be discarded from history');
     });
 
+    test('cancelNow stops an in-flight tool and settles host activity', () async {
+      final input = FakeReadLine();
+      final tool = _CancelAwareTool();
+      final controller = _buildController(readLine: input, tools: [tool],
+        provider: FakeProvider([
+          [MessageComplete(content: [ToolUseBlock(id: 'c1', name: 'cancel_wait', input: {})], stopReason: 'tool_use')],
+        ]));
+      input.enqueue('wait for cancellation');
+      final run = controller.run();
+      await tool.started.future;
+      expect(controller.active.isRunning, isTrue);
+      expect(controller.cancelNow(), isTrue);
+      await controller.turns.whenIdle(controller.active.id).timeout(const Duration(seconds: 2));
+      expect(controller.active.isRunning, isFalse);
+      expect(hostOf(controller).activitySignals.last, isFalse);
+      input.close();
+      await run;
+    });
+
     test('cancelNow force-cancels a running turn with no arming step',
         () async {
       // The double-Esc gesture: the first Esc (arming, or swallowed by a
@@ -1257,6 +1276,20 @@ List<StreamEvent> _answer(String text) => [
 
 /// A tool whose single gate parks execute until the test releases it, then
 /// returns a fixed result. `calls` is the observable for "this call ran".
+class _CancelAwareTool implements Tool {
+  final started = Completer<void>();
+  @override
+  final schema = const ToolSchema(name: 'cancel_wait', description: 'waits for cancellation',
+    inputSchema: {'type': 'object', 'properties': {}});
+  @override
+  Future<ToolResult> execute(Map<String, dynamic> input,
+      {Future<void>? cancelSignal, ToolOutputCallback? onOutput}) async {
+    started.complete();
+    await cancelSignal;
+    return const ToolResult('cancelled', isError: true);
+  }
+}
+
 class _GatedTool implements Tool {
   _GatedTool(this._gate);
 

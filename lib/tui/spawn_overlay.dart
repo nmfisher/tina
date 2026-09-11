@@ -230,7 +230,7 @@ class _ListPickerForm<T> {
   final String? _bodyText;
 
   late final OverlayRegion _overlay;
-  late final Rect _rect;
+  late Rect _rect;
 
   /// Wrapped lines of [_bodyText], or empty when no body was supplied. The
   /// body lives in its own scrollable pane above a fixed entry strip so the
@@ -245,12 +245,17 @@ class _ListPickerForm<T> {
 
   /// Rows available for the body pane: the box interior minus the entry strip.
   int get _bodyRowsAvail {
-    final contentRows = _rect.height - 4;
-    if (_entries.length < contentRows) {
-      return (contentRows - _entries.length).clamp(1, contentRows);
-    }
-    return 1;
+    return _bodyLines.isEmpty ? 0 : _contentRows - _entryRows;
   }
+
+  int get _contentRows => (_rect.height - 4).clamp(1, _rect.height);
+
+  int get _entryRows => _entries.length.clamp(
+    0,
+    _bodyLines.isEmpty
+        ? _contentRows
+        : (_contentRows - 1).clamp(1, _contentRows),
+  );
 
   int get _bodyScrollMax {
     if (_bodyLines.isEmpty) return 0;
@@ -258,39 +263,54 @@ class _ListPickerForm<T> {
     return m < 0 ? 0 : m;
   }
 
-  Future<T?> run() async {
+  void _layout() {
     final layout = _screen.layout;
-    final w = (layout.width - 4).clamp(40, 60);
-    final innerW = w - 4;
+    // Margins and preferred minimums yield to the actual available space.
+    final w = (layout.width >= 44 ? layout.width - 4 : layout.width).clamp(
+      1,
+      60,
+    );
+    final innerW = (w - 4).clamp(1, w);
     final bodyText = _bodyText;
     _bodyLines = bodyText == null
         ? const <String>[]
         : _wrapParagraph(bodyText, innerW);
     // Grow the popup to fit a body block (capped to the screen) so the
     // explanation renders inside the panel instead of being squeezed out.
-    final h = bodyText == null
-        ? (layout.height ~/ 2).clamp(12, layout.height - 4)
-        : (_bodyLines.length + _entries.length + 4).clamp(12, layout.height - 4);
+    final maxH = layout.height >= 16 ? layout.height - 4 : layout.height;
+    final desired = bodyText == null
+        ? layout.height ~/ 2
+        : _bodyLines.length + _entries.length + 4;
+    final h = desired.clamp(12.clamp(1, maxH), maxH);
     _rect = Rect(
       row: (layout.height - h) ~/ 2,
       col: (layout.width - w) ~/ 2,
       width: w,
       height: h,
     );
+    _ensureFocusVisible();
+    _bodyScroll = _bodyScroll.clamp(0, _bodyScrollMax);
+  }
+
+  Future<T?> run() async {
+    _layout();
     _overlay = OverlayRegion(_screen, _rect);
-    _render();
-    while (true) {
-      final ev = await _readEvent();
-      if (ev is EscapeKey ||
-          (ev is ControlKey && ev.code == ControlCode.ctrlC)) {
-        _dispose();
-        return null;
-      }
-      if (_dispatch(ev)) {
-        _dispose();
-        return _selected;
-      }
+    try {
       _render();
+      while (true) {
+        final ev = await _readEvent();
+        if (ev is EscapeKey ||
+            (ev is ControlKey && ev.code == ControlCode.ctrlC)) {
+          return null;
+        }
+        _layout();
+        if (_dispatch(ev)) {
+          return _selected;
+        }
+        _render();
+      }
+    } finally {
+      _dispose();
     }
   }
 
@@ -306,14 +326,12 @@ class _ListPickerForm<T> {
     if (_entries.isEmpty) return false;
 
     if (ev is ArrowKey) {
-      final page = _rect.height - 4;
+      final page = _entryRows;
       switch (ev.direction) {
         case ArrowDirection.up:
           // At the top entry with a body above: scroll the body instead of
           // trying to move focus further up.
-          if (_bodyLines.isNotEmpty &&
-              _focus == 0 &&
-              _bodyScroll > 0) {
+          if (_bodyLines.isNotEmpty && _focus == 0 && _bodyScroll > 0) {
             _bodyScroll -= 1;
           } else {
             _focus = (_focus - 1).clamp(0, _entries.length - 1);
@@ -353,7 +371,8 @@ class _ListPickerForm<T> {
   }
 
   void _ensureFocusVisible() {
-    final visibleRows = (_rect.height - 4).clamp(1, _entries.length);
+    if (_entries.isEmpty) return;
+    final visibleRows = _entryRows;
     if (_focus < _scrollOffset) {
       _scrollOffset = _focus;
     } else if (_focus >= _scrollOffset + visibleRows) {
@@ -363,7 +382,15 @@ class _ListPickerForm<T> {
 
   // -- Render -----------------------------------------------------------------
 
-  void _render() => _overlay.show(_box(_title, _body(), _footer(_focus)));
+  void _render() {
+    _layout();
+    final body = _body();
+    // A bordered row needs four cells before it can display any text.
+    final lines = _rect.width < 5
+        ? body.map((line) => _clipVisible(line, _rect.width)).toList()
+        : _box(_title, body, _footer(_focus));
+    _overlay.update(bounds: _rect, lines: lines);
+  }
 
   /// Colorize [s] with the active (focus) border color — when an [accent] is set,
   /// the whole frame is tinted so the modal reads as the single blue panel.
@@ -374,85 +401,29 @@ class _ListPickerForm<T> {
   }
 
   List<String> _body() {
-    // No explanatory body: original entry-only layout, byte-for-byte.
-    if (_bodyLines.isEmpty) {
-      if (_entries.isEmpty) return [_row(false, '(no items available)')];
-      if (_focus >= _entries.length) _focus = _entries.length - 1;
-      if (_focus < 0) _focus = 0;
-
-      final visibleRows = (_rect.height - 4).clamp(1, _entries.length);
-      _scrollOffset = _scrollOffset.clamp(0, _entries.length - 1);
-      final end = (_scrollOffset + visibleRows).clamp(0, _entries.length);
-      final slice = _entries.sublist(_scrollOffset, end);
-
-      final hasAbove = _scrollOffset > 0;
-      final hasBelow = end < _entries.length;
-
-      final lines = <String>[];
-      for (var i = 0; i < slice.length; i++) {
-        final focused = (_scrollOffset + i) == _focus;
-        lines.add(_row(focused, slice[i].display));
-      }
-
-      // Overflow indicators
-      if (hasBelow && lines.isNotEmpty) {
-        final nBelow = _entries.length - _scrollOffset - slice.length;
-        lines[lines.length - 1] = _row(false, '↓ $nBelow more');
-      }
-      if (hasAbove && lines.isNotEmpty) {
-        final nAbove = _scrollOffset;
-        lines[0] = _row(false, '↑ $nAbove more');
-      }
-
-      return lines;
-    }
-
-    // Explanatory body + entries: the body scrolls in its own pane above a
-    // (mostly) fixed entry strip, so selectable entries stay visible even when
-    // the explanation is taller than the panel. Indicators replace a body row
-    // so the box stays height-aligned.
-    final contentRows = _rect.height - 4;
-    final nBody = _bodyLines.length;
-
-    if (_entries.isEmpty) {
-      final rows = _bodyRowsAvail.clamp(1, contentRows);
-      _bodyScroll = _bodyScroll.clamp(0, _bodyScrollMax);
-      final showAbove = _bodyScroll > 0;
-      var end = (_bodyScroll + rows).clamp(0, nBody);
-      final showBelow = end < nBody;
-      final indicators = (showAbove ? 1 : 0) + (showBelow ? 1 : 0);
-      final textRows = (rows - indicators).clamp(0, nBody);
-      end = (_bodyScroll + textRows).clamp(0, nBody);
-      final lines = <String>[];
-      if (showAbove) lines.add(_row(false, '↑ $_bodyScroll more'));
-      for (var i = _bodyScroll; i < end; i++) {
-        lines.add(_bodyLines[i]);
-      }
-      if (showBelow) lines.add(_row(false, '↓ ${nBody - end} more'));
-      return lines;
-    }
-
-    final nEntries = _entries.length;
-    final entryRows =
-        nEntries < contentRows ? nEntries : (contentRows - 1).clamp(1, contentRows);
-    final bodyRows = _bodyRowsAvail.clamp(1, contentRows - entryRows);
-    _bodyScroll = _bodyScroll.clamp(0, _bodyScrollMax);
-    final showAbove = _bodyScroll > 0;
-    var end = (_bodyScroll + bodyRows).clamp(0, nBody);
-    final showBelow = end < nBody;
-    final indicators = (showAbove ? 1 : 0) + (showBelow ? 1 : 0);
-    final textRows = (bodyRows - indicators).clamp(0, nBody);
-    end = (_bodyScroll + textRows).clamp(0, nBody);
-
     final lines = <String>[];
-    if (showAbove) lines.add(_row(false, '↑ $_bodyScroll more'));
-    for (var i = _bodyScroll; i < end; i++) {
-      lines.add(_bodyLines[i]);
+    final bodyRows = _bodyRowsAvail;
+    if (bodyRows > 0) {
+      // Leave at least one actual text row when adding scroll indicators.
+      final above = _bodyScroll > 0 && bodyRows >= 3;
+      final below = _bodyScroll + bodyRows < _bodyLines.length && bodyRows >= 2;
+      final textRows = bodyRows - (above ? 1 : 0) - (below ? 1 : 0);
+      final end = (_bodyScroll + textRows).clamp(0, _bodyLines.length);
+      if (above) lines.add(_row(false, '↑ $_bodyScroll more'));
+      lines.addAll(_bodyLines.sublist(_bodyScroll, end));
+      if (below) lines.add(_row(false, '↓ ${_bodyLines.length - end} more'));
+      while (lines.length < bodyRows) {
+        lines.add('');
+      }
     }
-    if (showBelow) lines.add(_row(false, '↓ ${nBody - end} more'));
-
-    // Entry strip — always visible at the bottom of the panel.
-    for (var i = 0; i < nEntries; i++) {
+    if (_entries.isEmpty) {
+      if (lines.isEmpty) lines.add(_row(false, '(no items available)'));
+      return lines;
+    }
+    // Scroll the entry strip independently. Never replace the focused option
+    // with an overflow indicator, especially when only one entry row fits.
+    final end = (_scrollOffset + _entryRows).clamp(0, _entries.length);
+    for (var i = _scrollOffset; i < end; i++) {
       lines.add(_row(i == _focus, _entries[i].display));
     }
     return lines;
@@ -465,15 +436,14 @@ class _ListPickerForm<T> {
 
   static const _focusMark = '▸';
 
-  List<String> _box(String title, List<String> body, String footer) =>
-      boxLines(
-        width: _rect.width,
-        height: _rect.height,
-        title: title,
-        body: body,
-        footer: footer,
-        paint: _paint,
-      );
+  List<String> _box(String title, List<String> body, String footer) => boxLines(
+    width: _rect.width,
+    height: _rect.height,
+    title: title,
+    body: body,
+    footer: footer,
+    paint: _paint,
+  );
 }
 
 /// One bordered content row inside a [boxLines] frame. Rows may embed ANSI

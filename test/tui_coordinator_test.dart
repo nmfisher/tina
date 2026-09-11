@@ -227,7 +227,7 @@ void main() {
   });
 
   test(
-    'resume builds the active provider under the current config base',
+    'continue restores input recall and uses the current provider config',
     () async {
       // Regression (owner bug, 2026-08-24): on resume the TUI replayed the
       // baseUrl CAPTURED in the conversation meta when the session was created,
@@ -281,8 +281,7 @@ void main() {
       final io = FakeStdio()..hasTerminalValue = false;
       final config = Config.parse(
         [
-          '--resume',
-          sid,
+          '--continue',
           '--backend',
           'ansi',
           '--base-url',
@@ -324,8 +323,15 @@ void main() {
         reason: 'a /model swap during the session still survives resume',
       );
 
-      io.feedBytes([0x2f, 0x65, 0x78, 0x69, 0x74, 0x0d, 0x0d]); // /exit
-      await coordinator.run().timeout(const Duration(seconds: 5));
+      coordinator.pendingGitignoreAsk = null;
+      final run = coordinator.run();
+      await pumpEventQueue(times: 30);
+      io.feedBytes([0x1b, 0x5b, 0x41]); // Up recalls the persisted prompt.
+      await pumpEventQueue();
+      expect(coordinator.editor.editState.buffer, 'q');
+      io.feedBytes([0x03]); // Clear recalled text before quitting.
+      io.feedBytes([0x2f, 0x65, 0x78, 0x69, 0x74, 0x0d]); // /exit
+      await run.timeout(const Duration(seconds: 5));
       io.close();
     },
   );
@@ -491,7 +497,7 @@ void main() {
 
   for (final choice in ['now', 'later', 'always', 'never']) {
     test(
-      'first load environment setup: $choice uses the normal main turn',
+      'first load environment setup at 10 rows: $choice uses the normal main turn',
       () async {
         chdirToFreshProject();
         final io = FakeStdio()..hasTerminalValue = false;
@@ -517,7 +523,7 @@ void main() {
         final coordinator = await TuiCoordinator.create(
           app: app,
           io: io,
-          terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 40),
+          terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 10),
         );
         coordinator.pendingGitignoreAsk = null;
         expect(coordinator.pendingFirstLoadEnvironmentAsk, isNotNull);

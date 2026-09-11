@@ -219,6 +219,26 @@ void main() {
       expect(await f, 'axb');
     });
 
+    test('restored history supports Up and preserves the current draft', () async {
+      final ed = _editor(io);
+      ed.restoreHistory(['first prompt', '', 'last prompt', 'last prompt']);
+      final line = ed.readLine('> ');
+      await _flush();
+      io.feedBytes([0x78]); // draft x
+      io.feedBytes([0x1b, 0x5b, 0x41]);
+      await _flush();
+      expect(ed.editState.buffer, 'last prompt');
+      io.feedBytes([0x1b, 0x5b, 0x41]);
+      await _flush();
+      expect(ed.editState.buffer, 'first prompt');
+      io.feedBytes([0x1b, 0x5b, 0x42, 0x1b, 0x5b, 0x42]);
+      await _flush();
+      expect(ed.editState.buffer, 'x');
+      io.feedBytes([0x0d]);
+      expect(await line, 'x');
+      ed.close();
+    });
+
     test('history up restores previous entry', () async {
       final ed = _editor(io);
       var f = ed.readLine('> ');

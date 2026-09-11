@@ -2347,6 +2347,14 @@ class TuiCoordinator {
     // chat region. Without this the messages sit in the data model but the
     // screen stays blank until the user types something new.
     final conv = sessionManager.activeConversation;
+    editor.restoreHistory(
+      conv.history
+          .where((message) => message.role == Role.user)
+          .map((message) => message.content
+              .whereType<TextBlock>()
+              .map((block) => block.text)
+              .join('\n')),
+    );
     if (conv.history.isNotEmpty) {
       replayHistory(conv.host, conv.history);
     }

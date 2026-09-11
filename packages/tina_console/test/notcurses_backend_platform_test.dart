@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:test/test.dart';
+import 'package:fake_async/fake_async.dart';
 
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_console/src/backend/notcurses_backend.dart';
@@ -382,11 +383,13 @@ void main() {
     });
 
     test('sustained writes coalesce: 20 writes yield one leading + one trailing render',
-        () async {
+        () {
+      fakeAsync((async) {
       final screen = Screen.withBackend(
         backend: backend,
         io: io,
         layout: ScreenLayout.fromSize(80, 24),
+        clock: () => async.elapsed.inMicroseconds * 1000,
       );
       plat.calls.clear();
 
@@ -399,10 +402,11 @@ void main() {
       expect(plat.calls.where((c) => c == 'render'), hasLength(1),
           reason: 'only the leading-edge first write renders during the window');
 
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      async.elapse(const Duration(milliseconds: 30));
 
       expect(plat.calls.where((c) => c == 'render'), hasLength(2),
           reason: 'one trailing render presents the 19 accumulated writes once');
+      });
     });
 
     test('cursor-only input movement skips grid rendering', () {

@@ -153,7 +153,7 @@ void main() {
     // The partial span is written at the offset column (border col 1 + run
     // offset 2 = col 3), not at the row origin — proving only the changed tail
     // was re-emitted, not the whole row.
-    expect(be.calls.where((c) => c.startsWith('move(21,3)')), isNotEmpty,
+    expect(be.calls.where((c) => c.startsWith('move(${screen.layout.chat.bottom},3)')), isNotEmpty,
         reason: 'partial patch writes at the tail offset column, not col 0');
     // The changed tail is the blue run "\x1b[36mCD" — renderStyledRuns emits it
     // from a clean baseline (per reset + truecolor fg + text) as a single span
@@ -207,7 +207,7 @@ void main() {
     screen.chat.write('second message');
     vt.feed(io.written.toString());
 
-    final bottomRow = 21; // chat content bottom-aligns to last content row (row 22 is the input row)
+    final bottomRow = screen.layout.chat.bottom;
     expect(vt.rowText(bottomRow).contains('second message'), isTrue,
         reason: 'new content after clearChat must render, not be skipped');
     expect(vt.rowText(bottomRow).contains('first message'), isFalse,
@@ -234,7 +234,7 @@ void main() {
     screen.chat.write('!');
     vt.feed(io.written.toString());
 
-    final bottomRow = 21; // chat content bottom-aligns to last content row (row 22 is the input row)
+    final bottomRow = screen.layout.chat.bottom;
     final row = vt.rowText(bottomRow);
     expect(row.contains('!'), isTrue, reason: 'appended char must render');
   });
@@ -302,7 +302,7 @@ void main() {
     screen.chat.write('short');
     vt.feed(io.written.toString());
 
-    final bottomRow = 21; // chat content bottom-aligns to last content row (row 22 is the input row)
+    final bottomRow = screen.layout.chat.bottom;
     final row = vt.rowText(bottomRow);
     expect(row.contains('short'), isTrue);
     expect(row.contains('long line that fills many cells'), isFalse,

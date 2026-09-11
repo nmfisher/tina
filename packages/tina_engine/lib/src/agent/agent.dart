@@ -320,6 +320,11 @@ class Agent {
   /// function still receives the computed duration so tests can assert it.
   final Future<void> Function(Duration delay)? transportBackoffDelay;
 
+  /// Retry empty provider responses without advancing a tool step or changing
+  /// the request history. Three retries wait 1, 2, then 4 seconds by default.
+  final int emptyCompletionRetryAttempts;
+  final Future<void> Function(Duration delay)? emptyCompletionBackoffDelay;
+
   Agent({
     required LlmProvider provider,
     required this.tools,
@@ -336,6 +341,8 @@ class Agent {
     this.onHistoryReplace,
     this.transportRetryAttempts = 0,
     this.transportBackoffDelay,
+    this.emptyCompletionRetryAttempts = 3,
+    this.emptyCompletionBackoffDelay,
     required this.system,
   }) : _provider = provider;
 
@@ -491,6 +498,13 @@ class Agent {
     // below for the full mechanics.
     var toolInterrupted = false;
     toolInterruptSignal?.then((_) => toolInterrupted = true);
+    // Tools must stop for either signal. Choosing the interrupt signal alone
+    // masks ordinary cancellation whenever the interactive host supplies both.
+    final toolStopSignal = cancelSignal == null
+        ? toolInterruptSignal
+        : toolInterruptSignal == null
+            ? cancelSignal
+            : Future.any<void>([cancelSignal, toolInterruptSignal]);
     budget = budget?.resetTurn();
 
     // Action cap: count tool invocations across all steps of this turn. A step
@@ -802,16 +816,32 @@ class Agent {
       // as a 200 whose body carries zero content (an overloaded worker
       // "answering" with nothing: NIM's poolside/laguna under worker
       // exhaustion). Ending the turn here would read as a clean finish, and
-      // a headless run would exit 0 having done nothing. Retry once — a
+      // a headless run would exit 0 having done nothing. Retry with backoff — a
       // re-send lands on the next member when the provider is pooled — and
       // abort loudly if it repeats. Either way the empty message is NOT
       // appended to history: it says nothing, and some providers reject an
       // empty assistant message on the next request.
-      if (content.isEmpty) {
-        if (emptyCompletions == 0) {
+      if (content.every((block) => block is TextBlock && block.text.trim().isEmpty)) {
+        if (emptyCompletions < emptyCompletionRetryAttempts) {
           emptyCompletions++;
-          sink.notice('\n[provider] empty completion — retrying\n',
+          final delay = Duration(seconds: 1 << (emptyCompletions - 1).clamp(0, 4));
+          sink.notice('\n[provider] empty completion — retry '
+              '$emptyCompletions/$emptyCompletionRetryAttempts in ${delay.inSeconds}s (Ctrl+C to cancel)\n',
               kind: NoticeKind.warning);
+          if (emptyCompletionBackoffDelay != null) {
+            final wait = emptyCompletionBackoffDelay!(delay);
+            await (cancelSignal == null ? wait : Future.any<void>([wait, cancelSignal]));
+          } else {
+            final ready = Completer<void>();
+            final timer = Timer(delay, ready.complete);
+            try {
+              await (cancelSignal == null ? ready.future : Future.any<void>([ready.future, cancelSignal]));
+            } finally {
+              timer.cancel();
+            }
+          }
+          // Empty responses are retries of this step, not additional tool steps.
+          step--;
           continue;
         }
         sink.notice('\nerror: model returned an empty completion\n',
@@ -819,6 +849,9 @@ class Agent {
         abortedReason = 'model returned an empty completion';
         abortedKind = AbortedKind.provider;
         return;
+      }
+      if (emptyCompletions > 0) {
+        sink.notice('\n[provider] response recovered — continuing\n');
       }
       emptyCompletions = 0;
 
@@ -1090,7 +1123,7 @@ class Agent {
           // it: the run's own (non-null) cancel signal.
           final effectiveCancelSignal = toolInterrupted
               ? cancelSignal
-              : (toolInterruptSignal ?? cancelSignal);
+              : toolStopSignal;
           final finalBlock = runtimeBlock();
           if (finalBlock != null) {
             sink.toolComplete(ToolCompleteEvent(use.name, use.id,
