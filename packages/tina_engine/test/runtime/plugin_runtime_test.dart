@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:test/test.dart';
 import 'package:tina_engine/src/runtime/plugin.dart';
 import 'package:tina_engine/src/runtime/runtime.dart';
@@ -439,13 +441,25 @@ void main() {
   group('contributions and services', () {
     test('rejects a duplicate contribution id in one scope', () async {
       final rec = Recorder();
+      Contribution? seenBeforeRollback;
+      Object? duplicateError;
       final rt = PluginRuntime(name: 'rt', plugins: [
         rec.plugin('p1', build: (context) {
           context.register('from-p1', id: 'tool');
           return Instance('p1');
         }),
         rec.plugin('p2', build: (context) {
-          context.register('from-p2', id: 'tool');
+          // The duplicate id rejects INSIDE p2's factory. Snapshot the scope
+          // membership at the moment of the failure — after the awaited
+          // rollback the scope is fully drained, which is the post-Fix 6
+          // contract (activation rejects only after teardown completed).
+          try {
+            context.register('from-p2', id: 'tool');
+          } catch (e) {
+            duplicateError = e;
+            seenBeforeRollback = context.scope.contributions.single;
+            rethrow; // the factory must still fail so activation rejects
+          }
           return Instance('p2');
         }),
       ]);
@@ -455,7 +469,13 @@ void main() {
         throwsCompositionError(['tool', 'p2']),
       );
 
-      expect(rt.scope.contributions.single.pluginId, 'p1');
+      expect(duplicateError, isA<StateError>());
+      expect(seenBeforeRollback, isNotNull,
+          reason: 'at the moment of rejection, p1\'s contribution was still '
+              'live in the scope');
+      expect(seenBeforeRollback!.pluginId, 'p1');
+      expect(rt.isFailed, isTrue,
+          reason: 'the runtime reached the terminal failed state');
     });
 
     test('addContribution rejects a duplicate id naming both plugins', () {
@@ -629,6 +649,140 @@ void main() {
       final rt = PluginRuntime(name: 'rt', plugins: [rec.plugin('a')]);
 
       expect(() => rt.stateOf('nope'), throwsArgumentError);
+    });
+  });
+
+  group('runtime disposal goes through the scope', () {
+    test('dispose removes owned services and closes admission', () async {
+      final ledger = ServiceKey<Object>('ledger');
+      final rt = PluginRuntime(name: 'rt', plugins: [
+        Recorder().plugin('ledger', provides: [ledger]),
+      ]);
+      await rt.activate();
+      expect(rt.scope.lookup(ledger), isNotNull);
+
+      await rt.dispose();
+
+      expect(
+        () => rt.scope.lookup(ledger),
+        throwsStateError,
+        reason: 'the released service must not stay discoverable after '
+            'runtime disposal (bare resources.dispose() left it bound)',
+      );
+      expect(rt.scope.isAdmitting, isFalse,
+          reason: 'admission must close with the scope, not stay open');
+    });
+  });
+
+  group('failed activation awaits rollback', () {
+    test('activate() rejects only after rollback drained the scope',
+        () async {
+      final rec = Recorder();
+      final rt = PluginRuntime(name: 'rt', plugins: [
+        rec.plugin('db', provides: [ServiceKey<Object>('db')],
+            ownsCleanup: true),
+        rec.plugin('broken', requires: {ServiceKey<Object>('db')},
+            fails: true),
+      ]);
+
+      await expectLater(rt.activate(), throwsA(isA<PluginCompositionError>()));
+
+      // Post-contract: activation rejects AFTER teardown. The cleanup list
+      // is already drained by the time the caller sees the error, and the
+      // runtime is terminally failed.
+      expect(rec.cleanups, ['db'],
+          reason: 'rollback completed BEFORE activate() rejected — a '
+              'replacement startup cannot overlap teardown');
+      expect(rt.isFailed, isTrue);
+      expect(rt.scope.isAdmitting, isFalse);
+    });
+
+    test('dispose() after a failed activation shares the rollback completion',
+        () async {
+      final rec = Recorder();
+      final rt = PluginRuntime(name: 'rt', plugins: [
+        rec.plugin('db', provides: [ServiceKey<Object>('db')],
+            ownsCleanup: true),
+        rec.plugin('broken', requires: {ServiceKey<Object>('db')},
+            fails: true),
+      ]);
+      await expectLater(rt.activate(), throwsA(anything));
+      final rollbackCleanups = List<String>.from(rec.cleanups);
+
+      // dispose() must not run cleanups twice: it shares the rollback.
+      await rt.dispose();
+      expect(rec.cleanups, rollbackCleanups,
+          reason: 'rollback cleanups ran exactly once');
+    });
+  });
+
+  group('registration id reuse during disposal', () {
+    test('reusing an id while the old registration is mid-disposal rejects',
+        () async {
+      final scope = PluginScope('reuse');
+      final gate = Completer<void>();
+      var cleanupRan = false;
+      final old = scope.registerContribution(
+        pluginId: 'old-plugin',
+        contribution: 'old',
+        id: 'tool',
+        dispose: () async {
+          await gate.future;
+          cleanupRan = true;
+        },
+      );
+      old.dispose();
+      // Disposal started but the cleanup is parked on the gate: the id is
+      // in the gap the fix reserves.
+
+      expect(
+        () => scope.registerContribution(
+          pluginId: 'new-plugin',
+          contribution: 'new',
+          id: 'tool',
+        ),
+        throwsA(isA<StateError>().having((e) => e.toString(), 'message',
+            predicate((String m) => m.contains('still disposing')))),
+        reason: 'id reuse must wait for the old disposal to finish',
+      );
+
+      gate.complete();
+      await old.dispose(); // drain
+      expect(cleanupRan, isTrue);
+
+      // After completion the id is reusable.
+      final fresh = scope.registerContribution(
+        pluginId: 'new-plugin',
+        contribution: 'new',
+        id: 'tool',
+      );
+      expect(fresh.isDisposed, isFalse);
+      expect(scope.contributions.single.contribution, 'new');
+    });
+
+    test('the old cleanup revokes by identity: a completed-disposal reuse '
+        'keeps the new registration live', () async {
+      final scope = PluginScope('identity');
+      final old = scope.registerContribution(
+        pluginId: 'old-plugin',
+        contribution: 'old',
+        id: 'tool',
+        dispose: () {},
+      );
+      await old.dispose(); // completes fully
+
+      final fresh = scope.registerContribution(
+        pluginId: 'new-plugin',
+        contribution: 'new',
+        id: 'tool',
+      );
+      expect(scope.contributions.single.contribution, 'new');
+
+      // Even if the old handle is disposed again (idempotent no-op), the
+      // new membership must stay untouched.
+      await old.dispose();
+      expect(scope.contributions.single.contribution, 'new');
+      expect(fresh.isDisposed, isFalse);
     });
   });
 }

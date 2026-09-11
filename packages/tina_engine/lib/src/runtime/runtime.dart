@@ -157,6 +157,15 @@ class PluginRuntime {
   bool _failed = false;
   Future<void>? _disposed;
 
+  /// The in-flight rollback from a failed activation, if any. [activate]
+  /// awaits it before rethrowing, so a replacement startup cannot overlap
+  /// teardown; [dispose] shares the same completion.
+  Future<void>? _pendingRollback;
+
+  /// The original activation failure's stack trace, preserved through the
+  /// sync activation path so [activate] can rethrow with it.
+  StackTrace? _activationStack;
+
   /// Builds a runtime around a fresh root scope.
   PluginRuntime({
     required String name,
@@ -212,19 +221,31 @@ class PluginRuntime {
   ///
   /// Plugin factories are synchronous, so activation runs to completion
   /// synchronously; this async form stays for API stability. On failure the
-  /// rollback disposal starts immediately (its errors are swallowed — see
-  /// [_rollback]) and the composition error propagates without waiting for
-  /// teardown to drain.
+  /// rollback disposal is AWAITED before the composition error propagates:
+  /// a caller that catches the error and immediately builds a replacement
+  /// runtime must never overlap a still-running teardown of this one.
   Future<void> activate() async {
-    activateSync();
+    try {
+      activateSync();
+    } catch (error) {
+      await _pendingRollback;
+      Error.throwWithStackTrace(error, _activationStack!);
+    }
   }
 
   /// Synchronous twin of [activate]: same validation, same activation path,
   /// same errors — plugin factories are synchronous, so activation is too.
   /// Usable from synchronous constructors (e.g. a tool scope building its
-  /// registry at construction time).
+  /// registry at construction time). A failing activation starts the
+  /// rollback and rethrows; the rollback future is kept on the runtime so
+  /// [activate] (and [dispose]) can await it — the sync form itself cannot.
   void activateSync() {
-    _activateAll();
+    try {
+      _activateAll();
+    } catch (error, stackTrace) {
+      _activationStack = stackTrace;
+      rethrow;
+    }
   }
 
   /// Validation pass shared by [activate] and [activateSync]: duplicate ids,
@@ -355,12 +376,15 @@ class PluginRuntime {
           scope.provide(key, instance);
         }
       } on PluginCompositionError {
-        // Rollback is awaited by the outer activate(); the detached start
-        // here only keeps the failure path inside _activateAll synchronous.
-        unawaited(_rollback());
+        // The rollback future is stored (not fire-and-forget): activate()
+        // awaits it before rethrowing, and dispose() shares its completion.
+        // The terminal failed state marks the runtime unusable.
+        _failed = true;
+        _pendingRollback = _rollback();
         rethrow;
       } catch (error, stackTrace) {
-        unawaited(_rollback());
+        _failed = true;
+        _pendingRollback = _rollback();
         Error.throwWithStackTrace(
           PluginCompositionError(
             'plugin ${plugin.id} failed during activation: $error',
@@ -477,7 +501,13 @@ class PluginRuntime {
   /// consumers go before parents and providers; errors do not stop the
   /// teardown, and the first error is rethrown with its stack trace once
   /// every plugin reached the disposed state.
-  Future<void> dispose() => _disposed ??= _disposeAll();
+  Future<void> dispose() {
+    // A failed runtime's teardown IS its rollback — share that completion
+    // rather than draining an already-drained scope again.
+    final rollback = _pendingRollback;
+    if (rollback != null) return _disposed ??= rollback;
+    return _disposed ??= _disposeAll();
+  }
 
   Future<void> _disposeAll() async {
     Object? firstError;
@@ -485,17 +515,21 @@ class PluginRuntime {
     for (final id in _states.keys) {
       _states[id] = PluginLifecycleState.stopping;
     }
-    // Children before parents: reverse creation order.
+    // Children before parents: reverse creation order. Dispose through the
+    // SCOPE, not its bare resources: scope.dispose() also closes admission
+    // and removes owned services, so a released service is no longer
+    // discoverable after runtime disposal (bare resources.dispose() left
+    // both gaps open).
     for (final child in _descendantScopes().reversed) {
       try {
-        await child.resources.dispose();
+        await child.dispose();
       } catch (error, stackTrace) {
         firstError ??= error;
         firstStack ??= stackTrace;
       }
     }
     try {
-      await scope.resources.dispose();
+      await scope.dispose();
     } catch (error, stackTrace) {
       firstError ??= error;
       firstStack ??= stackTrace;
@@ -509,15 +543,17 @@ class PluginRuntime {
   }
 
   /// Rolls back a failed activation: children first, then the root scope.
-  /// Errors during rollback are collected and logged, never masking the
-  /// composition error. Terminal states are set as each scope drains so a
-  /// failed runtime accurately reports disposed.
+  /// Dispose goes through each SCOPE (admission closes, services leave) so
+  /// the failed runtime's scope is genuinely drained — the documented
+  /// terminal state. Errors during rollback are collected and logged, never
+  /// masking the composition error. Terminal states are set as each scope
+  /// drains so a failed runtime accurately reports disposed.
   Future<void> _rollback() async {
     Object? firstError;
     StackTrace? firstStack;
     for (final child in _descendantScopes().reversed) {
       try {
-        await child.resources.dispose();
+        await child.dispose();
       } catch (e, st) {
         firstError ??= e;
         firstStack ??= st;
@@ -525,7 +561,7 @@ class PluginRuntime {
       }
     }
     try {
-      await scope.resources.dispose();
+      await scope.dispose();
     } catch (e, st) {
       firstError ??= e;
       firstStack ??= st;

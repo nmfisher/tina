@@ -238,21 +238,39 @@ class PluginScope {
   /// and its membership/cleanup ownership in one step.
   void addContribution(Contribution contribution, Registration registration) {
     _assertAdmitting('register contribution ${contribution.id}');
-    if (_registrations.containsKey(contribution.id) &&
-        !_registrations[contribution.id]!.isDisposed) {
-      final existing = _byId(contribution.id);
-      throw StateError(
-        'Contribution id ${contribution.id} is already registered in scope '
-        '$name by plugin ${existing?.pluginId ?? "?"}; rejected plugin '
-        '${contribution.pluginId}',
-      );
+    final existing = _registrations[contribution.id];
+    if (existing != null) {
+      // A released-but-still-cleaning-up registration keeps its id
+      // RESERVED: reusing the id inside that gap succeeds here, then the
+      // old cleanup's revoke (by identity — see below) would delete the
+      // replacement's membership while it stays live. Reject instead; the
+      // caller retries once the old disposal completes.
+      if (!existing.isDisposalComplete) {
+        throw StateError(
+          'Contribution id ${contribution.id} is still disposing in scope '
+          '$name; the id is reserved until the old disposal completes',
+        );
+      }
+      if (!existing.isDisposed) {
+        final live = _byId(contribution.id);
+        throw StateError(
+          'Contribution id ${contribution.id} is already registered in '
+          'scope $name by plugin ${live?.pluginId ?? "?"}; rejected plugin '
+          '${contribution.pluginId}',
+        );
+      }
     }
     // Membership revocation is owned by the registration: the moment
     // disposal begins (early release OR scope teardown), the contribution
-    // leaves the registry — before the cleanup runs.
+    // leaves the registry — before the cleanup runs. Revocation matches by
+    // IDENTITY, not by id string: a dispose-then-reuse of the same id must
+    // never let the old cleanup revoke the new registration's membership
+    // (Fix: by-id revocation deleted the replacement).
     registration.onDisposeStart(() {
-      _contributions.removeWhere((c) => c.id == contribution.id);
-      _registrations.remove(contribution.id);
+      _contributions.remove(contribution);
+      if (identical(_registrations[contribution.id], registration)) {
+        _registrations.remove(contribution.id);
+      }
     });
     _contributions.add(contribution);
     _registrations[contribution.id] = registration;

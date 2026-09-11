@@ -65,6 +65,7 @@ class Registration {
   final FutureOr<void> Function()? _dispose;
   Future<void>? _disposedFuture;
   bool _started = false;
+  bool _completed = false;
   void Function()? _onDisposeStart;
 
   Registration._(this.id, this._dispose);
@@ -75,8 +76,14 @@ class Registration {
       Registration._(id, onDispose);
 
   /// True once [dispose] has been called (started, not necessarily
-  /// finished).
+  /// finished). See [isDisposalComplete] for the stricter form.
   bool get isDisposed => _started;
+
+  /// True only when the dispose callback has FINISHED (or there was none and
+  /// the microtask drained). A scope rejects re-registration of an id whose
+  /// old registration is still cleaning up — reusing the id inside that gap
+  /// would let the old cleanup's revoke-by-identity delete the replacement.
+  bool get isDisposalComplete => _completed;
 
   /// Registers [hook] to run the moment disposal begins — BEFORE the
   /// dispose callback — so an owner (e.g. the scope) can revoke registry
@@ -87,7 +94,9 @@ class Registration {
   }
 
   /// Runs the dispose callback once; later calls are no-ops that return the
-  /// same future, so concurrent disposers share one completion.
+  /// same future, so concurrent disposers share one completion. [_completed]
+  /// flips when the callback has run — the revoke-on-start hook fires earlier
+  /// (synchronously at microtask start), the completion gate fires after.
   Future<void> dispose() {
     if (_started) return _disposedFuture!;
     _started = true;
@@ -95,7 +104,13 @@ class Registration {
     final onStart = _onDisposeStart;
     return _disposedFuture = Future<void>.microtask(() {
       if (onStart != null) onStart();
-      if (onDispose != null) return onDispose();
+      if (onDispose != null) {
+        final r = onDispose();
+        if (r is Future) {
+          return r.whenComplete(() => _completed = true);
+        }
+      }
+      _completed = true;
     });
   }
 }
