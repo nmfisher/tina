@@ -348,6 +348,19 @@ class PluginRuntime {
   /// [activateSync]. Synchronous end to end; [activate] wraps it and awaits
   /// the rollback on failure.
   void _activateAll() {
+    // Lifecycle gate: activation runs exactly once per runtime. The flag is
+    // set before validation, before any factory can run, so a second
+    // activate() (or activateSync()) rejects instead of building the plugin
+    // set again. A runtime that already activated — or failed and rolled
+    // back — is done; retrying startup means constructing a new runtime.
+    if (_activationStarted) {
+      throw StateError(
+        'Runtime $name has already started activation; activate() must be '
+        'called exactly once per runtime',
+      );
+    }
+    _activationStarted = true;
+
     final (sorted, byId, providers, dependencies, order) = _validate();
 
     // (c) Build and bind, dependency before dependent; `order` came from

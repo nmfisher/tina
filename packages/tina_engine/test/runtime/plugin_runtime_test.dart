@@ -674,6 +674,47 @@ void main() {
     });
   });
 
+  group('activation lifecycle', () {
+    test('a second activate() rejects and re-runs no factory', () async {
+      final rec = Recorder();
+      final rt = PluginRuntime(name: 'rt', plugins: [
+        // A contribution-only factory: if activation ran twice, the second
+        // pass would trip the duplicate contribution id 'tool' instead of
+        // silently building the plugin set again.
+        rec.plugin('host', build: (context) {
+          context.register('host-tool', id: 'tool');
+          return Instance('host');
+        }),
+        rec.plugin('plain'),
+      ]);
+
+      await rt.activate();
+      expect(rec.activations, ['host', 'plain']);
+
+      await expectLater(
+        rt.activate(),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.toString(),
+            'message',
+            messageNaming(['rt', 'activate', 'once']),
+          ),
+        ),
+      );
+
+      // Each factory ran exactly once; the live scope is untouched.
+      expect(rec.activations, ['host', 'plain']);
+      expect(rt.scope.contributions.single.id, 'tool');
+
+      // The sync twin shares the same one-shot gate.
+      expect(
+        () => rt.activateSync(),
+        throwsA(isA<StateError>()),
+      );
+      expect(rec.activations, ['host', 'plain']);
+    });
+  });
+
   group('failed activation awaits rollback', () {
     test('activate() rejects only after rollback drained the scope',
         () async {
