@@ -18,6 +18,11 @@ class ToolCallContext {
 
   /// The input the tool will actually execute with (after the executor's
   /// sandbox-retry input merge, when one applied).
+  ///
+  /// A deeply UNMODIFIABLE view of the executor's private execution
+  /// snapshot: a hook can read every argument, but a mutation attempt —
+  /// top-level or nested — throws, so the authorized arguments are the ones
+  /// that run (the executor's delegation seal, tool_executor.dart).
   final Map<String, dynamic> input;
 
   /// Whether the run is currently cancelled. A probe, not a signal: hooks

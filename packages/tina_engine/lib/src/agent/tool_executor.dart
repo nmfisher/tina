@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:logging/logging.dart';
@@ -31,6 +32,65 @@ class _DelegateFailure implements Exception {
   String toString() => 'delegate failure: $error';
 }
 
+/// Per-hook delegation ownership (P1: own and join hook delegates).
+///
+/// The executor hands exactly one handle to each hook invocation and closes
+/// it when that invocation's `run` returns or throws. After closure any call
+/// throws — a delegate saved and fired after the executor reported a hook
+/// error can no longer execute a tool. A repeat call throws BEFORE starting
+/// additional work (the single execution already started is unaffected), and
+/// [future] joins whatever work started so the executor can await it on
+/// success and failure paths before reporting completion.
+final class _HookDelegate {
+  _HookDelegate(this._toolName, this._start);
+
+  final String _toolName;
+  final Future<ToolResult> Function() _start;
+  Future<ToolResult>? _future;
+  bool _closed = false;
+
+  /// Set when a repeat call was rejected while the handle was still open —
+  /// the executor fails the call closed even if the hook swallowed the
+  /// rejection (exactly-once is observable, not just enforced).
+  bool repeatAttempt = false;
+
+  /// The delegated work. Null until the hook first calls the delegate.
+  Future<ToolResult>? get future => _future;
+
+  /// Closes the handle on EVERY exit of the hook invocation, including
+  /// exceptions.
+  void close() => _closed = true;
+
+  Future<ToolResult> call() {
+    if (_closed) {
+      throw StateError(
+          'execution hook for $_toolName called the delegate after the hook '
+          'returned — delegation is closed');
+    }
+    if (_future != null) {
+      repeatAttempt = true;
+      throw StateError(
+          'execution hook for $_toolName called the delegate more than '
+          'once');
+    }
+    // Start before returning: the work begins immediately and joins via
+    // [future] whether or not the hook awaits it. The future returned to
+    // the hook carries failures wrapped in [_DelegateFailure] — unchanged
+    // from the previous delegateOnce contract, so a hook that lets the
+    // error through cannot rebrand a tool failure as its own, and the
+    // executor can tell them apart.
+    final work = _start();
+    final marked = work.then<ToolResult>((r) => r,
+        onError: (Object e, StackTrace st) {
+      Error.throwWithStackTrace(_DelegateFailure(e, st), st);
+    });
+    _future = marked;
+    // Observe once so a failure the executor surfaces through its own join
+    // never re-escapes as an unhandled async error.
+    marked.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return marked;
+  }
+}
 
 /// Consecutive denials of the SAME tool after which the denial result gains a
 /// circuit-breaker line telling the model to stop calling that tool (#27).
@@ -360,7 +420,18 @@ class ToolExecutor {
         ? PermissionDecision.allow
         : policy.check(use.name, use.input);
     Tool executionTool = tool;
-    var executionInput = use.input;
+    // Fix (P1, sealed arguments): ONE detached snapshot taken BEFORE
+    // authorization; every later reader — the policy re-checks, the approval
+    // prompt, the hooks' context, the observers' event, and the tool itself —
+    // sees exactly these values. A caller mutating its original map during an
+    // approval wait (or a hook mutating what it can see) cannot change what
+    // executes. The retry merge below builds a NEW snapshot from this one, so
+    // the explicit sandbox-retry authorization path is preserved.
+    var executionInput = snapshotToolInput(use.input);
+    // What the hooks and observers may see: a deeply unmodifiable view of the
+    // SAME snapshot — built once, after the retry merge, so it reflects the
+    // arguments that will actually run.
+    Map<String, dynamic> executionView = asDeepUnmodifiable(executionInput);
     final retryKey = tool is BashTool
         ? jsonEncode([
             optionalString(use.input, 'command')?.trim(),
@@ -400,7 +471,7 @@ class ToolExecutor {
                 'writablePaths must be a list of directory paths.');
           }
           executionInput = {
-            ...use.input,
+            ...executionInput,
             'writablePaths': {
               ...recovery.priorPaths,
               ...recovery.failure.writablePaths,
@@ -463,6 +534,28 @@ class ToolExecutor {
           !state.toolInterrupted) {
         policy.remember(use.name, prompt.alwaysPattern, decision);
       }
+      // The wait was asynchronous: re-snapshot so the approved arguments are
+      // exactly what executes even if the caller mutated its original map
+      // while the asker was pending, and refresh the hook/observer view to
+      // match. The sandbox-retry merge is re-derived from the same recovery
+      // record, so a merged retry rebuilds identically; an UNMERGED call
+      // (recovery == null) simply re-snapshots.
+      if (recovery != null) {
+        final requested = executionInput['writablePaths'] ?? const [];
+        executionInput = {
+          ...executionInput,
+          'writablePaths': {
+            ...recovery.priorPaths,
+            ...recovery.failure.writablePaths,
+            ...requested
+          }.toList(),
+          'accessReason': optionalString(use.input, 'accessReason') ??
+              'Retry the failed command with access to the directory named in its read-only filesystem error.',
+        };
+      } else {
+        executionInput = snapshotToolInput(use.input);
+      }
+      executionView = asDeepUnmodifiable(executionInput);
     }
     if (decision == PermissionDecision.deny) {
       if (recovery != null) state.deniedSandboxRetries.add(retryKey!);
@@ -524,10 +617,12 @@ class ToolExecutor {
     state.denialCounts.remove(use.name);
     // Observation is additive: the sink call is unchanged (AgentSink /
     // BusSink remain the built-in observe-only adapters); observers get the
-    // same payload, each individually exception-contained.
-    sink.toolStart(ToolStartEvent(use.name, use.id, executionInput));
+    // same payload, each individually exception-contained. The payload is the
+    // unmodifiable VIEW — an event consumer that tries to mutate an argument
+    // throws instead of silently changing what the tool executes.
+    sink.toolStart(ToolStartEvent(use.name, use.id, executionView));
     _notifyObservers((observer) =>
-        observer.onToolStart(ToolStartEvent(use.name, use.id, executionInput)));
+        observer.onToolStart(ToolStartEvent(use.name, use.id, executionView)));
     try {
       // #31: while THIS call runs, the operator interrupt rides the
       // tool's existing cancel seam — bash kills via its existing
@@ -538,25 +633,31 @@ class ToolExecutor {
       final effectiveCancelSignal = state.toolInterrupted
           ? cancelSignal
           : (toolStopSignal ?? toolInterruptSignal ?? cancelSignal);
-      final finalBlock = runtimeBlock();
-      if (finalBlock != null) {
-        sink.toolComplete(ToolCompleteEvent(use.name, use.id,
-            isError: true, result: finalBlock));
-        _notifyObservers((observer) => observer.onToolComplete(
-            ToolCompleteEvent(use.name, use.id,
-                isError: true, result: finalBlock)));
-        return (
-          result: ToolResultBlock(
-              toolUseId: use.id, content: finalBlock, isError: true),
-          interruptedInFlight: interruptedInFlight,
-        );
-      }
-      final out = await _runWithExecutionHooks(
-        toolName: use.name,
-        toolId: use.id,
-        input: executionInput,
-        isCancelled: isCancelled,
-        delegate: () => executionTool.execute(
+      // The final authority + cancellation check lives INSIDE the innermost
+      // delegate (P1: recheck authority at actual dispatch): the pre-hook
+      // check stays above for fast rejection, but a hook that waits
+      // asynchronously can no longer slip a mode change, phase change, or
+      // cancel past it — the last thing that happens before `execute` is the
+      // same mandatory guard chain, with no await between the check and the
+      // tool call. The operator INTERRUPT is deliberately absent here (#31):
+      // it is not a cancel — the batch's in-flight call must still execute
+      // honestly (its result is what the interrupted prefix lands over), and
+      // the interrupt reaches the tool through [effectiveCancelSignal].
+      //
+      // Formatting and event shape are unchanged: one toolComplete event, an
+      // error result — a blocked call never invokes the tool and never
+      // requests fresh approval.
+      Future<ToolResult> dispatch() {
+        final finalBlock = runtimeBlock();
+        if (finalBlock != null) {
+          return Future<ToolResult>.value(ToolResult(finalBlock,
+              isError: true));
+        }
+        if (isCancelled()) {
+          return Future<ToolResult>.value(
+              ToolResult('tool ${use.name} cancelled', isError: true));
+        }
+        return executionTool.execute(
           executionInput,
           cancelSignal: effectiveCancelSignal,
           onOutput: (chunk, {bool stderr = false}) {
@@ -565,7 +666,15 @@ class ToolExecutor {
             _notifyObservers((observer) => observer.onToolOutput(
                 ToolOutputEvent(use.name, use.id, chunk, stderr: stderr)));
           },
-        ),
+        );
+      }
+
+      final out = await _runWithExecutionHooks(
+        toolName: use.name,
+        toolId: use.id,
+        input: executionView,
+        isCancelled: isCancelled,
+        delegate: dispatch,
       );
       if (retryKey != null &&
           out is BashToolResult &&
@@ -726,24 +835,7 @@ class ToolExecutor {
     Future<ToolResult> chain(int index) async {
       if (index >= executionHooks.length) return delegate();
       final hook = executionHooks[index];
-      var delegations = 0;
-      Future<ToolResult> delegateOnce() {
-        delegations++;
-        if (delegations > 1) {
-          // Raised by this hook's own delegate handle, so it is a hook
-          // violation (not a delegate-chain failure) and fails THIS hook
-          // closed below.
-          throw StateError(
-              'execution hook for $toolName called the delegate more than '
-              'once');
-        }
-        return chain(index + 1).then((result) => result,
-            onError: (Object e, StackTrace st) {
-          // Mark it: a failure escaping the delegate belongs to the tool
-          // (or a deeper hook), not to this hook.
-          Error.throwWithStackTrace(_DelegateFailure(e, st), st);
-        });
-      }
+      final handle = _HookDelegate(toolName, () => chain(index + 1));
 
       ToolResult result;
       try {
@@ -754,35 +846,44 @@ class ToolExecutor {
             input: input,
             isCancelled: isCancelled,
           ),
-          delegateOnce,
+          handle.call,
         );
       } on _DelegateFailure catch (f) {
         // The delegate chain failed and the hook let it through: rethrow
         // unchanged so the executor's thrown-tool path ships today's exact
         // content and log severity.
+        handle.close();
+        final joined = await _joinDelegate(handle);
+        if (joined != null) return joined;
         Error.throwWithStackTrace(f.error, f.stackTrace);
       } catch (e, st) {
+        handle.close();
+        final joined = await _joinDelegate(handle);
+        if (joined != null) return joined;
+        if (handle.repeatAttempt) {
+          // The hook swallowed its own double-delegation rejection:
+          // exactly-once is still observable to the executor.
+          _log.warning('execution hook for $toolName called the delegate '
+              'more than once — failing the tool call closed', e, st);
+          return ToolResult(
+            'tool execution hook failed: execution hook for $toolName '
+            'called the delegate more than once',
+            isError: true,
+          );
+        }
         _log.warning('execution hook for $toolName failed — failing the '
-            'tool call closed',
-            e, st);
+            'tool call closed', e, st);
         return ToolResult(
           'tool execution hook failed: $e',
           isError: true,
         );
+      } finally {
+        handle.close();
       }
       // Fail closed on BOTH exactly-once violations, even when the hook
       // swallowed the throw above: zero delegations (`hook did not execute
       // the tool`) or more than one.
-      if (delegations == 0) {
-        _log.warning('execution hook for $toolName did not execute the '
-            'tool — failing the tool call closed');
-        return ToolResult(
-          'tool execution hook failed: execution hook for $toolName did '
-          'not execute the tool',
-          isError: true,
-        );
-      }
-      if (delegations > 1) {
+      if (handle.repeatAttempt) {
         _log.warning('execution hook for $toolName called the delegate '
             'more than once — failing the tool call closed');
         return ToolResult(
@@ -791,10 +892,38 @@ class ToolExecutor {
           isError: true,
         );
       }
-      return result;
+      if (handle.future == null) {
+        _log.warning('execution hook for $toolName did not execute the '
+            'tool — failing the tool call closed');
+        return ToolResult(
+          'tool execution hook failed: execution hook for $toolName did '
+          'not execute the tool',
+          isError: true,
+        );
+      }
+      // Join: the delegated work settles BEFORE the executor reports, emits
+      // completion, or allows teardown downstream of this call.
+      final joined = await _joinDelegate(handle);
+      return joined ?? result;
     }
 
     return chain(0);
+  }
+
+  /// Awaits the delegate handle's started work, if any. Returns the tool
+  /// result when the delegated work FAILED (the delegate error surfaces even
+  /// when a hook returned early without awaiting its own delegation), or
+  /// null when the work succeeded — the hook's returned result stands.
+  /// Both this join and the handle's own observation are the only consumers;
+  /// no failure escapes as an unhandled async error.
+  Future<ToolResult?> _joinDelegate(_HookDelegate handle) async {
+    final work = handle.future;
+    if (work == null) return null;
+    try {
+      return await work;
+    } on _DelegateFailure catch (f) {
+      Error.throwWithStackTrace(f.error, f.stackTrace);
+    }
   }
 
   /// Runs the POST-tool stage: the legacy verifier (adapted as
