@@ -1482,11 +1482,9 @@ void main() {
         pipeline: pipeline,
       );
       final asker = _ScriptedAsker(const []);
-      final policy = PermissionPolicy(defaults: const {
-        'read': PermissionDecision.allow,
-        'write': PermissionDecision.allow,
-        'edit': PermissionDecision.allow,
-      });
+      // buildPolicy()'s --yolo shape: the allow-all posture (no explicit
+      // write default — the widening comes from the flag).
+      final policy = PermissionPolicy(allowAllByDefault: true);
 
       final result = await scheduler.runStandalone(
         systemPrompt: 'id',

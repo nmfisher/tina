@@ -138,13 +138,9 @@ void main() {
     });
 
     test('--yolo defaults flow through buildPolicy', () async {
-      // Simulated via builtin defaults map: all four set to allow.
-      final policy = PermissionPolicy(defaults: const {
-        'read': PermissionDecision.allow,
-        'write': PermissionDecision.allow,
-        'edit': PermissionDecision.allow,
-        'bash': PermissionDecision.allow,
-      });
+      // buildPolicy()'s --yolo shape: the allow-all posture, not a rewritten
+      // defaults table.
+      final policy = PermissionPolicy(allowAllByDefault: true);
       final fakeBash = _RecordingTool('bash');
       final tools = ToolRegistry([fakeBash]);
       final provider = _ScriptedProvider([
@@ -404,16 +400,11 @@ void main() {
 
     test('yolo defaults bypass the classifier entirely', () async {
       final llmCalls = <Map<String, dynamic>>[];
-      // The --yolo shape: every default flipped to allow (lib/config.dart's
+      // The --yolo shape: the allow-all posture (lib/config.dart's
       // buildPolicy) with an explicit --deny layered on top, mode auto.
       final policy = PermissionPolicy(
         mode: PermissionMode.auto,
-        defaults: {
-          'read': PermissionDecision.allow,
-          'write': PermissionDecision.allow,
-          'edit': PermissionDecision.allow,
-          'bash': PermissionDecision.allow,
-        },
+        allowAllByDefault: true,
         rules: const [
           PermissionRule(
             toolName: 'bash',
