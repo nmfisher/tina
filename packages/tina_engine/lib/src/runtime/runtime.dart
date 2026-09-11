@@ -1,4 +1,10 @@
+import 'dart:async';
+
+import 'package:logging/logging.dart';
+
 import 'plugin.dart';
+
+final _log = Logger('tina.runtime');
 
 /// Composition failure of a plugin set.
 ///
@@ -148,6 +154,7 @@ class PluginRuntime {
   final _configs = <String, Object?>{};
   final _activationOrder = <String>[];
   bool _activationStarted = false;
+  bool _failed = false;
   Future<void>? _disposed;
 
   /// Builds a runtime around a fresh root scope.
@@ -220,18 +227,16 @@ class PluginRuntime {
     _activateAll();
   }
 
-  /// Shared validation + activation body behind [activate] and
-  /// [activateSync]. Runs synchronously end to end.
-  void _activateAll() {
-    if (_activationStarted) {
-      throw StateError('Runtime $name has already been activated');
-    }
-    _activationStarted = true;
-
+  /// Validation pass shared by [activate] and [activateSync]: duplicate ids,
+  /// provider selection, missing dependencies, cycles, config decoding, and
+  /// the topological order — everything that must hold before any factory
+  /// runs. Returns the computed data the build phase consumes.
+  (List<PluginDescriptor>, Map<String, PluginDescriptor>,
+      Map<String, List<PluginDescriptor>>, Map<String, Set<String>>,
+      List<String>) _validate() {
     // Sorted by id: deterministic iteration everywhere below.
     final sorted = [...plugins]..sort((a, b) => a.id.compareTo(b.id));
 
-    // (a) Validation, before any factory may run.
     final byId = <String, PluginDescriptor>{};
     final providers = <String, List<PluginDescriptor>>{};
     for (final plugin in sorted) {
@@ -313,10 +318,19 @@ class PluginRuntime {
       }
     }
 
-    // (b) Deterministic topological order, ties by plugin id ascending.
+    // Deterministic topological order, ties by plugin id ascending.
     final order = _topologicalOrder(sorted, dependencies);
+    return (sorted, byId, providers, dependencies, order);
+  }
 
-    // (c) Build and bind, dependency before dependent.
+  /// Shared validation + activation body behind [activate] and
+  /// [activateSync]. Synchronous end to end; [activate] wraps it and awaits
+  /// the rollback on failure.
+  void _activateAll() {
+    final (sorted, byId, providers, dependencies, order) = _validate();
+
+    // (c) Build and bind, dependency before dependent; `order` came from
+    // _validate.
     for (final id in order) {
       final plugin = byId[id]!;
       _states[id] = PluginLifecycleState.activating;
@@ -341,10 +355,12 @@ class PluginRuntime {
           scope.provide(key, instance);
         }
       } on PluginCompositionError {
-        _rollback();
+        // Rollback is awaited by the outer activate(); the detached start
+        // here only keeps the failure path inside _activateAll synchronous.
+        unawaited(_rollback());
         rethrow;
       } catch (error, stackTrace) {
-        _rollback();
+        unawaited(_rollback());
         Error.throwWithStackTrace(
           PluginCompositionError(
             'plugin ${plugin.id} failed during activation: $error',
@@ -358,6 +374,12 @@ class PluginRuntime {
       _activationOrder.add(id);
     }
   }
+
+  /// Whether activation failed terminally. A failed runtime is unusable:
+  /// its scope drained, its plugins report disposed, and `dispose()` is a
+  /// no-op that completes when the rollback finished. Retrying startup
+  /// means constructing a NEW runtime after this one has drained.
+  bool get isFailed => _failed;
 
   /// Lifecycle state of one plugin.
   ///
@@ -487,20 +509,39 @@ class PluginRuntime {
   }
 
   /// Rolls back a failed activation: children first, then the root scope.
-  /// Errors during rollback do not mask the composition error.
+  /// Errors during rollback are collected and logged, never masking the
+  /// composition error. Terminal states are set as each scope drains so a
+  /// failed runtime accurately reports disposed.
   Future<void> _rollback() async {
+    Object? firstError;
+    StackTrace? firstStack;
     for (final child in _descendantScopes().reversed) {
       try {
         await child.resources.dispose();
-      } catch (_) {
+      } catch (e, st) {
+        firstError ??= e;
+        firstStack ??= st;
         // Teardown continues; the activation error is what propagates.
       }
     }
     try {
       await scope.resources.dispose();
-    } catch (_) {
-      // Teardown continues; the activation error is what propagates.
+    } catch (e, st) {
+      firstError ??= e;
+      firstStack ??= st;
     }
+    for (final id in _states.keys) {
+      _states[id] = PluginLifecycleState.disposed;
+    }
+    _logTeardownFailure('rollback', firstError, firstStack);
+  }
+
+  /// Diagnostics sink for teardown failures that must not mask the primary
+  /// error (rollback during a failed activation). Logged, never thrown.
+  void _logTeardownFailure(String phase, Object? error, StackTrace? stack) {
+    if (error == null) return;
+    _log.warning('runtime $name: $phase teardown failed (diagnostic only)',
+        error, stack);
   }
 
   /// Every scope created from the root, in creation order.
