@@ -129,19 +129,51 @@ Future<ExecutionRuntime> buildExecutionRuntime({
         sandboxNet: config.sandboxNet,
         sandboxReadOnly: config.sandboxReadOnly,
       );
+  final mounted =
+      toolScope == null ? profile : borrowedScopePlugins(profile);
+  // Fix (P2): required application services are validated BEFORE activation —
+  // the mounted profile must DECLARE the ledger and the provider factory, so
+  // an incomplete profile fails here as a composition error before ANY
+  // factory runs. (Previously the factory for the ledger/provider ran, and
+  // only the later null assertion on the lookup crashed — with provider
+  // construction side effects already behind it.)
+  final requiredServices = <(ServiceKey, String)>[
+    (spendLedgerServiceKey, 'tina.app.spend-ledger'),
+    (providerFactoryServiceKey, 'tina.app.provider-factory'),
+  ];
+  for (final (key, pluginId) in requiredServices) {
+    final declared =
+        mounted.any((plugin) => plugin.provides.any((k) => k == key));
+    if (!declared) {
+      throw PluginCompositionError(
+        'the execution profile provides no $key '
+        '(required application service missing before activation)',
+        pluginId: pluginId,
+      );
+    }
+  }
   final runtime = PluginRuntime(
     name: 'execution',
-    plugins:
-        toolScope == null ? profile : borrowedScopePlugins(profile),
+    plugins: mounted,
   );
   final resources = RuntimeResources();
   try {
     await runtime.activate();
-    // The runtime owns its own scope resources; disposing it releases the
-    // provider factory (and any plugin-owned cleanup) exactly once.
-    resources.own(runtime.dispose);
-    final ledger = runtime.scope.lookup(spendLedgerServiceKey)!;
-    final providers = runtime.scope.lookup(providerFactoryServiceKey)!;
+    // Post-activation re-check (defense in depth): a plugin that declared a
+    // key but failed to bind it still surfaces as a composition error, not a
+    // null assertion further down.
+    void requireService(ServiceKey key, String pluginId) {
+      if (!runtime.scope.isAdmitting || runtime.scope.lookup(key) == null) {
+        throw PluginCompositionError(
+          'the execution profile provides no $key '
+          '(required application service missing after activation)',
+          pluginId: pluginId,
+        );
+      }
+    }
+
+    requireService(spendLedgerServiceKey, 'tina.app.spend-ledger');
+    requireService(providerFactoryServiceKey, 'tina.app.provider-factory');
     // A nested same-project run borrows the live scope (including its write
     // lock). Independent compositions construct independent tool instances —
     // each runtime's plugins build their own scope under
@@ -157,6 +189,11 @@ Future<ExecutionRuntime> buildExecutionRuntime({
         pluginId: 'tina.engine.project-tool-scope',
       );
     }
+    // The runtime owns its own scope resources; disposing it releases the
+    // provider factory (and any plugin-owned cleanup) exactly once.
+    resources.own(runtime.dispose);
+    final ledger = runtime.scope.lookup(spendLedgerServiceKey)!;
+    final providers = runtime.scope.lookup(providerFactoryServiceKey)!;
     // The auto-mode classifier: a dedicated cheap model when `[permissions]
     // model` is set, else the main model. Best-effort — an unbuildable ref
     // (unknown provider, missing key) leaves it null and auto mode degrades to

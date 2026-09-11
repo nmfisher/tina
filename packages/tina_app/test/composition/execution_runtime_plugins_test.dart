@@ -25,6 +25,13 @@ ProviderRegistry _registryWithUsageProvider() {
   return registry;
 }
 
+/// A plugin descriptor with NO provides and NO requires — the minimal
+/// stand-in for an incomplete profile.
+PluginDescriptor _barePlugin(String id) => PluginDescriptor(
+      id: id,
+      factory: FnPluginFactory((context) => Object()),
+    );
+
 void main() {
   test('provider factory plugin activates after the spend ledger plugin',
       () async {
@@ -312,6 +319,48 @@ void main() {
         'git',
       ],
     );
+  });
+
+  test('an incomplete profile fails BEFORE any factory runs, with a '
+      'composition error naming the missing service', () async {
+    final root = await Directory.systemTemp.createTemp('tina_rt_incomplete_');
+    addTearDown(() => root.delete(recursive: true));
+    var factoriesRan = 0;
+    final incompleteProfile = [
+      _barePlugin('only-a-bare-plugin'),
+      // A plugin whose factory records that it ran — proving the failure
+      // happens BEFORE activation, not mid-activation or after it.
+      PluginDescriptor(
+        id: 'side-effect-witness',
+        factory: FnPluginFactory((context) {
+          factoriesRan++;
+          return Object();
+        }),
+      ),
+    ];
+
+    Object? failure;
+    try {
+      await buildExecutionRuntime(
+        config: RuntimeConfig(provider: 'test', model: 'a'),
+        registry: _registryWithUsageProvider(),
+        environment: FakeEnvironment(),
+        projectRoot: root.path,
+        executionPlugins: incompleteProfile,
+      );
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure, isA<PluginCompositionError>());
+    expect(
+      failure.toString(),
+      contains('tina.app.spend-ledger'),
+      reason: 'the error names the missing required service',
+    );
+    expect(factoriesRan, 0,
+        reason: 'validation happens before activation — no factory side '
+            'effects precede the composition error');
   });
 }
 
