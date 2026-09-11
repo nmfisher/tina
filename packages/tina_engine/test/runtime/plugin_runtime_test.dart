@@ -424,6 +424,46 @@ void main() {
       expect(order, ['grandchild', 'child', 'root']);
     });
 
+    test('a child created during another child\'s async cleanup is rejected',
+        () async {
+      final gate = Completer<void>();
+      final firstCleanupStarted = Completer<void>();
+      final order = <String>[];
+      final rt = PluginRuntime(name: 'rt', plugins: const []);
+      final first = rt.childScope('first');
+      first.resources.own(() async {
+        firstCleanupStarted.complete();
+        await gate.future;
+        order.add('first-cleanup');
+      });
+
+      final disposal = rt.dispose();
+      // Park INSIDE the drain: first's async cleanup is running, so the
+      // runtime is mid-teardown. A child created here used to slip past the
+      // pre-drain descendant snapshot (and past the override's missing
+      // admission check) and was never disposed.
+      await firstCleanupStarted.future;
+
+      Object? rejection;
+      try {
+        rt.childScope('late');
+      } catch (error) {
+        rejection = error;
+      }
+      expect(rejection, isA<StateError>(),
+          reason: 'admission closes across the scope tree before the drain, '
+              'so a child created mid-teardown is rejected, not silently '
+              'admitted and leaked');
+
+      gate.complete();
+      await disposal;
+
+      expect(order, ['first-cleanup'],
+          reason: 'the child that existed before the close is disposed');
+      expect(rt.scope.isAdmitting, isFalse,
+          reason: 'no resource is left undisposed: the whole tree is closed');
+    });
+
     test('run keeps the work failure when a cleanup also fails', () async {
       final workError = Exception('work boom');
       final cleanupError = Exception('cleanup boom');

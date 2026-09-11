@@ -119,10 +119,37 @@ class RuntimeDescription {
 final class _RuntimeScope extends PluginScope {
   final _children = <PluginScope>[];
 
+  /// Runtime-wide admission gate. Teardown closes admission across the WHOLE
+  /// scope tree before draining it, so a child created while another child's
+  /// asynchronous cleanup is still running is rejected instead of being
+  /// silently admitted past the pre-drain descendant snapshot — such a child
+  /// would never be visited by the drain and would escape disposal.
+  bool _admissionOpen = true;
+
   _RuntimeScope(super.name, {super.parent});
+
+  /// Closes admission on this scope and every tracked descendant. Called
+  /// once, before teardown drains the tree.
+  void closeAdmissionTree() {
+    _admissionOpen = false;
+    for (final child in _children) {
+      if (child is _RuntimeScope) child.closeAdmissionTree();
+    }
+  }
 
   @override
   PluginScope child(String name) {
+    if (!_admissionOpen) {
+      throw StateError(
+        'Scope $name is stopping; cannot create child scope $name while '
+        'the runtime is tearing down',
+      );
+    }
+    if (!isAdmitting) {
+      throw StateError(
+        'Scope $name is ${state.name}; cannot create child scope $name',
+      );
+    }
     final child = _RuntimeScope(name, parent: this);
     _children.add(child);
     return child;
@@ -528,6 +555,11 @@ class PluginRuntime {
     for (final id in _states.keys) {
       _states[id] = PluginLifecycleState.stopping;
     }
+    // Close admission across the WHOLE scope tree BEFORE draining it: the
+    // descendant list below is a snapshot, so a child created during a
+    // later child's asynchronous cleanup would never appear in it and would
+    // escape disposal. After the close, such a child is rejected instead.
+    (scope as _RuntimeScope).closeAdmissionTree();
     // Children before parents: reverse creation order. Dispose through the
     // SCOPE, not its bare resources: scope.dispose() also closes admission
     // and removes owned services, so a released service is no longer
@@ -564,6 +596,10 @@ class PluginRuntime {
   Future<void> _rollback() async {
     Object? firstError;
     StackTrace? firstStack;
+    // Same tree-wide admission close as _disposeAll: teardown snapshots the
+    // descendants before draining, so a child created during an async
+    // cleanup would otherwise escape disposal. Reject it instead.
+    (scope as _RuntimeScope).closeAdmissionTree();
     for (final child in _descendantScopes().reversed) {
       try {
         await child.dispose();
