@@ -8,6 +8,8 @@ import 'agent.dart';
 import 'agent_sink.dart';
 import 'pause_gate.dart';
 import 'token_budget.dart';
+import 'tool_guards.dart';
+import 'tool_hooks.dart';
 
 /// The replaceable unit behind the agent loop (the P5 seam): the operations
 /// coordinators actually use — one turn, the last abort classification, the
@@ -173,6 +175,23 @@ class AgentDriverRequest {
   /// The resolved system prompt (the agent's identity).
   final String system;
 
+  /// Extra deny-preserving guards the built agent runs on every tool call,
+  /// appended after the executor's mandatory policy and phase guards. Empty
+  /// (the default) = none — every pre-plugin build.
+  final List<ToolGuard> executionGuards;
+
+  /// AROUND-execution hooks wrapping each tool's execute call. Empty (the
+  /// default) = none.
+  final List<ToolExecutionHook> executionHooks;
+
+  /// POST-tool hooks appending verdicts to successful tool results. Empty
+  /// (the default) = none.
+  final List<ToolResultHook> resultHooks;
+
+  /// Observation-only hooks notified at the toolStart/toolOutput/toolComplete
+  /// points. Empty (the default) = none.
+  final List<ToolObserver> observers;
+
   const AgentDriverRequest({
     required this.provider,
     required this.tools,
@@ -183,6 +202,10 @@ class AgentDriverRequest {
     required this.budget,
     required this.pauseGate,
     required this.system,
+    this.executionGuards = const [],
+    this.executionHooks = const [],
+    this.resultHooks = const [],
+    this.observers = const [],
   });
 }
 
@@ -212,6 +235,10 @@ class DefaultAgentDriverFactory implements AgentDriverFactory {
         budget: request.budget,
         pauseGate: request.pauseGate,
         system: request.system,
+        executionGuards: request.executionGuards,
+        executionHooks: request.executionHooks,
+        resultHooks: request.resultHooks,
+        toolObservers: request.observers,
       ));
 }
 

@@ -7,6 +7,7 @@ import '../host/host_interface.dart';
 import '../permissions/policy.dart';
 import '../permissions/prompt.dart';
 import '../persistence/session_store.dart';
+import '../runtime/plugin.dart';
 import '../tools/delegation_typedefs.dart';
 import '../tools/tool.dart';
 import 'agent.dart';
@@ -20,6 +21,8 @@ import 'pause_gate.dart';
 import 'sub_agent_sink.dart';
 import 'system_prompt.dart';
 import 'token_budget.dart';
+import 'tool_guards.dart';
+import 'tool_hooks.dart';
 
 /// Lifecycle of a [SubAgentJob].
 enum SubAgentJobStatus {
@@ -316,6 +319,74 @@ class SubAgentScheduler {
   /// old inline, telemetry-only build. Mirrors [NestedDelegateToolBuilder] and
   /// [persistence]: the wiring sets it once at the composition root.
   SubAgentSessionFactory? subAgentSessionFactory;
+
+  /// Scope-resolved plugin contributions this scheduler's delegated builds
+  /// must run with: extra guards, execution hooks, result hooks, and
+  /// observers. Carried in a side table keyed by the scheduler (an Expando)
+  /// because the constructor is engine-stable; the composition boundary
+  /// ([createScheduler] in tina_app) is the only writer, and every driver
+  /// build below reads it through [schedulerGuardsOf] and friends. Null (the
+  /// unwritten default) means no plugin contributed anything — every legacy
+  /// construction site stays byte-identical.
+  final Expando<List<ToolGuard>> _scopeGuards = Expando('scheduler.guards');
+  final Expando<List<ToolExecutionHook>> _scopeExecutionHooks =
+      Expando('scheduler.executionHooks');
+  final Expando<List<ToolResultHook>> _scopeResultHooks =
+      Expando('scheduler.resultHooks');
+  final Expando<List<ToolObserver>> _scopeObservers =
+      Expando('scheduler.observers');
+
+  /// Mount the scope-resolved contributions (composition boundary only).
+  void mountScopeContributions({
+    List<ToolGuard>? guards,
+    List<ToolExecutionHook>? executionHooks,
+    List<ToolResultHook>? resultHooks,
+    List<ToolObserver>? observers,
+  }) {
+    _scopeGuards[this] = guards;
+    _scopeExecutionHooks[this] = executionHooks;
+    _scopeResultHooks[this] = resultHooks;
+    _scopeObservers[this] = observers;
+  }
+
+  /// The scheduler's scope-resolved [ToolGuard] contributions, or the empty
+  /// list when none were mounted.
+  List<ToolGuard> get scopeGuards => _scopeGuards[this] ?? const [];
+
+  /// The scheduler's scope-resolved [ToolExecutionHook] contributions, or the
+  /// empty list when none were mounted.
+  List<ToolExecutionHook> get scopeExecutionHooks =>
+      _scopeExecutionHooks[this] ?? const [];
+
+  /// The scheduler's scope-resolved [ToolResultHook] contributions, or the
+  /// empty list when none were mounted.
+  List<ToolResultHook> get scopeResultHooks =>
+      _scopeResultHooks[this] ?? const [];
+
+  /// The scheduler's scope-resolved [ToolObserver] contributions, or the
+  /// empty list when none were mounted.
+  List<ToolObserver> get scopeObservers => _scopeObservers[this] ?? const [];
+
+  /// The active plugin scope the composition resolved this scheduler from,
+  /// when any. Delegated identity resolution reads profile-mounted prompt
+  /// sections through it ([scopePromptContributors]); null when the scheduler
+  /// was built without a plugin runtime — every legacy prompt byte-identical.
+  final Expando<PluginScope> _scope = Expando('scheduler.scope');
+
+  /// Mount the composition's active plugin scope (composition boundary only).
+  /// Distinct from [mountScopeContributions] because the scope is also the
+  /// prompt-section source; the contribution lists were resolved from it
+  /// already.
+  set mountedScope(PluginScope? scope) => _scope[this] = scope;
+
+  /// The scope-resolved [PromptContributor] sections delegated prompts carry,
+  /// or null when no scope was mounted (no plugin runtime).
+  List<PromptContributor>? get scopePromptContributors =>
+      _scope[this] == null ? null : promptContributorsFromScope(_scope[this]!);
+
+  /// The mounted scope itself (composition boundary and scheduler internals;
+  /// null when none was mounted).
+  PluginScope? get mountedScopeValue => _scope[this];
 
   /// Set by the wiring to make a sub-agent spawned by a conversation's MAIN
   /// agent inherit that conversation's *live* `"provider/model"` — the one
@@ -679,18 +750,18 @@ class SubAgentScheduler {
 
       final system = job.systemPrompt;
       final factory = subAgentSessionFactory;
-      // A live-panelized job with a wired factory becomes a first-class session:
-      // the coordinator builds its Agent (with the panel host's asker, so tool
-      // calls can prompt on the focused panel) and registers the Conversation so
-      // focusing the panel makes it the active input target — UNCHANGED this
-      // round: the session factory still returns an Agent and owns that build.
-      // It is only viewed through the driver seam here (the trivial adapter
-      // forwards verbatim), so the run below goes through one interface for
-      // both branches. The plain telemetry-only build routes through the seam
-      // proper ([_driverFor] → the wired [driverFactory] or the default).
+      // EVERY build routes through the scope-selected factory seam now,
+      // including the live-panel branch: the panel path first asks the
+      // coordinator's session factory for its fully wired panel Agent (it
+      // owns panel focus + Conversation registration — unchanged), then hands
+      // that agent to the selected driver factory as the thing to wrap, so a
+      // profile's replacement driver covers panelized runs too. The plain
+      // telemetry-only build goes through [_driverFor] with the request
+      // directly. Without a wired [driverFactory] both paths reproduce the
+      // historical inline build exactly (the default factory's adapter).
       AgentDriver driver;
       if (factory != null && job.panelHost != null) {
-        driver = AgentDriverAdapter(factory(this, job,
+        final panelAgent = factory(this, job,
             provider: provider,
             tools: tools,
             policy: ctx.parentPolicy,
@@ -705,7 +776,28 @@ class SubAgentScheduler {
                 ? null
                 : TokenBudget(perSessionLimit: subAgentBudgetLimit),
             pauseGate: pauseGate,
-            wirePanelFocus: job.wirePanelFocus!));
+            wirePanelFocus: job.wirePanelFocus!);
+        // The request mirrors the BUILT panel agent field-for-field, so a
+        // replacement driver wraps exactly what the coordinator constructed
+        // (panel-host asker/sink included) instead of re-deriving a lesser
+        // agent from raw parts. Without a wired factory the panel agent runs
+        // directly behind the trivial adapter — the historical behavior.
+        driver = driverFactory?.create(AgentDriverRequest(
+              provider: panelAgent.provider,
+              tools: panelAgent.tools,
+              sink: panelAgent.sink,
+              policy: panelAgent.policy,
+              asker: panelAgent.asker,
+              maxSteps: panelAgent.maxSteps,
+              budget: panelAgent.budget,
+              pauseGate: panelAgent.pauseGate,
+              system: panelAgent.system,
+              executionGuards: scopeGuards,
+              executionHooks: scopeExecutionHooks,
+              resultHooks: scopeResultHooks,
+              observers: scopeObservers,
+            )) ??
+            AgentDriverAdapter(panelAgent);
       } else {
         driver = _driverFor(AgentDriverRequest(
           provider: provider,
@@ -907,7 +999,8 @@ class SubAgentScheduler {
       final system = resolveIdentityPrompt(systemPrompt,
           context: pipeline.promptContext,
           safeMode: safeMode,
-          loadProjectContext: pipeline.loadProjectContext);
+          loadProjectContext: pipeline.loadProjectContext,
+          scope: mountedScopeValue);
       if (includeDelegate && delegateToolBuilder != null) {
         final nestedCtx = AgentToolContext(
           scheduler: this,
@@ -975,9 +1068,35 @@ class SubAgentScheduler {
   /// one indirection, nothing else. The request carries everything the factory
   /// needs; the scheduler keeps provider lifecycle at the call sites (it closes
   /// the provider it built in its finally blocks — the driver never does).
-  AgentDriver _driverFor(AgentDriverRequest request) =>
-      driverFactory?.create(request) ??
-      const DefaultAgentDriverFactory().create(request);
+  AgentDriver _driverFor(AgentDriverRequest request) {
+    // Scope-resolved contributions ride every delegated build: attach the
+    // scheduler's mounted lists when the request doesn't carry its own (a
+    // caller-built request — the live-panel branch — pins its lists at
+    // construction, mirroring the agent it was derived from).
+    final requestWithContributions = AgentDriverRequest(
+      provider: request.provider,
+      tools: request.tools,
+      sink: request.sink,
+      policy: request.policy,
+      asker: request.asker,
+      maxSteps: request.maxSteps,
+      budget: request.budget,
+      pauseGate: request.pauseGate,
+      system: request.system,
+      executionGuards: request.executionGuards.isNotEmpty
+          ? request.executionGuards
+          : scopeGuards,
+      executionHooks: request.executionHooks.isNotEmpty
+          ? request.executionHooks
+          : scopeExecutionHooks,
+      resultHooks:
+          request.resultHooks.isNotEmpty ? request.resultHooks : scopeResultHooks,
+      observers:
+          request.observers.isNotEmpty ? request.observers : scopeObservers,
+    );
+    return driverFactory?.create(requestWithContributions) ??
+        const DefaultAgentDriverFactory().create(requestWithContributions);
+  }
 
   /// The profile's tool set, minus the safe-mode-disabled tools when
   /// `--safe-mode` is on. The single source of truth for both the registry and

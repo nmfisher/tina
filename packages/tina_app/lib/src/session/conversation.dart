@@ -96,7 +96,7 @@ class Conversation {
   Conversation({
     required this.id,
     required this.label,
-    required this.agent,
+    Agent? agent,
     required LlmProvider provider,
     required this.host,
     required this.policy,
@@ -104,14 +104,50 @@ class Conversation {
     this.recorder,
     List<Message> initialHistory = const [],
 
-    /// Optional replacement driver. Null (the default) wires an
-    /// [AgentDriverAdapter] around [agent] — byte-identical to the
-    /// pre-driver behavior. When given, it is installed as-is and MUST drive
-    /// [agent] (same history list, same provider surface); the constructor
-    /// does not assert that pairing.
+    /// The driver this conversation's turns run through. Callers pass
+    /// whatever the scope-selected factory built, or
+    /// [AgentDriverAdapter(agent)] for a plain agent (the default when
+    /// omitted AND an agent was given). Conversation owns the driver alone;
+    /// [agent] is optional so a scripted driver needs no [Agent] behind it.
     AgentDriver? driver,
-  }) : _provider = provider,
-       driver = driver ?? AgentDriverAdapter(agent) {
+  })  : agent = agent ?? _agentless,
+        _provider = provider,
+        driver = driver ?? AgentDriverAdapter(agent ?? _agentless) {
     history.addAll(initialHistory);
   }
+
+  /// Whether a real [Agent] backs this conversation (false for driver-only
+  /// conversations built from a scripted [AgentDriver]).
+  bool get hasAgent => agent is! _NoAgentSentinel;
+
+  /// Placeholder for driver-only conversations: a scripted [AgentDriver]
+  /// needs no [Agent] behind it. Never run — turns go through [driver].
+  static final Agent _agentless = _NoAgentSentinel();
 }
+
+/// Marker agent for driver-only [Conversation]s; never executed.
+final class _NoAgentSentinel extends Agent {
+  _NoAgentSentinel()
+      : super(
+          provider: _NullProvider(),
+          tools: ToolRegistry(const []),
+          sink: _NullHost(),
+          policy: PermissionPolicy(modeSource: null),
+          asker: _denyAsker,
+          system: '',
+        );
+}
+
+final class _NullProvider implements LlmProvider {
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('driver-only conversation has no provider');
+}
+
+final class _NullHost implements HostInterface {
+  @override
+  dynamic noSuchMethod(Invocation invocation) {}
+}
+
+Future<PermissionResponse> _denyAsker(PermissionPrompt prompt) async =>
+    PermissionResponse.denyOnce;

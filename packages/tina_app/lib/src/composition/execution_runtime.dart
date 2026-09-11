@@ -222,12 +222,15 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       driverFactory: resolvedDriverFactory,
       persistence: persistence,
       // Scope-resolved plugin contributions, in registration order, wired to
-      // their actual consumers (guards/hooks/observers ride the scheduler;
-      // prompt contributors resolve in buildAgent through the scope).
+      // their actual consumers (guards/hooks/observers ride every delegated
+      // driver build; the scope carries prompt sections into delegated
+      // identity resolution). Also the main-agent prompt source: buildAgent
+      // resolves through the same scope.
       guards: toolGuardsFromScope(runtime.scope),
       executionHooks: toolExecutionHooksFromScope(runtime.scope),
       resultHooks: toolResultHooksFromScope(runtime.scope),
       observers: toolObserversFromScope(runtime.scope),
+      scope: runtime.scope,
     );
     resources.own(scheduler.dispose);
     return ExecutionRuntime(

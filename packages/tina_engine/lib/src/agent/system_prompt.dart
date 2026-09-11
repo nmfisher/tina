@@ -81,6 +81,7 @@ List<PromptContributor> defaultPromptContributors({
   String? cwd,
   bool safeMode = false,
   bool? loadProjectContext,
+  List<PromptContributor>? extraContributors,
 }) {
   final resolvedCwd = cwd ?? context.projectRoot;
   final trusted = context.loadProjectContext && (loadProjectContext ?? true);
@@ -137,6 +138,10 @@ List<PromptContributor> defaultPromptContributors({
             '</environment>\n'),
     if (agents.isNotEmpty)
       _Section('project_context', () => _renderAgentsBlock(agents)),
+    // Profile-mounted sections trail the built-ins (one blank line each),
+    // in registration order — a mounted section can extend or contextualize
+    // the shared blocks but never reorder or shadow them.
+    ...?extraContributors,
   ];
 }
 
@@ -181,6 +186,7 @@ String _buildAgentPrompt({
   String? cwd,
   bool safeMode = false,
   bool? loadProjectContext,
+  List<PromptContributor>? extraContributors,
 }) =>
     joinPromptContributors(defaultPromptContributors(
       identity: identity,
@@ -188,6 +194,7 @@ String _buildAgentPrompt({
       cwd: cwd,
       safeMode: safeMode,
       loadProjectContext: loadProjectContext,
+      extraContributors: extraContributors,
     ));
 
 /// Resolve the entry agent's full system prompt: the `[prompts.main]` override
@@ -207,6 +214,7 @@ String resolveMainPrompt(
   String? cwd,
   bool safeMode = false,
   bool? loadProjectContext,
+  PluginScope? scope,
 }) {
   final override = overrides?['main'];
   final identity = (override != null && override.isNotEmpty)
@@ -217,7 +225,9 @@ String resolveMainPrompt(
       context: pipeline.promptContext,
       cwd: cwd,
       safeMode: safeMode,
-      loadProjectContext: loadProjectContext);
+      loadProjectContext: loadProjectContext,
+      extraContributors:
+          scope == null ? null : promptContributorsFromScope(scope));
 }
 
 /// Resolve a system prompt from an explicit [identity] string (a node's
@@ -234,13 +244,16 @@ String resolveIdentityPrompt(
   String? cwd,
   bool safeMode = false,
   bool? loadProjectContext,
+  PluginScope? scope,
 }) =>
     _buildAgentPrompt(
         identity: identity,
         context: context ?? PromptContext(),
         cwd: cwd,
         safeMode: safeMode,
-        loadProjectContext: loadProjectContext);
+        loadProjectContext: loadProjectContext,
+        extraContributors:
+            scope == null ? null : promptContributorsFromScope(scope));
 
 /// Typed identity of a prompt-contributor contribution in a [PluginScope].
 /// The transport is the scope's contribution registry ([promptContributorPlugin]

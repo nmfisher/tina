@@ -39,6 +39,7 @@ SubAgentScheduler createScheduler({
   List<ToolExecutionHook>? executionHooks,
   List<ToolResultHook>? resultHooks,
   List<ToolObserver>? observers,
+  PluginScope? scope,
 }) {
   final scheduler = SubAgentScheduler(
     registry: registry,
@@ -63,40 +64,21 @@ SubAgentScheduler createScheduler({
   // (not a constructor param) — mount the composition-level choice the same
   // way. null = the scheduler's default in-memory-only behavior.
   scheduler.persistence = persistence;
-  // Plugin contributions resolved from the active scope: carried on the
-  // scheduler so every delegated driver build receives them (see
-  // [schedulerExecutionGuards] et al.); null stays null — no contribution,
-  // no behavior change.
-  schedulerExecutionGuards[scheduler] = guards;
-  schedulerExecutionHooks[scheduler] = executionHooks;
-  schedulerResultHooks[scheduler] = resultHooks;
-  schedulerToolObservers[scheduler] = observers;
+  // Plugin contributions resolved from the active scope: mounted on the
+  // scheduler (engine-side carrier, see [SubAgentScheduler.mountScopeContributions])
+  // so every delegated driver build receives them. Lists default to null —
+  // no contribution, no behavior change. The scope itself is mounted too: it
+  // is the source of profile-mounted prompt sections for delegated identity
+  // resolution ([SubAgentScheduler.scopePromptContributors]).
+  scheduler.mountScopeContributions(
+    guards: guards,
+    executionHooks: executionHooks,
+    resultHooks: resultHooks,
+    observers: observers,
+  );
+  scheduler.mountedScope = scope;
   return scheduler;
 }
-
-/// Per-scheduler carrier for scope-resolved plugin contributions. A side
-/// table rather than constructor fields because the scheduler's public
-/// constructor is engine-stable; the composition boundary is the only
-/// writer, consumers read through the typed getters below.
-final schedulerExecutionGuards =
-    Expando<List<ToolGuard>>('scheduler.executionGuards');
-final schedulerExecutionHooks =
-    Expando<List<ToolExecutionHook>>('scheduler.executionHooks');
-final schedulerResultHooks =
-    Expando<List<ToolResultHook>>('scheduler.resultHooks');
-final schedulerToolObservers =
-    Expando<List<ToolObserver>>('scheduler.toolObservers');
-
-/// The scope-resolved contributions a delegated run inherits, falling back
-/// to the empty list (built-ins only) when composition mounted none.
-List<ToolGuard> schedulerGuardsOf(SubAgentScheduler scheduler) =>
-    schedulerExecutionGuards[scheduler] ?? const [];
-List<ToolExecutionHook> schedulerExecutionHooksOf(SubAgentScheduler s) =>
-    schedulerExecutionHooks[s] ?? const [];
-List<ToolResultHook> schedulerResultHooksOf(SubAgentScheduler scheduler) =>
-    schedulerResultHooks[scheduler] ?? const [];
-List<ToolObserver> schedulerObserversOf(SubAgentScheduler scheduler) =>
-    schedulerToolObservers[scheduler] ?? const [];
 
 
 /// Build an [Agent] for one conversation from [pipeline]'s main role.
@@ -159,6 +141,8 @@ Agent buildAgent({
   // The entry agent's resolved system prompt — also the identity a delegated
   // sub-agent inherits. Resolved once so the agent and the delegation context
   // can't drift (and the recorder's captured prompt matches the live one).
+  // Profile-mounted prompt sections ([scope]'s PromptContributor
+  // registrations) trail the built-in blocks in the assembled prompt.
   final resolvedSystem =
       system ??
       resolveMainPrompt(
@@ -166,6 +150,7 @@ Agent buildAgent({
         overrides: config.promptOverrides,
         safeMode: config.safeMode,
         loadProjectContext: pipeline.loadProjectContext,
+        scope: scheduler.mountedScopeValue,
       );
 
   // Base registry both modes share: the full file/shell tool set (write/edit/
