@@ -842,15 +842,21 @@ class ToolExecutor {
           handle.call,
         );
       } on _DelegateFailure catch (f) {
-        // The delegate chain failed and the hook let it through: rethrow
-        // unchanged so the executor's thrown-tool path ships today's exact
-        // content and log severity.
+        // The delegate chain failed and the hook let it through. Join the
+        // work first (it is settled — its failure IS this failure), ship the
+        // delegate's real failure, and keep the original stack trace when
+        // the join somehow finds nothing.
         handle.close();
         final joined = await _joinDelegate(handle);
         if (joined != null) return joined;
         Error.throwWithStackTrace(f.error, f.stackTrace);
       } catch (e, st) {
         handle.close();
+        // Fix (P1, join on every exit): the hook threw AFTER starting its
+        // delegation and swallowed the rejection. Join the started work
+        // BEFORE reporting — a swallowed second call must not orphan the
+        // first execution. A delegate failure ships as the call result; a
+        // delegate success keeps flowing to the fail-closed exits below.
         final joined = await _joinDelegate(handle);
         if (joined != null) return joined;
         if (handle.repeatAttempt) {
@@ -877,8 +883,14 @@ class ToolExecutor {
       // swallowed the throw above: zero delegations (`hook did not execute
       // the tool`) or more than one.
       if (handle.repeatAttempt) {
+        // Fix (P1, join on every exit): the first execution already started
+        // before the repeat call was rejected — join it before failing the
+        // call, so a swallowed rejection cannot orphan running work behind a
+        // reported failure. A delegate failure ships as the call result.
         _log.warning('execution hook for $toolName called the delegate '
             'more than once — failing the tool call closed');
+        final joined = await _joinDelegate(handle);
+        if (joined != null) return joined;
         return ToolResult(
           'tool execution hook failed: execution hook for $toolName called '
           'the delegate more than once',
@@ -895,7 +907,9 @@ class ToolExecutor {
         );
       }
       // Join: the delegated work settles BEFORE the executor reports, emits
-      // completion, or allows teardown downstream of this call.
+      // completion, or allows teardown downstream of this call. Null means
+      // the work succeeded and the hook's returned — possibly transformed —
+      // result stands; a rendered failure result ships instead.
       final joined = await _joinDelegate(handle);
       return joined ?? result;
     }
@@ -903,19 +917,24 @@ class ToolExecutor {
     return chain(0);
   }
 
-  /// Awaits the delegate handle's started work, if any. Returns the tool
-  /// result when the delegated work FAILED (the delegate error surfaces even
-  /// when a hook returned early without awaiting its own delegation), or
-  /// null when the work succeeded — the hook's returned result stands.
-  /// Both this join and the handle's own observation are the only consumers;
-  /// no failure escapes as an unhandled async error.
+  /// Awaits the delegate handle's started work, if any. Returns null when
+  /// the work SUCCEEDED — the caller keeps its own result (the hook's
+  /// returned, possibly transformed, result stands). Returns an error
+  /// [ToolResult] when the work FAILED, rendered exactly like the
+  /// executor's thrown-tool path (`e.toString()`), so a hook that returns
+  /// without awaiting its delegation still ships the real tool failure.
+  /// Never throws; this join and the handle's own observation are the only
+  /// consumers, so no failure escapes as an unhandled async error.
   Future<ToolResult?> _joinDelegate(_HookDelegate handle) async {
     final work = handle.future;
     if (work == null) return null;
     try {
-      return await work;
+      await work;
+      return null;
     } on _DelegateFailure catch (f) {
-      Error.throwWithStackTrace(f.error, f.stackTrace);
+      _log.warning('delegated tool work failed — shipping the delegate '
+          'failure as the call result', f.error, f.stackTrace);
+      return ToolResult(f.error.toString(), isError: true);
     }
   }
 

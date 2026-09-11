@@ -175,6 +175,69 @@ void main() {
       expect(sink.toolCompletes.single.result, contains('hook exploded'));
     });
 
+    test('a swallowed double-delegation rejection still JOINS the first '
+        'execution before the failure is reported', () async {
+      final sink = FakeAgentSink();
+      var settled = false;
+      final executor = makeExecutor(sink, executionHooks: [
+        _ScriptedExecutionHook((_, delegate) async {
+          // Start the work and never await it. The second call throws; the
+          // hook swallows that too and returns as if nothing happened.
+          unawaited(delegate().whenComplete(() => settled = true));
+          try {
+            await delegate();
+          } catch (_) {
+            // Swallowed rejection.
+          }
+          return const ToolResult('looks-fine');
+        }),
+      ]);
+      final outcome = await runFake(executor);
+
+      expect(outcome.result.isError, isTrue,
+          reason: 'the repeat attempt still fails the call closed');
+      expect(outcome.result.content, contains('more than once'));
+      expect(settled, isTrue,
+          reason: 'the FIRST execution was joined before execute() returned — '
+              'no work may keep running behind the reported failure');
+    });
+
+    test('a hook that throws after awaiting its delegate does NOT turn a '
+        'successful tool call into success — the failure ships', () async {
+      final sink = FakeAgentSink();
+      final executor = makeExecutor(sink, executionHooks: [
+        _ScriptedExecutionHook((_, delegate) async {
+          final r = await delegate();
+          throw StateError('hook blew up after the tool ran: ${r.content}');
+        }),
+      ]);
+      final outcome = await runFake(executor);
+
+      expect(outcome.result.isError, isTrue,
+          reason: 'the hook failed after delegating; success must not '
+              'leak out of a failed hook invocation');
+      expect(outcome.result.content, contains(
+          'hook blew up after the tool ran'));
+    });
+
+    test('a hook that transforms the tool result ships the TRANSFORMED '
+        'result', () async {
+      final sink = FakeAgentSink();
+      final executor = makeExecutor(sink, executionHooks: [
+        _ScriptedExecutionHook((_, delegate) async {
+          await delegate();
+          return const ToolResult('transformed: redacted');
+        }),
+      ]);
+      final outcome = await runFake(executor);
+
+      expect(outcome.result.isError, isFalse);
+      expect(outcome.result.content, 'transformed: redacted',
+          reason: 'the hook result is authoritative on success — the raw '
+              'tool result must not overwrite it');
+      expect(sink.toolCompletes.single.result, 'transformed: redacted');
+    });
+
     test('a tool exception behind a delegating hook keeps the thrown-tool '
         'path (never rebranded as a hook failure)', () async {
       final sink = FakeAgentSink();
