@@ -446,6 +446,69 @@ void main() {
         reason: 'validation happens before activation — no factory side '
             'effects precede the composition error');
   });
+
+  test('a profile missing the tool-scope plugin leaves no acquired resource '
+      'behind', () async {
+    final root = await Directory.systemTemp.createTemp('tina_rt_toolscope_');
+    addTearDown(() => root.delete(recursive: true));
+    var resourcesAcquired = 0;
+    var disposals = 0;
+    // Everything the ledger/factory stages need, but WITHOUT the tool-scope
+    // stage: composition must fail (before activation with the fix — the
+    // regression this test pins), and the witness plugin proves whether any
+    // acquisition survived the failure.
+    final profileWithoutToolScope = [
+      spendLedgerPlugin(RuntimeConfig(provider: 'test', model: 'a')),
+      providerDecoratorsPlugin(const []),
+      providerFactoryPlugin(
+        RuntimeConfig(provider: 'test', model: 'a'),
+        _registryWithUsageProvider(),
+        PauseGate(),
+      ),
+      // The acquirer: a plugin that acquires one resource and registers its
+      // cleanup on the runtime scope — a stand-in for every activation-time
+      // acquisition the mounted stages perform.
+      PluginDescriptor(
+        id: 'acquirer.witness',
+        factory: FnPluginFactory((context) {
+          resourcesAcquired++;
+          context.own(() => disposals++);
+          return Object();
+        }),
+      ),
+    ];
+
+    Object? failure;
+    try {
+      await buildExecutionRuntime(
+        config: RuntimeConfig(provider: 'test', model: 'a'),
+        registry: _registryWithUsageProvider(),
+        environment: FakeEnvironment(),
+        projectRoot: root.path,
+        executionPlugins: profileWithoutToolScope,
+      );
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure, isA<PluginCompositionError>(),
+        reason: 'the missing tool scope is a composition error');
+    expect(
+      failure.toString(),
+      contains('project tool scope'),
+      reason: 'the error names the missing tool-scope stage',
+    );
+    // Regression invariant: zero resources remain acquired. Validation now
+    // runs BEFORE activation, so the acquirer never even runs (and if any
+    // stage were ever to acquire before this validation, the teardown armed
+    // up front would still release it).
+    expect(resourcesAcquired - disposals, 0,
+        reason: 'every acquired resource must be released when composition '
+            'fails — zero may remain acquired');
+    expect(disposals, 0,
+        reason: 'with the fix the composition fails before activation, so '
+            'the witness acquirer is never reached at all');
+  });
 }
 
 class _UsageProvider extends LlmProvider {

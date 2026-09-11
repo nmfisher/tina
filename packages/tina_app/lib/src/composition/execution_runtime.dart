@@ -152,6 +152,23 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       );
     }
   }
+  // Fix: the required TOOL scope is validated BEFORE activation too — a
+  // profile that mounts no tool-scope stage (and borrows no scope) fails
+  // here, before any factory runs and before anything is acquired.
+  // (Previously this was only checked after activation: the ledger and the
+  // provider factory had already activated and acquired their resources when
+  // the composition threw, and nothing disposed what was acquired.)
+  if (toolScope == null &&
+      !mounted.any(
+        (plugin) =>
+            plugin.provides.any((k) => k == projectToolScopeServiceKey),
+      )) {
+    throw PluginCompositionError(
+      'the execution profile provides no project tool scope '
+      '(required tool-scope stage missing before activation)',
+      pluginId: 'tina.engine.project-tool-scope',
+    );
+  }
   // A borrowed tool scope stays with its owner: expose it to this runtime's
   // plugins through a BORROWED parent scope. A parent binding resolves for
   // pre-activation validation and for every plugin factory's require(), yet
@@ -169,6 +186,12 @@ Future<ExecutionRuntime> buildExecutionRuntime({
           ..provide(projectToolScopeServiceKey, toolScope)),
   );
   final resources = RuntimeResources();
+  // Fix: cleanup ownership is established BEFORE activation — the runtime's
+  // teardown is owned from the moment `resources` exists, so any resource
+  // acquired during activation is released even when a later composition
+  // step throws. (Previously this ran only after activation: a failure in
+  // between left activation's resources with no owner and leaked them.)
+  resources.own(runtime.dispose);
   try {
     await runtime.activate();
     // Post-activation re-check (defense in depth): a plugin that declared a
@@ -191,8 +214,10 @@ Future<ExecutionRuntime> buildExecutionRuntime({
     // each runtime's plugins build their own scope under
     // [projectToolScopeServiceKey]; the lookup is non-null because the two
     // project plugins above activated, or `toolScope` was borrowed verbatim.
-    // A profile that omits the tool-scope plugin surfaces HERE, before any
-    // provider is built, as a composition error.
+    // Post-activation re-check (defense in depth): a profile that omitted
+    // the tool-scope stage fails before activation now, but a plugin that
+    // DECLARED projectToolScopeServiceKey without binding it still surfaces
+    // here as a composition error.
     final tools =
         toolScope ?? runtime.scope.lookup(projectToolScopeServiceKey);
     if (tools == null) {
@@ -201,9 +226,10 @@ Future<ExecutionRuntime> buildExecutionRuntime({
         pluginId: 'tina.engine.project-tool-scope',
       );
     }
-    // The runtime owns its own scope resources; disposing it releases the
-    // provider factory (and any plugin-owned cleanup) exactly once.
-    resources.own(runtime.dispose);
+    // The runtime owns its own scope resources; its teardown is already
+    // owned by `resources` (armed before activation), so the single dispose
+    // below releases the provider factory (and any plugin-owned cleanup)
+    // exactly once.
     final ledger = runtime.scope.lookup(spendLedgerServiceKey)!;
     final providers = runtime.scope.lookup(providerFactoryServiceKey)!;
     // The auto-mode classifier: a dedicated cheap model when `[permissions]
