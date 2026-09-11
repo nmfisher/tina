@@ -240,37 +240,47 @@ class PluginScope {
     _assertAdmitting('register contribution ${contribution.id}');
     final existing = _registrations[contribution.id];
     if (existing != null) {
-      // A released-but-still-cleaning-up registration keeps its id
-      // RESERVED: reusing the id inside that gap succeeds here, then the
-      // old cleanup's revoke (by identity — see below) would delete the
-      // replacement's membership while it stays live. Reject instead; the
-      // caller retries once the old disposal completes.
-      if (!existing.isDisposalComplete) {
-        throw StateError(
-          'Contribution id ${contribution.id} is still disposing in scope '
-          '$name; the id is reserved until the old disposal completes',
-        );
-      }
-      if (!existing.isDisposed) {
+      if (existing.isDisposalComplete) {
+        // The old disposal has settled: release its stale reservation (by
+        // IDENTITY, so a settled registration can never delete a newer
+        // one's entry) and the id becomes reusable.
+        if (identical(_registrations[contribution.id], existing)) {
+          _registrations.remove(contribution.id);
+        }
+      } else if (!existing.isDisposed) {
         final live = _byId(contribution.id);
         throw StateError(
           'Contribution id ${contribution.id} is already registered in '
           'scope $name by plugin ${live?.pluginId ?? "?"}; rejected plugin '
           '${contribution.pluginId}',
         );
+      } else {
+        // A released-but-still-cleaning-up registration keeps its id
+        // RESERVED: reusing the id inside that gap succeeds here, then the
+        // old cleanup's revoke would delete the replacement's membership
+        // while it stays live. Reject instead; the caller retries once the
+        // old disposal completes.
+        throw StateError(
+          'Contribution id ${contribution.id} is still disposing in scope '
+          '$name; the id is reserved until the old disposal completes',
+        );
       }
     }
     // Membership revocation is owned by the registration: the moment
     // disposal begins (early release OR scope teardown), the contribution
     // leaves the registry — before the cleanup runs. Revocation matches by
-    // IDENTITY, not by id string: a dispose-then-reuse of the same id must
-    // never let the old cleanup revoke the new registration's membership
-    // (Fix: by-id revocation deleted the replacement).
+    // IDENTITY (List.remove on this exact Contribution), not by id string:
+    // a dispose-then-reuse of the same id must never let the old cleanup
+    // revoke the new registration's membership.
+    //
+    // The id reservation (the _registrations entry) deliberately outlives
+    // dispose-start — that is what the gate above enforces: the id stays
+    // reserved while the old cleanup is still running, and the stale entry
+    // is released only once the disposal settles. (Fix: dropping the
+    // reservation in onDisposeStart freed the id mid-disposal, and the old
+    // cleanup then removed the new registration.)
     registration.onDisposeStart(() {
       _contributions.remove(contribution);
-      if (identical(_registrations[contribution.id], registration)) {
-        _registrations.remove(contribution.id);
-      }
     });
     _contributions.add(contribution);
     _registrations[contribution.id] = registration;

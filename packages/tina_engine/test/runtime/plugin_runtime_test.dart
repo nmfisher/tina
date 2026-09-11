@@ -762,19 +762,31 @@ void main() {
         () async {
       final scope = PluginScope('reuse');
       final gate = Completer<void>();
+      var cleanupStarted = false;
       var cleanupRan = false;
       final old = scope.registerContribution(
         pluginId: 'old-plugin',
         contribution: 'old',
         id: 'tool',
         dispose: () async {
+          cleanupStarted = true;
           await gate.future;
           cleanupRan = true;
         },
       );
       old.dispose();
-      // Disposal started but the cleanup is parked on the gate: the id is
-      // in the gap the fix reserves.
+      // Wait until the disposal has actually STARTED (the cleanup is parked
+      // on the gate). The earlier version of this test asserted before the
+      // dispose microtask ran, so it passed even while the id reservation
+      // was already dropped at dispose-start.
+      while (!cleanupStarted) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(cleanupRan, isFalse,
+          reason: 'the cleanup must still be running for this to be the '
+              'mid-disposal gap');
+      expect(scope.contributions, isEmpty,
+          reason: 'membership is revoked the moment disposal begins');
 
       expect(
         () => scope.registerContribution(
@@ -790,6 +802,9 @@ void main() {
       gate.complete();
       await old.dispose(); // drain
       expect(cleanupRan, isTrue);
+      expect(scope.contributions, isEmpty,
+          reason: 'the old cleanup revokes only its own membership — the '
+              'id is now free, nothing else was touched');
 
       // After completion the id is reusable.
       final fresh = scope.registerContribution(
@@ -818,11 +833,15 @@ void main() {
         id: 'tool',
       );
       expect(scope.contributions.single.contribution, 'new');
+      final newMembership = scope.contributions.single;
 
-      // Even if the old handle is disposed again (idempotent no-op), the
-      // new membership must stay untouched.
+      // Old-cleanup path: even if the old handle is disposed again, its
+      // revoke matches by IDENTITY — the surviving membership is the very
+      // instance the new registration installed, never a by-id deletion.
       await old.dispose();
-      expect(scope.contributions.single.contribution, 'new');
+      expect(scope.contributions.single, same(newMembership),
+          reason: 'the old cleanup must not touch the new registration '
+              'under the same id');
       expect(fresh.isDisposed, isFalse);
     });
   });
