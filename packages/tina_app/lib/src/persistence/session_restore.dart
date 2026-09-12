@@ -55,9 +55,9 @@ class RestoreContext {
 ///
 /// A primary conversation rebuilds through [buildAgent], so the scope-selected
 /// driver factory (and its contribution surface) applies on resume exactly as
-/// on the live path. Non-primary kinds keep the plain [Agent] build — they
-/// were never built through the factory at spawn time either — and are wrapped
-/// in an [AgentDriverAdapter] by the caller.
+/// on the live path. Non-primary kinds resolve through the scheduler's driver
+/// factory with their restored tools and policy, retaining mounted guards and
+/// hooks just like live delegated sessions.
 AgentDriver _restoreDriver({
   required ConversationMeta meta,
   required LlmProvider provider,
@@ -107,14 +107,16 @@ AgentDriver _restoreDriver({
         );
         tools.add(DelegateTool(ctx2));
       }
-      return AgentDriverAdapter(
-        Agent(
+      return ctx.scheduler.driverFor(
+        AgentDriverRequest(
           provider: provider,
           tools: ToolRegistry(tools),
           sink: host,
           policy: policy,
           asker: host.askPermission,
           maxSteps: 25,
+          budget: null,
+          pauseGate: null,
           system: system,
         ),
       );
@@ -174,7 +176,7 @@ PermissionPolicy _restorePolicy(ConversationMeta meta, RestoreContext ctx) {
 ///
 /// The restored conversation's driver IS what [buildAgent] produced for a
 /// primary (the scope-selected factory applies on resume exactly as on the
-/// live path); non-primary kinds get an adapter around the plain rebuild.
+/// live path); non-primary kinds use the scheduler's selected driver factory.
 /// [driverWrapper] is the P5 replacement seam — the same hook
 /// [SessionManager] exposes at construction: it receives the restored
 /// underlying agent (an adapter's wrapped build, or the plain rebuild) and

@@ -798,6 +798,42 @@ void main() {
   });
 
   group('registration id reuse during disposal', () {
+    for (final asyncFailure in [false, true]) {
+      test('cleanup failure releases the id (async: $asyncFailure)', () async {
+        final scope = PluginScope('failed-cleanup');
+        final failure = StateError('cleanup failed');
+        var cleanupCalls = 0;
+        final old = scope.registerContribution(
+          pluginId: 'old', contribution: 'old', id: 'tool',
+          dispose: () {
+            cleanupCalls++;
+            if (asyncFailure) return Future<void>.error(failure);
+            throw failure;
+          },
+        );
+        final closing = old.dispose();
+        expect(old.dispose(), same(closing));
+        await expectLater(closing, throwsA(same(failure)));
+        expect(old.isDisposalComplete, isTrue);
+        expect(scope.contributions, isEmpty);
+
+        var replacementCleaned = false;
+        final fresh = scope.registerContribution(
+          pluginId: 'new', contribution: 'new', id: 'tool',
+          dispose: () { replacementCleaned = true; },
+        );
+        await expectLater(old.dispose(), throwsA(same(failure)));
+        expect(scope.contributions.single.contribution, 'new');
+        expect(cleanupCalls, 1);
+        // Scope teardown still reports the original cleanup error and also
+        // releases the replacement. The failed callback is never rerun.
+        await expectLater(scope.dispose(), throwsA(same(failure)));
+        expect(fresh.isDisposalComplete, isTrue);
+        expect(replacementCleaned, isTrue);
+        expect(cleanupCalls, 1);
+      });
+    }
+
     test('reusing an id while the old registration is mid-disposal rejects',
         () async {
       final scope = PluginScope('reuse');

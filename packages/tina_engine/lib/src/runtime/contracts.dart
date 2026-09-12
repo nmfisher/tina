@@ -102,15 +102,15 @@ class Registration {
     _started = true;
     final onDispose = _dispose;
     final onStart = _onDisposeStart;
-    return _disposedFuture = Future<void>.microtask(() {
-      if (onStart != null) onStart();
-      if (onDispose != null) {
-        final r = onDispose();
-        if (r is Future) {
-          return r.whenComplete(() => _completed = true);
-        }
+    return _disposedFuture = Future<void>.microtask(() async {
+      try {
+        if (onStart != null) onStart();
+        if (onDispose != null) await onDispose();
+      } finally {
+        // Both synchronous throws and failed futures settle disposal. Keep
+        // the original failure, but release the ID reservation in either case.
+        _completed = true;
       }
-      _completed = true;
     });
   }
 }
