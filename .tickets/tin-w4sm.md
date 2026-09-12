@@ -14,34 +14,45 @@ tags: [plugins, wasm, runtime, proposal]
 
 ## Summary
 
-Review the plugin runtime as built (PR #49, branch `asb/plugin-runtime`), then
-propose how plugins could be WebAssembly modules instead of in-process Dart.
+Implement external WASM tools as a restricted tier alongside trusted built-in
+Dart plugins. The phased plan is
+[WASM plugin support](../docs/proposals/wasm_plugin_support.md).
 
-The proposal is written: `docs/proposals/wasm_plugin_support.md`.
+The implementation baseline is main at `43e60e1` (v0.6.13), including merged
+PR #49. This ticket and PR #52 contain documentation only. Implementation phases
+remain unchecked until their exit gates have evidence.
 
-Part 1 (review) finds: plugins are synchronous `PluginDescriptor` factories
-over `ServiceKey`/`PluginScope`; everything an agent layer consumes arrives as
-scope contributions filtered by `is` checks (tools, guards, execution/result
-hooks, observers); the trust model is "compiled into the binary" — no
-isolation beyond deny-preserving guards and exactly-once hook delegation.
-Loading a plugin from outside the binary is blocked by (a) AOT compilation
-and (b) an unconfined capability surface — the two things WASM directly
-addresses.
+## Phases
 
-Part 2 (design) recommends: wasmtime via FFI (cdylibs pre-staged per target
-like the existing notcurses libs), a manifest + module contract (JSON over
-linear memory, `tina_abi_version`/`tina_config`/`tina_start`/`tina_stop`
-lifecycle mapped one-to-one onto `PluginRuntime`'s existing
-validate → activate → rollback → dispose path), tools/guards/result
-hooks/observers crossing the boundary, drivers staying host-side, and
-capabilities mapped onto `PermissionPolicy` and the mode boundary so a module
-can never smuggle past `readAll`. Smallest first step: an
-`AsyncPluginFactory` seam plus a one-tool loader, with the write-summary
-sidecar tool as the first conversion.
+- [ ] 0: Prove pinned Wasmtime packaging and supervised worker cancellation on
+  macOS ARM64, Linux x64, and Linux ARM64; record limits and measurements.
+- [ ] 1: Validate manifests/module bytes before activation; implement the exact
+  core WASM ABI with native malformed-input fixtures.
+- [ ] 2: Add async factories, owned workers, joined cancellation, and rollback.
+- [ ] 3: Run one pure JSON transformation tool through the real agent path,
+  permissions, nested conversations, and restoration.
+- [ ] 4: Package and test headless/TUI/installer support on all three targets.
+  Phases 0–4 together define the first supported release.
+- [ ] 5: Add narrow, revocable host operations with live policy checks.
+- [ ] 6: Add asynchronous guards, then result hooks and bounded observers.
+
+## Required constraints
+
+- Native guest execution runs in a supervised worker process, never on the
+  agent/UI isolate. Cancellation and teardown join all owned work.
+- Explicitly configured plugins fail closed when unavailable; a missing guard
+  must never silently disappear.
+- API 1 has one pure tool per module, bounded logging/configuration, and no WASI,
+  filesystem, network, arbitrary services, or hooks. Keep `write_summary` in Dart.
+- Mode changes enforce live policy without remounting plugins or changing the
+  model's cached tool declarations. Later capabilities are brokered per operation,
+  never granted permanently through mount-time filesystem preopens.
+- Native Wasmtime tests are required; mock or interpreter tests cannot replace
+  packaging, ABI, cancellation, and lifecycle verification.
 
 ## Links
 
-- PR #49 — plugin runtime (branch `asb/plugin-runtime`)
-- `docs/proposals/plugin_runtime.md`
-- `docs/proposals/plugin_runtime_pr49_fixes.md`
-- `docs/proposals/wasm_plugin_support.md` (this proposal)
+- [Implementation plan and exit gates](../docs/proposals/wasm_plugin_support.md)
+- [Original plugin runtime plan](../docs/proposals/plugin_runtime.md)
+- [PR #49 review fixes](../docs/proposals/plugin_runtime_pr49_fixes.md)
+- PR #49: merged plugin runtime; PR #52: this proposal.
