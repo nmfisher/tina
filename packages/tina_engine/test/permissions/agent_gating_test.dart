@@ -138,13 +138,9 @@ void main() {
     });
 
     test('--yolo defaults flow through buildPolicy', () async {
-      // Simulated via builtin defaults map: all four set to allow.
-      final policy = PermissionPolicy(defaults: const {
-        'read': PermissionDecision.allow,
-        'write': PermissionDecision.allow,
-        'edit': PermissionDecision.allow,
-        'bash': PermissionDecision.allow,
-      });
+      // buildPolicy()'s --yolo shape: the allow-all posture, not a rewritten
+      // defaults table.
+      final policy = PermissionPolicy(allowAllByDefault: true);
       final fakeBash = _RecordingTool('bash');
       final tools = ToolRegistry([fakeBash]);
       final provider = _ScriptedProvider([
@@ -172,6 +168,45 @@ void main() {
 
       expect(asker.prompts, isEmpty);
       expect(fakeBash.calls.length, 1);
+    });
+
+    test('--yolo widens every tool: allow-by-default tools never ask', () async {
+      // The reported regression: under `tina --yolo`, glob/ls/grep/git were
+      // refused headless because the four-entry defaults map replaced the
+      // policy's table and let them fall through to ask. The flag must widen
+      // every default instead — mapped or not.
+      final tools = ToolRegistry([
+        _RecordingTool('glob'),
+        _RecordingTool('grep'),
+        _RecordingTool('git'),
+        _RecordingTool('fetch'),
+        _RecordingTool('custom_future_tool'),
+      ]);
+      final provider = _ScriptedProvider([
+        [
+          const ToolUseBlock(id: 'u1', name: 'glob', input: {}),
+          const ToolUseBlock(id: 'u2', name: 'grep', input: {}),
+          const ToolUseBlock(id: 'u3', name: 'git', input: {}),
+          const ToolUseBlock(id: 'u4', name: 'fetch', input: {}),
+          const ToolUseBlock(id: 'u5', name: 'custom_future_tool', input: {}),
+        ],
+        const [TextBlock('done.')],
+      ]);
+      final policy = PermissionPolicy(allowAllByDefault: true);
+      final asker = _RecordingAsker(const []);
+
+      final agent = Agent(
+        provider: provider,
+        tools: tools,
+        sink: FakeAgentSink(),
+        policy: policy,
+        asker: asker.ask,
+        system: 'sys',
+      );
+      await agent.run(history: <Message>[], userInput: 'use every tool');
+
+      expect(asker.prompts, isEmpty,
+          reason: 'no tool may resolve to ask under --yolo');
     });
 
     test('auto mode: classifier allow executes, deny short-circuits', () async {
@@ -365,16 +400,11 @@ void main() {
 
     test('yolo defaults bypass the classifier entirely', () async {
       final llmCalls = <Map<String, dynamic>>[];
-      // The --yolo shape: every default flipped to allow (lib/config.dart's
+      // The --yolo shape: the allow-all posture (lib/config.dart's
       // buildPolicy) with an explicit --deny layered on top, mode auto.
       final policy = PermissionPolicy(
         mode: PermissionMode.auto,
-        defaults: {
-          'read': PermissionDecision.allow,
-          'write': PermissionDecision.allow,
-          'edit': PermissionDecision.allow,
-          'bash': PermissionDecision.allow,
-        },
+        allowAllByDefault: true,
         rules: const [
           PermissionRule(
             toolName: 'bash',

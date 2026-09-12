@@ -122,6 +122,24 @@ void main() {
       expect(err.toString(), contains('bash:'));
     });
 
+    test('refusal hint names the flags; with hints off it names neither',
+        () async {
+      final err = StringBuffer();
+      final host = HeadlessHost(writeErr: err.write, permissionHints: false);
+
+      final res = await host.askPermission(
+          const PermissionPrompt('bash', {'command': 'rm -rf /'}));
+
+      expect(res.decision, PermissionDecision.deny);
+      // --yolo is already in effect: pointing the operator at a flag they
+      // passed is noise. The refusal itself still lands.
+      expect(err.toString(), isNot(contains('--allow')));
+      expect(err.toString(), isNot(contains('--yolo')));
+      expect(err.toString(), contains('refused'));
+      // The model-facing note is unchanged — rephrasing will not help.
+      expect(res.note, contains('rephrasing will not change this'));
+    });
+
     test('showMessage routes by style', () {
       final out = StringBuffer();
       final err = StringBuffer();

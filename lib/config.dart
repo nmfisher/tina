@@ -150,6 +150,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     trustOverride: trustOverride,
     trustDefault: trustDefault,
     forceLock: forceLock,
+    yolo: yolo,
     resume: resumeRequest,
   );
 

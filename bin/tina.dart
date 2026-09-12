@@ -411,7 +411,9 @@ Future<void> _runNonInteractive(
   // type — no Screen, ChatRegion, or Spinner reaches the non-interactive path.
   final resources = RuntimeResources();
   return resources.run(() async {
-    final host = HeadlessHost();
+    // `permissionHints: false` under --yolo: a refusal must not suggest a
+    // flag that is already in effect.
+    final host = HeadlessHost(permissionHints: !startup.yolo);
     resources.own(host.dispose);
 
     // `--workflow <name>` headless: run a DOT pipeline to completion. Each `box`

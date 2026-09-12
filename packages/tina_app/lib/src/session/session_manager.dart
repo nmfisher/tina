@@ -262,6 +262,10 @@ class SessionManager {
         defaults: basePolicy.defaults,
         rules: basePolicy.staticRules,
         modeSource: basePolicy,
+        // Keep the `--yolo` posture across the copy: without it the fresh
+        // conversation would fall back to the plain table and re-prompt for
+        // tools the startup flags had already allowed.
+        allowAllByDefault: basePolicy.allowAllByDefault,
       );
 
       // Capture the full per-conversation identity NOW (before the first write)

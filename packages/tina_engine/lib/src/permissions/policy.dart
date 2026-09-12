@@ -86,11 +86,20 @@ class PermissionPolicy {
     }
   }
 
+  /// `--yolo` posture: every tool's default becomes [PermissionDecision.allow]
+  /// — including tools absent from [defaults] — without restating a tool
+  /// list, so a tool added later cannot fall back to `ask`. Static rules,
+  /// session rules, and [executionBlock] (e.g. read-all's hard boundary)
+  /// still apply: an explicit `--deny` denies, and read-all still blocks
+  /// mutating tools.
+  final bool allowAllByDefault;
+
   PermissionPolicy({
     Map<String, PermissionDecision>? defaults,
     List<PermissionRule>? rules,
     PermissionMode mode = PermissionMode.ask,
     this.modeSource,
+    this.allowAllByDefault = false,
   })  : _mode = mode,
         defaults = Map.from(defaults ?? _builtinDefaults),
         staticRules = List.unmodifiable(rules ?? const []);
@@ -128,7 +137,16 @@ class PermissionPolicy {
     for (final r in staticRules) {
       if (_appliesTo(r, tool, key)) return r.decision;
     }
-    return _widen(tool, defaults[tool] ?? PermissionDecision.ask);
+    // `--yolo` widens EVERY default to allow — the table's own ask entries
+    // and the unmapped-tool fallback alike — so a tool added later cannot
+    // fall back to ask. The table is not rewritten, so rule precedence and
+    // the mode gate below behave exactly as they do without the flag, and a
+    // policy copy (sub-agent, workflow run) that spreads this table in keeps
+    // the posture through its own flag.
+    final fallback = allowAllByDefault
+        ? PermissionDecision.allow
+        : defaults[tool] ?? PermissionDecision.ask;
+    return _widen(tool, fallback);
   }
 
   /// Hard mode boundary, evaluated before remembered/static allows and again
@@ -245,15 +263,17 @@ class PermissionPolicy {
     return '${path.substring(0, lastSlash)}/*';
   }
 
-  /// Wire shape for persistence. Captures [defaults] (tool -> decision) and
-  /// the static (CLI) rules. [sessionRules] (runtime "remember this" memory) are
-  /// intentionally NOT persisted — reconstructing them from disk is a follow-up.
+  /// Wire shape for persistence. Captures [defaults] (tool -> decision), the
+  /// static (CLI) rules, and the yolo posture. [sessionRules] (runtime
+  /// "remember this" memory) are intentionally NOT persisted — reconstructing
+  /// them from disk is a follow-up.
   Map<String, dynamic> toJson() => {
         'defaults': {
           for (final e in defaults.entries) e.key: e.value.name,
         },
         'staticRules': staticRules.map((r) => r.toJson()).toList(),
         'mode': mode.name,
+        if (allowAllByDefault) 'allowAllByDefault': true,
       };
 
   factory PermissionPolicy.fromJson(Map<String, dynamic> j) => PermissionPolicy(
@@ -267,6 +287,7 @@ class PermissionPolicy {
                 PermissionRule.fromJson(e as Map<String, dynamic>))
             .toList(),
         mode: PermissionMode.values.byName(j['mode'] as String? ?? 'ask'),
+        allowAllByDefault: j['allowAllByDefault'] as bool? ?? false,
       );
 
   static bool _appliesTo(PermissionRule r, String tool, String key) {

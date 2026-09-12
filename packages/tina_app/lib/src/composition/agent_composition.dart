@@ -205,6 +205,12 @@ Agent buildAgent({
       },
       rules: policy.staticRules,
       modeSource: policy,
+      // Interactive main agent: `--yolo`'s posture rides along so the copy
+      // keeps it. Under --yolo even the tools left off this table (e.g.
+      // launch_workflow, broadcast_region) resolve allow — that is the flag's
+      // documented contract ("default every tool to allow"); without the
+      // flag they stay ask as before.
+      allowAllByDefault: policy.allowAllByDefault,
     );
     final ctx = AgentToolContext(
       scheduler: scheduler,

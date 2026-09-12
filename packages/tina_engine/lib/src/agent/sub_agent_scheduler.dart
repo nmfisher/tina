@@ -1036,6 +1036,10 @@ class SubAgentScheduler {
         },
         rules: parent.staticRules,
         modeSource: parent,
+        // Carry the yolo posture: the parent's flag widens every default
+        // (mapped and unmapped alike), so a tool the profile misses still
+        // allows instead of ask.
+        allowAllByDefault: parent.allowAllByDefault,
       );
 
   /// Widen [policy] in place with the profile's tool set — the caller keeps

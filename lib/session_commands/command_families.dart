@@ -747,13 +747,20 @@ class PermissionsCommands {
       'mode: ${policy.mode.name}\n',
       style: HostMessageStyle.dim,
     );
-    ctx.active.host.showMessage('defaults:\n');
-    final keys = policy.defaults.keys.toList()..sort();
-    for (final k in keys) {
+    if (policy.allowAllByDefault) {
       ctx.active.host.showMessage(
-        '  $k: ${policy.defaults[k]!.name}\n',
+        'defaults: every tool allowed (--yolo; explicit --deny still applies)\n',
         style: HostMessageStyle.dim,
       );
+    } else {
+      ctx.active.host.showMessage('defaults:\n');
+      final keys = policy.defaults.keys.toList()..sort();
+      for (final k in keys) {
+        ctx.active.host.showMessage(
+          '  $k: ${policy.defaults[k]!.name}\n',
+          style: HostMessageStyle.dim,
+        );
+      }
     }
     if (policy.staticRules.isNotEmpty) {
       ctx.active.host.showMessage('cli rules:\n');

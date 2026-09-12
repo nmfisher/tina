@@ -194,23 +194,19 @@ class RuntimeConfig {
     return TokenBudget(perSessionLimit: maxSubAgentTokens);
   }
 
-  /// Build a policy from the parsed config. `--yolo` makes every default
-  /// `allow`; CLI rules layer on top (so `--yolo --deny 'bash:rm *'` works).
+  /// Build a policy from the parsed config. `--yolo` sets the policy's
+  /// allow-all posture: EVERY tool's default becomes allow (mapped and
+  /// unmapped alike) without restating a tool list, so a tool added later
+  /// cannot fall back to `ask`. CLI rules layer on top unchanged (so
+  /// `--yolo --deny 'bash:rm *'` still denies).
   /// The permission mode rides along on the policy (consulted at check time,
-  /// switchable at runtime via `/permissions <mode>`).
+  /// switchable at runtime via `/permissions <mode>`); a mode's hard boundary
+  /// (read-all's execution block) still applies under `--yolo`.
   PermissionPolicy buildPolicy() {
-    final defaults = yolo
-        ? {
-            'read': PermissionDecision.allow,
-            'write': PermissionDecision.allow,
-            'edit': PermissionDecision.allow,
-            'bash': PermissionDecision.allow,
-          }
-        : null;
     return PermissionPolicy(
-      defaults: defaults,
       rules: permissionRules,
       mode: permissionMode,
+      allowAllByDefault: yolo,
     );
   }
 }
