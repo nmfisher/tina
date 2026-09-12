@@ -28,6 +28,29 @@ final _log = Logger('tina.agent');
 /// relaxes the ask-gate). No config surface by design.
 const int kMaxToolCallsPerRun = 5000;
 
+/// tin-cmpt: the per-turn spend (measured + estimated, in tokens) past which a
+/// turn that has touched NO mutable tool gets one advisory — an in-band user
+/// message the model reads plus a stderr notice the operator reads — saying
+/// the turn has produced no checkpoint. Absolute, not a fraction of a cap:
+/// its whole point is to still exist when the cap is gone
+/// (`--max-turn-tokens 0`). Generous by design — long but productive turns
+/// (big greps, big reads) must not be nagged. No config surface by design.
+const int kNoCheckpointAdvisorySpend = 300000;
+
+/// tin-cmpt: the in-band text injected when a long turn has no checkpoint.
+/// Exported so tests assert the exact seam, like the budget messages do.
+const String kNoCheckpointAdvisoryLine = '[checkpoint] this turn has run long '
+    'without editing a file or making a commit, so nothing on disk records '
+    'its work — if the turn aborts, it all unwinds. Land a checkpoint: make '
+    'the smallest useful edit or commit now, or say what you have and stop.';
+
+/// tin-cmpt: the mutable-tool names that count as a checkpoint touch. `edit`,
+/// `write` and `bash` (a commit goes through bash; every other mutating path
+/// in this engine is one of the first two). Everything else — read, glob,
+/// grep, search, ls, stat, which, git, fetch, web_search, delegate — is
+/// observation and leaves no trace by itself.
+const Set<String> kCheckpointTouchTools = {'edit', 'write', 'bash'};
+
 /// Turn-level transport retry ladder (#28) — first backoff. Generous by
 /// design: these errors land MID-stream, after a provider that was already
 /// answering hiccuped, so a sub-second retry (the transport ladder's 250ms)
@@ -403,6 +426,21 @@ class Agent {
   bool get turnSpendCompactFired => _turnSpendCompactFired;
   bool _turnSpendCompactFired = false;
 
+  /// tin-cmpt: whether the CURRENT turn has touched a mutable tool —
+  /// [kCheckpointTouchTools] — i.e. produced anything that survives the turn.
+  /// Set in the tool-result block next to [kMaxToolCallsPerRun]; reset each
+  /// turn beside the latches above. Exposed so tests can drive the advisory
+  /// without replaying real tool calls.
+  bool turnTouchedCheckpoint = false;
+
+  /// tin-cmpt: once-per-turn latch for the no-checkpoint advisory. The
+  /// advisory is a nudge, not a wall — one reminder per turn is enough, and
+  /// re-firing every step would bury the transcript. Reset each turn with
+  /// the other per-turn state. Exposed so regression tests can assert the
+  /// once-per-turn semantics, like [softMarginFired].
+  bool get checkpointAdvisoryFired => _checkpointAdvisoryFired;
+  bool _checkpointAdvisoryFired = false;
+
   /// Run one user turn. The agent may issue several provider calls if tools
   /// are invoked. [cancelSignal], when completed, aborts the current
   /// in-flight stream and exits the turn cleanly.
@@ -460,6 +498,11 @@ class Agent {
     // Same for the 50%-spend compaction latch (#43): the previous turn's
     // compaction must not suppress this turn's.
     _turnSpendCompactFired = false;
+    // tin-cmpt: the no-checkpoint advisory is per-turn like the compaction
+    // latch, and the checkpoint-touch ledger starts every turn clean — a
+    // turn that edits nothing is exactly the state the advisory exists for.
+    _checkpointAdvisoryFired = false;
+    turnTouchedCheckpoint = false;
     final userMessage =
         Message(role: Role.user, content: [TextBlock(userInput)]);
     history.add(userMessage);
@@ -568,15 +611,21 @@ class Agent {
       // kills a run that was making progress. Two triggers fire a compaction:
       // the next request's estimated input crossing the threshold (a single
       // request too big), or the turn's CUMULATIVE spend (input+output of
-      // every round trip) crossing half the per-turn cap while the estimate
-      // is above half the threshold — the many-steps-on-a-mid-size-context
-      // case (65K × 15 ≈ 1M) where no single request ever grows large
-      // enough, but the cap keeps tripping (#42 measured exactly this shape:
-      // 45 steps × ~40K re-sent ≈ 1.8M, every request under ~60K).
-      // Compacting at half-spend shrinks every subsequent request and
-      // stretches the cap for exactly the runs that need it. Either way the
-      // older history is summarized in place (keeping the trailing messages
-      // verbatim) and that goes out instead. Same estimate [checkRequestInput]
+      // every round trip) crossing half the per-turn cap — or, when there is
+      // NO per-turn cap (tin-cmpt: `--max-turn-tokens 0`), an absolute
+      // baseline of half the threshold itself — while the estimate is above
+      // half the threshold: the many-steps-on-a-mid-size-context case (65K ×
+      // 15 ≈ 1M) where no single request ever grows large enough, but the
+      // spend keeps climbing (#42 measured exactly this shape: 45 steps ×
+      // ~40K re-sent ≈ 1.8M, every request under ~60K). Compacting at
+      // half-spend shrinks every subsequent request and stretches the cap for
+      // exactly the runs that need it. tin-cmpt: the fallback baseline is
+      // what keeps the trigger alive without a cap — the old code's
+      // `limit == null → false` removed the spend trigger AND the hard abort
+      // at once, so nothing forced a checkpoint for a whole long turn.
+      // Either way the older history is summarized in place (keeping the
+      // trailing messages verbatim) and that goes out instead. Same estimate
+      // [checkRequestInput]
       // uses; compaction failure is non-fatal and rate-limited by the attempt
       // gate above. Runs BEFORE the per-request rejection so a payload that
       // crossed both thresholds gets compacted first — the cap then judges
@@ -592,12 +641,15 @@ class Agent {
       // the spend trigger refines WHEN, not WHETHER, to compact).
       //
       // The per-turn spend LADDER (#43), in firing order: 50% of
-      // perTurnLimit — one in-place compaction (this block; the latch
-      // [_turnSpendCompactFired] bounds it to a single attempt per turn) →
-      // 90% — the soft margin's one in-band "finish up" nudge (#37, checked
-      // after each record below) → 100% — the hard budget abort (below,
-      // untouched). Compacting at the first rung is what keeps the later
-      // rungs from being reached in a many-step turn.
+      // perTurnLimit (or, uncapped, [kNoCapTurnSpendCompactRatio] of the
+      // auto-compact threshold — tin-cmpt) — one in-place compaction (this
+      // block; the latch [_turnSpendCompactFired] bounds it to a single
+      // attempt per turn) → 90% — the soft margin's one in-band "finish up"
+      // nudge (#37, checked after each record below; capped turns only) →
+      // 100% — the hard budget abort (below; capped turns only). The
+      // uncapped branch has no later rungs, which is why the compaction
+      // rung — and the tin-cmpt no-checkpoint advisory — carry the whole
+      // turn.
       // Aged large tool_result stubbing (#44): between steps, any
       // tool_result block whose serialized body exceeds the threshold
       // (4KB) and which is older than the retention window (8 steps back)
@@ -615,24 +667,33 @@ class Agent {
         // Spend trigger: the per-turn cap counts every round trip's
         // input+output, so a many-step turn on a mid-size context burns
         // through the cap even when no single request is large. The
-        // predicate [TokenBudget.turnSpendCompactTrigger] owns the 50% rung
-        // of the ladder (named constant kTurnSpendCompactRatio; pure over
-        // the recorded totals, false without a perTurnLimit); the latch
-        // below bounds it to once per turn; the size floor
+        // predicate [TokenBudget.turnSpendCompactTrigger] owns the rung
+        // arithmetic — 50% of the cap when one is set
+        // (kTurnSpendCompactRatio, unchanged by tin-cmpt), an absolute
+        // baseline of kNoCapTurnSpendCompactRatio × the threshold when it
+        // is not — and is pure over the recorded totals. The latch below
+        // bounds it to once per turn; the size floor
         // (estimate > threshold/2) skips compaction when the context is
         // small enough that compacting buys little.
         final spendTriggered = !_turnSpendCompactFired &&
-            budget?.turnSpendCompactTrigger() == true &&
+            budget?.turnSpendCompactTrigger(
+                  autoCompactThreshold: autoCompactThreshold,
+                ) ==
+                true &&
             estimate > autoCompactThreshold ~/ 2;
         if ((sizeTriggered || spendTriggered) &&
             _assistantMessageBoundary(history, autoCompactKeepMessages) >= 2) {
           if (spendTriggered && !sizeTriggered) {
-            sink.notice(
-                '\n[compact] turn spend ${budget!.turnTotal}/'
-                '${budget!.perTurnLimit} crossed '
-                '${(kTurnSpendCompactRatio * 100).round()}% '
-                '— compacting once to stretch the per-turn cap\n',
-                kind: NoticeKind.info);
+            final noticeLine = budget!.perTurnLimit != null
+                ? '\n[compact] turn spend ${budget!.turnGrandTotal}/'
+                    '${budget!.perTurnLimit} crossed '
+                    '${(kTurnSpendCompactRatio * 100).round()}% '
+                    '— compacting once to stretch the per-turn cap\n'
+                : '\n[compact] turn spend ${budget!.turnGrandTotal} crossed '
+                    '${(kNoCapTurnSpendCompactRatio * 100).round()}% of the '
+                    'auto-compact threshold with no per-turn cap — compacting '
+                    'once to checkpoint the turn\n';
+            sink.notice(noticeLine, kind: NoticeKind.info);
           }
           lastCompactAttempt = step;
           _turnSpendCompactFired = true;
@@ -764,6 +825,32 @@ class Agent {
             // is convenience, not delivery — delivery happened above.
             sink.notice('\n$soft\n', kind: NoticeKind.warning);
           }
+        }
+        // tin-cmpt: the no-checkpoint advisory. On a turn with NO per-turn
+        // cap there is no hard abort and no soft margin — the only walls left
+        // are the compaction rungs — so a turn that burns spend while
+        // touching no mutable tool can end with nothing on disk to show for
+        // it. Once the spend crosses [kNoCheckpointAdvisorySpend] (absolute,
+        // so the advisory survives a cap of 0) and no call to
+        // [kCheckpointTouchTools] has been seen, inject ONE user-role message
+        // the model reads (the #27 lesson: stderr never reaches the model)
+        // telling it to land a checkpoint, and mirror it to the operator.
+        // The latch makes it once per turn — it is a nudge, not a wall.
+        if (budget != null &&
+            !_checkpointAdvisoryFired &&
+            budget!.turnGrandTotal >= kNoCheckpointAdvisorySpend) {
+          if (!turnTouchedCheckpoint) {
+            _checkpointAdvisoryFired = true;
+            final advisoryMessage = Message(
+                role: Role.user, content: [TextBlock(kNoCheckpointAdvisoryLine)]);
+            history.add(advisoryMessage);
+            final pendingAdvisory = _notifyAppend(advisoryMessage);
+            if (pendingAdvisory != null) await pendingAdvisory;
+            sink.notice('\n$kNoCheckpointAdvisoryLine\n',
+                kind: NoticeKind.warning);
+          }
+          // A turn that HAS touched a mutable tool never gets the advisory;
+          // the latch stays unset but the check is cheap and turn-scoped.
         }
         final kind = budget?.exceededLimit();
         if (kind != null) {
@@ -902,6 +989,15 @@ class Agent {
           return;
         }
         toolCalls++;
+        // tin-cmpt: a call to a mutable tool means this turn has left (or is
+        // about to leave) something on disk or in history — a checkpoint
+        // exists, and the no-checkpoint advisory must never fire. Recorded
+        // per CALL so a batch mixing edit and read still counts. Kept in the
+        // loop header (not inside [ToolExecutor.execute]) so it counts every
+        // attempted call exactly as before the dispatch was extracted.
+        if (kCheckpointTouchTools.contains(use.name)) {
+          turnTouchedCheckpoint = true;
+        }
         final outcome = await toolExecutor.execute(
           use: use,
           stepTools: stepTools,

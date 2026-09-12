@@ -40,6 +40,15 @@ const double kPerTurnSoftMarginRatio = 0.9;
 /// auto-compact threshold > 0 (0 disables compaction entirely).
 const double kTurnSpendCompactRatio = 0.5;
 
+/// Fraction of the auto-compact threshold used as the ABSOLUTE per-turn spend
+/// baseline when no per-turn cap is set (`--max-turn-tokens 0`). tin-cmpt: a
+/// cap of 0 used to remove the spend trigger AND the hard abort at once, so
+/// nothing forced a checkpoint for a whole long turn. With no cap there is no
+/// fraction of it to cross, so the trigger falls back to this share of
+/// [Agent.autoCompactThreshold] — the same size measure the request-size
+/// trigger reads — and the once-per-turn latch in the agent is unchanged.
+const double kNoCapTurnSpendCompactRatio = 0.5;
+
 /// Immutable accumulator of token spend against the three caps. [record]
 /// returns a new [TokenBudget] with the totals advanced; [resetTurn] /
 /// [resetSession] return one with a total zeroed. The owner (an [Agent])
@@ -223,24 +232,39 @@ class TokenBudget {
         'exhausted.';
   }
 
-  /// True when the recorded spend has FIRST crossed the #43 compaction rung
-  /// — `turnTotal` has reached [kTurnSpendCompactRatio] (50%) of the
-  /// per-turn limit while still within the cap. Pure over [turnTotal] and
-  /// [perTurnLimit] — the same source [exceeded] reads — so it can never
-  /// report true after a hard trip (once `turnTotal > perTurnLimit`,
-  /// [exceeded] already won). Like [softMarginNotice] it re-fires on every
-  /// call after the threshold is crossed: callers must latch their own
-  /// once-per-turn flag (the agent does). The agent pairs this predicate
-  /// with the auto-compact threshold's own size floor at the call site, so
-  /// a mid-size cap doesn't force compaction of a context so small that
-  /// compacting buys nothing. Null (no per-turn limit) → false: with no cap
-  /// there is no fraction to cross.
-  bool turnSpendCompactTrigger() {
+  /// True when the recorded spend has crossed the #43 compaction rung while
+  /// still within any hard cap.
+  ///
+  /// With a per-turn limit the rung is the classic one: `turnGrandTotal` has
+  /// reached [kTurnSpendCompactRatio] (50%) of the limit. tin-cmpt: with NO
+  /// per-turn limit (a cap of 0 used to produce exactly that) the fraction has
+  /// nothing to be a fraction of — the old code returned false, so a cap of 0
+  /// removed the spend trigger and the hard abort at once and nothing forced a
+  /// checkpoint. The fallback is an ABSOLUTE baseline: [kNoCapTurnSpendCompactRatio]
+  /// of the auto-compact threshold the caller supplies.
+  ///
+  /// Pure over the totals plus the two arguments. Returns false after a hard
+  /// trip ([exceededLimit]) — the hard reason wins. Like [softMarginNotice]
+  /// it re-fires on every call after the threshold is crossed: callers must
+  /// latch their own once-per-turn flag (the agent does). The agent pairs
+  /// this predicate with the size floor at the call site, so a mid-size cap
+  /// doesn't force compaction of a context so small that compacting buys
+  /// nothing. With [autoCompactThreshold] of 0 there is no baseline to cross
+  /// either — 0 disables compaction entirely, exactly as before.
+  bool turnSpendCompactTrigger({required int autoCompactThreshold}) {
+    if (autoCompactThreshold <= 0) return false;
+    final grand = turnGrandTotal;
     final limit = perTurnLimit;
-    final grand = turnTotal + turnEstimated;
-    if (limit == null || grand < (limit * kTurnSpendCompactRatio).ceil()) {
-      return false;
+    final int threshold;
+    if (limit != null) {
+      // Capped turn: the original 50%-of-cap rung. Unchanged by tin-cmpt.
+      threshold = (limit * kTurnSpendCompactRatio).ceil();
+    } else {
+      // Uncapped turn: an absolute spend baseline instead of a fraction of a
+      // missing cap.
+      threshold = (autoCompactThreshold * kNoCapTurnSpendCompactRatio).ceil();
     }
+    if (grand < threshold) return false;
     return exceededLimit() == null; // hard trip: the hard reason wins
   }
 
