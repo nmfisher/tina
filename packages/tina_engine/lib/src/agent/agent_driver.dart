@@ -83,11 +83,12 @@ abstract class AgentDriver {
     Future<void>? cancelSignal,
   });
 
-  /// The agent this driver drives. Composition callers need the concrete
-  /// [Agent] (a Conversation holds one, the summary runner drives one), so
-  /// every driver must be honest about the agent behind it. For
-  /// [AgentDriverAdapter] this is the wrapped build verbatim.
-  Agent get agent;
+  // Deliberately NO `agent` member: a driver is the unit of execution, and
+  // requiring one to hand back a concrete [Agent] would defeat the seam — a
+  // scripted (or otherwise agent-less) driver could not satisfy the
+  // contract. Callers execute the driver; nothing reaches past it. When a
+  // caller genuinely needs the underlying build, it type-tests for
+  // [AgentDriverAdapter] and reads its public [AgentDriverAdapter.agent].
 }
 
 /// Trivial driver: forwards EVERY member verbatim to the wrapped [agent].
@@ -95,8 +96,9 @@ abstract class AgentDriver {
 /// the adapter that lets a coordinator hand a plain [Agent] to code that
 /// speaks [AgentDriver].
 class AgentDriverAdapter implements AgentDriver {
-  /// The wrapped agent — every operation below delegates to it, and the
-  /// interface's `agent` getter is satisfied by this field directly.
+  /// The wrapped agent — every operation below delegates to it. Kept public
+  /// (not part of the [AgentDriver] contract): a caller that genuinely needs
+  /// the concrete build type-tests for this adapter and unwraps it.
   final Agent agent;
 
   const AgentDriverAdapter(this.agent);

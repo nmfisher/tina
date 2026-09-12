@@ -46,9 +46,8 @@ class _ScriptedDriver implements AgentDriver {
 
   _ScriptedDriver(this.resultText);
 
-  @override
-  Agent get agent => throw UnimplementedError(
-      'the scripted driver drives no concrete agent');
+  // No `agent` member — the contract no longer requires one. This scripted
+  // driver is agent-less by construction; nothing may reach past the driver.
 
   @override
   Future<void> run({
