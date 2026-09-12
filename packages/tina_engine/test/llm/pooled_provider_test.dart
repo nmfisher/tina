@@ -127,6 +127,31 @@ void main() {
           reason: 'the failover is invisible downstream');
     });
 
+    test('a member notice does not prevent before-content failover', () async {
+      final a = _ClosableProvider([
+        [const StreamNotice('connecting'), const StreamError('unavailable', transient: true)],
+      ]);
+      final b = _ClosableProvider([_ok]);
+      final events = await PooledProvider([a, b])
+          .send(system: 's', messages: [], tools: []).toList();
+      expect(b.calls, 1);
+      expect(events.whereType<StreamError>(), isEmpty);
+      expect(events.whereType<StreamNotice>().first.text, 'connecting');
+      expect(events.whereType<MessageComplete>(), hasLength(1));
+    });
+
+    test('whitespace-only completions also trigger pool failover', () async {
+      final a = _ClosableProvider([
+        [const MessageComplete(content: [TextBlock(' \n')], stopReason: 'stop')],
+      ]);
+      final b = _ClosableProvider([_ok]);
+      final events = await PooledProvider([a, b])
+          .send(system: 's', messages: [], tools: []).toList();
+      expect(b.calls, 1);
+      expect(events.whereType<StreamError>(), isEmpty);
+      expect((events.whereType<MessageComplete>().single.content.single as TextBlock).text, 'served');
+    });
+
     test('every member returning an empty completion surfaces an error', () async {
       final a = _ClosableProvider([
         [const MessageComplete(content: [], stopReason: 'end_turn')],

@@ -85,6 +85,25 @@ class MessageComplete extends StreamEvent {
   });
 }
 
+/// Why a completed response contains no usable answer or tool call. Only a
+/// transient empty response should be retried with the same request.
+enum EmptyCompletionCause { transient, outputLimit, filtered }
+
+/// Shared by pool failover and agent recovery so neither layer hides a
+/// terminal stop reason by treating it as a transient empty response.
+EmptyCompletionCause? classifyEmptyCompletion(
+    List<ContentBlock> content, String? stopReason) {
+  if (!content
+      .every((block) => block is TextBlock && block.text.trim().isEmpty)) {
+    return null;
+  }
+  return switch (stopReason) {
+    'length' || 'max_tokens' => EmptyCompletionCause.outputLimit,
+    'content_filter' || 'refusal' || 'safety' => EmptyCompletionCause.filtered,
+    _ => EmptyCompletionCause.transient,
+  };
+}
+
 class StreamError extends StreamEvent {
   final Object error;
 

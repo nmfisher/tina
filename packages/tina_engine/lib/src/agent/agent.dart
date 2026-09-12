@@ -144,8 +144,18 @@ int stubAgedToolResults(List<Message> history, {required int currentStep}) {
 /// was transport-retryable and the agent's OWN retry ladder (#28) exhausted
 /// its attempts, so the retry decision is already spent; a [provider] failure
 /// is everything else that may still clear (auth, rate-limit-forever, empty
-/// completions, cut streams).
-enum AbortedKind { none, provider, transport, budget, steps, cancel }
+/// completions, cut streams). [providerTerminal] means the provider supplied
+/// a terminal completion reason, such as output exhaustion or filtering;
+/// resending the unchanged request is not an appropriate recovery.
+enum AbortedKind {
+  none,
+  provider,
+  transport,
+  budget,
+  steps,
+  cancel,
+  providerTerminal,
+}
 
 const _compactSystemPrompt = '''
 You are summarizing a coding-assistant conversation for context
@@ -377,7 +387,8 @@ class Agent {
   /// The same stop classified by cause, for callers deciding whether a retry
   /// could succeed: [AbortedKind.provider] and [AbortedKind.transport]
   /// failures (rate limit, dropped stream, transient build failure) may clear
-  /// on their own; budget/steps exhaustions and cancellations will not.
+  /// on their own; terminal provider responses, budget/steps exhaustions and
+  /// cancellations will not.
   /// [AbortedKind.transport] means the failure was transport-retryable and
   /// the agent's own turn-level ladder (#28) ALREADY exhausted its attempts —
   /// the built-in retry is spent, unlike [AbortedKind.provider] which no
@@ -795,7 +806,22 @@ class Agent {
         }
       }
 
-      // A completion with NO blocks at all is degenerate — seen in the wild
+      final emptyCause = classifyEmptyCompletion(content, outcome.stopReason);
+      if (emptyCause == EmptyCompletionCause.outputLimit ||
+          emptyCause == EmptyCompletionCause.filtered) {
+        final reason = emptyCause == EmptyCompletionCause.outputLimit
+            ? 'model reached its output token limit without producing an answer '
+                '(finish reason: ${outcome.stopReason}); increase --max-tokens '
+                'or reduce the model\'s reasoning budget before retrying'
+            : 'provider filtered the response without producing an answer '
+                '(finish reason: ${outcome.stopReason})';
+        sink.notice('\nerror: $reason\n', kind: NoticeKind.error);
+        abortedReason = reason;
+        abortedKind = AbortedKind.providerTerminal;
+        return;
+      }
+
+      // A completion with no usable content is degenerate — seen in the wild
       // as a 200 whose body carries zero content (an overloaded worker
       // "answering" with nothing: NIM's poolside/laguna under worker
       // exhaustion). Ending the turn here would read as a clean finish, and
@@ -804,7 +830,7 @@ class Agent {
       // abort loudly if it repeats. Either way the empty message is NOT
       // appended to history: it says nothing, and some providers reject an
       // empty assistant message on the next request.
-      if (content.every((block) => block is TextBlock && block.text.trim().isEmpty)) {
+      if (emptyCause == EmptyCompletionCause.transient) {
         if (emptyCompletions < emptyCompletionRetryAttempts) {
           emptyCompletions++;
           final delay = Duration(seconds: 1 << (emptyCompletions - 1).clamp(0, 4));

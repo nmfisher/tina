@@ -30,6 +30,7 @@ void main() {
       expect((outcome.content!.single as TextBlock).text, 'hello');
       expect(outcome.usage, isNotNull);
       expect(outcome.usage!.inputTokens, 10);
+      expect(outcome.stopReason, 'end_turn');
       expect(outcome.error, isNull);
       expect(outcome.cancelled, isFalse);
     });
@@ -89,6 +90,7 @@ void main() {
       final outcome = await consumer.consume(stream, sink: sink);
       expect(outcome.error, 'server exploded');
       expect(outcome.content, isNull);
+      expect(outcome.stopReason, isNull);
       expect(outcome.cancelled, isFalse);
     });
 

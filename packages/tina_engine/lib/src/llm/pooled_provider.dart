@@ -144,6 +144,10 @@ class PooledProvider implements LlmProvider {
               // Cancelled or already swallowed: drop the rest — a
               // failover (or teardown) supersedes this attempt.
               if (cancelled.isCompleted || swallowed != null) return;
+              if (event is StreamNotice) {
+                if (!controller.isClosed) controller.add(event);
+                return;
+              }
               if (!forwarded && event is StreamError) {
                 swallowed = event;
                 // #46: a member attempt that fails and rotates is a full
@@ -157,7 +161,7 @@ class PooledProvider implements LlmProvider {
                     member: 'pool-$memberIndex');
                 return;
               }
-              // A completion with NO blocks is a failed member response in
+              // A transient empty completion is a failed member response in
               // substance — observed as an exhausted worker 200ing with
               // zero content (poolside/laguna under load). Complete the
               // send with it and the turn ends empty-handed; [Agent.run]
@@ -166,7 +170,8 @@ class PooledProvider implements LlmProvider {
               // same as any before-content error.
               if (!forwarded &&
                   event is MessageComplete &&
-                  event.content.isEmpty) {
+                  classifyEmptyCompletion(event.content, event.stopReason) ==
+                      EmptyCompletionCause.transient) {
                 final emptyErr = StreamError(
                     'member returned an empty completion',
                     transient: true);

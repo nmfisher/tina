@@ -7,9 +7,10 @@ import 'message.dart';
 import 'provider.dart';
 import 'wire.dart';
 
-/// Policy-layer retry for LLM sends: re-attempts a request whose FIRST event
-/// is a retryable failure (a 408/425/429/5xx [StreamError], or a transient
-/// connection failure) instead of surfacing it.
+/// Policy-layer retry for LLM sends: re-attempts a request that fails before
+/// any response content (a 408/425/429/5xx [StreamError], or a transient
+/// connection failure) instead of surfacing it. Status notices do not count
+/// as response content.
 ///
 /// This is the retry that used to live inside `sendWithRetry` (http.dart) —
 /// hoisted above the provider so a retry RE-ENTERS the policy stack: composed
@@ -95,6 +96,12 @@ class RetryingProvider implements LlmProvider {
           // Cancelled or already swallowed: drop the rest of this
           // attempt — a retry (or teardown) supersedes it.
           if (cancelled.isCompleted || swallowed != null) return;
+          // Pool rotation and retry notices are status, not response content.
+          // Forward them without disabling a subsequent before-content retry.
+          if (event is StreamNotice) {
+            if (!controller.isClosed) controller.add(event);
+            return;
+          }
           if (!forwarded &&
               event is StreamError &&
               retriesLeft > 0 &&

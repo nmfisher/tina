@@ -34,6 +34,7 @@ class ProviderStreamConsumer {
     final done = Completer<void>();
     List<ContentBlock>? content;
     TokenUsage? usage;
+    String? stopReason;
     Object? error;
 
     /// The raw [StreamError] behind [error], when the failure arrived as one
@@ -62,6 +63,7 @@ class ProviderStreamConsumer {
         } else if (event is MessageComplete) {
           content = event.content;
           usage = event.usage;
+          stopReason = event.stopReason;
         } else if (event is StreamError) {
           error = event.error;
           streamError = event;
@@ -99,6 +101,7 @@ class ProviderStreamConsumer {
     return TurnOutcome(
       content: content,
       usage: usage,
+      stopReason: stopReason,
       error: error,
       streamError: streamError,
       cancelled: cancelled,
@@ -110,6 +113,9 @@ class ProviderStreamConsumer {
 class TurnOutcome {
   final List<ContentBlock>? content;
   final TokenUsage? usage;
+
+  /// Provider finish reason, retained for empty-response recovery decisions.
+  final String? stopReason;
   final Object? error;
 
   /// The raw [StreamError] when [error] came from one — with the transport
@@ -123,6 +129,7 @@ class TurnOutcome {
   const TurnOutcome({
     this.content,
     this.usage,
+    this.stopReason,
     this.error,
     this.streamError,
     required this.cancelled,
