@@ -126,10 +126,13 @@ typedef SubAgentPersistenceFactory = Future<(String, SessionRecorder)> Function(
 /// root); the scheduler derives the run primitives (provider, tools, policy,
 /// system prompt, budget) and hands them over, then runs the returned [Agent].
 ///
-/// Returns the built agent for [_run]'s loop. When null (or when the job
-/// has no panel host) the old inline build is used and the sub-agent stays
-/// telemetry-only. All parameters come from [_run]; see it for semantics.
-typedef SubAgentSessionFactory = Agent Function(
+/// Returns the built DRIVER for [_run]'s loop — the seam-selected unit of
+/// execution (e.g. `AgentDriverAdapter(agent)` for the plain build, or a
+/// replacement driver from the composition's [AgentDriverFactory]). When
+/// null (or when the job has no panel host) the old inline build is used
+/// and the sub-agent stays telemetry-only. All parameters come from [_run];
+/// see it for semantics.
+typedef SubAgentSessionFactory = AgentDriver Function(
     SubAgentScheduler scheduler, SubAgentJob job,
     {required LlmProvider provider,
     required ToolRegistry tools,
@@ -306,16 +309,20 @@ class SubAgentScheduler {
   /// → the standard [DefaultAgentDriverFactory] (a plain [Agent] behind an
   /// [AgentDriverAdapter]), i.e. today's behavior unchanged. A profile mounts a
   /// replacement via `driverPlugin` / [agentDriverFactoryServiceKey]. The
-  /// [subAgentSessionFactory]-hosted (live-panel) path does NOT route through
-  /// this — the coordinator owns that build this round. The scheduler still
-  /// owns the provider lifecycle: it builds the provider, hands it to the
-  /// request, and closes it itself in its finally blocks.
+  /// [subAgentSessionFactory]-hosted (live-panel) path routes through this
+  /// factory too: the coordinator's session factory resolves its panel build
+  /// via [driverFor], so a profile's replacement driver covers panelized runs.
+  /// The scheduler still owns the provider lifecycle: it builds the provider,
+  /// hands it to the request, and closes it itself in its finally blocks. The
+  /// coordinator's
+  /// [subAgentSessionFactory] consults this same factory for the panel path,
+  /// so a replacement driver covers panelized runs too.
   AgentDriverFactory? driverFactory;
 
   /// Set by the wiring to make a live-panelized sub-agent a first-class
-  /// session. [_run] delegates Agent construction + Conversation
-  /// registration to it (building the agent with the panel host's asker so a
-  /// focused sub-agent panel becomes the active conversation). Null (default) →
+  /// session. [_run] delegates build + Conversation registration to it
+  /// (building the driver with the panel host's asker so a focused sub-agent
+  /// panel becomes the active conversation). Null (default) →
   /// old inline, telemetry-only build. Mirrors [NestedDelegateToolBuilder] and
   /// [persistence]: the wiring sets it once at the composition root.
   SubAgentSessionFactory? subAgentSessionFactory;
@@ -750,18 +757,23 @@ class SubAgentScheduler {
 
       final system = job.systemPrompt;
       final factory = subAgentSessionFactory;
-      // EVERY build routes through the scope-selected factory seam now,
-      // including the live-panel branch: the panel path first asks the
-      // coordinator's session factory for its fully wired panel Agent (it
-      // owns panel focus + Conversation registration — unchanged), then hands
-      // that agent to the selected driver factory as the thing to wrap, so a
-      // profile's replacement driver covers panelized runs too. The plain
-      // telemetry-only build goes through [_driverFor] with the request
-      // directly. Without a wired [driverFactory] both paths reproduce the
-      // historical inline build exactly (the default factory's adapter).
+      // EVERY build routes through the scope-selected driver seam now,
+      // including the live-panel branch: the panel path delegates to the
+      // coordinator's session factory, which registers the Conversation and
+      // returns the seam-built driver — its build was resolved through
+      // [driverFor], so a profile's replacement driver covers panelized runs.
+      // The plain telemetry-only build goes through [driverFor] with the
+      // request directly. Without a wired [driverFactory] both paths
+      // reproduce the historical inline build exactly (the default factory's
+      // adapter).
       AgentDriver driver;
       if (factory != null && job.panelHost != null) {
-        final panelAgent = factory(this, job,
+        // The coordinator's factory returns the seam-built driver itself: it
+        // consults [driverFactory] (same as every other delegated build) and
+        // registers its Conversation around that driver. The scheduler runs
+        // it directly — the loop no longer re-wraps an agent behind the
+        // factory's back. The scheduler still owns the provider lifecycle.
+        driver = factory(this, job,
             provider: provider,
             tools: tools,
             policy: ctx.parentPolicy,
@@ -777,29 +789,8 @@ class SubAgentScheduler {
                 : TokenBudget(perSessionLimit: subAgentBudgetLimit),
             pauseGate: pauseGate,
             wirePanelFocus: job.wirePanelFocus!);
-        // The request mirrors the BUILT panel agent field-for-field, so a
-        // replacement driver wraps exactly what the coordinator constructed
-        // (panel-host asker/sink included) instead of re-deriving a lesser
-        // agent from raw parts. Without a wired factory the panel agent runs
-        // directly behind the trivial adapter — the historical behavior.
-        driver = driverFactory?.create(AgentDriverRequest(
-              provider: panelAgent.provider,
-              tools: panelAgent.tools,
-              sink: panelAgent.sink,
-              policy: panelAgent.policy,
-              asker: panelAgent.asker,
-              maxSteps: panelAgent.maxSteps,
-              budget: panelAgent.budget,
-              pauseGate: panelAgent.pauseGate,
-              system: panelAgent.system,
-              executionGuards: scopeGuards,
-              executionHooks: scopeExecutionHooks,
-              resultHooks: scopeResultHooks,
-              observers: scopeObservers,
-            )) ??
-            AgentDriverAdapter(panelAgent);
       } else {
-        driver = _driverFor(AgentDriverRequest(
+        driver = driverFor(AgentDriverRequest(
           provider: provider,
           tools: tools,
           sink: sink,
@@ -1015,7 +1006,7 @@ class SubAgentScheduler {
         tools.add(delegateToolBuilder!(nestedCtx));
       }
 
-      final driver = _driverFor(AgentDriverRequest(
+      final driver = driverFor(AgentDriverRequest(
         provider: provider,
         tools: ToolRegistry(tools),
         sink: sink,
@@ -1068,7 +1059,12 @@ class SubAgentScheduler {
   /// one indirection, nothing else. The request carries everything the factory
   /// needs; the scheduler keeps provider lifecycle at the call sites (it closes
   /// the provider it built in its finally blocks — the driver never does).
-  AgentDriver _driverFor(AgentDriverRequest request) {
+  /// Resolves a delegated build through the driver seam: consults
+  /// [driverFactory], falling back to the default adapter, and attaches the
+  /// scheduler's scope-resolved contributions when the request doesn't carry
+  /// its own. Public because the coordinator's [subAgentSessionFactory] (the
+  /// live-panel path) resolves its panel build through the same seam.
+  AgentDriver driverFor(AgentDriverRequest request) {
     // Scope-resolved contributions ride every delegated build: attach the
     // scheduler's mounted lists when the request doesn't carry its own (a
     // caller-built request — the live-panel branch — pins its lists at

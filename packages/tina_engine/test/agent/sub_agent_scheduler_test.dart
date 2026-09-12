@@ -10,6 +10,65 @@ import '../helpers/fake_agent_sink.dart';
 import '../helpers/fake_host_interface.dart';
 import '../helpers/fake_provider.dart';
 
+/// A driver that scripts a single turn — the seam replacement whose
+/// execution proves the panelized path went through [AgentDriverFactory].
+class _ScriptedSessionDriver implements AgentDriver {
+  int runs = 0;
+
+  @override
+  LlmProvider provider = FakeProvider(const []);
+
+  @override
+  Future<void> run({
+    required List<Message> history,
+    required String userInput,
+    Future<void>? cancelSignal,
+    Future<void>? toolInterruptSignal,
+    ToolRegistry? turnTools,
+  }) async {
+    runs++;
+    history.add(
+      const Message(
+          role: Role.assistant, content: [TextBlock('from-scripted-driver')]),
+    );
+  }
+
+  @override
+  String? get abortedReason => null;
+
+  @override
+  AbortedKind get abortedKind => AbortedKind.none;
+
+  @override
+  String get system => 'scripted';
+
+  @override
+  ToolRegistry get tools => ToolRegistry(const []);
+
+  @override
+  Future<bool> compact(
+    List<Message> history, {
+    int preserveRecent = 0,
+    int preserveRecentMessages = 0,
+    Future<void>? cancelSignal,
+  }) async =>
+      false;
+}
+
+/// A factory that hands back one scripted driver, counting the builds.
+class _CountingDriverFactory implements AgentDriverFactory {
+  _CountingDriverFactory(this.driver);
+
+  final AgentDriver driver;
+  int requests = 0;
+
+  @override
+  AgentDriver create(AgentDriverRequest request) {
+    requests++;
+    return driver;
+  }
+}
+
 /// A provider that records the `system` prompt it receives each turn, for
 /// asserting a sub-agent's prompt reaches the provider.
 class _SystemCapturingProvider extends LlmProvider {
@@ -337,7 +396,7 @@ void main() {
         recorder.attach('s', conv);
         return (conv, recorder);
       };
-      Agent? capturedAgent;
+      AgentDriver? capturedDriver;
       scheduler.subAgentSessionFactory = (scheduler, job,
           {required provider,
           required tools,
@@ -352,7 +411,7 @@ void main() {
           budget,
           pauseGate,
           required wirePanelFocus}) {
-        capturedAgent = Agent(
+        final agent = Agent(
           provider: provider,
           tools: tools,
           sink: sink,
@@ -361,8 +420,9 @@ void main() {
           maxSteps: maxSteps ?? 25,
           system: system ?? '',
         );
+        capturedDriver = AgentDriverAdapter(agent);
         wirePanelFocus(() => providerAskerCalls.add('focus'));
-        return capturedAgent!;
+        return capturedDriver!;
       };
       final job = scheduler.spawn(
         task: 'do it',
@@ -374,13 +434,108 @@ void main() {
       );
       final result = await job.result;
       expect(result.isError, isFalse);
-      expect(capturedAgent, isNotNull, reason: 'factory was invoked');
+      expect(capturedDriver, isNotNull, reason: 'factory was invoked');
       expect(wiredFocus, hasLength(1));
       expect(providerAskerCalls, isEmpty);
       wiredFocus.first();
       expect(providerAskerCalls, ['focus']);
       expect(job.panelHost, same(host));
       expect(job.recorder, isNotNull);
+      await scheduler.dispose();
+    });
+
+    test('a first-class job routes through the driver seam (PR #49)', () async {
+      // The coordinator's [SubAgentSessionFactory] must resolve its panel
+      // build through [SubAgentScheduler.driverFactory] — the same seam every
+      // other delegated build consults. A scripted driver records that it
+      // ran; before the fix the factory built a bare Agent and the scheduler
+      // wrapped it in the default adapter, so the scripted driver never saw
+      // the turn.
+      final scripted = _ScriptedSessionDriver();
+      final scriptedFactory = _CountingDriverFactory(scripted);
+      final panelHost = FakeHostInterface();
+      final store = _FakeStore();
+      final scheduler = testScheduler(
+        scriptedRegistry({'a': answerEvents('from-inline-agent')}),
+        pipeline: pipeline,
+      );
+      scheduler.driverFactory = scriptedFactory;
+      scheduler.persistence = (job,
+          {required meta, required parentConversationId}) async {
+        final conv = await store.createConversationWithMeta('s', meta);
+        job.panelSink = FakeAgentSink();
+        job.panelHost = panelHost;
+        job.wirePanelFocus = (_) {};
+        final recorder = SessionRecorder(store, 's', conv, providerId: 'a');
+        recorder.attach('s', conv);
+        return (conv, recorder);
+      };
+      AgentDriver? returnedDriver;
+      PermissionAsker? builtAsker;
+      scheduler.subAgentSessionFactory = (scheduler, job,
+          {required provider,
+          required tools,
+          required policy,
+          required sink,
+          required host,
+          required recorder,
+          required conversationId,
+          required label,
+          system,
+          maxSteps,
+          budget,
+          pauseGate,
+          required wirePanelFocus}) {
+        // Mirror the coordinator: build the panel agent (panel host's asker
+        // so prompts surface on the focused panel), then resolve the build
+        // through the scheduler's driver seam.
+        final agent = Agent(
+          provider: provider,
+          tools: tools,
+          sink: sink,
+          policy: policy,
+          asker: panelHost.askPermission,
+          maxSteps: maxSteps ?? 25,
+          system: system ?? '',
+        );
+        // The panel host's asker must stay on the build: a tool call on the
+        // focused panel consults the host. Asserted after the run (async).
+        builtAsker = agent.asker;
+        returnedDriver = scheduler.driverFor(AgentDriverRequest(
+          provider: agent.provider,
+          tools: agent.tools,
+          sink: agent.sink,
+          policy: agent.policy,
+          asker: agent.asker,
+          maxSteps: agent.maxSteps,
+          budget: agent.budget,
+          pauseGate: agent.pauseGate,
+          system: agent.system,
+        ));
+        wirePanelFocus(() {});
+        return returnedDriver!;
+      };
+      final job = scheduler.spawn(
+        task: 'do it',
+        toolProfile: ToolProfile.readOnly,
+        parentSystemPrompt: 'P',
+        parentReference: 'a/a-model',
+        parentPolicy: PermissionPolicy(),
+        originConversationId: 'conv1',
+      );
+      final result = await job.result;
+      expect(result.isError, isFalse, reason: result.content);
+      // The panel host's asker survives onto the build: a tool call on the
+      // focused panel consults the host (here: its canned deny comes back).
+      expect(
+          await builtAsker!(const PermissionPrompt('bash', const {})),
+          panelHost.permissionResponse);
+      expect(scriptedFactory.requests, 1,
+          reason: 'the panel build consults the seam once');
+      expect(scripted.runs, 1,
+          reason: 'the scripted driver owns the turn — the seam ran it');
+      expect(returnedDriver, same(scripted));
+      expect(result.content, 'from-scripted-driver');
       await scheduler.dispose();
     });
 
