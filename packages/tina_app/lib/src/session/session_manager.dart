@@ -67,13 +67,14 @@ class SessionManager {
   final AgentBuilder _agentBuilder;
 
   /// The P5 replacement seam: wraps (or replaces) the driver every
-  /// conversation built by this manager runs through. Receives the built
-  /// [Agent] and returns the [AgentDriver] handed to the [Conversation];
-  /// the executor then speaks to that driver instead of the agent. A test (or
+  /// conversation built by this manager runs through. It receives the built
+  /// driver's underlying [Agent] (an adapter's wrapped build) and its result
+  /// REPLACES that driver as the conversation's driver; the executor then
+  /// speaks to the replacement instead of the built-in loop. A test (or
   /// profile) can therefore script the whole turn loop without editing this
-  /// coordinator. Null (the default) means [AgentDriverAdapter.new] — each
-  /// conversation gets an adapter around its own agent, which reproduces
-  /// today's behavior byte for byte.
+  /// coordinator. Null (the default) keeps the builder's driver — by default
+  /// an adapter around the plain agent build, reproducing the pre-seam
+  /// behavior byte for byte.
   final AgentDriver Function(Agent agent)? driverWrapper;
 
   /// Working directory this process is operating in, stamped into the manifest
