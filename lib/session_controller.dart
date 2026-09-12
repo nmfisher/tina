@@ -500,7 +500,7 @@ class SessionController {
     onTurnStarted: _beginEnvironmentTurn,
     toolsForTurn: (conversation, prompt) =>
         _environmentRequests[conversation.id] == prompt
-        ? EnvironmentToolStage(conversation.agent.tools)
+        ? EnvironmentToolStage(conversation.driver.tools)
         : null,
   );
   void _startTurn(Conversation conversation, String input) =>

@@ -33,7 +33,7 @@ class SummaryRunner implements SummaryFleet {
       // The top agent is the orchestrator with a summarization identity: it has
       // only `delegate` + channels (no file tools, structurally — see
       // buildAgent's withSubAgents path), which is exactly the shape we want.
-      final agent = buildAgent(
+      final driver = buildAgent(
         pipeline: app.pipeline,
         scheduler: app.scheduler,
         conversationId: 'summary',
@@ -46,7 +46,7 @@ class SummaryRunner implements SummaryFleet {
       );
 
       final history = <Message>[];
-      await agent.run(
+      await driver.run(
         history: history,
         userInput: _userPrompt(plan.work.toRegenerate),
         cancelSignal: interaction.cancelSignal,

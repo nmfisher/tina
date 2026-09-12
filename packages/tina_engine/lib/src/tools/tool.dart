@@ -101,12 +101,17 @@ sealed class ToolEvent {
 
 /// A tool is about to execute (after permission approval).
 class ToolStartEvent extends ToolEvent {
+  /// A deeply unmodifiable view of the call's authorized arguments — the
+  /// same snapshot the policy matched and the tool will run with. Wrapping
+  /// (not copying) means a UI or observer that tries to mutate an argument
+  /// — top-level or nested — throws instead of silently changing what the
+  /// tool executes.
   final Map<String, dynamic> input;
 
   const ToolStartEvent(
     super.toolName,
     super.toolId,
-    this.input, {
+    Map<String, dynamic> this.input, {
     super.conversationId,
   });
 }

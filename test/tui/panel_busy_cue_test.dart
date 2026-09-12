@@ -291,7 +291,7 @@ Conversation _conversation(
   return Conversation(
     id: id,
     label: id,
-    agent: _agentBuilder(
+    driver: _agentBuilder(
       conversationId: id,
       provider: provider,
       host: host,
@@ -303,19 +303,21 @@ Conversation _conversation(
   );
 }
 
-Agent _agentBuilder({
+AgentDriver _agentBuilder({
   required String conversationId,
   required LlmProvider provider,
   required HostInterface host,
   required PermissionPolicy policy,
 }) =>
-    Agent(
-      provider: provider,
-      tools: ToolRegistry(const []),
-      sink: host,
-      policy: policy,
-      asker: host.askPermission,
-      system: 'sys',
+    AgentDriverAdapter(
+      Agent(
+        provider: provider,
+        tools: ToolRegistry(const []),
+        sink: host,
+        policy: policy,
+        asker: host.askPermission,
+        system: 'sys',
+      ),
     );
 
 /// A provider whose streams stay open until the test releases them, so a turn

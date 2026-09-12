@@ -144,13 +144,15 @@ void main() {
             required provider,
             required host,
             required policy,
-          }) => Agent(
-            provider: provider,
-            tools: ToolRegistry([]),
-            sink: host,
-            policy: policy,
-            asker: host.askPermission,
-            system: '',
+          }) => AgentDriverAdapter(
+            Agent(
+              provider: provider,
+              tools: ToolRegistry([]),
+              sink: host,
+              policy: policy,
+              asker: host.askPermission,
+              system: '',
+            ),
           ),
     );
     operations = ConversationOperations(

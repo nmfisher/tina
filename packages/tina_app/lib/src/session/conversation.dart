@@ -24,6 +24,17 @@ class Conversation {
   String modelReference;
 
   final Agent agent;
+
+  /// The driver this conversation's turns run through — the P5 seam the
+  /// [TurnExecutor] speaks to (one turn, abort classification, system prompt,
+  /// tool registry, provider swap, compaction). Defaults to an
+  /// [AgentDriverAdapter] wrapping [agent], which forwards every member
+  /// verbatim — behavior identical to driving the agent directly. A caller
+  /// may pass any [AgentDriver] instead (see the `driver` constructor
+  /// parameter); the given driver is accepted AS-IS — the constructor does
+  /// not verify the pairing, so a caller passing one must ensure it drives
+  /// [agent] (shares its history list and provider surface).
+  late final AgentDriver driver;
   LlmProvider _provider;
 
   /// The provider for this conversation. Replacement updates both references
@@ -36,11 +47,14 @@ class Conversation {
   }
 
   /// Installs the replacement atomically; reports old-provider cleanup failure.
+  /// Routes through [driver] so a replacement driver stays the single owner of
+  /// the provider surface — the adapter forwards to [agent], keeping both
+  /// references in agreement exactly as a direct assignment did.
   Object? replaceProvider(LlmProvider value) {
     if (identical(_provider, value)) return null;
     final previous = _provider;
     _provider = value;
-    agent.provider = value;
+    driver.provider = value;
     try {
       previous.close();
     } catch (e) {
@@ -82,14 +96,63 @@ class Conversation {
   Conversation({
     required this.id,
     required this.label,
-    required this.agent,
+    Agent? agent,
     required LlmProvider provider,
     required this.host,
     required this.policy,
     this.modelReference = '',
     this.recorder,
     List<Message> initialHistory = const [],
-  }) : _provider = provider {
+
+    /// The driver this conversation's turns run through. Callers pass
+    /// whatever the scope-selected factory built, or
+    /// [AgentDriverAdapter(agent)] for a plain agent (the default when
+    /// omitted AND an agent was given). Conversation owns the driver alone;
+    /// [agent] is optional so a scripted driver needs no [Agent] behind it.
+    /// When [agent] is omitted but [driver] is an [AgentDriverAdapter], the
+    /// adapter's wrapped build surfaces as [agent] so consumers of the
+    /// agent-facing surface see the real thing; any other driver gets the
+    /// agent-less sentinel — the driver is the unit of execution.
+    AgentDriver? driver,
+  })  : agent = agent ?? (driver is AgentDriverAdapter ? driver.agent : null) ??
+            _agentless,
+        _provider = provider,
+        driver = driver ?? AgentDriverAdapter(agent ?? _agentless) {
     history.addAll(initialHistory);
   }
+
+  /// Whether a real [Agent] backs this conversation (false for driver-only
+  /// conversations built from a non-adapter [AgentDriver]).
+  bool get hasAgent => agent is! _NoAgentSentinel;
+
+  /// Placeholder for driver-only conversations: a scripted [AgentDriver]
+  /// needs no [Agent] behind it. Never run — turns go through [driver].
+  static final Agent _agentless = _NoAgentSentinel();
 }
+
+/// Marker agent for driver-only [Conversation]s; never executed.
+final class _NoAgentSentinel extends Agent {
+  _NoAgentSentinel()
+      : super(
+          provider: _NullProvider(),
+          tools: ToolRegistry(const []),
+          sink: _NullHost(),
+          policy: PermissionPolicy(modeSource: null),
+          asker: _denyAsker,
+          system: '',
+        );
+}
+
+final class _NullProvider implements LlmProvider {
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('driver-only conversation has no provider');
+}
+
+final class _NullHost implements HostInterface {
+  @override
+  dynamic noSuchMethod(Invocation invocation) {}
+}
+
+Future<PermissionResponse> _denyAsker(PermissionPrompt prompt) async =>
+    PermissionResponse.denyOnce;

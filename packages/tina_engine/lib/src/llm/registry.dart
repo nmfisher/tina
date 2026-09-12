@@ -7,6 +7,7 @@ import 'pooled_provider.dart';
 import 'provider.dart';
 import 'provider_rate_limit.dart';
 import 'retrying_provider.dart';
+import '../runtime/plugin.dart';
 
 /// How a credential sourced from an env var is sent on the wire.
 ///
@@ -103,6 +104,31 @@ typedef ProviderBuilder = LlmProvider Function(ProviderInstance config);
 /// Set on the registry by the composition root BEFORE the first [build] call;
 /// `null` (the default) leaves providers unwrapped, preserving old behavior.
 typedef ProviderDecorator = LlmProvider Function(LlmProvider inner);
+
+/// Pure ordering marker for provider-decorator composition: it carries no
+/// state or behavior. A plugin "provides" it only so decorator-provider
+/// plugins can be made a declared dependency of the factory plugin via the
+/// scope's `requires` edge — the same order-only trick as a phase-guard key —
+/// without any service actually being consumed. Contributions
+/// ([ProviderDecorator]s registered by plugins) are read from the scope
+/// through [providerDecoratorsFromScope]; this key exists only to fix the
+/// activation order.
+class ProviderDecoratorStage {
+  const ProviderDecoratorStage();
+}
+
+/// Scope key under which a plugin binds the [ProviderDecoratorStage] marker.
+final ServiceKey<ProviderDecoratorStage> providerDecoratorStageServiceKey =
+    ServiceKey<ProviderDecoratorStage>(
+        'tina.engine.provider_decorator_stage');
+
+/// The [ProviderDecorator] CONTRIBUTIONS registered in [scope], in declared
+/// registration order. Non-decorator contributions are ignored, mirroring
+/// [promptContributorsFromScope] for prompt contributors.
+List<ProviderDecorator> providerDecoratorsFromScope(PluginScope scope) => [
+      for (final c in scope.contributions)
+        if (c.contribution is ProviderDecorator) c.contribution as ProviderDecorator,
+    ];
 
 /// Metadata about a provider family — pure data, no wire-format logic.
 class ProviderDescriptor {
@@ -698,3 +724,9 @@ class ProviderRegistry implements LlmProviderFactory {
     return desc.authSources.any((s) => s.scheme == AuthScheme.none);
   }
 }
+
+/// Composition identity of the conversation-owned provider factory. Provided
+/// by the app's `providerFactoryPlugin`; consumers build their providers from
+/// it so the runtime's metering decorator applies to every wire call.
+final ServiceKey<LlmProviderFactory> providerFactoryServiceKey =
+    ServiceKey<LlmProviderFactory>('tina.engine.provider_factory');

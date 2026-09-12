@@ -649,7 +649,7 @@ class TuiCoordinator {
       acquired.own(() async {
         if (!transferred) await initialHost.dispose();
       });
-      final initialAgent = buildAgent(
+      final initialDriver = buildAgent(
         pipeline: pipeline,
         scheduler: scheduler,
         conversationId: initialConversationId,
@@ -667,7 +667,11 @@ class TuiCoordinator {
       final initialConversation = Conversation(
         id: initialConversationId,
         label: provider.model,
-        agent: initialAgent,
+        // The composed driver IS the conversation's driver — the scope-
+        // selected factory survives into turn execution. Where the driver is
+        // an adapter (no replacement factory mounted) its wrapped build
+        // surfaces as the conversation's agent, as before.
+        driver: initialDriver,
         provider: provider,
         host: initialHost,
         policy: policy,
@@ -1615,12 +1619,15 @@ class TuiCoordinator {
       };
 
       // Phase 3 — full unification: a live-panelized delegated sub-agent becomes a
-      // first-class session. The factory builds its Agent with the panel host's
-      // asker (so tool calls on the focused panel surface permission prompts) and
-      // registers a real Conversation. The panel's focus was already wired by
+      // first-class session. The factory builds the panel driver through the
+      // composition's driver seam — the same [driverFactory] every other
+      // delegated build consults — behind an agent that carries the panel
+      // host's asker (so tool calls on the focused panel surface permission
+      // prompts), and registers a real Conversation around that driver. The
+      // panel's focus was already wired by
       // [ConversationPanelCoordinator.bindSpawned] in the persistence hook (resolved
       // by id at focus time), so focusing the panel makes it the active input
-      // target — exactly like a /spawn panel. Returns the Agent for the
+      // target — exactly like a /spawn panel. Returns the driver for the
       // scheduler's loop.
       scheduler.subAgentSessionFactory =
           (
@@ -1651,10 +1658,26 @@ class TuiCoordinator {
               pauseGate: pauseGate,
               system: system ?? '',
             );
+            // The seam: resolve the panel build through the scheduler's
+            // driver factory — identical to every other delegated build, so
+            // a replacement driver covers this path too, with the
+            // scheduler's scope-resolved contributions attached. No wired
+            // factory → the trivial adapter, the historical behavior.
+            final driver = scheduler.driverFor(AgentDriverRequest(
+              provider: agent.provider,
+              tools: agent.tools,
+              sink: agent.sink,
+              policy: agent.policy,
+              asker: agent.asker,
+              maxSteps: agent.maxSteps,
+              budget: agent.budget,
+              pauseGate: agent.pauseGate,
+              system: agent.system,
+            ));
             final conv = Conversation(
               id: conversationId,
               label: label,
-              agent: agent,
+              driver: driver,
               provider: provider,
               host: host,
               policy: policy,
@@ -1667,7 +1690,7 @@ class TuiCoordinator {
             // the persistence hook — it resolves to this conversation (by id) at focus
             // time, so the old placeholder-then-repoint dance is obsolete. The
             // [wirePanelFocus] param is part of the engine contract but unused here.
-            return agent;
+            return driver;
           };
 
       // Wrap an already-restored [conv] in a [PanelFrame] tiled in the right

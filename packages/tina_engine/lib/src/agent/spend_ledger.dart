@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../llm/provider.dart';
+import '../runtime/contracts.dart';
 
 /// Emitted (inside a [StreamError]) by [MeteringProvider] when the global token
 /// ceiling has been crossed. The agent's stream consumer surfaces it as a turn
@@ -319,3 +320,9 @@ class SpendLedger {
     _lastRefill = _now();
   }
 }
+
+/// Composition identity of the conversation-wide spend ledger. Provided by the
+/// app's `spendLedgerPlugin`; the provider-factory plugin requires it so every
+/// provider the app builds is metered against the same ledger.
+final ServiceKey<SpendLedger> spendLedgerServiceKey =
+    ServiceKey<SpendLedger>('tina.engine.spend_ledger');

@@ -62,14 +62,15 @@ void main() {
           required HostInterface host,
           required PermissionPolicy policy,
         }) =>
-            Agent(
+            AgentDriverAdapter(
+          Agent(
           provider: provider,
           tools: ToolRegistry(const []),
           sink: FakeAgentSink(),
           policy: policy,
           asker: host.askPermission,
           system: 'sys',
-        ),
+        )),
       );
       // Idle spinner animation timers are started on switch; clean them up.
       addTearDown(sm.closeAll);
@@ -245,14 +246,15 @@ void main() {
             required HostInterface host,
             required PermissionPolicy policy,
           }) =>
-              Agent(
+              AgentDriverAdapter(
+            Agent(
             provider: provider,
             tools: ToolRegistry(const []),
             sink: FakeAgentSink(),
             policy: policy,
             asker: host.askPermission,
             system: 'sys',
-          ),
+          )),
           sessionStore: store,
         );
 

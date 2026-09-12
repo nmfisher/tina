@@ -49,25 +49,23 @@ class RestoreContext {
   }) : providers = providers ?? registry;
 }
 
-/// Rebuild the exact agent a [meta] describes. [provider] is already resolved
+/// Rebuild the exact driver a [meta] describes. [provider] is already resolved
 /// (from the meta's model ref, or the account provider as a fallback); [host] is
 /// the conversation's sink and the source of its asker.
-Agent _restoreAgent({
+///
+/// A primary conversation rebuilds through [buildAgent], so the scope-selected
+/// driver factory (and its contribution surface) applies on resume exactly as
+/// on the live path. Non-primary kinds resolve through the scheduler's driver
+/// factory with their restored tools and policy, retaining mounted guards and
+/// hooks just like live delegated sessions.
+AgentDriver _restoreDriver({
   required ConversationMeta meta,
   required LlmProvider provider,
   required HostInterface host,
   required PermissionPolicy policy,
   required RestoreContext ctx,
+  required String system,
 }) {
-  final system =
-      meta.promptOverride ??
-      resolveMainPrompt(
-        ctx.pipeline,
-        overrides: ctx.config.promptOverrides,
-        safeMode: ctx.config.safeMode,
-        loadProjectContext: ctx.pipeline.loadProjectContext,
-      );
-
   switch (meta.kind) {
     case ConversationKind.primary:
       // Primary conversations are the interactive main agent — a delegator with
@@ -109,14 +107,18 @@ Agent _restoreAgent({
         );
         tools.add(DelegateTool(ctx2));
       }
-      return Agent(
-        provider: provider,
-        tools: ToolRegistry(tools),
-        sink: host,
-        policy: policy,
-        asker: host.askPermission,
-        maxSteps: 25,
-        system: system,
+      return ctx.scheduler.driverFor(
+        AgentDriverRequest(
+          provider: provider,
+          tools: ToolRegistry(tools),
+          sink: host,
+          policy: policy,
+          asker: host.askPermission,
+          maxSteps: 25,
+          budget: null,
+          pauseGate: null,
+          system: system,
+        ),
       );
   }
 }
@@ -165,16 +167,27 @@ PermissionPolicy _restorePolicy(ConversationMeta meta, RestoreContext ctx) {
   }
 }
 
-/// Rebuild a [Conversation] for [meta] with its exact agent and full history,
+/// Rebuild a [Conversation] for [meta] with its exact driver and full history,
 /// ready to be resumed. The recorder is *attached* to the existing on-disk
 /// conversation (its meta is already persisted), so appends go to the real file
 /// without recreating it. The host starts detached (background) unless this is
 /// the active conversation — the coordinator routes the active one onto the
 /// screen.
+///
+/// The restored conversation's driver IS what [buildAgent] produced for a
+/// primary (the scope-selected factory applies on resume exactly as on the
+/// live path); non-primary kinds use the scheduler's selected driver factory.
+/// [driverWrapper] is the P5 replacement seam — the same hook
+/// [SessionManager] exposes at construction: it receives the restored
+/// underlying agent (an adapter's wrapped build, or the plain rebuild) and
+/// its result becomes the restored conversation's driver, so a test (or
+/// profile) can wrap or replace the driver on resume without editing this
+/// coordinator. Null (the default) keeps the built driver as-is.
 Future<Conversation> restoreConversation(
   ConversationMeta meta,
-  RestoreContext ctx,
-) async {
+  RestoreContext ctx, {
+  AgentDriver Function(Agent agent)? driverWrapper,
+}) async {
   final provider = _restoreProvider(meta, ctx);
   final resources = RuntimeResources()..own(provider.close);
   try {
@@ -184,12 +197,21 @@ Future<Conversation> restoreConversation(
       isActive: meta.id == ctx.activeConversationId,
     );
     resources.own(host.dispose);
-    final agent = _restoreAgent(
+    final system =
+        meta.promptOverride ??
+        resolveMainPrompt(
+          ctx.pipeline,
+          overrides: ctx.config.promptOverrides,
+          safeMode: ctx.config.safeMode,
+          loadProjectContext: ctx.pipeline.loadProjectContext,
+        );
+    var driver = _restoreDriver(
       meta: meta,
       provider: provider,
       host: host,
       policy: policy,
       ctx: ctx,
+      system: system,
     );
 
     // providerId is recorded in the session manifest on first write; derive it
@@ -223,16 +245,24 @@ Future<Conversation> restoreConversation(
     // Point at the existing conversation — its meta is already on disk.
     recorder.attach(ctx.sessionId, meta.id);
 
+    // P5 seam: the built driver IS the conversation's driver (the scope-
+    // selected factory survives the restore). The optional wrapper replaces
+    // the driver when provided — it receives the underlying agent when there
+    // is one to give (an adapter's wrapped build); an agent-less driver has
+    // nothing to wrap and already IS the replacement, so it is kept as-is.
+    final underlying = driver is AgentDriverAdapter ? driver.agent : null;
     return Conversation(
       id: meta.id,
       label: meta.label.isNotEmpty ? meta.label : provider.model,
-      agent: agent,
       provider: provider,
       host: host,
       policy: policy,
       modelReference: meta.model ?? '',
       recorder: recorder,
       initialHistory: history,
+      driver: driverWrapper == null || underlying == null
+          ? driver
+          : driverWrapper(underlying),
     );
   } catch (_) {
     try {

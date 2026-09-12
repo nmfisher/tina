@@ -51,13 +51,15 @@ import 'helpers/fake_provider.dart';
       required HostInterface host,
       required PermissionPolicy policy,
     }) =>
-        Agent(
-          provider: provider,
-          tools: tools,
-          sink: host,
-          policy: policy,
-          asker: host.askPermission,
-          system: 'sys',
+        AgentDriverAdapter(
+          Agent(
+            provider: provider,
+            tools: tools,
+            sink: host,
+            policy: policy,
+            asker: host.askPermission,
+            system: 'sys',
+          ),
         ),
   );
   final controller = SessionController(

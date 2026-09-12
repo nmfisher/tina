@@ -37,8 +37,14 @@ typedef HostFactory =
 /// builder; the host is passed as the agent's sink (a [HostInterface] is an
 /// [AgentSink]) and as the source of its `asker`. App-level config (tools,
 /// max steps, token budget) is captured in the builder's closure.
+///
+/// The builder returns the conversation's [AgentDriver] — the unit of
+/// execution — so the scope-selected driver factory survives into the
+/// conversation. Returning the bare [Agent] here (the pre-fix shape) made
+/// the manager re-wrap a fresh adapter around it and silently discard the
+/// composed driver.
 typedef AgentBuilder =
-    Agent Function({
+    AgentDriver Function({
       required String conversationId,
       required LlmProvider provider,
       required HostInterface host,
@@ -60,6 +66,17 @@ class SessionManager {
   final HostFactory _hostFactory;
   final AgentBuilder _agentBuilder;
 
+  /// The P5 replacement seam: wraps (or replaces) the driver every
+  /// conversation built by this manager runs through. It receives the built
+  /// driver's underlying [Agent] (an adapter's wrapped build) and its result
+  /// REPLACES that driver as the conversation's driver; the executor then
+  /// speaks to the replacement instead of the built-in loop. A test (or
+  /// profile) can therefore script the whole turn loop without editing this
+  /// coordinator. Null (the default) keeps the builder's driver — by default
+  /// an adapter around the plain agent build, reproducing the pre-seam
+  /// behavior byte for byte.
+  final AgentDriver Function(Agent agent)? driverWrapper;
+
   /// Working directory this process is operating in, stamped into the manifest
   /// of any session created in-REPL so `--continue` can scope to the current
   /// folder. Supplied by the app layer; null disables folder scoping.
@@ -79,6 +96,7 @@ class SessionManager {
     required HostFactory hostFactory,
     required AgentBuilder agentBuilder,
     this.sessionStore,
+    this.driverWrapper,
     this.cwd,
   }) : _providerFactory = providerFactory,
        _hostFactory = hostFactory,
@@ -306,24 +324,34 @@ class SessionManager {
       );
       resources.own(host.dispose);
 
-      // The host is the agent's sink AND the source of its asker, so the agent
-      // speaks only to the host seam — no UI type reaches [Agent].
-      final agent = _agentBuilder(
+      // The host is the conversation's sink AND the source of its asker, so
+      // the driver speaks only to the host seam — no UI type reaches the
+      // build. The builder returns the conversation's DRIVER (the composed
+      // one, when a factory is mounted), so it survives into the conversation
+      // instead of being unwrapped and re-adapted.
+      final driver = _agentBuilder(
         conversationId: conversationId,
         provider: provider,
         host: host,
         policy: policy,
       );
 
+      // The P5 seam: when a wrapper is wired it REPLACES the built driver,
+      // receiving the underlying agent when the driver is an adapter. Null
+      // (the default) keeps the built driver as-is — an adapter around the
+      // plain build reproduces the pre-driver behavior byte for byte.
+      final underlying = driver is AgentDriverAdapter ? driver.agent : null;
       return Conversation(
         id: conversationId,
         label: label ?? model,
-        agent: agent,
         provider: provider,
         host: host,
         policy: policy,
         modelReference: '$providerId/$model',
         recorder: recorder,
+        driver: driverWrapper == null || underlying == null
+            ? driver
+            : driverWrapper!(underlying),
       );
     } catch (_) {
       try {

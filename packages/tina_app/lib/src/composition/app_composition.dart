@@ -33,6 +33,18 @@ class AppComposition {
   final AgentPipeline pipeline;
   final SubAgentScheduler scheduler;
 
+  /// Composition-level P5 replacement seam: the agent-driver factory handed to
+  /// [scheduler], which uses it to build the agent loop of every scheduler
+  /// spawned agent (delegations and workflow nodes). One choice here governs
+  /// every scheduler-built agent; null = the scheduler's built-in driver.
+  final AgentDriverFactory? driverFactory;
+
+  /// Composition-level P6 replacement seam: the persistence factory handed to
+  /// [scheduler], which uses it to record every sub-agent session transcript.
+  /// One choice here governs every session-recording sub-agent; null = the
+  /// scheduler's built-in behavior (in-memory-only transcripts).
+  final SubAgentPersistenceFactory? persistence;
+
   /// Session-scoped spend ledger shared by every agent (main + orchestrator +
   /// all scouts) via the runtime's provider decorator. Exposed so the command
   /// layer can render it (`/spend`).
@@ -78,6 +90,8 @@ class AppComposition {
     required this.store,
     required this.pipeline,
     required this.scheduler,
+    this.driverFactory,
+    this.persistence,
     required this.spendLedger,
     required this.pauseGate,
     required this.initialSessionId,
@@ -186,6 +200,8 @@ Future<AppComposition> buildAppComposition({
   ResumeRequest? resumeRequest,
   PromptContext? promptContext,
   bool? loadProjectContext,
+  AgentDriverFactory? driverFactory,
+  SubAgentPersistenceFactory? persistence,
 }) async {
   final resources = RuntimeResources();
   try {
@@ -199,6 +215,8 @@ Future<AppComposition> buildAppComposition({
       toolScope: toolScope,
       promptContext: promptContext,
       loadProjectContext: loadProjectContext,
+      driverFactory: driverFactory,
+      persistence: persistence,
     );
     resources.own(runtime.dispose);
     final env = runtime.environment;
@@ -233,6 +251,8 @@ Future<AppComposition> buildAppComposition({
       store: sessionStore,
       pipeline: pipeline,
       scheduler: scheduler,
+      driverFactory: driverFactory,
+      persistence: persistence,
       spendLedger: ledger,
       pauseGate: pauseGate,
       initialSessionId: resolved.sessionId,

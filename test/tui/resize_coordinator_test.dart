@@ -173,13 +173,15 @@ class _RecordingSessionManager extends SessionManager {
             required HostInterface host,
             required PermissionPolicy policy,
           }) =>
-              Agent(
-                provider: provider,
-                tools: ToolRegistry(const []),
-                sink: host,
-                policy: policy,
-                asker: host.askPermission,
-                system: 'sys',
+              AgentDriverAdapter(
+                Agent(
+                  provider: provider,
+                  tools: ToolRegistry(const []),
+                  sink: host,
+                  policy: policy,
+                  asker: host.askPermission,
+                  system: 'sys',
+                ),
               ),
         );
 

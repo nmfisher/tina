@@ -15,6 +15,11 @@ import 'package:tina_app/src/summaries/summary_index.dart';
 /// gate is forwarded to every sub-agent. The nested-delegation hook is set so a
 /// role with `canDelegate` can fan out further (capped by the scheduler's
 /// maxDepth). Pass a non-default [pipeline] to reuse the wiring in tests.
+///
+/// [driverFactory] / [persistence] mount the composition-level P5/P6
+/// replacement seams (see [AppComposition.driverFactory] /
+/// [AppComposition.persistence]): null (the default) keeps the built-in agent
+/// loop and the in-memory-only sub-agent transcripts.
 SubAgentScheduler createScheduler({
   required RuntimeConfig config,
   required ProviderRegistry registry,
@@ -22,6 +27,19 @@ SubAgentScheduler createScheduler({
   required AgentPipeline pipeline,
   AgentQuota? quota,
   PauseGate? pauseGate,
+  AgentDriverFactory? driverFactory,
+  SubAgentPersistenceFactory? persistence,
+
+  /// Plugin-scope contributions resolved at the composition boundary
+  /// (execution_runtime.dart) and threaded to their consumers. Null (the
+  /// default) means no plugin contributed any — the built-ins run bare.
+  /// Empty-by-default keeps every caller that has no plugin runtime
+  /// byte-identical to the pre-plugin wiring.
+  List<ToolGuard>? guards,
+  List<ToolExecutionHook>? executionHooks,
+  List<ToolResultHook>? resultHooks,
+  List<ToolObserver>? observers,
+  PluginScope? scope,
 }) {
   final scheduler = SubAgentScheduler(
     registry: registry,
@@ -35,16 +53,39 @@ SubAgentScheduler createScheduler({
     pauseGate: pauseGate,
     safeMode: config.safeMode,
     quota: quota,
+    driverFactory: driverFactory,
   );
   scheduler.delegateToolBuilder = (ctx) => DelegateTool(ctx);
   // Thread the user's configured policy to unattended agents (workflow nodes)
   // so the bash decision (--yolo / --allow bash:… / default ask) is inherited
   // rather than blanket-allowed.
   scheduler.basePolicy = config.buildPolicy();
+  // Sub-agent transcript persistence is a wiring-set field on the scheduler
+  // (not a constructor param) — mount the composition-level choice the same
+  // way. null = the scheduler's default in-memory-only behavior.
+  scheduler.persistence = persistence;
+  // Plugin contributions resolved from the active scope: mounted on the
+  // scheduler (engine-side carrier, see [SubAgentScheduler.mountScopeContributions])
+  // so every delegated driver build receives them. Lists default to null —
+  // no contribution, no behavior change. The scope itself is mounted too: it
+  // is the source of profile-mounted prompt sections for delegated identity
+  // resolution ([SubAgentScheduler.scopePromptContributors]).
+  scheduler.mountScopeContributions(
+    guards: guards,
+    executionHooks: executionHooks,
+    resultHooks: resultHooks,
+    observers: observers,
+  );
+  scheduler.mountedScope = scope;
   return scheduler;
 }
 
-/// Build an [Agent] for one conversation from [pipeline]'s main role.
+
+/// Build the driver for one conversation from [pipeline]'s main role.
+///
+/// The returned [AgentDriver] is the unit of execution: callers hand it to
+/// the [Conversation] and run turns through it — they never unwrap an
+/// [Agent] from it (the contract does not even promise one).
 ///
 /// Both modes share the full file/shell tool set ([buildTools]); what differs
 /// is the orchestration surface layered on top:
@@ -59,7 +100,7 @@ SubAgentScheduler createScheduler({
 ///   base tool set (+ the workflow surface when wired) and the un-widened
 ///   policy. Preserves the pre-pipeline behavior (a non-interactive run does
 ///   not gain delegate/channel tools).
-Agent buildAgent({
+AgentDriver buildAgent({
   required AgentPipeline pipeline,
   required SubAgentScheduler scheduler,
   required String conversationId,
@@ -104,6 +145,8 @@ Agent buildAgent({
   // The entry agent's resolved system prompt — also the identity a delegated
   // sub-agent inherits. Resolved once so the agent and the delegation context
   // can't drift (and the recorder's captured prompt matches the live one).
+  // Profile-mounted prompt sections ([scope]'s PromptContributor
+  // registrations) trail the built-in blocks in the assembled prompt.
   final resolvedSystem =
       system ??
       resolveMainPrompt(
@@ -111,6 +154,7 @@ Agent buildAgent({
         overrides: config.promptOverrides,
         safeMode: config.safeMode,
         loadProjectContext: pipeline.loadProjectContext,
+        scope: scheduler.mountedScopeValue,
       );
 
   // Base registry both modes share: the full file/shell tool set (write/edit/
@@ -251,7 +295,13 @@ Agent buildAgent({
     );
   }
 
-  return Agent(
+  // Fix (P1): main-agent construction goes through the SAME resolved
+  // dependencies delegated agents use — the scope-selected driver factory and
+  // the mounted scope contributions (guards, hooks, observers). Building
+  // `Agent` directly here let a plugin-selected factory, its guards, and its
+  // hooks be skipped entirely for the main agent (probes: zero guard
+  // invocations, zero factory calls on the main path).
+  final request = AgentDriverRequest(
     provider: provider,
     tools: agentTools,
     sink: host,
@@ -260,15 +310,39 @@ Agent buildAgent({
     budget: config.buildTokenBudget(),
     pauseGate: scheduler.pauseGate,
     maxSteps: config.maxSteps,
-    // The engine fires this MID-turn (estimating the next request before it
-    // ships), so long autonomous turns — headless --prompt tasks especially,
-    // which have no SessionController to run the between-turns pass — compact
-    // instead of drowning in accumulated tool results.
-    autoCompactThreshold: config.autoCompactThreshold,
     system: resolvedSystem,
+    // The scope contributions mounted for this scheduler ride along, so the
+    // main build runs under the same guards/hooks/observers as delegates.
+    executionGuards: scheduler.scopeGuards,
+    executionHooks: scheduler.scopeExecutionHooks,
+    resultHooks: scheduler.scopeResultHooks,
+    observers: scheduler.scopeObservers,
     resultVerifier: resultVerifier,
     onHistoryAppend: onHistoryAppend,
     onHistoryReplace: onHistoryReplace,
     transportRetryAttempts: transportRetryAttempts,
+    autoCompactThreshold: config.autoCompactThreshold,
   );
+  final factory = scheduler.driverFactory ?? const DefaultAgentDriverFactory();
+  final driver = factory.create(request);
+
+  // The driver IS the result — the caller's Conversation runs turns through
+  // it. Returning `driver.agent` here (the pre-fix behavior) discarded the
+  // replacement driver: every caller executed the built-in agent loop and the
+  // driver seam never ran in production. The default pairing is still the
+  // adapter over the plain build, so the no-factory behavior is unchanged.
+
+  // A replacement factory gets its contribution surface mirrored onto the
+  // scheduler, so delegated builds observe the same contributions the main
+  // build was created with.
+  if (driver is! AgentDriverAdapter) {
+    scheduler.mountScopeContributions(
+      guards: request.executionGuards,
+      executionHooks: request.executionHooks,
+      resultHooks: request.resultHooks,
+      observers: request.observers,
+    );
+  }
+
+  return driver;
 }

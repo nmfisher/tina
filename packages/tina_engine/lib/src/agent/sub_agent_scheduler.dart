@@ -7,9 +7,11 @@ import '../host/host_interface.dart';
 import '../permissions/policy.dart';
 import '../permissions/prompt.dart';
 import '../persistence/session_store.dart';
+import '../runtime/plugin.dart';
 import '../tools/delegation_typedefs.dart';
 import '../tools/tool.dart';
 import 'agent.dart';
+import 'agent_driver.dart';
 import 'run_lifecycle.dart';
 import 'agent_event_bus.dart';
 import 'agent_pipeline.dart';
@@ -19,6 +21,8 @@ import 'pause_gate.dart';
 import 'sub_agent_sink.dart';
 import 'system_prompt.dart';
 import 'token_budget.dart';
+import 'tool_guards.dart';
+import 'tool_hooks.dart';
 
 /// Lifecycle of a [SubAgentJob].
 enum SubAgentJobStatus {
@@ -122,10 +126,13 @@ typedef SubAgentPersistenceFactory = Future<(String, SessionRecorder)> Function(
 /// root); the scheduler derives the run primitives (provider, tools, policy,
 /// system prompt, budget) and hands them over, then runs the returned [Agent].
 ///
-/// Returns the built agent for [_run]'s loop. When null (or when the job
-/// has no panel host) the old inline build is used and the sub-agent stays
-/// telemetry-only. All parameters come from [_run]; see it for semantics.
-typedef SubAgentSessionFactory = Agent Function(
+/// Returns the built DRIVER for [_run]'s loop — the seam-selected unit of
+/// execution (e.g. `AgentDriverAdapter(agent)` for the plain build, or a
+/// replacement driver from the composition's [AgentDriverFactory]). When
+/// null (or when the job has no panel host) the old inline build is used
+/// and the sub-agent stays telemetry-only. All parameters come from [_run];
+/// see it for semantics.
+typedef SubAgentSessionFactory = AgentDriver Function(
     SubAgentScheduler scheduler, SubAgentJob job,
     {required LlmProvider provider,
     required ToolRegistry tools,
@@ -297,13 +304,96 @@ class SubAgentScheduler {
   /// the historical in-memory-only behavior (job history discarded on exit).
   SubAgentPersistenceFactory? persistence;
 
+  /// Replaces how the agent loop is built for the two plain construction sites
+  /// ([_runAgent]'s telemetry-only branch and [_runStandalone]). Null (default)
+  /// → the standard [DefaultAgentDriverFactory] (a plain [Agent] behind an
+  /// [AgentDriverAdapter]), i.e. today's behavior unchanged. A profile mounts a
+  /// replacement via `driverPlugin` / [agentDriverFactoryServiceKey]. The
+  /// [subAgentSessionFactory]-hosted (live-panel) path routes through this
+  /// factory too: the coordinator's session factory resolves its panel build
+  /// via [driverFor], so a profile's replacement driver covers panelized runs.
+  /// The scheduler still owns the provider lifecycle: it builds the provider,
+  /// hands it to the request, and closes it itself in its finally blocks. The
+  /// coordinator's
+  /// [subAgentSessionFactory] consults this same factory for the panel path,
+  /// so a replacement driver covers panelized runs too.
+  AgentDriverFactory? driverFactory;
+
   /// Set by the wiring to make a live-panelized sub-agent a first-class
-  /// session. [_run] delegates Agent construction + Conversation
-  /// registration to it (building the agent with the panel host's asker so a
-  /// focused sub-agent panel becomes the active conversation). Null (default) →
+  /// session. [_run] delegates build + Conversation registration to it
+  /// (building the driver with the panel host's asker so a focused sub-agent
+  /// panel becomes the active conversation). Null (default) →
   /// old inline, telemetry-only build. Mirrors [NestedDelegateToolBuilder] and
   /// [persistence]: the wiring sets it once at the composition root.
   SubAgentSessionFactory? subAgentSessionFactory;
+
+  /// Scope-resolved plugin contributions this scheduler's delegated builds
+  /// must run with: extra guards, execution hooks, result hooks, and
+  /// observers. Carried in a side table keyed by the scheduler (an Expando)
+  /// because the constructor is engine-stable; the composition boundary
+  /// ([createScheduler] in tina_app) is the only writer, and every driver
+  /// build below reads it through [schedulerGuardsOf] and friends. Null (the
+  /// unwritten default) means no plugin contributed anything — every legacy
+  /// construction site stays byte-identical.
+  final Expando<List<ToolGuard>> _scopeGuards = Expando('scheduler.guards');
+  final Expando<List<ToolExecutionHook>> _scopeExecutionHooks =
+      Expando('scheduler.executionHooks');
+  final Expando<List<ToolResultHook>> _scopeResultHooks =
+      Expando('scheduler.resultHooks');
+  final Expando<List<ToolObserver>> _scopeObservers =
+      Expando('scheduler.observers');
+
+  /// Mount the scope-resolved contributions (composition boundary only).
+  void mountScopeContributions({
+    List<ToolGuard>? guards,
+    List<ToolExecutionHook>? executionHooks,
+    List<ToolResultHook>? resultHooks,
+    List<ToolObserver>? observers,
+  }) {
+    _scopeGuards[this] = guards;
+    _scopeExecutionHooks[this] = executionHooks;
+    _scopeResultHooks[this] = resultHooks;
+    _scopeObservers[this] = observers;
+  }
+
+  /// The scheduler's scope-resolved [ToolGuard] contributions, or the empty
+  /// list when none were mounted.
+  List<ToolGuard> get scopeGuards => _scopeGuards[this] ?? const [];
+
+  /// The scheduler's scope-resolved [ToolExecutionHook] contributions, or the
+  /// empty list when none were mounted.
+  List<ToolExecutionHook> get scopeExecutionHooks =>
+      _scopeExecutionHooks[this] ?? const [];
+
+  /// The scheduler's scope-resolved [ToolResultHook] contributions, or the
+  /// empty list when none were mounted.
+  List<ToolResultHook> get scopeResultHooks =>
+      _scopeResultHooks[this] ?? const [];
+
+  /// The scheduler's scope-resolved [ToolObserver] contributions, or the
+  /// empty list when none were mounted.
+  List<ToolObserver> get scopeObservers => _scopeObservers[this] ?? const [];
+
+  /// The active plugin scope the composition resolved this scheduler from,
+  /// when any. Delegated identity resolution reads profile-mounted prompt
+  /// sections through it ([scopePromptContributors]); null when the scheduler
+  /// was built without a plugin runtime — every legacy prompt byte-identical.
+  final Expando<PluginScope> _scope = Expando('scheduler.scope');
+
+  /// Mount the composition's active plugin scope (composition boundary only).
+  /// Distinct from [mountScopeContributions] because the scope is also the
+  /// prompt-section source; the contribution lists were resolved from it
+  /// already.
+  set mountedScope(PluginScope? scope) => _scope[this] = scope;
+
+  /// The scope-resolved [PromptContributor] sections delegated prompts carry,
+  /// or null when no scope was mounted (no plugin runtime).
+  List<PromptContributor>? get scopePromptContributors =>
+      _scope[this] == null ? null : promptContributorsFromScope(_scope[this]!);
+
+  /// The mounted scope itself (composition boundary and scheduler internals;
+  /// null when none was mounted).
+  PluginScope? get mountedScopeValue => _scope[this];
 
   /// Set by the wiring to make a sub-agent spawned by a conversation's MAIN
   /// agent inherit that conversation's *live* `"provider/model"` — the one
@@ -362,6 +452,7 @@ class SubAgentScheduler {
     this.pauseGate,
     this.safeMode = false,
     this.delegateToolBuilder,
+    this.driverFactory,
   })  : providers = providers ?? registry,
         quota = quota ?? AgentQuota(maxDepth: maxDepth, maxLive: maxConcurrent);
 
@@ -666,39 +757,53 @@ class SubAgentScheduler {
 
       final system = job.systemPrompt;
       final factory = subAgentSessionFactory;
-      // A live-panelized job with a wired factory becomes a first-class session:
-      // the coordinator builds its Agent (with the panel host's asker, so tool
-      // calls can prompt on the focused panel) and registers the Conversation so
-      // focusing the panel makes it the active input target. Otherwise fall back
-      // to the telemetry-only inline build (auto-deny asker, no session).
-      final agent = factory != null && job.panelHost != null
-          ? factory(this, job,
-              provider: provider,
-              tools: tools,
-              policy: ctx.parentPolicy,
-              sink: sink,
-              host: job.panelHost!,
-              recorder: job._recorder!,
-              conversationId: job.conversationId!,
-              label: job.label,
-              system: system,
-              maxSteps: defaultMaxSteps,
-              budget: subAgentBudgetLimit == 0
-                  ? null
-                  : TokenBudget(perSessionLimit: subAgentBudgetLimit),
-              pauseGate: pauseGate,
-              wirePanelFocus: job.wirePanelFocus!)
-          : _buildDefaultAgent(
-              provider: provider,
-              tools: tools,
-              sink: sink,
-              policy: ctx.parentPolicy,
-              system: system,
-              maxSteps: defaultMaxSteps,
-              budget: subAgentBudgetLimit == 0
-                  ? null
-                  : TokenBudget(perSessionLimit: subAgentBudgetLimit),
-            );
+      // EVERY build routes through the scope-selected driver seam now,
+      // including the live-panel branch: the panel path delegates to the
+      // coordinator's session factory, which registers the Conversation and
+      // returns the seam-built driver — its build was resolved through
+      // [driverFor], so a profile's replacement driver covers panelized runs.
+      // The plain telemetry-only build goes through [driverFor] with the
+      // request directly. Without a wired [driverFactory] both paths
+      // reproduce the historical inline build exactly (the default factory's
+      // adapter).
+      AgentDriver driver;
+      if (factory != null && job.panelHost != null) {
+        // The coordinator's factory returns the seam-built driver itself: it
+        // consults [driverFactory] (same as every other delegated build) and
+        // registers its Conversation around that driver. The scheduler runs
+        // it directly — the loop no longer re-wraps an agent behind the
+        // factory's back. The scheduler still owns the provider lifecycle.
+        driver = factory(this, job,
+            provider: provider,
+            tools: tools,
+            policy: ctx.parentPolicy,
+            sink: sink,
+            host: job.panelHost!,
+            recorder: job._recorder!,
+            conversationId: job.conversationId!,
+            label: job.label,
+            system: system,
+            maxSteps: defaultMaxSteps,
+            budget: subAgentBudgetLimit == 0
+                ? null
+                : TokenBudget(perSessionLimit: subAgentBudgetLimit),
+            pauseGate: pauseGate,
+            wirePanelFocus: job.wirePanelFocus!);
+      } else {
+        driver = driverFor(AgentDriverRequest(
+          provider: provider,
+          tools: tools,
+          sink: sink,
+          policy: ctx.parentPolicy,
+          asker: _autoDenyAsker,
+          maxSteps: defaultMaxSteps,
+          budget: subAgentBudgetLimit == 0
+              ? null
+              : TokenBudget(perSessionLimit: subAgentBudgetLimit),
+          pauseGate: pauseGate,
+          system: system,
+        ));
+      }
 
       transferred = factory != null && job.panelHost != null;
       // Seed from a prior conversation when present (the `continue` primitive);
@@ -706,7 +811,7 @@ class SubAgentScheduler {
       // leaf replays the prior exchange and continues from it.
       final history =
           seedHistory != null ? List<Message>.from(seedHistory) : <Message>[];
-      await agent.run(
+      await driver.run(
         history: history,
         userInput: task,
         cancelSignal: cancelSignal,
@@ -728,7 +833,7 @@ class SubAgentScheduler {
       // stopped — the live notice is display-only.
       final recorder = job._recorder;
       if (recorder != null) {
-        final aborted = agent.abortedReason;
+        final aborted = driver.abortedReason;
         if (aborted != null) {
           history.add(Message(
             role: Role.assistant,
@@ -885,7 +990,8 @@ class SubAgentScheduler {
       final system = resolveIdentityPrompt(systemPrompt,
           context: pipeline.promptContext,
           safeMode: safeMode,
-          loadProjectContext: pipeline.loadProjectContext);
+          loadProjectContext: pipeline.loadProjectContext,
+          scope: mountedScopeValue);
       if (includeDelegate && delegateToolBuilder != null) {
         final nestedCtx = AgentToolContext(
           scheduler: this,
@@ -900,7 +1006,7 @@ class SubAgentScheduler {
         tools.add(delegateToolBuilder!(nestedCtx));
       }
 
-      final agent = Agent(
+      final driver = driverFor(AgentDriverRequest(
         provider: provider,
         tools: ToolRegistry(tools),
         sink: sink,
@@ -912,16 +1018,16 @@ class SubAgentScheduler {
             : TokenBudget(perSessionLimit: subAgentBudgetLimit),
         pauseGate: pauseGate,
         system: system,
-      );
+      ));
 
       final history =
           seedHistory != null ? List<Message>.from(seedHistory) : <Message>[];
 
-      // The activity lifecycle is driven by [Agent.run] itself: when the sink
-      // is a full host — the TUI's per-scout panel host — its busy cue rises
-      // for the run's duration and clears on every exit path. A plain sink
-      // (the headless _NoopSink) has no signal and skips it.
-      await agent.run(
+      // The activity lifecycle is driven by the driver's run (the agent's run):
+      // when the sink is a full host — the TUI's per-scout panel host — its busy
+      // cue rises for the run's duration and clears on every exit path. A plain
+      // sink (the headless _NoopSink) has no signal and skips it.
+      await driver.run(
         history: history,
         userInput: task,
         cancelSignal: cancelSignal,
@@ -932,7 +1038,7 @@ class SubAgentScheduler {
         return RunAgentResult.error(extracted.content,
             // A provider failure (rate limit, dropped stream) may clear on a
             // retry; budget/steps exhaustions and everything else will not.
-            transient: agent.abortedKind == AbortedKind.provider);
+            transient: driver.abortedKind == AbortedKind.provider);
       }
       return RunAgentResult(extracted.content);
     } catch (_) {
@@ -947,30 +1053,46 @@ class SubAgentScheduler {
     }
   }
 
-  /// Inline, telemetry-only Agent build used when the job has no panel host
-  /// (or no [subAgentSessionFactory] is wired). Auto-deny asker, no session
-  /// registration — preserves the pre-unification behavior for plain delegated
-  /// sub-agents.
-  Agent _buildDefaultAgent({
-    required LlmProvider provider,
-    required ToolRegistry tools,
-    required AgentSink sink,
-    required PermissionPolicy policy,
-    required String system,
-    required int maxSteps,
-    required TokenBudget? budget,
-  }) =>
-      Agent(
-        provider: provider,
-        tools: tools,
-        sink: sink,
-        policy: policy,
-        asker: _autoDenyAsker,
-        maxSteps: maxSteps,
-        budget: budget,
-        pauseGate: pauseGate,
-        system: system,
-      );
+  /// The single chokepoint both plain Agent construction sites route through:
+  /// the wired [driverFactory] when present, the default factory otherwise —
+  /// so today's build (a plain [Agent]) and a profile's replacement differ by
+  /// one indirection, nothing else. The request carries everything the factory
+  /// needs; the scheduler keeps provider lifecycle at the call sites (it closes
+  /// the provider it built in its finally blocks — the driver never does).
+  /// Resolves a delegated build through the driver seam: consults
+  /// [driverFactory], falling back to the default adapter, and attaches the
+  /// scheduler's scope-resolved contributions when the request doesn't carry
+  /// its own. Public because the coordinator's [subAgentSessionFactory] (the
+  /// live-panel path) resolves its panel build through the same seam.
+  AgentDriver driverFor(AgentDriverRequest request) {
+    // Scope-resolved contributions ride every delegated build: attach the
+    // scheduler's mounted lists when the request doesn't carry its own (a
+    // caller-built request — the live-panel branch — pins its lists at
+    // construction, mirroring the agent it was derived from).
+    final requestWithContributions = AgentDriverRequest(
+      provider: request.provider,
+      tools: request.tools,
+      sink: request.sink,
+      policy: request.policy,
+      asker: request.asker,
+      maxSteps: request.maxSteps,
+      budget: request.budget,
+      pauseGate: request.pauseGate,
+      system: request.system,
+      executionGuards: request.executionGuards.isNotEmpty
+          ? request.executionGuards
+          : scopeGuards,
+      executionHooks: request.executionHooks.isNotEmpty
+          ? request.executionHooks
+          : scopeExecutionHooks,
+      resultHooks:
+          request.resultHooks.isNotEmpty ? request.resultHooks : scopeResultHooks,
+      observers:
+          request.observers.isNotEmpty ? request.observers : scopeObservers,
+    );
+    return driverFactory?.create(requestWithContributions) ??
+        const DefaultAgentDriverFactory().create(requestWithContributions);
+  }
 
   /// The profile's tool set, minus the safe-mode-disabled tools when
   /// `--safe-mode` is on. The single source of truth for both the registry and

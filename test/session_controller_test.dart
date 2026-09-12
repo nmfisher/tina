@@ -116,13 +116,15 @@ SessionController _buildController({
       required HostInterface host,
       required PermissionPolicy policy,
     }) =>
-        Agent(
-      provider: provider,
-      tools: toolRegistry,
-      sink: host,
-      policy: policy,
-      asker: host.askPermission,
-      system: 'sys',
+        AgentDriverAdapter(
+      Agent(
+        provider: provider,
+        tools: toolRegistry,
+        sink: host,
+        policy: policy,
+        asker: host.askPermission,
+        system: 'sys',
+      ),
     ),
   );
   final controller = SessionController(

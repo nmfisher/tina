@@ -246,7 +246,7 @@ class TurnExecutor {
       // follow-up turn (see injectWorkflowResult) carrying the outcome.
       // Workflows never wrap a chat turn.
       try {
-        await s.agent.run(
+        await s.driver.run(
           history: s.history,
           userInput: input,
           cancelSignal: cancel.future,
@@ -267,7 +267,7 @@ class TurnExecutor {
     // assistant message, so a quit + restore still shows WHY the turn died —
     // the live notice is display-only. A cancelled turn rolls back below and
     // drops this with the rest of the exchange.
-    final aborted = s.agent.abortedReason;
+    final aborted = s.driver.abortedReason;
     if (aborted != null && !cancel.isCompleted) {
       s.history.add(
         Message(
@@ -339,14 +339,14 @@ class TurnExecutor {
     String input, {
     ToolRegistry? turnTools,
   }) async {
-    final estimate = TokenBudget.estimateInputTokens(s.agent.system, [
+    final estimate = TokenBudget.estimateInputTokens(s.driver.system, [
       ...s.history,
       Message(role: Role.user, content: [TextBlock(input)]),
-    ], (turnTools ?? s.agent.tools).schemas);
+    ], (turnTools ?? s.driver.tools).schemas);
     if (estimate <= autoCompactThreshold) return;
 
     final before = s.history.length;
-    final compacted = await s.agent.compact(
+    final compacted = await s.driver.compact(
       s.history,
       preserveRecent: autoCompactPreserveRecent,
       cancelSignal: s.cancelCompleter?.future,

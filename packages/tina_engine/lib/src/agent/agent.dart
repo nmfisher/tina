@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:logging/logging.dart';
-import 'package:path/path.dart' as p;
 
 import '../llm/http.dart' show isTransportRetryable;
 import '../llm/message.dart';
@@ -10,15 +8,15 @@ import '../llm/provider.dart';
 import '../permissions/policy.dart';
 import '../permissions/prompt.dart';
 import '../tools/tool.dart';
-import '../tools/bash_tool.dart';
-import '../tools/sandbox_failure.dart';
-import '../tools/tool_input.dart';
-import '../permissions/sandbox_access.dart';
 import 'run_lifecycle.dart';
 import 'agent_sink.dart';
 import 'pause_gate.dart';
 import 'stream_consumer.dart';
 import 'token_budget.dart';
+import 'tool_executor.dart';
+import 'tool_executor.dart' as tool_executor;
+import 'tool_guards.dart';
+import 'tool_hooks.dart';
 
 final _log = Logger('tina.agent');
 
@@ -55,49 +53,6 @@ Duration transportBackoffFor(int attempt, {Duration? retryAfter}) {
   }
   return d;
 }
-
-/// Consecutive denials of the SAME tool after which the denial result gains a
-/// circuit-breaker line telling the model to stop calling that tool (#27).
-/// Why 3: the live spiral runs wasted 12 steps (Run A) and 11 (the probe run)
-/// re-denying one tool before the model gave up — three strikes is early
-/// enough to cut most of that waste while leaving room for one legitimate
-/// rephrase between attempts. Not configurable by design, like
-/// [kMaxToolCallsPerRun].
-const int _consecutiveDenialNoticeThreshold = 3;
-
-/// Consecutive anomalous executions of the SAME command (per-command
-/// signature, #29) after which the tool_result gains a guardrail line telling
-/// the model to stop re-running it unchanged. Same tool as the #27 denial
-/// breaker above, one level down: the spiral it targets is not the policy
-/// refusing a call but the call itself going nowhere — timeout, empty output,
-/// or the identical error, over and over. Why 3: same reasoning as the denial
-/// breaker's three strikes. Not configurable by design, like
-/// [kMaxToolCallsPerRun].
-const int _consecutiveAnomalyNoticeThreshold = 3;
-
-/// The operator-interrupt line (#31) as it lands in history and in the
-/// notice the operator sees. Public so a caller (or test) can assert the
-/// exact text without hard-coding it.
-const String kOperatorInterruptedLine =
-    'interrupted by operator — new input pending';
-
-/// Result text for the tool calls a batch skips when the operator interrupt
-/// (#31) fires mid-batch. Public for the same reason.
-const String kOperatorInterruptedStub = 'skipped: operator interrupt';
-
-/// The in-band guardrail line appended to an anomalous tool_result once the
-/// same command has hit [_consecutiveAnomalyNoticeThreshold] consecutive
-/// anomalies in one turn (#29). In-band on purpose (#27's lesson): prose
-/// outside tool results does not steer, so the instruction rides the result
-/// the model actually reads. A code constant, not config — same rationale as
-/// [kMaxToolCallsPerRun].
-const String _anomalyGuardrailNote =
-    '[guardrail] this exact command has now failed '
-    '$_consecutiveAnomalyNoticeThreshold times in a row this turn (timeout, '
-    'empty output, or an identical error). Do not re-run it unchanged. If the '
-    'failure is unrelated to your task, note it and return to the primary '
-    'objective. If it is essential, change the approach: narrow the target, '
-    'adjust the timeout, use a different tool, or fix the underlying cause.';
 
 /// How many of the most recent agent-loop STEPS keep their tool results at
 /// full size (#44). A result older than this window is dead weight at full
@@ -202,11 +157,6 @@ Use terse markdown bullets, <= 400 words. Preserve:
 - errors encountered and how they were resolved
 Omit pleasantries and reasoning that did not lead anywhere.
 ''';
-
-typedef ToolResultVerifier = Future<String?> Function(
-  String toolName,
-  Map<String, dynamic> input,
-);
 
 /// Fired (and awaited) by [Agent] after a message is appended to the live
 /// history — the turn's user message, each assistant completion, each
@@ -325,6 +275,32 @@ class Agent {
   final int emptyCompletionRetryAttempts;
   final Future<void> Function(Duration delay)? emptyCompletionBackoffDelay;
 
+  /// Extra deny-preserving guards ([ToolGuard]) for this agent's tool calls.
+  /// The [ToolExecutor] always runs the mandatory policy and phase guards
+  /// first ([PolicyToolGuard], [RegistryPhaseGuard]); these are appended
+  /// after them in the ordered, denial-combining chain
+  /// ([combineGuardBlocks]) — checked at the same three gates, never able to
+  /// override an earlier guard's rejection, and a throwing guard fails
+  /// closed. Empty (the default) = behavior unchanged.
+  final List<ToolGuard> executionGuards;
+
+  /// AROUND-execution hooks ([ToolExecutionHook]) wrapping each tool's
+  /// execute call (first hook outermost), after the guards. Empty (the
+  /// default) = behavior unchanged.
+  final List<ToolExecutionHook> executionHooks;
+
+  /// POST-tool hooks ([ToolResultHook]) running after the legacy verifier
+  /// on successful results: first non-null verdict is appended to the tool
+  /// content, a throwing hook is skipped. Empty (the default) = behavior
+  /// unchanged.
+  final List<ToolResultHook> resultHooks;
+
+  /// Observation-only hooks ([ToolObserver]) notified additively at the
+  /// toolStart / toolOutput / toolComplete points; an observer exception is
+  /// contained and can never change execution. Empty (the default) =
+  /// behavior unchanged.
+  final List<ToolObserver> toolObservers;
+
   Agent({
     required LlmProvider provider,
     required this.tools,
@@ -343,6 +319,10 @@ class Agent {
     this.transportBackoffDelay,
     this.emptyCompletionRetryAttempts = 3,
     this.emptyCompletionBackoffDelay,
+    this.executionGuards = const [],
+    this.executionHooks = const [],
+    this.resultHooks = const [],
+    this.toolObservers = const [],
     required this.system,
   }) : _provider = provider;
 
@@ -496,16 +476,37 @@ class Agent {
     // already-interrupted: the batch's first call ships the prefix line and
     // the remainder stubs, and the turn ends). See the tool-execution block
     // below for the full mechanics.
-    var toolInterrupted = false;
-    toolInterruptSignal?.then((_) => toolInterrupted = true);
-    // Tools must stop for either signal. Choosing the interrupt signal alone
-    // masks ordinary cancellation whenever the interactive host supplies both.
+    final executorState = ToolCallState();
+    toolInterruptSignal?.then((_) => executorState.toolInterrupted = true);
+    // The per-call dispatch state and its executor: what used to be
+    // _runTurn locals (denial counter #27, anomaly streaks #29,
+    // sandbox-retry bookkeeping) moved verbatim into [ToolCallState]
+    // (tool_executor.dart) and now lives here — created and discarded with
+    // the turn, so no streak or retry memory ever survives into the next
+    // user turn. The executor is built once per turn and dispatches each
+    // call of every batch. The either-signal stop future from main is
+    // forwarded so tools stop for cancellation OR operator interrupt
+    // (choosing the interrupt alone would mask ordinary cancellation when
+    // the interactive host supplies both).
     final toolStopSignal = cancelSignal == null
         ? toolInterruptSignal
         : toolInterruptSignal == null
             ? cancelSignal
             : Future.any<void>([cancelSignal, toolInterruptSignal]);
-    budget = budget?.resetTurn();
+    final toolExecutor = ToolExecutor(
+      policy: policy,
+      asker: asker,
+      sink: sink,
+      state: executorState,
+      resultVerifier: resultVerifier,
+      cancelSignal: cancelSignal,
+      toolInterruptSignal: toolInterruptSignal,
+      toolStopSignal: toolStopSignal,
+      executionGuards: executionGuards,
+      executionHooks: executionHooks,
+      resultHooks: resultHooks,
+      observers: toolObservers,
+    );
 
     // Action cap: count tool invocations across all steps of this turn. A step
     // may issue many tool calls; this coarse backstop (complementing the token
@@ -521,24 +522,6 @@ class Agent {
     // Consecutive completions that carried NO blocks at all (see the check
     // before the history append below). One retry, then abort.
     var emptyCompletions = 0;
-
-    // Per-tool consecutive denial counter (#27): resets on any SUCCESS of
-    // that tool, increments on each denial. Used to trip the circuit-breaker
-    // message that tells the model to stop calling the same denied tool.
-    final denialCounts = <String, int>{};
-    // #29 retry guard, per-turn like everything above: signature → consecutive
-    // anomalies, plus the pre-note content of the signature's last attempt.
-    // Created and discarded with this turn — a streak never survives into the
-    // next user turn.
-    final consecutiveAnomalyCounts = <String, int>{};
-    final previousAttemptContent = <String, String>{};
-    // Recovery is keyed by exact shell text and cwd, not the anomaly signature
-    // (which collapses whitespace, including meaningful quoted whitespace).
-    final sandboxFailures = <String,
-        ({SandboxWriteFailure failure, int step, List<String> priorPaths})>{};
-    final promptedSandboxRetries = <String>{};
-    final deniedSandboxRetries = <String>{};
-    final deniedSandboxDirectories = <String>{};
 
     // Soft margin (#37): the once-per-turn latch is the instance field
     // [_softMarginFired]; it resets here, at the top of every turn, so each
@@ -884,11 +867,20 @@ class Agent {
       //
       // Stream phases are never disturbed — the signal is only consulted
       // here and in the effective cancel wiring around tool.execute.
-      var interruptedCallIndex = toolInterrupted ? 0 : -1;
+      var interruptedCallIndex = executorState.toolInterrupted ? 0 : -1;
       if (interruptedCallIndex == 0) {
         sink.notice('$kOperatorInterruptedLine\n');
       }
       for (final use in toolUses) {
+        // Per-call dispatch is extracted: [ToolExecutor.execute] owns the
+        // whole `for (final use in toolUses)` body (parse-error,
+        // unknown-tool, mode-block, denial + circuit breaker, asker,
+        // sandbox-retry gate, execution, verifier gate, anomaly guardrail),
+        // verbatim, against the per-turn [ToolCallState] built above. The
+        // loop HEADER stays here — cancel break, already-interrupted stub,
+        // action-limit check, toolCalls++ — as do the batch-scope
+        // attribution above, the post-batch stamp, and the early return
+        // below.
         if (cancelled) break;
         final callIndex = results.length;
         if (interruptedCallIndex >= 0 && callIndex > interruptedCallIndex) {
@@ -910,348 +902,14 @@ class Agent {
           return;
         }
         toolCalls++;
-        // The model's tool-call arguments were not valid JSON (tin-p2sq: a
-        // quote-heavy shell one-liner it failed to escape). The tool cannot
-        // run, but the turn need not die: answer the call with an error the
-        // model can act on, and let the next step re-emit it correctly.
-        final parseError = use.argumentsParseError;
-        if (parseError != null) {
-          sink.notice(
-              '  ${use.name}: malformed arguments — asking the model to '
-              'retry\n',
-              kind: NoticeKind.warning);
-          results.add(ToolResultBlock(
-            toolUseId: use.id,
-            content: 'Your ${use.name} call was discarded: its arguments '
-                'were not valid JSON ($parseError). This usually means '
-                'quotes or backslashes in the command text were not escaped '
-                'for JSON — re-emit the call with '
-                r'inner double quotes written as \" and each literal '
-                r'backslash as \\.',
-            isError: true,
-          ));
-          continue;
-        }
-        final tool = stepTools[use.name];
-        if (tool == null) {
-          sink.notice('  unknown tool: ${use.name}\n', kind: NoticeKind.error);
-          results.add(ToolResultBlock(
-            toolUseId: use.id,
-            content: 'Unknown tool: ${use.name}',
-            isError: true,
-          ));
-          continue;
-        }
-
-        String? runtimeBlock() =>
-            policy.executionBlock(use.name, use.input) ??
-            stepTools.executionBlock(use.name, use.input);
-        final initialBlock = runtimeBlock();
-        if (initialBlock != null) {
-          sink.notice('$initialBlock\n', kind: NoticeKind.warning);
-          results.add(ToolResultBlock(
-              toolUseId: use.id, content: initialBlock, isError: true));
-          continue;
-        }
-        var decision = tool is LocalControlTool
-            ? PermissionDecision.allow
-            : policy.check(use.name, use.input);
-        Tool executionTool = tool;
-        var executionInput = use.input;
-        final retryKey = tool is BashTool
-            ? jsonEncode([
-                optionalString(use.input, 'command')?.trim(),
-                p.normalize(resolveToolPath(
-                    optionalString(use.input, 'cwd') ?? tool.projectRoot ?? '.',
-                    tool.projectRoot)),
-              ])
-            : null;
-        final recovery = sandboxFailures[retryKey];
-        String? retrySafety;
-        SandboxAccessRequest? access;
-        try {
-          if (decision != PermissionDecision.deny && tool is BashTool) {
-            if (recovery != null) {
-              if (deniedSandboxRetries.contains(retryKey)) {
-                throw const ToolValidationException(
-                    'The user denied this sandbox retry. Do not request it again this turn; proceed without this access.');
-              }
-              if (promptedSandboxRetries.contains(retryKey)) {
-                throw const ToolValidationException(
-                    'The approved sandbox retry also failed. Do not keep requesting approval; investigate the failure and report it to the user.');
-              }
-              if (step <= recovery.step) {
-                throw const ToolValidationException(
-                    'Inspect the sandbox failure and possible partial effects before submitting a retry in a subsequent step.');
-              }
-              retrySafety = requiredString(use.input, 'retrySafety').trim();
-              if (retrySafety.isEmpty ||
-                  RegExp(r'[\x00-\x1f\x7f]').hasMatch(retrySafety)) {
-                throw const ToolValidationException(
-                    'retrySafety must explain the partial-effects checks and why replay is safe, on one line.');
-              }
-              final requested = use.input['writablePaths'] ?? const [];
-              if (requested is! List ||
-                  requested.any((path) => path is! String)) {
-                throw const ToolValidationException(
-                    'writablePaths must be a list of directory paths.');
-              }
-              executionInput = {
-                ...use.input,
-                'writablePaths': {
-                  ...recovery.priorPaths,
-                  ...recovery.failure.writablePaths,
-                  ...requested
-                }.toList(),
-                'accessReason': optionalString(use.input, 'accessReason') ??
-                    'Retry the failed command with access to the directory named in its read-only filesystem error.',
-              };
-            }
-            access = tool.requestAccess(executionInput);
-            // A retry is explicit even if another agent granted the directory
-            // while this agent was inspecting partial effects.
-            if (recovery != null) {
-              access ??= SandboxAccessRequest(recovery.failure.writablePaths,
-                  executionInput['accessReason'] as String);
-            }
-            if (access != null) {
-              if (access.paths.any((path) => deniedSandboxDirectories.any(
-                  (denied) =>
-                      path == denied ||
-                      p.isWithin(denied, path) ||
-                      p.isWithin(path, denied)))) {
-                throw const ToolValidationException(
-                    'The user denied writable access to this directory this turn. Do not request it again under another command.');
-              }
-              decision = PermissionDecision.ask;
-            }
-          }
-        } on ToolValidationException catch (e) {
-          results.add(ToolResultBlock(
-              toolUseId: use.id, content: e.message, isError: true));
-          continue;
-        }
-        // The asker's response, when the decision went through the asker
-        // (ask → refused). Null for a static deny RULE — a rule deny is a
-        // policy choice; the allowed-shapes text is its remedy, so no asker
-        // note is expected there.
-        PermissionResponse? resp;
-        String? changedModeBlock;
-        if (decision == PermissionDecision.ask) {
-          final prompt = PermissionPrompt(use.name, executionInput,
-              sandboxAccess: access,
-              retryExplanation: recovery?.failure.explanation,
-              retrySafety: retrySafety);
-          if (recovery != null) promptedSandboxRetries.add(retryKey!);
-          resp = await asker(prompt);
-          changedModeBlock = runtimeBlock();
-          decision = changedModeBlock == null &&
-                  resp.decision == PermissionDecision.allow &&
-                  !cancelled &&
-                  !toolInterrupted
-              ? PermissionDecision.allow
-              : PermissionDecision.deny;
-          if (changedModeBlock == null &&
-              resp.remember &&
-              access == null &&
-              !cancelled &&
-              !toolInterrupted) {
-            policy.remember(use.name, prompt.alwaysPattern, decision);
-          }
-        }
-        if (decision == PermissionDecision.deny) {
-          if (recovery != null) deniedSandboxRetries.add(retryKey!);
-          if (access != null) deniedSandboxDirectories.addAll(access.paths);
-          sink.notice('  ${use.name} denied\n');
-          // Circuit breaker (#27): a model that keeps re-denying the SAME
-          // tool never gets new information from the plain denial text, and
-          // the asker's own refusal hint only went to stderr — so it spun
-          // (12 wasted steps in Run A; 11 in the probe run). Past the
-          // threshold the denial result itself says "stop calling this".
-          final denials = (denialCounts[use.name] ?? 0) + 1;
-          denialCounts[use.name] = denials;
-          var content = changedModeBlock ??
-              (access == null
-                  ? _deniedContent(use.name)
-                  : 'Command and additional writable directory access denied. '
-                      'The command was not executed. Proceed without this access.');
-          final note = resp?.note;
-          if (note != null && note.isNotEmpty) {
-            content = '$content\n$note';
-          }
-          if (denials >= _consecutiveDenialNoticeThreshold) {
-            content =
-                '$content\nNOTE: $denials consecutive ${use.name} denials '
-                'this turn — this tool will keep being refused. Stop calling '
-                'it; proceed with the allowed tools or answer from what you '
-                'have.';
-            sink.notice(
-                '  ${use.name}: $denials consecutive denials this turn — '
-                'circuit-breaker notice attached to the denial result\n',
-                kind: NoticeKind.warning);
-          }
-          results.add(ToolResultBlock(
-            toolUseId: use.id,
-            content: content,
-            isError: true,
-          ));
-          continue;
-        }
-
-        if (access != null) {
-          try {
-            executionTool = (tool as BashTool)
-                .withApprovedAccess(access, remember: resp?.remember ?? false);
-          } on ToolValidationException catch (e) {
-            results.add(ToolResultBlock(
-                toolUseId: use.id, content: e.message, isError: true));
-            continue;
-          }
-        }
-
-        // An ALLOWED call resets this tool's denial streak — the policy
-        // let the shape through, so the refusal pattern it was counting is
-        // over (whether the execution then succeeds or errors).
-        denialCounts.remove(use.name);
-        sink.toolStart(ToolStartEvent(use.name, use.id, executionInput));
-        try {
-          // #31: while THIS call runs, the operator interrupt rides the
-          // tool's existing cancel seam — bash kills via its existing
-          // cancel path; no new kill path is added. The agent-level cancel
-          // semantics ([cancelled]) are untouched: an interrupt is NOT a
-          // cancel. Runs without the feature keep the same shape as before
-          // it: the run's own (non-null) cancel signal.
-          final effectiveCancelSignal = toolInterrupted
-              ? cancelSignal
-              : toolStopSignal;
-          final finalBlock = runtimeBlock();
-          if (finalBlock != null) {
-            sink.toolComplete(ToolCompleteEvent(use.name, use.id,
-                isError: true, result: finalBlock));
-            results.add(ToolResultBlock(
-                toolUseId: use.id, content: finalBlock, isError: true));
-            continue;
-          }
-          final out = await executionTool.execute(
-            executionInput,
-            cancelSignal: effectiveCancelSignal,
-            onOutput: (chunk, {bool stderr = false}) {
-              sink.toolOutput(
-                  ToolOutputEvent(use.name, use.id, chunk, stderr: stderr));
-            },
-          );
-          if (retryKey != null &&
-              out is BashToolResult &&
-              out.sandboxFailure != null &&
-              !cancelled &&
-              !toolInterrupted) {
-            sandboxFailures.putIfAbsent(
-                retryKey,
-                () => (
-                      failure: out.sandboxFailure!,
-                      step: step,
-                      priorPaths: List<String>.from(
-                          executionInput['writablePaths'] as List? ?? const [])
-                    ));
-            sink.notice(
-                '${out.sandboxFailure!.explanation}\n'
-                'The agent must check partial effects before requesting approval to retry.\n',
-                kind: NoticeKind.warning);
-          } else if (!out.isError && retryKey != null) {
-            sandboxFailures.remove(retryKey);
-          }
-          // #31: the interrupt is re-sampled right after EVERY call, not
-          // only at batch start — a signal that fired while THIS call was
-          // in flight makes it the in-flight one: its result is the one the
-          // post-batch stamp prefixes, and every LATER call of the batch
-          // stubs without executing. Sampled before ANY result-shipping
-          // path runs (verifier block, plain add, thrown-tool catch adds
-          // from its own path), so `results.length` here is exactly the
-          // index this call's result occupies in the batch message.
-          if (interruptedCallIndex < 0 && toolInterrupted) {
-            interruptedCallIndex = results.length;
-            sink.notice('$kOperatorInterruptedLine\n');
-          }
-          // #29 retry guard, BEFORE anything mutates the result content: the
-          // identical-error class must compare what the tool actually
-          // returned last time, not last time plus an appended guardrail
-          // note (the note would otherwise make identical failures look
-          // changed).
-          final sig = Agent.anomalySignature(use.name, use.input);
-          final anomaly = Agent.isAnomalousResult(
-            out,
-            previousContent: previousAttemptContent[sig],
-          );
-          previousAttemptContent[sig] = out.content;
-          final streak = anomaly ? (consecutiveAnomalyCounts[sig] ?? 0) + 1 : 0;
-          if (anomaly) {
-            consecutiveAnomalyCounts[sig] = streak;
-          } else {
-            consecutiveAnomalyCounts.remove(sig);
-          }
-          // Ride the note on every anomaly from the threshold on; the
-          // operator notice fires exactly once, on the crossing.
-          var content = out.content;
-          if (anomaly && streak >= _consecutiveAnomalyNoticeThreshold) {
-            content = '$content\n$_anomalyGuardrailNote';
-            if (streak == _consecutiveAnomalyNoticeThreshold) {
-              sink.notice(
-                '${use.name} hit $_consecutiveAnomalyNoticeThreshold '
-                'consecutive anomalies this turn (timeout / empty output / '
-                'identical error) — guardrail note attached\n',
-                kind: NoticeKind.warning,
-              );
-            }
-          }
-          // Operator interrupt (#31): this call was in flight when the
-          // signal fired. The operator line is stamped onto the FIRST
-          // result after the batch loop (one site, every result path), so
-          // here the text ships as the tool produced it.
-          sink.toolComplete(ToolCompleteEvent(use.name, use.id,
-              isError: out.isError, result: content));
-          // Success-only verifier gate (#22a): a post-tool check (e.g. a
-          // headless post-edit `dart analyze`) can append a remediation block
-          // to the result the model reads next step. Error results, the
-          // parse-error / unknown-tool / denied / thrown paths above all skip
-          // it, and a verifier crash must never kill the turn — the tool's
-          // own content ships unchanged instead.
-          if (!out.isError && resultVerifier != null && !toolInterrupted) {
-            try {
-              final verdict = await resultVerifier!(use.name, use.input);
-              if (verdict != null && verdict.isNotEmpty) {
-                results.add(ToolResultBlock(
-                  toolUseId: use.id,
-                  content: '$content\n$verdict',
-                  isError: out.isError,
-                ));
-                continue;
-              }
-            } catch (e, st) {
-              _log.warning(
-                  'result verifier for ${use.name} failed — shipping the '
-                  'tool content unchanged',
-                  e,
-                  st);
-            }
-          }
-          results.add(ToolResultBlock(
-            toolUseId: use.id,
-            content: content,
-            isError: out.isError,
-          ));
-        } catch (e, st) {
-          // Route thrown-tool failures through the same toolComplete path so
-          // a tool strip / observer learns about them too. (Previously this
-          // printed the bare exception; it now renders like an error result.)
-          _log.severe('unhandled exception in tool ${use.name}', e, st);
-          sink.toolComplete(ToolCompleteEvent(use.name, use.id,
-              isError: true, result: e.toString()));
-          results.add(ToolResultBlock(
-            toolUseId: use.id,
-            content: e.toString(),
-            isError: true,
-          ));
-        }
+        final outcome = await toolExecutor.execute(
+          use: use,
+          stepTools: stepTools,
+          step: step,
+          isCancelled: () => cancelled,
+        );
+        results.add(outcome.result);
+        if (outcome.interruptedInFlight) interruptedCallIndex = callIndex;
       }
       // Operator interrupt (#31), in-flight stamp — ONE site so the line
       // lands no matter which path produced that call's result (normal
@@ -1454,67 +1112,19 @@ class Agent {
     return true;
   }
 
-  /// The remediation payload a denied tool call carries back to the model.
-  /// The old one-liner ('Denied by permission policy.') gave the model no way
-  /// to self-correct, so it retried blind variants of the same shape; the
-  /// model now sees the allowed shapes for its tool and (for bash) the
-  /// always-allowed native tools, and is told not to retry unchanged.
-  String _deniedContent(String tool) {
-    final patterns = policy.allowedPatterns(tool);
-    final lines = <String>[
-      'Denied by permission policy.',
-      'Allowed $tool patterns: '
-          '${patterns.isEmpty ? 'none' : patterns.join(', ')}',
-      if (tool == 'bash')
-        'For read-only checks prefer the always-allowed tools: ls, stat, '
-            'glob, grep, search, git, which.',
-      'Do not retry the same call unchanged; rephrase it to an allowed '
-          'shape or use one of those tools.',
-    ];
-    return lines.join('\n');
-  }
+  /// Moved to tool_executor.dart in the mechanical tool-dispatch extraction:
+  /// [anomalySignature], [_collapseWhitespace] (private there), and
+  /// [isAnomalousResult] are now top-level in tool_executor.dart; [Agent]
+  /// keeps these delegating statics so every existing caller and test is
+  /// untouched.
+  static String anomalySignature(String toolName, Map<String, dynamic> input) =>
+      tool_executor.anomalySignature(toolName, input);
 
-  /// The retry-streak key for one tool invocation (#29): tool name plus a
-  /// normalized form of its input, so `ls -la`, `ls   -la`, and ` ls -la `
-  /// count as the same command while `ls -la` and `ls -la /tmp` stay
-  /// distinct. For `bash` the whitespace-collapsed command is the signature;
-  /// for every other tool the input map is serialized with sorted keys so the
-  /// key is stable regardless of map insertion order.
-  static String anomalySignature(String toolName, Map<String, dynamic> input) {
-    if (toolName == 'bash') {
-      final command = input['command'];
-      return '$toolName|'
-          '${command is String ? _collapseWhitespace(command) : command}';
-    }
-    final keys = input.keys.toList()..sort();
-    return '$toolName|${jsonEncode({
-          for (final k in keys) k: input[k],
-        })}';
-  }
-
-  /// Collapses every whitespace run (spaces, tabs, newlines) to a single
-  /// space, after trimming — the bash half of [anomalySignature].
-  static String _collapseWhitespace(String s) =>
-      s.trim().split(RegExp(r'\s+')).join(' ');
-
-  /// Whether [result] is an anomaly worth counting toward the #29 guardrail
-  /// for a command the agent keeps re-running. Three classes: the tool's own
-  /// timeout fired, the command produced zero output at any exit code, or it
-  /// errored with byte-identical output to the previous attempt of the SAME
-  /// signature this turn (a changed error means the model's retry is doing
-  /// something). The last comparison uses pre-note content only — the
-  /// appended guardrail line must never make identical failures look changed.
   static bool isAnomalousResult(
     ToolResult result, {
     String? previousContent,
-  }) {
-    if (result.timedOut == true) return true;
-    if (result.emptyOutput == true) return true;
-    if (result.isError && previousContent != null) {
-      return result.content == previousContent;
-    }
-    return false;
-  }
+  }) =>
+      tool_executor.isAnomalousResult(result, previousContent: previousContent);
 
   /// Index in [history] of the [keep]-th-most-recent *human* turn (a user
   /// message carrying a [TextBlock], not a tool-result message), so [compact]

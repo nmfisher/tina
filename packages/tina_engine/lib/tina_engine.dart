@@ -1,6 +1,11 @@
 export 'src/agent/agent.dart';
+export 'src/agent/agent_driver.dart';
+export 'src/agent/tool_executor.dart';
+export 'src/agent/tool_guards.dart';
+export 'src/agent/tool_hooks.dart';
 export 'src/agent/agent_event_bus.dart';
 export 'src/agent/agent_pipeline.dart';
+export 'src/agent/project_tool_scope.dart';
 export 'src/agent/repo_summary.dart';
 export 'src/agent/agent_quota.dart';
 export 'src/agent/agent_sink.dart';
@@ -80,6 +85,8 @@ export 'src/tools/mutation_lock.dart';
 export 'src/tools/process_registry.dart';
 export 'src/tools/process_runner.dart';
 export 'src/tools/process_tree.dart';
+export 'src/tools/project_capabilities.dart';
+export 'src/tools/project_tool_plugins.dart';
 export 'src/tools/read_tool.dart';
 export 'src/tools/render_image_tool.dart';
 export 'src/tools/sandbox.dart';
@@ -97,3 +104,6 @@ export 'src/tools/write_tool.dart';
 
 export 'src/agent/run_lifecycle.dart';
 export 'src/host/host_lifecycle_adapter.dart';
+export 'src/runtime/contracts.dart';
+export 'src/runtime/plugin.dart';
+export 'src/runtime/runtime.dart';

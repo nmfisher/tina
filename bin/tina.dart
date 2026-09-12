@@ -524,7 +524,9 @@ Future<void> _runNonInteractive(
     // wholesale (no synthetic marker message exists to intercept). Observer
     // failures are logged and swallowed — persistence must never abort a run
     // (the engine likewise catches, logs, and continues).
-    final agent = buildAgent(
+    // The composed driver runs the turn — a scope-selected replacement
+    // factory must own the headless loop exactly as it owns the TUI's.
+    final driver = buildAgent(
       pipeline: app.pipeline,
       scheduler: app.scheduler,
       conversationId: app.initialConversationId,
@@ -657,12 +659,12 @@ Future<void> _runNonInteractive(
       });
     }
     try {
-      await agent.run(
+      await driver.run(
         history: history,
         userInput: userInput,
         cancelSignal: cancelWatchdog.future,
       );
-      aborted = agent.abortedReason != null || (watchdog?.fired ?? false);
+      aborted = driver.abortedReason != null || (watchdog?.fired ?? false);
     } finally {
       watchdogGrace?.cancel();
       await watchdogSub?.cancel();
