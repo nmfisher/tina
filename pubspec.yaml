@@ -28,6 +28,8 @@ dependencies:
     path: packages/tina_console
   classifier:
     path: packages/classifier
+  dart_wasmtime:
+    path: packages/dart_wasmtime
   tina_engine:
     path: packages/tina_engine
   tina_app:
