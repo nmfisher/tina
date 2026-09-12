@@ -1,12 +1,14 @@
 # Continuous integration for tina: `dart analyze` + `dart test` for the root
-# package and the six owned packages, on every PR to main and every push to
+# package and the owned packages, on every PR to main and every push to
 # main. (tina_index joined the matrix when log item #39 — its seedQuery
 # pre-existing failure — shipped; attractor and fuzzy_ranker joined with A08;
-# tina_app joined with A06; engine 775 + console 811 + root 758 + tina_index
-# 56 + attractor 89 + fuzzy_ranker 11 + tina_app 359 tests gate here.)
+# tina_app joined with A06; dart_wasmtime joined with tin-w4sm Phase 0;
+# engine 775 + console 811 + root 758 + tina_index 56 + attractor 89 +
+# fuzzy_ranker 11 + tina_app 359 tests gate here.)
 #
 # Owned-package inventory (A08): tool/architecture/policy.json lists the owned
-# packages plus the vendored dart_notcurses submodule exception. The root job's
+# packages (including the first-party dart_wasmtime) plus the vendored
+# dart_notcurses submodule exception. The root job's
 # architecture test (test/import_boundary_test.dart → policy.validateWorkspace)
 # FAILS on any packages/*/pubspec.yaml outside that list — a new package must
 # join the policy AND gain a job here or an explicitly reviewed exclusion; it
@@ -102,6 +104,7 @@ jobs:
           (cd packages/tina_index && dart pub get)
           (cd packages/attractor && dart pub get)
           (cd packages/fuzzy_ranker && dart pub get)
+          (cd packages/dart_wasmtime && dart pub get)
 
       # Root's own tests import tina_console → the dart_notcurses build hook
       # runs on dart test → the system linker deps must be present (see the
@@ -269,6 +272,35 @@ jobs:
 
       - name: test (fuzzy_ranker)
         working-directory: packages/fuzzy_ranker
+        run: dart test
+
+  # dart_wasmtime (tin-w4sm Phase 0): first-party Wasmtime bindings + the
+  # supervised plugin worker. Terminal-free — no submodule checkout, no apt
+  # step: its Wasmtime ships VENDORED inside the package
+  # (packages/dart_wasmtime/native/lib/<os>_<arch>/libwasmtime.a, wasmtime
+  # v36.0.15 full profile), so the build hook needs only a C toolchain, which
+  # ubuntu-latest has. Its tests drive a real guest module through a real
+  # supervised worker process; keep this job green-or-red on that evidence.
+  dart_wasmtime:
+    name: dart_wasmtime (packages/dart_wasmtime)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: pub get (dart_wasmtime)
+        working-directory: packages/dart_wasmtime
+        run: dart pub get
+
+      - name: analyze (dart_wasmtime)
+        working-directory: packages/dart_wasmtime
+        run: dart analyze
+
+      - name: test (dart_wasmtime)
+        working-directory: packages/dart_wasmtime
         run: dart test
 
   # tina_app (A06): the frontend-independent application layer. Terminal-free
