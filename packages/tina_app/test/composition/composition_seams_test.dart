@@ -42,11 +42,8 @@ class _ScriptedDriver implements AgentDriver {
   @override
   AbortedKind get abortedKind => AbortedKind.none;
 
-  /// The scripted driver drives no real agent; it surfaces the request's
-  /// identity fields so tests can assert on what the factory received.
-  @override
-  Agent get agent => throw UnimplementedError(
-      'the scripted driver drives no concrete agent');
+  /// The scripted driver drives no real agent — the contract no longer asks
+  /// for one, so nothing reaches past the driver.
 
   @override
   String get system => request.system;

@@ -109,15 +109,20 @@ class Conversation {
     /// [AgentDriverAdapter(agent)] for a plain agent (the default when
     /// omitted AND an agent was given). Conversation owns the driver alone;
     /// [agent] is optional so a scripted driver needs no [Agent] behind it.
+    /// When [agent] is omitted but [driver] is an [AgentDriverAdapter], the
+    /// adapter's wrapped build surfaces as [agent] so consumers of the
+    /// agent-facing surface see the real thing; any other driver gets the
+    /// agent-less sentinel — the driver is the unit of execution.
     AgentDriver? driver,
-  })  : agent = agent ?? _agentless,
+  })  : agent = agent ?? (driver is AgentDriverAdapter ? driver.agent : null) ??
+            _agentless,
         _provider = provider,
         driver = driver ?? AgentDriverAdapter(agent ?? _agentless) {
     history.addAll(initialHistory);
   }
 
   /// Whether a real [Agent] backs this conversation (false for driver-only
-  /// conversations built from a scripted [AgentDriver]).
+  /// conversations built from a non-adapter [AgentDriver]).
   bool get hasAgent => agent is! _NoAgentSentinel;
 
   /// Placeholder for driver-only conversations: a scripted [AgentDriver]

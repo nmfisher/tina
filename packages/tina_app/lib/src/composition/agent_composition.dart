@@ -81,7 +81,11 @@ SubAgentScheduler createScheduler({
 }
 
 
-/// Build an [Agent] for one conversation from [pipeline]'s main role.
+/// Build the driver for one conversation from [pipeline]'s main role.
+///
+/// The returned [AgentDriver] is the unit of execution: callers hand it to
+/// the [Conversation] and run turns through it — they never unwrap an
+/// [Agent] from it (the contract does not even promise one).
 ///
 /// Both modes share the full file/shell tool set ([buildTools]); what differs
 /// is the orchestration surface layered on top:
@@ -96,7 +100,7 @@ SubAgentScheduler createScheduler({
 ///   base tool set (+ the workflow surface when wired) and the un-widened
 ///   policy. Preserves the pre-pipeline behavior (a non-interactive run does
 ///   not gain delegate/channel tools).
-Agent buildAgent({
+AgentDriver buildAgent({
   required AgentPipeline pipeline,
   required SubAgentScheduler scheduler,
   required String conversationId,
@@ -316,12 +320,11 @@ Agent buildAgent({
   final factory = scheduler.driverFactory ?? const DefaultAgentDriverFactory();
   final driver = factory.create(request);
 
-  // The driver seam's default pairing is the adapter over the plain build —
-  // callers need the concrete Agent (Conversation holds one, SessionManager
-  // rebuilds per conversation, the summary runner drives it directly). An
-  // adapter unwraps to its agent verbatim; a replacement driver must expose
-  // the agent it drives through `driver.agent`.
-  final agent = driver.agent;
+  // The driver IS the result — the caller's Conversation runs turns through
+  // it. Returning `driver.agent` here (the pre-fix behavior) discarded the
+  // replacement driver: every caller executed the built-in agent loop and the
+  // driver seam never ran in production. The default pairing is still the
+  // adapter over the plain build, so the no-factory behavior is unchanged.
 
   // A replacement factory gets its contribution surface mirrored onto the
   // scheduler, so delegated builds observe the same contributions the main
@@ -335,5 +338,5 @@ Agent buildAgent({
     );
   }
 
-  return agent;
+  return driver;
 }

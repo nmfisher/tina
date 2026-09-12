@@ -187,7 +187,7 @@ void main() {
             required provider,
             required host,
             required policy,
-          }) => _agentFor(provider, host),
+          }) => AgentDriverAdapter(_agentFor(provider, host)),
       driverWrapper: (agent) {
         wrappedAgents.add(agent);
         scripted = _ScriptedDriver(agent);
