@@ -5,7 +5,6 @@ import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
 
 import '../helpers/fake_environment.dart';
-import '../helpers/fake_host_interface.dart';
 import '../helpers/fake_provider.dart';
 import '../helpers/fake_stdio.dart';
 import '../helpers/fake_terminal_geometry.dart';
