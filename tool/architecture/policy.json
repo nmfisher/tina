@@ -6,7 +6,8 @@
     "tina_console",
     "tina_index",
     "attractor",
-    "fuzzy_ranker"
+    "fuzzy_ranker",
+    "dart_wasmtime"
   ],
   "vendoredPackages": [
     "dart_notcurses"
@@ -47,6 +48,13 @@
     "fuzzy_ranker": [
       "lib",
       "test"
+    ],
+    "dart_wasmtime": [
+      "bin",
+      "hook",
+      "lib",
+      "test",
+      "tool"
     ]
   },
   "frontendRoots": [

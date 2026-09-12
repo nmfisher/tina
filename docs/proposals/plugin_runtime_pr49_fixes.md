@@ -1,6 +1,12 @@
 # PR #49: plugin runtime remediation plan
 
 Status: proposed fixes; this document does not implement them.
+Historical note (2026-09-12): the fixes below review PR #49 at revision
+[`7321611`](https://github.com/nmfisher/tina/pull/49/changes/7321611eb416d9a108ba9148034971f652ade596);
+several are implemented in the current code (e.g. the P1 authority recheck
+now runs at actual dispatch — see
+[`plugin_system.md`](../plugin_system.md)). This document still describes
+that older revision and is not updated item by item.
 Review date: 2026-09-11.
 Reviewed revision: [`7321611`](https://github.com/nmfisher/tina/pull/49/changes/7321611eb416d9a108ba9148034971f652ade596).
 Specification: [plugin runtime implementation plan](plugin_runtime.md).

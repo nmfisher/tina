@@ -1,6 +1,13 @@
 # Plugin runtime implementation plan
 
-Status: proposed; implementation has not started.
+Status: Dart runtime implemented — PR #49
+([`544ff67`](https://github.com/nmfisher/tina/commit/544ff67), "Plugin
+runtime: one lifecycle for tools, providers, and execution"), plus follow-up
+fixes; see [`plugin_runtime_pr49_fixes.md`](plugin_runtime_pr49_fixes.md) for
+the review that drove them. The system as it exists is documented in
+[`docs/plugin_system.md`](../plugin_system.md). This document is the original
+plan and is kept as written: parts of it (WASM plugins, a loader or user
+configuration, phases P6–P8) remain unimplemented.
 Date: 2026-09-10.
 
 Implement Tina's built-in features through a shared plugin lifecycle, with typed
