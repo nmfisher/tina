@@ -244,6 +244,8 @@ void main() {
       expect(notices.single, contains('[retries]'));
       expect(notices.single, contains('1300 tokens'));
       expect(notices.single, contains('1300 estimated'));
+      expect(notices.single, contains('not confirmed usage or billing'));
+      expect(notices.single, isNot(contains('provider is degrading')));
 
       // More retried spend inside the same band, and plain success spend
       // diluting the ratio: still silent (once per band, not per attempt).

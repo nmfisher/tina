@@ -168,7 +168,8 @@ int stubAgedToolResults(List<Message> history, {required int currentStep}) {
 /// its attempts, so the retry decision is already spent; a [provider] failure
 /// is everything else that may still clear (auth, rate-limit-forever, empty
 /// completions, cut streams). [providerTerminal] means the provider supplied
-/// a terminal completion reason, such as output exhaustion or filtering;
+/// a terminal account error or completion reason, such as output exhaustion
+/// or filtering;
 /// resending the unchanged request is not an appropriate recovery.
 enum AbortedKind {
   none,
@@ -792,11 +793,16 @@ class Agent {
         // failure keeps the pre-#28 [provider] classification that callers
         // like the sub-agent scheduler map to transient. Auth (401),
         // rate-limit-forever, and everything unclassified stay [provider].
-        abortedKind = attemptsUsed > 0 &&
+        // Explicit account failures must not become scheduler-level retries.
+        if (outcome.streamError?.requiresUserAction == true) {
+          abortedKind = AbortedKind.providerTerminal;
+        } else {
+          abortedKind = attemptsUsed > 0 &&
                 outcome.streamError != null &&
                 isTransportRetryable(outcome.streamError!)
             ? AbortedKind.transport
             : AbortedKind.provider;
+        }
         return;
       }
       if (outcome.cancelled) {

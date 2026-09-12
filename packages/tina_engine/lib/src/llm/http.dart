@@ -105,7 +105,64 @@ bool isRetryableStatus(int code) =>
 /// turn-level ladder (#28, which re-sends mid-stream failures) — so their
 /// notion of "retryable" cannot drift.
 bool isTransportRetryable(StreamError e) =>
-    e.transient || (e.statusCode != null && isRetryableStatus(e.statusCode!));
+    !e.requiresUserAction &&
+    (e.transient || (e.statusCode != null && isRetryableStatus(e.statusCode!)));
+
+/// Preserve business error metadata before reducing an HTTP error to prose.
+/// GLM documents billing/plan failures as 429 too; 1302/1305 and unknown
+/// codes retain the ordinary retry policy. Numeric codes are provider-scoped.
+/// https://docs.bigmodel.cn/cn/api/api-code
+StreamError httpStreamError(String provider, int status, String body,
+    {Duration? retryAfter}) {
+  String? code;
+  String? type;
+  String? message;
+  try {
+    final decoded = jsonDecode(body);
+    if (decoded is Map) {
+      final error = decoded['error'] is Map ? decoded['error'] as Map : decoded;
+      final rawCode = error['code'];
+      if (rawCode is String || rawCode is num) code = rawCode.toString();
+      if (error['type'] is String) type = error['type'] as String;
+      if (error['message'] is String) message = error['message'] as String;
+    }
+  } catch (_) {
+    // Non-JSON errors keep the transport's existing status-based policy.
+  }
+  String? action;
+  if (provider == 'GLM' && status == 429) {
+    action = switch (code) {
+      '1113' => 'Check API balance/resource packages and whether the API key '
+          'and base URL match your plan.',
+      '1309' || '1314' => 'Renew the expired plan or check with your account administrator.',
+      '1311' => 'Select a model included in your plan.',
+      '1313' => 'Check the account restriction in the provider console.',
+      '1315' => 'Check that the API key and endpoint match your subscription.',
+      '1308' || '1310' || '1316' || '1317' || '1318' || '1319' || '1320' || '1321' =>
+        'Wait for the quota reset or check the account usage limit and plan.',
+      _ => null,
+    };
+    // Older responses may omit the business code. Keep this fallback narrow
+    // and provider-specific; never classify arbitrary "quota" prose as final.
+    if (code == null &&
+        (message ?? body).contains('余额不足或无可用资源包')) {
+      action = 'Check API balance/resource packages and whether the API key '
+          'and base URL match your plan.';
+    }
+  }
+  final description = humanizeHttpError(provider, status, body);
+  return StreamError(
+    action == null ? description : '$description '
+        '${code == null ? '' : '(provider code: $code) '}'
+        'Action required: $action Automatic retries stopped.',
+    statusCode: status,
+    retryAfter: retryAfter,
+    providerCode: code,
+    providerType: type,
+    requiresUserAction: action != null,
+    usage: parseErrorUsage(body),
+  );
+}
 
 /// Whether a thrown transport exception may clear on its own (a dropped
 /// socket, a reset connection, a header timeout). Providers fold these into

@@ -217,10 +217,10 @@ class SpendLedger {
     final band = (pct / 10).floor();
     if (band <= _retriedNoticeBand) return;
     _retriedNoticeBand = band;
-    sink('[retries] failed-attempt spend $_retriedTokens tokens '
+    sink('[retries] failed-attempt usage $_retriedTokens tokens '
         '(${pct.toStringAsFixed(0)}% of $grand total; '
         '$_retriedEstimated estimated + $_retriedMeasured measured) — '
-        'a provider is degrading and the ladders are re-sending full bodies');
+        'estimated input is not confirmed usage or billing');
   }
 
   /// Latches [tripped] + [reason] exactly once, when the COMBINED

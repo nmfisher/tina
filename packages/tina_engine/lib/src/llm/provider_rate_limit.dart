@@ -276,7 +276,8 @@ class RateLimitedProvider implements LlmProvider {
               // scout/host-level retry) then re-acquires into the penalty.
               if (event is StreamError && event.statusCode == 429) {
                 saw429 = true;
-                limiter.defer(limitKey);
+                // Account rejection is not evidence of a rate ceiling.
+                if (!event.requiresUserAction) limiter.defer(limitKey);
               }
               if (!controller.isClosed) controller.add(event);
             },

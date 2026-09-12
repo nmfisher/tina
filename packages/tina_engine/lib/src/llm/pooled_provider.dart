@@ -148,7 +148,9 @@ class PooledProvider implements LlmProvider {
                 if (!controller.isClosed) controller.add(event);
                 return;
               }
-              if (!forwarded && event is StreamError) {
+              if (!forwarded &&
+                  event is StreamError &&
+                  !event.requiresUserAction) {
                 swallowed = event;
                 // #46: a member attempt that fails and rotates is a full
                 // body re-send — its cost was invisible before this fix.

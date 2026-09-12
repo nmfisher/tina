@@ -141,12 +141,8 @@ class OpenAiCompatibleAdapter extends LlmProvider {
     }
     if (resp.statusCode != 200) {
       final text = await resp.stream.bytesToString();
-      yield StreamError(humanizeHttpError(label, resp.statusCode, text),
-          statusCode: resp.statusCode,
-          retryAfter: parseRetryAfter(resp.headers['retry-after']),
-          // #46 (a): some servers report the usage that was processed before
-          // they refused — book it rather than estimating the re-sent body.
-          usage: parseErrorUsage(text));
+      yield httpStreamError(label, resp.statusCode, text,
+          retryAfter: parseRetryAfter(resp.headers['retry-after']));
       return;
     }
 

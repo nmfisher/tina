@@ -121,6 +121,13 @@ class MeteringProvider implements LlmProvider, AttemptUsageRecorder {
           if (event is MessageComplete && event.usage != null) {
             ledger.record(event.usage!);
           }
+          // Terminal account failures bypass every retry/failover bookkeeper.
+          // Preserve reported usage once, without inventing input estimates.
+          if (event is StreamError &&
+              event.requiresUserAction &&
+              event.usage != null) {
+            ledger.record(event.usage!);
+          }
           controller.add(event);
         },
         onError: (Object e, StackTrace st) {

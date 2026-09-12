@@ -201,8 +201,8 @@ class RetryingProvider implements LlmProvider {
 /// swallowed into a retry (or a pool rotation).
 /// * (a) the error carried provider-reported [StreamError.usage] → book
 ///   it, MEASURED (never estimated);
-/// * (b) otherwise → book the estimate of the body the ladder just
-///   re-sent ([TokenBudget.estimateInputTokens] on the identical input).
+/// * (b) otherwise, except an explicit HTTP client rejection, book the input
+///   estimate ([TokenBudget.estimateInputTokens] on the identical input).
 /// Reported through [Wire.reportAttemptUsage] to the metering layer
 /// ([MeteringProvider]) — the single spend funnel. Measured beats
 /// estimated for the same attempt: (a) implies no (b).
@@ -221,6 +221,13 @@ void bookFailedAttemptUsage({
   void Function(AttemptUsage)? onUsage,
 }) {
   final measured = error.usage;
+  // A rejected HTTP request is not evidence that its input was processed.
+  // Keep actual reported usage, but don't bill the local token budget for a
+  // guessed body size on client/rate-limit rejection. 408 remains ambiguous.
+  final status = error.statusCode;
+  if (measured == null &&
+      status != null &&
+      status >= 400 && status < 500 && status != 408) return;
   final usage = measured != null
       ? WireUsage(
           inputTokens: measured.inputTokens,

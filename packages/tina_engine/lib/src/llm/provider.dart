@@ -107,6 +107,14 @@ EmptyCompletionCause? classifyEmptyCompletion(
 class StreamError extends StreamEvent {
   final Object error;
 
+  /// Provider business error metadata, distinct from the HTTP status.
+  final String? providerCode;
+  final String? providerType;
+
+  /// Billing, exhausted quota, or account restrictions that cannot recover
+  /// through this turn's retry ladder. Overrides even an HTTP 429.
+  final bool requiresUserAction;
+
   /// The HTTP status the transport failed with, when the error is a non-200
   /// response (null for connection/parse failures). Carried separately from
   /// the humanized [error] text so wrappers (the rate-limit adapter's
@@ -127,13 +135,19 @@ class StreamError extends StreamEvent {
   /// #46 (a): usage the provider reported IN its error response, when it did.
   /// Several providers include a final usage block in 429/5xx bodies or an
   /// `x-…-tokens` header even when they refuse the request — those tokens were
-  /// really processed and really billed. Null when the error carried none:
-  /// nothing is invented here. The retry ladder books this measured usage for
+  /// reported as processed (not a billing receipt). Null when the error carried
+  /// none: nothing is invented here. The retry ladder books this measured usage for
   /// the failed attempt INSTEAD of an estimate ([estimated] stays false) —
   /// measured beats estimated for the same attempt.
   final TokenUsage? usage;
   const StreamError(this.error,
-      {this.statusCode, this.retryAfter, this.transient = false, this.usage});
+      {this.statusCode,
+      this.retryAfter,
+      this.transient = false,
+      this.usage,
+      this.providerCode,
+      this.providerType,
+      this.requiresUserAction = false});
 }
 
 abstract class LlmProvider {

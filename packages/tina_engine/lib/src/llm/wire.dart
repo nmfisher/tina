@@ -80,9 +80,10 @@ class WireUsage {
 /// [estimated] distinguishes the two capture paths mandated by #46:
 /// * false (measured) — the attempt's error carried provider-reported usage
 ///   (several providers include it in 429/5xx bodies or headers); those
-///   tokens are real and really billed;
-/// * true (estimated) — the error carried nothing, so the ladder books the
-///   estimated input-token size of the body it re-sent as a floor.
+///   counters describe reported usage, not a billing receipt;
+/// * true (estimated) — an ambiguous failure carried no usage, so the ladder
+///   estimates transmitted input size. This is not a lower bound on billed
+///   tokens. Explicit HTTP client rejections (except 408) are not estimated.
 class AttemptUsage {
   /// Which pool member / endpoint served the failed attempt ('single' when
   /// not pooled) — mirrors [WireState.member].
