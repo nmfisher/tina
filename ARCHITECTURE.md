@@ -990,9 +990,11 @@ A few things look like they could be interfaces and aren't:
   realistic second mode (non-TTY). The rendering backend *is* abstracted
   (`TerminalBackend`) because there are genuinely two implementations
   (ANSI / notcurses) — but `Screen` itself isn't.
-- **`Tool`** has a fixed set of built-in implementations and no plugin
-  loader. Adding tools is a code change, not a config change. The agent
-  loop is the simpler for it.
+- **`Tool`** implementations are built through the plugin runtime
+  (`packages/tina_engine/lib/src/runtime/`, see
+  [`docs/plugin_system.md`](docs/plugin_system.md)) but there is no plugin
+  loader: the mounted set is compiled-in Dart code. Adding tools is still a
+  code change, not a config change. The agent loop is the simpler for it.
 - **`Agent`** is concrete. The non-interactive path uses the same class
   with a different `PermissionAsker` and a passthrough `AgentSink`.
   Output is abstracted (via `AgentSink`); the loop itself isn't.
