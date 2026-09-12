@@ -648,7 +648,9 @@ class HistoryCommands {
 
   Future<void> _handleCompact() async {
     final s = ctx.active;
-    await s.agent.compact(s.history);
+    // Through the driver: a scripted (or otherwise agent-less) conversation
+    // has no agent to compact — the driver owns this operation.
+    await s.driver.compact(s.history);
     final rec = s.recorder;
     if (rec != null) {
       try {
