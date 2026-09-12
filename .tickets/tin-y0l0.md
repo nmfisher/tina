@@ -1,6 +1,6 @@
 ---
 id: tin-y0l0
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-09-11T10:00:00Z

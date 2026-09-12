@@ -1,6 +1,6 @@
 ---
 id: tin-cmpt
-status: open
+status: closed
 deps: []
 links: [tin-y0l0]
 created: 2026-09-12T05:30:00Z
