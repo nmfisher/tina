@@ -22,6 +22,13 @@ The implementation baseline is main at `43e60e1` (v0.6.13), including merged
 PR #49. This ticket and PR #52 contain documentation only. Implementation phases
 remain unchecked until their exit gates have evidence.
 
+Phase 0 status: pinned packaging, the supervised worker, native ABI calls, and
+epoch-driven cancellation are proven **on Linux x64 only** (results and
+measurements in
+[phase 0 results](../docs/proposals/wasm_plugin_support_phase0_results.md));
+macOS ARM64 and Linux ARM64 are packaged and checksummed but unverified, so
+the box below stays unchecked until those targets have native evidence.
+
 ## Phases
 
 - [ ] 0: Prove pinned Wasmtime packaging and supervised worker cancellation on
