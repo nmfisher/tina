@@ -404,19 +404,21 @@ Screen _backgroundScreen() => Screen(
     io: FakeStdio()..columns = 120,
     layout: ScreenLayout.fromSize(120, 24));
 
-Agent _agentBuilder({
+AgentDriver _agentBuilder({
   required String conversationId,
   required LlmProvider provider,
   required HostInterface host,
   required PermissionPolicy policy,
 }) =>
-    Agent(
-      provider: provider,
-      tools: ToolRegistry(const []),
-      sink: host,
-      policy: policy,
-      asker: (_) async => PermissionResponse.denyOnce,
-      system: 'sys',
+    AgentDriverAdapter(
+      Agent(
+        provider: provider,
+        tools: ToolRegistry(const []),
+        sink: host,
+        policy: policy,
+        asker: (_) async => PermissionResponse.denyOnce,
+        system: 'sys',
+      ),
     );
 
 Conversation _dummyConversation(String id, {bool detached = true}) {
@@ -430,7 +432,7 @@ Conversation _dummyConversation(String id, {bool detached = true}) {
   final conv = Conversation(
     id: id,
     label: id,
-    agent: _agentBuilder(
+    driver: _agentBuilder(
       conversationId: id,
       provider: FakeProvider.done(),
       host: host,

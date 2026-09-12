@@ -67,20 +67,20 @@ void main() {
           registry: ProviderRegistry(env: {}), pipeline: defaultPipeline);
       addTearDown(scheduler.dispose);
       final policy = config.buildPolicy();
-      final agent = buildAgent(pipeline: defaultPipeline, scheduler: scheduler,
+      final driver = buildAgent(pipeline: defaultPipeline, scheduler: scheduler,
           conversationId: 'main', provider: FakeProvider(const []),
           host: FakeHostInterface(), policy: policy, config: config);
       String schemas(ToolRegistry tools) => jsonEncode([
         for (final t in tools.schemas)
           {'name': t.name, 'description': t.description, 'input_schema': t.inputSchema},
       ]);
-      final before = schemas(agent.tools);
+      final before = schemas(driver.tools);
       policy.mode = PermissionMode.readAll;
-      expect(agent.policy.check('bash', {}), PermissionDecision.deny);
-      expect(schemas(EnvironmentToolStage(agent.tools)), before);
+      expect(policy.check('bash', {}), PermissionDecision.deny);
+      expect(schemas(EnvironmentToolStage(driver.tools)), before);
       policy.mode = PermissionMode.ask;
-      expect(agent.policy.check('bash', {}), PermissionDecision.ask);
-      expect(schemas(agent.tools), before);
+      expect(policy.check('bash', {}), PermissionDecision.ask);
+      expect(schemas(driver.tools), before);
     });
 
     test('headless main gets the full base set, no delegate/channels', () {
@@ -90,7 +90,7 @@ void main() {
         registry: ProviderRegistry(env: {}),
         pipeline: defaultPipeline,
       );
-      final agent = buildAgent(
+      final driver = buildAgent(
         pipeline: defaultPipeline,
         scheduler: scheduler,
         conversationId: 'c1',
@@ -101,10 +101,10 @@ void main() {
         withSubAgents: false,
       );
       for (final t in ['read', 'write', 'edit', 'bash', 'search', 'grep', 'glob']) {
-        expect(agent.tools[t], isNotNull, reason: t);
+        expect(driver.tools[t], isNotNull, reason: t);
       }
-      expect(agent.tools['delegate'], isNull);
-      expect(agent.tools['send'], isNull);
+      expect(driver.tools['delegate'], isNull);
+      expect(driver.tools['send'], isNull);
     });
 
     test('transportRetryAttempts is opt-in: default 0, flag value passes '
@@ -117,30 +117,32 @@ void main() {
         registry: ProviderRegistry(env: {}),
         pipeline: defaultPipeline,
       );
-      Agent build(Config c, {int? attempts}) => attempts == null
-          ? buildAgent(
-              // Omitting the parameter entirely: the composition must not
-              // silently opt anyone in.
-              pipeline: defaultPipeline,
-              scheduler: scheduler,
-              conversationId: 'c1',
-              provider: FakeProvider(const [], model: 'm'),
-              host: FakeHostInterface(),
-              policy: c.buildPolicy(),
-              config: c,
-              withSubAgents: false,
-            )
-          : buildAgent(
-              pipeline: defaultPipeline,
-              scheduler: scheduler,
-              conversationId: 'c1',
-              provider: FakeProvider(const [], model: 'm'),
-              host: FakeHostInterface(),
-              policy: c.buildPolicy(),
-              config: c,
-              withSubAgents: false,
-              transportRetryAttempts: attempts,
-            );
+      Agent build(Config c, {int? attempts}) =>
+          ((attempts == null
+                  ? buildAgent(
+                      // Omitting the parameter entirely: the composition must
+                      // not silently opt anyone in.
+                      pipeline: defaultPipeline,
+                      scheduler: scheduler,
+                      conversationId: 'c1',
+                      provider: FakeProvider(const [], model: 'm'),
+                      host: FakeHostInterface(),
+                      policy: c.buildPolicy(),
+                      config: c,
+                      withSubAgents: false,
+                    )
+                  : buildAgent(
+                      pipeline: defaultPipeline,
+                      scheduler: scheduler,
+                      conversationId: 'c1',
+                      provider: FakeProvider(const [], model: 'm'),
+                      host: FakeHostInterface(),
+                      policy: c.buildPolicy(),
+                      config: c,
+                      withSubAgents: false,
+                      transportRetryAttempts: attempts,
+                    )) as AgentDriverAdapter)
+              .agent;
       expect(build(testConfig()).transportRetryAttempts, 0,
           reason: 'composition must not silently opt anyone in');
       expect(
@@ -161,7 +163,7 @@ void main() {
         registry: ProviderRegistry(env: {}),
         pipeline: defaultPipeline,
       );
-      Agent build({Future<List<Answer>> Function(List<Question>)? askUser}) =>
+      AgentDriver build({Future<List<Answer>> Function(List<Question>)? askUser}) =>
           buildAgent(
             pipeline: defaultPipeline,
             scheduler: scheduler,
@@ -190,7 +192,7 @@ void main() {
           registry: ProviderRegistry(env: {}),
           pipeline: defaultPipeline,
         );
-        return buildAgent(
+        return (buildAgent(
           pipeline: defaultPipeline,
           scheduler: scheduler,
           conversationId: 'c1',
@@ -199,7 +201,7 @@ void main() {
           policy: config.buildPolicy(),
           config: config,
           withSubAgents: false,
-        );
+        ) as AgentDriverAdapter).agent;
       }
 
       expect(buildWith(const ['--backend', 'ansi']).autoCompactThreshold,
@@ -264,7 +266,7 @@ void main() {
       );
       final tmp = Directory.systemTemp.createTempSync('tina-schema-');
       try {
-        final agent = buildAgent(
+        final driver = buildAgent(
           pipeline: defaultPipeline,
           scheduler: scheduler,
           conversationId: 'c1',
@@ -276,7 +278,7 @@ void main() {
           regions: RegionRegistry(projectRoot: tmp.path),
           summaryIndex: buildSummaryInspection(projectRoot: tmp.path),
         );
-        final schemas = agent.tools.schemas;
+        final schemas = driver.tools.schemas;
         // The sweep is actually sweeping — not vacuously passing over one tool.
         expect(schemas.length, greaterThan(10));
         for (final s in schemas) {
@@ -301,7 +303,7 @@ void main() {
       final factory = _CountingDriverFactory((request) {
         factoryCalls++;
         builtDriver ??= _CapturingDriver(request);
-        return builtDriver;
+        return builtDriver!;
       }, onGuard: () => guardChecks++);
       final scheduler = createScheduler(
         config: config,
@@ -314,7 +316,7 @@ void main() {
       expect(scheduler.driverFactory, same(factory),
           reason: 'precondition: the factory is mounted on the scheduler');
 
-      final agent = buildAgent(
+      final driver = buildAgent(
         pipeline: defaultPipeline,
         scheduler: scheduler,
         conversationId: 'c1',
@@ -323,6 +325,9 @@ void main() {
         policy: config.buildPolicy(),
         config: config,
       );
+      // The driver the factory built IS what came back — not an agent
+      // unwrapped out of it.
+      expect(driver, same(builtDriver));
 
       expect(factoryCalls, 1,
           reason: 'main-agent construction must go through the resolved '
@@ -335,7 +340,8 @@ void main() {
       expect(request.executionGuards, contains(factory.guard));
       // Guard invocation: run one bash call through the built agent and
       // count guard checks at the executor boundary.
-      agent.provider = FakeProvider(const [
+      final driver2 = driver as _CapturingDriver;
+      driver2.provider = FakeProvider(const [
         [
           MessageComplete(
             content: [
@@ -347,7 +353,7 @@ void main() {
         [MessageComplete(content: [TextBlock('done')], stopReason: 'end_turn')],
       ], model: 'm');
       final history = <Message>[Message(role: Role.user, content: [TextBlock('hi')])];
-      await agent.run(history: history, userInput: 'hi');
+      await driver2.run(history: history, userInput: 'hi');
       expect(guardChecks, greaterThanOrEqualTo(1),
           reason: 'the mounted guard must be consulted by the main agent\'s '
               'tool dispatch, not just present in a list');
@@ -362,7 +368,7 @@ void main() {
         pipeline: defaultPipeline,
       );
       addTearDown(scheduler.dispose);
-      final agent = buildAgent(
+      final driver = buildAgent(
         pipeline: defaultPipeline,
         scheduler: scheduler,
         conversationId: 'c1',
@@ -374,10 +380,12 @@ void main() {
         policy: config.buildPolicy(),
         config: config,
       );
-      expect(agent.tools['read'], isNotNull,
+      expect(driver, isA<AgentDriverAdapter>(),
+          reason: 'no factory mounted: the adapter over the plain build');
+      expect(driver.tools['read'], isNotNull,
           reason: 'the tool set survives the seam unchanged');
       final history = <Message>[Message(role: Role.user, content: [TextBlock('go')])];
-      await agent.run(history: history, userInput: 'go');
+      await driver.run(history: history, userInput: 'go');
       expect(history.last.role, Role.assistant);
     });
   });
@@ -434,9 +442,6 @@ class _CapturingDriver implements AgentDriver {
   );
 
   @override
-  Agent get agent => _agent;
-
-  @override
   Future<void> run({
     required List<Message> history,
     required String userInput,
@@ -444,7 +449,7 @@ class _CapturingDriver implements AgentDriver {
     Future<void>? toolInterruptSignal,
     ToolRegistry? turnTools,
   }) =>
-      agent.run(
+      _agent.run(
         history: history,
         userInput: userInput,
         cancelSignal: cancelSignal,
@@ -453,22 +458,22 @@ class _CapturingDriver implements AgentDriver {
       );
 
   @override
-  String? get abortedReason => agent.abortedReason;
+  String? get abortedReason => _agent.abortedReason;
 
   @override
-  AbortedKind get abortedKind => agent.abortedKind;
+  AbortedKind get abortedKind => _agent.abortedKind;
 
   @override
-  String get system => agent.system;
+  String get system => _agent.system;
 
   @override
-  ToolRegistry get tools => agent.tools;
+  ToolRegistry get tools => _agent.tools;
 
   @override
-  LlmProvider get provider => agent.provider;
+  LlmProvider get provider => _agent.provider;
 
   @override
-  set provider(LlmProvider value) => agent.provider = value;
+  set provider(LlmProvider value) => _agent.provider = value;
 
   @override
   Future<bool> compact(
@@ -477,7 +482,7 @@ class _CapturingDriver implements AgentDriver {
     int preserveRecentMessages = 0,
     Future<void>? cancelSignal,
   }) =>
-      agent.compact(
+      _agent.compact(
         history,
         preserveRecent: preserveRecent,
         preserveRecentMessages: preserveRecentMessages,

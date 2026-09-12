@@ -649,7 +649,7 @@ class TuiCoordinator {
       acquired.own(() async {
         if (!transferred) await initialHost.dispose();
       });
-      final initialAgent = buildAgent(
+      final initialDriver = buildAgent(
         pipeline: pipeline,
         scheduler: scheduler,
         conversationId: initialConversationId,
@@ -667,7 +667,11 @@ class TuiCoordinator {
       final initialConversation = Conversation(
         id: initialConversationId,
         label: provider.model,
-        agent: initialAgent,
+        // The composed driver IS the conversation's driver — the scope-
+        // selected factory survives into turn execution. Where the driver is
+        // an adapter (no replacement factory mounted) its wrapped build
+        // surfaces as the conversation's agent, as before.
+        driver: initialDriver,
         provider: provider,
         host: initialHost,
         policy: policy,
