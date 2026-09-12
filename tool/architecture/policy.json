@@ -8,7 +8,8 @@
     "attractor",
     "fuzzy_ranker",
     "classifier",
-    "file_tree"
+    "file_tree",
+    "dart_wasmtime"
   ],
   "vendoredPackages": [
     "dart_notcurses"
@@ -57,6 +58,13 @@
     "file_tree": [
       "lib",
       "test"
+    ],
+    "dart_wasmtime": [
+      "bin",
+      "hook",
+      "lib",
+      "test",
+      "tool"
     ]
   },
   "frontendRoots": [
