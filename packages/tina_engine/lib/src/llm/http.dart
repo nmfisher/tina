@@ -113,10 +113,11 @@ bool isTransportRetryable(StreamError e) =>
 /// codes retain the ordinary retry policy. Numeric codes are provider-scoped.
 /// https://docs.bigmodel.cn/cn/api/api-code
 StreamError httpStreamError(String provider, int status, String body,
-    {Duration? retryAfter}) {
+    {Duration? retryAfter, bool fromStream = false, TokenUsage? streamUsage}) {
   String? code;
   String? type;
   String? message;
+  int? streamStatus;
   try {
     final decoded = jsonDecode(body);
     if (decoded is Map) {
@@ -125,12 +126,21 @@ StreamError httpStreamError(String provider, int status, String body,
       if (rawCode is String || rawCode is num) code = rawCode.toString();
       if (error['type'] is String) type = error['type'] as String;
       if (error['message'] is String) message = error['message'] as String;
+      // Some compatible endpoints put an HTTP code inside an SSE error.
+      // Business codes such as GLM's 1113 are not HTTP statuses.
+      for (final value in [error['status'], error['status_code'], rawCode]) {
+        final parsed = int.tryParse(value.toString());
+        if (parsed != null && parsed >= 400 && parsed < 600) {
+          streamStatus = parsed;
+          break;
+        }
+      }
     }
   } catch (_) {
     // Non-JSON errors keep the transport's existing status-based policy.
   }
   String? action;
-  if (provider == 'GLM' && status == 429) {
+  if (provider == 'GLM' && (status == 429 || fromStream)) {
     action = switch (code) {
       '1113' => 'Check API balance/resource packages and whether the API key '
           'and base URL match your plan.',
@@ -150,17 +160,22 @@ StreamError httpStreamError(String provider, int status, String body,
           'and base URL match your plan.';
     }
   }
-  final description = humanizeHttpError(provider, status, body);
+  final httpDescription = humanizeHttpError(provider, status, body);
+  final description = fromStream
+      ? httpDescription.replaceFirst('$provider $status', '$provider stream error')
+      : httpDescription;
   return StreamError(
     action == null ? description : '$description '
         '${code == null ? '' : '(provider code: $code) '}'
         'Action required: $action Automatic retries stopped.',
-    statusCode: status,
+    statusCode: fromStream ? streamStatus : status,
+    transient: fromStream && provider == 'GLM' &&
+        (code == '1302' || code == '1305'),
     retryAfter: retryAfter,
     providerCode: code,
     providerType: type,
     requiresUserAction: action != null,
-    usage: parseErrorUsage(body),
+    usage: parseErrorUsage(body) ?? streamUsage,
   );
 }
 

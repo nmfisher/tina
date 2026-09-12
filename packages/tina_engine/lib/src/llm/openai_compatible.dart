@@ -150,7 +150,8 @@ class OpenAiCompatibleAdapter extends LlmProvider {
     final thinkingBuf = StringBuffer();
     var _inThinking = false;
     final toolCalls = <int, _PartialCall>{};
-    var finishReason = 'stop';
+    String? finishReason;
+    var sawDoneMarker = false;
     var promptTokens = 0;
     var completionTokens = 0;
 
@@ -167,7 +168,8 @@ class OpenAiCompatibleAdapter extends LlmProvider {
         sink.close();
       },
     );
-    final events = parseSse(rawEvents);
+    final events = parseSse(rawEvents,
+        onDoneMarker: () => sawDoneMarker = true);
     try {
       await for (final payload in events) {
         final Map<String, dynamic> evt;
@@ -176,6 +178,15 @@ class OpenAiCompatibleAdapter extends LlmProvider {
         } catch (e) {
           _log.fine('skipped non-JSON SSE line', e);
           continue;
+        }
+        if (evt['error'] != null) {
+          yield httpStreamError(label, resp.statusCode, payload,
+              fromStream: true,
+              streamUsage: promptTokens > 0 || completionTokens > 0
+                  ? TokenUsage(inputTokens: promptTokens,
+                      outputTokens: completionTokens)
+                  : null);
+          return;
         }
         final usage = evt['usage'];
         if (usage is Map) {
@@ -186,6 +197,10 @@ class OpenAiCompatibleAdapter extends LlmProvider {
         final choices = evt['choices'] as List?;
         if (choices == null || choices.isEmpty) continue;
         final choice = choices.first as Map<String, dynamic>;
+        // Metadata belongs to the whole event, including reasoning-only
+        // chunks whose content is filtered below.
+        final fr = choice['finish_reason'];
+        if (fr is String && fr.isNotEmpty) finishReason = fr;
 
         final delta = choice['delta'] as Map<String, dynamic>?;
         if (delta != null) {
@@ -201,7 +216,7 @@ class OpenAiCompatibleAdapter extends LlmProvider {
                 filtered = filtered.substring(end + '<channel|>'.length);
               } else {
                 thinkingBuf.write(filtered);
-                continue; // swallow — still inside thinking block
+                filtered = ''; // Filter content, not this event's other fields.
               }
             }
             // Check for a new thinking block (may span the remainder).
@@ -257,8 +272,20 @@ class OpenAiCompatibleAdapter extends LlmProvider {
             }
           }
         }
-        final fr = choice['finish_reason'];
-        if (fr is String) finishReason = fr;
+      }
+
+      // EOF alone is not a successful response. Accept an explicit finish
+      // reason without [DONE] for compatible endpoints, or [DONE] without a
+      // reason. Neither present means the stream was incomplete, even when
+      // some text/tool arguments arrived; never execute its partial tools.
+      if (finishReason == null && !sawDoneMarker) {
+        yield StreamError('$label stream ended without a completion marker',
+            transient: true,
+            usage: promptTokens > 0 || completionTokens > 0
+                ? TokenUsage(inputTokens: promptTokens,
+                    outputTokens: completionTokens)
+                : null);
+        return;
       }
 
       // Result assembly lives INSIDE this try (not after it): jsonDecode of the
@@ -303,7 +330,7 @@ class OpenAiCompatibleAdapter extends LlmProvider {
         ));
       }
       final stopReason =
-          finishReason == 'tool_calls' ? 'tool_use' : finishReason;
+          finishReason == 'tool_calls' ? 'tool_use' : finishReason ?? 'stop';
       final hasUsage = promptTokens > 0 || completionTokens > 0;
       yield MessageComplete(
         content: blocks,

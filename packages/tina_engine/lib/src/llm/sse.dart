@@ -3,12 +3,16 @@ import 'dart:convert';
 
 /// Yield the JSON payload of each `data:` SSE line. The caller decodes it.
 /// Stops when it sees `data: [DONE]`. Ignores `event:`, comments, blank lines.
-Stream<String> parseSse(Stream<List<int>> input) async* {
+Stream<String> parseSse(Stream<List<int>> input,
+    {void Function()? onDoneMarker}) async* {
   final lines = input.transform(utf8.decoder).transform(const LineSplitter());
   await for (final line in lines) {
     if (!line.startsWith('data:')) continue;
     final payload = line.substring(5).trimLeft();
-    if (payload == '[DONE]') return;
+    if (payload == '[DONE]') {
+      onDoneMarker?.call();
+      return;
+    }
     yield payload;
   }
 }

@@ -13,6 +13,15 @@ void main() {
       Stream.fromIterable([utf8.encode(raw)]);
 
   group('parseSse', () {
+    test('reports an explicit done marker, never plain EOF', () async {
+      var markers = 0;
+      await parseSse(sse('data: one\n'),
+          onDoneMarker: () => markers++).toList();
+      expect(markers, 0);
+      await parseSse(sse('data: [DONE]\ndata: [DONE]\n'),
+          onDoneMarker: () => markers++).toList();
+      expect(markers, 1);
+    });
     test('yields the payload of each data: line, in order', () async {
       final out = await parseSse(sse([
         'data: one',
