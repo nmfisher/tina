@@ -87,6 +87,129 @@ void main() {
     }
   }
 
+  test(
+    'provider defaults stay within their runtime and qualified provider',
+    () {
+      final instances = <ProviderInstance>[];
+      final registry = ProviderRegistry(env: const {'OTHER_KEY': 'other-key'})
+        ..register(
+          _descriptor('p', (c) {
+            instances.add(c);
+            return _SuccessProvider(c.model);
+          }),
+        )
+        ..register(
+          ProviderDescriptor(
+            id: 'other',
+            name: 'Other',
+            authSources: const [
+              AuthSource('OTHER_KEY', AuthScheme.bearerToken),
+            ],
+            defaultBaseUrl: 'https://other.test',
+            builder: (c) {
+              instances.add(c);
+              return _SuccessProvider(c.model);
+            },
+          ),
+        );
+      final first = RuntimeProviderFactory(
+        registry,
+        providerDefaults: const {
+          'p': ProviderBuildDefaults(
+            apiKey: 'first-key',
+            baseUrl: 'https://first.test',
+            maxTokens: 321,
+            streamIdleTimeout: Duration(seconds: 11),
+            requestTimeout: Duration(seconds: 13),
+          ),
+        },
+      );
+      final second = RuntimeProviderFactory(
+        registry,
+        providerDefaults: const {
+          'p': ProviderBuildDefaults(
+            apiKey: 'second-key',
+            baseUrl: 'https://second.test',
+          ),
+        },
+      );
+      first.build('p/parent').close();
+      first.build('p/child').close();
+      second.build('p/child').close();
+      first.build('other/child').close();
+      registry.build('p/unscoped').close();
+      expect(instances.map((c) => c.apiKey), [
+        'first-key',
+        'first-key',
+        'second-key',
+        'other-key',
+        '',
+      ]);
+      expect(instances.map((c) => c.baseUrl), [
+        'https://first.test',
+        'https://first.test',
+        'https://second.test',
+        'https://other.test',
+        'https://p.example.test',
+      ]);
+      expect(instances[1].maxTokens, 321);
+      expect(instances[1].streamIdleTimeout, const Duration(seconds: 11));
+      expect(instances[1].requestTimeout, const Duration(seconds: 13));
+
+      first
+          .build(
+            'p/explicit',
+            apiKeyOverride: '',
+            baseUrlOverride: 'https://explicit.test',
+            maxTokens: 456,
+            streamIdleTimeout: const Duration(seconds: 17),
+            requestTimeout: const Duration(seconds: 19),
+          )
+          .close();
+      expect(instances.last.apiKey, isEmpty);
+      expect(instances.last.baseUrl, 'https://explicit.test');
+      expect(instances.last.maxTokens, 456);
+      expect(instances.last.streamIdleTimeout, const Duration(seconds: 17));
+      expect(instances.last.requestTimeout, const Duration(seconds: 19));
+    },
+  );
+
+  test('bare model names retain catalog credential resolution', () {
+    ProviderInstance? instance;
+    final registry = ProviderRegistry(env: const {'P_KEY': 'catalog-key'})
+      ..register(
+        ProviderDescriptor(
+          id: 'p',
+          name: 'P',
+          authSources: const [AuthSource('P_KEY', AuthScheme.bearerToken)],
+          defaultBaseUrl: 'https://catalog.test',
+          models: const {
+            'bare': ModelInfo(
+              id: 'bare',
+              name: 'Bare',
+              contextWindow: 10000,
+              maxOutput: 1000,
+            ),
+          },
+          builder: (c) {
+            instance = c;
+            return _SuccessProvider(c.model);
+          },
+        ),
+      );
+    RuntimeProviderFactory(
+      registry,
+      providerDefaults: const {
+        'p': ProviderBuildDefaults(
+          apiKey: 'runtime-key',
+          baseUrl: 'https://runtime.test',
+        ),
+      },
+    ).build('bare').close();
+    expect(instance!.apiKey, 'catalog-key');
+    expect(instance!.baseUrl, 'https://catalog.test');
+  });
+
   test('factories share endpoint queues and preserve per-instance tuning', () {
     final instances = <ProviderInstance>[];
     final registry = ProviderRegistry(env: const {})

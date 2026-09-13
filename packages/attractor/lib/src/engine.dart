@@ -308,11 +308,18 @@ class PipelineEngine {
     for (final e in edges) {
       if (!e.hasCondition) continue;
       final cond = Condition.tryParse(e.condition);
-      if (cond != null && cond.evaluate(outcome, context)) {
+      if (cond != null &&
+          (outcome.status != StageStatus.fail || cond.testsOutcome) &&
+          cond.evaluate(outcome, context)) {
         matched.add(e);
       }
     }
     if (matched.isNotEmpty) return _bestByWeightThenLexical(matched);
+
+    // A failed reviewer has no verdict. Do not choose approve/clarify/revise
+    // by label, weight, or lexical fallback. Explicit outcome conditions
+    // (e.g. outcome=fail) above are the only recovery routes.
+    if (outcome.status == StageStatus.fail) return null;
 
     final unconditional = edges.where((e) => !e.hasCondition).toList();
 
@@ -336,12 +343,8 @@ class PipelineEngine {
     // Steps 4 & 5: weight then lexical among unconditional edges.
     if (unconditional.isNotEmpty) return _bestByWeightThenLexical(unconditional);
 
-    // Only conditional edges remain and none matched. A failed node must not
-    // route onward as if it had succeeded: dead-end (null) so the run fails
-    // with the node's own reason. A non-failed outcome keeps the any-edge
-    // fallback (e.g. a reviewer whose verdict label drifted from the edge
-    // labels — better to continue on the best edge than strand the run).
-    if (outcome.status == StageStatus.fail) return null;
+    // Only conditional edges remain and none matched. Preserve the any-edge
+    // fallback for non-failed outcomes.
     return _bestByWeightThenLexical(edges);
   }
 

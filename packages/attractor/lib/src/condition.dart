@@ -10,6 +10,10 @@ class Condition {
 
   Condition(this.clauses);
 
+  /// Failure routing must explicitly test the current outcome, rather than
+  /// match a stale context flag or a verdict from an earlier node.
+  bool get testsOutcome => clauses.any((clause) => clause.key == 'outcome');
+
   /// Parse `outcome=success && context.tests_passed=true`. An empty expression
   /// is always true (the "unconditional" edge).
   static Condition? tryParse(String expr) {

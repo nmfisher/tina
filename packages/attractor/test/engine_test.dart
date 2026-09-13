@@ -501,6 +501,66 @@ void main() {
       expect(store.nodes.where((n) => n.nodeId == 'review').length, 2);
     });
 
+    for (final transient in [false, true]) {
+      test(
+        'failed reviewer stops before verdict routing (transient=$transient)',
+        () async {
+          final g = parseDot('''digraph Review {
+          start [shape=Mdiamond]
+          review [shape=box, max_retries=1]
+          clarify [shape=box]
+          execute [shape=box]
+          exit [shape=Msquare]
+          start -> review
+          review -> clarify [label="clarify"]
+          review -> review [label="revise"]
+          review -> execute [label="approve", weight=100]
+          review -> execute [condition="context.ready=true", weight=200]
+          execute -> exit
+          clarify -> review
+        }''');
+          final backend = _FakeBackend({
+            'review': CodergenResult.error(
+              'provider rejected request',
+              transient: transient,
+            ),
+          });
+          final (outcome, _) = await _run(
+            g,
+            backend: backend,
+            seedContext: {'ready': 'true'},
+          );
+          expect(outcome.status, StageStatus.fail);
+          expect(outcome.failureReason, contains('provider rejected request'));
+          expect(
+            backend.calls.map((c) => c.nodeId),
+            transient ? ['review', 'review'] : ['review'],
+          );
+        },
+      );
+    }
+
+    for (final condition in ['outcome=fail', 'outcome!=success']) {
+      test('failed node can take explicit recovery edge: $condition', () async {
+        final g = parseDot('''digraph Recover {
+          start [shape=Mdiamond]
+          review [shape=box]
+          recover [shape=box]
+          exit [shape=Msquare]
+          start -> review
+          review -> recover [condition="$condition"]
+          review -> review [label="revise", weight=100]
+          recover -> exit
+        }''');
+        final backend = _FakeBackend({
+          'review': CodergenResult.error('provider rejected request'),
+        });
+        final (outcome, _) = await _run(g, backend: backend);
+        expect(outcome.status, StageStatus.success);
+        expect(backend.calls.map((c) => c.nodeId), ['review', 'recover']);
+      });
+    }
+
     test('goal-gate retry jumps are bounded; budget exhausted fails clearly',
         () async {
       // critical is a goal gate that fails; retry_target loops back to it,
@@ -512,7 +572,8 @@ void main() {
           start [shape=Mdiamond]
           critical [shape=box, goal_gate=true]
           exit [shape=Msquare]
-          start -> critical -> exit
+          start -> critical
+          critical -> exit [condition="outcome=fail"]
         }
       ''');
       final backend = _FakeBackend({

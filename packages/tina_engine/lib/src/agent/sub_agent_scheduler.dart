@@ -822,7 +822,9 @@ class SubAgentScheduler {
 
       // Extract the result BEFORE any abort message is appended, so an aborted
       // job's synthetic message can't masquerade as a real answer.
-      final result = _extractResult(job.label, history);
+      final result = driver.abortedReason != null
+          ? DelegationResult.error(driver.abortedReason!)
+          : _extractResult(job.label, history);
 
       // Persist the complete transcript to the job's conversation (if it has one).
       // Completion-time persistence is enough; mid-turn incremental writes are a
@@ -964,8 +966,7 @@ class SubAgentScheduler {
         requestTimeout: requestTimeout,
       );
     } catch (e) {
-      return RunAgentResult.error('failed to build provider: $e',
-          transient: true);
+      return RunAgentResult.error('failed to build provider: $e');
     }
 
     var failed = false;
@@ -1033,6 +1034,12 @@ class SubAgentScheduler {
         cancelSignal: cancelSignal,
       );
 
+      // A provider/budget failure is authoritative even if history ends with
+      // earlier assistant text. Keep the real cause for workflow reporting.
+      if (driver.abortedReason != null) {
+        return RunAgentResult.error(driver.abortedReason!,
+            transient: driver.abortedKind == AbortedKind.provider);
+      }
       final extracted = _extractResult('node', history);
       if (extracted.isError) {
         return RunAgentResult.error(extracted.content,

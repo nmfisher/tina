@@ -159,8 +159,8 @@ void main() {
     });
 
     test(
-        'a NON-retryable error (401, transient: false) aborts today-style '
-        'with AbortedKind.provider and no retry', () async {
+        'an authentication error (401) aborts with '
+        'AbortedKind.providerTerminal and no retry', () async {
       final provider = _MidStreamFailer([
         [
           const TextDelta('partial'),
@@ -190,7 +190,7 @@ void main() {
 
       expect(provider.calls, 1, reason: '401 must not be re-sent');
       expect(agent.abortedReason, contains('401'));
-      expect(agent.abortedKind, AbortedKind.provider);
+      expect(agent.abortedKind, AbortedKind.providerTerminal);
       // The fatal-error notice, NOT a retry notice.
       expect(
         sink.notices.map((n) => n.message),

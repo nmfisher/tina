@@ -107,6 +107,26 @@ void main() {
       expect(a.calls, 2, reason: 'a serves again once its cooldown lapses');
     });
 
+    for (final status in [401, 403]) {
+      test(
+        '$status reports authentication failure without pool failover',
+        () async {
+          final rejected = _ClosableProvider([
+            [StreamError('authentication failed', statusCode: status)],
+          ]);
+          final alternate = _ClosableProvider([_ok]);
+          final pool = PooledProvider([rejected, alternate]);
+          addTearDown(pool.close);
+          final events = await _drain(
+            pool.send(system: 's', messages: [], tools: []),
+          );
+          expect(events.whereType<StreamError>().single.statusCode, status);
+          expect(rejected.calls, 1);
+          expect(alternate.calls, 0);
+        },
+      );
+    }
+
     test('an empty completion fails over to the next member', () async {
       // The exhausted-worker shape: 200, zero content blocks. The send must
       // not complete empty-handed — the member cools down and the next one

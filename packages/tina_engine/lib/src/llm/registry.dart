@@ -232,6 +232,24 @@ abstract interface class LlmProviderFactory {
   });
 }
 
+/// Runtime-local defaults for an explicitly qualified provider reference.
+/// Credentials never enter the shared registry or another runtime's defaults.
+class ProviderBuildDefaults {
+  final String? apiKey;
+  final String? baseUrl;
+  final int? maxTokens;
+  final Duration? streamIdleTimeout;
+  final Duration? requestTimeout;
+
+  const ProviderBuildDefaults({
+    this.apiKey,
+    this.baseUrl,
+    this.maxTokens,
+    this.streamIdleTimeout,
+    this.requestTimeout,
+  });
+}
+
 /// Immutable execution policy over a shared provider catalog and endpoint
 /// limiter. Providers returned by [build] belong to the caller; this factory
 /// neither owns nor closes the registry's catalog or other runtimes' providers.
@@ -248,12 +266,15 @@ class RuntimeProviderFactory implements LlmProviderFactory {
 
   final ProviderDecorator? decorator;
   final int maxSendRetries;
+  final Map<String, ProviderBuildDefaults> providerDefaults;
 
   RuntimeProviderFactory(
     ProviderRegistry registry, {
     this.decorator,
     int? maxSendRetries,
+    Map<String, ProviderBuildDefaults> providerDefaults = const {},
   })  : _registry = registry,
+        providerDefaults = Map.unmodifiable(providerDefaults),
         maxSendRetries = maxSendRetries ?? registry.maxSendRetries;
 
   @override
@@ -266,15 +287,18 @@ class RuntimeProviderFactory implements LlmProviderFactory {
     Duration? requestTimeout,
   }) {
     if (_closed) throw StateError('Runtime provider factory is closed');
+    // Bare model names retain registry resolution. An explicit different
+    // provider must never receive the startup provider's key or endpoint.
+    final defaults = providerDefaults[ModelReference.parse(reference).providerId];
     return _registry._buildWithPolicy(
       reference,
       decorator: decorator,
       maxSendRetries: maxSendRetries,
-      apiKeyOverride: apiKeyOverride,
-      baseUrlOverride: baseUrlOverride,
-      maxTokens: maxTokens,
-      streamIdleTimeout: streamIdleTimeout,
-      requestTimeout: requestTimeout,
+      apiKeyOverride: apiKeyOverride ?? defaults?.apiKey,
+      baseUrlOverride: baseUrlOverride ?? defaults?.baseUrl,
+      maxTokens: maxTokens ?? defaults?.maxTokens,
+      streamIdleTimeout: streamIdleTimeout ?? defaults?.streamIdleTimeout,
+      requestTimeout: requestTimeout ?? defaults?.requestTimeout,
     );
   }
 }

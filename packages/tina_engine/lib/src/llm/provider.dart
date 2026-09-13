@@ -110,10 +110,13 @@ class StreamError extends StreamEvent {
   /// Provider business error metadata, distinct from the HTTP status.
   final String? providerCode;
   final String? providerType;
+  final bool _requiresUserAction;
 
-  /// Billing, exhausted quota, or account restrictions that cannot recover
-  /// through this turn's retry ladder. Overrides even an HTTP 429.
-  final bool requiresUserAction;
+  /// Authentication, billing, exhausted quota, or account restrictions that
+  /// cannot recover through this turn's retry ladder. Overrides transient
+  /// hints, including HTTP 429; HTTP 401/403 always require user action.
+  bool get requiresUserAction =>
+      _requiresUserAction || statusCode == 401 || statusCode == 403;
 
   /// The HTTP status the transport failed with, when the error is a non-200
   /// response (null for connection/parse failures). Carried separately from
@@ -147,7 +150,7 @@ class StreamError extends StreamEvent {
       this.usage,
       this.providerCode,
       this.providerType,
-      this.requiresUserAction = false});
+      bool requiresUserAction = false}) : _requiresUserAction = requiresUserAction;
 }
 
 abstract class LlmProvider {

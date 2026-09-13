@@ -827,7 +827,7 @@ void main() {
   });
 
   test(
-      'a leaf that hits its step ceiling reports a non-finish, not a scavenged '
+      'a leaf that hits its step ceiling reports the cause, not a scavenged '
       'preamble', () async {
     final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
       ..register(ProviderDescriptor(
@@ -856,7 +856,7 @@ void main() {
     );
     final result = await job.result;
     expect(result.isError, isTrue);
-    expect(result.content, contains('did not finish'));
+    expect(result.content, contains('max steps reached'));
     expect(result.content, isNot(contains('preliminary fragment')));
     expect(job.status, SubAgentJobStatus.errored);
     await scheduler.dispose();

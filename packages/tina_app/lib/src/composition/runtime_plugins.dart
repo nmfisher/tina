@@ -94,7 +94,19 @@ PluginDescriptor providerFactoryPlugin(
       }
       return p;
     }
-    final factory = RuntimeProviderFactory(registry, decorator: decorate);
+    final factory = RuntimeProviderFactory(
+      registry,
+      decorator: decorate,
+      providerDefaults: {
+        config.provider: ProviderBuildDefaults(
+          apiKey: config.apiKey.isEmpty ? null : config.apiKey,
+          baseUrl: config.baseUrl.isEmpty ? null : config.baseUrl,
+          maxTokens: config.maxTokens,
+          streamIdleTimeout: config.streamIdleTimeout,
+          requestTimeout: config.requestTimeout,
+        ),
+      },
+    );
     // The factory owns the closed flag only — closing it tears down provider
     // acquisition. Registered once here, so scope dispose closes it exactly
     // once and `dispose()` stays idempotent.

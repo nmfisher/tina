@@ -116,6 +116,32 @@ void main() {
       expect(events.whereType<StreamError>().single.statusCode, 400);
     });
 
+    for (final status in [401, 403]) {
+      test('$status is terminal even with a transient hint', () async {
+        final inner = _ScriptedAttemptsProvider([
+          [
+            StreamError(
+              'authentication failed',
+              statusCode: status,
+              transient: true,
+            ),
+          ],
+          _ok,
+        ]);
+        final events = await _drain(
+          RetryingProvider(
+            inner,
+          ).send(system: 's', messages: const [], tools: const []),
+        );
+        expect(inner.calls, 1);
+        expect(
+          events.whereType<StreamError>().single.requiresUserAction,
+          isTrue,
+        );
+        expect(events.whereType<StreamNotice>(), isEmpty);
+      });
+    }
+
     test('exhausts the retry budget, then surfaces the failure', () async {
       final inner = _ScriptedAttemptsProvider([
         for (var i = 0; i < 5; i++)
