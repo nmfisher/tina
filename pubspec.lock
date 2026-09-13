@@ -127,6 +127,13 @@ packages:
       relative: true
     source: path
     version: "0.0.1"
+  dart_wasmtime:
+    dependency: "direct main"
+    description:
+      path: "packages/dart_wasmtime"
+      relative: true
+    source: path
+    version: "0.0.1"
   ffi:
     dependency: transitive
     description:

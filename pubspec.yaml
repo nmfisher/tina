@@ -26,6 +26,8 @@ dependencies:
     path: packages/fuzzy_ranker
   tina_console:
     path: packages/tina_console
+  dart_wasmtime:
+    path: packages/dart_wasmtime
   tina_engine:
     path: packages/tina_engine
   tina_app:
