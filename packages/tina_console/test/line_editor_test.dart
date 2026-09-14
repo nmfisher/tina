@@ -153,6 +153,70 @@ void main() {
               'prompt > stays painted');
     });
 
+    test('orphan typing during dispatch is swallowed, not left for readLine',
+        () async {
+      // tin-y27w: while a command dispatch is awaited, NO readLine is armed.
+      // The stdin subscription stays alive (the previous readLine created it
+      // and it outlives the completion), so keystrokes still reach the editor;
+      // before the ownerless-guard fix they mutated _edit and painted — the
+      // user watched themselves type, then the next readLine cleared the
+      // buffer and the text silently vanished. Ownerless edits must be
+      // dropped at the editor so nothing is painted and nothing can be lost.
+      final ed = _editor(io);
+      // Model the REPL: arm readLine (which subscribes stdin), then finish it
+      // the way a submit does. The editor is now mid-dispatch — subscription
+      // alive, no readLine armed. Feeding bytes before the first readLine
+      // would NOT model this: the input stream is single-subscription, so
+      // events would sit in its buffer and replay into the NEXT readLine
+      // (after _completer is set), exercising the guarded path, not the fix.
+      final f = ed.readLine('> ');
+      await _flush();
+      io.feedBytes([0x0d]);
+      expect(await f, isEmpty);
+      await _flush();
+      // Keystrokes typed while the command dispatch runs.
+      io.feedBytes('help me'.codeUnits);
+      await _flush();
+      expect(ed.editState.buffer, isEmpty,
+          reason: 'no readLine is armed: typed text must not reach the buffer');
+      // When dispatch finishes, the loop arms a fresh readLine. It must show
+      // the bare prompt — not the orphan keystrokes.
+      final f2 = ed.readLine('> ');
+      await _flush();
+      io.feedBytes([0x0d]);
+      expect(await f2, isEmpty);
+    });
+
+    test('orphan paste during dispatch is dropped too', () async {
+      final ed = _editor(io);
+      // Same mid-dispatch state as the typing test: readLine armed, then
+      // finished, subscription alive.
+      final f = ed.readLine('> ');
+      await _flush();
+      io.feedBytes([0x0d]);
+      expect(await f, isEmpty);
+      await _flush();
+      ed.inject(PasteInput('pasted while compacting'));
+      await _flush();
+      expect(ed.editState.buffer, isEmpty,
+          reason: 'a paste with no armed reader is dropped like typed text');
+      // The next readLine opens clean: no paste replay, no ghost text.
+      final f2 = ed.readLine('> ');
+      await _flush();
+      io.feedBytes([0x0d]);
+      expect(await f2, isEmpty);
+    });
+
+    test('readKey still owns the keyboard during dispatch', () async {
+      // During dispatch the host arms readKeys (approval/gate prompts). Those
+      // must keep working — only the chat editing path is gated.
+      final ed = _editor(io);
+      final key = ed.readKey();
+      await _flush();
+      io.feedBytes([0x79]); // 'y'
+      expect(await key, isA<CharInput>());
+    });
+
     test('Ctrl-C with empty buffer triggers confirm, second exits', () async {
       final ed = _editor(io);
       final f = ed.readLine('> ');

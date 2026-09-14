@@ -845,6 +845,29 @@ class LineEditor {
     // word-motion and backspace as delete-word-backward.
     if (_handleEscFollowUp(event)) return;
 
+    // Ownerless keyboard: no [readLine] is armed (the caller is mid-dispatch
+    // — e.g. /compact awaiting its LLM summarization), no [readKey] holds the
+    // stream, and queue mode is off. The steps above stay live so modals,
+    // panel cycling and menu keys keep working, but chat editing must not
+    // run: its mutations would land in _edit and be painted, while [isEditing]
+    // is false and the next [readLine] clears the buffer (see its doc) —
+    // silently wiping text the user just watched themselves type (tin-y27w).
+    // Escape is deliberately left through: with neither onEscape nor
+    // onDoubleEscape wired it only reaches the double-Esc clear, which is a
+    // no-op on an untouched buffer; when those hooks are wired, cancel must
+    // keep working mid-dispatch.
+    final ownerless =
+        _completer == null && !_queueModeActive && _keyCompleter == null;
+    if (ownerless &&
+        (event is CharInput ||
+            event is PasteInput ||
+            event is ArrowKey ||
+            event is EditingKey ||
+            event is AltKey ||
+            event is ControlKey)) {
+      return;
+    }
+
     switch (event) {
       // The mouse wheel is routed to the focused panel's scrollback (it had
       // first claim above); an unclaimed wheel is dropped, never typed.
