@@ -851,6 +851,7 @@ class LineEditor {
                 // text. Submit immediately — no second Enter needed.
                 final result = _edit.buffer;
                 _edit = _edit.addHistory(result).clear();
+                _redraw();
                 _complete(result);
               }
               return;
@@ -861,6 +862,11 @@ class LineEditor {
             // fleet run can take minutes). The next readLine clears anyway;
             // clearing here makes the window invisible.
             _edit = _edit.addHistory(result).clear();
+            // Repaint now: clearing state alone leaves the old text as stale
+            // pixels whenever dispatch is slow (e.g. /compact summarizes
+            // through an LLM call) — the next readLine's repaint only lands
+            // after that await returns.
+            _redraw();
             _complete(result);
           case ControlCode.tab:
             final tabActive = _activePicker;
