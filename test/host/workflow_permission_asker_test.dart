@@ -170,11 +170,12 @@ void main() {
   );
 
   test(
-    'non-answer keys (arrows, Enter, stray chars) never decide the approval',
+    'arrows move the selection without deciding; Enter confirms it',
     () async {
-      // The reported bug: pressing ↑ while the prompt was open fell into the
-      // default-deny and silently rejected the action. Only y/n/a/d (and Esc,
-      // explicitly) are answers; every other key must leave the read armed.
+      // 02ddd3e made approvals a selectable list: ↑/↓ move the highlight,
+      // Enter confirms the highlighted option, y/n/a/d remain shortcuts.
+      // An arrow must never decide the ask; Enter now MUST (it is the
+      // confirm key), so it is asserted positively here.
       final io = FakeStdio();
       final screen = Screen(
         io: io,
@@ -194,7 +195,7 @@ void main() {
       await _flush();
       expect(ed.isReadingKey, isTrue);
 
-      // ↑ arrow — not a CharInput, must not decide anything.
+      // ↑ arrow — not an answer, just redraws the row with the selection.
       io.feedBytes([0x1b, 0x5b, 0x41]);
       await _flush();
       expect(
@@ -203,20 +204,15 @@ void main() {
         reason: 'an arrow key is not an answer — the read stays armed',
       );
 
-      // Enter — not an answer either.
+      // Enter — the confirm key: it settles the ask with the highlighted
+      // option. No arrow was answered with, so the default (allow once).
       io.feedBytes([0x0d]);
-      await _flush();
-      expect(decided, isFalse, reason: 'Enter is not an answer');
-
-      // A stray printable character — ignored.
-      io.feedBytes([0x71]); // 'q'
-      await _flush();
-      expect(decided, isFalse, reason: '"q" is not an answer');
-
-      // The actual answer decides.
-      io.feedBytes([0x79]); // 'y'
       final response = await ask.timeout(const Duration(seconds: 2));
-      expect(response, PermissionResponse.allowOnce);
+      expect(
+        response,
+        PermissionResponse.allowOnce,
+        reason: 'Enter confirms the highlighted option',
+      );
     },
   );
 
@@ -292,12 +288,12 @@ void main() {
 
   test('approval affordances: spelled-out answers, mode chip, one-shot '
       'ignored-key ack (#51)', () async {
-    // (a) The row must say what each key DECIDES — the old
-    // '[y/n/a/d] (a/d remember …)' said both were remembered, never that
-    // 'a' allows and 'd' denies. (b) The active permission mode must be
-    // visible AT THE ASK — the TUI has no footer bar. (c) The FIRST
-    // non-answer key that reaches the prompt echoes one dim ack; the second
-    // stays silent.
+    // (a) The row must say what each key DECIDES — 02ddd3e replaced the old
+    // '[y]es [n]o [a]lways allow …' spelling with the selectable option
+    // labels; the row still names every decision. (b) The active permission
+    // mode must be visible AT THE ASK — the TUI has no footer bar. (c) The
+    // FIRST non-answer key that reaches the prompt echoes one dim ack; the
+    // second stays silent.
     final io = FakeStdio();
     final screen = Screen(
       io: io,
@@ -323,11 +319,8 @@ void main() {
     String notices() => sink.notices.map((n) => n.message).join('\n');
     expect(
       notices(),
-      contains(
-        'approve? [y]es [n]o [a]lways allow [d]eny always '
-        '(a/d: "cargo test") ›',
-      ),
-      reason: '(a) the four answers are spelled out with their decisions',
+      contains('approve? [y] allow once [a] allow always [d] deny ‹'),
+      reason: '(a) the row names what each key decides',
     );
     expect(
       notices(),
