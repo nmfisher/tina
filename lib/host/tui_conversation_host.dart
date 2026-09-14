@@ -252,7 +252,10 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     final isSandboxAccess = p.sandboxAccess != null;
     final options = [
       (text: 'allow once', key: 'y'),
-      (text: isallow always', key: 'a'),
+      (
+        text: isSandboxAccess ? 'session directories' : 'allow always',
+        key: 'a',
+      ),
       (text: 'deny', key: 'd'),
     ];
     var selectedIndex = 0;
@@ -302,7 +305,6 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
         }
       } else if (event is ArrowKey) {
         // Up/down arrows cycle through the approval options.
-        final idx = options.indexOf((text: 'allow once', key: 'y'));
         if (event.direction == ArrowDirection.up) {
           if (selectedIndex > 0) selectedIndex--;
         } else if (event.direction == ArrowDirection.down) {

@@ -119,7 +119,10 @@ class WorkflowPermissionAsker {
     final isSandboxAccess = p.sandboxAccess != null;
     final options = [
       (text: 'allow once', key: 'y'),
-      (text: 'allow always', key: 'a'),
+      (
+        text: isSandboxAccess ? 'session directories' : 'allow always',
+        key: 'a',
+      ),
       (text: 'deny', key: 'd'),
     ];
     var selectedIndex = 0;
