@@ -53,13 +53,14 @@ List<PluginDescriptor> _defaultProfile() {
 }
 
 void main() {
-  test('the default profile lists exactly the five plugins in declared order',
+  test('the default profile lists exactly the six plugins in declared order',
       () {
     final plugins = _defaultProfile();
     expect(
       [for (final plugin in plugins) plugin.id],
       [
         _ledgerPluginId,
+        'tina.app.live-quotas',
         _decoratorsPluginId,
         _factoryPluginId,
         _capabilitiesPluginId,
@@ -221,6 +222,7 @@ void main() {
         [for (final plugin in borrowed) plugin.id],
         [
           _ledgerPluginId,
+        'tina.app.live-quotas',
           _decoratorsPluginId,
           _factoryPluginId,
         ],

@@ -49,6 +49,15 @@ const double kTurnSpendCompactRatio = 0.5;
 /// trigger reads — and the once-per-turn latch in the agent is unchanged.
 const double kNoCapTurnSpendCompactRatio = 0.5;
 
+/// Current caps, independent of an agent's accumulated spend. Null is unbounded.
+class TokenBudgetLimits {
+  final int? perTurn;
+  final int? perSession;
+  final int? perRequest;
+
+  const TokenBudgetLimits({this.perTurn, this.perSession, this.perRequest});
+}
+
 /// Immutable accumulator of token spend against the three caps. [record]
 /// returns a new [TokenBudget] with the totals advanced; [resetTurn] /
 /// [resetSession] return one with a total zeroed. The owner (an [Agent])
@@ -59,14 +68,23 @@ const double kNoCapTurnSpendCompactRatio = 0.5;
 class TokenBudget {
   /// Sum of input+output tokens within a single `Agent.run` call (one user
   /// message → possibly many provider round-trips).
-  final int? perTurnLimit;
+  final int? _perTurnLimit;
+  int? get perTurnLimit => limits == null ? _perTurnLimit : limits!().perTurn;
 
   /// Sum across the whole REPL session. Resets on `/clear` via [resetSession].
-  final int? perSessionLimit;
+  final int? _perSessionLimit;
+  int? get perSessionLimit =>
+      limits == null ? _perSessionLimit : limits!().perSession;
 
   /// Approximate input-token cap on a single request. Computed pre-flight
   /// from the serialized prompt; aborts before we even hit the wire.
-  final int? perRequestInputLimit;
+  final int? _perRequestInputLimit;
+  int? get perRequestInputLimit =>
+      limits == null ? _perRequestInputLimit : limits!().perRequest;
+
+  /// Optional runtime-owned cap source. Copies keep this source while spend
+  /// remains an immutable snapshot. Updating caps never resets accounting.
+  final TokenBudgetLimits Function()? limits;
 
   /// Running total of input+output tokens within the current `Agent.run` call,
   /// capped by [perTurnLimit]. Zeroed at the start of each run by [resetTurn].
@@ -90,22 +108,26 @@ class TokenBudget {
   final int sessionEstimated;
 
   const TokenBudget({
-    this.perTurnLimit,
-    this.perSessionLimit,
-    this.perRequestInputLimit,
+    int? perTurnLimit,
+    int? perSessionLimit,
+    int? perRequestInputLimit,
+    this.limits,
     this.turnTotal = 0,
     this.sessionTotal = 0,
     this.turnEstimated = 0,
     this.sessionEstimated = 0,
-  });
+  }) : _perTurnLimit = perTurnLimit,
+       _perSessionLimit = perSessionLimit,
+       _perRequestInputLimit = perRequestInputLimit;
 
-  /// Copy with the given totals replaced. Caps are carried over unchanged.
+  /// Copy with the given totals replaced. Preserve the caps or live cap source.
   TokenBudget _copyWith(
           {int? turnTotal,
           int? sessionTotal,
           int? turnEstimated,
           int? sessionEstimated}) =>
       TokenBudget(
+        limits: limits,
         perTurnLimit: perTurnLimit,
         perSessionLimit: perSessionLimit,
         perRequestInputLimit: perRequestInputLimit,
@@ -190,7 +212,7 @@ class TokenBudget {
         return 'per-turn token budget exceeded '
             '($turnGrand > $perTurnLimit, of which '
             '$turnEstimated estimated). Aborting to prevent runaway cost. '
-            'Raise with --max-turn-tokens.';
+            'Raise Turn tokens in /settings → Token quota, or use --max-turn-tokens.';
       case TokenLimitKind.perSession:
         return 'per-session token budget exceeded '
             '($sessionGrand > $perSessionLimit, of which '

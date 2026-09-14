@@ -65,14 +65,26 @@ class SandboxWriteFailure {
   }
 }
 
+/// A successful shell can print a nested failure or simply read an old log.
+/// This warning is informational; it must never populate retry authorization.
+const maskedSandboxWarning =
+    'The shell exited 0, but its output contains a "Read-only file system" '
+    'diagnostic. A nested command may have failed, or this may be an old log. '
+    'Inspect the result before treating the operation as successful.';
+
 /// Typed metadata stays separate from tool output, which is untrusted text.
 class BashToolResult extends ToolResult {
   final SandboxWriteFailure? sandboxFailure;
+
+  /// Suspected failure in output from a successful shell. Unlike
+  /// [sandboxFailure], this is not evidence for the automatic retry context.
+  final String? sandboxWarning;
 
   const BashToolResult(super.content,
       {super.isError,
       super.elapsed,
       super.timedOut,
       super.emptyOutput,
-      this.sandboxFailure});
+      this.sandboxFailure,
+      this.sandboxWarning});
 }

@@ -11,6 +11,32 @@ TokenUsage _u(int inOut, {int cache = 0}) => TokenUsage(
     );
 
 void main() {
+  test('raising/removing global cap preserves spend and releases its trip', () {
+    final ledger = SpendLedger(maxGlobalTokens: 50, requestsPerMinute: 0);
+    ledger.record(const TokenUsage(inputTokens: 40, outputTokens: 20));
+    ledger.recordEstimated(const TokenUsage(inputTokens: 10, outputTokens: 0));
+    expect(ledger.tripped, isTrue);
+    ledger.updateLimits(maxGlobalTokens: 100, requestsPerMinute: 0);
+    expect(ledger.tripped, isFalse);
+    expect(ledger.reason, isNull);
+    expect(ledger.totalTokens, 60);
+    expect(ledger.totalEstimatedTokens, 10);
+    ledger.updateLimits(maxGlobalTokens: 30, requestsPerMinute: 0);
+    expect(ledger.tripped, isTrue);
+    ledger.updateLimits(maxGlobalTokens: 0, requestsPerMinute: 0);
+    expect(ledger.tripped, isFalse);
+    expect(ledger.grandTotalTokens, 70);
+  });
+
+  test('disabling RPM releases an already waiting request', () async {
+    final ledger = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 1);
+    expect(await ledger.acquireRequestSlot(), isTrue);
+    final pending = ledger.acquireRequestSlot();
+    ledger.updateLimits(maxGlobalTokens: 0, requestsPerMinute: 0);
+    expect(await pending.timeout(const Duration(seconds: 1)), isTrue);
+  });
+
+
   group('SpendLedger.record / ceiling', () {
     test('accumulates input+output and does not trip under the cap', () {
       final l = SpendLedger(maxGlobalTokens: 1000, requestsPerMinute: 0);

@@ -1160,6 +1160,8 @@ class TuiCoordinator {
         reloadConfigProviders();
         final envMap = app.environment.env;
         final host = sessionManager.activeConversation.host;
+        final quotas = scheduler.mountedScopeValue?.lookup(liveQuotasServiceKey);
+        var quotaSaved = false;
         UserConfig? wrote;
         try {
           wrote = await runSettingsPanel(
@@ -1167,6 +1169,31 @@ class TuiCoordinator {
             editor: editor,
             registry: scheduler.registry,
             env: envMap,
+            currentQuota: quotas == null
+                ? null
+                : (saved) => LimitsConfig(
+                    maxTurnTokens: quotas.maxTurnTokens,
+                    maxSessionTokens: quotas.maxSessionTokens,
+                    maxRequestTokens: quotas.maxRequestTokens,
+                    maxSubAgentTokens: quotas.maxSubAgentTokens,
+                    maxGlobalTokens: quotas.maxGlobalTokens,
+                    requestsPerMinute: quotas.requestsPerMinute,
+                    minRequestIntervalMs: saved.minRequestIntervalMs,
+                    maxConcurrentRequests: saved.maxConcurrentRequests,
+                  ),
+            onQuotaSaved: quotas == null
+                ? null
+                : (saved) {
+                    quotas.update(
+                      maxTurnTokens: saved.maxTurnTokens!,
+                      maxSessionTokens: saved.maxSessionTokens!,
+                      maxRequestTokens: saved.maxRequestTokens!,
+                      maxSubAgentTokens: saved.maxSubAgentTokens!,
+                      maxGlobalTokens: saved.maxGlobalTokens!,
+                      requestsPerMinute: saved.requestsPerMinute!,
+                    );
+                    quotaSaved = true;
+                  },
           );
         } on ConfigWriteException catch (e) {
           // Backstop: most subpanels surface write errors in-modal, but a panel
@@ -1175,17 +1202,15 @@ class TuiCoordinator {
           host.showMessage('$e\n', style: HostMessageStyle.warning);
           return;
         }
-        if (wrote != null) {
+        if (wrote != null || quotaSaved) {
           host.showMessage(
             'Settings saved to ~/.tina/config — provider and model changes '
-            'apply now; quota and theme on the next launch.\n',
+            'apply now; '
+            '${quotas == null ? 'quota and theme apply on the next launch' : 'quota changes apply now; theme applies on the next launch'}.\n',
             style: HostMessageStyle.success,
           );
         } else {
-          host.showMessage(
-            '(settings unchanged)\n',
-            style: HostMessageStyle.dim,
-          );
+          host.showMessage('(settings unchanged)\n', style: HostMessageStyle.dim);
         }
       };
 

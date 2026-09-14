@@ -1,4 +1,5 @@
 import 'package:attractor/attractor.dart';
+import 'live_quotas.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 import 'package:tina_app/src/config/runtime_config.dart';
@@ -55,6 +56,7 @@ SubAgentScheduler createScheduler({
     quota: quota,
     driverFactory: driverFactory,
   );
+  scheduler.budgetFactory = scope?.lookup(liveQuotasServiceKey)?.delegatedBudget;
   scheduler.delegateToolBuilder = (ctx) => DelegateTool(ctx);
   // Thread the user's configured policy to unattended agents (workflow nodes)
   // so the bash decision (--yolo / --allow bash:… / default ask) is inherited
@@ -307,7 +309,8 @@ AgentDriver buildAgent({
     sink: host,
     policy: effectivePolicy,
     asker: resolvedAsker,
-    budget: config.buildTokenBudget(),
+    budget: scheduler.mountedScopeValue?.lookup(liveQuotasServiceKey)?.mainBudget()
+        ?? config.buildTokenBudget(),
     pauseGate: scheduler.pauseGate,
     maxSteps: config.maxSteps,
     system: resolvedSystem,

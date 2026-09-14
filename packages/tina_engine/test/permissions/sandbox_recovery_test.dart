@@ -39,7 +39,9 @@ void main() {
   Map<String, dynamic> retry() => {'command': command, 'retrySafety': safety};
   Future<List<Message>> run(
       List<List<Map<String, dynamic>>> steps, PermissionAsker asker,
-      {Future<void>? cancelSignal, FakeAgentSink? sink}) async {
+      {Future<void>? cancelSignal,
+      FakeAgentSink? sink,
+      PermissionMode mode = PermissionMode.ask}) async {
     final history = <Message>[];
     await Agent(
       provider: _Provider(steps),
@@ -47,7 +49,7 @@ void main() {
       sink: sink ?? FakeAgentSink(),
       system: 'test',
       asker: asker,
-      policy: PermissionPolicy(rules: const [
+      policy: PermissionPolicy(mode: mode, rules: const [
         PermissionRule(
             toolName: 'bash', pattern: '*', decision: PermissionDecision.allow)
       ]),
@@ -57,6 +59,141 @@ void main() {
 
   List<ToolResultBlock> results(List<Message> history) =>
       history.expand((m) => m.content).whereType<ToolResultBlock>().toList();
+
+  void successfulShellWithDiagnostics({bool repeat = false}) {
+    var calls = 0;
+    inner = MemoryProcessRunner((_, __) => ++calls == 1 || repeat
+        ? MemoryRunningProcess(stdoutChunks: [
+            'exit=1\n',
+            '/sdk/update_engine_version.sh: line 71: ${cache.path}/engine.stamp.tmp.42: Read-only file system\n',
+            '/sdk/update_engine_version.sh: line 78: ${cache.path}/engine.realm: Read-only file system\n',
+          ])
+        : MemoryRunningProcess(stdoutChunks: ['tests passed\n']));
+    runner = SandboxedProcessRunner(
+        projectRoot: temp.path,
+        inner: inner,
+        backend: SandboxBackend.bwrap,
+        accessPolicy: SandboxAccessPolicy());
+    bash.processRunner = runner;
+  }
+
+  test('wrapped test failure retains shell status and surfaces a warning',
+      () async {
+    successfulShellWithDiagnostics();
+    const wrapped = 'cd /mnt/sdd_1tb/tina/packages/tina_engine && '
+        'dart test test/llm/registry_build_test.dart > /tmp/tina_test_out.txt 2>&1; '
+        'echo "exit=\$?"; tail -4 /tmp/tina_test_out.txt';
+    final result = await bash.execute({'command': wrapped}) as BashToolResult;
+    expect(result.isError, isFalse, reason: 'the final tail returned 0');
+    expect(result.content, contains('exit: 0'));
+    expect(result.content, contains('exit=1'));
+    expect(result.sandboxFailure, isNull,
+        reason: 'output is not fresh-denial evidence');
+    expect(result.sandboxWarning, contains('nested command may have failed'));
+    expect(result.content,
+        contains('writablePaths, accessReason, and retrySafety'));
+    expect(inner.starts.single.arguments.last, wrapped,
+        reason: 'no shell rewriting');
+    expect(runner.accessPolicy.writablePaths, isEmpty);
+  });
+
+  test(
+      'old log reads warn visibly without arming recovery or asking for grants',
+      () async {
+    successfulShellWithDiagnostics(repeat: true);
+    final sink = FakeAgentSink();
+    const logRead =
+        'head -30 /tmp/tina_test_out.txt; echo ---; wc -l /tmp/tina_test_out.txt';
+    final history = await run([
+      [
+        {'command': logRead}
+      ],
+      [
+        {'command': logRead}
+      ],
+    ], (_) async => fail('reading output must not infer an access request'),
+        sink: sink, mode: PermissionMode.allowEdits);
+    expect(inner.starts, hasLength(2),
+        reason: 'no retrySafety gate from log text');
+    expect(results(history).every((r) => !r.isError), isTrue);
+    expect(sink.notices.where((n) => n.message.contains('shell exited 0')),
+        hasLength(2));
+    expect(
+        sink.notices
+            .where((n) => n.message.contains('shell exited 0'))
+            .every((n) => n.kind == NoticeKind.warning),
+        isTrue);
+    expect(runner.accessPolicy.writablePaths, isEmpty);
+  });
+
+  for (final approve in [true, false]) {
+    test(
+        'confirmed masked failure requires explicit cache approval (approve=$approve)',
+        () async {
+      successfulShellWithDiagnostics();
+      final prompts = <PermissionPrompt>[];
+      final explicit = {
+        'command': command,
+        'writablePaths': [cache.path],
+        'accessReason':
+            'The test launcher needs to update its SDK metadata cache.',
+        'retrySafety': safety,
+      };
+      final history = await run([
+        [
+          {'command': 'dart test > result.log 2>&1; tail -4 result.log'}
+        ],
+        [explicit],
+        if (!approve) [explicit],
+      ], (prompt) async {
+        prompts.add(prompt);
+        return approve
+            ? PermissionResponse.allowOnce
+            : PermissionResponse.denyOnce;
+      }, mode: PermissionMode.allowEdits);
+      final prompt = prompts.single;
+      expect(prompt.sandboxAccess!.paths, [cache.resolveSymbolicLinksSync()]);
+      expect(prompt.retryExplanation, isNull,
+          reason: 'no inferred fresh failure');
+      expect(prompt.accessDescription, contains(safety));
+      expect(prompt.input['command'], command);
+      expect(inner.starts, hasLength(approve ? 2 : 1));
+      expect(results(history).last.isError, !approve);
+      expect(runner.accessPolicy.writablePaths, isEmpty);
+      if (approve) {
+        expect(inner.starts.last.arguments,
+            contains(cache.resolveSymbolicLinksSync()));
+      } else {
+        expect(
+            results(history).last.content, contains('Do not request it again'));
+      }
+    });
+  }
+
+  test('a zero-exit EROFS without a path is only a warning', () async {
+    bash.processRunner = SandboxedProcessRunner(
+        projectRoot: temp.path,
+        inner: MemoryProcessRunner((_, __) =>
+            MemoryRunningProcess(stderrChunks: ['Read-only file system\n'])),
+        backend: SandboxBackend.bwrap,
+        accessPolicy: SandboxAccessPolicy());
+    final result = await bash.execute({'command': 'build'}) as BashToolResult;
+    expect(result.sandboxWarning, isNotNull);
+    expect(result.sandboxFailure, isNull);
+    expect(result.isError, isFalse);
+  });
+
+  test('pass-through execution does not diagnose sandbox failures', () async {
+    bash.processRunner = SandboxedProcessRunner(
+        projectRoot: temp.path,
+        inner: MemoryProcessRunner((_, __) =>
+            MemoryRunningProcess(stderrChunks: ['Read-only file system\n'])),
+        backend: SandboxBackend.passThrough);
+    final result =
+        await bash.execute({'command': 'read-log'}) as BashToolResult;
+    expect(result.sandboxWarning, isNull);
+    expect(result.sandboxFailure, isNull);
+  });
 
   test('first failure explains the exact path and requires safety review',
       () async {
@@ -297,6 +434,21 @@ void main() {
             '${cache.path}/stamp: Read-only file system', runner),
         isNull);
   });
+
+  test('real Linux logging wrapper masks the exit but still warns', () async {
+    bash.processRunner =
+        SandboxedProcessRunner(projectRoot: cache.path, sandboxReadOnly: true);
+    final log = '${temp.path}/output.log';
+    final actual = '''/bin/sh -c 'echo written > "${cache.path}/probe"' '''
+        '> "$log" 2>&1; echo "exit=\$?"; tail -4 "$log"';
+    final result = await bash.execute({'command': actual}) as BashToolResult;
+    expect(result.isError, isFalse);
+    expect(result.content, contains('exit: 0'));
+    expect(result.content, contains('Read-only file system'));
+    expect(result.sandboxWarning, isNotNull);
+    expect(result.sandboxFailure, isNull);
+    expect(File('${cache.path}/probe').existsSync(), isFalse);
+  }, skip: !bwrapAvailable ? 'requires Linux bwrap' : false);
 
   test(
       'real Linux first failure offers an approval and a reviewed retry succeeds',

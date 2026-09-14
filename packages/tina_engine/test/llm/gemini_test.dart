@@ -38,7 +38,8 @@ void main() {
       expect((contents[1] as Map)['role'], 'model'); // assistant → model
       expect(
           (body['tools'] as List).first['functionDeclarations'], hasLength(1));
-      expect(body['generationConfig']['maxOutputTokens'], 8192);
+      expect(body['generationConfig']['maxOutputTokens'],
+          ProviderRegistry.defaultMaxTokens);
     });
 
     test('omits systemInstruction when system is empty', () async {

@@ -34,6 +34,8 @@ Future<UserConfig?> runSettingsPanel({
   required Map<String, String> env,
   Directory? tinaDir,
   Future<InputEvent> Function()? readEvent,
+  LimitsConfig Function(LimitsConfig saved)? currentQuota,
+  void Function(LimitsConfig)? onQuotaSaved,
 }) async {
   UserConfig? lastWritten;
   // The modal is the single blue panel while open: blur the focused conversation
@@ -43,7 +45,7 @@ Future<UserConfig?> runSettingsPanel({
   final grabbed = modalTakeFocus(editor);
   try {
     await _runSettingsSession(screen, editor, registry, env, tinaDir,
-        readEvent, (w) => lastWritten = w);
+        readEvent, (w) => lastWritten = w, currentQuota, onQuotaSaved);
     return lastWritten;
   } finally {
     modalRestoreFocus(editor, grabbed);
@@ -60,6 +62,8 @@ Future<void> _runSettingsSession(
   Directory? tinaDir,
   Future<InputEvent> Function()? readEvent,
   void Function(UserConfig) onWrote,
+  LimitsConfig Function(LimitsConfig saved)? currentQuota,
+  void Function(LimitsConfig)? onQuotaSaved,
 ) async {
   // Reload from disk before each pick so a subpanel's own write is visible to
   // the next (e.g. enable a provider, then pick a model and see it). The panel
@@ -101,8 +105,12 @@ Future<void> _runSettingsSession(
           editor: editor,
           env: env,
           tinaDir: tinaDir,
-          initial: initial,
+          initial: currentQuota == null
+              ? initial
+              : initial.copyWith(
+                  limits: currentQuota(initial.limits ?? const LimitsConfig())),
           readEvent: readEvent,
+          onSaved: onQuotaSaved,
         );
       case 'theme':
         wrote = await runThemePanel(
@@ -881,7 +889,9 @@ String _ageLabel(Duration d) {
 
 /// The six numeric limits from the wizard's limits step, as a self-contained
 /// panel that writes only `[limits]`. Editing/digit entry mirrors
-/// [_SetupForm._onLimits]; Enter saves, Esc cancels.
+/// [_SetupForm._onLimits]; Enter saves, Esc cancels. [onSaved] runs only after
+/// successful persistence, including when the desired values were already on
+/// disk (they can still differ from the running app's limits).
 Future<UserConfig?> runQuotaPanel({
   required Screen screen,
   required LineEditor editor,
@@ -889,8 +899,10 @@ Future<UserConfig?> runQuotaPanel({
   Directory? tinaDir,
   required UserConfig initial,
   Future<InputEvent> Function()? readEvent,
+  void Function(LimitsConfig)? onSaved,
 }) {
-  return _QuotaForm(screen, env, tinaDir, readEvent ?? editor.readKey, initial)
+  return _QuotaForm(
+          screen, env, tinaDir, readEvent ?? editor.readKey, initial, onSaved)
       .run();
 }
 
@@ -903,6 +915,7 @@ class _QuotaForm {
     this._tinaDir,
     this._readEvent,
     this._initial,
+    this._onSaved,
   ) {
     const ids = [
       'max_session_tokens',
@@ -969,6 +982,7 @@ class _QuotaForm {
   final Future<InputEvent> Function() _readEvent;
 
   final UserConfig _initial;
+  final void Function(LimitsConfig)? _onSaved;
   late final OverlayRegion _overlay;
   late final Rect _rect;
 
@@ -1002,6 +1016,7 @@ class _QuotaForm {
       if (result == _QuotaResult.wrote) {
         try {
           final cfg = _write();
+          _onSaved?.call(_toConfig());
           _dispose();
           return cfg;
         } on ConfigWriteException catch (e) {

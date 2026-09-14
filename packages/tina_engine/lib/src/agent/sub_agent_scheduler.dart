@@ -286,6 +286,15 @@ class SubAgentScheduler {
   /// `config.maxSubAgentTokens` by the composition root.
   final int subAgentBudgetLimit;
 
+  /// Runtime-owned budget creation; shared cap sources also update live jobs.
+  TokenBudget? Function()? budgetFactory;
+
+  TokenBudget? _newBudget() => budgetFactory != null
+      ? budgetFactory!()
+      : subAgentBudgetLimit == 0
+          ? null
+          : TokenBudget(perSessionLimit: subAgentBudgetLimit);
+
   /// Shared pause gate forwarded to every sub-agent so a per-session trip in
   /// any sub-agent pauses ALL agents. Null disables pause behavior (legacy
   /// abort) — the headless path leaves this unset.
@@ -784,9 +793,7 @@ class SubAgentScheduler {
             label: job.label,
             system: system,
             maxSteps: defaultMaxSteps,
-            budget: subAgentBudgetLimit == 0
-                ? null
-                : TokenBudget(perSessionLimit: subAgentBudgetLimit),
+            budget: _newBudget(),
             pauseGate: pauseGate,
             wirePanelFocus: job.wirePanelFocus!);
       } else {
@@ -797,9 +804,7 @@ class SubAgentScheduler {
           policy: ctx.parentPolicy,
           asker: _autoDenyAsker,
           maxSteps: defaultMaxSteps,
-          budget: subAgentBudgetLimit == 0
-              ? null
-              : TokenBudget(perSessionLimit: subAgentBudgetLimit),
+          budget: _newBudget(),
           pauseGate: pauseGate,
           system: system,
         ));
@@ -1014,9 +1019,7 @@ class SubAgentScheduler {
         policy: effectivePolicy,
         asker: asker ?? _autoDenyAsker,
         maxSteps: defaultMaxSteps,
-        budget: subAgentBudgetLimit == 0
-            ? null
-            : TokenBudget(perSessionLimit: subAgentBudgetLimit),
+        budget: _newBudget(),
         pauseGate: pauseGate,
         system: system,
       ));

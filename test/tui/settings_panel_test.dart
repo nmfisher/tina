@@ -79,7 +79,9 @@ void main() {
   tearDown(tmp.tearDown);
 
   Future<UserConfig?> runIndex(Screen screen,
-      {UserConfig? initial, ProviderRegistry? reg}) {
+      {UserConfig? initial, ProviderRegistry? reg,
+        LimitsConfig Function(LimitsConfig)? currentQuota,
+        void Function(LimitsConfig)? onQuotaSaved}) {
     // The index reloads each subpanel's baseline from disk, so pre-existing
     // config must be on disk for the panels to see + preserve it.
     if (initial != null) {
@@ -92,6 +94,8 @@ void main() {
       env: const {},
       tinaDir: tmp.dir,
       readEvent: canned.readEvent,
+      currentQuota: currentQuota,
+      onQuotaSaved: onQuotaSaved,
     );
   }
 
@@ -401,6 +405,78 @@ void main() {
     expect(loaded.limits?.requestsPerMinute, 30);
     // Independent save: providers untouched.
     expect(loaded.providers['alpha']?.apiKey, 'ka');
+  });
+
+  test(
+    'quota save applies immediately even when disk already has the value',
+    () async {
+      const saved = LimitsConfig(
+        maxSessionTokens: 0,
+        maxTurnTokens: 20,
+        maxRequestTokens: 0,
+        maxGlobalTokens: 0,
+        maxSubAgentTokens: 0,
+        requestsPerMinute: 0,
+      );
+      final applied = <LimitsConfig>[];
+      canned.events = [
+        ArrowKey(ArrowDirection.down), ControlKey(ControlCode.enter),
+        ArrowKey(ArrowDirection.down), // Turn tokens, live value 80.
+        ControlKey(ControlCode.backspace), ControlKey(ControlCode.backspace),
+        CharInput('2'),
+        CharInput('0'),
+        ControlKey(ControlCode.enter),
+        EscapeKey(),
+      ];
+      final wrote = await runIndex(
+        fakeScreen(),
+        initial: const UserConfig(limits: saved),
+        currentQuota: (_) => const LimitsConfig(
+          maxSessionTokens: 0,
+          maxTurnTokens: 80,
+          maxRequestTokens: 0,
+          maxGlobalTokens: 0,
+          maxSubAgentTokens: 0,
+          requestsPerMinute: 0,
+        ),
+        onQuotaSaved: applied.add,
+      ).timeout(overlayTimeout);
+      expect(wrote, isNull, reason: 'disk already contained 20');
+      expect(applied.single.maxTurnTokens, 20);
+    },
+  );
+
+  test('cancelling quota edits does not apply them', () async {
+    final applied = <LimitsConfig>[];
+    canned.events = [
+      ArrowKey(ArrowDirection.down),
+      ControlKey(ControlCode.enter),
+      CharInput('9'),
+      EscapeKey(),
+      EscapeKey(),
+    ];
+    await runIndex(
+      fakeScreen(),
+      onQuotaSaved: applied.add,
+    ).timeout(overlayTimeout);
+    expect(applied, isEmpty);
+  });
+
+  test('failed quota persistence leaves live settings untouched', () async {
+    Directory(p.join(tmp.dir.path, 'config')).createSync();
+    final applied = <LimitsConfig>[];
+    canned.events = [ControlKey(ControlCode.enter), EscapeKey()];
+    final wrote = await runQuotaPanel(
+      screen: fakeScreen(),
+      editor: LineEditor(screen: fakeScreen()),
+      env: const {},
+      tinaDir: tmp.dir,
+      initial: const UserConfig(),
+      readEvent: canned.readEvent,
+      onSaved: applied.add,
+    ).timeout(overlayTimeout);
+    expect(wrote, isNull);
+    expect(applied, isEmpty);
   });
 
   // -- theme panel ----------------------------------------------------------

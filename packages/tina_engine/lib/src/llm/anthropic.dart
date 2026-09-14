@@ -9,6 +9,7 @@ import 'http.dart';
 import 'http_log.dart';
 import 'message.dart';
 import 'provider.dart';
+import 'registry.dart';
 import 'sse.dart';
 
 final _log = Logger('tina.llm');
@@ -26,7 +27,7 @@ class AnthropicProvider extends LlmProvider {
     required this.apiKey,
     required String model,
     this.useBearerAuth = false,
-    this.maxTokens = 8192,
+    this.maxTokens = ProviderRegistry.defaultMaxTokens,
     this.baseUrl = 'https://api.anthropic.com',
     this.streamIdleTimeout = defaultStreamIdleTimeout,
     this.requestTimeout = defaultRequestTimeout,

@@ -502,10 +502,11 @@ class Agent {
     Future<void>? toolInterruptSignal,
     ToolRegistry? turnTools,
   }) async {
+    budget = budget?.resetTurn();
     abortedReason = null;
     abortedKind = AbortedKind.none;
     // The soft margin re-arms every turn: a new user turn gets its own one
-    // nudge (the previous turn's spend is zeroed by resetTurn below).
+    // nudge (the previous turn's spend is zeroed by resetTurn above).
     _softMarginFired = false;
     // Same for the 50%-spend compaction latch (#43): the previous turn's
     // compaction must not suppress this turn's.

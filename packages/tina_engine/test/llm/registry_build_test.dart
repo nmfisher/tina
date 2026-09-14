@@ -107,6 +107,66 @@ void main() {
     });
   });
 
+  group('per-model maxTokens clamp', () {
+    test('an over-cap configured value clamps to the catalog maxOutput', () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('p', builder: _recording(built), models: const {
+          'm': ModelInfo(
+              id: 'm', name: 'm', contextWindow: 8192, maxOutput: 4096),
+        }));
+
+      r.build('p/m', maxTokens: 32768);
+      expect(built.single.maxTokens, 4096,
+          reason: 'some endpoints reject max_tokens above the model cap '
+              '(e.g. NIM 4096-token models) — never send an over-cap value');
+    });
+
+    test('a configured value below maxOutput passes through unchanged', () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('p', builder: _recording(built), models: const {
+          'm': ModelInfo(
+              id: 'm', name: 'm', contextWindow: 8192, maxOutput: 4096),
+        }));
+
+      r.build('p/m', maxTokens: 1024);
+      expect(built.single.maxTokens, 1024,
+          reason: 'the clamp is a ceiling, never a floor');
+    });
+
+    test('an unknown model id passes through unclamped (never clamp on a guess)',
+        () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('p', builder: _recording(built)));
+
+      r.build('p/custom-model', maxTokens: 12345);
+      expect(built.single.maxTokens, 12345);
+    });
+
+    test('building with no explicit maxTokens yields the shared default', () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('p', builder: _recording(built)));
+
+      r.build('p/m');
+      expect(built.single.maxTokens, ProviderRegistry.defaultMaxTokens);
+    });
+
+    test('the default clamps to the catalog maxOutput too', () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('p', builder: _recording(built), models: const {
+          'm': ModelInfo(
+              id: 'm', name: 'm', contextWindow: 8192, maxOutput: 4096),
+        }));
+
+      r.build('p/m');
+      expect(built.single.maxTokens, 4096);
+    });
+  });
+
   group('pooled build failure propagation', () {
     test('a throwing member builder propagates unwrapped from buildPooled',
         () {
@@ -171,6 +231,57 @@ void main() {
       expect(wraps, ['wrap'],
           reason: 'once for the PooledProvider, not once per member');
       expect(p, isA<PooledProvider>());
+    });
+  });
+
+  group('per-model maxTokens clamp', () {
+    test('a configured cap above the catalog ceiling clamps to maxOutput', () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('p',
+            builder: _recording(built),
+            models: const {
+              'm': ModelInfo(
+                  id: 'm', name: 'm', contextWindow: 8192, maxOutput: 4096),
+            }));
+
+      r.build('p/m', maxTokens: 32768);
+      expect(built.single.maxTokens, 4096,
+          reason: 'some endpoints reject over-cap max_tokens outright');
+    });
+
+    test('a configured cap below the ceiling passes through unchanged', () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('p',
+            builder: _recording(built),
+            models: const {
+              'm': ModelInfo(
+                  id: 'm', name: 'm', contextWindow: 200000, maxOutput: 64000),
+            }));
+
+      r.build('p/m', maxTokens: 8192);
+      expect(built.single.maxTokens, 8192,
+          reason: 'the caller asked for less than the model allows');
+    });
+
+    test('a model unknown to the catalog passes through unclamped', () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('p', builder: _recording(built)));
+
+      r.build('p/custom-model', maxTokens: 12345);
+      expect(built.single.maxTokens, 12345,
+          reason: 'never clamp on a guess — the catalog said nothing');
+    });
+
+    test('no explicit maxTokens yields the shared engine default', () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('p', builder: _recording(built)));
+
+      r.build('p/m');
+      expect(built.single.maxTokens, ProviderRegistry.defaultMaxTokens);
     });
   });
 }

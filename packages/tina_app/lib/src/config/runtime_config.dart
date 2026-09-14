@@ -141,7 +141,9 @@ class RuntimeConfig {
     this.apiKey = '',
     this.model = '',
     this.baseUrl = '',
-    this.maxTokens = 8192,
+    // Shared engine default (ProviderRegistry.defaultMaxTokens) so every
+    // layer agrees; clamped per model at provider build time.
+    this.maxTokens = ProviderRegistry.defaultMaxTokens,
     this.yolo = false,
     List<PermissionRule> permissionRules = const [],
     this.permissionMode = PermissionMode.ask,

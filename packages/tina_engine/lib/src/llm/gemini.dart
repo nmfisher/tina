@@ -9,6 +9,7 @@ import 'http.dart';
 import 'http_log.dart';
 import 'message.dart';
 import 'provider.dart';
+import 'registry.dart';
 import 'sse.dart';
 
 final _log = Logger('tina.llm');
@@ -33,7 +34,7 @@ class GeminiProvider extends LlmProvider {
   GeminiProvider({
     required this.apiKey,
     required String model,
-    this.maxTokens = 8192,
+    this.maxTokens = ProviderRegistry.defaultMaxTokens,
     this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta',
     this.streamIdleTimeout = defaultStreamIdleTimeout,
     this.requestTimeout = defaultRequestTimeout,

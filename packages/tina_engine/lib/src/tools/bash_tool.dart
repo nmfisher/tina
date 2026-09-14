@@ -217,7 +217,13 @@ class BashTool implements Tool {
             'and exit code. Runs in the tina process cwd unless `cwd` is '
             'given. Subject to the session permission policy. Each call is a '
             'fresh shell — chain dependent steps with `&&` rather than '
-            'expecting state to persist.',
+            'expecting state to persist. Set `cwd` instead of prefixing `cd`. '
+            'Run the actual build/test command directly: this tool already '
+            'captures output, keeps a bounded tail, and spills large output '
+            'to a file. Do not add redirection, echo, head, or tail solely '
+            'to capture or shorten output; trailing commands can hide a failure. '
+            'If a reporting wrapper is necessary, preserve the operation’s '
+            'exit status and exit with it. Use the read tool to inspect saved logs.',
         inputSchema: {
           'type': 'object',
           'properties': {
@@ -501,31 +507,52 @@ class BashTool implements Tool {
     report.write(errTail.isEmpty ? '(empty)\n' : errTail);
     report.write(stderrAcc.summaryLine());
     SandboxWriteFailure? failure;
+    String? warning;
     if (!cancelled &&
         !timedOut &&
-        exitCode != 0 &&
         processRunner is SandboxedProcessRunner &&
         (processRunner as SandboxedProcessRunner).backend !=
-            SandboxBackend.passThrough &&
-        RegExp(r'read-only file system|permission denied|operation not permitted',
-                caseSensitive: false)
-            .hasMatch('$outTail\n$errTail')) {
-      failure = SandboxWriteFailure.detect(
-          '$outTail\n$errTail', processRunner as SandboxedProcessRunner);
-      if (failure != null) {
-        report.writeln('\n${failure.recoveryInstructions}');
-      } else {
+            SandboxBackend.passThrough) {
+      final output = '$outTail\n$errTail';
+      if (exitCode == 0 &&
+          RegExp('read-only file system', caseSensitive: false)
+              .hasMatch(output)) {
+        // Preserve the shell status. The same bytes can be emitted by a
+        // failing nested command or by `head` reading yesterday's log.
+        // In particular, never assign [failure] from these diagnostics.
+        warning = maskedSandboxWarning;
+        report.writeln('\nWarning: $warning');
         report.writeln(
-            '\nSandbox access may be responsible. If this command needs '
-            'to write outside the project/temp directories, request the narrow '
-            'existing directory in writablePaths with an accessReason. Command '
-            'approval alone does not grant filesystem access. Check for partial '
-            'effects before retrying; this command has not been retried automatically.');
+            'No retry or directory grant follows from this warning. Check '
+            'whether the diagnostic belongs to the operation just attempted, '
+            'and inspect possible partial effects. If a fresh blocked write '
+            'is confirmed and replay is safe, request explicit approval for '
+            'the narrow existing directory using writablePaths, accessReason, '
+            'and retrySafety on the actual failing command. Do not retry or '
+            'request access for a command that only reads an old log. '
+            'Command approval and allow-edits do not grant external write access.');
+      } else if (exitCode != 0 &&
+          RegExp(r'read-only file system|permission denied|operation not permitted',
+                  caseSensitive: false)
+              .hasMatch(output)) {
+        failure = SandboxWriteFailure.detect(
+            output, processRunner as SandboxedProcessRunner);
+        if (failure != null) {
+          report.writeln('\n${failure.recoveryInstructions}');
+        } else {
+          report.writeln(
+              '\nSandbox access may be responsible. If this command needs '
+              'to write outside the project/temp directories, request the narrow '
+              'existing directory in writablePaths with an accessReason. Command '
+              'approval alone does not grant filesystem access. Check for partial '
+              'effects before retrying; this command has not been retried automatically.');
+        }
       }
     }
     return BashToolResult(
       report.toString(),
       sandboxFailure: failure,
+      sandboxWarning: warning,
       isError: cancelled || timedOut || exitCode != 0,
       elapsed: stopwatch.elapsed,
       timedOut: timedOut,

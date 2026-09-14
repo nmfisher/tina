@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' show min;
 
 import 'http.dart';
 import 'model_catalog.dart';
@@ -310,9 +311,15 @@ class ProviderRegistry implements LlmProviderFactory {
   final Map<String, String> _env;
   final Map<String, ProviderDescriptor> _providers = {};
 
-  /// The default maxTokens used when a caller doesn't pass one. Matches the
-  /// historical default in [Config] and the existing providers.
-  static const int defaultMaxTokens = 8192;
+  /// The default maxTokens used when a caller doesn't pass one. All config
+  /// layers (RuntimeConfig, the CLI fallback, the provider constructors)
+  /// reference this so the value cannot drift between them. 32768 because
+  /// reasoning models routinely spend 9-13k output tokens thinking on
+  /// deep-context turns — an 8192 cap truncated them mid-reasoning
+  /// (finish_reason=length, empty content) and aborted the run; 32768 is
+  /// verified empirically (improvements log round 10). Per-model ceilings
+  /// still apply — _buildLimited clamps to [ModelInfo.maxOutput].
+  static const int defaultMaxTokens = 32768;
 
   /// Optional wrapper for legacy direct [build] calls. Application runtimes
   /// use [RuntimeProviderFactory] instead; its policy never reads or changes
@@ -641,12 +648,24 @@ class ProviderRegistry implements LlmProviderFactory {
     // the compiled map is the source; the models.dev catalog overlay carries
     // no tina-specific body tweaks.
     final extraBody = desc.models[resolved.modelId]?.extraBody ?? const {};
+    // Clamp the output cap to the model's catalog ceiling when the catalog
+    // knows one: the configured value is a *ceiling of ceilings*, so an
+    // over-cap request (some endpoints 400 on it, e.g. NIM's 4096-token
+    // models) never goes out and an under-cap default never cripples a
+    // model that could output more (Anthropic's 64k). Unknown models pass
+    // through unclamped — never clamp on a guess.
+    final catalogModel =
+        catalog?.findModel(desc, resolved.modelId) ?? desc.models[resolved.modelId];
+    final configuredMax = maxTokens ?? defaultMaxTokens;
+    final effectiveMaxTokens = catalogModel == null
+        ? configuredMax
+        : min(configuredMax, catalogModel.maxOutput);
     final endpoint = baseUrlOverride ?? desc.defaultBaseUrl;
     final built = desc.builder(ProviderInstance(
       apiKey: apiKey,
       model: resolved.modelId,
       baseUrl: endpoint,
-      maxTokens: maxTokens ?? defaultMaxTokens,
+      maxTokens: effectiveMaxTokens,
       streamIdleTimeout: streamIdleTimeout ?? defaultStreamIdleTimeout,
       requestTimeout: requestTimeout ?? defaultRequestTimeout,
       authScheme: scheme,

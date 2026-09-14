@@ -57,7 +57,7 @@ Runtime fixtures may construct values directly without parsing arguments.
 | `model`, `modelExplicit` | Nonempty CLI model > file default model > provider MODEL environment > descriptor first model; explicit flag metadata controls resumed-model precedence |
 | `apiKey` | Registry auth-source scan over root's file-over-environment overlay; empty remains legal for setup; no CLI key flag |
 | `baseUrl` | CLI base URL > selected provider BASE_URL environment (including root's file overlay) > descriptor URL |
-| `maxTokens` | CLI integer / 8192 fallback |
+| `maxTokens` | CLI integer / `ProviderRegistry.defaultMaxTokens` (32768) fallback |
 | `permissionRules`, `yolo` | CLI deny rules before allow rules; yolo defaults false; fresh mutable policies are constructed from the immutable rules |
 | `permissionMode`, `permissionClassifierModel` | CLI permission mode > file mode > ask; classifier ref from file, otherwise inherit main model |
 | `defaultWorkflow` | File default workflow; null retains default.dot discovery; `none` disables it |

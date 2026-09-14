@@ -494,6 +494,17 @@ class ToolExecutor {
               executionInput['accessReason'] as String);
         }
         if (access != null) {
+          // An agent can confirm a masked failure and request access on the
+          // underlying operation explicitly. Show its supplied assessment,
+          // without promoting earlier zero-exit output into failure evidence.
+          if (recovery == null && use.input.containsKey('retrySafety')) {
+            retrySafety = requiredString(use.input, 'retrySafety').trim();
+            if (retrySafety.isEmpty ||
+                RegExp(r'[\x00-\x1f\x7f]').hasMatch(retrySafety)) {
+              throw const ToolValidationException(
+                  'retrySafety must explain the partial-effects checks and why replay is safe, on one line.');
+            }
+          }
           if (access.paths.any((path) =>
               state.deniedSandboxDirectories.any((denied) =>
                   path == denied ||
@@ -686,8 +697,18 @@ class ToolExecutor {
             '${out.sandboxFailure!.explanation}\n'
             'The agent must check partial effects before requesting approval to retry.\n',
             kind: NoticeKind.warning);
-      } else if (!out.isError && retryKey != null) {
+      } else if (!out.isError &&
+          retryKey != null &&
+          (out is! BashToolResult || out.sandboxWarning == null)) {
         state.sandboxFailures.remove(retryKey);
+      }
+      // A zero-exit diagnostic may be a masked failure or replayed log text.
+      // Surface it to the user without scheduling recovery or inferring grants.
+      if (out is BashToolResult &&
+          out.sandboxWarning != null &&
+          !isCancelled() &&
+          !state.toolInterrupted) {
+        sink.notice('${out.sandboxWarning}\n', kind: NoticeKind.warning);
       }
       // #31: the interrupt is re-sampled right after EVERY call, not
       // only at batch start — a signal that fired while THIS call was

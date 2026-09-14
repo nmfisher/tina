@@ -183,7 +183,7 @@ void main() {
       expect(body['chat_template_kwargs'], {'enable_thinking': true});
       // Default fields still present alongside the extras.
       expect(body['stream'], true);
-      expect(body['max_tokens'], 8192);
+      expect(body['max_tokens'], ProviderRegistry.defaultMaxTokens);
     });
 
     test('an empty extraBody leaves the default body untouched', () async {

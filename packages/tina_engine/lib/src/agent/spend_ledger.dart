@@ -40,10 +40,12 @@ class SpendLimitExceeded implements Exception {
 /// exists for tests; production resets only on restart.
 class SpendLedger {
   /// Hard global token ceiling across all agents. `0` = unbounded.
-  final int maxGlobalTokens;
+  int _maxGlobalTokens;
+  int get maxGlobalTokens => _maxGlobalTokens;
 
   /// Outbound requests-per-minute cap. `0` = throttle disabled.
-  final int requestsPerMinute;
+  int _requestsPerMinute;
+  int get requestsPerMinute => _requestsPerMinute;
 
   int _totalTokens = 0;
   bool _tripped = false;
@@ -109,12 +111,38 @@ class SpendLedger {
   static const _tick = Duration(milliseconds: 100);
 
   SpendLedger({
-    required this.maxGlobalTokens,
-    required this.requestsPerMinute,
+    required int maxGlobalTokens,
+    required int requestsPerMinute,
     DateTime Function()? now,
-  })  : _tokens = requestsPerMinute.toDouble(),
+  })  : _maxGlobalTokens = maxGlobalTokens,
+        _requestsPerMinute = requestsPerMinute,
+        _tokens = requestsPerMinute.toDouble(),
         _lastRefill = now?.call() ?? DateTime.now(),
         _now = now ?? DateTime.now;
+
+  /// Apply an explicit user quota change without clearing spend or refilling
+  /// a depleted rate bucket. Raising the ceiling can release a previous trip.
+  void updateLimits({
+    required int maxGlobalTokens,
+    required int requestsPerMinute,
+  }) {
+    if (maxGlobalTokens < 0 || requestsPerMinute < 0) {
+      throw ArgumentError('Quota limits must be non-negative');
+    }
+    final now = _now();
+    _refill(now);
+    final oldRpm = _requestsPerMinute;
+    _requestsPerMinute = requestsPerMinute;
+    _tokens = oldRpm == 0
+        ? requestsPerMinute.toDouble()
+        : _tokens.clamp(0.0, requestsPerMinute.toDouble());
+    if (_maxGlobalTokens != maxGlobalTokens) {
+      _tripped = false;
+      _reason = null;
+    }
+    _maxGlobalTokens = maxGlobalTokens;
+    _tripCheck();
+  }
 
   /// Running total of `input + output` tokens recorded this session.
   /// MEASURED spend only — provider-reported usage. Estimated spend from
@@ -148,7 +176,7 @@ class SpendLedger {
   int get rpm => requestsPerMinute;
 
   /// Latched `true` once the global ceiling was crossed. Stays true for the
-  /// rest of the session (only [reset] clears it).
+  /// rest of the session unless [updateLimits] raises/removes the ceiling.
   bool get tripped => _tripped;
 
   /// The trip reason, set once when the ceiling is first crossed.
@@ -234,7 +262,7 @@ class SpendLedger {
       _reason = 'global token spend ceiling exceeded '
           '($grandTotalTokens > $maxGlobalTokens, of which '
           '$_totalEstimatedTokens estimated). Raise [limits] max_global_tokens '
-          '(or --max-global-tokens) in ~/.tina/config, or restart tina.';
+          'in /settings → Token quota (or use --max-global-tokens).';
     }
   }
 
@@ -250,7 +278,7 @@ class SpendLedger {
   Future<bool> acquireRequestSlot({Future<void>? cancelSignal}) async {
     if (requestsPerMinute <= 0) return true;
     while (true) {
-      if (_tryConsume(_now())) return true;
+      if (requestsPerMinute <= 0 || _tryConsume(_now())) return true;
       final tick = Future<bool>.delayed(_tick, () => false); // false = keep waiting
       if (cancelSignal == null) {
         await tick;

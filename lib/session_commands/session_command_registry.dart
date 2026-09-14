@@ -149,7 +149,7 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
   SessionCommandEntry(
     names: const ['/settings'],
     argsHint: '',
-    summary: 'reconfigure providers/models/tiers (applies on restart)',
+    summary: 'configure providers, models and live quotas (theme needs restart)',
     helpOrder: 15,
     handler: (h, _) => _handled(h.frontend._handleSettings),
   ),

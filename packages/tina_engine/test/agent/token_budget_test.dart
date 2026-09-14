@@ -196,6 +196,59 @@ void main() {
     });
   });
 
+  for (final estimated in [false, true]) {
+    test(
+      'continue after a turn cap starts fresh (estimated=$estimated)',
+      () async {
+        final provider = FakeProvider([
+          [
+            MessageComplete(
+              content: const [TextBlock('first')],
+              stopReason: 'end_turn',
+              usage: TokenUsage(
+                inputTokens: 120,
+                outputTokens: 0,
+                estimated: estimated,
+              ),
+            ),
+          ],
+          [
+            const MessageComplete(
+              content: [TextBlock('continued')],
+              stopReason: 'end_turn',
+              usage: TokenUsage(inputTokens: 40, outputTokens: 0),
+            ),
+          ],
+        ]);
+        final ledger = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
+        final agent = Agent(
+          provider: MeteringProvider(provider, ledger),
+          tools: ToolRegistry([]),
+          sink: FakeAgentSink(),
+          policy: PermissionPolicy(),
+          asker: (_) async => PermissionResponse.denyOnce,
+          system: 'sys',
+          budget: const TokenBudget(perTurnLimit: 100, perSessionLimit: 1000),
+        );
+        final history = <Message>[];
+        await agent.run(history: history, userInput: 'work');
+        expect(agent.abortedKind, AbortedKind.budget);
+        expect(agent.budget!.turnGrandTotal, 120);
+        await agent.run(history: history, userInput: 'continue');
+        expect(agent.abortedReason, isNull);
+        expect(agent.budget!.turnTotal, 40);
+        expect(agent.budget!.turnEstimated, 0);
+        expect(
+          agent.budget!.sessionTotal + agent.budget!.sessionEstimated,
+          160,
+        );
+        expect(ledger.grandTotalTokens, 160);
+        expect(provider.calls, hasLength(2));
+        expect((history.last.content.single as TextBlock).text, 'continued');
+      },
+    );
+  }
+
   group('Agent per-session pause (PauseGate)', () {
     test('per-session trip pauses; Continue resets and resumes', () async {
       final tools = ToolRegistry([FakeTool.noOp('fake')]);

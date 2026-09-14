@@ -18,9 +18,12 @@ class PermissionPrompt {
     final access = sandboxAccess;
     if (access == null) return '';
     final retry = retryExplanation;
-    final context = retry == null
+    final assessment = retrySafety == null
         ? ''
-        : '  $retry\n  Agent’s partial-effects assessment: $retrySafety\n'
+        : '  Agent’s partial-effects assessment: $retrySafety\n';
+    final context = retry == null
+        ? assessment
+        : '  $retry\n$assessment'
             '  Allow these directories so the command can be retried?\n';
     return '${context}  Additional writable directories (including contents):\n'
         '${access.paths.map((path) => '    $path\n').join()}'

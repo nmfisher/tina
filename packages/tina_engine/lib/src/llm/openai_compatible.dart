@@ -60,7 +60,7 @@ class OpenAiCompatibleAdapter extends LlmProvider {
   OpenAiCompatibleAdapter({
     required this.apiKey,
     required String model,
-    this.maxTokens = 8192,
+    this.maxTokens = ProviderRegistry.defaultMaxTokens,
     this.baseUrl = 'https://api.openai.com',
     this.streamIdleTimeout = defaultStreamIdleTimeout,
     this.requestTimeout = defaultRequestTimeout,
