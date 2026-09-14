@@ -683,10 +683,12 @@ class NotcursesBackendSurface implements BackendSurface {
     int? clearCells,
   }) {
     if (_destroyed) return;
+    final columns = clippedSurfaceColumns(_bounds, relRow, relCol, maxCols);
+    if (columns == 0) return;
     // Same swallow bug as writeText: the child plane's putStr silently
     // drops any write containing embedded SGR. Route through the shared
     // SGR walker, targeting THIS surface's child plane.
-    final clipped = clipToVisibleColumns(text, maxCols);
+    final clipped = clipToVisibleColumns(text, columns);
     // Erase only the cells the span is known to have painted previously —
     // bounded by the previous content (the caller's [clearCells] snapshot)
     // instead of the full budget. When the new text already covers the old
@@ -703,7 +705,7 @@ class NotcursesBackendSurface implements BackendSurface {
       ..setFgDefault()
       ..setBgDefault()
       ..setStyles(0);
-    final erase = (clearCells ?? maxCols).clamp(0, maxCols);
+    final erase = (clearCells ?? columns).clamp(0, columns);
     if (erase > visibleColumns(clipped)) {
       sink.putStrYX(relRow, relCol, ' ' * erase);
       // tin-p8k2: a ZWJ cluster lays out wider on the real terminal than in
@@ -732,11 +734,13 @@ class NotcursesBackendSurface implements BackendSurface {
     required bool moveCursor,
   }) {
     if (_destroyed) return;
+    final columns = clippedSurfaceColumns(_bounds, relRow, relCol, n);
+    if (columns == 0) return;
     final sink = _PlaneSgrSink(_plane)
       ..setFgDefault()
       ..setBgDefault()
       ..setStyles(0);
-    sink.putStrYX(relRow, relCol, ' ' * n);
+    sink.putStrYX(relRow, relCol, ' ' * columns);
     _present();
   }
 

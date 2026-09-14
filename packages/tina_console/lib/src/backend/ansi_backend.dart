@@ -200,9 +200,11 @@ class AnsiBackendSurface implements BackendSurface {
     required bool moveCursor,
     int? clearCells,
   }) {
+    final columns = clippedSurfaceColumns(_bounds, relRow, relCol, maxCols);
+    if (columns == 0) return;
     final r = _row(relRow);
     final c = _col(relCol);
-    final clipped = clipToVisibleColumns(text, maxCols);
+    final clipped = clipToVisibleColumns(text, columns);
     if (moveCursor) {
       _backend.moveCursor(r, c);
     } else {
@@ -213,7 +215,7 @@ class AnsiBackendSurface implements BackendSurface {
     // surface (tin-p8k2). Here it is purely an output-size optimization —
     // every write is explicitly addressed, so there is no cursor-drift
     // hazard — but keeping the two surfaces symmetric means one emit path.
-    _backend.eraseCells(r, c, (clearCells ?? maxCols).clamp(0, maxCols));
+    _backend.eraseCells(r, c, (clearCells ?? columns).clamp(0, columns));
     _backend.writeText(clipped);
     if (!moveCursor) _backend.restoreCursor();
     _backend.flush();
@@ -226,10 +228,12 @@ class AnsiBackendSurface implements BackendSurface {
     required int n,
     required bool moveCursor,
   }) {
+    final columns = clippedSurfaceColumns(_bounds, relRow, relCol, n);
+    if (columns == 0) return;
     final r = _row(relRow);
     final c = _col(relCol);
     if (!moveCursor) _backend.saveCursor();
-    _backend.eraseCells(r, c, n);
+    _backend.eraseCells(r, c, columns);
     if (!moveCursor) _backend.restoreCursor();
     _backend.flush();
   }

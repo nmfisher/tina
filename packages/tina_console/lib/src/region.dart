@@ -1182,14 +1182,18 @@ class ScrollingTextRegion extends Region {
             for (var i = span.startIndex; i < prevRuns!.length; i++) {
               oldTailWidth += plainWidth(prevRuns[i].text);
             }
-            s.putAt(
-              relRow: visualRow,
-              relCol: span.colOffset,
-              text: renderStyledRuns(span.runs),
-              maxCols: w - span.colOffset,
-              moveCursor: false,
-              clearCells: oldTailWidth,
-            );
+            // Retained logical rows can extend beyond the viewport. Keep
+            // their snapshot current, but only submit visible changes.
+            if (span.colOffset < w) {
+              s.putAt(
+                relRow: visualRow,
+                relCol: span.colOffset,
+                text: renderStyledRuns(span.runs),
+                maxCols: w - span.colOffset,
+                moveCursor: false,
+                clearCells: oldTailWidth,
+              );
+            }
             row.paintedText = text;
             row.paintedVisualRow = visualRow;
             row.paintedCol = col;

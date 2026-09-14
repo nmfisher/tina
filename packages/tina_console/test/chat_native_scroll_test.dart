@@ -133,6 +133,33 @@ void main() {
   // of a full-row putAt. Drives the real surface path through the recording fake
   // notcurses platform (no native lib).
   group('styled row partial-patches changed tail on the surface', () {
+    test('a changed run beyond the visible right edge is not submitted', () {
+      fakeAsync((async) {
+        final p = _FakeNotcursesPlatform();
+        final s = _makeScreen(p, width: 80, height: 24);
+        s.redrawFrame();
+        _flush(async);
+        final chat = s.chat;
+        final prefix = 'A' * (chat.bounds.width - 1);
+        chat.write('\x1b[32m$prefix');
+        _flush(async);
+        // A carriage return resets the logical write column while the retained
+        // row still contains its prefix. Replay can therefore retain more text
+        // than the current viewport displays.
+        chat.write('\r\x1b[36mXYZ');
+        _flush(async);
+        final surface = p.lastSurface!;
+        final before = surface.putAtCalls.length;
+        chat.write('\x1b[31m!');
+        _flush(async);
+        expect(surface.putAtCalls.length, before,
+            reason: 'the changed run is wholly outside the visible row');
+        expect(surface.putAtCalls.every((call) => call.maxCols > 0), isTrue);
+        expect(chat.snapshotLines().join(), contains('!'),
+            reason: 'clipping presentation must preserve transcript content');
+      });
+    });
+
     test('growing tail re-emits only the changed run at the offset column', () {
       fakeAsync((async) {
         const width = 80;

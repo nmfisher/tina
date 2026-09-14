@@ -27,8 +27,9 @@ abstract class BackendSurface {
   Rect get bounds;
 
   /// Write a single line of [text] starting at the relative ([relRow],
-  /// [relCol]). The caller pre-clips to its own width; the backend may clip
-  /// again. ANSI escapes in [text] are preserved but don't consume columns.
+  /// [relCol]). Writes are clipped to the surface's right edge. An origin
+  /// outside the surface or a nonpositive budget is a no-op.
+  /// ANSI escapes in [text] are preserved but don't consume columns.
   ///
   /// [moveCursor] = false wraps the write in save/restore so the terminal's
   /// visible cursor (parked by the input region) doesn't jump — use this for
@@ -50,6 +51,7 @@ abstract class BackendSurface {
   });
 
   /// Erase [n] cells starting at the relative ([relRow], [relCol]).
+  /// Uses the same bounds and no-op rules as [putAt].
   void eraseAt({
     required int relRow,
     required int relCol,
@@ -83,6 +85,19 @@ abstract class BackendSurface {
 
   /// Release backend resources for this surface. Safe to call once.
   void destroy();
+}
+
+/// Limit a surface operation to its row, without allowing invalid origins.
+int clippedSurfaceColumns(Rect bounds, int relRow, int relCol, int columns) {
+  if (columns <= 0 ||
+      relRow < 0 ||
+      relRow >= bounds.height ||
+      relCol < 0 ||
+      relCol >= bounds.width) {
+    return 0;
+  }
+  final remaining = bounds.width - relCol;
+  return columns < remaining ? columns : remaining;
 }
 
 /// Clip [s] to a maximum of [maxCols] visible columns, preserving any embedded
