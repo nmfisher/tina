@@ -13,6 +13,8 @@ import 'paste_audit.dart';
 import 'text_line_input.dart';
 import 'menu_bar.dart';
 import 'modal_surface.dart';
+import 'panel_input.dart';
+import 'rect.dart';
 import 'screen.dart';
 
 /// Async raw-mode line editor. Renders into [Screen.input] (an
@@ -80,10 +82,9 @@ class LineEditor {
     }
   }
 
-  /// Optional focus manager for [Panel]s. When set, events route to the
-  /// focused panel *underneath* the modal layer (menu bar / picker / dialog
-  /// still preempt). F8 enters the panel ring, Tab cycles while a panel is
-  /// focused, Esc returns focus to the editor. See [FocusManager].
+  /// Optional focus manager. Ctrl+G enters panel cycling; prompts and modal
+  /// overlays take priority over panel input. An exclusive [PanelInputTarget]
+  /// receives other keys before app shortcuts or shared editing.
   FocusManager? _focusManager;
   set focusManager(FocusManager? fm) => _focusManager = fm;
   FocusManager? get focusManager => _focusManager;
@@ -482,6 +483,51 @@ class LineEditor {
 
   // -- Input dispatch -----------------------------------------------------
 
+  bool get _exclusivePanelFocused {
+    final target = _focusManager?.focused;
+    return target is PanelInputTarget &&
+        target.inputMode == PanelInputMode.exclusive;
+  }
+
+  /// Panel-owned input bypasses chat editing, cancellation and app shortcuts.
+  /// A readKey still owns the keyboard. Registered overlays sit above panels;
+  /// even an unhandled modal key must not reach the background panel.
+  bool _routeExclusivePanelInput(InputEvent event) {
+    if (_keyCompleter != null ||
+        (_burstTimer != null && event is CharInput) ||
+        !_exclusivePanelFocused) return false;
+    var modalActive = false;
+    for (final modal in _modals) {
+      if (!modal.isActive) continue;
+      modalActive = true;
+      if (modal.handleEvent(event)) {
+        _redraw();
+        return true;
+      }
+    }
+    if (modalActive) return true;
+    final fm = _focusManager!;
+    _lastEsc = null;
+    if (fm.isCycling ||
+        (event is ControlKey && event.code == ControlCode.ctrlG)) {
+      fm.handleEvent(event);
+      _redraw();
+    } else {
+      // Ownership, rather than the handler's return value, prevents fallback.
+      fm.focused!.handleEvent(event);
+    }
+    return true;
+  }
+
+  /// Hide editor-only overlays when a panel takes over the keyboard. Drafts
+  /// and command history remain intact for the next conversation focus.
+  void suspendSharedInput() {
+    _activePicker?.closeState();
+    _dialog.dismiss();
+    _lastEsc = null;
+    screen.input.setBoundsOverride(Rect.empty);
+  }
+
   void _ensureListening() {
     _sub ??= _input.events.listen(_onEvent);
   }
@@ -499,6 +545,7 @@ class LineEditor {
     if (debugKeys) {
       stderr.writeln('[keys] event: $event');
     }
+    if (_routeExclusivePanelInput(event)) return;
     final interrupted = event is ControlKey &&
         event.code == ControlCode.ctrlC &&
         (_keyCompleter == null || _keyCompleterGlobal) &&
@@ -549,6 +596,7 @@ class LineEditor {
       // The prompt owns answer keys, even on a read-only panel. Only
       // navigation is offered to the focused view while an approval is open.
       if (_keyCompleterGlobal &&
+          !_exclusivePanelFocused &&
           (event is ArrowKey || event is ScrollEvent) &&
           (_focusManager?.focused?.handleEvent(event) ?? false)) {
         return;
@@ -735,6 +783,8 @@ class LineEditor {
   }
 
   void _dispatchEvent(InputEvent event) {
+    // Held pastes also enter here after a prompt releases input ownership.
+    if (_routeExclusivePanelInput(event)) return;
     if (debugKeys) {
       stderr.writeln('[keys] event: $event');
     }

@@ -43,6 +43,7 @@ export 'src/rect.dart';
 export 'src/region.dart';
 export 'src/conversation_panel.dart';
 export 'src/panel_content.dart';
+export 'src/panel_input.dart';
 export 'src/screen.dart';
 export 'src/screen_layout.dart';
 export 'src/spinner.dart';

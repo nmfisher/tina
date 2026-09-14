@@ -57,8 +57,8 @@ class ConversationPanelCoordinator {
 
   /// Non-conversation panels (e.g. workflow run views): frame → content, no
   /// host binding. Positioned by [relayContent] like any other panel; focusing
-  /// one keeps the shared input on the primary chat (there is no conversation
-  /// to route input to).
+  /// one preserves the active conversation. Exclusive input hides the shared
+  /// editor; read-only views keep its existing placement policy.
   final Map<PanelFrame, PanelContent> _extra = {};
 
   /// The primary conversation id, set in [bindPrimary]. Stable for the session's
@@ -299,17 +299,17 @@ class ConversationPanelCoordinator {
     if (content.isDetached) content.attach();
   }
 
-  /// Register a non-conversation panel (a workflow run view). No host binding:
-  /// [relayContent] fits the content; focusing the frame keeps the shared input
-  /// on the primary chat (there is no conversation to route input to).
+  /// Register non-conversation content. Read-only views retain the primary
+  /// editor in tiled mode; exclusive input hides it in either layout.
   void bindExtra({required PanelFrame frame, required PanelContent content}) {
     _extra[frame] = content;
     frame.setReservesInput(false);
     frame.onFocus = () {
       _scrollIntoView(frame);
       panelManager.refreshSidebar();
-      if (panelManager.sidebar != null) {
-        panelManager.screen.input.setBoundsOverride(Rect.empty);
+      if (frame.inputMode == PanelInputMode.exclusive ||
+          panelManager.sidebar != null) {
+        editor.suspendSharedInput();
       } else {
         panelManager.relocateInput(panelManager.primaryFrame);
       }
@@ -321,6 +321,8 @@ class ConversationPanelCoordinator {
   /// Remove and detach an extra panel's content. The caller is responsible for
   /// removing the frame itself ([PanelManager.removeFrame]).
   void unbindExtra(PanelFrame frame) {
+    frame.onFocus = null;
+    frame.onHighlight = null;
     _extra.remove(frame)?.detach();
   }
 
@@ -329,6 +331,12 @@ class ConversationPanelCoordinator {
   /// `_activeFrame` did, then delegates the content-agnostic retarget to the
   /// manager.
   void relocateInput({bool force = false}) {
+    final focused = panelManager.focusManager.focused;
+    if (focused is PanelInputTarget &&
+        focused.inputMode == PanelInputMode.exclusive) {
+      editor.suspendSharedInput();
+      return;
+    }
     if (panelManager.sidebar != null) {
       final selected = panelManager.selectedFrame;
       if (sessionManager.active.conversationById(selected.conversationId) == null) {

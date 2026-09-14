@@ -95,9 +95,10 @@ class PanelManager {
 
   /// Remove a spawned frame from the ring + list and release its busy timer.
   void removeFrame(PanelFrame f) {
+    final wasFocused = focusManager.focused == f;
     focusManager.unregister(f);
     spawnedFrames.remove(f);
-    if (f == _selectedFrame) {
+    if (f == _selectedFrame || wasFocused) {
       focusManager.home = primaryFrame;
       focusManager.focusPanel(primaryFrame);
       _selectedFrame = primaryFrame;
@@ -303,7 +304,13 @@ class PanelManager {
   /// resolved by the coordinator (which knows the active conversation); this
   /// manager just performs the save/retarget/load so it stays content-agnostic.
   void relocateInput(PanelFrame target, {bool force = false}) {
-    if (target == _inputFrame && !force) return;
+    if (target == _inputFrame && !force) {
+      // A panel that owns input hides the shared region without changing the
+      // conversation draft. Restore its geometry when returning to that chat.
+      screen.input.setBoundsOverride(target.inputRect);
+      editor.refresh();
+      return;
+    }
     // Save current editor state to the old panel — only during an active edit
     // session. Between turns the editor state is empty or stale.
     final oldFrame = _inputFrame;

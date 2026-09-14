@@ -1,5 +1,6 @@
 import 'focusable.dart';
 import 'input_event.dart';
+import 'panel_input.dart';
 
 /// Owns an ordered ring of [Focusable]s and separates two states:
 ///
@@ -23,6 +24,7 @@ import 'input_event.dart';
 /// - **Enter** (cycling) → commit: the highlighted panel becomes the focus.
 /// - **Esc** (cycling) → cancel: clear the highlight, keep the current focus.
 /// - **Esc** (not cycling, focus ≠ home) → return focus to the home panel.
+/// Exclusive input panels keep Ctrl+W and Esc; Ctrl+G still enters cycling.
 class FocusManager {
   final List<Focusable> _ring = [];
   int _focusIndex = -1; // the focused (input) panel; -1 if none.
@@ -163,8 +165,12 @@ class FocusManager {
   /// (return-home) are consumed; other events fall through so the dispatch can
   /// route them to the focused panel.
   bool handleEvent(InputEvent event) {
+    final target = focused;
+    final exclusive = target is PanelInputTarget &&
+        target.inputMode == PanelInputMode.exclusive;
     final isEntryKey = event is ControlKey &&
-        (event.code == ControlCode.ctrlW || event.code == ControlCode.ctrlG);
+        (event.code == ControlCode.ctrlG ||
+            (event.code == ControlCode.ctrlW && (!exclusive || isCycling)));
     if (_cyclingIndex >= 0) {
       if (event is ArrowKey) {
         moveHighlightDirection(event.direction);
@@ -188,7 +194,7 @@ class FocusManager {
       engage();
       return true;
     }
-    if (event is EscapeKey) {
+    if (event is EscapeKey && !exclusive) {
       final homeIdx = _home == null ? -1 : _ring.indexOf(_home!);
       if (homeIdx >= 0 && _focusIndex != homeIdx) {
         returnHome();

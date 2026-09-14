@@ -2,6 +2,7 @@ import 'backend/backend_surface.dart';
 import 'comet.dart';
 import 'focusable.dart';
 import 'input_event.dart';
+import 'panel_input.dart';
 import 'rect.dart';
 import 'screen.dart';
 
@@ -21,11 +22,13 @@ import 'screen.dart';
 /// the border cyan; the cycling highlight tints it yellow. See [comet.dart] for
 /// the cell math.
 ///
-/// Per the spawn-unification "Option 1" input model there is a single shared
-/// input line; a side panel shows scrollback only and [handleEvent] returns
-/// false so keystrokes fall through to the line editor.
-class PanelFrame implements Focusable {
+/// Conversations use the shared input line. Other content selects [inputMode]
+/// to expose read-only commands or own all input through [onPanelKey].
+class PanelFrame implements Focusable, PanelInputTarget {
   final Screen screen;
+
+  @override
+  final PanelInputMode inputMode;
 
   /// Conversation label shown in the title bar (a provider/model ref).
   /// Updatable — call [relabel] to change and re-render.
@@ -86,6 +89,7 @@ class PanelFrame implements Focusable {
     required this.screen,
     required String label,
     required this.conversationId,
+    this.inputMode = PanelInputMode.sharedEditor,
     bool ownsCanvas = false,
   })  : _label = label,
         _ownsCanvas = ownsCanvas;
@@ -215,7 +219,13 @@ class PanelFrame implements Focusable {
         return true;
       }
     }
-    return false;
+    return inputMode == PanelInputMode.readOnly &&
+        (event is CharInput ||
+            event is PasteInput ||
+            event is EditingKey ||
+            (event is ControlKey &&
+                (event.code == ControlCode.enter ||
+                    event.code == ControlCode.backspace)));
   }
 
   // -- Chrome ------------------------------------------------------------

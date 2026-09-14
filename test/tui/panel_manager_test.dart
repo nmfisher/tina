@@ -310,10 +310,9 @@ void main() {
       expect(focusManager.focused, a);
 
       pm.removeFrame(a);
-      // a held focus when it was removed, so the ring is now empty of focus —
-      // the previously-focused panel is gone and can never be refocused.
-      expect(focusManager.focused, isNull,
-          reason: 'removing the focused panel clears focus');
+      // Closing the focused view restores the primary input target.
+      expect(focusManager.focused, same(primary),
+          reason: 'closing the focused panel restores a usable input target');
       // Focusing the removed panel is a no-op (it's not in the ring); primary
       // remains the reachable target.
       focusManager.focusPanel(primary);

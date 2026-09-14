@@ -28,6 +28,7 @@ import 'package:tina/self_update/updater.dart';
 import 'package:tina/tui/attention_queue.dart';
 import 'package:tina/tui/panel_maximize.dart';
 import 'package:tina/tui/panel_host.dart';
+import 'package:tina/tui/run_panel_host.dart';
 import 'package:tina/tui/tool_output_overlay.dart';
 import 'package:tina/tui/workflow_editor_overlay.dart';
 import 'package:tina/tui/workflow_viewer_overlay.dart';
@@ -173,6 +174,7 @@ class TuiCoordinator {
   /// [create]; [run]'s SIGWINCH handler and the first-spawn blocks repoint at
   /// it via this field so the order lives in one place.
   late final ResizeCoordinator _resizeCoordinator;
+  PanelHost? _panelHost;
 
   /// The thin tmux integration (tin-f5xt): `$TMUX` checks, the detach seam,
   /// and the attach-target the exit hint names. Set in [create]'s wiring
@@ -1533,32 +1535,37 @@ class TuiCoordinator {
       // which run to stop, when to settle the busy cue, and dropping the run's
       // completion hook on close.
       final panelHost = PanelHost(
-        screen: screen,
         panelManager: panelManager,
-        contentCoordinator: contentCoordinator,
-        resizeCoordinator: resizeCoordinator,
-        tree: tree,
-        initialHost: initialHost,
+        bindContent: contentCoordinator.bindExtra,
+        unbindContent: contentCoordinator.unbindExtra,
+        refreshLayout: () {
+          final split = panelManager.hasSpawnedFrames;
+          initialHost.stayAttachedWhenInactive = split;
+          resizeCoordinator.handleResize(split: split, drawInfoFrame: !split);
+        },
+      );
+      final runPanels = RunPanelHost(
+        panels: panelHost,
         makeSinkHost: _makeSpawnedHost,
       );
 
       void _closeRunPanel(String runId) {
-        final handle = panelHost.panelFor(runId);
+        final handle = runPanels.panelFor('wf-run-$runId');
         if (handle == null) return;
         // Drop the run's completion hook before the teardown: a finished run
         // must not settle the busy cue of a panel that's already gone.
         supervisor.find(runId)?.onFinished = null;
-        panelHost.closePanel(handle);
+        runPanels.closePanel(handle);
       }
 
       /// Open the run's live transcript panel. SYNCHRONOUS: it runs inside the
       /// supervisor's `onLaunch` hook, before the run's stream can start, so
       /// [WorkflowRun.sink] is installed before any node can emit.
       void _openRunPanel(WorkflowRun run) {
-        final opened = panelHost.openPanel(
+        final opened = runPanels.openPanel(
           (
             label: 'wf ${run.workflowName} [run ${run.id}]',
-            conversationId: 'wf-run-${run.id}',
+            id: 'wf-run-${run.id}',
             placement: PanelPlacement.sideColumn,
           ),
           // The run's stream sink: the panel's spawned-style host, installed
@@ -1576,7 +1583,7 @@ class TuiCoordinator {
         frame.setBusy(run.isRunning);
         // Completion settles the comet; the transcript already ends with the
         // engine's ✔/✖ workflow complete/failed line.
-        run.onFinished = () => frame.setBusy(false);
+        run.onFinished = opened.setFinished;
       }
 
       // Wire the supervisor's onLaunch hook to the run-panel opener.
@@ -2064,6 +2071,7 @@ class TuiCoordinator {
       // The tmux seam (tin-f5xt): `_teardownAndHint` names the attach target in
       // the exit hint; the detach/dialog closures below consult `$TMUX` on it.
       coordinator._tmux = tmux;
+      coordinator._panelHost = panelHost;
 
       // `/index`: the per-directory summary sidecar service built above (it
       // shares the region registry's allocations, so `/index` covers allocated
@@ -2531,6 +2539,7 @@ class TuiCoordinator {
       ..own(sessionManager.closeAll)
       ..own(_contentCoordinator.dispose)
       ..own(panelManager.dispose)
+      ..own(() => _panelHost?.dispose())
       ..own(pauseSub.cancel)
       ..own(progressSub.cancel)
       ..own(menuBar.dispose)

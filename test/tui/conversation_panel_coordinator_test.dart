@@ -33,7 +33,7 @@ void main() {
   late _RecordingSessionManager sessionManager;
   late ConversationPanelCoordinator coordinator;
 
-  setUp(() {
+  void configure({bool showSidebar = false}) {
     io = FakeStdio()..columns = 120;
     final layout = ScreenLayout.fromSize(
       120,
@@ -59,6 +59,7 @@ void main() {
       terminalGeometry: geometry,
       menuBarEnabled: false,
       tree: tree,
+      showSidebar: showSidebar,
     );
     sessionManager = _RecordingSessionManager(
       // The primary chat is shared screen.chat: attached, not buffered.
@@ -71,7 +72,71 @@ void main() {
       primaryHost: sessionManager.initialHost,
     );
     coordinator.bindPrimary(conversationId: 'primary');
-  });
+  }
+
+  setUp(configure);
+
+  for (final sidebar in [false, true]) {
+    test(
+      'panel-owned input preserves drafts and survives resize (sidebar: $sidebar)',
+      () async {
+        if (sidebar) {
+          editor.close();
+          coordinator.dispose();
+          panelManager.dispose();
+          configure(showSidebar: true);
+        }
+        focusManager
+          ..register(primaryFrame)
+          ..home = primaryFrame;
+        editor.focusManager = focusManager;
+        panelManager.layout();
+        coordinator.relayContent();
+        editor.readLine('> ');
+        await pumpEventQueue();
+        editor.loadEditState('saved draft', 5);
+        final content = _PlainContent();
+        final frame = PanelFrame(
+          screen: screen,
+          label: 'Custom',
+          conversationId: 'custom',
+          inputMode: PanelInputMode.exclusive,
+        );
+        coordinator.bindExtra(frame: frame, content: content);
+        panelManager.layout();
+        coordinator.relayContent();
+        focusManager.focusPanel(frame);
+        expect(screen.input.bounds.isEmpty, isTrue);
+        expect(sessionManager.activeConversationId, 'primary');
+        expect(content.isDetached, isFalse);
+        expect(frame.reservesInput, isFalse);
+        coordinator.relocateInput(force: true);
+        expect(
+          screen.input.bounds.isEmpty,
+          isTrue,
+          reason: 'resize must not reveal the conversation editor',
+        );
+        editor.inject(CharInput('panel input'));
+        expect(editor.editState.buffer, 'saved draft');
+        focusManager.focusPanel(primaryFrame);
+        expect(screen.input.bounds.isEmpty, isFalse);
+        expect(editor.editState, (buffer: 'saved draft', cursor: 5));
+        if (sidebar) expect(content.isDetached, isTrue);
+        focusManager.focusPanel(frame);
+        expect(content.isDetached, isFalse);
+        expect(content.fits.last.width, greaterThan(0));
+        coordinator.unbindExtra(frame);
+        panelManager.removeFrame(frame);
+        coordinator.relocateInput(force: true);
+        expect(focusManager.focused, same(primaryFrame));
+        expect(screen.input.bounds.isEmpty, isFalse);
+        expect(editor.editState, (buffer: 'saved draft', cursor: 5));
+        editor.close();
+        coordinator.dispose();
+        panelManager.dispose();
+      },
+    );
+  }
 
   group('bindPrimary', () {
     test('reserves the primary frame input row', () {
@@ -513,4 +578,23 @@ class _RecordingPanelFrame extends PanelFrame {
     busyCalls.add(busy);
     super.setBusy(busy);
   }
+}
+
+class _PlainContent implements PanelContent {
+  final fits = <Rect>[];
+  @override
+  bool isDetached = true;
+  @override
+  BackendSurface? get surface => null;
+  @override
+  void fit(Rect interior, {required bool reserveInputRow}) =>
+      fits.add(interior);
+  @override
+  void attach() => isDetached = false;
+  @override
+  void detach() => isDetached = true;
+  @override
+  void bindSurface(BackendSurface? surface) {}
+  @override
+  void repaint() {}
 }
