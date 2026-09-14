@@ -6,3 +6,4 @@
 releases/bundle/
 releases/*.tar.gz
 releases/*.sha256
+.tina/
