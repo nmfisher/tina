@@ -169,11 +169,11 @@ class ConversationOperations {
       final names = effective.map((t) => t.schema.name).toList();
       final configuredPolicy = config.buildPolicy();
       // Capture command rules, not the current mode's temporary execution gate.
-      final bashDecision = PermissionPolicy(
+      final commandPolicy = PermissionPolicy(
         defaults: configuredPolicy.defaults,
         rules: configuredPolicy.staticRules,
         allowAllByDefault: configuredPolicy.allowAllByDefault,
-      ).check('bash', const {});
+      );
       final policy = PermissionPolicy(
         modeSource: source.policy,
         rules: [
@@ -181,8 +181,8 @@ class ConversationOperations {
             PermissionRule(
               toolName: name,
               pattern: '*',
-              decision: name == 'bash'
-                  ? bashDecision
+              decision: name == 'bash' || name == 'exec'
+                  ? commandPolicy.check(name, const {})
                   : PermissionDecision.allow,
             ),
         ],

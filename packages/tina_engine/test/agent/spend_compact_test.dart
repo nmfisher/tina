@@ -466,7 +466,7 @@ void main() {
       expect(kNoCheckpointAdvisorySpend, 300000);
       expect(kNoCheckpointAdvisoryLine, contains('[checkpoint]'));
       expect(kCheckpointTouchTools,
-          unorderedEquals({'edit', 'write', 'bash'}));
+          unorderedEquals({'edit', 'write', 'bash', 'exec'}));
     });
 
     test(

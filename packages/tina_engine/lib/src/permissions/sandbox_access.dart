@@ -87,6 +87,11 @@ class SandboxAccessPolicy {
     return List.unmodifiable(_grants);
   }
 
+  List<String> get effectiveWritablePaths =>
+      List.unmodifiable({..._implicit, ...writablePaths});
+
+  List<String> get readOnlyPaths => List.unmodifiable(_readOnly);
+
   bool allows(String path) {
     bool covers(String root) => path == root || p.isWithin(root, path);
     return writablePaths.any(covers) ||

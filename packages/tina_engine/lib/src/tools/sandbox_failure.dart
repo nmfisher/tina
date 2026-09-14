@@ -6,6 +6,7 @@ import '../permissions/sandbox_access.dart';
 import 'sandbox_runner.dart';
 import 'tool.dart';
 import 'tool_input.dart';
+import 'execution_diagnostic.dart';
 
 /// Evidence from a failed subprocess. This suggests an approval; it never
 /// grants access or proves that replaying the command is safe.
@@ -73,18 +74,29 @@ const maskedSandboxWarning =
     'Inspect the result before treating the operation as successful.';
 
 /// Typed metadata stays separate from tool output, which is untrusted text.
-class BashToolResult extends ToolResult {
+class ProcessToolResult extends ToolResult {
+  final int? exitCode;
+  final bool cancelled;
+  final bool shell;
+  final List<ExecutionDiagnostic> diagnostics;
   final SandboxWriteFailure? sandboxFailure;
 
   /// Suspected failure in output from a successful shell. Unlike
   /// [sandboxFailure], this is not evidence for the automatic retry context.
   final String? sandboxWarning;
 
-  const BashToolResult(super.content,
+  const ProcessToolResult(super.content,
       {super.isError,
       super.elapsed,
       super.timedOut,
       super.emptyOutput,
+      this.exitCode,
+      this.cancelled = false,
+      this.shell = true,
+      this.diagnostics = const [],
       this.sandboxFailure,
       this.sandboxWarning});
 }
+
+/// Compatibility name for consumers of the former shell-only result.
+typedef BashToolResult = ProcessToolResult;

@@ -42,6 +42,7 @@ const Set<String> kSafeModeDisabledTools = {
   'write',
   'edit',
   'bash',
+  'exec',
   'write_summary'
 };
 

@@ -98,6 +98,7 @@ class ProjectToolScope {
           'ls',
           'stat',
           'which',
+          'execution_info',
           'git',
           'write_summary',
         ]);
@@ -119,6 +120,8 @@ class ProjectToolScope {
       'edit',
       'fetch',
       'bash',
+      'exec',
+      'execution_info',
       'search',
       'grep',
       'glob',

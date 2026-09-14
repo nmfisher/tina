@@ -37,6 +37,7 @@ class EnvironmentToolStage extends ToolRegistry {
     'ls',
     'stat',
     'which',
+    'execution_info',
     'glob',
     'grep',
     'search',

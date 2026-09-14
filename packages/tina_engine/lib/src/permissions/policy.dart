@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 enum PermissionDecision { allow, deny, ask }
 
 /// Session-wide permission mode, layered on top of the per-tool defaults.
@@ -109,6 +111,8 @@ class PermissionPolicy {
     'write': PermissionDecision.ask,
     'edit': PermissionDecision.ask,
     'bash': PermissionDecision.ask,
+    'exec': PermissionDecision.ask,
+    'execution_info': PermissionDecision.allow,
     // Read-only tools never mutate anything, so they run without prompting.
     // Users can still deny any of them via a session/static rule.
     'search': PermissionDecision.allow,
@@ -182,7 +186,7 @@ class PermissionPolicy {
   /// set additionally covers the network reads and region queries that gate
   /// by default.
   static const _readOnlyTools = {
-    'read', 'search', 'grep', 'glob', 'ls', 'stat', 'which', 'git',
+    'execution_info', 'read', 'search', 'grep', 'glob', 'ls', 'stat', 'which', 'git',
     'fetch', 'web_search', 'repo_structure', 'list_regions',
     'read_summary', 'query_region',
   };
@@ -234,7 +238,22 @@ class PermissionPolicy {
   /// `launch_workflow` it's the workflow name (the thing the call targets, and
   /// short enough for the approval line).
   static String keyFor(String tool, Map<String, dynamic> input) {
-    if (tool == 'bash') return (input['command'] as String?) ?? '';
+    if (tool == 'exec') {
+      final raw = input['environment'];
+      final env = raw is Map ? raw : const <String, dynamic>{};
+      final keys = env.keys.cast<String>().toList()..sort();
+      return jsonEncode([input['executable'], input['args'] ?? [],
+        input['cwd'], {for (final key in keys) key: env[key]}]);
+    }
+    if (tool == 'bash') {
+      if (input.containsKey('environment')) {
+        final raw = input['environment'];
+        final env = raw is Map ? raw : const <String, dynamic>{};
+        final keys = env.keys.cast<String>().toList()..sort();
+        return jsonEncode([input['command'], input['cwd'], {for (final key in keys) key: env[key]}]);
+      }
+      return (input['command'] as String?) ?? '';
+    }
     if (tool == 'launch_workflow') {
       final name = (input['workflow'] as String?)?.trim();
       return (name == null || name.isEmpty) ? 'default' : name;
@@ -252,6 +271,8 @@ class PermissionPolicy {
   /// whole family.
   static String defaultAlwaysPatternFor(
       String tool, Map<String, dynamic> input) {
+    if (tool == 'exec') return keyFor(tool, input);
+    if (tool == 'bash' && input.containsKey('environment')) return keyFor(tool, input);
     if (tool == 'bash') {
       final cmd = ((input['command'] as String?) ?? '').trim();
       return cmd.isEmpty ? '*' : cmd;
@@ -296,6 +317,7 @@ class PermissionPolicy {
     // span arbitrary chars including `/` (`rm *` covers `rm -rf /tmp`). For
     // file tools we keep the usual shell distinction: `*` stops at `/`, `**`
     // crosses directory boundaries.
+    if ((tool == 'exec' || tool == 'bash') && r.pattern.startsWith('[')) return r.pattern == key;
     return globMatch(r.pattern, key, starMatchesSlash: tool == 'bash');
   }
 }

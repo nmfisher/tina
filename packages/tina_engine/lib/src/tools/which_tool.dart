@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import 'tool.dart';
+import 'execution_request.dart';
 import 'tool_input.dart';
 
 /// Resolves executable names against PATH — the model-facing replacement for
@@ -14,8 +15,11 @@ class WhichTool implements Tool {
   /// environment; tests inject a controlled mapping.
   final Map<String, String> environment;
 
-  WhichTool({Map<String, String>? environment})
-      : environment = environment ?? Platform.environment;
+  final String workingDirectory;
+
+  WhichTool({Map<String, String>? environment, String? workingDirectory})
+      : environment = Map.unmodifiable(environment ?? Platform.environment),
+        workingDirectory = workingDirectory ?? Directory.current.path;
 
   @override
   ToolSchema get schema => const ToolSchema(
@@ -72,6 +76,7 @@ class WhichTool implements Tool {
   /// each PATH directory in order. PATH entries are ':'-separated on POSIX
   /// and ';' on Windows — NOT `Platform.pathSeparator`.
   String? _resolve(String candidate) {
+    if (!Platform.isWindows) return resolveExecutionExecutable(candidate, environment, workingDirectory);
     if (candidate.contains('/') || candidate.contains('\\')) {
       return _executableAt(candidate) ? _absolute(candidate) : null;
     }

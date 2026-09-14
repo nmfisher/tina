@@ -88,6 +88,9 @@ class WorkflowPermissionAsker {
     if (policy != null) {
       _write('  ${permissionModeChip(policy.mode)}\n', HostMessageStyle.dim);
     }
+    if (p.execution != null) {
+      _write(p.execution!.approvalDescription, HostMessageStyle.dim);
+    }
     if (p.sandboxAccess != null) {
       _write(p.accessDescription, HostMessageStyle.warning);
     }

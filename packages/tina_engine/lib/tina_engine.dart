@@ -107,3 +107,10 @@ export 'src/host/host_lifecycle_adapter.dart';
 export 'src/runtime/contracts.dart';
 export 'src/runtime/plugin.dart';
 export 'src/runtime/runtime.dart';
+
+export 'src/tools/exec_tool.dart';
+export 'src/tools/execution_request.dart';
+export 'src/tools/execution_info_tool.dart';
+export 'src/tools/process_tool.dart' show ProcessTool;
+export 'src/tools/sandbox_layout.dart';
+export 'src/tools/execution_diagnostic.dart';

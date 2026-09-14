@@ -163,6 +163,8 @@ class HeadlessHost with HostLifecycleAdapter implements HostInterface {
 
   String _describe(String name, Map<String, dynamic> input) {
     switch (name) {
+      case 'exec':
+        return 'exec: ${input['executable']} ${input['args'] ?? []}';
       case 'bash':
         final cmd = input['command'] as String?;
         return cmd != null ? 'bash: ${_truncate(cmd, 80)}' : name;

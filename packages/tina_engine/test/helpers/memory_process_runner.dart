@@ -123,6 +123,7 @@ class MemoryProcessRunner implements ProcessRunner {
     String executable,
     List<String> arguments, {
     String? workingDirectory,
+    Map<String, String>? environment,
   }) async {
     starts.add((executable: executable, arguments: arguments));
     final proc = factory(executable, arguments);
@@ -135,6 +136,7 @@ class MemoryProcessRunner implements ProcessRunner {
     String executable,
     List<String> arguments, {
     String? workingDirectory,
+    Map<String, String>? environment,
   }) async {
     runs.add((executable: executable, arguments: arguments));
     final p = factory(executable, arguments);

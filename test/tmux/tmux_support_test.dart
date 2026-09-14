@@ -15,12 +15,12 @@ class _ThrowingRunner implements ProcessRunner {
 
   @override
   Future<RunningProcess> start(String executable, List<String> arguments,
-          {String? workingDirectory}) async =>
+          {String? workingDirectory, Map<String, String>? environment}) async =>
       throw StateError('start is not used by TmuxSupport');
 
   @override
   Future<RunResult> run(String executable, List<String> arguments,
-      {String? workingDirectory}) async {
+      {String? workingDirectory, Map<String, String>? environment}) async {
     attempts++;
     throw StateError('spawn failed');
   }
@@ -31,12 +31,12 @@ class _ThrowingRunner implements ProcessRunner {
 class _ProcessExceptionRunner implements ProcessRunner {
   @override
   Future<RunningProcess> start(String executable, List<String> arguments,
-          {String? workingDirectory}) async =>
+          {String? workingDirectory, Map<String, String>? environment}) async =>
       throw StateError('start is not used by TmuxSupport');
 
   @override
   Future<RunResult> run(String executable, List<String> arguments,
-      {String? workingDirectory}) async =>
+      {String? workingDirectory, Map<String, String>? environment}) async =>
       throw const ProcessException(
           'tmux', ['detach-client'], 'No such file', 127);
 }

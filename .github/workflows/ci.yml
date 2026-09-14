@@ -161,6 +161,15 @@ jobs:
         working-directory: packages/tina_engine
         run: dart test
 
+      - name: Install Linux sandbox backend
+        run: sudo apt-get update -q && sudo apt-get install -y bubblewrap
+
+      - name: Verify real Linux sandbox resolver mounts
+        working-directory: packages/tina_engine
+        env:
+          TINA_REQUIRE_SANDBOX_TESTS: '1'
+        run: dart test test/tools/execution_sandbox_integration_test.dart
+
   console:
     name: console (packages/tina_console)
     runs-on: ubuntu-latest

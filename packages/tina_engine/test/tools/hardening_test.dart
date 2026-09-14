@@ -542,14 +542,14 @@ class _RecordingProcessRunner implements ProcessRunner {
 
   @override
   Future<RunningProcess> start(String executable, List<String> args,
-      {String? workingDirectory}) async {
+      {String? workingDirectory, Map<String, String>? environment}) async {
     started = true;
     return MemoryRunningProcess(exitCodeValue: 0);
   }
 
   @override
   Future<RunResult> run(String executable, List<String> args,
-      {String? workingDirectory}) async {
+      {String? workingDirectory, Map<String, String>? environment}) async {
     started = true;
     return const RunResult(exitCode: 0, stdout: '', stderr: '');
   }

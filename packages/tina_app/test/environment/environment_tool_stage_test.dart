@@ -28,6 +28,8 @@ void main() {
     base = ToolRegistry([
       read,
       bash,
+      _Tool('exec'),
+      _Tool('execution_info'),
       write,
       _Tool('launch_workflow'),
       _Tool('send'),
@@ -41,6 +43,7 @@ void main() {
     expect(schemaJson(stage.schemas), schemaJson(base.schemas));
     for (final name in [
       'bash',
+      'exec',
       'write',
       'launch_workflow',
       'send',
@@ -50,6 +53,7 @@ void main() {
       expect(stage.executionBlock(name, {}), isNotNull);
     }
     expect(base['bash'], same(bash));
+    expect(stage.executionBlock('execution_info', {}), isNull);
   });
 
   test('environment delegates expose only the read-only profile', () async {

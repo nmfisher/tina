@@ -862,21 +862,23 @@ void main() {
     await scheduler.dispose();
   });
 
-  test('a read-only sub-agent is denied bash (profile gates tools)', () async {
+  for (final toolName in ['bash', 'exec']) {
+    for (final profile in ToolProfile.values) {
+  test('$profile sub-agent does not auto-approve $toolName', () async {
     // Script: first call asks for bash; second call answers after the denial.
     final bashThenDone = <List<StreamEvent>>[
       [
-        const ToolCallStart(id: 'c1', name: 'bash'),
-        const MessageComplete(
+        ToolCallStart(id: 'c1', name: toolName),
+        MessageComplete(
           content: [
-            ToolUseBlock(id: 'c1', name: 'bash', input: {'command': 'ls'})
+            ToolUseBlock(id: 'c1', name: toolName, input: toolName == 'bash' ? {'command': 'true'} : {'executable': '/bin/sh', 'args': ['-c', 'true']})
           ],
           stopReason: 'tool_use',
         ),
       ],
       [
         const TextDelta('done'),
-        const MessageComplete(
+        MessageComplete(
             content: [TextBlock('done')], stopReason: 'end_turn'),
       ],
     ];
@@ -897,11 +899,11 @@ void main() {
     final seen = <AgentEvent>[];
     final sub = scheduler.events.listen(seen.add);
 
-    // read-only has no bash → derived policy denies it (ask → auto-deny) before
-    // any toolStart.
+    // Read-only omits execution tools; full retains the parent's ask default.
+    // Neither path may start a command without approval.
     final job = scheduler.spawn(
       task: 'run ls',
-      toolProfile: ToolProfile.readOnly,
+      toolProfile: profile,
       parentSystemPrompt: 'P',
       parentReference: 'a/a-model',
       parentPolicy: PermissionPolicy(),
@@ -916,11 +918,14 @@ void main() {
       final inner = e.event;
       return inner is ToolAgentEvent &&
           inner.event is ToolStartEvent &&
-          (inner.event as ToolStartEvent).toolName == 'bash';
+          (inner.event as ToolStartEvent).toolName == toolName;
     });
     expect(bashStarts, isEmpty);
     await scheduler.dispose();
   });
+
+    }
+  }
 
   test('maxConcurrent caps live jobs; extras queue', () async {
     final gate = Completer<void>();

@@ -56,12 +56,14 @@ abstract class ProcessRunner {
     String executable,
     List<String> arguments, {
     String? workingDirectory,
+    Map<String, String>? environment,
   });
 
   Future<RunResult> run(
     String executable,
     List<String> arguments, {
     String? workingDirectory,
+    Map<String, String>? environment,
   });
 }
 
@@ -74,11 +76,14 @@ class IoProcessRunner implements ProcessRunner {
     String executable,
     List<String> arguments, {
     String? workingDirectory,
+    Map<String, String>? environment,
   }) async {
     final proc = await Process.start(
       executable,
       arguments,
       workingDirectory: workingDirectory,
+      environment: environment,
+      includeParentEnvironment: environment == null,
     );
     // Register so the process is reaped on exit (a backgrounded descendant
     // shouldn't outlive the session). Unregistered when [exitCode] completes.
@@ -91,11 +96,14 @@ class IoProcessRunner implements ProcessRunner {
     String executable,
     List<String> arguments, {
     String? workingDirectory,
+    Map<String, String>? environment,
   }) async {
     final r = await Process.run(
       executable,
       arguments,
       workingDirectory: workingDirectory,
+      environment: environment,
+      includeParentEnvironment: environment == null,
     );
     return RunResult(
       exitCode: r.exitCode,

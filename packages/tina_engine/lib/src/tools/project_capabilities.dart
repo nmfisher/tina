@@ -111,6 +111,7 @@ class ProjectCapabilities {
           .toList();
       final runner = SandboxedProcessRunner(
         projectRoot: root,
+        environment: environment,
         extraAllowPaths: extra,
         sandboxNet: sandboxNet,
         sandboxReadOnly: sandboxReadOnly,

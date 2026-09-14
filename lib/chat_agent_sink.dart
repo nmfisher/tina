@@ -250,6 +250,8 @@ class ChatAgentSink implements AgentSink {
 
   String _describe(String name, Map<String, dynamic> input) {
     switch (name) {
+      case 'exec':
+        return 'exec: ${input['executable']} ${input['args'] ?? []}';
       case 'bash':
         final cmd = input['command'] as String?;
         // Head+tail: the tail of a long command is where the risk lives (a

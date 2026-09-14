@@ -13,6 +13,7 @@ class _ThrowingRunner implements ProcessRunner {
     String executable,
     List<String> arguments, {
     String? workingDirectory,
+    Map<String, String>? environment,
   }) async => throw StateError('no spawning here');
 
   @override
@@ -20,6 +21,7 @@ class _ThrowingRunner implements ProcessRunner {
     String executable,
     List<String> arguments, {
     String? workingDirectory,
+    Map<String, String>? environment,
   }) async {
     attempts++;
     throw StateError('spawn failed');
@@ -326,6 +328,7 @@ class _RecordingRunner implements ProcessRunner {
     String executable,
     List<String> arguments, {
     String? workingDirectory,
+    Map<String, String>? environment,
   }) async {
     throw UnimplementedError('projectCheck uses run only');
   }
@@ -335,6 +338,7 @@ class _RecordingRunner implements ProcessRunner {
     String executable,
     List<String> arguments, {
     String? workingDirectory,
+    Map<String, String>? environment,
   }) async {
     runs.add((
       executable: executable,

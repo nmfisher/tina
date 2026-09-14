@@ -49,7 +49,7 @@ const String kNoCheckpointAdvisoryLine = '[checkpoint] this turn has run long '
 /// in this engine is one of the first two). Everything else — read, glob,
 /// grep, search, ls, stat, which, git, fetch, web_search, delegate — is
 /// observation and leaves no trace by itself.
-const Set<String> kCheckpointTouchTools = {'edit', 'write', 'bash'};
+const Set<String> kCheckpointTouchTools = {'edit', 'write', 'bash', 'exec'};
 
 /// Turn-level transport retry ladder (#28) — first backoff. Generous by
 /// design: these errors land MID-stream, after a provider that was already

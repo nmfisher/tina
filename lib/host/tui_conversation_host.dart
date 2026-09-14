@@ -220,6 +220,9 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     if (policy != null) {
       chat.dim('  ${permissionModeChip(policy.mode)}\n');
     }
+    if (p.execution != null) {
+      chat.dim(p.execution!.approvalDescription);
+    }
     if (p.sandboxAccess != null) {
       chat.yellow(p.accessDescription);
     }

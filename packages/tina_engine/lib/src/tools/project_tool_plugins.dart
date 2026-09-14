@@ -8,6 +8,8 @@ import '../runtime/plugin.dart';
 import 'bash_tool.dart';
 import 'brave_search.dart';
 import 'edit_tool.dart';
+import 'exec_tool.dart';
+import 'execution_info_tool.dart';
 import 'fetch_tool.dart';
 import 'git_tool.dart';
 import 'glob_tool.dart';
@@ -33,6 +35,8 @@ const List<String> kProjectToolCatalog = [
   'edit',
   'fetch',
   'bash',
+  'exec',
+  'execution_info',
   'search',
   'grep',
   'glob',
@@ -110,6 +114,10 @@ List<PluginDescriptor> projectToolPlugins(ProjectCapabilities caps) => [
       _toolPlugin('edit', caps, _buildEdit),
       _toolPlugin('fetch', caps, _buildFetch),
       _toolPlugin('bash', caps, _buildBash),
+      _toolPlugin('exec', caps, (c) => ExecTool(projectRoot: c.projectRoot,
+          environment: c.environment, processRunner: c.processRunner)),
+      _toolPlugin('execution_info', caps, (c) => ExecutionInfoTool(
+          projectRoot: c.projectRoot, environment: c.environment, runner: c.processRunner)),
       _toolPlugin('search', caps, _buildSearch),
       _toolPlugin('grep', caps, _buildGrep),
       _toolPlugin('glob', caps, _buildGlob),
@@ -167,11 +175,8 @@ EditTool _buildEdit(ProjectCapabilities caps) {
 FetchTool _buildFetch(ProjectCapabilities caps) => FetchTool();
 
 BashTool _buildBash(ProjectCapabilities caps) {
-  final tool = BashTool();
-  if (!caps.confineFiles) return tool;
-  return tool
-    ..projectRoot = caps.projectRoot
-    ..processRunner = caps.processRunner;
+  return BashTool(projectRoot: caps.projectRoot, environment: caps.environment,
+      processRunner: caps.processRunner);
 }
 
 SearchTool _buildSearch(ProjectCapabilities caps) =>
@@ -211,7 +216,7 @@ StatTool _buildStat(ProjectCapabilities caps) {
 }
 
 WhichTool _buildWhich(ProjectCapabilities caps) =>
-    WhichTool(environment: caps.environment);
+    WhichTool(environment: caps.environment, workingDirectory: caps.projectRoot);
 
 GitTool _buildGit(ProjectCapabilities caps) =>
     GitTool(workingDirectory: caps.projectRoot);

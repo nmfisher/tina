@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import '../permissions/sandbox_access.dart';
 import 'process_runner.dart';
+import 'sandbox_layout.dart';
 
 final _log = Logger('tina.sandbox');
 
@@ -201,6 +202,7 @@ String buildSandboxProfile({
   required String projectRoot,
   List<String> extraAllowPaths = const [],
   bool sandboxReadOnly = false,
+  bool sandboxNet = false,
 }) {
   final allow = <String>{};
   // The project root is the one path the agent must be able to write to —
@@ -220,19 +222,8 @@ String buildSandboxProfile({
     }
   }
 
-  final sb = StringBuffer('(version 1)\n');
-  sb.write('(allow default)\n'); // reads, network, process — unrestricted
-  sb.write('(deny file-write*)\n'); // …then deny every write, re-granting below
-  if (sandboxReadOnly) {
-    sb.write('(deny file-read* (subpath "/Users"))\n');
-    if (root != null) {
-      sb.write('(allow file-read* (subpath "${_escape(root)}"))\n');
-    }
-  }
-  for (final path in allow) {
-    sb.write('(allow file-write* (subpath "${_escape(path)}"))\n');
-  }
-  return sb.toString();
+  return buildMacSandboxProfile(writablePaths: allow, root: root,
+      readOnlyProject: sandboxReadOnly, isolateNetwork: sandboxNet);
 }
 
 /// Build the `bwrap` argument list that gives Linux parity with the macOS
@@ -256,63 +247,24 @@ List<String> buildBwrapArgs({
   bool sandboxNet = false,
   bool sandboxReadOnly = false,
 }) {
-  final args = <String>[];
-  // System directories, read-only. Missing dirs are skipped: bwrap aborts on
-  // a missing source, and a missing /lib64 must never break the sandbox.
-  for (final dir in readOnlyBinds) {
-    if (Directory(dir).existsSync()) args.addAll(['--ro-bind', dir, dir]);
-  }
-  // Temp: the real temp trees bound read-write (parity with the macOS
-  // profile's /private/var/folders + /tmp grants).
-  final temps = <String>{}; // ordered; resolves to the same real path dedupe
-  for (final t in tempDirs ?? _defaultBwrapTempDirs()) {
-    final r = _resolve(t);
-    if (r != null) {
-      temps.add(r);
-    } else {
-      _log.warning('sandbox: ignoring unresolvable temp dir "$t"');
-    }
-  }
-  for (final t in temps) {
-    args.addAll(['--bind', t, t]);
-  }
-  // The project root. Bind order matters under bwrap — a later mount shadows
-  // an earlier nested one — so the project goes before the extras below and
-  // an extra grant inside the project stays writable even under
-  // [sandboxReadOnly].
-  final root = _resolve(projectRoot);
-  if (root != null) {
-    args.addAll([sandboxReadOnly ? '--ro-bind' : '--bind', root, root]);
-  } else {
-    _log.warning(
-        'sandbox: project root "$projectRoot" unresolvable; proceeding '
-        'without it');
-  }
-  // TINA_SANDBOX_ALLOW extras: explicit writable grants, same as the macOS
-  // profile's re-grants — bound LAST so they win, even inside a read-only
-  // project or over a read-only system dir.
-  for (final e in extraAllowPaths) {
-    final r = _resolve(e);
-    if (r != null) {
-      args.addAll(['--bind', r, r]);
-    } else {
-      _log.warning('sandbox: ignoring unresolvable allow-path "$e"');
-    }
-  }
-  // Pseudo-devices a normal command touches, provided fresh by bwrap.
-  args.addAll(['--dev', '/dev', '--proc', '/proc']);
-  if (sandboxNet) args.add('--unshare-net');
-  return args..add('--'); // end of options; the command follows
+  final temps = <String>{
+    for (final path in tempDirs ?? _defaultBwrapTempDirs())
+      if (_resolve(path) case final String resolved) resolved,
+  };
+  return buildLinuxSandboxArguments(
+    host: SandboxHostLayout.inspect(readOnlyDirectories: readOnlyBinds,
+        temporaryDirectories: temps),
+    projectRoot: _resolve(projectRoot),
+    writablePaths: [for (final path in extraAllowPaths)
+      if (_resolve(path) case final String resolved) resolved],
+    readOnlyProject: sandboxReadOnly,
+    isolateNetwork: sandboxNet,
+  );
 }
 
-List<String> _defaultBwrapTempDirs() {
-  final tmp = Platform.environment['TMPDIR'];
-  return [
-    if (tmp != null && tmp.isNotEmpty) tmp,
-    '/tmp',
-    '/var/tmp',
-    Directory.systemTemp.path,
-  ];
+List<String> _defaultBwrapTempDirs([Map<String, String>? environment]) {
+  final tmp = (environment ?? Platform.environment)['TMPDIR'];
+  return [if (tmp != null && tmp.isNotEmpty) tmp, '/tmp', '/var/tmp'];
 }
 
 String? _resolve(String path) {
@@ -326,7 +278,6 @@ String? _resolve(String path) {
   }
 }
 
-String _escape(String s) => s.replaceAll('\\', r'\\').replaceAll('"', r'\"');
 
 /// A [ProcessRunner] decorator that runs every command under an OS-level write
 /// confinement: `sandbox-exec` on macOS, `bwrap` on Linux (see
@@ -340,6 +291,8 @@ String _escape(String s) => s.replaceAll('\\', r'\\').replaceAll('"', r'\"');
 /// [BashTool] bypass the sandbox entirely.
 class SandboxedProcessRunner implements ProcessRunner {
   final ProcessRunner _inner;
+  final Map<String, String> environment;
+  bool get networkIsolated => _sandboxNet && _backend != SandboxBackend.passThrough;
   final String _projectRoot;
   final SandboxAccessPolicy accessPolicy;
   final bool _enabled;
@@ -356,6 +309,7 @@ class SandboxedProcessRunner implements ProcessRunner {
 
   SandboxedProcessRunner({
     ProcessRunner? inner,
+    Map<String, String>? environment,
     required String projectRoot,
     List<String> extraAllowPaths = const [],
     SandboxAccessPolicy? accessPolicy,
@@ -367,7 +321,8 @@ class SandboxedProcessRunner implements ProcessRunner {
     String?
         unavailableReason, // test override; defaults to [sandboxPassThroughReason]
     void Function(String message)? warn, // test sink; defaults to the logger
-  })  : _inner = inner ?? const IoProcessRunner(),
+  })  : environment = Map.unmodifiable(environment ?? Platform.environment),
+        _inner = inner ?? const IoProcessRunner(),
         _projectRoot = projectRoot,
         accessPolicy = accessPolicy ??
             SandboxAccessPolicy(
@@ -381,7 +336,7 @@ class SandboxedProcessRunner implements ProcessRunner {
                   '/private/tmp',
                   '/tmp'
                 ] else
-                  ..._defaultBwrapTempDirs(),
+                  ..._defaultBwrapTempDirs(environment),
               ],
             ),
         _enabled = enabled ?? true,
@@ -400,6 +355,7 @@ class SandboxedProcessRunner implements ProcessRunner {
     if (remember) accessPolicy.grantForSession(request);
     return SandboxedProcessRunner(
       inner: _inner,
+      environment: environment,
       projectRoot: _projectRoot,
       accessPolicy: invocationPolicy,
       enabled: _enabled,
@@ -440,14 +396,15 @@ class SandboxedProcessRunner implements ProcessRunner {
     String executable,
     List<String> arguments, {
     String? workingDirectory,
+    Map<String, String>? environment,
   }) {
     final wrapped = _wrap(executable, arguments);
     if (wrapped == null) {
       return _inner.start(executable, arguments,
-          workingDirectory: workingDirectory);
+          workingDirectory: workingDirectory, environment: environment ?? this.environment);
     }
     return _inner.start(wrapped.$1, wrapped.$2,
-        workingDirectory: workingDirectory);
+        workingDirectory: workingDirectory, environment: environment ?? this.environment);
   }
 
   @override
@@ -455,14 +412,15 @@ class SandboxedProcessRunner implements ProcessRunner {
     String executable,
     List<String> arguments, {
     String? workingDirectory,
+    Map<String, String>? environment,
   }) async {
     final wrapped = _wrap(executable, arguments);
     if (wrapped == null) {
       return _inner.run(executable, arguments,
-          workingDirectory: workingDirectory);
+          workingDirectory: workingDirectory, environment: environment ?? this.environment);
     }
     return _inner.run(wrapped.$1, wrapped.$2,
-        workingDirectory: workingDirectory);
+        workingDirectory: workingDirectory, environment: environment ?? this.environment);
   }
 
   /// The (executable, argv) to actually spawn, or null for pass-through.
@@ -471,6 +429,7 @@ class SandboxedProcessRunner implements ProcessRunner {
       case SandboxBackend.sandboxExec:
         final profile = buildSandboxProfile(
           projectRoot: _projectRoot,
+          sandboxNet: _sandboxNet,
           extraAllowPaths: accessPolicy.writablePaths,
           sandboxReadOnly: _sandboxReadOnly,
         );
@@ -478,6 +437,7 @@ class SandboxedProcessRunner implements ProcessRunner {
       case SandboxBackend.bwrap:
         final args = buildBwrapArgs(
           projectRoot: _projectRoot,
+          tempDirs: _defaultBwrapTempDirs(environment),
           extraAllowPaths: accessPolicy.writablePaths,
           sandboxNet: _sandboxNet,
           sandboxReadOnly: _sandboxReadOnly,

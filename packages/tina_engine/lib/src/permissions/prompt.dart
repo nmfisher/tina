@@ -1,14 +1,16 @@
 import 'policy.dart';
+import '../tools/execution_request.dart';
 import 'sandbox_access.dart';
 
 class PermissionPrompt {
   final String toolName;
   final Map<String, dynamic> input;
   final SandboxAccessRequest? sandboxAccess;
+  final ExecutionRequest? execution;
   final String? retryExplanation;
   final String? retrySafety;
   const PermissionPrompt(this.toolName, this.input,
-      {this.sandboxAccess, this.retryExplanation, this.retrySafety});
+      {this.sandboxAccess, this.retryExplanation, this.retrySafety, this.execution});
 
   String get approvalRow => sandboxAccess == null
       ? approvalPromptRow(alwaysPattern)

@@ -298,7 +298,7 @@ void main() {
         same(borrowed));
   });
 
-  test('the tool catalog is unchanged (search tools need keys in the env map)',
+  test('the tool catalog includes execution and diagnostics (search tools need keys)',
       () async {
     final root = await Directory.systemTemp.createTemp('tina_rt_catalog_');
     addTearDown(() async => await root.delete(recursive: true));
@@ -319,6 +319,8 @@ void main() {
         'edit',
         'fetch',
         'bash',
+        'exec',
+        'execution_info',
         'search',
         'grep',
         'glob',

@@ -162,6 +162,8 @@ void main() {
           'edit',
           'fetch',
           'bash',
+          'exec',
+          'execution_info',
           'search',
           'grep',
           'glob',
@@ -187,13 +189,15 @@ void main() {
       expect(names.last, 'web_search',
           reason: 'web_search joins after the catalog');
       expect(
-        names.take(12).toList(),
+        names.take(14).toList(),
         containsAllInOrder([
           'read',
           'write',
           'edit',
           'fetch',
           'bash',
+          'exec',
+          'execution_info',
           'search',
           'grep',
           'glob',
@@ -243,8 +247,8 @@ void main() {
       expect(names, isNot(contains('write')));
       expect(names, isNot(contains('edit')));
       expect(names, isNot(contains('bash')));
-      expect(names.length, 9, reason: '12 catalog tools minus write/edit/bash');
-      expect(names, everyElement(isNot(anyOf('write', 'edit', 'bash'))));
+      expect(names.length, 10, reason: '14 catalog tools minus write/edit/bash/exec');
+      expect(names, everyElement(isNot(anyOf('write', 'edit', 'bash', 'exec'))));
     });
 
     test('two scopes from two capabilities objects have independent tool '
@@ -312,6 +316,7 @@ void main() {
           'ls',
           'stat',
           'which',
+          'execution_info',
           'git',
           'write_summary',
         ],
@@ -328,7 +333,7 @@ void main() {
 
       final names = scope.buildTools().all.map((t) => t.schema.name).toList();
       expect(names, contains('web_search'));
-      expect(names.length, 13, reason: '12 catalog tools plus web_search');
+      expect(names.length, 15, reason: '14 catalog tools plus web_search');
     });
   });
 }

@@ -1156,7 +1156,7 @@ class SubAgentScheduler {
         defaults: {
           ...parent.defaults,
           for (final t in _effectiveProfileTools(profile))
-            if (t.schema.name != 'bash' &&
+            if (t.schema.name != 'bash' && t.schema.name != 'exec' &&
                 // Gated path (e.g. workflow nodes with their own asker):
                 // write/edit prompt per call like the main agent instead of
                 // being pre-approved; they inherit the parent's decision
@@ -1182,7 +1182,7 @@ class SubAgentScheduler {
       {required bool gateWrites}) {
     for (final t in _effectiveProfileTools(profile)) {
       final name = t.schema.name;
-      if (name == 'bash') continue; // never auto-allow bash
+      if (name == 'bash' || name == 'exec') continue; // never auto-allow bash
       if (gateWrites && (name == 'write' || name == 'edit')) continue;
       policy.defaults[name] = PermissionDecision.allow;
     }

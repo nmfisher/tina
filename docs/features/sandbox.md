@@ -1,6 +1,9 @@
-# Tool Sandbox — OS-level confinement around bash
+# Tool Sandbox — OS-level confinement around exec and bash
 
-## Status (updated 2026-09-09)
+For the shared execution request, environment handling, and diagnostics, see
+[Process execution and approvals](process_execution.md).
+
+## Status (updated 2026-09-14)
 
 Shipped: macOS `sandbox-exec` write-confinement (the tool-use approval audit's
 Fix 2), Linux `bwrap` write-confinement parity plus the opt-in

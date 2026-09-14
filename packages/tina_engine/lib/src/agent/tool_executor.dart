@@ -8,7 +8,7 @@ import '../llm/message.dart';
 import '../permissions/policy.dart';
 import '../permissions/prompt.dart';
 import '../tools/tool.dart';
-import '../tools/bash_tool.dart';
+import '../tools/process_tool.dart';
 import '../tools/sandbox_failure.dart';
 import '../tools/tool_input.dart';
 import '../permissions/sandbox_access.dart';
@@ -434,9 +434,10 @@ class ToolExecutor {
     // SAME snapshot — built once, after the retry merge, so it reflects the
     // arguments that will actually run.
     Map<String, dynamic> executionView = asDeepUnmodifiable(executionInput);
-    final retryKey = tool is BashTool
+    final retryKey = tool is ProcessTool
         ? jsonEncode([
-            optionalString(use.input, 'command')?.trim(),
+            use.name,
+            PermissionPolicy.keyFor(use.name, use.input),
             p.normalize(resolveToolPath(
                 optionalString(use.input, 'cwd') ?? tool.projectRoot ?? '.',
                 tool.projectRoot)),
@@ -446,7 +447,7 @@ class ToolExecutor {
     String? retrySafety;
     SandboxAccessRequest? access;
     try {
-      if (decision != PermissionDecision.deny && tool is BashTool) {
+      if (decision != PermissionDecision.deny && tool is ProcessTool) {
         if (recovery != null) {
           if (state.deniedSandboxRetries.contains(retryKey)) {
             throw const ToolValidationException(
@@ -515,6 +516,7 @@ class ToolExecutor {
           }
           decision = PermissionDecision.ask;
         }
+        executionTool = tool.prepare(executionInput);
       }
     } on ToolValidationException catch (e) {
       return (
@@ -531,6 +533,7 @@ class ToolExecutor {
     String? changedModeBlock;
     if (decision == PermissionDecision.ask) {
       final prompt = PermissionPrompt(use.name, executionInput,
+          execution: executionTool is ProcessTool ? executionTool.preparedRequest : null,
           sandboxAccess: access,
           retryExplanation: recovery?.failure.explanation,
           retrySafety: retrySafety);
@@ -604,7 +607,7 @@ class ToolExecutor {
 
     if (access != null) {
       try {
-        executionTool = (tool as BashTool)
+        executionTool = (executionTool as ProcessTool)
             .withApprovedAccess(access, remember: resp?.remember ?? false);
       } on ToolValidationException catch (e) {
         return (
@@ -680,6 +683,11 @@ class ToolExecutor {
         isCancelled: isCancelled,
         delegate: dispatch,
       );
+      if (out is ProcessToolResult && !isCancelled() && !state.toolInterrupted) {
+        for (final diagnostic in out.diagnostics) {
+          sink.notice('${diagnostic.message}\n', kind: NoticeKind.warning);
+        }
+      }
       if (retryKey != null &&
           out is BashToolResult &&
           out.sandboxFailure != null &&
