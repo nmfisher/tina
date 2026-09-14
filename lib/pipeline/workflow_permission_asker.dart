@@ -115,7 +115,16 @@ class WorkflowPermissionAsker {
       final host = sink as TuiConversationHost;
       host.chat.ensureNewline();
     }
-    _write(p.approvalRow, HostMessageStyle.normal);
+    // Approval is a selectable list (up/down arrows) with Enter to confirm.
+    final isSandboxAccess = p.sandboxAccess != null;
+    final options = [
+      (text: 'allow once', key: 'y'),
+      (text: 'allow always', key: 'a'),
+      (text: 'deny', key: 'd'),
+    ];
+    var selectedIndex = 0;
+    final optionStr = options.map((o) => '[${o.key}] ${o.text}').join(' ');
+    _write('  approve? $optionStr ‹ ', HostMessageStyle.normal);
     // If the user is mid-prompt (a readLine in flight WITH unsent content),
     // the approval must not steal their typing — the prompt's Enter would
     // answer this readKey as a deny (it is not y/a/d) and the prompt would
@@ -134,11 +143,9 @@ class WorkflowPermissionAsker {
     // globalKeys: the focus ring's shortcuts cycle panels, they must not
     // answer the approval (tin-c5nw).
     //
-    // Only the answer keys decide. Anything else — arrows, Enter, stray
-    // characters, pastes, wheel notches — is NOT an answer and must not
-    // decide it: the read simply stays armed and the next key is heard (an
-    // up-arrow used to fall into the default-deny and silently reject the
-    // action). Esc still denies — the "get me out" key keeps its meaning.
+    // Approval is a selectable list: up/down arrows to choose, Enter to confirm.
+    // Old y/n/a/d keys still work as shortcuts. Esc still denies — the
+    // "get me out" key keeps its meaning.
     // #51c: exactly ONE dimmed ack per ask — the first non-answer key proves
     // the prompt is alive (its keys are being swallowed), later ones stay
     // silent so a wheel spam or a stuck key can't flood the transcript.
@@ -154,19 +161,47 @@ class WorkflowPermissionAsker {
             _write('a\n', HostMessageStyle.normal);
             return PermissionResponse.allowAlways;
           case 'd':
-            if (p.sandboxAccess != null) break;
+            if (isSandboxAccess) break;
             _write('d\n', HostMessageStyle.normal);
             return PermissionResponse.denyAlways;
           case 'n':
             _write('n\n', HostMessageStyle.normal);
             return PermissionResponse.denyOnce;
         }
+      } else if (event is ArrowKey) {
+        // Up/down arrows cycle through the approval options.
+        if (event.direction == ArrowDirection.up) {
+          if (selectedIndex > 0) selectedIndex--;
+        } else if (event.direction == ArrowDirection.down) {
+          if (selectedIndex < options.length - 1) selectedIndex++;
+        }
+        // Redraw the approval row with updated selection.
+        _write('\x1b[1A\x1b[2K', HostMessageStyle.normal); // move up and clear
+        final optionStr = options.map((o) => '[${o.key}] ${o.text}').join(' ');
+        _write('  approve? $optionStr ‹ ', HostMessageStyle.normal);
       } else if (event is EscapeKey) {
         _write('esc\n', HostMessageStyle.normal);
         return PermissionResponse.denyOnce;
       } else if (event is ControlKey && event.code == ControlCode.ctrlC) {
         _write('cancelled\n', HostMessageStyle.normal);
         return PermissionResponse.denyOnce;
+      } else if (event is ControlKey && event.code == ControlCode.enter) {
+        final selected = options[selectedIndex];
+        _write(selected.text, HostMessageStyle.normal);
+        switch (selected.key) {
+          case 'y':
+            _write('\n', HostMessageStyle.normal);
+            return PermissionResponse.allowOnce;
+          case 'a':
+            _write('\n', HostMessageStyle.normal);
+            return PermissionResponse.allowAlways;
+          case 'd':
+            if (isSandboxAccess) continue;
+            _write('\n', HostMessageStyle.normal);
+            return PermissionResponse.denyAlways;
+          default:
+            continue;
+        }
       }
       // Not an answer key: the read stays armed. One-shot ack on the first
       // one that surfaces here; keys the focus ring consumes (panel cycling)

@@ -241,13 +241,23 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
           chat.dim('  ⋯\n');
       }
     }
-    // The prompt row stays open across the readKey so the answer character
+    // The approval row is always the last thing shown, immediately above the
+    // input field. It stays open across the readKey so the answer character
     // lands on the same line. The row is marked with an ownership token so a
     // background writer (e.g. the environment ceremony) streaming while the
     // approval pends starts its own row instead of merging its text onto the
     // prompt (tin-6a2f).
     final rowToken = Object();
-    chat.write(p.approvalRow, rowOwner: rowToken);
+    // Approval is now a selectable list (up/down arrows) with Enter to confirm.
+    final isSandboxAccess = p.sandboxAccess != null;
+    final options = [
+      (text: 'allow once', key: 'y'),
+      (text: isallow always', key: 'a'),
+      (text: 'deny', key: 'd'),
+    ];
+    var selectedIndex = 0;
+    final optionStr = options.map((o) => '[${o.key}] ${o.text}').join(' ');
+    chat.write('  approve? $optionStr ‹ ', rowOwner: rowToken);
     // If the user is mid-prompt (a readLine in flight WITH unsent content),
     // the approval must not steal their typing — the prompt's Enter would
     // answer this readKey as a deny (it is not y/a/d) and the prompt would
@@ -263,11 +273,9 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     // other navigation keys must cycle panels here, not answer the prompt
     // (tin-c5nw — Ctrl+G used to land in this readKey as a deny).
     //
-    // Only the answer keys decide. Anything else — arrows, Enter, stray
-    // characters, pastes, wheel notches — is NOT an answer and must not
-    // decide it: the read simply stays armed and the next key is heard (an
-    // up-arrow used to fall into the default-deny and silently reject the
-    // action). Esc still denies — the "get me out" key keeps its meaning.
+    // Approval is a selectable list: up/down arrows to choose, Enter to confirm.
+    // Old y/n/a/d keys still work as shortcuts. Esc still denies — the
+    // "get me out" key keeps its meaning.
     //
     // #51c: exactly ONE dimmed ack per ask — the first non-answer key proves
     // the prompt is alive (its keys are being swallowed); later ones stay
@@ -285,19 +293,48 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
             chat.write('a\n', rowOwner: rowToken);
             return PermissionResponse.allowAlways;
           case 'd':
-            if (p.sandboxAccess != null) break;
+            if (isSandboxAccess) break;
             chat.write('d\n', rowOwner: rowToken);
             return PermissionResponse.denyAlways;
           case 'n':
             chat.write('n\n', rowOwner: rowToken);
             return PermissionResponse.denyOnce;
         }
+      } else if (event is ArrowKey) {
+        // Up/down arrows cycle through the approval options.
+        final idx = options.indexOf((text: 'allow once', key: 'y'));
+        if (event.direction == ArrowDirection.up) {
+          if (selectedIndex > 0) selectedIndex--;
+        } else if (event.direction == ArrowDirection.down) {
+          if (selectedIndex < options.length - 1) selectedIndex++;
+        }
+        // Redraw the approval row with updated selection.
+        chat.write('\x1b[1A\x1b[2K', rowOwner: rowToken); // move up and clear
+        final optionStr = options.map((o) => '[${o.key}] ${o.text}').join(' ');
+        chat.write('  approve? $optionStr ‹ ', rowOwner: rowToken);
       } else if (event is EscapeKey) {
         chat.write('esc\n', rowOwner: rowToken);
         return PermissionResponse.denyOnce;
       } else if (event is ControlKey && event.code == ControlCode.ctrlC) {
         chat.write('cancelled\n', rowOwner: rowToken);
         return PermissionResponse.denyOnce;
+      } else if (event is ControlKey && event.code == ControlCode.enter) {
+        final selected = options[selectedIndex];
+        chat.write(selected.text, rowOwner: rowToken);
+        switch (selected.key) {
+          case 'y':
+            chat.write('\n', rowOwner: rowToken);
+            return PermissionResponse.allowOnce;
+          case 'a':
+            chat.write('\n', rowOwner: rowToken);
+            return PermissionResponse.allowAlways;
+          case 'd':
+            if (isSandboxAccess) continue;
+            chat.write('\n', rowOwner: rowToken);
+            return PermissionResponse.denyAlways;
+          default:
+            continue;
+        }
       } else if (event is ControlKey && event.code == ControlCode.backtab) {
         // Cycle the permission mode while the approval pends — the strip's
         // mode label updates live; the answer keys are unaffected.
