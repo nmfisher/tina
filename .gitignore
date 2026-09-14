@@ -1,19 +1,8 @@
-# Dart / Pub
-.dart_tool/
-build/
+# IDE / editor settings
+.claude/
+.poolside/
 
-# Claude Code local state
-.claude/settings.local.json
-
-# Tina index cache
-.tina/
-
-# Cross-platform hygiene
-.DS_Store
-._*
-**/._*
-# AGENTS.local.md — Nick local overrides (gitignored)
-AGENTS.local.md
-
-# Release signing secret — never commit (belongs in GitHub secrets + offline)
-minisign.key
+# Release artifacts
+releases/bundle/
+releases/*.tar.gz
+releases/*.sha256
