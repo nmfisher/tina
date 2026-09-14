@@ -292,5 +292,89 @@ void main() {
       ed.endCancelMonitor();
       ed.close();
     });
+
+    group('input capture window (tin-y8kh)', () {
+      test('echoes chars, submits on Enter, stays armed for multi-entry',
+          () async {
+        final input = FakeInputBackend();
+        final ed = _makeEditor(input);
+        final f = ed.readLine('> '); // subscribe the backend
+        await _flush();
+        input.emit(ControlKey(ControlCode.enter));
+        expect(await f, isEmpty); // finish the readLine the way a submit does
+        await _flush();
+        final submitted = <String>[];
+        ed.beginInputCaptureWindow(submitted.add);
+        input.emit(CharInput('a'));
+        input.emit(CharInput('b'));
+        input.emit(ControlKey(ControlCode.enter));
+        await _flush();
+        expect(submitted, ['ab'],
+            reason: 'Enter during capture submits the draft');
+        // Multi-entry: capture stays armed after the submit.
+        input.emit(CharInput('c'));
+        input.emit(ControlKey(ControlCode.enter));
+        await _flush();
+        expect(submitted, ['ab', 'c'],
+            reason: 'Enter keeps the capture armed so lines can stack');
+        ed.endInputCaptureWindow();
+        ed.close();
+      });
+
+      test('end closes the window; later keys are dropped, not captured',
+          () async {
+        final input = FakeInputBackend();
+        final ed = _makeEditor(input);
+        final f = ed.readLine('> ');
+        await _flush();
+        input.emit(ControlKey(ControlCode.enter));
+        expect(await f, isEmpty);
+        await _flush();
+        final submitted = <String>[];
+        ed.beginInputCaptureWindow(submitted.add);
+        input.emit(CharInput('x'));
+        ed.endInputCaptureWindow();
+        // After the window ends there is no readLine and no capture — the
+        // ownerless guard (tin-y27w) drops keystrokes, so nothing is captured
+        // and nothing waits for the next readLine.
+        input.emit(CharInput('y'));
+        input.emit(ControlKey(ControlCode.enter));
+        await _flush();
+        expect(submitted, isEmpty, reason: 'the window was ended before Enter');
+        ed.close();
+      });
+
+      test('a readKey armed during capture answers, then capture resumes',
+          () async {
+        final input = FakeInputBackend();
+        final ed = _makeEditor(input);
+        final f = ed.readLine('> ');
+        await _flush();
+        input.emit(ControlKey(ControlCode.enter));
+        expect(await f, isEmpty);
+        await _flush();
+        final submitted = <String>[];
+        ed.beginInputCaptureWindow(submitted.add);
+        // The host arms an approval prompt mid-window (readKey saves and
+        // restores the cancel-monitor, so capture survives the prompt).
+        final key = ed.readKey(globalKeys: true);
+        await _flush();
+        input.emit(CharInput('y'));
+        await _flush();
+        expect(await key, isA<CharInput>(),
+            reason: 'the prompt owns the keyboard while it is armed');
+        // Completing a readKey opens a 10ms paste-burst window during which
+        // CharInput is queued as overflow (never dispatched) — wait it out
+        // before the resumed-capture keystrokes, the way a human hand does.
+        await Future<void>.delayed(const Duration(milliseconds: 15));
+        // Capture restored: typing + Enter still submits.
+        input.emit(CharInput('z'));
+        input.emit(ControlKey(ControlCode.enter));
+        await _flush();
+        expect(submitted, ['z'], reason: 'capture must survive a nested readKey');
+        ed.endInputCaptureWindow();
+        ed.close();
+      });
+    });
   });
 }

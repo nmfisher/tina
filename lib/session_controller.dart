@@ -44,6 +44,20 @@ class SessionController {
   /// being switched to. Wired by the TUI coordinator; null in headless.
   void Function(String buffer, int cursor)? restoreInput;
 
+  /// Arm/disarm a keystroke-capture window in the line editor, used while the
+  /// REPL awaits a slow command dispatch (e.g. `/compact` summarizing through
+  /// an LLM call). While armed, typed lines are echoed and handed to [begin]'s
+  /// on-submit callback on Enter instead of being dropped on the floor
+  /// (tin-y8kh). [begin] also receives the count of already-captured lines so
+  /// the editor can render `[N queued]`; [end] settles the window so the loop
+  /// can flush what was captured. Wired by the TUI coordinator; null in
+  /// headless (where dispatch is fast enough not to matter).
+  void Function(
+    void Function(String line) onCaptureSubmit,
+    int queueCount,
+  )? beginInputCapture;
+  void Function()? endInputCapture;
+
   /// Per-session draft input saved across switches, keyed by session id. Lets a
   /// half-typed prompt survive switching to another session and back — tmux-
   /// style independent input per session.
@@ -142,6 +156,20 @@ class SessionController {
   late final SessionCommandHandlers _commands = SessionCommandHandlers(
     ControllerCommandAdapter(this),
   );
+
+  /// Lines Enter-completed while a capture window was armed around a slow
+  /// command dispatch (tin-y8kh). Flushed through the normal dispatch path
+  /// when the slow command settles; empty when no window ever captured
+  /// anything.
+  final List<String> _captured = [];
+
+  /// The capture seam's on-submit callback: enqueue the completed line. Empty
+  /// lines are ignored (an Enter with an empty queue draft is a no-op, same
+  /// as the empty-submit interrupt gesture elsewhere in the loop).
+  void _onCaptureSubmit(String line) {
+    if (line.trim().isEmpty) return;
+    _captured.add(line);
+  }
 
   /// Two-press Esc arming. Set to true on first Esc while a turn is running;
   /// the second Esc actually cancels. Cleared when the turn ends naturally.
@@ -297,6 +325,16 @@ class SessionController {
       active.host.setIdle(true);
 
       while (true) {
+        // The capture window and readLine are mutually exclusive keyboard
+        // owners: while readLine is armed the window must be OFF (the editor
+        // routes cancel-monitor events ahead of the line buffer — arming
+        // both would starve the prompt of every keystroke), and while the
+        // REPL awaits a slow command dispatch the window must be ON — that
+        // await is exactly the ownerless gap where keystrokes used to be
+        // dropped (tin-y27w / tin-y8kh). Disarm at the top (no-op unless a
+        // window survived a `continue` below), then arm again the moment a
+        // real line is delivered.
+        endInputCapture?.call();
         final input = exitSignal != null
             ? await Future.any<String?>([
                 readLine('> '),
@@ -304,6 +342,7 @@ class SessionController {
               ])
             : await readLine('> ');
         if (input == null) {
+          endInputCapture?.call();
           active.host.newline();
           // A quit attempt (Ctrl+C×2 / Ctrl+D / EOF): inside tmux this offers
           // Detach / Exit / Cancel before the process actually stops.
@@ -312,6 +351,11 @@ class SessionController {
           unawaited(_flushUsage()); // persist spend on quit
           return;
         }
+        // Arm the capture window the moment a real line is delivered: every
+        // await below (the slow command dispatch, catch-up flushes) then has
+        // keystrokes captured instead of dropped, with no ownerless gap in
+        // between. The exit-intent dialog above is covered by its own readKey.
+        beginInputCapture?.call(_onCaptureSubmit, _captured.length);
 
         final trimmed = input.trim();
         if (trimmed.isEmpty) {
@@ -324,7 +368,8 @@ class SessionController {
           // which rolls back). Without queued work the keypress stays inert —
           // there is nothing to hand the run over TO; without a running turn
           // it also stays inert (an empty submit was a no-op before; Esc
-          // still owns cancel).
+          // still owns cancel). The capture window stays armed: the user is
+          // still typing into it.
           final s0 = active;
           final interrupt = s0.toolInterruptCompleter;
           if (s0.isRunning &&
@@ -340,6 +385,11 @@ class SessionController {
           continue;
         }
 
+        // A real line arrived; the capture window (armed above, the moment
+        // readLine delivered) stays ON through the dispatch await — the
+        // ownerless gap tin-y27w dropped keystrokes in. _catchUp re-arms it
+        // around each flushed line's own dispatch; the loop top disarms
+        // right before the next readLine.
         final target = active;
         final cmd = await _commands.dispatch(trimmed);
         if (cmd is CmdExit) {
@@ -348,39 +398,76 @@ class SessionController {
           unawaited(_flushUsage()); // persist spend on quit
           return;
         }
-        if (cmd is CmdHandled) continue;
+        if (cmd is CmdHandled) {
+          await _catchUp(target);
+          continue;
+        }
         if (cmd case CmdRun(:final prompt)) {
           // A command that injects a fixed prompt (e.g. /index): run it as a
           // normal turn with the prompt as the user input, not the raw command
           // word. Reuses the same turn path a typed line takes.
-          final rs = target;
-          if (rs.isRunning) {
-            turns.submit(rs.id, prompt);
-            rs.host.showMessage(
-              '$trimmed  [queued — ${rs.messageQueue.length} pending]\n',
-              style: HostMessageStyle.dim,
-            );
-          } else {
-            _startTurn(rs, prompt);
-          }
+          _submitOrQueue(target, prompt, trimmed);
+          await _catchUp(target);
           continue;
         }
 
         // Plain text (or an unknown /command) goes to the active session.
-        final s = target;
-        if (s.isRunning) {
-          turns.submit(s.id, trimmed);
-          s.host.showMessage(
-            '$trimmed  [queued — ${s.messageQueue.length} pending]\n',
-            style: HostMessageStyle.dim,
-          );
-        } else {
-          _startTurn(s, trimmed);
-        }
+        _submitOrQueue(target, trimmed, trimmed);
+        await _catchUp(target);
       }
     } finally {
       await shutdown();
     }
+  }
+
+  /// Settle lines captured during a slow command dispatch (tin-y8kh). Each
+  /// captured line goes through the same dispatch/turn path the interactive
+  /// loop uses — commands run as commands, text starts or queues turns — so a
+  /// line typed during `/compact` behaves exactly as if it had been typed
+  /// fresh afterward. Between batches the capture window re-arms: the editor
+  /// keeps taking keystrokes (its own readLine is not armed) and anything new
+  /// appends to the pending list, so fast typing can outrun the flush without
+  /// loss or duplication. The pause/resume pair around every [dispatchOne]
+  /// keeps exactly one keyboard owner alive at any moment — pre-fix, a line
+  /// submitted during a later flush batch was captured AND read by the next
+  /// readLine (submitted twice).
+  Future<void> _catchUp(Conversation target) async {
+    while (_captured.isNotEmpty) {
+      final line = _captured.removeAt(0);
+      beginInputCapture?.call(_onCaptureSubmit, _captured.length);
+      final outcome = await _dispatchOne(line, target);
+      endInputCapture?.call();
+      if (outcome == _DispatchOutcome.exitRequested) return;
+    }
+  }
+
+  /// Submit [input] to [target], starting a turn when idle or queueing under
+  /// the running one. Echoes the queued form exactly like the interactive
+  /// loop's long-standing `[queued — N pending]` line. [echo] is the text the
+  /// user actually typed (a raw `/command` for a [CmdRun] prompt, the line
+  /// itself otherwise).
+  void _submitOrQueue(Conversation target, String input, String echo) {
+    if (target.isRunning) {
+      turns.submit(target.id, input);
+      target.host.showMessage(
+        '$echo  [queued — ${target.messageQueue.length} pending]\n',
+        style: HostMessageStyle.dim,
+      );
+    } else {
+      _startTurn(target, input);
+    }
+  }
+
+  Future<_DispatchOutcome> _dispatchOne(String line, Conversation target) async {
+    final cmd = await _commands.dispatch(line);
+    if (cmd is CmdExit) return _DispatchOutcome.exitRequested;
+    if (cmd is CmdHandled) return _DispatchOutcome.handled;
+    if (cmd case CmdRun(:final prompt)) {
+      _submitOrQueue(target, prompt, line);
+      return _DispatchOutcome.handled;
+    }
+    _submitOrQueue(target, line, line);
+    return _DispatchOutcome.handled;
   }
 
   /// An exit intent: `/exit`/`/quit` (a [CmdExit]) or a null readLine (Ctrl+C×2,
@@ -657,3 +744,10 @@ class SessionController {
   static String _shortId(String id) =>
       id.length > 6 ? id.substring(id.length - 6) : id;
 }
+
+/// How [_dispatchOne] settled a line captured during a slow dispatch
+/// (tin-y8kh): [handled] — the line ran as a command or started/queued a
+/// turn, keep flushing; [exitRequested] — the line was an exit command, stop
+/// flushing so run()'s next iteration handles the exit intent (detach dialog
+/// in tmux, shutdown) in one place.
+enum _DispatchOutcome { handled, exitRequested }

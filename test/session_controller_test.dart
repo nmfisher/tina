@@ -1631,6 +1631,149 @@ void _environmentTests() {
       },
     );
   });
+
+  group('input capture during dispatch (tin-y8kh)', () {
+    test('a line typed during a slow dispatch runs after it settles',
+        () async {
+      // Models /compact: the first provider send (the summarization) hangs
+      // until the test opens the gate, so `await dispatch` blocks exactly
+      // like a real 147-message compaction — deterministically.
+      final gate = Completer<void>();
+      final provider = _GatedCompactProvider(gate);
+      final rl = FakeReadLine();
+      final controller = _buildController(readLine: rl, provider: provider);
+      // agent.compact is a no-op on an empty history — seed a real exchange
+      // so /compact's summarization genuinely calls the provider and hangs
+      // on the gate exactly like a 147-message compaction.
+      controller.active.history.addAll([
+        const Message(
+            role: Role.user, content: [TextBlock('earlier question')]),
+        const Message(
+            role: Role.assistant, content: [TextBlock('earlier answer')]),
+      ]);
+      final beginCounts = <int>[];
+      var ends = 0;
+      var typed = false;
+      controller.beginInputCapture = (onSubmit, count) {
+        beginCounts.add(count);
+        // The user types a line + Enter ONCE while the dispatch is running;
+        // later re-arms (from _catchUp) model no new typing.
+        if (!typed) {
+          typed = true;
+          onSubmit('queued while compacting');
+        }
+      };
+      controller.endInputCapture = () => ends++;
+      rl.enqueue('/compact');
+      final runFuture = controller.run();
+      await _pumpUntil(() => provider.calls == 1,
+          reason: 'summarization call in flight');
+      await _pumpUntil(() => beginCounts.isNotEmpty,
+          reason: 'capture armed for the dispatch window');
+      // While the dispatch hangs, the captured line must NOT have executed:
+      // it is held until the command settles (asserted by its absence below
+      // and its presence after the gate opens). The seam's end callback also
+      // fires on no-op disarm at the loop top, so raw end counts carry no
+      // signal here — behavior is the contract.
+      expect(
+          controller.active.history.any(
+            (m) =>
+                m.role == Role.user &&
+                m.content
+                    .whereType<TextBlock>()
+                    .any((b) => b.text.contains('queued while')),
+          ),
+          isFalse,
+          reason: 'captured line must wait for the dispatch to settle');
+      // The command settles; the captured line must run as a REAL turn.
+      gate.complete();
+      await _pumpUntil(
+          () => controller.active.history.any(
+                (m) =>
+                    m.role == Role.user &&
+                    m.content
+                        .whereType<TextBlock>()
+                        .any((b) => b.text.contains('queued while')),
+              ),
+          reason: 'captured line must reach the conversation as a turn');
+      await _pumpUntil(
+          () => controller.active.history.any(
+                (m) =>
+                    m.role == Role.assistant &&
+                    m.content
+                        .whereType<TextBlock>()
+                        .any((b) => b.text == 'turn done'),
+              ),
+          reason: 'the flushed turn must actually complete');
+      rl.close();
+      await runFuture;
+    });
+
+    test('arms once per delivered line; disarms before the next readLine',
+        () async {
+      final gate = Completer<void>();
+      final provider = _GatedCompactProvider(gate);
+      final rl = FakeReadLine();
+      final controller = _buildController(readLine: rl, provider: provider);
+      // Seed history so /compact's summarization really blocks on the gate
+      // (an empty history makes agent.compact return immediately).
+      controller.active.history.addAll([
+        const Message(
+            role: Role.user, content: [TextBlock('earlier question')]),
+        const Message(
+            role: Role.assistant, content: [TextBlock('earlier answer')]),
+      ]);
+      var begins = 0;
+      var ends = 0;
+      controller.beginInputCapture = (_, __) => begins++;
+      controller.endInputCapture = () => ends++;
+      rl.enqueue('/compact');
+      final runFuture = controller.run();
+      await _pumpUntil(() => provider.calls == 1);
+      // Pass 1: the loop top's unconditional end is a NO-OP (nothing armed
+      // yet — the editor ignores it), then arming happens the moment
+      // /compact is delivered. While dispatch hangs: one arm, one no-op end.
+      expect(begins, 1, reason: 'armed the moment readLine delivered');
+      expect(ends, 1,
+          reason: 'only the pass-1 no-op disarm has fired');
+      gate.complete();
+      // The compact settles, the flush loop runs (arm/disarm around its own
+      // dispatches would only happen with captured lines — none here), the
+      // loop disarms before the next readLine (end #2, a REAL disarm), and
+      // EOF unwinds (end #3, another no-op). Assert with slack: at least the
+      // real disarm happened, and no new line means no new arm.
+      rl.close();
+      await runFuture;
+      expect(begins, 1, reason: 'no new line was delivered, so no new arm');
+      expect(ends, greaterThanOrEqualTo(2),
+          reason: 'the armed window was disarmed before the next readLine');
+    });
+  });
+}
+
+/// First send hangs on [gate] (the in-flight /compact summarization), then
+/// completes; every later send returns a finished turn. A never-completing
+/// stream would leave the turn slot un-idleable and hang shutdown().
+class _GatedCompactProvider extends LlmProvider {
+  _GatedCompactProvider(this.gate) : super('gated');
+  final Completer<void> gate;
+  int calls = 0;
+  @override
+  Stream<StreamEvent> send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+  }) async* {
+    calls++;
+    if (calls == 1) {
+      await gate.future;
+      yield const MessageComplete(
+          content: [TextBlock('SUMMARY')], stopReason: 'end_turn');
+      return;
+    }
+    yield const MessageComplete(
+        content: [TextBlock('turn done')], stopReason: 'end_turn');
+  }
 }
 
 class _WriteThenWaitProvider extends LlmProvider {

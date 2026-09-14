@@ -977,6 +977,14 @@ class TuiCoordinator {
       controller.restoreInput = (buffer, cursor) {
         editor.loadEditState(buffer, cursor);
       };
+      // tin-y8kh: while a slow command dispatch runs (e.g. /compact
+      // summarizing through an LLM call), the editor's queue-mode capture
+      // takes keystrokes instead of dropping them; the controller flushes
+      // the captured lines through the normal dispatch path when the
+      // command settles.
+      controller.beginInputCapture = (onSubmit, queueCount) =>
+          editor.beginInputCaptureWindow(onSubmit, queueCount: queueCount);
+      controller.endInputCapture = editor.endInputCaptureWindow;
       // `/permissions <mode>`: flip the shared base policy plus every live
       // conversation's policy (they're copies). New conversations inherit from
       // the base policy; already-built agents consult their policy per check,

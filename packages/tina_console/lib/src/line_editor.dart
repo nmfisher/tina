@@ -336,6 +336,27 @@ class LineEditor {
     _qCount = 0;
   }
 
+  /// While a slow command dispatch runs (e.g. `/compact` summarizing through
+  /// an LLM call), no [readLine] is armed — pre-tin-y8kh, keystrokes in that
+  /// window were dropped on the floor and the user had to retype. This arms
+  /// the same queue-mode capture used mid-turn: keystrokes are echoed in the
+  /// input region and handed to [onSubmit] on Enter (multi-entry works —
+  /// Enter does not end the capture). Cancel stays inert; Ctrl+C is captured
+  /// like any char, matching queue mode's semantics. Pairs with
+  /// [endInputCaptureWindow]; [readKey] save/restores the monitor around an
+  /// approval prompt, so a nested prompt during the window is safe. No-op to
+  /// end when nothing is armed (the window never spans a [readLine], so the
+  /// monitor cannot be someone else's).
+  void beginInputCaptureWindow(void Function(String) onSubmit,
+      {int queueCount = 0}) {
+    beginCancelMonitor(() {}, onQueueSubmit: onSubmit, queueCount: queueCount);
+  }
+
+  void endInputCaptureWindow() {
+    if (!_queueModeActive) return;
+    endCancelMonitor();
+  }
+
   void pause() => _sub?.pause();
   void resume() => _sub?.resume();
 
