@@ -266,6 +266,7 @@ void main() {
 
       // No post-cancel send: the ladder stopped, the turn exited cleanly.
       expect(provider.calls, 1);
+      expect(sink.notices.where((n) => n.message.contains('[cancelled]')), hasLength(1));
       expect(agent.abortedKind, AbortedKind.cancel);
       expect(agent.abortedReason, isNull);
       expect(sink.texts, isNot(contains('must never be sent')));

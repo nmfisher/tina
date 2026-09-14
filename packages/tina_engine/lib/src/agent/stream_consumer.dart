@@ -25,10 +25,14 @@ class ProviderStreamConsumer {
   /// Listen to [stream] until it completes, is cancelled, or errors.
   /// Text deltas and tool-call starts are rendered live via [sink]. Returns an
   /// [TurnOutcome] with the assembled content.
+  /// [onCancelled] notifies the turn owner immediately, before stream cleanup.
+  /// The owner decides how to present cancellation; this consumer does not
+  /// emit a turn-level cancellation notice.
   Future<TurnOutcome> consume(
     Stream<StreamEvent> stream, {
     required AgentSink sink,
     Future<void>? cancelSignal,
+    void Function()? onCancelled,
   }) async {
     sink.activityStart();
     final done = Completer<void>();
@@ -49,7 +53,7 @@ class ProviderStreamConsumer {
     late StreamSubscription<StreamEvent> sub;
     sub = stream.listen(
       (event) {
-        if (cancelled) return;
+        if (done.isCompleted) return;
         if (event is TextDelta) {
           sink.activityStop();
           sink.text(event.text);
@@ -70,33 +74,33 @@ class ProviderStreamConsumer {
         }
       },
       onDone: () {
+        if (done.isCompleted) return;
         sink.activityStop();
         if (sawTextThisTurn) sink.newline();
         if (!done.isCompleted) done.complete();
       },
       onError: (Object e) {
+        if (done.isCompleted) return;
         sink.activityStop();
         error = e;
         if (!done.isCompleted) done.complete();
       },
     );
 
-    final cancelSub = cancelSignal?.then((_) async {
+    cancelSignal?.then((_) {
+      // A turn reuses its cancellation signal across requests. Futures cannot
+      // unsubscribe callbacks, so a settled request must make this a no-op.
+      if (done.isCompleted) return;
       cancelled = true;
       sink.activityStop();
-      sink.notice('\n[cancelled]\n', kind: NoticeKind.warning);
-      await sub.cancel();
-      if (!done.isCompleted) done.complete();
+      done.complete();
+      onCancelled?.call();
     });
 
     await done.future;
-    // Only await the cancel teardown when cancel actually fired. Awaiting
-    // unconditionally would deadlock any turn whose [cancelSignal] never
-    // completes: callers (e.g. the REPL) pass a non-null cancelSignal that
-    // only fires on ESC, so [cancelSub] would otherwise never resolve after a
-    // normally-completing stream. When the stream finished on its own, there's
-    // no in-flight cancellation to wait for.
-    if (cancelled) await cancelSub;
+    // Release the subscription on every terminal path, including onError.
+    // Never await the turn's cancellation future: it may never complete.
+    await sub.cancel();
 
     return TurnOutcome(
       content: content,

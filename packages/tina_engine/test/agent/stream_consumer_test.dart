@@ -100,6 +100,101 @@ void main() {
       expect(outcome.error, isNull);
     });
 
+    test('completed requests ignore later cancellation of a shared turn',
+        () async {
+      final cancel = Completer<void>();
+      var notifications = 0;
+      for (var i = 0; i < 6; i++) {
+        final outcome = await consumer.consume(
+          _scripted([
+            const MessageComplete(
+                content: [TextBlock('done')], stopReason: 'end_turn')
+          ]),
+          sink: sink,
+          cancelSignal: cancel.future,
+          onCancelled: () => notifications++,
+        );
+        expect(outcome.cancelled, isFalse);
+      }
+      final stops = sink.activityStops;
+      cancel.complete();
+      await pumpEventQueue();
+      expect(notifications, 0);
+      expect(sink.activityStops, stops,
+          reason: 'finished streams must not stop a later activity');
+      expect(sink.notices, isEmpty);
+    });
+
+    test('only the active request observes a shared cancellation', () async {
+      final cancel = Completer<void>();
+      var notifications = 0;
+      for (var i = 0; i < 6; i++) {
+        await consumer.consume(_scripted(const []),
+            sink: sink,
+            cancelSignal: cancel.future,
+            onCancelled: () => notifications++);
+      }
+      final controller = StreamController<StreamEvent>();
+      final active = consumer.consume(controller.stream,
+          sink: sink,
+          cancelSignal: cancel.future,
+          onCancelled: () => notifications++);
+      cancel.complete();
+      expect((await active).cancelled, isTrue);
+      expect(notifications, 1);
+      expect(sink.notices, isEmpty, reason: 'the turn owns the user notice');
+      await controller.close();
+    });
+
+    test('stream errors settle and release the subscription before late cancel',
+        () async {
+      final cancel = Completer<void>();
+      var releases = 0;
+      var notifications = 0;
+      final controller =
+          StreamController<StreamEvent>(onCancel: () => releases++);
+      final active = consumer.consume(controller.stream,
+          sink: sink,
+          cancelSignal: cancel.future,
+          onCancelled: () => notifications++);
+      controller.addError(StateError('broken stream'));
+      expect((await active).error, isA<StateError>());
+      expect(releases, 1);
+      final stops = sink.activityStops;
+      controller.add(const TextDelta('late text'));
+      cancel.complete();
+      await pumpEventQueue();
+      expect(notifications, 0);
+      expect(sink.activityStops, stops);
+      expect(sink.texts, isEmpty);
+      await controller.close();
+    });
+
+    test('cancellation notifies before asynchronous subscription cleanup',
+        () async {
+      final cancel = Completer<void>();
+      final cleanup = Completer<void>();
+      final notified = Completer<void>();
+      final controller =
+          StreamController<StreamEvent>(onCancel: () => cleanup.future);
+      var returned = false;
+      final active = consumer
+          .consume(controller.stream,
+              sink: sink,
+              cancelSignal: cancel.future,
+              onCancelled: notified.complete)
+          .then((outcome) {
+        returned = true;
+        return outcome;
+      });
+      cancel.complete();
+      await notified.future;
+      expect(returned, isFalse);
+      cleanup.complete();
+      expect((await active).cancelled, isTrue);
+      await controller.close();
+    });
+
     test('cancelSignal mid-stream → cancelled true', () async {
       final controller = StreamController<StreamEvent>();
       final cancel = Completer<void>();

@@ -282,7 +282,8 @@ void main() {
       final waiting = Completer<void>();
       final gate = Completer<void>();
       final provider = FakeProvider([[const MessageComplete(content: [], stopReason: 'end_turn')]]);
-      final agent = _agent(provider: provider, sink: FakeAgentSink(), tools: ToolRegistry([]),
+      final sink = FakeAgentSink();
+      final agent = _agent(provider: provider, sink: sink, tools: ToolRegistry([]),
         emptyCompletionBackoffDelay: (_) { waiting.complete(); return gate.future; });
       final run = agent.run(history: [], userInput: 'go', cancelSignal: cancel.future);
       await waiting.future;
@@ -291,6 +292,7 @@ void main() {
         await run.timeout(const Duration(seconds: 1));
         expect(agent.abortedKind, AbortedKind.cancel);
         expect(provider.calls, hasLength(1));
+        expect(sink.notices.where((n) => n.message.contains('[cancelled]')), hasLength(1));
       } finally { gate.complete(); }
     });
   });
@@ -688,8 +690,40 @@ void main() {
         cancelSignal: cancel.future,
       );
 
-      expect(sink.notices.any((n) => n.message.contains('cancelled')), isTrue);
+      expect(sink.notices.where((n) => n.message.contains('[cancelled]')), hasLength(1));
+      expect(agent.abortedKind, AbortedKind.cancel);
       expect(sink.toolStarts, isEmpty); // no tool ran
+    });
+
+    test('six completed requests followed by cancellation emit one notice', () async {
+      final cancel = Completer<void>();
+      final provider = _MultiStepCancelProvider(cancel);
+      final sink = FakeAgentSink();
+      final agent = _agent(provider: provider, sink: sink,
+          tools: ToolRegistry([FakeTool('read', (_) => const ToolResult('ok'))]),
+          policy: PermissionPolicy(defaults: {'read': PermissionDecision.allow}));
+      await agent.run(history: [], userInput: 'go', cancelSignal: cancel.future);
+      expect(provider.calls, 7);
+      expect(sink.toolCompletes, hasLength(6));
+      expect(sink.notices.where((n) => n.message.contains('[cancelled]')), hasLength(1));
+      expect(agent.abortedKind, AbortedKind.cancel);
+    });
+
+    test('cancellation in the final tool step does not report max steps', () async {
+      final cancel = Completer<void>();
+      final sink = FakeAgentSink();
+      final provider = FakeProvider([[const MessageComplete(content: [
+        ToolUseBlock(id: 'read-1', name: 'read', input: {})], stopReason: 'tool_use')]]);
+      final agent = _agent(provider: provider, sink: sink, maxSteps: 1,
+          tools: ToolRegistry([FakeTool('read', (_) {
+            cancel.complete();
+            return const ToolResult('stopped');
+          })]),
+          policy: PermissionPolicy(defaults: {'read': PermissionDecision.allow}));
+      await agent.run(history: [], userInput: 'go', cancelSignal: cancel.future);
+      expect(sink.notices.where((n) => n.message.contains('[cancelled]')), hasLength(1));
+      expect(sink.notices.any((n) => n.message.contains('max steps')), isFalse);
+      expect(agent.abortedKind, AbortedKind.cancel);
     });
 
     test('a normal turn completes even with a never-firing cancelSignal',
@@ -1915,4 +1949,24 @@ void main() {
       expect(agent.abortedReason, isNull);
     });
   });
+}
+
+class _MultiStepCancelProvider extends LlmProvider {
+  _MultiStepCancelProvider(this.cancel) : super('multi-step');
+  final Completer<void> cancel;
+  int calls = 0;
+
+  @override
+  Stream<StreamEvent> send({required String system,
+      required List<Message> messages, required List<ToolSchema> tools}) {
+    calls++;
+    if (calls <= 6) {
+      return Stream.value(MessageComplete(content: [
+        ToolUseBlock(id: 'read-$calls', name: 'read', input: {}),
+      ], stopReason: 'tool_use'));
+    }
+    final stream = StreamController<StreamEvent>();
+    scheduleMicrotask(cancel.complete);
+    return stream.stream;
+  }
 }

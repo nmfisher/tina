@@ -524,6 +524,13 @@ class Agent {
 
     var cancelled = false;
     cancelSignal?.then((_) => cancelled = true);
+    var cancellationReported = false;
+    void reportCancellation() {
+      if (cancellationReported) return;
+      cancellationReported = true;
+      abortedKind = AbortedKind.cancel;
+      sink.notice('\n[cancelled]\n', kind: NoticeKind.warning);
+    }
 
     // Operator interrupt (#31), distinct from cancel: fires the turn-stop
     // AROUND TOOL EXECUTION only — never mid-stream. Armed eagerly so an
@@ -612,8 +619,7 @@ class Agent {
         _modeNotice = notice;
       }
       if (cancelled) {
-        sink.notice('\n[cancelled]\n', kind: NoticeKind.warning);
-        abortedKind = AbortedKind.cancel;
+        reportCancellation();
         return;
       }
 
@@ -746,7 +752,8 @@ class Agent {
           tools: stepTools.schemas,
         );
         outcome = await const ProviderStreamConsumer()
-            .consume(stream, sink: sink, cancelSignal: cancelSignal);
+            .consume(stream, sink: sink, cancelSignal: cancelSignal,
+                onCancelled: reportCancellation);
         final err = outcome.streamError;
         if (outcome.error == null ||
             err == null ||
@@ -777,13 +784,13 @@ class Agent {
           await timer;
         }
         if (cancelled) {
-          // Cancel during the backoff: exit the turn cleanly, exactly like a
-          // cancel that landed mid-stream — the consumer already printed
-          // [cancelled] for that path; print it for this one.
-          sink.notice('\n[cancelled]\n', kind: NoticeKind.warning);
-          abortedKind = AbortedKind.cancel;
+          reportCancellation();
           return;
         }
+      }
+      if (outcome.cancelled || cancelled) {
+        reportCancellation();
+        return;
       }
       if (outcome.error != null) {
         sink.notice('\nerror: ${outcome.error}\n', kind: NoticeKind.error);
@@ -804,11 +811,6 @@ class Agent {
             ? AbortedKind.transport
             : AbortedKind.provider;
         }
-        return;
-      }
-      if (outcome.cancelled) {
-        // [cancelled] notice already printed by ProviderStreamConsumer before
-        // the async stream teardown, so it appears in the panel immediately.
         return;
       }
       final content = outcome.content;
@@ -1066,6 +1068,11 @@ class Agent {
       // assistant message already references them (a dangling tool_use).
       final pendingResults = _notifyAppend(toolResults);
       if (pendingResults != null) await pendingResults;
+
+      if (cancelled) {
+        reportCancellation();
+        return;
+      }
 
       // Operator interrupt (#31): the batch is complete and recorded — the
       // whole-batch invariant holds and history is consistent. End the turn
