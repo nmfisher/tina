@@ -168,7 +168,18 @@ jobs:
         working-directory: packages/tina_engine
         env:
           TINA_REQUIRE_SANDBOX_TESTS: '1'
-        run: dart test test/tools/execution_sandbox_integration_test.dart
+        run: |
+          # Hosted Ubuntu runners restrict unprivileged user namespaces via
+          # AppArmor, independently of the userns kernel knobs. Enable them
+          # only for this required integration check on the disposable runner;
+          # the test still runs as the ordinary runner user inside bubblewrap.
+          # Restore the host setting even when the test fails.
+          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            tina_userns_original=$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)
+            trap 'sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns="$tina_userns_original"' EXIT
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          dart test test/tools/execution_sandbox_integration_test.dart
 
   console:
     name: console (packages/tina_console)
