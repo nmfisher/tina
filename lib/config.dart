@@ -16,6 +16,15 @@ export 'package:tina_app/tina_app.dart'
 export 'config/terminal_config.dart';
 export 'config/resolved_launch.dart';
 
+// Default values for CLI flags and config options.
+const int kDefaultMaxSteps = 500;
+const int kDefaultWatchdogSeconds = 300;
+const int kDefaultStreamIdleTimeoutSeconds = 180;
+const int kDefaultRequestTimeoutSeconds = 120;
+const int kDefaultTransportRetryAttempts = 5;
+const int kDefaultMaxSubAgentConcurrency = 6;
+const String kDefaultAutoCompactThreshold = '120000';
+
 /// Root compatibility facade. Application code consumes [runtime].
 class Config extends RuntimeConfig implements ResumeRequest {
   final bool showHelp;
@@ -706,16 +715,16 @@ class Config extends RuntimeConfig implements ResumeRequest {
         fileLimits?.requestsPerMinute,
         0,
       ),
-      autoCompactThreshold: parseBudget('auto-compact-threshold', '120000'),
-      maxSteps: parsePositive('max-steps', '500'),
-      watchdogSeconds: parseBudget('watchdog-seconds', '300'),
+      autoCompactThreshold: parseBudget('auto-compact-threshold', kDefaultAutoCompactThreshold),
+      maxSteps: parsePositive('max-steps', kDefaultMaxSteps.toString()),
+      watchdogSeconds: parseBudget('watchdog-seconds', kDefaultWatchdogSeconds.toString()),
       streamIdleTimeout: Duration(
-        seconds: parsePositive('stream-idle-timeout', '60'),
+        seconds: parsePositive('stream-idle-timeout', kDefaultStreamIdleTimeoutSeconds.toString()),
       ),
       requestTimeout: Duration(
-        seconds: parsePositive('request-timeout', '120'),
+        seconds: parsePositive('request-timeout', kDefaultRequestTimeoutSeconds.toString()),
       ),
-      transportRetryAttempts: parseBudget('transport-retry-attempts', '5'),
+      transportRetryAttempts: parseBudget('transport-retry-attempts', kDefaultTransportRetryAttempts.toString()),
       backend: switch (res['backend'] as String) {
         'ansi' => BackendChoice.ansi,
         _ => BackendChoice.notcurses,
