@@ -57,14 +57,12 @@ class _HookCtx implements CommandContext {
   return (conv: conv, host: host, ctx: _HookCtx(conv));
 }
 
-/// Golden `/help` output, extracted verbatim from the pre-refactor `_printHelp`
-/// literal (`session_command_handlers.dart`). The extraction was proven
-/// byte-accurate by running this test against the *pre-migration* code before
-/// the registry landed; it must keep passing now that `/help` renders
-/// structurally from [SessionCommandRegistry].
+/// Golden `/help` output, originally extracted from `_printHelp` and updated
+/// for intentional help-text changes. Both dispatch and direct rendering from
+/// [SessionCommandRegistry] must preserve the expected output.
 void main() {
   group('golden /help output', () {
-    test('is byte-identical to the pre-refactor literal', () async {
+    test('matches the expected command help', () async {
       final f = _fixture();
       await SessionCommandHandlers(f.ctx).dispatch('/help');
 
@@ -89,8 +87,8 @@ void main() {
           '  /session       list live sessions; new/switch/close\n'
           '  /resume <id>   load a saved session into the active session\n'
           '  /save <path>   export this session as a markdown transcript\n'
-          '  /settings      reconfigure providers/models/tiers (applies on '
-          'restart)\n'
+          '  /settings      configure providers, models and live quotas '
+          '(theme needs restart)\n'
           '  /update        check GitHub for a newer release and install it\n'
           '  /prompts       edit each agent role\'s system prompt (applies on '
           'restart)\n'
@@ -258,8 +256,8 @@ String _goldenHelpBody() =>
         '  /session       list live sessions; new/switch/close\n'
         '  /resume <id>   load a saved session into the active session\n'
         '  /save <path>   export this session as a markdown transcript\n'
-        '  /settings      reconfigure providers/models/tiers (applies on '
-        'restart)\n'
+        '  /settings      configure providers, models and live quotas '
+        '(theme needs restart)\n'
         '  /update        check GitHub for a newer release and install it\n'
         '  /prompts       edit each agent role\'s system prompt (applies on '
         'restart)\n'
