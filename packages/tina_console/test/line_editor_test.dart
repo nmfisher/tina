@@ -4,6 +4,7 @@ import 'package:tina_console/tina_console.dart';
 import 'package:test/test.dart';
 
 import 'stdio_fake.dart';
+import 'virtual_terminal.dart';
 
 class _StaticProvider implements CompletionProvider {
   final List<String> results;
@@ -98,6 +99,58 @@ void main() {
       // dispatch (e.g. /index's confirm + fleet run) must not leave the
       // submitted text sitting in the input region.
       expect(ed.editState.buffer, isEmpty);
+    });
+
+    test('submit repaints the empty row before dispatch (tin-compact-clear)',
+        () async {
+      // State-only is not enough: before the tin-compact-clear fix the editor
+      // cleared its buffer but left the submitted text as painted pixels, so
+      // a slow dispatch (/compact summarizes through an LLM) showed the stale
+      // command in the input row until the next readLine's redraw landed.
+      // Assert on the RENDERED row: after Enter, with nothing else armed, the
+      // input row must already be blank.
+      final screen = Screen(
+        io: io,
+        layout: ScreenLayout.fromSize(100, 24),
+        ansi: AnsiCapable.yes,
+      );
+      final vt = VirtualTerminal(width: 100, height: 24);
+      final ed = LineEditor(
+        screen: screen,
+        escapeTimeout: Duration.zero,
+      );
+      screen.redrawFrame();
+      vt.feed(io.written.toString());
+      io.written.clear();
+
+      final f = ed.readLine('> ');
+      await _flush();
+      vt.feed(io.written.toString());
+      io.written.clear();
+      final row = screen.layout.input.row;
+      final col = screen.layout.input.col;
+
+      io.feedBytes('/compact'.codeUnits); // type it, don't submit yet
+      await _flush();
+      vt.feed(io.written.toString());
+      io.written.clear();
+      expect(
+        vt.rowText(row).substring(col, col + 10),
+        '> /compact',
+        reason: 'precondition: the command is painted while being typed',
+      );
+
+      io.feedBytes([0x0d]); // Enter
+      expect(await f, '/compact');
+      vt.feed(io.written.toString());
+      final after = vt
+          .rowText(row)
+          .substring(col + 2, screen.layout.dividerCol)
+          .trim();
+      expect(after, isEmpty,
+          reason: 'stale /compact must not sit in the input row while a slow '
+              'command dispatch (LLM summarization) is awaited; the bare '
+              'prompt > stays painted');
     });
 
     test('Ctrl-C with empty buffer triggers confirm, second exits', () async {
@@ -392,6 +445,41 @@ void main() {
       await _flush();
       io.feedBytes([0x0d]); // submit
       expect(await f, 'a @lib/main.dart');
+    });
+
+    test('picker-accept submit repaints the row too', () async {
+      // The accept-Enter path clears and completes in one branch; it must
+      // repaint just like plain-Enter submit (tin-compact-clear).
+      final screen = Screen(
+        io: io,
+        layout: ScreenLayout.fromSize(100, 24),
+        ansi: AnsiCapable.yes,
+      );
+      final vt = VirtualTerminal(width: 100, height: 24);
+      final ed = LineEditor(
+        screen: screen,
+        escapeTimeout: Duration.zero,
+      );
+      ed.commandProvider = _CommandProvider(['/compact', '/clear']);
+      screen.redrawFrame();
+      vt.feed(io.written.toString());
+      io.written.clear();
+
+      final f = ed.readLine('> ');
+      await _flush();
+      io.feedBytes([0x2f]); // / opens the picker, /compact focused
+      await _flush();
+      io.feedBytes([0x0d]); // accept → '/compact ' AND submit in one Enter
+      expect(await f, '/compact ');
+      vt.feed(io.written.toString());
+      final row = screen.layout.input.row;
+      final col = screen.layout.input.col;
+      // The bare prompt stays painted; the command text must be gone.
+      final after =
+          vt.rowText(row).substring(col + 2, screen.layout.dividerCol).trim();
+      expect(after, isEmpty,
+          reason: 'the accepted command must not stay painted in the input '
+              'row while its dispatch runs');
     });
   });
 
