@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import '../tools/edit_preparation.dart';
 
 /// Maximum lines we'll render in any single preview. Edits with thousand-line
 /// `oldString` blocks get clipped — the user can rely on git/their editor
@@ -50,11 +51,12 @@ class PreviewSeparator extends PreviewEntry {
 /// search). Never throws — file errors degrade to a one-line header.
 Future<List<PreviewEntry>> previewToolCall(
   String tool,
-  Map<String, dynamic> input,
-) async {
+  Map<String, dynamic> input, {
+  PreparedEdit? preparedEdit,
+}) async {
   switch (tool) {
     case 'edit':
-      return _editPreview(input);
+      return _editPreview(input, preparedEdit);
     case 'write':
       return await _writePreview(input);
     case 'launch_workflow':
@@ -98,17 +100,21 @@ List<PreviewEntry> _launchWorkflowPreview(Map<String, dynamic> input) {
   ];
 }
 
-List<PreviewEntry> _editPreview(Map<String, dynamic> input) {
-  final path = input['filePath'] as String? ?? '(no path)';
-  final oldStr = input['oldString'] as String? ?? '';
-  final newStr = input['newString'] as String? ?? '';
-  final replaceAll = (input['replaceAll'] as bool?) ?? false;
+List<PreviewEntry> _editPreview(Map<String, dynamic> input, PreparedEdit? prepared) {
+  final request = prepared?.request;
+  final path = request?.path ?? input['filePath'] as String? ?? '(no path)';
+  final oldStr = request?.oldString ?? input['oldString'] as String? ?? '';
+  final newStr = request?.newString ?? input['newString'] as String? ?? '';
+  final replaceAll = request?.replaceAll ?? (input['replaceAll'] as bool?) ?? false;
   final header = replaceAll ? 'edit: $path (replaceAll)' : 'edit: $path';
 
   final oldLines = const LineSplitter().convert(oldStr);
   final newLines = const LineSplitter().convert(newStr);
 
   final out = <PreviewEntry>[PreviewHeader(header)];
+  out.add(PreviewContext(prepared == null
+      ? 'Proposed replacement; not checked against the file.'
+      : 'Verified against the file before approval; rechecked before writing.'));
   // The cap is split so neither side can starve the other. Sharing one
   // budget meant a 60-line oldString consumed it entirely and the user
   // approved an edit whose added half never rendered.

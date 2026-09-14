@@ -222,7 +222,8 @@ void main() {
       expect(p.whereType<PreviewAdded>(), hasLength(30));
       expect(
         p.whereType<PreviewContext>().map((e) => e.text).toList(),
-        ['… (-70 more removed)', '… (+70 more added)'],
+        ['Proposed replacement; not checked against the file.',
+          '… (-70 more removed)', '… (+70 more added)'],
       );
     });
   });

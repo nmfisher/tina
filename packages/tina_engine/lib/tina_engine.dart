@@ -74,6 +74,7 @@ export 'src/tools/channel_tools.dart';
 export 'src/tools/delegate_tool.dart';
 export 'src/tools/delegation_base.dart';
 export 'src/tools/edit_tool.dart';
+export 'src/tools/edit_preparation.dart';
 export 'src/tools/fetch_tool.dart';
 export 'src/tools/file_enumerator.dart';
 export 'src/tools/file_system.dart';

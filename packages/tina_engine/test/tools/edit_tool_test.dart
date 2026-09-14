@@ -81,8 +81,7 @@ void main() {
   });
 
   test('an empty oldString errors rather than matching everywhere', () async {
-    // _countOccurrences short-circuits on an empty needle (returns 0), so an
-    // empty oldString surfaces as "not found" instead of a no-op replace.
+    // Empty match text is invalid input, not a recoverable file conflict.
     final fs = MemoryFileSystem({'a.txt': 'hello world'});
     final res = await EditTool(fs: fs).execute({
       'filePath': 'a.txt',
@@ -90,7 +89,7 @@ void main() {
       'newString': 'x',
     });
     expect(res.isError, isTrue);
-    expect(res.content, contains('oldString not found'));
+    expect(res.content, contains('oldString must not be empty'));
     expect(fs.files['a.txt'], 'hello world'); // unchanged
   });
 

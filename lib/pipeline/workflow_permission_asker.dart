@@ -94,7 +94,7 @@ class WorkflowPermissionAsker {
     if (p.sandboxAccess != null) {
       _write(p.accessDescription, HostMessageStyle.warning);
     }
-    final preview = await previewToolCall(p.toolName, p.input);
+    final preview = await previewToolCall(p.toolName, p.input, preparedEdit: p.preparedEdit);
     for (final entry in preview) {
       switch (entry) {
         case PreviewHeader(:final text):

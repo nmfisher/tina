@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'tool_input.dart';
+import 'edit_preparation.dart';
 import 'atomic_write.dart';
 import 'file_system.dart';
 import 'mutation_lock.dart';
@@ -33,7 +36,10 @@ class EditTool implements Tool {
             'Replace an exact string in a file. `oldString` must match '
             'verbatim, including whitespace. Errors if `oldString` is not '
             'present or not unique (unless `replaceAll` is true). For new '
-            'files or full rewrites use `write`.',
+            'files or full rewrites use `write`. On edit_conflict, reread the current '
+            'file and submit a corrected exact edit; do not repeat unchanged or '
+            'use write to bypass the conflict. Replacement text already present '
+            'is a hint to verify completion, not proof of success.',
         inputSchema: {
           'type': 'object',
           'properties': {
@@ -59,89 +65,125 @@ class EditTool implements Tool {
         },
       );
 
+  /// Read and validate before approval without holding the mutation lock while
+  /// the user decides. Preparation never writes or creates a backup.
+  Future<EditPreparation> prepare(Map<String, dynamic> input) async {
+    try {
+      final request = EditRequest.fromInput(input, projectRoot);
+      return await _withLock(request.path, () => _prepare(request));
+    } on ToolValidationException catch (e) {
+      return EditPreparation.failed(ToolResult.error(e.message));
+    } on SandboxViolation catch (e) {
+      return EditPreparation.failed(ToolResult.error(e.message));
+    } on FileSystemException catch (e) {
+      return EditPreparation.failed(
+          ToolResult.error('Unable to read edit target: $e'));
+    } on FormatException {
+      return EditPreparation.failed(
+          ToolResult.error('Edit target could not be decoded as text.'));
+    }
+  }
+
+  Tool bind(PreparedEdit edit) => _PreparedEditTool(this, edit);
+
+  Future<void> _validate(String path) async {
+    final editFs = fs;
+    if (editFs is SandboxedFileSystem) await editFs.validatePath(path);
+  }
+
+  Future<EditPreparation> _prepare(EditRequest request) async {
+    // Confinement precedes existence probes and diagnostic excerpts.
+    await _validate(request.path);
+    if (!await fs.fileExists(request.path)) {
+      return EditPreparation.failed(
+          ToolResult.error('File not found: ${request.path}'));
+    }
+    return prepareEdit(request, await fs.readFileString(request.path));
+  }
+
+  Future<T> _withLock<T>(String path, Future<T> Function() action) {
+    final lock = mutationLock;
+    return lock == null ? action() : lock.withFileLock(path, action);
+  }
+
+  Future<ToolResult> _apply(PreparedEdit edit) async {
+    final path = edit.request.path;
+    String? backupLocation;
+    if (backupStore != null) {
+      final entry = await backupStore!.backup(path);
+      backupLocation = entry?.backupPath;
+    }
+    await atomicWriteFile(fs, path, edit.updatedText);
+    final n = edit.request.replaceAll ? edit.occurrences : 1;
+    final message =
+        StringBuffer('edited $path ($n replacement${n == 1 ? '' : 's'})');
+    if (backupLocation != null)
+      message.write('. Backed up previous version to $backupLocation');
+    return ToolResult(message.toString());
+  }
+
+  Future<ToolResult> _executePrepared(PreparedEdit edit) async {
+    final path = edit.request.path;
+    try {
+      return await _withLock(path, () async {
+        await _validate(path);
+        if (!await fs.fileExists(path))
+          return ToolResult.error('File not found: $path');
+        final current = await fs.readFileString(path);
+        if (!edit.matchesSnapshot(current)) {
+          return EditConflict(EditConflictKind.fileChanged, edit.request,
+              current, countEditMatches(current, edit.request.oldString));
+        }
+        return _apply(edit);
+      });
+    } on SandboxViolation catch (e) {
+      return ToolResult.error(e.message);
+    } on FileSystemException catch (e) {
+      return ToolResult.error('Unable to apply edit: $e');
+    } on FormatException {
+      return ToolResult.error('Edit target could not be decoded as text.');
+    }
+  }
+
   @override
   Future<ToolResult> execute(
     Map<String, dynamic> input, {
     Future<void>? cancelSignal,
     ToolOutputCallback? onOutput,
   }) async {
-    final rawPath = input['filePath'] as String?;
-    final oldStr = input['oldString'] as String?;
-    final newStr = input['newString'] as String?;
-    final replaceAll = (input['replaceAll'] as bool?) ?? false;
-
-    if (rawPath == null || rawPath.isEmpty) {
-      return ToolResult.error('filePath is required');
+    // Direct callers prepare and apply under one lock, preserving serialized
+    // read/modify/write behavior for concurrent edits of different regions.
+    try {
+      final request = EditRequest.fromInput(input, projectRoot);
+      return await _withLock(request.path, () async {
+        final result = await _prepare(request);
+        return result.error ?? await _apply(result.edit!);
+      });
+    } on ToolValidationException catch (e) {
+      return ToolResult.error(e.message);
+    } on SandboxViolation catch (e) {
+      return ToolResult.error(e.message);
+    } on FileSystemException catch (e) {
+      return ToolResult.error('Unable to apply edit: $e');
+    } on FormatException {
+      return ToolResult.error('Edit target could not be decoded as text.');
     }
-    final path = resolveToolPath(rawPath, projectRoot);
-    if (oldStr == null || newStr == null) {
-      return ToolResult.error('oldString and newString are required');
-    }
-    if (oldStr == newStr) {
-      return ToolResult.error('oldString and newString are identical');
-    }
-    // Validate against the sandbox BEFORE any existence probe or backup, so an
-    // out-of-project target can't leak into the backup store (and its existence
-    // can't be probed). Sandboxed only; MemoryFileSystem skips the is-check.
-    final editFs = fs;
-    if (editFs is SandboxedFileSystem) {
-      try {
-        await editFs.validatePath(path);
-      } on SandboxViolation catch (e) {
-        return ToolResult.error(e.message);
-      }
-    }
-    Future<ToolResult> mutate() async {
-      if (!await fs.fileExists(path)) {
-        return ToolResult.error('File not found: $path');
-      }
-      final text = await fs.readFileString(path);
-      final occurrences = _countOccurrences(text, oldStr);
-      if (occurrences == 0) {
-        return ToolResult.error('oldString not found in $path');
-      }
-      if (occurrences > 1 && !replaceAll) {
-        return ToolResult.error(
-          'oldString matches $occurrences times in $path. Provide more '
-          'context to make it unique, or set replaceAll=true.',
-        );
-      }
-      final updated = replaceAll
-          ? text.replaceAll(oldStr, newStr)
-          : text.replaceFirst(oldStr, newStr);
-      // Back up the pre-edit version, then land the edit atomically.
-      String? backupLocation;
-      if (backupStore != null) {
-        final entry = await backupStore!.backup(path);
-        backupLocation = entry?.backupPath;
-      }
-      await atomicWriteFile(fs, path, updated);
-      final n = replaceAll ? occurrences : 1;
-      final msg =
-          StringBuffer('edited $path ($n replacement${n == 1 ? '' : 's'})');
-      if (backupLocation != null) {
-        msg.write('. Backed up previous version to $backupLocation');
-      }
-      return ToolResult(msg.toString());
-    }
-
-    // Hold the per-file lock across the read-modify-write so a concurrent edit
-    // or write of the same file (another agent) can't interleave and lose an
-    // update. Unlocked when no lock is configured (tests).
-    final lock = mutationLock;
-    return lock == null ? mutate() : lock.withFileLock(path, mutate);
   }
+}
 
-  int _countOccurrences(String text, String needle) {
-    if (needle.isEmpty) return 0;
-    var count = 0;
-    var idx = 0;
-    while (true) {
-      final found = text.indexOf(needle, idx);
-      if (found < 0) break;
-      count++;
-      idx = found + needle.length;
-    }
-    return count;
-  }
+/// Invocation-local binding: later input mutation cannot change the approved
+/// replacement, and concurrent agents never share a pending edit snapshot.
+class _PreparedEditTool implements Tool {
+  final EditTool owner;
+  final PreparedEdit edit;
+  _PreparedEditTool(this.owner, this.edit);
+  @override
+  ToolSchema get schema => owner.schema;
+  @override
+  Future<ToolResult> execute(
+    Map<String, dynamic> input, {
+    Future<void>? cancelSignal,
+    ToolOutputCallback? onOutput,
+  }) =>
+      owner._executePrepared(edit);
 }

@@ -226,7 +226,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     if (p.sandboxAccess != null) {
       chat.yellow(p.accessDescription);
     }
-    final preview = await previewToolCall(p.toolName, p.input);
+    final preview = await previewToolCall(p.toolName, p.input, preparedEdit: p.preparedEdit);
     for (final entry in preview) {
       switch (entry) {
         case PreviewHeader(:final text):

@@ -9,6 +9,8 @@ import '../permissions/policy.dart';
 import '../permissions/prompt.dart';
 import '../tools/tool.dart';
 import '../tools/process_tool.dart';
+import '../tools/edit_tool.dart';
+import '../tools/edit_preparation.dart';
 import '../tools/sandbox_failure.dart';
 import '../tools/tool_input.dart';
 import '../permissions/sandbox_access.dart';
@@ -525,6 +527,29 @@ class ToolExecutor {
         interruptedInFlight: interruptedInFlight,
       );
     }
+    PreparedEdit? preparedEdit;
+    if (decision != PermissionDecision.deny && tool is EditTool) {
+      final preparation = await tool.prepare(executionInput);
+      final block = runtimeBlock();
+      if (block != null || isCancelled() || state.toolInterrupted) {
+        return (
+          result: ToolResultBlock(toolUseId: use.id,
+              content: block ?? 'edit cancelled before approval', isError: true),
+          interruptedInFlight: interruptedInFlight,
+        );
+      }
+      final error = preparation.error;
+      if (error != null) {
+        final summary = error is EditConflict ? error.summary : error.content;
+        sink.notice('  edit not applied: $summary\n', kind: NoticeKind.warning);
+        return (
+          result: ToolResultBlock(toolUseId: use.id, content: error.content, isError: true),
+          interruptedInFlight: interruptedInFlight,
+        );
+      }
+      preparedEdit = preparation.edit!;
+      executionTool = tool.bind(preparedEdit);
+    }
     // The asker's response, when the decision went through the asker
     // (ask → refused). Null for a static deny RULE — a rule deny is a
     // policy choice; the allowed-shapes text is its remedy, so no asker
@@ -533,6 +558,7 @@ class ToolExecutor {
     String? changedModeBlock;
     if (decision == PermissionDecision.ask) {
       final prompt = PermissionPrompt(use.name, executionInput,
+          preparedEdit: preparedEdit,
           execution: executionTool is ProcessTool ? executionTool.preparedRequest : null,
           sandboxAccess: access,
           retryExplanation: recovery?.failure.explanation,
