@@ -144,7 +144,7 @@ class PooledProvider implements LlmProvider {
               // Cancelled or already swallowed: drop the rest — a
               // failover (or teardown) supersedes this attempt.
               if (cancelled.isCompleted || swallowed != null) return;
-              if (event is StreamNotice) {
+              if (event is StreamNotice || event is ReasoningEvent) {
                 if (!controller.isClosed) controller.add(event);
                 return;
               }
@@ -172,7 +172,9 @@ class PooledProvider implements LlmProvider {
               // same as any before-content error.
               if (!forwarded &&
                   event is MessageComplete &&
-                  classifyEmptyCompletion(event.content, event.stopReason) ==
+                  classifyEmptyCompletion(event.content, event.stopReason,
+                      reasoningObserved:
+                          event.diagnostics?.reasoningObserved ?? false) ==
                       EmptyCompletionCause.transient) {
                 final emptyErr = StreamError(
                     'member returned an empty completion',

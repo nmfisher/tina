@@ -2,7 +2,7 @@ import '../openai_compatible.dart';
 import '../registry.dart';
 
 /// DeepSeek — OpenAI-compatible. `deepseek-reasoner` emits a separate
-/// `reasoning_content` field (dropped by the adapter) and has limited tool
+/// `reasoning_content` field (tracked separately from answer text) and has limited tool
 /// support, so it is marked [ModelInfo.supportsTools] false.
 final ProviderDescriptor deepseekDescriptor = ProviderDescriptor(
   id: 'deepseek',

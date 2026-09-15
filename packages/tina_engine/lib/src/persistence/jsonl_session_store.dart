@@ -30,8 +30,8 @@ final _log = Logger('tina.persistence');
 /// the split are never migrated — they keep the global layout forever.
 ///
 /// Append is O(1) and crash-safe per line; [replace] swaps atomically via a
-/// tempfile + rename. Each `.jsonl` line is the same wire shape used over the
-/// network, so files are inspectable with `cat | jq`.
+/// tempfile + rename. Each `.jsonl` line is a message with optional local
+/// reasoning metadata (excluded from API requests), inspectable with `cat | jq`.
 ///
 /// **Migration:** older tina versions wrote a single flat
 /// `<root>/<id>.jsonl` per session (one conversation = one session). Those are

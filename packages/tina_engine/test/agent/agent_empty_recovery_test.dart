@@ -29,6 +29,8 @@ Agent _agent(LlmProvider provider, FakeAgentSink sink) => Agent(
 /// reason previously failed to reach the agent.
 class _ReasoningClient extends http.BaseClient {
   final bodies = <String>[];
+  final String finishReason;
+  _ReasoningClient({this.finishReason = 'length'});
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
@@ -37,7 +39,7 @@ class _ReasoningClient extends http.BaseClient {
       'choices': [
         {
           'delta': {'reasoning_content': 'reasoning without a final answer'},
-          'finish_reason': 'length',
+          'finish_reason': finishReason,
         },
       ],
       'usage': {'prompt_tokens': 10, 'completion_tokens': 8192},
@@ -123,38 +125,59 @@ void main() {
     expect(member.calls, hasLength(1));
   });
 
-  for (final pooled in [false, true]) {
-    test(
-        'reasoning token exhaustion is diagnosed without resending (pool: $pooled)',
-        () async {
-      final client = _ReasoningClient();
-      final adapter =
-          OpenAiCompatibleAdapter(apiKey: '', model: 'fixture', client: client);
-      final spare = FakeProvider([
-        [_ok]
-      ]);
-      final provider = RetryingProvider(
-        pooled
-            ? PooledProvider([adapter, spare], cooldown: Duration.zero)
-            : adapter,
-      );
-      addTearDown(provider.close);
-      final sink = FakeAgentSink();
-      final agent = _agent(provider, sink);
-      final history = <Message>[];
+  for (final finishReason in ['length', 'stop']) {
+    for (final pooled in [false, true]) {
+      test(
+          'reasoning token exhaustion is diagnosed without resending (pool: $pooled, finish: $finishReason)',
+          () async {
+        final client = _ReasoningClient(finishReason: finishReason);
+        final adapter = OpenAiCompatibleAdapter(
+            apiKey: '',
+            model: 'glm-5.3-flash',
+            maxTokens: 8192,
+            client: client);
+        final spare = FakeProvider([
+          [_ok]
+        ]);
+        final provider = RetryingProvider(
+          pooled
+              ? PooledProvider([adapter, spare], cooldown: Duration.zero)
+              : adapter,
+        );
+        addTearDown(provider.close);
+        final sink = FakeAgentSink();
+        final agent = _agent(provider, sink);
+        final history = <Message>[];
 
-      await agent.run(history: history, userInput: 'hi');
+        await agent.run(history: history, userInput: 'hi');
 
-      expect(client.bodies, hasLength(1));
-      expect(spare.calls, isEmpty,
-          reason: 'a terminal stop must not trigger failover');
-      expect(agent.abortedKind, AbortedKind.providerTerminal);
-      expect(agent.abortedReason, contains('output token limit'));
-      expect(agent.abortedReason, contains('finish reason: length'));
-      expect(agent.abortedReason, contains('--max-tokens'));
-      expect(sink.notices.any((n) => n.message.contains('retry 1/')), isFalse);
-      expect(history.where((m) => m.role == Role.assistant), isEmpty);
-    });
+        expect(client.bodies, hasLength(1));
+        expect(spare.calls, isEmpty,
+            reason: 'a terminal stop must not trigger failover');
+        expect(agent.abortedKind, AbortedKind.providerTerminal);
+        expect(
+            agent.abortedReason,
+            contains(finishReason == 'length'
+                ? 'output token limit'
+                : 'reasoning without an answer'));
+        expect(agent.abortedReason, contains('effective output cap: 8192'));
+        expect(agent.abortedReason,
+            contains('reasoning token count not reported'));
+        expect(agent.abortedReason, contains('--reasoning-effort low'));
+        expect(
+            sink.notices
+                .any((n) => n.message.contains(kReasoningCollapsedLabel)),
+            isTrue);
+        expect(agent.abortedReason, contains('finish reason: $finishReason'));
+        expect(agent.abortedReason, contains('--max-tokens'));
+        expect(
+            sink.notices.any((n) => n.message.contains('retry 1/')), isFalse);
+        expect(history.where((m) => m.role == Role.assistant && !m.isReasoningOnly), isEmpty);
+        final reasoning = history.singleWhere((m) => m.isReasoningOnly).reasoning.single;
+        expect(reasoning.text, 'reasoning without a final answer');
+        expect(reasoning.complete, finishReason == 'stop');
+      });
+    }
   }
 
   for (final reason in ['max_tokens', 'content_filter', 'refusal', 'safety']) {

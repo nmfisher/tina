@@ -211,6 +211,7 @@ class GeminiProvider extends LlmProvider {
   Map<String, String> _collectToolNames(List<Message> messages) {
     final map = <String, String>{};
     for (final m in messages) {
+      if (m.isReasoningOnly) continue;
       for (final b in m.content) {
         if (b is ToolUseBlock) map[b.id] = b.name;
       }
@@ -222,6 +223,7 @@ class GeminiProvider extends LlmProvider {
       List<Message> messages, Map<String, String> idToName) {
     final out = <Map<String, dynamic>>[];
     for (final m in messages) {
+      if (m.isReasoningOnly) continue;
       final role = m.role == Role.user ? 'user' : 'model';
       final parts = <Map<String, dynamic>>[];
       for (final b in m.content) {

@@ -25,6 +25,10 @@ const int kDefaultTransportRetryAttempts = 5;
 const int kDefaultMaxSubAgentConcurrency = 6;
 const String kDefaultAutoCompactThreshold = '120000';
 
+const _reasoningEfforts = [
+  'auto', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max',
+];
+
 /// Root compatibility facade. Application code consumes [runtime].
 class Config extends RuntimeConfig implements ResumeRequest {
   final bool showHelp;
@@ -52,6 +56,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     required super.model,
     required super.baseUrl,
     required super.maxTokens,
+    super.reasoningEffort,
     required super.yolo,
     required this.showHelp,
     this.showVersion = false,
@@ -105,6 +110,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     model: model,
     baseUrl: baseUrl,
     maxTokens: maxTokens,
+    reasoningEffort: reasoningEffort,
     yolo: yolo,
     permissionRules: permissionRules,
     permissionMode: permissionMode,
@@ -170,9 +176,18 @@ class Config extends RuntimeConfig implements ResumeRequest {
 
   static final _parser = ArgParser()
     ..addOption('base-url')
-    ..addOption('max-tokens',
-        defaultsTo: '${ProviderRegistry.defaultMaxTokens}',
-        help: 'Per-response output cap (clamped to the model catalog ceiling).')
+    ..addOption(
+      'max-tokens',
+      defaultsTo: '${ProviderRegistry.defaultMaxTokens}',
+      help: 'Per-response output cap (clamped to the model catalog ceiling).',
+    )
+    ..addOption(
+      'reasoning-effort',
+      allowed: _reasoningEfforts,
+      help:
+          'Reasoning effort for the configured OpenAI-compatible provider. '
+          'GLM-5.3/Flash: low, high, max. auto uses the provider default.',
+    )
     ..addOption(
       'prompt',
       help: 'Run a single prompt non-interactively and exit.',
@@ -596,6 +611,13 @@ class Config extends RuntimeConfig implements ResumeRequest {
     final maxTokens = int.tryParse(res['max-tokens'] as String) ??
         ProviderRegistry.defaultMaxTokens;
 
+    final effort =
+        res['reasoning-effort'] as String? ?? userConfig?.reasoningEffort;
+    if (effort != null && !_reasoningEfforts.contains(effort)) {
+      throw FormatException('Invalid reasoning_effort: $effort');
+    }
+    final reasoningEffort = effort == 'auto' ? null : effort;
+
     // Deny rules first so they win same-pattern ties.
     final rules = <PermissionRule>[
       for (final s in res['deny'] as List<String>)
@@ -664,6 +686,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
           : userConfig?.defaultModel ?? defaultModel,
       baseUrl: (res['base-url'] as String?) ?? defaultBaseUrl,
       maxTokens: maxTokens,
+      reasoningEffort: reasoningEffort,
       yolo: res['yolo'] as bool,
       showHelp: false,
       showVersion: false,

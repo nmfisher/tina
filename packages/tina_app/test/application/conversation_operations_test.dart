@@ -34,6 +34,7 @@ class _Factory implements LlmProviderFactory {
     String? apiKeyOverride,
     String? baseUrlOverride,
     int? maxTokens,
+    String? reasoningEffort,
     Duration? streamIdleTimeout,
     Duration? requestTimeout,
   }) {

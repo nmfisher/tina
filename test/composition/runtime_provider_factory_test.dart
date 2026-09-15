@@ -15,6 +15,7 @@ void main() {
     final temp = Directory.systemTemp.createTempSync('tina-provider-scopes-');
     addTearDown(() => temp.deleteSync(recursive: true));
     final env = {'HOME': '${temp.path}/home'};
+    final instances = <ProviderInstance>[];
     final registry = ProviderRegistry(env: env)
       ..register(
         ProviderDescriptor(
@@ -22,7 +23,10 @@ void main() {
           name: 'Test',
           authSources: const [],
           defaultBaseUrl: 'https://example.test',
-          builder: (c) => _UsageProvider(c.model),
+          builder: (c) {
+            instances.add(c);
+            return _UsageProvider(c.model);
+          },
         ),
       );
     var legacyBuilds = 0;
@@ -35,7 +39,13 @@ void main() {
     Future<AppComposition> build(String model) async {
       final app = await buildAppComposition(
         config: Config.parse(
-          ['--model', 'test/$model', '--no-sandbox'],
+          [
+            '--model',
+            'test/$model',
+            '--no-sandbox',
+            '--reasoning-effort',
+            model == 'a' ? 'low' : 'high',
+          ],
           env: env,
           registry: registry,
         ),
@@ -82,6 +92,20 @@ void main() {
     expect(await b.classifier!.allow('read', {'filePath': 'a'}), isTrue);
     expect(a.spendLedger.totalTokens, 30);
     expect(b.spendLedger.totalTokens, 20);
+    expect(instances.where((c) => c.model == 'a'), isNotEmpty);
+    expect(instances.where((c) => c.model == 'b'), isNotEmpty);
+    expect(
+      instances
+          .where((c) => c.model == 'a')
+          .every((c) => c.reasoningEffort == 'low'),
+      isTrue,
+    );
+    expect(
+      instances
+          .where((c) => c.model == 'b')
+          .every((c) => c.reasoningEffort == 'high'),
+      isTrue,
+    );
     expect(legacyBuilds, 0);
     expect(registry.decorator, same(sentinel));
   });

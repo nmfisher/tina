@@ -12,6 +12,49 @@ import 'helpers/test_registry.dart';
 /// shared with [ProviderRegistry.build]. Guards against Config re-inlining its
 /// own env scan and the two drifting apart.
 void main() {
+  test(
+    'reasoning effort: file, CLI override, auto, runtime and persistence',
+    () {
+      final user = UserConfig.fromMap({
+        'default': {'reasoning_effort': 'low'},
+      });
+      expect(user.isEmpty, isFalse);
+      expect(
+        user.copyWith(defaultModel: 'glm-5.3-flash').reasoningEffort,
+        'low',
+      );
+      expect(userConfigToToml(user), contains("reasoning_effort = 'low'"));
+      Config parse(List<String> args) => Config.parse(
+        args,
+        env: const {},
+        registry: testRegistry(const {}),
+        userConfig: user,
+      );
+      expect(parse([]).runtime.reasoningEffort, 'low');
+      expect(
+        parse(['--reasoning-effort', 'high']).runtime.reasoningEffort,
+        'high',
+      );
+      expect(
+        parse(['--reasoning-effort', 'auto']).runtime.reasoningEffort,
+        isNull,
+      );
+      expect(
+        () => parse(['--reasoning-effort', 'bogus']),
+        throwsFormatException,
+      );
+      expect(
+        () => Config.parse(
+          [],
+          env: const {},
+          registry: testRegistry(const {}),
+          userConfig: const UserConfig(reasoningEffort: 'bogus'),
+        ),
+        throwsFormatException,
+      );
+    },
+  );
+
   test('resolves the API key from the descriptor auth source env var', () {
     final cfg = Config.parse(
       const [],

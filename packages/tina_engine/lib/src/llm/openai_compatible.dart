@@ -43,6 +43,7 @@ String repairStreamedToolName(String? raw) {
 class OpenAiCompatibleAdapter extends LlmProvider {
   final String apiKey;
   final int maxTokens;
+  final String? reasoningEffort;
   final String baseUrl;
   final Duration streamIdleTimeout;
   final Duration requestTimeout;
@@ -61,6 +62,7 @@ class OpenAiCompatibleAdapter extends LlmProvider {
     required this.apiKey,
     required String model,
     this.maxTokens = ProviderRegistry.defaultMaxTokens,
+    this.reasoningEffort,
     this.baseUrl = 'https://api.openai.com',
     this.streamIdleTimeout = defaultStreamIdleTimeout,
     this.requestTimeout = defaultRequestTimeout,
@@ -108,6 +110,16 @@ class OpenAiCompatibleAdapter extends LlmProvider {
     required List<Message> messages,
     required List<ToolSchema> tools,
   }) async* {
+    // Validate at send time as /model can change the wire model on an adapter.
+    if (reasoningEffort != null &&
+        model.toLowerCase().split('/').last.startsWith('glm-5.3') &&
+        !const ['low', 'high', 'max'].contains(reasoningEffort)) {
+      yield StreamError(
+          '$model requires reasoning; --reasoning-effort must be '
+          'low, high, max, or auto',
+          requiresUserAction: true);
+      return;
+    }
     final bodyMap = <String, dynamic>{
       'model': model,
       'max_tokens': maxTokens,
@@ -119,6 +131,9 @@ class OpenAiCompatibleAdapter extends LlmProvider {
     // Provider-specific extras win (merged last), so a model can override even
     // a default like `stream_options` if its endpoint requires it.
     if (extraBody.isNotEmpty) bodyMap.addAll(extraBody);
+    if (reasoningEffort != null) bodyMap['reasoning_effort'] = reasoningEffort;
+    final effectiveOutputLimit =
+        bodyMap['max_completion_tokens'] ?? bodyMap['max_tokens'];
     final bodyStr = jsonEncode(bodyMap);
     final bodyBytes = utf8.encode(bodyStr).length;
     // Size-scaled defaults (#23c / #24b): same contract as all providers.
@@ -147,7 +162,16 @@ class OpenAiCompatibleAdapter extends LlmProvider {
     }
 
     final textBuf = StringBuffer();
-    final thinkingBuf = StringBuffer();
+    var reasoningObserved = false;
+    var reasoningStarted = false;
+    ReasoningDelta captureReasoning(String text) {
+      final delta = ReasoningDelta(text, startsBlock: !reasoningStarted);
+      reasoningStarted = true;
+      reasoningObserved = true;
+      return delta;
+    }
+
+    int? reasoningTokens;
     var _inThinking = false;
     final toolCalls = <int, _PartialCall>{};
     String? finishReason;
@@ -193,6 +217,11 @@ class OpenAiCompatibleAdapter extends LlmProvider {
           promptTokens = (usage['prompt_tokens'] as int?) ?? promptTokens;
           completionTokens =
               (usage['completion_tokens'] as int?) ?? completionTokens;
+          final details = usage['completion_tokens_details'];
+          if (details is Map && details['reasoning_tokens'] is int) {
+            reasoningTokens = details['reasoning_tokens'] as int;
+            if (reasoningTokens > 0) reasoningObserved = true;
+          }
         }
         final choices = evt['choices'] as List?;
         if (choices == null || choices.isEmpty) continue;
@@ -204,6 +233,11 @@ class OpenAiCompatibleAdapter extends LlmProvider {
 
         final delta = choice['delta'] as Map<String, dynamic>?;
         if (delta != null) {
+          // Retain reasoning as local transcript data, separate from answers.
+          final reasoning = delta['reasoning_content'];
+          if (reasoning is String && reasoning.isNotEmpty) {
+            yield captureReasoning(reasoning);
+          }
           final c = delta['content'];
           if (c is String && c.isNotEmpty) {
             // Filter thinking-block tokens that some models embed in content.
@@ -212,10 +246,11 @@ class OpenAiCompatibleAdapter extends LlmProvider {
             if (_inThinking) {
               final end = filtered.indexOf('<channel|>');
               if (end >= 0) {
+                if (end > 0) yield captureReasoning(filtered.substring(0, end));
                 _inThinking = false;
                 filtered = filtered.substring(end + '<channel|>'.length);
               } else {
-                thinkingBuf.write(filtered);
+                yield captureReasoning(filtered);
                 filtered = ''; // Filter content, not this event's other fields.
               }
             }
@@ -226,10 +261,10 @@ class OpenAiCompatibleAdapter extends LlmProvider {
               final rest = filtered.substring(start + '<|channel>'.length);
               final end = rest.indexOf('<channel|>');
               if (end >= 0) {
-                thinkingBuf.write(rest.substring(0, end));
+                yield captureReasoning(rest.substring(0, end));
                 filtered = rest.substring(end + '<channel|>'.length);
               } else {
-                thinkingBuf.write(rest);
+                yield captureReasoning(rest);
                 _inThinking = true;
                 filtered = '';
                 break;
@@ -241,9 +276,6 @@ class OpenAiCompatibleAdapter extends LlmProvider {
               yield TextDelta(filtered);
             }
           }
-          // Some reasoning models (DeepSeek-reasoner, GLM thinking) stream a
-          // separate `reasoning_content`. We deliberately drop it rather than
-          // splice it into the response; surfacing it is a future enhancement.
           final tc = delta['tool_calls'] as List?;
           if (tc != null) {
             for (final t in tc) {
@@ -332,9 +364,30 @@ class OpenAiCompatibleAdapter extends LlmProvider {
       final stopReason =
           finishReason == 'tool_calls' ? 'tool_use' : finishReason ?? 'stop';
       final hasUsage = promptTokens > 0 || completionTokens > 0;
+      if (reasoningStarted) {
+        yield ReasoningEnd(
+            complete: stopReason != 'length' && stopReason != 'max_tokens');
+      }
       yield MessageComplete(
         content: blocks,
         stopReason: stopReason,
+        diagnostics: CompletionDiagnostics(
+          reasoningObserved: reasoningObserved,
+          reasoningTokens: reasoningTokens,
+          outputLimit:
+              effectiveOutputLimit is int ? effectiveOutputLimit : null,
+          recoveryHint: model
+                  .toLowerCase()
+                  .split('/')
+                  .last
+                  .startsWith('glm-5.3')
+              ? bodyMap['reasoning_effort'] == 'low'
+                  ? 'Reasoning effort is already low; split the task or switch models.'
+                  : 'Retry with --reasoning-effort low (GLM-5.3 requires reasoning), '
+                      'split the task, or switch models.'
+              : 'Split the task or switch models; --reasoning-effort low is '
+                  'available only if this endpoint/model supports reasoning_effort.',
+        ),
         usage: hasUsage
             ? TokenUsage(
                 inputTokens: promptTokens,
@@ -354,6 +407,7 @@ class OpenAiCompatibleAdapter extends LlmProvider {
       {'role': 'system', 'content': system},
     ];
     for (final m in messages) {
+      if (m.isReasoningOnly) continue;
       if (m.role == Role.user) {
         final results = m.content.whereType<ToolResultBlock>().toList();
         if (results.isNotEmpty) {
@@ -415,14 +469,15 @@ class _PartialCall {
 /// A [ProviderBuilder] that constructs an [OpenAiCompatibleAdapter] tagged
 /// with [label] (used in error messages). Convenience for the OpenAI-compatible
 /// built-in descriptors so they needn't repeat the field forwarding.
-ProviderBuilder openAiCompatibleBuilder(String label) => (c) =>
-    OpenAiCompatibleAdapter(
-      apiKey: c.apiKey,
-      model: c.model,
-      baseUrl: c.baseUrl,
-      maxTokens: c.maxTokens,
-      streamIdleTimeout: c.streamIdleTimeout,
-      requestTimeout: c.requestTimeout,
-      label: label,
-      extraBody: c.extraBody,
-    );
+ProviderBuilder openAiCompatibleBuilder(String label) =>
+    (c) => OpenAiCompatibleAdapter(
+          apiKey: c.apiKey,
+          model: c.model,
+          baseUrl: c.baseUrl,
+          maxTokens: c.maxTokens,
+          reasoningEffort: c.reasoningEffort,
+          streamIdleTimeout: c.streamIdleTimeout,
+          requestTimeout: c.requestTimeout,
+          label: label,
+          extraBody: c.extraBody,
+        );

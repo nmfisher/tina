@@ -69,6 +69,7 @@ class ProviderInstance {
   final String model;
   final String baseUrl;
   final int maxTokens;
+  final String? reasoningEffort;
   final Duration streamIdleTimeout;
   final Duration requestTimeout;
 
@@ -88,6 +89,7 @@ class ProviderInstance {
     required this.model,
     required this.baseUrl,
     required this.maxTokens,
+    this.reasoningEffort,
     required this.streamIdleTimeout,
     required this.requestTimeout,
     required this.authScheme,
@@ -228,6 +230,7 @@ abstract interface class LlmProviderFactory {
     String? apiKeyOverride,
     String? baseUrlOverride,
     int? maxTokens,
+    String? reasoningEffort,
     Duration? streamIdleTimeout,
     Duration? requestTimeout,
   });
@@ -239,6 +242,7 @@ class ProviderBuildDefaults {
   final String? apiKey;
   final String? baseUrl;
   final int? maxTokens;
+  final String? reasoningEffort;
   final Duration? streamIdleTimeout;
   final Duration? requestTimeout;
 
@@ -246,6 +250,7 @@ class ProviderBuildDefaults {
     this.apiKey,
     this.baseUrl,
     this.maxTokens,
+    this.reasoningEffort,
     this.streamIdleTimeout,
     this.requestTimeout,
   });
@@ -284,6 +289,7 @@ class RuntimeProviderFactory implements LlmProviderFactory {
     String? apiKeyOverride,
     String? baseUrlOverride,
     int? maxTokens,
+    String? reasoningEffort,
     Duration? streamIdleTimeout,
     Duration? requestTimeout,
   }) {
@@ -298,6 +304,7 @@ class RuntimeProviderFactory implements LlmProviderFactory {
       apiKeyOverride: apiKeyOverride ?? defaults?.apiKey,
       baseUrlOverride: baseUrlOverride ?? defaults?.baseUrl,
       maxTokens: maxTokens ?? defaults?.maxTokens,
+      reasoningEffort: reasoningEffort ?? defaults?.reasoningEffort,
       streamIdleTimeout: streamIdleTimeout ?? defaults?.streamIdleTimeout,
       requestTimeout: requestTimeout ?? defaults?.requestTimeout,
     );
@@ -511,6 +518,7 @@ class ProviderRegistry implements LlmProviderFactory {
     String? apiKeyOverride,
     String? baseUrlOverride,
     int? maxTokens,
+    String? reasoningEffort,
     Duration? streamIdleTimeout,
     Duration? requestTimeout,
   }) =>
@@ -521,6 +529,7 @@ class ProviderRegistry implements LlmProviderFactory {
         apiKeyOverride: apiKeyOverride,
         baseUrlOverride: baseUrlOverride,
         maxTokens: maxTokens,
+        reasoningEffort: reasoningEffort,
         streamIdleTimeout: streamIdleTimeout,
         requestTimeout: requestTimeout,
       );
@@ -532,6 +541,7 @@ class ProviderRegistry implements LlmProviderFactory {
     String? apiKeyOverride,
     String? baseUrlOverride,
     int? maxTokens,
+    String? reasoningEffort,
     Duration? streamIdleTimeout,
     Duration? requestTimeout,
   }) {
@@ -548,6 +558,7 @@ class ProviderRegistry implements LlmProviderFactory {
         model: resolved.modelId,
         baseUrl: resolved.descriptor.defaultBaseUrl,
         maxTokens: maxTokens ?? defaultMaxTokens,
+        reasoningEffort: reasoningEffort,
         streamIdleTimeout: streamIdleTimeout ?? defaultStreamIdleTimeout,
         requestTimeout: requestTimeout ?? defaultRequestTimeout,
         authScheme: AuthScheme.none,
@@ -559,6 +570,7 @@ class ProviderRegistry implements LlmProviderFactory {
             apiKeyOverride: apiKeyOverride,
             baseUrlOverride: baseUrlOverride,
             maxTokens: maxTokens,
+            reasoningEffort: reasoningEffort,
             streamIdleTimeout: streamIdleTimeout,
             requestTimeout: requestTimeout),
         decorator,
@@ -577,6 +589,7 @@ class ProviderRegistry implements LlmProviderFactory {
     List<String> references, {
     String? apiKeyOverride,
     int? maxTokens,
+    String? reasoningEffort,
     Duration? streamIdleTimeout,
     Duration? requestTimeout,
   }) {
@@ -597,6 +610,7 @@ class ProviderRegistry implements LlmProviderFactory {
         members.add(_buildLimited(resolve(reference),
             apiKeyOverride: apiKeyOverride,
             maxTokens: maxTokens,
+            reasoningEffort: reasoningEffort,
             streamIdleTimeout: streamIdleTimeout,
             requestTimeout: requestTimeout));
       }
@@ -622,6 +636,7 @@ class ProviderRegistry implements LlmProviderFactory {
     String? apiKeyOverride,
     String? baseUrlOverride,
     int? maxTokens,
+    String? reasoningEffort,
     Duration? streamIdleTimeout,
     Duration? requestTimeout,
   }) {
@@ -666,6 +681,7 @@ class ProviderRegistry implements LlmProviderFactory {
       model: resolved.modelId,
       baseUrl: endpoint,
       maxTokens: effectiveMaxTokens,
+      reasoningEffort: reasoningEffort,
       streamIdleTimeout: streamIdleTimeout ?? defaultStreamIdleTimeout,
       requestTimeout: requestTimeout ?? defaultRequestTimeout,
       authScheme: scheme,

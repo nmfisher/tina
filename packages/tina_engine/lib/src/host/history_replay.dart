@@ -1,3 +1,4 @@
+import '../agent/agent_sink.dart';
 import '../llm/message.dart';
 import '../tools/tool.dart';
 import 'host_interface.dart';
@@ -37,6 +38,11 @@ void replayHistory(HostInterface host, List<Message> history) {
           }
         }
       case Role.assistant:
+        for (final reasoning in message.reasoning) {
+          host.notice('\n${kReasoningCollapsedLabel}'
+              '${reasoning.complete ? '' : ' — partial'}\n');
+          drew = true;
+        }
         for (final block in message.content) {
           switch (block) {
             case TextBlock():

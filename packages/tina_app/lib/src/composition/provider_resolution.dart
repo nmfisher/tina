@@ -55,6 +55,7 @@ LlmProvider buildResolved(
     apiKeyOverride: sameProvider ? apiKeyOverride : null,
     baseUrlOverride: sameProvider ? baseUrlOverride : null,
     maxTokens: config.maxTokens,
+    reasoningEffort: sameProvider ? config.reasoningEffort : null,
     streamIdleTimeout: config.streamIdleTimeout,
     requestTimeout: config.requestTimeout,
   );

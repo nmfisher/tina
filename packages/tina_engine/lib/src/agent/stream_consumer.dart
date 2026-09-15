@@ -39,7 +39,10 @@ class ProviderStreamConsumer {
     List<ContentBlock>? content;
     TokenUsage? usage;
     String? stopReason;
+    CompletionDiagnostics? diagnostics;
     Object? error;
+    final reasoningBuffers = <StringBuffer>[];
+    final reasoningComplete = <bool>[];
 
     /// The raw [StreamError] behind [error], when the failure arrived as one
     /// (#28). Carries statusCode / transient / retryAfter, which the agent's
@@ -58,6 +61,18 @@ class ProviderStreamConsumer {
           sink.activityStop();
           sink.text(event.text);
           sawTextThisTurn = true;
+        } else if (event is ReasoningDelta) {
+          if (event.text.isEmpty) return;
+          if (event.startsBlock || reasoningBuffers.isEmpty) {
+            reasoningBuffers.add(StringBuffer());
+            reasoningComplete.add(false);
+            sink.notice('\n${kReasoningCollapsedLabel}\n');
+          }
+          reasoningBuffers.last.write(event.text);
+        } else if (event is ReasoningEnd) {
+          if (reasoningComplete.isNotEmpty) {
+            reasoningComplete[reasoningComplete.length - 1] = event.complete;
+          }
         } else if (event is StreamNotice) {
           sink.notice('\n${event.text}\n', kind: NoticeKind.warning);
         } else if (event is ToolCallStart) {
@@ -68,6 +83,7 @@ class ProviderStreamConsumer {
           content = event.content;
           usage = event.usage;
           stopReason = event.stopReason;
+          diagnostics = event.diagnostics;
         } else if (event is StreamError) {
           error = event.error;
           streamError = event;
@@ -103,9 +119,15 @@ class ProviderStreamConsumer {
     await sub.cancel();
 
     return TurnOutcome(
+      reasoning: [
+        for (var i = 0; i < reasoningBuffers.length; i++)
+          ReasoningBlock(reasoningBuffers[i].toString(),
+              complete: reasoningComplete[i]),
+      ],
       content: content,
       usage: usage,
       stopReason: stopReason,
+      diagnostics: diagnostics,
       error: error,
       streamError: streamError,
       cancelled: cancelled,
@@ -115,11 +137,13 @@ class ProviderStreamConsumer {
 
 /// The result of consuming one provider stream.
 class TurnOutcome {
+  final List<ReasoningBlock> reasoning;
   final List<ContentBlock>? content;
   final TokenUsage? usage;
 
   /// Provider finish reason, retained for empty-response recovery decisions.
   final String? stopReason;
+  final CompletionDiagnostics? diagnostics;
   final Object? error;
 
   /// The raw [StreamError] when [error] came from one — with the transport
@@ -132,8 +156,10 @@ class TurnOutcome {
 
   const TurnOutcome({
     this.content,
+    this.reasoning = const [],
     this.usage,
     this.stopReason,
+    this.diagnostics,
     this.error,
     this.streamError,
     required this.cancelled,

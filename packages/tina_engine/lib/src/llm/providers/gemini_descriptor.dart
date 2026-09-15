@@ -10,14 +10,20 @@ final ProviderDescriptor geminiDescriptor = ProviderDescriptor(
   name: 'Google Gemini',
   authSources: const [AuthSource('GEMINI_API_KEY', AuthScheme.apiKeyHeader)],
   defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-  builder: (c) => GeminiProvider(
-    apiKey: c.apiKey,
-    model: c.model,
-    baseUrl: c.baseUrl,
-    maxTokens: c.maxTokens,
-    streamIdleTimeout: c.streamIdleTimeout,
-    requestTimeout: c.requestTimeout,
-  ),
+  builder: (c) {
+    if (c.reasoningEffort != null) {
+      throw const ProviderRegistryException(
+          '--reasoning-effort is currently supported only by OpenAI-compatible endpoints');
+    }
+    return GeminiProvider(
+      apiKey: c.apiKey,
+      model: c.model,
+      baseUrl: c.baseUrl,
+      maxTokens: c.maxTokens,
+      streamIdleTimeout: c.streamIdleTimeout,
+      requestTimeout: c.requestTimeout,
+    );
+  },
   models: const {
     'gemini-2.5-pro': ModelInfo(
         id: 'gemini-2.5-pro',

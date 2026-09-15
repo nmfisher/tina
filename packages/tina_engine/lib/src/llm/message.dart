@@ -86,14 +86,37 @@ class ToolResultBlock extends ContentBlock {
       };
 }
 
+/// Local transcript data, deliberately separate from model-visible content.
+/// Keeping the text here lets a future transcript UI expand the collapsed row.
+class ReasoningBlock {
+  final String text;
+  final bool complete;
+  const ReasoningBlock(this.text, {this.complete = true});
+
+  Map<String, dynamic> toJson() => {'text': text, 'complete': complete};
+
+  factory ReasoningBlock.fromJson(Map<String, dynamic> json) => ReasoningBlock(
+      json['text'] as String, complete: json['complete'] as bool? ?? true);
+}
+
 class Message {
   final Role role;
   final List<ContentBlock> content;
-  const Message({required this.role, required this.content});
+  final List<ReasoningBlock> reasoning;
+  const Message({
+    required this.role,
+    required this.content,
+    this.reasoning = const [],
+  });
+
+  /// A transcript entry that must never become an empty API message.
+  bool get isReasoningOnly => content.isEmpty && reasoning.isNotEmpty;
 
   Map<String, dynamic> toJson() => {
         'role': role.name,
         'content': content.map((b) => b.toJson()).toList(),
+        if (reasoning.isNotEmpty)
+          'reasoning': reasoning.map((b) => b.toJson()).toList(),
       };
 
   factory Message.fromJson(Map<String, dynamic> j) => Message(
@@ -101,6 +124,10 @@ class Message {
         content: (j['content'] as List)
             .map((b) =>
                 ContentBlock.fromJson(Map<String, dynamic>.from(b as Map)))
+            .toList(),
+        reasoning: (j['reasoning'] as List? ?? const [])
+            .map((b) => ReasoningBlock.fromJson(
+                Map<String, dynamic>.from(b as Map)))
             .toList(),
       );
 }

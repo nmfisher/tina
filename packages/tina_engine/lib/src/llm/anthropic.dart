@@ -69,10 +69,11 @@ class AnthropicProvider extends LlmProvider {
       for (var i = 0; i < tools.length; i++)
         _encodeTool(tools[i], cache: i == tools.length - 1),
     ];
-    final cacheMessageAt = messages.length - 2;
+    final visibleMessages = messages.where((m) => !m.isReasoningOnly).toList();
+    final cacheMessageAt = visibleMessages.length - 2;
     final encodedMessages = <Map<String, dynamic>>[
-      for (var i = 0; i < messages.length; i++)
-        _encodeMessage(messages[i], cacheLastBlock: i == cacheMessageAt),
+      for (var i = 0; i < visibleMessages.length; i++)
+        _encodeMessage(visibleMessages[i], cacheLastBlock: i == cacheMessageAt),
     ];
 
     final bodyStr = jsonEncode({

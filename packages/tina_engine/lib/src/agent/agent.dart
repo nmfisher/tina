@@ -748,12 +748,23 @@ class Agent {
       while (true) {
         final stream = provider.send(
           system: system,
-          messages: history,
+          messages: history.any((m) => m.isReasoningOnly)
+              ? history.where((m) => !m.isReasoningOnly).toList()
+              : history,
           tools: stepTools.schemas,
         );
         outcome = await const ProviderStreamConsumer()
             .consume(stream, sink: sink, cancelSignal: cancelSignal,
                 onCancelled: reportCancellation);
+        // Persist every observed attempt before cancellation/error handling.
+        // This local-only entry cannot be mistaken for a successful answer.
+        if (outcome.reasoning.isNotEmpty) {
+          final reasoningMessage = Message(
+              role: Role.assistant, content: const [], reasoning: outcome.reasoning);
+          history.add(reasoningMessage);
+          final pendingReasoning = _notifyAppend(reasoningMessage);
+          if (pendingReasoning != null) await pendingReasoning;
+        }
         final err = outcome.streamError;
         if (outcome.error == null ||
             err == null ||
@@ -902,15 +913,38 @@ class Agent {
         }
       }
 
-      final emptyCause = classifyEmptyCompletion(content, outcome.stopReason);
+      final diagnostics = outcome.diagnostics;
+      final emptyCause = classifyEmptyCompletion(content, outcome.stopReason,
+          reasoningObserved:
+              diagnostics?.reasoningObserved == true || outcome.reasoning.isNotEmpty);
       if (emptyCause == EmptyCompletionCause.outputLimit ||
+          emptyCause == EmptyCompletionCause.reasoningOnly ||
           emptyCause == EmptyCompletionCause.filtered) {
-        final reason = emptyCause == EmptyCompletionCause.outputLimit
-            ? 'model reached its output token limit without producing an answer '
-                '(finish reason: ${outcome.stopReason}); increase --max-tokens '
-                'or reduce the model\'s reasoning budget before retrying'
-            : 'provider filtered the response without producing an answer '
-                '(finish reason: ${outcome.stopReason})';
+        final String reason;
+        if (emptyCause == EmptyCompletionCause.filtered) {
+          reason = 'provider filtered the response without producing an answer '
+              '(finish reason: ${outcome.stopReason})';
+        } else {
+          final limit = diagnostics?.outputLimit;
+          final reasoningTokens = diagnostics?.reasoningTokens;
+          final observed = diagnostics?.reasoningObserved ?? false;
+          reason = (emptyCause == EmptyCompletionCause.outputLimit
+                  ? 'model reached its output token limit without producing an answer'
+                  : 'model returned reasoning without an answer or tool call') +
+              ' (finish reason: ${outcome.stopReason})' +
+              (limit == null ? '' : '; effective output cap: $limit tokens') +
+              (observed
+                  ? '; reasoning was observed' +
+                      (reasoningTokens == null
+                          ? ' (reasoning token count not reported)'
+                          : ' ($reasoningTokens reasoning tokens)')
+                  : '') +
+              '. The output cap includes reasoning and answer tokens; '
+                  '--max-tokens is also clamped to the model catalog ceiling. ' +
+              (diagnostics?.recoveryHint ??
+                  'Split the task, switch models, or raise --max-tokens '
+                      'if the model supports a larger output cap.');
+        }
         sink.notice('\nerror: $reason\n', kind: NoticeKind.error);
         abortedReason = reason;
         abortedKind = AbortedKind.providerTerminal;
@@ -1140,7 +1174,7 @@ class Agent {
 
     final priorCount = history.length;
     final summaryRequest = [
-      ...prefix,
+      ...prefix.where((m) => !m.isReasoningOnly),
       const Message(role: Role.user, content: [
         TextBlock(
             'Summarize the conversation above following the system instructions.'),

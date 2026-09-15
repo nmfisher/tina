@@ -59,6 +59,23 @@ class TextDelta extends StreamEvent {
   const TextDelta(this.text);
 }
 
+/// Raw provider reasoning for local retention, never answer text.
+/// Each wire attempt starts a new block, including retries and pool failover.
+sealed class ReasoningEvent extends StreamEvent {
+  const ReasoningEvent();
+}
+
+class ReasoningDelta extends ReasoningEvent {
+  final String text;
+  final bool startsBlock;
+  const ReasoningDelta(this.text, {this.startsBlock = false});
+}
+
+class ReasoningEnd extends ReasoningEvent {
+  final bool complete;
+  const ReasoningEnd({this.complete = true});
+}
+
 /// A status notice emitted mid-stream by the policy layer (retry ladders,
 /// pool failover): the send is still alive, but the user should see WHY
 /// nothing is happening. Rendered by the consumer as a sink notice — never
@@ -78,21 +95,39 @@ class MessageComplete extends StreamEvent {
   final List<ContentBlock> content;
   final String stopReason;
   final TokenUsage? usage;
+  final CompletionDiagnostics? diagnostics;
   const MessageComplete({
     required this.content,
     required this.stopReason,
     this.usage,
+    this.diagnostics,
+  });
+}
+
+/// Observations about generation, separate from answer content and spend.
+/// Reasoning tokens are a subset of output usage, never additional spend.
+class CompletionDiagnostics {
+  final bool reasoningObserved;
+  final int? reasoningTokens;
+  final int? outputLimit;
+  final String? recoveryHint;
+  const CompletionDiagnostics({
+    this.reasoningObserved = false,
+    this.reasoningTokens,
+    this.outputLimit,
+    this.recoveryHint,
   });
 }
 
 /// Why a completed response contains no usable answer or tool call. Only a
 /// transient empty response should be retried with the same request.
-enum EmptyCompletionCause { transient, outputLimit, filtered }
+enum EmptyCompletionCause { transient, outputLimit, filtered, reasoningOnly }
 
 /// Shared by pool failover and agent recovery so neither layer hides a
 /// terminal stop reason by treating it as a transient empty response.
 EmptyCompletionCause? classifyEmptyCompletion(
-    List<ContentBlock> content, String? stopReason) {
+    List<ContentBlock> content, String? stopReason,
+    {bool reasoningObserved = false}) {
   if (!content
       .every((block) => block is TextBlock && block.text.trim().isEmpty)) {
     return null;
@@ -100,7 +135,9 @@ EmptyCompletionCause? classifyEmptyCompletion(
   return switch (stopReason) {
     'length' || 'max_tokens' => EmptyCompletionCause.outputLimit,
     'content_filter' || 'refusal' || 'safety' => EmptyCompletionCause.filtered,
-    _ => EmptyCompletionCause.transient,
+    _ => reasoningObserved
+        ? EmptyCompletionCause.reasoningOnly
+        : EmptyCompletionCause.transient,
   };
 }
 

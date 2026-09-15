@@ -98,7 +98,7 @@ class RetryingProvider implements LlmProvider {
           if (cancelled.isCompleted || swallowed != null) return;
           // Pool rotation and retry notices are status, not response content.
           // Forward them without disabling a subsequent before-content retry.
-          if (event is StreamNotice) {
+          if (event is StreamNotice || event is ReasoningEvent) {
             if (!controller.isClosed) controller.add(event);
             return;
           }

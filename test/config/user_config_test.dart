@@ -367,6 +367,7 @@ models = ["stub-1", "stub-2|Stub Two"]
         defaultProvider: 'anthropic',
         defaultModel: 'claude-sonnet-4-6',
         defaultWorkflow: 'default',
+        reasoningEffort: 'auto',
         providers: {'anthropic': ProviderConfig(apiKey: 'sk-ant-x')},
       );
       writeUserConfig(original, env: {}, tinaDir: tmp);
@@ -374,6 +375,7 @@ models = ["stub-1", "stub-2|Stub Two"]
       expect(loaded.defaultProvider, 'anthropic');
       expect(loaded.defaultModel, 'claude-sonnet-4-6');
       expect(loaded.defaultWorkflow, 'default');
+      expect(loaded.reasoningEffort, 'auto');
       expect(loaded.providers['anthropic']?.apiKey, 'sk-ant-x');
     });
 

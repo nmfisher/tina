@@ -32,7 +32,7 @@ const _knownTopLevelKeys = {
   'permissions',
 };
 
-const _knownDefaultKeys = {'provider', 'model', 'workflow'};
+const _knownDefaultKeys = {'provider', 'model', 'workflow', 'reasoning_effort'};
 const _knownProviderKeys = {
   'api_key',
   'auth_token',
@@ -417,6 +417,7 @@ class LimitsConfig {
 class UserConfig {
   final String? defaultProvider;
   final String? defaultModel;
+  final String? reasoningEffort;
 
   /// DOT workflow to route every normal turn through, from `[default] workflow`.
   /// `"none"` explicitly disables the presence-based `default.dot` routing; any
@@ -482,6 +483,7 @@ class UserConfig {
   const UserConfig({
     this.defaultProvider,
     this.defaultModel,
+    this.reasoningEffort,
     this.defaultWorkflow,
     this.providers = const {},
     this.limits,
@@ -503,6 +505,7 @@ class UserConfig {
   bool get isEmpty =>
       defaultProvider == null &&
       defaultModel == null &&
+      reasoningEffort == null &&
       defaultWorkflow == null &&
       providers.isEmpty &&
       (limits == null || limits!.isEmpty) &&
@@ -522,6 +525,7 @@ class UserConfig {
   UserConfig copyWith({
     String? defaultProvider,
     String? defaultModel,
+    String? reasoningEffort,
     String? defaultWorkflow,
     Map<String, ProviderConfig>? providers,
     LimitsConfig? limits,
@@ -538,6 +542,7 @@ class UserConfig {
   }) => UserConfig(
     defaultProvider: defaultProvider ?? this.defaultProvider,
     defaultModel: defaultModel ?? this.defaultModel,
+    reasoningEffort: reasoningEffort ?? this.reasoningEffort,
     defaultWorkflow: defaultWorkflow ?? this.defaultWorkflow,
     providers: providers ?? this.providers,
     limits: limits ?? this.limits,
@@ -597,6 +602,7 @@ class UserConfig {
     return UserConfig(
       defaultProvider: def?['provider'] as String?,
       defaultModel: def?['model'] as String?,
+      reasoningEffort: def?['reasoning_effort'] as String?,
       defaultWorkflow: def?['workflow'] as String?,
       providers: providers,
       limits: limitsRaw == null ? null : LimitsConfig.fromMap(limitsRaw),
@@ -783,10 +789,13 @@ String userConfigToToml(UserConfig config) {
     'version': config.version,
     if (config.defaultProvider != null ||
         config.defaultModel != null ||
+        config.reasoningEffort != null ||
         config.defaultWorkflow != null)
       'default': {
         if (config.defaultProvider != null) 'provider': config.defaultProvider,
         if (config.defaultModel != null) 'model': config.defaultModel,
+        if (config.reasoningEffort != null)
+          'reasoning_effort': config.reasoningEffort,
         if (config.defaultWorkflow != null) 'workflow': config.defaultWorkflow,
       },
     if (config.providers.isNotEmpty)

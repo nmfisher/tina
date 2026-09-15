@@ -13,15 +13,21 @@ final ProviderDescriptor anthropicDescriptor = ProviderDescriptor(
     AuthSource('ANTHROPIC_API_KEY', AuthScheme.apiKeyHeader),
   ],
   defaultBaseUrl: 'https://api.anthropic.com',
-  builder: (c) => AnthropicProvider(
-    apiKey: c.apiKey,
-    useBearerAuth: c.authScheme == AuthScheme.bearerToken,
-    model: c.model,
-    baseUrl: c.baseUrl,
-    maxTokens: c.maxTokens,
-    streamIdleTimeout: c.streamIdleTimeout,
-    requestTimeout: c.requestTimeout,
-  ),
+  builder: (c) {
+    if (c.reasoningEffort != null) {
+      throw const ProviderRegistryException(
+          '--reasoning-effort is currently supported only by OpenAI-compatible endpoints');
+    }
+    return AnthropicProvider(
+      apiKey: c.apiKey,
+      useBearerAuth: c.authScheme == AuthScheme.bearerToken,
+      model: c.model,
+      baseUrl: c.baseUrl,
+      maxTokens: c.maxTokens,
+      streamIdleTimeout: c.streamIdleTimeout,
+      requestTimeout: c.requestTimeout,
+    );
+  },
   // Catalog is illustrative — verify limits against Anthropic's docs before
   // relying on them for clamping.
   models: const {

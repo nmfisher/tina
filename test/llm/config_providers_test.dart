@@ -4,6 +4,69 @@ import 'package:tina/composition/config_providers.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('configured pool forwards effort to every member', () {
+    final instances = <ProviderInstance>[];
+    final registry = ProviderRegistry(env: {});
+    for (final id in ['a', 'b']) {
+      registry.register(
+        ProviderDescriptor(
+          id: id,
+          name: id,
+          authSources: const [],
+          defaultBaseUrl: 'https://example.test',
+          builder: (c) {
+            instances.add(c);
+            return OpenAiCompatibleAdapter(
+              apiKey: '',
+              model: c.model,
+              reasoningEffort: c.reasoningEffort,
+            );
+          },
+        ),
+      );
+    }
+    registerConfigProviders(
+      registry,
+      const UserConfig(
+        providers: {
+          'pool': ProviderConfig(
+            members: ['a/glm-5.3-flash', 'b/glm-5.3-flash'],
+          ),
+        },
+      ),
+      warn: (_) {},
+    );
+    final factory = RuntimeProviderFactory(
+      registry,
+      providerDefaults: const {
+        'pool': ProviderBuildDefaults(reasoningEffort: 'low'),
+      },
+    );
+    final provider = factory.build('pool/glm-5.3-flash');
+    addTearDown(provider.close);
+    expect(instances, hasLength(2));
+    expect(instances.every((c) => c.reasoningEffort == 'low'), isTrue);
+  });
+
+  test('custom Anthropic wire rejects unsupported effort', () {
+    final registry = builtinRegistry();
+    registerConfigProviders(
+      registry,
+      const UserConfig(
+        providers: {
+          'zai': ProviderConfig(
+            baseUrl: 'https://example.test',
+            wire: 'anthropic',
+          ),
+        },
+      ),
+    );
+    expect(
+      () => registry.build('zai/glm-5.3-flash', reasoningEffort: 'low'),
+      throwsA(isA<ProviderRegistryException>()),
+    );
+  });
+
   group('registerConfigProviders', () {
     test('new id with wire="anthropic" registers an Anthropic-wire provider',
         () {

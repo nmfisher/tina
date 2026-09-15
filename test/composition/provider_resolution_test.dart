@@ -52,6 +52,7 @@ RuntimeConfig _config(
   apiKey: env['TEST_KEY'] ?? '',
   baseUrl: 'https://example.test',
   maxTokens: 4096,
+  reasoningEffort: 'low',
 );
 
 /// A registry holding recording builders for every provider [buildResolved]
@@ -95,6 +96,14 @@ _recordingRegistry() {
 }
 
 void main() {
+  test('reasoning effort belongs to the configured provider', () {
+    final r = _recordingRegistry();
+    buildResolved(r.registry, _config('prov'), 'prov/m1').close();
+    buildResolved(r.registry, _config('prov'), 'other/m1').close();
+    expect(r.prov.single.reasoningEffort, 'low');
+    expect(r.other.single.reasoningEffort, isNull);
+  });
+
   group('disabledModelRefsFor', () {
     ProviderConfig p({
       String? key,

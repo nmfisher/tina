@@ -16,6 +16,9 @@ class RuntimeConfig {
 
   final int maxTokens;
 
+  /// Optional wire reasoning effort for the configured provider.
+  final String? reasoningEffort;
+
   final bool yolo;
 
   final List<PermissionRule> permissionRules;
@@ -144,6 +147,7 @@ class RuntimeConfig {
     // Shared engine default (ProviderRegistry.defaultMaxTokens) so every
     // layer agrees; clamped per model at provider build time.
     this.maxTokens = ProviderRegistry.defaultMaxTokens,
+    this.reasoningEffort,
     this.yolo = false,
     List<PermissionRule> permissionRules = const [],
     this.permissionMode = PermissionMode.ask,

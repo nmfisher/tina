@@ -102,6 +102,7 @@ PluginDescriptor providerFactoryPlugin(
           apiKey: config.apiKey.isEmpty ? null : config.apiKey,
           baseUrl: config.baseUrl.isEmpty ? null : config.baseUrl,
           maxTokens: config.maxTokens,
+          reasoningEffort: config.reasoningEffort,
           streamIdleTimeout: config.streamIdleTimeout,
           requestTimeout: config.requestTimeout,
         ),

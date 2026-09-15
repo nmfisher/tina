@@ -11,14 +11,21 @@ import 'package:tina_engine/tina_engine.dart';
 /// (`providers/anthropic_descriptor.dart`) so a user-defined Anthropic-compatible
 /// endpoint (z.ai, a proxy, a gateway) gets identical auth behavior with no
 /// per-endpoint code.
-ProviderBuilder anthropicCompatibleBuilder() => (c) => AnthropicProvider(
-      apiKey: c.apiKey,
-      useBearerAuth: c.authScheme == AuthScheme.bearerToken,
-      model: c.model,
-      baseUrl: c.baseUrl,
-      maxTokens: c.maxTokens,
-      streamIdleTimeout: c.streamIdleTimeout,
+ProviderBuilder anthropicCompatibleBuilder() => (c) {
+  if (c.reasoningEffort != null) {
+    throw const ProviderRegistryException(
+      '--reasoning-effort is currently supported only by OpenAI-compatible endpoints',
     );
+  }
+  return AnthropicProvider(
+    apiKey: c.apiKey,
+    useBearerAuth: c.authScheme == AuthScheme.bearerToken,
+    model: c.model,
+    baseUrl: c.baseUrl,
+    maxTokens: c.maxTokens,
+    streamIdleTimeout: c.streamIdleTimeout,
+  );
+};
 
 /// Register providers declared in the user config's `[providers.<id>]` blocks.
 ///
@@ -228,6 +235,7 @@ void _registerPool(ProviderRegistry registry, String id, ProviderConfig pc,
                 : entry
         ],
         maxTokens: c.maxTokens,
+        reasoningEffort: c.reasoningEffort,
         streamIdleTimeout: c.streamIdleTimeout,
         requestTimeout: c.requestTimeout,
       );

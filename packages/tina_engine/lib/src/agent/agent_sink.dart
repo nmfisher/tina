@@ -10,6 +10,8 @@ import '../tools/tool.dart';
 /// methods, the tool strip, and the broadcast bus. Denied / unknown tools
 /// never reach [toolStart] (no event is emitted for them), matching the
 /// agent's pre-existing behavior.
+const kReasoningCollapsedLabel = '▸ Reasoning (collapsed)';
+
 enum NoticeKind { info, warning, error }
 
 abstract class AgentSink {
