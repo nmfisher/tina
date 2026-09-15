@@ -123,6 +123,28 @@ void main() {
     expect(code, isNonNegative);
   });
 
+  test('one spawn executes the command exactly once (regression: double exec)', () async {
+    // Regression: an extra fork inside the shim made TWO processes run the
+    // command; only the second was tracked. The first was an untracked
+    // orphan. A single spawn must produce exactly ONE execution.
+    final marker = File(
+        '${Directory.systemTemp.path}/pty_exec_once_${DateTime.now().microsecondsSinceEpoch}');
+    try {
+      final conn = await sh(
+        'sleep 0.3; echo \$\$ >> ${marker.path}',
+      );
+      final code = await conn.done.timeout(const Duration(seconds: 10));
+      expect(code, 0);
+      // Extra settle: a second (buggy) exec could lag the first slightly.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final lines = await marker.readAsLines();
+      expect(lines, hasLength(1),
+          reason: 'the command must execute exactly once; got $lines');
+    } finally {
+      if (await marker.exists()) await marker.delete();
+    }
+  });
+
   test('child ignoring SIGTERM is force-killed within the grace period', () async {
     // trap '' TERM: a shell that ignores termination.
     final conn = await sh("trap '' TERM; sleep 30");

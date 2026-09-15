@@ -236,21 +236,16 @@ static void child_exec(const TinaPtySpawnRequest* req, int slave_fd,
   report_and_exit(err_pipe, errno);
 }
 
-// Supervisor path (the first child, itself a child of the caller): fork the
-// real exec child, wait on it — the caller can't do this itself because the
+// Supervisor path: [child] was already forked by tina_pty_spawn (it is the
+// real exec child). Wait on it — the caller can't do this itself because the
 // Dart VM's wait(-1)-style reaper would otherwise steal the child — and relay
 // the raw wait status over the pipe. The supervisor exits as soon as the
 // status is written, so nothing lingers.
-static void supervisor_relay(int status_pipe, int err_pipe, int child_pipe) {
-  pid_t child = fork();
-  if (child < 0) report_and_exit(err_pipe, errno);
-  if (child == 0) return; // real child: fall through to setsid/dup2/exec
-
-  // Supervisor: tell the caller the real child's pid. The exec grandchild
-  // runs setsid(), so it is a session/group leader, but kill(-pgid, sig) is
-  // not portable across kernels (some return EINVAL for every negative
-  // pid); the plain pid works everywhere. The signal-based tree kill in the
-  // runner uses this pid directly.
+static void supervisor_relay(int status_pipe, int err_pipe, int child_pipe,
+                             pid_t child) {
+  // Tell the caller the real child's pid. The child runs setsid() and is
+  // its own process-group leader; signalling the process group (-pid) is
+  // how the runner terminates the whole tree (see _killTree).
   {
     int32_t c = (int32_t)child;
     ssize_t wn;
@@ -403,11 +398,16 @@ int tina_pty_spawn(const TinaPtySpawnRequest* req, TinaPtySpawnResult* out) {
     // make the caller's own wait fail with ECHILD.
     pid = fork();
     if (pid < 0) report_and_exit(err_pipe[1], errno);
-    if (pid > 0) supervisor_relay(status_pipe[1], err_pipe[1], child_pipe[1]);
-    close(status_pipe[1]);
-    close(child_pipe[1]);
-    child_exec(req, slave, master, err_pipe[1]);
-    _exit(127); // unreachable
+    if (pid == 0) {
+      // Real child: the ONLY process that execs the command.
+      close(status_pipe[1]);
+      close(child_pipe[1]);
+      child_exec(req, slave, master, err_pipe[1]);
+      _exit(127); // unreachable
+    }
+    // Supervisor: relay the child's pid and wait status, then exit.
+    supervisor_relay(status_pipe[1], err_pipe[1], child_pipe[1], pid);
+    _exit(0); // unreachable: supervisor_relay never returns
   }
 
   // --- Parent -------------------------------------------------------------
