@@ -187,7 +187,11 @@ class PtyConnection {
       // The worker missed the terminate command. done may still complete on
       // its own; if not, the caller has waited grace + 1s already.
     }
-    return _exitCode.future;
+    final code = await _exitCode.future.timeout(const Duration(seconds: 2),
+        onTimeout: () {
+        return -1;
+    });
+    return code;
   }
 }
 
@@ -253,6 +257,7 @@ class _PtyWorker {
   late final int pid;
   late final SendPort _toWorker;
   Isolate? _iso;
+  final bool Function() _exitedCleanly;
   final StreamController<Uint8List> output;
   final Completer<int> exitCode = Completer<int>();
   final _writtenBytes = StreamController<int>.broadcast();
@@ -272,7 +277,13 @@ class _PtyWorker {
   static Future<_PtyWorker> spawn(PtySpawnRequest req) async {
     final ready = ReceivePort();
     final events = ReceivePort();
-    final worker = _PtyWorker._(events);
+    // Worker-death signal: fires when _workerMain returns (clean shutdown)
+    // or the isolate is killed. terminate() awaits it as the authoritative
+    // completion signal.
+    final workerDone = ReceivePort();
+    var exitedCleanly = false;
+    workerDone.listen((_) => exitedCleanly = true);
+    final worker = _PtyWorker._(events, () => exitedCleanly);
     final config = _SpawnConfig(
         req.executable,
         req.arguments,
@@ -311,7 +322,8 @@ class _PtyWorker {
       ready.close();
       toWorker.complete(msg as SendPort);
     });
-    final iso = await Isolate.spawn(_workerMain, config);
+    final iso =
+        await Isolate.spawn(_workerMain, config, onExit: workerDone.sendPort);
     final childPid = await pid.future;
     final workerPort = await toWorker.future;
     worker._setLink(childPid, workerPort);
@@ -319,7 +331,7 @@ class _PtyWorker {
     return worker;
   }
 
-  _PtyWorker._(this._eventsPort)
+  _PtyWorker._(this._eventsPort, this._exitedCleanly)
       : output = StreamController<Uint8List>.broadcast();
 
   /// Fill in the identity discovered by the handshake.
@@ -337,7 +349,7 @@ class _PtyWorker {
         _writtenBytes.add(list[1] as int);
       case _Msg.exited:
         exited = true;
-        if (!exitCode.isCompleted) exitCode.complete(list[1] as int);
+            if (!exitCode.isCompleted) exitCode.complete(list[1] as int);
       case _Msg.terminated:
         break; // handshake closes on the terminate path
       case _Msg.error:
@@ -357,20 +369,49 @@ class _PtyWorker {
   Future<void> terminate({required Duration grace}) async {
     if (_terminated) return;
     _terminated = true;
-    final ack = ReceivePort();
-    _toWorker.send([_Cmd.terminate.index, grace.inMilliseconds, ack.sendPort]);
-    // The worker may have exited already (child raced us); an ack is a
-    // courtesy, not a requirement.
-    await ack.first.timeout(grace + const Duration(seconds: 1),
-        onTimeout: () => 0);
-    ack.close();
+    _toWorker.send([_Cmd.terminate.index, grace.inMilliseconds, null]);
+    // The worker SIGTERMs the group, escalates to SIGKILL, then exits once
+    // the status has been relayed: awaiting the isolate death is the real
+    // completion signal (no ack round-trip that could race the loop).
+    final iso = _iso;
+    if (iso != null) {
+      final deadline =
+          DateTime.now().add(grace + const Duration(seconds: 2));
+        var spins = 0;
+      while (!_exitedCleanly() && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        spins++;
+        if (spins % 100 == 0) {
+              }
+      }
+      if (!_exitedCleanly()) {
+        // Worker stuck past its own bound: kill it. The child itself is
+        // covered by _killTree and the registry fallback in dispose.
+            iso.kill();
+        // Give a just-returned worker a moment to deliver its final events
+        // (the exit status races the kill): wait for either the status or
+        // the on-exit signal, bounded.
+        final sw = Stopwatch()..start();
+        while (!_exitedCleanly() && sw.elapsedMilliseconds < 500) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+          }
+      }
+    // Give the worker's final messages (the exit status) one scheduling turn
+    // to land on the events port before its ports are torn down. disposePorts
+    // below closes the events port's receive end: anything still in flight
+    // would be dropped.
+    await Future<void>.delayed(const Duration(milliseconds: 50));
     disposePorts();
-    await output.close().timeout(const Duration(seconds: 1));
+    await output.close().timeout(const Duration(seconds: 1),
+        onTimeout: () {});
     _writtenBytes.close();
-    _eventsPort.close();
     // Last-resort hygiene: the worker normally exits on its own after the
     // drain, but if it raced us or stalled, kill it so nothing lingers.
     _iso?.kill();
+    // Close the events port only after the worker is really gone: closing
+    // earlier would drop its in-flight exit status.
+    _eventsPort.close();
   }
 }
 
@@ -458,6 +499,7 @@ Future<void> _workerMain(_SpawnConfig config) async {
 const int ENOENT = 2;
 const int EACCES = 13;
 const int EIO = 5;
+const int EAGAIN = 11;
 const int EBADF = 9;
 const int ESRCH = 3;
 const int ENOTDIR = 20;
@@ -491,11 +533,10 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
   var childGone = false;
   var terminating = false;
   final writeQueue = <Uint8List>[];
-  SendPort? terminateAck;
+
+  var forcedExit = false;
 
   void finish() {
-    // ignore: avoid_print
-    print('FINISH: raw status=' + exitStatus.toString());
     // Exit status decoding, mirroring WIFEXITED/WEXITSTATUS/WIFSIGNALED:
     // low 7 bits hold the signal (0 = normal exit), then the code sits in
     // the high byte. A signal death is reported as 128 + signal.
@@ -508,9 +549,6 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
       code = 128 + (exitStatus & 0x7f);
     }
     eventsPort.send([_Msg.exited.index, code]);
-    if (terminateAck != null) {
-      terminateAck!.send(0);
-    }
     fromMain.close();
     // No live ports or pending work remain: the worker isolate ends here
     // and becomes collectible. All native resources (the fd) were released
@@ -566,8 +604,17 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
         tina_pty_resize(fd, list[1] as int, list[2] as int);
       case _Cmd.terminate:
         terminating = true;
-        terminateAck = list[2] as SendPort;
-        unawaited(_killTree(pid));
+        if (list[2] != null) (list[2] as SendPort).send(0);
+            unawaited(() async {
+                await _killTree(pid, list[1] as int)
+              .timeout(const Duration(seconds: 3));
+                // The kill tree has fully escalated (SIGTERM, grace, SIGKILL). If
+          // the exit status still hasn't been relayed by now, force the
+          // drain: the poll loop below would otherwise wait on a PTY whose
+          // read side can stay open (e.g. the master fd held by the main
+          // process while children linger briefly).
+          forcedExit = true;
+              }());
     }
   });
 
@@ -579,9 +626,13 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
     if (childGone) return false;
     final st = malloc<Int32>();
     final wr = tina_pty_reap(statusFd, st, 0);
-    if (wr > 0) {
+    if (wr != 0) {
+      // > 0: status relayed. < 0 (e.g. -EIO): the supervisor died without
+      // writing — SIGKILL may have hit the supervisor itself. Either way the
+      // report channel is closed for good; treat the child as unrecoverable
+      // and carry a best-effort status (-1 → reported as a signal death).
       childGone = true;
-      exitStatus = st.value;
+      exitStatus = wr > 0 ? st.value : -1;
     }
     malloc.free(st);
     return childGone;
@@ -589,11 +640,13 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
 
   // Main loop: poll the PTY, read output, pump writes, reap the child.
   while (true) {
-    reap();
+    if (reap()) continue; // reaped: take the drain pass immediately
 
     pumpWrites();
 
     reap();
+
+    if (forcedExit) break; // close out below, without touching the PTY
 
     if (childGone && writeQueue.isEmpty) {
       // Drain: read until EOF/EIO so the last output gets delivered before
@@ -606,9 +659,13 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
         ]);
         continue;
       }
-      if (n == 0) continue; // would block: keep polling until EOF/EIO
-      // n < 0: EIO is the normal end-of-pty signal on Linux once the slave
-      // has no more readers. Anything else is unexpected but not fatal.
+      if (n == 0) {
+        // Would block: keep polling until EOF/EIO — output from a slow
+        // producer is still arriving.
+        continue;
+      }
+      // Drain genuinely ended (n < 0: EIO is the normal end-of-pty signal
+      // once the slave has no more readers).
       tina_pty_close(fd);
       tina_pty_close(statusFd);
       malloc.free(buf);
@@ -617,54 +674,68 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
       return;
     }
 
-    if (terminating && childGone && writeQueue.isEmpty) {
-      // Wait for the drain pass above to hit EOF/EIO; loop continues.
-    }
-
     // Yield to the event loop so control messages (write/resize/terminate)
-    // are processed between poll cycles. poll is the only blocking wait.
-    await Future<void>.delayed(Duration.zero);
-    final pollRc = tina_pty_poll(fd, 50);
+    // are processed between poll cycles. No native call here blocks: a
+    // blocking reap would freeze this isolate, stalling the terminate ack
+    // and the whole shutdown sequence until the child happens to die.
+    await Future<void>.delayed(
+        terminating ? const Duration(milliseconds: 50) : Duration.zero);
+    final pollRc = tina_pty_poll(fd, terminating ? 0 : 50);
     if (pollRc > 0) {
-      final n = tina_pty_read(fd, buf, 65536);
-      if (n > 0) {
-        eventsPort.send([
-          _Msg.output.index,
-          Uint8List.fromList(buf.asTypedList(n)),
-        ]);
+      // A poll hit may have more than one buffer queued: drain greedily (up
+      // to a few reads per pass) so a fast producer isn't throttled to one
+      // 64KB read per 50ms poll cycle.
+      for (var drain = 0; drain < 8; drain++) {
+        final n = tina_pty_read(fd, buf, 65536);
+        if (n > 0) {
+          eventsPort.send([
+            _Msg.output.index,
+            Uint8List.fromList(buf.asTypedList(n)),
+          ]);
+          continue; // buffer may hold more
+        }
+        if (n == 0) {
+          // Readiness raced a refilled buffer; poll again next pass.
+        }
+        // n < 0 (EIO/EOF) or n == 0 dry: the top-of-loop pass decides.
+        break;
       }
-      // n == 0 (spurious) or n < 0: handled on the next pass.
     }
     if (terminating && !childGone) {
       // _killTree escalates on its own schedule; just keep the loop turning
       // so output keeps flowing during the grace period.
     }
   }
-  // Unreachable: finish() returns. Kept for clarity if the loop ever grows
-  // a second exit.
+
+  // Forced shutdown: _killTree has done its worst (SIGTERM, grace, SIGKILL).
+  // A grandchild can hold the slave open forever, so close out
+  // unconditionally rather than wait for an EOF that may never come: the
+  // status is relayed (or forfeited) and lingering output is dropped.
+  tina_pty_close(fd);
+  tina_pty_close(statusFd);
+  malloc.free(buf);
+  malloc.free(scratch);
+  finish();
 }
 
-/// SIGTERM the child's process group (the shim put the child in its own
-/// session, so -pid hits every descendant still in it), wait a bounded
-/// grace, then SIGKILL. Liveness is probed with kill(-pid, 0) only — this
-/// never reaps, so the main loop stays the single source of the exit
-/// status. Best-effort for stragglers outside the group: the main isolate's
+/// SIGTERM the child, wait a bounded grace for the status relay to report
+/// it gone, then SIGKILL. [pid] is the real exec child's pid (relayed by
+/// the shim's supervisor): the child runs setsid() and is its own session
+/// leader, but kill(-pgid, sig) is not portable across kernels — some
+/// return EINVAL for every negative pid — so signals go to the plain pid.
+/// Liveness is probed with kill(pid, 0) only — this never reaps, so the
+/// main loop stays the single source of the exit status. Best-effort for
+/// stragglers outside the session: the main isolate's
 /// [ChildProcessRegistry] fallback covers those.
-Future<void> _killTree(int pid) async {
-  tina_pty_kill(-pid, 15); // SIGTERM the process group
+Future<void> _killTree(int pid, int graceMs) async {
+  tina_pty_kill(pid, 15); // SIGTERM
   const pollMs = 20;
-  const graceMs = 2000;
   var waited = 0;
   while (waited < graceMs) {
-    if (tina_pty_kill(-pid, 0) == -ESRCH) return; // whole group gone
+    final probe = tina_pty_kill(pid, 0);
+    if (probe == -ESRCH) return; // gone (reaped elsewhere or never started)
     await Future<void>.delayed(const Duration(milliseconds: pollMs));
     waited += pollMs;
   }
-  tina_pty_kill(-pid, 9); // SIGKILL the survivors
-  waited = 0;
-  while (waited < graceMs) {
-    if (tina_pty_kill(-pid, 0) == -ESRCH) return;
-    await Future<void>.delayed(const Duration(milliseconds: pollMs));
-    waited += pollMs;
-  }
+  tina_pty_kill(pid, 9); // SIGKILL
 }

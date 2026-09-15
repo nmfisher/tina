@@ -54,6 +54,12 @@ static int set_cloexec(int fd) {
 
 int tina_shim_abi_version(void) { return TINA_SHIM_ABI_VERSION; }
 
+static int set_nonblocking(int fd) {
+  int flags = fcntl(fd, F_GETFL);
+  if (flags < 0) return -1;
+  return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
 int tina_pty_read(int fd, uint8_t* buf, int32_t len) {
   if (fd < 0 || buf == NULL || len <= 0) return -EINVAL;
   for (;;) {
@@ -229,10 +235,29 @@ static void child_exec(const TinaPtySpawnRequest* req, int slave_fd,
 // Dart VM's wait(-1)-style reaper would otherwise steal the child — and relay
 // the raw wait status over the pipe. The supervisor exits as soon as the
 // status is written, so nothing lingers.
-static void supervisor_relay(int status_pipe, int err_pipe) {
+static void supervisor_relay(int status_pipe, int err_pipe, int child_pipe) {
   pid_t child = fork();
   if (child < 0) report_and_exit(err_pipe, errno);
   if (child == 0) return; // real child: fall through to setsid/dup2/exec
+
+  // Supervisor: tell the caller the real child's pid. The exec grandchild
+  // runs setsid(), so it is a session/group leader, but kill(-pgid, sig) is
+  // not portable across kernels (some return EINVAL for every negative
+  // pid); the plain pid works everywhere. The signal-based tree kill in the
+  // runner uses this pid directly.
+  {
+    int32_t c = (int32_t)child;
+    ssize_t wn;
+    do {
+      wn = write(child_pipe, &c, sizeof(c));
+    } while (wn < 0 && errno == EINTR);
+  }
+  close(child_pipe);
+
+  // Supervisor: drop the exec-error pipe now. The parent's spawn call reads
+  // that pipe until EOF; if the supervisor kept its write end open while it
+  // waits, the parent would block for the whole life of the child.
+  close(err_pipe);
 
   int st = 0;
   pid_t r;
@@ -332,6 +357,22 @@ int tina_pty_spawn(const TinaPtySpawnRequest* req, TinaPtySpawnResult* out) {
   set_cloexec(status_pipe[0]);
   set_cloexec(status_pipe[1]);
 
+  // Real-child-pid channel: the supervisor relays the grandchild's pid so
+  // the caller can signal the actual process (kill(-pgid) is unreliable).
+  int child_pipe[2];
+  if (pipe(child_pipe) != 0) {
+    int e = errno;
+    close(slave);
+    close(master);
+    close(err_pipe[0]);
+    close(err_pipe[1]);
+    close(status_pipe[0]);
+    close(status_pipe[1]);
+    return -e;
+  }
+  set_cloexec(child_pipe[0]);
+  set_cloexec(child_pipe[1]);
+
   // --- fork 1: supervisor -------------------------------------------------
   pid_t pid = fork();
   if (pid < 0) {
@@ -342,19 +383,23 @@ int tina_pty_spawn(const TinaPtySpawnRequest* req, TinaPtySpawnResult* out) {
     close(err_pipe[1]);
     close(status_pipe[0]);
     close(status_pipe[1]);
+    close(child_pipe[0]);
+    close(child_pipe[1]);
     return -e;
   }
   if (pid == 0) {
     close(err_pipe[0]);
     close(status_pipe[0]);
+    close(child_pipe[0]);
     close(master);
     // fork 2: the real child, a grandchild of the caller. The caller never
     // waits on it — the supervisor below does — so no external reaper can
     // make the caller's own wait fail with ECHILD.
     pid = fork();
     if (pid < 0) report_and_exit(err_pipe[1], errno);
-    if (pid > 0) supervisor_relay(status_pipe[1], err_pipe[1]);
+    if (pid > 0) supervisor_relay(status_pipe[1], err_pipe[1], child_pipe[1]);
     close(status_pipe[1]);
+    close(child_pipe[1]);
     child_exec(req, slave, master, err_pipe[1]);
     _exit(127); // unreachable
   }
@@ -363,6 +408,7 @@ int tina_pty_spawn(const TinaPtySpawnRequest* req, TinaPtySpawnResult* out) {
   close(slave);
   close(err_pipe[1]);
   close(status_pipe[1]);
+  close(child_pipe[1]);
   set_cloexec(master); // no PTY fd may leak into unrelated child processes
 
   int exec_errno = 0;
@@ -379,6 +425,7 @@ int tina_pty_spawn(const TinaPtySpawnRequest* req, TinaPtySpawnResult* out) {
     int32_t st = 0;
     (void)tina_pty_waitpid(pid, &st, 1);
     close(status_pipe[0]);
+    close(child_pipe[0]);
     close(master);
     out->error = exec_errno != 0 ? exec_errno : EIO;
     out->pid = -1;
@@ -391,10 +438,26 @@ int tina_pty_spawn(const TinaPtySpawnRequest* req, TinaPtySpawnResult* out) {
     (void)tina_pty_waitpid(pid, NULL, 1);
     close(master);
     close(status_pipe[0]);
+    close(child_pipe[0]);
     return -e;
   }
 
+  // Non-blocking master: Dart never wants a read/write to hang; EAGAIN is
+  // part of the runner's poll loop contract.
+  (void)set_nonblocking(master);
   out->master_fd = master;
+  // The real exec child's pid, relayed by the supervisor (see above). The
+  // intermediate supervisor pid is useless to the caller: it is gone as
+  // soon as it has written the wait status.
+  {
+    int32_t child = -1;
+    ssize_t n2;
+    do {
+      n2 = read(child_pipe[0], &child, sizeof(child));
+    } while (n2 < 0 && errno == EINTR);
+    close(child_pipe[0]);
+    if (n2 == (ssize_t)sizeof(child) && child > 0) pid = (pid_t)child;
+  }
   out->pid = pid;
   out->status_fd = status_pipe[0];
   out->error = 0;

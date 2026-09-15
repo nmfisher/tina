@@ -40,11 +40,40 @@ may only use async-signal-safe functions until exec.
 
 ## Acceptance
 
-- [ ] Child reports the PTY as stdin/stdout/stderr, receives the requested
+- [x] Child reports the PTY as stdin/stdout/stderr, receives the requested
       cwd and environment, and produces output and exit status on Linux.
-- [ ] Invalid executable or cwd, resize, partial I/O, immediate exit,
+- [x] Invalid executable or cwd, resize, partial I/O, immediate exit,
       repeated close, close during spawn, and a child ignoring termination
       all complete predictably.
-- [ ] An interactive shell can run and interrupt a foreground job without
+- [x] An interactive shell can run and interrupt a foreground job without
       killing tina; shutdown leaves no owned test children or worker behind.
-- [ ] Tests allocate their own PTY: no `/dev/tty`, no `stdout.hasTerminal`.
+- [x] Tests allocate their own PTY: no `/dev/tty`, no `stdout.hasTerminal`.
+
+## Implementation notes
+
+- Shim (`native/src/pty_shim.c`): double-fork — the caller's direct child is
+  a short-lived supervisor that waits on the real exec grandchild and relays
+  both the grandchild's pid and its raw wait status back over pipes
+  (`status_fd` in the spawn result). This defeats the Dart VM's
+  wait(-1)-style reaper, which otherwise steals children under `dart test`
+  and makes the caller's own waits fail with ECHILD.
+- `kill(-pgid, sig)` is not portable: this kernel returns EINVAL for every
+  negative pid, even for a session leader. The shim therefore reports the
+  real child's pid and the runner signals that pid directly; liveness is
+  probed with `kill(pid, 0)` (never reaps). A grandchild can hold the slave
+  open forever, so after the SIGKILL escalation the worker closes the PTY
+  unconditionally instead of waiting for an EOF that may never come.
+- The status relay doubles as the death signal: once the supervisor writes
+  (or dies without writing), the child is unrecoverable and the exit status
+  is known (or forfeited as a signal death). No blocking native calls on the
+  worker's event path; shutdown order is terminate → bounded isolate wait →
+  kill → port teardown, so `close()` always returns.
+- Verified on Linux x64 only; macOS/arm64 builds from the same C but is
+  unverified.
+
+## Tests
+
+- `packages/tina_engine/test/terminal/pty_runner_test.dart`: all 11
+  acceptance tests green (`dart test test/terminal/ --concurrency=1`).
+- `packages/tina_engine/test/terminal/pty_reap_test.dart`: regression test
+  for exit-status reporting under the test runner's child reaper.
