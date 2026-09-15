@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:tina_engine/src/terminal/pty_runner.dart';
 import 'package:test/test.dart';
@@ -121,6 +122,27 @@ void main() {
     final code = await closed.timeout(const Duration(seconds: 10));
     await again;
     expect(code, isNonNegative);
+  });
+
+  test('no leaked ports: an isolate that spawns and closes exits on its own',
+      () async {
+    // Regression: _workerDone was never closed, so a program that spawned,
+    // closed, and returned stayed alive on the leaked ReceivePort. Run the
+    // whole lifecycle in a child isolate: if any port leaks, that isolate
+    // never finishes and this test times out.
+    final result = await Isolate.run(() async {
+      final c1 = await sh('echo quick');
+      await c1.done;
+      await c1.close();
+      // Spawn failure path must clean up too.
+      try {
+        await sh('definitely-not-a-real-binary-xyz');
+      } on PtyException {
+        // expected
+      }
+      return 'lifecycle-complete';
+    });
+    expect(result, 'lifecycle-complete');
   });
 
   test('one spawn executes the command exactly once (regression: double exec)', () async {

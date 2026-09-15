@@ -269,9 +269,14 @@ class _PtyWorker {
   /// the connection so late worker messages are never dropped.
   final ReceivePort _eventsPort;
 
+  /// Main side's end of the isolate-death signal. Closed with the events
+  /// port in [disposePorts]; never leaked on any path.
+  ReceivePort? _workerDone;
+
   /// Release the main-side ports. Called from [terminate] after the ack.
   void disposePorts() {
     _eventsPort.close();
+    _workerDone?.close();
   }
 
   static Future<_PtyWorker> spawn(PtySpawnRequest req) async {
@@ -281,9 +286,24 @@ class _PtyWorker {
     // or the isolate is killed. terminate() awaits it as the authoritative
     // completion signal.
     final workerDone = ReceivePort();
+    var exitedCleanlyFlag = false;
+    var doneClosed = false;
+    // Every port created here is closed on EVERY path — success and every
+    // failure — or the main isolate keeps a live ReceivePort alive forever
+    // (a leaked port keeps the isolate from exiting: the review probe hung
+    // for 8s on a spawn/close sequence).
+    void closeAllPorts() {
+      ready.close();
+      events.close();
+      if (!doneClosed) {
+        doneClosed = true;
+        workerDone.close();
+      }
+    }
+
+    workerDone.listen((_) => exitedCleanlyFlag = true);
     var exitedCleanly = false;
-    workerDone.listen((_) => exitedCleanly = true);
-    final worker = _PtyWorker._(events, () => exitedCleanly);
+    final worker = _PtyWorker._(events, () => exitedCleanlyFlag || exitedCleanly);
     final config = _SpawnConfig(
         req.executable,
         req.arguments,
@@ -322,13 +342,23 @@ class _PtyWorker {
       ready.close();
       toWorker.complete(msg as SendPort);
     });
-    final iso =
-        await Isolate.spawn(_workerMain, config, onExit: workerDone.sendPort);
-    final childPid = await pid.future;
-    final workerPort = await toWorker.future;
-    worker._setLink(childPid, workerPort);
-    worker._iso = iso;
-    return worker;
+    Isolate? iso;
+    try {
+      iso = await Isolate.spawn(_workerMain, config, onExit: workerDone.sendPort);
+      final childPid = await pid.future;
+      final workerPort = await toWorker.future;
+      worker._setLink(childPid, workerPort);
+      worker._iso = iso;
+      worker._workerDone = workerDone;
+      return worker;
+    } catch (e) {
+      // Spawn handshake failed: the isolate may still be starting, dead, or
+      // about to report. Kill it and close every port; rethrow so the
+      // caller sees the PtyException.
+      iso?.kill();
+      closeAllPorts();
+      rethrow;
+    }
   }
 
   _PtyWorker._(this._eventsPort, this._exitedCleanly)
@@ -411,7 +441,7 @@ class _PtyWorker {
     _iso?.kill();
     // Close the events port only after the worker is really gone: closing
     // earlier would drop its in-flight exit status.
-    _eventsPort.close();
+    disposePorts();
   }
 }
 
