@@ -137,7 +137,7 @@ class ChatTheme {
     this.yellow = '33',
     this.red = '31',
     this.header = '1',
-    this.inlineCode = '100',
+    this.inlineCode = '3',
     this.codeBlock = '100',
     this.link = '4;36',
   });

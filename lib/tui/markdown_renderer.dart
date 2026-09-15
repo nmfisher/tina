@@ -25,6 +25,7 @@ class MarkdownStyle {
   final String base;
 
   final String header;
+  /// Inline code span style (italic).
   final String inlineCode;
 
   /// Row style for fenced/indented code blocks. Must set a background so
@@ -36,7 +37,7 @@ class MarkdownStyle {
   const MarkdownStyle({
     this.base = '39',
     this.header = '1',
-    this.inlineCode = '100',
+    this.inlineCode = '3',
     this.codeBlock = '100',
     this.link = '4;36',
     this.dim = '2',

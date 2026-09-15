@@ -4,6 +4,7 @@ import 'package:test/test.dart';
 import '../helpers/markdown_line_matchers.dart';
 
 /// The shipped default style (matches ChatTheme defaults / MarkdownStyle()).
+/// Note: inlineCode now uses italic (3) instead of the background pill (100).
 const style = MarkdownStyle();
 
 void main() {
