@@ -1,5 +1,4 @@
 import 'package:tina/config/user_config.dart';
-import 'package:tina/config.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/composition/config_providers.dart';
 import 'package:test/test.dart';
@@ -48,40 +47,6 @@ void main() {
     expect(instances, hasLength(2));
     expect(instances.every((c) => c.reasoningEffort == 'low'), isTrue);
   });
-
-  for (final fromCli in [false, true]) {
-    test('custom Anthropic wire accepts effort from ${fromCli ? 'CLI' : 'file'}',
-        () {
-      final registry = builtinRegistry(env: {});
-      final user = UserConfig(
-        defaultProvider: 'zai',
-        defaultModel: 'glm-5.3-flash',
-        reasoningEffort: fromCli ? null : 'high',
-        providers: {
-          'zai': ProviderConfig(
-            baseUrl: 'https://example.test',
-            wire: 'anthropic',
-          ),
-        },
-      );
-      registerConfigProviders(registry, user);
-      final config = Config.parse(
-        fromCli ? ['--reasoning-effort', 'high'] : [],
-        env: const {},
-        registry: registry,
-        userConfig: user,
-      );
-      final factory = RuntimeProviderFactory(registry, providerDefaults: {
-        config.provider: ProviderBuildDefaults(
-          reasoningEffort: config.runtime.reasoningEffort,
-        ),
-      });
-      final provider = factory.build('zai/glm-5.3-flash');
-      addTearDown(provider.close);
-      expect(provider, isA<AnthropicProvider>());
-      expect((provider as AnthropicProvider).reasoningEffort, 'high');
-    });
-  }
 
   group('registerConfigProviders', () {
     test('new id with wire="anthropic" registers an Anthropic-wire provider',

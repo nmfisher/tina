@@ -1,3 +1,4 @@
+import 'package:tina/composition/config_providers.dart';
 import 'package:tina/composition/models_dev_seed.dart';
 import 'package:tina/config.dart';
 import 'package:tina/config/user_config.dart';
@@ -12,6 +13,40 @@ import 'helpers/test_registry.dart';
 /// shared with [ProviderRegistry.build]. Guards against Config re-inlining its
 /// own env scan and the two drifting apart.
 void main() {
+  for (final fromCli in [false, true]) {
+    test('custom Anthropic wire accepts effort from ${fromCli ? 'CLI' : 'file'}',
+        () {
+      final registry = builtinRegistry(env: {});
+      final user = UserConfig(
+        defaultProvider: 'zai',
+        defaultModel: 'glm-5.3-flash',
+        reasoningEffort: fromCli ? null : 'high',
+        providers: {
+          'zai': ProviderConfig(
+            baseUrl: 'https://example.test',
+            wire: 'anthropic',
+          ),
+        },
+      );
+      registerConfigProviders(registry, user);
+      final config = Config.parse(
+        fromCli ? ['--reasoning-effort', 'high'] : [],
+        env: const {},
+        registry: registry,
+        userConfig: user,
+      );
+      final factory = RuntimeProviderFactory(registry, providerDefaults: {
+        config.provider: ProviderBuildDefaults(
+          reasoningEffort: config.runtime.reasoningEffort,
+        ),
+      });
+      final provider = factory.build('zai/glm-5.3-flash');
+      addTearDown(provider.close);
+      expect(provider, isA<AnthropicProvider>());
+      expect((provider as AnthropicProvider).reasoningEffort, 'high');
+    });
+  }
+
   test('output-token flag supports its legacy alias with last-value precedence', () {
     Config parse(List<String> args) => Config.parse(
       args, env: const {}, registry: testRegistry(const {}),
