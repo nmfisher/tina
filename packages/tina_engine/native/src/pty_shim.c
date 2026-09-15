@@ -31,10 +31,16 @@
 
 #define TINA_SHIM_ABI_VERSION 1
 
-// macOS: no ptsname_r. This wrapper is used only in the parent before fork,
-// so non-async-signal-safe calls here are fine.
+// macOS 10.13.4+ declares ptsname_r in <stdlib.h>; Linux/glibc does not
+// (it is hidden behind _GNU_SOURCE), so the system prototype may or may not
+// exist. We therefore never declare ptsname_r ourselves; this helper wraps it
+// under a distinct name. On Apple targets the real ptsname_r exists and is
+// used; elsewhere we fall back to plain ptsname(). Called only in the parent
+// before fork, so non-async-signal-safe calls here are fine.
+static int tina_ptsname(int fd, char* buf, size_t buflen) {
 #if defined(__APPLE__)
-static int ptsname_r(int fd, char* buf, size_t buflen) {
+  return ptsname_r(fd, buf, buflen);
+#else
   char* name = ptsname(fd);
   if (name == NULL) return -1;
   if (strlen(name) >= buflen) {
@@ -43,8 +49,8 @@ static int ptsname_r(int fd, char* buf, size_t buflen) {
   }
   strcpy(buf, name);
   return 0;
-}
 #endif
+}
 
 static int set_cloexec(int fd) {
   int flags = fcntl(fd, F_GETFD);
@@ -296,7 +302,7 @@ int tina_pty_spawn(const TinaPtySpawnRequest* req, TinaPtySpawnResult* out) {
     return -e;
   }
   char slave_path[128];
-  if (ptsname_r(master, slave_path, sizeof(slave_path)) != 0) {
+  if (tina_ptsname(master, slave_path, sizeof(slave_path)) != 0) {
     int e = errno;
     close(master);
     return -e;
