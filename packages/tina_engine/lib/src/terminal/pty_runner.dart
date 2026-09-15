@@ -362,7 +362,53 @@ class _PtyWorker {
   }
 
   _PtyWorker._(this._eventsPort, this._exitedCleanly)
-      : output = StreamController<Uint8List>.broadcast();
+      : output = StreamController<Uint8List>.broadcast(sync: true) {
+    // Never drop terminal bytes (plan requirement; review: a listener
+    // attached 150ms after spawn lost ALL output of a short-lived command,
+    // because a broadcast controller with no listener silently drops).
+    // Output arriving before a consumer attaches is buffered (bounded by
+    // [_maxStartupBufferBytes], oldest chunk released past the cap) and
+    // flushed in order on the first listen. Once a listener exists, a
+    // paused listener is handled by the stream itself (its subscription
+    // queues events; nothing is dropped). Write-side flow control between
+    // consumer and worker is the writtenBytes credit protocol (see
+    // PtyConnection.write); output-side is this bounded buffer.
+    output.onListen = _flushStartupBuffer;
+  }
+
+  /// Output bytes captured while no consumer was attached (or while the
+  /// consumer was paused). Oldest first. Bounded.
+  final List<Uint8List> _startupBuffer = <Uint8List>[];
+  int _startupBufferedBytes = 0;
+  static const int _maxStartupBufferBytes = 1 << 20; // 1 MiB
+
+  void _flushStartupBuffer() {
+    if (_startupBuffer.isEmpty) return;
+    final chunks = List<Uint8List>.of(_startupBuffer);
+    _startupBuffer.clear();
+    _startupBufferedBytes = 0;
+    for (final chunk in chunks) {
+      output.add(chunk); // controller is broadcasting now: no drop
+    }
+  }
+
+  /// Worker → main output entry point. Buffers when nobody is listening or
+  /// the listener is paused; forwards otherwise. Never silently drops.
+  void _onOutput(Uint8List chunk) {
+    if (!output.hasListener) {
+      _startupBuffer.add(chunk);
+      _startupBufferedBytes += chunk.length;
+      // Bounded: past the cap, release the OLDEST chunk. This is the one
+      // place bytes can be lost, and only after 1 MiB of unconsumed
+      // terminal output — a state a real consumer never reaches.
+      while (_startupBufferedBytes > _maxStartupBufferBytes &&
+          _startupBuffer.length > 1) {
+        _startupBufferedBytes -= _startupBuffer.removeAt(0).length;
+      }
+      return;
+    }
+    output.add(chunk);
+  }
 
   /// Fill in the identity discovered by the handshake.
   void _setLink(int pid, SendPort toWorker) {
@@ -374,7 +420,7 @@ class _PtyWorker {
     final list = msg as List;
     switch (_Msg.values[list[0] as int]) {
       case _Msg.output:
-        output.add(list[1] as Uint8List);
+        _onOutput(list[1] as Uint8List);
       case _Msg.written:
         _writtenBytes.add(list[1] as int);
       case _Msg.exited:

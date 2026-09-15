@@ -185,6 +185,24 @@ void main() {
         reason: 'a 50ms grace must not take ${sw.elapsed}');
   });
 
+  test('output produced before a listener attaches is buffered, not dropped',
+      () async {
+    // Regression: output went into a broadcast controller with no buffer;
+    // a listener attached 150ms after spawn lost everything a fast command
+    // had already produced. Terminal bytes must never be dropped.
+    const marker = 'STARTUP-MARKER-9f31';
+    final conn = await sh('echo $marker; sleep 1');
+    // No listener yet — the child is already producing output.
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    final collected = <int>[];
+    final sub = conn.output.listen(collected.addAll);
+    final code = await conn.done.timeout(const Duration(seconds: 10));
+    expect(code, 0);
+    await sub.cancel();
+    expect(utf8.decode(collected), contains(marker),
+        reason: 'startup output was dropped: ${utf8.decode(collected)}');
+  });
+
   test('child ignoring SIGTERM is force-killed within the grace period', () async {
     // trap '' TERM: a shell that ignores termination.
     final conn = await sh("trap '' TERM; sleep 30");
