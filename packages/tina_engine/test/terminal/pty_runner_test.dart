@@ -185,6 +185,23 @@ void main() {
         reason: 'a 50ms grace must not take ${sw.elapsed}');
   });
 
+  test('natural exit finalizes the connection: output done, writes refused',
+      () async {
+    // Regression: after a natural exit, `done` completed but the output
+    // stream stayed open and write() still returned true — a half-closed
+    // terminal state.
+    final conn = await sh('echo fine; exit 0');
+    final code = await conn.done.timeout(const Duration(seconds: 10));
+    expect(code, 0);
+    // Output must be complete now (done implies drained output).
+    await conn.output.drain<void>().timeout(const Duration(seconds: 5));
+    expect(conn.exited, isTrue);
+    // Writes to an exited process must be refused, not silently "succeed".
+    final accepted = await conn.write('late'.codeUnits);
+    expect(accepted, isFalse,
+        reason: 'write to an exited process must return false');
+  });
+
   test('output produced before a listener attaches is buffered, not dropped',
       () async {
     // Regression: output went into a broadcast controller with no buffer;

@@ -154,7 +154,7 @@ class PtyConnection {
   /// Short writes, EINTR and EAGAIN are handled by the worker; bytes are
   /// never dropped. Returns false if the connection is already closed.
   Future<bool> write(List<int> bytes) async {
-    if (_closed) return false;
+    if (_closed || _worker.finalized) return false;
     final chunk = Uint8List.fromList(bytes);
     _queued += chunk.length;
     _worker.enqueueWrite(chunk);
@@ -228,6 +228,11 @@ enum _Msg {
   /// The terminate handshake completed.
   terminated,
 
+  /// The worker has finalized the terminal state: the PTY is closed and no
+  /// further writes can be accepted. Output and done complete on the main
+  /// side when this arrives.
+  finalized,
+
   /// An error the caller should see (e.g. write after close). Fatal for the
   /// connection.
   error,
@@ -264,6 +269,10 @@ class _PtyWorker {
   Stream<int> get writtenBytes => _writtenBytes.stream;
   bool exited = false;
   bool _terminated = false;
+
+  /// Set when the worker reports the terminal state is final: output is
+  /// completed and writes are refused at the source.
+  bool finalized = false;
 
   /// Main side's end of the worker event channel. Kept open for the life of
   /// the connection so late worker messages are never dropped.
@@ -428,6 +437,12 @@ class _PtyWorker {
             if (!exitCode.isCompleted) exitCode.complete(list[1] as int);
       case _Msg.terminated:
         break; // handshake closes on the terminate path
+      case _Msg.finalized:
+        finalized = true;
+        // One consistent terminal state: complete output (all listeners
+        // see done), and refuse later writes.
+        unawaited(output.close());
+        _writtenBytes.close();
       case _Msg.error:
         // Surface as output-adjacent error; the connection stays usable.
         output.addError(StateError(list[1] as String));
@@ -625,6 +640,7 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
       code = 128 + (exitStatus & 0x7f);
     }
     eventsPort.send([_Msg.exited.index, code]);
+    eventsPort.send([_Msg.finalized.index, 0]);
     fromMain.close();
     // No live ports or pending work remain: the worker isolate ends here
     // and becomes collectible. All native resources (the fd) were released
