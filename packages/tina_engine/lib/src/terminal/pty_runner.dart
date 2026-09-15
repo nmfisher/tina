@@ -718,24 +718,23 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
   finish();
 }
 
-/// SIGTERM the child, wait a bounded grace for the status relay to report
-/// it gone, then SIGKILL. [pid] is the real exec child's pid (relayed by
-/// the shim's supervisor): the child runs setsid() and is its own session
-/// leader, but kill(-pgid, sig) is not portable across kernels — some
-/// return EINVAL for every negative pid — so signals go to the plain pid.
-/// Liveness is probed with kill(pid, 0) only — this never reaps, so the
-/// main loop stays the single source of the exit status. Best-effort for
-/// stragglers outside the session: the main isolate's
-/// [ChildProcessRegistry] fallback covers those.
+/// Terminate the child's whole process group: SIGTERM to -pid, bounded
+/// grace, then SIGKILL to -pid. The child runs setsid() in the shim, so it
+/// is its own session AND process-group leader: -pid addresses the group
+/// holding the shell and every descendant (foreground jobs, background
+/// jobs, anything that kept the slave open). This was verified directly:
+/// kill(-childpid, 0) succeeds against a live spawned group on this
+/// platform. Liveness is probed with kill(pid, 0) only — this never reaps,
+/// so the main loop stays the single source of the exit status.
 Future<void> _killTree(int pid, int graceMs) async {
-  tina_pty_kill(pid, 15); // SIGTERM
+  tina_pty_kill(-pid, 15); // SIGTERM to the process group
   const pollMs = 20;
   var waited = 0;
   while (waited < graceMs) {
-    final probe = tina_pty_kill(pid, 0);
-    if (probe == -ESRCH) return; // gone (reaped elsewhere or never started)
+    final probe = tina_pty_kill(pid, 0); // group leader alive?
+    if (probe == -ESRCH) return; // group gone (reaped elsewhere)
     await Future<void>.delayed(const Duration(milliseconds: pollMs));
     waited += pollMs;
   }
-  tina_pty_kill(pid, 9); // SIGKILL
+  tina_pty_kill(-pid, 9); // SIGKILL to the process group
 }

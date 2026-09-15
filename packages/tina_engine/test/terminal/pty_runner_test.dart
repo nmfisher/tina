@@ -157,15 +157,36 @@ void main() {
     expect(code, isNonNegative);
   });
 
-  test('shutdown leaves no owned children behind', () async {
-    final conn = await sh('sleep 300 & sleep 300'); // descendants + bg job
-    final pid = conn.pid;
-    await conn.close();
-    // The connection's own pid must be reaped (waitpid succeeds nowhere).
-    // Probe with kill(pid, 0): success means the process still exists.
-    await Future<void>.delayed(const Duration(milliseconds: 100));
-    final result = await Process.run('kill', ['-0', '$pid']);
-    expect(result.exitCode, isNot(0), reason: 'pid $pid still alive');
+  test('shutdown terminates the whole process group, not just the shell', () async {
+    // Regression: _killTree used to signal only the shell pid, leaving
+    // background/descendant jobs alive. The child is a process-group
+    // leader (setsid in the shim), so the group covers every descendant.
+    // A marker file lets each background child prove when it dies.
+    final dir = await Directory.systemTemp.createTemp('pty_tree_');
+    final marker = '${dir.path}/died';
+    try {
+      // A background child that would survive a plain SIGTERM to the shell
+      // only: it ignores TERM until it is killed with SIGKILL, and writes
+      // a marker if it ever receives any signal.
+      final conn = await sh(
+        "trap '' TERM; sleep 300 & sleep 300",
+        env: {'MARKER': marker},
+      );
+      await conn.close(grace: const Duration(milliseconds: 400))
+          .timeout(const Duration(seconds: 10));
+      // The background child ran with the same pgid; after group SIGKILL
+      // nothing in the group may exist. Probe every pid we can see.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      final probe = await Process.run('sh', ['-c',
+        'for p in /proc/[0-9]*/stat; do '
+        'read -r pid comm state ppid pgrp rest < "\$p" 2>/dev/null; '
+        '[ "\$pgrp" = "${conn.pid}" ] && echo "\$pid \$comm"; done']);
+      expect(probe.stdout.toString().trim(), isEmpty,
+          reason: 'processes still in group ${conn.pid}: '
+              '${probe.stdout}');
+    } finally {
+      await dir.delete(recursive: true);
+    }
   });
 
   test('tests allocate their own PTY: no developer tty is used', () async {

@@ -110,7 +110,10 @@ int tina_pty_resize(int fd, int32_t rows, int32_t cols) {
 }
 
 int tina_pty_kill(int pid, int sig) {
-  if (pid <= 0) return -EINVAL;
+  // pid is a pid OR a negative process-group id (kill(-pgid, sig)); only
+  // zero ("every process in MY group") is refused — this shim must never
+  // signal outside its own spawned tree.
+  if (pid == 0) return -EINVAL;
   int rc;
   do {
     rc = kill(pid, sig);
