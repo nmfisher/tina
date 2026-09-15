@@ -940,9 +940,9 @@ class Agent {
                           : ' ($reasoningTokens reasoning tokens)')
                   : '') +
               '. The output cap includes reasoning and answer tokens; '
-                  '--max-tokens is also clamped to the model catalog ceiling. ' +
+                  '--max-output-tokens is also clamped to the model catalog ceiling. ' +
               (diagnostics?.recoveryHint ??
-                  'Split the task, switch models, or raise --max-tokens '
+                  'Split the task, switch models, or raise --max-output-tokens '
                       'if the model supports a larger output cap.');
         }
         sink.notice('\nerror: $reason\n', kind: NoticeKind.error);

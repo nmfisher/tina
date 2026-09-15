@@ -169,7 +169,7 @@ void main() {
                 .any((n) => n.message.contains(kReasoningCollapsedLabel)),
             isTrue);
         expect(agent.abortedReason, contains('finish reason: $finishReason'));
-        expect(agent.abortedReason, contains('--max-tokens'));
+        expect(agent.abortedReason, contains('--max-output-tokens'));
         expect(
             sink.notices.any((n) => n.message.contains('retry 1/')), isFalse);
         expect(history.where((m) => m.role == Role.assistant && !m.isReasoningOnly), isEmpty);

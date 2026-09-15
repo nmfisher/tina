@@ -12,6 +12,21 @@ import 'helpers/test_registry.dart';
 /// shared with [ProviderRegistry.build]. Guards against Config re-inlining its
 /// own env scan and the two drifting apart.
 void main() {
+  test('output-token flag supports its legacy alias with last-value precedence', () {
+    Config parse(List<String> args) => Config.parse(
+      args, env: const {}, registry: testRegistry(const {}),
+    );
+    expect(parse([]).maxTokens, ProviderRegistry.defaultMaxTokens);
+    expect(parse(['--max-output-tokens', '4096']).runtime.maxTokens, 4096);
+    expect(parse(['--max-tokens=8192']).runtime.maxTokens, 8192);
+    expect(parse(['--max-tokens', '8192', '--max-output-tokens', '4096'])
+        .maxTokens, 4096);
+    expect(parse(['--max-output-tokens', '4096', '--max-tokens', '8192'])
+        .maxTokens, 8192);
+    expect(Config.usage, contains('--max-output-tokens'));
+    expect(Config.usage, isNot(contains('--max-tokens')));
+  });
+
   test(
     'reasoning effort: file, CLI override, auto, runtime and persistence',
     () {

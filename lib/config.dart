@@ -177,7 +177,8 @@ class Config extends RuntimeConfig implements ResumeRequest {
   static final _parser = ArgParser()
     ..addOption('base-url')
     ..addOption(
-      'max-tokens',
+      'max-output-tokens',
+      aliases: ['max-tokens'],
       defaultsTo: '${ProviderRegistry.defaultMaxTokens}',
       help: 'Per-response output cap (clamped to the model catalog ceiling).',
     )
@@ -608,7 +609,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
         (desc.models.isNotEmpty ? desc.models.keys.first : '');
     final defaultBaseUrl = env['${envPrefix}_BASE_URL'] ?? desc.defaultBaseUrl;
 
-    final maxTokens = int.tryParse(res['max-tokens'] as String) ??
+    final maxTokens = int.tryParse(res['max-output-tokens'] as String) ??
         ProviderRegistry.defaultMaxTokens;
 
     final effort =

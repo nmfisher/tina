@@ -35,7 +35,9 @@ Effort is a qualitative control, not an exact reasoning-token budget or a
 reservation of tokens for an answer. Even `low` can fail on a difficult task.
 Split the task or switch models if that happens.
 
-`--max-tokens` caps one response's output, including reasoning and answer tokens.
+`--max-output-tokens` caps one response's output, including reasoning and answer
+tokens. `--max-tokens` remains a compatibility alias; if both are provided, the
+last value wins. The default remains 32,768 tokens.
 Tina clamps it to the catalog's output ceiling when one is known. Requesting
 200k therefore does not necessarily send a 200k cap. The per-turn spend limit
 (`--max-turn-tokens`) is a separate guard over repeated requests and their input
