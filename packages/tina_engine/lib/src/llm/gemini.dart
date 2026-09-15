@@ -26,6 +26,11 @@ final _log = Logger('tina.llm');
 class GeminiProvider extends LlmProvider {
   final String apiKey;
   final int maxTokens;
+
+  /// Retained so an unsupported setting can warn at use time, not crash startup.
+  /// This adapter currently leaves reasoning control to the provider.
+  final String? reasoningEffort;
+  bool _warnedReasoningEffort = false;
   final String baseUrl;
   final Duration streamIdleTimeout;
   final Duration requestTimeout;
@@ -35,6 +40,7 @@ class GeminiProvider extends LlmProvider {
     required this.apiKey,
     required String model,
     this.maxTokens = ProviderRegistry.defaultMaxTokens,
+    this.reasoningEffort,
     this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta',
     this.streamIdleTimeout = defaultStreamIdleTimeout,
     this.requestTimeout = defaultRequestTimeout,
@@ -69,6 +75,11 @@ class GeminiProvider extends LlmProvider {
     required List<Message> messages,
     required List<ToolSchema> tools,
   }) async* {
+    if (reasoningEffort != null && !_warnedReasoningEffort) {
+      _warnedReasoningEffort = true;
+      yield StreamNotice('Tina cannot apply --reasoning-effort $reasoningEffort '
+          'on the Gemini wire; using the provider default for $model.');
+    }
     final idToName = _collectToolNames(messages);
     final bodyStr = jsonEncode({
       if (system.isNotEmpty)

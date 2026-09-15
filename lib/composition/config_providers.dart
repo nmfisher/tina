@@ -12,17 +12,13 @@ import 'package:tina_engine/tina_engine.dart';
 /// endpoint (z.ai, a proxy, a gateway) gets identical auth behavior with no
 /// per-endpoint code.
 ProviderBuilder anthropicCompatibleBuilder() => (c) {
-  if (c.reasoningEffort != null) {
-    throw const ProviderRegistryException(
-      '--reasoning-effort is currently supported only by OpenAI-compatible endpoints',
-    );
-  }
   return AnthropicProvider(
     apiKey: c.apiKey,
     useBearerAuth: c.authScheme == AuthScheme.bearerToken,
     model: c.model,
     baseUrl: c.baseUrl,
     maxTokens: c.maxTokens,
+    reasoningEffort: c.reasoningEffort,
     streamIdleTimeout: c.streamIdleTimeout,
   );
 };

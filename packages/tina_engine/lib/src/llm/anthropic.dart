@@ -18,6 +18,11 @@ class AnthropicProvider extends LlmProvider {
   final String apiKey;
   final bool useBearerAuth;
   final int maxTokens;
+
+  /// Retained so an unsupported setting can warn at use time, not crash startup.
+  /// This adapter currently leaves reasoning control to the provider.
+  final String? reasoningEffort;
+  bool _warnedReasoningEffort = false;
   final String baseUrl;
   final Duration streamIdleTimeout;
   final Duration requestTimeout;
@@ -28,6 +33,7 @@ class AnthropicProvider extends LlmProvider {
     required String model,
     this.useBearerAuth = false,
     this.maxTokens = ProviderRegistry.defaultMaxTokens,
+    this.reasoningEffort,
     this.baseUrl = 'https://api.anthropic.com',
     this.streamIdleTimeout = defaultStreamIdleTimeout,
     this.requestTimeout = defaultRequestTimeout,
@@ -58,6 +64,11 @@ class AnthropicProvider extends LlmProvider {
     required List<Message> messages,
     required List<ToolSchema> tools,
   }) async* {
+    if (reasoningEffort != null && !_warnedReasoningEffort) {
+      _warnedReasoningEffort = true;
+      yield StreamNotice('Tina cannot apply --reasoning-effort $reasoningEffort '
+          'on the Anthropic wire; using the provider default for $model.');
+    }
     // Three cache_control markers:
     //   1. end of system        — caches the system prompt
     //   2. end of tools         — caches system + tools

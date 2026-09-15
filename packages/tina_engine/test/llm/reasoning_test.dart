@@ -138,7 +138,7 @@ void main() {
     expect(complete.diagnostics!.outputLimit, 8192);
   });
 
-  test('native wire providers reject effort instead of silently ignoring it',
+  test('native wire providers retain effort for a warning without throwing',
       () {
     final registry = builtinRegistry(env: {});
     for (final ref in [
@@ -146,8 +146,13 @@ void main() {
       'gemini/gemini-2.5-pro',
       'tencent/hy3'
     ]) {
-      expect(() => registry.build(ref, reasoningEffort: 'low'),
-          throwsA(isA<ProviderRegistryException>()));
+      final provider = registry.build(ref, reasoningEffort: 'low');
+      addTearDown(provider.close);
+      expect(
+          provider is AnthropicProvider
+              ? provider.reasoningEffort
+              : (provider as GeminiProvider).reasoningEffort,
+          'low');
     }
   });
 }

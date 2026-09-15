@@ -953,7 +953,17 @@ api_key = "sk-ant-..."
 # NEW provider id (referenced as "<id>/<model>") or to REPLACE a built-in's wire
 # format. `wire = "anthropic"` speaks Anthropic /v1/messages; `"openai"` speaks
 # OpenAI /chat/completions (the default for new ids). `base_url` is required when
-# `wire` is set. Example: Z.AI's Anthropic-compatible endpoint, model glm-5.2.
+# `wire` is set. For Z.AI Coding Plan with reasoning-effort controls:
+#
+# [providers.zai]
+# base_url   = "https://api.z.ai/api/coding/paas/v4"
+# auth_token = "<z.ai key>"
+# wire       = "openai"
+# # Set [default] provider = "zai", model = "glm-5.3-flash", and optionally
+# # reasoning_effort = "high" (GLM-5.3/Flash: low, high, max).
+#
+# Alternative: Z.AI's Anthropic-compatible endpoint. Tina warns and uses the
+# provider default if reasoning_effort is set on Anthropic/Gemini wire adapters.
 #
 # [providers.zai]
 # base_url   = "https://api.z.ai/api/anthropic"

@@ -16,7 +16,8 @@ model = "glm-5.3-flash"
 reasoning_effort = "low"
 ```
 
-Keep your existing provider ID and endpoint, including Coding Plan credentials.
+Use an OpenAI-compatible endpoint for effort controls; a Coding Plan example
+is included below.
 The CLI setting overrides the file; `--reasoning-effort auto` leaves the wire
 parameter unset, restoring the provider/model default. These are launch settings.
 They apply to the configured provider's conversations, restored conversations,
@@ -25,8 +26,9 @@ A configured pool passes the setting to every member. Use compatible members.
 
 Tina sends `reasoning_effort` as an OpenAI-compatible request parameter, separately
 from messages and tool schemas. It does not rewrite prompts or tool declarations.
-The endpoint/model must support the requested value. Native Anthropic/Gemini wire
-adapters reject this setting rather than silently ignoring it.
+The endpoint/model must support the requested value. On Anthropic/Gemini wire
+adapters, Tina warns once when the provider is first used and leaves reasoning
+at the provider default; the setting does not prevent startup.
 
 [Z.AI's documented behavior](https://docs.z.ai/guides/capabilities/thinking):
 GLM-5.3 and GLM-5.3-Flash require thinking and accept `low`, `high`, and `max`.
@@ -64,3 +66,23 @@ Neither the pool nor the agent resends that same completed reasoning-only reques
 Ordinary transient empty responses retain bounded retry recovery. Reasoning-only
 responses are saved as local transcript records, never sent as empty assistant API
 messages or treated as successful work.
+
+For a Z.AI Coding Plan account, the OpenAI-compatible coding endpoint supports
+Tina's effort controls and reasoning blocks:
+
+```toml
+[default]
+provider = "zai"
+model = "glm-5.3-flash"
+reasoning_effort = "high"
+
+[providers.zai]
+base_url = "https://api.z.ai/api/coding/paas/v4"
+auth_token = "<z.ai key>"
+wire = "openai"
+```
+
+The general `/api/paas/v4` endpoint uses separate account resources; Coding Plan
+access does not imply an available balance there. Existing `wire = "anthropic"`
+configurations remain usable, with a warning that Tina cannot apply the effort
+setting on that wire. Tina does not guess an equivalent thinking-token budget.

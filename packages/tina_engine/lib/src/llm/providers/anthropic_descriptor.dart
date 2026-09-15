@@ -14,16 +14,13 @@ final ProviderDescriptor anthropicDescriptor = ProviderDescriptor(
   ],
   defaultBaseUrl: 'https://api.anthropic.com',
   builder: (c) {
-    if (c.reasoningEffort != null) {
-      throw const ProviderRegistryException(
-          '--reasoning-effort is currently supported only by OpenAI-compatible endpoints');
-    }
     return AnthropicProvider(
       apiKey: c.apiKey,
       useBearerAuth: c.authScheme == AuthScheme.bearerToken,
       model: c.model,
       baseUrl: c.baseUrl,
       maxTokens: c.maxTokens,
+      reasoningEffort: c.reasoningEffort,
       streamIdleTimeout: c.streamIdleTimeout,
       requestTimeout: c.requestTimeout,
     );
