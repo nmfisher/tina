@@ -46,6 +46,26 @@ void main() {
       expect(provider.calls, isEmpty);
     });
 
+    test('auto mode always sends outside-sandbox retry to the human asker',
+        () async {
+      final provider = _ScriptedProvider('ALLOW');
+      final request = PermissionPrompt('bash', const {'command': 'dart test'},
+          outsideSandbox: true);
+      var fallbackCalls = 0;
+      final asker = modeAwareAsker(
+        policy: PermissionPolicy(mode: PermissionMode.auto),
+        classifier: PermissionClassifier(provider),
+        fallback: (p) async {
+          expect(p, same(request));
+          fallbackCalls++;
+          return PermissionResponse.denyOnce;
+        },
+      );
+      expect((await asker(request)).decision, PermissionDecision.deny);
+      expect(fallbackCalls, 1);
+      expect(provider.calls, isEmpty);
+    });
+
     test('auto + classifier allow returns allowAlways and notices', () async {
       final policy = PermissionPolicy(mode: PermissionMode.auto);
       final classifier = PermissionClassifier(_ScriptedProvider('ALLOW'));

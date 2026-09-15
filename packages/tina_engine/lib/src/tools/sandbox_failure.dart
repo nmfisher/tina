@@ -25,11 +25,8 @@ class SandboxWriteFailure {
       'The earlier command approval did not grant write access there.';
 
   String get recoveryInstructions => '$explanation\n'
-      'Inspect possible partial effects before retrying. If replay is safe, '
-      'submit the same command and cwd with retrySafety explaining what you '
-      'checked and why retrying is safe. Tina will ask the user to approve '
-      'the required directories: ${writablePaths.join(', ')}. '
-      'Do not retry if the user denies access.';
+      'Tina will ask the user separately whether to retry this exact command '
+      'once outside the sandbox. Do not work around a denied retry.';
 
   /// Only unambiguous absolute paths adjacent to an EROFS diagnostic qualify.
   /// "Permission denied" also describes ordinary ownership errors and is not

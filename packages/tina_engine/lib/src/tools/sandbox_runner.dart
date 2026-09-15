@@ -291,6 +291,10 @@ String? _resolve(String path) {
 /// [BashTool] bypass the sandbox entirely.
 class SandboxedProcessRunner implements ProcessRunner {
   final ProcessRunner _inner;
+
+  /// Host-only escape hatch for a separately approved, single invocation.
+  /// Does not alter this runner or its session directory grants.
+  ProcessRunner get outsideSandbox => _inner;
   final Map<String, String> environment;
   bool get networkIsolated => _sandboxNet && _backend != SandboxBackend.passThrough;
   final String _projectRoot;

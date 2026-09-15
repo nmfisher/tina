@@ -223,7 +223,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     if (p.execution != null) {
       chat.dim(p.execution!.approvalDescription);
     }
-    if (p.sandboxAccess != null) {
+    if (p.sandboxAccess != null || p.outsideSandbox) {
       chat.yellow(p.accessDescription);
     }
     final preview = await previewToolCall(p.toolName, p.input, preparedEdit: p.preparedEdit);
@@ -251,8 +251,8 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     // Approval is now a selectable list (up/down arrows) with Enter to confirm.
     final isSandboxAccess = p.sandboxAccess != null;
     final options = [
-      (text: 'allow once', key: 'y'),
-      (
+      (text: p.outsideSandbox ? 'run outside sandbox once' : 'allow once', key: 'y'),
+      if (!p.outsideSandbox) (
         text: isSandboxAccess ? 'session directories' : 'allow always',
         key: 'a',
       ),
@@ -293,9 +293,11 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
             chat.write('y\n', rowOwner: rowToken);
             return PermissionResponse.allowOnce;
           case 'a':
+            if (p.outsideSandbox) break;
             chat.write('a\n', rowOwner: rowToken);
             return PermissionResponse.allowAlways;
           case 'd':
+            if (p.outsideSandbox) return PermissionResponse.denyOnce;
             if (isSandboxAccess) break;
             chat.write('d\n', rowOwner: rowToken);
             return PermissionResponse.denyAlways;
@@ -331,6 +333,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
             chat.write('\n', rowOwner: rowToken);
             return PermissionResponse.allowAlways;
           case 'd':
+            if (p.outsideSandbox) return PermissionResponse.denyOnce;
             if (isSandboxAccess) continue;
             chat.write('\n', rowOwner: rowToken);
             return PermissionResponse.denyAlways;

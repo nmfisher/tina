@@ -223,6 +223,15 @@ abstract class ProcessTool implements Tool {
   ProcessTool prepare(Map<String, dynamic> input) =>
       copyWith(request: buildRequest(input));
 
+  /// Preserve the sealed command, cwd and environment for one approved retry.
+  ProcessTool outsideSandbox() {
+    final runner = processRunner;
+    if (runner is! SandboxedProcessRunner || preparedRequest == null) {
+      throw StateError('Outside-sandbox retry requires a prepared sandboxed command');
+    }
+    return copyWith(runner: runner.outsideSandbox);
+  }
+
   ExecutionRequest buildRequest(Map<String, dynamic> input) {
     final overrides = executionEnvironmentOverrides(input);
     final env = {...environment, ...overrides};

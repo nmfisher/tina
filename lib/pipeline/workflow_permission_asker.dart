@@ -91,7 +91,7 @@ class WorkflowPermissionAsker {
     if (p.execution != null) {
       _write(p.execution!.approvalDescription, HostMessageStyle.dim);
     }
-    if (p.sandboxAccess != null) {
+    if (p.sandboxAccess != null || p.outsideSandbox) {
       _write(p.accessDescription, HostMessageStyle.warning);
     }
     final preview = await previewToolCall(p.toolName, p.input, preparedEdit: p.preparedEdit);
@@ -118,8 +118,8 @@ class WorkflowPermissionAsker {
     // Approval is a selectable list (up/down arrows) with Enter to confirm.
     final isSandboxAccess = p.sandboxAccess != null;
     final options = [
-      (text: 'allow once', key: 'y'),
-      (
+      (text: p.outsideSandbox ? 'run outside sandbox once' : 'allow once', key: 'y'),
+      if (!p.outsideSandbox) (
         text: isSandboxAccess ? 'session directories' : 'allow always',
         key: 'a',
       ),
@@ -161,9 +161,11 @@ class WorkflowPermissionAsker {
             _write('y\n', HostMessageStyle.normal);
             return PermissionResponse.allowOnce;
           case 'a':
+            if (p.outsideSandbox) break;
             _write('a\n', HostMessageStyle.normal);
             return PermissionResponse.allowAlways;
           case 'd':
+            if (p.outsideSandbox) return PermissionResponse.denyOnce;
             if (isSandboxAccess) break;
             _write('d\n', HostMessageStyle.normal);
             return PermissionResponse.denyAlways;
@@ -199,6 +201,7 @@ class WorkflowPermissionAsker {
             _write('\n', HostMessageStyle.normal);
             return PermissionResponse.allowAlways;
           case 'd':
+            if (p.outsideSandbox) return PermissionResponse.denyOnce;
             if (isSandboxAccess) continue;
             _write('\n', HostMessageStyle.normal);
             return PermissionResponse.denyAlways;

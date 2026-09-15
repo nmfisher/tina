@@ -24,7 +24,7 @@ PermissionAsker modeAwareAsker({
   void Function(String line)? notice,
 }) {
   return (prompt) async {
-    if (prompt.sandboxAccess != null || policy.mode != PermissionMode.auto)
+    if (prompt.outsideSandbox || prompt.sandboxAccess != null || policy.mode != PermissionMode.auto)
       return fallback(prompt);
     final verdict = await classifier.allow(prompt.toolName, prompt.input);
     if (verdict == null) return fallback(prompt);

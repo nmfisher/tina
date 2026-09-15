@@ -62,10 +62,14 @@ mentioning a nonzero exit produces a warning, not a fabricated exit status.
 
 Network, dependency-resolution, and sandbox-setup diagnostics are advisory.
 They never authorize filesystem access. Identified read-only filesystem failures
-retain the existing recovery flow: explain the blocked path, require the agent's
-partial-effects assessment on a later step, then ask for narrow directory access.
-There is no automatic replay or rollback. Denied retries cannot repeatedly prompt
-for the same access in the turn.
+trigger a separate user prompt immediately, before another model step. The prompt
+shows the failed command and warns that it may change files outside the sandbox
+and repeat partial effects. Approving runs the same sealed invocation once using
+the host process runner, outside both filesystem and network confinement. Denying
+or cancelling does not retry. Ordinary allow-always rules, auto classification,
+and yolo mode do not authorize this escalation. No session-wide grant is saved;
+later commands still use the sandbox. A failed approved retry stops the approval
+loop. Headless runs refuse this interactive escalation.
 
 ## Validation
 

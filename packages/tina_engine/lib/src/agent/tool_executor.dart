@@ -238,8 +238,7 @@ class ToolCallState {
 
   // Recovery is keyed by exact shell text and cwd, not the anomaly signature
   // (which collapses whitespace, including meaningful quoted whitespace).
-  final sandboxFailures = <String,
-      ({SandboxWriteFailure failure, int step, List<String> priorPaths})>{};
+  final sandboxFailures = <String, SandboxWriteFailure>{};
   final promptedSandboxRetries = <String>{};
   final deniedSandboxRetries = <String>{};
   final deniedSandboxDirectories = <String>{};
@@ -429,13 +428,12 @@ class ToolExecutor {
     // approval wait (or a hook mutating what it can see) cannot change what
     // executes. The snapshot is NEVER refreshed from the live input after the
     // wait — approval seals the decision, not new arguments — and the
-    // sandbox-retry merge (below) builds its snapshot from this one before
-    // the ask, so the explicit retry authorization path is preserved.
-    var executionInput = snapshotToolInput(use.input);
+    // outside-sandbox retry reuses this same snapshot and prepared request.
+    final executionInput = snapshotToolInput(use.input);
     // What the hooks and observers may see: a deeply unmodifiable view of the
-    // SAME snapshot — built once, after the retry merge, so it reflects the
+    // SAME snapshot — built once, so it reflects the
     // arguments that will actually run.
-    Map<String, dynamic> executionView = asDeepUnmodifiable(executionInput);
+    final executionView = asDeepUnmodifiable(executionInput);
     final retryKey = tool is ProcessTool
         ? jsonEncode([
             use.name,
@@ -459,43 +457,8 @@ class ToolExecutor {
             throw const ToolValidationException(
                 'The approved sandbox retry also failed. Do not keep requesting approval; investigate the failure and report it to the user.');
           }
-          if (step <= recovery.step) {
-            throw const ToolValidationException(
-                'Inspect the sandbox failure and possible partial effects before submitting a retry in a subsequent step.');
-          }
-          retrySafety = requiredString(use.input, 'retrySafety').trim();
-          if (retrySafety.isEmpty ||
-              RegExp(r'[\x00-\x1f\x7f]').hasMatch(retrySafety)) {
-            throw const ToolValidationException(
-                'retrySafety must explain the partial-effects checks and why replay is safe, on one line.');
-          }
-          final requested = use.input['writablePaths'] ?? const [];
-          if (requested is! List ||
-              requested.any((path) => path is! String)) {
-            throw const ToolValidationException(
-                'writablePaths must be a list of directory paths.');
-          }
-          executionInput = {
-            ...executionInput,
-            'writablePaths': {
-              ...recovery.priorPaths,
-              ...recovery.failure.writablePaths,
-              ...requested
-            }.toList(),
-            'accessReason': optionalString(use.input, 'accessReason') ??
-                'Retry the failed command with access to the directory named in its read-only filesystem error.',
-          };
-          // The hook/observer view tracks the merged snapshot — still the
-          // one sealed snapshot's lineage, still built BEFORE the ask.
-          executionView = asDeepUnmodifiable(executionInput);
         }
         access = tool.requestAccess(executionInput);
-        // A retry is explicit even if another agent granted the directory
-        // while this agent was inspecting partial effects.
-        if (recovery != null) {
-          access ??= SandboxAccessRequest(recovery.failure.writablePaths,
-              executionInput['accessReason'] as String);
-        }
         if (access != null) {
           // An agent can confirm a masked failure and request access on the
           // underlying operation explicitly. Show its supplied assessment,
@@ -561,7 +524,7 @@ class ToolExecutor {
           preparedEdit: preparedEdit,
           execution: executionTool is ProcessTool ? executionTool.preparedRequest : null,
           sandboxAccess: access,
-          retryExplanation: recovery?.failure.explanation,
+          retryExplanation: recovery?.explanation,
           retrySafety: retrySafety);
       if (recovery != null) state.promptedSandboxRetries.add(retryKey!);
       resp = await asker(prompt);
@@ -583,12 +546,8 @@ class ToolExecutor {
       // one truth for the whole dispatch — nothing is re-read from the live
       // input after the approval wait. Re-snapshotting here let a caller
       // mutate its original map while the asker was pending and swap what a
-      // JUST-APPROVED call would execute (a probe got "approved" approved and
-      // ran "unapproved", past a deny rule covering it). The merged
-      // sandbox-retry snapshot was already re-derived from the recovery
-      // record + the sealed snapshot BEFORE the ask, so both branches of the
-      // old re-snapshot are simply gone: approval changes the DECISION, never
-      // the arguments.
+      // JUST-APPROVED call would execute. Approval changes the decision,
+      // never the sealed arguments, including for an outside-sandbox retry.
     }
     if (decision == PermissionDecision.deny) {
       if (recovery != null) state.deniedSandboxRetries.add(retryKey!);
@@ -702,7 +661,7 @@ class ToolExecutor {
         );
       }
 
-      final out = await _runWithExecutionHooks(
+      var out = await _runWithExecutionHooks(
         toolName: use.name,
         toolId: use.id,
         input: executionView,
@@ -719,18 +678,41 @@ class ToolExecutor {
           out.sandboxFailure != null &&
           !isCancelled() &&
           !state.toolInterrupted) {
-        state.sandboxFailures.putIfAbsent(
-            retryKey,
-            () => (
-                  failure: out.sandboxFailure!,
-                  step: step,
-                  priorPaths: List<String>.from(
-                      executionInput['writablePaths'] as List? ?? const [])
-                ));
-        sink.notice(
-            '${out.sandboxFailure!.explanation}\n'
-            'The agent must check partial effects before requesting approval to retry.\n',
-            kind: NoticeKind.warning);
+        final failure = out.sandboxFailure!;
+        state.sandboxFailures[retryKey] = failure;
+        state.promptedSandboxRetries.add(retryKey);
+        final prompt = PermissionPrompt(use.name, executionView,
+            execution: (executionTool as ProcessTool).preparedRequest,
+            outsideSandbox: true, retryExplanation: failure.explanation);
+        final response = await asker(prompt);
+        final blocked = runtimeBlock();
+        if (response.decision == PermissionDecision.allow &&
+            blocked == null && !isCancelled() && !state.toolInterrupted) {
+          // A separate user decision authorizes exactly one retry, never a
+          // remembered rule or a project-wide sandbox change. Reuse the sealed
+          // request and run the normal hooks and final dispatch guards again.
+          executionTool = executionTool.outsideSandbox();
+          sink.notice('  Retrying ${use.name} outside the sandbox (approved once).\n',
+              kind: NoticeKind.warning);
+          out = await _runWithExecutionHooks(
+            toolName: use.name, toolId: use.id, input: executionView,
+            isCancelled: () => isCancelled() || state.toolInterrupted,
+            delegate: () {
+              if (state.toolInterrupted) {
+                return Future.value(ToolResult.error('Retry cancelled before execution.'));
+              }
+              return dispatch();
+            },
+          );
+          if (!out.isError) state.sandboxFailures.remove(retryKey);
+        } else {
+          state.deniedSandboxRetries.add(retryKey);
+          state.deniedSandboxDirectories.addAll(failure.writablePaths);
+          out = ToolResult.error('${out.content}\n'
+              '${blocked ?? "Outside-sandbox retry denied or cancelled. The retry was not executed."}'
+              '${response.note == null ? "" : "\n${response.note}"}');
+          sink.notice('  Outside-sandbox retry denied or cancelled.\n');
+        }
       } else if (!out.isError &&
           retryKey != null &&
           (out is! BashToolResult || out.sandboxWarning == null)) {

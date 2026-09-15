@@ -11,14 +11,27 @@ class PermissionPrompt {
   final PreparedEdit? preparedEdit;
   final String? retryExplanation;
   final String? retrySafety;
+  /// Separate, once-only user authorization; never satisfied by command rules.
+  final bool outsideSandbox;
   const PermissionPrompt(this.toolName, this.input,
-      {this.sandboxAccess, this.retryExplanation, this.retrySafety, this.execution, this.preparedEdit});
+      {this.sandboxAccess, this.retryExplanation, this.retrySafety, this.execution, this.preparedEdit,
+      this.outsideSandbox = false});
 
   String get approvalRow => sandboxAccess == null
-      ? approvalPromptRow(alwaysPattern)
+      ? outsideSandbox
+          ? '  approve? [y] run outside sandbox once [d] deny › '
+          : approvalPromptRow(alwaysPattern)
       : '  approve? [y] once [a] session directories [n] deny › ';
 
   String get accessDescription {
+    if (outsideSandbox) {
+      return '  ${retryExplanation ?? "The sandbox blocked the command."}\n'
+          '  This command might touch files on the filesystem. '
+          'Are you definitely OK to run it outside the sandbox?\n'
+          '  It will have your user account’s filesystem and network access. '
+          'The first attempt may have made partial changes; retrying repeats the entire command.\n'
+          '  Approval applies to this retry only.\n';
+    }
     final access = sandboxAccess;
     if (access == null) return '';
     final retry = retryExplanation;

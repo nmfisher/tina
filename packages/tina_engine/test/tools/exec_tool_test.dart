@@ -233,7 +233,7 @@ void main() {
   }
 
   test(
-      'exec recovery requires assessment and a new explicit approval; denial stops retries',
+      'exec recovery asks immediately for outside approval; denial stops retries',
       () async {
     final temp = Directory.systemTemp.createTempSync('tina-exec-retry-');
     addTearDown(() => temp.deleteSync(recursive: true));
@@ -267,14 +267,15 @@ void main() {
         asker: (prompt) async {
           asks++;
           expect(prompt.retryExplanation, contains('${cache.path}/stamp'));
-          expect(prompt.retrySafety, retry['retrySafety']);
+          expect(prompt.outsideSandbox, isTrue);
+          expect(prompt.retrySafety, isNull);
           return PermissionResponse.denyOnce;
         }).run(history: history, userInput: 'run');
     expect(asks, 1);
     expect(inner.starts, hasLength(1));
     final results =
         history.expand((m) => m.content).whereType<ToolResultBlock>().toList();
-    expect(results[1].content, contains('retrySafety'));
+    expect(results[1].content, contains('user denied this sandbox retry'));
     expect(results.last.content, contains('user denied this sandbox retry'));
   });
 

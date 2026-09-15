@@ -101,13 +101,17 @@ there. It identifies only existing immediate parent directories (or the named
 directory itself), without guessing broader roots. Ordinary `Permission denied`
 and errors without a clear path retain investigation guidance.
 
-Before retrying, the agent must inspect possible partial effects and submit the
-same command/cwd with `retrySafety` describing those checks. A retry precomputed
-in the failed tool batch is rejected. Tina then shows the original failure,
-the agent’s assessment, and the precise directories in a fresh **once / session /
-deny** approval. Approval executes that submitted retry; failures are never
-replayed blindly. Denying the retry suppresses repeat requests for that command
-and cwd during the turn. A failed approved retry also stops the approval loop.
+Tina immediately presents a separate **run outside sandbox once / deny** prompt,
+without waiting for the model to inspect caches or submit another command. It
+shows the original failure and warns that the first attempt may have partially
+changed files and that the retry repeats the entire command. Approval runs the
+same frozen executable, arguments, cwd and environment with the host runner,
+outside filesystem and network confinement, as the current OS user. It does not
+provide root privileges. Denial, cancellation, or a change to read-all blocks the
+retry. Neither ordinary command approvals nor auto/yolo mode satisfy this separate
+approval. The decision is never remembered as an allow-always rule or a directory
+grant. Subsequent commands remain sandboxed. A failed approved retry does not
+start another approval loop; headless runs refuse this escalation.
 
 ## Known limitations
 

@@ -17,7 +17,7 @@ class ToolCallContext {
   final String toolId;
 
   /// The input the tool will actually execute with (after the executor's
-  /// sandbox-retry input merge, when one applied).
+  /// prepared execution snapshot, when one applied).
   ///
   /// A deeply UNMODIFIABLE view of the executor's private execution
   /// snapshot: a hook can read every argument, but a mutation attempt —

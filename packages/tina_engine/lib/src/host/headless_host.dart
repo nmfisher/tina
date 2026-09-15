@@ -57,6 +57,11 @@ class HeadlessHost with HostLifecycleAdapter implements HostInterface {
     const note = 'Non-interactive run: permission asks are auto-refused — '
         'rephrasing will not change this. Proceed without this tool or answer '
         'from what you have.';
+    if (p.outsideSandbox) {
+      _writeErr('${p.toolName}: ${p.key}\n${p.accessDescription}  refused\n');
+      return const PermissionResponse(PermissionDecision.deny,
+          note: '$note Running outside the sandbox requires explicit interactive approval.');
+    }
     if (p.sandboxAccess != null) {
       _writeErr('${p.toolName}: ${p.key}\n${p.accessDescription}'
           '  refused (configure TINA_SANDBOX_ALLOW before starting a headless run)\n');

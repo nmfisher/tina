@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:tina/pipeline/workflow_permission_asker.dart';
+import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
@@ -18,6 +19,41 @@ Future<void> _flush() async {
 }
 
 void main() {
+  for (final conversation in [false, true]) {
+    for (final (keys, decision) in [
+      ([0x79], PermissionDecision.allow),
+      ([0x64], PermissionDecision.deny),
+      ([0x61, 0x6e], PermissionDecision.deny),
+      ([0x1b, 0x5b, 0x42, 0x0d], PermissionDecision.deny),
+      ([0x03], PermissionDecision.deny),
+    ]) {
+      test('outside approval conversation=$conversation keys=$keys', () async {
+        final io = FakeStdio();
+        final screen = Screen(io: io, layout: ScreenLayout.fromSize(160, 30), ansi: AnsiCapable.yes);
+        final editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
+        final sink = FakeAgentSink();
+        final host = TuiConversationHost(conversationId: 'test',
+            chat: screen.chat, screen: screen, editor: editor,
+            spinner: Spinner(enabled: false, region: screen.status), primary: true);
+        host.setActive(true);
+        final workflow = WorkflowPermissionAsker(sink: sink, screen: screen, editor: editor);
+        final prompt = PermissionPrompt('bash', const {'command': 'dart test'},
+            outsideSandbox: true, retryExplanation: 'Read-only file system');
+        final pending = conversation ? host.askPermission(prompt) : workflow.ask(prompt);
+        await _flush();
+        final output = conversation ? io.written.toString() : sink.notices.map((n) => n.message).join();
+        expect(output, contains('definitely OK'));
+        expect(output, contains('run outside sandbox once'));
+        expect(output, isNot(contains('allow always')));
+        io.feedBytes(keys);
+        final result = await pending.timeout(const Duration(seconds: 2));
+        expect(result.decision, decision);
+        expect(result.remember, isFalse);
+        editor.close();
+      });
+    }
+  }
+
   for (final (key, decision, remember) in [
     (0x79, PermissionDecision.allow, false),
     (0x61, PermissionDecision.allow, true),

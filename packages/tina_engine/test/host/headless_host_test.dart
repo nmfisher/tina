@@ -5,6 +5,19 @@ import 'package:test/test.dart';
 
 void main() {
   group('HeadlessHost', () {
+    test('outside-sandbox retry is refused without recommending command rules', () async {
+      final err = StringBuffer();
+      final host = HeadlessHost(writeErr: err.write);
+      final response = await host.askPermission(const PermissionPrompt(
+          'bash', {'command': 'dart test'}, outsideSandbox: true));
+      expect(response.decision, PermissionDecision.deny);
+      expect(response.remember, isFalse);
+      expect(response.note, contains('explicit interactive approval'));
+      expect(err.toString(), contains('outside the sandbox'));
+      expect(err.toString(), isNot(contains('--yolo')));
+      expect(err.toString(), isNot(contains('--allow')));
+    });
+
     test('directory refusal points to startup grants, not command allow rules',
         () async {
       final err = StringBuffer();
