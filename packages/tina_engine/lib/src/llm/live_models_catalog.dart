@@ -65,7 +65,6 @@ class LiveModelsCatalog implements ModelCatalog {
   /// a too-small window would silently truncate long contexts, while a too-
   /// large one only risks a provider-side error the user can see and correct.
   static const _defaultContextWindow = 131072;
-  static const _defaultMaxOutput = 8192;
 
   /// Live model-id lists per provider id, in endpoint order. A provider is
   /// here only after a successful fetch/cache read.
@@ -252,7 +251,6 @@ class LiveModelsCatalog implements ModelCatalog {
         id: id,
         name: id,
         contextWindow: _defaultContextWindow,
-        maxOutput: _defaultMaxOutput,
       );
 
   @override

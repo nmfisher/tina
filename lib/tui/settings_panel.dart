@@ -725,6 +725,7 @@ class _ProvidersForm {
           apiKey: _keys[id],
           baseUrl: filteredBaseUrls[id],
           models: _mergedModels(id),
+          maxOutput: _existingProviders[id]?.maxOutput,
           // Explicit, never null: an empty set is the curated
           // "every model enabled" state, distinct from an absent key (=
           // never curated = all disabled). The config round-trip preserves

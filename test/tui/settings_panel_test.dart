@@ -268,7 +268,7 @@ void main() {
     // disable-by-default flip, both models start unchecked, and saving
     // without touching them writes the explicit all-disabled state.
     final initial = UserConfig(providers: {
-      'alpha': ProviderConfig(apiKey: 'ka'),
+      'alpha': ProviderConfig(apiKey: 'ka', maxOutput: 131072),
     });
     canned.events = [
       ControlKey(ControlCode.enter), // index → providers
@@ -282,6 +282,8 @@ void main() {
     final disabled = loaded.providers['alpha']?.disabledModels;
     expect(disabled, isNotNull, reason: 'the save must be explicit, not null');
     expect(disabled, {'a1', 'a2'});
+    expect(loaded.providers['alpha']?.maxOutput, 131072,
+        reason: 'curating models must preserve the endpoint ceiling');
   });
 
   test('providers: checking one model enables exactly that model', () async {

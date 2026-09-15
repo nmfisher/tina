@@ -4,6 +4,60 @@ import 'package:tina/composition/config_providers.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('configured pool cap reaches members and respects their own ceilings', () {
+    final received = <int>[];
+    final registry = ProviderRegistry(env: {});
+    for (final (id, limit) in [('a', 131072), ('b', 32768)]) {
+      registry.register(ProviderDescriptor(
+        id: id, name: id, authSources: const [],
+        defaultBaseUrl: 'https://example.test', maxOutputOverride: limit,
+        builder: (c) {
+          received.add(c.maxTokens);
+          return OpenAiCompatibleAdapter(apiKey: '', model: c.model);
+        },
+      ));
+    }
+    registerConfigProviders(registry, const UserConfig(providers: {
+      'pool': ProviderConfig(members: ['a/m', 'b/m'], maxOutput: 65536),
+    }), warn: (_) {});
+    final factory = RuntimeProviderFactory(registry);
+    final provider = factory.build('pool/m', maxTokens: 2000000);
+    addTearDown(provider.close);
+    expect(received, [65536, 32768]);
+  });
+
+  for (final id in ['zai', 'glm']) {
+    test('$id max_output replaces catalog limits without raising request cap', () {
+      final registry = builtinRegistry(env: {});
+      registerConfigProviders(registry, UserConfig(providers: {
+        id: ProviderConfig(
+          baseUrl: 'https://example.test',
+          maxOutput: 65536,
+          models: const [ProviderModelSpec(id: 'glm-5.2')],
+        ),
+      }));
+      for (final requested in [2000000, 16384]) {
+        final provider = registry.build('$id/glm-5.2', maxTokens: requested);
+        addTearDown(provider.close);
+        expect((provider as OpenAiCompatibleAdapter).maxTokens,
+            requested == 2000000 ? 65536 : requested);
+      }
+    });
+  }
+
+  test('declaring a model name retains its compiled capabilities and limits', () {
+    final registry = builtinRegistry(env: {});
+    registerConfigProviders(registry, const UserConfig(providers: {
+      'glm': ProviderConfig(models: [
+        ProviderModelSpec(id: 'glm-5.3-flash', name: 'Flash'),
+      ]),
+    }));
+    final info = registry.findModel('glm/glm-5.3-flash')!;
+    expect(info.name, 'Flash');
+    expect(info.maxOutput, 131072);
+    expect(info.supportsVision, isTrue);
+  });
+
   test('configured pool forwards effort to every member', () {
     final instances = <ProviderInstance>[];
     final registry = ProviderRegistry(env: {});
@@ -316,7 +370,7 @@ void main() {
       // Live-catalog defaults for undeclared metadata (mirrors
       // LiveModelsCatalog's synthetic shape).
       expect(two.contextWindow, 131072);
-      expect(two.maxOutput, 8192);
+      expect(two.maxOutput, isNull);
       // And the ref builds a servable provider with the bare wire id.
       final provider = registry.build('stub/stub-1', apiKeyOverride: '');
       expect(provider.model, 'stub-1');

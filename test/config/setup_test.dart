@@ -8,6 +8,14 @@ import '../helpers/overlay_fixtures.dart';
 /// Drives [runSetupWizard] with a canned prompt. The wizard's stdout narration
 /// is harmless; assertions are on the written config and the return value.
 void main() {
+  test('setup preserves an existing endpoint output ceiling', () {
+    final config = buildSetupConfig(
+      keys: {'zai': 'replacement'},
+      existingProviders: const {'zai': ProviderConfig(maxOutput: 131072)},
+    );
+    expect(config.providers['zai']!.maxOutput, 131072);
+  });
+
   final tmp = TempTinaDir();
   late List<String> answers;
   String? prompt(String _) => answers.isEmpty ? null : answers.removeAt(0);

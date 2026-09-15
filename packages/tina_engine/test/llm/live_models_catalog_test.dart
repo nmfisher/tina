@@ -87,7 +87,7 @@ void main() {
     // An unknown id gets the placeholder defaults.
     final fresh = models.singleWhere((m) => m.id == 'brand/new-model');
     expect(fresh.contextWindow, LiveModelsCatalogPlaceholder.context);
-    expect(fresh.maxOutput, LiveModelsCatalogPlaceholder.output);
+    expect(fresh.maxOutput, isNull);
 
     // findModel: a live id resolves, a compiled-but-unserved id does not.
     expect(c.findModel(d, compiled.id)?.name, 'Llama 3.3 70B');
@@ -265,5 +265,4 @@ class _StaticCatalog implements ModelCatalog {
 /// catalog uses, without duplicating them.
 abstract final class LiveModelsCatalogPlaceholder {
   static const context = 131072;
-  static const output = 8192;
 }

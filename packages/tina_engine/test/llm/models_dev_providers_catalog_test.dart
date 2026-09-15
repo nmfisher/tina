@@ -115,7 +115,7 @@ void main() {
       expect(k1.name, 'Kimi K1');
       // Missing `limit` → documented placeholders, never a dropped entry.
       expect(k1.contextWindow, modelsDevDefaultContextWindow);
-      expect(k1.maxOutput, modelsDevDefaultMaxOutput);
+      expect(k1.maxOutput, isNull);
 
       // No `api` recorded → apiBase stays null (the seed skips these).
       expect(catalog.providers['local-ish']!.apiBase, isNull);

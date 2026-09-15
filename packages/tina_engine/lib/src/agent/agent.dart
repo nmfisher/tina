@@ -940,7 +940,9 @@ class Agent {
                           : ' ($reasoningTokens reasoning tokens)')
                   : '') +
               '. The output cap includes reasoning and answer tokens; '
-                  '--max-output-tokens is also clamped to the model catalog ceiling. ' +
+                  'Raise --max-output-tokens if the endpoint supports more output. '
+                  'To correct a stale catalog ceiling, set max_output in '
+                  '[providers.<id>] to the endpoint\'s supported limit. ' +
               (diagnostics?.recoveryHint ??
                   'Split the task, switch models, or raise --max-output-tokens '
                       'if the model supports a larger output cap.');

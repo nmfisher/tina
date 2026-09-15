@@ -34,6 +34,7 @@ const _knownTopLevelKeys = {
 
 const _knownDefaultKeys = {'provider', 'model', 'workflow', 'reasoning_effort'};
 const _knownProviderKeys = {
+  'max_output',
   'api_key',
   'auth_token',
   'base_url',
@@ -142,6 +143,10 @@ class ProviderModelSpec {
 /// Per-provider overrides from a `[providers.<id>]` table in the user config.
 /// Null fields are ignored by [buildEnvOverlay].
 class ProviderConfig {
+  /// Authoritative endpoint output ceiling, replacing catalog metadata.
+  /// Does not raise the separately configured per-request maxTokens.
+  final int? maxOutput;
+
   /// `api_key` → `<PREFIX>_API_KEY` (e.g. `ANTHROPIC_API_KEY`, x-api-key).
   final String? apiKey;
 
@@ -209,6 +214,7 @@ class ProviderConfig {
   final List<ProviderModelSpec>? models;
 
   const ProviderConfig({
+    this.maxOutput,
     this.apiKey,
     this.authToken,
     this.baseUrl,
@@ -221,6 +227,11 @@ class ProviderConfig {
   });
 
   factory ProviderConfig.fromMap(Map<String, dynamic> m) {
+    final maxOutput = m['max_output'];
+    if (maxOutput != null && (maxOutput is! int || maxOutput <= 0)) {
+      throw const FormatException(
+          'providers.<id>.max_output must be a positive integer');
+    }
     Set<String>? disabled;
     final raw = m['disabled_models'];
     if (raw is List) {
@@ -247,6 +258,7 @@ class ProviderConfig {
       if (l.isNotEmpty) models = l;
     }
     return ProviderConfig(
+      maxOutput: maxOutput as int?,
       apiKey: m['api_key'] as String?,
       authToken: m['auth_token'] as String?,
       baseUrl: m['base_url'] as String?,
@@ -268,6 +280,7 @@ class ProviderConfig {
   @override
   bool operator ==(Object other) =>
       other is ProviderConfig &&
+      maxOutput == other.maxOutput &&
       apiKey == other.apiKey &&
       authToken == other.authToken &&
       baseUrl == other.baseUrl &&
@@ -280,6 +293,7 @@ class ProviderConfig {
 
   @override
   int get hashCode => Object.hash(
+    maxOutput,
     apiKey,
     authToken,
     baseUrl,
@@ -807,6 +821,7 @@ String userConfigToToml(UserConfig config) {
             if (e.value.baseUrl != null) 'base_url': e.value.baseUrl,
             if (e.value.wire != null) 'wire': e.value.wire,
             if (e.value.name != null) 'name': e.value.name,
+            if (e.value.maxOutput != null) 'max_output': e.value.maxOutput,
             // An EMPTY disabled_models is meaningful: it is the explicit
             // "every model enabled" state, distinct from an absent key (=
             // never curated = every model disabled by default). Like
@@ -959,6 +974,8 @@ api_key = "sk-ant-..."
 # base_url   = "https://api.z.ai/api/coding/paas/v4"
 # auth_token = "<z.ai key>"
 # wire       = "openai"
+# max_output = 131072  # Optional endpoint ceiling; overrides catalog metadata.
+# # Request up to that ceiling with --max-output-tokens 131072.
 # # Set [default] provider = "zai", model = "glm-5.3-flash", and optionally
 # # reasoning_effort = "high" (GLM-5.3/Flash: low, high, max).
 #

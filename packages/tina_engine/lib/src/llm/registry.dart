@@ -38,7 +38,10 @@ class ModelInfo {
   final String id; // wire-format model ID
   final String name; // "Claude Sonnet 4"
   final int contextWindow;
-  final int maxOutput;
+
+  /// Verified output ceiling, or null when the source only lists the model ID.
+  /// An unknown limit must never constrain the configured request cap.
+  final int? maxOutput;
   final bool supportsTools;
   final bool supportsVision;
   final bool supportsCaching;
@@ -53,7 +56,7 @@ class ModelInfo {
     required this.id,
     required this.name,
     required this.contextWindow,
-    required this.maxOutput,
+    this.maxOutput,
     this.supportsTools = true,
     this.supportsVision = false,
     this.supportsCaching = false,
@@ -171,6 +174,10 @@ class ProviderDescriptor {
   /// always wins over this hint.
   final int? requestsPerMinute;
 
+  /// User-declared endpoint output ceiling; takes precedence over catalogs.
+  /// The request's maxTokens can still choose a smaller cap.
+  final int? maxOutputOverride;
+
   const ProviderDescriptor({
     required this.id,
     required this.name,
@@ -180,6 +187,7 @@ class ProviderDescriptor {
     this.models = const {},
     this.listsRemoteModels = false,
     this.requestsPerMinute,
+    this.maxOutputOverride,
   });
 }
 
@@ -553,11 +561,14 @@ class ProviderRegistry implements LlmProviderFactory {
     // provider with no endpoint and no key, serializing the whole pool
     // through one slot: the opposite of pooling.
     if (_poolIds.contains(resolved.descriptor.id)) {
+      final outputLimit = resolved.descriptor.maxOutputOverride;
       final pool = resolved.descriptor.builder(ProviderInstance(
         apiKey: '',
         model: resolved.modelId,
         baseUrl: resolved.descriptor.defaultBaseUrl,
-        maxTokens: maxTokens ?? defaultMaxTokens,
+        maxTokens: outputLimit == null
+            ? maxTokens ?? defaultMaxTokens
+            : min(maxTokens ?? defaultMaxTokens, outputLimit),
         reasoningEffort: reasoningEffort,
         streamIdleTimeout: streamIdleTimeout ?? defaultStreamIdleTimeout,
         requestTimeout: requestTimeout ?? defaultRequestTimeout,
@@ -672,9 +683,12 @@ class ProviderRegistry implements LlmProviderFactory {
     final catalogModel =
         catalog?.findModel(desc, resolved.modelId) ?? desc.models[resolved.modelId];
     final configuredMax = maxTokens ?? defaultMaxTokens;
-    final effectiveMaxTokens = catalogModel == null
+    final outputLimit = desc.maxOutputOverride ??
+        catalogModel?.maxOutput ??
+        desc.models[resolved.modelId]?.maxOutput;
+    final effectiveMaxTokens = outputLimit == null
         ? configuredMax
-        : min(configuredMax, catalogModel.maxOutput);
+        : min(configuredMax, outputLimit);
     final endpoint = baseUrlOverride ?? desc.defaultBaseUrl;
     final built = desc.builder(ProviderInstance(
       apiKey: apiKey,

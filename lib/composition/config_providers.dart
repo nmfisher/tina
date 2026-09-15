@@ -84,7 +84,8 @@ void registerConfigProviders(
     // predates (a renamed upstream model, a private deployment) must reach
     // the pickers the same way they do for custom-wire providers.
     if (wire == null) {
-      if (pc.models != null && pc.models!.isNotEmpty && existing != null) {
+      if (existing != null &&
+          ((pc.models?.isNotEmpty ?? false) || pc.maxOutput != null)) {
         registry.register(ProviderDescriptor(
           id: existing.id,
           name: existing.name,
@@ -94,6 +95,7 @@ void registerConfigProviders(
           models: _configModels(id, pc, existing.models),
           listsRemoteModels: existing.listsRemoteModels,
           requestsPerMinute: existing.requestsPerMinute,
+          maxOutputOverride: pc.maxOutput ?? existing.maxOutputOverride,
         ));
       }
       continue;
@@ -120,18 +122,23 @@ void registerConfigProviders(
 /// REPLACES a same-id compiled entry, so the user's display name wins over
 /// the compiled metadata.
 ///
-/// Declared ids get the live-catalog defaults (128k context / 8k output) —
+/// Declared ids get the live-catalog defaults (128k context / unknown output) —
 /// the same shape [LiveModelsCatalog] synthesizes for ids it discovers from
 /// a remote `GET /v1/models`.
 Map<String, ModelInfo> _configModels(
     String id, ProviderConfig pc, Map<String, ModelInfo> base) {
   final catalog = Map<String, ModelInfo>.of(base);
   for (final spec in (pc.models ?? const <ProviderModelSpec>[])) {
+    final previous = base[spec.id];
     catalog[spec.id] = ModelInfo(
       id: spec.id,
       name: spec.name ?? spec.id,
-      contextWindow: 131072,
-      maxOutput: 8192,
+      contextWindow: previous?.contextWindow ?? 131072,
+      maxOutput: previous?.maxOutput,
+      supportsTools: previous?.supportsTools ?? true,
+      supportsVision: previous?.supportsVision ?? false,
+      supportsCaching: previous?.supportsCaching ?? false,
+      extraBody: previous?.extraBody ?? const {},
     );
   }
   return catalog;
@@ -237,6 +244,7 @@ void _registerPool(ProviderRegistry registry, String id, ProviderConfig pc,
       );
     },
     models: catalog,
+    maxOutputOverride: pc.maxOutput,
   ));
 }
 
@@ -296,6 +304,7 @@ void _registerCustom(
     defaultBaseUrl: baseUrl ?? existing?.defaultBaseUrl ?? '',
     builder: builder,
     models: catalog,
+    maxOutputOverride: pc.maxOutput,
   ));
 }
 

@@ -40,8 +40,11 @@ Split the task or switch models if that happens.
 `--max-output-tokens` caps one response's output, including reasoning and answer
 tokens. `--max-tokens` remains a compatibility alias; if both are provided, the
 last value wins. The default remains 32,768 tokens.
-Tina clamps it to the catalog's output ceiling when one is known. Requesting
-200k therefore does not necessarily send a 200k cap. The per-turn spend limit
+Tina clamps it to the catalog's output ceiling when one is known. A model listed
+without an output limit has an unknown ceiling; Tina uses the requested cap
+without inventing an 8,192-token limit. Requesting 200k therefore sends 200k for
+an unknown model, but can send less for a model with a known ceiling.
+The per-turn spend limit
 (`--max-turn-tokens`) is a separate guard over repeated requests and their input
 and output tokens; increasing it does not increase a response's output cap.
 
@@ -80,7 +83,22 @@ reasoning_effort = "high"
 base_url = "https://api.z.ai/api/coding/paas/v4"
 auth_token = "<z.ai key>"
 wire = "openai"
+max_output = 131072
 ```
+
+`max_output` is an optional positive integer in a provider table. It replaces
+catalog output ceilings for that provider, including stale discovery metadata.
+It does not raise the request cap: use `--max-output-tokens 131072` to request
+that much output. A smaller request cap still wins. For a pool, `max_output`
+limits requests to its members; each member still applies its own endpoint
+ceiling. Configure a stale member's ceiling on that member's provider table.
+
+The built-in GLM-5.3 and GLM-5.3-Flash entries use the documented 128K (131,072)
+output ceiling ([GLM-5.3](https://docs.z.ai/guides/llm/glm-5.3),
+[Flash](https://docs.z.ai/guides/llm/glm-5.3-flash)). An arbitrary custom provider
+ID does not inherit another endpoint's limits just because the model name matches.
+The endpoint must support the limit you declare. Reasoning and the answer still
+share the upstream output cap; effort does not reserve a separate answer budget.
 
 The general `/api/paas/v4` endpoint uses separate account resources; Coding Plan
 access does not imply an available balance there. Existing `wire = "anthropic"`

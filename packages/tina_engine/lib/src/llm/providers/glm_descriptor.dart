@@ -25,5 +25,13 @@ final ProviderDescriptor glmDescriptor = ProviderDescriptor(
         supportsVision: true),
     'glm-5.2': ModelInfo(
         id: 'glm-5.2', name: 'GLM-5.2', contextWindow: 131072, maxOutput: 8192),
+    // https://docs.z.ai/guides/llm/glm-5.3
+    // https://docs.z.ai/guides/llm/glm-5.3-flash (verified 2026-09-15).
+    'glm-5.3': ModelInfo(
+        id: 'glm-5.3', name: 'GLM-5.3', contextWindow: 1000000,
+        maxOutput: 131072),
+    'glm-5.3-flash': ModelInfo(
+        id: 'glm-5.3-flash', name: 'GLM-5.3-Flash', contextWindow: 1000000,
+        maxOutput: 131072, supportsVision: true),
   },
 );

@@ -60,6 +60,7 @@ UserConfig buildSetupConfig({
           authToken: existingProviders?[id]?.authToken,
           wire: existingProviders?[id]?.wire,
           name: existingProviders?[id]?.name,
+          maxOutput: existingProviders?[id]?.maxOutput,
           models: existingProviders?[id]?.models,
           disabledModels: disabledModels?[id],
         ),

@@ -7,6 +7,24 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  test('provider max_output round-trips and rejects invalid values', () {
+    final tmp = Directory.systemTemp.createTempSync('tina-output-limit-');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final config = UserConfig.fromMap({
+      'providers': {'zai': {'max_output': 131072}},
+    });
+    expect(config.providers['zai']!.maxOutput, 131072);
+    writeUserConfig(config, env: const {}, tinaDir: tmp);
+    final loaded = loadUserConfig(env: const {}, tinaDir: tmp);
+    expect(loaded.providers['zai'], config.providers['zai']);
+    expect(const ProviderConfig(maxOutput: 131072),
+        isNot(const ProviderConfig(maxOutput: 8192)));
+    for (final invalid in [0, -1, 1.5, '131072', true]) {
+      expect(() => ProviderConfig.fromMap({'max_output': invalid}),
+          throwsFormatException);
+    }
+  });
+
   group('UserConfig.fromMap', () {
     test('parses default and providers tables', () {
       final c = UserConfig.fromMap({
