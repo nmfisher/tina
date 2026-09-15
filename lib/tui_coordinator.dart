@@ -208,6 +208,16 @@ class TuiCoordinator {
   StreamSubscription<ProcessSignal>? _sigintSub;
   StreamSubscription<ProcessSignal>? _sigwinchSub;
 
+  /// Last-resort exit deadline: once teardown/quit begins, SIGINTs no longer
+  /// inject into the editor (the input pipeline may be gone or wedged); a
+  /// further SIGINT within [Duration] force-exits. Also counts rapid SIGINTs
+  /// BEFORE quit begins (3 within the window) as a wedged-UI escape hatch.
+  DateTime? _lastSigint;
+  int _sigintCount = 0;
+  DateTime? _exitStarted;
+  static const _sigintEscalationWindow = Duration(seconds: 2);
+  static const _sigintEscalationCount = 3;
+
   TuiCoordinator._({
     required this.app,
     required this.terminal,
@@ -2246,6 +2256,11 @@ class TuiCoordinator {
           (display: 'Exit', value: TmuxExitChoice.exit),
           (display: 'Cancel', value: TmuxExitChoice.cancel),
         ];
+        // Ctrl+C at this prompt must MEAN exit: the user pressed Ctrl+C to
+        // quit, the dialog asked a follow-up, and mapping a second Ctrl+C to
+        // the dialog's "cancel" (stay running) trapped them — mashing
+        // Ctrl+C kept the app alive. Everything else (Esc, arrows, Enter)
+        // keeps the overlay's own semantics.
         final choice = await runListOverlay<TmuxExitChoice>(
           screen: screen,
           editor: editor,
@@ -2259,6 +2274,7 @@ class TuiCoordinator {
               ? 'Detach keeps the agent running; reattach with tmux later.'
               : 'Detach keeps the agent running; reattach with `$attach`.\n'
                     'Exit stops it (session saved, lock released).',
+          onCtrlC: () => TmuxExitChoice.exit,
         );
         if (choice != null) return choice;
         // Esc = cancel (stay).
@@ -2327,6 +2343,27 @@ class TuiCoordinator {
 
   Future<RunOutcome> run({bool setupMode = false}) async {
     _sigintSub = ProcessSignal.sigint.watch().listen((_) {
+      // Once quit has begun, don't inject: the editor's input pipeline may be
+      // mid-teardown (or its render loop wedged), and injecting then can
+      // throw or be silently lost — exactly when the user is pressing again
+      // because nothing happened. Escalate to a hard exit instead.
+      if (_exitStarted != null) {
+        _forceExit('SIGINT after quit began');
+      }
+      // Escape hatch for a wedged UI before quit begins: 3 SIGINTs within
+      // the window means injection is being swallowed (e.g. the render loop
+      // is stalled), so exit directly rather than a fourth time.
+      final now = DateTime.now();
+      if (_lastSigint != null &&
+          now.difference(_lastSigint!) <= _sigintEscalationWindow) {
+        _sigintCount++;
+      } else {
+        _sigintCount = 1;
+      }
+      _lastSigint = now;
+      if (_sigintCount >= _sigintEscalationCount) {
+        _forceExit('3 SIGINTs within ${_sigintEscalationWindow.inSeconds}s');
+      }
       // Delegate to the line editor so it can clear the buffer or confirm quit.
       editor.inject(ControlKey(ControlCode.ctrlC));
     });
@@ -2497,10 +2534,35 @@ class TuiCoordinator {
   /// Capture exit state, close the store, leave the alt screen, print the resume
   /// hint, and tear down the editor + signal subs. Shared by the normal exit
   /// path and the setup-mode early return.
+  /// Last-resort exit: restore the terminal best-effort (never throws —
+  /// anything it hits is printed after the process would otherwise have
+  /// died), then exit with the classic SIGINT status. Used when SIGINTs
+  /// arrive after quit began or rapid-fire before it, i.e. when the normal
+  /// editor-driven quit path is wedged or already unwinding.
+  Never _forceExit(String reason) {
+    try {
+      stdin.echoMode = true;
+      stdin.lineMode = true;
+    } catch (_) {}
+    try {
+      screen.leaveAltScreen();
+    } catch (_) {}
+    stderr.writeln('tina: forced exit ($reason)');
+    exit(130);
+  }
+
   Future<void> _teardownAndHint() async {
+    _exitStarted ??= DateTime.now();
     final ctx = _captureExitContext();
     try {
       await _teardownUi();
+      // Fire (don't await) the session/turn/agent shutdown now that the
+      // terminal is already restored. On the normal REPL exit path
+      // SessionController.run()'s own `finally await shutdown()` has already
+      // memoized and completed this future, so this is a no-op there; on a
+      // quit during a live turn it keeps the exit path from blocking on the
+      // drain (the pre-fix order awaited it ahead of the terminal restore).
+      unawaited(controller.shutdown().catchError((Object _) {}));
       final hint = resumeHintText(ctx, tmuxAttach: _tmux?.attachLine ?? '');
       if (hint.isNotEmpty) stdout.writeln(hint);
     } finally {
@@ -2534,6 +2596,15 @@ class TuiCoordinator {
   /// the normal scrollback and is safe to write to — so any post-exit output
   /// (e.g. the resume hint) belongs in the seam between this and [_teardownEditor].
   Future<void> _teardownUi() async {
+    // Shutdown of live work must NEVER gate the exit path: ScopeResources
+    // runs cleanups in reverse registration order, and registering
+    // controller.shutdown here made it run FIRST — ahead of the terminal
+    // restore — so a quit during a live (or hung) LLM stream froze the UI on
+    // the drain until the model responded. The terminal and editor are torn
+    // down in the ordered chain below; the session/agent shutdown is fired
+    // afterwards, unawaited, from [_teardownAndHint]. Process exit is still
+    // guaranteed by bin/tina.dart's `finally { ... exit(exitCode) }`, which
+    // reaps children and closes the session lock regardless.
     final resources = RuntimeResources()
       ..own(() {
         try {
@@ -2557,8 +2628,7 @@ class TuiCoordinator {
       ..own(() => editor.close(reportLatency: false))
       ..own(editor.disposeInput)
       ..own(() => app.pipeline.imageRenderer.coordinate(null))
-      ..own(subAgentScheduler.dispose)
-      ..own(controller.shutdown);
+      ..own(() => unawaited(subAgentScheduler.dispose()));
     await resources.dispose();
   }
 

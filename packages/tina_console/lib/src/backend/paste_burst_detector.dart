@@ -72,6 +72,22 @@ class PasteBurstDetector {
   /// burst that has stopped forming is flushed after [joinWindow] elapses —
   /// otherwise the last burst's events sit buffered until the next keypress.
   List<InputEvent> add(InputEvent event, int nowMicros) {
+    // Quit/cancel keys are latency-critical and must NEVER join a burst: a
+    // Ctrl+C folded into a paste-sized burst was dropped by _pasteText (or
+    // sat buffered for the join window), leaving the user with no exit while
+    // input was coalescing. Flush whatever burst is forming, then emit the
+    // key immediately — Ctrl+D (EOF/exit) rides the same path.
+    if (event is ControlKey &&
+        (event.code == ControlCode.ctrlC || event.code == ControlCode.ctrlD)) {
+      if (_pending.isEmpty) return [event];
+      onAudit?.call(
+        'detector urgent-flush (ctrl key): pending=${_pending.length} '
+        'burstChars=$_burstChars',
+      );
+      final drained = _drain('urgent');
+      drained.add(event);
+      return drained;
+    }
     final emitted = <InputEvent>[];
     if (_pending.isNotEmpty) {
       final last = _pending.last;

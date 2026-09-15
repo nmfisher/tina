@@ -1188,6 +1188,12 @@ class LineEditor {
   // -- Queue mode ---------------------------------------------------------
 
   void _handleQueueEvent(InputEvent event) {
+    // Any input other than Ctrl+C dismisses an armed quit-confirm, mirroring
+    // the prompt's dispatch behavior (the dialog must not linger and turn a
+    // later keystroke into a surprise exit once readLine re-arms).
+    if (event is! ControlKey || event.code != ControlCode.ctrlC) {
+      _dialog.dismiss();
+    }
     switch (event) {
       case ScrollEvent():
         return; // the wheel never drives queue/command history.
@@ -1216,9 +1222,26 @@ class LineEditor {
               _qCursor--;
             }
             _renderQueueDisplay();
+          case ControlCode.ctrlC:
+            // Queue mode's quit path: the first Ctrl+C cancels the running
+            // turn AND arms the same "Ctrl+C again to exit" confirm the idle
+            // prompt uses; the second completes the quit (a no-op while no
+            // readLine is armed — the armed dialog survives until it is, so
+            // the next press there exits immediately). Pre-fix, queue mode
+            // had no exit at all: Ctrl+C fired the cancel handler and the
+            // user was trapped until the turn unwound on its own.
+            _cancelHandler!();
+            if (_qBuf.isNotEmpty) {
+              _qBuf = '';
+              _qCursor = 0;
+              _renderQueueDisplay();
+            } else if (_dialog.trigger()) {
+              _complete(null);
+            } else {
+              _renderQueueDisplay();
+            }
           case ControlCode.tab:
           case ControlCode.ctrlL:
-          case ControlCode.ctrlC:
           case ControlCode.ctrlD:
           case ControlCode.ctrlW:
           case ControlCode.ctrlG:

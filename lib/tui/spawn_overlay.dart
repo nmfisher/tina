@@ -195,6 +195,13 @@ Future<T?> runListOverlay<T>({
   Future<InputEvent> Function()? readEvent,
   String? accent, // SGR border color; non-null ⇒ the frame is colorized cyan
   String? body, // optional explanatory text rendered inside the box, above the entries
+
+  /// What a Ctrl+C at this picker means. Null (default) keeps the long-pinned
+  /// behavior: Ctrl+C cancels, returning null. When set, Ctrl+C returns the
+  /// given value instead — the exit dialog uses this so mashing Ctrl+C can't
+  /// trap the user in the very prompt that appeared because they tried to
+  /// quit (Ctrl+C → "Exit or detach?" → Ctrl+C used to mean "cancel/stay").
+  T Function()? onCtrlC,
 }) {
   final footerFn = footer is String Function(int)
       ? footer
@@ -207,6 +214,7 @@ Future<T?> runListOverlay<T>({
     readEvent ?? editor.readKey,
     accent,
     body,
+    onCtrlC,
   ).run();
 }
 
@@ -219,6 +227,7 @@ class _ListPickerForm<T> {
     this._readEvent,
     this._accent,
     this._bodyText,
+    this._onCtrlC,
   );
 
   final Screen _screen;
@@ -228,6 +237,7 @@ class _ListPickerForm<T> {
   final Future<InputEvent> Function() _readEvent;
   final String? _accent;
   final String? _bodyText;
+  final T Function()? _onCtrlC;
 
   late final OverlayRegion _overlay;
   late Rect _rect;
@@ -301,6 +311,11 @@ class _ListPickerForm<T> {
         final ev = await _readEvent();
         if (ev is EscapeKey ||
             (ev is ControlKey && ev.code == ControlCode.ctrlC)) {
+          // A set [onCtrlC] makes Ctrl+C a real answer (e.g. Exit) rather
+          // than the generic cancel; Esc stays cancel either way.
+          if (ev is ControlKey && _onCtrlC != null) {
+            return _onCtrlC();
+          }
           return null;
         }
         _layout();
