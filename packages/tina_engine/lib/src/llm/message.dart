@@ -95,8 +95,9 @@ class ReasoningBlock {
 
   Map<String, dynamic> toJson() => {'text': text, 'complete': complete};
 
-  factory ReasoningBlock.fromJson(Map<String, dynamic> json) => ReasoningBlock(
-      json['text'] as String, complete: json['complete'] as bool? ?? true);
+  factory ReasoningBlock.fromJson(Map<String, dynamic> json) =>
+      ReasoningBlock(json['text'] as String,
+          complete: json['complete'] as bool? ?? true);
 }
 
 class Message {
@@ -126,8 +127,68 @@ class Message {
                 ContentBlock.fromJson(Map<String, dynamic>.from(b as Map)))
             .toList(),
         reasoning: (j['reasoning'] as List? ?? const [])
-            .map((b) => ReasoningBlock.fromJson(
-                Map<String, dynamic>.from(b as Map)))
+            .map((b) =>
+                ReasoningBlock.fromJson(Map<String, dynamic>.from(b as Map)))
             .toList(),
       );
+}
+
+/// Journal writes save tool results individually, while provider history keeps
+/// all results of an assistant's batch in one user message.
+List<Message> coalesceToolResults(List<Message> messages) {
+  bool isResults(Message m) =>
+      m.role == Role.user &&
+      m.reasoning.isEmpty &&
+      m.content.isNotEmpty &&
+      m.content.every((b) => b is ToolResultBlock);
+  final out = <Message>[];
+  for (final m in messages) {
+    if (out.isNotEmpty && isResults(out.last) && isResults(m)) {
+      out[out.length - 1] = Message(
+          role: Role.user, content: [...out.last.content, ...m.content]);
+    } else {
+      out.add(m);
+    }
+  }
+  return out;
+}
+
+/// A stopped process may have executed a call without saving its result. Fill
+/// missing results before the next user turn so providers receive valid tool
+/// exchanges, without claiming the command failed or automatically replaying it.
+bool recoverInterruptedToolCalls(List<Message> history) {
+  var changed = false;
+  for (var i = 0; i < history.length; i++) {
+    final m = history[i];
+    if (m.role != Role.assistant) continue;
+    final calls = m.content.whereType<ToolUseBlock>().toList();
+    if (calls.isEmpty) continue;
+    final next = i + 1 < history.length ? history[i + 1] : null;
+    final hasResults = next != null &&
+        next.role == Role.user &&
+        next.content.isNotEmpty &&
+        next.content.every((b) => b is ToolResultBlock);
+    final results = hasResults ? next.content : const <ContentBlock>[];
+    final ids =
+        results.whereType<ToolResultBlock>().map((b) => b.toolUseId).toSet();
+    final missing = calls.where((call) => !ids.contains(call.id)).toList();
+    if (missing.isEmpty) continue;
+    final repaired = Message(role: Role.user, content: [
+      ...results,
+      for (final call in missing)
+        ToolResultBlock(
+            toolUseId: call.id,
+            isError: true,
+            content: 'No result was recorded before this turn stopped. '
+                'Execution status is unknown; this call may have changed files '
+                'or external state. Check its effects before considering a retry.'),
+    ]);
+    if (hasResults) {
+      history[i + 1] = repaired;
+    } else {
+      history.insert(i + 1, repaired);
+    }
+    changed = true;
+  }
+  return changed;
 }

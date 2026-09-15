@@ -264,7 +264,9 @@ class Agent {
 
   /// Write-through seam (#25): fired and AWAITED after every message is
   /// appended to [history] — the turn's user message, each assistant
-  /// completion, each tool-result batch. Awaiting keeps the ordering
+  /// completion, each completed tool result. Result fragments are coalesced
+  /// into one batch in memory and on loading a persisted transcript. Awaiting
+  /// keeps the ordering
   /// guarantee a fire-and-forget write cannot: when [run] returns, every
   /// observer for this turn has finished (or failed and been logged), so
   /// teardown can close the store without racing the last write. A throw is
@@ -516,6 +518,10 @@ class Agent {
     // turn that edits nothing is exactly the state the advisory exists for.
     _checkpointAdvisoryFired = false;
     turnTouchedCheckpoint = false;
+    if (recoverInterruptedToolCalls(history)) {
+      final pending = _notifyReplace(history);
+      if (pending != null) await pending;
+    }
     final userMessage =
         Message(role: Role.user, content: [TextBlock(userInput)]);
     history.add(userMessage);
@@ -1011,6 +1017,11 @@ class Agent {
       }
 
       final results = <ContentBlock>[];
+      history.add(Message(role: Role.user, content: results));
+      Future<void>? recordResult(ToolResultBlock result) {
+        results.add(result);
+        return _notifyAppend(Message(role: Role.user, content: [result]));
+      }
       // Operator interrupt (#31), batch-scope attribution. The signal is
       // sampled when the batch STARTS and again right after every call:
       //
@@ -1039,25 +1050,33 @@ class Agent {
         // action-limit check, toolCalls++ — as do the batch-scope
         // attribution above, the post-batch stamp, and the early return
         // below.
-        if (cancelled) break;
+        if (cancelled || toolCalls >= kMaxToolCallsPerRun) {
+          if (!cancelled && abortedKind != AbortedKind.steps) {
+            sink.notice('\n[action limit] reached, stopping\n',
+                kind: NoticeKind.warning);
+            abortedReason = 'action limit reached, stopping';
+            abortedKind = AbortedKind.steps;
+          }
+          final pending = recordResult(ToolResultBlock(
+            toolUseId: use.id, isError: true,
+            content: cancelled ? 'Not executed: turn cancelled.'
+                : 'Not executed: action limit reached.',
+          ));
+          if (pending != null) await pending;
+          continue;
+        }
         final callIndex = results.length;
         if (interruptedCallIndex >= 0 && callIndex > interruptedCallIndex) {
           // Whole-batch invariant: every tool_use still gets its
           // tool_result. Later calls of the batch stub as errors without
           // executing.
-          results.add(ToolResultBlock(
+          final pending = recordResult(ToolResultBlock(
             toolUseId: use.id,
             content: kOperatorInterruptedStub,
             isError: true,
           ));
+          if (pending != null) await pending;
           continue;
-        }
-        if (toolCalls >= kMaxToolCallsPerRun) {
-          sink.notice('\n[action limit] reached, stopping\n',
-              kind: NoticeKind.warning);
-          abortedReason = 'action limit reached, stopping';
-          abortedKind = AbortedKind.steps;
-          return;
         }
         toolCalls++;
         // tin-cmpt: a call to a mutable tool means this turn has left (or is
@@ -1075,35 +1094,18 @@ class Agent {
           step: step,
           isCancelled: () => cancelled,
         );
-        results.add(outcome.result);
         if (outcome.interruptedInFlight) interruptedCallIndex = callIndex;
+        final result = outcome.result;
+        final pending = recordResult(interruptedCallIndex == callIndex
+            ? ToolResultBlock(
+                toolUseId: result.toolUseId,
+                content: '$kOperatorInterruptedLine\n${result.content}',
+                isError: result.isError,
+              )
+            : result);
+        // Save each result before another approval/tool can block the batch.
+        if (pending != null) await pending;
       }
-      // Operator interrupt (#31), in-flight stamp — ONE site so the line
-      // lands no matter which path produced that call's result (normal
-      // return, thrown-tool catch, malformed-arguments, denied). The
-      // in-flight call keeps its own result under the operator line and its
-      // own isError; the batch is otherwise untouched. toolComplete for the
-      // in-flight call already shipped above (the stamp never reaches
-      // observers retroactively — history and the live strip can disagree
-      // for this one call by design: the strip saw it happen live).
-      if (interruptedCallIndex >= 0 &&
-          interruptedCallIndex < results.length &&
-          results[interruptedCallIndex] is ToolResultBlock) {
-        final first = results[interruptedCallIndex] as ToolResultBlock;
-        results[interruptedCallIndex] = ToolResultBlock(
-          toolUseId: first.toolUseId,
-          content: '$kOperatorInterruptedLine\n${first.content}',
-          isError: first.isError,
-        );
-      }
-
-      final toolResults = Message(role: Role.user, content: results);
-      history.add(toolResults);
-      // Written-through immediately: a kill after the tools ran but before the
-      // next completion would otherwise lose the results while the on-disk
-      // assistant message already references them (a dangling tool_use).
-      final pendingResults = _notifyAppend(toolResults);
-      if (pendingResults != null) await pendingResults;
 
       if (cancelled) {
         reportCancellation();
@@ -1115,7 +1117,7 @@ class Agent {
       // CLEANLY: return from [run] normally — no `[cancelled]` notice, no
       // abort, abortedKind stays none. The next provider step is never
       // taken; the queued operator input starts a fresh turn.
-      if (interruptedCallIndex >= 0) return;
+      if (interruptedCallIndex >= 0 || abortedKind == AbortedKind.steps) return;
     }
 
     sink.notice('(max steps reached)\n', kind: NoticeKind.warning);

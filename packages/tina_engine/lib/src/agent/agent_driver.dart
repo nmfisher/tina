@@ -42,6 +42,11 @@ abstract class AgentDriver {
   /// stream and exits the turn cleanly. [toolInterruptSignal] and [turnTools]
   /// forward verbatim to the underlying loop (see [Agent.run]).
   ///
+  /// Per-run history observers belong to the caller's recorder. Implementations
+  /// must await them as progress occurs, including each completed tool result,
+  /// before starting the next call. Consecutive tool-result fragments represent
+  /// one batch; stores coalesce them on load. Replacement reports compaction.
+  ///
   /// Returning means the turn is recorded (the write-through persistence
   /// guarantee above); awaiting this Future is the join.
   Future<void> run({
@@ -50,6 +55,8 @@ abstract class AgentDriver {
     Future<void>? cancelSignal,
     Future<void>? toolInterruptSignal,
     ToolRegistry? turnTools,
+    HistoryAppendObserver? onHistoryAppend,
+    HistoryReplaceObserver? onHistoryReplace,
   });
 
   /// Why the last turn stopped abnormally — a budget trip, a provider/API
@@ -110,14 +117,42 @@ class AgentDriverAdapter implements AgentDriver {
     Future<void>? cancelSignal,
     Future<void>? toolInterruptSignal,
     ToolRegistry? turnTools,
-  }) =>
-      agent.run(
+    HistoryAppendObserver? onHistoryAppend,
+    HistoryReplaceObserver? onHistoryReplace,
+  }) async {
+    final previousAppend = agent.onHistoryAppend;
+    final previousReplace = agent.onHistoryReplace;
+    if (onHistoryAppend != null) {
+      agent.onHistoryAppend = (message) async {
+        try {
+          await previousAppend?.call(message);
+        } finally {
+          await onHistoryAppend(message);
+        }
+      };
+    }
+    if (onHistoryReplace != null) {
+      agent.onHistoryReplace = (messages) async {
+        try {
+          await previousReplace?.call(messages);
+        } finally {
+          await onHistoryReplace(messages);
+        }
+      };
+    }
+    try {
+      await agent.run(
         history: history,
         userInput: userInput,
         cancelSignal: cancelSignal,
         toolInterruptSignal: toolInterruptSignal,
         turnTools: turnTools,
       );
+    } finally {
+      agent.onHistoryAppend = previousAppend;
+      agent.onHistoryReplace = previousReplace;
+    }
+  }
 
   @override
   String? get abortedReason => agent.abortedReason;

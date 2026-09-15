@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../tools/execution_request.dart';
 
 enum PermissionDecision { allow, deny, ask }
 
@@ -70,6 +71,21 @@ class PermissionPolicy {
   final Map<String, PermissionDecision> defaults;
   final List<PermissionRule> staticRules;
   final List<PermissionRule> sessionRules = [];
+
+  // Separate from wildcard command rules; never serialized. Derived policies
+  // in the same running session share exact grants, but keep their deny gates.
+  final _outsideSandboxGrants = <({String tool, ExecutionRequest request})>[];
+  PermissionPolicy get _grantOwner => modeSource?._grantOwner ?? this;
+
+  bool allowsOutsideSandbox(String tool, ExecutionRequest request) =>
+      _grantOwner._outsideSandboxGrants.any((grant) =>
+          grant.tool == tool && grant.request.sameInvocationAs(request));
+
+  void rememberOutsideSandbox(String tool, ExecutionRequest request) {
+    if (!allowsOutsideSandbox(tool, request)) {
+      _grantOwner._outsideSandboxGrants.add((tool: tool, request: request));
+    }
+  }
 
   /// Current mode. Mutable so `/permissions <mode>` can switch at runtime;
   /// consulted by [check] on every call, so a change applies immediately to

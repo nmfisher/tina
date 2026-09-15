@@ -335,8 +335,8 @@ class SessionManifest {
         conversations: ((j['conversations'] ?? const []) as List)
             .map((c) => ConversationMeta.fromJson(c as Map<String, dynamic>))
             .toList(),
-        usageTokens: ((j['usage'] as Map?)?.cast<String, dynamic>())
-                ?['tokens'] as int? ??
+        usageTokens: ((j['usage'] as Map?)?.cast<String, dynamic>())?['tokens']
+                as int? ??
             0,
         transcriptsLocal: j['transcriptsLocal'] as bool? ?? false,
       );
@@ -394,7 +394,8 @@ abstract class SessionStore {
   Future<void> replace(
       String sessionId, String conversationId, List<Message> messages);
 
-  /// Load all messages from a conversation in order.
+  /// Load all messages from a conversation in order. Coalesce adjacent
+  /// tool-result fragments with [coalesceToolResults] into a single batch.
   ///
   /// Throws [StateError] if the session or conversation is not found.
   Future<List<Message>> loadConversation(
@@ -507,8 +508,15 @@ class SessionRecorder {
   Future<void> ensureRegistered() => _lazyInit();
 
   /// Ensure the session + conversation exist in the store. Idempotent.
-  Future<void> _lazyInit() async {
-    if (_initialized) return;
+  Future<void>? _initializing;
+  Future<void> _lazyInit() {
+    if (_initialized) return Future.value();
+    return _initializing ??= _initialize().whenComplete(() {
+      _initializing = null;
+    });
+  }
+
+  Future<void> _initialize() async {
     // Create the session if it doesn't already exist (resume reuses an existing
     // session). The store honors our pre-allocated id when it can, so the id
     // the caller already surfaced (the headless "resume:" hint) is the one that

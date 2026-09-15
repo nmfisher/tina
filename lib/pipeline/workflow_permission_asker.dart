@@ -119,8 +119,9 @@ class WorkflowPermissionAsker {
     final isSandboxAccess = p.sandboxAccess != null;
     final options = [
       (text: p.outsideSandbox ? 'run outside sandbox once' : 'allow once', key: 'y'),
-      if (!p.outsideSandbox) (
-        text: isSandboxAccess ? 'session directories' : 'allow always',
+      (
+        text: p.outsideSandbox ? 'outside for session'
+            : isSandboxAccess ? 'session directories' : 'allow always',
         key: 'a',
       ),
       (text: 'deny', key: 'd'),
@@ -141,7 +142,15 @@ class WorkflowPermissionAsker {
     // approval never armed).
     final pending = editor!.pendingLine;
     if (pending != null && editor!.editState.buffer.isNotEmpty) {
-      await pending.catchError((_) => '');
+      if (p.cancelSignal == null) {
+        await pending.catchError((_) => '');
+      } else {
+        final stopped = await Future.any([
+          pending.then((_) => false, onError: (_) => false),
+          p.cancelSignal!.then((_) => true),
+        ]);
+        if (stopped) return PermissionResponse.denyOnce;
+      }
     }
     // globalKeys: the focus ring's shortcuts cycle panels, they must not
     // answer the approval (tin-c5nw).
@@ -154,14 +163,13 @@ class WorkflowPermissionAsker {
     // silent so a wheel spam or a stuck key can't flood the transcript.
     var ackedIgnoredKey = false;
     while (true) {
-      final event = await editor!.readKey(globalKeys: true);
+      final event = await editor!.readKey(globalKeys: true, cancelSignal: p.cancelSignal);
       if (event is CharInput) {
         switch (event.text.toLowerCase()) {
           case 'y':
             _write('y\n', HostMessageStyle.normal);
             return PermissionResponse.allowOnce;
           case 'a':
-            if (p.outsideSandbox) break;
             _write('a\n', HostMessageStyle.normal);
             return PermissionResponse.allowAlways;
           case 'd':

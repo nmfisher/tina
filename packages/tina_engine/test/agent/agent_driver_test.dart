@@ -56,6 +56,8 @@ class _ScriptedDriver implements AgentDriver {
     Future<void>? cancelSignal,
     Future<void>? toolInterruptSignal,
     ToolRegistry? turnTools,
+    HistoryAppendObserver? onHistoryAppend,
+    HistoryReplaceObserver? onHistoryReplace,
   }) async {
     runCount++;
     lastHistory = history;
@@ -111,6 +113,50 @@ class _StubFactory implements AgentDriverFactory {
 
 void main() {
   group('AgentDriverAdapter', () {
+    test('per-run recording is awaited and does not leak into the next turn',
+        () async {
+      final built = <Message>[];
+      final perRun = <Message>[];
+      final saved = Completer<void>();
+      final entered = Completer<void>();
+      Future<void> original(Message m) async {
+        built.add(m);
+      }
+
+      final provider =
+          FakeProvider([answerEvents('first'), answerEvents('second')]);
+      final agent = Agent(
+          provider: provider,
+          tools: ToolRegistry(const []),
+          sink: FakeAgentSink(),
+          policy: PermissionPolicy(),
+          asker: (_) async => PermissionResponse.denyOnce,
+          system: '',
+          onHistoryAppend: original);
+      final driver = AgentDriverAdapter(agent);
+      final history = <Message>[];
+      final run = driver.run(
+          history: history,
+          userInput: 'one',
+          onHistoryAppend: (message) async {
+            perRun.add(message);
+            if (perRun.length == 1) {
+              entered.complete();
+              await saved.future;
+            }
+          });
+      await entered.future;
+      expect(provider.calls, isEmpty,
+          reason: 'the prompt must reach disk before the provider starts');
+      saved.complete();
+      await run;
+      expect(agent.onHistoryAppend, same(original));
+      expect(perRun, hasLength(2));
+      await driver.run(history: history, userInput: 'two');
+      expect(perRun, hasLength(2));
+      expect(built, hasLength(4));
+    });
+
     test('delegates run to the wrapped agent (turn lands in history + sink)',
         () async {
       final provider = FakeProvider([
@@ -150,11 +196,9 @@ void main() {
       // must surface verbatim.
       final provider = FakeProvider([
         [
-          MessageComplete(
-              content: const [
-                ToolUseBlock(id: 'u1', name: 'echo', input: {'text': 'x'})
-              ],
-              stopReason: 'tool_use'),
+          MessageComplete(content: const [
+            ToolUseBlock(id: 'u1', name: 'echo', input: {'text': 'x'})
+          ], stopReason: 'tool_use'),
         ],
       ]);
       final toolCalls = <Map<String, dynamic>>[];
@@ -181,7 +225,8 @@ void main() {
 
       expect(driver.abortedReason, 'max steps reached');
       expect(driver.abortedKind, AbortedKind.steps);
-      expect(toolCalls, hasLength(1), reason: 'the one allowed step ran the tool');
+      expect(toolCalls, hasLength(1),
+          reason: 'the one allowed step ran the tool');
     });
 
     test('delegates compact to the wrapped agent', () async {
@@ -257,11 +302,9 @@ void main() {
         () async {
       final provider = FakeProvider([
         [
-          MessageComplete(
-              content: const [
-                ToolUseBlock(id: 'u1', name: 'echo', input: {'text': 'ping'})
-              ],
-              stopReason: 'tool_use'),
+          MessageComplete(content: const [
+            ToolUseBlock(id: 'u1', name: 'echo', input: {'text': 'ping'})
+          ], stopReason: 'tool_use'),
         ],
         [
           const TextDelta('the tool said '),
@@ -272,7 +315,8 @@ void main() {
       ]);
       final toolCalls = <Map<String, dynamic>>[];
       final sink = FakeAgentSink();
-      final driver = const DefaultAgentDriverFactory().create(AgentDriverRequest(
+      final driver =
+          const DefaultAgentDriverFactory().create(AgentDriverRequest(
         provider: provider,
         tools: ToolRegistry([_EchoTool(toolCalls)]),
         sink: sink,
@@ -348,7 +392,8 @@ void main() {
       expect(
         scripted.lastHistory!.where((m) =>
             m.role == Role.assistant &&
-            m.content.any((b) => b is TextBlock && b.text == 'from-real-agent')),
+            m.content
+                .any((b) => b is TextBlock && b.text == 'from-real-agent')),
         isEmpty,
       );
     });

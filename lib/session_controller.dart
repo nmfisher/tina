@@ -365,7 +365,8 @@ class SessionController {
           // in-flight tool batch finishes whole (in-flight result prefixed
           // "interrupted by operator — new input pending", later calls stub)
           // and the turn ends CLEANLY (distinct from Esc/Esc-Esc cancel,
-          // which rolls back). Without queued work the keypress stays inert —
+          // which stops the turn while retaining progress). Without queued
+          // work the keypress stays inert —
           // there is nothing to hand the run over TO; without a running turn
           // it also stays inert (an empty submit was a no-op before; Esc
           // still owns cancel). The capture window stays armed: the user is

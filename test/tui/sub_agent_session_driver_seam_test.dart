@@ -141,6 +141,8 @@ class _PanelScriptedDriver implements AgentDriver {
     Future<void>? cancelSignal,
     Future<void>? toolInterruptSignal,
     ToolRegistry? turnTools,
+    HistoryAppendObserver? onHistoryAppend,
+    HistoryReplaceObserver? onHistoryReplace,
   }) async {
     runInputs.add(userInput);
     history.add(const Message(

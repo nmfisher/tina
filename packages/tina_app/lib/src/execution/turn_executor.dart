@@ -193,11 +193,10 @@ class TurnExecutor {
     s.host.showSeparator();
 
     // Auto-compact before the turn if the about-to-be-sent request is large.
-    // Runs before preLen is captured so the new turn's messages are all that's
-    // appended on completion (the summary itself is persisted via replace).
+    // The summary is persisted via replace before new turn progress starts.
     // Compact failure must not strand the markers armed above: the failure
     // completes the cancel completer, so the turn unwinds through the cancel
-    // path (rollback + queue survival) instead of hanging busy.
+    // path (preserving progress and the queue) instead of hanging busy.
     if (autoCompactThreshold > 0) {
       try {
         await _maybeAutoCompact(s, input, turnTools: turnTools);
@@ -210,27 +209,53 @@ class TurnExecutor {
       }
     }
 
-    // Turn-scope state the unwind below needs on every path — including the
-    // ESC-won skip, where the run never started and history is unchanged
-    // (rollback then removes nothing).
+    // Retain progress on every exit: cancellation cannot undo tool effects.
     final preLen = s.history.length;
     final rec = s.recorder;
     var failed = false;
+    var ran = false;
 
-    // An Esc-Esc that landed while the pre-turn awaits were in flight (the
-    // user-message persist below, or a compaction) wins before the run
-    // starts: skip the doomed run and unwind through the cancel path.
+    // Save the prompt even for a replacement driver that does not publish
+    // incremental progress. The default driver's first append is deduplicated.
     if (!cancel.isCompleted) {
-      // Persist the user's message BEFORE the turn starts, so it survives a
-      // quit before the response completes and is restored by `-c`. `agent.run`
-      // adds the same message to in-memory history; the post-turn append below
-      // skips it, and a cancel rolls it back via replace — so cancel still
-      // discards the whole exchange, but a process killed mid-stream no longer
-      // loses the prompt.
       final userMessage = Message(role: Role.user, content: [TextBlock(input)]);
+      var userAlreadySaved = false;
       if (rec != null) {
         try {
           await rec.append(userMessage);
+          userAlreadySaved = true;
+        } catch (e) {
+          s.host.showMessage(
+            'session write failed: $e\n',
+            style: HostMessageStyle.error,
+          );
+        }
+      }
+
+      Future<void> saveAppend(Message message) async {
+        if (userAlreadySaved &&
+            message.role == Role.user &&
+            message.content.length == 1 &&
+            message.content.single is TextBlock &&
+            (message.content.single as TextBlock).text == input) {
+          userAlreadySaved = false;
+          return;
+        }
+        userAlreadySaved = false;
+        try {
+          await rec?.append(message);
+        } catch (e) {
+          s.host.showMessage(
+            'session write failed: $e\n',
+            style: HostMessageStyle.error,
+          );
+        }
+      }
+
+      Future<void> saveReplace(List<Message> messages) async {
+        userAlreadySaved = false;
+        try {
+          await rec?.replace(messages);
         } catch (e) {
           s.host.showMessage(
             'session write failed: $e\n',
@@ -246,13 +271,21 @@ class TurnExecutor {
       // follow-up turn (see injectWorkflowResult) carrying the outcome.
       // Workflows never wrap a chat turn.
       try {
-        await s.driver.run(
-          history: s.history,
-          userInput: input,
-          cancelSignal: cancel.future,
-          toolInterruptSignal: toolInterrupt.future,
-          turnTools: turnTools,
-        );
+        if (!cancel.isCompleted) {
+          ran = true;
+          await s.driver.run(
+            history: s.history,
+            userInput: input,
+            cancelSignal: cancel.future,
+            toolInterruptSignal: toolInterrupt.future,
+            turnTools: turnTools,
+            onHistoryAppend: rec == null ? null : saveAppend,
+            onHistoryReplace: rec == null ? null : saveReplace,
+          );
+        } else {
+          // Cancellation during the initial write keeps memory and disk aligned.
+          s.history.add(userMessage);
+        }
       } catch (e, st) {
         failed = true;
         s.host.showMessage('error: $e\n', style: HostMessageStyle.error);
@@ -265,8 +298,7 @@ class TurnExecutor {
     // A turn that stopped abnormally (budget trip, provider/API error, cut-off
     // stream, action cap, max steps) gets its reason persisted as a synthetic
     // assistant message, so a quit + restore still shows WHY the turn died —
-    // the live notice is display-only. A cancelled turn rolls back below and
-    // drops this with the rest of the exchange.
+    // the live notice is display-only. Cancelled turns retain their progress too.
     final aborted = s.driver.abortedReason;
     if (aborted != null && !cancel.isCompleted) {
       s.history.add(
@@ -277,50 +309,25 @@ class TurnExecutor {
       );
     }
 
-    if (cancel.isCompleted) {
-      // Cancelled: drop the exchange this turn appended (its user message +
-      // any partial assistant/tool messages). Nothing else can have appended
-      // during the unwind above: submissions and injected turns see
-      // isRunning still set (the markers are only torn down below) and queue
-      // instead; the drain is the sole next-turn starter and runs after.
-      if (s.history.length > preLen) {
-        s.history.removeRange(preLen, s.history.length);
-      }
-      // Roll the recorder back to the pre-turn state. The user message was
-      // persisted up front; cancel discards the entire exchange, so remove it
-      // from disk too — replace atomically rewrites the file with [s.history],
-      // which is now back to the pre-turn messages.
-      // Shutdown preserves the prompt already flushed for resume; explicit
-      // operator cancellation still rolls the exchange back on disk.
-      if (rec != null && !_closing) {
-        try {
-          await rec.replace(s.history);
-        } catch (e) {
-          s.host.showMessage(
-            'session write failed: $e\n',
-            style: HostMessageStyle.error,
-          );
-        }
-      }
-      // #31 queue survival: the backlog is the operator's typed work —
-      // cancelling a run must not destroy it (guardrails proposal §3C).
-      // The turn's exchange is rolled back above, but the queue is NOT
-      // cleared: it drains below, exactly as after a finished turn.
-    } else {
-      // Persist the turn's new messages, skipping the user message at index
-      // preLen — it was persisted before the turn started above.
-      if (rec != null) {
-        for (final m in s.history.skip(preLen + 1)) {
-          try {
-            await rec.append(m);
-          } catch (e) {
-            s.host.showMessage(
-              'session write failed: $e\n',
-              style: HostMessageStyle.error,
-            );
-            break;
-          }
-        }
+    if (cancel.isCompleted && (ran || s.history.length > preLen)) {
+      s.history.add(
+        const Message(
+          role: Role.assistant,
+          content: [TextBlock('[cancelled]')],
+        ),
+      );
+    }
+    // Final reconciliation covers synthetic status messages and replacement
+    // drivers that do not emit observers. Per-call writes above already protect
+    // completed tools against a crash or a later approval that never settles.
+    if (rec != null && (ran || s.history.length > preLen)) {
+      try {
+        await rec.replace(s.history);
+      } catch (e) {
+        s.host.showMessage(
+          'session write failed: $e\n',
+          style: HostMessageStyle.error,
+        );
       }
     }
     return !cancel.isCompleted &&

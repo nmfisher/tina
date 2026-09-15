@@ -67,8 +67,14 @@ shows the failed command and warns that it may change files outside the sandbox
 and repeat partial effects. Approving runs the same sealed invocation once using
 the host process runner, outside both filesystem and network confinement. Denying
 or cancelling does not retry. Ordinary allow-always rules, auto classification,
-and yolo mode do not authorize this escalation. No session-wide grant is saved;
-later commands still use the sandbox. A failed approved retry stops the approval
+and yolo mode do not authorize this escalation. The outside prompt offers
+**once**, **outside for session**, and **deny**. The session option remembers the
+exact tool, resolved executable, arguments, cwd, timeout, and complete environment
+in memory. Matching later calls run directly outside the sandbox without another
+failed attempt or approval. Other invocations remain sandboxed. Related agents
+sharing the running session's policy may reuse the grant, but their live mode,
+phase restrictions, and explicit deny rules still apply. Grants are not written
+to config or restored sessions; restarting Tina clears them. A failed approved retry stops the approval
 loop. Headless runs refuse this interactive escalation.
 
 ## Validation

@@ -54,6 +54,8 @@ class _ScriptedDriver implements AgentDriver {
     Future<void>? cancelSignal,
     Future<void>? toolInterruptSignal,
     ToolRegistry? turnTools,
+    HistoryAppendObserver? onHistoryAppend,
+    HistoryReplaceObserver? onHistoryReplace,
   }) async {
     runCount++;
     inputs.add(userInput);

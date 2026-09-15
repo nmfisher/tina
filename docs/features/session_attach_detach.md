@@ -6,8 +6,9 @@
 
 ## 1. The change in one paragraph
 
-Tina persists sessions to disk (`~/.tina/sessions/<id>/` — per-turn JSONL
-appends, manifest v2) but the agent stops when the TUI exits; "resume" is a
+Tina [persists sessions incrementally](session_persistence.md) (global manifests
+under `~/.tina/sessions/<id>/`, new transcripts under the project's
+`.tina/sessions/<id>/`) but the agent stops when the TUI exits; "resume" is a
 fresh process replaying history from disk. The original plan for true
 attach/detach was a built-in session daemon — a background process holding a
 unix socket, a virtual screen, grid sync — roughly 1.8k lines of infrastructure

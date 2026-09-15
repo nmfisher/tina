@@ -33,6 +33,8 @@ class _ScriptedDriver implements AgentDriver {
     Future<void>? cancelSignal,
     Future<void>? toolInterruptSignal,
     ToolRegistry? turnTools,
+    HistoryAppendObserver? onHistoryAppend,
+    HistoryReplaceObserver? onHistoryReplace,
   }) async {
     runs++;
     history.add(

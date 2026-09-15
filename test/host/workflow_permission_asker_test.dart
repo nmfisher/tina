@@ -20,12 +20,69 @@ Future<void> _flush() async {
 
 void main() {
   for (final conversation in [false, true]) {
-    for (final (keys, decision) in [
-      ([0x79], PermissionDecision.allow),
-      ([0x64], PermissionDecision.deny),
-      ([0x61, 0x6e], PermissionDecision.deny),
-      ([0x1b, 0x5b, 0x42, 0x0d], PermissionDecision.deny),
-      ([0x03], PermissionDecision.deny),
+    for (final drafting in [false, true]) {
+      test('cancel releases approval conversation=$conversation drafting=$drafting', () async {
+        final io = FakeStdio();
+        final screen = Screen(io: io, layout: ScreenLayout.fromSize(160, 30), ansi: AnsiCapable.yes);
+        final editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
+        addTearDown(editor.close);
+        final host = TuiConversationHost(conversationId: 'test',
+            chat: screen.chat, screen: screen, editor: editor,
+            spinner: Spinner(enabled: false, region: screen.status), primary: true);
+        host.setActive(true);
+        final workflow = WorkflowPermissionAsker(sink: FakeAgentSink(), screen: screen, editor: editor);
+        final ask = conversation ? host.askPermission : workflow.ask;
+        if (drafting) {
+          unawaited(editor.readLine('> '));
+          await _flush();
+          io.feedBytes([0x78]);
+          await _flush();
+        }
+        final cancel = Completer<void>();
+        final pending = ask(PermissionPrompt('bash', const {'command': 'dart test'},
+            outsideSandbox: true, cancelSignal: cancel.future));
+        await _flush();
+        cancel.complete();
+        expect((await pending.timeout(const Duration(seconds: 2))).decision, PermissionDecision.deny);
+        expect(editor.isReadingKey, isFalse);
+        if (drafting) {
+          expect(editor.editState.buffer, 'x');
+          io.feedBytes([0x0d]);
+          await _flush();
+        }
+        // An abandoned read must not capture the next prompt's answer.
+        final next = ask(_bashPrompt('next'));
+        await _flush();
+        io.feedBytes([0x79]);
+        expect((await next.timeout(const Duration(seconds: 2))).decision, PermissionDecision.allow);
+      });
+    }
+  }
+
+  test('cancelled queued read leaves the current keyboard owner intact', () async {
+    final io = FakeStdio();
+    final screen = Screen(io: io, layout: ScreenLayout.fromSize(160, 30), ansi: AnsiCapable.yes);
+    final editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
+    addTearDown(editor.close);
+    final owner = editor.readKey();
+    await _flush();
+    final cancel = Completer<void>();
+    final queued = editor.readKey(globalKeys: true, cancelSignal: cancel.future);
+    cancel.complete();
+    expect(await queued, ControlKey(ControlCode.ctrlC));
+    expect(editor.isReadingKey, isTrue);
+    io.feedBytes([0x79]);
+    expect(await owner, CharInput('y'));
+  });
+
+  for (final conversation in [false, true]) {
+    for (final (keys, decision, remember) in [
+      ([0x79], PermissionDecision.allow, false),
+      ([0x64], PermissionDecision.deny, false),
+      ([0x61], PermissionDecision.allow, true),
+      ([0x1b, 0x5b, 0x42, 0x0d], PermissionDecision.allow, true),
+      ([0x1b, 0x5b, 0x42, 0x1b, 0x5b, 0x42, 0x0d], PermissionDecision.deny, false),
+      ([0x03], PermissionDecision.deny, false),
     ]) {
       test('outside approval conversation=$conversation keys=$keys', () async {
         final io = FakeStdio();
@@ -44,11 +101,18 @@ void main() {
         final output = conversation ? io.written.toString() : sink.notices.map((n) => n.message).join();
         expect(output, contains('definitely OK'));
         expect(output, contains('run outside sandbox once'));
+        expect(output, contains('outside for session'));
         expect(output, isNot(contains('allow always')));
-        io.feedBytes(keys);
+        if (keys.length == 7) {
+          io.feedBytes(keys.sublist(0, 3));
+          await _flush();
+          io.feedBytes(keys.sublist(3));
+        } else {
+          io.feedBytes(keys);
+        }
         final result = await pending.timeout(const Duration(seconds: 2));
         expect(result.decision, decision);
-        expect(result.remember, isFalse);
+        expect(result.remember, remember);
         editor.close();
       });
     }

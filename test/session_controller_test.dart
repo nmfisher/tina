@@ -370,7 +370,7 @@ void main() {
           reason: 'input during a running turn should be queued');
     });
 
-    test('ESC cancels in-flight response and discards history', () async {
+    test('ESC cancels in-flight response and preserves history', () async {
       final rl = FakeReadLine();
       final controller =
           _buildController(readLine: rl, provider: _SlowProvider());
@@ -388,14 +388,14 @@ void main() {
           reason: 'first Esc shows warning');
       expect(controller.cancelActiveTurn(), isTrue,
           reason: 'second Esc returns true (consumed)');
-      await _pumpUntil(() => controller.active.history.isEmpty);
+      await _pumpUntil(() => !controller.active.isRunning);
       rl.close();
       await runFuture;
 
       expect(host.notices.any((n) => n.contains('[cancelled]')), isTrue,
           reason: 'cancelled response should be indicated');
-      expect(controller.active.history, isEmpty,
-          reason: 'cancelled exchange should be discarded from history');
+      expect((controller.active.history.first.content.first as TextBlock).text, 'hi');
+      expect((controller.active.history.last.content.single as TextBlock).text, '[cancelled]');
     });
 
     test('cancelNow stops an in-flight tool and settles host activity', () async {
@@ -435,14 +435,14 @@ void main() {
       final host = hostOf(controller);
       expect(host.messages.any((m) => m.contains('Press Esc again')), isFalse,
           reason: 'no arming warning on the force path');
-      await _pumpUntil(() => controller.active.history.isEmpty);
+      await _pumpUntil(() => !controller.active.isRunning);
       rl.close();
       await runFuture;
 
       expect(host.notices.any((n) => n.contains('[cancelled]')), isTrue,
           reason: 'the force-cancelled turn is indicated');
-      expect(controller.active.history, isEmpty,
-          reason: 'the cancelled exchange is discarded');
+      expect((controller.active.history.first.content.first as TextBlock).text, 'hi');
+      expect((controller.active.history.last.content.single as TextBlock).text, '[cancelled]');
     });
 
     test('#31: cancelling a turn keeps the queue and drains it into the next '
@@ -460,7 +460,7 @@ void main() {
           reason: 'both messages queued while running');
 
       controller.cancelNow(); // rapid-Esc cancel
-      // The unwind rolls the cancelled exchange back and drains survivor 1
+      // The unwind retains the cancelled exchange and drains survivor 1
       // into the next turn; pump until that turn is running.
       await _pumpUntil(
           () =>
@@ -470,13 +470,12 @@ void main() {
                   .any((m) => m.contains('survivor 1')),
           reason: 'survivor 1 becomes a turn after the cancelled one');
 
-      // Rollback proof: the cancelled exchange is gone — the history starts
-      // at the SURVIVOR's user message, not at 'hi'.
       expect(
           (controller.active.history.first.content.first as TextBlock).text,
-          'survivor 1',
-          reason: "the cancelled exchange ('hi' + partial output) was rolled "
-              'back; the drain turn starts from a clean pre-turn history');
+          'hi', reason: 'cancellation keeps the original prompt');
+      expect(
+          (controller.active.history.last.content.first as TextBlock).text,
+          'survivor 1', reason: 'the queued turn starts after preserved progress');
       expect(controller.active.messageQueue.length, 1,
           reason: 'survivor 2 waits for its own turn');
       rl.close();
@@ -729,7 +728,7 @@ void main() {
           .length;
 
       expect(controller.cancelNow(), isTrue);
-      await _pumpUntil(() => controller.active.history.isEmpty);
+      await _pumpUntil(() => !controller.active.isRunning);
       rl.close();
       await runFuture;
 
@@ -753,7 +752,7 @@ void main() {
       final host = hostOf(controller);
       expect(controller.cancelActiveTurn(), isTrue,
           reason: 'consumed while unwinding');
-      await _pumpUntil(() => controller.active.history.isEmpty);
+      await _pumpUntil(() => !controller.active.isRunning);
       rl.close();
       await runFuture;
 

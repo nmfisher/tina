@@ -242,7 +242,11 @@ class LineEditor {
   /// shortcut must never become prompt input (tin-c5nw: Ctrl+G at an open
   /// approval used to answer it as a deny). Approval and gate prompts pass
   /// `true`; overlays that own the whole screen keep the default.
-  Future<InputEvent> readKey({bool globalKeys = false}) async {
+  /// [cancelSignal] releases this read as Ctrl+C, including while queued behind
+  /// another reader. A late signal never cancels a subsequent reader.
+  Future<InputEvent> readKey({bool globalKeys = false, Future<void>? cancelSignal}) async {
+    var cancelled = false;
+    final stop = cancelSignal?.then((_) { cancelled = true; });
     // Overflow chars from a paste are drained to the next readKey ONLY while
     // the burst window is still open (the paste is still arriving). Once the
     // window has expired the queued chars are stale — they must never answer
@@ -270,12 +274,18 @@ class LineEditor {
     _pending.clear();
 
     while (_readKeyTurn != null) {
-      await _readKeyTurn!.future;
+      if (stop == null) {
+        await _readKeyTurn!.future;
+      } else {
+        await Future.any([_readKeyTurn!.future, stop]);
+        if (cancelled) return ControlKey(ControlCode.ctrlC);
+      }
     }
+    if (cancelled) return ControlKey(ControlCode.ctrlC);
     final turn = Completer<void>();
     _readKeyTurn = turn;
     try {
-      return await _readKeyOnce(globalKeys);
+      return await _readKeyOnce(globalKeys, stop);
     } finally {
       _readKeyTurn = null;
       turn.complete();
@@ -285,7 +295,7 @@ class LineEditor {
   /// True while a [readKey] is awaiting a keystroke.
   bool get isReadingKey => _keyCompleter != null;
 
-  Future<InputEvent> _readKeyOnce(bool globalKeys) {
+  Future<InputEvent> _readKeyOnce(bool globalKeys, Future<void>? stop) {
     final c = Completer<InputEvent>();
     final savedCancel = _cancelHandler;
     final savedQueueSubmit = _onQueueSubmit;
@@ -293,6 +303,14 @@ class LineEditor {
     _onQueueSubmit = null;
     _keyCompleter = c;
     _keyCompleterGlobal = globalKeys;
+    stop?.then((_) {
+      // A late cancellation must not settle a newer modal's read.
+      if (identical(_keyCompleter, c)) {
+        _keyCompleter = null;
+        c.complete(ControlKey(ControlCode.ctrlC));
+        _scheduleHeldPasteDelivery();
+      }
+    });
     _ensureListening();
     if (debugKeys) {
       stderr.writeln('[readkey] armed');

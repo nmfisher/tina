@@ -211,7 +211,7 @@ void main() {
         expect(prompt.accessDescription, contains('partial changes'));
         expect(prompt.retryExplanation, contains(cache.path));
         expect(prompt.execution, same(prompts.first.execution));
-        return PermissionResponse.allowAlways; // must still be once-only
+        return PermissionResponse.allowOnce;
       }, toolName: toolName, allowCommand: false);
       expect(prompts, hasLength(2));
       expect(prompts.first.outsideSandbox, isFalse);
@@ -227,6 +227,64 @@ void main() {
       expect(bash.processRunner, same(runner));
     });
   }
+
+  for (final toolName in ['bash', 'exec']) {
+    test('$toolName session grant survives turns, matches exactly and is not persisted', () async {
+      final policy = PermissionPolicy(allowAllByDefault: true);
+      final input = toolName == 'bash'
+          ? <String, dynamic>{'command': command}
+          : <String, dynamic>{'executable': '/bin/sh', 'args': ['-c', command]};
+      var asks = 0;
+      Future<PermissionResponse> approve(PermissionPrompt prompt) async {
+        asks++;
+        expect(prompt.outsideSandbox, isTrue);
+        return PermissionResponse.allowAlways;
+      }
+      await run([[input]], approve, permissions: policy, toolName: toolName);
+      expect(asks, 1);
+      expect(inner.starts, hasLength(2));
+      await run([[input]], approve, permissions: policy, toolName: toolName);
+      expect(asks, 1);
+      expect(inner.starts.last.executable, '/bin/sh');
+      expect(inner.starts, hasLength(3), reason: 'no doomed sandbox attempt');
+      final derived = PermissionPolicy(modeSource: policy, allowAllByDefault: true);
+      await run([[input]], approve, permissions: derived, toolName: toolName);
+      expect(inner.starts.last.executable, '/bin/sh');
+      final cwd = Directory('${temp.path}/other')..createSync();
+      for (final changed in [
+        {...input, 'cwd': cwd.path},
+        {...input, 'environment': {'TINA_TEST_VALUE': 'different'}},
+        toolName == 'bash'
+            ? <String, dynamic>{'command': '$command --offline'}
+            : <String, dynamic>{'executable': '/bin/sh', 'args': ['-c', '$command --offline']},
+      ]) {
+        await run([[changed]], approve, permissions: policy, toolName: toolName);
+        expect(inner.starts.last.executable, contains('bwrap'));
+      }
+      final restored = PermissionPolicy.fromJson(policy.toJson());
+      await run([[input]], approve, permissions: restored, toolName: toolName);
+      expect(inner.starts.last.executable, contains('bwrap'));
+      expect(asks, 1);
+      final starts = inner.starts.length;
+      policy.mode = PermissionMode.readAll;
+      await run([[input]], approve, permissions: policy, toolName: toolName);
+      expect(inner.starts, hasLength(starts));
+      policy.mode = PermissionMode.ask;
+      policy.remember(toolName, PermissionPolicy.keyFor(toolName, input), PermissionDecision.deny);
+      await run([[input]], approve, permissions: policy, toolName: toolName);
+      expect(inner.starts, hasLength(starts));
+    });
+  }
+
+  test('once approval leaves the next identical command sandboxed', () async {
+    final policy = PermissionPolicy(allowAllByDefault: true);
+    await run([[{'command': command}]], (_) async => PermissionResponse.allowOnce,
+        permissions: policy);
+    await run([[{'command': command}]], (_) async => fail('already allowed ordinary command'),
+        permissions: policy);
+    expect(inner.starts, hasLength(3));
+    expect(inner.starts.last.executable, contains('bwrap'));
+  });
 
   test('switching to read-all during outside approval prevents retry', () async {
     final policy = PermissionPolicy(mode: PermissionMode.allowEdits,

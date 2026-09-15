@@ -101,7 +101,7 @@ there. It identifies only existing immediate parent directories (or the named
 directory itself), without guessing broader roots. Ordinary `Permission denied`
 and errors without a clear path retain investigation guidance.
 
-Tina immediately presents a separate **run outside sandbox once / deny** prompt,
+Tina immediately presents a separate **run outside sandbox once / outside for session / deny** prompt,
 without waiting for the model to inspect caches or submit another command. It
 shows the original failure and warns that the first attempt may have partially
 changed files and that the retry repeats the entire command. Approval runs the
@@ -109,8 +109,12 @@ same frozen executable, arguments, cwd and environment with the host runner,
 outside filesystem and network confinement, as the current OS user. It does not
 provide root privileges. Denial, cancellation, or a change to read-all blocks the
 retry. Neither ordinary command approvals nor auto/yolo mode satisfy this separate
-approval. The decision is never remembered as an allow-always rule or a directory
-grant. Subsequent commands remain sandboxed. A failed approved retry does not
+approval. The session option stores a separate exact invocation grant in memory;
+ordinary wildcard rules and directory grants remain independent. Matching calls
+(tool, executable, arguments, cwd, timeout and full environment) then run directly
+outside the sandbox. Other calls remain sandboxed. Derived agents in the same
+running session can reuse an exact match, subject to their own deny/mode/phase
+gates. Once approvals are never cached, and no grant survives a restart. A failed approved retry does not
 start another approval loop; headless runs refuse this escalation.
 
 ## Known limitations

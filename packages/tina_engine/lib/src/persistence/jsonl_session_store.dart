@@ -51,6 +51,59 @@ class JsonlSessionStore implements SessionStore {
     return JsonlSessionStore(Directory(dir));
   }
 
+  // Serialize read/modify/write transactions per session. Atomic renames alone
+  // do not prevent concurrent writers from losing each other's manifest edits,
+  // sharing a tempfile, or racing append's tail repair against another write.
+  final _writes = <String, Future<void>>{};
+  Future<T> _write<T>(String sid, Future<T> Function() action) {
+    final result = (_writes[sid] ?? Future<void>.value()).then((_) => action());
+    final settled =
+        result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _writes[sid] = settled;
+    settled.then((_) {
+      if (identical(_writes[sid], settled)) _writes.remove(sid);
+    });
+    return result;
+  }
+
+  @override
+  Future<String> createConversationWithMeta(
+          String sessionId, ConversationMetaInput input) =>
+      _write(sessionId, () => _createConversationWithMeta(sessionId, input));
+  @override
+  Future<void> append(
+          String sessionId, String conversationId, Message message) =>
+      _write(sessionId, () => _append(sessionId, conversationId, message));
+  @override
+  Future<void> replace(
+      String sessionId, String conversationId, List<Message> messages) {
+    // The caller may continue mutating its live history while this write waits.
+    final snapshot = messages.map((m) => Message.fromJson(m.toJson())).toList();
+    return _write(
+        sessionId, () => _replace(sessionId, conversationId, snapshot));
+  }
+
+  @override
+  Future<void> setActiveConversation(String sessionId, String conversationId) =>
+      _write(
+          sessionId, () => _setActiveConversation(sessionId, conversationId));
+  @override
+  Future<void> updateConversationModel(String sessionId, String conversationId,
+          {required String model, String? label}) =>
+      _write(
+          sessionId,
+          () => _updateConversationModel(sessionId, conversationId,
+              model: model, label: label));
+  @override
+  Future<void> updateSessionUsage(String sessionId, int tokens) =>
+      _write(sessionId, () => _updateSessionUsage(sessionId, tokens));
+  @override
+  Future<void> deleteSession(String sessionId) =>
+      _write(sessionId, () => _deleteSession(sessionId));
+  @override
+  Future<void> deleteConversation(String sessionId, String conversationId) =>
+      _write(sessionId, () => _deleteConversation(sessionId, conversationId));
+
   static const _manifestName = 'session.json';
 
   Directory _sessionDir(String sid) => Directory(p.join(root.path, sid));
@@ -61,9 +114,8 @@ class JsonlSessionStore implements SessionStore {
 
   /// Project-local transcript directory for a session started in [cwd], or
   /// null when the manifest carries no cwd.
-  Directory? _projectTranscriptDir(String? cwd, String sid) => cwd == null
-      ? null
-      : Directory(p.join(cwd, '.tina', 'sessions', sid));
+  Directory? _projectTranscriptDir(String? cwd, String sid) =>
+      cwd == null ? null : Directory(p.join(cwd, '.tina', 'sessions', sid));
 
   /// Resolve a conversation file for WRITING: the project-local sidecar when
   /// the manifest says so and the recorded cwd still exists, else the global
@@ -145,8 +197,7 @@ class JsonlSessionStore implements SessionStore {
       createConversationWithMeta(
           sessionId, ConversationMetaInput(model: model));
 
-  @override
-  Future<String> createConversationWithMeta(
+  Future<String> _createConversationWithMeta(
       String sessionId, ConversationMetaInput input) async {
     await _ensureMaterialized(sessionId);
     final cid = _newId();
@@ -191,15 +242,13 @@ class JsonlSessionStore implements SessionStore {
 
   // -- Appends / replaces ------------------------------------------------
 
-  @override
-  Future<void> append(
+  Future<void> _append(
       String sessionId, String conversationId, Message m) async {
     await _ensureMaterialized(sessionId);
     final f = await _resolveConversationFile(
         await _readManifest(sessionId), conversationId);
     if (!await f.parent.exists()) await f.parent.create(recursive: true);
-    // One handle for repair + write, so the two steps can't interleave with
-    // another append through this path.
+    // The session write queue keeps tail repair and append in one transaction.
     final raf = await f.open(mode: FileMode.append);
     try {
       await _repairUnterminatedTail(raf);
@@ -280,8 +329,7 @@ class JsonlSessionStore implements SessionStore {
   /// comfortably above any single record; grows to the file size if needed).
   static const _tailWindow = 64 * 1024;
 
-  @override
-  Future<void> replace(
+  Future<void> _replace(
       String sessionId, String conversationId, List<Message> messages) async {
     await _ensureMaterialized(sessionId);
     final target = await _resolveConversationFile(
@@ -332,7 +380,7 @@ class JsonlSessionStore implements SessionStore {
     } on PathNotFoundException {
       throw StateError('Conversation not found: $sessionId/$conversationId');
     }
-    return _decodeLines(sessionId, conversationId, lines);
+    return coalesceToolResults(_decodeLines(sessionId, conversationId, lines));
   }
 
   @override
@@ -348,8 +396,7 @@ class JsonlSessionStore implements SessionStore {
     }
   }
 
-  @override
-  Future<void> setActiveConversation(
+  Future<void> _setActiveConversation(
       String sessionId, String conversationId) async {
     await _ensureMaterialized(sessionId);
     final manifest = await _readManifest(sessionId);
@@ -369,9 +416,7 @@ class JsonlSessionStore implements SessionStore {
     ));
   }
 
-  @override
-  Future<void> updateConversationModel(String sessionId,
-      String conversationId,
+  Future<void> _updateConversationModel(String sessionId, String conversationId,
       {required String model, String? label}) async {
     await _ensureMaterialized(sessionId);
     final manifest = await _readManifest(sessionId);
@@ -413,8 +458,7 @@ class JsonlSessionStore implements SessionStore {
     ));
   }
 
-  @override
-  Future<void> updateSessionUsage(String sessionId, int tokens) async {
+  Future<void> _updateSessionUsage(String sessionId, int tokens) async {
     await _ensureMaterialized(sessionId);
     final manifest = await _readManifest(sessionId);
     await _writeManifest(SessionManifest(
@@ -500,13 +544,11 @@ class JsonlSessionStore implements SessionStore {
 
   // -- Deletion ----------------------------------------------------------
 
-  @override
-  Future<void> deleteSession(String sessionId) async {
+  Future<void> _deleteSession(String sessionId) async {
     // Clean up the project-local transcript dir too, when there is one.
     try {
       final manifest = await _readManifest(sessionId);
-      final projectDir =
-          _projectTranscriptDir(manifest.cwd, sessionId);
+      final projectDir = _projectTranscriptDir(manifest.cwd, sessionId);
       if (manifest.transcriptsLocal &&
           projectDir != null &&
           await projectDir.exists()) {
@@ -528,8 +570,7 @@ class JsonlSessionStore implements SessionStore {
     }
   }
 
-  @override
-  Future<void> deleteConversation(
+  Future<void> _deleteConversation(
       String sessionId, String conversationId) async {
     try {
       final manifest = await _readManifest(sessionId);
@@ -563,7 +604,9 @@ class JsonlSessionStore implements SessionStore {
   }
 
   @override
-  Future<void> close() async {}
+  Future<void> close() async {
+    await Future.wait(_writes.values.toList());
+  }
 
   // -- Migration ---------------------------------------------------------
 

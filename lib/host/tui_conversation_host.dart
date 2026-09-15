@@ -252,8 +252,9 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     final isSandboxAccess = p.sandboxAccess != null;
     final options = [
       (text: p.outsideSandbox ? 'run outside sandbox once' : 'allow once', key: 'y'),
-      if (!p.outsideSandbox) (
-        text: isSandboxAccess ? 'session directories' : 'allow always',
+      (
+        text: p.outsideSandbox ? 'outside for session'
+            : isSandboxAccess ? 'session directories' : 'allow always',
         key: 'a',
       ),
       (text: 'deny', key: 'd'),
@@ -270,7 +271,15 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     // deadlocks the approval behind the user's next prompt (tin-8n7c).
     final pending = editor!.pendingLine;
     if (pending != null && editor!.editState.buffer.isNotEmpty) {
-      await pending.catchError((_) => '');
+      if (p.cancelSignal == null) {
+        await pending.catchError((_) => '');
+      } else {
+        final stopped = await Future.any([
+          pending.then((_) => false, onError: (_) => false),
+          p.cancelSignal!.then((_) => true),
+        ]);
+        if (stopped) return PermissionResponse.denyOnce;
+      }
     }
     // globalKeys: panel-cycling shortcuts (Ctrl+G/Ctrl+W) and the ring's
     // other navigation keys must cycle panels here, not answer the prompt
@@ -286,14 +295,13 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     // consumes (panel cycling) never surface here and get no ack.
     var ackedIgnoredKey = false;
     while (true) {
-      final event = await editor!.readKey(globalKeys: true);
+      final event = await editor!.readKey(globalKeys: true, cancelSignal: p.cancelSignal);
       if (event is CharInput) {
         switch (event.text.toLowerCase()) {
           case 'y':
             chat.write('y\n', rowOwner: rowToken);
             return PermissionResponse.allowOnce;
           case 'a':
-            if (p.outsideSandbox) break;
             chat.write('a\n', rowOwner: rowToken);
             return PermissionResponse.allowAlways;
           case 'd':

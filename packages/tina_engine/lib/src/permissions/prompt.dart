@@ -11,15 +11,17 @@ class PermissionPrompt {
   final PreparedEdit? preparedEdit;
   final String? retryExplanation;
   final String? retrySafety;
-  /// Separate, once-only user authorization; never satisfied by command rules.
+  /// Separate user authorization; never satisfied by ordinary command rules.
   final bool outsideSandbox;
+  /// Settle the prompt and release any keyboard ownership when its turn stops.
+  final Future<void>? cancelSignal;
   const PermissionPrompt(this.toolName, this.input,
       {this.sandboxAccess, this.retryExplanation, this.retrySafety, this.execution, this.preparedEdit,
-      this.outsideSandbox = false});
+      this.outsideSandbox = false, this.cancelSignal});
 
   String get approvalRow => sandboxAccess == null
       ? outsideSandbox
-          ? '  approve? [y] run outside sandbox once [d] deny › '
+          ? '  approve? [y] outside once [a] outside for session [d] deny › '
           : approvalPromptRow(alwaysPattern)
       : '  approve? [y] once [a] session directories [n] deny › ';
 
@@ -30,7 +32,9 @@ class PermissionPrompt {
           'Are you definitely OK to run it outside the sandbox?\n'
           '  It will have your user account’s filesystem and network access. '
           'The first attempt may have made partial changes; retrying repeats the entire command.\n'
-          '  Approval applies to this retry only.\n';
+          '  y: this retry only; a: this exact command, cwd and environment '
+          'outside the sandbox for this running session, including its agents. '
+          'Other commands still use the sandbox; nothing is saved to disk.\n';
     }
     final access = sandboxAccess;
     if (access == null) return '';
@@ -60,6 +64,8 @@ class PermissionResponse {
   /// If true and decision is allow/deny, the policy will add a session rule
   /// using the prompt's [PermissionPrompt.alwaysPattern]. For a sandbox access
   /// prompt, allow remembers only the directories for this project session.
+  /// For outside-sandbox approval, allow remembers the exact prepared command,
+  /// cwd and full environment separately from ordinary command rules.
   final bool remember;
 
   /// Optional model-facing explanation an auto-refusing asker supplies (e.g.

@@ -820,6 +820,8 @@ class SubAgentScheduler {
         history: history,
         userInput: task,
         cancelSignal: cancelSignal,
+        onHistoryAppend: job._recorder?.append,
+        onHistoryReplace: job._recorder?.replace,
       );
 
       // Retain the grown history so a later `continue` can build on this job too.
@@ -832,8 +834,9 @@ class SubAgentScheduler {
           : _extractResult(job.label, history);
 
       // Persist the complete transcript to the job's conversation (if it has one).
-      // Completion-time persistence is enough; mid-turn incremental writes are a
-      // follow-up. Best-effort: a write failure must not fail the job. `replace`
+      // Incremental observers have already saved tool progress. This final
+      // reconciliation includes the abort status and supports custom drivers.
+      // Best-effort: a write failure must not fail the job. `replace`
       // rewrites the whole file atomically, so a `send`/re-run that rewrites the
       // grown history stays consistent. An aborted turn (budget trip, provider
       // error, …) appends its reason so a restored sub-agent panel shows why it

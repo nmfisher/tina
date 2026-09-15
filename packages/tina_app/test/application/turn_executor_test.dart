@@ -112,7 +112,7 @@ void main() {
     expect(provider.streams, isEmpty);
   });
   test(
-    'cancellation acknowledgement holds admission through recorder rollback',
+    'cancellation holds admission until preserved progress is saved',
     () async {
       final id = conversation.id;
       expect(executor.submit(id, 'first'), TurnSubmission.started);
@@ -130,7 +130,15 @@ void main() {
       await executor.whenIdle(id);
       expect(
         conversation.history.first.content.whereType<TextBlock>().single.text,
-        'second',
+        'first',
+      );
+      expect(
+        conversation.history
+            .where((m) => m.role == Role.user)
+            .expand((m) => m.content)
+            .whereType<TextBlock>()
+            .map((b) => b.text),
+        ['first', 'second'],
       );
       expect(executor.state(id), TurnState.idle);
       expect(host.activitySignals.last, isFalse);
@@ -170,7 +178,7 @@ void main() {
     expect(host.activitySignals.last, isFalse);
   });
   test(
-    'closing during rollback rejects submissions and prevents queue draining',
+    'closing during persistence rejects submissions and prevents queue draining',
     () async {
       executor.submit(conversation.id, 'first');
       await provider.started[0].future;

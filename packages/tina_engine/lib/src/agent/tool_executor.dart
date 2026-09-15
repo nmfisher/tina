@@ -446,6 +446,7 @@ class ToolExecutor {
     final recovery = state.sandboxFailures[retryKey];
     String? retrySafety;
     SandboxAccessRequest? access;
+    var usingOutsideGrant = false;
     try {
       if (decision != PermissionDecision.deny && tool is ProcessTool) {
         if (recovery != null) {
@@ -458,7 +459,11 @@ class ToolExecutor {
                 'The approved sandbox retry also failed. Do not keep requesting approval; investigate the failure and report it to the user.');
           }
         }
-        access = tool.requestAccess(executionInput);
+        final requestedAccess = tool.requestAccess(executionInput);
+        final prepared = tool.prepare(executionInput);
+        usingOutsideGrant = policy.allowsOutsideSandbox(
+            use.name, prepared.preparedRequest!);
+        access = usingOutsideGrant ? null : requestedAccess;
         if (access != null) {
           // An agent can confirm a masked failure and request access on the
           // underlying operation explicitly. Show its supplied assessment,
@@ -481,7 +486,8 @@ class ToolExecutor {
           }
           decision = PermissionDecision.ask;
         }
-        executionTool = tool.prepare(executionInput);
+        executionTool = usingOutsideGrant ? prepared.outsideSandbox() : prepared;
+        if (usingOutsideGrant) decision = PermissionDecision.allow;
       }
     } on ToolValidationException catch (e) {
       return (
@@ -521,13 +527,14 @@ class ToolExecutor {
     String? changedModeBlock;
     if (decision == PermissionDecision.ask) {
       final prompt = PermissionPrompt(use.name, executionInput,
+          cancelSignal: toolStopSignal ?? cancelSignal,
           preparedEdit: preparedEdit,
           execution: executionTool is ProcessTool ? executionTool.preparedRequest : null,
           sandboxAccess: access,
           retryExplanation: recovery?.explanation,
           retrySafety: retrySafety);
       if (recovery != null) state.promptedSandboxRetries.add(retryKey!);
-      resp = await asker(prompt);
+      resp = await _ask(prompt);
       changedModeBlock = runtimeBlock();
       decision = changedModeBlock == null &&
               resp.decision == PermissionDecision.allow &&
@@ -607,6 +614,10 @@ class ToolExecutor {
     // let the shape through, so the refusal pattern it was counting is
     // over (whether the execution then succeeds or errors).
     state.denialCounts.remove(use.name);
+    if (usingOutsideGrant) {
+      sink.notice('  Running ${use.name} outside the sandbox (session approval).\n',
+          kind: NoticeKind.warning);
+    }
     // Observation is additive: the sink call is unchanged (AgentSink /
     // BusSink remain the built-in observe-only adapters); observers get the
     // same payload, each individually exception-contained. The payload is the
@@ -639,6 +650,8 @@ class ToolExecutor {
       // Formatting and event shape are unchanged: one toolComplete event, an
       // error result — a blocked call never invokes the tool and never
       // requests fresh approval.
+      var rememberOutsideOnDispatch = false;
+      var runningOutsideSandbox = usingOutsideGrant;
       Future<ToolResult> dispatch() {
         final finalBlock = runtimeBlock();
         if (finalBlock != null) {
@@ -648,6 +661,16 @@ class ToolExecutor {
         if (isCancelled()) {
           return Future<ToolResult>.value(
               ToolResult('tool ${use.name} cancelled', isError: true));
+        }
+        if (runningOutsideSandbox &&
+            policy.check(use.name, executionInput) == PermissionDecision.deny) {
+          return Future.value(ToolResult.error(
+              'Outside-sandbox execution blocked by the current permission policy.'));
+        }
+        if (rememberOutsideOnDispatch) {
+          policy.rememberOutsideSandbox(use.name,
+              (executionTool as ProcessTool).preparedRequest!);
+          rememberOutsideOnDispatch = false;
         }
         return executionTool.execute(
           executionInput,
@@ -682,17 +705,20 @@ class ToolExecutor {
         state.sandboxFailures[retryKey] = failure;
         state.promptedSandboxRetries.add(retryKey);
         final prompt = PermissionPrompt(use.name, executionView,
+            cancelSignal: toolStopSignal ?? cancelSignal,
             execution: (executionTool as ProcessTool).preparedRequest,
             outsideSandbox: true, retryExplanation: failure.explanation);
-        final response = await asker(prompt);
+        final response = await _ask(prompt);
         final blocked = runtimeBlock();
         if (response.decision == PermissionDecision.allow &&
             blocked == null && !isCancelled() && !state.toolInterrupted) {
-          // A separate user decision authorizes exactly one retry, never a
-          // remembered rule or a project-wide sandbox change. Reuse the sealed
-          // request and run the normal hooks and final dispatch guards again.
+          // Keep explicit session grants separate from ordinary command rules.
+          // Save only at dispatch, after hooks, mode and cancellation checks.
+          rememberOutsideOnDispatch = response.remember;
+          runningOutsideSandbox = true;
           executionTool = executionTool.outsideSandbox();
-          sink.notice('  Retrying ${use.name} outside the sandbox (approved once).\n',
+          sink.notice('  Retrying ${use.name} outside the sandbox '
+              '(${response.remember ? "approved for this session" : "approved once"}).\n',
               kind: NoticeKind.warning);
           out = await _runWithExecutionHooks(
             toolName: use.name, toolId: use.id, input: executionView,
@@ -837,6 +863,17 @@ class ToolExecutor {
         interruptedInFlight: interruptedInFlight,
       );
     }
+  }
+
+  /// Cancellation stops waiting even if a custom asker never settles. Built-in
+  /// askers also use the signal to release their UI and keyboard ownership.
+  Future<PermissionResponse> _ask(PermissionPrompt prompt) {
+    final stop = prompt.cancelSignal;
+    if (stop == null) return asker(prompt);
+    return Future.any([
+      asker(prompt),
+      stop.then((_) => PermissionResponse.denyOnce),
+    ]);
   }
 
   /// Runs the AROUND-execution hook chain around [delegate]. The FIRST

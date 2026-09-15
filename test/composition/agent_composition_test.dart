@@ -448,8 +448,12 @@ class _CapturingDriver implements AgentDriver {
     Future<void>? cancelSignal,
     Future<void>? toolInterruptSignal,
     ToolRegistry? turnTools,
+    HistoryAppendObserver? onHistoryAppend,
+    HistoryReplaceObserver? onHistoryReplace,
   }) =>
-      _agent.run(
+      AgentDriverAdapter(_agent).run(
+        onHistoryAppend: onHistoryAppend,
+        onHistoryReplace: onHistoryReplace,
         history: history,
         userInput: userInput,
         cancelSignal: cancelSignal,

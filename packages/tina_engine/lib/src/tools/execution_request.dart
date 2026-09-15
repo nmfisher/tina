@@ -33,6 +33,19 @@ class ExecutionRequest {
   String get approvalDescription => '  Working directory: $workingDirectory\n'
       '  Executable: $executable\n'
       '${environmentOverrides.entries.map((e) => '  Environment override: ${e.key}=${e.value}\n').join()}';
+
+  /// Exact invocation equality for in-memory outside-sandbox grants. Compare
+  /// the complete environment without logging it or treating strings as globs.
+  bool sameInvocationAs(ExecutionRequest other) =>
+      executable == other.executable &&
+      workingDirectory == other.workingDirectory &&
+      shell == other.shell &&
+      timeoutSeconds == other.timeoutSeconds &&
+      arguments.length == other.arguments.length &&
+      Iterable<int>.generate(arguments.length)
+          .every((i) => arguments[i] == other.arguments[i]) &&
+      environment.length == other.environment.length &&
+      environment.entries.every((e) => other.environment[e.key] == e.value);
 }
 
 Map<String, String> executionEnvironmentOverrides(Map<String, dynamic> input) {
