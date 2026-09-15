@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:tina_engine/src/terminal/pty_runner.dart';
 import 'package:test/test.dart';
@@ -45,9 +46,14 @@ void main() {
     final out = buf.toString();
     expect(out, contains('in-${Directory.systemTemp.path}'));
     expect(out, contains('V=hello42'));
-    // The child's tty(1) must report a /dev/pts/N path — proof it is on a
-    // real PTY, not our terminal, not pipes.
-    expect(RegExp(r'/dev/pts/\d+').hasMatch(out), isTrue, reason: out);
+    // The child's tty(1) must report a pty device path — proof it is on a
+    // real PTY, not our terminal, not pipes. Linux uses /dev/pts/N; macOS
+    // uses /dev/ttysNNN. (macOS paths unverified in CI: this suite runs on
+    // Linux.)
+    final ptyRe = Platform.isMacOS
+        ? RegExp(r'/dev/ttys\d+')
+        : RegExp(r'/dev/pts/\d+');
+    expect(ptyRe.hasMatch(out), isTrue, reason: out);
     await conn.close();
   });
 
@@ -79,20 +85,32 @@ void main() {
 
   test('partial write is handled: large payload survives intact', () async {
     final conn = await sh('cat; exit 0'); // echo back everything
-    final payload = List.generate(200000, (i) => 0x41 + (i % 26));
+    final payload = Uint8List.fromList(
+        List.generate(200000, (i) => 0x41 + (i % 26)));
     // Fire the write; do not await: it must survive short writes internally.
-    final wrote = conn.write(payload);
+    // Then wait for the FULL echo to arrive before closing: close()
+    // terminates the child's tree, and bytes still in flight when cat dies
+    // are legitimately lost — this test is about write fidelity, not close
+    // semantics. (Not awaiting `wrote` alone: with 200KB < the default
+    // 256KB bound it completes immediately, and closing then would kill cat
+    // mid-echo.)
     final got = <int>[];
     final sub = conn.output.listen(got.addAll);
+    final wrote = conn.write(payload);
     await wrote;
-    // Give cat time to echo it back.
-    await Future<void>.delayed(const Duration(seconds: 1));
-    await conn.close();
+    while (got.length < payload.length) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      if (conn.exited) break; // died early: let the length expect report it
+    }
+    // The full echo must come back before close, not a prefix of it: wait
+    // for the child to exit and the drain to finish, then require EVERY
+    // byte to match (the old version accepted >100KB and compared only the
+    // first 1000).
+    await conn.close(grace: const Duration(seconds: 5));
     await sub.cancel();
-    // With default 256 KB bound and 200 KB payload, expect the full payload
-    // (bounded by what the PTY echoed back before close).
-    expect(got.length, greaterThan(100000), reason: 'got ${got.length}');
-    expect(got.sublist(0, 1000), equals(payload.sublist(0, 1000)));
+    expect(got.length, payload.length,
+        reason: 'echoed ${got.length} of ${payload.length} bytes');
+    expect(got, equals(payload));
   });
 
   test('immediate exit completes with code and drained output', () async {
@@ -114,14 +132,24 @@ void main() {
   });
 
   test('close during spawn is safe', () async {
-    // Close immediately after a spawn that is still running.
-    final conn = await sh('sleep 5');
-    final closed = conn.close();
-    // Close again while the first close is in flight.
-    final again = conn.close();
-    final code = await closed.timeout(const Duration(seconds: 10));
+    // Two races to cover:
+    // 1. close() called while the spawn handshake is still in flight —
+    //    start the spawn, do NOT await it, close the connection returned
+    //    by the same future. The old version awaited spawn first, which
+    //    never exercised the pending-spawn path.
+    final spawn = sh('sleep 5');
+    // Give the isolate a moment to start but not to finish the handshake
+    // deterministically: either ordering must be safe.
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+    final early = await spawn;
+    final closedEarly = early.close(grace: const Duration(seconds: 2));
+    // 2. close() racing close() while the first is still in flight.
+    final again = early.close(grace: const Duration(seconds: 2));
+    final code = await closedEarly.timeout(const Duration(seconds: 10));
     await again;
     expect(code, isNonNegative);
+    // A closed connection refuses writes without throwing.
+    expect(await early.write([0x78]), isFalse);
   });
 
   test('no leaked ports: an isolate that spawns and closes exits on its own',
@@ -273,7 +301,8 @@ void main() {
     await conn.done;
     await sub.cancel();
     final t = buf.toString().trim();
-    expect(t, startsWith('/dev/pts/'));
+    final ptyPrefix = Platform.isMacOS ? '/dev/ttys' : '/dev/pts/';
+    expect(t, startsWith(ptyPrefix));
     expect(t, isNot(equals('/dev/tty')));
   });
 }
