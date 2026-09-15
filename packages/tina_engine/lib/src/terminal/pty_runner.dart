@@ -440,9 +440,10 @@ Future<void> _workerMain(_SpawnConfig config) async {
     }
     final pid = out.ref.pid;
     final masterFd = out.ref.masterFd;
+    final statusFd = out.ref.statusFd;
     toMain.send(pid);               // handshake 2: the child pid
     toMain.send(fromMain.sendPort); // handshake 3: here is the cmd port
-    await _runLoop(config.events, toMain, fromMain, pid, masterFd);
+    await _runLoop(config.events, toMain, fromMain, pid, masterFd, statusFd);
   } finally {
     // Free every allocation (worker side; the child either exec'd or exited).
     if (exeP != null) malloc.free(exeP);
@@ -484,7 +485,7 @@ Pointer<Uint8> _toCString(String s, Allocator alloc) {
 }
 
 Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
-    ReceivePort fromMain, int pid, int fd) async {
+    ReceivePort fromMain, int pid, int fd, int statusFd) async {
   final buf = malloc<Uint8>(65536);
   var exitStatus = -1;
   var childGone = false;
@@ -570,31 +571,29 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
     }
   });
 
+  // Reaping goes through the spawn's status pipe (the shim's supervisor
+  // waits on the real child and relays the raw wait status): the VM's
+  // wait(-1)-style child reaper can't make this fail with ECHILD, because
+  // the child is a grandchild this process never waits on.
+  bool reap() {
+    if (childGone) return false;
+    final st = malloc<Int32>();
+    final wr = tina_pty_reap(statusFd, st, 0);
+    if (wr > 0) {
+      childGone = true;
+      exitStatus = st.value;
+    }
+    malloc.free(st);
+    return childGone;
+  }
+
   // Main loop: poll the PTY, read output, pump writes, reap the child.
   while (true) {
-    // Reap, non-blocking, exactly here — the only waitpid call site.
-    if (!childGone) {
-      final st = malloc<Int32>();
-      final wr = tina_pty_waitpid(pid, st, 0);
-      // ignore: avoid_print
-      if (wr != 0) print('REAP: wr=' + wr.toString() + ' status=' + st.value.toString());
-      if (wr > 0) {
-        childGone = true;
-        exitStatus = st.value;
-      }
-    }
+    reap();
 
     pumpWrites();
 
-    if (!childGone) {
-      // Reap, non-blocking, exactly here — the only waitpid call site.
-      final st = malloc<Int32>();
-      final wr = tina_pty_waitpid(pid, st, 0);
-      if (wr > 0) {
-        childGone = true;
-        exitStatus = st.value;
-      }
-    }
+    reap();
 
     if (childGone && writeQueue.isEmpty) {
       // Drain: read until EOF/EIO so the last output gets delivered before
@@ -611,6 +610,7 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
       // n < 0: EIO is the normal end-of-pty signal on Linux once the slave
       // has no more readers. Anything else is unexpected but not fatal.
       tina_pty_close(fd);
+      tina_pty_close(statusFd);
       malloc.free(buf);
       malloc.free(scratch);
       finish();

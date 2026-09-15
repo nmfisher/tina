@@ -31,6 +31,8 @@ final class TinaPtySpawnResult extends Struct {
   @Int32()
   external int masterFd;
   @Int32()
+  external int statusFd;
+  @Int32()
   external int error;
 }
 
@@ -61,9 +63,15 @@ external int tina_pty_resize(int fd, int rows, int cols);
 @Native<Int32 Function(Int32, Int32)>(assetId: _asset)
 external int tina_pty_kill(int pid, int sig);
 
-/// pid on exit, 0 = still running, negative = -errno.
+/// pid on exit, 0 = still running, negative = -errno. Only used on the
+/// spawn-failure path to reap the supervisor.
 @Native<Int32 Function(Int32, Pointer<Int32>, Int32)>(assetId: _asset)
 external int tina_pty_waitpid(int pid, Pointer<Int32> status, int waitForExit);
+
+/// Read the child's exit status relayed over the spawn's status pipe.
+/// > 0 with [status] set on exit, 0 = still running, negative = -errno.
+@Native<Int32 Function(Int32, Pointer<Int32>, Int32)>(assetId: _asset)
+external int tina_pty_reap(int statusFd, Pointer<Int32> status, int waitForExit);
 
 /// 1 = readable/EOF, 0 = timeout, negative = -errno.
 @Native<Int32 Function(Int32, Int32)>(assetId: _asset)

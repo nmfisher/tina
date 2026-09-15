@@ -121,6 +121,38 @@ int tina_pty_waitpid(int pid, int32_t* status, int32_t wait_for_exit) {
   return r;
 }
 
+int tina_pty_reap(int status_fd, int32_t* status, int32_t wait_for_exit) {
+  if (status_fd < 0 || status == NULL) return -EINVAL;
+  if (wait_for_exit == 0) {
+    // Poll: readable means the supervisor wrote the status (or died).
+    struct pollfd pfd;
+    pfd.fd = status_fd;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    int rc;
+    do {
+      rc = poll(&pfd, 1, 0);
+    } while (rc < 0 && errno == EINTR);
+    if (rc < 0) return -errno;
+    if (rc == 0) return 0; // still running
+  }
+  int st = 0;
+  ssize_t n;
+  do {
+    n = read(status_fd, &st, sizeof(st));
+  } while (n < 0 && errno == EINTR);
+  if (n < 0) return -errno;
+  if (n == 0) {
+    // Supervisor died without writing (e.g. SIGKILL of the supervisor
+    // itself): unknowable status. The child is a grandchild — not reaped
+    // here, this is just the report channel.
+    return -EIO;
+  }
+  if (n != (ssize_t)sizeof(st)) return -EIO;
+  *status = st;
+  return 1;
+}
+
 int tina_pty_poll(int fd, int32_t timeout_ms) {
   if (fd < 0) return -EBADF;
   // poll() with a single descriptor; not async-signal-safe constraints here,
@@ -190,6 +222,28 @@ static void child_exec(const TinaPtySpawnRequest* req, int slave_fd,
   // it in the child, so the parent sees EOF on success) and exit. _exit: no
   // atexit handlers from the parent's state.
   report_and_exit(err_pipe, errno);
+}
+
+// Supervisor path (the first child, itself a child of the caller): fork the
+// real exec child, wait on it — the caller can't do this itself because the
+// Dart VM's wait(-1)-style reaper would otherwise steal the child — and relay
+// the raw wait status over the pipe. The supervisor exits as soon as the
+// status is written, so nothing lingers.
+static void supervisor_relay(int status_pipe, int err_pipe) {
+  pid_t child = fork();
+  if (child < 0) report_and_exit(err_pipe, errno);
+  if (child == 0) return; // real child: fall through to setsid/dup2/exec
+
+  int st = 0;
+  pid_t r;
+  do {
+    r = waitpid(child, &st, 0);
+  } while (r < 0 && errno == EINTR);
+  ssize_t wn;
+  do {
+    wn = write(status_pipe, &st, sizeof(st));
+  } while (wn < 0 && errno == EINTR);
+  _exit(0);
 }
 
 int tina_pty_spawn(const TinaPtySpawnRequest* req, TinaPtySpawnResult* out) {
@@ -263,9 +317,11 @@ int tina_pty_spawn(const TinaPtySpawnRequest* req, TinaPtySpawnResult* out) {
   set_cloexec(err_pipe[0]);
   set_cloexec(err_pipe[1]);
 
-  // --- fork ---------------------------------------------------------------
-  pid_t pid = fork();
-  if (pid < 0) {
+  // Exit-status channel: the supervisor relays the child's raw wait status.
+  // CLOEXEC on both ends: a successful exec in the supervisor's child closes
+  // them; only the supervisor itself holds the write end afterwards.
+  int status_pipe[2];
+  if (pipe(status_pipe) != 0) {
     int e = errno;
     close(slave);
     close(master);
@@ -273,8 +329,32 @@ int tina_pty_spawn(const TinaPtySpawnRequest* req, TinaPtySpawnResult* out) {
     close(err_pipe[1]);
     return -e;
   }
+  set_cloexec(status_pipe[0]);
+  set_cloexec(status_pipe[1]);
+
+  // --- fork 1: supervisor -------------------------------------------------
+  pid_t pid = fork();
+  if (pid < 0) {
+    int e = errno;
+    close(slave);
+    close(master);
+    close(err_pipe[0]);
+    close(err_pipe[1]);
+    close(status_pipe[0]);
+    close(status_pipe[1]);
+    return -e;
+  }
   if (pid == 0) {
     close(err_pipe[0]);
+    close(status_pipe[0]);
+    close(master);
+    // fork 2: the real child, a grandchild of the caller. The caller never
+    // waits on it — the supervisor below does — so no external reaper can
+    // make the caller's own wait fail with ECHILD.
+    pid = fork();
+    if (pid < 0) report_and_exit(err_pipe[1], errno);
+    if (pid > 0) supervisor_relay(status_pipe[1], err_pipe[1]);
+    close(status_pipe[1]);
     child_exec(req, slave, master, err_pipe[1]);
     _exit(127); // unreachable
   }
@@ -282,6 +362,7 @@ int tina_pty_spawn(const TinaPtySpawnRequest* req, TinaPtySpawnResult* out) {
   // --- Parent -------------------------------------------------------------
   close(slave);
   close(err_pipe[1]);
+  close(status_pipe[1]);
   set_cloexec(master); // no PTY fd may leak into unrelated child processes
 
   int exec_errno = 0;
@@ -292,10 +373,12 @@ int tina_pty_spawn(const TinaPtySpawnRequest* req, TinaPtySpawnResult* out) {
   close(err_pipe[0]);
 
   if (n > 0) {
-    // The child failed to exec (or dup2/chdir). Reap it and report a
-    // structured launch failure; the caller never gets a live fd/pid pair.
+    // The child failed to exec (or dup2/chdir). Reap the supervisor and
+    // report a structured launch failure; the caller never gets a live
+    // fd/pid pair.
     int32_t st = 0;
     (void)tina_pty_waitpid(pid, &st, 1);
+    close(status_pipe[0]);
     close(master);
     out->error = exec_errno != 0 ? exec_errno : EIO;
     out->pid = -1;
@@ -307,11 +390,13 @@ int tina_pty_spawn(const TinaPtySpawnRequest* req, TinaPtySpawnResult* out) {
     (void)tina_pty_kill(pid, SIGKILL);
     (void)tina_pty_waitpid(pid, NULL, 1);
     close(master);
+    close(status_pipe[0]);
     return -e;
   }
 
   out->master_fd = master;
   out->pid = pid;
+  out->status_fd = status_pipe[0];
   out->error = 0;
   return 0;
 }

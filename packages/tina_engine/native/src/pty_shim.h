@@ -26,6 +26,8 @@ typedef struct TinaPtySpawnRequest {
 typedef struct TinaPtySpawnResult {
   int pid;                  // child pid, or -1 on structured failure
   int master_fd;            // PTY master fd, or -1 on structured failure
+  int32_t status_fd;        // pipe carrying the child's raw wait status; the
+                            // owner closes it after the exit status is read
   int32_t error;            // 0 on success, else errno of the failure
 } TinaPtySpawnResult;
 
@@ -56,9 +58,16 @@ int tina_pty_resize(int fd, int32_t rows, int32_t cols);
 /// Send a signal to the child. Returns 0 or -errno.
 int tina_pty_kill(int pid, int sig);
 
-/// waitpid. [wait_for_exit] 0 = WNOHANG poll, 1 = block. Returns the pid on
-/// exit, 0 if still running, or -errno.
-int tina_pty_waitpid(int pid, int32_t* status, int32_t wait_for_exit);
+/// Read the child's exit status relayed by the spawn-time supervisor over
+/// [status_fd]. [wait_for_exit] 0 = poll (0 if not yet available), 1 = block.
+/// Returns > 0 with *status set on exit, 0 if still running, -errno on error.
+///
+/// WHY A PIPE, NOT waitpid(): the host process (the Dart VM) spawns its own
+/// children and runs a wait(-1)-style reaper that can steal and reap any
+/// child first, making our own waitpid fail with ECHILD. A double-fork at
+/// spawn time puts the exec'd child out of our reach on purpose: only the
+/// short-lived supervisor waits on it and relays the raw status here.
+int tina_pty_reap(int status_fd, int32_t* status, int32_t wait_for_exit);
 
 /// Poll readability. Returns 1 = readable/EOF, 0 = timeout, -errno = error.
 int tina_pty_poll(int fd, int32_t timeout_ms);
