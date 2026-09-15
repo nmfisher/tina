@@ -145,6 +145,24 @@ void main() {
     }
   });
 
+  test('bounded grace stays bounded when a descendant holds the slave open',
+      () async {
+    // Regression: after the shell exited, the drain branch spun without
+    // yielding whenever a descendant (`sleep 300 &`) still held the slave
+    // open — terminate was never processed and a 50ms grace took ~4.6s,
+    // answered by the main isolate force-killing the worker instead of a
+    // clean native shutdown.
+    final conn = await sh('sleep 300 & sleep 0.2'); // shell exits, bg lives
+    final sw = Stopwatch()..start();
+    final code = await conn
+        .close(grace: const Duration(milliseconds: 50))
+        .timeout(const Duration(seconds: 5), onTimeout: () => -999);
+    sw.stop();
+    expect(code, isNot(-999), reason: 'close hung; grace not bounded');
+    expect(sw.elapsed, lessThan(const Duration(seconds: 2)),
+        reason: 'a 50ms grace must not take ${sw.elapsed}');
+  });
+
   test('child ignoring SIGTERM is force-killed within the grace period', () async {
     // trap '' TERM: a shell that ignores termination.
     final conn = await sh("trap '' TERM; sleep 30");

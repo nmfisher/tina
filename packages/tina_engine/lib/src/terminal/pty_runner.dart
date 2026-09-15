@@ -659,19 +659,23 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
         ]);
         continue;
       }
-      if (n == 0) {
-        // Would block: keep polling until EOF/EIO — output from a slow
-        // producer is still arriving.
-        continue;
+      if (n < 0) {
+        // Drain genuinely ended (EIO is the normal end-of-pty signal once
+        // the slave has no more readers).
+        tina_pty_close(fd);
+        tina_pty_close(statusFd);
+        malloc.free(buf);
+        malloc.free(scratch);
+        finish();
+        return;
       }
-      // Drain genuinely ended (n < 0: EIO is the normal end-of-pty signal
-      // once the slave has no more readers).
-      tina_pty_close(fd);
-      tina_pty_close(statusFd);
-      malloc.free(buf);
-      malloc.free(scratch);
-      finish();
-      return;
+      // Would block: a descendant may still hold the slave open for a long
+      // time (e.g. `sleep 300 &`). This branch MUST yield, or the loop
+      // starves the isolate and terminate/timers are never processed — a
+      // bounded grace would then never fire (regression: a 50ms grace took
+      // 4.6s and was answered by the main isolate killing the worker).
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      continue;
     }
 
     // Yield to the event loop so control messages (write/resize/terminate)
