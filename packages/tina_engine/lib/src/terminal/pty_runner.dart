@@ -523,14 +523,6 @@ class _OutputChannel {
   /// Set once the connection is finalized: no more chunks can arrive.
   bool _finished = false;
 
-  /// Flow-control callbacks, wired by [_PtyWorker].
-  void Function(int pendingBytes)? onBacklog;
-
-  /// Buffered bytes above this: the worker should stop reading.
-  static const int pauseAbove = 512 * 1024;
-
-  /// Buffered bytes below this: the worker may read again.
-  static const int resumeBelow = 128 * 1024;
 
   /// Hard cap on the buffer: past this, oldest chunks spill (see [spill]).
   static const int _maxBufferedBytes = 1 << 20; // 1 MiB
@@ -575,7 +567,6 @@ class _OutputChannel {
       _pendingBytes -= dropped.length;
       if (_spilled.length < 16) _spilled.add(dropped);
     }
-    _notifyBacklog();
     for (final l in List.of(_listeners)) {
       l.pump();
     }
@@ -595,15 +586,6 @@ class _OutputChannel {
     for (final l in List.of(_listeners)) {
       l.pumpAndClose();
     }
-    _notifyBacklog();
-  }
-
-  void _notifyBacklog() {
-    onBacklog?.call(_pendingBytes);
-  }
-
-  void _remove(_OutputListener l) {
-    _listeners.remove(l);
   }
 }
 
