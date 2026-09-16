@@ -117,6 +117,9 @@
   "excludedRoots": {
     "tina": [
       "examples"
+    ],
+    "tina_engine": [
+      "hook"
     ]
   }
 }
