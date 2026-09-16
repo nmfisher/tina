@@ -212,6 +212,11 @@ enum _Cmd {
 
   /// Kill tree + drain + reap; then report `_Msg.exit`. Terminal for worker.
   terminate,
+
+  /// Output flow control (payload: bool paused). True stops the worker's
+  /// PTY reads; false resumes them. This is how consumer capacity controls
+  /// how much the worker reads.
+  flow,
 }
 
 /// Messages worker → main.
@@ -267,6 +272,13 @@ class _PtyWorker {
   /// Output channel: buffers before a consumer attaches, replays through
   /// completion (see [_OutputChannel]).
   final _OutputChannel _output = _OutputChannel();
+
+  /// Raised while the output channel holds more than
+  /// [_OutputChannel.pauseAbove] unconsumed bytes; cleared when it drains
+  /// below [_OutputChannel.resumeBelow]. The worker stops reading the PTY
+  /// while this is set: the consumer's capacity, not the producer's speed,
+  /// decides how much is read (plan: bounded, lossless byte transport).
+  bool _pauseWorker = false;
 
   /// Output bytes from the PTY (stdout and stderr merged, as a terminal
   /// sees them). Broadcast: multiple listeners are fine. Complete after
@@ -379,7 +391,26 @@ class _PtyWorker {
     }
   }
 
-  _PtyWorker._(this._eventsPort, this._exitedCleanly);
+  _PtyWorker._(this._eventsPort, this._exitedCleanly) {
+    _output.onBacklog = _onBacklog;
+  }
+
+  /// Flow control: raise the read gate while the output backlog is over
+  /// the high water mark, clear it once it drains under the low mark.
+  /// The gate itself is shipped to the worker (`_Cmd.flow`): the flag
+  /// living only on this side throttles nothing.
+  void _onBacklog(int pendingBytes) {
+    if (_pauseWorker) {
+      if (pendingBytes <= _OutputChannel.resumeBelow) _pauseWorker = false;
+    } else {
+      if (pendingBytes > _OutputChannel.pauseAbove) _pauseWorker = true;
+    }
+    // Hysteresis also applies on the way up: a single notification may
+    // carry the backlog across both thresholds; _pauseWorker ends up
+    // correct either way. Harmless to re-send an unchanged state: the
+    // worker treats the message as an absolute assignment, not a toggle.
+    _toWorker.send([_Cmd.flow.index, _pauseWorker]);
+  }
 
   /// Worker → main output entry point. Buffers when nobody is listening,
   /// replays buffered bytes through completion, never silently drops (see
@@ -512,8 +543,8 @@ class _OutputChannel {
   /// Total bytes in [_pending].
   int _pendingBytes = 0;
 
-  /// Chunks too old for the buffer. Kept (bounded) so the loss is
-  /// observable, not silent; see [spill].
+  /// Chunks that raced finalization. Kept (bounded) so nothing terminal
+  /// vanishes silently; see [spill].
   final List<Uint8List> _spilled = <Uint8List>[];
 
   /// Delivered listeners, in attach order. Each keeps its own position in
@@ -523,13 +554,20 @@ class _OutputChannel {
   /// Set once the connection is finalized: no more chunks can arrive.
   bool _finished = false;
 
-
   /// Hard cap on the buffer: past this, oldest chunks spill (see [spill]).
-  static const int _maxBufferedBytes = 1 << 20; // 1 MiB
+  /// Called whenever the backlog changes. [_PtyWorker] raises or clears
+  /// its read gate from this; see the threshold constants below. Set by
+  /// the owning worker's constructor, before the worker can send anything.
+  void Function(int pendingBytes)? onBacklog;
 
-  /// Spilled (overflow) chunks, oldest first, at most 16 kept for
-  /// observability. Terminal bytes are never silently dropped: what does
-  /// not fit the ring is reported here instead.
+  /// Buffered bytes above this: [_PtyWorker] stops reading the PTY.
+  static const int pauseAbove = 512 * 1024;
+
+  /// Buffered bytes below this: [_PtyWorker] may read again.
+  static const int resumeBelow = 128 * 1024;
+
+  /// Chunks that arrived after finalization (a terminal-state race on the
+  /// worker side). Bounded and inspectable — never silently dropped.
   List<Uint8List> get spill => List.unmodifiable(_spilled);
 
   /// Bytes waiting for a consumer right now.
@@ -553,6 +591,7 @@ class _OutputChannel {
 
   /// Worker → consumer: buffer or forward the chunk.
   void add(Uint8List chunk) {
+    // (backlog notification happens below, after buffering)
     if (_finished) {
       // Chunks must not arrive past finalization; keep them observable
       // rather than silently vanishing.
@@ -561,15 +600,41 @@ class _OutputChannel {
     }
     _pending.add(chunk);
     _pendingBytes += chunk.length;
-    // Bound the buffer: spill the OLDEST chunks past the cap.
-    while (_pendingBytes > _maxBufferedBytes && _pending.length > 1) {
-      final dropped = _pending.removeAt(0);
-      _pendingBytes -= dropped.length;
-      if (_spilled.length < 16) _spilled.add(dropped);
-    }
+    onBacklog?.call(_pendingBytes);
     for (final l in List.of(_listeners)) {
       l.pump();
     }
+    _trimConsumed();
+  }
+
+  /// Reclaim buffered chunks every live listener has already received (or
+  /// that belong to the replay of already-gone listeners): those bytes are
+  /// accounted in [pendingBytes] but nobody can still need them re-sent.
+  ///
+  /// Without this the backlog only ever grew (the old spill trim was the
+  /// only remover), so a consumer that kept up never released the gate and
+  /// flow control wedged the stream at the high water mark. When nobody
+  /// listens, nothing is reclaimed — that is the case flow control exists
+  /// for: the worker stays paused until a consumer shows up and drains.
+  void _trimConsumed() {
+    if (_listeners.isEmpty) return; // nobody is keeping up: backlog stays
+    var minCursor = _pending.length;
+    for (final l in _listeners) {
+      if (l._cursor < minCursor) minCursor = l._cursor;
+      if (minCursor == 0) return; // slowest listener sits at the head
+    }
+    if (minCursor == 0) return;
+    for (var i = 0; i < minCursor; i++) {
+      _pendingBytes -= _pending[i].length;
+    }
+    _pending.removeRange(0, minCursor);
+    for (final l in _listeners) {
+      l._cursor -= minCursor;
+    }
+    // Fire even when the backlog lands on zero: zero is precisely the
+    // state that releases the worker's read gate; suppressing it wedges
+    // the stream at the high water mark.
+    onBacklog?.call(_pendingBytes);
   }
 
   /// Consumer errors (rare): forwarded to live listeners.
@@ -609,6 +674,10 @@ class _OutputListener {
       final chunk = channel._pending[_cursor++];
       controller.add(chunk);
     }
+    // The channel's backlog accounting must observe consumption: after a
+    // pause the worker sends nothing, so without this the resume signal
+    // (fired from the backlog change) could never trigger again.
+    channel._trimConsumed();
   }
 
   /// Deliver the backlog, then done. Idempotent.
@@ -734,6 +803,12 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
   final writeQueue = <Uint8List>[];
 
   var forcedExit = false;
+  // Output flow control: set when the main-isolate consumer is saturated
+  // (`_Cmd.flow`). While set, the loop stops reading the PTY so the
+  // producer is throttled by the consumer's real capacity — with no
+  // droppable overflow, "the worker keeps reading into a bounded ring" is
+  // exactly the bug.
+  var paused = false;
 
   void finish() {
     // Exit status decoding, mirroring WIFEXITED/WEXITSTATUS/WIFSIGNALED:
@@ -828,6 +903,9 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
     switch (_Cmd.values[list[0] as int]) {
       case _Cmd._attach:
         break; // handled above
+      case _Cmd.flow:
+        paused = list[1] as bool;
+        break;
       case _Cmd.write:
         writeQueue.add(list[1] as Uint8List);
         pumpWrites();
@@ -893,6 +971,8 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
       final n = tina_pty_read(fd, buf, 65536);
       if (n > 0) {
         exitDrainMs = 0; // still producing: keep the quiet window open
+        // Detach from buf: the very next read overwrites it, and the
+        // sent message must keep carrying THIS read's bytes.
         eventsPort.send([
           _Msg.output.index,
           Uint8List.fromList(buf.asTypedList(n)),
@@ -928,6 +1008,20 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
     // and the whole shutdown sequence until the child happens to die.
     await Future<void>.delayed(
         terminating ? const Duration(milliseconds: 50) : Duration.zero);
+    if (paused) {
+      // Output flow control: the consumer is saturated, so stop reading the
+      // PTY entirely. This is how consumer capacity controls how much the
+      // worker reads — while paused, the pty's kernel buffers absorb the
+      // producer's output. Poll with a long timeout so a paused worker
+      // costs nothing; keep the loop turning so control messages and
+      // termination keep working.
+      final pollRc = tina_pty_poll(fd, terminating ? 0 : 100);
+      if (pollRc < 0) {
+        // PTY error while paused: surface it and let the normal path close.
+        eventsPort.send([_Msg.error.index, 'pty poll failed while paused']);
+      }
+      continue;
+    }
     final pollRc = tina_pty_poll(fd, terminating ? 0 : 50);
     if (pollRc > 0) {
       // A poll hit may have more than one buffer queued: drain greedily (up
@@ -936,6 +1030,8 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
       for (var drain = 0; drain < 8; drain++) {
         final n = tina_pty_read(fd, buf, 65536);
         if (n > 0) {
+          // Detach from buf: the very next read overwrites it, and the
+          // sent message must keep carrying THIS read's bytes.
           eventsPort.send([
             _Msg.output.index,
             Uint8List.fromList(buf.asTypedList(n)),
