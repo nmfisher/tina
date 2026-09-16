@@ -154,3 +154,6 @@ void emulatorCase(String name, void Function(TerminalEmulator t) body,
     body(t);
   });
 }
+
+/// Renders the active screen as fixture-style text (`#` blank, `.` cont).
+Grid renderGridOf(TerminalEmulator t) => renderGrid(t);
