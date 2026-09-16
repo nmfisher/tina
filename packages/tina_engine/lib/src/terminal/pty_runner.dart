@@ -140,8 +140,9 @@ class PtyConnection {
             return;
           }
           final end = math.min(offset + _writeChunkSize, snapshot.length);
-          if (!await _worker
-              .write(Uint8List.sublistView(snapshot, offset, end))) {
+          // Own the chunk's storage: a view can carry the entire paste's
+          // backing buffer across the isolate boundary with every message.
+          if (!await _worker.write(snapshot.sublist(offset, end))) {
             result.complete(false);
             return;
           }
