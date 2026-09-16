@@ -131,19 +131,22 @@ void main() {
     await conn.write([0x78]); // after close: returns false, no throw
   });
 
-  test('close during spawn is safe', () async {
-    // Two races to cover:
-    // 1. close() called while the spawn handshake is still in flight —
-    //    start the spawn, do NOT await it, close the connection returned
-    //    by the same future. The old version awaited spawn first, which
-    //    never exercised the pending-spawn path.
+  test('close immediately after spawn, close racing close, write after close',
+      () async {
+    // Honesty note: a PtyConnection does not exist until the spawn
+    // handshake resolves, so "close during spawn" from the caller's side
+    // can only mean close() as soon as the future delivers the connection
+    // — which is what this does. The genuinely-pending path (isolate dying
+    // mid-handshake) is covered on the failure path instead: an invalid
+    // executable makes the handshake fail and every port is closed (see
+    // the invalid-executable test and the port-leak lifecycle test).
+    // Races covered HERE: close() right after spawn, close() racing close()
+    // while the first is still in flight, and write() after close.
     final spawn = sh('sleep 5');
-    // Give the isolate a moment to start but not to finish the handshake
-    // deterministically: either ordering must be safe.
     await Future<void>.delayed(const Duration(milliseconds: 1));
     final early = await spawn;
     final closedEarly = early.close(grace: const Duration(seconds: 2));
-    // 2. close() racing close() while the first is still in flight.
+    // close() racing close() while the first is still in flight.
     final again = early.close(grace: const Duration(seconds: 2));
     final code = await closedEarly.timeout(const Duration(seconds: 10));
     await again;
