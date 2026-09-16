@@ -1,256 +1,309 @@
-# Interactive shell panel — implementation plan
+# Interactive terminal panel — remaining implementation
 
-Status: planned; panel foundation shipped in v0.6.19. Updated against v0.6.24
-on 2026-09-14. This document replaces the earlier design at this same path.
-Only the foundation is implemented; the phases below are future work.
+Status: specification, updated against v0.6.30 on 2026-09-16. The generic
+[panel host](panel_architecture.md) and native [PTY backend](pty_backend.md)
+are implemented. This plan contains only the work required to turn those
+components into a usable terminal. `/term` is not implemented yet.
 
-## Outcome and scope
+## User contract
 
-A user can open `/term`, type into a real interactive shell, switch back to a
-conversation with Ctrl+G, and return without losing either the shell or the
-chat draft. Shell line editing, completion, signals, and terminal applications
-must work inside the panel on Linux and macOS.
+From a conversation, `/term` opens and focuses a new interactive shell in the
+project directory. The shell supports command editing, history, completion,
+foreground jobs, Unicode, resizing, and terminal applications. Ctrl+G enters
+Tina's existing focus navigation; selecting a conversation restores its draft.
+Returning to a terminal preserves its process, screen, and history.
 
-The first release targets Linux x64/arm64 and macOS arm64. Windows/ConPTY,
-reattaching shells after tina exits, agent access to terminal input/output,
-mouse reporting to child applications, and complete xterm compatibility are
-outside this release. A shell panel is a user-operated terminal; opening one
-does not add an agent tool or bypass the existing bash/exec approval policy.
-
-Retain the earlier preference for an in-tree implementation without third-party
-terminal packages. The former requirement for pure Dart FFI with no native
-shim is replaced by the native boundary described below. Do not advertise
-`TERM=xterm-256color` or tmux compatibility until the relevant behavior passes
-the compatibility checks.
-
-## Foundation already present — reuse it
-
-[Panel architecture](panel_architecture.md) is the source of truth for existing
-panel behavior. Do not repeat this refactor or reintroduce conversation fixtures
-for generic panel tests.
-
-| Existing component | Responsibility to preserve |
+| Command or action | Required result |
 | --- | --- |
-| `lib/tui/panel_host.dart` | Opens arbitrary `PanelContent` with a `PanelSpec`; owns registration, frame, and synchronous view cleanup. |
-| `packages/tina_console/lib/src/panel_content.dart` | Content geometry, borrowed surface, attach/detach, and repaint. |
-| `lib/tui/conversation_panel_coordinator.dart` | Fits and parks extra content in tiled and sidebar layouts. |
-| `packages/tina_console/lib/src/panel_input.dart` | `exclusive` input ownership; Ctrl+G is reserved for navigation. |
-| `packages/tina_console/lib/src/line_editor.dart` | Routes exclusive input before chat editing/cancellation; prompts and modals take priority. |
-| `lib/tui/run_panel_host.dart` | Example of a feature adapter using the generic host. Workflow stop/close semantics are not shell semantics. |
+| `/term` | Create one terminal with a unique `term-<n>` ID and focus it. |
+| `/term list` | Show IDs, shell names, initial working directories, and lifecycle states. |
+| `/term focus <id>` | Focus an existing running or exited terminal. |
+| `/term close <id>` | Await process cleanup and remove the panel; repeated close is harmless. |
+| Shell `exit` or Ctrl+D at an empty prompt | Retain final output and show exit status; do not restart automatically. |
+| Ctrl+C inside a terminal | Send ETX to the PTY foreground job; do not cancel an agent or quit Tina. |
+| Ctrl+G, select chat, `/quit` | Await all terminal shutdowns before tearing down the screen. |
 
-`PanelHost.openPanel` does not focus the new panel automatically. Its `onDispose`
-is synchronous; it cannot own awaited process shutdown. Detaching/parking a
-view is not closing its process. The shared editor already hides for exclusive
-panels and preserves its draft when focus returns.
+Commands are entered in the chat editor, never intercepted from shell text.
+`/term --help` explains navigation, closing, and that these user-operated shells
+have the user's normal filesystem and network access. Agent permission modes
+continue to apply to agent tools. Do not expose terminal input/output to agents.
 
-## Architecture and ownership
+Target Linux x64/arm64 and macOS arm64. No Windows backend, process restoration
+on `--continue`, remote reattachment, mouse reporting to children, or complete
+xterm compatibility in this implementation. Do not serialize shell contents
+into conversations or restart shells from persisted panel IDs.
 
-Use three independently testable layers. The engine and console remain sibling
-packages; neither imports the other.
+## Boundaries and composition
 
-| Proposed component | Location | Owns |
+Keep the existing engine and console packages independent. New components:
+
+| Component | Location | Responsibility |
 | --- | --- | --- |
-| `PtyRunner`, `PtyConnection`, Unix adapter | `packages/tina_engine/lib/src/terminal/` | Process launch, PTY byte I/O, dimensions, exit status, asynchronous termination. No screen or agent dependencies. |
-| `TerminalEmulator`, input encoder, `TerminalPanelContent` | `packages/tina_console/lib/src/terminal/` | Terminal state, input conversion, and bounded rendering. No process creation or engine imports. |
-| `TerminalPanelController` | `lib/tui/terminal_panel_controller.dart` | Connects the two layers, opens through `PanelHost`, manages focus and process lifetime. |
-| `/term` integration | `lib/session_commands/` and application composition | Command registration/completion and a narrow UI capability to the controller. No FFI in command handlers. |
+| `TerminalEmulator` and terminal state types | `packages/tina_console/lib/src/terminal/terminal_emulator.dart` | Incremental byte parsing, grids, modes, scrollback, damage, query replies. Pure Dart. |
+| `TerminalInputEncoder` | `packages/tina_console/lib/src/terminal/terminal_input_encoder.dart` | Convert input events to bytes using current emulator modes. |
+| `TerminalPanelContent` | `packages/tina_console/lib/src/terminal/terminal_panel_content.dart` | Render a terminal viewport through `PanelContent` and `BackendSurface`. |
+| `TerminalPanelController` | `lib/tui/terminal_panel_controller.dart` | Own sessions, bridge engine/console, coordinate focus, writes, resize, and awaited cleanup. |
+| Terminal command capability | Existing session-command adapter and registry | Dispatch open/list/focus/close to the controller without importing FFI or terminal state into the app layer. |
 
-The console view takes terminal state and callbacks, not a `PtyConnection`.
-The controller connects PTY output to the emulator and encoded input/query
-replies to the PTY writer. Keep `RunningProcess` and ordinary `ProcessTool`
-execution intact: separate stdout/stderr pipes are a different contract.
-Do not declare the entire engine Linux/macOS-only; unsupported platforms must
-still be able to import and use its nonterminal features.
+Use an injected session factory in the controller with a small connection
+interface: `output`, `done`, `write`, `resize`, and `close`. Its production
+adapter wraps the existing `PtyRunner`/`PtyConnection`; fake connections can
+complete spawn, output, exit, and close separately. Do not redesign PTY launch
+or add shell-specific behavior to `ProcessTool`/`RunningProcess`.
 
-Proposed PTY contract:
+The following is the intended integration, not an API that already exists:
 
-- `spawn` accepts resolved executable, literal argv, absolute working directory,
-  a copied environment map, and positive rows/columns. It completes only after
-  successful exec, or reports a structured launch failure.
-- A connection exposes one ordered byte output stream, ordered asynchronous
-  writes, resize, pid, exit status, and an idempotent awaited close operation.
-- Distinguish child exit from completion of output draining. Preserve final
-  output before showing exit status. Document normalized signal exit results.
-- Inject the runner, process tracking, and scheduling/clock dependencies in
-  tests. Fake connections must model pending spawn, partial output, blocked
-  writes, exit, and close independently.
+```text
+PTY output -> emulator.feed(bytes) -> dirty rows -> scheduled panel paint
+                                    -> query replies -> ordered input writer
+focused InputEvent -> input encoder(emulator modes) -> ordered input writer
+panel positive size -> emulator.resize(rows, cols) + PTY.resize(rows, cols)
+PTY output done + PTY.done -> final paint -> exited status
+explicit close / application quit -> await PTY.close -> dispose view
+```
 
-## Phase 1 — prove the native process boundary
+Retain the in-tree implementation approach; do not add a third-party terminal
+package. Build in the phases below, with each phase's checks passing before
+connecting the next layer. Keep `/term` unavailable until the release gate.
 
-Deliver a headless PTY backend before building the terminal UI.
+## Phase 1 — terminal state and parsing
 
-Use a small in-tree native shim for launch, with the entire fork-to-exec child
-path contained in native code. Prepare executable/argv/environment and other
-allocations before fork; a child must never return through FFI into Dart,
-allocate Dart objects, or invoke Dart callbacks. Keep child setup limited to
-operations validated for that platform, then exec or `_exit` on failure.
-The restriction follows the [fork documentation](https://man7.org/linux/man-pages/man2/fork.2.html):
-a child of a multithreaded process may execute only async-signal-safe functions
-until exec. A direct Dart call to `forkpty` followed by Dart-side child setup
-does not satisfy that restriction.
+Implement a pure Dart emulator, with no `Screen`, filesystem, process, or timer
+dependencies. Proposed public operations are `feed(List<int>)`,
+`resize(rows, cols)`, `reset()`, a read-only viewport/state snapshot, and
+`takeDamage()`. `feed` reports generated reply bytes and title/bell events;
+it never writes to a terminal or creates a process.
 
-Implement and document controlling-terminal setup, session/job-control behavior,
-initial termios/window size, signal-mask/disposition reset, descriptor ownership,
-close-on-exec, and exec-error reporting. Hide platform constants and libc symbol
-resolution in the native adapter; do not copy Linux ioctl values onto macOS.
-No raw blocking read, waitpid, or unbounded write may run on the UI isolate.
-Use a worker with an explicit wakeup/shutdown mechanism, handle short writes,
-EINTR/EAGAIN and platform EOF behavior, and reap exactly once. Bound queued I/O
-and apply backpressure; do not silently drop terminal bytes.
+State must include a primary grid, alternate grid, cursor with pending-wrap
+flag, saved cursor state, scroll margins, tab stops, active attributes, modes,
+and a bounded primary scrollback ring. Each cell stores its text cluster,
+width/continuation marker, and attributes. Use the console's width conventions.
+Erase/overwrite/resize must clear both halves of a wide glyph. Bound combining
+marks per cell (64 code points), replacing further marks rather than growing
+one cell indefinitely.
 
-The controller will await normal shutdown; integrate with `ChildProcessRegistry`
-as a fallback. Specify how foreground jobs and remaining shell descendants are
-terminated, with a bounded grace period and force termination. Killing only the
-shell pid is insufficient. Deliberately detached external servers are not
-promised to remain under terminal ownership.
+Implement these behaviors explicitly:
 
-Build the shim as a native asset independent of notcurses, including packaging,
-macOS signing, and Linux architecture coverage. Verify both `dart run` and AOT
-bundle loading. If the proposed native boundary cannot meet the launch and
-shutdown checks, revise this phase before implementing later integration.
+| Family | Minimum implementation |
+| --- | --- |
+| Text/control | Incremental UTF-8 with replacement for malformed input; CR, LF/VT/FF, BS, HT, BEL; default tab stops every eight columns. |
+| Cursor | CSI A/B/C/D/E/F/G/H/f/d, save/restore (ESC 7/8 and CSI s/u), index/reverse index/next line (ESC D/M/E). Clamp to applicable bounds. |
+| Editing | CSI J/K/X, insert/delete characters (@/P), insert/delete lines (L/M), scroll up/down (S/T), margins (r). |
+| Attributes | SGR reset, bold, faint, italic, underline, inverse, conceal, strike; default/16/256/RGB foreground and background; selective resets. |
+| Modes | Insert mode, origin, delayed autowrap, cursor visibility, application cursor/keypad, bracketed paste, focus reporting. |
+| Screen switching | DEC 47/1047/1048/1049 with their separate save/clear/restore semantics; primary history survives alternate-screen use. |
+| Character sets | DEC line-drawing designation and SI/SO selection, so common terminal application borders render correctly. |
+| Queries | DSR status/cursor position and a documented, conservative device-attributes response; answers reflect active coordinates and capabilities. |
+| Strings/reset | OSC title 0/2 produces a sanitized local title event; OSC/DCS/SOS/PM/APC are consumed locally; RIS resets state. |
 
-Acceptance:
+Parsing is a persistent state machine, including incomplete UTF-8, CSI, and
+string terminators split across chunks. Cap a sequence at 4096 bytes and CSI
+parameters at 32; on overflow, discard the remaining sequence through its
+terminator (CAN/SUB abort it). Never render discarded payload as ordinary
+text. Unknown completed sequences are ignored. OSC clipboard, hyperlinks,
+images, and outer-terminal commands have no side effects. Map BEL to a local
+event, not an uncontrolled outer-terminal write.
 
-- On Linux and macOS, the child reports terminal stdin/stdout/stderr, receives
-  the requested cwd/environment, and produces output and exit status.
-- Invalid executable/cwd, resize, partial I/O, immediate exit, repeated close,
-  close during spawn, and a child ignoring termination all complete predictably.
-- An interactive shell can run and interrupt a foreground job without killing
-  tina; shutdown leaves no owned test children or worker behind.
-- Tests allocate their own PTY. They must not require or open the developer's
-  `/dev/tty`, and must run without `stdout.hasTerminal`.
+Default history limits: 10,000 rows AND 1,000,000 stored cells, evicting oldest
+rows when either is exceeded. Screen cells are additional, bounded by validated
+geometry. Test with smaller injected limits. Full-screen primary scroll adds
+history; scrolling a partial region or alternate screen does not. History
+viewing must not stop consumption of live output. Preserve the viewport anchor
+while output arrives; clamp it if eviction removes the anchor. Wheel scrolls
+local history, and typing returns the viewport to the live cursor.
 
-## Phase 2 — terminal state and faithful input
+Resize initially crops/pads both grids without paragraph reflow, clamps cursor
+and saved positions, clears orphan continuations, resets margins to the full
+screen, and adds default tab stops in new columns. It does not invent history
+from cropped rows. Zero-sized panel geometry never reaches the emulator or PTY;
+retain their last positive dimensions until the panel becomes visible again.
 
-Implement the emulator as pure Dart with incremental byte parsing. The existing
-`packages/tina_console/test/virtual_terminal.dart` is a useful test helper, not a
-production-ready emulator. Retain an independent rendering oracle in tests;
-do not make both implementation and assertions depend on the same parser.
+Acceptance: table-driven sequences with expected cells/cursor/modes; replay
+every fixture as one chunk, byte-by-byte, and at each possible split; malformed
+and overlong sequences; Unicode edge cells; bounded history; alternate screen;
+resize; and query reply bytes. Hand-written expected grids are the oracle, not
+the production parser. Do not promote `test/virtual_terminal.dart` into the
+production emulator and then use it to assert its own output.
 
-Required state and behavior:
+## Phase 2 — preserve keys and encode input
 
-- Incremental UTF-8 and escape parsing across arbitrary chunks; bounded OSC/DCS
-  accumulation and recovery from malformed/unsupported sequences.
-- Cell attributes, default/16/256/truecolor, cursor, save/restore, CR/LF/backspace,
-  tab stops, delayed wrap, scrolling margins, erase/insert/delete, origin and
-  autowrap modes, alternate screen, and cursor visibility.
-- Wide and combining characters using the console's width conventions, with
-  continuation cells and safe right-edge clipping. Do not defer this entirely:
-  ordinary shell prompts and filenames can contain Unicode.
-- Application cursor/keypad and bracketed-paste modes; query replies consistent
-  with implemented capabilities. Consume unsupported control strings locally.
-- Bounded primary-screen scrollback. Preserve the live screen when viewing
-  history; alternate-screen state and history are separate. Define deterministic
-  resize behavior (crop/pad initially; paragraph reflow can follow later).
+Audit both ANSI and notcurses input adapters. Existing `InputEvent` values lose
+some physical-key distinctions and C0 controls. Add a raw control-byte event
+and physical-key/modifier provenance where required, preserving current chat
+editing behavior. Explicitly cover Ctrl+A/B/E/F/K/N/P/U/Y/Z and Ctrl+Space,
+Enter versus Ctrl+J, Backspace versus Delete, and Home/End versus Ctrl+A/E.
+Update all exhaustive event switches. Do not add a second stdin subscription.
 
-Encode `InputEvent` according to emulator modes: text, paste, controls, arrows,
-Home/End/Delete, function keys, and Alt combinations. Do not subscribe to global
-stdin independently. Audit the parser as part of this phase: it currently drops
-unmapped C0 controls, including Ctrl+Z and Ctrl+B, and maps some physical keys
-to shared editing actions. Add sufficient events/provenance to preserve shell
-job control, readline, and tmux prefix keys without changing chat behavior.
-Update every exhaustive event switch and both backend input paths as needed.
+The encoder returns bytes or a local viewport action. It reads modes from the
+emulator at the time of the event. Define and test this mapping:
 
-Ctrl+G remains tina's escape route and is not sent to the child. Ctrl+W, Ctrl+C,
-Ctrl+D, Ctrl+R, Escape, Tab, Shift+Tab, and app-shortcut keys otherwise belong to
-the focused terminal. `ScrollEvent` already exists, but lacks coordinates for
-full child mouse reporting: use it for local history initially. Forward ordinary
-PageUp/PageDown to the child; do not steal application navigation for history.
+| Input | Child bytes / action |
+| --- | --- |
+| Text | UTF-8, without chat expansion or trimming. |
+| Enter / Tab / Backspace | CR / HT / DEL. |
+| Ctrl+C/D/Z/B and other C0 keys | Their original control bytes; Ctrl+G is consumed by Tina before encoding. |
+| Escape / Alt+character | ESC / ESC followed by the original UTF-8 character (preserve case). |
+| Arrows | CSI A/B/C/D normally, SS3 A/B/C/D in application cursor mode. |
+| Home/End, Insert/Delete, PageUp/PageDown, F1–F12 | Explicit VT/xterm key table, including supported modifiers; PageUp/PageDown go to the child. |
+| Shift+Tab | CSI Z; do not change agent permission mode. |
+| Keypad | Numeric or application keypad bytes according to mode and available physical-key information. |
+| Paste | UTF-8 payload in one ordered transaction; wrap with CSI 200~/201~ only when bracketed paste is enabled. |
+| Wheel | Local scrollback; no child mouse protocol in this release. |
 
-Acceptance: table-driven byte/event tests plus parser-to-encoder round trips,
-fragmented UTF-8/escape streams, malformed input, bounded history, resize,
-wide-character boundaries, query responses, alternate-screen restoration, and
-paste with bracketed-paste mode on/off. Test Ctrl+Z and Ctrl+B explicitly.
+Unsupported key encodings are consumed, never passed into chat or application
+shortcuts. Unknown outer escape sequences are not blindly relayed: terminal
+replies and key presses must be distinguished. Focus in/out produces CSI I/O
+only when requested by the child and the terminal actually gains/loses effective
+input focus, including prompt/modal takeover.
 
-## Phase 3 — render through the existing panel contract
+Controller input writes and emulator query replies share one ordered queue.
+Await each `write` and handle `false`/errors as interrupted delivery. PTY chunking
+does not bound the caller's pending queue: cap controller pending input at 1 MiB,
+including the in-flight payload. Reject a paste/event that cannot fit as a whole
+and show a local notice; do not silently truncate or partially enqueue it. Clear
+queued input on close or exit. Never let an input future stall the UI event loop.
 
-Implement `TerminalPanelContent implements PanelContent`; do not create a new
-`Panel` subclass with its own border, focus registration, or layout branch.
-Open through `PanelHost` with `PanelInputMode.exclusive` and existing placement.
+Acceptance: parser-to-encoder tests for both input backends, all C0 controls,
+mode-dependent keys, Unicode Alt/text, paste boundaries, query/write ordering,
+queue overflow, and shutdown during blocked input. Existing chat editing,
+approval capture, and cancellation tests must remain green.
 
-Honor `fit`, `bindSurface`, `attach`, `detach`, and `repaint`. A bound surface is
-borrowed from the frame: never destroy it. Support the existing unbound surface
-path with explicit ownership. Clip all writes to the interior and skip empty
-geometry. When parked, continue consuming output into bounded terminal state
-without drawing; retain the last positive PTY size. On a positive size change,
-resize state and notify the controller once, then repaint on attachment.
+## Phase 3 — panel rendering and presentation ownership
 
-Render only sanitized grid content and locally generated styling through
-`BackendSurface`; never forward raw child escape sequences to the outer
-terminal. Coalesce dirty rows using the screen frame mechanism and an injected
-scheduler; avoid per-byte redraws and idle animations. Closing cancels queued
-paints before releasing surfaces. Validate both ANSI and notcurses paths.
+Implement `TerminalPanelContent implements PanelContent`. Its constructor takes
+terminal state, an injected paint scheduler, and a positive-size callback;
+it receives no engine objects. Reuse the frame's bound `BackendSurface` and
+never destroy that borrowed surface. If the existing unbound-surface path is
+used, explicitly own and dispose that surface. Implement fit/bind/attach/detach/
+repaint; detach means parked, not disposed or process-closed.
 
-Cursor ownership needs an explicit small seam: only the focused, visible panel
-may request the terminal cursor position/visibility, and prompts/modals take
-precedence. Restore chat cursor behavior on focus return. Do not overwrite the
-coordinator's existing `frame.onFocus` callback or let background output move
-the cursor. Add a composable focus/presentation hook if the existing API cannot
-express this. Focus-reporting sequences, when enabled by a child, follow these
-same transitions.
+Within `Screen.frame`, paint only dirty visible rows, batching adjacent cells
+with equal attributes into safe text/SGR runs. Erase stale cells, clip every
+write, and never emit child escape strings to the parent terminal. Generated
+SGR comes only from normalized cell attributes. First paint, resize, surface
+rebind, and reattach invalidate the whole viewport. Parked panels continue
+parsing output without drawing. Use at most one scheduled paint per frame
+(default maximum 60 Hz), cancel it on disposal, and do not animate idle borders.
 
-Acceptance: fake-surface tests for clipping, styles, dirty-row batching,
-attach/detach, borrowed-surface lifetime, zero-size/tiny layouts, pending repaint
-on close, cursor priority, and output while parked. Exercise tiled and sidebar
-layouts and preserve all existing panel-host/input tests.
+Add a small composable focus/presentation hook for terminal cursor ownership.
+Do not overwrite the coordinator's existing `frame.onFocus`. A focused,
+attached, live-viewport terminal may request its cursor position/visibility;
+background panels and history view may not. Prompts/modals take precedence,
+and chat focus restores the editor cursor. Make this arbitration shared by
+ANSI and notcurses backends; background output must not move the outer cursor.
 
-## Phase 4 — user command and lifecycle
+Acceptance: fake-surface tests cover dirty-row batching, style resets, clear
+and wide-cell behavior, borrowed ownership, reattachment, hidden output,
+zero/tiny dimensions, resize callbacks, cursor priority, and cancellation of
+pending paints. Exercise both tiled and sidebar layouts with existing host and
+focus APIs. Rendering tests inspect writes independently of emulator parsing.
 
-Add `/term` to the existing command registry and completion list. It opens and
-focuses one new shell in the project directory with a unique stable panel ID.
-Resolve the user's configured shell from the launch environment, falling back
-to `/bin/sh` when unset; report an invalid explicit shell rather than silently
-changing it. Snapshot environment/cwd using the existing execution-environment
-utilities; preserve HOME, PATH, and cache settings. Do not route the terminal
-through agent tool approval, retry, or output-truncation machinery.
+## Phase 4 — controller, commands, and shutdown
 
-User-operated shells run with the user's normal OS permissions and network
-access. State that plainly in terminal help; agent permission modes continue
-to govern agent tools only. Agent-driven terminal access is separate future
-work requiring its own policy design.
+Create the controller in application composition alongside `PanelHost`. Inject
+session factory, shell resolver, environment snapshot, ID generator, focus
+callback, and scheduler. Expose only open/list/focus/close through the existing
+session-command capability pattern; command handlers should contain no PTY,
+FFI, drawing, or shell-string construction. Add registry/help/completion tests
+and a clear unsupported-frontend result for noninteractive command dispatch.
 
-The shell starts once per explicit command. Track starting/running/exited/closing
-states, and handle closing or application shutdown while spawn is pending.
-A late spawn must be closed, never attached to an already-closed panel. On
-natural exit, drain output and retain the final screen with exit status; do not
-automatically respawn. Add `/term list` and `/term close <id>` so users can switch
-to chat with Ctrl+G and explicitly close a running or exited terminal. Closing
-a running terminal terminates its owned processes and removes its view.
+Resolve `SHELL` from the launch environment, falling back to `/bin/sh` only
+when unset/empty. Resolve a bare name through the snapshotted PATH; validate an
+explicit path. Pass `['-i']` as literal argv for the supported Unix shells
+(sh/bash/zsh/fish); this is a non-login shell. Do not wrap launch in `sh -c`.
+Report unsupported shell/exec errors with the selected executable and cwd.
+Use the configured project directory as initial cwd; do not infer the shell's
+later cwd from output or titles.
 
-No `s`/`x` shortcuts inside a running shell. No double-Escape app cancellation
-while terminal input owns focus. Ctrl+C goes through the PTY to the foreground
-job; Ctrl+D follows the child's line discipline. Background agent work and
-terminal work have independent cancellation lifetimes. Opening an approval
-must capture its answer completely, including buffered input and paste.
+Pass a copied launch environment, preserving HOME/PATH/cache settings. Never
+populate it from provider credentials or an agent's modified tool environment.
+Replace stale terminal variables (TERM, COLORTERM, TERM_PROGRAM, LINES/COLUMNS,
+and inherited TMUX/STY identifiers) with this terminal's own profile. Maintain
+a checked-in capability/key/query matrix for that profile. Use `TERM=dumb`
+for development until compatibility gates pass; select `xterm-256color` only
+when its advertised subset, 256-color rendering, and application checks pass.
+Advertise truecolor separately only after RGB tests pass. Do not install a
+custom terminfo entry as a hidden startup side effect.
 
-Acceptance: controller tests with a fake PTY cover open/focus, multiple shells,
-launch error rollback, pending-spawn cancellation, exit-before-attachment,
-output drain, repeated close, and awaited application shutdown. End-to-end
-input tests cover switching to chat with its original draft, approval/modal
-priority, and shell Ctrl+C without a chat `[cancelled]` notice.
+Each session has `starting -> running -> exited` or `failed`, and any state
+may enter `closing -> closed`. Store one close future per session. Start with
+these steps (the adapter/emulator/view APIs below are proposed):
 
-## Phase 5 — compatibility and release gate
+```text
+open():
+  allocate ID + emulator + view; register exclusive panel through PanelHost
+  store starting session; focus with the existing focusManager.focusPanel
+  await sessionFactory.spawn(shell, ['-i'], cwd, env, positive size)
+  if close was requested while awaiting: await connection.close(); finish close
+  otherwise:
+    attach output listener immediately (startup bytes are retained by PTY)
+    apply latest positive geometry, not the size captured before spawn
+    feed bytes to emulator; enqueue replies; schedule dirty-row paints
+    start observers for both output completion and connection.done
+    enable input and mark running without stealing focus a second time
+```
 
-Do not enable `/term` in a release until these checks pass:
+If no positive layout exists at spawn, use 24 rows by 80 columns provisionally.
+Ignore keystrokes while starting and show that state. Spawn errors become one
+visible failure state without an unhandled future or leaked process. If panel
+registration fails, do not spawn. A connection arriving after a close request
+must be closed and never attached to a disposed view.
 
-1. Required Linux and macOS PTY integration jobs, without a controlling outer
-   terminal. Platform skips are allowed on unsupported systems; required CI
-   targets must fail if native support cannot load.
-2. Deterministic headless tests combining a real shell, emulator, and panel:
-   prompt, text entry, command history, completion, resize, foreground interrupt,
-   EOF/exit, and cleanup. Use deadlines to detect hangs, not timing assertions.
-3. Interactive smoke tests for the packaged binary on all three release targets,
-   covering opening a shell at normal and tiny sizes, focus switching, and quit
-   with a live shell. Verify native asset installation and macOS signing.
-4. Controlled `less`/`vim` alternate-screen checks and a tmux session using an
-   isolated test socket with cleanup. Verify Ctrl+B, application arrows, paste,
-   resize, and restoration. Advertise tested compatibility and list remaining
-   gaps; mouse reporting and exact Ctrl+G passthrough remain outside scope.
-5. Run affected engine, console, root command/host suites, static analysis, and
-   architecture/import checks. Keep rendering tests independent of the emulator
-   where possible. Existing cancellation, approval, and chat input tests must
-   continue to pass.
+On natural exit, wait for BOTH stream completion and `connection.done` before
+showing final exit status. `done` alone does not guarantee the consumer has
+read retained bytes. Keep the final emulator screen and scrollback until the
+user closes it; input after exit is consumed with an exited hint. Stream/write
+errors enter a visible failed state and initiate awaited cleanup; catch errors
+on every asynchronous observer.
 
-Implement in phase order. Each phase should be reviewable with its acceptance
-checks before the next integration step. The current task updates this plan
-only; it does not implement or enable `/term`.
+Explicit close disables input, marks closing, and awaits any pending spawn and
+PTY close. Keep consuming final output until stream completion, then remove the
+view via `PanelHost.closePanel`, release subscriptions/scheduled paints, and
+restore focus through the existing host behavior. A synchronous `onDispose`
+may request cleanup but cannot be its awaited owner: retain the controller's
+session record until cleanup finishes. Unexpected host disposal follows the
+same idempotent close path. Do not pause output merely because a view is hidden.
+
+Register an awaited `shutdown()` with application cleanup before screen/host
+disposal. It blocks new opens and joins all close futures, including pending
+spawns; keep `ChildProcessRegistry` as the fallback already supplied by PTY.
+Do not add independent PID killing or a shorter timeout that abandons cleanup.
+Keep agent cancellation independent. While a terminal is focused, Ctrl+W,
+Ctrl+R, Ctrl+O, Escape, and double Escape belong to the child; only Ctrl+G
+activates Tina navigation. Prompts/modals own their complete input batches.
+
+Acceptance: fake-session controller tests cover all state transitions, multiple
+shells, focus, spawn rejection, close-before-spawn, exit-before-listen, output
+finishing after `done`, write errors, repeated close, registration rollback,
+host disposal, and application quit. Assert no duplicate listeners/spawns and
+no unresolved cleanup futures. Integration tests cover preserved chat drafts,
+approval key/paste isolation, and shell Ctrl+C without chat cancellation text.
+
+## Phase 5 — enable and ship the terminal
+
+Add a runnable integration example using the actual emulator/controller/view
+APIs once they exist; the [headless PTY example](pty_backend.md#runnable-shell-example)
+is only a backend demonstration. Document `/term`, `/term list`, focus, close,
+Ctrl+G navigation, Ctrl+C interrupt, and the lack of session restoration in user
+help and release notes. Mark each remaining phase complete only with evidence.
+
+Before registering `/term` in a release:
+
+1. Run deterministic end-to-end shell tests without `/dev/tty`: prompt, command
+   submission, history arrows, Tab completion, UTF-8, resize/SIGWINCH, foreground
+   interrupt, job suspend/resume, EOF, natural exit, and descendant cleanup.
+   Use controlled shell startup files and deadlines, not timing assertions.
+2. Add fixtures for `less`, `vim`, and tmux on an isolated socket: alternate
+   screen, Ctrl+B prefix, application arrows, paste, resize, and restoration.
+   Capture expected screens independently. Document unsupported capabilities
+   and the reserved Ctrl+G key; do not promise full xterm/tmux compatibility.
+3. Extend packaged interactive smoke tests on Linux x64/arm64 and macOS arm64:
+   open `/term`, execute a marker command, switch focus, resize to tiny/normal,
+   interrupt a foreground job, and quit with a live shell. Assert no orphaned
+   owned children or hung shutdown. Verify both native assets are installed and
+   macOS signing/notarization still succeeds.
+4. Gate on affected engine/console/root unit and integration suites, analyzer,
+   architecture/import checks, and existing cancellation/approval/input tests.
+   Required native CI jobs must fail rather than skip missing PTY support.
+
+No earlier PTY implementation or generic panel refactor is part of these phases.

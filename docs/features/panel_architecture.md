@@ -50,6 +50,7 @@ and draft/resize behavior in `conversation_panel_coordinator_test.dart`.
 `packages/tina_console/test/panel_input_test.dart` exercises exclusive ownership,
 prompt priority, cancellation, paste, and focus navigation.
 
-This is the foundation for an interactive terminal panel. PTY creation, terminal
-emulation, event-to-terminal-byte encoding, and a shell command are separate
-follow-up work; none is introduced by this refactor.
+This is the UI foundation for an interactive terminal panel. The headless
+[PTY backend](pty_backend.md) shipped in v0.6.30. The remaining emulator,
+input encoding, rendering, and command integration are specified in the
+[terminal implementation plan](terminal_panel_plan.md).

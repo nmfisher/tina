@@ -1,8 +1,93 @@
 # PTY backend (terminal panel phase 1)
 
+Implemented and released in v0.6.30. This is an API reference and usage example,
+not a list of outstanding tasks. See the [remaining terminal implementation
+plan](terminal_panel_plan.md) for the emulator, rendering, input, and UI work.
+
 The backend is in `packages/tina_engine/lib/src/terminal/`. It has no console,
 notcurses, agent, or approval-policy dependency. The shell-panel controller will
 own a `PtyConnection`; there is no `/term` command in this phase.
+
+## Runnable shell example
+
+On Linux or macOS, save this as `tool/pty_example.dart` in a checkout at
+v0.6.30 or later and run `dart run tool/pty_example.dart` after resolving the
+repository's dependencies. It starts an interactive shell on its own PTY,
+sends a command followed by `exit`, and prints the captured transcript with
+control characters escaped. It does not read your terminal's stdin or embed a
+UI. The import is the current internal engine API.
+
+```dart
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:tina_engine/src/terminal/pty_runner.dart';
+
+Future<void> main() async {
+  final connection = await const PtyRunner().spawn(PtySpawnRequest(
+    executable: '/bin/sh',
+    arguments: ['-i'],
+    workingDirectory: Directory.current.path,
+    environment: {
+      'PATH': Platform.environment['PATH'] ?? '/usr/bin:/bin',
+      if (Platform.environment['HOME'] case final home?) 'HOME': home,
+      'TERM': 'dumb',
+      'PS1': '> ',
+    },
+    rows: 24,
+    cols: 80,
+  ));
+
+  final transcript = StringBuffer();
+  final outputDrained = Completer<void>();
+  final subscription = utf8.decoder.bind(connection.output).listen(
+    transcript.write,
+    onError: (Object error, StackTrace stack) {
+      if (!outputDrained.isCompleted) {
+        outputDrained.completeError(error, stack);
+      }
+    },
+    onDone: () {
+      if (!outputDrained.isCompleted) outputDrained.complete();
+    },
+  );
+
+  // Observe exit and stream failures immediately, even while writing input.
+  final finished = Future.wait<Object?>([
+    connection.done,
+    outputDrained.future.then<Object?>((_) => null),
+  ]).timeout(const Duration(seconds: 10));
+  // Register an error handler now; the awaited future below still reports it.
+  unawaited(finished.then<void>((_) {}, onError: (Object _, StackTrace __) {}));
+  try {
+    final delivered = await connection.write(
+      utf8.encode('echo hello-from-pty\nexit\n'),
+    ).timeout(const Duration(seconds: 10));
+    if (!delivered) throw StateError('Shell exited before input was delivered');
+    final results = await finished;
+    stdout.writeln('exit: ${results.first}');
+    stdout.writeln(jsonEncode(transcript.toString()));
+  } finally {
+    try {
+      await connection.close();
+    } finally {
+      await subscription.cancel();
+    }
+  }
+}
+```
+
+The output includes `hello-from-pty` and exit status 0; the PTY may also echo
+the submitted commands and shell prompts. This example uses `TERM=dumb`
+because it has no emulator. A real panel must parse bytes into its own grid;
+forwarding child output to `stdout` would let the child overwrite Tina's UI.
+
+For a panel, replace transcript capture with incremental emulator feeding,
+send encoded input and query replies through one ordered writer, and call
+`connection.resize(rows, cols)` only for positive interior dimensions. Connect
+view removal and application shutdown to awaited `connection.close()`. See
+the plan's controller phase for startup/close races and the final-output gate.
 
 ## Ownership and completion
 
