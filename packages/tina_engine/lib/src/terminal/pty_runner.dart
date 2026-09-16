@@ -29,7 +29,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io' show Directory, File, FileSystemException, Platform;
 import 'dart:ffi';
 import 'dart:isolate';
 import 'dart:typed_data';
@@ -814,23 +814,92 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
   finish();
 }
 
-/// Terminate the child's whole process group: SIGTERM to -pid, bounded
-/// grace, then SIGKILL to -pid. The child runs setsid() in the shim, so it
-/// is its own session AND process-group leader: -pid addresses the group
-/// holding the shell and every descendant (foreground jobs, background
-/// jobs, anything that kept the slave open). This was verified directly:
-/// kill(-childpid, 0) succeeds against a live spawned group on this
-/// platform. Liveness is probed with kill(pid, 0) only — this never reaps,
-/// so the main loop stays the single source of the exit status.
+/// Terminate the child's whole process tree: SIGTERM to every owned
+/// process, bounded grace, then SIGKILL to every survivor.
+///
+/// The shim runs setsid() in the child, so the child is a session leader
+/// and every process it spawns — foreground jobs, background jobs, job
+/// control sub groups (`set -m`) — stays inside that session unless it
+/// deliberately detaches with a setsid of its own (the plan puts those
+/// outside terminal ownership). The owned set is therefore enumerated from
+/// /proc as "all members of the child's session".
+///
+/// WHY NOT ONE GROUP SIGNAL: a job-control shell puts background jobs into
+/// their own process groups, so `kill(-childpid, sig)` never reaches them.
+/// WHY NOT THE SHELL PID: the shell usually exits first, leaving
+/// descendants fully alive; probing only the pid skips the escalation
+/// entirely (the round-1 leak). Probing each owned process by pid is the
+/// only check that matches what must actually die.
+///
+/// Probes are `kill(pid, 0)`-equivalent checks through the shim — they
+/// never reap, so the main loop stays the single source of the exit status.
 Future<void> _killTree(int pid, int graceMs) async {
-  tina_pty_kill(-pid, 15); // SIGTERM to the process group
+  // Session id of the owned tree: the child's own session (it is the
+  // leader). Falls back to the pid if the child exited before we looked —
+  // then the session is already gone and every probe below comes up empty.
+  final sid = _sessionIdOf(pid) ?? pid;
+
+  bool survivorsLeft() => _sessionMembers(sid).isNotEmpty;
+
+  void signalOwned(int sig) {
+    for (final member in _sessionMembers(sid)) {
+      // Negative pid = the member's group too, in case it spawned children
+      // of its own since the listing.
+      tina_pty_kill(-member, sig);
+    }
+  }
+
+  signalOwned(15); // SIGTERM to every owned process group
   const pollMs = 20;
   var waited = 0;
   while (waited < graceMs) {
-    final probe = tina_pty_kill(pid, 0); // group leader alive?
-    if (probe == -ESRCH) return; // group gone (reaped elsewhere)
+    if (!survivorsLeft()) return; // whole tree gone: nothing to escalate to
     await Future<void>.delayed(const Duration(milliseconds: pollMs));
     waited += pollMs;
   }
-  tina_pty_kill(-pid, 9); // SIGKILL to the process group
+  if (survivorsLeft()) {
+    signalOwned(9); // SIGKILL: cannot be caught or ignored
+    // Give the kernel a bounded moment so a caller that inspects the tree
+    // right after close() sees it empty. SIGKILL is not ignorable, so this
+    // settles quickly; the cap only guards a pathological /proc stall.
+    const settleMs = 20;
+    var settled = 0;
+    while (survivorsLeft() && settled < 1000) {
+      await Future<void>.delayed(const Duration(milliseconds: settleMs));
+      settled += settleMs;
+    }
+  }
+}
+
+/// All live members of [sid]'s session, from /proc's own bookkeeping.
+/// Empty on platforms without procfs (the group signal still runs).
+List<int> _sessionMembers(int sid) {
+  final members = <int>[];
+  try {
+    for (final entry in Directory('/proc').listSync()) {
+      final pid = int.tryParse(entry.path.split('/').last);
+      if (pid == null) continue;
+      if (_sessionIdOf(pid) == sid) members.add(pid);
+    }
+  } on FileSystemException {
+    // procfs vanished or is unreadable: report what we have.
+  }
+  return members;
+}
+
+/// Session id of [pid] — field 5 of /proc/<pid>/stat (field 4 of the
+/// entries after the comm field, which may contain spaces and parentheses,
+/// hence the scan from the last ')'). Null when the process is gone.
+int? _sessionIdOf(int pid) {
+  String stat;
+  try {
+    stat = File('/proc/$pid/stat').readAsStringSync();
+  } on FileSystemException {
+    return null; // raced an exit, or no procfs
+  }
+  final close = stat.lastIndexOf(')');
+  if (close < 0 || close + 2 >= stat.length) return null;
+  final fields = stat.substring(close + 2).split(' ');
+  if (fields.length < 4) return null;
+  return int.tryParse(fields[3]);
 }
