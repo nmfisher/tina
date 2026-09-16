@@ -58,6 +58,11 @@ int tina_pty_resize(int fd, int32_t rows, int32_t cols);
 /// Send a signal to the child. Returns 0 or -errno.
 int tina_pty_kill(int pid, int sig);
 
+/// Signal each live member of the owned session, excluding zombies. Signal
+/// zero only probes. Returns the live count or -errno on enumeration/signal
+/// failure. Uses procfs on Linux and libproc on macOS, never a shell command.
+int tina_pty_signal_session(int sid, int sig);
+
 /// Read the child's exit status relayed by the spawn-time supervisor over
 /// [status_fd]. [wait_for_exit] 0 = poll (0 if not yet available), 1 = block.
 /// Returns > 0 with *status set on exit, 0 if still running, -errno on error.

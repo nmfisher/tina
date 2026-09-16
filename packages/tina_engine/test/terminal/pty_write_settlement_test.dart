@@ -12,8 +12,7 @@ import 'package:test/test.dart';
 const _stub = "trap '' HUP TERM; sleep 30 & exit 0";
 
 void main() {
-  test(
-      'child exit settles pending writes: done and the write both complete',
+  test('child exit settles pending writes: done and the write both complete',
       () async {
     final conn = await const PtyRunner().spawn(PtySpawnRequest(
       executable: '/bin/sh',
@@ -35,7 +34,8 @@ void main() {
         onTimeout: () => throw TimeoutException('write never settled'));
 
     expect(code, 0);
-    expect(accepted, isTrue, reason: 'the write was accepted before exit');
+    expect(accepted, isFalse,
+        reason: 'exit interrupted delivery of the queued input');
     await conn.close();
   }, timeout: const Timeout(Duration(seconds: 30)));
 }

@@ -30,7 +30,8 @@ void main() {
     // A finished connection reports a finished stream to a new listener.
     await _streamDone(sub, () => sawDone = true)
         .timeout(const Duration(seconds: 5));
-    expect(sawDone, isTrue, reason: 'a finished connection has finished output');
+    expect(sawDone, isTrue,
+        reason: 'a finished connection has finished output');
     expect(utf8.decode(collected), 'startup');
   }, timeout: const Timeout(Duration(seconds: 30)));
 
@@ -67,8 +68,7 @@ void main() {
 
 /// Completes when [sub] is done — on the actual done event, not on cancel.
 /// [onDone] runs exactly once, when the stream finishes.
-Future<void> _streamDone(
-    StreamSubscription<void> sub, void Function() onDone) {
+Future<void> _streamDone(StreamSubscription<void> sub, void Function() onDone) {
   final c = Completer<void>();
   var done = false;
   sub.onDone(() {

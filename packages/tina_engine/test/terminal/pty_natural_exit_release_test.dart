@@ -28,8 +28,7 @@ Future<void> _naturalLifecycleInHelper(SendPort reportTo) async {
 }
 
 void main() {
-  test(
-      'a connection that exits naturally does not keep its isolate alive',
+  test('a connection that exits naturally does not keep its isolate alive',
       () async {
     final helperGone = ReceivePort(); // helper isolate's onExit signal
     final result = ReceivePort();

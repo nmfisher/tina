@@ -39,7 +39,9 @@ final class TinaPtySpawnResult extends Struct {
 /// Returns 0 when the call itself succeeded — check [TinaPtySpawnResult.error]
 /// for a structured launch failure (child-side errno). Negative return means
 /// the shim failed before fork (that errno).
-@Native<Int32 Function(Pointer<TinaPtySpawnRequest>, Pointer<TinaPtySpawnResult>)>(assetId: _asset)
+@Native<
+    Int32 Function(Pointer<TinaPtySpawnRequest>,
+        Pointer<TinaPtySpawnResult>)>(assetId: _asset)
 external int tina_pty_spawn(
     Pointer<TinaPtySpawnRequest> req, Pointer<TinaPtySpawnResult> out);
 
@@ -63,6 +65,10 @@ external int tina_pty_resize(int fd, int rows, int cols);
 @Native<Int32 Function(Int32, Int32)>(assetId: _asset)
 external int tina_pty_kill(int pid, int sig);
 
+/// Live session members signalled (zero only probes), or negative errno.
+@Native<Int32 Function(Int32, Int32)>(assetId: _asset)
+external int tina_pty_signal_session(int sid, int sig);
+
 /// pid on exit, 0 = still running, negative = -errno. Only used on the
 /// spawn-failure path to reap the supervisor.
 @Native<Int32 Function(Int32, Pointer<Int32>, Int32)>(assetId: _asset)
@@ -71,7 +77,8 @@ external int tina_pty_waitpid(int pid, Pointer<Int32> status, int waitForExit);
 /// Read the child's exit status relayed over the spawn's status pipe.
 /// > 0 with [status] set on exit, 0 = still running, negative = -errno.
 @Native<Int32 Function(Int32, Pointer<Int32>, Int32)>(assetId: _asset)
-external int tina_pty_reap(int statusFd, Pointer<Int32> status, int waitForExit);
+external int tina_pty_reap(
+    int statusFd, Pointer<Int32> status, int waitForExit);
 
 /// 1 = readable/EOF, 0 = timeout, negative = -errno.
 @Native<Int32 Function(Int32, Int32)>(assetId: _asset)

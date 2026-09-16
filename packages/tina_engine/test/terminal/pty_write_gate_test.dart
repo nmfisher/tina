@@ -59,7 +59,8 @@ void main() {
     ));
     // Alive and reading: accepted, and the backpressure await resolves
     // once the worker reports the write landed.
-    final accepted = await conn.write('hello\n'.codeUnits)
+    final accepted = await conn
+        .write('hello\n'.codeUnits)
         .timeout(const Duration(seconds: 10));
     expect(accepted, isTrue);
 

@@ -14,6 +14,69 @@ import 'package:test/test.dart';
 /// expands `\n` to `\r\n` (ONLCR), so byte-exact producers must avoid
 /// newlines entirely — `yes` would deliver 12 MiB for 8 MiB written.
 void main() {
+  test('a paused listener stops native reads and resumes without losing bytes',
+      () async {
+    const total = 2 << 20;
+    final conn = await const PtyRunner(maxQueuedOutput: 65536).spawn(
+      const PtySpawnRequest(executable: '/bin/sh', arguments: [
+        '-c',
+        'sleep 0.1; dd if=/dev/zero bs=65536 count=32 2>/dev/null',
+      ], environment: {
+        'PATH': '/usr/bin:/bin'
+      }),
+    );
+    addTearDown(() => conn.close(grace: Duration.zero));
+    var received = 0;
+    var exited = false;
+    conn.done.then((_) => exited = true);
+    final finished = Completer<void>();
+    final sub = conn.output
+        .listen((chunk) => received += chunk.length, onDone: finished.complete)
+      ..pause();
+    await Future<void>.delayed(const Duration(seconds: 2));
+    expect(received, 0);
+    expect(exited, isFalse,
+        reason: 'a full credit window must block the producer');
+    sub.resume();
+    expect(await conn.done.timeout(const Duration(seconds: 10)), 0);
+    await finished.future;
+    expect(received, total);
+  });
+
+  test('close drains the finite kernel tail even with a paused consumer',
+      () async {
+    final conn = await const PtyRunner(maxQueuedOutput: 65536).spawn(
+      const PtySpawnRequest(executable: '/bin/sh', arguments: [
+        '-c',
+        'dd if=/dev/zero bs=65536 count=128 2>/dev/null',
+      ], environment: {
+        'PATH': '/usr/bin:/bin'
+      }),
+    );
+    addTearDown(() => conn.close(grace: Duration.zero));
+    var bytes = 0;
+    final first = Completer<void>();
+    final finished = Completer<void>();
+    late final StreamSubscription<List<int>> sub;
+    sub = conn.output.listen((chunk) {
+      bytes += chunk.length;
+      if (!first.isCompleted) {
+        sub.pause();
+        first.complete();
+      }
+    }, onDone: finished.complete);
+    await first.future.timeout(const Duration(seconds: 5));
+    expect(
+        await conn
+            .close(grace: Duration.zero)
+            .timeout(const Duration(seconds: 5)),
+        isNonNegative);
+    sub.resume();
+    await finished.future;
+    expect(bytes, greaterThan(0));
+    expect(bytes, lessThan(256 * 1024));
+  });
+
   test(
       'a fast producer with no listener is throttled, not discarded: a late '
       'consumer still receives every byte', () async {

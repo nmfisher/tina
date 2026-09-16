@@ -28,28 +28,21 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
-
-#define TINA_SHIM_ABI_VERSION 1
-
-// macOS 10.13.4+ declares ptsname_r in <stdlib.h>; Linux/glibc does not
-// (it is hidden behind _GNU_SOURCE), so the system prototype may or may not
-// exist. We therefore never declare ptsname_r ourselves; this helper wraps it
-// under a distinct name. On Apple targets the real ptsname_r exists and is
-// used; elsewhere we fall back to plain ptsname(). Called only in the parent
-// before fork, so non-async-signal-safe calls here are fine.
-static int tina_ptsname(int fd, char* buf, size_t buflen) {
+#include <stdio.h>
 #if defined(__APPLE__)
-  return ptsname_r(fd, buf, buflen);
+#include <libproc.h>
+#include <sys/proc.h>
 #else
-  char* name = ptsname(fd);
-  if (name == NULL) return -1;
-  if (strlen(name) >= buflen) {
-    errno = ERANGE;
-    return -1;
-  }
-  strcpy(buf, name);
-  return 0;
+#include <dirent.h>
 #endif
+
+#define TINA_SHIM_ABI_VERSION 2
+
+// Reentrant slave-name lookup: multiple PTY workers may launch concurrently.
+static int tina_ptsname(int fd, char* buf, size_t buflen) {
+  int rc = ptsname_r(fd, buf, buflen);
+  if (rc != 0) errno = rc;
+  return rc == 0 ? 0 : -1;
 }
 
 static int set_cloexec(int fd) {
@@ -70,7 +63,8 @@ int tina_pty_read(int fd, uint8_t* buf, int32_t len) {
   if (fd < 0 || buf == NULL || len <= 0) return -EINVAL;
   for (;;) {
     ssize_t n = read(fd, buf, (size_t)len);
-    if (n >= 0) return (int32_t)n;
+    if (n == 0) return -EIO; // Normalize macOS EOF to Linux PTY EOF.
+    if (n > 0) return (int32_t)n;
     if (errno == EINTR) continue;   // signal interruption: retry
     if (errno == EAGAIN || errno == EWOULDBLOCK) return 0; // would block
     return -errno;
@@ -110,15 +104,82 @@ int tina_pty_resize(int fd, int32_t rows, int32_t cols) {
 }
 
 int tina_pty_kill(int pid, int sig) {
-  // pid is a pid OR a negative process-group id (kill(-pgid, sig)); only
-  // zero ("every process in MY group") is refused — this shim must never
-  // signal outside its own spawned tree.
-  if (pid == 0) return -EINVAL;
+  // Accept specific PIDs/groups, never the caller's group or all processes.
+  if (pid == 0 || pid == -1) return -EINVAL;
   int rc;
   do {
     rc = kill(pid, sig);
   } while (rc != 0 && errno == EINTR);
   return rc == 0 ? 0 : -errno;
+}
+
+// This runs on the worker, never between fork and exec. Session membership
+// survives leader exit and job-control group changes. Positive PID signals
+// reach members even when their process-group leader no longer exists.
+static int signal_member(pid_t pid, pid_t sid, int sig) {
+  if (pid <= 1 || getsid(pid) != sid) return 0;
+#if defined(__APPLE__)
+  struct proc_bsdinfo info;
+  int n = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info));
+  if (n != (int)sizeof(info)) return errno == ESRCH ? 0 : -EIO;
+  if (info.pbi_status == SZOMB) return 0;
+#else
+  char path[64], stat[4096];
+  snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+  FILE* f = fopen(path, "r");
+  if (f == NULL) return errno == ENOENT ? 0 : -errno;
+  char* line = fgets(stat, sizeof(stat), f);
+  fclose(f);
+  if (line == NULL) return getsid(pid) != sid ? 0 : -EIO;
+  char* end = strrchr(stat, ')');
+  if (end == NULL) return -EIO;
+  if (end[1] == ' ' && (end[2] == 'Z' || end[2] == 'X')) return 0;
+#endif
+  if (getsid(pid) != sid) return 0; // Recheck identity before signalling.
+  if (kill(pid, sig) != 0) return errno == ESRCH ? 0 : -errno;
+  return 1;
+}
+
+int tina_pty_signal_session(int sid, int sig) {
+  if (sid <= 1 || sid == getsid(0)) return -EINVAL;
+  int count = 0, error = 0;
+#if defined(__APPLE__)
+  errno = 0;
+  int available = proc_listallpids(NULL, 0);
+  if (available <= 0) return errno != 0 ? -errno : -EIO;
+  int capacity = available + 64;
+  pid_t* pids = NULL;
+  int n;
+  for (;;) {
+    free(pids);
+    pids = malloc((size_t)capacity * sizeof(pid_t));
+    if (pids == NULL) return -ENOMEM;
+    errno = 0;
+    n = proc_listallpids(pids, capacity * sizeof(pid_t));
+    // libproc can return zero (not just -1) on an enumeration error.
+    if (n <= 0) { free(pids); return errno != 0 ? -errno : -EIO; }
+    if (n < capacity) break;
+    capacity *= 2;
+  }
+  for (int i = 0; i < n; ++i) {
+    int rc = signal_member(pids[i], sid, sig);
+    if (rc < 0) error = rc; else count += rc;
+  }
+  free(pids);
+#else
+  DIR* dir = opendir("/proc");
+  if (dir == NULL) return -errno;
+  struct dirent* entry;
+  while ((entry = readdir(dir)) != NULL) {
+    char* end;
+    long pid = strtol(entry->d_name, &end, 10);
+    if (*end != '\0' || pid <= 1) continue;
+    int rc = signal_member((pid_t)pid, sid, sig);
+    if (rc < 0) error = rc; else count += rc;
+  }
+  closedir(dir);
+#endif
+  return error != 0 ? error : count;
 }
 
 // Returns the pid on success, -1 with *status untouched if waitpid itself
@@ -202,14 +263,12 @@ static void child_exec(const TinaPtySpawnRequest* req, int slave_fd,
                        int master_fd, int err_pipe) {
   // New session: the child becomes session leader, detaching it from any
   // controlling terminal tina itself has. Never opens the developer's tty.
-  if (setsid() < 0) {
-    // EPERM can happen only if the child already leads a session; proceed and
-    // try to steal the tty anyway.
-  }
+  if (setsid() < 0) report_and_exit(err_pipe, errno);
 
   // Make the slave the controlling terminal of the new session. TIOCSCTTY is
   // the per-platform macro from <sys/ioctl.h>.
-  (void)ioctl(slave_fd, TIOCSCTTY, (char*)NULL);
+  if (ioctl(slave_fd, TIOCSCTTY, (char*)NULL) < 0)
+    report_and_exit(err_pipe, errno);
 
   // Slave becomes stdin/stdout/stderr. Descriptor ownership from here:
   // 0/1/2 are the terminal; the master and slave originals are closed.
@@ -408,6 +467,8 @@ int tina_pty_spawn(const TinaPtySpawnRequest* req, TinaPtySpawnResult* out) {
       child_exec(req, slave, master, err_pipe[1]);
       _exit(127); // unreachable
     }
+    // The supervisor must not keep the slave open while waiting.
+    close(slave);
     // Supervisor: relay the child's pid and wait status, then exit.
     supervisor_relay(status_pipe[1], err_pipe[1], child_pipe[1], pid);
     _exit(0); // unreachable: supervisor_relay never returns

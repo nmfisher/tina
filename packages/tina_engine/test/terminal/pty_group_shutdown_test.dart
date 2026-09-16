@@ -1,77 +1,68 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
-
-import 'package:tina_engine/src/terminal/pty_runner.dart';
 import 'package:test/test.dart';
+import 'package:tina_engine/src/terminal/pty_runner.dart';
+import 'package:tina_engine/src/tools/process_registry.dart';
 
-/// The stub ignores TERM and HUP and moves its sleeper into a sub process
-/// group (`set -m`), then reports the descendant's pid and waits. A group
-/// signal alone therefore cannot be trusted to have worked: the test probes
-/// the descendant's liveness directly, by pid, after close() returns.
-const _stub = r'''
-trap '' TERM HUP
-set -m
-sleep 300 &
-echo "PID $!"
-wait
-''';
-
-/// A pid exists iff /proc/<pid> is listed. No process-management commands:
-/// reading procfs is how this file observes liveness, on both sides of the
-/// shutdown it is testing.
-bool _pidAlive(int pid) => Directory('/proc').existsSync()
-    ? Directory('/proc/$pid').existsSync()
-    : false;
-
-Future<void> _waitUntil(bool Function() probe,
-    {required Duration timeout}) async {
-  final sw = Stopwatch()..start();
-  while (!probe()) {
-    if (sw.elapsed > timeout) {
-      fail('condition not met within ${timeout.inMilliseconds}ms');
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-  }
+Future<bool> alive(int pid) async {
+  final r = await Process.run('/bin/ps', ['-p', '$pid', '-o', 'stat=']);
+  final state = r.stdout.toString().trim();
+  return r.exitCode == 0 && state.isNotEmpty && !state.startsWith('Z');
 }
 
 void main() {
-  // The grace period bounds how long escalation may take; the probe below
-  // stays well inside it.
-  const grace = Duration(seconds: 2);
-
-  test(
-      'close() kills a descendant that ignores TERM and HUP and sits in its '
-      'own process group', () async {
-    final conn = await const PtyRunner().spawn(PtySpawnRequest(
-      executable: '/bin/sh',
-      arguments: ['-c', _stub],
-      environment: {
-        'PATH': Platform.environment['PATH'] ?? '/usr/bin:/bin',
-        'HOME': Platform.environment['HOME'] ?? '/',
-        'TERM': 'xterm-256color',
-      },
-    ));
-
-    var output = '';
-    final sub = conn.output.listen((chunk) {
-      output += String.fromCharCodes(chunk);
+  for (final jobControl in [false, true]) {
+    test('close awaits TERM-immune descendant (job control=$jobControl)',
+        () async {
+      final conn = await const PtyRunner().spawn(PtySpawnRequest(
+        executable: '/bin/bash',
+        arguments: [
+          '--noprofile',
+          '--norc',
+          '-c',
+          '${jobControl ? 'set -m;' : ''} '
+              r'''sh -c 'trap "" TERM HUP; echo PID $$; while :; do sleep 30; done' & wait'''
+        ],
+        environment: const {'PATH': '/usr/bin:/bin'},
+      ));
+      addTearDown(() => conn.close(grace: Duration.zero));
+      final ready = Completer<int>();
+      var output = '';
+      final sub = conn.output.listen((bytes) {
+        output += utf8.decode(bytes, allowMalformed: true);
+        final match = RegExp(r'PID (\d+)').firstMatch(output);
+        if (match != null && !ready.isCompleted)
+          ready.complete(int.parse(match[1]!));
+      });
+      final descendant = await ready.future.timeout(const Duration(seconds: 5));
+      addTearDown(() {
+        Process.killPid(descendant, ProcessSignal.sigkill);
+      });
+      expect(await alive(descendant), isTrue);
+      expect(ChildProcessRegistry.instance.isTracking(conn.pid), isTrue);
+      final watch = Stopwatch()..start();
+      final code = await conn
+          .close(grace: const Duration(milliseconds: 400))
+          .timeout(const Duration(seconds: 5));
+      expect(code, isNonNegative);
+      expect(watch.elapsed,
+          greaterThanOrEqualTo(const Duration(milliseconds: 400)));
+      expect(await alive(descendant), isFalse);
+      expect(ChildProcessRegistry.instance.isTracking(conn.pid), isFalse);
+      await sub.cancel();
     });
+  }
 
-    // Wait until the descendant certainly exists: it printed its own pid.
-    await _waitUntil(
-      () => RegExp(r'PID (\d+)').hasMatch(output),
-      timeout: const Duration(seconds: 10),
-    );
-    final descendant =
-        int.parse(RegExp(r'PID (\d+)').firstMatch(output)!.group(1)!);
-    expect(_pidAlive(descendant), isTrue,
-        reason: 'stub descendant $descendant should be alive before close');
-
-    final code = await conn.close(grace: grace);
-    await sub.cancel();
-
-    // close() has returned: nothing in the spawned tree may survive — not
-    // the shell, and not the TERM/HUP-ignoring descendant in its own group.
-    expect(_pidAlive(descendant), isFalse,
-        reason: 'descendant $descendant survived shutdown (close returned $code)');
-  }, timeout: const Timeout(Duration(seconds: 8)));
+  test('application registry awaits PTY-specific cleanup', () async {
+    final conn = await const PtyRunner().spawn(const PtySpawnRequest(
+      executable: '/bin/sh',
+      arguments: ['-c', 'sleep 30'],
+      environment: {'PATH': '/usr/bin:/bin'},
+    ));
+    conn.output.listen((_) {});
+    await ChildProcessRegistry.instance.reapAll(grace: Duration.zero);
+    expect(await conn.done, isNonNegative);
+    expect(await alive(conn.pid), isFalse);
+  });
 }

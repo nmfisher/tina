@@ -64,6 +64,11 @@ jobs:
           sdk: '3.12'
       - name: Resolve dependencies
         run: dart pub get
+      - name: Test native PTY lifecycle on macOS
+        working-directory: packages/tina_engine
+        run: |
+          dart pub get
+          dart test test/terminal/ --concurrency=2
       - name: Build native CLI
         run: dart build cli --target bin/tina.dart
       - name: Open first-load picker and quit at small and normal sizes

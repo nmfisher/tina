@@ -20,8 +20,8 @@ void main() {
         'TERM': 'xterm-256color',
       },
     ));
-    final code = await conn.done.timeout(const Duration(seconds: 10),
-        onTimeout: () => -99);
+    final code = await conn.done
+        .timeout(const Duration(seconds: 10), onTimeout: () => -99);
     expect(code, 7);
     await conn.close();
   }, timeout: const Timeout(Duration(seconds: 15)));

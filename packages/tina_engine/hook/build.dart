@@ -31,6 +31,7 @@ void main(List<String> args) async {
       sources: [src.toFilePath()],
       includes: [input.packageRoot.resolve('native/src').toFilePath()],
       flags: ['-D_GNU_SOURCE', '-O2'],
+      libraries: targetOS == OS.macOS ? ['proc'] : [],
       language: Language.c,
     );
     await builder.run(input: input, output: output);

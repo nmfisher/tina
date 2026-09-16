@@ -16,7 +16,10 @@ void main() {
   final runner = const PtyRunner();
 
   Future<PtyConnection> sh(String script,
-      {String? cwd, Map<String, String> env = const {}, int rows = 24, int cols = 80}) {
+      {String? cwd,
+      Map<String, String> env = const {},
+      int rows = 24,
+      int cols = 80}) {
     return runner.spawn(PtySpawnRequest(
       executable: '/bin/sh',
       arguments: ['-c', script],
@@ -32,14 +35,17 @@ void main() {
     ));
   }
 
-  test('child gets a controlling terminal, cwd and env, and reports output + exit code', () async {
+  test(
+      'child gets a controlling terminal, cwd and env, and reports output + exit code',
+      () async {
     final conn = await sh(
       'echo "\$PPID-on-\$(tty)-in-\$(pwd)"; echo "V=\$MY_VAR"; exit 7',
       cwd: Directory.systemTemp.path,
       env: {'MY_VAR': 'hello42'},
     );
     final buf = StringBuffer();
-    final sub = conn.output.listen((b) => buf.write(utf8.decode(b, allowMalformed: true)));
+    final sub = conn.output
+        .listen((b) => buf.write(utf8.decode(b, allowMalformed: true)));
     final code = await conn.done;
     await sub.cancel();
     expect(code, 7);
@@ -50,9 +56,8 @@ void main() {
     // real PTY, not our terminal, not pipes. Linux uses /dev/pts/N; macOS
     // uses /dev/ttysNNN. (macOS paths unverified in CI: this suite runs on
     // Linux.)
-    final ptyRe = Platform.isMacOS
-        ? RegExp(r'/dev/ttys\d+')
-        : RegExp(r'/dev/pts/\d+');
+    final ptyRe =
+        Platform.isMacOS ? RegExp(r'/dev/ttys\d+') : RegExp(r'/dev/pts/\d+');
     expect(ptyRe.hasMatch(out), isTrue, reason: out);
     await conn.close();
   });
@@ -60,8 +65,7 @@ void main() {
   test('invalid executable fails predictably', () async {
     await expectLater(
       runner.spawn(PtySpawnRequest(
-          executable: '/nonexistent/binary-xyz',
-          environment: const {})),
+          executable: '/nonexistent/binary-xyz', environment: const {})),
       throwsA(isA<PtyException>()),
     );
   });
@@ -83,40 +87,36 @@ void main() {
     conn.resize(50, 200); // racing close: still must not throw
   });
 
-  test('partial write is handled: large payload survives intact', () async {
-    final conn = await sh('cat; exit 0'); // echo back everything
-    final payload = Uint8List.fromList(
-        List.generate(200000, (i) => 0x41 + (i % 26)));
-    // Fire the write; do not await: it must survive short writes internally.
-    // Then wait for the FULL echo to arrive before closing: close()
-    // terminates the child's tree, and bytes still in flight when cat dies
-    // are legitimately lost — this test is about write fidelity, not close
-    // semantics. (Not awaiting `wrote` alone: with 200KB < the default
-    // 256KB bound it completes immediately, and closing then would kill cat
-    // mid-echo.)
+  test('partial writes deliver the complete payload through a raw child',
+      () async {
+    final conn = await sh('stty raw -echo; printf READY; cat');
+    addTearDown(() => conn.close(grace: Duration.zero));
+    final ready = Completer<void>();
+    final echoed = Completer<void>();
     final got = <int>[];
-    final sub = conn.output.listen(got.addAll);
-    final wrote = conn.write(payload);
-    await wrote;
-    while (got.length < payload.length) {
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-      if (conn.exited) break; // died early: let the length expect report it
-    }
-    // The full echo must come back before close, not a prefix of it: wait
-    // for the child to exit and the drain to finish, then require EVERY
-    // byte to match (the old version accepted >100KB and compared only the
-    // first 1000).
-    await conn.close(grace: const Duration(seconds: 5));
+    final payload =
+        Uint8List.fromList(List.generate(512 * 1024, (i) => i % 256));
+    final sub = conn.output.listen((chunk) {
+      got.addAll(chunk);
+      if (got.length >= 5 && !ready.isCompleted) ready.complete();
+      if (got.length >= payload.length + 5 && !echoed.isCompleted)
+        echoed.complete();
+    });
+    await ready.future.timeout(const Duration(seconds: 5));
+    expect(utf8.decode(got.take(5).toList()), 'READY');
+    expect(
+        await conn.write(payload).timeout(const Duration(seconds: 10)), isTrue);
+    await echoed.future.timeout(const Duration(seconds: 10));
+    expect(got.sublist(5), payload);
+    await conn.close(grace: Duration.zero);
     await sub.cancel();
-    expect(got.length, payload.length,
-        reason: 'echoed ${got.length} of ${payload.length} bytes');
-    expect(got, equals(payload));
   });
 
   test('immediate exit completes with code and drained output', () async {
     final conn = await sh('echo fast; exit 3');
     final buf = StringBuffer();
-    final sub = conn.output.listen((b) => buf.write(utf8.decode(b, allowMalformed: true)));
+    final sub = conn.output
+        .listen((b) => buf.write(utf8.decode(b, allowMalformed: true)));
     final code = await conn.done.timeout(const Duration(seconds: 5));
     await sub.cancel();
     expect(code, 3);
@@ -176,7 +176,8 @@ void main() {
     expect(result, 'lifecycle-complete');
   });
 
-  test('one spawn executes the command exactly once (regression: double exec)', () async {
+  test('one spawn executes the command exactly once (regression: double exec)',
+      () async {
     // Regression: an extra fork inside the shim made TWO processes run the
     // command; only the second was tracked. The first was an untracked
     // orphan. A single spawn must produce exactly ONE execution.
@@ -251,11 +252,13 @@ void main() {
         reason: 'startup output was dropped: ${utf8.decode(collected)}');
   });
 
-  test('child ignoring SIGTERM is force-killed within the grace period', () async {
+  test('child ignoring SIGTERM is force-killed within the grace period',
+      () async {
     // trap '' TERM: a shell that ignores termination.
     final conn = await sh("trap '' TERM; sleep 30");
     final sw = Stopwatch()..start();
-    final code = await conn.close(grace: const Duration(milliseconds: 300))
+    final code = await conn
+        .close(grace: const Duration(milliseconds: 300))
         .timeout(const Duration(seconds: 10));
     sw.stop();
     expect(sw.elapsed, lessThan(const Duration(seconds: 8)),
@@ -263,44 +266,13 @@ void main() {
     expect(code, isNonNegative);
   });
 
-  test('shutdown terminates the whole process group, not just the shell', () async {
-    // Regression: _killTree used to signal only the shell pid, leaving
-    // background/descendant jobs alive. The child is a process-group
-    // leader (setsid in the shim), so the group covers every descendant.
-    // A marker file lets each background child prove when it dies.
-    final dir = await Directory.systemTemp.createTemp('pty_tree_');
-    final marker = '${dir.path}/died';
-    try {
-      // A background child that would survive a plain SIGTERM to the shell
-      // only: it ignores TERM until it is killed with SIGKILL, and writes
-      // a marker if it ever receives any signal.
-      final conn = await sh(
-        "trap '' TERM; sleep 300 & sleep 300",
-        env: {'MARKER': marker},
-      );
-      await conn.close(grace: const Duration(milliseconds: 400))
-          .timeout(const Duration(seconds: 10));
-      // The background child ran with the same pgid; after group SIGKILL
-      // nothing in the group may exist. Probe every pid we can see.
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-      final probe = await Process.run('sh', ['-c',
-        'for p in /proc/[0-9]*/stat; do '
-        'read -r pid comm state ppid pgrp rest < "\$p" 2>/dev/null; '
-        '[ "\$pgrp" = "${conn.pid}" ] && echo "\$pid \$comm"; done']);
-      expect(probe.stdout.toString().trim(), isEmpty,
-          reason: 'processes still in group ${conn.pid}: '
-              '${probe.stdout}');
-    } finally {
-      await dir.delete(recursive: true);
-    }
-  });
-
   test('tests allocate their own PTY: no developer tty is used', () async {
     // This suite never touches /dev/tty. If a developer's terminal were
     // involved, `tty` inside the child would print the developer's tty path.
     final conn = await sh('tty');
     final buf = StringBuffer();
-    final sub = conn.output.listen((b) => buf.write(utf8.decode(b, allowMalformed: true)));
+    final sub = conn.output
+        .listen((b) => buf.write(utf8.decode(b, allowMalformed: true)));
     await conn.done;
     await sub.cancel();
     final t = buf.toString().trim();
