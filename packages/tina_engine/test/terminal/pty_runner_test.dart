@@ -50,7 +50,8 @@ void main() {
     await sub.cancel();
     expect(code, 7);
     final out = buf.toString();
-    expect(out, contains('in-${Directory.systemTemp.path}'));
+    expect(
+        out, contains('in-${Directory.systemTemp.resolveSymbolicLinksSync()}'));
     expect(out, contains('V=hello42'));
     // The child's tty(1) must report a pty device path — proof it is on a
     // real PTY, not our terminal, not pipes. Linux uses /dev/pts/N; macOS
