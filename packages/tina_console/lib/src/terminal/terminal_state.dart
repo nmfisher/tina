@@ -514,6 +514,7 @@ class TerminalSnapshot {
     required this.scrollback,
     required this.cursorRow,
     required this.cursorCol,
+    required this.pendingWrap,
     required this.cursorVisible,
     required this.primaryActive,
     required this.screenInverse,
@@ -531,6 +532,7 @@ class TerminalSnapshot {
 
   final int cursorRow;
   final int cursorCol;
+  final bool pendingWrap;
   final bool cursorVisible;
   final bool primaryActive;
   final bool screenInverse;

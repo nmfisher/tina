@@ -130,6 +130,7 @@ class TerminalEmulator {
       scrollback: grid.scrollback.rows,
       cursorRow: grid.cursorRow,
       cursorCol: grid.cursorCol,
+      pendingWrap: grid.pendingWrap,
       cursorVisible: grid.cursorVisible,
       primaryActive: !_inAlternate,
       screenInverse: grid.screenInverse,
@@ -702,6 +703,12 @@ class TerminalEmulator {
         _active.applicationKeypad = false;
       case 0x63: // RIS
         reset();
+      case 0x5b: // CSI
+        _csiParams.clear();
+        _csiSeen.clear();
+        _csiParamIndex = 0;
+        _csiIntermediates.clear();
+        _state = _ParserState.csiEntry;
       case 0x5d: // OSC
         _startString(_StringKind.osc);
       case 0x50: // DCS
@@ -884,6 +891,12 @@ class TerminalEmulator {
     }
     if (_state == _ParserState.csiIgnore) {
       if (byte >= 0x40 && byte <= 0x7e) _state = _ParserState.ground;
+      return;
+    }
+    if (byte >= 0x3c && byte <= 0x3f) {
+      // Private markers (? > = <) — collect as intermediates.
+      _state = _ParserState.csiParam;
+      _csiIntermediates.writeCharCode(byte);
       return;
     }
     if (byte >= 0x30 && byte <= 0x39) {
