@@ -43,6 +43,13 @@ class TitleEvent extends TerminalEvent {
   const TitleEvent(this.title);
 
   final String title;
+
+  @override
+  bool operator ==(Object other) =>
+      other is TitleEvent && other.title == title;
+
+  @override
+  int get hashCode => title.hashCode;
 }
 
 /// What one [TerminalEmulator.feed] call produced.
@@ -600,7 +607,9 @@ class TerminalEmulator {
       cells.insert(col, Cell.blank);
       cells.removeLast();
     }
-    row.cells.setAll(0, cells);
+    row.cells
+      ..clear()
+      ..addAll(cells);
     healRow(row, grid.cols);
     _damage = true;
   }
@@ -614,7 +623,9 @@ class TerminalEmulator {
       cells.removeAt(col);
       cells.add(Cell.blank);
     }
-    row.cells.setAll(0, cells);
+    row.cells
+      ..clear()
+      ..addAll(cells);
     healRow(row, grid.cols);
     _damage = true;
   }

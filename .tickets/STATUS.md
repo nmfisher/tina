@@ -1,33 +1,44 @@
 # Sweep status
-Now:     PR 17 (asb/improvements-log) conflict-free against main — merged
-         origin/main (tin-g7rk, fa05e20) in, resolved the one conflict in
-         lib/host/tui_conversation_host.dart keeping main's _chatSink
-         refactor + our #30 permission fixes; root 757 / tina_console 792
-         green, engine 765 + the two known non-merge failures below.
-Next:    Review/merge PR 17. Then tin-9x4m (p3, /spawn picker
+Now:     tin-t8wd (p1, Phase 1 pure-Dart terminal emulator) implemented,
+         ticket closed, PR pending — branch asb/terminal-emulator.
+         packages/tina_console/lib/src/terminal/{terminal_state,
+         terminal_emulator}.dart: UTF-8 → U+FFFD text, C0, cursor/editing
+         CSI, SGR, DECSET/DECRST modes, alt screens 47/1047/1048/1049,
+         DECSTBM, DEC graphics charsets, DSR/DA1 replies, OSC title,
+         RIS, resize, damage tracking; scrollback bounded by 10k rows
+         AND 1M cells (injectable); parser caps 4096 bytes / 32 params,
+         CAN/SUB abort. Fixture replay (one-chunk / byte-by-byte /
+         every-split) against hand-written grids — 1223 tina_console
+         tests green, dart analyze clean.
+Next:    Open/merge the tin-t8wd PR. Then tin-9x4m (p3, /spawn picker
          empty for custom providers) or a fresh probe batch from the
          scenario-seeds list.
 Blocked: none
 Ask:     1) Parked features awaiting prioritization: tin-1h8p, tin-80ll
          (+ its superseded sibling tin-923l), tin-f5xt, tin-k9q3.
-Last checkpoint: 2026-08-23 — PR 17 merge-conflict resolution pushed
-         (merge commit only, no rebase); bash_tool spill-test flake root-
-         caused and logged. Previous checkpoint (2026-08-22): tin-g7rk
-         closed (markdown rendering + raw view, PR pending); STATUS
-         rewritten; dart-sdk toolchain note corrected.
+Last checkpoint: 2026-09-16 — tin-t8wd Phase 1 done, fixtures green,
+         ticket ticked and closed. Previous checkpoint (2026-08-23):
+         PR 17 merge-conflict resolution pushed (merge commit only, no
+         rebase); bash_tool spill-test flake root-caused and logged.
 
 ## This session
 
-- Merged origin/main (tin-g7rk markdown rendering, fa05e20) into
-  asb/improvements-log for PR 17. One conflict, in
-  lib/host/tui_conversation_host.dart `_sink`: HEAD still built a second
-  ChatAgentSink inline (onCapped only); main routes BusSink through the
-  shared `_chatSink` (onCapped + onRawText, beginAssistantTurn hook).
-  Took main's form — the inline one would have left beginAssistantTurn
-  driving a sink outside the render path, and our #30 ensureNewline /
-  denial-note changes sat outside the hunk and survive untouched.
-- Merge-introduced breakage: none. tina_engine is byte-identical to the
-  pre-merge branch; its two failures pre-date the merge (see Notes).
+- tin-t8wd Phase 1: new `lib/src/terminal/` under tina_console —
+  terminal_state.dart (CellAttributes/TerminalColor/Cell with 64-mark
+  combining cap/Row/Scrollback/TerminalGrid/TerminalSnapshot) and
+  terminal_emulator.dart (ground/ESC/CSI/OSC/DCS-SOS-PM-APC parser,
+  incremental UTF-8, SGR, DECSET/DECRST, alt screens with xterm
+  entry/exit semantics, DECSTBM, DSR/DA1 replies, DEC graphics, RIS,
+  resize, takeDamage). Fixture harness replays every case three ways
+  (one chunk, byte-by-byte, every split) against hand-written grids;
+  `test/virtual_terminal.dart` untouched. Fixture replay caught and
+  fixed real bugs: CSI entry after `ESC [`, private-marker handling,
+  fixed-length row mutation in ICH/DCH/resizeTo, SGR 38/48 consuming
+  too few params, DEC Special Graphics table past entry 15, 1047
+  clearing on the wrong transition, TitleEvent ==/hashCode.
+- Exported the emulator from `lib/tina_console.dart` (source-tree
+  relative path; no package: self-import). dart analyze clean;
+  tina_console 1223 / root 816 tests green.
 
 ## Open (hunted / not in play)
 
@@ -36,6 +47,9 @@ Last checkpoint: 2026-08-23 — PR 17 merge-conflict resolution pushed
   feature/proposal tickets, parked pending user prioritization.
 
 ## Closed earlier
+
+- tin-t8wd (p1) — Phase 1 terminal emulator, asb/terminal-emulator PR
+  (2026-09-16).
 
 - tin-g7rk (p2) — asb/markdown-render PR (2026-08-22).
 - tin-y4qn, tin-w8dl, tin-p8k2, tin-b4n7, tin-q4vz, tin-h5nm, tin-k7tr,

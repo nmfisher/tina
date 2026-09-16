@@ -1,6 +1,6 @@
 ---
 id: tin-t8wd
-status: open
+status: closed
 deps: []
 links: [tin-p8k2]
 created: 2026-09-16T00:00:00Z
@@ -81,25 +81,25 @@ split-point replay is what catches persistent-state-machine bugs.
 
 ## Acceptance
 
-- [ ] Public surface: `feed`, `resize`, `reset`, snapshot, `takeDamage`; no
+- [x] Public surface: `feed`, `resize`, `reset`, snapshot, `takeDamage`; no
       Screen/fs/process/timer deps; console width conventions used.
-- [ ] Grids/cells: primary + alternate, cluster/width/continuation/attrs,
+- [x] Grids/cells: primary + alternate, cluster/width/continuation/attrs,
       DECSC/DECRC, margins, tab stops, SGR, modes, bounded scrollback
       (row AND cell limits, injectable).
-- [ ] Wide-glyph halves cleared on erase/overwrite/resize; combining marks
+- [x] Wide-glyph halves cleared on erase/overwrite/resize; combining marks
       capped at 64 per cell.
-- [ ] Text/control family above (UTF-8 replacement, C0, tabs).
-- [ ] Cursor family above (all listed CSI + ESC forms, clamped).
-- [ ] Editing family above (J/K/X/@/P/L/M/S/T/r + scroll-history rule).
-- [ ] SGR attributes family above incl. selective resets.
-- [ ] Modes family above (IRM, origin, wrap, cursor visibility, app keypad/
+- [x] Text/control family above (UTF-8 replacement, C0, tabs).
+- [x] Cursor family above (all listed CSI + ESC forms, clamped).
+- [x] Editing family above (J/K/X/@/P/L/M/S/T/r + scroll-history rule).
+- [x] SGR attributes family above incl. selective resets.
+- [x] Modes family above (IRM, origin, wrap, cursor visibility, app keypad/
       cursor, bracketed paste, focus).
-- [ ] Alt-screen 47/1047/1048/1049 semantics; primary history survives.
-- [ ] DEC line drawing + SI/SO.
-- [ ] Queries: DSR 5/6, DA1; replies reflect active coordinates.
-- [ ] OSC/DCS/SOS/PM/APC consumed; title 0/2 sanitized event; RIS.
-- [ ] Parser limits: 4096-byte cap, 32 CSI params, CAN/SUB abort, unknown
+- [x] Alt-screen 47/1047/1048/1049 semantics; primary history survives.
+- [x] DEC line drawing + SI/SO.
+- [x] Queries: DSR 5/6, DA1; replies reflect active coordinates.
+- [x] OSC/DCS/SOS/PM/APC consumed; title 0/2 sanitized event; RIS.
+- [x] Parser limits: 4096-byte cap, 32 CSI params, CAN/SUB abort, unknown
       sequences ignored, split-sequence correctness.
-- [ ] Scrollback bounded + eviction; full-screen-primary-scroll-only history.
-- [ ] Resize rules above; damage tracked by `takeDamage()`.
-- [ ] Fixtures replayed one-chunk / byte-by-byte / every split.
+- [x] Scrollback bounded + eviction; full-screen-primary-scroll-only history.
+- [x] Resize rules above; damage tracked by `takeDamage()`.
+- [x] Fixtures replayed one-chunk / byte-by-byte / every split.

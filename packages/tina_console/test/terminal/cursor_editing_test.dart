@@ -5,7 +5,6 @@
 library;
 
 import 'package:test/test.dart';
-import 'package:tina_console/src/terminal/terminal_emulator.dart';
 
 import 'terminal_fixtures.dart';
 

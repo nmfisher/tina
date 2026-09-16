@@ -272,7 +272,7 @@ class Cell {
 /// One screen or scrollback row; [cells] length always equals grid width.
 class Row {
   Row.blank(int width)
-      : cells = List<Cell>.filled(width, Cell.blank);
+      : cells = List<Cell>.filled(width, Cell.blank, growable: true);
 
   Row._(this.cells);
 
@@ -286,12 +286,13 @@ class Row {
   /// Grows or shrinks to [width], padding with blanks at the tail.
   void resizeTo(int width) {
     if (width == cells.length) return;
-    final next = List<Cell>.filled(width, Cell.blank);
-    final keep = width < cells.length ? width : cells.length;
-    for (var i = 0; i < keep; i++) {
-      next[i] = cells[i];
+    if (width < cells.length) {
+      cells.removeRange(width, cells.length);
+    } else {
+      while (cells.length < width) {
+        cells.add(Cell.blank);
+      }
     }
-    cells.setAll(0, next);
   }
 
   /// The row's text: one cluster per cell, continuations skipped.

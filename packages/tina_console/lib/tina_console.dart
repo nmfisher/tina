@@ -54,3 +54,4 @@ export 'src/terminal_bg.dart';
 export 'src/theme.dart';
 export 'src/tool_chip.dart';
 export 'src/term_width.dart' show runeWidth;
+export 'src/terminal/terminal_emulator.dart';
