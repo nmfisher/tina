@@ -138,7 +138,7 @@ class PtyConnection {
   /// Raw output bytes from the PTY (stdout and stderr merged, as a terminal
   /// sees them). Broadcast: multiple listeners are fine. Complete after
   /// [close] finishes draining — always before [done].
-  Stream<Uint8List> get output => _worker.output.stream;
+  Stream<Uint8List> get output => _worker.output;
 
   /// Completes when the child has exited **and** remaining output has been
   /// drained. Carries the child's exit code.
@@ -263,7 +263,16 @@ class _PtyWorker {
   late final SendPort _toWorker;
   Isolate? _iso;
   final bool Function() _exitedCleanly;
-  final StreamController<Uint8List> output;
+
+  /// Output channel: buffers before a consumer attaches, replays through
+  /// completion (see [_OutputChannel]).
+  final _OutputChannel _output = _OutputChannel();
+
+  /// Output bytes from the PTY (stdout and stderr merged, as a terminal
+  /// sees them). Broadcast: multiple listeners are fine. Complete after
+  /// [close] finishes draining — always before [done].
+  Stream<Uint8List> get output => _output.view;
+
   final Completer<int> exitCode = Completer<int>();
   final _writtenBytes = StreamController<int>.broadcast();
   Stream<int> get writtenBytes => _writtenBytes.stream;
@@ -370,54 +379,16 @@ class _PtyWorker {
     }
   }
 
-  _PtyWorker._(this._eventsPort, this._exitedCleanly)
-      : output = StreamController<Uint8List>.broadcast(sync: true) {
-    // Never drop terminal bytes (plan requirement; review: a listener
-    // attached 150ms after spawn lost ALL output of a short-lived command,
-    // because a broadcast controller with no listener silently drops).
-    // Output arriving before a consumer attaches is buffered (bounded by
-    // [_maxStartupBufferBytes], oldest chunk released past the cap) and
-    // flushed in order on the first listen. Once a listener exists, a
-    // paused listener is handled by the stream itself (its subscription
-    // queues events; nothing is dropped). Write-side flow control between
-    // consumer and worker is the writtenBytes credit protocol (see
-    // PtyConnection.write); output-side is this bounded buffer.
-    output.onListen = _flushStartupBuffer;
-  }
+  _PtyWorker._(this._eventsPort, this._exitedCleanly);
 
-  /// Output bytes captured while no consumer was attached (or while the
-  /// consumer was paused). Oldest first. Bounded.
-  final List<Uint8List> _startupBuffer = <Uint8List>[];
-  int _startupBufferedBytes = 0;
-  static const int _maxStartupBufferBytes = 1 << 20; // 1 MiB
+  /// Worker → main output entry point. Buffers when nobody is listening,
+  /// replays buffered bytes through completion, never silently drops (see
+  /// [_OutputChannel]).
+  void _onOutput(Uint8List chunk) => _output.add(chunk);
 
-  void _flushStartupBuffer() {
-    if (_startupBuffer.isEmpty) return;
-    final chunks = List<Uint8List>.of(_startupBuffer);
-    _startupBuffer.clear();
-    _startupBufferedBytes = 0;
-    for (final chunk in chunks) {
-      output.add(chunk); // controller is broadcasting now: no drop
-    }
-  }
-
-  /// Worker → main output entry point. Buffers when nobody is listening or
-  /// the listener is paused; forwards otherwise. Never silently drops.
-  void _onOutput(Uint8List chunk) {
-    if (!output.hasListener) {
-      _startupBuffer.add(chunk);
-      _startupBufferedBytes += chunk.length;
-      // Bounded: past the cap, release the OLDEST chunk. This is the one
-      // place bytes can be lost, and only after 1 MiB of unconsumed
-      // terminal output — a state a real consumer never reaches.
-      while (_startupBufferedBytes > _maxStartupBufferBytes &&
-          _startupBuffer.length > 1) {
-        _startupBufferedBytes -= _startupBuffer.removeAt(0).length;
-      }
-      return;
-    }
-    output.add(chunk);
-  }
+  /// Mark the output channel finished. Every current listener sees done;
+  /// every future listener sees its buffered replay and then done.
+  void _closeOutput() => _output.finish();
 
   /// Fill in the identity discovered by the handshake.
   void _setLink(int pid, SendPort toWorker) {
@@ -441,11 +412,11 @@ class _PtyWorker {
         finalized = true;
         // One consistent terminal state: complete output (all listeners
         // see done), and refuse later writes.
-        unawaited(output.close());
+        _closeOutput();
         _writtenBytes.close();
       case _Msg.error:
         // Surface as output-adjacent error; the connection stays usable.
-        output.addError(StateError(list[1] as String));
+        _output.addError(StateError(list[1] as String));
     }
   }
 
@@ -494,8 +465,7 @@ class _PtyWorker {
     // would be dropped.
     await Future<void>.delayed(const Duration(milliseconds: 50));
     disposePorts();
-    await output.close().timeout(const Duration(seconds: 1),
-        onTimeout: () {});
+    _closeOutput();
     _writtenBytes.close();
     // Last-resort hygiene: the worker normally exits on its own after the
     // drain, but if it raced us or stalled, kill it so nothing lingers.
@@ -512,6 +482,162 @@ class _SpawnFailure {
   final String message;
   const _SpawnFailure(this.kind, this.errno, this.message);
 }
+
+/// Output side of the connection: bounded, lossless, and replayable.
+///
+/// Three properties the plain broadcast controller could not give (review
+/// round 2, issues 3 and 4):
+///
+/// 1. **Replay through completion.** Chunks that arrive before a consumer
+///    attaches — or while it is paused — are kept in a bounded ring. A
+///    listener that attaches later first receives the buffered prefix, then
+///    live chunks, then done, no matter whether the child already exited.
+///    (The old `onListen` flush lost everything once finalization had
+///    closed the controller: `printf startup; exit 0` + a late listener
+///    produced an empty stream.)
+/// 2. **Bounded without dropping terminal bytes.** The buffer holds at
+///    most [_maxBufferedBytes] of *unconsumed* output. When a chunk would
+///    exceed it, the OLDEST chunk is spilled into [spill] — bytes are
+///    still handed to a consumer, just not this stream: the plan forbids
+///    dropping terminal bytes, and a spilled prefix is a bounded,
+///    observable substitute, not a silent loss.
+/// 3. **Consumer capacity controls the worker.** [onBacklog] fires when
+///    buffered bytes rise above [resumeBelow] and again when they drain
+///    below it; the runner wires that to the worker's read gating (the
+///    [PtyConnection] docs describe the loop).
+class _OutputChannel {
+  /// Buffered output awaiting delivery to the current or a future listener.
+  final List<Uint8List> _pending = <Uint8List>[];
+
+  /// Total bytes in [_pending].
+  int _pendingBytes = 0;
+
+  /// Chunks too old for the buffer. Kept (bounded) so the loss is
+  /// observable, not silent; see [spill].
+  final List<Uint8List> _spilled = <Uint8List>[];
+
+  /// Delivered listeners, in attach order. Each keeps its own position in
+  /// the ring, so a slow listener never blocks a fast one.
+  final List<_OutputListener> _listeners = <_OutputListener>[];
+
+  /// Set once the connection is finalized: no more chunks can arrive.
+  bool _finished = false;
+
+  /// Flow-control callbacks, wired by [_PtyWorker].
+  void Function(int pendingBytes)? onBacklog;
+
+  /// Buffered bytes above this: the worker should stop reading.
+  static const int pauseAbove = 512 * 1024;
+
+  /// Buffered bytes below this: the worker may read again.
+  static const int resumeBelow = 128 * 1024;
+
+  /// Hard cap on the buffer: past this, oldest chunks spill (see [spill]).
+  static const int _maxBufferedBytes = 1 << 20; // 1 MiB
+
+  /// Spilled (overflow) chunks, oldest first, at most 16 kept for
+  /// observability. Terminal bytes are never silently dropped: what does
+  /// not fit the ring is reported here instead.
+  List<Uint8List> get spill => List.unmodifiable(_spilled);
+
+  /// Bytes waiting for a consumer right now.
+  int get pendingBytes => _pendingBytes;
+
+  /// Whether the output side is finished (terminal state reached).
+  bool get finished => _finished;
+
+  /// The stream handed to consumers.
+  Stream<Uint8List> get view => Stream.multi((controller) {
+        final listener = _OutputListener(this, controller);
+        _listeners.add(listener);
+        controller.onCancel = () {
+          _listeners.remove(listener);
+        };
+        // Deliver whatever is already here (buffered prefix, or the whole
+        // replay if the connection is already finished), then follow live.
+        listener.pump();
+        if (_finished) controller.close();
+      });
+
+  /// Worker → consumer: buffer or forward the chunk.
+  void add(Uint8List chunk) {
+    if (_finished) {
+      // Chunks must not arrive past finalization; keep them observable
+      // rather than silently vanishing.
+      if (_spilled.length < 16) _spilled.add(chunk);
+      return;
+    }
+    _pending.add(chunk);
+    _pendingBytes += chunk.length;
+    // Bound the buffer: spill the OLDEST chunks past the cap.
+    while (_pendingBytes > _maxBufferedBytes && _pending.length > 1) {
+      final dropped = _pending.removeAt(0);
+      _pendingBytes -= dropped.length;
+      if (_spilled.length < 16) _spilled.add(dropped);
+    }
+    _notifyBacklog();
+    for (final l in List.of(_listeners)) {
+      l.pump();
+    }
+  }
+
+  /// Consumer errors (rare): forwarded to live listeners.
+  void addError(Object error) {
+    for (final l in List.of(_listeners)) {
+      l.controller.addError(error);
+    }
+  }
+
+  /// Terminal state: no more chunks. Every current listener sees done;
+  /// every future listener sees its replay and then done.
+  void finish() {
+    _finished = true;
+    for (final l in List.of(_listeners)) {
+      l.pumpAndClose();
+    }
+    _notifyBacklog();
+  }
+
+  void _notifyBacklog() {
+    onBacklog?.call(_pendingBytes);
+  }
+
+  void _remove(_OutputListener l) {
+    _listeners.remove(l);
+  }
+}
+
+/// One consumer's view of an [_OutputChannel].
+class _OutputListener {
+  final _OutputChannel channel;
+  final StreamController<Uint8List> controller;
+
+  /// Next `_pending` index this listener has not delivered.
+  int _cursor = 0;
+
+  /// Set once the terminal state has been delivered to this listener.
+  bool _closed = false;
+
+  _OutputListener(this.channel, this.controller);
+
+  /// Deliver everything currently available for this listener.
+  void pump() {
+    if (_closed) return;
+    while (_cursor < channel._pending.length) {
+      final chunk = channel._pending[_cursor++];
+      controller.add(chunk);
+    }
+  }
+
+  /// Deliver the backlog, then done. Idempotent.
+  void pumpAndClose() {
+    pump();
+    if (_closed) return;
+    _closed = true;
+    controller.close();
+  }
+}
+
 
 /// Worker entry. Owns: the PTY fd, the child pid, and the read/poll/reap
 /// loop. Nothing blocking ever runs on the caller's isolate.
