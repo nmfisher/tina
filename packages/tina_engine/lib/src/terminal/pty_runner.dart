@@ -295,6 +295,11 @@ class _PtyWorker {
   /// completed and writes are refused at the source.
   bool finalized = false;
 
+  /// The child's exit code, relayed by `_Msg.exited` and published to
+  /// [exitCode] only with `_Msg.finalized` (so `done` implies the whole
+  /// terminal state, not just child death).
+  int _exitStatus = -1;
+
   /// Main side's end of the worker event channel. Kept open for the life of
   /// the connection so late worker messages are never dropped.
   final ReceivePort _eventsPort;
@@ -331,9 +336,24 @@ class _PtyWorker {
       }
     }
 
-    workerDone.listen((_) => exitedCleanlyFlag = true);
+    // Isolate-death handling, set up as soon as the worker exists so every
+    // exit path is covered: a clean worker exit just records the flag; a
+    // worker that dies WITHOUT delivering _Msg.finalized (crash, external
+    // kill) must still push the connection to a terminal state here —
+    // done completes only on finalization now, so without this fallback
+    // `done` would hang forever on a worker that can no longer report.
     var exitedCleanly = false;
     final worker = _PtyWorker._(events, () => exitedCleanlyFlag || exitedCleanly);
+    // Isolate-death handling, armed as soon as the worker exists so every
+    // exit path is covered: a clean worker exit just records the flag; a
+    // worker that dies WITHOUT delivering _Msg.finalized (crash, external
+    // kill) must still push the connection to a terminal state here —
+    // done completes only on finalization now, so without this fallback
+    // `done` would hang forever on a worker that can no longer report.
+    workerDone.listen((_) {
+      exitedCleanlyFlag = true;
+      worker._finalize(-1);
+    });
     final config = _SpawnConfig(
         req.executable,
         req.arguments,
@@ -436,18 +456,44 @@ class _PtyWorker {
         _writtenBytes.add(list[1] as int);
       case _Msg.exited:
         exited = true;
-            if (!exitCode.isCompleted) exitCode.complete(list[1] as int);
+        // The exit CODE is remembered but done is NOT completed here:
+        // done is the whole terminal state (output drained, writes
+        // refused). Completing it on exited alone left a window where
+        // `await done` returned while finalized was still false and
+        // write() still accepted bytes (review issue 5).
+        _exitStatus = list[1] as int;
       case _Msg.terminated:
         break; // handshake closes on the terminate path
       case _Msg.finalized:
         finalized = true;
         // One consistent terminal state: complete output (all listeners
-        // see done), and refuse later writes.
+        // see done), and refuse later writes. done completes HERE, after
+        // finalized is set, so nobody can observe done with a half-closed
+        // connection.
         _closeOutput();
         _writtenBytes.close();
+        if (!exitCode.isCompleted) exitCode.complete(_exitStatus);
       case _Msg.error:
         // Surface as output-adjacent error; the connection stays usable.
         _output.addError(StateError(list[1] as String));
+    }
+  }
+
+  /// Push the connection to its terminal state from THIS side. Used when
+  /// the worker isolate died without delivering `_Msg.finalized`: done
+  /// completes only on finalization, so the fallback (not the worker) is
+  /// what keeps a crashed child from hanging every awaiter. A worker that
+  /// DID report is unaffected — finalized is already true and this is a
+  /// no-op.
+  void _finalize(int exitCodeFallback) {
+    if (finalized) return;
+    finalized = true;
+    _closeOutput();
+    _writtenBytes.close();
+    if (!exitCode.isCompleted) {
+      // If the exit status was relayed before the death notice arrived,
+      // it is the real code; the fallback only covers "never reported".
+      exitCode.complete(exited ? _exitStatus : exitCodeFallback);
     }
   }
 
