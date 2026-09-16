@@ -286,13 +286,12 @@ class Row {
   /// Grows or shrinks to [width], padding with blanks at the tail.
   void resizeTo(int width) {
     if (width == cells.length) return;
-    if (width < cells.length) {
-      cells.removeRange(width, cells.length);
-    } else {
-      while (cells.length < width) {
-        cells.add(Cell.blank);
-      }
+    final next = List<Cell>.filled(width, Cell.blank);
+    final keep = width < cells.length ? width : cells.length;
+    for (var i = 0; i < keep; i++) {
+      next[i] = cells[i];
     }
+    cells.setAll(0, next);
   }
 
   /// The row's text: one cluster per cell, continuations skipped.

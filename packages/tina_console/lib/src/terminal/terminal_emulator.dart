@@ -597,12 +597,13 @@ class TerminalEmulator {
   void _insertCells(int n) {
     final grid = _active;
     final row = grid.screen[grid.cursorRow];
-    final cells = row.cells;
+    final cells = List<Cell>.of(row.cells);
     final col = grid.cursorCol;
     for (var i = 0; i < n && col < cells.length; i++) {
       cells.insert(col, Cell.blank);
       cells.removeLast();
     }
+    row.cells.setAll(0, cells);
     healRow(row, grid.cols);
     _damage = true;
   }
@@ -610,12 +611,13 @@ class TerminalEmulator {
   void _deleteCells(int n) {
     final grid = _active;
     final row = grid.screen[grid.cursorRow];
-    final cells = row.cells;
+    final cells = List<Cell>.of(row.cells);
     final col = grid.cursorCol;
     for (var i = 0; i < n && col < cells.length; i++) {
       cells.removeAt(col);
       cells.add(Cell.blank);
     }
+    row.cells.setAll(0, cells);
     healRow(row, grid.cols);
     _damage = true;
   }
