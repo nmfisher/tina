@@ -652,7 +652,38 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
   /// juggling) at the cost of one memcpy per pass — writes are small.
   final Pointer<Uint8> scratch = malloc<Uint8>(65536);
 
+  /// Settle every queued write as *finished*, reporting the bytes as
+  /// written so the writer's backpressure accounting clears.
+  ///
+  /// WHY, AND WHY REPORT UNDELIVERED BYTES AS WRITTEN: once the child has
+  /// exited nothing will ever read this PTY again (barring a descendant
+  /// holding the slave, which reads nothing that was addressed to the
+  /// child). The queue must not survive the child: as long as it is
+  /// non-empty, the drain pass (`childGone && writeQueue.isEmpty`) never
+  /// runs, the PTY is never finalized, and the caller's `done` and its
+  /// write future both hang — a 1 MiB write to an exiting child used to
+  /// leave both pending forever. "Finished, not pending" means the
+  /// accounting event fires whether or not the bytes were delivered;
+  /// acceptance (write() returning true) has always been a queueing
+  /// statement, not a delivery guarantee.
+  void settlePendingWrites() {
+    if (writeQueue.isEmpty) return;
+    var settled = 0;
+    for (final chunk in writeQueue) {
+      settled += chunk.length;
+    }
+    writeQueue.clear();
+    if (settled > 0) eventsPort.send([_Msg.written.index, settled]);
+  }
+
   void pumpWrites() {
+    if (childGone) {
+      // The child cannot read anymore: every pending write is finished.
+      // Also covers a write message that raced the exit (this pump runs
+      // from the write handler too).
+      settlePendingWrites();
+      return;
+    }
     while (writeQueue.isNotEmpty) {
       final chunk = writeQueue.first;
       final len = chunk.length > 65536 ? 65536 : chunk.length;
@@ -692,6 +723,7 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
       case _Cmd.write:
         writeQueue.add(list[1] as Uint8List);
         pumpWrites();
+        break;
       case _Cmd.resize:
         tina_pty_resize(fd, list[1] as int, list[2] as int);
       case _Cmd.terminate:
@@ -731,8 +763,15 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
   }
 
   // Main loop: poll the PTY, read output, pump writes, reap the child.
+  var exitDrainMs = 0;
   while (true) {
-    if (reap()) continue; // reaped: take the drain pass immediately
+    if (reap()) {
+      // Newly reaped: settle anything the dying child can no longer read
+      // BEFORE the drain gate, so an EAGAIN-blocked queue cannot hold the
+      // connection open past the child's exit.
+      settlePendingWrites();
+      continue; // reaped: take the drain pass immediately
+    }
 
     pumpWrites();
 
@@ -741,10 +780,11 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
     if (forcedExit) break; // close out below, without touching the PTY
 
     if (childGone && writeQueue.isEmpty) {
-      // Drain: read until EOF/EIO so the last output gets delivered before
-      // the exit status.
+      // Post-exit drain: read until EOF/EIO so the last output gets
+      // delivered before the exit status.
       final n = tina_pty_read(fd, buf, 65536);
       if (n > 0) {
+        exitDrainMs = 0; // still producing: keep the quiet window open
         eventsPort.send([
           _Msg.output.index,
           Uint8List.fromList(buf.asTypedList(n)),
@@ -761,11 +801,15 @@ Future<void> _runLoop(SendPort eventsPort, SendPort toMain,
         finish();
         return;
       }
-      // Would block: a descendant may still hold the slave open for a long
-      // time (e.g. `sleep 300 &`). This branch MUST yield, or the loop
-      // starves the isolate and terminate/timers are never processed — a
-      // bounded grace would then never fire (regression: a 50ms grace took
-      // 4.6s and was answered by the main isolate killing the worker).
+      // Read would block. A HUP-immune descendant holding the slave keeps
+      // the master readable-forever-less-EIO, so this state must be bounded
+      // too: the child IS gone, and a caller awaiting `done` must not wait
+      // on processes that only happen to share the PTY. Keep draining while
+      // data flows (the window resets above), finalize after a short quiet
+      // period — bytes-in-flight flush, hanging descendants cannot hold the
+      // connection hostage.
+      exitDrainMs += 5;
+      if (exitDrainMs >= 100) break;
       await Future<void>.delayed(const Duration(milliseconds: 5));
       continue;
     }
