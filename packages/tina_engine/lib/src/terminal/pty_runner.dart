@@ -352,7 +352,7 @@ class _PtyWorker {
     // `done` would hang forever on a worker that can no longer report.
     workerDone.listen((_) {
       exitedCleanlyFlag = true;
-      worker._finalize(-1);
+      worker._finalizeNow(-1);
     });
     final config = _SpawnConfig(
         req.executable,
@@ -465,36 +465,45 @@ class _PtyWorker {
       case _Msg.terminated:
         break; // handshake closes on the terminate path
       case _Msg.finalized:
-        finalized = true;
-        // One consistent terminal state: complete output (all listeners
-        // see done), and refuse later writes. done completes HERE, after
-        // finalized is set, so nobody can observe done with a half-closed
-        // connection.
-        _closeOutput();
-        _writtenBytes.close();
-        if (!exitCode.isCompleted) exitCode.complete(_exitStatus);
+        // One consistent terminal state (also releases the ports — see
+        // _finalizeNow).
+        _finalizeNow(_exitStatus);
       case _Msg.error:
         // Surface as output-adjacent error; the connection stays usable.
         _output.addError(StateError(list[1] as String));
     }
   }
 
-  /// Push the connection to its terminal state from THIS side. Used when
-  /// the worker isolate died without delivering `_Msg.finalized`: done
-  /// completes only on finalization, so the fallback (not the worker) is
-  /// what keeps a crashed child from hanging every awaiter. A worker that
-  /// DID report is unaffected — finalized is already true and this is a
-  /// no-op.
-  void _finalize(int exitCodeFallback) {
+  /// Push the connection to its terminal state. Every path converges here:
+  ///
+  /// - the worker's `_Msg.finalized` (clean shutdown), or
+  /// - the isolate-death notice (worker crashed or was killed without
+  ///   reporting — done completes only on finalization, so this fallback
+  ///   is what keeps a dead worker from hanging every awaiter).
+  ///
+  /// Besides output completion and the write gate, this is where the
+  /// MAIN-side ports are released. The terminal state is the last thing
+  /// the worker can contribute: `_eventsPort` receives nothing afterwards,
+  /// `_workerDone` has already fired on the death path, and
+  /// `_writtenBytes` is closed just above. Without this, a connection that
+  /// reached a NATURAL exit kept its ReceivePorts open forever, and any
+  /// isolate that owned the connection could never wind down (review
+  /// issue 6).
+  void _finalizeNow(int code) {
     if (finalized) return;
     finalized = true;
+    // The session is over from the connection's point of view, whichever
+    // path got us here (the death notice can outrun the queued `exited`
+    // message: no guaranteed ordering between ports).
+    exited = true;
     _closeOutput();
     _writtenBytes.close();
     if (!exitCode.isCompleted) {
       // If the exit status was relayed before the death notice arrived,
-      // it is the real code; the fallback only covers "never reported".
-      exitCode.complete(exited ? _exitStatus : exitCodeFallback);
+      // it is the real code; -1 only covers "never reported at all".
+      exitCode.complete(exited ? _exitStatus : code);
     }
+    disposePorts();
   }
 
 
@@ -510,46 +519,43 @@ class _PtyWorker {
     _terminated = true;
     _toWorker.send([_Cmd.terminate.index, grace.inMilliseconds, null]);
     // The worker SIGTERMs the group, escalates to SIGKILL, then exits once
-    // the status has been relayed: awaiting the isolate death is the real
-    // completion signal (no ack round-trip that could race the loop).
+    // the status has been relayed. Wait for the TERMINAL STATE rather than
+    // the raw isolate death: finalization (which now also releases the
+    // ports) happens when `finalized` lands, a moment BEFORE the isolate
+    // actually exits — and once ports are released, watching the death
+    // notice alone would just spin out the deadline.
     final iso = _iso;
     if (iso != null) {
       final deadline =
           DateTime.now().add(grace + const Duration(seconds: 2));
-        var spins = 0;
-      while (!_exitedCleanly() && DateTime.now().isBefore(deadline)) {
+      while (!finalized && !_exitedCleanly() && DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
-        spins++;
-        if (spins % 100 == 0) {
-              }
       }
-      if (!_exitedCleanly()) {
+      if (!finalized && !_exitedCleanly()) {
         // Worker stuck past its own bound: kill it. The child itself is
         // covered by _killTree and the registry fallback in dispose.
-            iso.kill();
+        iso.kill();
         // Give a just-returned worker a moment to deliver its final events
         // (the exit status races the kill): wait for either the status or
         // the on-exit signal, bounded.
         final sw = Stopwatch()..start();
-        while (!_exitedCleanly() && sw.elapsedMilliseconds < 500) {
+        while (!finalized && !_exitedCleanly() && sw.elapsedMilliseconds < 500) {
           await Future<void>.delayed(const Duration(milliseconds: 10));
         }
-          }
       }
-    // Give the worker's final messages (the exit status) one scheduling turn
-    // to land on the events port before its ports are torn down. disposePorts
-    // below closes the events port's receive end: anything still in flight
-    // would be dropped.
+    }
+    // Give the worker's final messages (the exit status, finalized) one
+    // scheduling turn to land on the events port: _finalizeNow releases
+    // the ports, so anything still in flight would be dropped. After this
+    // turn the terminal state is guaranteed regardless (below).
     await Future<void>.delayed(const Duration(milliseconds: 50));
-    disposePorts();
-    _closeOutput();
-    _writtenBytes.close();
     // Last-resort hygiene: the worker normally exits on its own after the
     // drain, but if it raced us or stalled, kill it so nothing lingers.
+    // Killing suppresses the isolate's onExit notice, so the terminal
+    // state is forced from here; the fallback would do the same if a
+    // death notice did arrive.
     _iso?.kill();
-    // Close the events port only after the worker is really gone: closing
-    // earlier would drop its in-flight exit status.
-    disposePorts();
+    _finalizeNow(-1);
   }
 }
 
