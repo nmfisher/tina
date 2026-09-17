@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:tina_console/tina_console.dart';
 import 'package:test/test.dart';
 
@@ -13,6 +14,13 @@ class _StaticProvider implements CompletionProvider {
 class _ThrowingProvider implements CompletionProvider {
   @override
   Future<List<String>> complete(String query) async => throw StateError('boom');
+}
+
+class _DeferredProvider implements CompletionProvider {
+  final pending = Completer<List<String>>();
+  @override
+  Future<List<String>> complete(String query) =>
+      query.isEmpty ? Future.value(['/explore', '/exit']) : pending.future;
 }
 
 void main() {
@@ -44,8 +52,7 @@ void main() {
           reason: 'cursor mid-word');
       expect(picker.shouldTrigger(0x40, 'foo ', 4), isTrue,
           reason: 'cursor after space');
-      expect(picker.shouldTrigger(0x41, '', 0), isFalse,
-          reason: 'wrong key');
+      expect(picker.shouldTrigger(0x41, '', 0), isFalse, reason: 'wrong key');
     });
 
     test('open and closeState toggle active', () {
@@ -65,6 +72,24 @@ void main() {
       final out = io.written.toString();
       expect(out.contains('alpha'), isTrue);
       expect(out.contains('beta'), isTrue);
+    });
+
+    test('accept never replaces newer input with a stale command selection',
+        () async {
+      final provider = _DeferredProvider();
+      final command =
+          CompletionPicker.commandPicker(screen, provider: provider);
+      addTearDown(command.dispose);
+      command.open(0);
+      await command.refresh('/', 1);
+      expect(command.accept('/', 1)?.text, '/explore ');
+      expect(command.accept('/exit', 5), isNull);
+
+      final refresh = command.refresh('/exit', 5);
+      expect(command.accept('/exit', 5), isNull);
+      provider.pending.complete(['/exit']);
+      await refresh;
+      expect(command.accept('/exit', 5)?.text, '/exit ');
     });
 
     test('navigate selects different item', () async {
@@ -134,7 +159,8 @@ void main() {
         );
 
     test('defaults preserve the @ picker exactly', () async {
-      final at = CompletionPicker(screen, provider: _StaticProvider(['p.dart']));
+      final at =
+          CompletionPicker(screen, provider: _StaticProvider(['p.dart']));
       expect(at.shouldTrigger(0x40, '', 0), isTrue);
       expect(at.shouldTrigger(0x40, 'foo ', 4), isTrue);
       expect(at.shouldTrigger(0x40, 'foo', 3), isFalse);
@@ -148,7 +174,8 @@ void main() {
       final p = commandPicker();
       expect(p.shouldTrigger(0x2f, '', 0), isTrue,
           reason: 'empty buffer, column 0');
-      expect(p.shouldTrigger(0x2f, 'hi', 2), isFalse, reason: 'not at the start');
+      expect(p.shouldTrigger(0x2f, 'hi', 2), isFalse,
+          reason: 'not at the start');
       expect(p.shouldTrigger(0x2f, 'hi ', 3), isFalse,
           reason: 'after whitespace but not at the start');
       expect(p.shouldTrigger(0x40, '', 0), isFalse, reason: 'wrong trigger');

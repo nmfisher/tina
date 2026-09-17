@@ -46,6 +46,7 @@ class CompletionPicker {
   bool _loading = false;
   int _anchor = -1;
   List<String> _results = const [];
+  String? _resultsQuery;
   int _selected = 0;
   int _queryGen = 0;
 
@@ -97,6 +98,7 @@ class CompletionPicker {
     _anchor = anchor;
     _selected = 0;
     _results = const [];
+    _resultsQuery = null;
     _loading = true;
     _render();
   }
@@ -107,6 +109,7 @@ class CompletionPicker {
     _loading = false;
     _anchor = -1;
     _results = const [];
+    _resultsQuery = null;
     _selected = 0;
     _queryGen++;
     _overlay.hide();
@@ -134,6 +137,7 @@ class CompletionPicker {
     }
     if (gen != _queryGen || !_active) return false;
     _results = results;
+    _resultsQuery = query;
     _loading = false;
     if (_selected >= _results.length) _selected = 0;
     _render();
@@ -156,11 +160,15 @@ class CompletionPicker {
 
   /// Returns the replacement spec, or null if nothing to accept.
   ({int start, int end, String text})? accept(String buffer, int cursor) {
-    if (!_active || _results.isEmpty) return null;
+    // Typing can overtake an asynchronous refresh. Never replace the current
+    // input with a selection belonging to an older query (e.g. /exit with
+    // /explore from the initial / listing).
+    if (!_active ||
+        _results.isEmpty ||
+        _resultsQuery != queryFromBuffer(buffer, cursor)) return null;
     final pick = _results[_selected];
-    final core = prependTriggerOnAccept
-        ? '${String.fromCharCode(trigger)}$pick'
-        : pick;
+    final core =
+        prependTriggerOnAccept ? '${String.fromCharCode(trigger)}$pick' : pick;
     return (start: _anchor, end: cursor, text: '$core$acceptSuffix');
   }
 
@@ -214,9 +222,8 @@ class CompletionPicker {
     if (_loading && _results.isEmpty) return [dim('  (loading…)')];
     if (_results.isEmpty) return [dim('  (no matches)')];
 
-    final visible = _results.length > maxRows
-        ? _results.sublist(0, maxRows)
-        : _results;
+    final visible =
+        _results.length > maxRows ? _results.sublist(0, maxRows) : _results;
     final maxLen = _screen.input.bounds.width - 2;
     final lines = <String>[];
     for (var i = 0; i < visible.length && i < height; i++) {
