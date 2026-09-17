@@ -18,15 +18,21 @@ class ChildProcessRegistry {
   static final ChildProcessRegistry instance = ChildProcessRegistry._();
 
   final Set<int> _pids = {};
+  final Map<int, Future<void> Function(Duration)> _terminators = {};
 
-  /// Register a live subprocess pid. No-op for non-positive pids.
-  void track(int pid) {
-    if (pid > 0) _pids.add(pid);
+  /// Register a live subprocess pid. No-op for non-positive pids. Transports
+  /// with their own process/session ownership can supply awaited cleanup.
+  void track(int pid, {Future<void> Function(Duration)? terminate}) {
+    if (pid > 0) {
+      _pids.add(pid);
+      if (terminate != null) _terminators[pid] = terminate;
+    }
   }
 
   /// Remove a pid once its process has exited. No-op if not tracked.
   void untrack(int pid) {
     _pids.remove(pid);
+    _terminators.remove(pid);
   }
 
   /// Whether [pid] is currently tracked. Test/inspection aid.
@@ -39,7 +45,10 @@ class ChildProcessRegistry {
     Duration grace = const Duration(seconds: 1),
   }) async {
     final pids = _pids.toList();
+    final terminators = Map.of(_terminators);
     _pids.clear();
-    await Future.wait(pids.map((p) => killProcessTree(p, grace: grace)));
+    _terminators.clear();
+    await Future.wait(pids.map((p) =>
+        terminators[p]?.call(grace) ?? killProcessTree(p, grace: grace)));
   }
 }
