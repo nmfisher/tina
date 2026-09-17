@@ -103,6 +103,8 @@
     "packages/tina_app/lib/src/project/"
   ],
   "pureFiles": [
+    "packages/tina_engine/lib/src/judgments/models.dart",
+    "packages/tina_engine/lib/src/judgments/service.dart",
     "packages/tina_app/lib/src/summaries/summary_repository.dart",
     "packages/tina_app/lib/src/summaries/summary_models.dart"
   ],
