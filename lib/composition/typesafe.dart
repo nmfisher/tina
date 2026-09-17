@@ -49,12 +49,13 @@ ExploreProjectTool createConfiguredExplorationTool({
   ProjectEvidenceSource? evidenceSource,
 }) => ExploreProjectTool(
   open: () {
-    final service = createConfiguredTypeSafeService(
-      env: env,
-      tinaDir: tinaDir,
+    final settings = loadUserConfig(env: env, tinaDir: tinaDir);
+    final config = resolveTypeSafeConfig(settings, env);
+    if (config == null) return null;
+    final service = TypeSafeJudgmentService(
+      config: config,
       clientFactory: clientFactory,
     );
-    if (service == null) return null;
     try {
       final source =
           evidenceSource ??
@@ -66,15 +67,38 @@ ExploreProjectTool createConfiguredExplorationTool({
               tinaDir: tinaDir ?? tinaDirFromEnv(env),
             ),
           );
+      final timeout = Duration(
+        seconds: settings.typeSafe?.explorationTimeoutSeconds ?? 120,
+      );
       final workflow = ExplorationWorkflow(
+        timeout: timeout,
         source: source,
+        cache: FileExplorationCache(projectRoot),
+        cacheEndpoint: config.endpoint.toString(),
+
+        selectionThreshold:
+            settings.typeSafe?.explorationSelectionThreshold ?? 0.9,
+        metadataRunner: JudgmentBatchRunner(
+          service: service,
+          budget: service.config.requestBudget,
+          limits: JudgmentBatchLimits(
+            concurrency: 4,
+            maxRequests: 5000,
+            maxChargedTokens:
+                settings.typeSafe?.explorationMetadataTokenBudget ?? 60000,
+            timeout: timeout,
+            outputTokenAllowance: 1024,
+          ),
+        ),
         runner: JudgmentBatchRunner(
           service: service,
           budget: service.config.requestBudget,
           limits: JudgmentBatchLimits(
             concurrency: 4,
-            maxRequests: 48,
-            maxChargedTokens: 120000,
+            maxRequests: 5000,
+            maxChargedTokens:
+                settings.typeSafe?.explorationTokenBudget ?? 120000,
+            timeout: timeout,
             outputTokenAllowance: 1024,
           ),
         ),

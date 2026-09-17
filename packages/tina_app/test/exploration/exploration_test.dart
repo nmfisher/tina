@@ -9,52 +9,113 @@ import 'package:tina_engine/tina_engine.dart';
 
 class Source implements ProjectEvidenceSource {
   final List<ProjectEvidence> evidence;
+  final List<List<String>> reads = [];
+  final List<int?> allowances = [];
   Source(this.evidence);
   @override
-  Future<EvidenceScan> collect(
-    String q,
+  Future<ProjectTree> enumerate(
     JudgmentCancellation c,
     void Function(String) progress,
-  ) async => EvidenceScan(evidence, 3, ['fixture coverage']);
+  ) async => ProjectTree(evidence.map((e) => e.path), []);
+  @override
+  Future<EvidenceScan> read(
+    List<String> paths,
+    JudgmentCancellation c,
+    void Function(String) progress, {
+    int? maxBytes,
+  }) async {
+    reads.add(paths);
+    allowances.add(maxBytes);
+    final found = evidence.where((e) => paths.contains(e.path)).toList();
+    final bytes = found.fold<int>(
+      0,
+      (sum, f) => sum + utf8.encode(f.text).length,
+    );
+    return maxBytes != null && bytes > maxBytes
+        ? EvidenceScan(
+            [],
+            0,
+            [],
+            readFailures: {
+              for (final path in paths) path: 'Read budget exceeded.',
+            },
+          )
+        : EvidenceScan(found, found.length, [], bytesRead: bytes);
+  }
 }
 
 class Judge implements JudgmentService {
   final List<JudgmentRequest> requests = [];
   Future<JudgmentResult> Function(JudgmentRequest, JudgmentCancellation?)?
   handler;
+  Future<JudgmentResult> Function(JudgmentRequest, JudgmentCancellation?)?
+  metadataHandler;
+  List<JudgmentRequest> get contentRequests => requests
+      .where((r) => (r.state.value as Map)['phase'] == 'content_check')
+      .toList();
+  List<JudgmentRequest> get metadataRequests => requests
+      .where((r) => (r.state.value as Map)['phase'] == 'file_ranking')
+      .toList();
   @override
   Future<JudgmentResult> evaluate(
-    JudgmentRequest request, {
+    JudgmentRequest r, {
     JudgmentCancellation? cancellation,
   }) {
-    requests.add(request);
-    return handler?.call(request, cancellation) ??
-        Future.value(answer(request));
+    requests.add(r);
+    if ((r.state.value as Map)['phase'] == 'file_ranking') {
+      return metadataHandler?.call(r, cancellation) ??
+          Future.value(answer(r, probability: 0.7));
+    }
+    return handler?.call(r, cancellation) ?? Future.value(answer(r));
   }
 
-  JudgmentResult answer(JudgmentRequest request, {int score = 4}) {
-    final q = request.questions.values.single as ScoreQuestion;
-    return JudgmentResult.fromJson({
-      'model': 'jev-latest',
-      'answers': {
-        q.id: {
-          'type': 'score',
-          'score': score,
-          'legend': {
-            for (var i = 0; i < q.criteria.length; i++) '$i': q.criteria[i],
-          },
-          'probabilities': {
-            for (var i = 0; i < q.criteria.length; i++)
-              '$i': i == score ? 1 : 0,
-          },
-          'confidence': 0.9,
+  JudgmentResult answer(JudgmentRequest r, {double probability = 0.9}) =>
+      JudgmentResult.fromJson({
+        'model': 'jev-latest',
+        'answers': {
+          for (final id in r.questions.keys)
+            id: {'type': 'noul', 'noul': probability},
         },
-      },
-      'usage': {'input_tokens': 200, 'output_tokens': 20},
-    }, request: request);
-  }
+        'usage': {'input_tokens': 200, 'output_tokens': 20},
+      }, request: r);
 }
 
+Map<String, String> manifest(JudgmentRequest r) {
+  final directories = (r.state.value as Map)['directories'] as Map;
+  return {
+    for (final d in directories.entries)
+      for (final f in (d.value as Map).entries)
+        f.key as String: d.key == '.'
+            ? f.value as String
+            : '${d.key}/${f.value}',
+  };
+}
+
+JudgmentResult ranked(JudgmentRequest r, double Function(String) score) =>
+    JudgmentResult.fromJson({
+      'model': 'jev-latest',
+      'answers': {
+        for (final f in manifest(r).entries)
+          f.key: {'type': 'noul', 'noul': score(f.value)},
+      },
+      'usage': {'input_tokens': 200, 'output_tokens': 20},
+    }, request: r);
+
+JudgmentBatchRunner batch(
+  Judge judge, {
+  int tokens = 100000,
+  int concurrency = 2,
+  JudgmentRequestBudget? budget,
+}) => JudgmentBatchRunner(
+  service: judge,
+  budget: budget ?? JudgmentRequestBudget(),
+  limits: JudgmentBatchLimits(
+    concurrency: concurrency,
+    maxRequests: 5000,
+    maxChargedTokens: tokens,
+    outputTokenAllowance: 100,
+  ),
+);
 ExplorationWorkflow workflow(
   ProjectEvidenceSource source,
   Judge judge, {
@@ -63,26 +124,25 @@ ExplorationWorkflow workflow(
 }) => ExplorationWorkflow(
   source: source,
   timeout: timeout,
-  runner: JudgmentBatchRunner(
-    service: judge,
-    budget: JudgmentRequestBudget(),
-    limits: JudgmentBatchLimits(
-      maxChargedTokens: tokens,
-      outputTokenAllowance: 100,
-    ),
-  ),
+  runner: batch(judge, tokens: tokens),
 );
+
 void main() {
-  test('whole-workflow deadline settles stalled evidence collection', () async {
-    final judge = Judge();
-    final result = await workflow(
-      _StalledSource(),
-      judge,
-      timeout: const Duration(milliseconds: 10),
-    ).run('widget');
-    expect(result.status, 'timeout');
-    expect(judge.requests, isEmpty);
-  });
+  test(
+    'auto handoff threshold is configurable without pruning verification',
+    () async {
+      final source = Source([const ProjectEvidence('a.dart', 'code')]);
+      final judge = Judge()
+        ..metadataHandler = (r, _) async => ranked(r, (_) => 0.85);
+      final result = await ExplorationWorkflow(
+        source: source,
+        runner: batch(judge),
+        selectionThreshold: 0.8,
+      ).run('code');
+      expect(result.stopReason, 'candidate_handoff');
+      expect(judge.contentRequests, isEmpty);
+    },
+  );
 
   test('cancelling a stalled file enumeration kills the process', () async {
     final dir = await Directory.systemTemp.createTemp('tina-explore-cancel-');
@@ -98,7 +158,7 @@ void main() {
       ),
     );
     final token = JudgmentCancellation();
-    final pending = source.collect('widget', token, (_) {});
+    final pending = source.enumerate(token, (_) {});
     await processes.started.future;
     token.cancel();
     await pending;
@@ -108,90 +168,269 @@ void main() {
   });
 
   test(
-    'typed findings preserve source locations, progress and measured usage',
+    'one compact manifest includes deeply nested files without directory gates',
     () async {
-      final judge = Judge();
-      final progress = <String>[];
-      final result = await workflow(
-        Source([
-          const ProjectEvidence(
-            'lib/auth.dart',
-            12,
-            'bool authenticate() {\n  return true;\n}',
-            3,
-          ),
-        ]),
-        judge,
-      ).run('Where is authentication implemented?', onProgress: progress.add);
-      expect(result.status, 'completed');
-      expect(result.findings.single.toJson(), {
-        'path': 'lib/auth.dart',
-        'start_line': 12,
-        'end_line': 14,
-        'excerpt': 'bool authenticate() {\n  return true;\n}',
-        'relevance': 1.0,
-        'confidence': 0.9,
-      });
-      expect(result.inputTokens, 200);
-      expect(result.outputTokens, 20);
-      expect(result.gaps, contains('fixture coverage'));
-      expect(progress.first, contains('collecting'));
-      expect(progress.last, contains('completed'));
-      expect(
-        (judge.requests.single.state.value as Map)['source'],
-        'lib/auth.dart',
-      );
-      expect(jsonEncode(result.toJson()), contains('"exhaustive":false'));
+      final source = Source([
+        const ProjectEvidence('docs/guide.md', 'docs'),
+        const ProjectEvidence(
+          'packages/engine/lib/src/agent/cancel.dart',
+          'stopTool();',
+        ),
+      ]);
+      final judge = Judge()
+        ..metadataHandler = (r, _) async {
+          expect(source.reads, isEmpty);
+          expect((r.state.value as Map)['manifest_scope'], 'whole_project');
+          expect(
+            manifest(r).values,
+            contains('packages/engine/lib/src/agent/cancel.dart'),
+          );
+          return ranked(r, (path) => path.endsWith('cancel.dart') ? 0.95 : 0.1);
+        };
+      final result = await workflow(source, judge).run('cancellation');
+      expect(judge.metadataRequests, hasLength(1));
+      expect(judge.contentRequests, isEmpty);
+      expect(source.reads.single, [
+        'packages/engine/lib/src/agent/cancel.dart',
+      ]);
+      expect(result.stopReason, 'candidate_handoff');
+      expect(result.files.single.unverifiedExcerpt!.text, 'stopTool();');
+      expect(result.files.single.regions, isEmpty);
+      expect(result.firstEvidenceMs, isNotNull);
     },
   );
-  test('no candidates incurs no API calls and never claims absence', () async {
-    final judge = Judge();
-    final result = await workflow(Source([]), judge).run('unicorn widget');
-    expect(judge.requests, isEmpty);
-    expect(result.findings, isEmpty);
-    expect(result.gaps.join(), contains('not proof of absence'));
-  });
+
   test(
-    'ranking comes from judgments and filters irrelevant evidence',
+    'manifest pages fit context and run concurrently with stable IDs',
     () async {
+      final budget = JudgmentRequestBudget(
+        maxInputTokens: 1800,
+        overheadTokens: 100,
+      );
+      var active = 0;
+      var peak = 0;
       final judge = Judge();
+      judge.metadataHandler = (r, _) async {
+        active++;
+        if (active > peak) peak = active;
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        active--;
+        return judge.answer(r);
+      };
+      final tree = ProjectTree(
+        List.generate(80, (i) => 'packages/p$i/lib/src/file.dart'),
+        [],
+      );
+      final result = await RepositoryRanker(
+        batch(judge, budget: budget),
+      ).run(tree, 'cancellation', JudgmentCancellation(), (_) {});
+      expect(peak, 2);
+      expect(result.complete, isTrue);
+      expect(result.files, hasLength(80));
+      final ids = <String>{};
+      for (final r in judge.requests) {
+        expect(budget.check(r), lessThanOrEqualTo(1800));
+        expect(ids.intersection(manifest(r).keys.toSet()), isEmpty);
+        ids.addAll(manifest(r).keys);
+      }
+      expect(ids, hasLength(80));
+    },
+  );
+
+  test('rank mode reads no bodies and bounds the main-agent handoff', () async {
+    final source = Source(
+      List.generate(50, (i) => ProjectEvidence('f$i.dart', 'code')),
+    );
+    final result = await workflow(
+      source,
+      Judge(),
+    ).run('code', mode: ExplorationMode.rank);
+    expect(source.reads, isEmpty);
+    expect(result.contentRequests, 0);
+    expect(result.toJson()['candidates'], hasLength(8));
+    expect(result.ranking.files, hasLength(50));
+  });
+
+  test('first useful wave stops reading the remaining repository', () async {
+    final source = Source(
+      List.generate(
+        80,
+        (i) => ProjectEvidence('f${i.toString().padLeft(2, '0')}.dart', 'code'),
+      ),
+    );
+    final judge = Judge();
+    final result = await workflow(
+      source,
+      judge,
+    ).run('code', mode: ExplorationMode.verify);
+    expect(result.stopReason, 'enough_evidence');
+    expect(source.reads, hasLength(2));
+    expect(judge.contentRequests, hasLength(2));
+    expect(result.files.first.regions.single.excerpt!.text, 'code');
+    expect((result.toJson()['coverage'] as Map)['files_deferred'], 78);
+  });
+
+  test(
+    'inconclusive waves expand to low filename scores rather than pruning',
+    () async {
+      final source = Source(
+        List.generate(5, (i) => ProjectEvidence('f$i.dart', 'code')),
+      );
+      final judge = Judge()
+        ..metadataHandler = (r, _) async =>
+            ranked(r, (path) => path == 'f4.dart' ? 0.1 : 0.7);
       judge.handler = (r, _) async => judge.answer(
         r,
-        score: (r.state.value as Map)['source'] == 'a.dart' ? 1 : 4,
+        probability: (r.state.value as Map)['path'] == 'f4.dart' ? 0.95 : 0.1,
       );
-      final result = await workflow(
-        Source([
-          const ProjectEvidence('a.dart', 1, 'mention', 99),
-          const ProjectEvidence('b.dart', 7, 'implementation', 1),
-        ]),
-        judge,
-      ).run('implementation location');
-      expect(result.findings.single.path, 'b.dart');
+      final result = await workflow(source, judge).run('code');
+      expect(result.stopReason, 'enough_evidence');
+      expect(source.reads, hasLength(5));
+      expect(result.files.last.regions.single.excerpt, isNotNull);
     },
   );
-  test('budget refusal is explicit and never calls provider', () async {
-    final judge = Judge();
-    final result = await workflow(
-      Source([const ProjectEvidence('a.dart', 1, 'code', 1)]),
-      judge,
-      tokens: 1,
-    ).run('find code');
-    expect(result.status, 'failed');
-    expect(judge.requests, isEmpty);
-    expect(result.gaps.join(), contains('budgetExceeded'));
-  });
-  test('provider failure is typed and usage stays unknown', () async {
-    final judge = Judge()
-      ..handler = (r, c) async {
-        throw const JudgmentException(JudgmentFailure.authentication);
+
+  test(
+    'large files split into concurrent requests and return a matching region',
+    () async {
+      final budget = JudgmentRequestBudget(
+        maxInputTokens: 1800,
+        overheadTokens: 100,
+      );
+      final text = 'x' * 1700 + '\nCANCEL_HERE();\n';
+      final source = Source([ProjectEvidence('big.dart', text)]);
+      final judge = Judge();
+      var active = 0;
+      var peak = 0;
+      judge.handler = (r, _) async {
+        active++;
+        if (active > peak) peak = active;
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        active--;
+        return judge.answer(
+          r,
+          probability:
+              ((r.state.value as Map)['content'] as String).contains(
+                'CANCEL_HERE',
+              )
+              ? 0.95
+              : 0.1,
+        );
       };
+      final result = await ExplorationWorkflow(
+        source: source,
+        runner: batch(judge, budget: budget),
+      ).run('cancellation', mode: ExplorationMode.verify);
+      expect(judge.contentRequests, hasLength(2));
+      expect(peak, 2);
+      expect(result.files.single.chunksTotal, 2);
+      final region = result.files.single.regions.singleWhere(
+        (r) => r.excerpt != null,
+      );
+      expect(region.excerpt!.text, contains('CANCEL_HERE'));
+      expect(region.endLine, 2);
+      expect(result.stopReason, 'enough_evidence');
+    },
+  );
+
+  test(
+    'chunking covers Unicode, boundaries and long lines without losing text',
+    () {
+      final budget = JudgmentRequestBudget(
+        maxInputTokens: 1700,
+        overheadTokens: 100,
+      );
+      for (final text in [
+        '',
+        '👋' * 700,
+        'void f() {\n  stop(); // 汉字👋\n}\n\n' * 100,
+      ]) {
+        final chunks = FileChunker(
+          budget,
+        ).split(ProjectEvidence('a.dart', text), 'cancel');
+        final runes = text.runes.toList();
+        var covered = 0;
+        for (final c in chunks) {
+          expect(c.startScalar, lessThanOrEqualTo(covered));
+          expect(
+            c.text,
+            String.fromCharCodes(runes.sublist(c.startScalar, c.endScalar)),
+          );
+          expect(
+            c.startLine,
+            1 + runes.take(c.startScalar).where((r) => r == 10).length,
+          );
+          expect(budget.check(c.request), lessThanOrEqualTo(1700));
+          covered = c.endScalar;
+        }
+        expect(covered, runes.length);
+      }
+    },
+  );
+
+  test('run read budget is shared across successive content waves', () async {
+    final source = Source(
+      List.generate(5, (i) => ProjectEvidence('f$i.dart', 'x' * 10)),
+    );
+    final judge = Judge();
+    judge.handler = (r, _) async => judge.answer(r, probability: 0.1);
+    final result = await ExplorationWorkflow(
+      source: source,
+      runner: batch(judge),
+      maxReadBytes: 20,
+    ).run('code', mode: ExplorationMode.verify);
+    expect(source.allowances, [20, 10]);
+    expect(result.stopReason, 'read_budget');
+    expect(result.status, 'partial');
+  });
+
+  test(
+    'content budget refusal preserves ranked paths and does not send bodies',
+    () async {
+      final judge = Judge();
+      final result = await workflow(
+        Source([const ProjectEvidence('a.dart', 'code')]),
+        judge,
+        tokens: 1,
+      ).run('code', mode: ExplorationMode.verify);
+      expect(result.status, 'partial');
+      expect(judge.contentRequests, isEmpty);
+      expect(
+        result.files.single.regions.single.failure,
+        JudgmentFailure.budgetExceeded,
+      );
+    },
+  );
+
+  test('cancellation during ranking starts no file reads', () async {
+    final source = Source([const ProjectEvidence('a.dart', 'code')]);
+    final entered = Completer<void>();
+    final stop = JudgmentCancellation();
+    final judge = Judge()
+      ..metadataHandler = (r, c) {
+        entered.complete();
+        final pending = Completer<JudgmentResult>();
+        c!.listen(
+          () => pending.completeError(
+            const JudgmentException(JudgmentFailure.cancelled),
+          ),
+        );
+        return pending.future;
+      };
+    final pending = workflow(source, judge).run('code', cancellation: stop);
+    await entered.future;
+    stop.cancel();
+    expect((await pending).status, 'cancelled');
+    expect(source.reads, isEmpty);
+  });
+
+  test('whole-workflow deadline settles a stalled evidence adapter', () async {
     final result = await workflow(
-      Source([const ProjectEvidence('a.dart', 1, 'code', 1)]),
-      judge,
+      _StalledSource(),
+      Judge(),
+      timeout: const Duration(milliseconds: 10),
     ).run('code');
-    expect(result.status, 'failed');
-    expect(result.inputTokens, isNull);
-    expect(result.gaps.join(), contains('authentication'));
+    expect(result.status, 'timeout');
   });
   test(
     'tool propagates cancellation, refuses overlap and closes service',
@@ -213,10 +452,7 @@ void main() {
       };
       final tool = ExploreProjectTool(
         open: () => ExplorationLease(
-          workflow(
-            Source([const ProjectEvidence('a.dart', 1, 'code', 1)]),
-            judge,
-          ),
+          workflow(Source([const ProjectEvidence('a.dart', 'code')]), judge),
           () => closed++,
         ),
       );
@@ -235,7 +471,7 @@ void main() {
       expect(result.isError, isTrue);
       expect(cancelled, isTrue);
       expect(closed, 1);
-      expect(progress.join(), contains('judging'));
+      expect(progress.join(), contains('checking'));
     },
   );
   test(
@@ -322,44 +558,66 @@ void main() {
           tinaDir: Directory(p.join(dir.path, 'tina')),
         ),
       );
-      final first = await reader.collect(
-        'authenticate',
-        JudgmentCancellation(),
-        (_) {},
-      );
+      final first = await readAll(reader);
       expect(first.evidence.map((e) => e.path), ['auth.dart']);
-      expect(first.evidence.single.startLine, 1);
+
       source.writeAsStringSync('bool authenticate() => false;\n');
-      final second = await reader.collect(
-        'authenticate',
+      File(p.join(root.path, 'z.dart')).writeAsStringSync('return 42;');
+      File(
+        p.join(root.path, 'cancel_token.dart'),
+      ).writeAsStringSync('stopWork();');
+      final second = await readAll(reader);
+      expect(second.evidence.map((e) => e.path), [
+        'auth.dart',
+        'cancel_token.dart',
+        'z.dart',
+      ]);
+      expect(second.evidence.first.text, 'bool authenticate() => false;\n');
+      expect(second.evidence.last.text, 'return 42;');
+      File(p.join(root.path, 'large.dart')).writeAsStringSync('x' * 150000);
+      final large = await reader.read(
+        ['large.dart'],
         JudgmentCancellation(),
         (_) {},
       );
-      expect(second.evidence.single.text, contains('false'));
+      expect(large.evidence.single.text.length, 150000);
+      final denied = await reader.read(
+        ['large.dart'],
+        JudgmentCancellation(),
+        (_) {},
+        maxBytes: 100,
+      );
+      expect(denied.evidence, isEmpty);
+      expect(denied.readFailures['large.dart'], contains('read budget'));
       final bounded = RepositoryEvidenceSource(
         root: root.path,
         sandbox: reader.sandbox,
         maxFileBytes: 5,
       );
-      expect(
-        (await bounded.collect(
-          'authenticate',
-          JudgmentCancellation(),
-          (_) {},
-        )).evidence,
-        isEmpty,
-      );
+      expect((await readAll(bounded)).evidence, isEmpty);
     },
   );
 }
 
+Future<EvidenceScan> readAll(RepositoryEvidenceSource source) async {
+  final token = JudgmentCancellation();
+  final tree = await source.enumerate(token, (_) {});
+  return source.read(tree.paths, token, (_) {});
+}
+
 class _StalledSource implements ProjectEvidenceSource {
   @override
-  Future<EvidenceScan> collect(
-    String q,
+  Future<ProjectTree> enumerate(
     JudgmentCancellation c,
     void Function(String) progress,
-  ) => Completer<EvidenceScan>().future;
+  ) => Completer<ProjectTree>().future;
+  @override
+  Future<EvidenceScan> read(
+    List<String> paths,
+    JudgmentCancellation c,
+    void Function(String) progress, {
+    int? maxBytes,
+  }) => throw StateError('Unexpected read');
 }
 
 class _StalledProcess implements RunningProcess {

@@ -113,6 +113,10 @@
   ],
   "noDirectIoFiles": [
     "packages/tina_app/lib/src/exploration/models.dart",
+    "packages/tina_app/lib/src/exploration/exploration_cache.dart",
+    "packages/tina_app/lib/src/exploration/exploration_snapshot.dart",
+    "packages/tina_app/lib/src/exploration/repository_ranker.dart",
+    "packages/tina_app/lib/src/exploration/file_chunker.dart",
     "packages/tina_app/lib/src/exploration/exploration_workflow.dart",
     "packages/tina_app/lib/src/exploration/explore_project_tool.dart",
     "packages/tina_app/lib/src/summaries/summary_index.dart",

@@ -49,7 +49,10 @@ const _knownProviderKeys = {
   'requests_per_minute',
 };
 const _knownPromptKeys = {'identity'};
-const _knownTypeSafeKeys = {'api_key', 'model'};
+const _knownTypeSafeKeys = {
+  'api_key', 'model', 'exploration_token_budget', 'exploration_timeout_seconds',
+  'exploration_metadata_token_budget', 'exploration_selection_threshold',
+};
 const _knownRegionsKeys = {'model'};
 const _knownPermissionsKeys = {'mode', 'model'};
 const _knownEnvironmentKeys = {'auto_populate', 'model'};
@@ -966,6 +969,11 @@ version = 1
 # Structured judgments (separate from chat providers); also configurable in
 # /settings -> Typesafe. The saved key takes precedence over TYPESAFE_API_KEY.
 # [typesafe]
+# Separate admission budgets for manifest ranking and file content.
+# exploration_metadata_token_budget = 60000
+# exploration_selection_threshold = 0.9
+# exploration_token_budget = 120000
+# exploration_timeout_seconds = 120
 # api_key = "..."
 # model = "jev-latest"
 

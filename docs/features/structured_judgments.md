@@ -52,66 +52,199 @@ Existing service instances retain their configuration. The exploration tool
 creates and closes one service per invocation, so saved credential changes apply
 to the next invocation without restarting.
 
-## Locate an implementation
+## Filter the repository for the main agent
 
 After setting the key, run this in a Git project:
 
 ```text
-/explore where is tool cancellation handled?
-/explore where is RuntimeProviderFactory implemented?
+/explore does this file handle tool cancellation?
+/explore does this file implement provider authentication?
 ```
 
-The conversation's chat model asks the `explore_project` tool and explains its
-structured findings. During this turn, direct file tools, shell tools, generic
-delegation, and arbitrary workflows are unavailable. Other conversation turns
-retain their normal tools. Tool execution uses the existing approval policy:
-ask/auto may prompt, read-all/allow-edits permit this read-only tool, and explicit
-deny rules still win. The tool description makes clear that selected excerpts
-are sent to Typesafe. Normal TUI and headless agents can also call the tool
-explicitly; the slash entry point is interactive.
+The main conversation calls `explore_project`. The objective is to deliver useful
+source evidence quickly, rather than judge every file or explain the architecture
+inside a separate scout. Direct filesystem, shell, generic delegation and other
+workflow tools remain unavailable during the slash-command turn. The filter
+returns actual source text so the main agent can do the reasoning itself.
 
-Progress appears in the tool output and `/output`. Normal turn cancellation
-stops collection and judgments. The request and result use ordinary conversation
-persistence. This is an awaited collection → judgment → findings workflow,
-not a detached DOT run or a separate scout chat session.
+The filter has two stages:
 
-Tina enumerates tracked and unignored working-tree files with a fixed, read-only
-Git command (optional locks and fsmonitor disabled). It searches filenames and
-source lines locally, then asks parallel **Score** judgments to rate relevance
-against the same five-level rubric. Typesafe never chooses filesystem paths,
-runs commands, or writes summaries. Findings copy paths, line numbers, and text
-from collected evidence; the model supplies only relevance and confidence.
+1. **Rank a compact file manifest.** Enumerate eligible paths without reading
+   bodies. Group filenames under directory prefixes, assign stable IDs, and ask
+   one independent Noul question per file: is it worth reading for this goal?
+   Use one request if the complete JSON fits. Otherwise pack bounded pages and
+   evaluate them concurrently. A deeply nested file appears directly in the
+   manifest; no directory-by-directory judgments gate access to it.
+2. **Read and check selectively.** Start with the highest-ranked files, in waves
+   bounded by request concurrency. Ask whether each source region contains
+   useful evidence. Stop once the requested number of useful files is found
+   (one by default; an already-running wave can finish). If inconclusive, expand
+   to the next candidates, including low filename scores. Scores never prove
+   that unexamined files are irrelevant.
 
-The first version uses these fixed limits:
+Tool inputs support three modes, without changing the advertised tool schema
+between calls:
 
-| Resource | Limit |
+```json
+{"question":"Where is tool cancellation handled?","mode":"auto","max_results":1}
+```
+
+- `auto` (default): skip Typesafe content verification when a small, clear set of
+  candidates can be handed to the main agent as complete source files. Scores
+  must meet `exploration_selection_threshold` (default 0.9), with at least a 0.2
+  gap to the next candidate. There must be at most three candidates and no more
+  than `max_results`, each at most 6,000 Unicode scalars and 12,000 total.
+  Their excerpts are explicitly labeled unverified; the main agent analyzes them.
+- `verify`: always perform content judgments, even for obvious filenames.
+- `rank`: return candidate paths only; do not read or send any file bodies.
+
+`max_results` accepts 1–8. Filename scores are inspection priorities. Content
+scores apply only to the regions sent, not the entire file or repository. The
+main agent cites and explains supplied source excerpts; it must not invent
+unseen function bodies or assume that a low score proves absence.
+
+### Large files and evidence handoff
+
+A complete file that fits uses one content request. Larger files automatically
+split into two requests when sufficient, or more when needed. The chunker prefers
+blank-line/newline boundaries, overlaps up to three lines (bounded relative to
+chunk size), and splits very long lines at Unicode scalar boundaries with a
+small overlap. This is language-independent line chunking, not an AST parser.
+Every request is checked including its question and metadata. Source is not
+silently dropped; context too small even for the rubric or the 256-chunk file
+limit is reported explicitly.
+
+File regions run concurrently within the configured limit. A match can stop
+later regions; counts identify how much of each file was actually checked.
+Probabilities are not averaged or combined into a whole-file confidence.
+
+The handoff includes stable local paths, region line ranges and source excerpts.
+A useful file contributes one matching excerpt, capped at 24,000 Unicode scalars;
+truncation is explicit (the default request budget usually bounds it below that).
+At most eight candidate names, twelve file results, and eight region results per
+file are serialized. Evidence comes first. Omission counts distinguish compact
+reporting from unexamined files; all ranking decisions remain available inside
+the running filter. This avoids sending hundreds of low-value scores to the
+main agent.
+
+### Limits, cancellation and metrics
+
+| Resource | Default limit |
 | --- | --- |
 | Enumeration | 5,000 paths / 4 MiB / 10 seconds |
-| Source scan | 8 MiB total, 128 KiB per file |
-| Shortlist | 24 excerpts, up to two per file, 4,000 characters per excerpt |
-| Judgment dispatch | Four concurrent requests, at most 48 requests |
-| Admission budget | 120,000 charged tokens; 1,024 output tokens reserved per request |
-| Deadlines | 30 seconds per request; two minutes for the workflow |
-| Returned findings | Top eight with relevance at least 0.5 |
+| Reads | 8 MiB across the run, 1 MiB per file |
+| Dispatch | Four concurrent requests, 5,000 requests per stage |
+| Manifest admission budget | 60,000 charged tokens |
+| Content admission budget | Separate 120,000 charged tokens |
+| Request context | Complete JSON checked by `JudgmentRequestBudget` |
+| Output reservation | 1,024 tokens per request |
+| Deadline | 30 seconds per request; 120 seconds for the whole run |
 
-Hidden paths, common dependency/build directories, symlinks, binaries, common
-credential filenames, and unsupported extensions are skipped. These filename
-filters are not a secret detector. Changed/unreadable/oversized files are skipped
-and summarized in coverage gaps. A lexical shortlist can miss implementations
-without shared words: a result is always non-exhaustive, and empty findings never
-mean the implementation does not exist. Narrow the question using likely symbols
-or feature names. Non-Git folders are not supported in this first version.
+These settings reload for the next invocation without restarting:
 
-Results include `status`, `findings` (path, start/end line, excerpt, relevance,
-confidence), `coverage` (files scanned, chunks judged, gaps), and separate Typesafe
-usage. Failed requests preserve successful findings and keep unknown usage null.
-The batch admission charge is not actual billing and is separate from chat spend.
+```toml
+[typesafe]
+# Preserve existing api_key/model entries.
+exploration_metadata_token_budget = 60000
+exploration_token_budget = 120000
+exploration_selection_threshold = 0.9 # auto handoff only; not a pruning cutoff
+exploration_timeout_seconds = 120
+```
 
-The evidence source, judgment service, and invocation factory are injectable.
-Tests cover a real temporary Git repository (ignores, symlinks, bounded reads,
-fresh edits), fake typed judgments, tool progress/cancellation, restricted turns,
-command dispatch, and key rotation through a mocked HTTP endpoint. No real API
-key or remote model is needed for these tests.
+Progress and results use the normal conversation lifecycle. Cancellation closes
+active Typesafe requests and stops queued work and reads. Git enumeration uses
+fixed read-only arguments with optional locks and fsmonitor disabled. Git ignore
+rules, hidden/build/dependency paths, unsupported extensions, known credential
+filenames, binaries and symlinks remain excluded. Filters are not a secret
+detector. Non-Git folders fail explicitly. Deleted, changed, oversized and
+inaccessible files remain coverage gaps.
+
+The result reports `stop_reason`, ranking coverage, per-file checked/total chunks,
+source evidence and deferred/omitted counts. `completed` means the filter finished
+its task, not that every file was examined. Failures remain distinct from negative
+scores. No result claims exhaustive repository coverage.
+
+Usage separates metadata/content requests and charged tokens from measured input
+and output tokens. Complete reported usage replaces a reservation; failures or
+incomplete usage retain their conservative reservation. The run also reports
+`elapsed_ms` and `first_evidence_ms` (when the workflow assembled its first source
+handoff, not when the provider started responding). The final tool result is the
+handoff to the main agent.
+
+Tests cover compact manifests containing deep packages, concurrent pagination,
+early stopping and fallback to lower-ranked files, optional verification,
+context splitting, Unicode/line coverage, cumulative read/dispatch budgets,
+cancellation, Git exclusions and source freshness. A controlled 80-file fixture
+asserts that a successful first wave reads/checks only two files with concurrency
+two. This verifies dispatch behavior, not real-world search quality or speed.
+Before claiming improvement over grep/read, compare representative questions
+against known relevant locations and record recall, end-to-end handoff latency,
+Typesafe usage plus main-agent input, and the direct-exploration baseline.
+
+### Local reuse
+
+Exploration caches structured evidence in `.tina/exploration/` as versioned JSON
+records. Atomic replacement makes records safe to read across processes and
+restarts. The cache creates its own ignore rule; it does not require the project
+to already ignore `.tina/`. Unavailable, read-only or corrupt storage is treated
+as a cache miss, never as an exploration failure. Each record read is bounded
+at 8 MiB. No API credentials or main-agent conversation history are stored.
+
+There are two levels:
+
+- **Individual judgments:** keys hash the endpoint and exact serialized API
+  request (including model, question/instructions, paths and supplied content),
+  with an entry-type discriminator. There is no additional cache revision,
+  repository hash or whole-file hash: an identical listing page or source region
+  remains reusable when other pages or regions change. Successful negative
+  judgments are cached too; failed attempts are not.
+- **Completed exploration answers:** records retain the full structured result,
+  original usage and coverage, manifest fingerprint, question/result settings, and
+  hashes of **every examined file**, including negatives and files omitted from
+  the compact handoff. Before replay, Tina enumerates paths again and re-reads
+  those dependencies through the normal bounded source adapter. A same-length
+  edit is a change even if timestamps or Git HEAD do not change.
+
+Additions, deletions, renames or eligible-list changes invalidate the whole answer.
+Ranking requests whose serialized inputs change are evaluated again; identical
+requests remain reusable. A content-only edit invalidates the answer and changed
+region requests, while preserving ranking and identical region requests.
+Question changes are exact matches (apart from tool-input trimming), not semantic
+similarity matches. Endpoint, ranking/content models, mode, result count,
+thresholds and algorithm revision must match for whole-answer replay. Execution
+settings (budgets, concurrency, context/read limits and timeouts) are not cache
+keys; current read limits still apply when validating the saved evidence.
+Completed judgments from interrupted or limited runs can
+be reused to continue work, but those runs are not saved as completed answers.
+
+Records have **no time-based expiry**: matching requests, directory listings and
+examined file contents remain reusable regardless of age. This also applies to
+model aliases such as `jev-latest`; use `refresh` to request a fresh judgment.
+Prompt/algorithm or snapshot-codec changes require incrementing
+`explorationCacheRevision` for assembled answers. Individual judgments depend
+only on the endpoint and actual request, so changed prompts invalidate them
+automatically without discarding unrelated judgments.
+
+To bypass reuse for an invocation, the agent supplies:
+
+```json
+{"question":"Where is tool cancellation handled?","mode":"verify","refresh":true}
+```
+
+Fresh successful results then populate the cache. Hits are resolved before API
+admission accounting, so they use **zero new requests and zero new tokens**, even
+when the new API budget is small. The result's `cache` field distinguishes an
+answer hit from metadata/content judgment hits; original usage stays in stored
+records rather than being billed again. Local enumeration and hashing still
+happen. Reuse retains the original coverage limits: unexamined file contents
+remain unknown. The cache directory is disposable.
+
+Storage is injected through `ExplorationCache`. The workflow, ranker and cache
+policy have no filesystem dependency; `FileExplorationCache` owns disk access.
+Tests cover restart persistence, negative-evidence invalidation, same-length edits,
+manifest additions/deletions/renames, partial failures, budget-free hits, refresh,
+reuse regardless of age or execution settings, unchanged chunks/listing pages,
+model changes, cancellation, corrupt storage, atomic writes and Git exclusion.
 
 ## Backend usage
 
@@ -201,7 +334,7 @@ question's answer type and rejects a different question object reusing its ID.
 ## Scout foundations
 
 The exploration workflow uses these building blocks. It collects fresh evidence
-for each invocation; persistent indexing and caching remain future work.
+for each invocation; exploration now reuses validated local cache entries as described above.
 
 ### Request budgeting and evidence chunks
 
@@ -219,6 +352,8 @@ a conservative, monotonic `JudgmentTokenEstimator`. The character approximation
 from the documentation is not used as an exact tokenizer. Oversized requests
 fail locally with `JudgmentFailure.requestTooLarge`.
 
+The general-purpose `budget.chunkText` utility is available to other consumers;
+exploration uses its own overlapping `FileChunker` so it can preserve line ranges.
 `budget.chunkText(source: path, text: evidence, questions: questions)` creates
 bounded requests with source and Unicode scalar offsets. It prefers newline
 boundaries and continues oversized lines without cutting Unicode characters.
@@ -256,8 +391,10 @@ deadline, and a two-minute batch deadline. Overlapping runs on a runner fail;
 separate runners have independent budgets and concurrency limits.
 
 The runner validates all requests before dispatch and reserves estimated input
-plus the output allowance synchronously before each call. Reservations are not
-refunded on failure or missing usage. Reported usage above a reservation raises
+plus the output allowance synchronously before each call. Complete reported input and output usage replaces the reservation. Queued work
+waits for in-flight reservations to settle before a budget refusal, preserving
+request priority. Reservations are not refunded on failure or incomplete usage.
+Reported usage above a reservation raises
 the charge; if this crosses the batch limit, active work is cancelled and queued
 work is skipped. Results retain input order, successful evidence, typed failures,
 and whether each request was attempted. There are no retries.
@@ -287,6 +424,6 @@ No authenticated TypeSafe request has been run for this implementation. Wire
 behavior is tested against the published shapes with fake/local transports.
 Next, measure live relevance and performance against the existing scout flow
 before expanding into persistent indexing. Use the same repository revision and
-questions, record expected paths, compare top-eight recall, wall time, actual
+questions, record expected paths, compare per-file precision/recall, wall time, actual
 usage when provided, and failures. Fixture tests validate plumbing and boundaries;
 they do not establish live model accuracy, pricing, or a speedup.

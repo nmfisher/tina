@@ -44,7 +44,7 @@ class JudgmentBatchResult {
   final List<JudgmentBatchItem> items;
 
   /// Conservative admission accounting, NOT measured spend. Failed/unknown
-  /// usage retains its reservation; larger reported usage increases the charge.
+  /// usage retains its reservation; complete measured usage replaces it.
   final int chargedTokens;
   const JudgmentBatchResult._(this.items, this.chargedTokens);
 }
@@ -88,21 +88,31 @@ class JudgmentBatchRunner {
     final items = List<JudgmentBatchItem?>.filled(work.length, null);
     var next = 0;
     var charged = 0;
+    var inFlight = 0;
+    var settled = Completer<void>();
     Future<void> worker() async {
       while (next < work.length) {
-        final index = next++;
+        final index = next;
         if (stoppedReason != null) {
+          next++;
           items[index] = JudgmentBatchItem._(null, stoppedReason, false);
           continue;
         }
         final reserved = reservations[index];
-        // Reserve synchronously before yielding: siblings cannot oversubscribe.
+        // Reconsider the head of the queue after a reservation settles. Do not
+        // let a newly available worker jump ahead of higher-priority requests.
+        if (charged + reserved > limits.maxChargedTokens && inFlight > 0) {
+          await settled.future;
+          continue;
+        }
+        next++;
         if (charged + reserved > limits.maxChargedTokens) {
           items[index] = const JudgmentBatchItem._(
               null, JudgmentFailure.budgetExceeded, false);
           continue;
         }
         charged += reserved;
+        inFlight++;
         final local = JudgmentCancellation();
         final interrupted = Completer<JudgmentResult>();
         void interrupt(JudgmentFailure reason) {
@@ -124,7 +134,11 @@ class JudgmentBatchRunner {
           final usage = result.usage;
           final observed = (usage.inputTokens ?? budget.estimate(work[index])) +
               (usage.outputTokens ?? limits.outputTokenAllowance);
-          if (observed > reserved) charged += observed - reserved;
+          if (usage.inputTokens != null && usage.outputTokens != null) {
+            charged += observed - reserved;
+          } else if (observed > reserved) {
+            charged += observed - reserved;
+          }
           items[index] = JudgmentBatchItem._(result, null, true);
           if (charged > limits.maxChargedTokens) {
             halt(JudgmentFailure.budgetExceeded);
@@ -136,6 +150,10 @@ class JudgmentBatchRunner {
           halt(JudgmentFailure.cancelled);
           rethrow;
         } finally {
+          inFlight--;
+          final completed = settled;
+          settled = Completer<void>();
+          completed.complete();
           callTimer.cancel();
           detach();
         }

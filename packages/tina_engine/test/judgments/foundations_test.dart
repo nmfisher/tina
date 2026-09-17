@@ -42,6 +42,30 @@ JudgmentBatchRunner runner(Fake service,
             timeout: timeout,
             requestTimeout: callTimeout));
 void main() {
+  test('complete measured usage releases reservations for queued requests',
+      () async {
+    var calls = 0;
+    final order = <Object?>[];
+    final unit = JudgmentRequestBudget().estimate(req()) + 100;
+    final batch = runner(Fake((r, c) async {
+      calls++;
+      order.add(r.state.value);
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+      return JudgmentResult.fromJson({
+        'model': 'jev-latest',
+        'answers': {
+          'q': {'type': 'noul', 'noul': 0.9},
+        },
+        'usage': {'input_tokens': 100, 'output_tokens': 10}
+      }, request: r);
+    }), tokens: unit + 550, concurrency: 4);
+    final out = await batch.run(List.generate(6, (i) => req("$i")));
+    expect(calls, 6);
+    expect(order, ["0", "1", "2", "3", "4", "5"]);
+    expect(out.items.every((i) => i.result != null), isTrue);
+    expect(out.chargedTokens, 660);
+  });
+
   test('invalid batch is rejected atomically before any dispatch', () async {
     var calls = 0;
     final batch = runner(Fake((r, c) async {

@@ -11,7 +11,14 @@ void main() {
 
   test('dedicated settings round-trip and survive unrelated patches', () {
     final config = UserConfig.fromMap({
-      'typesafe': {'api_key': 'judgment-key', 'model': 'jev-pinned'},
+      'typesafe': {
+        'api_key': 'judgment-key',
+        'model': 'jev-pinned',
+        'exploration_token_budget': 2000000,
+        'exploration_timeout_seconds': 600,
+        'exploration_metadata_token_budget': 70000,
+        'exploration_selection_threshold': 0.4,
+      },
       'default': {'provider': 'alpha', 'model': 'chat', 'workflow': 'review'},
       'providers': {
         'alpha': {'api_key': 'chat-key'},
@@ -34,7 +41,14 @@ void main() {
     () {
       writeUserConfig(
         const UserConfig(
-          typeSafe: TypeSafeSettings(apiKey: 'old', model: 'jev-pinned'),
+          typeSafe: TypeSafeSettings(
+            apiKey: 'old',
+            model: 'jev-pinned',
+            explorationTokenBudget: 2000000,
+            explorationTimeoutSeconds: 600,
+            explorationMetadataTokenBudget: 70000,
+            explorationSelectionThreshold: 0.4,
+          ),
           defaultProvider: 'alpha',
         ),
         env: const {},
@@ -44,8 +58,12 @@ void main() {
       final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
       expect(loaded.typeSafe?.apiKey, isNull);
       expect(loaded.typeSafe?.model, 'jev-pinned');
+      expect(loaded.typeSafe?.explorationTokenBudget, 2000000);
+      expect(loaded.typeSafe?.explorationTimeoutSeconds, 600);
+      expect(loaded.typeSafe?.explorationMetadataTokenBudget, 70000);
+      expect(loaded.typeSafe?.explorationSelectionThreshold, 0.4);
       expect(loaded.defaultProvider, 'alpha');
-      expect(userConfigToToml(loaded), isNot(contains('old')));
+      expect(userConfigToToml(loaded), isNot(contains('api_key')));
     },
   );
 

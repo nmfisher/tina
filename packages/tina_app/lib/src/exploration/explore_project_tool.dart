@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:tina_engine/tina_engine.dart';
 import 'exploration_workflow.dart';
+import 'models.dart';
 
 /// Invocation-scoped dependencies: credentials are resolved when the tool runs,
 /// and the owned HTTP service is closed on success, cancellation, or failure.
@@ -19,16 +20,24 @@ class ExploreProjectTool implements Tool {
   ToolSchema get schema => const ToolSchema(
     name: 'explore_project',
     description:
-        'Locate an implementation in this project using bounded local '
-        'filename/source search and parallel Typesafe relevance judgments. '
-        'Sends selected source excerpts to Typesafe. Returns JSON with paths, '
-        'line ranges, excerpts, scores, coverage gaps, and separate usage. '
-        'Use a focused question with likely symbol or feature names. Does not '
-        'edit files or run builds. No result is not proof of absence.',
+        'Filter a repository for the main agent. Rank a compact file manifest, '
+        'then selectively check content until useful evidence is found. Large '
+        'files are split into bounded overlapping regions. Returns paths, line '
+        'ranges and source excerpts. mode=auto may hand off clear small candidates '
+        'without Typesafe content verification; verify always checks content; '
+        'rank sends names only and returns candidate paths. Names and selected '
+        'content are sent to Typesafe. Unchecked files remain unknown. Results are '
+        'cached locally against unchanged inputs; refresh=true bypasses reuse.',
     inputSchema: {
       'type': 'object',
       'properties': {
         'question': {'type': 'string', 'minLength': 1, 'maxLength': 2000},
+        'mode': {
+          'type': 'string',
+          'enum': ['auto', 'verify', 'rank'],
+        },
+        'max_results': {'type': 'integer', 'minimum': 1, 'maximum': 8},
+        'refresh': {'type': 'boolean'},
       },
       'required': ['question'],
       'additionalProperties': false,
@@ -42,12 +51,23 @@ class ExploreProjectTool implements Tool {
     ToolOutputCallback? onOutput,
   }) async {
     final question = input['question'];
+    final mode = input['mode'] ?? 'auto';
+    final maxResults = input['max_results'] ?? 1;
+    final refresh = input['refresh'] ?? false;
     if (question is! String ||
         question.trim().isEmpty ||
         question.length > 2000 ||
-        input.keys.any((key) => key != 'question')) {
+        !['auto', 'verify', 'rank'].contains(mode) ||
+        refresh is! bool ||
+        maxResults is! int ||
+        maxResults < 1 ||
+        maxResults > 8 ||
+        input.keys.any(
+          (key) =>
+              !['question', 'mode', 'max_results', 'refresh'].contains(key),
+        )) {
       return ToolResult.error(
-        'explore_project requires only a question (1–2000 characters).',
+        'Use question (1–2000 characters), optional mode (auto/verify/rank), max_results (1–8), and refresh (boolean).',
       );
     }
     if (_running)
@@ -80,12 +100,15 @@ class ExploreProjectTool implements Tool {
       }
       final result = await lease.workflow.run(
         question.trim(),
+        mode: ExplorationMode.values.byName(mode as String),
+        maxResults: maxResults,
+        refresh: refresh,
         cancellation: cancellation,
         onProgress: (line) => onOutput?.call('$line\n'),
       );
       return ToolResult(
         jsonEncode(result.toJson()),
-        isError: result.status != 'completed',
+        isError: result.status != 'completed' && result.status != 'partial',
       );
     } on JudgmentException catch (e) {
       return ToolResult.error(
@@ -94,7 +117,7 @@ class ExploreProjectTool implements Tool {
       );
     } on ArgumentError {
       return ToolResult.error(
-        'Invalid Typesafe configuration. Check /settings → Typesafe.',
+        'Invalid Typesafe configuration. Check the [typesafe] settings, including exploration limits.',
       );
     } finally {
       settled = true;

@@ -175,9 +175,8 @@ UserConfig? writeUserConfigPatch({
   final nextThemeVariant = themeVariant ?? loaded.themeVariant;
   final nextTypeSafe = typeSafeApiKey == null
       ? loaded.typeSafe
-      : TypeSafeSettings(
-          apiKey: typeSafeApiKey.isEmpty ? null : typeSafeApiKey,
-          model: loaded.typeSafe?.model,
+      : (loaded.typeSafe ?? const TypeSafeSettings()).withApiKey(
+          typeSafeApiKey.isEmpty ? null : typeSafeApiKey,
         );
 
   // Nothing actually changed — skip the write.

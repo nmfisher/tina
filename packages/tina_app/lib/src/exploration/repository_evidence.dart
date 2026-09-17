@@ -21,7 +21,7 @@ class RepositoryEvidenceSource implements ProjectEvidenceSource {
     this.processes = const IoProcessRunner(),
     this.maxFiles = 5000,
     this.maxBytes = 8 * 1024 * 1024,
-    this.maxFileBytes = 128 * 1024,
+    this.maxFileBytes = 1024 * 1024,
   }) {
     if (maxFiles <= 0 || maxBytes <= 0 || maxFileBytes <= 0) {
       throw ArgumentError('Evidence limits must be positive');
@@ -29,26 +29,41 @@ class RepositoryEvidenceSource implements ProjectEvidenceSource {
   }
 
   @override
-  Future<EvidenceScan> collect(
-    String question,
+  Future<ProjectTree> enumerate(
     JudgmentCancellation cancellation,
     void Function(String) progress,
   ) async {
+    if (cancellation.isCancelled)
+      return ProjectTree([], ['Enumeration cancelled.']);
+    await sandbox.validatePath(root);
+    final gaps = <String>[];
+    final names = await _files(cancellation, gaps);
+    final eligible = names.where(_eligible).toList()..sort();
+    final excluded = names.length - eligible.length;
+    if (excluded > 0)
+      gaps.add('$excluded paths excluded by collection policy.');
+    return ProjectTree(eligible, gaps);
+  }
+
+  @override
+  Future<EvidenceScan> read(
+    List<String> paths,
+    JudgmentCancellation cancellation,
+    void Function(String) progress, {
+    int? maxBytes,
+  }) async {
+    final byteLimit = maxBytes == null || maxBytes > this.maxBytes
+        ? this.maxBytes
+        : maxBytes;
     final gaps = <String>[];
     final evidence = <ProjectEvidence>[];
+    final failures = <String, String>{};
     if (cancellation.isCancelled)
-      return EvidenceScan([], 0, ['Scan cancelled.']);
+      return EvidenceScan([], 0, ['Reading cancelled.']);
     await sandbox.validatePath(root);
     final realRoot = await Directory(root).resolveSymbolicLinks();
-    final names = await _files(cancellation, gaps);
-    final terms = _terms(question);
-    if (terms.isEmpty)
-      return EvidenceScan([], 0, [...gaps, 'No searchable terms in question.']);
-    // Filename/symbol hints first so a bounded scan prioritizes likely areas.
-    names.sort((a, b) {
-      final rank = _matches(b, terms).compareTo(_matches(a, terms));
-      return rank != 0 ? rank : a.compareTo(b);
-    });
+    final names = paths.toSet().take(maxFiles).toList();
+    if (paths.length > maxFiles) gaps.add('File read count limit reached.');
     var bytes = 0;
     var scanned = 0;
     var skipped = 0;
@@ -58,6 +73,7 @@ class RepositoryEvidenceSource implements ProjectEvidenceSource {
         break;
       }
       if (!_eligible(name)) {
+        failures[name] = 'Excluded by collection policy.';
         skipped++;
         continue;
       }
@@ -70,26 +86,31 @@ class RepositoryEvidenceSource implements ProjectEvidenceSource {
                 FileSystemEntityType.file ||
             p.normalize(await File(path).resolveSymbolicLinks()) !=
                 p.normalize(p.absolute(path))) {
+          failures[name] = 'Not a regular file or path contains a symlink.';
           skipped++;
           continue;
         }
         final before = await File(path).stat();
         if (before.size > maxFileBytes) {
+          failures[name] = 'File exceeds the $maxFileBytes-byte read limit.';
           skipped++;
           continue;
         }
-        if (bytes + before.size > maxBytes) {
+        if (bytes + before.size > byteLimit) {
+          failures[name] = 'File exceeds the remaining read budget.';
           gaps.add('Scan byte limit reached.');
-          break;
+          continue;
         }
         final data = <int>[];
-        await for (final chunk in File(path).openRead(0, maxFileBytes + 1)) {
+        await for (final chunk in File(
+          path,
+        ).openRead(0, (byteLimit - bytes).clamp(0, maxFileBytes) + 1)) {
           if (cancellation.isCancelled) break;
           data.addAll(chunk);
         }
         bytes += data.length;
         if (cancellation.isCancelled) break;
-        if (bytes > maxBytes) {
+        if (bytes > byteLimit) {
           gaps.add('Scan byte limit reached while a file was changing.');
           break;
         }
@@ -98,68 +119,37 @@ class RepositoryEvidenceSource implements ProjectEvidenceSource {
             before.size != after.size ||
             before.modified != after.modified ||
             data.contains(0)) {
+          failures[name] =
+              'File is binary, changed during read, or exceeds the read limit.';
           skipped++;
           continue;
         }
         final text = utf8.decode(data);
         scanned++;
-        final lines = const LineSplitter().convert(text);
-        final filenameRank = _matches(name, terms);
-        final hits = <(int, int)>[];
-        for (var i = 0; i < lines.length; i++) {
-          final score = _matches(lines[i], terms);
-          if (score > 0) hits.add((i, score));
-        }
-        if (hits.isEmpty && filenameRank > 0 && lines.isNotEmpty)
-          hits.add((0, 0));
-        hits.sort(
-          (a, b) => b.$2 != a.$2 ? b.$2.compareTo(a.$2) : a.$1.compareTo(b.$1),
-        );
-        final selected = <int>[];
-        for (final hit in hits) {
-          if (selected.any((i) => (hit.$1 - i).abs() < 16)) continue;
-          final start = (hit.$1 - 5).clamp(0, lines.length);
-          final end = (hit.$1 + 20).clamp(0, lines.length);
-          final excerpt = lines.sublist(start, end).join('\n');
-          // Minified/generated giant lines aren't useful to the heavy agent.
-          if (excerpt.length > 4000) {
-            skipped++;
-            continue;
-          }
-          evidence.add(
-            ProjectEvidence(
-              name,
-              start + 1,
-              excerpt,
-              hit.$2 + filenameRank * 2,
-            ),
-          );
-          selected.add(hit.$1);
-          if (selected.length == 2) break;
-        }
-        // Retain only a bounded pool while scanning, not every matching file.
-        evidence.sort((a, b) {
-          final score = b.lexicalScore.compareTo(a.lexicalScore);
-          return score != 0 ? score : a.path.compareTo(b.path);
-        });
-        if (evidence.length > 24) evidence.removeRange(24, evidence.length);
+        evidence.add(ProjectEvidence(name, text));
         if (scanned % 100 == 0) progress('Exploring: scanned $scanned files');
       } on FileSystemException {
+        failures[name] = 'File is missing or inaccessible.';
         skipped++;
       } on SandboxViolation {
+        failures[name] = 'Path is outside the permitted project scope.';
         skipped++;
       } on FormatException {
+        failures[name] = 'File is not valid UTF-8 text.';
         skipped++;
       }
     }
-    gaps.add(
-      'Lexical shortlist: at most 24 excerpts, two per file; semantic matches without shared terms may be missed.',
-    );
     if (skipped > 0)
       gaps.add(
-        '$skipped files/windows skipped (excluded, binary, oversized, changed, inaccessible, or symlink).',
+        '$skipped files skipped (excluded, binary, oversized, changed, inaccessible, or symlink).',
       );
-    return EvidenceScan(evidence, scanned, gaps);
+    return EvidenceScan(
+      evidence,
+      scanned,
+      gaps,
+      readFailures: failures,
+      bytesRead: bytes,
+    );
   }
 
   Future<List<String>> _files(
@@ -319,51 +309,16 @@ bool _eligible(String name) {
   if (parts.any((part) => part.startsWith('.') || _excluded.contains(part)))
     return false;
   final lower = name.toLowerCase();
-  if (RegExp(
-    r'(^|[/_.-])(secret|secrets|credentials|credential|token|private)([/_.-]|$)',
-  ).hasMatch(lower))
+  // Exact credential filenames only. Source modules such as cancel_token.dart
+  // or private_helpers.py are eligible; their names say nothing about relevance.
+  if (const {
+    'credentials.json',
+    'credentials.yaml',
+    'credentials.yml',
+    'secrets.json',
+    'secrets.yaml',
+    'secrets.yml',
+  }.contains(p.basename(lower)))
     return false;
   return _extensions.contains(p.extension(lower)) && !lower.endsWith('.lock');
-}
-
-List<String> _terms(String question) => RegExp(r'[\p{L}\p{N}_]+', unicode: true)
-    .allMatches(
-      question
-          .replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]} ${m[2]}')
-          .toLowerCase(),
-    )
-    .map((m) => m[0]!)
-    .where(
-      (s) =>
-          s.length > 1 &&
-          !const {
-            'where',
-            'does',
-            'this',
-            'that',
-            'the',
-            'and',
-            'for',
-            'how',
-            'what',
-            'which',
-            'implemented',
-            'implementation',
-            'find',
-            'locate',
-            'code',
-            'with',
-            'from',
-            'are',
-            'can',
-            'you',
-            'our',
-          }.contains(s),
-    )
-    .take(16)
-    .toSet()
-    .toList();
-int _matches(String text, List<String> terms) {
-  final lower = text.toLowerCase();
-  return terms.where(lower.contains).length;
 }

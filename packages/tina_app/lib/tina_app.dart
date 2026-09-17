@@ -46,3 +46,9 @@ export 'src/exploration/models.dart';
 export 'src/exploration/exploration_workflow.dart';
 export 'src/exploration/repository_evidence.dart';
 export 'src/exploration/explore_project_tool.dart';
+
+export 'src/exploration/repository_ranker.dart';
+export 'src/exploration/file_chunker.dart';
+
+export 'src/exploration/exploration_cache.dart';
+export 'src/exploration/file_exploration_cache.dart';
