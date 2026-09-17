@@ -42,3 +42,7 @@ export 'src/workflows/pipeline_commands.dart';
 export 'src/workflows/pipeline_runner.dart';
 export 'src/workflows/workflow_names.dart';
 export 'src/workflows/workflow_supervisor.dart';
+export 'src/exploration/models.dart';
+export 'src/exploration/exploration_workflow.dart';
+export 'src/exploration/repository_evidence.dart';
+export 'src/exploration/explore_project_tool.dart';

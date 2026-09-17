@@ -5,6 +5,8 @@ import 'package:toml/toml.dart';
 
 import 'package:tina_engine/tina_engine.dart';
 import 'theme_overrides.dart';
+import 'typesafe_settings.dart';
+export 'typesafe_settings.dart';
 export 'package:tina_app/tina_app.dart'
     show EnvironmentAutoPopulate, parseEnvironmentAutoPopulate;
 export 'theme_overrides.dart';
@@ -30,6 +32,7 @@ const _knownTopLevelKeys = {
   'environment',
   'tui',
   'permissions',
+  'typesafe',
 };
 
 const _knownDefaultKeys = {'provider', 'model', 'workflow', 'reasoning_effort'};
@@ -46,6 +49,7 @@ const _knownProviderKeys = {
   'requests_per_minute',
 };
 const _knownPromptKeys = {'identity'};
+const _knownTypeSafeKeys = {'api_key', 'model'};
 const _knownRegionsKeys = {'model'};
 const _knownPermissionsKeys = {'mode', 'model'};
 const _knownEnvironmentKeys = {'auto_populate', 'model'};
@@ -440,6 +444,7 @@ class UserConfig {
   final String? defaultWorkflow;
 
   final Map<String, ProviderConfig> providers;
+  final TypeSafeSettings? typeSafe;
   final LimitsConfig? limits;
 
   /// Terminal color overrides from the `[theme]` table. Null means "use the
@@ -500,6 +505,7 @@ class UserConfig {
     this.reasoningEffort,
     this.defaultWorkflow,
     this.providers = const {},
+    this.typeSafe,
     this.limits,
     this.theme,
     this.themeVariant,
@@ -522,6 +528,7 @@ class UserConfig {
       reasoningEffort == null &&
       defaultWorkflow == null &&
       providers.isEmpty &&
+      (typeSafe == null || typeSafe!.isEmpty) &&
       (limits == null || limits!.isEmpty) &&
       theme == null &&
       prompts.isEmpty &&
@@ -542,6 +549,7 @@ class UserConfig {
     String? reasoningEffort,
     String? defaultWorkflow,
     Map<String, ProviderConfig>? providers,
+    TypeSafeSettings? typeSafe,
     LimitsConfig? limits,
     ThemeOverrides? theme,
     String? themeVariant,
@@ -559,6 +567,7 @@ class UserConfig {
     reasoningEffort: reasoningEffort ?? this.reasoningEffort,
     defaultWorkflow: defaultWorkflow ?? this.defaultWorkflow,
     providers: providers ?? this.providers,
+    typeSafe: typeSafe ?? this.typeSafe,
     limits: limits ?? this.limits,
     theme: theme ?? this.theme,
     themeVariant: themeVariant ?? this.themeVariant,
@@ -579,6 +588,7 @@ class UserConfig {
   factory UserConfig.fromMap(Map<String, dynamic> m) {
     final def = (m['default'] as Map?)?.cast<String, dynamic>();
     final providersRaw = (m['providers'] as Map?)?.cast<String, dynamic>();
+    final typeSafeRaw = (m['typesafe'] as Map?)?.cast<String, dynamic>();
     final limitsRaw = (m['limits'] as Map?)?.cast<String, dynamic>();
     final themeRaw = (m['theme'] as Map?)?.cast<String, dynamic>();
     final themeVariant = themeRaw?['variant'] as String?;
@@ -619,6 +629,7 @@ class UserConfig {
       reasoningEffort: def?['reasoning_effort'] as String?,
       defaultWorkflow: def?['workflow'] as String?,
       providers: providers,
+      typeSafe: typeSafeRaw == null ? null : TypeSafeSettings.fromMap(typeSafeRaw),
       limits: limitsRaw == null ? null : LimitsConfig.fromMap(limitsRaw),
       theme: theme,
       themeVariant: themeVariant,
@@ -729,6 +740,14 @@ void _warnUnknownKeys(Map<String, dynamic> m, String path) {
   if (regions is Map) {
     for (final k in regions.keys) {
       if (!_knownRegionsKeys.contains(k)) warn('regions.$k', _knownRegionsKeys);
+    }
+  }
+  final typeSafe = m['typesafe'];
+  if (typeSafe is Map) {
+    for (final key in typeSafe.keys) {
+      if (!_knownTypeSafeKeys.contains(key)) {
+        warn('typesafe.$key', _knownTypeSafeKeys);
+      }
     }
   }
   final permissions = m['permissions'];
@@ -885,6 +904,8 @@ String userConfigToToml(UserConfig config) {
       'regions': config.regions!.toMap(),
     if (config.permissions != null && !config.permissions!.isEmpty)
       'permissions': config.permissions!.toMap(),
+    if (config.typeSafe != null && !config.typeSafe!.isEmpty)
+      'typesafe': config.typeSafe!.toMap(),
   };
   return TomlDocument.fromMap(map).toString();
 }
@@ -941,6 +962,12 @@ const _kConfigTemplate = '''# tina user config (~/.tina/config).
 # Schema version — leave at 1. tina refuses a file whose version it doesn't
 # understand, so an edit here only matters if you upgraded/downgraded tina.
 version = 1
+
+# Structured judgments (separate from chat providers); also configurable in
+# /settings -> Typesafe. The saved key takes precedence over TYPESAFE_API_KEY.
+# [typesafe]
+# api_key = "..."
+# model = "jev-latest"
 
 [default]
 # Built-in providers: anthropic, cerebras, deepseek, gemini, glm, grok,

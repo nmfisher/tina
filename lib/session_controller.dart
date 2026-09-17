@@ -589,7 +589,7 @@ class SessionController {
     toolsForTurn: (conversation, prompt) =>
         _environmentRequests[conversation.id] == prompt
         ? EnvironmentToolStage(conversation.driver.tools)
-        : null,
+        : explorationToolsForTurn(conversation.driver.tools, prompt),
   );
   void _startTurn(Conversation conversation, String input) =>
       turns.submit(conversation.id, input);

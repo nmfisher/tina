@@ -73,6 +73,7 @@ Future<void> _runSettingsSession(
     (display: 'Providers & models', value: 'providers'),
     (display: 'Token quota', value: 'quota'),
     (display: 'Theme', value: 'theme'),
+    (display: 'Typesafe', value: 'typesafe'),
   ];
   while (true) {
     final choice = await runListOverlay<String>(
@@ -89,6 +90,15 @@ Future<void> _runSettingsSession(
     final initial = loadUserConfig(env: env, tinaDir: tinaDir);
     UserConfig? wrote;
     switch (choice) {
+      case 'typesafe':
+        wrote = await runTypeSafePanel(
+          screen: screen,
+          editor: editor,
+          env: env,
+          tinaDir: tinaDir,
+          initial: initial,
+          readEvent: readEvent,
+        );
       case 'providers':
         wrote = await runProvidersPanel(
           screen: screen,
@@ -146,6 +156,7 @@ UserConfig? writeUserConfigPatch({
   LimitsConfig? limits,
   String? themeVariant,
   String? defaultRef,
+  String? typeSafeApiKey,
 }) {
   final loaded = loadUserConfig(env: env, tinaDir: tinaDir);
 
@@ -162,9 +173,17 @@ UserConfig? writeUserConfigPatch({
   final nextProviders = providers ?? loaded.providers;
   final nextLimits = limits ?? loaded.limits;
   final nextThemeVariant = themeVariant ?? loaded.themeVariant;
+  final nextTypeSafe = typeSafeApiKey == null
+      ? loaded.typeSafe
+      : TypeSafeSettings(
+          apiKey: typeSafeApiKey.isEmpty ? null : typeSafeApiKey,
+          model: loaded.typeSafe?.model,
+        );
 
   // Nothing actually changed — skip the write.
   if (_mapsEqual(nextProviders, loaded.providers) &&
+      (nextTypeSafe ?? const TypeSafeSettings()) ==
+          (loaded.typeSafe ?? const TypeSafeSettings()) &&
       nextLimits == loaded.limits &&
       nextThemeVariant == loaded.themeVariant &&
       nextDefaultProvider == loaded.defaultProvider &&
@@ -181,6 +200,7 @@ UserConfig? writeUserConfigPatch({
     themeVariant: nextThemeVariant,
     defaultProvider: nextDefaultProvider,
     defaultModel: nextDefaultModel,
+    typeSafe: nextTypeSafe,
   );
   writeUserConfig(built, env: env, tinaDir: tinaDir);
   return built;
@@ -238,6 +258,132 @@ List<String> _box(
 
 const _focusMark = '▸';
 String _row(bool focused, String text) => '${focused ? _focusMark : ' '} $text';
+
+/// Dedicated structured-judgment credential; never added to chat providers.
+Future<UserConfig?> runTypeSafePanel({
+  required Screen screen,
+  required LineEditor editor,
+  required Map<String, String> env,
+  Directory? tinaDir,
+  required UserConfig initial,
+  Future<InputEvent> Function()? readEvent,
+}) async {
+  var key = initial.typeSafe?.apiKey ?? '';
+  var replaceOnInput = true;
+  String? error;
+  OverlayRegion? overlay;
+  Rect? previous;
+  bool tiny() => screen.layout.width < 24 || screen.layout.height < 8;
+  void render() {
+    final layout = screen.layout;
+    final width = layout.width.clamp(1, 70);
+    final height = layout.height.clamp(1, 10);
+    final rect = Rect(
+      row: (layout.height - height).clamp(0, layout.height) ~/ 2,
+      col: (layout.width - width).clamp(0, layout.width) ~/ 2,
+      width: width,
+      height: height,
+    );
+    if (previous == null ||
+        previous!.row != rect.row ||
+        previous!.col != rect.col ||
+        previous!.width != rect.width ||
+        previous!.height != rect.height) {
+      overlay?.hide();
+      overlay?.dispose();
+      overlay = OverlayRegion(screen, rect);
+      previous = rect;
+    }
+    if (tiny()) {
+      const hint = 'Resize to edit; Esc cancels';
+      overlay!.show([hint.substring(0, width.clamp(0, hint.length))]);
+      return;
+    }
+    final fromEnv = (env['TYPESAFE_API_KEY'] ?? '').trim().isNotEmpty;
+    final display = key.isEmpty
+        ? (fromEnv ? '(using TYPESAFE_API_KEY)' : '(not configured)')
+        : '${'*' * key.length.clamp(1, 24)}_';
+    overlay!.show(
+      _box(
+        'Typesafe',
+        [
+          'Structured judgments',
+          'API key: $display',
+          'Type or paste to replace the saved key.',
+          'Delete clears saved key; env key still applies.',
+          if (error != null) error,
+        ],
+        'Enter save · Esc cancel · Delete clear',
+        rect,
+        screen,
+        accent: activeAccent(screen),
+      ),
+    );
+  }
+
+  if (screen.layout.width <= 0 || screen.layout.height <= 0) return null;
+  try {
+    render();
+    while (true) {
+      final event = await (readEvent ?? editor.readKey)();
+      if (event is EscapeKey ||
+          (event is ControlKey && event.code == ControlCode.ctrlC))
+        return null;
+      if (tiny()) {
+        render();
+        continue;
+      }
+      if (event is ControlKey && event.code == ControlCode.enter) {
+        try {
+          if (key.isNotEmpty) TypeSafeConfig(apiKey: key);
+          return writeUserConfigPatch(
+            env: env,
+            tinaDir: tinaDir,
+            typeSafeApiKey: key,
+          );
+        } on ArgumentError {
+          error = 'Invalid key: whitespace/control characters are not allowed.';
+        } on ConfigWriteException {
+          error = 'Could not save ~/.tina/config. Check write access.';
+        }
+      } else if (event is EditingKey &&
+          (event.action == EditingAction.delete ||
+              event.action == EditingAction.killToStart)) {
+        key = '';
+        replaceOnInput = false;
+        error = null;
+      } else if (event is ControlKey && event.code == ControlCode.backspace) {
+        if (key.isNotEmpty)
+          key = String.fromCharCodes(key.runes.toList()..removeLast());
+        replaceOnInput = false;
+        error = null;
+      } else if (event is CharInput || event is PasteInput) {
+        final text = event is CharInput
+            ? event.text
+            : (event as PasteInput).text.trim();
+        final next = (replaceOnInput ? '' : key) + text;
+        if (text.isEmpty) continue;
+        if (next.length > 4096) {
+          error = 'API key is too long.';
+        } else {
+          try {
+            TypeSafeConfig(apiKey: next);
+            key = next;
+            replaceOnInput = false;
+            error = null;
+          } on ArgumentError {
+            error =
+                'Invalid key: whitespace/control characters are not allowed.';
+          }
+        }
+      }
+      render();
+    }
+  } finally {
+    overlay?.hide();
+    overlay?.dispose();
+  }
+}
 
 // =============================================================================
 // Subpanel: Providers & models

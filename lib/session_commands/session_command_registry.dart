@@ -69,6 +69,23 @@ Future<CmdResult> _handled(FutureOr<void> Function() action) async {
 /// name first, then aliases); the `/help` order is each entry's [SessionCommandEntry.helpOrder].
 final List<SessionCommandEntry> _kSessionCommandEntries = [
   SessionCommandEntry(
+    names: const ['/explore'],
+    argsHint: '<implementation question>',
+    summary: 'locate code using Typesafe scouts (no direct filesystem tools)',
+    helpOrder: 20,
+    handler: (h, line) async {
+      final question = line.substring('/explore'.length).trim();
+      if (question.isEmpty || question.length > 2000) {
+        h.ctx.active.host.showMessage(
+          'Usage: /explore <implementation question, up to 2000 characters>\n',
+          style: HostMessageStyle.error,
+        );
+        return const CmdHandled();
+      }
+      return CmdRun(explorationTurnPrompt(question));
+    },
+  ),
+  SessionCommandEntry(
     names: const ['/exit', '/quit'],
     argsHint: '',
     summary: 'quit (inside tmux: Detach / Exit / Cancel)',
@@ -272,7 +289,7 @@ class SessionCommandRegistry {
       ..sort((a, b2) => a.helpOrder.compareTo(b2.helpOrder));
     for (final entry in visible) {
       final label = '${entry.primary} ${entry.argsHint}'.trim();
-      b.write('  ${label.padRight(15)}${entry.summary}\n');
+      b.write('  ${label.padRight(15)}${label.length >= 15 ? ' ' : ''}${entry.summary}\n');
       final continuation = entry.helpContinuation;
       if (continuation != null) {
         b.write('  ${''.padRight(15)}$continuation\n');

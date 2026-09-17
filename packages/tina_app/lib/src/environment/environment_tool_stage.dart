@@ -48,6 +48,7 @@ class EnvironmentToolStage extends ToolRegistry {
     'list_regions',
     'read_summary',
     'query_region',
+    'explore_project',
     'broadcast_region',
   };
 

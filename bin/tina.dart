@@ -7,6 +7,7 @@ import 'package:tina/config.dart';
 import 'package:tina/config/setup.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina/composition/config_providers.dart';
+import 'package:tina/composition/typesafe.dart';
 import 'package:tina/composition/models_dev_seed.dart';
 import 'package:tina/logging.dart';
 
@@ -527,6 +528,10 @@ Future<void> _runNonInteractive(
     // The composed driver runs the turn — a scope-selected replacement
     // factory must own the headless loop exactly as it owns the TUI's.
     final driver = buildAgent(
+      exploreProject: createConfiguredExplorationTool(
+        projectRoot: app.pipeline.tools.projectRoot,
+        env: app.environment.env,
+      ),
       pipeline: app.pipeline,
       scheduler: app.scheduler,
       conversationId: app.initialConversationId,

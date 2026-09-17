@@ -49,6 +49,8 @@ enum JudgmentFailure {
   closed,
   invalidResponse,
   responseTooLarge,
+  requestTooLarge,
+  budgetExceeded,
 }
 
 /// Safe diagnostics: never carries request state, credentials, or raw bodies.

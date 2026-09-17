@@ -95,6 +95,7 @@ void main() {
           '  /exit          quit (inside tmux: Detach / Exit / Cancel)\n'
           '  /detach        return to the shell, keep the agent running '
           '(tmux; also Alt+D)\n'
+          '  /explore <implementation question> locate code using Typesafe scouts (no direct filesystem tools)\n'
           'ESC cancels the active session\'s in-flight response.\n';
 
       // Dispatch echoes the trimmed line, then a separator, then the block.
@@ -114,11 +115,11 @@ void main() {
           SessionCommandHandlers.registry.allNames);
     });
 
-    test('still contains exactly the pre-refactor 23 names', () {
+    test('contains the supported command names in completion order', () {
       expect(
         SessionCommandHandlers.registry.allNames,
         [
-          '/exit', '/quit', '/help', '/clear', '/compact', '/auto-compact',
+          '/explore', '/exit', '/quit', '/help', '/clear', '/compact', '/auto-compact',
           '/permissions', '/sessions', '/session', '/resume', '/save',
           '/model', '/settings', '/prompts', '/spawn', '/branch', '/image',
           '/index', '/workflow', '/output', '/spend', '/update', '/detach',
@@ -264,4 +265,5 @@ String _goldenHelpBody() =>
         '  /exit          quit (inside tmux: Detach / Exit / Cancel)\n'
         '  /detach        return to the shell, keep the agent running '
         '(tmux; also Alt+D)\n'
+        '  /explore <implementation question> locate code using Typesafe scouts (no direct filesystem tools)\n'
         "ESC cancels the active session's in-flight response.\n";

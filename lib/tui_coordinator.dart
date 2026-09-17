@@ -13,6 +13,7 @@ import 'package:attractor/attractor.dart';
 import 'package:tina/completion/git_file_provider.dart';
 import 'package:tina/completion/command_completion_provider.dart';
 import 'package:tina/composition/config_providers.dart';
+import 'package:tina/composition/typesafe.dart';
 
 import 'package:tina/config.dart';
 
@@ -661,7 +662,12 @@ class TuiCoordinator {
       acquired.own(() async {
         if (!transferred) await initialHost.dispose();
       });
+      final exploreProject = createConfiguredExplorationTool(
+        projectRoot: pipeline.tools.projectRoot,
+        env: app.environment.env,
+      );
       final initialDriver = buildAgent(
+        exploreProject: exploreProject,
         pipeline: pipeline,
         scheduler: scheduler,
         conversationId: initialConversationId,
@@ -712,6 +718,7 @@ class TuiCoordinator {
               required HostInterface host,
               required PermissionPolicy policy,
             }) => buildAgent(
+              exploreProject: exploreProject,
               pipeline: pipeline,
               scheduler: scheduler,
               conversationId: conversationId,

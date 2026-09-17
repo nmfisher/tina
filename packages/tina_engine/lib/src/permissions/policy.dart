@@ -204,7 +204,7 @@ class PermissionPolicy {
   static const _readOnlyTools = {
     'execution_info', 'read', 'search', 'grep', 'glob', 'ls', 'stat', 'which', 'git',
     'fetch', 'web_search', 'repo_structure', 'list_regions',
-    'read_summary', 'query_region',
+    'read_summary', 'query_region', 'explore_project',
   };
 
   /// Widen a default decision according to [mode]. Session/static rules are

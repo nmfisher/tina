@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
+import 'request_budget.dart';
 import 'service.dart';
 
 /// Separate from chat ProviderConfig: no messages, tool schema, temperature,
@@ -17,6 +18,7 @@ class TypeSafeConfig {
   final Uri endpoint;
   final Duration timeout;
   final int maxResponseBytes;
+  final JudgmentRequestBudget requestBudget;
 
   TypeSafeConfig({
     required this.apiKey,
@@ -24,8 +26,13 @@ class TypeSafeConfig {
     Uri? endpoint,
     this.timeout = const Duration(seconds: 30),
     this.maxResponseBytes = 8 * 1024 * 1024,
-  }) : endpoint =
-            endpoint ?? Uri.parse('https://api.typesafe.ai/v1/systemone') {
+    JudgmentRequestBudget? requestBudget,
+  })  : endpoint =
+            endpoint ?? Uri.parse('https://api.typesafe.ai/v1/systemone'),
+        requestBudget = requestBudget ?? JudgmentRequestBudget(model: model) {
+    if (this.requestBudget.model != model) {
+      throw ArgumentError('Request budget must target the configured model');
+    }
     if (apiKey.trim().isEmpty || RegExp(r'[\x00-\x20\x7f]').hasMatch(apiKey)) {
       throw ArgumentError('TypeSafe requires a nonempty bearer API key');
     }
@@ -75,6 +82,7 @@ class TypeSafeJudgmentService implements JudgmentService {
     if (cancellation?.isCancelled ?? false) {
       throw const JudgmentException(JudgmentFailure.cancelled);
     }
+    config.requestBudget.check(request);
     final body = jsonEncode(request.toJson(model: config.model));
     final client = _clientFactory();
     final stopped = Completer<JudgmentResult>();

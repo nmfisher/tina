@@ -154,6 +154,26 @@ Future<void> _pumpUntil(bool Function() pred,
 }
 
 void main() {
+  test('/explore runs under the restricted turn catalog and restores normal tools', () async {
+    final read = _ExplorationForbiddenTool();
+    final provider = FakeProvider(const [
+      [MessageComplete(content: [ToolUseBlock(id: 'read-1', name: 'read', input: {'path': 'a.dart'})], stopReason: 'tool_use')],
+      [MessageComplete(content: [TextBlock('done')], stopReason: 'end_turn')],
+    ]);
+    final input = FakeReadLine();
+    final controller = _buildController(readLine: input, provider: provider,
+      tools: [read, ExploreProjectTool(open: () => null)]);
+    input.enqueue('/explore widget');
+    final run = controller.run();
+    await _pumpUntil(() => provider.calls.length == 2);
+    await controller.turns.whenIdle(controller.active.id);
+    input.close();
+    await run;
+    expect(read.calls, 0);
+    expect(provider.calls.first.tools.map((t) => t.name), ['ask_user', 'explore_project']);
+    expect(controller.active.driver.tools['read'], same(read));
+  });
+
   _environmentTests();
   group('SessionController', () {
     test('echoes user input to chat before agent turn', () async {
@@ -1791,5 +1811,17 @@ class _WriteThenWaitProvider extends LlmProvider {
     if (calls > first.length + 1)
       return Stream.fromIterable(_answer('Follow-up done.'));
     return StreamController<StreamEvent>().stream;
+  }
+}
+
+class _ExplorationForbiddenTool implements Tool {
+  int calls = 0;
+  @override
+  ToolSchema get schema => const ToolSchema(name: 'read', description: 'read spy', inputSchema: {});
+  @override
+  Future<ToolResult> execute(Map<String, dynamic> input,
+      {Future<void>? cancelSignal, ToolOutputCallback? onOutput}) async {
+    calls++;
+    return const ToolResult('should never execute');
   }
 }
