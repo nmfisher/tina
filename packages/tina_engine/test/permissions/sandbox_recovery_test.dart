@@ -85,7 +85,7 @@ void main() {
     const wrapped = 'cd /mnt/sdd_1tb/tina/packages/tina_engine && '
         'dart test test/llm/registry_build_test.dart > /tmp/tina_test_out.txt 2>&1; '
         'echo "exit=\$?"; tail -4 /tmp/tina_test_out.txt';
-    final result = await bash.execute({'command': wrapped}) as BashToolResult;
+    final result = await bash.execute({'command': wrapped}) as ProcessToolResult;
     expect(result.isError, isFalse, reason: 'the final tail returned 0');
     expect(result.content, contains('exit: 0'));
     expect(result.content, contains('exit=1'));
@@ -179,7 +179,7 @@ void main() {
             MemoryRunningProcess(stderrChunks: ['Read-only file system\n'])),
         backend: SandboxBackend.bwrap,
         accessPolicy: SandboxAccessPolicy());
-    final result = await bash.execute({'command': 'build'}) as BashToolResult;
+    final result = await bash.execute({'command': 'build'}) as ProcessToolResult;
     expect(result.sandboxWarning, isNotNull);
     expect(result.sandboxFailure, isNull);
     expect(result.isError, isFalse);
@@ -192,7 +192,7 @@ void main() {
             MemoryRunningProcess(stderrChunks: ['Read-only file system\n'])),
         backend: SandboxBackend.passThrough);
     final result =
-        await bash.execute({'command': 'read-log'}) as BashToolResult;
+        await bash.execute({'command': 'read-log'}) as ProcessToolResult;
     expect(result.sandboxWarning, isNull);
     expect(result.sandboxFailure, isNull);
   });
@@ -416,7 +416,7 @@ void main() {
     final log = '${temp.path}/output.log';
     final actual = '''/bin/sh -c 'echo written > "${cache.path}/probe"' '''
         '> "$log" 2>&1; echo "exit=\$?"; tail -4 "$log"';
-    final result = await bash.execute({'command': actual}) as BashToolResult;
+    final result = await bash.execute({'command': actual}) as ProcessToolResult;
     expect(result.isError, isFalse);
     expect(result.content, contains('exit: 0'));
     expect(result.content, contains('Read-only file system'));

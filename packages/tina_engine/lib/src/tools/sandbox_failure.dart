@@ -94,6 +94,3 @@ class ProcessToolResult extends ToolResult {
       this.sandboxFailure,
       this.sandboxWarning});
 }
-
-/// Compatibility name for consumers of the former shell-only result.
-typedef BashToolResult = ProcessToolResult;

@@ -711,7 +711,7 @@ class ToolExecutor {
         }
       }
       if (retryKey != null &&
-          out is BashToolResult &&
+          out is ProcessToolResult &&
           out.sandboxFailure != null &&
           !isCancelled() &&
           !state.toolInterrupted) {
@@ -755,12 +755,12 @@ class ToolExecutor {
         }
       } else if (!out.isError &&
           retryKey != null &&
-          (out is! BashToolResult || out.sandboxWarning == null)) {
+          (out is! ProcessToolResult || out.sandboxWarning == null)) {
         state.sandboxFailures.remove(retryKey);
       }
       // A zero-exit diagnostic may be a masked failure or replayed log text.
       // Surface it to the user without scheduling recovery or inferring grants.
-      if (out is BashToolResult &&
+      if (out is ProcessToolResult &&
           out.sandboxWarning != null &&
           !isCancelled() &&
           !state.toolInterrupted) {
