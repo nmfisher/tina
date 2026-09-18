@@ -20,7 +20,6 @@ abstract class TerminalBackend {
   /// Begin a logical frame. Flush requests made before the matching
   /// [endFrame] are coalesced into one presentation.
   void beginFrame() {}
-
   /// End a logical frame and present accumulated mutations once.
   void endFrame() => flush();
 
@@ -128,4 +127,30 @@ abstract class TerminalBackend {
   /// [_coalescePaints] and the presentation scheduler's [requestChatPresentation]
   /// key off this to choose between the synchronous and scheduled paint paths.
   bool get coalescesPaints;
+}
+
+/// A backend that can report how its drawing is going.
+///
+/// Optional on purpose: only the real backends implement it, so test fakes and
+/// future backends stay untouched and simply report nothing. Both places that
+/// use it treat "this backend cannot say" as "nothing to report":
+///
+///  * [Screen] checks [openFrames] after closing its own frame. A non-zero
+///    value means a frame was never closed, so every later flush is deferred
+///    and nothing can reach the terminal — the screen is frozen from that
+///    moment. That is logged the instant it happens.
+///  * The app's stuck check watches [presentedFrames] to tell "nothing is being
+///    drawn" from "there is nothing to draw".
+abstract interface class BackendDiagnostics {
+  /// How many logical frames the backend still has open. Zero is healthy.
+  int get openFrames;
+
+  /// Whether a flush is waiting for the open frame to close.
+  bool get flushPending;
+
+  /// Whether cells have changed since the last presentation.
+  bool get gridDirty;
+
+  /// How many finished frames have actually reached the terminal.
+  int get presentedFrames;
 }

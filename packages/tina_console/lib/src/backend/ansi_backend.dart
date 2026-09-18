@@ -13,12 +13,20 @@ import 'terminal_backend.dart';
 /// Batches all operations into a [StringBuffer] and writes them to
 /// [Stdio] on [flush]. This matches the original Screen behavior of
 /// building one batched string per operation.
-class AnsiBackend implements TerminalBackend {
+class AnsiBackend implements TerminalBackend, BackendDiagnostics {
   final Stdio _io;
   final AnsiCapable _ansi;
   final StringBuffer _buf = StringBuffer();
   int _frameDepth = 0;
   bool _flushPending = false;
+
+  /// Frames that have actually reached the terminal. Bumped in [_flushNow] so
+  /// the stuck check can tell "nothing is being drawn" from "nothing to draw".
+  int _presentedFrames = 0;
+
+  /// Whether cells have changed since the last presentation. The buffer holds
+  /// the pending writes, so a non-empty buffer is exactly "dirty".
+  bool _gridDirty = false;
 
   AnsiBackend({required Stdio io, required AnsiCapable ansi})
       : _io = io,
@@ -43,6 +51,18 @@ class AnsiBackend implements TerminalBackend {
   }
 
   @override
+  int get openFrames => _frameDepth;
+
+  @override
+  bool get flushPending => _flushPending;
+
+  @override
+  bool get gridDirty => _gridDirty;
+
+  @override
+  int get presentedFrames => _presentedFrames;
+
+  @override
   void moveCursor(int row, int col) {
     _buf.write('\x1b[${row + 1};${col + 1}H');
   }
@@ -53,6 +73,7 @@ class AnsiBackend implements TerminalBackend {
   @override
   void eraseCells(int row, int col, int n) {
     if (OpCounters.enabled) OpCounters.instance.gridWrites++;
+    _gridDirty = true;
     _buf.write('\x1b[${row + 1};${col + 1}H');
     _buf.write('\x1b[${n}X');
   }
@@ -60,6 +81,7 @@ class AnsiBackend implements TerminalBackend {
   @override
   void writeText(String text) {
     if (OpCounters.enabled) OpCounters.instance.gridWrites++;
+    _gridDirty = true;
     _buf.write(text);
   }
 
@@ -86,6 +108,8 @@ class AnsiBackend implements TerminalBackend {
     if (_buf.isNotEmpty) {
       _io.write(_buf.toString());
       _buf.clear();
+      _gridDirty = false;
+      _presentedFrames++;
       if (OpCounters.enabled) OpCounters.instance.renderCalls++;
     }
     InputLatency.stage(LatencyStage.flushCompleted);

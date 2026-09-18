@@ -13,6 +13,7 @@ import 'stdio.dart';
 import 'styled_text.dart';
 import 'theme.dart';
 import 'input_latency.dart';
+import 'input_log.dart';
 
 /// The single sink + cursor + frame coordinator.
 ///
@@ -88,6 +89,11 @@ class Screen {
   /// [_pendingBorderRepairRows] instead of repairing immediately, so several
   /// writes to one row in a logical frame re-emit each border cell at most once.
   int _frameDepth = 0;
+
+  /// Whether the "frame not closed" warning has already been written for the
+  /// current occurrence, so a stuck backend warns once instead of every frame.
+  bool _warnedStuckFrame = false;
+
   final Set<int> _pendingBorderRepairRows = {};
 
   /// The cursor position the body most recently requested via [parkCursorAt]
@@ -206,6 +212,21 @@ class Screen {
   /// The active rendering backend, or null in passthrough mode.
   TerminalBackend? get backend => _backend;
 
+  /// How many frames the backend has presented, or null when this backend
+  /// cannot report (test fakes, a backend without diagnostics). Used by the
+  /// app's stuck check.
+  int? get presentedFrames => _diagnostics?.presentedFrames;
+
+  /// How many frames the backend still has open, or null when it cannot report.
+  int? get openFrames => _diagnostics?.openFrames;
+
+  /// The backend's drawing health, when it can report one. Fakes and backends
+  /// without diagnostics simply report nothing.
+  BackendDiagnostics? get _diagnostics {
+    final be = _backend;
+    return be is BackendDiagnostics ? be as BackendDiagnostics : null;
+  }
+
   /// Run a logical retained-mode frame. Nested frames are coalesced by the
   /// backend, so leaf helpers can keep requesting flushes without producing
   /// intermediate terminal frames. Border repairs touched by leaf helpers
@@ -222,21 +243,53 @@ class Screen {
       return body();
     } finally {
       _frameDepth--;
-      if (_frameDepth == 0) {
-        _drainPendingBorderRepairs();
-        // Deferred border repairs each reposition the cursor onto a border
-        // cell; re-apply the body's last parked position so it survives as the
-        // frame's final positioning command.
-        final pr = _parkedRow;
-        final pc = _parkedCol;
-        if (pr != null && pc != null) {
-          be.parkCursor(pr, pc);
+      try {
+        if (_frameDepth == 0) {
+          _drainPendingBorderRepairs();
+          // Deferred border repairs each reposition the cursor onto a border
+          // cell; re-apply the body's last parked position so it survives as the
+          // frame's final positioning command.
+          final pr = _parkedRow;
+          final pc = _parkedCol;
+          if (pr != null && pc != null) {
+            be.parkCursor(pr, pc);
+          }
+          _parkedRow = null;
+          _parkedCol = null;
         }
-        _parkedRow = null;
-        _parkedCol = null;
+      } finally {
+        // ALWAYS close the backend's frame, even when a border repair throws. A
+        // skipped endFrame leaves the backend's frame count above zero forever;
+        // every later flush is then deferred and never presented, so the screen
+        // silently stops repainting while the app keeps running.
+        be.endFrame();
+        _checkFrameClosed(be);
       }
-      be.endFrame();
     }
+  }
+
+  /// Warn when the backend still has a frame open after we closed ours. That
+  /// means a flush can never reach the terminal again, so the screen is frozen
+  /// from this moment on — recorded here, while the cause is still in hand,
+  /// instead of leaving a mystery to diagnose from a live screen. Warns once per
+  /// occurrence, and only for a backend that can report its state.
+  void _checkFrameClosed(TerminalBackend be) {
+    final diag =
+        be is BackendDiagnostics ? be as BackendDiagnostics : null;
+    if (diag == null) return;
+    final open = diag.openFrames;
+    if (open == 0) {
+      _warnedStuckFrame = false;
+      return;
+    }
+    if (_warnedStuckFrame) return;
+    _warnedStuckFrame = true;
+    InputLog.warn('frame not closed - the screen cannot repaint', {
+      'frames_open': open,
+      'our_frame_depth': _frameDepth,
+      'flush_pending': diag.flushPending,
+      'grid_dirty': diag.gridDirty,
+    });
   }
 
   /// Drain rows touched during the just-closed outermost frame, repairing each

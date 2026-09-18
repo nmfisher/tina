@@ -51,6 +51,7 @@ import 'package:tina/tui/setup_overlay.dart';
 import 'package:tina/tui/prompts_overlay.dart';
 import 'package:tina/tui/settings_panel.dart';
 import 'package:tina/tui/spend_pause_dialog.dart';
+import 'package:tina/tui/stuck_check.dart';
 
 /// Whether the top menu strip (File/Edit/View/Help) is laid out on screen.
 ///
@@ -141,6 +142,10 @@ class TuiCoordinator {
   final SessionStore store;
   final Screen screen;
   final LineEditor editor;
+
+  /// Watches for a frozen screen (keys arriving, nothing drawn) and records the
+  /// editor's state snapshot when it sees one.
+  final StuckCheck stuckCheck;
   final Spinner spinner;
   final SessionManager sessionManager;
   final MenuBar menuBar;
@@ -228,6 +233,7 @@ class TuiCoordinator {
     required this.store,
     required this.screen,
     required this.editor,
+    required this.stuckCheck,
     required this.spinner,
     required this.sessionManager,
     required this.menuBar,
@@ -350,6 +356,11 @@ class TuiCoordinator {
             ..commandProvider = const CommandCompletionProvider();
 
       acquired.own(editor.close);
+      // Watches for a frozen screen and records the editor's state snapshot
+      // when it sees one, so a recurrence is diagnosable from the log instead
+      // of from a live screen. Started below, once the screen is up.
+      final stuckCheck = StuckCheck(screen: screen, editor: editor);
+      acquired.own(stuckCheck.stop);
       // The initial (active) session's spinner, bound to the shared status row.
       final spinner = Spinner(
         enabled: stdio.hasTerminal,
@@ -963,6 +974,24 @@ class TuiCoordinator {
         autoCompactThreshold: config.autoCompactThreshold,
         environment: app.environment,
       );
+      // State the input log records beside the editor's own, so a freeze can be
+      // read back from the log afterwards: which session and conversation were
+      // active, whether the agent was busy, how much input was queued, and
+      // whether a permission or gate prompt held the keyboard. Defensive on
+      // purpose — this runs on every dropped key, including during teardown.
+      editor.describeState = () {
+        if (!sessionManager.hasActiveSession) return const {'session': 'none'};
+        final session = sessionManager.active;
+        final conversation = session.activeConversation;
+        final queued = conversation.messageQueue.length;
+        return {
+          'session': session.id,
+          'conversation': conversation.id,
+          'agent_busy': conversation.isRunning,
+          'queued_messages': queued > 0 ? queued : null,
+          'attention_pending': attentionQueue.active,
+        };
+      };
       controller.shutdownWorkflows = supervisor.shutdown;
       // Workflow completion → agent turn: the supervisor's onComplete hook wakes
       // the launching conversation with a synthetic turn carrying the outcome
@@ -2056,6 +2085,7 @@ class TuiCoordinator {
         store: store,
         screen: screen,
         editor: editor,
+        stuckCheck: stuckCheck,
         spinner: spinner,
         sessionManager: sessionManager,
         menuBar: menuBar,
@@ -2504,6 +2534,9 @@ class TuiCoordinator {
       );
     }
 
+    // The keyboard now belongs to the REPL, so a frozen screen is worth
+    // reporting: start watching for keys that produce no drawing.
+    stuckCheck.start();
     try {
       await controller.run();
     } finally {

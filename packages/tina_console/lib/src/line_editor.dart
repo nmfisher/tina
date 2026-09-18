@@ -9,6 +9,7 @@ import 'confirm_dialog.dart';
 import 'focus_manager.dart';
 import 'input_event.dart';
 import 'input_latency.dart';
+import 'input_log.dart';
 import 'paste_audit.dart';
 import 'text_line_input.dart';
 import 'menu_bar.dart';
@@ -49,6 +50,19 @@ class LineEditor {
 
   StreamSubscription<InputEvent>? _sub;
   String _prompt = '';
+
+  /// How many key events have reached the editor. A rising count with no new
+  /// presentation is what the stuck check looks for.
+  int _keyCount = 0;
+
+  /// Extra state the app wants recorded beside the editor's own — session id,
+  /// whether the agent is busy, queued messages, whether a permission question
+  /// is waiting. Set once by whoever wires the editor; null in tests and
+  /// headless runs, where the editor-only fields still get logged.
+  Map<String, Object?> Function()? describeState;
+
+  /// Key events seen so far. Read by the stuck check.
+  int get keyCount => _keyCount;
 
   Completer<String?>? _completer;
   Completer<InputEvent>? _keyCompleter;
@@ -506,6 +520,41 @@ class LineEditor {
     }
   }
 
+  /// What the editor is doing right now, as plain `name=value` pairs, for the
+  /// input log. These are the fields that decide where a key can go and whether
+  /// anything can be drawn: if the screen ever freezes again, this says whether
+  /// a prompt owned the keyboard, whether the input row had any size, and which
+  /// owner the app was in.
+  ///
+  /// Null values are omitted by [InputLog.format], so a field only appears when
+  /// it is meaningful (`chat_prompt_open=true` but `queued_lines` absent).
+  Map<String, Object?> currentState() {
+    final focused = _focusManager?.focused;
+    return {
+      // The normal case: a prompt is waiting for you and typing reaches it.
+      'chat_prompt_open': _completer != null,
+      // A prompt is waiting for a key — a permission question, a gate, or an
+      // overlay. Typing answers it and never reaches the chat input.
+      'answering_prompt': _keyCompleter != null,
+      'prompt_is_global': _keyCompleter != null ? _keyCompleterGlobal : null,
+      // A second prompt is waiting behind the first (readKey serialization).
+      'prompt_serialized': _readKeyTurn != null,
+      // Typed while the agent is busy: goes to the queued-message line.
+      'typing_while_busy': _queueModeActive,
+      'queued_lines': _qCount > 0 ? _qCount : null,
+      'held_pastes': _heldPastes.isNotEmpty ? _heldPastes.length : null,
+      'paste_overflow': _pending.isNotEmpty ? _pending.length : null,
+      'confirm_visible': _dialog.isVisible,
+      'picker_open': _activePicker != null,
+      // The other silent trap: a hidden input row paints nowhere.
+      'input_row_hidden': screen.input.bounds.isEmpty,
+      'focused_panel': focused == null ? 'none' : '${focused.runtimeType}',
+      'input_backend': '${_input.runtimeType}',
+      'frames_open': screen.openFrames,
+      ...?describeState?.call(),
+    };
+  }
+
   /// Inject a synthetic input event. Used by the SIGINT handler to deliver
   /// `ControlKey(ControlCode.ctrlC)` so the editor's own logic runs.
   void inject(InputEvent event) => _input.inject(event);
@@ -574,14 +623,20 @@ class LineEditor {
 
   void _onEvent(InputEvent event) {
     InputLatency.handlerEntered(event);
+    _keyCount++;
+    KeyHandledBy who;
     try {
-      _onEventInner(event);
+      who = _onEventInner(event);
     } finally {
       InputLatency.complete(event);
     }
+    InputLog.key(event, who, currentState);
   }
 
-  void _onEventInner(InputEvent event) {
+  /// Handle [event] and report where it ended up: the chat input, a panel, a
+  /// waiting prompt, or nowhere at all. That value is what [InputLog] records,
+  /// so a key that does nothing visible can name who took it.
+  KeyHandledBy _onEventInner(InputEvent event) {
     if (debugKeys) {
       stderr.writeln('[keys] event: $event');
     }
@@ -606,16 +661,16 @@ class LineEditor {
         // gate alone everywhere.
         _routeExclusivePanelInput(event);
         if (_dialog.trigger()) _quitNow();
-        return;
+        return KeyHandledBy.quit;
       }
       if (_dialog.trigger()) {
         _quitNow();
       } else {
         _redraw();
       }
-      return;
+      return KeyHandledBy.quit;
     }
-    if (_routeExclusivePanelInput(event)) return;
+    if (_routeExclusivePanelInput(event)) return KeyHandledBy.panel;
     // An armed quit-confirm yields to the key's real owner above (exclusive
     // panels, modals). Any other key dismisses it on the way to its normal
     // handling. A standalone ESC is absorbed by the dismissal — it must not
@@ -626,7 +681,7 @@ class LineEditor {
     if (_dialog.isVisible) {
       final promptOwnsEsc = _completer != null && _cancelHandler == null;
       _dialog.dismiss();
-      if (event is EscapeKey && promptOwnsEsc) return;
+      if (event is EscapeKey && promptOwnsEsc) return KeyHandledBy.modal;
     }
     if (_keyCompleterGlobal && event is PasteInput) {
       // tin-w8dl: a paste arriving while a GLOBAL readKey (approval / gate
@@ -649,7 +704,7 @@ class LineEditor {
           '(held=${_heldPastes.length})',
         );
       }
-      return;
+      return KeyHandledBy.heldPaste;
     }
     if (_keyCompleter != null &&
         (event is! PasteInput || !_keyCompleterGlobal)) {
@@ -670,13 +725,13 @@ class LineEditor {
         // toward the double-Esc force-cancel: the modal-swallow stamping in
         // the answer path below never sees it, yet the gesture has to span
         // ring navigation (e.g. Esc out of the sidebar, Esc again to stop).
-        if (event is! EscapeKey) return;
+        if (event is! EscapeKey) return KeyHandledBy.focusRing;
         final now = DateTime.now();
         final isDouble = _lastEsc != null &&
             now.difference(_lastEsc!) <= _activeDoubleEscWindow;
         _lastEsc = isDouble ? null : now;
         if (isDouble) onDoubleEscape?.call();
-        if (!isDouble) return;
+        if (!isDouble) return KeyHandledBy.focusRing;
         // Double-Esc: the force-cancel fired above, and the same Esc still
         // answers the prompt below (an approval reads it as its deny), so
         // the awaiting asker settles instead of hanging.
@@ -687,7 +742,7 @@ class LineEditor {
           !_exclusivePanelFocused &&
           (event is ArrowKey || event is ScrollEvent) &&
           (_focusManager?.focused?.handleEvent(event) ?? false)) {
-        return;
+        return KeyHandledBy.panel;
       }
       final c = _keyCompleter!;
       _keyCompleter = null;
@@ -719,7 +774,7 @@ class LineEditor {
       _burstTimer = Timer(
           Duration(milliseconds: _burstWindowMs), () => _burstTimer = null);
       _scheduleHeldPasteDelivery();
-      return;
+      return KeyHandledBy.openPrompt;
     }
     // Overflow CharInput from a paste burst that arrived before readKey
     // could re-arm _keyCompleter.
@@ -730,11 +785,13 @@ class LineEditor {
           'overflow CharInput queued to _pending (first; window open)',
         );
       }
-      return;
+      return KeyHandledBy.pasteOverflow;
     }
     if (_cancelHandler != null) {
-      if (_handleFocusRingKeys(event)) return;
-      if (_focusManager?.focused?.handleEvent(event) ?? false) return;
+      if (_handleFocusRingKeys(event)) return KeyHandledBy.focusRing;
+      if (_focusManager?.focused?.handleEvent(event) ?? false) {
+        return KeyHandledBy.panel;
+      }
       // Ctrl+C never reaches here (the quit gate consumes it first); the
       // monitor is Esc-driven now — cancel is Esc's job. In queue mode the
       // ESC is the queue's first: it clears queued text, and only cancels
@@ -746,14 +803,14 @@ class LineEditor {
       } else if (_queueModeActive) {
         _handleQueueEvent(event);
       }
-      return;
+      return KeyHandledBy.queuedInput;
     }
     // Standalone ESC dismisses an open picker without firing escape logic.
     final openPicker = _activePicker;
     if (openPicker != null && event is EscapeKey) {
       openPicker.closeState();
       _redraw();
-      return;
+      return KeyHandledBy.modal;
     }
 
     if (PasteAudit.enabled && event is PasteInput) {
@@ -763,7 +820,7 @@ class LineEditor {
         'queueMode=$_queueModeActive editing=${_completer != null}',
       );
     }
-    _dispatchEvent(event);
+    return _dispatchEvent(event);
   }
 
   int _pendingChars() =>
@@ -868,9 +925,9 @@ class LineEditor {
     return true;
   }
 
-  void _dispatchEvent(InputEvent event) {
+  KeyHandledBy _dispatchEvent(InputEvent event) {
     // Held pastes also enter here after a prompt releases input ownership.
-    if (_routeExclusivePanelInput(event)) return;
+    if (_routeExclusivePanelInput(event)) return KeyHandledBy.panel;
     if (debugKeys) {
       stderr.writeln('[keys] event: $event');
     }
@@ -882,54 +939,54 @@ class LineEditor {
     for (final modal in _modals) {
       if (modal.isActive && modal.handleEvent(event)) {
         _redraw();
-        return;
+        return KeyHandledBy.modal;
       }
     }
     // 2. Ctrl+O: the app's panel-maximize toggle. Ahead of the focus
     //    ring so it fires both while cycling (the highlighted panel) and on
     //    the focused panel. The hook decides whether a panel qualifies.
     if (_handleMaximizeToggle(event)) {
-      return;
+      return KeyHandledBy.appShortcut;
     }
     // Ctrl+R rides at the same rank (the app's raw-view overlay opens from
     // any focus).
     if (_handleRawView(event)) {
-      return;
+      return KeyHandledBy.appShortcut;
     }
     // Shift+Tab rides at the same rank (the app cycles permission modes from
     // any focus).
     if (_handleBackTab(event)) {
-      return;
+      return KeyHandledBy.appShortcut;
     }
     // 3. Modal cycling: the focus manager owns all keys (arrows/Tab move the
     //    highlight, Enter commits, Esc cancels). Nothing reaches a panel.
     if (_focusManager != null && _focusManager!.isCycling) {
       _focusManager!.handleEvent(event);
       _redraw();
-      return;
+      return KeyHandledBy.focusRing;
     }
     // 4. Esc / entry keys: engage cycling or return home. Returns false when
     //    already home, so the editor's double-Esc clear runs in the switch.
     if (_focusManager != null && _focusManager!.handleEvent(event)) {
       _redraw();
-      return;
+      return KeyHandledBy.focusRing;
     }
     // 5. Menu bar — F10/Alt activation (from any focus) and arrow navigation
     //    when the menu is the focused panel.
     if (_menuBar != null && _menuBar!.handleEvent(event)) {
       _redraw();
-      return;
+      return KeyHandledBy.menu;
     }
     // 6. The focused panel handles the event (chat declines → editor; info
     //    swallows). The menu is handled in step 4.
     final focused = _focusManager?.focused;
     if (focused != null && focused.handleEvent(event)) {
-      return;
+      return KeyHandledBy.panel;
     }
     // macOS Option+Arrow fallback: ESC and the letter arrive in separate
     // stdin chunks. When EscapeKey was just received, intercept b/f/d as
     // word-motion and backspace as delete-word-backward.
-    if (_handleEscFollowUp(event)) return;
+    if (_handleEscFollowUp(event)) return KeyHandledBy.chatBox;
 
     // Ownerless keyboard: no [readLine] is armed (the caller is mid-dispatch
     // — e.g. /compact awaiting its LLM summarization), no [readKey] holds the
@@ -951,14 +1008,14 @@ class LineEditor {
             event is EditingKey ||
             event is AltKey ||
             event is ControlKey)) {
-      return;
+      return KeyHandledBy.nobody;
     }
 
     switch (event) {
       // The mouse wheel is routed to the focused panel's scrollback (it had
       // first claim above); an unclaimed wheel is dropped, never typed.
       case ScrollEvent():
-        return;
+        return KeyHandledBy.nobody;
       case CharInput(:final text):
         _dialog.dismiss();
         final code = text.codeUnitAt(0);
@@ -1005,7 +1062,7 @@ class LineEditor {
                 _redraw();
                 _complete(result);
               }
-              return;
+              return KeyHandledBy.chatBox;
             }
             final result = _edit.buffer;
             // Clear immediately: the submitted line must not sit in the input
@@ -1061,10 +1118,10 @@ class LineEditor {
           switch (direction) {
             case ArrowDirection.up:
               arrowActive.navigateUp();
-              return;
+              return KeyHandledBy.chatBox;
             case ArrowDirection.down:
               arrowActive.navigateDown();
-              return;
+              return KeyHandledBy.chatBox;
             case ArrowDirection.left:
             case ArrowDirection.right:
               arrowActive.closeState();
@@ -1151,7 +1208,9 @@ class LineEditor {
           }
         }
       case AltKey(:final letter):
-        if (onAltKey?.call(AltKey(letter)) ?? false) return;
+        if (onAltKey?.call(AltKey(letter)) ?? false) {
+          return KeyHandledBy.appShortcut;
+        }
         switch (letter) {
           case 0x62 /* b */ :
             _edit = _edit.moveWordLeft();
@@ -1174,6 +1233,7 @@ class LineEditor {
         _edit = _edit.addPaste(text);
         _redraw();
     }
+    return KeyHandledBy.chatBox;
   }
 
   /// Whichever completion picker is currently open (at most one — `/` triggers

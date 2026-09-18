@@ -262,7 +262,7 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
 /// library. This is a retained-mode backend — writes accumulate in the
 /// notcurses cell grid and are sent to the terminal on [flush] via
 /// [nc.NotCurses.render].
-class NotcursesBackend implements TerminalBackend {
+class NotcursesBackend implements TerminalBackend, BackendDiagnostics {
   final Stdio _io;
   final NotcursesPlatform _platform;
 
@@ -370,6 +370,18 @@ class NotcursesBackend implements TerminalBackend {
       _flushNow();
     }
   }
+
+  @override
+  int get openFrames => _frameDepth;
+
+  @override
+  bool get flushPending => _flushPending;
+
+  @override
+  bool get gridDirty => _gridDirty;
+
+  @override
+  int get presentedFrames => presentationCount;
 
   @override
   void moveCursor(int row, int col) {
