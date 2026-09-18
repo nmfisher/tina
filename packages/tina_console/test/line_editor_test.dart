@@ -227,9 +227,11 @@ void main() {
       expect(await f, isNull);
     });
 
-    test('Ctrl-C cancels running work before clearing the draft', () async {
+    test('Ctrl-C cancels nothing; the confirm arms and the draft survives',
+        () async {
       final ed = _editor(io);
       var running = true;
+      // ignore: deprecated_member_use_from_same_package
       ed.onInterrupt = () {
         if (!running) return false;
         running = false;
@@ -239,31 +241,67 @@ void main() {
       await _flush();
       io.feedBytes([0x61, 0x62, 0x03]);
       await _flush();
-      expect(running, isFalse);
+      expect(running, isTrue,
+          reason: 'ctrl+c is the quit flow; it never cancels work');
       expect(ed.editState.buffer, 'ab');
-      io.feedBytes([0x03, 0x78, 0x0d]);
-      expect(await line, 'x', reason: 'idle Ctrl+C still clears the draft');
+      io.feedBytes([0x03]); // confirm quit
+      expect(await line, isNull);
       ed.close();
     });
 
-    test('Ctrl-C in a local overlay leaves running work alone', () async {
+    test('Esc cancels running work; double-Esc clears the draft', () async {
+      final ed = _editor(io);
+      var running = true;
+      ed.onEscape = () {
+        if (!running) return false;
+        running = false;
+        return true;
+      };
+      final line = ed.readLine('> ');
+      await _flush();
+      io.feedBytes([0x61, 0x62, 0x1b]);
+      await _flush();
+      expect(running, isFalse, reason: 'cancel is Esc-only');
+      expect(ed.editState.buffer, 'ab');
+      io.feedBytes([0x1b, 0x1b]); // double-Esc clears
+      await _flush();
+      expect(ed.editState.buffer, isEmpty);
+      io.feedBytes([0x78, 0x0d]);
+      expect(await line, 'x');
+      ed.close();
+    });
+
+    test('Ctrl-C in a local overlay arms the quit confirm like everywhere',
+        () async {
       final ed = _editor(io);
       var interrupted = false;
+      // ignore: deprecated_member_use_from_same_package
       ed.onInterrupt = () => interrupted = true;
       final overlay = ed.readKey();
       await _flush();
       io.feedBytes([0x03]);
-      expect(await overlay, ControlKey(ControlCode.ctrlC));
+      await _flush();
+      var answered = false;
+      overlay.then((_) => answered = true);
+      await _flush();
+      expect(answered, isFalse, reason: 'first press arms, does not answer');
       expect(interrupted, isFalse);
+      io.feedBytes([0x03]);
+      expect(await overlay, ControlKey(ControlCode.ctrlC));
       ed.close();
     });
 
-    test('Ctrl-C with non-empty buffer clears it', () async {
+    test('Ctrl-C with non-empty buffer does not clear it; double-Esc does',
+        () async {
       final ed = _editor(io);
       final f = ed.readLine('> ');
       await _flush();
-      io.feedBytes([0x61, 0x62, 0x03, 0x78, 0x0d]); // a, b, Ctrl-C, x, Enter
-      expect(await f, 'x');
+      io.feedBytes([0x61, 0x62, 0x03]);
+      await _flush();
+      expect(ed.editState.buffer, 'ab',
+          reason: 'ctrl+c arms the quit confirm; the draft is untouched');
+      io.feedBytes([0x03]);
+      expect(await f, isNull);
     });
 
     test('double-Esc clears the input; single Esc does not', () async {
@@ -562,13 +600,17 @@ void main() {
       expect(fired, isTrue);
     });
 
-    test('Ctrl-C during monitor fires callback', () async {
+    test('Ctrl-C during monitor does not cancel; ESC still does', () async {
       final ed = _editor(io);
       ed.readLine('> ');
       await _flush();
       var fired = false;
       ed.beginCancelMonitor(() => fired = true);
       io.feedBytes([0x03]);
+      await _flush();
+      expect(fired, isFalse,
+          reason: 'the first ctrl+c arms the quit confirm, not a cancel');
+      io.feedBytes([0x1b]);
       await _flush();
       expect(fired, isTrue);
     });
@@ -584,7 +626,8 @@ void main() {
       expect(submitted, ['hi']);
     });
 
-    test('queue mode Ctrl-C fires cancel, no submission', () async {
+    test('queue mode Ctrl-C arms the quit, no submission; ESC cancels',
+        () async {
       final ed = _editor(io);
       ed.readLine('> ');
       await _flush();
@@ -596,8 +639,12 @@ void main() {
       );
       io.feedBytes([0x03]);
       await _flush();
-      expect(cancelled, isTrue);
+      expect(cancelled, isFalse,
+          reason: 'ctrl+c is the quit flow; cancel is Esc-only');
       expect(submitted, isEmpty);
+      io.feedBytes([0x1b]);
+      await _flush();
+      expect(cancelled, isTrue);
     });
 
     test('queue mode ESC clears buffer; second ESC cancels', () async {

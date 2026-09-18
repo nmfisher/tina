@@ -90,8 +90,13 @@ void main() {
     expect(userConfigFile(const {}, tinaDir: tmp.dir).existsSync(), isFalse);
   });
 
-  test('Ctrl-C at the providers step cancels (sigint injects ctrlC)', () async {
+  test('Ctrl-C at the providers step cancels (overlay-own key handling)',
+      () async {
     final screen = fakeScreen();
+    // Canned events bypass the editor's quit gate and exercise the overlay's
+    // own Ctrl+C branch directly. In the live TUI the editor's gate intercepts
+    // Ctrl+C before readKey ever returns it, so this branch is only reachable
+    // here — the quit flow owns Ctrl+C in production.
     canned.events = [ControlKey(ControlCode.ctrlC)];
     final cfg = await run(screen).timeout(overlayTimeout);
     expect(cfg, isNull);

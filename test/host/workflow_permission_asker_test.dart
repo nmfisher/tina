@@ -82,7 +82,8 @@ void main() {
       ([0x61], PermissionDecision.allow, true),
       ([0x1b, 0x5b, 0x42, 0x0d], PermissionDecision.allow, true),
       ([0x1b, 0x5b, 0x42, 0x1b, 0x5b, 0x42, 0x0d], PermissionDecision.deny, false),
-      ([0x03], PermissionDecision.deny, false),
+      // 0x03 removed: Ctrl+C is the quit flow in the editor and can no longer
+      // settle an approval as a deny; Esc (0x1b) is the deny gesture.
     ]) {
       test('outside approval conversation=$conversation keys=$keys', () async {
         final io = FakeStdio();
@@ -123,7 +124,7 @@ void main() {
     (0x61, PermissionDecision.allow, true),
     (0x6e, PermissionDecision.deny, false),
     (0x1b, PermissionDecision.deny, false),
-    (0x03, PermissionDecision.deny, false),
+    // 0x03 removed: Ctrl+C is the quit flow and no longer denies approvals.
   ]) {
     test('directory approval displays authority and handles key $key', () async {
       final io = FakeStdio();
@@ -317,7 +318,7 @@ void main() {
   );
 
   test(
-    'Ctrl+C settles an approval as denied even without an interrupt handler',
+    'Ctrl+C arms the quit confirm and never settles the approval; Esc denies',
     () async {
       final io = FakeStdio();
       final screen = Screen(
@@ -333,7 +334,13 @@ void main() {
       );
       final response = asker.ask(_bashPrompt('pwd'));
       await _flush();
-      io.feedBytes([0x03]);
+      io.feedBytes([0x03]); // arm only — the approval stays open
+      var settled = false;
+      response.then((_) => settled = true);
+      await _flush();
+      expect(settled, isFalse,
+          reason: 'the first ctrl+c is the quit flow, not a deny');
+      io.feedBytes([0x1b]); // esc denies the prompt
       expect(
         await response.timeout(const Duration(seconds: 2)),
         PermissionResponse.denyOnce,

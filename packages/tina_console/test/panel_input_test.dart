@@ -32,6 +32,7 @@ void main() {
     received = [];
     interrupts = 0;
     shortcuts = 0;
+    // ignore: deprecated_member_use_from_same_package
     editor.onInterrupt = () {
       interrupts++;
       return true;
@@ -114,11 +115,14 @@ void main() {
     editor.inject(ControlKey(ControlCode.enter));
     expect(focus.focused, same(chat));
     expect(received, isEmpty);
-    expect(interrupts, 0);
     editor.inject(CharInput('!'));
     expect(editor.editState.buffer, 'draft!');
     editor.inject(ControlKey(ControlCode.ctrlC));
-    expect(interrupts, 1, reason: 'normal chat cancellation is restored');
+    editor.inject(ControlKey(ControlCode.ctrlC));
+    // Quit confirmed: readLine was armed by setUp, and the quit flow
+    // completes it; the panel never saw any of the Ctrl+Cs.
+    expect(received, isEmpty);
+    expect(interrupts, 0);
   });
 
   test('Escape cancels cycling, then belongs to the panel again', () {
@@ -137,11 +141,9 @@ void main() {
     editor.beginCancelMonitor(() => cancelled++, onQueueSubmit: submitted.add);
     editor.inject(CharInput('command'));
     editor.inject(ControlKey(ControlCode.enter));
-    editor.inject(ControlKey(ControlCode.ctrlC));
     editor.inject(EscapeKey());
-    expect(received, hasLength(4));
+    expect(received, hasLength(3));
     expect(cancelled, 0);
-    expect(interrupts, 0);
     expect(submitted, isEmpty);
     editor.endCancelMonitor();
   });
@@ -149,7 +151,12 @@ void main() {
   test('local overlays receive keys before the panel', () async {
     final response = editor.readKey();
     await pumpEventQueue();
-    editor.inject(ControlKey(ControlCode.ctrlC));
+    editor.inject(ControlKey(ControlCode.ctrlC)); // arms the quit confirm
+    var answered = false;
+    response.then((_) => answered = true);
+    await pumpEventQueue();
+    expect(answered, isFalse, reason: 'the first press only arms');
+    editor.inject(ControlKey(ControlCode.ctrlC)); // confirms quit
     expect(await response, ControlKey(ControlCode.ctrlC));
     expect(received, isEmpty);
     expect(interrupts, 0);
@@ -159,9 +166,13 @@ void main() {
     final modal = _Modal();
     editor.registerModal(modal);
     editor.beginCancelMonitor(() => fail('background cancellation'));
+    // Ctrl+C is intercepted by the quit gate before any consumer — the modal
+    // never sees it, and the monitor's cancel never fires on it.
     editor.inject(ControlKey(ControlCode.ctrlC));
-    editor.inject(EscapeKey());
-    expect(modal.events, hasLength(2));
+    final escape = EscapeKey();
+    editor.inject(escape);
+    // EscapeKey has no ==: compare identity, not a fresh literal.
+    expect(modal.events, [same(escape)]);
     expect(received, isEmpty);
     expect(interrupts, 0);
     editor.endCancelMonitor();
@@ -182,13 +193,19 @@ void main() {
     expect(editor.editState.buffer, 'draft');
   });
 
-  test('approval Ctrl+C retains cancellation and resolves the prompt',
+  test('approval Ctrl+C arms the quit confirm; it never answers the prompt',
       () async {
     final response = editor.readKey(globalKeys: true);
     await pumpEventQueue();
-    editor.inject(ControlKey(ControlCode.ctrlC));
+    editor.inject(ControlKey(ControlCode.ctrlC)); // arm only
+    var answered = false;
+    response.then((_) => answered = true);
+    await pumpEventQueue();
+    expect(answered, isFalse,
+        reason: 'ctrl+c is the quit flow, not a deny');
+    expect(interrupts, 0);
+    editor.inject(ControlKey(ControlCode.ctrlC)); // confirm quit
     expect(await response, ControlKey(ControlCode.ctrlC));
-    expect(interrupts, 1);
     expect(received, isEmpty);
   });
 

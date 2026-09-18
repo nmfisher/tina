@@ -108,17 +108,18 @@ void main() {
       ed.close();
     });
 
-    test('SIGINT-style inject(Ctrl-C) clears non-empty buffer', () async {
+    test('SIGINT-style inject(Ctrl-C) arms the confirm; typing continues',
+        () async {
       final input = FakeInputBackend();
       final ed = _makeEditor(input);
       final f = ed.readLine('> ');
       await _flush();
       input.emit(CharInput('a'));
       input.emit(CharInput('b'));
-      ed.inject(ControlKey(ControlCode.ctrlC));
-      input.emit(CharInput('x'));
+      ed.inject(ControlKey(ControlCode.ctrlC)); // arms the quit confirm
+      input.emit(CharInput('x')); // dismisses it and types
       input.emit(ControlKey(ControlCode.enter));
-      expect(await f, 'x');
+      expect(await f, 'abx');
       ed.close();
     });
 
@@ -161,13 +162,19 @@ void main() {
       ed.close();
     });
 
-    test('returns ControlKey for Ctrl-C', () async {
+    test('readKey completes with Ctrl-C on a confirmed quit, not the arm',
+        () async {
       final input = FakeInputBackend();
       final ed = _makeEditor(input);
       ed.readLine('> ');
       await _flush();
       final fut = ed.readKey();
-      input.emit(ControlKey(ControlCode.ctrlC));
+      input.emit(ControlKey(ControlCode.ctrlC)); // arm
+      var resolved = false;
+      fut.then((_) => resolved = true);
+      await _flush();
+      expect(resolved, isFalse, reason: 'the first press only arms the confirm');
+      input.emit(ControlKey(ControlCode.ctrlC)); // confirm quit
       final got = await fut;
       expect(got, isA<ControlKey>());
       expect((got as ControlKey).code, ControlCode.ctrlC);

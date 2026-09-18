@@ -329,7 +329,13 @@ void main() {
       io.feedBytes([0x1b, 0x5b, 0x41]); // Up recalls the persisted prompt.
       await pumpEventQueue();
       expect(coordinator.editor.editState.buffer, 'q');
-      io.feedBytes([0x03]); // Clear recalled text before quitting.
+      io.feedBytes([0x1b, 0x1b]); // double-Esc clears the recalled draft
+      // A lone ESC byte is only promoted to EscapeKey after the input
+      // parser's escape timeout (150ms); feeding '/' inside that window
+      // would glue to the second ESC as Alt+'/' instead of opening the
+      // command menu.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await pumpEventQueue();
       io.feedBytes([0x2f, 0x65, 0x78, 0x69, 0x74, 0x0d]); // /exit
       await run.timeout(const Duration(seconds: 5));
       io.close();
@@ -1690,7 +1696,7 @@ void main() {
   });
 
   test(
-    'Ctrl+C cancels a background approval without quitting the app',
+    'double-Esc cancels a background approval without quitting; ctrl+c x2 quits',
     () async {
       final io = FakeStdio()..hasTerminalValue = false;
       final app = await buildAppComposition(
@@ -1733,7 +1739,9 @@ void main() {
       coordinator.focusManager.focusPanel(coordinator.panelManager.sidebar!);
       io.feedBytes([0x07]);
       await pumpEventQueue();
-      io.feedBytes([0x03]);
+      io.feedBytes([0x1b]);
+      await pumpEventQueue();
+      io.feedBytes([0x1b]); // double-Esc: the cancel gesture across the modal
       await job.done.timeout(const Duration(seconds: 2));
       expect(job.cancellationRequested, isTrue);
       expect(response, PermissionResponse.denyOnce);
@@ -1741,12 +1749,16 @@ void main() {
       expect(exited, isFalse);
       expect(coordinator.controller.isEnvironmentRunning, isFalse);
 
-      // Once idle, Ctrl+C retains the existing quit confirmation.
+      // Idle again, the quit confirm arms on the first Ctrl+C and the second
+      // quits — Ctrl+C is the quit flow at every input state.
       coordinator.focusManager.cancel();
       coordinator.focusManager.focusPanel(
         coordinator.panelManager.primaryFrame,
       );
-      io.feedBytes([0x03, 0x03]);
+      io.feedBytes([0x03]);
+      await pumpEventQueue();
+      expect(io.written.toString(), contains('Ctrl+C again to exit'));
+      io.feedBytes([0x03]);
       await run.timeout(const Duration(seconds: 5));
       io.close();
     },

@@ -84,7 +84,11 @@ void main() {
 
   test('Ctrl-C cancels (returns null)', () async {
     final screen = fakeScreen();
-    canned.events = [ControlKey(ControlCode.ctrlC)];
+    canned.events = [
+      // Canned events bypass the editor's quit gate and exercise the overlay's
+      // own Ctrl+C branch directly; in the live TUI the editor intercepts it.
+      ControlKey(ControlCode.ctrlC)
+    ];
     final result = await run(screen).timeout(overlayTimeout);
     expect(result, isNull);
   });

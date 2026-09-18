@@ -872,21 +872,9 @@ class TuiCoordinator {
             ),
           ],
         ),
-        Menu(
-          label: 'Edit',
-          shortcut: 0x65,
-          items: [
-            MenuEntry(
-              label: 'Clear Input',
-              shortcutHint: 'Ctrl+C',
-              onActivate: () {
-                editor.inject(
-                  ControlKey(ControlCode.ctrlC),
-                ); // triggers buffer clear
-              },
-            ),
-          ],
-        ),
+        // (The old Edit > Clear Input entry injected Ctrl+C to clear the
+        // buffer; Ctrl+C now arms the quit confirm, and double-Esc is the
+        // clear-input gesture, so the entry had no honest binding left.)
         viewMenu,
         Menu(
           label: 'Help',
@@ -2474,7 +2462,9 @@ class TuiCoordinator {
     // 2026-08-24: an approval modal swallows single Escs as "deny", so the
     // prompt's arm-then-cancel never fires and the border keeps animating).
     editor.onDoubleEscape = controller.cancelNow;
-    editor.onInterrupt = controller.cancelNow;
+    // (editor.onInterrupt is retired: Ctrl+C is now the quit confirm flow at
+    // every input state, intercepted in the editor before any consumer.
+    // Cancel is Esc / double-Esc only.)
 
     // First-load environment ask (recorded by create): run it now, after the
     // first paint and before the REPL takes the keyboard. Consumed once.

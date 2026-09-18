@@ -124,6 +124,7 @@ class LineEditor {
   /// open. Return false when idle to keep normal input-clear/quit behavior.
   /// Local overlays retain their own Ctrl+C handling. A global readKey still
   /// receives Ctrl+C after cancellation so its prompt can settle as denied.
+  @Deprecated('Ctrl+C is now always the quit flow; this hook is never called')
   bool Function()? onInterrupt;
 
   /// Called for Ctrl+O — the panel-maximize toggle. Offered after the
@@ -584,14 +585,48 @@ class LineEditor {
     if (debugKeys) {
       stderr.writeln('[keys] event: $event');
     }
+    // The quit gate. Ctrl+C is ONLY the quit flow, at every input state and
+    // ahead of every other consumer (exclusive panels, readKeys, overlays,
+    // the cancel monitor, the line buffer): the first press arms the on-screen
+    // confirm ("Ctrl+C again to exit"), the second quits. Cancel is Esc's job;
+    // buffer clearing is double-Esc's. A quit while a readKey (approval /
+    // overlay prompt) is armed completes it with the ctrlC event so the
+    // awaiting code settles as cancelled instead of hanging.
+    if (event is ControlKey && event.code == ControlCode.ctrlC) {
+      final modalActive = _modals.any((m) => m.isActive);
+      if (_exclusivePanelFocused &&
+          !modalActive &&
+          _keyCompleter == null &&
+          !_dialog.isVisible) {
+        // An exclusive panel owns every key, Ctrl+C included: the arming
+        // press is still forwarded so the panel's key stream stays complete.
+        // With a modal open the gate alone handles the press (overlays sit
+        // above panels), an armed readKey means an overlay owns the screen,
+        // and the confirming press (dialog already visible) belongs to the
+        // gate alone everywhere.
+        _routeExclusivePanelInput(event);
+        if (_dialog.trigger()) _quitNow();
+        return;
+      }
+      if (_dialog.trigger()) {
+        _quitNow();
+      } else {
+        _redraw();
+      }
+      return;
+    }
     if (_routeExclusivePanelInput(event)) return;
-    final interrupted = event is ControlKey &&
-        event.code == ControlCode.ctrlC &&
-        (_keyCompleter == null || _keyCompleterGlobal) &&
-        (onInterrupt?.call() ?? false);
-    if (interrupted) {
-      _lastEsc = null;
-      if (_keyCompleter == null) return;
+    // An armed quit-confirm yields to the key's real owner above (exclusive
+    // panels, modals). Any other key dismisses it on the way to its normal
+    // handling. A standalone ESC is absorbed by the dismissal — it must not
+    // answer an open prompt as a deny — but only when the chat prompt owns
+    // the keyboard: with no readLine armed (an overlay/approval screen) Esc
+    // keeps its prompt meaning and flows through, and with a cancel monitor
+    // armed it stays the cancel gesture.
+    if (_dialog.isVisible) {
+      final promptOwnsEsc = _completer != null && _cancelHandler == null;
+      _dialog.dismiss();
+      if (event is EscapeKey && promptOwnsEsc) return;
     }
     if (_keyCompleterGlobal && event is PasteInput) {
       // tin-w8dl: a paste arriving while a GLOBAL readKey (approval / gate
@@ -629,8 +664,22 @@ class LineEditor {
       // modal over every key. Consumed here, the key never answers the prompt
       // — pre-fix, Ctrl+G at an open approval landed in the prompt's readKey
       // and answered it as a deny (tin-c5nw).
-      if (_keyCompleterGlobal && !interrupted && _handleFocusRingKeys(event)) {
-        return;
+      if (_keyCompleterGlobal && _handleFocusRingKeys(event)) {
+        // The ring consumed the key while a global prompt is armed. An Esc
+        // eaten by the ring (exit cycling, return home) must still count
+        // toward the double-Esc force-cancel: the modal-swallow stamping in
+        // the answer path below never sees it, yet the gesture has to span
+        // ring navigation (e.g. Esc out of the sidebar, Esc again to stop).
+        if (event is! EscapeKey) return;
+        final now = DateTime.now();
+        final isDouble = _lastEsc != null &&
+            now.difference(_lastEsc!) <= _activeDoubleEscWindow;
+        _lastEsc = isDouble ? null : now;
+        if (isDouble) onDoubleEscape?.call();
+        if (!isDouble) return;
+        // Double-Esc: the force-cancel fired above, and the same Esc still
+        // answers the prompt below (an approval reads it as its deny), so
+        // the awaiting asker settles instead of hanging.
       }
       // The prompt owns answer keys, even on a read-only panel. Only
       // navigation is offered to the focused view while an approval is open.
@@ -686,18 +735,16 @@ class LineEditor {
     if (_cancelHandler != null) {
       if (_handleFocusRingKeys(event)) return;
       if (_focusManager?.focused?.handleEvent(event) ?? false) return;
-      final isCtrlC = event is ControlKey && event.code == ControlCode.ctrlC;
-      final isEsc = event is EscapeKey;
-      if (_queueModeActive) {
-        if (isCtrlC) {
-          _cancelHandler!();
-        } else {
-          _handleQueueEvent(event);
-        }
-      } else {
-        if (isCtrlC || isEsc) {
-          _cancelHandler!();
-        }
+      // Ctrl+C never reaches here (the quit gate consumes it first); the
+      // monitor is Esc-driven now — cancel is Esc's job. In queue mode the
+      // ESC is the queue's first: it clears queued text, and only cancels
+      // once the buffer is already empty.
+      if (event is EscapeKey && _queueModeActive) {
+        _handleQueueEvent(event);
+      } else if (event is EscapeKey) {
+        _cancelHandler!();
+      } else if (_queueModeActive) {
+        _handleQueueEvent(event);
       }
       return;
     }
@@ -936,16 +983,8 @@ class LineEditor {
       case ControlKey(:final code):
         switch (code) {
           case ControlCode.ctrlC:
-            if (_edit.buffer.isNotEmpty) {
-              _edit = _edit.clear();
-              _dialog.dismiss();
-              _activePicker?.closeState();
-              _redraw();
-            } else if (_dialog.trigger()) {
-              _complete(null);
-            } else {
-              _redraw();
-            }
+            // Unreachable: the quit gate at the top of _onEventInner
+            // intercepts Ctrl+C before dispatch (quit confirm → quit).
           case ControlCode.ctrlD:
             if (_edit.buffer.isEmpty) {
               _complete(null);
@@ -1185,15 +1224,42 @@ class LineEditor {
     c?.complete(result);
   }
 
+  /// The confirmed quit: settle every pending read as cancelled, reset
+  /// transient editor state, and complete a pending [readLine] with null so
+  /// the controller's REPL loop unwinds into its exit path. An armed readKey
+  /// (an approval/overlay prompt) resolves with the ctrlC event — its owner
+  /// sees a cancelled prompt instead of hanging. Queue-mode scratch state is
+  /// cleared too; a live turn underneath keeps running and is torn down by
+  /// the controller's shutdown, not here.
+  void _quitNow() {
+    _lastEsc = null;
+    _dialog.reset();
+    _activePicker?.closeState();
+    final key = _keyCompleter;
+    _keyCompleter = null;
+    _keyCompleterGlobal = false;
+    key?.complete(ControlKey(ControlCode.ctrlC));
+    _complete(null);
+    _edit = _edit.clear().resetNavigation();
+    _qBuf = '';
+    _qCursor = 0;
+    // Nothing pending may surface after the quit: held pastes and burst
+    // overflow would otherwise dispatch into a dead readLine and repaint the
+    // input row during teardown.
+    _heldPastes.clear();
+    _pending.clear();
+    _burstTimer?.cancel();
+    _burstTimer = null;
+    _redraw();
+  }
+
   // -- Queue mode ---------------------------------------------------------
 
   void _handleQueueEvent(InputEvent event) {
-    // Any input other than Ctrl+C dismisses an armed quit-confirm, mirroring
-    // the prompt's dispatch behavior (the dialog must not linger and turn a
-    // later keystroke into a surprise exit once readLine re-arms).
-    if (event is! ControlKey || event.code != ControlCode.ctrlC) {
-      _dialog.dismiss();
-    }
+    // Any input dismisses an armed quit-confirm (the dialog must not linger
+    // and turn a later keystroke into a surprise exit once readLine re-arms;
+    // Ctrl+C itself never reaches here — the quit gate consumes it first).
+    _dialog.dismiss();
     switch (event) {
       case ScrollEvent():
         return; // the wheel never drives queue/command history.
@@ -1222,24 +1288,6 @@ class LineEditor {
               _qCursor--;
             }
             _renderQueueDisplay();
-          case ControlCode.ctrlC:
-            // Queue mode's quit path: the first Ctrl+C cancels the running
-            // turn AND arms the same "Ctrl+C again to exit" confirm the idle
-            // prompt uses; the second completes the quit (a no-op while no
-            // readLine is armed — the armed dialog survives until it is, so
-            // the next press there exits immediately). Pre-fix, queue mode
-            // had no exit at all: Ctrl+C fired the cancel handler and the
-            // user was trapped until the turn unwound on its own.
-            _cancelHandler!();
-            if (_qBuf.isNotEmpty) {
-              _qBuf = '';
-              _qCursor = 0;
-              _renderQueueDisplay();
-            } else if (_dialog.trigger()) {
-              _complete(null);
-            } else {
-              _renderQueueDisplay();
-            }
           case ControlCode.tab:
           case ControlCode.ctrlL:
           case ControlCode.ctrlD:
@@ -1259,6 +1307,10 @@ class LineEditor {
             // permission mode while an agent runs changes how its NEXT tool
             // call is gated.
             _handleBackTab(event);
+            break;
+          case ControlCode.ctrlC:
+            // Unreachable: the quit gate at the top of _onEventInner
+            // consumes Ctrl+C before queue mode can see it.
             break;
         }
       case CharInput(:final text):
