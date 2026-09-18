@@ -225,6 +225,10 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     }
     if (p.sandboxAccess != null || p.outsideSandbox) {
       chat.yellow(p.accessDescription);
+    } else {
+      // The ordinary prompt used to say only "always allow", which reads as
+      // permanent and global. Say what a/d actually covers.
+      chat.dim(p.alwaysScopeNote);
     }
     final preview = await previewToolCall(p.toolName, p.input, preparedEdit: p.preparedEdit);
     for (final entry in preview) {

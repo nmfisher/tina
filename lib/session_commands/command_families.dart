@@ -706,13 +706,20 @@ class PermissionsCommands {
   PermissionsCommands(this.ctx);
 
   /// `/permissions` — show rules; `/permissions <ask|read-all|allow-edits|
-  /// auto>` switches the permission mode at runtime. The switch is wired by
-  /// the TUI (base policy + every live conversation); headless reports it's
-  /// unavailable.
+  /// auto>` switches the permission mode at runtime; `/permissions revoke
+  /// [tool[:pattern]|all]` forgets what an approval remembered. The mode switch
+  /// is wired by the TUI (base policy + every live conversation); headless
+  /// reports it's unavailable.
   Future<void> _handlePermissions(String line) async {
     final parts = line.split(RegExp(r'\s+'));
     if (parts.length < 2) {
       _printPermissions();
+      return;
+    }
+    if (parts[1] == 'revoke' || parts[1] == 'forget') {
+      // The target keeps its spaces: a bash command is the pattern, and
+      // `revoke bash:git status` must name the whole thing.
+      _revokePermission(parts.length > 2 ? parts.sublist(2).join(' ') : null);
       return;
     }
     final mode = switch (parts[1]) {
@@ -743,6 +750,29 @@ class PermissionsCommands {
     ctx.active.host.showMessage('permission mode: ${parts[1]}\n');
   }
 
+  /// `/permissions revoke [target]` — drop remembered approvals. No target (or
+  /// `all`) clears every one; `tool` clears that tool's; `tool:pattern` clears
+  /// exactly that rule. Configured rules are untouched: this forgets answers
+  /// given at a prompt, it does not edit configuration.
+  void _revokePermission(String? target) {
+    final policy = ctx.active.policy;
+    final all = target == null || target == 'all';
+    final colon = target?.indexOf(':') ?? -1;
+    final removed = all
+        ? policy.forget()
+        : policy.forget(
+            tool: colon < 0 ? target : target.substring(0, colon),
+            pattern: colon < 0 ? null : target.substring(colon + 1),
+          );
+    ctx.active.host.showMessage(
+      removed == 0
+          ? 'nothing remembered for ${target ?? 'this conversation'}\n'
+          : 'revoked $removed remembered '
+              '${removed == 1 ? 'approval' : 'approvals'}\n',
+      style: removed == 0 ? HostMessageStyle.dim : HostMessageStyle.normal,
+    );
+  }
+
   void _printPermissions() {
     final policy = ctx.active.policy;
     ctx.active.host.showMessage(
@@ -770,10 +800,15 @@ class PermissionsCommands {
         ctx.active.host.showMessage('  $r\n', style: HostMessageStyle.dim);
       }
     }
-    if (policy.sessionRules.isNotEmpty) {
-      ctx.active.host.showMessage('session memory:\n');
-      for (final r in policy.sessionRules) {
-        ctx.active.host.showMessage('  $r\n', style: HostMessageStyle.dim);
+    if (policy.sessionGrants.isNotEmpty) {
+      // Scope and who answered ride along: an approval the classifier made for
+      // itself must not read like one you gave.
+      ctx.active.host.showMessage(
+        'remembered approvals (/permissions revoke to forget):\n',
+      );
+      for (final grant in policy.sessionGrants) {
+        ctx.active.host.showMessage('  $grant\n',
+            style: HostMessageStyle.dim);
       }
     } else if (policy.staticRules.isEmpty) {
       ctx.active.host.showMessage(

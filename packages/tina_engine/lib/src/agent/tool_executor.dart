@@ -526,6 +526,7 @@ class ToolExecutor {
     // note is expected there.
     PermissionResponse? resp;
     String? changedModeBlock;
+    var scope = GrantScope.call;
     if (decision == PermissionDecision.ask) {
       final prompt = PermissionPrompt(use.name, executionInput,
           cancelSignal: toolStopSignal ?? cancelSignal,
@@ -536,6 +537,7 @@ class ToolExecutor {
           retrySafety: retrySafety);
       if (recovery != null) state.promptedSandboxRetries.add(retryKey!);
       resp = await _ask(prompt);
+      scope = _approvalScope(prompt, resp);
       changedModeBlock = runtimeBlock();
       decision = changedModeBlock == null &&
               resp.decision == PermissionDecision.allow &&
@@ -548,7 +550,8 @@ class ToolExecutor {
           access == null &&
           !isCancelled() &&
           !state.toolInterrupted) {
-        policy.remember(use.name, prompt.alwaysPattern, decision);
+        policy.remember(use.name, prompt.alwaysPattern, decision,
+            scope: scope, source: resp.source);
       }
       // Record the approval itself, not just the denials (auditDenial). This is
       // the only place that knows the final decision, the scope it was granted
@@ -557,7 +560,7 @@ class ToolExecutor {
       auditApproval(
         tool: use.name,
         decision: decision == PermissionDecision.allow ? 'allow' : 'deny',
-        scope: _approvalScope(prompt, resp),
+        scope: scope.name,
         decidedBy: resp.decidedBy,
         target: prompt.key,
         remember: resp.remember ? prompt.alwaysPattern : null,
@@ -889,18 +892,15 @@ class ToolExecutor {
     ]);
   }
 
-  /// What an approval covers, in plain words for the audit line. The three
-  /// prompt flavours grant for different lengths of time, and only two of them
-  /// say so in the prompt text — naming the scope here makes the difference
-  /// reviewable after the fact.
-  String _approvalScope(PermissionPrompt prompt, PermissionResponse resp) {
-    if (prompt.outsideSandbox) {
-      return resp.remember ? 'session-outside' : 'call';
-    }
-    if (prompt.sandboxAccess != null) {
-      return resp.remember ? 'session-directories' : 'call';
-    }
-    return resp.remember ? 'conversation' : 'call';
+  /// What an approval covers. The three prompt flavours grant for different
+  /// lengths of time, and only two of them say so in the prompt text — naming
+  /// the scope here makes the difference reviewable after the fact, and is what
+  /// the remembered grant is filed under.
+  GrantScope _approvalScope(PermissionPrompt prompt, PermissionResponse resp) {
+    if (!resp.remember) return GrantScope.call;
+    if (prompt.outsideSandbox) return GrantScope.sessionOutside;
+    if (prompt.sandboxAccess != null) return GrantScope.sessionDirectories;
+    return GrantScope.conversation;
   }
 
   /// Runs the AROUND-execution hook chain around [delegate]. The FIRST

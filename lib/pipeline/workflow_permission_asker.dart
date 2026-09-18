@@ -93,6 +93,9 @@ class WorkflowPermissionAsker {
     }
     if (p.sandboxAccess != null || p.outsideSandbox) {
       _write(p.accessDescription, HostMessageStyle.warning);
+    } else {
+      // Same note as the chat asker: what a/d covers, in plain words.
+      _write(p.alwaysScopeNote, HostMessageStyle.dim);
     }
     final preview = await previewToolCall(p.toolName, p.input, preparedEdit: p.preparedEdit);
     for (final entry in preview) {

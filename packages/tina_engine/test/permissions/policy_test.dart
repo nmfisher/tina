@@ -282,6 +282,82 @@ void main() {
     });
   });
 
+  group('remembered approvals carry their scope and who made them', () {
+    test('a remembered answer is filed with scope and source', () {
+      final p = PermissionPolicy();
+      p.remember('bash', 'git status', PermissionDecision.allow);
+      final grant = p.sessionGrants.single;
+      expect(grant.rule.toolName, 'bash');
+      expect(grant.rule.pattern, 'git status');
+      expect(grant.scope, GrantScope.conversation,
+          reason: 'a prompt answer covers the conversation by default');
+      expect(grant.source, GrantSource.user);
+      expect(p.sessionRules.single.pattern, 'git status',
+          reason: 'sessionRules still mirrors the rules for older callers');
+      expect(grant.toString(), contains('this conversation, until tina exits'));
+      expect(grant.toString(), contains('you'));
+    });
+
+    test('a classifier grant never overrides a rule a human configured', () {
+      final p = PermissionPolicy(rules: const [
+        PermissionRule(
+            toolName: 'bash',
+            pattern: 'rm *',
+            decision: PermissionDecision.deny),
+      ]);
+      // The model allowed a command the operator's rule was written to stop.
+      p.remember('bash', 'rm *', PermissionDecision.allow,
+          source: GrantSource.classifier);
+      expect(p.check('bash', {'command': 'rm -rf /tmp'}),
+          PermissionDecision.deny,
+          reason: 'the classifier answers in place of the user, not above them');
+    });
+
+    test('a human grant still overrides a configured rule', () {
+      final p = PermissionPolicy(rules: const [
+        PermissionRule(
+            toolName: 'bash',
+            pattern: 'git *',
+            decision: PermissionDecision.deny),
+      ]);
+      p.remember('bash', 'git status', PermissionDecision.allow);
+      expect(p.check('bash', {'command': 'git status'}),
+          PermissionDecision.allow);
+    });
+
+    test('a classifier grant applies where nothing is configured', () {
+      final p = PermissionPolicy();
+      p.remember('bash', 'git status', PermissionDecision.allow,
+          source: GrantSource.classifier);
+      expect(p.check('bash', {'command': 'git status'}),
+          PermissionDecision.allow);
+    });
+  });
+
+  group('PermissionPolicy.forget', () {
+    test('takes back one answer, one tool, or everything', () {
+      final p = PermissionPolicy();
+      p.remember('bash', 'git status', PermissionDecision.allow);
+      p.remember('write', '/tmp/*', PermissionDecision.allow);
+      p.remember('fetch', 'https://example.com/x', PermissionDecision.deny);
+
+      expect(p.forget(tool: 'bash', pattern: 'git status'), 1);
+      expect(p.check('bash', {'command': 'git status'}), PermissionDecision.ask,
+          reason: 'the answer is gone, so the default is back');
+      expect(p.sessionGrants, hasLength(2));
+
+      expect(p.forget(tool: 'write'), 1);
+      expect(p.sessionGrants.map((g) => g.rule.toolName), ['fetch']);
+
+      expect(p.forget(), 1);
+      expect(p.sessionGrants, isEmpty);
+    });
+
+    test('forgetting nothing is not an error', () {
+      expect(PermissionPolicy().forget(tool: 'bash'), 0);
+    });
+  });
+
   group('PermissionPolicy.inertRules', () {
     test('reports a static rule for a tool that is not mounted', () {
       final p = PermissionPolicy(rules: const [

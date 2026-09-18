@@ -69,10 +69,73 @@ class PermissionRule {
       );
 }
 
+/// How long an approval lasts.
+///
+/// Every "always" answer names one of these, so the scope is a recorded fact
+/// rather than something implied by which prompt happened to be on screen. The
+/// four answers are the four scopes: a fix, a conversation, a project's shared
+/// writable directories, and running outside the sandbox.
+enum GrantScope {
+  /// This call only.
+  call,
+
+  /// This conversation, until the process exits. Never written to disk.
+  conversation,
+
+  /// The project scope's writable directories, shared by its agents, for the
+  /// running session.
+  sessionDirectories,
+
+  /// This exact invocation running outside the sandbox, for the running
+  /// session, shared by related agents.
+  sessionOutside;
+
+  /// The scope in plain words, for the approval prompt and `/permissions`.
+  String get plainWords => switch (this) {
+        call => 'this call only',
+        conversation => 'this conversation, until tina exits',
+        sessionDirectories => "this project's agents, for this session",
+        sessionOutside => 'this session, including its agents',
+      };
+}
+
+/// Who answered an approval.
+///
+/// Recorded because a grant a model made and a grant a person made are the same
+/// rule once remembered — and they must not be treated the same. See
+/// [PermissionPolicy.check]: a classifier grant never overrides a rule a human
+/// configured.
+enum GrantSource { user, classifier }
+
+/// One remembered decision: the rule, how long it lasts, and who made it.
+class SessionGrant {
+  final PermissionRule rule;
+  final GrantScope scope;
+  final GrantSource source;
+
+  const SessionGrant({
+    required this.rule,
+    required this.scope,
+    required this.source,
+  });
+
+  @override
+  String toString() =>
+      '${rule} (${scope.plainWords}, ${source == GrantSource.user ? 'you' : 'classifier'})';
+}
+
 class PermissionPolicy {
   final Map<String, PermissionDecision> defaults;
   final List<PermissionRule> staticRules;
-  final List<PermissionRule> sessionRules = [];
+
+  /// Remembered decisions, with their scope and who made them. In-memory only.
+  final List<SessionGrant> sessionGrants = [];
+
+  /// Just the rules, for callers that do not care who made them (the denial
+  /// remediation text, `/permissions`' older shape). Reads the list, so the
+  /// order matches [sessionGrants].
+  List<PermissionRule> get sessionRules =>
+      [for (final g in sessionGrants) g.rule];
 
   // Separate from wildcard command rules; never serialized. Derived policies
   // in the same running session share exact grants, but keep their deny gates.
@@ -152,13 +215,24 @@ class PermissionPolicy {
   PermissionDecision check(String tool, Map<String, dynamic> input) {
     if (executionBlock(tool, input) != null) return PermissionDecision.deny;
     final target = targetFor(tool, input);
-    // Session memory wins over static rules; latest decision wins within it.
-    for (final r in sessionRules.reversed) {
-      if (_appliesTo(r, tool, target)) return r.decision;
-    }
+    // What a human configured for this call, if anything. First match wins, as
+    // it always has.
+    PermissionDecision? configured;
     for (final r in staticRules) {
-      if (_appliesTo(r, tool, target)) return r.decision;
+      if (_appliesTo(r, tool, target)) {
+        configured = r.decision;
+        break;
+      }
     }
+    // Session memory wins over the configured rules and over the defaults;
+    // latest decision wins within it. The exception is a classifier's grant: it
+    // answers in place of the user, not above them, so it never overrides a rule
+    // a human wrote.
+    for (final g in sessionGrants.reversed) {
+      if (g.source == GrantSource.classifier && configured != null) continue;
+      if (_appliesTo(g.rule, tool, target)) return g.rule.decision;
+    }
+    if (configured != null) return configured;
     // `--yolo` widens EVERY default to allow — the table's own ask entries
     // and the unmapped-tool fallback alike — so a tool added later cannot
     // fall back to ask. The table is not rewritten, so rule precedence and
@@ -227,12 +301,36 @@ class PermissionPolicy {
     }
   }
 
-  void remember(String tool, String pattern, PermissionDecision decision) {
-    sessionRules.add(PermissionRule(
-      toolName: tool,
-      pattern: pattern,
-      decision: decision,
+  void remember(
+    String tool,
+    String pattern,
+    PermissionDecision decision, {
+    GrantScope scope = GrantScope.conversation,
+    GrantSource source = GrantSource.user,
+  }) {
+    sessionGrants.add(SessionGrant(
+      rule: PermissionRule(
+        toolName: tool,
+        pattern: pattern,
+        decision: decision,
+      ),
+      scope: scope,
+      source: source,
     ));
+  }
+
+  /// Drop remembered decisions and return how many went.
+  ///
+  /// With no arguments, all of them. [tool] (and optionally [pattern]) narrows
+  /// it, so `/permissions revoke bash:git status` takes back one answer without
+  /// disturbing the rest. Configured rules are untouched — this only forgets
+  /// what was remembered at a prompt.
+  int forget({String? tool, String? pattern}) {
+    final before = sessionGrants.length;
+    sessionGrants.removeWhere((g) =>
+        (tool == null || g.rule.toolName == tool) &&
+        (pattern == null || g.rule.pattern == pattern));
+    return before - sessionGrants.length;
   }
 
   /// The ALLOW patterns that exist for [tool] (static rules, then session

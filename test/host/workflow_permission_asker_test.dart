@@ -434,6 +434,14 @@ void main() {
       contains('[mode: allow-edits]'),
       reason: '(b) the header carries the active mode, read from the policy',
     );
+    // (b2) "always allow" reads as permanent and global, and is neither: the
+    // prompt says what a/d actually covers. A sandbox or outside-sandbox prompt
+    // already spells its own scope out, so it carries no note.
+    expect(
+      notices(),
+      contains('this conversation, until tina exits'),
+      reason: 'the ordinary prompt states the scope of an "always" answer',
+    );
 
     // (c) first ignored key → one dim ack…
     io.feedBytes([0x71]); // 'q' — not an answer

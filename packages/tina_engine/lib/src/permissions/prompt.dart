@@ -60,6 +60,19 @@ class PermissionPrompt {
   ApprovalTarget get target => PermissionPolicy.targetFor(toolName, input);
   String get key => target.label;
   String get alwaysPattern => target.remember;
+
+  /// What an "always" answer covers, in plain words, for the prompts whose own
+  /// text does not already say it.
+  ///
+  /// The sandbox-access and outside-sandbox descriptions spell their scope out;
+  /// the ordinary prompt said only "always allow", which reads as permanent and
+  /// global when it is neither. Empty when [accessDescription] already covers it,
+  /// so the note costs one dim line and says the thing that was missing.
+  String get alwaysScopeNote {
+    if (sandboxAccess != null || outsideSandbox) return '';
+    return '  [a] and [d] remember for ${GrantScope.conversation.plainWords} — '
+        'nothing is saved to disk.\n';
+  }
 }
 
 class PermissionResponse {
@@ -83,6 +96,11 @@ class PermissionResponse {
   /// once a verdict lands as a session rule, a classifier grant and a user
   /// grant are otherwise indistinguishable.
   final String decidedBy;
+
+  /// [decidedBy] as a grant source, for the policy to file the grant under. A
+  /// headless refusal never grants, so it maps to [GrantSource.user] harmlessly.
+  GrantSource get source =>
+      decidedBy == 'classifier' ? GrantSource.classifier : GrantSource.user;
 
   const PermissionResponse(
     this.decision, {

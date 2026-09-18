@@ -520,6 +520,52 @@ Future<void> main() async {
           contains('permission mode: allow-edits'));
     });
 
+    test('no arg lists remembered approvals with scope and who answered',
+        () async {
+      conv.policy.remember('bash', 'git status', PermissionDecision.allow);
+      conv.policy.remember('fetch', 'https://example.com/x',
+          PermissionDecision.allow,
+          source: GrantSource.classifier);
+      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+      await handlers.dispatch('/permissions');
+      final joined = host.styledMessages.map((m) => m.message).join();
+      expect(joined, contains('remembered approvals'));
+      expect(joined, contains('bash:git status'));
+      expect(joined, contains('this conversation, until tina exits'));
+      expect(joined, contains('you'),
+          reason: 'a grant you gave says so');
+      expect(joined, contains('classifier'),
+          reason: 'a grant the model made is not mistaken for yours');
+    });
+
+    test('revoke takes back one answer without touching the others', () async {
+      conv.policy.remember('bash', 'git status', PermissionDecision.allow);
+      conv.policy.remember('bash', 'ls -la', PermissionDecision.allow);
+      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+      await handlers.dispatch('/permissions revoke bash:git status');
+
+      expect(host.styledMessages.map((m) => m.message).join(),
+          contains('revoked 1 remembered approval'));
+      expect(conv.policy.sessionGrants.single.rule.pattern, 'ls -la');
+    });
+
+    test('revoke all clears the conversation', () async {
+      conv.policy.remember('bash', 'git status', PermissionDecision.allow);
+      conv.policy.remember('write', '/tmp/*', PermissionDecision.allow);
+      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+      await handlers.dispatch('/permissions revoke all');
+      expect(conv.policy.sessionGrants, isEmpty);
+      expect(host.styledMessages.map((m) => m.message).join(),
+          contains('revoked 2 remembered approvals'));
+    });
+
+    test('revoking something that was never remembered says so', () async {
+      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+      await handlers.dispatch('/permissions revoke bash');
+      expect(host.styledMessages.map((m) => m.message).join(),
+          contains('nothing remembered'));
+    });
+
     test('unknown mode errors without switching', () async {
       var switched = false;
       final handlers = SessionCommandHandlers(_FakeCtx(
