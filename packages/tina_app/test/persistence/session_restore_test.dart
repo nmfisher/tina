@@ -620,9 +620,10 @@ void main() {
       }
     });
 
-    RestoreContext _ctx(String activeConversationId) {
+    RestoreContext _ctx(String activeConversationId,
+        {RuntimeConfig? config, List<FakeHostInterface>? hosts}) {
       final registry = _multiProviderRegistry();
-      final config = RuntimeConfig();
+      config ??= RuntimeConfig();
       return RestoreContext(
         registry: registry,
         pipeline: _pipeline,
@@ -630,8 +631,12 @@ void main() {
         store: store,
         scheduler: createScheduler(
             config: config, registry: registry, pipeline: _pipeline),
-        hostFactory: ({required conversationId, required isActive}) =>
-            FakeHostInterface(),
+        hostFactory: ({required conversationId, required isActive}) {
+          // Captured when the caller wants to read what a restore printed.
+          final host = FakeHostInterface();
+          hosts?.add(host);
+          return host;
+        },
         sessionId: sessionId,
         activeConversationId: activeConversationId,
         // The factory seam mirrors AppComposition.buildStartupProvider: a
@@ -692,6 +697,104 @@ void main() {
       // No model ref → rebuilt under the account provider (anthropic-small).
       expect(conv.provider.model, 'anthropic-small');
       expect(conv.history, hasLength(1));
+
+      await conv.host.dispose();
+    });
+
+    test('permissions come from this run, not from the saved session',
+        () async {
+      // A session created under --yolo must not resume under --yolo unless the
+      // flag is passed again: the posture is an argument to the run, not a
+      // property of the session.
+      final yoloId = await store.createConversationWithMeta(
+          sessionId,
+          ConversationMetaInput.primary(
+            providerId: 'anthropic',
+            provider: FakeProvider(const [], model: 'anthropic-small'),
+            policy: PermissionPolicy(allowAllByDefault: true),
+            systemPrompt: 'main',
+            label: 'main',
+          ));
+      await store.append(sessionId, yoloId,
+          const Message(role: Role.user, content: [TextBlock('hi')]));
+      await store.append(sessionId, yoloId,
+          const Message(role: Role.assistant, content: [TextBlock('hello')]));
+
+      final hosts = <FakeHostInterface>[];
+      final conv = await restoreConversation(
+          store.metaFor(sessionId, yoloId)!, _ctx(yoloId, hosts: hosts));
+
+      expect(conv.policy.allowAllByDefault, isFalse,
+          reason: 'the stored --yolo must not survive the resume');
+      expect(conv.policy.check('bash', const {'command': 'rm -rf /tmp/x'}),
+          PermissionDecision.ask,
+          reason: 'a shell command asks again, rather than running unasked');
+      // And the change is stated, not silent.
+      expect(hosts.single.messages.join(), contains('--yolo'),
+          reason: 'the notice names the posture the session was created with');
+
+      await conv.host.dispose();
+    });
+
+    test('passing the flag again keeps it', () async {
+      final yoloId = await store.createConversationWithMeta(
+          sessionId,
+          ConversationMetaInput.primary(
+            providerId: 'anthropic',
+            provider: FakeProvider(const [], model: 'anthropic-small'),
+            policy: PermissionPolicy(allowAllByDefault: true),
+            systemPrompt: 'main',
+            label: 'main',
+          ));
+      await store.append(sessionId, yoloId,
+          const Message(role: Role.user, content: [TextBlock('hi')]));
+      await store.append(sessionId, yoloId,
+          const Message(role: Role.assistant, content: [TextBlock('hello')]));
+
+      final hosts = <FakeHostInterface>[];
+      final conv = await restoreConversation(
+          store.metaFor(sessionId, yoloId)!,
+          _ctx(yoloId, config: RuntimeConfig(yolo: true), hosts: hosts));
+
+      expect(conv.policy.allowAllByDefault, isTrue);
+      expect(hosts.single.messages.join(), isNot(contains('--yolo')),
+          reason: 'nothing changed, so there is nothing to report');
+
+      await conv.host.dispose();
+    });
+
+    test('a spawn keeps the tool set it was created with, and gates afresh',
+        () async {
+      // The stored policy stays the record of a spawn's TOOL SET; gating is this
+      // run's. Both halves matter: the spawn must not silently regain tools, and
+      // resuming without --yolo must not run them unchecked.
+      final spawnId = await store.createConversationWithMeta(
+          sessionId,
+          ConversationMetaInput.spawn(
+            providerId: 'anthropic',
+            providerModel: 'anthropic-small',
+            policy: PermissionPolicy(defaults: const {
+              'read': PermissionDecision.allow,
+            }),
+            systemPrompt: 'read-only scout',
+            targetName: 'scout',
+            parentConversationId: primaryId,
+          ));
+      await store.append(sessionId, spawnId,
+          const Message(role: Role.user, content: [TextBlock('look')]));
+      await store.append(sessionId, spawnId,
+          const Message(role: Role.assistant, content: [TextBlock('seen')]));
+
+      final conv = await restoreConversation(
+          store.metaFor(sessionId, spawnId)!, _ctx(primaryId));
+
+      final tools = {for (final t in conv.agent.tools.all) t.schema.name};
+      expect(tools, contains('read'));
+      expect(tools, isNot(contains('write')),
+          reason: 'the stored allow-list decided the tool set, and still does');
+      expect(tools, isNot(contains('bash')));
+      expect(conv.policy.allowAllByDefault, isFalse,
+          reason: 'but the posture is this run\'s');
 
       await conv.host.dispose();
     });

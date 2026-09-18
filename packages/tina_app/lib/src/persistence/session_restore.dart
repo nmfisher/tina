@@ -63,6 +63,7 @@ AgentDriver _restoreDriver({
   required LlmProvider provider,
   required HostInterface host,
   required PermissionPolicy policy,
+  required PermissionPolicy toolsFrom,
   required RestoreContext ctx,
   required String system,
 }) {
@@ -86,14 +87,17 @@ AgentDriver _restoreDriver({
     case ConversationKind.spawn:
     case ConversationKind.branch:
       // A sub-agent/spawn/branch conversation's tools are reconstructed from
-      // its stored policy's allow-list (that policy fully determined its tool
-      // set at spawn). An unknown/empty policy yields no tools — the
-      // conversation is still replayable. A sub-agent may continue to delegate
-      // (inheriting its own identity); spawns and branches are leaves.
+      // the allow-list it was CREATED with — [toolsFrom], which is the stored
+      // policy, because that policy decided the tool set at spawn. Gating is
+      // [policy] (this run's), so a spawn created under --yolo resumes with the
+      // tools it had but asks before using them. An unknown/empty stored policy
+      // yields no tools — the conversation is still replayable. A sub-agent may
+      // continue to delegate (inheriting its own identity); spawns and branches
+      // are leaves.
       final tools = <Tool>[
         ...(ctx.config.safeMode
-            ? stripForSafeMode(ctx.pipeline.tools.toolsFromPolicy(policy))
-            : ctx.pipeline.tools.toolsFromPolicy(policy)),
+            ? stripForSafeMode(ctx.pipeline.tools.toolsFromPolicy(toolsFrom))
+            : ctx.pipeline.tools.toolsFromPolicy(toolsFrom)),
       ];
       if (meta.kind == ConversationKind.subAgent) {
         final ctx2 = AgentToolContext(
@@ -155,16 +159,43 @@ LlmProvider _restoreProvider(ConversationMeta meta, RestoreContext ctx) {
   }
 }
 
-/// Resolve the policy a [meta] ran under: its stored policy (defaults + static
-/// rules) when present, otherwise a freshly-built config policy.
-PermissionPolicy _restorePolicy(ConversationMeta meta, RestoreContext ctx) {
+/// The policy a [meta] was CREATED under, when the manifest carries one that
+/// still parses. Null otherwise.
+///
+/// This is no longer the policy a resumed conversation gates with — permissions
+/// come from the run doing the resuming (see [restoreConversation], and
+/// [_permissionChangeNote] for how the difference is reported). It is kept for
+/// one thing: the tool set a spawn, sub-agent or branch was created with, which
+/// its stored allow-list is the only record of.
+PermissionPolicy? _storedPolicy(ConversationMeta meta) {
   final stored = meta.policy;
-  if (stored == null) return ctx.config.buildPolicy();
+  if (stored == null) return null;
   try {
     return PermissionPolicy.fromJson(stored);
   } catch (_) {
-    return ctx.config.buildPolicy();
+    return null;
   }
+}
+
+/// One line when a resumed session was created with a different permission
+/// posture than this run starts with, so the change is stated rather than
+/// silent. Null when there is nothing to say.
+///
+/// A session started with `--yolo` runs under `--yolo` only if the flag was
+/// passed again: the posture is an argument to the run, not a property of the
+/// session that was saved.
+String? _permissionChangeNote(
+    PermissionPolicy? stored, PermissionPolicy fresh) {
+  if (stored == null) return null;
+  final differences = <String>[
+    if (stored.allowAllByDefault && !fresh.allowAllByDefault) '--yolo',
+    if (stored.mode != fresh.mode) '--permission-mode ${stored.mode.label}',
+    if ('${stored.staticRules}' != '${fresh.staticRules}') '--allow/--deny',
+  ];
+  if (differences.isEmpty) return null;
+  return '  this session was created with ${differences.join(', ')}; it '
+      'resumes with the permissions of this run — pass '
+      '${differences.length == 1 ? 'it' : 'them'} again to keep the original.\n';
 }
 
 /// Rebuild a [Conversation] for [meta] with its exact driver and full history,
@@ -191,12 +222,26 @@ Future<Conversation> restoreConversation(
   final provider = _restoreProvider(meta, ctx);
   final resources = RuntimeResources()..own(provider.close);
   try {
-    final policy = _restorePolicy(meta, ctx);
+    // Permissions come from THIS run, not from the run that created the
+    // session: the stored policy is the manifest's record of what the session
+    // was created with, and is used below only for the tool set of a
+    // spawn/sub-agent. So `--yolo` does not survive a resume unless it is
+    // passed again, and neither does a stored mode or command rule.
+    final storedPolicy = _storedPolicy(meta);
+    final policy = ctx.config.buildPolicy();
     final host = ctx.hostFactory(
       conversationId: meta.id,
       isActive: meta.id == ctx.activeConversationId,
     );
     resources.own(host.dispose);
+    // The active conversation is the one the user is looking at, so the notice
+    // belongs there and not once per restored side conversation.
+    final permissionNote = meta.kind == ConversationKind.primary
+        ? _permissionChangeNote(storedPolicy, policy)
+        : null;
+    if (permissionNote != null) {
+      host.showMessage(permissionNote, style: HostMessageStyle.warning);
+    }
     final system =
         meta.promptOverride ??
         resolveMainPrompt(
@@ -210,6 +255,7 @@ Future<Conversation> restoreConversation(
       provider: provider,
       host: host,
       policy: policy,
+      toolsFrom: storedPolicy ?? policy,
       ctx: ctx,
       system: system,
     );
