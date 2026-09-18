@@ -103,6 +103,39 @@ void main() {
     });
   });
 
+  group('the outside-sandbox description states what it adds', () {
+    PermissionPrompt outside({bool networkIsolated = false}) => PermissionPrompt(
+          'bash',
+          const {'command': 'ssh host'},
+          outsideSandbox: true,
+          sandboxNetworkIsolated: networkIsolated,
+          retryExplanation: 'Read-only file system while writing ~/.ssh.',
+        );
+
+    test('it names write confinement, not "filesystem and network access"', () {
+      final text = outside().accessDescription;
+      expect(text, contains('confines what this command can write'));
+      expect(text, contains('anywhere your account can'));
+      expect(text, isNot(contains('filesystem and network access')),
+          reason: 'the sandboxed command could already read and (by default) '
+              'reach the network; only writes were confined');
+    });
+
+    test('it mentions the network only when the sandbox was blocking it', () {
+      expect(outside().accessDescription, isNot(contains('network')));
+      expect(outside(networkIsolated: true).accessDescription,
+          contains('blocking its network access'));
+    });
+
+    test('it still carries the failure explanation and the once/session choice',
+        () {
+      final text = outside().accessDescription;
+      expect(text, contains('Read-only file system'));
+      expect(text, contains('nothing is saved to disk'));
+      expect(text, contains('this retry only'));
+    });
+  });
+
   group('the row is built from the choices', () {
     test('every offered key and label appears', () {
       for (final prompt in [bashPrompt(), sandboxPrompt(), outsidePrompt()]) {

@@ -203,6 +203,7 @@ String buildSandboxProfile({
   List<String> extraAllowPaths = const [],
   bool sandboxReadOnly = false,
   bool sandboxNet = false,
+  String? homeOverride,
 }) {
   final allow = <String>{};
   // The project root is the one path the agent must be able to write to —
@@ -222,8 +223,21 @@ String buildSandboxProfile({
     }
   }
 
-  return buildMacSandboxProfile(writablePaths: allow, root: root,
-      readOnlyProject: sandboxReadOnly, isolateNetwork: sandboxNet);
+  // A read-only run hides the user's home from reads. Resolve the real home so
+  // a non-standard `$HOME` is covered; `/Users` is only the fallback when HOME
+  // is unusable.
+  final homeEnv = homeOverride ?? Platform.environment['HOME'];
+  final home =
+      (homeEnv == null || homeEnv.isEmpty) ? null : _resolve(homeEnv);
+  if (sandboxReadOnly && home == null) {
+    _log.warning('sandbox: cannot resolve \$HOME; hiding /Users from reads');
+  }
+  return buildMacSandboxProfile(
+      writablePaths: allow,
+      root: root,
+      readOnlyProject: sandboxReadOnly,
+      readDenyPaths: sandboxReadOnly ? [home ?? '/Users'] : const [],
+      isolateNetwork: sandboxNet);
 }
 
 /// Build the `bwrap` argument list that gives Linux parity with the macOS

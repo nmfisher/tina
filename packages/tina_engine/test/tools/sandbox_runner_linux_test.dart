@@ -146,6 +146,12 @@ void main() {
       // bwrap option.
       expect(args, containsAllInOrder(['--dev', '/dev']));
       expect(args, containsAllInOrder(['--proc', '/proc']));
+      // A fresh /proc only means something with a PID namespace, and a
+      // sandboxed command must not be able to signal the agent's processes —
+      // nor outlive it.
+      expect(args, contains('--unshare-pid'),
+          reason: 'the namespace is what makes --proc mean "this command"');
+      expect(args, contains('--die-with-parent'));
       expect(args, isNot(contains('--unshare-net')));
       expect(args.last, '--');
     });

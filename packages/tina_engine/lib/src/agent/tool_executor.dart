@@ -13,6 +13,7 @@ import '../tools/edit_tool.dart';
 import '../tools/audit.dart';
 import '../tools/edit_preparation.dart';
 import '../tools/sandbox_failure.dart';
+import '../tools/sandbox_runner.dart';
 import '../tools/tool_input.dart';
 import '../permissions/sandbox_access.dart';
 import 'agent_sink.dart';
@@ -721,7 +722,9 @@ class ToolExecutor {
         final prompt = PermissionPrompt(use.name, executionView,
             cancelSignal: toolStopSignal ?? cancelSignal,
             execution: (executionTool as ProcessTool).preparedRequest,
-            outsideSandbox: true, retryExplanation: failure.explanation);
+            outsideSandbox: true,
+            sandboxNetworkIsolated: _networkIsolated(executionTool),
+            retryExplanation: failure.explanation);
         final response = await _ask(prompt);
         final blocked = runtimeBlock();
         if (response.decision == PermissionDecision.allow &&
@@ -877,6 +880,14 @@ class ToolExecutor {
         interruptedInFlight: interruptedInFlight,
       );
     }
+  }
+
+  /// Whether [tool]'s runner also isolates the network, so the outside prompt
+  /// can say whether running outside adds network access as well as writes.
+  static bool _networkIsolated(Tool tool) {
+    if (tool is! ProcessTool) return false;
+    final runner = tool.processRunner;
+    return runner is SandboxedProcessRunner && runner.networkIsolated;
   }
 
   /// Cancellation stops waiting even if a custom asker never settles. Built-in

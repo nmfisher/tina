@@ -30,7 +30,7 @@ project, whatever the shell text looked like.
 | platform | backend | default posture |
 | --- | --- | --- |
 | macOS | `sandbox-exec -p <profile>` (Seatbelt) | writes confined to project root + temp; **reads, network, process stay open** |
-| Linux | `bwrap <binds> --` (user namespaces) | system dirs bound read-only, project root + temp writable, `--dev`/`--proc` provided; **home, mounted volumes, and system directories are visible read-only; unmounted paths are invisible**; network on |
+| Linux | `bwrap <binds> --` (user namespaces) | system dirs bound read-only, project root + temp writable, a fresh `/dev`/`/proc` in a **new PID namespace** (`--unshare-pid`, `--die-with-parent`); **home, mounted volumes, and system directories are visible read-only; unmounted paths are invisible**; network on |
 | other | pass-through | no OS-level confinement; the denylist + permission gate still apply |
 
 The asymmetry in the default posture is deliberate. On macOS the Seatbelt
@@ -54,8 +54,32 @@ Escape hatches (all compose):
   package installs, and `git fetch` need egress.
 - `--sandbox-readonly` — drop the writable project grant (the project stays
   readable; temp remains writable) for pure read/analyze runs. On macOS it
-  additionally denies reads under `/Users` and re-grants the project
-  read-only.
+  additionally denies reads under the resolved `$HOME` and re-grants the
+  project read-only — **asymmetric with Linux**, which keeps `$HOME` readable
+  because it is only bound read-only. Whether macOS should keep hiding home in
+  this mode is an open question, not a decision the code records.
+
+## What is confined, and what is not
+
+The sandbox wraps one seam: the process runner behind `bash` and `exec`. Every
+other tool that spawns a process uses a plain `IoProcessRunner` (or raw
+`Process.runSync`) and is **not** confined — `git`, `grep`, `ls`/`glob` (via the
+repo file enumerator), the `dart analyze` edit verifier, the summary sidecar,
+and the environment probes. That is deliberate (they are read-only or
+project-local), and it means "the sandbox is on" is a statement about the shell
+tools, not about the agent:
+
+| tool | confined | why |
+| --- | --- | --- |
+| `bash`, `exec` | yes | the process runner is wrapped |
+| `git`, `grep`, `ls`, `glob`, `repo_structure` | no | read-only helpers; reads are open anyway |
+| `dart analyze` (edit verifier) | no | verification only, no approved write |
+| summary sidecar, environment probes | no | write only inside the project's own data dir |
+
+Disclosure: an approval prompt carries a `[sandbox: off]` chip when this host
+cannot confine bash at all, and a one-time startup notice names the reason (the
+same string the sandbox logger records). An explicit `--no-sandbox` is not
+announced — the user asked for it.
 
 ## Runtime directory approval
 
@@ -127,7 +151,8 @@ start another approval loop; headless runs refuse this escalation.
 - bwrap needs unprivileged user namespaces; on hosts where the administrator
   disabled them (`kernel.unprivileged_userns_clone=0` or
   `user.max_user_namespaces=0`) or the binary is absent, the Linux sandbox
-  degrades to pass-through with a one-time warning naming the reason.
+  degrades to pass-through. The reason is logged and, for `bash`, shown at
+  startup and on every approval prompt as `[sandbox: off]`.
 - No CPU/memory quota (`--sandbox-cpu` deferred — see Status).
 
 ## Where it hooks in

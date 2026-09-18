@@ -386,6 +386,41 @@ void main() {
           reason: 'the remembered rule must authorize the call it came from');
     });
 
+    test('the sandbox wraps the shell tools, not every subprocess', () {
+      // docs/features/sandbox.md states this boundary explicitly, and the
+      // approval prompts now disclose when it is absent. Pinning it here keeps
+      // it a decision rather than drift: if one of these helpers starts going
+      // through the sandbox runner, update the doc and this list together.
+      final config = testConfig();
+      final scheduler = createScheduler(
+        config: config,
+        registry: ProviderRegistry(env: {}),
+        pipeline: defaultPipeline,
+      );
+      final driver = buildAgent(
+        pipeline: defaultPipeline,
+        scheduler: scheduler,
+        conversationId: 'c1',
+        provider: FakeProvider(const [], model: 'm'),
+        host: FakeHostInterface(),
+        policy: config.buildPolicy(),
+        config: config,
+      );
+
+      for (final name in const ['git', 'grep', 'ls', 'glob']) {
+        final tool = driver.tools[name];
+        expect(tool, isNotNull, reason: '$name is part of the read surface');
+        final runner = switch (tool) {
+          GitTool(:final processRunner) => processRunner,
+          GrepTool(:final processRunner) => processRunner,
+          _ => null,
+        };
+        if (runner == null) continue;
+        expect(runner, isA<IoProcessRunner>(),
+            reason: '$name spawns its own process; the sandbox does not cover it');
+      }
+    });
+
     test('a permission rule for a tool that is not mounted is reported', () {
       // A rule naming an unavailable tool can never match, so it silently
       // enforces nothing — a typo (`--deny 'bashh:rm *'`) must not look like a

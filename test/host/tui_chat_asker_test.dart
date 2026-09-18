@@ -191,6 +191,23 @@ void main() {
       expect(response.scope, GrantScope.sessionDirectories);
     });
 
+    test('a background conversation refuses without blaming the user', () async {
+      // The refusal is this conversation being off screen, not a decision the
+      // user made; the approval audit line says so.
+      host.setActive(false);
+      final response = await answer(bashPrompt(), [0x79]);
+      expect(response.decision, PermissionDecision.deny);
+      expect(response.decidedBy, 'background');
+      expect(response.note, contains('auto-refused'));
+    });
+
+    test('the sandbox chip states the posture, and is absent when confined', () {
+      expect(sandboxOffChip(null), isNull);
+      final chip = sandboxOffChip('bwrap not found on PATH');
+      expect(chip, contains('[sandbox: off]'));
+      expect(chip, contains('bwrap not found on PATH'));
+    });
+
     test('an ordinary "always" is conversation-scoped, and says so', () async {
       final prompt = bashPrompt();
       final response = await answer(prompt, [0x61]);

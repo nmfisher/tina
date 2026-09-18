@@ -2534,6 +2534,19 @@ class TuiCoordinator {
       );
     }
 
+    // Sandbox posture, once at startup. When this host cannot confine bash and
+    // the user did not ask for that (`--no-sandbox`), every approval prompt
+    // below would otherwise be answered without knowing the sandbox is not
+    // there. The reason is the same string the sandbox logger records.
+    final sandboxOff = config.sandboxEnabled ? sandboxPassThroughReason : null;
+    if (sandboxOff != null) {
+      sessionManager.activeConversation.host.showMessage(
+        '  bash runs unsandboxed on this host: $sandboxOff\n'
+        '  Writes are not confined to the project. Approvals still apply.\n',
+        style: HostMessageStyle.warning,
+      );
+    }
+
     // The keyboard now belongs to the REPL, so a frozen screen is worth
     // reporting: start watching for keys that produce no drawing.
     stuckCheck.start();

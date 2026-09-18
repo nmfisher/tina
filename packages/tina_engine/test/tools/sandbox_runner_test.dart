@@ -69,9 +69,11 @@ void main() {
           profile,
           isNot(contains(
               '(allow file-write* (subpath "$resolved"))')));
-      // …but reads under $HOME are denied and the project is re-granted
-      // read-only, so a read/analyze run still works inside it.
-      expect(profile, contains('(deny file-read* (subpath "/Users"))'));
+      // …but reads under the user's home are denied and the project is
+      // re-granted read-only, so a read/analyze run still works inside it.
+      // Which directory that is depends on the host's $HOME; the exact path is
+      // pinned by the hermetic 'home directory' test below.
+      expect(profile, contains('(deny file-read* (subpath "'));
       expect(profile, contains('(allow file-read* (subpath "$resolved"))'));
       // Temp stays writable for scratch output.
       expect(profile, contains('(allow file-write* (subpath "/tmp"))'));
@@ -173,6 +175,73 @@ void main() {
       expect(code, isNot(0), reason: 'the sandbox must deny the outside write');
       expect(File(target).existsSync(), isFalse,
           reason: 'no file should be created outside the project root');
+    });
+  });
+
+  group('macOS profile rendering', () {
+    // The renderer is pure: paths arrive already resolved, so these pin the
+    // text without depending on the developer machine.
+    test('a read-only run denies reads of each named directory', () {
+      final profile = buildMacSandboxProfile(
+        writablePaths: const ['/proj'],
+        root: '/proj',
+        readOnlyProject: true,
+        readDenyPaths: const ['/custom/home', '/Volumes/data'],
+        isolateNetwork: false,
+      );
+      expect(profile, contains('(deny file-read* (subpath "/custom/home"))'));
+      expect(profile, contains('(deny file-read* (subpath "/Volumes/data"))'));
+      expect(profile, contains('(allow file-read* (subpath "/proj"))'));
+      expect(profile, isNot(contains('(deny network*)')));
+    });
+
+    test('a read-only run that names nothing to deny cannot be rendered', () {
+      // The baseline is `(allow default)`, so a missing deny would silently
+      // leave reads open — fail loudly instead.
+      expect(
+          () => buildMacSandboxProfile(
+                writablePaths: const ['/proj'],
+                root: '/proj',
+                readOnlyProject: true,
+                isolateNetwork: false,
+              ),
+          throwsA(isA<AssertionError>()));
+    });
+
+    test('a writable run denies no reads', () {
+      final profile = buildMacSandboxProfile(
+        writablePaths: const ['/proj'],
+        root: '/proj',
+        readOnlyProject: false,
+        isolateNetwork: false,
+      );
+      expect(profile, isNot(contains('deny file-read*')));
+      expect(profile, contains('(allow file-write* (subpath "/proj"))'));
+    });
+
+    test('network isolation is its own deny', () {
+      final profile = buildMacSandboxProfile(
+        writablePaths: const ['/proj'],
+        root: '/proj',
+        readOnlyProject: false,
+        isolateNetwork: true,
+      );
+      expect(profile, contains('(deny network*)'));
+    });
+
+    test('the read-deny names the real home, not the old hard-coded /Users',
+        () async {
+      final home = Directory.systemTemp.createTempSync('tina-home-');
+      addTearDown(() => home.deleteSync(recursive: true));
+      final resolved = home.resolveSymbolicLinksSync();
+
+      final profile = buildSandboxProfile(
+        projectRoot: home.path,
+        sandboxReadOnly: true,
+        homeOverride: home.path,
+      );
+      expect(profile, contains('(deny file-read* (subpath "$resolved"))'));
+      expect(profile, isNot(contains('(subpath "/Users")')));
     });
   });
 }

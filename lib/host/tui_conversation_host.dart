@@ -9,6 +9,17 @@ import '../chat_agent_sink.dart';
 
 final _log = Logger('tina.agent.bus');
 
+/// This host's sandbox posture, resolved once: the probe stats binaries and
+/// reads kernel knobs, and the answer cannot change while the process runs.
+final String? _sandboxOffReason = sandboxPassThroughReason;
+
+/// The chip an approval prompt carries when this host cannot confine bash, or
+/// null when it can. Extracted so the wording is testable on any host — the
+/// host's own answer comes from [_sandboxOffReason].
+String? sandboxOffChip(String? reason) => reason == null
+    ? null
+    : '[sandbox: off] bash is running unsandboxed ($reason)';
+
 /// The terminal [HostInterface]: one per conversation. It owns the
 /// conversation's [ScrollingTextRegion] and [Spinner], routes agent output to them
 /// (reusing [ChatAgentSink]) while also mirroring every call on [eventBus],
@@ -198,6 +209,8 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     // refuse (with a dim note) — matching the old per-session asker. Policy
     // allow/deny rules short-circuit before the asker is ever called.
     if (!_active) {
+      // The refusal is nobody's decision — it is this conversation being in the
+      // background — so the audit line says that rather than blaming the user.
       // The denial note must start its own row: streamed agent prose ends
       // mid-row (no trailing newline), and a plain write would glue this
       // onto it (#30).
@@ -205,6 +218,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
       chat.dim('  ${p.toolName} denied — conversation in background\n');
       return const PermissionResponse(
         PermissionDecision.deny,
+        decidedBy: 'background',
         note:
             'Non-interactive run: permission asks are auto-refused — '
             'rephrasing will not change this. Proceed without this tool or '
@@ -219,6 +233,13 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     final policy = this.policy;
     if (policy != null) {
       chat.dim('  ${permissionModeChip(policy.mode)}\n');
+    }
+    // The mode chip says how calls are gated; this says whether they are
+    // confined at all. Without it, a user on a host where bash cannot be
+    // sandboxed answers every prompt believing the sandbox is there.
+    final sandboxChip = sandboxOffChip(_sandboxOffReason);
+    if (sandboxChip != null) {
+      chat.yellow('  $sandboxChip\n');
     }
     if (p.execution != null) {
       chat.dim(p.execution!.approvalDescription);

@@ -59,23 +59,41 @@ List<String> buildLinuxSandboxArguments(
     ],
     for (final dir in writablePaths) ...['--bind', dir, dir],
     '--dev', '/dev', '--proc', '/proc',
+    // A PID namespace makes the fresh /proc mean what it looks like — only this
+    // command's processes — and stops a sandboxed command from signalling the
+    // agent's own processes. bwrap reaps as pid 1 inside it, so the command's
+    // orphans are collected rather than reparented to the host.
+    '--unshare-pid',
+    // A sandboxed command must not outlive the agent that started it.
+    '--die-with-parent',
     if (isolateNetwork) '--unshare-net',
     '--',
   ];
 }
 
 /// Pure Seatbelt rendering over paths already resolved by host inspection.
+///
+/// [readDenyPaths] are the directories whose reads a read-only run hides; the
+/// caller resolves them (see `buildSandboxProfile`), because this function does
+/// no host inspection. It must be non-empty for a read-only run — the profile's
+/// baseline is `(allow default)`, so a missing deny would silently leave reads
+/// open.
 String buildMacSandboxProfile(
     {required Iterable<String> writablePaths,
     required String? root,
     required bool readOnlyProject,
-    required bool isolateNetwork}) {
+    required bool isolateNetwork,
+    List<String> readDenyPaths = const []}) {
+  assert(!readOnlyProject || readDenyPaths.isNotEmpty,
+      'a read-only run must name the directories whose reads are denied');
   final sb = StringBuffer('(version 1)\n');
   sb.write('(allow default)\n'); // reads, network, process — unrestricted
   if (isolateNetwork) sb.write('(deny network*)\n');
   sb.write('(deny file-write*)\n'); // …then deny every write, re-granting below
   if (readOnlyProject) {
-    sb.write('(deny file-read* (subpath "/Users"))\n');
+    for (final path in readDenyPaths) {
+      sb.write('(deny file-read* (subpath "${_escapeProfilePath(path)}"))\n');
+    }
     if (root != null) {
       sb.write('(allow file-read* (subpath "${_escapeProfilePath(root)}"))\n');
     }

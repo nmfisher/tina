@@ -14,11 +14,18 @@ class PermissionPrompt {
   final String? retrySafety;
   /// Separate user authorization; never satisfied by ordinary command rules.
   final bool outsideSandbox;
+
+  /// Whether the sandbox was also isolating the network for this command.
+  ///
+  /// Only then does running outside actually add network access — the prompt
+  /// claims exactly what the answer grants, no more.
+  final bool sandboxNetworkIsolated;
   /// Settle the prompt and release any keyboard ownership when its turn stops.
   final Future<void>? cancelSignal;
   const PermissionPrompt(this.toolName, this.input,
       {this.sandboxAccess, this.retryExplanation, this.retrySafety, this.execution, this.preparedEdit,
-      this.outsideSandbox = false, this.cancelSignal});
+      this.outsideSandbox = false, this.sandboxNetworkIsolated = false,
+      this.cancelSignal});
 
   /// The answers this prompt offers, in the order the row shows them: each key,
   /// what it says, and what answering it means.
@@ -118,11 +125,24 @@ class PermissionPrompt {
 
   String get accessDescription {
     if (outsideSandbox) {
+      // Say what the sandbox was actually doing. It confines writes; reads and
+      // (unless --sandbox-net) the network are already available to the
+      // sandboxed command, so promising "filesystem and network access" as the
+      // thing you gain got the contrast backwards.
+      //
+      // Lines are kept short and explicit: this text is written through the chat
+      // region, which hard-wraps at the column, and a sentence that straddles
+      // the boundary breaks mid-word (and splits the phrases the prompt tests
+      // assert on).
       return '  ${retryExplanation ?? "The sandbox blocked the command."}\n'
-          '  This command might touch files on the filesystem. '
-          'Are you definitely OK to run it outside the sandbox?\n'
-          '  It will have your user account’s filesystem and network access. '
-          'The first attempt may have made partial changes; retrying repeats the entire command.\n'
+          '  The sandbox confines what this command can write: the project,\n'
+          '  temp and approved directories.\n'
+          '  Running it outside removes that confinement: it can then write\n'
+          '  anywhere your account can.\n'
+          '${sandboxNetworkIsolated ? '  The sandbox was also blocking its network access.\n' : ''}'
+          '  The first attempt may have made partial changes; retrying repeats\n'
+          '  the entire command.\n'
+          '  Are you definitely OK to run it outside the sandbox?\n'
           '  y: this retry only; a: this exact command, cwd and environment '
           'outside the sandbox for this running session, including its agents. '
           'Other commands still use the sandbox; nothing is saved to disk.\n';
