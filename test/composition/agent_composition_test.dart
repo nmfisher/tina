@@ -339,7 +339,6 @@ void main() {
             reason: 'add the new tool to _sampleCalls (or drop the stale '
                 'entry) so its approval identity is checked');
 
-        final promptable = <String>{};
         for (final entry in _sampleCalls.entries) {
           final name = entry.key;
           final input = entry.value;
@@ -350,7 +349,6 @@ void main() {
           final canPrompt = mounted[name] is! LocalControlTool &&
               policy.check(name, input) == PermissionDecision.ask;
           if (!canPrompt) continue;
-          promptable.add(name);
 
           final key = PermissionPolicy.keyFor(name, input);
           final always = PermissionPolicy.defaultAlwaysPatternFor(name, input);
@@ -365,38 +363,27 @@ void main() {
               'a call with a real target remembers the universal wildcard',
           ];
 
-          final gap = _knownApprovalGaps[name];
-          if (gap == null) {
-            expect(problems, isEmpty, reason: '$name: ${problems.join('; ')}');
-          } else {
-            expect(problems, isNotEmpty,
-                reason: 'stale gap entry for $name — "$gap" no longer applies, '
-                    'so remove it from _knownApprovalGaps');
-          }
+          // No exceptions list: every promptable tool has to satisfy all three,
+          // so a tool that arrives with a weak identity fails here rather than
+          // starting a burn-down list.
+          expect(problems, isEmpty, reason: '$name: ${problems.join('; ')}');
         }
-
-        // 2. A gap entry for a tool that cannot prompt would never be checked,
-        //    and would sit there looking like a live defect.
-        expect(_knownApprovalGaps.keys.toSet().difference(promptable), isEmpty,
-            reason: 'gap entries must name tools that can actually prompt');
       } finally {
         tmp.deleteSync(recursive: true);
       }
     });
 
-    test('a root-level path cannot be remembered (known gap)', () {
-      // A file with no directory component has no directory rule to remember:
-      // `defaultAlwaysPatternFor` falls back to `*`, which for a file tool
-      // compiles to `[^/]*` and so never matches the absolute path it came
-      // from — "always" silently does nothing. Delete this test when the
-      // directory rule learns to handle root-level files.
+    test('a root-level path is remembered exactly, not as a wildcard', () {
+      // A file with no directory component has no directory rule to remember, so
+      // the target is the path itself. It used to fall back to `*`, which for a
+      // file tool compiles to `[^/]*` and so never matched the absolute path it
+      // came from — "always" silently did nothing.
       const input = {'filePath': '/foo.txt'};
-      final key = PermissionPolicy.keyFor('write', input);
-      final always = PermissionPolicy.defaultAlwaysPatternFor('write', input);
-      expect(key, '/foo.txt');
-      expect(always, '*', reason: 'no directory component to remember');
-      expect(globMatch(always, key), isFalse,
-          reason: 'the wildcard cannot match an absolute single-segment path');
+      final target = PermissionPolicy.targetFor('write', input);
+      expect(target.label, '/foo.txt');
+      expect(target.remember, '/foo.txt');
+      expect(globMatch(target.remember, target.label), isTrue,
+          reason: 'the remembered rule must authorize the call it came from');
     });
 
     test('a permission rule for a tool that is not mounted is reported', () {
@@ -703,19 +690,3 @@ const _sampleCalls = <String, Map<String, dynamic>>{
   'write_summary': {'filePath': '/p/lib/a.dart'},
 };
 
-/// Promptable tools whose approval identity is weaker than the invariants the
-/// sweep enforces. Stage 0 records them here so the suite is green while the
-/// gaps are tracked: every entry must still be violating (the sweep fails on a
-/// stale entry) and each one is deleted as part of fixing it.
-const _knownApprovalGaps = <String, String>{
-
-  'fetch': 'keyFor has no case for `url`: the header names no target and '
-      '"always" is the wildcard.',
-  'web_search': 'keyFor has no case for `query`: the same shape as fetch.',
-  'broadcast_region': 'the input is `task`, but the key falls through to the '
-      'file-path case, so there is nothing to show or remember.',
-  'forget_region': 'the input is `dir`, but the key falls through to the '
-      'file-path case, so there is nothing to show or remember.',
-  'launch_workflow': 'keyFor uses the workflow name, but the "always" pattern '
-      'falls through to "*", so approving one workflow approves every workflow.',
-};

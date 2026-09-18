@@ -1,5 +1,7 @@
 import 'dart:convert';
+
 import '../tools/execution_request.dart';
+import 'approval_target.dart';
 
 enum PermissionDecision { allow, deny, ask }
 
@@ -149,13 +151,13 @@ class PermissionPolicy {
 
   PermissionDecision check(String tool, Map<String, dynamic> input) {
     if (executionBlock(tool, input) != null) return PermissionDecision.deny;
-    final key = keyFor(tool, input);
+    final target = targetFor(tool, input);
     // Session memory wins over static rules; latest decision wins within it.
     for (final r in sessionRules.reversed) {
-      if (_appliesTo(r, tool, key)) return r.decision;
+      if (_appliesTo(r, tool, target)) return r.decision;
     }
     for (final r in staticRules) {
-      if (_appliesTo(r, tool, key)) return r.decision;
+      if (_appliesTo(r, tool, target)) return r.decision;
     }
     // `--yolo` widens EVERY default to allow — the table's own ask entries
     // and the unmapped-tool fallback alike — so a tool added later cannot
@@ -265,56 +267,89 @@ class PermissionPolicy {
     ];
   }
 
-  /// What this tool call boils down to for matching / display purposes.
-  /// For bash it's the command string; for file tools it's the file path; for
-  /// `launch_workflow` it's the workflow name (the thing the call targets, and
-  /// short enough for the approval line).
-  static String keyFor(String tool, Map<String, dynamic> input) {
-    if (tool == 'exec') {
-      final raw = input['environment'];
-      final env = raw is Map ? raw : const <String, dynamic>{};
-      final keys = env.keys.cast<String>().toList()..sort();
-      return jsonEncode([input['executable'], input['args'] ?? [],
-        input['cwd'], {for (final key in keys) key: env[key]}]);
+  /// What one call is asking permission for: the label the prompt shows, the
+  /// rule an "always" answer remembers, and the glob semantics a configured rule
+  /// matches with.
+  ///
+  /// One chain for every tool, because the prompt, the remembered rule and the
+  /// CLI rule must agree — they are all read off this. Tools are migrated onto
+  /// it as they are audited; an unmigrated tool falls through to the file-path
+  /// case, which produces [ApprovalTarget.unknown] for an input with nothing to
+  /// point at (the registry sweep fails such a tool the moment it can prompt).
+  static ApprovalTarget targetFor(String tool, Map<String, dynamic> input) {
+    switch (tool) {
+      case 'exec':
+        return ApprovalTarget.invocation(
+            _invocationKey(input, commandKey: 'executable', includeArgs: true));
+      case 'bash':
+        if (input.containsKey('environment')) {
+          // A custom environment is part of what was authorized: the same
+          // command under a different environment is a different call.
+          return ApprovalTarget.invocation(_invocationKey(input,
+              commandKey: 'command', includeArgs: false));
+        }
+        // The EXACT command, not `firstWord *`: one `rm` approval must not
+        // silently cover `rm -rf .` for the rest of the conversation.
+        return ApprovalTarget.exact(
+            ((input['command'] as String?) ?? '').trim());
+      case 'launch_workflow':
+        // The workflow name, NOT the wildcard: approving one workflow must not
+        // approve every workflow.
+        final name = (input['workflow'] as String?)?.trim();
+        return ApprovalTarget.exact(
+            (name == null || name.isEmpty) ? 'default' : name);
+      case 'fetch':
+        // The url — which is also the thing the user is approving, so the
+        // prompt names it instead of showing an empty target.
+        return ApprovalTarget.url((input['url'] as String?) ?? '');
+      case 'web_search':
+        return ApprovalTarget.exact((input['query'] as String?) ?? '');
+      case 'broadcast_region':
+        return ApprovalTarget.exact((input['task'] as String?) ?? '');
+      case 'forget_region':
+        // A region name, not a path: remember exactly the region.
+        return ApprovalTarget.exact((input['dir'] as String?) ?? '');
+      default:
+        return ApprovalTarget.path((input['filePath'] as String?) ?? '');
     }
-    if (tool == 'bash') {
-      if (input.containsKey('environment')) {
-        final raw = input['environment'];
-        final env = raw is Map ? raw : const <String, dynamic>{};
-        final keys = env.keys.cast<String>().toList()..sort();
-        return jsonEncode([input['command'], input['cwd'], {for (final key in keys) key: env[key]}]);
-      }
-      return (input['command'] as String?) ?? '';
-    }
-    if (tool == 'launch_workflow') {
-      final name = (input['workflow'] as String?)?.trim();
-      return (name == null || name.isEmpty) ? 'default' : name;
-    }
-    return (input['filePath'] as String?) ?? '';
   }
 
-  /// The pattern that "always" should remember. For file tools this is broader
-  /// than the exact call — the parent directory, so one approval covers a whole
-  /// directory of edits. For **bash** it is the **exact command**: a permissive
-  /// family-wide pattern (`<firstWord> *`) would let one `rm` approval silently
-  /// cover `rm -rf .` for the rest of the session. The exact command has no
-  /// unescaped `*`, so [globMatch] matches it literally; a command that
-  /// genuinely contains a `*` stays a narrow glob rather than widening to the
-  /// whole family.
-  static String defaultAlwaysPatternFor(
-      String tool, Map<String, dynamic> input) {
-    if (tool == 'exec') return keyFor(tool, input);
-    if (tool == 'bash' && input.containsKey('environment')) return keyFor(tool, input);
-    if (tool == 'bash') {
-      final cmd = ((input['command'] as String?) ?? '').trim();
-      return cmd.isEmpty ? '*' : cmd;
-    }
-    final path = (input['filePath'] as String?) ?? '';
-    if (path.isEmpty) return '*';
-    final lastSlash = path.lastIndexOf('/');
-    if (lastSlash <= 0) return '*';
-    return '${path.substring(0, lastSlash)}/*';
+  /// The serialized invocation `exec` and env-carrying `bash` calls key on.
+  ///
+  /// The two shapes are kept exactly as they were — exec carries its argument
+  /// list, bash does not — so an existing rule keeps matching the call it was
+  /// written for.
+  static String _invocationKey(
+    Map<String, dynamic> input, {
+    required String commandKey,
+    required bool includeArgs,
+  }) {
+    final raw = input['environment'];
+    final env = raw is Map ? raw : const <String, dynamic>{};
+    final keys = env.keys.cast<String>().toList()..sort();
+    return jsonEncode([
+      input[commandKey],
+      if (includeArgs) input['args'] ?? [],
+      input['cwd'],
+      {for (final key in keys) key: env[key]},
+    ]);
   }
+
+  /// What this call boils down to for matching / display purposes. See
+  /// [targetFor], which this reads from.
+  static String keyFor(String tool, Map<String, dynamic> input) =>
+      targetFor(tool, input).label;
+
+  /// The pattern that "always" should remember. See [targetFor]. For file tools
+  /// this is broader than the exact call — the parent directory, so one approval
+  /// covers a whole directory of edits. For **bash** it is the **exact command**:
+  /// a family-wide pattern (`<firstWord> *`) would let one `rm` approval silently
+  /// cover `rm -rf .` for the rest of the session. An exact command has no
+  /// unescaped `*`, so [globMatch] matches it literally; a command that genuinely
+  /// contains a `*` stays a narrow glob rather than widening to the whole family.
+  static String defaultAlwaysPatternFor(
+          String tool, Map<String, dynamic> input) =>
+      targetFor(tool, input).remember;
 
   /// Wire shape for persistence. Captures [defaults] (tool -> decision), the
   /// static (CLI) rules, and the yolo posture. [sessionRules] (runtime
@@ -343,20 +378,25 @@ class PermissionPolicy {
         allowAllByDefault: j['allowAllByDefault'] as bool? ?? false,
       );
 
-  static bool _appliesTo(PermissionRule r, String tool, String key) {
+  static bool _appliesTo(PermissionRule r, String tool, ApprovalTarget target) {
     if (r.toolName != '*' && r.toolName != tool) return false;
-    // Bash patterns operate on command strings, not paths — `*` there should
-    // span arbitrary chars including `/` (`rm *` covers `rm -rf /tmp`). For
-    // file tools we keep the usual shell distinction: `*` stops at `/`, `**`
-    // crosses directory boundaries.
-    if ((tool == 'exec' || tool == 'bash') && r.pattern.startsWith('[')) return r.pattern == key;
-    return globMatch(r.pattern, key, starMatchesSlash: tool == 'bash');
+    // A rule that is itself a serialized invocation is compared exactly, never
+    // globbed — `[` and `]` are glob metacharacters.
+    if (target.invocation && r.pattern.startsWith('[')) {
+      return r.pattern == target.label;
+    }
+    // Whether `*` spans `/` is the target's call, not the tool's: commands and
+    // urls are full of slashes and want it to, paths keep the shell rule where
+    // `**` is what crosses directories.
+    return globMatch(r.pattern, target.label,
+        starMatchesSlash: target.starMatchesSlash);
   }
 }
 
 /// Tiny shell-style glob matcher. With `starMatchesSlash: false` (the
-/// default), `*` matches any chars except `/` while `**` matches anything;
-/// with it true (used for bash command patterns) `*` matches anything.
+/// default), `*` matches any chars except `/` while `**` matches anything; with
+/// it true `*` matches anything too. Which one applies is the
+/// [ApprovalTarget]'s decision, not the tool's.
 /// Other regex metachars are escaped.
 bool globMatch(String pattern, String input,
     {bool starMatchesSlash = false}) {

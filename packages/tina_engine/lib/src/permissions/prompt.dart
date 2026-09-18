@@ -1,3 +1,4 @@
+import 'approval_target.dart';
 import 'policy.dart';
 import '../tools/execution_request.dart';
 import '../tools/edit_preparation.dart';
@@ -53,9 +54,12 @@ class PermissionPrompt {
         'for this session. The command is approved once.\n';
   }
 
-  String get key => PermissionPolicy.keyFor(toolName, input);
-  String get alwaysPattern =>
-      PermissionPolicy.defaultAlwaysPatternFor(toolName, input);
+  /// What this call is asking for, as the policy sees it. The header the asker
+  /// shows and the rule an "always" answer installs both come from here, so they
+  /// cannot disagree.
+  ApprovalTarget get target => PermissionPolicy.targetFor(toolName, input);
+  String get key => target.label;
+  String get alwaysPattern => target.remember;
 }
 
 class PermissionResponse {

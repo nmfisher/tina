@@ -177,6 +177,111 @@ void main() {
     });
   });
 
+  group('PermissionPolicy.targetFor', () {
+    // The one chain the prompt, the remembered rule and rule matching all read.
+    ApprovalTarget target(String tool, Map<String, dynamic> input) =>
+        PermissionPolicy.targetFor(tool, input);
+
+    test('bash is its exact command, environment and all', () {
+      final t = target('bash', {'command': '  git status --short '});
+      expect(t.label, 'git status --short');
+      expect(t.remember, 'git status --short');
+      expect(t.invocation, isFalse);
+    });
+
+    test('a custom environment makes the whole invocation the identity', () {
+      final t = target('bash', {
+        'command': 'dart test',
+        'cwd': '/p',
+        'environment': {'CI': '1'},
+      });
+      expect(t.invocation, isTrue);
+      expect(t.label, contains('"dart test"'));
+      expect(t.label, contains('"CI":"1"'));
+      expect(t.remember, t.label);
+    });
+
+    test('exec keys on executable, arguments, cwd and environment', () {
+      final t = target('exec', {
+        'executable': 'dart',
+        'args': ['test'],
+        'cwd': '/p',
+      });
+      expect(t.invocation, isTrue);
+      expect(t.label, '["dart",["test"],"/p",{}]');
+      expect(t.remember, t.label);
+    });
+
+    test('a rule on exec can match an invocation containing slashes', () {
+      // `*` spans `/` for an invocation, so `exec:*` is not inert. Before the
+      // target owned this, `*` stopped at `/` and the JSON label (which always
+      // carries a cwd) never matched it.
+      final p = PermissionPolicy(rules: const [
+        PermissionRule(
+            toolName: 'exec', pattern: '*', decision: PermissionDecision.deny),
+      ]);
+      expect(
+          p.check('exec', {'executable': 'dart', 'cwd': '/home/x/p'}),
+          PermissionDecision.deny);
+    });
+
+    test('file tools remember the directory, root-level files exactly', () {
+      final edit = target('edit', {'filePath': '/workspace/lib/foo.dart'});
+      expect(edit.label, '/workspace/lib/foo.dart');
+      expect(edit.remember, '/workspace/lib/*');
+
+      final root = target('write', {'filePath': '/foo.txt'});
+      expect(root.label, '/foo.txt');
+      expect(root.remember, '/foo.txt',
+          reason: 'a directory rule here would be the wildcard, which cannot '
+              'match an absolute single-segment path');
+    });
+
+    test('a url is shown and remembered as itself', () {
+      final t = target('fetch', {'url': 'https://example.com/a/b?q=1'});
+      expect(t.label, 'https://example.com/a/b?q=1');
+      expect(t.remember, t.label);
+      expect(t.starMatchesSlash, isTrue,
+          reason: 'a url is mostly slashes; `*` must span them');
+    });
+
+    test('network and region tools name their target instead of nothing', () {
+      expect(target('web_search', {'query': 'dart globs'}).label, 'dart globs');
+      expect(target('broadcast_region', {'task': 'what is this?'}).label,
+          'what is this?');
+      expect(target('forget_region', {'dir': 'lib/tui'}).label, 'lib/tui');
+    });
+
+    test('a workflow remembers the workflow, not every workflow', () {
+      final t = target('launch_workflow', {'workflow': ' lint ', 'input': 'x'});
+      expect(t.label, 'lint');
+      expect(t.remember, 'lint');
+      expect(t.remember, isNot('*'));
+    });
+
+    test('an input with nothing to point at is the fail-closed default', () {
+      final t = target('mystery', const {});
+      expect(t.label, isEmpty);
+      expect(t.remember, '*');
+      expect(t, same(ApprovalTarget.unknown));
+    });
+
+    test('keyFor and defaultAlwaysPatternFor read from the target', () {
+      for (final entry in const [
+        ('bash', {'command': 'ls -la'}),
+        ('write', {'filePath': '/p/a/b.dart'}),
+        ('fetch', {'url': 'https://example.com/x'}),
+        ('launch_workflow', {'workflow': 'lint'}),
+      ]) {
+        final (tool, input) = entry;
+        expect(PermissionPolicy.keyFor(tool, input),
+            PermissionPolicy.targetFor(tool, input).label);
+        expect(PermissionPolicy.defaultAlwaysPatternFor(tool, input),
+            PermissionPolicy.targetFor(tool, input).remember);
+      }
+    });
+  });
+
   group('PermissionPolicy.inertRules', () {
     test('reports a static rule for a tool that is not mounted', () {
       final p = PermissionPolicy(rules: const [

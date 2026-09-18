@@ -59,6 +59,7 @@ export 'src/llm/registry.dart';
 export 'src/llm/sse.dart';
 export 'src/permissions/classifier.dart';
 export 'src/permissions/mode_aware_asker.dart';
+export 'src/permissions/approval_target.dart';
 export 'src/permissions/policy.dart';
 export 'src/permissions/preview.dart';
 export 'src/permissions/prompt.dart';
