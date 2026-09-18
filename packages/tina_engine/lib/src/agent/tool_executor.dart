@@ -10,6 +10,7 @@ import '../permissions/prompt.dart';
 import '../tools/tool.dart';
 import '../tools/process_tool.dart';
 import '../tools/edit_tool.dart';
+import '../tools/audit.dart';
 import '../tools/edit_preparation.dart';
 import '../tools/sandbox_failure.dart';
 import '../tools/tool_input.dart';
@@ -549,6 +550,18 @@ class ToolExecutor {
           !state.toolInterrupted) {
         policy.remember(use.name, prompt.alwaysPattern, decision);
       }
+      // Record the approval itself, not just the denials (auditDenial). This is
+      // the only place that knows the final decision, the scope it was granted
+      // for, and who answered, so it is where the granting half of the safety
+      // surface becomes reviewable after the fact.
+      auditApproval(
+        tool: use.name,
+        decision: decision == PermissionDecision.allow ? 'allow' : 'deny',
+        scope: _approvalScope(prompt, resp),
+        decidedBy: resp.decidedBy,
+        target: prompt.key,
+        remember: resp.remember ? prompt.alwaysPattern : null,
+      );
       // Sealed arguments: the snapshot taken BEFORE authorization stays the
       // one truth for the whole dispatch — nothing is re-read from the live
       // input after the approval wait. Re-snapshotting here let a caller
@@ -874,6 +887,20 @@ class ToolExecutor {
       asker(prompt),
       stop.then((_) => PermissionResponse.denyOnce),
     ]);
+  }
+
+  /// What an approval covers, in plain words for the audit line. The three
+  /// prompt flavours grant for different lengths of time, and only two of them
+  /// say so in the prompt text — naming the scope here makes the difference
+  /// reviewable after the fact.
+  String _approvalScope(PermissionPrompt prompt, PermissionResponse resp) {
+    if (prompt.outsideSandbox) {
+      return resp.remember ? 'session-outside' : 'call';
+    }
+    if (prompt.sandboxAccess != null) {
+      return resp.remember ? 'session-directories' : 'call';
+    }
+    return resp.remember ? 'conversation' : 'call';
   }
 
   /// Runs the AROUND-execution hook chain around [delegate]. The FIRST

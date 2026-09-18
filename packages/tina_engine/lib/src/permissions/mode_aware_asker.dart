@@ -11,12 +11,12 @@ import 'classifier.dart';
 /// (error, timeout, unparseable answer) falls back to [fallback] — the normal
 /// y/n prompt — never silently allows.
 ///
-/// A classifier verdict is remembered like a manual a/d: allow maps to
-/// [PermissionResponse.allowAlways], deny to [PermissionResponse.denyAlways],
-/// so the agent installs the same session rule (exact bash command /
-/// parent-dir glob) the user's a/d would. Identical calls short-circuit the
-/// rule cascade before ever re-classifying — a fan-out of 30 identical bash
-/// calls pays one classifier round-trip, not 30.
+/// A classifier verdict is remembered like a manual a/d: allow carries the same
+/// `remember` flag the user's `a` would (and deny the `d` equivalent), so the
+/// agent installs the same session rule — exact bash command, parent-dir glob —
+/// with `decidedBy: 'classifier'` recording that no human answered. Identical
+/// calls short-circuit the rule cascade before ever re-classifying — a fan-out
+/// of 30 identical bash calls pays one classifier round-trip, not 30.
 PermissionAsker modeAwareAsker({
   required PermissionPolicy policy,
   required PermissionClassifier classifier,
@@ -32,7 +32,9 @@ PermissionAsker modeAwareAsker({
         ? '  ${prompt.toolName} allowed by classifier: ${prompt.key}\n'
         : '  ${prompt.toolName} denied by classifier: ${prompt.key}\n');
     return verdict
-        ? PermissionResponse.allowAlways
-        : PermissionResponse.denyAlways;
+        ? const PermissionResponse(PermissionDecision.allow,
+            remember: true, decidedBy: 'classifier')
+        : const PermissionResponse(PermissionDecision.deny,
+            remember: true, decidedBy: 'classifier');
   };
 }

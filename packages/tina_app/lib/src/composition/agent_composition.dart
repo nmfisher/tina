@@ -292,6 +292,28 @@ AgentDriver buildAgent({
     effectivePolicy = policy;
   }
 
+  // A static permission rule for a tool that is not mounted can never match
+  // anything, so it is silently inert: `--deny 'bashh:rm *'`, or a rule for a
+  // plugin tool this project does not expose, would look like it was enforcing
+  // something. Report each one once, for the MAIN interactive build only (the
+  // rule list is global, so a per-sub-agent repeat would just be noise).
+  if (withSubAgents) {
+    final mounted = {for (final t in agentTools.all) t.schema.name};
+    final inert = effectivePolicy.inertRules(mounted);
+    if (inert.isNotEmpty) {
+      host.showMessage(
+        '  ${inert.length} permission '
+        '${inert.length == 1 ? 'rule names a tool' : 'rules name tools'} that '
+        '${inert.length == 1 ? 'is' : 'are'} not available here, so '
+        '${inert.length == 1 ? 'it' : 'they'} can never match:\n'
+        '${inert.map((r) => '    ${r.toolName}:${r.pattern} '
+            '(${r.decision.name})\n').join()}'
+        '  Check the spelling, or the project capabilities the tool needs.\n',
+        style: HostMessageStyle.warning,
+      );
+    }
+  }
+
   // The resolved asker, wrapped for permission mode "auto" when a classifier
   // is wired: the wrapper consults effectivePolicy.mode per call, so runtime
   // `/permissions <mode>` switches apply with no rebuild.

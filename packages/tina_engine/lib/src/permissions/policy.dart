@@ -249,6 +249,22 @@ class PermissionPolicy {
     return out;
   }
 
+  /// Static rules that name a tool which is not mounted, so they can never
+  /// match anything. A rule for an unknown tool is silently inert — a typo in
+  /// `--deny 'bashh:rm *'`, or a rule for a plugin tool this project does not
+  /// expose. The caller reports these once at startup so the mistake is
+  /// visible instead of quietly doing nothing.
+  ///
+  /// A `*` rule is never reported: it is meant to cover every tool, mounted or
+  /// not.
+  List<PermissionRule> inertRules(Iterable<String> mountedTools) {
+    final mounted = mountedTools.toSet();
+    return [
+      for (final r in staticRules)
+        if (r.toolName != '*' && !mounted.contains(r.toolName)) r,
+    ];
+  }
+
   /// What this tool call boils down to for matching / display purposes.
   /// For bash it's the command string; for file tools it's the file path; for
   /// `launch_workflow` it's the workflow name (the thing the call targets, and

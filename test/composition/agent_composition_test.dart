@@ -293,6 +293,169 @@ void main() {
     });
   });
 
+  group('approval identity', () {
+    test('every tool this build knows about can be approved knowingly', () {
+      // The sibling of the schema sweep above: a tool is not "wired" just
+      // because it has a schema — if it can prompt, the user has to be able to
+      // see what they are approving, and the remembered answer has to mean
+      // something narrower than "yes to everything". Swept over the same
+      // composition so a NEW tool is swept automatically, plus the built-in
+      // defaults table (a tool like web_search mounts only when its key is
+      // configured, but its gate is decided here either way).
+      final config = testConfig();
+      final scheduler = createScheduler(
+        config: config,
+        registry: ProviderRegistry(env: {}),
+        pipeline: defaultPipeline,
+      );
+      final tmp = Directory.systemTemp.createTempSync('tina-approval-');
+      try {
+        final driver = buildAgent(
+          pipeline: defaultPipeline,
+          scheduler: scheduler,
+          conversationId: 'c1',
+          provider: FakeProvider(const [], model: 'm'),
+          host: FakeHostInterface(),
+          policy: config.buildPolicy(),
+          config: config,
+          withSubAgents: true,
+          supervisor: noopSupervisor(),
+          regions: RegionRegistry(projectRoot: tmp.path),
+          summaryIndex: buildSummaryInspection(projectRoot: tmp.path),
+        );
+        // The composition builds through the default factory, so unwrap its
+        // adapter to reach the policy that actually gates the mounted tools.
+        final policy =
+            driver is AgentDriverAdapter ? driver.agent.policy : null;
+        expect(policy, isNotNull,
+            reason: 'the default driver must expose the policy that gates it');
+        final mounted = {for (final t in driver.tools.all) t.schema.name: t};
+        final known = policy!.defaults.keys.toSet();
+        final required = {...mounted.keys, ...known};
+
+        // 1. Every tool needs a sample call here, so a new tool has to be
+        //    considered rather than slipping through unnoticed.
+        expect(_sampleCalls.keys.toSet(), required,
+            reason: 'add the new tool to _sampleCalls (or drop the stale '
+                'entry) so its approval identity is checked');
+
+        final promptable = <String>{};
+        for (final entry in _sampleCalls.entries) {
+          final name = entry.key;
+          final input = entry.value;
+          // A local-control tool is force-allowed by the executor before the
+          // policy is consulted, so it never reaches a prompt whatever the
+          // policy would say. Only tools that can actually ask are held to the
+          // approval-identity invariants.
+          final canPrompt = mounted[name] is! LocalControlTool &&
+              policy.check(name, input) == PermissionDecision.ask;
+          if (!canPrompt) continue;
+          promptable.add(name);
+
+          final key = PermissionPolicy.keyFor(name, input);
+          final always = PermissionPolicy.defaultAlwaysPatternFor(name, input);
+          final problems = <String>[
+            if (key.isEmpty)
+              'empty approval key: the prompt names no target, and a static '
+                  'rule for this tool can never match',
+            if (!globMatch(always, key, starMatchesSlash: name == 'bash'))
+              'the remembered rule does not match the call it came from, so '
+                  '"always" would be a silent no-op',
+            if (key.isNotEmpty && always == '*')
+              'a call with a real target remembers the universal wildcard',
+          ];
+
+          final gap = _knownApprovalGaps[name];
+          if (gap == null) {
+            expect(problems, isEmpty, reason: '$name: ${problems.join('; ')}');
+          } else {
+            expect(problems, isNotEmpty,
+                reason: 'stale gap entry for $name — "$gap" no longer applies, '
+                    'so remove it from _knownApprovalGaps');
+          }
+        }
+
+        // 2. A gap entry for a tool that cannot prompt would never be checked,
+        //    and would sit there looking like a live defect.
+        expect(_knownApprovalGaps.keys.toSet().difference(promptable), isEmpty,
+            reason: 'gap entries must name tools that can actually prompt');
+      } finally {
+        tmp.deleteSync(recursive: true);
+      }
+    });
+
+    test('a root-level path cannot be remembered (known gap)', () {
+      // A file with no directory component has no directory rule to remember:
+      // `defaultAlwaysPatternFor` falls back to `*`, which for a file tool
+      // compiles to `[^/]*` and so never matches the absolute path it came
+      // from — "always" silently does nothing. Delete this test when the
+      // directory rule learns to handle root-level files.
+      const input = {'filePath': '/foo.txt'};
+      final key = PermissionPolicy.keyFor('write', input);
+      final always = PermissionPolicy.defaultAlwaysPatternFor('write', input);
+      expect(key, '/foo.txt');
+      expect(always, '*', reason: 'no directory component to remember');
+      expect(globMatch(always, key), isFalse,
+          reason: 'the wildcard cannot match an absolute single-segment path');
+    });
+
+    test('a permission rule for a tool that is not mounted is reported', () {
+      // A rule naming an unavailable tool can never match, so it silently
+      // enforces nothing — a typo (`--deny 'bashh:rm *'`) must not look like a
+      // working deny. The composition reports it once, at build time.
+      final config =
+          Config.parse(const ['--backend', 'ansi', '--deny', 'bashh:rm *']);
+      final scheduler = createScheduler(
+        config: config,
+        registry: ProviderRegistry(env: {}),
+        pipeline: defaultPipeline,
+      );
+      final host = FakeHostInterface();
+      buildAgent(
+        pipeline: defaultPipeline,
+        scheduler: scheduler,
+        conversationId: 'c1',
+        provider: FakeProvider(const [], model: 'm'),
+        host: host,
+        policy: config.buildPolicy(),
+        config: config,
+        supervisor: noopSupervisor(),
+      );
+
+      expect(host.messages.any((m) => m.contains('bashh:rm *')), isTrue,
+          reason: 'the inert rule is named, so the typo is visible');
+      expect(
+          host.styledMessages
+              .any((m) => m.style == HostMessageStyle.warning),
+          isTrue,
+          reason: 'and it is a warning, not a dim aside');
+    });
+
+    test('a rule for a mounted tool is not reported', () {
+      final config =
+          Config.parse(const ['--backend', 'ansi', '--deny', 'bash:rm *']);
+      final scheduler = createScheduler(
+        config: config,
+        registry: ProviderRegistry(env: {}),
+        pipeline: defaultPipeline,
+      );
+      final host = FakeHostInterface();
+      buildAgent(
+        pipeline: defaultPipeline,
+        scheduler: scheduler,
+        conversationId: 'c1',
+        provider: FakeProvider(const [], model: 'm'),
+        host: host,
+        policy: config.buildPolicy(),
+        config: config,
+        supervisor: noopSupervisor(),
+      );
+
+      expect(host.messages.any((m) => m.contains('can never match')), isFalse,
+          reason: 'bash is mounted, so this rule is doing real work');
+    });
+  });
+
   group('buildAgent routes through the resolved driver dependencies', () {
     test('a scope-selected driver factory builds the MAIN agent, and the '
         'factory receives the mounted guards', () async {
@@ -493,3 +656,66 @@ class _CapturingDriver implements AgentDriver {
         cancelSignal: cancelSignal,
       );
 }
+
+/// One representative call per tool this build can mount, plus the built-in
+/// defaults table, keyed by tool name. The approval-identity sweep requires an
+/// entry for every one of them — that is what turns "someone added a tool" into
+/// a failing test instead of a silent gap.
+///
+/// Un-promptable tools only need the entry; their input is never inspected. For
+/// a tool that can prompt, the input has to be realistic, because the
+/// invariants are checked against it.
+const _sampleCalls = <String, Map<String, dynamic>>{
+  // Can prompt — checked in detail.
+  'bash': {'command': 'git status --short'},
+  'exec': {'executable': 'dart', 'args': ['test'], 'cwd': '/p'},
+  'write': {'filePath': '/p/lib/a.dart', 'content': 'x'},
+  'edit': {'filePath': '/p/lib/a.dart', 'oldString': 'a', 'newString': 'b'},
+  'fetch': {'url': 'https://example.com/page'},
+  'web_search': {'query': 'dart glob semantics'},
+  'launch_workflow': {'workflow': 'lint', 'input': 'run the linter'},
+  'broadcast_region': {'task': 'what does this region do?'},
+  'forget_region': {'dir': 'lib/tui'},
+  // Never prompts: read-only default, orchestration, or a local-control tool
+  // the executor force-allows (begin_environment_execution).
+  'allocate_region': {'dir': 'lib/tui'},
+  'ask_user': {'questions': <Object>[]},
+  'begin_environment_execution': {'findings': 'a Dart monorepo'},
+  'close': {'channel': 'team'},
+  'delegate': {'delegations': <Object>[]},
+  'execution_info': <String, dynamic>{},
+  'git': <String, dynamic>{},
+  'glob': {'filePath': '/p/lib'},
+  'grep': {'pattern': 'TODO'},
+  'list_regions': <String, dynamic>{},
+  'ls': {'filePath': '/p'},
+  'query_region': {'task': 'what does this region do?'},
+  'read': {'filePath': '/p/lib/a.dart'},
+  'read_summary': <String, dynamic>{},
+  'receive': {'channel': 'team'},
+  'render_image': {'filePath': '/p/x.png'},
+  'repo_structure': <String, dynamic>{},
+  'search': {'query': 'approval'},
+  'send': {'channel': 'team', 'message': 'hi'},
+  'stat': {'filePath': '/p/lib/a.dart'},
+  'stop_workflow': <String, dynamic>{},
+  'which': {'command': 'dart'},
+  'write_summary': {'filePath': '/p/lib/a.dart'},
+};
+
+/// Promptable tools whose approval identity is weaker than the invariants the
+/// sweep enforces. Stage 0 records them here so the suite is green while the
+/// gaps are tracked: every entry must still be violating (the sweep fails on a
+/// stale entry) and each one is deleted as part of fixing it.
+const _knownApprovalGaps = <String, String>{
+
+  'fetch': 'keyFor has no case for `url`: the header names no target and '
+      '"always" is the wildcard.',
+  'web_search': 'keyFor has no case for `query`: the same shape as fetch.',
+  'broadcast_region': 'the input is `task`, but the key falls through to the '
+      'file-path case, so there is nothing to show or remember.',
+  'forget_region': 'the input is `dir`, but the key falls through to the '
+      'file-path case, so there is nothing to show or remember.',
+  'launch_workflow': 'keyFor uses the workflow name, but the "always" pattern '
+      'falls through to "*", so approving one workflow approves every workflow.',
+};

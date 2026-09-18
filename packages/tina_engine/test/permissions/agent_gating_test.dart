@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 
+import 'package:logging/logging.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
 
@@ -93,6 +94,60 @@ void main() {
       expect(fakeWrite.calls.length, 2);
       expect(policy.sessionRules.single.pattern, '/tmp/*');
       expect(policy.sessionRules.single.decision, PermissionDecision.allow);
+    });
+
+    test('an approval is recorded in the audit log with its scope and decider',
+        () async {
+      // The audit line is what makes a grant reviewable afterwards — including
+      // a grant no human made (mode `auto` answers with decided-by=classifier).
+      final records = <LogRecord>[];
+      final sub = Logger.root.onRecord.listen(records.add);
+      Logger.root.level = Level.ALL;
+      addTearDown(() async {
+        await sub.cancel();
+        Logger.root.level = Level.INFO;
+      });
+
+      final fakeWrite = _RecordingTool('write');
+      final provider = _ScriptedProvider([
+        [
+          ToolUseBlock(id: 'u1', name: 'write', input: const {
+            'filePath': '/tmp/foo.txt',
+            'content': 'a',
+          }),
+          ToolUseBlock(id: 'u2', name: 'write', input: const {
+            'filePath': '/tmp/bar.txt',
+            'content': 'b',
+          }),
+        ],
+        const [TextBlock('done.')],
+      ]);
+      final agent = Agent(
+        provider: provider,
+        tools: ToolRegistry([fakeWrite]),
+        sink: FakeAgentSink(),
+        policy: PermissionPolicy(),
+        asker: _RecordingAsker([PermissionResponse.allowAlways]).ask,
+        system: 'sys',
+      );
+      await agent.run(
+        history: <Message>[],
+        userInput: 'write two files in /tmp',
+      );
+
+      final approvals = records
+          .map((r) => r.message)
+          .where((m) => m.startsWith('approval: '))
+          .toList();
+      expect(approvals, hasLength(1),
+          reason: 'one answered prompt, so one line — the second write was '
+              'authorised by the remembered rule without asking');
+      expect(approvals.single, contains('tool=write'));
+      expect(approvals.single, contains('decision=allow'));
+      expect(approvals.single, contains('scope=conversation'));
+      expect(approvals.single, contains('decided-by=user'));
+      expect(approvals.single, contains('target=/tmp/foo.txt'));
+      expect(approvals.single, contains('remember=/tmp/*'));
     });
 
     test('ask -> deny once does not remember', () async {

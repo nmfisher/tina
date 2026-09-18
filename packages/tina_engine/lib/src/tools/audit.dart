@@ -19,11 +19,40 @@ const String auditDenylist = 'denylist';
 const String auditFanout = 'fanout';
 const String auditAction = 'action';
 
+/// Line prefix for [auditApproval]. Private because, unlike the denial kinds
+/// above, callers never pass it — the function name is the API. (It must be a
+/// constant rather than the function's own name: `$auditApproval` inside the
+/// function would interpolate the closure.)
+const String _kindApproval = 'approval';
+
 /// Log a safety denial. [kind] is one of the `audit*` constants; [detail] is the
 /// blocked command/path/fanout count — it is redacted before being written, so
 /// callers can pass the raw value without sanitizing it themselves.
 void auditDenial({required String kind, required String detail}) {
   _auditLog.info('$kind: ${redact(detail)}');
+}
+
+/// Log an approval decision.
+///
+/// [scope] is how long the answer lasts (`call`, `conversation`,
+/// `session-directories`, `session-outside`); [decidedBy] is who answered
+/// (`user`, `classifier`, `headless`); [target] is what was approved (the
+/// command, path, url or workflow), redacted like [auditDenial]'s detail.
+/// [remember] is the rule an "always" answer installed, when there is one.
+///
+/// Denials were already audited; this records the other half, so a session's
+/// grants can be read back afterwards — including grants no human made.
+void auditApproval({
+  required String tool,
+  required String decision,
+  required String scope,
+  required String decidedBy,
+  required String target,
+  String? remember,
+}) {
+  _auditLog.info('$_kindApproval: tool=$tool decision=$decision '
+      'scope=$scope decided-by=$decidedBy target=${redact(target)}'
+      '${remember == null ? '' : ' remember=${redact(remember)}'}');
 }
 
 /// Best-effort secret scrubber for denial detail. Not cryptographic — just meant

@@ -73,10 +73,18 @@ class PermissionResponse {
   /// content when non-null.
   final String? note;
 
+  /// Who produced this response: `'user'` (an interactive asker), `'classifier'`
+  /// (permission mode `auto` deciding instead of the user), or `'headless'`
+  /// (the non-interactive auto-refuse). Recorded in the approval audit line —
+  /// once a verdict lands as a session rule, a classifier grant and a user
+  /// grant are otherwise indistinguishable.
+  final String decidedBy;
+
   const PermissionResponse(
     this.decision, {
     this.remember = false,
     this.note,
+    this.decidedBy = 'user',
   });
 
   static const allowOnce = PermissionResponse(PermissionDecision.allow);

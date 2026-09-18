@@ -81,8 +81,11 @@ void main() {
 
       final resp = await asker(prompt);
       expect(resp.decision, PermissionDecision.allow);
-      expect(resp, PermissionResponse.allowAlways,
+      expect(resp.remember, isTrue,
           reason: 'a verdict is remembered like a manual a/d');
+      expect(resp.decidedBy, 'classifier',
+          reason: 'the approval audit line must show this grant came from the '
+              'classifier, not from the user');
       expect(notices.single, contains('allowed by classifier'));
     });
 
@@ -99,8 +102,9 @@ void main() {
 
       final resp = await asker(prompt);
       expect(resp.decision, PermissionDecision.deny);
-      expect(resp, PermissionResponse.denyAlways,
+      expect(resp.remember, isTrue,
           reason: 'a deny verdict is remembered like a manual d');
+      expect(resp.decidedBy, 'classifier');
       expect(notices.single, contains('denied by classifier'));
     });
 

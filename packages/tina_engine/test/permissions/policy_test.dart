@@ -177,6 +177,38 @@ void main() {
     });
   });
 
+  group('PermissionPolicy.inertRules', () {
+    test('reports a static rule for a tool that is not mounted', () {
+      final p = PermissionPolicy(rules: const [
+        PermissionRule(
+            toolName: 'bashh',
+            pattern: 'rm *',
+            decision: PermissionDecision.deny),
+      ]);
+      expect(
+          p.inertRules(['bash', 'read']).map((r) => '${r.toolName}:${r.pattern}'),
+          ['bashh:rm *'],
+          reason: 'a typo would otherwise deny nothing, silently');
+    });
+
+    test('a mounted tool and a wildcard rule are never reported', () {
+      final p = PermissionPolicy(rules: const [
+        PermissionRule(
+            toolName: 'bash', pattern: 'rm *', decision: PermissionDecision.deny),
+        PermissionRule(
+            toolName: '*', pattern: '/secrets/**', decision: PermissionDecision.deny),
+      ]);
+      expect(p.inertRules(['bash', 'read']), isEmpty);
+    });
+
+    test('session rules are not reported (they are not configured by hand)',
+        () {
+      final p = PermissionPolicy();
+      p.remember('bash', 'git status', PermissionDecision.allow);
+      expect(p.inertRules(const <String>[]), isEmpty);
+    });
+  });
+
   group('PermissionPolicy.check', () {
     test('built-in defaults', () {
       final p = PermissionPolicy();
