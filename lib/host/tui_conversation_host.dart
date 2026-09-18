@@ -252,20 +252,15 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     // approval pends starts its own row instead of merging its text onto the
     // prompt (tin-6a2f).
     final rowToken = Object();
-    // Approval is now a selectable list (up/down arrows) with Enter to confirm.
-    final isSandboxAccess = p.sandboxAccess != null;
-    final options = [
-      (text: p.outsideSandbox ? 'run outside sandbox once' : 'allow once', key: 'y'),
-      (
-        text: p.outsideSandbox ? 'outside for session'
-            : isSandboxAccess ? 'session directories' : 'allow always',
-        key: 'a',
-      ),
-      (text: 'deny', key: 'd'),
-    ];
+    // The answers this prompt offers, from the engine: the row below, the keys
+    // accepted, and the scope a remembered answer is filed under all read the
+    // same list, so a key can no longer be advertised and then do nothing.
+    final choices = p.choices;
     var selectedIndex = 0;
-    final optionStr = options.map((o) => '[${o.key}] ${o.text}').join(' ');
-    chat.write('  approve? $optionStr ‹ ', rowOwner: rowToken);
+    // Written once and reused by the arrow redraw, so the two cannot diverge.
+    void writeRow() => chat.write('  approve? ${p.approvalOptionsText} ‹ ',
+        rowOwner: rowToken);
+    writeRow();
     // If the user is mid-prompt (a readLine in flight WITH unsent content),
     // the approval must not steal their typing — the prompt's Enter would
     // answer this readKey as a deny (it is not y/a/d) and the prompt would
@@ -301,33 +296,23 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     while (true) {
       final event = await editor!.readKey(globalKeys: true, cancelSignal: p.cancelSignal);
       if (event is CharInput) {
-        switch (event.text.toLowerCase()) {
-          case 'y':
-            chat.write('y\n', rowOwner: rowToken);
-            return PermissionResponse.allowOnce;
-          case 'a':
-            chat.write('a\n', rowOwner: rowToken);
-            return PermissionResponse.allowAlways;
-          case 'd':
-            if (p.outsideSandbox) return PermissionResponse.denyOnce;
-            if (isSandboxAccess) break;
-            chat.write('d\n', rowOwner: rowToken);
-            return PermissionResponse.denyAlways;
-          case 'n':
-            chat.write('n\n', rowOwner: rowToken);
-            return PermissionResponse.denyOnce;
+        final choice = p.choiceForKey(event.text);
+        if (choice != null) {
+          // Echo the key the row advertises, then answer with the choice's
+          // meaning — including the scope it lasts for.
+          chat.write('${choice.key}\n', rowOwner: rowToken);
+          return choice.response;
         }
       } else if (event is ArrowKey) {
         // Up/down arrows cycle through the approval options.
         if (event.direction == ArrowDirection.up) {
           if (selectedIndex > 0) selectedIndex--;
         } else if (event.direction == ArrowDirection.down) {
-          if (selectedIndex < options.length - 1) selectedIndex++;
+          if (selectedIndex < choices.length - 1) selectedIndex++;
         }
         // Redraw the approval row with updated selection.
         chat.write('\x1b[1A\x1b[2K', rowOwner: rowToken); // move up and clear
-        final optionStr = options.map((o) => '[${o.key}] ${o.text}').join(' ');
-        chat.write('  approve? $optionStr ‹ ', rowOwner: rowToken);
+        writeRow();
       } else if (event is EscapeKey) {
         chat.write('esc\n', rowOwner: rowToken);
         return PermissionResponse.denyOnce;
@@ -335,23 +320,11 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
         chat.write('cancelled\n', rowOwner: rowToken);
         return PermissionResponse.denyOnce;
       } else if (event is ControlKey && event.code == ControlCode.enter) {
-        final selected = options[selectedIndex];
-        chat.write(selected.text, rowOwner: rowToken);
-        switch (selected.key) {
-          case 'y':
-            chat.write('\n', rowOwner: rowToken);
-            return PermissionResponse.allowOnce;
-          case 'a':
-            chat.write('\n', rowOwner: rowToken);
-            return PermissionResponse.allowAlways;
-          case 'd':
-            if (p.outsideSandbox) return PermissionResponse.denyOnce;
-            if (isSandboxAccess) continue;
-            chat.write('\n', rowOwner: rowToken);
-            return PermissionResponse.denyAlways;
-          default:
-            continue;
-        }
+        // Enter confirms the highlighted choice, whatever it is: label, then the
+        // newline that closes the row.
+        final selected = choices[selectedIndex];
+        chat.write('${selected.label}\n', rowOwner: rowToken);
+        return selected.response;
       } else if (event is ControlKey && event.code == ControlCode.backtab) {
         // Cycle the permission mode while the approval pends — the strip's
         // mode label updates live; the answer keys are unaffected.

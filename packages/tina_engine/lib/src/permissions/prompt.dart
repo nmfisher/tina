@@ -20,11 +20,101 @@ class PermissionPrompt {
       {this.sandboxAccess, this.retryExplanation, this.retrySafety, this.execution, this.preparedEdit,
       this.outsideSandbox = false, this.cancelSignal});
 
-  String get approvalRow => sandboxAccess == null
-      ? outsideSandbox
-          ? '  approve? [y] outside once [a] outside for session [d] deny › '
-          : approvalPromptRow(alwaysPattern)
-      : '  approve? [y] once [a] session directories [n] deny › ';
+  /// The answers this prompt offers, in the order the row shows them: each key,
+  /// what it says, and what answering it means.
+  ///
+  /// ONE list, so the row the asker prints, the keys it accepts, and the scope
+  /// and rule a remembered answer is filed under cannot drift apart. The engine
+  /// used to specify a row (see the old `approvalPromptRow`) that neither asker
+  /// rendered, which is how the chat asker came to advertise a deny key that did
+  /// nothing: for a sandbox-access prompt it printed `[d] deny`, ignored `d`, and
+  /// offered the real deny (`n`) nowhere.
+  List<ApprovalChoice> get choices {
+    if (outsideSandbox) {
+      return const [
+        ApprovalChoice(
+          key: 'y',
+          label: 'run outside sandbox once',
+          decision: PermissionDecision.allow,
+        ),
+        ApprovalChoice(
+          key: 'a',
+          label: 'outside for session',
+          decision: PermissionDecision.allow,
+          remember: true,
+          scope: GrantScope.sessionOutside,
+        ),
+        ApprovalChoice(
+          key: 'd',
+          label: 'deny',
+          decision: PermissionDecision.deny,
+        ),
+      ];
+    }
+    if (sandboxAccess != null) {
+      return const [
+        ApprovalChoice(
+          key: 'y',
+          label: 'allow once',
+          decision: PermissionDecision.allow,
+        ),
+        ApprovalChoice(
+          key: 'a',
+          label: 'session directories',
+          decision: PermissionDecision.allow,
+          remember: true,
+          scope: GrantScope.sessionDirectories,
+        ),
+        ApprovalChoice(
+          key: 'n',
+          label: 'deny',
+          decision: PermissionDecision.deny,
+        ),
+      ];
+    }
+    return const [
+      ApprovalChoice(
+        key: 'y',
+        label: 'allow once',
+        decision: PermissionDecision.allow,
+      ),
+      ApprovalChoice(
+        key: 'n',
+        label: 'deny once',
+        decision: PermissionDecision.deny,
+      ),
+      ApprovalChoice(
+        key: 'a',
+        label: 'allow always',
+        decision: PermissionDecision.allow,
+        remember: true,
+        scope: GrantScope.conversation,
+      ),
+      ApprovalChoice(
+        key: 'd',
+        label: 'deny always',
+        decision: PermissionDecision.deny,
+        remember: true,
+        scope: GrantScope.conversation,
+      ),
+    ];
+  }
+
+  /// The choice [key] answers, case-insensitively, or null when this prompt does
+  /// not offer it — an unoffered key is ignored, never guessed at.
+  ApprovalChoice? choiceForKey(String key) {
+    final wanted = key.toLowerCase();
+    for (final choice in choices) {
+      if (choice.key == wanted) return choice;
+    }
+    return null;
+  }
+
+  /// The `[y] label [n] label …` text an asker frames into its row.
+  String get approvalOptionsText =>
+      [for (final choice in choices) '[${choice.key}] ${choice.label}'].join(' ');
+
+  String get approvalRow => '  approve? $approvalOptionsText ‹ ';
 
   String get accessDescription {
     if (outsideSandbox) {
@@ -70,7 +160,13 @@ class PermissionPrompt {
   /// so the note costs one dim line and says the thing that was missing.
   String get alwaysScopeNote {
     if (sandboxAccess != null || outsideSandbox) return '';
-    return '  [a] and [d] remember for ${GrantScope.conversation.plainWords} — '
+    // Both halves from the same list: which keys remember, and for how long.
+    final remembering = [
+      for (final choice in choices)
+        if (choice.remember) '[${choice.key}]',
+    ].join('/');
+    final scope = choices.firstWhere((c) => c.remember).scope;
+    return '  $remembering remember "$alwaysPattern" for ${scope.plainWords} — '
         'nothing is saved to disk.\n';
   }
 }
@@ -102,19 +198,25 @@ class PermissionResponse {
   GrantSource get source =>
       decidedBy == 'classifier' ? GrantSource.classifier : GrantSource.user;
 
+  /// How long this answer lasts. The asker sets it from the choice the user
+  /// made, so the scope is a fact about the answer rather than something the
+  /// executor re-derives from which prompt was on screen.
+  final GrantScope scope;
+
   const PermissionResponse(
     this.decision, {
     this.remember = false,
     this.note,
     this.decidedBy = 'user',
+    this.scope = GrantScope.call,
   });
 
   static const allowOnce = PermissionResponse(PermissionDecision.allow);
   static const denyOnce = PermissionResponse(PermissionDecision.deny);
-  static const allowAlways =
-      PermissionResponse(PermissionDecision.allow, remember: true);
-  static const denyAlways =
-      PermissionResponse(PermissionDecision.deny, remember: true);
+  static const allowAlways = PermissionResponse(PermissionDecision.allow,
+      remember: true, scope: GrantScope.conversation);
+  static const denyAlways = PermissionResponse(PermissionDecision.deny,
+      remember: true, scope: GrantScope.conversation);
 }
 
 typedef PermissionAsker = Future<PermissionResponse> Function(PermissionPrompt);
@@ -125,16 +227,33 @@ typedef PermissionAsker = Future<PermissionResponse> Function(PermissionPrompt);
 // WorkflowPermissionAsker._ask) so the two prompts cannot drift: the key
 // meanings, the mode chip, and the ignored-key ack are one definition.
 
-/// The interactive approval row. Spells out what each key DECIDES (#51a) —
-/// the old `[y/n/a/d] (a/d remember …)` said the answers were remembered,
-/// never that `a` allows and `d` denies. [alwaysPattern] names the scope an
-/// "always" answer will remember. Kept compact: the row plus the user's
-/// one-char answer must fit a 76-column chat region on one line — a wrapped
-/// prompt row displaces the answer echo (and the `esc\n` deny echo) onto a
-/// second line, where neither reads as the answer.
-String approvalPromptRow(String alwaysPattern) =>
-    '  approve? [y]es [n]o [a]lways allow [d]eny always '
-    '(a/d: "$alwaysPattern") › ';
+/// One answer on the approval row: the key, what it says, and what it means.
+///
+/// [decision] and [remember] are the answer; [scope] is how long it lasts. The
+/// row is built from these (see [PermissionPrompt.approvalOptionsText]), so what
+/// the user is shown and what their key does are the same list.
+class ApprovalChoice {
+  final String key;
+  final String label;
+  final PermissionDecision decision;
+  final bool remember;
+  final GrantScope scope;
+
+  const ApprovalChoice({
+    required this.key,
+    required this.label,
+    required this.decision,
+    this.remember = false,
+    this.scope = GrantScope.call,
+  });
+
+  /// What answering this choice returns.
+  PermissionResponse get response =>
+      PermissionResponse(decision, remember: remember, scope: scope);
+
+  @override
+  String toString() => '[$key] $label';
+}
 
 /// Dim annotation for an ask's header: the active permission mode (#51b).
 /// The TUI has no persistent footer bar — outside the transient Shift+Tab /
