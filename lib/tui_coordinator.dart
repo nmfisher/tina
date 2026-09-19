@@ -43,6 +43,7 @@ import 'package:tina/tmux/tmux_support.dart';
 import 'package:tina/tui/spawn_overlay.dart';
 import 'package:tina/tui/tree_order.dart';
 import 'package:tina/tui/panel_manager.dart';
+import 'package:tina/tui/transcript_cursor.dart';
 import 'package:tina/tui/conversation_panel_coordinator.dart';
 import 'package:tina/tui/resize_coordinator.dart';
 import 'package:tina/tui/session_picker_overlay.dart';
@@ -1515,6 +1516,28 @@ class TuiCoordinator {
       // sent it, before markdown rendering. Default-off escape hatch for when
       // the rendering hides something; nothing is opened when there is no raw
       // text to show (first turn, or a passthrough surface).
+      // Ctrl+B: the transcript block cursor. Consumed only when there is
+      // something to fold — otherwise say so and let the key mean nothing.
+      editor.onBlockCursor = () {
+        final host = sessionManager.activeConversation.host;
+        if (host is! TuiConversationHost) return false;
+        final transcript = host.transcript;
+        if (transcript.foldableIndexes.isEmpty) {
+          host.showMessage(
+            'nothing to fold yet — tool calls and reasoning collect here as '
+            'the agent works.\n',
+            style: HostMessageStyle.dim,
+          );
+          return true;
+        }
+        unawaited(runTranscriptCursor(
+          editor: editor,
+          chat: host.chat,
+          transcript: transcript,
+        ));
+        return true;
+      };
+
       editor.onRawView = () {
         final host = sessionManager.activeConversation.host;
         if (host is! TuiConversationHost) return false;

@@ -106,6 +106,9 @@ class ChatAgentSink implements AgentSink {
 
   late ChatGutter _gutter;
 
+  /// Index of the block the transcript cursor is on, if it is open.
+  int? _highlighted;
+
   /// Index of the tool call currently in flight, so its header can be repainted
   /// with the outcome when it completes. A call runs one at a time per agent.
   int? _toolBlock;
@@ -293,6 +296,53 @@ class ChatAgentSink implements AgentSink {
     }
     if (changed > 0) _relayout();
     return changed;
+  }
+
+  /// The indexes of the blocks that can fold, in order — what `/blocks` lists
+  /// and what the transcript cursor steps through.
+  List<int> get foldableIndexes => [
+        for (var i = 0; i < _blocks.length; i++)
+          if (_blocks[i].canFold) i,
+      ];
+
+  /// The region row a block starts at, so a caller can bring it into view.
+  int? rowOfBlock(int index) =>
+      index >= 0 && index < _blockRow.length ? _blockRow[index] : null;
+
+  /// The region row a block *ends* at — its last painted row. Revealing a block
+  /// should show its contents, so a cursor scrolls to this rather than to the
+  /// header it just expanded.
+  int? endRowOfBlock(int index) => index >= 0 && index < _blockRows.length
+      ? _blockRow[index] + _blockRows[index] - 1
+      : null;
+
+  /// Mark the block at [index] as the cursor's focus — its header row takes the
+  /// selection colour — or clear the mark with null. Repaints only the blocks
+  /// affected, so stepping the cursor costs one block, not the transcript.
+  void highlightBlock(int? index) {
+    if (!_blocksActive || _highlighted == index) return;
+    final previous = _highlighted;
+    _highlighted = index;
+    if (previous != null) _repaintBlockRows(previous);
+    if (index != null) _repaintBlockRows(index);
+  }
+
+  /// Repaint one block's rows, marking its header when it holds the cursor.
+  void _repaintBlockRows(int index) {
+    if (index < 0 || index >= _blocks.length) return;
+    final block = _blocks[index];
+    final lines = renderTranscript([block], width: _width, gutter: _gutter);
+    final focused = _highlighted == index;
+    final header = lines.indexWhere((l) => !l.isBlank);
+    chat.rewriteFrom(_blockRow[index], [
+      for (var i = 0; i < lines.length; i++)
+        _regionLine(
+          lines[i],
+          focused && i == header
+              ? chat.screen.theme.border.selection
+              : _rowStyleFor(block),
+        ),
+    ]);
   }
 
   /// Repaint after a fold. Folding a block anywhere but the end changes how

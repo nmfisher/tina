@@ -155,6 +155,12 @@ class LineEditor {
   /// consume the event (the viewer opened), `false` to let it fall through.
   bool Function()? onRawView;
 
+  /// The Ctrl+B app hook (tina: the transcript block cursor). Same dispatch
+  /// rank as the raw-view hook: it must work from any focus, including while an
+  /// approval prompt has an armed readKey, so the cursor cannot be swallowed by
+  /// whatever happens to own the keyboard. True when the hook consumed the key.
+  bool Function()? onBlockCursor;
+
   /// Called for an Alt+key event the editor doesn't bind internally (anything
   /// other than Alt+b/d/f word editing). Return `true` to consume the event,
   /// `false` to let it fall through and be ignored. Lets the app layer bind
@@ -879,6 +885,7 @@ class LineEditor {
     // must work there — otherwise it would answer the prompt instead.
     if (_handleMaximizeToggle(event)) return true;
     if (_handleRawView(event)) return true;
+    if (_handleBlockCursor(event)) return true;
     final fm = _focusManager;
     if (fm == null) return false;
     // Not cycling, the ring only claims its entry keys (Ctrl+G/Ctrl+W) and
@@ -909,6 +916,16 @@ class LineEditor {
     if (rawView == null) return false;
     if (event is! ControlKey || event.code != ControlCode.ctrlR) return false;
     if (!rawView()) return false;
+    _redraw();
+    return true;
+  }
+
+  /// The Ctrl+B app hook, at the same dispatch rank as the raw-view hook.
+  bool _handleBlockCursor(InputEvent event) {
+    final cursor = onBlockCursor;
+    if (cursor == null) return false;
+    if (event is! ControlKey || event.code != ControlCode.ctrlB) return false;
+    if (!cursor()) return false;
     _redraw();
     return true;
   }
@@ -949,8 +966,11 @@ class LineEditor {
       return KeyHandledBy.appShortcut;
     }
     // Ctrl+R rides at the same rank (the app's raw-view overlay opens from
-    // any focus).
+    // any focus), and Ctrl+B with it (the block cursor).
     if (_handleRawView(event)) {
+      return KeyHandledBy.appShortcut;
+    }
+    if (_handleBlockCursor(event)) {
       return KeyHandledBy.appShortcut;
     }
     // Shift+Tab rides at the same rank (the app cycles permission modes from
@@ -1094,6 +1114,7 @@ class LineEditor {
           case ControlCode.ctrlL:
             screen.clearChat();
             _redraw();
+          case ControlCode.ctrlB:
           case ControlCode.ctrlW:
           case ControlCode.ctrlG:
           case ControlCode.ctrlS:
@@ -1356,11 +1377,14 @@ class LineEditor {
           case ControlCode.ctrlS:
           case ControlCode.ctrlO:
           case ControlCode.ctrlR:
+          case ControlCode.ctrlB:
             // The maximize toggle works in queue mode too — maximizing a
             // panel to watch a running agent is a primary use case. Same for
-            // the raw-view overlay.
+            // the raw-view overlay and the block cursor: reading output while
+            // a turn runs is exactly when you want them.
             _handleMaximizeToggle(event);
             _handleRawView(event);
+            _handleBlockCursor(event);
             break;
           case ControlCode.backtab:
             // Shift+Tab's mode cycling also works mid-turn: flipping the

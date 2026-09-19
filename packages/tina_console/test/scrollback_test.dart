@@ -133,6 +133,54 @@ void main() {
     });
   });
 
+  group('scrollRowIntoView', () {
+    test('is a no-op when the row is already visible', () {
+      final r = _region();
+      for (var i = 0; i < 10; i++) {
+        r.write('row$i\n');
+      }
+      vt.feed(io.written.toString());
+      io.written.clear();
+      final before = r.debugScrollOffset;
+      r.scrollRowIntoView(9); // the newest row, at the tail
+      expect(r.debugScrollOffset, before);
+    });
+
+    test('brings a row above the window to the top', () {
+      final r = _region();
+      for (var i = 0; i < 10; i++) {
+        r.write('row$i\n');
+      }
+      vt.feed(io.written.toString());
+      io.written.clear();
+      expect(r.debugScrollOffset, 0);
+      // row3 is in history at this point; ask for it.
+      r.scrollRowIntoView(3);
+      vt.feed(io.written.toString());
+      io.written.clear();
+      expect(r.debugScrollOffset, greaterThan(0));
+      expect(_visibleRows().first, contains('row3'));
+    });
+
+    test('a row below the window returns the view to it', () {
+      final r = _region();
+      for (var i = 0; i < 10; i++) {
+        r.write('row$i\n');
+      }
+      vt.feed(io.written.toString());
+      io.written.clear();
+      r.scrollRowIntoView(3);
+      vt.feed(io.written.toString());
+      io.written.clear();
+      expect(r.debugScrollOffset, greaterThan(0));
+      // The newest content is below; asking for it scrolls back down.
+      r.scrollRowIntoView(9);
+      vt.feed(io.written.toString());
+      io.written.clear();
+      expect(_visibleRows().last, contains('row9'));
+    });
+  });
+
   group('clear resets to the tail', () {
     test('resetAfterClear drops history and the offset', () {
       final chat = _region();

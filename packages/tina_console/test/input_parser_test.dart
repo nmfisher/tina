@@ -44,8 +44,13 @@ void main() {
       expect(parser.feed(0x15), EditingKey(EditingAction.killToStart));
     });
 
+    test('Ctrl-B produces ControlCode.ctrlB', () {
+      expect(parser.feed(0x02), ControlKey(ControlCode.ctrlB));
+    });
+
     test('other control chars < 0x20 are ignored', () {
-      expect(parser.feed(0x02), isNull);
+      // 0x02 used to live here: an unmapped byte is dropped silently, which is
+      // why "no one uses this key" is not the same as "this key is free".
       expect(parser.feed(0x06), isNull);
       expect(parser.feed(0x10), isNull);
     });

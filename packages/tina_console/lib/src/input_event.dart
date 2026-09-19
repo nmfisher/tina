@@ -157,6 +157,11 @@ class PasteInput extends InputEvent {
 /// Control key codes.
 enum ControlCode {
   ctrlC,
+  /// Ctrl+B (STX, 0x02). App-level hook (tina binds it to the transcript block
+  /// cursor). Not a tty signal in raw mode and not bound by the editor, so the
+  /// byte reaches the process — but it has to be *mapped* below, or the parser
+  /// drops every control byte it does not know.
+  ctrlB,
   ctrlD,
   ctrlL,
   /// Ctrl+W (ETB, 0x17). Used as the FocusManager's enter/exit toggle.

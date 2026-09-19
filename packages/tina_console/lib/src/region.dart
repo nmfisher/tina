@@ -630,6 +630,35 @@ class ScrollingTextRegion extends Region {
     _notifyScrollbackChanged();
   }
 
+  /// Scroll so [contentRow] — an index into [contentRows], oldest first — is
+  /// inside the visible window, moving as little as possible. Does nothing when
+  /// it is already visible, or when the whole buffer fits.
+  ///
+  /// Used by the transcript cursor to bring a block into view as it moves.
+  void scrollRowIntoView(int contentRow) {
+    final usable = _usableHeight;
+    if (usable <= 0 || contentRow < 0) return;
+    final total = contentRows;
+    if (total <= usable) return; // everything is on screen already
+    // At offset o the window shows rows [total - usable - o, total - o).
+    final top = total - usable - _scrollOffset;
+    final bottom = top + usable - 1;
+    final int next;
+    if (contentRow < top) {
+      next = total - usable - contentRow; // put it on the top row
+    } else if (contentRow > bottom) {
+      next = total - contentRow - 1; // put it on the bottom row
+    } else {
+      return;
+    }
+    final clamped = next.clamp(0, _maxScrollOffset());
+    if (clamped == _scrollOffset) return;
+    _scrollOffset = clamped;
+    if (_scrollOffset == 0) _newWhileScrolled = 0;
+    _redraw();
+    _notifyScrollbackChanged();
+  }
+
   /// Snap the view back to the tail: offset and counter both reset to 0.
   /// Called by the host on `/clear` and panel clear so a cleared panel starts
   /// at the tail.
