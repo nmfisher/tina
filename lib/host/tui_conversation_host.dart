@@ -6,6 +6,7 @@ import 'package:logging/logging.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 import '../chat/chat_agent_sink.dart';
+import '../chat/chat_transcript.dart';
 
 final _log = Logger('tina.agent.bus');
 
@@ -41,11 +42,18 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     bool active = false,
     this.primary = true,
     this.panel,
+    this.roleLabel = 'main',
   }) : _active = active {
     _logSub = _bus.events.listen(_onBusEvent);
   }
 
   final String conversationId;
+
+  /// The role this conversation runs as — the same string the panel title is
+  /// built from — so the transcript's gutter and the border name the agent
+  /// identically.
+  final String roleLabel;
+
   final ScrollingTextRegion chat;
   final Spinner spinner;
   final Screen screen;
@@ -141,6 +149,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     },
     onStrip: (text, {required bool error}) =>
         screen.setErrorStrip(text, error: error),
+    speaker: ChatSpeaker(id: conversationId, label: roleLabel),
   );
 
   /// Forwards [AgentSink] calls to the chat region (via [ChatAgentSink]) and,
@@ -403,12 +412,9 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
         // The user has moved on: the error strip beneath the input had its
         // chance. A new notice re-renders it.
         screen.clearErrorStrip();
-        // A bullet line slightly lighter than agent prose — the old
-        // reverse-video bar was heavier than the message it carried.
-        final body = message.endsWith('\n')
-            ? message.substring(0, message.length - 1)
-            : message;
-        chat.writeStyledLine('• $body', screen.theme.chat.userText);
+        // Its own transcript block, under the `you` speaker; the sink owns the
+        // rendering (and keeps the legacy bullet line on a passthrough screen).
+        _chatSink.userMessage(message);
       case HostMessageStyle.dim:
         chat.write(screen.colorize(theme.dim, message));
       case HostMessageStyle.success:
@@ -428,6 +434,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     if (primary) {
       screen.clearChat();
       chat.scrollToTail();
+      _chatSink.clearTranscript();
       return;
     }
     // Secondary: erase this region's column slot and reset its row buffer,
@@ -443,6 +450,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     }
     chat.resetAfterClear();
     chat.scrollToTail();
+    _chatSink.clearTranscript();
     panel?.render();
   }
 
@@ -521,7 +529,13 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
   }
 
   @override
-  void handleResize() => chat.handleResize();
+  void handleResize() {
+    chat.handleResize();
+    // The region re-flows its own rows at the new width, which breaks the
+    // gutter alignment the transcript laid out for the old one. The transcript
+    // is the source of truth, so repaint it.
+    _chatSink.rerender();
+  }
 
   @override
   Future<void> dispose() async {

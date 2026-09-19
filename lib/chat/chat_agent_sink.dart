@@ -2,6 +2,7 @@ import 'package:tina_console/tina_console.dart';
 
 import 'package:tina_engine/tina_engine.dart';
 
+import 'chat_transcript.dart';
 import 'markdown_renderer.dart';
 
 /// The one-line marker this sink writes for a reasoning block, until the
@@ -72,7 +73,51 @@ class ChatAgentSink implements AgentSink {
   final void Function(String text, {required bool error})? onStrip;
 
   ChatAgentSink(this.chat, this.spinner,
-      {this.displayCap = 600, this.onToolOutput, this.onRawText, this.onStrip});
+      {this.displayCap = 600,
+      this.onToolOutput,
+      this.onRawText,
+      this.onStrip,
+      ChatSpeaker? speaker})
+      : speaker = speaker ?? const ChatSpeaker(id: 'main', label: 'main') {
+    // The gutter is fixed for the life of the sink: a conversation has exactly
+    // two speakers, so a wider label from a later block cannot re-flow rows
+    // that are already painted.
+    _gutter = ChatGutter.forSpeakers([ChatSpeaker.you, this.speaker]);
+  }
+
+  /// Who this sink's agent is. The gutter names the speaker, so a spawned or
+  /// delegated conversation's rows name *it* rather than a generic agent.
+  final ChatSpeaker speaker;
+
+  // --- the transcript -------------------------------------------------------
+
+  /// What the chat shows, in order. This is the source of truth: a tool call's
+  /// status lands here when the call finishes, a resize re-renders from here,
+  /// and folding will rewrite from here. Rows are derived, never edited.
+  final List<ChatBlock> _blocks = [];
+
+  /// Region content row where each block starts, and how many rows it took —
+  /// parallel to [_blocks], so a block can be repainted in place.
+  final List<int> _blockRow = [];
+  final List<int> _blockRows = [];
+
+  /// Content rows this sink has painted (blocks plus their blank separators).
+  int _rows = 0;
+
+  late ChatGutter _gutter;
+
+  /// Index of the tool call currently in flight, so its header can be repainted
+  /// with the outcome when it completes. A call runs one at a time per agent.
+  int? _toolBlock;
+
+  /// Blocks are painted on a colour surface. Passthrough (piped output,
+  /// `--backend`-less runs) keeps the legacy byte-for-byte rendering: it is not
+  /// a layout we own, and its consumers parse it.
+  bool get _blocksActive => !chat.screen.passthrough;
+
+  int get _width => chat.bounds.width;
+
+  MarkdownStyle get _style => MarkdownStyle.fromChatTheme(chat.screen.theme.chat);
 
   /// Drop the accumulated raw markdown for this turn (a new user message
   /// starts a new turn). Called by the host when it shows the user's line.
@@ -80,7 +125,6 @@ class ChatAgentSink implements AgentSink {
   void beginAssistantTurn() {
     _raw.clear();
     _md = null;
-    _wroteBlock = false;
   }
 
   /// The current tool call's accumulated streamed output (from [toolStart] to
@@ -103,13 +147,186 @@ class ChatAgentSink implements AgentSink {
   /// splitter is never even constructed there).
   MarkdownStreamSplitter? _md;
 
-  /// Whether a rendered block has been written since the last turn boundary;
-  /// drives the blank separator between consecutive blocks.
-  bool _wroteBlock = false;
-
   /// Markdown rendering is active on color surfaces only. Passthrough
   /// (headless `--prompt`, piped output) keeps the byte-for-byte legacy path.
   bool get _markdownActive => !chat.screen.passthrough;
+
+  // --- painting -------------------------------------------------------------
+
+  /// Append [block] to the transcript and paint it. Blocks are append-only:
+  /// only a tool call's own header is ever repainted (it gains its outcome),
+  /// and that is the last block on screen.
+  void _add(ChatBlock block) {
+    if (_blocks.isNotEmpty) {
+      chat.write('\n'); // blank line between blocks
+      _rows++;
+    }
+    _blocks.add(block);
+    _blockRow.add(_rows);
+    final lines = renderTranscript([block], width: _width, gutter: _gutter);
+    _blockRows.add(lines.length);
+    _writeLines(lines, _rowStyleFor(block));
+    _rows += lines.length;
+  }
+
+  /// Repaint the block at [index], whose rows are the tail of the transcript.
+  void _repaintBlock(int index) {
+    final block = _blocks[index];
+    final lines = renderTranscript([block], width: _width, gutter: _gutter);
+    chat.rewriteFrom(_blockRow[index],
+        [for (final line in lines) _regionLine(line, _rowStyleFor(block))]);
+    _rows += lines.length - _blockRows[index];
+    _blockRows[index] = lines.length;
+  }
+
+  /// Paint every block again from scratch, rebuilding the row index. The
+  /// region re-flows its own rows on a resize, which breaks gutter alignment,
+  /// so the host calls this after one.
+  void rerender() {
+    if (!_blocksActive || _blocks.isEmpty) return;
+    final out = <RegionLine>[];
+    _blockRow.clear();
+    _blockRows.clear();
+    _rows = 0;
+    for (var i = 0; i < _blocks.length; i++) {
+      if (i > 0) {
+        out.add(const RegionLine(''));
+        _rows++;
+      }
+      final lines =
+          renderTranscript([_blocks[i]], width: _width, gutter: _gutter);
+      _blockRow.add(_rows);
+      _blockRows.add(lines.length);
+      for (final line in lines) {
+        out.add(_regionLine(line, _rowStyleFor(_blocks[i])));
+      }
+      _rows += lines.length;
+    }
+    chat.rewriteFrom(0, out);
+  }
+
+  /// Forget the transcript, so the next block starts at the top of a cleared
+  /// region. The host calls this alongside the region's own clear.
+  void clearTranscript() {
+    _blocks.clear();
+    _blockRow.clear();
+    _blockRows.clear();
+    _rows = 0;
+    _toolBlock = null;
+  }
+
+  void _writeLines(List<MarkdownLine> lines, String? rowStyle) {
+    final style = _style;
+    final styled = chat.screen.ansi.useColor;
+    for (final line in lines) {
+      if (line.isBlank) {
+        chat.write('\n');
+        continue;
+      }
+      final ser = serializeLine(line, style, styled: styled);
+      chat.beginStyle(ser.bar ?? rowStyle ?? style.base);
+      if (ser.text.isNotEmpty) chat.appendStyled(ser.text);
+      chat.appendStyled('\n');
+      chat.endStyle();
+    }
+  }
+
+  RegionLine _regionLine(MarkdownLine line, String? rowStyle) {
+    if (line.isBlank) return const RegionLine('');
+    final ser = serializeLine(line, _style, styled: chat.screen.ansi.useColor);
+    return RegionLine(ser.text, bar: ser.bar ?? rowStyle);
+  }
+
+  /// The theme code a whole block's rows carry. Prose is left to
+  /// [MarkdownStyle.base], so its inline runs restore the agent colour.
+  String? _rowStyleFor(ChatBlock block) {
+    final theme = chat.screen.theme.chat;
+    return switch (block.kind) {
+      ChatBlockKind.user => theme.userText,
+      ChatBlockKind.prose => null,
+      ChatBlockKind.reasoning => theme.dim,
+      ChatBlockKind.toolCall => theme.dim,
+      ChatBlockKind.notice => switch (block.notice) {
+          'warn' => theme.yellow,
+          'error' => theme.red,
+          _ => theme.dim,
+        },
+    };
+  }
+
+  /// The user's own message: its own block, under the `you` speaker.
+  void userMessage(String text) {
+    final body = text.endsWith('\n') ? text.substring(0, text.length - 1) : text;
+    if (!_blocksActive) {
+      chat.writeStyledLine('• $body', chat.screen.theme.chat.userText);
+      return;
+    }
+    _flushMarkdown();
+    _add(ChatBlock.user(body));
+  }
+
+  /// One-line description of a tool call for its header. Not truncated here:
+  /// the renderer keeps the head *and* tail of whatever does not fit, and it is
+  /// the one that knows the width.
+  String _subject(String name, Map<String, dynamic> input) {
+    switch (name) {
+      case 'exec':
+        return '$name · ${input['executable']} ${input['args'] ?? []}';
+      case 'bash':
+        final cmd = input['command'] as String?;
+        return cmd != null ? '$name · $cmd' : name;
+      case 'read':
+      case 'write':
+      case 'edit':
+        final path = input['filePath'] as String?;
+        return path != null ? '$name · $path' : name;
+      case 'glob':
+      case 'grep':
+        final pattern = input['pattern'] as String?;
+        if (pattern == null) return name;
+        final path = input['path'] as String?;
+        return path != null ? '$name · $pattern in $path' : '$name · $pattern';
+      case 'search':
+        final symbol = input['symbol'] as String?;
+        return symbol != null ? '$name · $symbol' : name;
+      default:
+        if (input.isEmpty) return name;
+        final parts = <String>[];
+        for (final entry in input.entries) {
+          final value = entry.value;
+          if (value == null) continue;
+          parts.add('${entry.key}=$value');
+        }
+        return parts.isEmpty ? name : '$name · ${parts.join(' ')}';
+    }
+  }
+
+  /// The header's trailing detail: the outcome, how long it took, and — for a
+  /// failure — the first line of what went wrong. Header-only rendering hides
+  /// the body, and a failure a reader cannot see is worse than a long row.
+  String _outcome(ToolCompleteEvent e, String produced) {
+    final timing = _timing(e.elapsed);
+    if (!e.isError) return timing.isEmpty ? 'ok' : 'ok · $timing';
+    final why = produced
+        .split('\n')
+        .map((l) => l.trim())
+        .firstWhere((l) => l.isNotEmpty, orElse: () => '');
+    final head = why.length > 60 ? '${why.substring(0, 59)}…' : why;
+    return [
+      'failed',
+      if (timing.isNotEmpty) timing,
+      if (head.isNotEmpty) head,
+    ].join(' · ');
+  }
+
+  /// The body a fold will reveal: the head of the output, with a marker when
+  /// the rest is only reachable through `/output`.
+  String _bodyOf(String produced, {int maxLines = 40}) {
+    final lines = produced.split('\n');
+    if (lines.length <= maxLines) return produced;
+    return '${lines.take(maxLines).join('\n')}\n'
+        '… (${lines.length - maxLines} more lines — /output for the rest)';
+  }
 
   @override
   void text(String s) {
@@ -124,30 +341,16 @@ class ChatAgentSink implements AgentSink {
     }
     final blocks = (_md ??= MarkdownStreamSplitter()).push(s);
     for (final block in blocks) {
-      _writeMarkdownBlock(block);
+      _addProse(block);
     }
     if (blocks.isNotEmpty) _fireRaw(); // a segment just closed
   }
 
-  /// Render one closed block of markdown onto the chat. One block = one
-  /// [beginStyle]/[endStyle] span per line, so wraps and the bar (code) style
-  /// are carried by the region, never re-flowed later.
-  void _writeMarkdownBlock(String source) {
-    if (_wroteBlock) chat.write('\n'); // blank line between blocks
-    final style = MarkdownStyle.fromChatTheme(chat.screen.theme.chat);
-    final styled = chat.screen.ansi.useColor;
-    for (final line in renderMarkdown(source, style)) {
-      if (line.isBlank) {
-        chat.write('\n');
-        continue;
-      }
-      final ser = serializeLine(line, style, styled: styled);
-      chat.beginStyle(ser.bar ?? style.base);
-      if (ser.text.isNotEmpty) chat.appendStyled(ser.text);
-      chat.appendStyled('\n');
-      chat.endStyle();
-    }
-    _wroteBlock = true;
+  /// Render one closed block of markdown as a transcript block. Markdown is
+  /// parsed once, here: what the block holds are finished lines, so re-rendering
+  /// it later (a resize, a fold) is layout only.
+  void _addProse(String source) {
+    _add(ChatBlock.prose(speaker, renderMarkdown(source, _style)));
   }
 
   /// Render and emit any block still held back by the splitter, then hand the
@@ -157,7 +360,7 @@ class ChatAgentSink implements AgentSink {
     final md = _md;
     if (md == null) return;
     final rest = md.flush();
-    if (rest.trim().isNotEmpty) _writeMarkdownBlock(rest);
+    if (rest.trim().isNotEmpty) _addProse(rest);
     _fireRaw();
   }
 
@@ -168,8 +371,7 @@ class ChatAgentSink implements AgentSink {
   @override
   void newline() {
     _flushMarkdown();
-    _wroteBlock = false;
-    chat.newline();
+    if (!_blocksActive) chat.newline(); // blocks separate themselves
   }
 
   /// The current reasoning block's text, accumulated from [reasoning] so a
@@ -177,29 +379,37 @@ class ChatAgentSink implements AgentSink {
   /// counting it. Cleared at every block boundary.
   final StringBuffer _reasoning = StringBuffer();
 
-  /// A reasoning block opens on its first chunk. The marker goes out then, not
-  /// at the end: a long thinking phase should show that it is thinking, which
-  /// is what the engine's old notice did too.
+  /// Reasoning accumulates and lands as one block when the thought ends: the
+  /// header carries the count, so a reasoning-heavy model costs one row.
   @override
   void reasoning(String text, {bool startsBlock = false}) {
     if (startsBlock) {
       _reasoning.clear();
       _flushMarkdown(); // reasoning interrupts prose
-      chat.ensureNewline();
-      chat.dim('\n$kReasoningRow\n');
+      if (!_blocksActive) {
+        chat.ensureNewline();
+        chat.dim('\n$kReasoningRow\n');
+      }
     }
     _reasoning.write(text);
   }
 
-  /// The block ended. A partial block says so on its own line — the provider cut
-  /// the thought off, so the marker above would otherwise imply a complete one.
+  /// The block ended: paint it. A partial block says so in its header, because
+  /// the provider cut the thought off.
   @override
   void reasoningEnd({required bool complete}) {
+    final text = _reasoning.toString();
+    _reasoning.clear();
+    if (_blocksActive) {
+      if (text.isNotEmpty) {
+        _add(ChatBlock.reasoning(speaker, text, complete: complete));
+      }
+      return;
+    }
     if (!complete) {
       chat.ensureNewline();
       chat.dim('$kReasoningRow — partial\n');
     }
-    _reasoning.clear();
   }
 
   @override
@@ -209,13 +419,22 @@ class ChatAgentSink implements AgentSink {
     _toolName = e.toolName;
     _toolInput = e.input;
     _capped = false;
-    chat.dim('→ ${_describe(e.toolName, e.input)}\n');
+    if (!_blocksActive) {
+      chat.dim('→ ${_describe(e.toolName, e.input)}\n');
+      _toolBlock = null;
+      return;
+    }
+    // Header only: what the call produces is retained (see [toolComplete]) and
+    // belongs behind the header, not printed under it.
+    _add(ChatBlock.toolCall(speaker, subject: _subject(e.toolName, e.input)));
+    _toolBlock = _blocks.length - 1;
   }
 
   @override
   void toolOutput(ToolOutputEvent e) {
-    // Always buffer the full output; print only while it fits under the cap.
     _buffer.write(e.chunk);
+    if (_blocksActive) return; // the block holds it; nothing is printed
+    // Passthrough keeps the legacy stream: print while it fits under the cap.
     if (_capped) return;
     final before = _buffer.length - e.chunk.length;
     final room = displayCap - before;
@@ -237,6 +456,28 @@ class ChatAgentSink implements AgentSink {
     final produced =
         e.result.length > streamed.length ? e.result : streamed;
 
+    // One record per call, whatever happened, so the output is readable after
+    // the fact — whether or not the chat render was capped.
+    onToolOutput?.call(ToolCallOutput(
+      toolName: _toolName,
+      input: _toolInput,
+      text: produced.length > kRetainedOutputLimit
+          ? '${produced.substring(0, kRetainedOutputLimit)}\n'
+              '… (truncated at $kRetainedOutputLimit chars)'
+          : produced,
+    ));
+    if (_blocksActive) {
+      final index = _toolBlock;
+      _toolBlock = null;
+      if (index != null && index < _blocks.length) {
+        final block = _blocks[index];
+        block.status = _outcome(e, produced);
+        block.body = plainLines(_bodyOf(produced));
+        _repaintBlock(index);
+      }
+      return;
+    }
+
     if (_capped) {
       chat.dim('  … (${streamed.length - displayCap} more chars — '
           '/output for the full output)\n');
@@ -256,16 +497,6 @@ class ChatAgentSink implements AgentSink {
       chat.dim('  ok${timing.isEmpty ? '' : ' · $timing'}\n');
     }
 
-    // One record per call, whatever happened, so the output is readable after
-    // the fact — whether or not the chat render was capped.
-    onToolOutput?.call(ToolCallOutput(
-      toolName: _toolName,
-      input: _toolInput,
-      text: produced.length > kRetainedOutputLimit
-          ? '${produced.substring(0, kRetainedOutputLimit)}\n'
-              '… (truncated at $kRetainedOutputLimit chars)'
-          : produced,
-    ));
   }
 
   /// A measured duration as `41ms` / `1.4s` / `2m 3s`, or empty when the tool
@@ -281,16 +512,28 @@ class ChatAgentSink implements AgentSink {
   @override
   void notice(String message, {NoticeKind kind = NoticeKind.info}) {
     _flushMarkdown(); // a notice interrupts prose: flush what is held
-    // Terminate any open row first: a notice drawn over unterminated
-    // streamed output glues onto its tail, like the #30 prompts did (#31).
-    chat.ensureNewline();
-    switch (kind) {
-      case NoticeKind.info:
-        chat.dim(message);
-      case NoticeKind.warning:
-        chat.yellow(message);
-      case NoticeKind.error:
-        chat.red(message);
+    if (_blocksActive) {
+      // Severity is a *word* here, not a glyph: the markers worth having
+      // (U+26A0 and friends) are East Asian Ambiguous, which tina's width
+      // table counts as one cell while some terminals lay out as two.
+      _add(ChatBlock.notice(speaker, message.trim(),
+          notice: switch (kind) {
+            NoticeKind.info => null,
+            NoticeKind.warning => 'warn',
+            NoticeKind.error => 'error',
+          }));
+    } else {
+      // Terminate any open row first: a notice drawn over unterminated streamed
+      // output glues onto its tail, like the #30 prompts did (#31).
+      chat.ensureNewline();
+      switch (kind) {
+        case NoticeKind.info:
+          chat.dim(message);
+        case NoticeKind.warning:
+          chat.yellow(message);
+        case NoticeKind.error:
+          chat.red(message);
+      }
     }
     if (kind != NoticeKind.info) {
       onStrip?.call(message.trim(), error: kind == NoticeKind.error);

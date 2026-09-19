@@ -157,15 +157,18 @@ class ChatBlock {
   final ChatBlockKind kind;
 
   /// Expanded content, already styled. Empty for a block whose whole value is
-  /// its one-line form.
-  final List<MarkdownLine> body;
+  /// its one-line form. Mutable because a tool call's output only exists once
+  /// the call finishes — the header is painted first and the body lands then.
+  List<MarkdownLine> body;
 
   /// The one-line form's text: the user's message, a tool call's description,
   /// or a notice's text. Prose carries its content in [body] instead.
   final String subject;
 
-  /// Optional trailing detail for the one-line form (`ok · 41ms`).
-  final String? status;
+  /// Optional trailing detail for the one-line form (`ok · 41ms`). Mutable for
+  /// the same reason as [body]: a tool call's outcome is not known when its
+  /// header goes up.
+  String? status;
 
   /// Optional severity word for a notice (`warn`, `error`).
   final String? notice;

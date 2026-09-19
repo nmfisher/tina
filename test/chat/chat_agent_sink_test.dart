@@ -1,4 +1,5 @@
 import 'package:tina/chat/chat_agent_sink.dart';
+import 'package:tina/chat/chat_transcript.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
@@ -25,7 +26,7 @@ String _painted(ScrollingTextRegion chat) {
 /// in full; display is capped, and long dumps are handed
 /// to `onToolOutput` for the `/output` viewer.
 void main() {
-  test('a short stream prints fully and is never capped', () {
+  test('a call is one header row; its output is kept behind it', () {
     final chat = ScrollingTextRegion(_screen());
     final retained = <ToolCallOutput>[];
     final sink = ChatAgentSink(chat, Spinner(enabled: false),
@@ -37,18 +38,16 @@ void main() {
     sink.toolComplete(const ToolCompleteEvent('bash', 't1', isError: false, result: ''));
 
     final painted = _painted(chat);
-    expect(painted, contains('→ bash: echo hi'));
-    expect(painted, contains('line one'));
-    expect(painted, contains('line two'));
-    expect(painted, contains('  ok'));
-    expect(painted, isNot(contains('/output')));
-    // Retained regardless of the cap: the transcript shows a header, so the
-    // output behind it is kept for every call.
+    // Header only: the subject, its outcome, and nothing of the output.
+    expect(painted, contains('main │ → bash · echo hi'));
+    expect(painted, contains('ok'));
+    expect(painted, isNot(contains('line one')));
+    expect(painted, isNot(contains('line two')));
+    // The output is what a fold will reveal, so it is kept in full.
     expect(retained.single.text, 'line one\nline two\n');
   });
 
-  test('a long stream is capped for display but preserved for /output',
-      () {
+  test('a long stream never reaches the chat, and is kept whole', () {
     final chat = ScrollingTextRegion(_screen());
     final retained = <ToolCallOutput>[];
     final sink = ChatAgentSink(chat, Spinner(enabled: false),
@@ -60,12 +59,13 @@ void main() {
     sink.toolComplete(const ToolCompleteEvent('bash', 't1', isError: false, result: ''));
 
     final painted = _painted(chat);
-    // The visible stream stops at the cap, with a pointer to the viewer.
-    expect(painted, contains('more chars'));
-    expect(painted, contains('/output'));
-    expect(painted, contains('  ok'));
-    expect(painted.length, lessThan(900));
-    // The full output is preserved for the viewer.
+    // A 700-char dump costs one row: the header. No cap, no pointer — the
+    // output simply is not the chat's business any more.
+    expect(painted, contains('main │ → bash · find .'));
+    expect(painted, contains('ok'));
+    expect(painted.length, lessThan(120));
+    expect(painted, isNot(contains('xxx')));
+    // The full output is preserved for the viewer and the block's fold.
     expect(retained.single.toolName, 'bash');
     expect(retained.single.text, long);
   });
@@ -151,7 +151,7 @@ void main() {
     });
   });
 
-  test('a crossing chunk is split at the cap, not dropped', () {
+  test('a chunk boundary drops nothing', () {
     final chat = ScrollingTextRegion(_screen());
     final retained = <ToolCallOutput>[];
     final sink = ChatAgentSink(chat, Spinner(enabled: false),
@@ -163,11 +163,10 @@ void main() {
     sink.toolComplete(const ToolCompleteEvent('bash', 't1', isError: false, result: ''));
 
     final painted = _painted(chat);
-    // The part of the second chunk that fits under the cap was printed (rows
-    // wrap at the panel width, so compare the flattened text).
-    final flat = painted.replaceAll('\n', '');
-    expect(flat, contains('b' * 200));
-    expect(flat, isNot(contains('b' * 201)));
+    // Nothing of either chunk reaches the chat; both are retained whole, so a
+    // chunk landing on a boundary cannot lose its tail.
+    expect(painted, isNot(contains('a' * 20)));
+    expect(painted, isNot(contains('b' * 20)));
     expect(retained.single.text, '${'a' * 400}${'b' * 400}');
   });
 
@@ -187,7 +186,7 @@ void main() {
     expect(retained.single.text, contains('stderr tail'));
   });
 
-  test('an error result still shows failed alongside the cap note', () {
+  test('a failure shows on the header, and the output is kept', () {
     final chat = ScrollingTextRegion(_screen());
     final retained = <ToolCallOutput>[];
     final sink = ChatAgentSink(chat, Spinner(enabled: false),
@@ -199,78 +198,77 @@ void main() {
         isError: true, result: 'boom'));
 
     final painted = _painted(chat);
-    expect(painted, contains('failed: boom'));
-    expect(painted, contains('/output'));
-    // Whichever the tool produced more of is what is kept: here the streamed
-    // stderr dwarfs the one-word result.
+    // The failure is on the header — and so is the reason, since header-only
+    // rendering hides the body. Here the streamed stderr dwarfs the one-word
+    // result, so the stderr is what the header quotes.
+    expect(painted, contains('failed · '));
+    expect(painted, contains('xx'));
     expect(retained.single.text, 'x' * 700);
   });
 
   // --- #49: tool-row head+tail truncation ---
 
   test('a long bash command keeps its tail, not just its head', () {
-    final chat = ScrollingTextRegion(_screen());
+    // Narrow on purpose: the renderer truncates to the width it is given, so
+    // this is the width that makes an 84-char command overflow.
+    final chat = ScrollingTextRegion(_screen(width: 60));
     final sink = ChatAgentSink(chat, Spinner(enabled: false));
     // 84 chars: the `| sh` at the tail is what an approver needs to see.
     final cmd = 'a' * 80 + '| sh';
 
     sink.toolStart(ToolStartEvent('bash', 't1', {'command': cmd}));
 
-    final painted = _painted(chat);
-    // Head: 52 chars of the command. Ellipsis. Tail: the last 27, which ends
-    // in `| sh`.
-    final row =
-        painted.split('\n').firstWhere((l) => l.contains('→ bash:'));
-    expect(row, contains('a' * 52));
+    final row = _painted(chat)
+        .split('\n')
+        .firstWhere((l) => l.contains('→ bash ·'));
+    // Both ends survive and the middle is what goes: the last characters — the
+    // `| sh` an approver has to see — are still on the row.
     expect(row, contains('…'));
-    expect(row, endsWith('a' * 23 + '| sh'));
-    // And the middle of the command is dropped: the longest surviving run of
-    // `a`s is the 52-char head, so no 53-run can survive.
+    expect(row, endsWith('| sh'));
     expect(row, isNot(contains('a' * 53)));
   });
 
   test('a short bash command renders verbatim', () {
-    final chat = ScrollingTextRegion(_screen());
+    final chat = ScrollingTextRegion(_screen(width: 200));
     final sink = ChatAgentSink(chat, Spinner(enabled: false));
 
     sink.toolStart(const ToolStartEvent('bash', 't1', {'command': 'echo hi'}));
 
-    final row =
-        _painted(chat).split('\n').firstWhere((l) => l.contains('→ bash:'));
-    expect(row.trim(), '→ bash: echo hi');
+    final row = _painted(chat)
+        .split('\n')
+        .firstWhere((l) => l.contains('→ bash · echo hi'));
+    expect(row, contains('main │ → bash · echo hi'));
   });
 
-  test('an 80-char bash command renders verbatim (the budget boundary)', () {
-    final chat = ScrollingTextRegion(_screen());
+  test('a command the panel can hold is rendered whole', () {
+    final chat = ScrollingTextRegion(_screen(width: 200));
     final sink = ChatAgentSink(chat, Spinner(enabled: false));
     final cmd = 'b' * 80;
 
     sink.toolStart(ToolStartEvent('bash', 't1', {'command': cmd}));
 
-    final row =
-        _painted(chat).split('\n').firstWhere((l) => l.contains('→ bash:'));
-    // At exactly the 80-char budget the command is verbatim: no ellipsis.
-    expect(row, contains('→ bash: $cmd'));
+    final row = _painted(chat)
+        .split('\n')
+        .firstWhere((l) => l.contains('→ bash ·'));
+    // There is no fixed budget any more: what fits is what fits.
+    expect(row, contains('→ bash · $cmd'));
     expect(row, isNot(contains('…')));
   });
 
   test('a long k=v summary keeps both its head and its tail', () {
-    final chat = ScrollingTextRegion(_screen());
+    final chat = ScrollingTextRegion(_screen(width: 60));
     final sink = ChatAgentSink(chat, Spinner(enabled: false));
-    // 5 + 4 + 90 + 4 = 103 chars under the 80-char budget.
     final value = 'HEAD' + 'x' * 90 + 'TAIL';
 
-    sink.toolStart(
-        ToolStartEvent('mytool', 't1', {'text': value}));
+    sink.toolStart(ToolStartEvent('mytool', 't1', {'text': value}));
 
-    final row =
-        _painted(chat).split('\n').firstWhere((l) => l.contains('→ mytool:'));
-    expect(row, contains('mytool: text=HEAD')); // head survives
+    final row = _painted(chat)
+        .split('\n')
+        .firstWhere((l) => l.contains('→ mytool ·'));
+    expect(row, contains('mytool · text=HEAD')); // head survives
     expect(row, contains('…'));
-    expect(row, endsWith('x' * 23 + 'TAIL')); // tail survives
-    // Middle dropped: the value has a 90-run of `x`s; the head keeps only its
-    // first 48, the tail its last 23. So no 49-run can survive — the middle
-    // of the run is what truncation cut.
+    expect(row, endsWith('TAIL')); // and so does the tail
+    // The middle is what truncation cut: no long run of `x` survives whole.
     expect(row, isNot(contains('x' * 49)));
   });
 
@@ -290,12 +288,13 @@ void main() {
         isError: true, result: result));
 
     final painted = _painted(chat);
-    // (1) The truncated failed line.
-    expect(painted, contains('failed: ${'E' * 200}…'));
+    // (1) The failure, and as much of the reason as a header can hold.
+    expect(painted, contains('failed · EEE'));
     expect(painted, isNot(contains('THE REAL ERROR TAIL')));
-    // (2) A pointer to the viewer, mirroring the capped-output voice.
-    expect(painted, contains('… (/output for the full error)'));
-    // (3) A ring entry carrying the FULL result.
+    // (2) There is no pointer row any more: the header itself is the pointer,
+    //     and the block's fold is where the output lives.
+    expect(painted, isNot(contains('/output')));
+    // (3) A retained copy carrying the FULL result.
     expect(retained, hasLength(1));
     expect(retained.single.text, result);
     expect(retained.single.text, contains('THE REAL ERROR TAIL'));
@@ -314,12 +313,11 @@ void main() {
         isError: true, result: 'boom'));
 
     final painted = _painted(chat);
-    expect(painted, contains('failed: boom'));
-    expect(painted, isNot(contains('/output for the full error')));
+    expect(painted, contains('failed · boom'));
     expect(retained.single.text, 'boom');
   });
 
-  test('a successful call behaves exactly as before', () {
+  test('a successful call is one row with its outcome', () {
     final chat = ScrollingTextRegion(_screen());
     final retained = <ToolCallOutput>[];
     final sink = ChatAgentSink(chat, Spinner(enabled: false),
@@ -334,6 +332,99 @@ void main() {
     expect(painted, contains('  ok'));
     expect(painted, isNot(contains('/output')));
     expect(retained.single.text, result);
+  });
+
+  group('the transcript', () {
+    test('the user gets its own labelled block', () {
+      final chat = ScrollingTextRegion(_screen());
+      final sink = ChatAgentSink(chat, Spinner(enabled: false),
+          speaker: const ChatSpeaker(id: 'c1', label: 'main'));
+
+      sink.userMessage('why is CI red?');
+      sink.text('Looking at the failing job.\n');
+      sink.newline();
+
+      final painted = _painted(chat);
+      expect(painted, contains('  you │ why is CI red?'));
+      expect(painted, contains(' main │ Looking at the failing job.'));
+    });
+
+    test('the speaker label is the one it was constructed with', () {
+      final chat = ScrollingTextRegion(_screen());
+      final sink = ChatAgentSink(chat, Spinner(enabled: false),
+          speaker: const ChatSpeaker(id: 'c2', label: 'scout'));
+
+      sink.text('scouting\n');
+      sink.newline();
+
+      // A delegated conversation names itself in its own panel's transcript.
+      expect(_painted(chat), contains('scout │ scouting'));
+    });
+
+    test('reasoning is a counted row, not the thought', () {
+      final chat = ScrollingTextRegion(_screen());
+      final sink = ChatAgentSink(chat, Spinner(enabled: false));
+
+      sink.reasoning('let me think about', startsBlock: true);
+      sink.reasoning(' this for a while');
+      sink.reasoningEnd(complete: true);
+
+      final painted = _painted(chat);
+      expect(painted, contains('▸ reasoning  35 chars'));
+      expect(painted, isNot(contains('let me think about')));
+    });
+
+    test('a truncated thought says so', () {
+      final chat = ScrollingTextRegion(_screen());
+      final sink = ChatAgentSink(chat, Spinner(enabled: false));
+
+      sink.reasoning('half a thought', startsBlock: true);
+      sink.reasoningEnd(complete: false);
+
+      expect(_painted(chat), contains('▸ reasoning (partial)'));
+    });
+
+    test('severity is a word a reader can see without colour', () {
+      final chat = ScrollingTextRegion(_screen());
+      final sink = ChatAgentSink(chat, Spinner(enabled: false));
+
+      sink.notice('retrying after a 502\n', kind: NoticeKind.warning);
+      sink.notice('the run failed\n', kind: NoticeKind.error);
+      sink.notice('just so you know\n');
+
+      final painted = _painted(chat);
+      expect(painted, contains('warn · retrying after a 502'));
+      expect(painted, contains('error · the run failed'));
+      expect(painted, contains('main │ just so you know'));
+    });
+
+    test('a resize re-lays the transcript out at the new width', () {
+      final io = FakeStdio()..columns = 120;
+      final screen = Screen(
+          io: io,
+          layout: ScreenLayout.fromSize(120, 24),
+          ansi: AnsiCapable.yes);
+      final chat = ScrollingTextRegion(screen);
+      final sink = ChatAgentSink(chat, Spinner(enabled: false));
+
+      sink.text('a paragraph long enough that the two widths disagree about '
+          'where its lines should break\n');
+      sink.newline();
+      final wide = _painted(chat);
+
+      // Narrow the panel under the transcript, as a terminal resize does.
+      screen.resize(ScreenLayout.fromSize(60, 24));
+      chat.handleResize();
+      sink.rerender();
+      final narrow = _painted(chat);
+
+      expect(wide, isNot(equals(narrow)),
+          reason: 'the same paragraph wraps differently at 60 columns');
+      for (final line in narrow.split('\n').where((l) => l.isNotEmpty)) {
+        expect(plainWidth(line), lessThanOrEqualTo(chat.bounds.width),
+            reason: 'every row still fits the narrower panel');
+      }
+    });
   });
 
   test('a notice over an unterminated stream starts its own row', () {
@@ -353,6 +444,6 @@ void main() {
     final noticeRow =
         lines.where((l) => l.contains('[watchdog] turn idle for 5m')).toList();
     expect(noticeRow, hasLength(1));
-    expect(noticeRow.single.trimLeft(), '[watchdog] turn idle for 5m');
+    expect(noticeRow.single.trimLeft(), 'main │ [watchdog] turn idle for 5m');
   });
 }
