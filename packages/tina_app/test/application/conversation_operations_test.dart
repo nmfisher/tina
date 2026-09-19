@@ -164,7 +164,7 @@ void main() {
       ),
       providers: factory,
       store: store,
-      hostFactory: (_) {
+      hostFactory: (_, {String role = 'main'}) {
         if (failHost) throw StateError('host failed');
         final h = FakeHostInterface();
         hosts.add(h);

@@ -92,7 +92,11 @@ class ConversationOperations {
   final LlmProviderFactory providers;
   final SessionStore store;
   final PauseGate? pauseGate;
-  final HostInterface Function(String conversationId) hostFactory;
+  /// Builds the host for a new side conversation. [role] is the name the
+  /// conversation runs as — the same string the panel border is titled with —
+  /// so its transcript's gutter names the speaker.
+  final HostInterface Function(String conversationId, {String role})
+      hostFactory;
 
   ConversationOperations({
     required this.sessions,
@@ -228,7 +232,7 @@ class ConversationOperations {
       // Compensate only the newly allocated conversation if a later stage fails.
       owned.own(() => store.deleteConversation(persistedSessionId, id));
       _validate(request.target, session, source);
-      final host = hostFactory(id);
+      final host = hostFactory(id, role: request.profile.name);
       owned.own(host.dispose);
       final recorder = SessionRecorder(
         store,
