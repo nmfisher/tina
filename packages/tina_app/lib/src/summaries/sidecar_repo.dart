@@ -23,6 +23,15 @@ import 'package:tina_engine/tina_engine.dart' show summarySlug;
 /// by both callers.
 const kDefaultPartitionSkip = <String>{'.dart_tool', 'build', 'dist'};
 
+/// Author used for the sidecar's own commits when the machine has no git
+/// identity configured at all. The sidecar is tina's bookkeeping repo, not the
+/// user's: on a fresh container (or any machine that has never run
+/// `git commit`), git refuses with "Author identity unknown" and every summary
+/// refresh throws. A user who *does* have an identity keeps their authorship —
+/// this is only the fallback (see [_identityArgs]).
+const _sidecarFallbackName = 'tina';
+const _sidecarFallbackEmail = 'tina@localhost';
+
 /// Invalidation is deterministic and lives here, not in the model: a
 /// directory's summary is stale iff its `git rev-parse HEAD:<dir>` tree hash
 /// differs from the manifest's recorded tree, or its working-tree digest
@@ -356,7 +365,7 @@ class SidecarSummaryRepo {
   String _gitIn(String dir, List<String> args) {
     final result = Process.runSync(
       'git',
-      ['-C', dir, ...args],
+      ['-C', dir, ..._identityArgs(dir, args), ...args],
       runInShell: false,
     );
     if (result.exitCode != 0) {
@@ -368,6 +377,31 @@ class SidecarSummaryRepo {
       );
     }
     return (result.stdout as String).trim();
+  }
+
+  /// `-c user.name=… -c user.email=…` for a commit in [dir] when git cannot
+  /// resolve an author identity there, empty otherwise.
+  ///
+  /// Probed with `git var GIT_AUTHOR_IDENT`, which is exactly the question git
+  /// itself asks before a commit: it succeeds when an identity is resolvable
+  /// from the environment, the repo's config, or the user's global config, and
+  /// fails with "unable to auto-detect email address" when there is none. Only
+  /// the fallback path is affected, so a user with an identity sees no change
+  /// to what the sidecar records.
+  List<String> _identityArgs(String dir, List<String> args) {
+    if (args.isEmpty || args.first != 'commit') return const [];
+    final probe = Process.runSync(
+      'git',
+      ['-C', dir, 'var', 'GIT_AUTHOR_IDENT'],
+      runInShell: false,
+    );
+    if (probe.exitCode == 0) return const [];
+    return const [
+      '-c',
+      'user.name=$_sidecarFallbackName',
+      '-c',
+      'user.email=$_sidecarFallbackEmail',
+    ];
   }
 
   String _prettyJson(Map<String, dynamic> json) =>

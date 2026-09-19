@@ -171,12 +171,21 @@ void main() {
   );
 }
 
+/// Run `git` in [dir] with a fixed test identity — the same shape as the other
+/// summaries harnesses' helper. Without it a commit here depends on the
+/// machine's global git config and fails on a fresh container with "Author
+/// identity unknown".
 void _git(Directory dir, List<String> args) {
+  final env = Map<String, String>.from(Platform.environment)
+    ..['GIT_AUTHOR_NAME'] = 'Test'
+    ..['GIT_AUTHOR_EMAIL'] = 'test@example.com'
+    ..['GIT_COMMITTER_NAME'] = 'Test'
+    ..['GIT_COMMITTER_EMAIL'] = 'test@example.com';
   final result = Process.runSync('git', [
     '-C',
     dir.path,
     ...args,
-  ], runInShell: false);
+  ], environment: env, runInShell: false);
   if (result.exitCode != 0) {
     throw ProcessException('git', args, (result.stderr as String).trim());
   }
