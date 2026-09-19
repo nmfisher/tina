@@ -135,11 +135,17 @@ class ToolCompleteEvent extends ToolEvent {
   final bool isError;
   final String result;
 
+  /// How long the tool took, when it measured itself ([ToolResult.elapsed] —
+  /// `bash` and `exec` populate it; the others leave it null). Surfaced so a
+  /// reader can tell a 40ms search from a 90s build without opening anything.
+  final Duration? elapsed;
+
   const ToolCompleteEvent(
     super.toolName,
     super.toolId, {
     required this.isError,
     required this.result,
+    this.elapsed,
     super.conversationId,
   });
 }

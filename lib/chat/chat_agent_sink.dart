@@ -12,38 +12,41 @@ import 'markdown_renderer.dart';
 /// of a pre-collapsed label (see `AgentSink.reasoning`).
 const kReasoningRow = '▸ Reasoning (collapsed)';
 
-/// A tool call whose chat render was capped — streamed output that exceeded
-/// [ChatAgentSink.displayCap], or a failed tool's error result that exceeded
-/// its printed 200-char render. The full text is preserved here for the
-/// `/output` viewer; the chat shows only the capped portion.
-class CappedToolOutput {
+/// One tool call's output, kept so it can be read on demand.
+///
+/// Recorded for **every** completed call, not only ones whose chat render was
+/// capped: the transcript shows a tool call as a single header row, so the
+/// output behind it has to live somewhere or there would be nothing to reveal.
+/// The host keeps the most recent few for `/output`.
+class ToolCallOutput {
   final String toolName;
   final Map<String, dynamic> input;
+
+  /// The call's output, truncated to [kRetainedOutputLimit] characters; the
+  /// tail of a pathological dump is dropped rather than held in memory.
   final String text;
 
-  /// Chars of [text] not shown in the chat.
-  final int hiddenChars;
-
-  const CappedToolOutput({
+  const ToolCallOutput({
     required this.toolName,
     required this.input,
     required this.text,
-    required this.hiddenChars,
   });
 }
 
+/// How much of one tool call's output is retained for on-demand reading. A
+/// `bash` call can emit megabytes; the transcript only ever shows a header, so
+/// this bounds what a long session holds in memory. The `/output` viewer says
+/// when it is showing a truncated dump.
+const int kRetainedOutputLimit = 64 * 1024;
+
 /// The interactive [AgentSink]: routes agent output to the chat panel (and,
 /// nominally, the spinner — which is a retired no-op today). This is the only
-/// [AgentSink] implementation that imports `tina_console`; it reproduces the
-/// agent's historical chat output, so the main chat is visually unchanged.
+/// [AgentSink] implementation that imports `tina_console`.
 ///
 /// Streamed tool output (bash stdout/stderr) is printed raw up to [displayCap]
-/// chars; beyond that it is buffered silently and handed to [onCapped] at
-/// completion, so the full output is never lost — the `/output` viewer shows
-/// it. When the tool strip lands, the host layer will swap this for a
-/// composing sink that routes tool events to the strip and skips them on chat
-/// while leaving text/notices on chat. The agent is oblivious to which sink it
-/// has.
+/// chars, and every call's output is handed to [onToolOutput] at completion so
+/// it can be read afterwards — the `/output` viewer shows it, and the
+/// transcript's tool rows will reveal it in place.
 class ChatAgentSink implements AgentSink {
   final ScrollingTextRegion chat;
   final Spinner spinner;
@@ -51,10 +54,11 @@ class ChatAgentSink implements AgentSink {
   /// How much streamed tool output to print in the chat before capping.
   final int displayCap;
 
-  /// Fired when a tool call's streamed output exceeded [displayCap] — or a
-  /// failed tool's error result exceeded its printed 200-char render — with
-  /// the full text (the host keeps a ring for `/output`).
-  final void Function(CappedToolOutput output)? onCapped;
+  /// Fired once per completed tool call with what it produced (truncated to
+  /// [kRetainedOutputLimit]) — the host keeps a ring for `/output`. Fired
+  /// whether or not the chat render was capped, because the transcript shows a
+  /// call as a header and the output has to be available behind it.
+  final void Function(ToolCallOutput output)? onToolOutput;
 
   /// Fired whenever the current assistant turn's raw markdown grows a closed
   /// segment (prose end), with the whole turn's raw text so far — the raw
@@ -68,7 +72,7 @@ class ChatAgentSink implements AgentSink {
   final void Function(String text, {required bool error})? onStrip;
 
   ChatAgentSink(this.chat, this.spinner,
-      {this.displayCap = 600, this.onCapped, this.onRawText, this.onStrip});
+      {this.displayCap = 600, this.onToolOutput, this.onRawText, this.onStrip});
 
   /// Drop the accumulated raw markdown for this turn (a new user message
   /// starts a new turn). Called by the host when it shows the user's line.
@@ -226,37 +230,52 @@ class ChatAgentSink implements AgentSink {
 
   @override
   void toolComplete(ToolCompleteEvent e) {
-    final full = _buffer.toString();
+    final streamed = _buffer.toString();
+    // Whichever the tool produced more of: a failure's `result` carries the
+    // message, a success's streamed output carries the work. Taking the longer
+    // keeps what the two previous code paths each retained.
+    final produced =
+        e.result.length > streamed.length ? e.result : streamed;
+
     if (_capped) {
-      chat.dim('  … (${full.length - displayCap} more chars — '
+      chat.dim('  … (${streamed.length - displayCap} more chars — '
           '/output for the full output)\n');
-      onCapped?.call(CappedToolOutput(
-        toolName: _toolName,
-        input: _toolInput,
-        text: full,
-        hiddenChars: full.length - displayCap,
-      ));
     }
+    final timing = _timing(e.elapsed);
     if (e.isError) {
       const cap = 200;
-      chat.red('  failed: ${_truncate(e.result, cap)}\n');
+      // The duration goes in parentheses here: `failed · 1.4s: boom` reads as
+      // if the timing were part of the message.
+      chat.red('  failed${timing.isEmpty ? '' : ' ($timing)'}: '
+          '${_truncate(e.result, cap)}\n');
       if (e.result.length > cap) {
-        // The printed render cut the error off. Mirror the capped-output
-        // pointer's voice, and carry the FULL result into the `/output`
-        // ring — the ring is fed only from streamed output, and a failure
-        // with no streamed chunks would otherwise lose everything past
-        // [cap] chars: no ring entry, no viewer, no marker.
+        // The printed render cut the error off; point at the retained copy.
         chat.dim('  … (/output for the full error)\n');
-        onCapped?.call(CappedToolOutput(
-          toolName: _toolName,
-          input: _toolInput,
-          text: e.result,
-          hiddenChars: e.result.length - cap,
-        ));
       }
     } else {
-      chat.dim('  ok\n');
+      chat.dim('  ok${timing.isEmpty ? '' : ' · $timing'}\n');
     }
+
+    // One record per call, whatever happened, so the output is readable after
+    // the fact — whether or not the chat render was capped.
+    onToolOutput?.call(ToolCallOutput(
+      toolName: _toolName,
+      input: _toolInput,
+      text: produced.length > kRetainedOutputLimit
+          ? '${produced.substring(0, kRetainedOutputLimit)}\n'
+              '… (truncated at $kRetainedOutputLimit chars)'
+          : produced,
+    ));
+  }
+
+  /// A measured duration as `41ms` / `1.4s` / `2m 3s`, or empty when the tool
+  /// did not time itself. Each call site adds its own punctuation.
+  String _timing(Duration? elapsed) {
+    if (elapsed == null || elapsed <= Duration.zero) return '';
+    final ms = elapsed.inMilliseconds;
+    if (ms < 1000) return '${ms}ms';
+    if (ms < 60000) return '${(ms / 1000).toStringAsFixed(1)}s';
+    return '${elapsed.inMinutes}m ${elapsed.inSeconds % 60}s';
   }
 
   @override

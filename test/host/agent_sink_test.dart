@@ -151,12 +151,12 @@ void main() {
           '  failed: ${'x' * 200}…\n  … (/output for the full error)\n');
     });
 
-    test('toolComplete error fires onCapped with the full result', () {
-      final capped = <CappedToolOutput>[];
+    test('toolComplete error retains the full result', () {
+      final retained = <ToolCallOutput>[];
       final io = FakeStdio();
       final screen = Screen.passthrough(io, ansi: AnsiCapable.no);
       final sink =
-          ChatAgentSink(screen.chat, Spinner(enabled: false), onCapped: capped.add);
+          ChatAgentSink(screen.chat, Spinner(enabled: false), onToolOutput: retained.add);
       final result = 'E' * 250 + 'TAIL';
 
       sink.toolStart(const ToolStartEvent('bash', 'u1', {'command': 'go'}));
@@ -165,25 +165,24 @@ void main() {
 
       // The failed render cut the result: the ring must carry the full text,
       // not the 200-char window the chat printed.
-      expect(capped, hasLength(1));
-      expect(capped.single.text, result);
-      expect(capped.single.toolName, 'bash');
-      expect(capped.single.input, {'command': 'go'});
-      expect(capped.single.hiddenChars, 54); // 254 - 200 printed chars
+      expect(retained, hasLength(1));
+      expect(retained.single.text, result);
+      expect(retained.single.toolName, 'bash');
+      expect(retained.single.input, {'command': 'go'});
     });
 
-    test('toolComplete error keeps a short result verbatim, no ring', () {
-      final capped = <CappedToolOutput>[];
+    test('toolComplete error keeps a short result verbatim', () {
+      final retained = <ToolCallOutput>[];
       final io = FakeStdio();
       final screen = Screen.passthrough(io, ansi: AnsiCapable.no);
       final sink =
-          ChatAgentSink(screen.chat, Spinner(enabled: false), onCapped: capped.add);
+          ChatAgentSink(screen.chat, Spinner(enabled: false), onToolOutput: retained.add);
 
       sink.toolComplete(const ToolCompleteEvent('bash', 'u1',
           isError: true, result: 'boom'));
 
       expect(io.written.toString(), '  failed: boom\n');
-      expect(capped, isEmpty);
+      expect(retained.single.text, 'boom');
     });
 
     test('toolOutput routes stdout→dim and stderr→red under color', () {

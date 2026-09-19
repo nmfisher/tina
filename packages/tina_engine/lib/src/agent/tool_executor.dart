@@ -823,10 +823,11 @@ class ToolExecutor {
       // result after the batch loop (one site, every result path), so
       // here the text ships as the tool produced it.
       sink.toolComplete(ToolCompleteEvent(use.name, use.id,
-          isError: out.isError, result: content));
+          isError: out.isError, result: content, elapsed: out.elapsed));
       _notifyObservers((observer) => observer.onToolComplete(
           ToolCompleteEvent(use.name, use.id,
-              isError: out.isError, result: content)));
+              isError: out.isError, result: content,
+              elapsed: out.elapsed)));
       // Post-tool stage: the success-only gate (#22a), now as hooks. The
       // legacy verifier runs first (adapted as [_VerifierHook], which
       // calls it with (name, input) and ignores the result — so

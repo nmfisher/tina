@@ -1113,15 +1113,15 @@ class TuiCoordinator {
           );
           return;
         }
-        if (index >= host.cappedOutputs.length) {
+        if (index >= host.retainedOutputs.length) {
           host.showMessage(
-            'no capped tool output at /output ${index + 1} '
-            '(${host.cappedOutputs.length} available)\n',
+            'no retained tool output at /output ${index + 1} '
+            '(${host.retainedOutputs.length} available)\n',
             style: HostMessageStyle.warning,
           );
           return;
         }
-        final o = host.cappedOutputs[index];
+        final o = host.retainedOutputs[index];
         await runToolOutputViewer(
           screen: screen,
           editor: editor,

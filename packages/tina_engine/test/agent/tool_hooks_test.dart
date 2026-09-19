@@ -55,6 +55,43 @@ void main() {
     );
   }
 
+  group('timing reaches the sink', () {
+    test('a tool that measured itself reports its duration on toolComplete',
+        () async {
+      // The duration is part of what the transcript shows a reader
+      // (`ok · 41ms`), so it has to survive the trip from the tool's result to
+      // the sink event rather than staying on the internal result object.
+      final sink = FakeAgentSink();
+      final executor = makeExecutor(sink);
+      await executor.execute(
+        use: const ToolUseBlock(id: 'u1', name: 'fake', input: {}),
+        stepTools: ToolRegistry([
+          FakeTool('fake', (_) async => const ToolResult('ran',
+              elapsed: Duration(milliseconds: 41))),
+        ]).forStep(),
+        step: 0,
+        isCancelled: () => false,
+      );
+
+      expect(sink.toolCompletes.single.elapsed,
+          const Duration(milliseconds: 41));
+    });
+
+    test('a tool that did not measure itself reports no duration', () async {
+      final sink = FakeAgentSink();
+      final executor = makeExecutor(sink);
+      final tool = FakeTool.noOp('fake');
+      await executor.execute(
+        use: const ToolUseBlock(id: 'u1', name: 'fake', input: {}),
+        stepTools: ToolRegistry([tool]).forStep(),
+        step: 0,
+        isCancelled: () => false,
+      );
+
+      expect(sink.toolCompletes.single.elapsed, isNull);
+    });
+  });
+
   group('ToolExecutionHook (around)', () {
     test('delegating once executes the tool and ships its result normally',
         () async {
