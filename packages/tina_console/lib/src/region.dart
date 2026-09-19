@@ -649,6 +649,105 @@ class ScrollingTextRegion extends Region {
     return total > usable ? total - usable : 0;
   }
 
+  /// Every content row currently retained, across scrollback history and the
+  /// visible window, oldest first — the coordinate space [rewriteFrom] indexes.
+  /// The window's blank tail is not counted.
+  int get contentRows => _history.length + _contentRowCount;
+
+  /// Replace every retained row from [fromContentRow] onward with [lines], then
+  /// repaint the viewport.
+  ///
+  /// The append-only [write] path cannot re-render what it has already emitted,
+  /// which is what folding and unfolding need: collapsing a block removes rows
+  /// from the middle, so every row after it shifts. This is the one entry point
+  /// that edits history instead of adding to it. It is O(retained rows) and
+  /// meant for a user action (a fold, a resize rebuild), never for a streamed
+  /// delta — streaming still appends.
+  ///
+  /// [fromContentRow] is measured in [contentRows] (0 = the oldest retained
+  /// row); a value past the end appends, a negative one rebuilds everything.
+  /// Rows before it are kept verbatim, so a caller that knows where its own
+  /// output starts can rewrite only its tail.
+  ///
+  /// The region is left in the steady state a newline leaves behind: content
+  /// top-aligned, and the write cursor on an empty row after it (or the last
+  /// row when the buffer is full), so the next [write] opens a new row rather
+  /// than appending to the last one (tin-m2vq).
+  ///
+  /// No-op while detached (writes replay on attach) or in passthrough: a
+  /// passthrough surface has no row buffer to rewrite, and the bytes it already
+  /// wrote cannot be recalled.
+  void rewriteFrom(int fromContentRow, List<RegionLine> lines) {
+    if (_detached || screen.passthrough || bounds.isEmpty) return;
+    final usable = _usableHeight;
+    if (usable <= 0) return;
+
+    screen.frame(() {
+      // Absolute row list: scrollback first, then the visible content rows.
+      final absolute = <_StyledRow>[
+        ..._history,
+        for (var i = 0; i < _contentRowCount; i++) _rows[i],
+      ];
+      final from = fromContentRow.clamp(0, absolute.length);
+      final rebuilt = <_StyledRow>[
+        ...absolute.sublist(0, from),
+        for (final line in lines)
+          _StyledRow()
+            ..append(line.text)
+            ..styleCode = line.bar,
+      ];
+
+      // Keep one row free for the write cursor, so the next streamed line
+      // starts its own row instead of gluing onto the last rebuilt one.
+      final maxVisible = usable > 0 ? usable - 1 : 0;
+      final overflow =
+          rebuilt.length > maxVisible ? rebuilt.length - maxVisible : 0;
+      _history
+        ..clear()
+        ..addAll(rebuilt.sublist(0, overflow));
+      if (_history.length > _maxHistoryRows) {
+        _history.removeRange(0, _history.length - _maxHistoryRows);
+      }
+      final visible = rebuilt.sublist(overflow);
+
+      _rows.clear();
+      _rows.addAll(visible);
+      while (_rows.length < bounds.height) {
+        _rows.add(_StyledRow());
+      }
+      _curRow = visible.length < usable ? visible.length : usable - 1;
+      _curCol = 0;
+
+      // The retained snapshots describe rows at their old positions, so none of
+      // them can be trusted for a skip. Clear both lists: a history row can be
+      // scrolled back into view before it is next re-emitted.
+      for (final row in _history) {
+        row.clearPaintSnapshot();
+      }
+      for (final row in _rows) {
+        row.clearPaintSnapshot();
+      }
+
+      // The fold removed rows, so the scroll offset may now point past the end.
+      final maxOffset = _maxScrollOffset();
+      if (_scrollOffset > maxOffset) _scrollOffset = maxOffset;
+      _newWhileScrolled = _scrollOffset == 0 ? 0 : _newWhileScrolled;
+
+      // Pending window state describes rows that no longer exist.
+      _openRowOwner = null;
+      _pendingStyle = null;
+      _pendingPaintRows.clear();
+      _pendingScrollCount = 0;
+      _pendingWindowContentRows = 0;
+      _pendingFullPaint = true;
+      screen.requestChatPresentation(
+        this,
+        contentRowsAtWindowStart: _contentRowCount,
+      );
+    });
+    _notifyScrollbackChanged();
+  }
+
   /// Fire [onScrollbackChanged], deferred and coalesced via a microtask so a
   /// notification triggered inside a write frame (new content while scrolled)
   /// never re-enters rendering mid-stream.
@@ -1438,7 +1537,6 @@ class _StyledRow {
   /// Once the segment count exceeds this, the segments are joined back into a
   /// single string to bound retained objects under sustained streaming.
   static const int segmentCompactThreshold = 64;
-
   final List<String> _segments = [];
   String? _flattened;
   String? styleCode;
@@ -1492,6 +1590,33 @@ class _StyledRow {
       ..add(joined);
     _flattened = joined;
   }
+
+  /// Forget the terminal snapshot. The next emit re-renders this row from
+  /// scratch, which is what a row whose position or neighbours changed needs.
+  void clearPaintSnapshot() {
+    paintedText = null;
+    paintedVisualRow = null;
+    paintedCol = null;
+    paintedWidth = null;
+  }
+}
+
+/// One row handed to [ScrollingTextRegion.rewriteFrom].
+///
+/// The console layer cannot know the app's richer line model, so a rewritten
+/// row crosses the boundary in the same form the append path already produced:
+/// [text] carries any inline SGR runs verbatim, and [bar] is the row-level
+/// style (a code block's background, a user message's bar) or null for none.
+class RegionLine {
+  const RegionLine(this.text, {this.bar});
+
+  /// The row's text, optionally carrying inline SGR runs. Must already fit the
+  /// region: a rewritten row is not re-wrapped, because the caller's gutter
+  /// alignment depends on where its own line breaks were placed.
+  final String text;
+
+  /// The row-level style code, padded across the row's width by the emit path.
+  final String? bar;
 }
 
 /// Random-access region for transient overlays (spinner, progress
