@@ -427,6 +427,104 @@ void main() {
     });
   });
 
+  group('folding', () {
+    /// A sink with one tool call whose output was retained.
+    (ScrollingTextRegion, ChatAgentSink) withTool() {
+      final chat = ScrollingTextRegion(_screen());
+      final sink = ChatAgentSink(chat, Spinner(enabled: false));
+      sink.toolStart(const ToolStartEvent('bash', 't1', {'command': 'ls'}));
+      sink.toolOutput(const ToolOutputEvent('bash', 't1', 'a.dart\nb.dart\n'));
+      sink.toolComplete(
+          const ToolCompleteEvent('bash', 't1', isError: false, result: ''));
+      return (chat, sink);
+    }
+
+    test('a tool call opens its body in place', () {
+      final (chat, sink) = withTool();
+      expect(_painted(chat), isNot(contains('a.dart')));
+      expect(sink.blocks.single.folded, isTrue);
+
+      expect(sink.toggleFold(0), isTrue);
+      final expanded = _painted(chat);
+      // Header, then the output nested one level in.
+      expect(expanded, contains('→ bash · ls  ok'));
+      expect(expanded, contains('a.dart'));
+      expect(expanded, contains('b.dart'));
+      expect(expanded, contains('      │   a.dart'));
+
+      // And back again.
+      expect(sink.toggleFold(0), isTrue);
+      expect(_painted(chat), isNot(contains('a.dart')));
+    });
+
+    test('prose and user messages never fold', () {
+      final chat = ScrollingTextRegion(_screen());
+      final sink = ChatAgentSink(chat, Spinner(enabled: false));
+      sink.userMessage('hello');
+      sink.text('a paragraph\n');
+      sink.newline();
+
+      expect(sink.toggleFold(0), isFalse, reason: "the user's own words");
+      expect(sink.toggleFold(1), isFalse, reason: 'prose');
+      expect(_painted(chat), contains('hello'));
+      expect(_painted(chat), contains('a paragraph'));
+    });
+
+    test('a call with nothing behind it cannot fold', () {
+      final chat = ScrollingTextRegion(_screen());
+      final sink = ChatAgentSink(chat, Spinner(enabled: false));
+      // A decline never streams and returns no result.
+      sink.toolStart(const ToolStartEvent('bash', 't1', {'command': 'ls'}));
+      sink.toolComplete(
+          const ToolCompleteEvent('bash', 't1', isError: false, result: ''));
+
+      expect(sink.toggleFold(0), isFalse);
+    });
+
+    test('fold all and unfold all skip what cannot fold', () {
+      final (chat, sink) = withTool();
+      sink.toolStart(const ToolStartEvent('read', 't2', {'filePath': 'x'}));
+      sink.toolComplete(const ToolCompleteEvent('read', 't2',
+          isError: false, result: 'int x;', elapsed: Duration.zero));
+      sink.text('prose\n');
+      sink.newline();
+
+      expect(sink.setAllFolds(folded: false), 2);
+      expect(_painted(chat), contains('int x;'));
+      expect(sink.setAllFolds(folded: true), 2);
+      expect(_painted(chat), isNot(contains('int x;')));
+      // Idempotent, and only the two foldable blocks are counted — the prose
+      // sitting between them is not one of them.
+      expect(sink.setAllFolds(folded: true), 0);
+      expect(sink.setAllFolds(folded: false), 2);
+    });
+
+    test('folding a middle block shifts the rows after it, with no stale rows',
+        () {
+      final chat = ScrollingTextRegion(_screen());
+      final sink = ChatAgentSink(chat, Spinner(enabled: false));
+      for (var i = 0; i < 3; i++) {
+        sink.toolStart(ToolStartEvent('bash', 't$i', {'command': 'cmd$i'}));
+        sink.toolOutput(ToolOutputEvent('bash', 't$i', 'body-$i\n'));
+        sink.toolComplete(
+            ToolCompleteEvent('bash', 't$i', isError: false, result: ''));
+      }
+      // Expand the first: two extra rows appear, and everything after shifts.
+      sink.toggleFold(0);
+      final lines = _painted(chat).split('\n');
+      expect(lines.where((l) => l.contains('body-0')), hasLength(1));
+      // Every row is still one of the three calls' rows: nothing from before
+      // the rewrite is left painted underneath.
+      expect(lines.where((l) => l.contains('→ bash ·')), hasLength(3));
+
+      // Collapse it again: the rows it added must be gone, not just unindexed.
+      sink.toggleFold(0);
+      expect(_painted(chat), isNot(contains('body-0')));
+      expect(_painted(chat).split('\n').where((l) => l.contains('→ bash ·')),
+          hasLength(3));
+    });
+  });
+
   test('a notice over an unterminated stream starts its own row', () {
     final chat = ScrollingTextRegion(_screen());
     final sink = ChatAgentSink(chat, Spinner(enabled: false));

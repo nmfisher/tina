@@ -93,6 +93,11 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
   /// when the user's next message opens a turn.
   String lastRawMarkdown = '';
 
+  /// This conversation's transcript — the blocks behind what the chat shows.
+  /// Read-only in intent: the coordinator folds through [ChatAgentSink]'s own
+  /// methods rather than editing blocks.
+  ChatAgentSink get transcript => _chatSink;
+
   /// The [PanelFrame] that frames this host's region. Still used by [clear]
   /// (repaint the chrome after erasing a column slot) and by the coordinator's
   /// relabel path (`/model`). The busy *cue* no longer goes through here — it is

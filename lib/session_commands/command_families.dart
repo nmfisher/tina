@@ -148,6 +148,41 @@ class FrontendCommands {
   final FrontendCapabilities ctx;
   FrontendCommands(this.ctx);
 
+  /// `/blocks` — list the transcript's foldable blocks, numbered, with what
+  /// each one would reveal.
+  Future<void> _handleBlocks() async {
+    final fold = ctx.foldTranscript;
+    if (fold == null) {
+      _noTranscript();
+      return;
+    }
+    await fold('list', '');
+  }
+
+  /// `/show <n|all>` and `/hide <n|all>` — open or close a block in place.
+  Future<void> _handleFold(String trimmed, {required bool show}) async {
+    final fold = ctx.foldTranscript;
+    if (fold == null) {
+      _noTranscript();
+      return;
+    }
+    final argument = trimmed.split(RegExp(r'\s+')).skip(1).join(' ');
+    if (argument.isEmpty) {
+      ctx.active.host.showMessage(
+        'usage: /${show ? 'show' : 'hide'} <n|all> — '
+        '${show ? 'reveal' : 'collapse'} a block from /blocks.\n',
+        style: HostMessageStyle.warning,
+      );
+      return;
+    }
+    await fold(show ? 'show' : 'hide', argument);
+  }
+
+  void _noTranscript() => ctx.active.host.showMessage(
+        'this session has no transcript to fold.\n',
+        style: HostMessageStyle.warning,
+      );
+
   /// `/output [n]` — show the full output of a capped tool call. No argument
   /// shows the most recent; `/output 2` shows the second-most-recent, etc.
   Future<void> _handleOutput(String trimmed) async {

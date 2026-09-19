@@ -96,6 +96,10 @@ void main() {
           '  /detach        return to the shell, keep the agent running '
           '(tmux; also Alt+D)\n'
           '  /explore <implementation question> locate code using Typesafe scouts (no direct filesystem tools)\n'
+          '  /blocks        list the transcript blocks that can fold, numbered\n'
+          '  /show <n|all>  reveal a folded block (a tool call\'s output, a '
+          'thought)\n'
+          '  /hide <n|all>  collapse a block back to its one-line form\n'
           'ESC cancels the active session\'s in-flight response.\n';
 
       // Dispatch echoes the trimmed line, then a separator, then the block.
@@ -122,7 +126,7 @@ void main() {
           '/explore', '/exit', '/quit', '/help', '/clear', '/compact', '/auto-compact',
           '/permissions', '/sessions', '/session', '/resume', '/save',
           '/model', '/settings', '/prompts', '/spawn', '/branch', '/image',
-          '/index', '/workflow', '/output', '/spend', '/update', '/detach',
+          '/index', '/workflow', '/blocks', '/show', '/hide', '/output', '/spend', '/update', '/detach',
         ],
       );
     });
@@ -299,4 +303,8 @@ String _goldenHelpBody() =>
         '  /detach        return to the shell, keep the agent running '
         '(tmux; also Alt+D)\n'
         '  /explore <implementation question> locate code using Typesafe scouts (no direct filesystem tools)\n'
+        '  /blocks        list the transcript blocks that can fold, numbered\n'
+        '  /show <n|all>  reveal a folded block (a tool call\'s output, a '
+        'thought)\n'
+        '  /hide <n|all>  collapse a block back to its one-line form\n'
         "ESC cancels the active session's in-flight response.\n";

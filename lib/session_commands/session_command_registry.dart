@@ -231,6 +231,27 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     handler: (h, t) => _handled(() => handleWorkflowCommand(h.workflow, t)),
   ),
   SessionCommandEntry(
+    names: const ['/blocks'],
+    argsHint: '',
+    summary: 'list the transcript blocks that can fold, numbered',
+    helpOrder: 21,
+    handler: (h, _) => _handled(h.frontend._handleBlocks),
+  ),
+  SessionCommandEntry(
+    names: const ['/show'],
+    argsHint: '<n|all>',
+    summary: 'reveal a folded block (a tool call\'s output, a thought)',
+    helpOrder: 22,
+    handler: (h, t) => _handled(() => h.frontend._handleFold(t, show: true)),
+  ),
+  SessionCommandEntry(
+    names: const ['/hide'],
+    argsHint: '<n|all>',
+    summary: 'collapse a block back to its one-line form',
+    helpOrder: 23,
+    handler: (h, t) => _handled(() => h.frontend._handleFold(t, show: false)),
+  ),
+  SessionCommandEntry(
     names: const ['/output'],
     argsHint: '[n]',
     summary:

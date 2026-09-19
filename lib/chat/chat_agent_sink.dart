@@ -265,6 +265,41 @@ class ChatAgentSink implements AgentSink {
     _add(ChatBlock.user(body));
   }
 
+  // --- folding --------------------------------------------------------------
+
+  /// The transcript, in order, for the host to fold and list.
+  List<ChatBlock> get blocks => List.unmodifiable(_blocks);
+
+  /// Flip the block at [index] between its one-line form and its body. Returns
+  /// false when the block cannot fold — prose and the user's own words are
+  /// never collapsed, and a tool call whose output was not retained has nothing
+  /// behind its header.
+  bool toggleFold(int index) {
+    if (index < 0 || index >= _blocks.length) return false;
+    final block = _blocks[index];
+    if (!block.canFold) return false;
+    block.folded = !block.folded;
+    _relayout();
+    return true;
+  }
+
+  /// Fold or unfold every block that can fold. Returns how many changed.
+  int setAllFolds({required bool folded}) {
+    var changed = 0;
+    for (final block in _blocks) {
+      if (!block.canFold || block.folded == folded) continue;
+      block.folded = folded;
+      changed++;
+    }
+    if (changed > 0) _relayout();
+    return changed;
+  }
+
+  /// Repaint after a fold. Folding a block anywhere but the end changes how
+  /// many rows every block after it occupies, so the row index is rebuilt and
+  /// the transcript repainted from the top — a user action, not a delta.
+  void _relayout() => rerender();
+
   /// One-line description of a tool call for its header. Not truncated here:
   /// the renderer keeps the head *and* tail of whatever does not fit, and it is
   /// the one that knows the width.
@@ -472,7 +507,12 @@ class ChatAgentSink implements AgentSink {
       if (index != null && index < _blocks.length) {
         final block = _blocks[index];
         block.status = _outcome(e, produced);
-        block.body = plainLines(_bodyOf(produced));
+        // An empty result is no body at all: `plainLines('')` would be one
+        // blank row, which would make the call look foldable and expand to
+        // nothing.
+        block.body = produced.trim().isEmpty
+            ? const []
+            : plainLines(_bodyOf(produced));
         _repaintBlock(index);
       }
       return;

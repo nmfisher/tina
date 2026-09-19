@@ -247,6 +247,11 @@ class ChatGutter {
   }
 }
 
+/// The block's one-line form as plain text — what its header shows, without
+/// the gutter. Used to list blocks outside a terminal.
+String blockSummary(ChatBlock block) =>
+    _headerRuns(block).map((r) => r.text).join().trim();
+
 /// Render [blocks] for a transcript [width] columns wide, gutter included.
 ///
 /// Each returned line already fits [width], so the region it is written to

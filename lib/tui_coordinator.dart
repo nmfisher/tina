@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import 'package:attractor/attractor.dart';
 
 import 'package:tina/completion/git_file_provider.dart';
+import 'package:tina/chat/chat_transcript.dart';
 import 'package:tina/completion/command_completion_provider.dart';
 import 'package:tina/session_commands/session_command_handlers.dart';
 import 'package:tina/composition/config_providers.dart';
@@ -1104,6 +1105,75 @@ class TuiCoordinator {
       // `/output [n]` — full output of a capped tool call (the chat shows only
       // the first ~600 streamed chars). The ring lives on the active
       // conversation's host; newest first.
+      // `/blocks`, `/show`, `/hide` — fold the active conversation's transcript
+      // in place. The blocks themselves are the sink's; this only maps a
+      // command onto them and reports what changed.
+      controller.foldTranscript = (verb, argument) async {
+        final host = sessionManager.activeConversation.host;
+        if (host is! TuiConversationHost) {
+          host.showMessage('this session has no transcript to fold.\n',
+              style: HostMessageStyle.warning);
+          return;
+        }
+        final transcript = host.transcript;
+
+        /// The foldable blocks, in order, numbered from 1 for the user.
+        List<int> foldable() => [
+              for (var i = 0; i < transcript.blocks.length; i++)
+                if (transcript.blocks[i].canFold) i,
+            ];
+
+        void report(String message) =>
+            host.showMessage(message, style: HostMessageStyle.dim);
+
+        if (verb == 'list') {
+          final indexes = foldable();
+          if (indexes.isEmpty) {
+            report('nothing to fold yet.\n');
+            return;
+          }
+          final lines = StringBuffer('foldable blocks:\n');
+          for (var n = 0; n < indexes.length; n++) {
+            final block = transcript.blocks[indexes[n]];
+            lines.writeln('  ${n + 1}. '
+                '${block.folded ? '▸' : '▾'} ${blockSummary(block)}');
+          }
+          lines.write('  /show <n> reveals one, /hide <n> closes it, '
+              'or use "all".\n');
+          report(lines.toString());
+          return;
+        }
+
+        final indexes = foldable();
+        if (argument == 'all') {
+          final changed =
+              transcript.setAllFolds(folded: verb == 'hide');
+          report(changed == 0
+              ? 'nothing to ${verb == 'hide' ? 'fold' : 'unfold'}.\n'
+              : '$changed block${changed == 1 ? '' : 's'} '
+                  '${verb == 'hide' ? 'folded' : 'revealed'}.\n');
+          return;
+        }
+
+        final n = int.tryParse(argument);
+        if (n == null || n < 1 || n > indexes.length) {
+          report('no block $argument — /blocks lists '
+              '${indexes.length} foldable block${indexes.length == 1 ? '' : 's'}.\n');
+          return;
+        }
+        final index = indexes[n - 1];
+        final block = transcript.blocks[index];
+        // `show` on an open block and `hide` on a closed one are no-ops: say so
+        // rather than flipping it the wrong way.
+        if (block.folded == (verb == 'show')) {
+          transcript.toggleFold(index);
+          report('block $n ${verb == 'show' ? 'revealed' : 'folded'}.\n');
+          return;
+        }
+        report('block $n is already '
+            '${verb == 'show' ? 'open' : 'folded'}.\n');
+      };
+
       controller.openToolOutput = (index) async {
         final host = sessionManager.activeConversation.host;
         if (host is! TuiConversationHost) {

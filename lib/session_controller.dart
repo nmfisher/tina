@@ -197,6 +197,11 @@ class SessionController {
   /// the TUI; null in headless.
   Future<void> Function(int index)? openToolOutput;
 
+  /// `/blocks`, `/show`, `/hide` — fold or unfold the active conversation's
+  /// transcript blocks. Wired by the TUI coordinator, which holds the
+  /// transcript; null on a controller with no transcript to fold.
+  Future<void> Function(String verb, String argument)? foldTranscript;
+
   /// The process-wide token ledger (`/spend`). Wired by the composition root;
   /// used to persist usage into the active session's manifest.
   SpendLedger? spendLedger;

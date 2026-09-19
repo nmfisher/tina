@@ -26,6 +26,12 @@ abstract interface class FrontendCapabilities {
   Future<void> Function()? get openModelPicker;
   Future<void> Function(String path)? get openImage;
   Future<void> Function(int index)? get openToolOutput;
+
+  /// Fold or unfold transcript blocks: `('list'|'show'|'hide', argument)` where
+  /// an argument is a 1-based foldable-block number or `all`. The coordinator
+  /// owns the semantics — it holds the transcript — so the command layer only
+  /// routes the verb.
+  Future<void> Function(String verb, String argument)? get foldTranscript;
   Future<void> Function()? get detachTmux;
 }
 
