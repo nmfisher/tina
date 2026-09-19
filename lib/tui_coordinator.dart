@@ -670,6 +670,7 @@ class TuiCoordinator {
         screen: screen,
         editor: editor,
         active: true,
+        roleLabel: 'main',
       )..policy = policy;
       initialHost.onBackgroundActivity = () =>
           handleBackgroundActivity?.call(initialConversationId);
@@ -1566,7 +1567,14 @@ class TuiCoordinator {
       /// [_buildSpawnPanel]'s `relayContent` (and kept in sync by Phase 1's
       /// surface tracking). Centralized so every spawn site gets the same
       /// detach-then-relay sequence and a future site can't drift.
-      TuiConversationHost _makeSpawnedHost(String conversationId) {
+      /// [role] names the speaker in the spawned transcript's gutter. The
+      /// delegated-agent path passes the job's role; the two callers that only
+      /// have a conversation id (session operations, the side-conversation
+      /// presenter) leave it at `main` until their own role is threaded through.
+      TuiConversationHost _makeSpawnedHost(
+        String conversationId, {
+        String role = 'main',
+      }) {
         // Allocate a valid detached surface before registration, without
         // splitting the visible layout. Attachment supplies its final bounds.
         final bounds = ScreenLayout.fromSize(
@@ -1584,6 +1592,9 @@ class TuiCoordinator {
           editor: editor,
           active: false,
           primary: false,
+          // The gutter names the speaker, so a delegated agent's own transcript
+          // says `scout` rather than `main`.
+          roleLabel: role,
         )..policy = policy;
       }
 
@@ -1736,11 +1747,12 @@ class TuiCoordinator {
         recorder.attach(sessionId, conversationId);
 
         if (conversationId.isNotEmpty) {
-          final host = _makeSpawnedHost(conversationId);
+          final role = meta.targetName ?? job.label;
+          final host = _makeSpawnedHost(conversationId, role: role);
           final panel = _buildSpawnPanel(
             conversationId: conversationId,
             parentConversationId: parentConversationId,
-            label: panelLabel(role: meta.targetName ?? job.label, model: model),
+            label: panelLabel(role: role, model: model),
             sinkHost: host,
           );
           // Stash the host (as the abstract HostInterface) so the scheduler can
