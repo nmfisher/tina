@@ -1,4 +1,5 @@
 import 'package:tina/chat/chat_agent_sink.dart';
+import 'package:tina/chat/chat_transcript.dart';
 import 'package:tina/tui/transcript_cursor.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
@@ -45,6 +46,11 @@ void main() {
     }
   }
 
+  /// The tool calls under test. The transcript also carries the one-off fold
+  /// hint as a notice, so assertions index these rather than the raw list.
+  List<ChatBlock> calls() =>
+      sink.blocks.where((b) => b.kind == ChatBlockKind.toolCall).toList();
+
   /// Drives the cursor with [keys], then Escapes out.
   Future<void> drive(List<InputEvent> keys) {
     final queue = [...keys, EscapeKey()];
@@ -74,7 +80,7 @@ void main() {
     threeCalls();
     // Nothing asserted mid-loop, so just confirm entering and leaving is clean.
     await drive([]);
-    expect(sink.blocks.every((b) => b.folded), isTrue);
+    expect(calls().every((b) => b.folded), isTrue);
     expect(painted(), isNot(contains('\x1b[33m')),
         reason: 'the mark is cleared on the way out');
   });
@@ -87,7 +93,7 @@ void main() {
       ArrowKey(ArrowDirection.up),
       ControlKey(ControlCode.enter),
     ]);
-    expect(sink.blocks[1].folded, isFalse,
+    expect(calls()[1].folded, isFalse,
         reason: 'enter opened the block the cursor was on');
     expect(painted(), contains('body-1'));
 
@@ -95,7 +101,7 @@ void main() {
       ArrowKey(ArrowDirection.up),
       CharInput(' '),
     ]);
-    expect(sink.blocks[1].folded, isTrue,
+    expect(calls()[1].folded, isTrue,
         reason: 'space closed it again (the cursor starts on 2, up to 1)');
     expect(painted(), isNot(contains('body-1')));
   });
@@ -109,10 +115,10 @@ void main() {
       ArrowKey(ArrowDirection.up),
       ControlKey(ControlCode.enter),
     ]);
-    expect(sink.blocks[0].folded, isFalse,
+    expect(calls()[0].folded, isFalse,
         reason: 'clamped at the oldest block');
-    expect(sink.blocks[1].folded, isTrue);
-    expect(sink.blocks[2].folded, isTrue);
+    expect(calls()[1].folded, isTrue);
+    expect(calls()[2].folded, isTrue);
   });
 
   test('the mark follows the cursor while it is open', () async {
@@ -148,7 +154,7 @@ void main() {
         const ToolCompleteEvent('bash', 't', isError: false, result: ''));
 
     await drive([ControlKey(ControlCode.enter)]);
-    expect(sink.blocks.last.folded, isFalse);
+    expect(calls().last.folded, isFalse);
     // The *end* of the revealed block is what is on screen: revealing is a
     // question about the contents, so the header alone would be no answer.
     expect(painted(), contains('xxxx-line-19'));

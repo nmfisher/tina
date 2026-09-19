@@ -13,6 +13,10 @@ import 'markdown_renderer.dart';
 /// of a pre-collapsed label (see `AgentSink.reasoning`).
 const kReasoningRow = '▸ Reasoning (collapsed)';
 
+/// Shown once per conversation, when folding first becomes possible: the block
+/// cursor is the payoff of the transcript model and nothing else announces it.
+const kFoldHint = '^B folds blocks · /blocks lists them';
+
 /// How much of one tool call's output is kept behind its header. A `bash` call
 /// can emit megabytes; the block is the only place this lives, so it is bounded
 /// rather than trusting the command. Both ends are capped: a 50,000-line dump
@@ -76,6 +80,10 @@ class ChatAgentSink implements AgentSink {
 
   /// Content rows this sink has painted (blocks plus their blank separators).
   int _rows = 0;
+
+  /// Whether the fold hint has been shown. Once per conversation: a hint is
+  /// only useful the first time there is something to fold.
+  bool _hintedFolding = false;
 
   late ChatGutter _gutter;
 
@@ -141,6 +149,18 @@ class ChatAgentSink implements AgentSink {
     _blockRows.add(lines.length);
     _writeLines(lines, _rowStyleFor(block));
     _rows += lines.length;
+    _maybeHintFolding();
+  }
+
+  /// Mention the fold cursor once per conversation, the first time a block
+  /// becomes foldable. A tool call is added as a header and only gains its body
+  /// when it completes, so this is checked both when a block is painted and
+  /// when one is repainted with its output.
+  void _maybeHintFolding() {
+    if (_hintedFolding) return;
+    if (!_blocks.any((block) => block.canFold)) return;
+    _hintedFolding = true;
+    _add(ChatBlock.notice(speaker, kFoldHint));
   }
 
   /// Repaint the block at [index], whose rows are the tail of the transcript.
@@ -151,6 +171,7 @@ class ChatAgentSink implements AgentSink {
         [for (final line in lines) _regionLine(line, _rowStyleFor(block))]);
     _rows += lines.length - _blockRows[index];
     _blockRows[index] = lines.length;
+    _maybeHintFolding();
   }
 
   /// Paint every block again from scratch, rebuilding the row index. The
@@ -187,6 +208,7 @@ class ChatAgentSink implements AgentSink {
     _blockRows.clear();
     _rows = 0;
     _toolBlock = null;
+    _hintedFolding = false; // a cleared transcript can hint again
   }
 
   void _writeLines(List<MarkdownLine> lines, String? rowStyle) {

@@ -11,9 +11,14 @@ import '../helpers/fake_stdio.dart';
 Screen _screen({int width = 400}) => Screen(
     io: FakeStdio()..columns = width, layout: ScreenLayout.fromSize(width, 24));
 
-/// The text a folded block reveals, whole.
+/// The transcript's tool-call blocks, in order. The sink also writes notices
+/// (the fold hint), so a test that means "the call" has to say so.
+List<ChatBlock> _calls(ChatAgentSink sink) =>
+    sink.blocks.where((b) => b.kind == ChatBlockKind.toolCall).toList();
+
+/// The text a folded block reveals, whole: the last tool call by default.
 String _bodyOf(ChatAgentSink sink, [int? index]) {
-  final block = sink.blocks[index ?? sink.blocks.length - 1];
+  final block = index == null ? _calls(sink).last : sink.blocks[index];
   return block.body.map((l) => l.runs.map((r) => r.text).join()).join('\n');
 }
 
@@ -68,8 +73,8 @@ void main() {
     expect(painted.length, lessThan(120));
     expect(painted, isNot(contains('xxx')));
     // The full output is preserved for the viewer and the block's fold.
-    expect(sink.blocks.last.subject, contains('bash'));
-    expect(sink.blocks.last.body, isNotEmpty);
+    expect(_calls(sink).last.subject, contains('bash'));
+    expect(_calls(sink).last.body, isNotEmpty);
     expect(_bodyOf(sink), long);
   });
 
@@ -85,9 +90,9 @@ void main() {
     sink.toolComplete(
         const ToolCompleteEvent('bash', 't1', isError: false, result: ''));
 
-    expect(sink.blocks, hasLength(1));
+    expect(_calls(sink), hasLength(1));
     expect(_bodyOf(sink), 'a.dart\nb.dart\n');
-    expect(sink.blocks.single.subject, contains('bash'));
+    expect(_calls(sink).single.subject, contains('bash'));
   });
 
   test('a result that never streamed is retained verbatim', () {
@@ -284,10 +289,10 @@ void main() {
     //     and the block's fold is where the output lives.
     expect(painted, isNot(contains('/output')));
     // (3) The block's body carries the FULL result.
-    expect(sink.blocks, hasLength(1));
+    expect(_calls(sink), hasLength(1));
     expect(_bodyOf(sink), result);
     expect(_bodyOf(sink), contains('THE REAL ERROR TAIL'));
-    expect(sink.blocks.single.subject, contains('bash'));
+    expect(_calls(sink).single.subject, contains('bash'));
   });
 
   test('a failed call with a short result stays as before', () {
@@ -411,6 +416,28 @@ void main() {
     });
   });
 
+  test('the fold hint appears once, when folding first becomes possible', () {
+    final chat = ScrollingTextRegion(_screen());
+    final sink = ChatAgentSink(chat, Spinner(enabled: false));
+
+    // Prose cannot fold, so it earns no hint.
+    sink.text('a paragraph\n');
+    sink.newline();
+    expect(_painted(chat), isNot(contains(kFoldHint)));
+
+    for (var i = 0; i < 2; i++) {
+      sink.toolStart(ToolStartEvent('bash', 't$i', {'command': 'cmd$i'}));
+      sink.toolOutput(ToolOutputEvent('bash', 't$i', 'body-$i\n'));
+      sink.toolComplete(
+          ToolCompleteEvent('bash', 't$i', isError: false, result: ''));
+    }
+
+    final painted = _painted(chat);
+    expect(painted, contains('main │ $kFoldHint'));
+    expect(kFoldHint.allMatches(painted).length, 1,
+        reason: 'the second call has nothing new to announce');
+  });
+
   group('folding', () {
     /// A sink with one tool call whose output was retained.
     (ScrollingTextRegion, ChatAgentSink) withTool() {
@@ -426,7 +453,7 @@ void main() {
     test('a tool call opens its body in place', () {
       final (chat, sink) = withTool();
       expect(_painted(chat), isNot(contains('a.dart')));
-      expect(sink.blocks.single.folded, isTrue);
+      expect(_calls(sink).single.folded, isTrue);
 
       expect(sink.toggleFold(0), isTrue);
       final expanded = _painted(chat);
