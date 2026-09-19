@@ -2,17 +2,41 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:analyzer/dart/analysis/utilities.dart';
-import 'package:analyzer/dart/ast/ast.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-/// Residual root-side boundary check (A06): the TOML user-config loader stays
-/// in the root package beside the CLI, and its own closure must stay free of
-/// terminal packages. The application closure itself is guarded by
-/// packages/tina_app/test/config/runtime_boundary_test.dart and by the A07
-/// graph checker (tool/architecture).
+import '../../tool/architecture/policy.dart';
+import 'package:analyzer/dart/analysis/utilities.dart';
+import 'package:analyzer/dart/ast/ast.dart';
+
 Future<void> main() async {
+  test(
+    'owned sources and manifests obey architecture policy and exact baseline',
+    () async {
+      // Other suites change cwd; package resolution is independent of that state.
+      final uri = await Isolate.resolvePackageUri(
+        Uri.parse('package:tina/config/runtime_config.dart'),
+      );
+      final root = p.dirname(p.dirname(p.dirname(uri!.toFilePath())));
+      final policy = ArchitecturePolicy.read(
+        p.join(root, 'tool/architecture/policy.json'),
+      );
+      final result = checkWorkspace(root, policy);
+      final baseline =
+          jsonDecode(
+                File(
+                  p.join(
+                    root,
+                    'tool/architecture',
+                    policy.data['baseline'] as String,
+                  ),
+                ).readAsStringSync(),
+              )
+              as List;
+      expect(applyBaseline(result.violations, baseline), isEmpty);
+      expect(result.files, greaterThan(0));
+    },
+  );
   final runtimeUri = (await Isolate.resolvePackageUri(
     Uri.parse('package:tina/config/user_config.dart'),
   ))!;
@@ -92,3 +116,9 @@ Future<void> main() async {
     );
   });
 }
+
+/// Residual root-side boundary check (A06): the TOML user-config loader stays
+/// in the root package beside the CLI, and its own closure must stay free of
+/// terminal packages. The application closure itself is guarded by
+/// packages/tina_app/test/config/runtime_boundary_test.dart and by the A07
+/// graph checker (tool/architecture).
