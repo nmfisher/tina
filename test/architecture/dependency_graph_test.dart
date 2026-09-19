@@ -409,4 +409,59 @@ void main() {
       );
     },
   );
+  group('reachingAnyWhere agrees with a per-node traversal', () {
+    // `policy.check` skips a file's traversal when `reachingAnyWhere` says it
+    // cannot report, which is only sound while the two agree exactly: the
+    // forward walk `forbidden` performs, and the backwards one computed once
+    // for the whole graph. Asserted directly so a change to either fails here
+    // rather than quietly dropping a violation.
+    void expectAgrees(DependencyGraph g, bool Function(String) isTarget) {
+      final reached = g.reachingAnyWhere(isTarget);
+      final nodes = <String>{
+        ...g.edges.keys,
+        for (final edges in g.edges.values) ...edges.map((e) => e.to),
+      };
+      var reporting = 0;
+      for (final node in nodes) {
+        final reports = g.forbidden(node, 'probe', isTarget).isNotEmpty;
+        if (reports) reporting++;
+        expect(reached.contains(node), reports, reason: 'node $node');
+      }
+      // A vacuous pass would agree trivially.
+      expect(reporting, greaterThan(0),
+          reason: 'the fixture must contain a node that reports');
+    }
+
+    DependencyGraph build() {
+      f.write('packages/console/lib/console.dart', '');
+      f.write('lib/composition/app.dart', '');
+      f.write('lib/isolated.dart', '');
+      f.write('lib/to_terminal.dart', "import 'package:console/console.dart';");
+      f.write('lib/middle.dart', "import 'package:console/console.dart';");
+      f.write('lib/chain.dart', "import 'middle.dart';");
+      f.write('lib/uses_io.dart', "import 'dart:io';");
+      f.write('lib/chain_io.dart', "import 'uses_io.dart';");
+      f.write('lib/application/service.dart', "import '../composition/app.dart';");
+      return f.graph();
+    }
+
+    test('terminal packages, direct and transitive', () {
+      final g = build();
+      expectAgrees(g, (file) => g.owner(file)?.name == 'console');
+    });
+
+    test('dart:io, direct and transitive', () {
+      expectAgrees(build(), (file) => file == 'dart:io');
+    });
+
+    test('the composition root, reached from a service', () {
+      final g = build();
+      expectAgrees(g, (file) => file.endsWith('lib/composition/app.dart'));
+    });
+
+    test('the root package, which nothing outside it may reach', () {
+      final g = build();
+      expectAgrees(g, (file) => g.owner(file)?.name == 'tina');
+    });
+  });
 }

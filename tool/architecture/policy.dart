@@ -27,6 +27,19 @@ class ArchitecturePolicy {
     final packageEdges = {
       for (final e in runtime.entries) e.key: Set<String>.of(e.value),
     };
+    // Each of the rules below asks the same question of every file — "can this
+    // reach a terminal package / the composition root / the root package /
+    // dart:io?" — so the answer is computed once for the whole graph and the
+    // per-file traversal runs only for files that can actually report. Without
+    // this the check is quadratic in the package's file count, which cost ~80s
+    // of a ~4-minute suite.
+    final reachesTerminal = graph.reachingAnyWhere(isTerminal);
+    final reachesComposition = graph.reachingAnyWhere(
+      (f) => values('finalComposition').contains(graph.label(f)),
+    );
+    final reachesRoot =
+        graph.reachingAnyWhere((f) => graph.owner(f)?.name == 'tina');
+
     for (final file in graph.ownedFiles.toList()..sort()) {
       final owner = graph.owner(file)!;
       final path = graph.label(file);
@@ -37,9 +50,9 @@ class ArchitecturePolicy {
               (matches(path, 'frontendRoots') ||
                   matches(path, 'assemblyRoots') ||
                   values('frontendFiles').contains(path)));
-      if (!frontend)
+      if (!frontend && reachesTerminal.contains(file))
         found.addAll(graph.forbidden(file, 'frontend-exclusion', isTerminal));
-      if (matches(path, 'serviceRoots')) {
+      if (matches(path, 'serviceRoots') && reachesComposition.contains(file)) {
         found.addAll(
           graph.forbidden(
             file,
@@ -48,7 +61,7 @@ class ArchitecturePolicy {
           ),
         );
       }
-      if (!rootPackage)
+      if (!rootPackage && reachesRoot.contains(file))
         found.addAll(
           graph.forbidden(
             file,
@@ -56,6 +69,10 @@ class ArchitecturePolicy {
             (f) => graph.owner(f)?.name == 'tina',
           ),
         );
+      // Not gated: `dart:io` can be reached *through* an out-of-package
+      // dependency (a pure file importing anything that itself imports it), so
+      // this rule keeps traversing past the workspace. Only a handful of files
+      // carry it, so the cost stays bounded.
       if (values('pureFiles').contains(path))
         found.addAll(
           graph.forbidden(file, 'pure-planning', (f) => f == 'dart:io'),

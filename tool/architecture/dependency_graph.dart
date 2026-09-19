@@ -14,9 +14,18 @@ class PackageRoot {
       library = canonical(library);
 }
 
+/// Memo for [canonical]. The workspace is static for the duration of a check,
+/// and resolving a path is a pair of syscalls; the rules ask about the same
+/// paths thousands of times (once per import edge), which cost a few seconds of
+/// the run on its own.
+final Map<String, String> _canonicalMemo = {};
+
 String canonical(String path) {
+  final memo = _canonicalMemo[path];
+  if (memo != null) return memo;
   final absolute = p.normalize(p.absolute(path));
-  return FileSystemEntity.typeSync(absolute) == FileSystemEntityType.notFound
+  return _canonicalMemo[path] =
+      FileSystemEntity.typeSync(absolute) == FileSystemEntityType.notFound
       ? absolute
       : File(absolute).resolveSymbolicLinksSync();
 }
@@ -80,6 +89,9 @@ class DependencyGraph {
   final Set<String> _parts = {};
   final Map<String, String> _declaredPartOwners = {};
   final Map<String, Set<String>> _partOwners = {};
+
+  /// Reverse of the read import graph, built once (see [_reverseEdges]).
+  Map<String, List<String>>? _reverse;
   DependencyGraph(String root, this.packages) : root = canonical(root);
 
   factory DependencyGraph.load(
@@ -383,6 +395,82 @@ class DependencyGraph {
       }
     }
     return result;
+  }
+
+  /// Every node that can reach a node satisfying [isTarget], following exactly
+  /// the edges [forbidden] walks.
+  ///
+  /// A rule applied to every file would otherwise run the traversal once per
+  /// file: `frontend-exclusion` and `package-direction` together made the check
+  /// quadratic, spending ~25s per package re-walking a graph that had not
+  /// changed. Asking the set once answers "does this file reach a target?"
+  /// for every file at once, and a file outside the set provably yields no
+  /// violation (the traversal is the same reachability, computed backwards), so
+  /// [forbidden] is then only worth calling for the few files that can report.
+  ///
+  /// Targets are collected from every node the graph can see — read nodes and
+  /// edge destinations alike, so `dart:io` (never read) counts as one.
+  /// Distance is at least one edge, matching [forbidden]: it tests a node's
+  /// *edge destinations*, never the node it starts from, so a target does not
+  /// "reach" itself.
+  Set<String> reachingAnyWhere(bool Function(String) isTarget) {
+    final reverse = _reverseEdges;
+    final reachable = <String>{};
+    final visited = <String>{};
+    final queue = Queue<String>();
+    for (final node in _allNodes) {
+      if (isTarget(node) && visited.add(node)) queue.add(node);
+    }
+    while (queue.isNotEmpty) {
+      for (final from in reverse[queue.removeFirst()] ?? const <String>[]) {
+        reachable.add(from);
+        if (visited.add(from)) queue.add(from);
+      }
+    }
+    return reachable;
+  }
+
+  /// Reverse adjacency over the files the graph has read, built once.
+  ///
+  /// Deliberately does NOT read further. Every owned file is already read by
+  /// [scan], and a target is found the moment an edge points at it (that is how
+  /// [forbidden] checks targets), so a path between two owned files — or an
+  /// owned file and a package it names directly — is complete here. Reading on
+  /// would follow the whole out-of-package closure (`package:analyzer`,
+  /// `package:test`, the pub cache) purely to discover that those packages
+  /// import nothing of tina's: it cost ~20s of a ~4-minute suite.
+  ///
+  /// The reachability this feeds is therefore exact **for targets inside the
+  /// workspace** (terminal packages, the root package, the composition root).
+  /// A rule whose target can be reached *through* an out-of-package dependency
+  /// — `pure-planning` asking about `dart:io`, which a pure file can reach via
+  /// any package that itself imports it — must keep traversing with
+  /// [forbidden]; the policy gates those rules accordingly.
+  Map<String, List<String>> get _reverseEdges {
+    final cached = _reverse;
+    if (cached != null) return cached;
+    final reverse = <String, List<String>>{};
+    for (final entry in edges.entries) {
+      for (final edge in entry.value) {
+        (reverse[edge.to] ??= <String>[]).add(entry.key);
+      }
+    }
+    return _reverse = reverse;
+  }
+
+  /// Every node the graph can see: the ones it has read, plus edge
+  /// destinations it never needed to read (`dart:` URIs, a target behind a
+  /// conditional import).
+  Iterable<String> get _allNodes sync* {
+    final seen = <String>{};
+    for (final node in edges.keys) {
+      if (seen.add(node)) yield node;
+    }
+    for (final entry in edges.entries) {
+      for (final edge in entry.value) {
+        if (seen.add(edge.to)) yield edge.to;
+      }
+    }
   }
 
   Map<String, Set<String>> manifestDependencies({bool includeDev = false}) {
