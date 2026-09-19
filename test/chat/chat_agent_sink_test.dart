@@ -1,4 +1,4 @@
-import 'package:tina/chat_agent_sink.dart';
+import 'package:tina/chat/chat_agent_sink.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';

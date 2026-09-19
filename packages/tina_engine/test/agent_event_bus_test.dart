@@ -18,6 +18,8 @@ String _label(AgentEvent e) => switch (e) {
         'complete(${c.toolName},${c.toolId},err=${c.isError},${c.result})',
       NoticeAgentEvent(:final message, :final kind) =>
         'notice(${kind.name},$message)',
+      ReasoningAgentEvent(:final text, :final startsBlock, :final complete) =>
+        'reasoning($text,starts=$startsBlock,complete=$complete)',
       JobAgentEvent(:final jobId, :final label, :final event) =>
         'job($jobId,$label,${_label(event)})',
     };

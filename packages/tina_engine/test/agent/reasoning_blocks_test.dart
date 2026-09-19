@@ -25,9 +25,13 @@ void main() {
       const ReasoningEnd(),
       const TextDelta('answer'), _answer,
     ]), sink: sink);
-    expect(sink.notices, hasLength(1));
-    expect(sink.notices.single.message.trim(), kReasoningCollapsedLabel);
-    expect(sink.notices.single.kind, NoticeKind.info);
+    // The engine now delivers the reasoning *text* to the sink rather than a
+    // pre-collapsed label, so the assertion is on the payload: one block
+    // opened, every chunk delivered in order, then closed as complete.
+    expect(sink.notices, isEmpty);
+    expect(sink.reasoningChunks.first.startsBlock, isTrue);
+    expect(sink.reasoningText, 'first\n第二步');
+    expect(sink.reasoningChunks.last.complete, isTrue);
     expect(sink.texts, ['answer']);
     expect(outcome.reasoning.single.text, 'first\n第二步');
     expect(outcome.reasoning.single.complete, isTrue);
@@ -72,7 +76,10 @@ void main() {
     expect(outcome.error, isNull);
     expect(outcome.reasoning.map((b) => b.text), ['attempt one', 'attempt two']);
     expect(outcome.reasoning.map((b) => b.complete), [false, true]);
-    expect(sink.notices.where((n) => n.message.contains(kReasoningCollapsedLabel)), hasLength(2));
+    // One block per attempt: two openers, and the first closed incomplete.
+    expect(sink.reasoningChunks.where((c) => c.startsBlock), hasLength(2));
+    expect(sink.reasoningChunks.where((c) => c.complete == false), hasLength(1));
+    expect(sink.reasoningChunks.where((c) => c.complete == true), hasLength(1));
   });
 
   test('successful next attempt without reasoning does not complete prior partial block', () async {
@@ -116,9 +123,11 @@ void main() {
     final host = FakeHostInterface();
     replayHistory(host, loaded);
     expect(host.sink.texts, isEmpty);
-    expect(host.notices.single, contains(kReasoningCollapsedLabel));
-    expect(host.notices.single, contains('partial'));
-    expect(host.notices.single, isNot(contains('private reasoning')));
+    // Restored reasoning is handed over as text with its completion flag — the
+    // host decides how to show it — instead of a pre-collapsed label.
+    expect(host.sink.reasoningText, contains('private reasoning'));
+    expect(host.sink.reasoningChunks.first.startsBlock, isTrue);
+    expect(host.sink.reasoningChunks.last.complete, isFalse);
   });
 
   for (final wire in ['openai', 'anthropic', 'gemini']) {

@@ -1,6 +1,6 @@
 import 'package:test/test.dart';
 
-import 'package:tina/tui/markdown_renderer.dart';
+import 'package:tina/chat/markdown_renderer.dart';
 
 /// Matchers for [MarkdownLine] / [MarkdownRun] that compare structurally
 /// (text + style code), so renderer tests read as the shapes they assert.

@@ -1,5 +1,5 @@
 import 'package:tina_console/tina_console.dart';
-import 'package:tina/chat_agent_sink.dart';
+import 'package:tina/chat/chat_agent_sink.dart';
 import 'package:tina/tui/run_panel_content.dart';
 import 'package:test/test.dart';
 

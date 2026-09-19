@@ -50,15 +50,18 @@
     ]
   },
   "frontendRoots": [
-    "lib/tui/",
-    "lib/host/",
-    "lib/frontend/",
     "bin/",
-    "tool/",
-    "test/tui/",
-    "test/host/",
+    "lib/chat/",
+    "lib/frontend/",
+    "lib/host/",
+    "lib/pipeline/",
+    "lib/tui/",
+    "test/chat/",
+    "test/composition/",
     "test/config/",
-    "test/composition/"
+    "test/host/",
+    "test/tui/",
+    "tool/"
   ],
   "frontendFiles": [
     "lib/config.dart",
@@ -66,11 +69,8 @@
     "lib/config/theme_mapper.dart",
     "lib/config/resolved_launch.dart",
     "lib/tui_coordinator.dart",
-    "lib/chat_agent_sink.dart",
     "test/tui_coordinator_test.dart",
     "test/config_test.dart",
-    "lib/pipeline/tina_interviewer.dart",
-    "lib/pipeline/workflow_permission_asker.dart",
     "test/cli_session_flags_test.dart",
     "test/permissions/config_test.dart",
     "test/helpers/fake_stdio.dart",

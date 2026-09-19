@@ -2,7 +2,15 @@ import 'package:tina_console/tina_console.dart';
 
 import 'package:tina_engine/tina_engine.dart';
 
-import 'tui/markdown_renderer.dart';
+import 'markdown_renderer.dart';
+
+/// The one-line marker this sink writes for a reasoning block, until the
+/// transcript renders reasoning as a block with a count.
+///
+/// Owned here rather than by the engine: what a reader sees is the *sink's*
+/// decision, and the engine now hands over the model's reasoning text instead
+/// of a pre-collapsed label (see `AgentSink.reasoning`).
+const kReasoningRow = '▸ Reasoning (collapsed)';
 
 /// A tool call whose chat render was capped — streamed output that exceeded
 /// [ChatAgentSink.displayCap], or a failed tool's error result that exceeded
@@ -158,6 +166,36 @@ class ChatAgentSink implements AgentSink {
     _flushMarkdown();
     _wroteBlock = false;
     chat.newline();
+  }
+
+  /// The current reasoning block's text, accumulated from [reasoning] so a
+  /// later transcript layer can show it (and expand it) rather than only
+  /// counting it. Cleared at every block boundary.
+  final StringBuffer _reasoning = StringBuffer();
+
+  /// A reasoning block opens on its first chunk. The marker goes out then, not
+  /// at the end: a long thinking phase should show that it is thinking, which
+  /// is what the engine's old notice did too.
+  @override
+  void reasoning(String text, {bool startsBlock = false}) {
+    if (startsBlock) {
+      _reasoning.clear();
+      _flushMarkdown(); // reasoning interrupts prose
+      chat.ensureNewline();
+      chat.dim('\n$kReasoningRow\n');
+    }
+    _reasoning.write(text);
+  }
+
+  /// The block ended. A partial block says so on its own line — the provider cut
+  /// the thought off, so the marker above would otherwise imply a complete one.
+  @override
+  void reasoningEnd({required bool complete}) {
+    if (!complete) {
+      chat.ensureNewline();
+      chat.dim('$kReasoningRow — partial\n');
+    }
+    _reasoning.clear();
   }
 
   @override

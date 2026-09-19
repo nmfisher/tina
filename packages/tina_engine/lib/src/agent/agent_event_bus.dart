@@ -30,6 +30,16 @@ class TextAgentEvent extends AgentEvent {
   const TextAgentEvent(this.text);
 }
 
+/// Streamed model reasoning. [startsBlock] opens a new block, and a
+/// non-null [complete] closes one (false = the provider cut the thought off).
+class ReasoningAgentEvent extends AgentEvent {
+  final String text;
+  final bool startsBlock;
+  final bool? complete;
+  const ReasoningAgentEvent(this.text,
+      {this.startsBlock = false, this.complete});
+}
+
 /// A status/notice line (`[cancelled]`, budget, a stream error, …) with its
 /// [kind].
 class NoticeAgentEvent extends AgentEvent {
@@ -112,6 +122,18 @@ class BusSink implements AgentSink {
   void toolComplete(ToolCompleteEvent event) {
     inner.toolComplete(event);
     bus.emit(ToolAgentEvent(event));
+  }
+
+  @override
+  void reasoning(String text, {bool startsBlock = false}) {
+    inner.reasoning(text, startsBlock: startsBlock);
+    bus.emit(ReasoningAgentEvent(text, startsBlock: startsBlock));
+  }
+
+  @override
+  void reasoningEnd({required bool complete}) {
+    inner.reasoningEnd(complete: complete);
+    bus.emit(ReasoningAgentEvent('', complete: complete));
   }
 
   @override

@@ -1,6 +1,6 @@
 import 'package:test/test.dart';
-import 'package:tina/tui/chat_transcript.dart';
-import 'package:tina/tui/markdown_renderer.dart';
+import 'package:tina/chat/chat_transcript.dart';
+import 'package:tina/chat/markdown_renderer.dart';
 import 'package:tina_console/tina_console.dart';
 
 /// The rendered text of a transcript, one visual line per row, with the

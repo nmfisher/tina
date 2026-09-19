@@ -1,4 +1,4 @@
-import 'package:tina/tui/markdown_renderer.dart';
+import 'package:tina/chat/markdown_renderer.dart';
 import 'package:test/test.dart';
 
 import '../helpers/markdown_line_matchers.dart';

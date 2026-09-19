@@ -164,10 +164,8 @@ void main() {
         expect(agent.abortedReason,
             contains('reasoning token count not reported'));
         expect(agent.abortedReason, contains('--reasoning-effort low'));
-        expect(
-            sink.notices
-                .any((n) => n.message.contains(kReasoningCollapsedLabel)),
-            isTrue);
+        expect(sink.reasoningText, isNotEmpty,
+            reason: 'the reasoning-only response is delivered to the sink');
         expect(agent.abortedReason, contains('finish reason: $finishReason'));
         expect(agent.abortedReason, contains('--max-output-tokens'));
         expect(

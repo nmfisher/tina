@@ -110,6 +110,14 @@ class FakeHostInterface with HostLifecycleAdapter implements HostInterface {
   void newline() => _sink.newline();
 
   @override
+  void reasoning(String text, {bool startsBlock = false}) =>
+      _sink.reasoning(text, startsBlock: startsBlock);
+
+  @override
+  void reasoningEnd({required bool complete}) =>
+      _sink.reasoningEnd(complete: complete);
+
+  @override
   void toolStart(ToolStartEvent event) => _sink.toolStart(event);
 
   @override

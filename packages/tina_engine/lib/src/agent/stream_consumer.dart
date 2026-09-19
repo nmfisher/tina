@@ -43,6 +43,13 @@ class ProviderStreamConsumer {
     Object? error;
     final reasoningBuffers = <StringBuffer>[];
     final reasoningComplete = <bool>[];
+    // Whether a reasoning block is open through the sink — delivered at least
+    // one chunk and not yet closed. A stream that dies mid-thought (an error, a
+    // cancel, a dropped socket) never emits ReasoningEnd, so without this the
+    // sink would hold an open block forever and the frontend could never
+    // finalise the row it opened. Closed on ReasoningEnd, before a new block
+    // opens, and on every terminal path.
+    var reasoningOpen = false;
 
     /// The raw [StreamError] behind [error], when the failure arrived as one
     /// (#28). Carries statusCode / transient / retryAfter, which the agent's
@@ -63,16 +70,28 @@ class ProviderStreamConsumer {
           sawTextThisTurn = true;
         } else if (event is ReasoningDelta) {
           if (event.text.isEmpty) return;
-          if (event.startsBlock || reasoningBuffers.isEmpty) {
+          final startsBlock = event.startsBlock || reasoningBuffers.isEmpty;
+          if (startsBlock) {
+            // A block still open here was cut off — by a failed request, or by
+            // a poll member handing over. Close it before the next one opens,
+            // so the sink sees one block per attempt instead of one long block
+            // that never ends.
+            if (reasoningOpen) {
+              sink.reasoningEnd(complete: false);
+              reasoningOpen = false;
+            }
             reasoningBuffers.add(StringBuffer());
             reasoningComplete.add(false);
-            sink.notice('\n${kReasoningCollapsedLabel}\n');
           }
           reasoningBuffers.last.write(event.text);
+          sink.reasoning(event.text, startsBlock: startsBlock);
+          reasoningOpen = true;
         } else if (event is ReasoningEnd) {
           if (reasoningComplete.isNotEmpty) {
             reasoningComplete[reasoningComplete.length - 1] = event.complete;
           }
+          sink.reasoningEnd(complete: event.complete);
+          reasoningOpen = false;
         } else if (event is StreamNotice) {
           sink.notice('\n${event.text}\n', kind: NoticeKind.warning);
         } else if (event is ToolCallStart) {
@@ -117,6 +136,15 @@ class ProviderStreamConsumer {
     // Release the subscription on every terminal path, including onError.
     // Never await the turn's cancellation future: it may never complete.
     await sub.cancel();
+
+    // A block still open here was cut off by the failure/cancel/close rather
+    // than by the provider, so close it as incomplete. The *stored* flag is left
+    // as it is: the transcript should record that the thought was truncated,
+    // while the sink only needs to know the block is over.
+    if (reasoningOpen) {
+      sink.reasoningEnd(complete: false);
+      reasoningOpen = false;
+    }
 
     return TurnOutcome(
       reasoning: [

@@ -1,5 +1,5 @@
 import 'package:tina_app/tina_app.dart';
-import 'package:tina/chat_agent_sink.dart';
+import 'package:tina/chat/chat_agent_sink.dart';
 import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina/platform/terminal_geometry.dart';
 

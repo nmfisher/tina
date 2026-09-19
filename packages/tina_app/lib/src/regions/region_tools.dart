@@ -37,6 +37,12 @@ class _SilentSink implements AgentSink {
   void toolComplete(ToolCompleteEvent event) {}
 
   @override
+  void reasoning(String text, {bool startsBlock = false}) {}
+
+  @override
+  void reasoningEnd({required bool complete}) {}
+
+  @override
   void notice(String message, {NoticeKind kind = NoticeKind.info}) {}
 
   @override

@@ -37,6 +37,14 @@ class SubAgentSink implements AgentSink {
   void toolComplete(ToolCompleteEvent event) => _emit(ToolAgentEvent(event));
 
   @override
+  void reasoning(String text, {bool startsBlock = false}) =>
+      _emit(ReasoningAgentEvent(text, startsBlock: startsBlock));
+
+  @override
+  void reasoningEnd({required bool complete}) =>
+      _emit(ReasoningAgentEvent('', complete: complete));
+
+  @override
   void notice(String message, {NoticeKind kind = NoticeKind.info}) =>
       _emit(NoticeAgentEvent(message, kind));
 

@@ -126,6 +126,24 @@ class HeadlessHost with HostLifecycleAdapter implements HostInterface {
   @override
   void newline() => _write('\n');
 
+  /// The headless writer's own one-line marker for a reasoning block. The
+  /// engine no longer owns this string: what a reader sees is the sink's
+  /// decision, and this is *this* sink's (it already owns its `→`/`ok`/
+  /// `failed:` vocabulary). The text itself is not printed — a headless
+  /// transcript wants the answer, not the thinking.
+  static const _reasoningRow = '▸ Reasoning (collapsed)';
+
+  @override
+  void reasoning(String text, {bool startsBlock = false}) {
+    if (!startsBlock) return;
+    _write('\n$_reasoningRow\n');
+  }
+
+  /// Nothing to close: the marker above is printed once per block, exactly as
+  /// the engine's old notice was, so a headless transcript is byte-identical.
+  @override
+  void reasoningEnd({required bool complete}) {}
+
   @override
   void toolStart(ToolStartEvent e) {
     _write('→ ${_describe(e.toolName, e.input)}\n');

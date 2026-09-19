@@ -1,4 +1,3 @@
-import '../agent/agent_sink.dart';
 import '../llm/message.dart';
 import '../tools/tool.dart';
 import 'host_interface.dart';
@@ -39,8 +38,12 @@ void replayHistory(HostInterface host, List<Message> history) {
         }
       case Role.assistant:
         for (final reasoning in message.reasoning) {
-          host.notice('\n${kReasoningCollapsedLabel}'
-              '${reasoning.complete ? '' : ' — partial'}\n');
+          // Hand over the *text*, not a pre-collapsed label: the stored block
+          // records whether the provider finished the thought, so a host can
+          // render restored reasoning the way it renders a live block (and can
+          // expand it, which a label never allowed).
+          host.reasoning(reasoning.text, startsBlock: true);
+          host.reasoningEnd(complete: reasoning.complete);
           drew = true;
         }
         for (final block in message.content) {

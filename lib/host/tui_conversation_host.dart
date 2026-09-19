@@ -5,7 +5,7 @@ import 'package:logging/logging.dart';
 
 import 'package:tina_engine/tina_engine.dart';
 
-import '../chat_agent_sink.dart';
+import '../chat/chat_agent_sink.dart';
 
 final _log = Logger('tina.agent.bus');
 
@@ -164,6 +164,8 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
         _log.info('[$conversationId] notice [$kind]: $message');
       case TextAgentEvent():
         break; // streamed prose — too chatty
+      case ReasoningAgentEvent():
+        break; // streamed reasoning — too chatty
       case JobAgentEvent():
         break; // sub-agent wrapper; not emitted on this host's own bus
     }
@@ -179,6 +181,14 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
 
   @override
   void newline() => _sink.newline();
+
+  @override
+  void reasoning(String text, {bool startsBlock = false}) =>
+      _sink.reasoning(text, startsBlock: startsBlock);
+
+  @override
+  void reasoningEnd({required bool complete}) =>
+      _sink.reasoningEnd(complete: complete);
 
   @override
   void toolStart(ToolStartEvent event) => _sink.toolStart(event);
