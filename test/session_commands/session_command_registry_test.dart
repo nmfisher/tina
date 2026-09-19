@@ -232,6 +232,39 @@ void main() {
       expect(f.host.separators, 1);
     });
   });
+
+  group('feature-gated commands (configureFeatures)', () {
+    // configureFeatures rewrites the shared static registry, so every test
+    // here restores the full table for its neighbours (the golden /help tests
+    // above render the full table, /workflow included).
+    tearDown(() => SessionCommandHandlers.configureFeatures(workflow: true));
+
+    test('a disabled feature vanishes from dispatch, help, and completion',
+        () {
+      // Gating in the registry rather than in the handler is the point: one
+      // answer, so a command can never be offered by the completion palette
+      // and then rejected by dispatch.
+      SessionCommandHandlers.configureFeatures(workflow: false);
+      final r = SessionCommandHandlers.registry;
+      expect(r.lookup('/workflow'), isNull, reason: 'not dispatchable');
+      expect(r.allNames, isNot(contains('/workflow')),
+          reason: 'not completable');
+      expect(r.renderHelp(), isNot(contains('/workflow')),
+          reason: 'not listed in /help');
+      // Everything else is untouched.
+      expect(r.lookup('/help'), isNotNull);
+      expect(r.allNames, contains('/help'));
+    });
+
+    test('enabling the feature restores it on all three surfaces', () {
+      SessionCommandHandlers.configureFeatures(workflow: true);
+      final r = SessionCommandHandlers.registry;
+      expect(r.lookup('/workflow'), isNotNull);
+      expect(r.allNames, contains('/workflow'));
+      expect(r.renderHelp(), contains('/workflow'));
+    });
+  });
+
 }
 
 /// The golden help block (shared by the two golden tests above).

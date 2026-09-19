@@ -194,6 +194,7 @@ class ConversationOperations {
         pipeline,
         overrides: request.promptOverrides,
         safeMode: config.safeMode,
+        workflowEnabled: config.enableWorkflow,
       );
       final providerId = refProviderForBuild(request.modelReference) ?? '';
       await primaryRecorder.ensureRegistered();

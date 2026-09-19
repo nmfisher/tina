@@ -18,6 +18,7 @@ class SessionCommandEntry {
     required this.helpOrder,
     this.helpContinuation,
     this.inHelp = true,
+    this.feature,
   });
 
   /// Typed names, primary first, then aliases. All names dispatch to [handler]
@@ -51,6 +52,12 @@ class SessionCommandEntry {
   /// today except `/spawn`, `/output` and `/spend` (surfaced elsewhere in the
   /// UI), so those three carry `false`.
   final bool inHelp;
+
+  /// Optional feature this command belongs to (`null` = always available).
+  /// A command whose feature is disabled by [SessionCommandRegistry] does not
+  /// exist for dispatch, `/help`, or the `/` completion palette. Used by
+  /// `/workflow`, whose surface ships off (see [RuntimeConfig.enableWorkflow]).
+  final String? feature;
 
   /// The name completion and help render: the primary name.
   String get primary => names.first;
@@ -217,6 +224,10 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
         'list/show/new/edit/run DOT pipelines (/workflow '
         'show|new|edit|run <name>)',
     helpOrder: 9,
+    // Ships off with the rest of the workflow surface (see
+    // RuntimeConfig.enableWorkflow); restored by --enable-workflow or
+    // [features] workflow = true.
+    feature: kWorkflowFeature,
     handler: (h, t) => _handled(() => handleWorkflowCommand(h.workflow, t)),
   ),
   SessionCommandEntry(
@@ -257,22 +268,32 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
 /// Holds [SessionCommandEntry]s in dispatch/completion order; `/help` reorders
 /// by each entry's [SessionCommandEntry.helpOrder].
 class SessionCommandRegistry {
-  const SessionCommandRegistry(this.commands);
+  const SessionCommandRegistry(this.commands, {this.hiddenFeatures = const {}});
 
   /// Every entry, in dispatch/completion order (primary names first, then
   /// aliases).
   final List<SessionCommandEntry> commands;
 
+  /// Features whose commands do not exist for this registry — dispatch, help,
+  /// and completion all read [available], so a disabled feature cannot be
+  /// half-hidden (advertised by completion but rejected by dispatch, or vice
+  /// versa).
+  final Set<String> hiddenFeatures;
+
+  /// The entries whose feature is enabled, in registry order.
+  Iterable<SessionCommandEntry> get available =>
+      commands.where((e) => e.feature == null || !hiddenFeatures.contains(e.feature));
+
   /// Every recognized name (primary names and aliases, flattened in registry
   /// order) — the `/` completion palette's offering.
-  List<String> get allNames => [for (final entry in commands) ...entry.names];
+  List<String> get allNames => [for (final entry in available) ...entry.names];
 
   /// Looks a typed word up by name. Aliases resolve to their shared entry.
   /// Returns null for anything unrecognized (the caller decides between the
   /// unknown-command error and [CmdNotCommand] by whether the word starts
-  /// with `/`).
+  /// with `/`), and for a command whose feature is disabled.
   SessionCommandEntry? lookup(String word) {
-    for (final entry in commands) {
+    for (final entry in available) {
       if (entry.names.contains(word)) return entry;
     }
     return null;
@@ -285,7 +306,7 @@ class SessionCommandRegistry {
   /// render; the ESC footer is a literal.
   String renderHelp() {
     final b = StringBuffer('Commands:\n');
-    final visible = commands.where((e) => e.inHelp).toList()
+    final visible = available.where((e) => e.inHelp).toList()
       ..sort((a, b2) => a.helpOrder.compareTo(b2.helpOrder));
     for (final entry in visible) {
       final label = '${entry.primary} ${entry.argsHint}'.trim();

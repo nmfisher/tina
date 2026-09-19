@@ -587,7 +587,10 @@ void main() {
       [MessageComplete(content: [TextBlock('Inspection finished; setup still needed.')],
         stopReason: 'end_turn')],
     ], model: 'main-model');
-    final config = Config.parse(['--model', 'test/main-model', '--backend', 'ansi'],
+    // Sidebar layout on purpose: this test asserts the conversation tree the
+    // sidebar renders (depths + selection). The default layout is tiled.
+    final config = Config.parse(
+      ['--model', 'test/main-model', '--backend', 'ansi', '--layout', 'sidebar'],
       env: const {}, registry: registry);
     final app = await buildAppComposition(config: config, registry: registry,
       provider: provider, store: MemorySessionStore(),
@@ -819,7 +822,9 @@ void main() {
         final primaryId = seeded.primaryId;
 
         final io = FakeStdio()..hasTerminalValue = false;
-        final config = Config.parse(['--resume', sid, '--backend', 'ansi']);
+        // Sidebar layout on purpose (see the test name); the default is tiled.
+        final config = Config.parse(
+            ['--resume', sid, '--backend', 'ansi', '--layout', 'sidebar']);
         final app = await buildAppComposition(
           config: config,
           registry: builtinRegistry(),
@@ -1113,11 +1118,14 @@ void main() {
         final store = MemorySessionStore();
         final seeded = await seedSession(store, spawnCount: 3);
         final io = FakeStdio()..hasTerminalValue = false;
+        // Sidebar layout on purpose (see the test name); the default is tiled.
         final config = Config.parse([
           '--resume',
           seeded.sessionId,
           '--backend',
           'ansi',
+          '--layout',
+          'sidebar',
         ]);
         final app = await buildAppComposition(
           config: config,
@@ -1700,7 +1708,9 @@ void main() {
     () async {
       final io = FakeStdio()..hasTerminalValue = false;
       final app = await buildAppComposition(
-        config: Config.parse(const ['--backend', 'ansi']),
+        // Sidebar layout on purpose: the cancel gesture is exercised while the
+        // focus ring navigates the sidebar (see the focusPanel call below).
+        config: Config.parse(const ['--backend', 'ansi', '--layout', 'sidebar']),
         registry: builtinRegistry(),
         provider: FakeProvider.done(),
         store: MemorySessionStore(),
@@ -1773,7 +1783,14 @@ void main() {
     // the second Esc must force-cancel the run underneath the modal.
     test('rapid Esc-Esc across two approvals stops the turn', () async {
       final io = FakeStdio()..hasTerminalValue = false;
-      final config = Config.parse(const ['--backend', 'ansi']);
+      // Layout pinned on purpose. This test recognises the deny echo by
+      // counting the substring ' esc' in the raw paint stream, which holds
+      // only while the approval row is narrow enough that the echo lands on
+      // the same written row. The default layout is tiled (a wider chat), so
+      // the gesture is exercised under the sidebar geometry it was written
+      // against; the Esc semantics are what is under test, not the wrapping.
+      final config =
+          Config.parse(const ['--backend', 'ansi', '--layout', 'sidebar']);
       // Each response re-issues the same denied bash call — the exact
       // circuit-breaker shape (#27) that kept the comet sweeping.
       List<StreamEvent> toolTurn(String id) => [

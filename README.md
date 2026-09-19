@@ -56,18 +56,19 @@ For cross-platform bundles (Linux via Docker, macOS native):
 Tina writes its config, sessions, and caches under `~/.tina/`. Run `tina --setup`
 to configure providers and API keys.
 
-Choose the panel layout at startup with `tina --layout sidebar` (the default)
-or `tina --layout tiled`. With `dart run`, use `dart run bin/tina.dart --layout tiled`.
-Sidebar shows a nested conversation list beside the selected transcript;
-tiled shows conversation panels side by side. In sidebar mode, use Ctrl+G
-and Left/Right to choose the conversation list, Enter to focus it, then
-Up/Down to select a conversation.
+Choose the panel layout at startup with `tina --layout tiled` (the default) or
+`tina --layout sidebar`. With `dart run`, use `dart run bin/tina.dart --layout sidebar`.
+Tiled shows conversation panels side by side and leaves the transcript the full
+width; sidebar additionally reserves a left column holding a nested conversation
+list beside the selected transcript, at the cost of 24 columns. In sidebar mode,
+use Ctrl+G and Left/Right to choose the conversation list, Enter to focus it,
+then Up/Down to select a conversation.
 
 To save the preference in `~/.tina/config`:
 
 ```toml
 [tui]
-layout = "tiled"
+layout = "sidebar"
 ```
 
 The `--layout` option overrides the saved preference.

@@ -298,4 +298,57 @@ void main() {
       expect(s, contains('<environment>'));
     });
   });
+
+  group('workflow guidance (RuntimeConfig.enableWorkflow)', () {
+    test('the shipped identity advertises the workflow path', () {
+      expect(defaultPipeline.mainIdentity, contains('launch_workflow'));
+      expect(defaultPipeline.mainIdentity, contains('stop_workflow'));
+    });
+
+    test('stripping leaves an identity that mentions no workflow at all', () {
+      // The strong invariant: an agent without the launch_workflow tool must
+      // not be told about workflows anywhere — not the bullet, not the
+      // sub-agent aside, not the delegate bullet, not read-all's list.
+      final stripped = stripWorkflowGuidance(defaultPipeline.mainIdentity);
+      expect(stripped, isNot(contains('workflow')));
+      expect(stripped, isNot(contains('launch_workflow')));
+      expect(stripped, isNot(contains('stop_workflow')));
+      // Everything else survives intact.
+      expect(stripped, contains('You have these ways to act:'));
+      expect(stripped, contains('For a small, well-scoped change'));
+      expect(stripped, contains('Delegate a single focused sub-task'));
+      expect(stripped, contains('Ask the user when a decision is genuinely'));
+      expect(stripped, contains('launched as a sub-agent'));
+      expect(stripped, contains('A failure unrelated to your change'));
+      // No stray blank line or orphaned list marker where the bullet was.
+      expect(stripped, contains('You have these ways to act:\n\n- For a small'));
+    });
+
+    test('stripping is a no-op on an identity with no workflow guidance', () {
+      const custom = 'You are a bespoke agent. Carry out the task.';
+      expect(stripWorkflowGuidance(custom), custom);
+    });
+
+    test('resolveMainPrompt drops the guidance when the surface is off', () {
+      final on = resolveMainPrompt(defaultPipeline);
+      final off = resolveMainPrompt(defaultPipeline, workflowEnabled: false);
+      expect(on, contains('launch_workflow'));
+      // The wrapped prompt carries the project's AGENTS.md as well, which is
+      // free to talk about workflows; what must be gone is the workflow
+      // *tooling* guidance.
+      expect(off, isNot(contains('launch_workflow')));
+      expect(off, isNot(contains('stop_workflow')));
+      expect(off, contains('You have these ways to act:'));
+    });
+
+    test("a [prompts.main] override is the user's prose, never rewritten", () {
+      final s = resolveMainPrompt(
+        defaultPipeline,
+        overrides: const {'main': 'MY OWN IDENTITY'},
+        workflowEnabled: false,
+      );
+      expect(s, contains('MY OWN IDENTITY'));
+      expect(s, isNot(contains('You have these ways to act')));
+    });
+  });
 }

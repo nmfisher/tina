@@ -94,13 +94,14 @@ class Config extends RuntimeConfig implements ResumeRequest {
     this.trustDefault = TrustDefault.ask,
     super.environmentAutoPopulate = EnvironmentAutoPopulate.ask,
     this.mouseWheel = false,
-    this.layout = LayoutStyle.sidebar,
+    this.layout = LayoutStyle.tiled,
     super.regionsModel,
     super.permissionMode = PermissionMode.ask,
     super.permissionClassifierModel,
     super.modelExplicit = false,
     this.forceLock = false,
     super.transportRetryAttempts = 0,
+    super.enableWorkflow = false,
     this.models,
   });
 
@@ -138,6 +139,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     regionsModel: regionsModel,
     modelExplicit: modelExplicit,
     transportRetryAttempts: transportRetryAttempts,
+    enableWorkflow: enableWorkflow,
   );
 
   TerminalConfig get terminal => TerminalConfig(
@@ -296,6 +298,17 @@ class Config extends RuntimeConfig implements ResumeRequest {
           'Run a DOT pipeline from ~/.tina/workflows/<name>.dot to '
           'completion (non-interactive). Pair with --prompt for its input.',
     )
+    ..addFlag(
+      'enable-workflow',
+      negatable: false,
+      help:
+          'Bring back the DOT-workflow surface, which is off by default: the '
+          'main agent gets the launch_workflow/stop_workflow tools, its '
+          'identity steers it toward launching a workflow for substantial '
+          'work, live run panels open, and /workflow is available. Persist '
+          'with [features] workflow = true in ~/.tina/config. Does not affect '
+          'an explicit --workflow <name> run.',
+    )
     ..addOption(
       'max-turn-tokens',
       defaultsTo: '10000000',
@@ -439,9 +452,11 @@ class Config extends RuntimeConfig implements ResumeRequest {
       'layout',
       allowed: ['sidebar', 'tiled'],
       help:
-          'Panel layout: sidebar shows a conversation list beside the active '
-          'transcript; tiled shows conversations side by side. Overrides '
-          '[tui] layout in ~/.tina/config (default: sidebar).',
+          'Panel layout: tiled (default) shows spawned conversations side by '
+          'side without a conversation list; sidebar adds a left column '
+          'listing the conversation tree at the cost of 24 columns of '
+          'transcript width. Overrides '
+          '[tui] layout in ~/.tina/config (default: tiled).',
     )
     ..addOption(
       'backend',
@@ -777,14 +792,16 @@ class Config extends RuntimeConfig implements ResumeRequest {
       permissionClassifierModel: userConfig?.permissions?.model,
       modelExplicit: res.wasParsed('model'),
       forceLock: res['force'] as bool,
+      enableWorkflow:
+          (res['enable-workflow'] as bool) || (userConfig?.featuresWorkflow ?? false),
     );
   }
 }
 
 LayoutStyle _resolveLayout(String? flagValue, String? fileValue) =>
     switch (flagValue ?? fileValue) {
-      null || 'sidebar' => LayoutStyle.sidebar,
-      'tiled' => LayoutStyle.tiled,
+      null || 'tiled' => LayoutStyle.tiled,
+      'sidebar' => LayoutStyle.sidebar,
       final value => throw FormatException(
         'Invalid [tui] layout "$value": expected sidebar or tiled.',
       ),

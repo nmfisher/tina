@@ -16,10 +16,19 @@ import '../helpers/fake_provider.dart';
 /// Pins the composition wiring: `createScheduler` over the default pipeline,
 /// and `buildAgent`'s interactive/headless split. Both modes share the full
 /// file/shell tool set; interactive layers on delegate + channels + image
-/// rendering, and the workflow surface (`launch_workflow` + `stop_workflow`)
-/// is added in either mode when a [WorkflowSupervisor] is wired.
+/// rendering. The workflow surface (`launch_workflow` + `stop_workflow`) is
+/// added in either mode only when a [WorkflowSupervisor] is wired *and* the
+/// surface is enabled — it ships off (RuntimeConfig.enableWorkflow).
 void main() {
   Config testConfig() => Config.parse(const ['--backend', 'ansi']);
+
+  /// The same config with the DOT-workflow surface enabled. The two
+  /// registry sweeps below use it so their coverage still includes the
+  /// workflow tools: those mount only behind `--enable-workflow`
+  /// (RuntimeConfig.enableWorkflow), and a sweep that silently stopped
+  /// seeing them would stop checking them.
+  Config workflowConfig() =>
+      Config.parse(const ['--backend', 'ansi', '--enable-workflow']);
 
   // A run seam that never actually runs a workflow — the tool-set tests don't
   // invoke it; they only assert it lands in the registry.
@@ -216,39 +225,47 @@ void main() {
           0);
     });
 
-    test('the workflow surface is wired in both modes when a supervisor is '
-        'provided', () {
-      final config = testConfig();
-      final scheduler = createScheduler(
-        config: config,
-        registry: ProviderRegistry(env: {}),
-        pipeline: defaultPipeline,
-      );
-      final interactive = buildAgent(
-        pipeline: defaultPipeline,
-        scheduler: scheduler,
-        conversationId: 'c1',
-        provider: FakeProvider(const [], model: 'm'),
-        host: FakeHostInterface(),
-        policy: config.buildPolicy(),
-        config: config,
-        supervisor: noopSupervisor(),
-      );
-      final headless = buildAgent(
-        pipeline: defaultPipeline,
-        scheduler: scheduler,
-        conversationId: 'c2',
-        provider: FakeProvider(const [], model: 'm'),
-        host: FakeHostInterface(),
-        policy: config.buildPolicy(),
-        config: config,
-        withSubAgents: false,
-        supervisor: noopSupervisor(),
-      );
-      expect(interactive.tools['launch_workflow'], isNotNull);
-      expect(interactive.tools['stop_workflow'], isNotNull);
-      expect(headless.tools['launch_workflow'], isNotNull);
-      expect(headless.tools['stop_workflow'], isNotNull);
+    test('the workflow surface mounts only when it is enabled', () {
+      // The surface ships off (RuntimeConfig.enableWorkflow): even with a
+      // supervisor wired, an agent gets neither launch_workflow nor
+      // stop_workflow, so it cannot start a run whose panel the user asked
+      // not to see. --enable-workflow / [features] workflow = true restores
+      // both, in interactive and headless mode alike.
+      AgentDriver build(Config config, String id, {bool withSubAgents = true}) {
+        final scheduler = createScheduler(
+          config: config,
+          registry: ProviderRegistry(env: {}),
+          pipeline: defaultPipeline,
+        );
+        return buildAgent(
+          pipeline: defaultPipeline,
+          scheduler: scheduler,
+          conversationId: id,
+          provider: FakeProvider(const [], model: 'm'),
+          host: FakeHostInterface(),
+          policy: config.buildPolicy(),
+          config: config,
+          withSubAgents: withSubAgents,
+          supervisor: noopSupervisor(),
+        );
+      }
+
+      final off = testConfig();
+      expect(off.enableWorkflow, isFalse,
+          reason: 'the workflow surface must be off by default');
+      expect(build(off, 'c1').tools['launch_workflow'], isNull);
+      expect(build(off, 'c1').tools['stop_workflow'], isNull);
+      expect(build(off, 'c2', withSubAgents: false).tools['launch_workflow'],
+          isNull);
+
+      final on = workflowConfig();
+      expect(on.enableWorkflow, isTrue);
+      expect(build(on, 'c1').tools['launch_workflow'], isNotNull);
+      expect(build(on, 'c1').tools['stop_workflow'], isNotNull);
+      expect(build(on, 'c2', withSubAgents: false).tools['launch_workflow'],
+          isNotNull);
+      expect(build(on, 'c2', withSubAgents: false).tools['stop_workflow'],
+          isNotNull);
     });
 
     test('every tool schema is a wire-valid JSON-Schema object', () {
@@ -258,7 +275,7 @@ void main() {
       // reject schemas without `"type": "object"` (seen live: DeepSeek 400
       // "Invalid schema for function 'repo_structure' ... got 'type': null"
       // when a tool declared an empty input schema).
-      final config = testConfig();
+      final config = workflowConfig();
       final scheduler = createScheduler(
         config: config,
         registry: ProviderRegistry(env: {}),
@@ -302,7 +319,7 @@ void main() {
       // composition so a NEW tool is swept automatically, plus the built-in
       // defaults table (a tool like web_search mounts only when its key is
       // configured, but its gate is decided here either way).
-      final config = testConfig();
+      final config = workflowConfig();
       final scheduler = createScheduler(
         config: config,
         registry: ProviderRegistry(env: {}),

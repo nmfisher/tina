@@ -164,6 +164,7 @@ AgentDriver buildAgent({
         safeMode: config.safeMode,
         loadProjectContext: pipeline.loadProjectContext,
         scope: scheduler.mountedScopeValue,
+        workflowEnabled: config.enableWorkflow,
       );
 
   // Base registry both modes share: the full file/shell tool set (write/edit/
@@ -179,7 +180,13 @@ AgentDriver buildAgent({
   // panel; the chat keeps the launch + completion notices) and stop a running
   // launch. The completion turn is injected by the supervisor's onComplete
   // hook — not returned by the tool.
-  if (supervisor != null) {
+  //
+  // Off unless `[features] workflow = true` / `--enable-workflow`: the surface
+  // ships disabled (see [RuntimeConfig.enableWorkflow]), so the tools simply do
+  // not exist for the agent. Gating here — not at the supervisor's
+  // construction — keeps this the single place a tool set is decided, so the
+  // headless path and every later session inherit the same answer.
+  if (supervisor != null && config.enableWorkflow) {
     tools.add(
       LaunchWorkflowTool(
         supervisor: supervisor,

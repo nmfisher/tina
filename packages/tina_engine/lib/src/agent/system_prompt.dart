@@ -201,6 +201,11 @@ String _buildAgentPrompt({
 /// from [overrides] when set (a non-empty string), else [pipeline.mainIdentity];
 /// then wrapped with the shared `<environment>` and `<project-context>` blocks.
 ///
+/// When [workflowEnabled] is false the built-in identity is passed through
+/// [stripWorkflowGuidance], so an agent with no `launch_workflow` tool is not
+/// told to prefer launching one. A `[prompts.main]` override is the user's own
+/// prose and is never rewritten.
+///
 /// This is the root identity the whole fleet descends from — a delegated
 /// sub-agent inherits its parent's *resolved* prompt verbatim, so overriding
 /// `main` here changes every agent that inherits it.
@@ -215,11 +220,14 @@ String resolveMainPrompt(
   bool safeMode = false,
   bool? loadProjectContext,
   PluginScope? scope,
+  bool workflowEnabled = true,
 }) {
   final override = overrides?['main'];
   final identity = (override != null && override.isNotEmpty)
       ? override
-      : pipeline.mainIdentity;
+      : (workflowEnabled
+          ? pipeline.mainIdentity
+          : stripWorkflowGuidance(pipeline.mainIdentity));
   return _buildAgentPrompt(
       identity: identity,
       context: pipeline.promptContext,

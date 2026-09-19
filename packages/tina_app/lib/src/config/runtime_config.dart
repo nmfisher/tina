@@ -139,6 +139,19 @@ class RuntimeConfig {
   /// bin/tina.dart only; the TUI does not opt in.
   final int transportRetryAttempts;
 
+  /// Whether the DOT-workflow surface exists at all (`--enable-workflow`, or
+  /// `[features] workflow = true` in ~/.tina/config). **Off by default**: the
+  /// built-in `default` graph earned its keep poorly, so the main agent is no
+  /// longer handed `launch_workflow`/`stop_workflow`, its identity no longer
+  /// steers it toward launching one, the live run panels are never reachable,
+  /// and `/workflow` is hidden. Nothing was deleted — every piece is still
+  /// wired behind this flag, so bringing the surface back is one setting.
+  ///
+  /// This gates the *interactive/default* surface only. The explicit
+  /// `--workflow <name>` launch (a named graph run to completion, no TUI) is
+  /// a deliberate one-shot the user typed, and is unaffected.
+  final bool enableWorkflow;
+
   RuntimeConfig({
     this.provider = 'anthropic',
     this.apiKey = '',
@@ -175,6 +188,7 @@ class RuntimeConfig {
     this.regionsModel,
     this.modelExplicit = false,
     this.transportRetryAttempts = 5,
+    this.enableWorkflow = false,
   }) : permissionRules = List.unmodifiable(permissionRules),
        promptOverrides = Map.unmodifiable(promptOverrides);
 

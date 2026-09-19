@@ -12,6 +12,7 @@ import 'package:attractor/attractor.dart';
 
 import 'package:tina/completion/git_file_provider.dart';
 import 'package:tina/completion/command_completion_provider.dart';
+import 'package:tina/session_commands/session_command_handlers.dart';
 import 'package:tina/composition/config_providers.dart';
 import 'package:tina/composition/typesafe.dart';
 
@@ -2367,6 +2368,11 @@ class TuiCoordinator {
   }
 
   Future<RunOutcome> run({bool setupMode = false}) async {
+    // Command surfaces first: a feature this session does not have must not be
+    // dispatchable, completable, or listed in `/help`. The workflow surface
+    // ships off (see [RuntimeConfig.enableWorkflow]), so `/workflow` is absent
+    // from all three unless it was enabled at launch.
+    SessionCommandHandlers.configureFeatures(workflow: config.enableWorkflow);
     _sigintSub = ProcessSignal.sigint.watch().listen((_) {
       // Once quit has begun, don't inject: the editor's input pipeline may be
       // mid-teardown (or its render loop wedged), and injecting then can

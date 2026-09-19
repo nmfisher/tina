@@ -487,8 +487,13 @@ class UserConfig {
   final bool? mouseWheel;
 
   /// Panel arrangement from `[tui] layout` (`sidebar`/`tiled`).
-  /// Null when absent; the terminal defaults to sidebar.
+  /// Null when absent; the terminal defaults to tiled (no conversation list).
   final String? layout;
+
+  /// Whether the DOT-workflow surface is enabled, from `[features] workflow`.
+  /// Null/absent means off (the default) — see [RuntimeConfig.enableWorkflow]
+  /// for exactly what the switch covers and what stays available without it.
+  final bool? featuresWorkflow;
 
   /// The `[regions]` table: defaults for region agents (fast model, etc.).
   /// Null when absent.
@@ -518,6 +523,7 @@ class UserConfig {
     this.environmentModel,
     this.mouseWheel,
     this.layout,
+    this.featuresWorkflow,
     this.regions,
     this.permissions,
     this.version = kCurrentConfigVersion,
@@ -581,6 +587,7 @@ class UserConfig {
     environmentModel: environmentModel ?? this.environmentModel,
     mouseWheel: mouseWheel ?? this.mouseWheel,
     layout: layout ?? this.layout,
+    featuresWorkflow: featuresWorkflow ?? this.featuresWorkflow,
     regions: regions ?? this.regions,
     permissions: permissions ?? this.permissions,
     version: version,
@@ -606,6 +613,9 @@ class UserConfig {
     final environmentModel = environmentRaw?['model'] as String?;
     final tuiRaw = (m['tui'] as Map?)?.cast<String, dynamic>();
     final mouseWheel = tuiRaw?['mouse_wheel'] as bool?;
+    // [features] workflow — the DOT-workflow surface, off unless set.
+    final featuresRaw = (m['features'] as Map?)?.cast<String, dynamic>();
+    final featuresWorkflow = featuresRaw?['workflow'] as bool?;
     final regionsRaw = (m['regions'] as Map?)?.cast<String, dynamic>();
     final permissionsRaw = (m['permissions'] as Map?)?.cast<String, dynamic>();
     final providers = <String, ProviderConfig>{};
@@ -642,6 +652,7 @@ class UserConfig {
       environmentModel: environmentModel,
       mouseWheel: mouseWheel,
       layout: tuiRaw?['layout'] as String?,
+      featuresWorkflow: featuresWorkflow,
       regions: regionsRaw == null ? null : RegionsConfig.fromMap(regionsRaw),
       permissions: permissionsRaw == null
           ? null
@@ -898,6 +909,8 @@ String userConfigToToml(UserConfig config) {
           'auto_populate': config.environmentAutoPopulate,
         if (config.environmentModel != null) 'model': config.environmentModel,
       },
+    if (config.featuresWorkflow != null)
+      'features': {'workflow': config.featuresWorkflow},
     if (config.mouseWheel != null || config.layout != null)
       'tui': {
         if (config.mouseWheel != null) 'mouse_wheel': config.mouseWheel,
@@ -1091,6 +1104,15 @@ api_key = "sk-ant-..."
 # button-1 drags to the app too, so native selection needs Option/Alt held
 # (macOS Terminal) or Shift (most others).
 # [tui]
-# layout = "sidebar" # "sidebar" (conversation list) or "tiled" (side by side)
+# layout = "tiled" # "tiled" (default: conversations side by side, no list) or
+#                   # "sidebar" (adds a left column listing the conversation tree)
 # mouse_wheel = false
+
+# Optional surfaces that ship off by default. `workflow` brings back the
+# DOT-pipeline surface: the main agent's launch_workflow/stop_workflow tools,
+# the identity guidance that steers it toward launching one, the live run
+# panels, and /workflow. Same as passing --enable-workflow. An explicit
+# `tina --workflow <name>` run is unaffected by this setting.
+# [features]
+# workflow = true
 ''';

@@ -1,5 +1,15 @@
 # The default chat workflow
 
+> **This surface ships disabled.** The built-in `default` graph did not earn its
+> keep, so tina no longer hands the agent `launch_workflow`/`stop_workflow`, no
+> longer steers the entry identity toward launching a workflow, hides
+> `/workflow`, and opens no run panels. Nothing was deleted — the whole surface
+> comes back with `--enable-workflow` or `[features] workflow = true` in
+> `~/.tina/config`. An explicit `tina --workflow <name>` run (a named graph run
+> to completion, no TUI) is a deliberate one-shot and is unaffected by the
+> setting. Everything below describes the graph as it exists when the surface is
+> enabled.
+
 > **Routing model changed.** As of the manager-loop work, normal chat turns no
 > longer route through this graph. The main agent runs **outside** the workflow;
 > this file is the **launchable default graph**, which the agent runs on demand

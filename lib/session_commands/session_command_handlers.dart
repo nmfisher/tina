@@ -13,6 +13,11 @@ import '../tmux/tmux_support.dart';
 part 'session_command_registry.dart';
 part 'command_families.dart';
 
+/// Names the DOT-workflow feature in [SessionCommandEntry.feature] so the
+/// `/workflow` command disappears with the rest of the surface when it is
+/// disabled (see [RuntimeConfig.enableWorkflow]).
+const kWorkflowFeature = 'workflow';
+
 /// The slash-command handlers, lifted out of [SessionController] so they can be
 /// read and tested in isolation. Operates purely through a [CommandContext] —
 /// no input loop, no host of its own. [dispatch] is the entry point the
@@ -82,10 +87,25 @@ class SessionCommandHandlers {
   static List<String> get allCommands => registry.allNames;
 
   /// The ordered command table every command surface dispatches, completes,
-  /// and renders help from.
-  static final SessionCommandRegistry registry = SessionCommandRegistry(
+  /// and renders help from. Replaced once at startup by [configureFeatures] so
+  /// the disabled-feature filtering is decided in one place; before that call
+  /// it holds the full table (which is what unit tests want).
+  static SessionCommandRegistry registry = SessionCommandRegistry(
     _kSessionCommandEntries,
   );
+
+  /// Point dispatch, `/help`, and the `/` completion palette at the features
+  /// this session actually has. Called once by the TUI before it reads any
+  /// input; idempotent, so calling it again (or from a second entry point) is
+  /// harmless.
+  static void configureFeatures({required bool workflow}) {
+    registry = SessionCommandRegistry(
+      _kSessionCommandEntries,
+      hiddenFeatures: workflow
+          ? const <String>{}
+          : const <String>{kWorkflowFeature},
+    );
+  }
 
   Future<CmdResult> dispatch(String trimmed) async {
     final word = trimmed.split(RegExp(r'\s+')).first;

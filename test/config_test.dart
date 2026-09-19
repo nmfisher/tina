@@ -217,9 +217,12 @@ void main() {
       });
     });
 
-    test('layout uses CLI, then saved preference, then sidebar', () {
+    test('layout uses CLI, then saved preference, then tiled', () {
       for (final (args, saved, expected) in [
-        (<String>[], null, LayoutStyle.sidebar),
+        // Tiled is the default: the conversation-list sidebar is off unless
+        // asked for. `--layout sidebar` / [tui] layout = "sidebar" restores it.
+        (<String>[], null, LayoutStyle.tiled),
+        (<String>[], 'sidebar', LayoutStyle.sidebar),
         (<String>[], 'tiled', LayoutStyle.tiled),
         (['--layout', 'sidebar'], 'tiled', LayoutStyle.sidebar),
         (['--layout', 'tiled'], 'sidebar', LayoutStyle.tiled),
@@ -233,6 +236,31 @@ void main() {
         );
         expect(config.layout, expected);
         expect(config.launch.terminal.layout, expected);
+      }
+    });
+
+    test('the workflow surface is off unless a flag or the file enables it',
+        () {
+      for (final (args, file, expected) in [
+        // Off by default: the tools, the identity nudge, /workflow, and the
+        // run panels all ship disabled. Either source turns the whole surface
+        // back on; the flag always wins over the file.
+        (<String>[], null, false),
+        (['--enable-workflow'], null, true),
+        (<String>[], true, true),
+        (<String>[], false, false),
+        (['--enable-workflow'], false, true),
+      ]) {
+        final config = Config.parse(
+          args,
+          env: const {},
+          userConfig: UserConfig.fromMap({
+            'features': {if (file != null) 'workflow': file},
+          }),
+        );
+        expect(config.enableWorkflow, expected);
+        // The parsed facade and the runtime the composition reads agree.
+        expect(config.runtime.enableWorkflow, expected);
       }
     });
 
