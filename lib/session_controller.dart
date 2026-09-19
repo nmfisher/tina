@@ -195,8 +195,6 @@ class SessionController {
 
   /// Open the full-output viewer for a capped tool call (`/output`). Wired by
   /// the TUI; null in headless.
-  Future<void> Function(int index)? openToolOutput;
-
   /// `/blocks`, `/show`, `/hide` — fold or unfold the active conversation's
   /// transcript blocks. Wired by the TUI coordinator, which holds the
   /// transcript; null on a controller with no transcript to fold.

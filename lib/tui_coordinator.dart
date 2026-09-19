@@ -1103,9 +1103,7 @@ class TuiCoordinator {
           );
         }
       };
-      // `/output [n]` — full output of a capped tool call (the chat shows only
-      // the first ~600 streamed chars). The ring lives on the active
-      // conversation's host; newest first.
+
       // `/blocks`, `/show`, `/hide` — fold the active conversation's transcript
       // in place. The blocks themselves are the sink's; this only maps a
       // command onto them and reports what changed.
@@ -1173,32 +1171,6 @@ class TuiCoordinator {
         }
         report('block $n is already '
             '${verb == 'show' ? 'open' : 'folded'}.\n');
-      };
-
-      controller.openToolOutput = (index) async {
-        final host = sessionManager.activeConversation.host;
-        if (host is! TuiConversationHost) {
-          host.showMessage(
-            'no capped tool output in this conversation\n',
-            style: HostMessageStyle.warning,
-          );
-          return;
-        }
-        if (index >= host.retainedOutputs.length) {
-          host.showMessage(
-            'no retained tool output at /output ${index + 1} '
-            '(${host.retainedOutputs.length} available)\n',
-            style: HostMessageStyle.warning,
-          );
-          return;
-        }
-        final o = host.retainedOutputs[index];
-        await runToolOutputViewer(
-          screen: screen,
-          editor: editor,
-          title: 'output · ${o.toolName}',
-          text: o.text,
-        );
       };
       // `/workflow new` + `/workflow edit` — visual node editor.
       controller.openWorkflowEditor = ({name, isNew = false}) async {

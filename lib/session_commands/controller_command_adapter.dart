@@ -65,9 +65,6 @@ class ControllerCommandAdapter implements CommandContext {
   Future<void> Function(String name)? get openWorkflowViewer =>
       controller.openWorkflowViewer;
   @override
-  Future<void> Function(int index)? get openToolOutput =>
-      controller.openToolOutput;
-
   @override
   Future<void> Function(String verb, String argument)? get foldTranscript =>
       controller.foldTranscript;

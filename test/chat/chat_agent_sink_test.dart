@@ -11,6 +11,12 @@ import '../helpers/fake_stdio.dart';
 Screen _screen({int width = 400}) => Screen(
     io: FakeStdio()..columns = width, layout: ScreenLayout.fromSize(width, 24));
 
+/// The text a folded block reveals, whole.
+String _bodyOf(ChatAgentSink sink, [int? index]) {
+  final block = sink.blocks[index ?? sink.blocks.length - 1];
+  return block.body.map((l) => l.runs.map((r) => r.text).join()).join('\n');
+}
+
 /// The region's painted rows, joined — what the user would see in the chat.
 String _painted(ScrollingTextRegion chat) {
   final buf = StringBuffer();
@@ -22,15 +28,13 @@ String _painted(ScrollingTextRegion chat) {
   return buf.toString();
 }
 
-/// Pins tool-output retention in [ChatAgentSink]: every call is retained
-/// in full; display is capped, and long dumps are handed
-/// to `onToolOutput` for the `/output` viewer.
+/// Pins where a tool call's output lives: in the block behind its header, which
+/// is the only place it now lives — the `/output` ring is gone, and the block's
+/// fold is how a reader gets at it.
 void main() {
   test('a call is one header row; its output is kept behind it', () {
     final chat = ScrollingTextRegion(_screen());
-    final retained = <ToolCallOutput>[];
-    final sink = ChatAgentSink(chat, Spinner(enabled: false),
-        onToolOutput: retained.add);
+    final sink = ChatAgentSink(chat, Spinner(enabled: false),);
 
     sink.toolStart(const ToolStartEvent('bash', 't1', {'command': 'echo hi'}));
     sink.toolOutput(const ToolOutputEvent('bash', 't1', 'line one\n'));
@@ -44,14 +48,12 @@ void main() {
     expect(painted, isNot(contains('line one')));
     expect(painted, isNot(contains('line two')));
     // The output is what a fold will reveal, so it is kept in full.
-    expect(retained.single.text, 'line one\nline two\n');
+    expect(_bodyOf(sink), 'line one\nline two\n');
   });
 
   test('a long stream never reaches the chat, and is kept whole', () {
     final chat = ScrollingTextRegion(_screen());
-    final retained = <ToolCallOutput>[];
-    final sink = ChatAgentSink(chat, Spinner(enabled: false),
-        onToolOutput: retained.add);
+    final sink = ChatAgentSink(chat, Spinner(enabled: false),);
     final long = 'x' * 700;
 
     sink.toolStart(const ToolStartEvent('bash', 't1', {'command': 'find .'}));
@@ -66,8 +68,9 @@ void main() {
     expect(painted.length, lessThan(120));
     expect(painted, isNot(contains('xxx')));
     // The full output is preserved for the viewer and the block's fold.
-    expect(retained.single.toolName, 'bash');
-    expect(retained.single.text, long);
+    expect(sink.blocks.last.subject, contains('bash'));
+    expect(sink.blocks.last.body, isNotEmpty);
+    expect(_bodyOf(sink), long);
   });
 
   test('a short call\'s output is retained too, not only a capped one', () {
@@ -75,48 +78,42 @@ void main() {
     // to be kept whether or not the chat render ever hit the cap. Retaining
     // only capped calls would leave the common case with nothing to reveal.
     final chat = ScrollingTextRegion(_screen());
-    final retained = <ToolCallOutput>[];
-    final sink = ChatAgentSink(chat, Spinner(enabled: false),
-        onToolOutput: retained.add);
+    final sink = ChatAgentSink(chat, Spinner(enabled: false),);
 
     sink.toolStart(const ToolStartEvent('bash', 't1', {'command': 'ls'}));
     sink.toolOutput(const ToolOutputEvent('bash', 't1', 'a.dart\nb.dart\n'));
     sink.toolComplete(
         const ToolCompleteEvent('bash', 't1', isError: false, result: ''));
 
-    expect(retained, hasLength(1));
-    expect(retained.single.text, 'a.dart\nb.dart\n');
-    expect(retained.single.toolName, 'bash');
+    expect(sink.blocks, hasLength(1));
+    expect(_bodyOf(sink), 'a.dart\nb.dart\n');
+    expect(sink.blocks.single.subject, contains('bash'));
   });
 
   test('a result that never streamed is retained verbatim', () {
     final chat = ScrollingTextRegion(_screen());
-    final retained = <ToolCallOutput>[];
-    final sink = ChatAgentSink(chat, Spinner(enabled: false),
-        onToolOutput: retained.add);
+    final sink = ChatAgentSink(chat, Spinner(enabled: false),);
 
     // A read/edit returns its payload as the result with no streamed chunks.
     sink.toolStart(const ToolStartEvent('read', 't2', {'filePath': 'a.dart'}));
     sink.toolComplete(const ToolCompleteEvent('read', 't2',
         isError: false, result: 'int x = 1;\n'));
 
-    expect(retained.single.text, 'int x = 1;\n');
+    expect(_bodyOf(sink), 'int x = 1;\n');
   });
 
   test('a pathological dump is truncated at the retention limit', () {
     final chat = ScrollingTextRegion(_screen());
-    final retained = <ToolCallOutput>[];
-    final sink = ChatAgentSink(chat, Spinner(enabled: false),
-        onToolOutput: retained.add);
+    final sink = ChatAgentSink(chat, Spinner(enabled: false),);
 
-    final huge = 'x' * (kRetainedOutputLimit + 5000);
+    final huge = 'x' * (kBlockBodyLimit + 5000);
     sink.toolStart(const ToolStartEvent('bash', 't3', {'command': 'dump'}));
     sink.toolComplete(
         ToolCompleteEvent('bash', 't3', isError: false, result: huge));
 
-    expect(retained.single.text.length, lessThan(huge.length));
-    expect(retained.single.text, startsWith('x' * 100));
-    expect(retained.single.text, contains('truncated at $kRetainedOutputLimit'));
+    expect(_bodyOf(sink).length, lessThan(huge.length));
+    expect(_bodyOf(sink), startsWith('x' * 100));
+    expect(_bodyOf(sink), contains('truncated at $kBlockBodyLimit'));
   });
 
   group('elapsed in the status line', () {
@@ -153,9 +150,7 @@ void main() {
 
   test('a chunk boundary drops nothing', () {
     final chat = ScrollingTextRegion(_screen());
-    final retained = <ToolCallOutput>[];
-    final sink = ChatAgentSink(chat, Spinner(enabled: false),
-        onToolOutput: retained.add);
+    final sink = ChatAgentSink(chat, Spinner(enabled: false),);
 
     sink.toolStart(const ToolStartEvent('bash', 't1', {'command': 'go'}));
     sink.toolOutput(ToolOutputEvent('bash', 't1', 'a' * 400));
@@ -167,14 +162,12 @@ void main() {
     // chunk landing on a boundary cannot lose its tail.
     expect(painted, isNot(contains('a' * 20)));
     expect(painted, isNot(contains('b' * 20)));
-    expect(retained.single.text, '${'a' * 400}${'b' * 400}');
+    expect(_bodyOf(sink), '${'a' * 400}${'b' * 400}');
   });
 
   test('stderr after the cap is buffered, not printed', () {
     final chat = ScrollingTextRegion(_screen());
-    final retained = <ToolCallOutput>[];
-    final sink = ChatAgentSink(chat, Spinner(enabled: false),
-        onToolOutput: retained.add);
+    final sink = ChatAgentSink(chat, Spinner(enabled: false),);
 
     sink.toolStart(const ToolStartEvent('bash', 't1', {'command': 'go'}));
     sink.toolOutput(ToolOutputEvent('bash', 't1', 'x' * 700));
@@ -183,14 +176,12 @@ void main() {
     sink.toolComplete(const ToolCompleteEvent('bash', 't1', isError: false, result: ''));
 
     expect(_painted(chat), isNot(contains('stderr tail')));
-    expect(retained.single.text, contains('stderr tail'));
+    expect(_bodyOf(sink), contains('stderr tail'));
   });
 
   test('a failure shows on the header, and the output is kept', () {
     final chat = ScrollingTextRegion(_screen());
-    final retained = <ToolCallOutput>[];
-    final sink = ChatAgentSink(chat, Spinner(enabled: false),
-        onToolOutput: retained.add);
+    final sink = ChatAgentSink(chat, Spinner(enabled: false),);
 
     sink.toolStart(const ToolStartEvent('bash', 't1', {'command': 'go'}));
     sink.toolOutput(ToolOutputEvent('bash', 't1', 'x' * 700));
@@ -203,7 +194,7 @@ void main() {
     // result, so the stderr is what the header quotes.
     expect(painted, contains('failed · '));
     expect(painted, contains('xx'));
-    expect(retained.single.text, 'x' * 700);
+    expect(_bodyOf(sink), 'x' * 700);
   });
 
   // --- #49: tool-row head+tail truncation ---
@@ -278,9 +269,7 @@ void main() {
       'a failed call with a long result and no stream caps the line but '
       'keeps the full error for /output', () {
     final chat = ScrollingTextRegion(_screen());
-    final retained = <ToolCallOutput>[];
-    final sink = ChatAgentSink(chat, Spinner(enabled: false),
-        onToolOutput: retained.add);
+    final sink = ChatAgentSink(chat, Spinner(enabled: false),);
     final result = 'E' * 250 + 'THE REAL ERROR TAIL';
 
     sink.toolStart(const ToolStartEvent('bash', 't1', {'command': 'go'}));
@@ -294,19 +283,16 @@ void main() {
     // (2) There is no pointer row any more: the header itself is the pointer,
     //     and the block's fold is where the output lives.
     expect(painted, isNot(contains('/output')));
-    // (3) A retained copy carrying the FULL result.
-    expect(retained, hasLength(1));
-    expect(retained.single.text, result);
-    expect(retained.single.text, contains('THE REAL ERROR TAIL'));
-    expect(retained.single.toolName, 'bash');
-    expect(retained.single.input, {'command': 'go'});
+    // (3) The block's body carries the FULL result.
+    expect(sink.blocks, hasLength(1));
+    expect(_bodyOf(sink), result);
+    expect(_bodyOf(sink), contains('THE REAL ERROR TAIL'));
+    expect(sink.blocks.single.subject, contains('bash'));
   });
 
   test('a failed call with a short result stays as before', () {
     final chat = ScrollingTextRegion(_screen());
-    final retained = <ToolCallOutput>[];
-    final sink = ChatAgentSink(chat, Spinner(enabled: false),
-        onToolOutput: retained.add);
+    final sink = ChatAgentSink(chat, Spinner(enabled: false),);
 
     sink.toolStart(const ToolStartEvent('bash', 't1', {'command': 'go'}));
     sink.toolComplete(const ToolCompleteEvent('bash', 't1',
@@ -314,14 +300,12 @@ void main() {
 
     final painted = _painted(chat);
     expect(painted, contains('failed · boom'));
-    expect(retained.single.text, 'boom');
+    expect(_bodyOf(sink), 'boom');
   });
 
   test('a successful call is one row with its outcome', () {
     final chat = ScrollingTextRegion(_screen());
-    final retained = <ToolCallOutput>[];
-    final sink = ChatAgentSink(chat, Spinner(enabled: false),
-        onToolOutput: retained.add);
+    final sink = ChatAgentSink(chat, Spinner(enabled: false),);
     final result = 'r' * 500; // far past 200 chars — still no failure path
 
     sink.toolStart(const ToolStartEvent('bash', 't1', {'command': 'go'}));
@@ -331,7 +315,7 @@ void main() {
     final painted = _painted(chat);
     expect(painted, contains('  ok'));
     expect(painted, isNot(contains('/output')));
-    expect(retained.single.text, result);
+    expect(_bodyOf(sink), result);
   });
 
   group('the transcript', () {

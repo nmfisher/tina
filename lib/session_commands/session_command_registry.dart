@@ -252,16 +252,6 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     handler: (h, t) => _handled(() => h.frontend._handleFold(t, show: false)),
   ),
   SessionCommandEntry(
-    names: const ['/output'],
-    argsHint: '[n]',
-    summary:
-        'full output of the most recent capped tool call, or the n-th '
-        '(newest first)',
-    helpOrder: 0,
-    inHelp: false,
-    handler: (h, t) => _handled(() => h.frontend._handleOutput(t)),
-  ),
-  SessionCommandEntry(
     names: const ['/spend'],
     argsHint: '',
     summary: "show this session's token usage and spend caps",

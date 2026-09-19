@@ -25,7 +25,6 @@ abstract interface class FrontendCapabilities {
   Future<void> Function()? get openBranch;
   Future<void> Function()? get openModelPicker;
   Future<void> Function(String path)? get openImage;
-  Future<void> Function(int index)? get openToolOutput;
 
   /// Fold or unfold transcript blocks: `('list'|'show'|'hide', argument)` where
   /// an argument is a 1-based foldable-block number or `all`. The coordinator

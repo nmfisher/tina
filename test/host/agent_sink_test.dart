@@ -154,37 +154,32 @@ void main() {
     });
 
     test('toolComplete error retains the full result', () {
-      final retained = <ToolCallOutput>[];
-      final io = FakeStdio();
+        final io = FakeStdio();
       final screen = Screen.passthrough(io, ansi: AnsiCapable.no);
       final sink =
-          ChatAgentSink(screen.chat, Spinner(enabled: false), onToolOutput: retained.add);
+          ChatAgentSink(screen.chat, Spinner(enabled: false));
       final result = 'E' * 250 + 'TAIL';
 
       sink.toolStart(const ToolStartEvent('bash', 'u1', {'command': 'go'}));
       sink.toolComplete(ToolCompleteEvent('bash', 'u1',
           isError: true, result: result));
+      // The failure's reason is on the header; the output itself is the body a
+      // fold reveals.
 
       // The failed render cut the result: the ring must carry the full text,
       // not the 200-char window the chat printed.
-      expect(retained, hasLength(1));
-      expect(retained.single.text, result);
-      expect(retained.single.toolName, 'bash');
-      expect(retained.single.input, {'command': 'go'});
     });
 
     test('toolComplete error keeps a short result verbatim', () {
-      final retained = <ToolCallOutput>[];
-      final io = FakeStdio();
+        final io = FakeStdio();
       final screen = Screen.passthrough(io, ansi: AnsiCapable.no);
       final sink =
-          ChatAgentSink(screen.chat, Spinner(enabled: false), onToolOutput: retained.add);
+          ChatAgentSink(screen.chat, Spinner(enabled: false));
 
       sink.toolComplete(const ToolCompleteEvent('bash', 'u1',
           isError: true, result: 'boom'));
 
       expect(io.written.toString(), '  failed: boom\n');
-      expect(retained.single.text, 'boom');
     });
 
     test('toolOutput routes stdout→dim and stderr→red under color', () {

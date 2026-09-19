@@ -156,7 +156,6 @@ abstract class CommandContext
   /// Open the full-output viewer for a capped tool call (`/output`).
   /// [index] is 0-based, newest first, against the active conversation's
   /// capped-output ring. Wired by the TUI; null in headless (no screen).
-  Future<void> Function(int index)? get openToolOutput;
 
   /// The process-wide token ledger (`/spend`). Wired by the composition root;
   /// null when no composition exists (headless without one).

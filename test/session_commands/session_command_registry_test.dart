@@ -126,7 +126,7 @@ void main() {
           '/explore', '/exit', '/quit', '/help', '/clear', '/compact', '/auto-compact',
           '/permissions', '/sessions', '/session', '/resume', '/save',
           '/model', '/settings', '/prompts', '/spawn', '/branch', '/image',
-          '/index', '/workflow', '/blocks', '/show', '/hide', '/output', '/spend', '/update', '/detach',
+          '/index', '/workflow', '/blocks', '/show', '/hide', '/spend', '/update', '/detach',
         ],
       );
     });

@@ -77,16 +77,6 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
   /// [setPermissionMode] already flips this same object per conversation.
   PermissionPolicy? policy;
 
-  /// Every recent tool call's output, newest first, for the `/output` viewer.
-  /// Populated from the sink's [ChatAgentSink.onToolOutput] once per completed
-  /// call (each already truncated to [kRetainedOutputLimit]); the oldest are
-  /// dropped past [maxRetainedOutputs] so a long session stays bounded.
-  final List<ToolCallOutput> retainedOutputs = [];
-
-  /// How many calls' output the viewer can reach. Small enough to bound memory
-  /// alongside the per-call limit, large enough to cover the turn in progress.
-  static const int maxRetainedOutputs = 20;
-
   /// The current (or, between turns, most recent) assistant turn's raw
   /// markdown, byte-for-byte as the model sent it — the raw view behind the
   /// Ctrl+R viewer. Updated from the sink's [ChatAgentSink.onRawText]; reset
@@ -143,12 +133,6 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
   late final ChatAgentSink _chatSink = ChatAgentSink(
     chat,
     spinner,
-    onToolOutput: (o) {
-      retainedOutputs.insert(0, o);
-      if (retainedOutputs.length > maxRetainedOutputs) {
-        retainedOutputs.removeLast();
-      }
-    },
     onRawText: (text) {
       lastRawMarkdown = text;
     },

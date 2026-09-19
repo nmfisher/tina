@@ -13,32 +13,12 @@ import 'markdown_renderer.dart';
 /// of a pre-collapsed label (see `AgentSink.reasoning`).
 const kReasoningRow = '▸ Reasoning (collapsed)';
 
-/// One tool call's output, kept so it can be read on demand.
-///
-/// Recorded for **every** completed call, not only ones whose chat render was
-/// capped: the transcript shows a tool call as a single header row, so the
-/// output behind it has to live somewhere or there would be nothing to reveal.
-/// The host keeps the most recent few for `/output`.
-class ToolCallOutput {
-  final String toolName;
-  final Map<String, dynamic> input;
-
-  /// The call's output, truncated to [kRetainedOutputLimit] characters; the
-  /// tail of a pathological dump is dropped rather than held in memory.
-  final String text;
-
-  const ToolCallOutput({
-    required this.toolName,
-    required this.input,
-    required this.text,
-  });
-}
-
-/// How much of one tool call's output is retained for on-demand reading. A
-/// `bash` call can emit megabytes; the transcript only ever shows a header, so
-/// this bounds what a long session holds in memory. The `/output` viewer says
-/// when it is showing a truncated dump.
-const int kRetainedOutputLimit = 64 * 1024;
+/// How much of one tool call's output is kept behind its header. A `bash` call
+/// can emit megabytes; the block is the only place this lives, so it is bounded
+/// rather than trusting the command. Both ends are capped: a 50,000-line dump
+/// would otherwise become 50,000 rows in the transcript's scrollback.
+const int kBlockBodyLimit = 64 * 1024;
+const int kBlockBodyLines = 200;
 
 /// The interactive [AgentSink]: routes agent output to the chat panel (and,
 /// nominally, the spinner — which is a retired no-op today). This is the only
@@ -55,12 +35,6 @@ class ChatAgentSink implements AgentSink {
   /// How much streamed tool output to print in the chat before capping.
   final int displayCap;
 
-  /// Fired once per completed tool call with what it produced (truncated to
-  /// [kRetainedOutputLimit]) — the host keeps a ring for `/output`. Fired
-  /// whether or not the chat render was capped, because the transcript shows a
-  /// call as a header and the output has to be available behind it.
-  final void Function(ToolCallOutput output)? onToolOutput;
-
   /// Fired whenever the current assistant turn's raw markdown grows a closed
   /// segment (prose end), with the whole turn's raw text so far — the raw
   /// view behind the Ctrl+R viewer. The sink never styles this; it is the
@@ -74,7 +48,6 @@ class ChatAgentSink implements AgentSink {
 
   ChatAgentSink(this.chat, this.spinner,
       {this.displayCap = 600,
-      this.onToolOutput,
       this.onRawText,
       this.onStrip,
       ChatSpeaker? speaker})
@@ -134,8 +107,6 @@ class ChatAgentSink implements AgentSink {
   /// [toolComplete]). Tool calls run one at a time per agent, so a single
   /// buffer is safe.
   final StringBuffer _buffer = StringBuffer();
-  String _toolName = '';
-  Map<String, dynamic> _toolInput = const {};
   bool _capped = false;
 
   // --- streamed markdown state (tin-g7rk) ---
@@ -404,13 +375,18 @@ class ChatAgentSink implements AgentSink {
     ].join(' · ');
   }
 
-  /// The body a fold will reveal: the head of the output, with a marker when
-  /// the rest is only reachable through `/output`.
-  String _bodyOf(String produced, {int maxLines = 40}) {
-    final lines = produced.split('\n');
-    if (lines.length <= maxLines) return produced;
-    return '${lines.take(maxLines).join('\n')}\n'
-        '… (${lines.length - maxLines} more lines — /output for the rest)';
+  /// The body a fold will reveal: the head of the output, capped by lines and
+  /// by bytes so a runaway dump cannot become the transcript.
+  String _bodyOf(String produced) {
+    var text = produced;
+    if (text.length > kBlockBodyLimit) {
+      text = '${text.substring(0, kBlockBodyLimit)}\n'
+          '… (truncated at $kBlockBodyLimit chars)';
+    }
+    final lines = text.split('\n');
+    if (lines.length <= kBlockBodyLines) return text;
+    return '${lines.take(kBlockBodyLines).join('\n')}\n'
+        '… (${lines.length - kBlockBodyLines} more lines)';
   }
 
   @override
@@ -501,8 +477,6 @@ class ChatAgentSink implements AgentSink {
   void toolStart(ToolStartEvent e) {
     _flushMarkdown(); // a tool call ends prose: nothing may stay held back
     _buffer.clear();
-    _toolName = e.toolName;
-    _toolInput = e.input;
     _capped = false;
     if (!_blocksActive) {
       chat.dim('→ ${_describe(e.toolName, e.input)}\n');
@@ -541,16 +515,6 @@ class ChatAgentSink implements AgentSink {
     final produced =
         e.result.length > streamed.length ? e.result : streamed;
 
-    // One record per call, whatever happened, so the output is readable after
-    // the fact — whether or not the chat render was capped.
-    onToolOutput?.call(ToolCallOutput(
-      toolName: _toolName,
-      input: _toolInput,
-      text: produced.length > kRetainedOutputLimit
-          ? '${produced.substring(0, kRetainedOutputLimit)}\n'
-              '… (truncated at $kRetainedOutputLimit chars)'
-          : produced,
-    ));
     if (_blocksActive) {
       final index = _toolBlock;
       _toolBlock = null;
