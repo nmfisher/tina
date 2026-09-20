@@ -39,6 +39,7 @@ tina/
     tina_engine/           — agent loop, providers, tools, permissions (own pubspec)
     tina_console/          — reusable raw-mode console toolkit (own pubspec)
     tina_index/            — AST-derived code dependency graph (own pubspec)
+    classifier/            — structured judgments + repository exploration (own pubspec)
     fuzzy_ranker/          — fuzzy ranking + CompletionProvider interface (own pubspec)
     attractor/             — DOT-based multi-agent pipeline runner (own pubspec)
     dart_notcurses/          — Dart FFI bindings to notcurses (own pubspec)
@@ -54,7 +55,7 @@ boundary in the project — see [Six packages, on purpose](#six-packages-on-purp
 
 ## Six packages, on purpose
 
-The repo is a monorepo with six Dart packages.
+The repo is a monorepo with seven Dart packages.
 
 **`tina`** (root) is the app. It depends on the others via path
 dependencies in `pubspec.yaml`.
@@ -83,6 +84,14 @@ dependency graph for Dart codebases. It parses `.dart` files into
 keyword-based matching (`seedQuery`). The app's `SearchTool` and
 `SummaryGenerator` consume it; the package itself has no agent / LLM
 dependencies.
+
+**`classifier`** (`packages/classifier/`) is structured judgments plus
+repository exploration. `judgments.dart` carries the pure question /
+answer / budget / batch models; `typesafe_classifier.dart` adds the
+network-bound Typesafe service; `exploration.dart` layers evidence
+models, ranking, chunking, caching, and the judgment-driven workflow on
+top. The package depends only on `http`, `crypto`, and `path` — no agent
+runtime, no terminal.
 
 **`fuzzy_ranker`** (`packages/fuzzy_ranker/`) is subsequence-fuzzy
 matching/ranking plus the pluggable `CompletionProvider` interface — the
@@ -785,6 +794,43 @@ symbols outward; `seedQuery` matches keywords to entry points.
 
 The app consumes this via `SearchTool` (graph search) and
 `SummaryGenerator` (LLM-driven summarization of stale symbols).
+
+## Inside `packages/classifier/`
+
+Structured judgments plus repository exploration. The judgment half is
+the former `packages/tina_engine/lib/src/judgments/`; the exploration
+half is the former `packages/tina_app/lib/src/exploration/` (minus the
+tool and evidence source that stayed behind in tina_app). Both keep
+their relative-import layout, so intra-package imports were untouched.
+
+```
+packages/classifier/
+  lib/
+    judgments.dart           — barrel: pure judgment models (no dart:io)
+    typesafe_classifier.dart — barrel: TypeSafeConfig + TypeSafeJudgmentService (HTTP)
+    exploration.dart         — barrel: exploration models, ranking, caching, workflow
+    src/
+      judgments/
+        models.dart          — JudgmentContent, questions, answers, requests, results
+        service.dart         — JudgmentService interface, cancellation, failures
+        request_budget.dart  — token/request budget accounting
+        batch_runner.dart    — concurrency-limited batch execution
+        typesafe_service.dart— Typesafe HTTP transport (dart:io + package:http)
+      exploration/
+        models.dart          — ProjectEvidence, ProjectTree, RankedFile, ExplorationResult …
+        repository_ranker.dart — name/manifest ranking into judgment requests
+        file_chunker.dart    — file → excerpt chunking for judgment
+        exploration_cache.dart — response caching keyed on content + endpoint
+        exploration_snapshot.dart — append-only run snapshots
+        exploration_workflow.dart — the scan → rank → chunk → judge pipeline
+        file_exploration_cache.dart — disk-backed ExplorationCache
+  test/
+    foundations_test.dart, models_test.dart, typesafe_service_test.dart
+```
+
+The pure/network split is deliberate: `judgments.dart` can be consumed
+without `dart:io` or `package:http`, while the HTTP transport stays one
+import away. The architecture checker pins this via `pureFiles`.
 
 ## Inside `packages/dart_notcurses/`
 
