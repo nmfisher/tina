@@ -10,13 +10,9 @@ import '../chat/chat_transcript.dart';
 
 final _log = Logger('tina.agent.bus');
 
-/// This host's sandbox posture, resolved once: the probe stats binaries and
-/// reads kernel knobs, and the answer cannot change while the process runs.
-final String? _sandboxOffReason = sandboxPassThroughReason;
-
 /// The chip an approval prompt carries when this host cannot confine bash, or
 /// null when it can. Extracted so the wording is testable on any host — the
-/// host's own answer comes from [_sandboxOffReason].
+/// host's own answer comes from [TuiConversationHost.sandboxOffReason].
 String? sandboxOffChip(String? reason) => reason == null
     ? null
     : '[sandbox: off] bash is running unsandboxed ($reason)';
@@ -43,7 +39,15 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     this.primary = true,
     this.panel,
     this.roleLabel = 'main',
-  }) : _active = active {
+
+    /// Why bash on this host runs unsandboxed, when it does — shown as a chip
+    /// on every approval prompt. Null when the sandbox is on. Defaults to the
+    /// host capability probe (missing bwrap, disabled user namespaces);
+    /// callers pass the config's sandbox-off reason so `--no-sandbox` and
+    /// `--yolo` get named, not just "off".
+    String? sandboxOffReason,
+  })  : sandboxOffReason = sandboxOffReason ?? sandboxPassThroughReason,
+        _active = active {
     _logSub = _bus.events.listen(_onBusEvent);
   }
 
@@ -76,6 +80,12 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
   /// Shift+Tab mode changes show up on the next ask's header chip (#51b);
   /// [setPermissionMode] already flips this same object per conversation.
   PermissionPolicy? policy;
+
+  /// Why bash on this host runs unsandboxed, when it does — rendered as a chip
+  /// on every approval prompt ([sandboxOffChip]). Null when the sandbox is on.
+  /// Set at construction from the config (`--no-sandbox` / `--yolo` reasons)
+  /// or the host capability probe.
+  final String? sandboxOffReason;
 
   /// The current (or, between turns, most recent) assistant turn's raw
   /// markdown, byte-for-byte as the model sent it — the raw view behind the
@@ -252,7 +262,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     // The mode chip says how calls are gated; this says whether they are
     // confined at all. Without it, a user on a host where bash cannot be
     // sandboxed answers every prompt believing the sandbox is there.
-    final sandboxChip = sandboxOffChip(_sandboxOffReason);
+    final sandboxChip = sandboxOffChip(sandboxOffReason);
     if (sandboxChip != null) {
       chat.yellow('  $sandboxChip\n');
     }

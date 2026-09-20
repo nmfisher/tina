@@ -58,7 +58,14 @@ class PipelineRunner {
     this.interviewerBuilder,
     this.onNodeStart,
     this.permissionAskerBuilder,
+
+    /// tin-y9k2: `--yolo` lifts the workflow engine's total-step cap (an
+    /// explicit per-graph `max_steps` attribute still wins inside the engine).
+    this.yolo = false,
   });
+
+  /// `--yolo` posture for workflow runs; see the constructor doc.
+  final bool yolo;
 
   /// Run `<workflowsDir>/<workflowName>.dot` to completion. [sink] is where the
   /// turn's streamed text + progress notices go — pass the active host.
@@ -155,6 +162,10 @@ class PipelineRunner {
       runId: runId,
       workflowName: workflowName,
       cancelSignal: cancelSignal,
+      // tin-y9k2: --yolo lifts the total-step loop cap; explicit per-graph
+      // `max_steps` graph attrs do NOT (an explicit value still wins, the
+      // engine consults yolo only for its default).
+      yolo: yolo,
       // Loop budgets pause for a human decision in the TUI; headless runs
       // pass no hook and abort instead of burning budget on a runaway loop.
       onLoopBudgetExceeded: interviewerBuilder != null

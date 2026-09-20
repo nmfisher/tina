@@ -18,6 +18,7 @@ import 'ls_tool.dart';
 import 'project_capabilities.dart';
 import 'read_tool.dart';
 import 'search_tool.dart';
+import 'sandbox_runner.dart';
 import 'stat_tool.dart';
 import 'tavily_search.dart';
 import 'tool.dart';
@@ -58,6 +59,10 @@ PluginDescriptor projectCapabilitiesPlugin({
   bool sandboxEnabled = true,
   bool sandboxNet = false,
   bool sandboxReadOnly = false,
+
+  /// Who turned the sandbox off, when [sandboxEnabled] is false — forwarded
+  /// to [ProjectCapabilities.build] for the startup log. Null = not disabled.
+  String? sandboxOffReason,
 }) =>
     PluginDescriptor(
       id: 'tina.engine.project-capabilities',
@@ -70,6 +75,8 @@ PluginDescriptor projectCapabilitiesPlugin({
           sandboxEnabled: sandboxEnabled,
           sandboxNet: sandboxNet,
           sandboxReadOnly: sandboxReadOnly,
+          sandboxOffReason:
+              sandboxOffReason ?? kSandboxOffReasonNoSandbox,
         );
         return caps;
       }),

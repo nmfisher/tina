@@ -30,6 +30,11 @@ class PipelineEngine {
   /// (headless) always aborts.
   final Future<bool> Function(String reason)? onLoopBudgetExceeded;
 
+  /// tin-y9k2: `--yolo` lifts the total-step loop cap (the per-node visit cap
+  /// stays hard — it is the only guard against cyclic graphs). Off by default
+  /// so every existing engine consumer is unchanged.
+  final bool yolo;
+
   PipelineEngine({
     required this.graph,
     required this.registry,
@@ -40,6 +45,11 @@ class PipelineEngine {
     this.backoffFor = _defaultBackoff,
     this.cancelSignal,
     this.onLoopBudgetExceeded,
+
+    /// tin-y9k2: `--yolo` lifts the total-step loop cap (the per-node visit
+    /// cap stays hard — it is the only guard against cyclic graphs). Off by
+    /// default so every existing engine consumer is unchanged.
+    this.yolo = false,
   });
 
   /// Run the pipeline to completion (or failure). [input] is recorded in the
@@ -78,9 +88,13 @@ class PipelineEngine {
 
     // Loop budgets: per-node visits, total steps, and goal-gate retry jumps.
     // Each guards against runaway LLM spend from a cyclic graph; exceeding one
-    // consults [onLoopBudgetExceeded] before aborting.
+    // consults [onLoopBudgetExceeded] before aborting. tin-y9k2: `--yolo`
+    // lifts the total-step cap (0 = unbounded — the ticket's call: same class
+    // of runaway guard as the step cap, and only reachable with
+    // `--enable-workflow --yolo`). `max_node_visits` stays HARD: it is the
+    // only defense against a cyclic graph, yolo or not.
     final maxNodeVisits = _intGraphAttr('max_node_visits', 8);
-    final maxSteps = _intGraphAttr('max_steps', 200);
+    final maxSteps = yolo ? 0 : _intGraphAttr('max_steps', 200);
     final visits = <String, int>{};
     final gateJumps = <String, int>{};
     var steps = 0;

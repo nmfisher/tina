@@ -218,6 +218,8 @@ class Agent {
   final AgentSink sink;
   final PermissionPolicy policy;
   final PermissionAsker asker;
+  /// Max tool-calling steps per user turn. `0` = unbounded (tin-y9k2: the
+  /// loop below skips its cap when this is 0). Defaults to 500.
   final int maxSteps;
 
   /// Per-turn / per-session token caps. An immutable value: each
@@ -597,7 +599,9 @@ class Agent {
     // new turn gets exactly one nudge (a threshold re-fire would re-nag the
     // model on every step once spend stays past 90%).
 
-    for (var step = 0; step < maxSteps; step++) {
+    // tin-y9k2: maxSteps <= 0 = unbounded — the loop skips its own cap
+    // (cancellation, budgets, and the hard action cap below still apply).
+    for (var step = 0; maxSteps <= 0 || step < maxSteps; step++) {
       // Snapshot phase authorization for this step while keeping the catalog
       // stable. A transition cannot authorize execution in the same batch.
       final stepTools = (turnTools ?? tools).forStep();

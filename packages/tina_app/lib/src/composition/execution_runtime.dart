@@ -128,6 +128,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
         sandboxEnabled: config.sandboxEnabled,
         sandboxNet: config.sandboxNet,
         sandboxReadOnly: config.sandboxReadOnly,
+        sandboxOffReason: config.sandboxOffReason,
       );
   final mounted =
       toolScope == null ? profile : borrowedScopePlugins(profile);

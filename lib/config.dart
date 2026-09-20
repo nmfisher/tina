@@ -31,6 +31,10 @@ const _reasoningEfforts = [
 
 /// Root compatibility facade. Application code consumes [runtime].
 class Config extends RuntimeConfig implements ResumeRequest {
+  /// Why the sandbox is off, when it is — `--no-sandbox` vs `--yolo` — so the
+  /// TUI chip and the startup notice say who disabled it. Null when on.
+  final String? sandboxOffReason;
+
   final bool showHelp;
   final String? models;
   final bool showVersion;
@@ -88,6 +92,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     this.theme = const Theme.defaults(),
     super.safeMode = false,
     super.sandboxEnabled = true,
+    this.sandboxOffReason,
     super.sandboxNet = false,
     super.sandboxReadOnly = false,
     this.trustOverride,
@@ -133,6 +138,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     promptOverrides: promptOverrides,
     safeMode: safeMode,
     sandboxEnabled: sandboxEnabled,
+    sandboxOffReason: sandboxOffReason,
     sandboxNet: sandboxNet,
     sandboxReadOnly: sandboxReadOnly,
     environmentAutoPopulate: environmentAutoPopulate,
@@ -211,8 +217,12 @@ class Config extends RuntimeConfig implements ResumeRequest {
       'yolo',
       negatable: false,
       help:
-          'Default every tool to allow (skip all permission prompts). '
-          'Explicit --deny rules still apply.',
+          'Skip all permission prompts AND lift the configurable budgets: '
+          'the bash sandbox is disabled (unless --sandbox re-asserts it), '
+          'every token cap, the requests-per-minute throttle, the step cap, '
+          'and sub-agent depth/concurrency limits are turned off. Explicit '
+          'flags win over yolo; --safe-mode and explicit --deny rules still '
+          'apply.',
     )
     ..addOption(
       'permission-mode',
@@ -239,6 +249,16 @@ class Config extends RuntimeConfig implements ResumeRequest {
           'otherwise limited to the project root + temp; sandbox-exec on '
           'macOS, bwrap on Linux). Use for commands that must write to '
           '\$HOME or system paths.',
+    )
+    ..addFlag(
+      'sandbox',
+      negatable: true,
+      defaultsTo: true,
+      help:
+          'Keep the bash sandbox ON even under --yolo. yolo disables the '
+          'sandbox (an unattended run must not stall re-granting write '
+          'access), and this flag puts it back. Same effect as omitting '
+          '--no-sandbox on a non-yolo run.',
     )
     ..addFlag(
       'sandbox-net',
@@ -381,7 +401,10 @@ class Config extends RuntimeConfig implements ResumeRequest {
     ..addOption(
       'max-steps',
       defaultsTo: '500',
-      help: 'Maximum tool-calling steps allowed in a single user turn.',
+      help:
+          'Maximum tool-calling steps allowed in a single user turn. '
+          '0 = unbounded (a runaway turn is still caught by the hard '
+          'tool-call cap; --yolo implies 0 unless you pass this flag).',
     )
     ..addOption(
       'watchdog-seconds',
@@ -678,6 +701,11 @@ class Config extends RuntimeConfig implements ResumeRequest {
     // cleanly separates a real CLI value from the ArgParser fallback. A file
     // value of 0 is honored (explicit "unbounded"); only an absent file value
     // (null) falls through to [defaultValue].
+    // tin-y9k2: under --yolo the file tier is skipped — the user asked for a
+    // run nothing may throttle — so the chain becomes CLI > --yolo > file >
+    // default. The CLI tier still dominates yolo: `--yolo --max-steps 50`
+    // stops at 50. `0` here means "cap off" everywhere it flows.
+    final yolo = res['yolo'] as bool;
     int parseLimit(String name, int? fileValue, int defaultValue) {
       if (res.wasParsed(name)) {
         final raw = res[name] as String;
@@ -689,10 +717,34 @@ class Config extends RuntimeConfig implements ResumeRequest {
         }
         return n;
       }
+      if (yolo) return 0;
       return fileValue ?? defaultValue;
     }
 
     final fileLimits = userConfig?.limits;
+
+    // Sandbox posture, precedence: explicit flag > --yolo > defaults. The
+    // parser maps --sandbox/--no-sandbox into a tri-state via wasParsed:
+    // unparsed = the user said nothing (so --yolo may turn the sandbox off),
+    // parsed true/false = explicit intent, which always wins. See tin-y9k2.
+    final sandboxFlag =
+        res.wasParsed('sandbox') ? res['sandbox'] as bool : null;
+    final explicitNoSandbox = res['no-sandbox'] as bool;
+    final bool sandboxEnabled;
+    final String? sandboxOffReason;
+    if (explicitNoSandbox || sandboxFlag == false) {
+      sandboxEnabled = false;
+      sandboxOffReason = kSandboxOffReasonNoSandbox;
+    } else if (sandboxFlag == true) {
+      sandboxEnabled = true; // explicit on, even under --yolo
+      sandboxOffReason = null;
+    } else if (res['yolo'] as bool) {
+      sandboxEnabled = false;
+      sandboxOffReason = kSandboxOffReasonYolo;
+    } else {
+      sandboxEnabled = true;
+      sandboxOffReason = null;
+    }
 
     return Config(
       provider: providerId,
@@ -755,7 +807,13 @@ class Config extends RuntimeConfig implements ResumeRequest {
         0,
       ),
       autoCompactThreshold: parseBudget('auto-compact-threshold', kDefaultAutoCompactThreshold),
-      maxSteps: parsePositive('max-steps', kDefaultMaxSteps.toString()),
+      // tin-y9k2: --max-steps accepts 0 = unbounded. There is no [limits]
+      // file key for it, so the chain is CLI > --yolo(0) > default.
+      maxSteps: res.wasParsed('max-steps')
+          ? parseBudget('max-steps', kDefaultMaxSteps.toString())
+          : yolo
+              ? 0
+              : kDefaultMaxSteps,
       watchdogSeconds: parseBudget('watchdog-seconds', kDefaultWatchdogSeconds.toString()),
       streamIdleTimeout: Duration(
         seconds: parsePositive('stream-idle-timeout', kDefaultStreamIdleTimeoutSeconds.toString()),
@@ -774,7 +832,8 @@ class Config extends RuntimeConfig implements ResumeRequest {
       promptOverrides: userConfig?.prompts ?? const {},
       theme: _resolveTheme(userConfig),
       safeMode: res['safe-mode'] as bool,
-      sandboxEnabled: !(res['no-sandbox'] as bool),
+      sandboxEnabled: sandboxEnabled,
+      sandboxOffReason: sandboxOffReason,
       sandboxNet: res['sandbox-net'] as bool,
       sandboxReadOnly: res['sandbox-readonly'] as bool,
       trustOverride: res.wasParsed('trust') ? res['trust'] as bool : null,
