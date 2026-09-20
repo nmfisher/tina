@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:tina_app/tina_app.dart';
-import 'package:tina_engine/judgments.dart';
 import 'exploration_test.dart' show Source, Judge, batch, ranked;
 
 class MemoryCache implements ExplorationCache {
