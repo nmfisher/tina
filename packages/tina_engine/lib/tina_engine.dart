@@ -82,6 +82,7 @@ export 'src/tools/file_enumerator.dart';
 export 'src/tools/file_system.dart';
 export 'src/tools/glob_tool.dart';
 export 'src/tools/grep_tool.dart';
+export 'src/tools/tool_capabilities.dart';
 export 'src/tools/git_tool.dart';
 export 'src/tools/ls_tool.dart';
 export 'src/tools/mutation_lock.dart';

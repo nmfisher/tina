@@ -12,8 +12,10 @@ import 'package:tina_engine/src/tools/project_capabilities.dart';
 import 'package:tina_engine/src/tools/project_tool_plugins.dart';
 import 'package:tina_engine/src/tools/sandbox.dart';
 import 'package:tina_engine/src/tools/sandbox_runner.dart';
+import 'package:tina_engine/src/permissions/policy.dart';
 import 'package:tina_engine/src/runtime/runtime.dart';
 import 'package:tina_engine/src/tools/bash_tool.dart';
+import 'package:tina_engine/src/tools/tool_capabilities.dart';
 import 'package:tina_engine/src/tools/edit_tool.dart';
 import 'package:tina_engine/src/tools/git_tool.dart';
 import 'package:tina_engine/src/tools/grep_tool.dart';
@@ -167,6 +169,70 @@ void main() {
           same(caps.processRunner));
       expect((byName['git']! as GitTool).processRunner,
           same(caps.processRunner));
+    });
+
+    group('declared capabilities are enforced against the gate', () {
+      ({ProjectCapabilities caps, Map<String, dynamic> tools}) mounted() {
+        final caps = ProjectCapabilities.build(
+          projectRoot: tempDir.path,
+          env: const {},
+          sandboxEnabled: false,
+        );
+        final runtime = PluginRuntime(
+          name: 'capability-sweep',
+          plugins: projectToolPlugins(caps),
+        )..activateSync();
+        return (
+          caps: caps,
+          tools: {
+            for (final t in toolRegistryFromScope(runtime.scope).all)
+              t.schema.name: t
+          },
+        );
+      }
+
+      test('every mounted tool declares what it does', () {
+        final undeclared = [
+          for (final name in mounted().tools.keys)
+            if (!kToolCapabilities.containsKey(name)) name
+        ];
+        expect(undeclared, isEmpty,
+            reason: 'a mounted tool with no declaration is exactly the quiet '
+                'default this sweep exists to prevent: the old table recorded '
+                'allow/ask and said nothing about spawning or egress, which is '
+                'how a "read-only" tool came to run unconfined commands');
+      });
+
+      test('a tool that reaches past the sandbox is not auto-approved', () {
+        final policy = PermissionPolicy();
+        for (final entry in kToolCapabilities.entries) {
+          final caps = entry.value;
+          // A stated reason is the escape hatch, and it is a field a test
+          // reads rather than a sentence in a comment nobody rechecks.
+          if (!caps.escapesTheSandbox || caps.justification != null) continue;
+          expect(policy.check(entry.key, const {}),
+              isNot(PermissionDecision.allow),
+              reason: '${entry.key} declares spawns=${caps.spawns.name}, '
+                  'network=${caps.network.name}, writes=${caps.writes.name}, '
+                  'reads=${caps.reads.name} — it reaches past the project '
+                  'sandbox, so auto-approving it needs a reviewed: reason');
+        }
+      });
+
+      test('every spawning tool was handed the framework runner', () {
+        final m = mounted();
+        for (final entry in kToolCapabilities.entries) {
+          if (entry.value.spawns == SpawnScope.none) continue;
+          final tool = m.tools[entry.key];
+          if (tool == null) continue; // mounted by the app, not this wiring
+          if (_spawnsWithoutRunner.contains(entry.key)) continue;
+          expect(tool, isA<SpawnsProcess>(), reason: entry.key);
+          expect((tool as SpawnsProcess).processRunner,
+              same(m.caps.processRunner),
+              reason: '${entry.key} spawns a process, so it must take the '
+                  'shared runner rather than choosing its own');
+        }
+      });
     });
 
     test('built catalog names and order are exactly the frozen catalog, plus '
@@ -367,3 +433,9 @@ void main() {
     });
   });
 }
+
+/// Spawning tools that cannot yet expose a runner to the framework. `search`
+/// reaches `Process.runSync('git ls-files')` inside tina_index, which has no
+/// runner seam — a real gap, listed here rather than passing silently. Fixing
+/// it is what removes this entry.
+const _spawnsWithoutRunner = {'search'};

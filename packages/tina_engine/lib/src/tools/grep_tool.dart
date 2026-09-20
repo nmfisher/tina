@@ -1,3 +1,4 @@
+import 'tool_capabilities.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -26,7 +27,7 @@ final _log = Logger('tina.tools.grep');
 /// injected), but the `rg` subprocess path can't be covered by the seam — so
 /// [sandbox] asserts the path directly (the review's H1 fix for the grep/glob
 /// bypass). When [sandbox] is null (tests), the assert is skipped.
-class GrepTool implements Tool {
+class GrepTool implements Tool, SpawnsProcess {
   /// Captured project root; null retains standalone cwd-relative behavior.
   String? projectRoot;
   static const int _defaultMaxResults = 100;

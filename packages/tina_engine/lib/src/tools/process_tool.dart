@@ -1,3 +1,4 @@
+import 'tool_capabilities.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -151,7 +152,7 @@ String? assertCwdWithinProject(String? cwd, String? projectRoot) {
   return null;
 }
 
-abstract class ProcessTool implements Tool {
+abstract class ProcessTool implements Tool, SpawnsProcess {
   /// Per-stream cap on captured output. The process keeps running and we keep
   /// reading the pipe (so it doesn't block on write back-pressure), but we
   /// stop appending to the buffer once we cross this — bounds memory when a

@@ -1,3 +1,4 @@
+import 'tool_capabilities.dart';
 import 'process_runner.dart';
 import 'tool.dart';
 import 'tool_input.dart';
@@ -42,7 +43,7 @@ const String _allowlistHelp =
 /// `remote`) is what makes this tool safe to auto-allow: no argument
 /// combination that reaches the shell can mutate anything. Mutating git
 /// work still goes through `bash` and its permission prompt.
-class GitTool implements Tool {
+class GitTool implements Tool, SpawnsProcess {
   final ProcessRunner processRunner;
 
   /// Working directory for the git invocation. Defaults to the process cwd
