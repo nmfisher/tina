@@ -1,9 +1,10 @@
 ---
 id: tin-q9w2
-status: open
+status: closed
 deps: []
 links: [tin-k4m8]
 created: 2026-09-20T05:05:28Z
+closed: 2026-09-20T06:05:00Z
 type: bug
 priority: 1
 assignee: Nick Fisher
@@ -65,3 +66,36 @@ bottom box border takes `h-2`), which is why the strip was believed to work.
 - Sidebar layouts keep working (strip stays below the sidebar boxes).
 - `/permissions` message line and the approval-pending Shift+Tab cycling are
   unaffected.
+
+## Resolution
+
+Root cause PROVEN by probe (packages/tina_console, probe files deleted after
+evidence): in full-width layouts `ScreenLayout` gave `stripRow = h-2` while
+the panel box spanned `topBorderRow..bottomBorderRow (h-1)`;
+`PanelFrame.inputRect = h-2` = strip row, so first paint's `relocateInput` →
+`InputRegion.render` erase wiped the label. Pre-alt-screen startup write
+never presented. Sidebar layouts were collision-free by accident.
+
+Fix, three commits:
+
+- tina_console a9905a9 — uniform layout rule in every layout:
+  `bottomBorder = h-2`, `stripRow = h-1`, `inputRow = h-3`; boxes stop above
+  the strip.
+- tina_console 3391a63 — `Screen.putAtAbsolute` re-asserts `_renderStrip()`
+  when a write touches the strip row (recursion-guarded); strip no longer
+  repairs border corners (no box owns its row any more).
+- tina 57ac02e — startup `setModeLabel` moved from `create()` (pre-alt-screen,
+  never visible) into `run()` after `_refreshSessionMenu`, so the label joins
+  the first presented frame; `panel_manager` parked-panel virtual slots moved
+  strictly below the visible stack (the old `slot*perPanel` slot folded onto
+  the last visible panel once the box shrank a row).
+
+Tests: coordinator-level regression via `VirtualTerminal` grid decode —
+label on the strip row from the first frame, on exactly one grid row, never
+in scrollback; label survives `/clear`, setErrorStrip (mid-stream
+`StreamNotice`) and clearErrorStrip (turn boundary). Root suite 911 passed;
+tina_console 916 passed.
+
+Not covered by automated test: resize and side-panel toggle survival
+(exercised indirectly by the subpackage strip/putAtAbsolute tests and the
+panel_manager suite); noted as residual manual-verification surface.

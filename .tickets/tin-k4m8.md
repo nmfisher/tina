@@ -1,9 +1,10 @@
 ---
 id: tin-k4m8
-status: open
+status: closed
 deps: []
 links: [tin-q9w2]
 created: 2026-09-20T05:05:28Z
+closed: 2026-09-20T06:05:00Z
 type: bug
 priority: 1
 assignee: Nick Fisher
@@ -45,3 +46,13 @@ effect; that line is out of scope for this ticket.
 - The mode still cycles (base policy + every live conversation), and the
   strip label still updates live — including while an approval is pending
   (`TuiConversationHost`'s backtab-during-approval path).
+
+## Resolution
+
+Fixed by commit 25fb0c2: `editor.onBackTab` no longer announces; the
+`setPermissionMode` hook's strip repaint (`screen.setModeLabel` inside
+`setPermissionMode`) is the only announcement. `/permissions <mode>`'s
+message line is untouched. Pinned coordinator tests rewritten to assert
+the ring still cycles AND that `io.written` never contains a
+`permission mode:` line (test/tui_coordinator_test.dart, group
+"Shift+Tab permission-mode cycling"). Root suite: 911 passed.
