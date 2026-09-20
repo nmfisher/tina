@@ -1616,10 +1616,11 @@ void main() {
   group('Shift+Tab permission-mode cycling', () {
     // Owner feature 2026-08-24: Shift+Tab (CSI Z backtab) cycles the
     // permission modes ask → read-all → allow-edits → auto → ask — the same
-    // switch `/permissions <mode>` performs, announced with the same message
-    // line. Driven end-to-end through the real REPL over real bytes.
+    // switch `/permissions <mode>` performs. Unlike that command the cycling
+    // is SILENT in the scrollback (tin-k4m8): the strip's always-visible label
+    // is the announcement. Driven end-to-end through the real REPL, real bytes.
     test(
-      'four presses walk the ring and wrap home, announcing each step',
+      'four presses walk the ring and wrap home, silently',
       () async {
         final io = FakeStdio()..hasTerminalValue = false;
         final config = Config.parse(const ['--backend', 'ansi']);
@@ -1653,21 +1654,14 @@ void main() {
 
         // The base policy landed back on ask after wrapping the whole ring…
         expect(app.policy.mode, PermissionMode.ask);
-        // …and the ring was walked in order: each press announced the mode it
-        // switched TO (the message line /permissions prints).
+        // …and the walk is SILENT in the scrollback (tin-k4m8): the strip's
+        // always-visible label announces each step; a transcript line per
+        // press scrolled the conversation on every cycle.
         final out = io.written.toString();
-        final lines = [
-          for (final label in ['read-all', 'allow-edits', 'auto', 'ask'])
-            out.indexOf('permission mode: $label'),
-        ];
-        for (final i in lines) {
-          expect(i, greaterThanOrEqualTo(0), reason: 'each step was announced');
+        for (final label in ['read-all', 'allow-edits', 'auto']) {
+          expect(out.indexOf('permission mode: $label'), -1,
+              reason: 'no announce line for $label — the strip shows it');
         }
-        // Strictly increasing: read-all before allow-edits before auto before
-        // the wrapping ask.
-        expect(lines[0], lessThan(lines[1]));
-        expect(lines[1], lessThan(lines[2]));
-        expect(lines[2], lessThan(lines[3]));
       },
     );
 
@@ -1699,7 +1693,12 @@ void main() {
         PermissionMode.readAll,
         reason: 'a single Shift+Tab steps ask → read-all',
       );
-      expect(io.written.toString(), contains('permission mode: read-all'));
+      // The strip announces the new mode — never the scrollback (tin-k4m8).
+      expect(
+        io.written.toString().contains('permission mode: read-all'),
+        isFalse,
+        reason: 'cycling prints no transcript line; the strip label shows it',
+      );
     });
   });
 

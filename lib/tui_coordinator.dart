@@ -1530,14 +1530,14 @@ class TuiCoordinator {
       // Shift+Tab cycles the permission mode (ask → read-all → allow-edits →
       // auto → ask) — the same switch `/permissions <mode>` performs (base
       // policy plus every live conversation), so a mode flipped mid-turn
-      // changes how the agent's NEXT tool call is gated. Announced with the
-      // same message line the slash command prints.
+      // changes how the agent's NEXT tool call is gated. The strip's mode
+      // label (updated inside setPermissionMode) is the announcement — no
+      // scrollback line (tin-k4m8): cycling is a UI state change, and the
+      // always-visible label shows the result on the very row that prompted
+      // it; printing into the transcript scrolled it on every press.
       editor.onBackTab = () {
         final next = policy.mode.nextMode;
         controller.setPermissionMode?.call(next);
-        sessionManager.activeConversation.host.showMessage(
-          'permission mode: ${next.label}\n',
-        );
         return true;
       };
 
