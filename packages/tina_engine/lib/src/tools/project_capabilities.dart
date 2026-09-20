@@ -40,6 +40,10 @@ class ProjectCapabilities {
   /// Whether bash subprocesses run under a sandbox backend (vs pass-through).
   final bool sandboxEnabled;
 
+  /// Why bash runs unsandboxed when [sandboxEnabled] is false — who turned it
+  /// off (`--no-sandbox`, `--yolo`) — surfaced in the one-time startup log.
+  final String sandboxOffReason;
+
   /// One shared per-file lock so concurrent agents editing/writing the same
   /// file serialize (AgentQuota allows several to run at once). Owned by the
   /// capabilities so every agent/sub-agent shares it.
@@ -70,6 +74,10 @@ class ProjectCapabilities {
     bool sandboxEnabled = true,
     bool sandboxNet = false,
     bool sandboxReadOnly = false,
+
+    /// When [sandboxEnabled] is false: who turned it off, for the startup
+    /// log. Defaults to the historical `--no-sandbox` wording.
+    String sandboxOffReason = kSandboxOffReasonNoSandbox,
   }) {
     final root = p.normalize(p.absolute(projectRoot));
     final environment = Map<String, String>.unmodifiable(env);
@@ -123,8 +131,7 @@ class ProjectCapabilities {
       _log.info('bash sandbox: ${runner.backendDescription}');
     } else {
       processRunner = const IoProcessRunner();
-      _log.info(
-          'bash sandbox: pass-through (explicitly disabled via --no-sandbox)');
+      _log.info('bash sandbox: pass-through ($sandboxOffReason)');
     }
 
     return ProjectCapabilities._(
@@ -132,6 +139,7 @@ class ProjectCapabilities {
       environment: environment,
       confineFiles: confineFiles,
       sandboxEnabled: sandboxEnabled,
+      sandboxOffReason: sandboxOffReason,
       mutationLock: mutationLock,
       fileSystem: fileSystem,
       backups: backups,
@@ -144,6 +152,7 @@ class ProjectCapabilities {
     required this.environment,
     required this.confineFiles,
     required this.sandboxEnabled,
+    this.sandboxOffReason = kSandboxOffReasonNoSandbox,
     required this.mutationLock,
     required this.fileSystem,
     required this.backups,

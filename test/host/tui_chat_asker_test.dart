@@ -206,6 +206,8 @@ void main() {
       final chip = sandboxOffChip('bwrap not found on PATH');
       expect(chip, contains('[sandbox: off]'));
       expect(chip, contains('bwrap not found on PATH'));
+      // --yolo gets its own wording so the user knows who turned it off.
+      expect(sandboxOffChip(kSandboxOffReasonYolo), contains('--yolo'));
     });
 
     test('an ordinary "always" is conversation-scoped, and says so', () async {

@@ -31,6 +31,10 @@ const _reasoningEfforts = [
 
 /// Root compatibility facade. Application code consumes [runtime].
 class Config extends RuntimeConfig implements ResumeRequest {
+  /// Why the sandbox is off, when it is — `--no-sandbox` vs `--yolo` — so the
+  /// TUI chip and the startup notice say who disabled it. Null when on.
+  final String? sandboxOffReason;
+
   final bool showHelp;
   final String? models;
   final bool showVersion;
@@ -88,6 +92,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     this.theme = const Theme.defaults(),
     super.safeMode = false,
     super.sandboxEnabled = true,
+    this.sandboxOffReason,
     super.sandboxNet = false,
     super.sandboxReadOnly = false,
     this.trustOverride,
@@ -133,6 +138,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     promptOverrides: promptOverrides,
     safeMode: safeMode,
     sandboxEnabled: sandboxEnabled,
+    sandboxOffReason: sandboxOffReason,
     sandboxNet: sandboxNet,
     sandboxReadOnly: sandboxReadOnly,
     environmentAutoPopulate: environmentAutoPopulate,
@@ -239,6 +245,16 @@ class Config extends RuntimeConfig implements ResumeRequest {
           'otherwise limited to the project root + temp; sandbox-exec on '
           'macOS, bwrap on Linux). Use for commands that must write to '
           '\$HOME or system paths.',
+    )
+    ..addFlag(
+      'sandbox',
+      negatable: true,
+      defaultsTo: true,
+      help:
+          'Keep the bash sandbox ON even under --yolo. yolo disables the '
+          'sandbox (an unattended run must not stall re-granting write '
+          'access), and this flag puts it back. Same effect as omitting '
+          '--no-sandbox on a non-yolo run.',
     )
     ..addFlag(
       'sandbox-net',
@@ -694,6 +710,29 @@ class Config extends RuntimeConfig implements ResumeRequest {
 
     final fileLimits = userConfig?.limits;
 
+    // Sandbox posture, precedence: explicit flag > --yolo > defaults. The
+    // parser maps --sandbox/--no-sandbox into a tri-state via wasParsed:
+    // unparsed = the user said nothing (so --yolo may turn the sandbox off),
+    // parsed true/false = explicit intent, which always wins. See tin-y9k2.
+    final sandboxFlag =
+        res.wasParsed('sandbox') ? res['sandbox'] as bool : null;
+    final explicitNoSandbox = res['no-sandbox'] as bool;
+    final bool sandboxEnabled;
+    final String? sandboxOffReason;
+    if (explicitNoSandbox || sandboxFlag == false) {
+      sandboxEnabled = false;
+      sandboxOffReason = kSandboxOffReasonNoSandbox;
+    } else if (sandboxFlag == true) {
+      sandboxEnabled = true; // explicit on, even under --yolo
+      sandboxOffReason = null;
+    } else if (res['yolo'] as bool) {
+      sandboxEnabled = false;
+      sandboxOffReason = kSandboxOffReasonYolo;
+    } else {
+      sandboxEnabled = true;
+      sandboxOffReason = null;
+    }
+
     return Config(
       provider: providerId,
       apiKey: apiKey,
@@ -774,7 +813,8 @@ class Config extends RuntimeConfig implements ResumeRequest {
       promptOverrides: userConfig?.prompts ?? const {},
       theme: _resolveTheme(userConfig),
       safeMode: res['safe-mode'] as bool,
-      sandboxEnabled: !(res['no-sandbox'] as bool),
+      sandboxEnabled: sandboxEnabled,
+      sandboxOffReason: sandboxOffReason,
       sandboxNet: res['sandbox-net'] as bool,
       sandboxReadOnly: res['sandbox-readonly'] as bool,
       trustOverride: res.wasParsed('trust') ? res['trust'] as bool : null,

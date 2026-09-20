@@ -128,19 +128,33 @@ SandboxBackend resolveSandboxBackend({bool sandboxEnabled = true}) =>
       userNsEnabled: userNamespacesEnabled,
     );
 
+/// Why bash runs unsandboxed when the sandbox is explicitly turned off.
+/// Two wordings exist: the explicit `--no-sandbox` flag, and `--yolo` (which
+/// disables the sandbox unless `--sandbox` re-asserts it). The chip, the
+/// startup notice, and the capabilities log all render one of these.
+const String kSandboxOffReasonNoSandbox = 'explicitly disabled (--no-sandbox)';
+const String kSandboxOffReasonYolo =
+    'disabled by --yolo (pass --sandbox to keep it)';
+
 /// Why the sandbox degrades to [SandboxBackend.passThrough] on a given host,
 /// or null when a real backend is active. Same shape as
 /// [resolveSandboxBackendFor] so tests can drive every branch.
+///
+/// When [sandboxEnabled] is false, [explicitOffReason] says who turned it
+/// off (see [kSandboxOffReasonNoSandbox] / [kSandboxOffReasonYolo]); host
+/// capability reasons (missing bwrap, disabled user namespaces) only apply
+/// when the sandbox was wanted.
 String? sandboxPassThroughReasonFor({
   required bool isMacOS,
   required bool isLinux,
   required String osName,
   bool sandboxEnabled = true,
+  String explicitOffReason = kSandboxOffReasonNoSandbox,
   bool sandboxExecPresent = false,
   bool bwrapPresent = false,
   bool userNsEnabled = true,
 }) {
-  if (!sandboxEnabled) return 'explicitly disabled (--no-sandbox)';
+  if (!sandboxEnabled) return explicitOffReason;
   if (isMacOS) {
     return sandboxExecPresent ? null : 'sandbox-exec not found';
   }

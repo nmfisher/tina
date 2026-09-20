@@ -90,14 +90,20 @@ class RuntimeConfig {
   /// off, so the `--help`/`--init-config`/`--list` short-circuits need no change.
   final bool safeMode;
 
-  /// `--no-sandbox`: when false (the default), bash subprocesses run under an
-  /// OS-level write confinement — `sandbox-exec` on macOS, `bwrap` on Linux —
-  /// with writes limited to the project root + temp, so a runaway
-  /// `rm`/`find -delete` can't reach outside the project. `--no-sandbox`
-  /// disables it (e.g. for commands that must write to `$HOME`). Where no
-  /// backend exists (or bwrap/user namespaces are unavailable on Linux) the
-  /// sandbox degrades to pass-through with a one-time warning.
+  /// `--no-sandbox` / `--yolo` / `--sandbox`: when false (the default), bash
+  /// subprocesses run under an OS-level write confinement — `sandbox-exec` on
+  /// macOS, `bwrap` on Linux — with writes limited to the project root + temp,
+  /// so a runaway `rm`/`find -delete` can't reach outside the project.
+  /// `--no-sandbox` disables it; `--yolo` also disables it (it must not stop
+  /// to re-grant write access mid-run) unless `--sandbox` re-asserts the flag.
+  /// Where no backend exists (or bwrap/user namespaces are unavailable on
+  /// Linux) the sandbox degrades to pass-through with a one-time warning.
   final bool sandboxEnabled;
+
+  /// Why [sandboxEnabled] is false — who turned the sandbox off, so the chip,
+  /// the startup notice, and the log can say `--no-sandbox` vs `--yolo`
+  /// instead of a generic "off". Null when the sandbox is on.
+  final String? sandboxOffReason;
 
   /// `--sandbox-net`: opt-in network isolation for the bash sandbox —
   /// `--unshare-net` under bwrap on Linux, `(deny network*)` + remote-write
@@ -182,6 +188,7 @@ class RuntimeConfig {
     Map<String, String> promptOverrides = const {},
     this.safeMode = false,
     this.sandboxEnabled = true,
+    this.sandboxOffReason = kSandboxOffReasonNoSandbox,
     this.sandboxNet = false,
     this.sandboxReadOnly = false,
     this.environmentAutoPopulate = EnvironmentAutoPopulate.ask,

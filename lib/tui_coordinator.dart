@@ -451,6 +451,7 @@ class TuiCoordinator {
           screen: screen,
           editor: editor,
           active: isActive,
+          sandboxOffReason: config.sandboxOffReason,
         );
         // #51b: the ask header's mode chip reads the app's base policy at
         // render time; setPermissionMode flips this object's mode live.
@@ -671,6 +672,7 @@ class TuiCoordinator {
         editor: editor,
         active: true,
         roleLabel: 'main',
+        sandboxOffReason: config.sandboxOffReason,
       )..policy = policy;
       initialHost.onBackgroundActivity = () =>
           handleBackgroundActivity?.call(initialConversationId);
@@ -1595,6 +1597,7 @@ class TuiCoordinator {
           // The gutter names the speaker, so a delegated agent's own transcript
           // says `scout` rather than `main`.
           roleLabel: role,
+          sandboxOffReason: config.sandboxOffReason,
         )..policy = policy;
       }
 
@@ -2617,11 +2620,14 @@ class TuiCoordinator {
       );
     }
 
-    // Sandbox posture, once at startup. When this host cannot confine bash and
-    // the user did not ask for that (`--no-sandbox`), every approval prompt
-    // below would otherwise be answered without knowing the sandbox is not
-    // there. The reason is the same string the sandbox logger records.
-    final sandboxOff = config.sandboxEnabled ? sandboxPassThroughReason : null;
+    // Sandbox posture, once at startup. When bash runs unsandboxed — because
+    // the host cannot confine it, or because the user's flags turned it off
+    // (--no-sandbox, or --yolo unless --sandbox re-asserts it) — the user
+    // must know before the first approval. The reason is the same string the
+    // sandbox logger and the ask-time chip record.
+    final sandboxOff = config.sandboxEnabled
+        ? sandboxPassThroughReason
+        : config.sandboxOffReason;
     if (sandboxOff != null) {
       sessionManager.activeConversation.host.showMessage(
         '  bash runs unsandboxed on this host: $sandboxOff\n'

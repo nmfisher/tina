@@ -62,6 +62,10 @@ List<PluginDescriptor> defaultExecutionPlugins({
   required bool sandboxEnabled,
   required bool sandboxNet,
   required bool sandboxReadOnly,
+
+  /// Who disabled the sandbox, when [sandboxEnabled] is false — forwarded to
+  /// [ProjectCapabilities] for the one-time startup log. Null when enabled.
+  String? sandboxOffReason,
 }) {
   final gate = pauseGate ?? PauseGate();
   return [
@@ -75,6 +79,7 @@ List<PluginDescriptor> defaultExecutionPlugins({
       sandboxEnabled: sandboxEnabled,
       sandboxNet: sandboxNet,
       sandboxReadOnly: sandboxReadOnly,
+      sandboxOffReason: sandboxOffReason,
     ),
     projectToolScopePlugin(),
   ];

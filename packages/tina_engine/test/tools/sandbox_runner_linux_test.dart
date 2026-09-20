@@ -107,6 +107,32 @@ void main() {
         contains('--no-sandbox'),
       );
     });
+
+    test('an explicit off names its cause: --no-sandbox or --yolo', () {
+      // Default off-reason stays the historical --no-sandbox wording.
+      expect(
+        sandboxPassThroughReasonFor(
+            isMacOS: true, isLinux: false, osName: 'macos',
+            sandboxEnabled: false),
+        kSandboxOffReasonNoSandbox,
+      );
+      // --yolo passes its own wording through unchanged.
+      expect(
+        sandboxPassThroughReasonFor(
+            isMacOS: false, isLinux: true, osName: 'linux',
+            sandboxEnabled: false,
+            explicitOffReason: kSandboxOffReasonYolo),
+        kSandboxOffReasonYolo,
+      );
+      // A host-capability reason only applies when the sandbox was wanted:
+      // yolo turning it off must not mask (or be masked by) a missing bwrap.
+      expect(
+        sandboxPassThroughReasonFor(
+            isMacOS: false, isLinux: true, osName: 'linux',
+            explicitOffReason: kSandboxOffReasonYolo),
+        'bwrap not found on PATH',
+      );
+    });
   });
 
   group('buildBwrapArgs (Linux profile builder)', () {

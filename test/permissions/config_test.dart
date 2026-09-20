@@ -117,6 +117,32 @@ void main() {
       expect(_parse(['--no-sandbox']).sandboxEnabled, isFalse);
     });
 
+    test('sandbox precedence: explicit flag > --yolo > defaults (tin-y9k2)',
+        () {
+      // Default: sandbox on, no off-reason.
+      final plain = _parse([]);
+      expect(plain.sandboxEnabled, isTrue);
+      expect(plain.sandboxOffReason, isNull);
+
+      // --yolo alone turns the sandbox OFF and says why.
+      final yolo = _parse(['--yolo']);
+      expect(yolo.sandboxEnabled, isFalse);
+      expect(yolo.sandboxOffReason, contains('--yolo'));
+
+      // --yolo --sandbox: explicit flag beats yolo — sandbox stays ON.
+      final yoloSandbox = _parse(['--yolo', '--sandbox']);
+      expect(yoloSandbox.sandboxEnabled, isTrue);
+      expect(yoloSandbox.sandboxOffReason, isNull);
+
+      // --no-sandbox keeps the explicit wording; yolo does not rewrite it.
+      final explicitOff = _parse(['--no-sandbox']);
+      expect(explicitOff.sandboxEnabled, isFalse);
+      expect(explicitOff.sandboxOffReason, contains('--no-sandbox'));
+      final bothOff = _parse(['--yolo', '--no-sandbox']);
+      expect(bothOff.sandboxEnabled, isFalse);
+      expect(bothOff.sandboxOffReason, contains('--no-sandbox'));
+    });
+
     test('--sandbox-net / --sandbox-readonly default off, flags turn them on',
         () {
       expect(_parse([]).sandboxNet, isFalse);
