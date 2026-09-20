@@ -1,9 +1,10 @@
 import 'dart:io';
 
+import 'package:classifier/typesafe_classifier.dart';
 import 'package:tina/config/provider_selection.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_engine/tina_engine.dart';
+import 'package:tina_engine/tina_engine.dart' show ProviderRegistry, ModelsDevProviderCatalog;
 
 import 'spawn_overlay.dart';
 
