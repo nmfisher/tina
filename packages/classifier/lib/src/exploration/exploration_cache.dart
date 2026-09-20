@@ -1,6 +1,10 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
-import 'package:tina_engine/judgments.dart';
+import '../judgments/batch_runner.dart'
+    show JudgmentBatchLimits, JudgmentBatchRunner;
+import '../judgments/models.dart'
+    show JudgmentRequest, JudgmentResult, NoulAnswer;
+import '../judgments/service.dart' show JudgmentCancellation, JudgmentFailure;
 
 /// Version assembled answers when exploration policy or snapshot codecs change.
 /// Individual judgments are identified by their exact request instead.

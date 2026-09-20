@@ -1,0 +1,20 @@
+name: classifier
+description: >
+  Structured judgments (questions, answers, request budgeting, batch
+  execution, the Typesafe HTTP service) and repository exploration
+  (evidence models, ranking, chunking, caching, snapshotting, workflow).
+  Deliberately independent of the agent runtime: `judgments.dart` is pure
+  except for the network service; the exploration half adds no new I/O.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  crypto: ^3.0.7
+  http: ^1.2.0
+  path: ^1.9.0
+
+dev_dependencies:
+  test: ^1.25.0

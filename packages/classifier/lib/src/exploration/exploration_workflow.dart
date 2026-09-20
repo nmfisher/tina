@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:collection';
-import 'package:tina_engine/judgments.dart';
+import '../judgments/batch_runner.dart'
+    show JudgmentBatchLimits, JudgmentBatchRunner;
+import '../judgments/service.dart'
+    show JudgmentCancellation, JudgmentException, JudgmentFailure;
 import 'models.dart';
 import 'repository_ranker.dart';
 import 'file_chunker.dart';

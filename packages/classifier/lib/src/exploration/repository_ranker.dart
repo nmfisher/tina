@@ -1,4 +1,6 @@
-import 'package:tina_engine/judgments.dart';
+import '../judgments/batch_runner.dart' show JudgmentBatchRunner;
+import '../judgments/models.dart' show JudgmentRequest, NoulQuestion;
+import '../judgments/service.dart' show JudgmentCancellation, JudgmentFailure;
 import 'models.dart';
 import 'exploration_cache.dart';
 
