@@ -494,7 +494,7 @@ abstract class ProcessTool implements Tool {
     report.writeln('stderr:');
     report.write(errTail.isEmpty ? '(empty)\n' : errTail);
     report.write(stderrAcc.summaryLine());
-    SandboxWriteFailure? failure;
+    SandboxFailure? failure;
     String? warning;
     if (!cancelled &&
         !timedOut &&
@@ -534,6 +534,18 @@ abstract class ProcessTool implements Tool {
               'existing directory in writablePaths with an accessReason. Command '
               'approval alone does not grant filesystem access. Check for partial '
               'effects before retrying; this command has not been retried automatically.');
+        }
+      } else if (exitCode != 0 &&
+          RegExp(r'bad owner or permissions|is owned by uid',
+                  caseSensitive: false)
+              .hasMatch(output)) {
+        // A tool that refuses to read a file it believes somebody else owns.
+        // Kept out of the write branch above: there is no directory to grant
+        // here, so the write-access story would be a wrong guess rather than a
+        // near-miss. No evidence means no claim.
+        failure = SandboxOwnershipFailure.detect(output);
+        if (failure != null) {
+          report.writeln('\n${failure.recoveryInstructions}');
         }
       }
     }

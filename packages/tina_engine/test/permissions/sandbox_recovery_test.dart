@@ -410,6 +410,96 @@ void main() {
         isNull);
   });
 
+  group('a command that refuses a file it thinks somebody else owns', () {
+    // The shape a sandboxed ssh produces: the user namespace shows a
+    // root-owned config as belonging to nobody, and OpenSSH refuses to read it
+    // before it ever tries to connect.
+    const refused = '/etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf';
+    final sshOutput = 'Bad owner or permissions on $refused\n'
+        'fatal: Could not read from remote repository.\n';
+
+    test('the refusal is evidence, and names the file', () {
+      final failure = SandboxOwnershipFailure.detect(sshOutput,
+          isReadable: (path) => path == refused)!;
+      expect(failure.refusedPaths, [refused]);
+      expect(failure.explanation, contains(refused));
+      expect(failure.explanation, contains('nobody'));
+      expect(failure.recoveryInstructions, contains('outside the sandbox'));
+    });
+
+    test('a file we cannot read here is a permission problem, not evidence', () {
+      // Nothing about a genuine ownership error becomes a sandbox claim: if the
+      // file is not readable, the retry would fail the same way.
+      expect(SandboxOwnershipFailure.detect(sshOutput,
+          isReadable: (_) => false), isNull);
+    });
+
+    test('an id that is not the unmapped root is somebody\'s real file', () {
+      expect(
+          SandboxOwnershipFailure.detect(
+              '/etc/sudo.conf is owned by uid 65534, should be 0',
+              isReadable: (_) => true)!
+              .refusedPaths,
+          ['/etc/sudo.conf']);
+      expect(
+          SandboxOwnershipFailure.detect(
+              '/etc/sudo.conf is owned by uid 1001, should be 0',
+              isReadable: (_) => true),
+          isNull);
+    });
+
+    test('ordinary output produces no evidence', () {
+      for (final output in [
+        'fatal: Could not read from remote repository.',
+        'Bad owner or permissions on .ssh/config', // relative: nothing to check
+        'rm: cannot remove \'/root/x\': Permission denied',
+      ]) {
+        expect(SandboxOwnershipFailure.detect(output, isReadable: (_) => true),
+            isNull,
+            reason: output);
+      }
+    });
+
+    test('a sandboxed ssh failure asks to retry outside the sandbox', () async {
+      final config = File('${temp.path}/ssh_config')..writeAsStringSync('');
+      var calls = 0;
+      inner = MemoryProcessRunner((_, __) => ++calls == 1
+          ? MemoryRunningProcess(exitCodeValue: 1, stderrChunks: [
+              'Bad owner or permissions on ${config.path}\n',
+              'fatal: Could not read from remote repository.\n',
+            ])
+          : MemoryRunningProcess(stdoutChunks: ['pushed']));
+      runner = SandboxedProcessRunner(
+          projectRoot: temp.path,
+          inner: inner,
+          backend: SandboxBackend.bwrap,
+          accessPolicy: SandboxAccessPolicy());
+      bash.processRunner = runner;
+
+      final prompts = <PermissionPrompt>[];
+      final history = await run([
+        [
+          {'command': 'git push'}
+        ],
+      ], (prompt) async {
+        prompts.add(prompt);
+        return prompt.outsideSandbox
+            ? PermissionResponse.allowOnce
+            : PermissionResponse.allowAlways;
+      }, allowCommand: false);
+
+      expect(prompts, hasLength(2));
+      expect(prompts.last.outsideSandbox, isTrue);
+      expect(prompts.last.retryExplanation, contains(config.path));
+      expect(prompts.last.retryExplanation, contains('refused to use a file'));
+      // The retry runs the same command with the sandbox gone, which is the
+      // whole point: the file's real owner is what the tool needed.
+      expect(inner.starts.first.executable, contains('bwrap'));
+      expect(inner.starts.last.executable, '/bin/sh');
+      expect(results(history).single.isError, isFalse);
+    });
+  });
+
   test('real Linux logging wrapper masks the exit but still warns', () async {
     bash.processRunner =
         SandboxedProcessRunner(projectRoot: cache.path, sandboxReadOnly: true);

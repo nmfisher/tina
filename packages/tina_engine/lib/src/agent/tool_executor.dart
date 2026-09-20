@@ -240,7 +240,7 @@ class ToolCallState {
 
   // Recovery is keyed by exact shell text and cwd, not the anomaly signature
   // (which collapses whitespace, including meaningful quoted whitespace).
-  final sandboxFailures = <String, SandboxWriteFailure>{};
+  final sandboxFailures = <String, SandboxFailure>{};
   final promptedSandboxRetries = <String>{};
   final deniedSandboxRetries = <String>{};
   final deniedSandboxDirectories = <String>{};
@@ -750,7 +750,11 @@ class ToolExecutor {
           if (!out.isError) state.sandboxFailures.remove(retryKey);
         } else {
           state.deniedSandboxRetries.add(retryKey);
-          state.deniedSandboxDirectories.addAll(failure.writablePaths);
+          // Only a blocked write names directories to remember as refused. An
+          // ownership failure has none: nothing was ever reached.
+          if (failure is SandboxWriteFailure) {
+            state.deniedSandboxDirectories.addAll(failure.writablePaths);
+          }
           out = ToolResult.error('${out.content}\n'
               '${blocked ?? "Outside-sandbox retry denied or cancelled. The retry was not executed."}'
               '${response.note == null ? "" : "\n${response.note}"}');
