@@ -42,10 +42,12 @@ void main() {
     final infoTop = '┌─$infoLabel${'─' * (infoW - 3 - infoLabel.length)}┐';
     expect(vt.rowText(0).substring(layout.infoLeftCol), infoTop,
         reason: 'info top border row');
-    expect(vt.rowText(H - 1).substring(layout.infoLeftCol),
+    // The mode strip owns the LAST row (tin-q9w2); the info box's bottom
+    // border sits on the row above it.
+    expect(vt.rowText(layout.bottomBorderRow).substring(layout.infoLeftCol),
         '└${'─' * (infoW - 2)}┘',
         reason: 'info bottom border row');
-    for (var r = 1; r < H - 1; r++) {
+    for (var r = 1; r < layout.bottomBorderRow; r++) {
       final row = vt.rowText(r);
       expect(row[layout.infoLeftCol], '│',
           reason: 'row $r col ${layout.infoLeftCol}: info left border');
@@ -139,7 +141,10 @@ void main() {
       final infoW = newLayout.infoRightCol - newLayout.infoLeftCol + 1;
       final infoTop = '┌─ info ${'─' * (infoW - 3 - 6)}┐';
       expect(wideVt.rowText(0).substring(newLayout.infoLeftCol), infoTop);
-      expect(wideVt.rowText(H - 1).substring(newLayout.infoLeftCol),
+      // Bottom border on the row above the strip (tin-q9w2).
+      expect(
+          wideVt.rowText(newLayout.bottomBorderRow)
+              .substring(newLayout.infoLeftCol),
           '└${'─' * (infoW - 2)}┘');
     });
   });

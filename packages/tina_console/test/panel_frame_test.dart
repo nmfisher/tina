@@ -176,7 +176,9 @@ void main() {
   group('PanelFrame (primary chrome)', () {
     // The primary panel wraps screen.chat and — like a secondary — draws its own
     // titled border. There is no separate Screen-owned chat frame anymore.
-    const primaryRect = Rect(row: 0, col: 0, width: 60, height: 24);
+    // Height 23: rows 0..22, matching PanelManager.layout() — the strip owns
+    // row 23 (tin-q9w2), so the primary box stops one row above it.
+    const primaryRect = Rect(row: 0, col: 0, width: 60, height: 23);
 
     test('renders a titled border using the label', () {
       final panel = PanelFrame(
@@ -189,8 +191,10 @@ void main() {
 
       expect(vt.charAt(0, 0), '┌');
       expect(vt.rowText(0), contains('glm/glm-4.6'));
-      expect(vt.charAt(23, 0), '└');
-      expect(vt.charAt(23, 59), '┘');
+      // Bottom corners on the row above the strip (tin-q9w2): the strip owns
+      // row 23, so a full-height box stops at 22.
+      expect(vt.charAt(22, 0), '└');
+      expect(vt.charAt(22, 59), '┘');
       // Side borders on an interior row.
       expect(vt.charAt(5, 0), '│');
       expect(vt.charAt(5, 59), '│');
@@ -230,12 +234,12 @@ void main() {
         conversationId: 'primary',
       );
       panel.setOuter(primaryRect);
-      // primaryRect rows 0..23, cols 0..59 → interior rows 1..22, cols 1..58.
+      // primaryRect rows 0..22, cols 0..59 → interior rows 1..21, cols 1..58.
       // (Rect has no operator ==, so compare fields.)
       expect(panel.interior.row, 1);
       expect(panel.interior.col, 1);
       expect(panel.interior.width, 58);
-      expect(panel.interior.height, 22);
+      expect(panel.interior.height, 21);
     });
   });
 

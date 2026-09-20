@@ -1,39 +1,63 @@
 # Sweep status
-Now:     PR 17 (asb/improvements-log) conflict-free against main — merged
-         origin/main (tin-g7rk, fa05e20) in, resolved the one conflict in
-         lib/host/tui_conversation_host.dart keeping main's _chatSink
-         refactor + our #30 permission fixes; root 757 / tina_console 792
-         green, engine 765 + the two known non-merge failures below.
-Next:    Review/merge PR 17. Then tin-9x4m (p3, /spawn picker
+Now:     asb/mode-selector ready for PR — tin-k4m8 (Shift+Tab scrollback
+         announce) + tin-q9w2 (mode strip never visible) fixed as separate
+         commits; root 911 green, tina_console 916 green, analyze clean.
+Next:    Raise PR for asb/mode-selector. Then tin-9x4m (p3, /spawn picker
          empty for custom providers) or a fresh probe batch from the
          scenario-seeds list.
 Blocked: none
 Ask:     1) Parked features awaiting prioritization: tin-1h8p, tin-80ll
          (+ its superseded sibling tin-923l), tin-f5xt, tin-k9q3.
-Last checkpoint: 2026-08-23 — PR 17 merge-conflict resolution pushed
-         (merge commit only, no rebase); bash_tool spill-test flake root-
-         caused and logged. Previous checkpoint (2026-08-22): tin-g7rk
-         closed (markdown rendering + raw view, PR pending); STATUS
+Last checkpoint: 2026-09-20 — mode-selector pair closed (see This
+         session). Previous checkpoint (2026-08-23): PR 17
+         merge-conflict resolution pushed; bash_tool spill-test flake
+         root-caused and logged. (2026-08-22): tin-g7rk closed; STATUS
          rewritten; dart-sdk toolchain note corrected.
 
 ## This session
 
-- Merged origin/main (tin-g7rk markdown rendering, fa05e20) into
-  asb/improvements-log for PR 17. One conflict, in
-  lib/host/tui_conversation_host.dart `_sink`: HEAD still built a second
-  ChatAgentSink inline (onCapped only); main routes BusSink through the
-  shared `_chatSink` (onCapped + onRawText, beginAssistantTurn hook).
-  Took main's form — the inline one would have left beginAssistantTurn
-  driving a sink outside the render path, and our #30 ensureNewline /
-  denial-note changes sat outside the hunk and survive untouched.
-- Merge-introduced breakage: none. tina_engine is byte-identical to the
-  pre-merge branch; its two failures pre-date the merge (see Notes).
+- tin-k4m8 (25fb0c2) — Shift+Tab cycling no longer prints a
+  `permission mode:` line into the scrollback; the strip label is the
+  announcement. Pinned cycling tests rewritten to assert the ring flips
+  `app.policy.mode` AND absence of the line in `io.written`. The
+  /permissions command message is untouched (explicit command, not a
+  keypress echo).
+- tin-q9w2 — mode label now visible from the FIRST frame and never
+  scrolls away. Root cause proven by probe: full-width layouts gave the
+  strip row h-2 while the panel box's inputRect claimed the same row, so
+  first paint's input erase wiped the label; create()'s startup paint was
+  pre-alt-screen and never presented at all. Layout half fixed in
+  tina_console a9905a9 (uniform rule: boxes stop above stripRow h-1) +
+  3391a63 (strip re-asserts itself on colliding writes). App half in
+  57ac02e: startup setModeLabel moved into run() after
+  _refreshSessionMenu (joins first paint); panel_manager parked-panel
+  virtual slots moved strictly below the visible stack (old slot*perPanel
+  folded onto the last visible panel once the box shrank a row — caught
+  by the panel_manager suite, not by a test authored for it).
+- Regression coverage: coordinator tests decode the session's output
+  through VirtualTerminal and assert 'mode: ask' sits on the strip row
+  from the first frame, on exactly one grid row, never in the scrollback;
+  and that it survives /clear, a mid-stream StreamNotice landing on the
+  strip (setErrorStrip) and the next turn boundary (clearErrorStrip).
+  Not automatable here: resize/side-panel-toggle survival remains
+  manual-verification surface (subpackage strip tests cover the
+  mechanics).
+- Tree health: packages/*/.dart_tool absent in a fresh checkout breaks
+  the architecture test + fake_async suite with confusing errors; a
+  `dart pub get` per subpackage fixes it (dart_notcurses needs its
+  submodule + online pub). pubspec.lock churn from those runs was
+  reverted, not committed.
 
 ## Open (hunted / not in play)
 
 - tin-9x4m (p3) — /spawn picker empty for custom providers.
 - tin-1h8p, tin-80ll, tin-923l, tin-f5xt, tin-k9q3 — decided
   feature/proposal tickets, parked pending user prioritization.
+
+## Closed this branch
+
+- tin-k4m8 (p1), tin-q9w2 (p1) — asb/mode-selector, commits 25fb0c2 +
+  57ac02e (plus tina_console a9905a9 + 3391a63), PR pending.
 
 ## Closed earlier
 

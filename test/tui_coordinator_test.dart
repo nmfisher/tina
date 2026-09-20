@@ -6,6 +6,7 @@ import 'package:tina/config/user_config.dart';
 import 'package:tina/pipeline/workflow_permission_asker.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
+import 'package:tina_console/testing.dart';
 import 'package:tina/tui_coordinator.dart';
 import 'package:test/test.dart';
 
@@ -1616,10 +1617,11 @@ void main() {
   group('Shift+Tab permission-mode cycling', () {
     // Owner feature 2026-08-24: Shift+Tab (CSI Z backtab) cycles the
     // permission modes ask → read-all → allow-edits → auto → ask — the same
-    // switch `/permissions <mode>` performs, announced with the same message
-    // line. Driven end-to-end through the real REPL over real bytes.
+    // switch `/permissions <mode>` performs. Unlike that command the cycling
+    // is SILENT in the scrollback (tin-k4m8): the strip's always-visible label
+    // is the announcement. Driven end-to-end through the real REPL, real bytes.
     test(
-      'four presses walk the ring and wrap home, announcing each step',
+      'four presses walk the ring and wrap home, silently',
       () async {
         final io = FakeStdio()..hasTerminalValue = false;
         final config = Config.parse(const ['--backend', 'ansi']);
@@ -1653,21 +1655,14 @@ void main() {
 
         // The base policy landed back on ask after wrapping the whole ring…
         expect(app.policy.mode, PermissionMode.ask);
-        // …and the ring was walked in order: each press announced the mode it
-        // switched TO (the message line /permissions prints).
+        // …and the walk is SILENT in the scrollback (tin-k4m8): the strip's
+        // always-visible label announces each step; a transcript line per
+        // press scrolled the conversation on every cycle.
         final out = io.written.toString();
-        final lines = [
-          for (final label in ['read-all', 'allow-edits', 'auto', 'ask'])
-            out.indexOf('permission mode: $label'),
-        ];
-        for (final i in lines) {
-          expect(i, greaterThanOrEqualTo(0), reason: 'each step was announced');
+        for (final label in ['read-all', 'allow-edits', 'auto']) {
+          expect(out.indexOf('permission mode: $label'), -1,
+              reason: 'no announce line for $label — the strip shows it');
         }
-        // Strictly increasing: read-all before allow-edits before auto before
-        // the wrapping ask.
-        expect(lines[0], lessThan(lines[1]));
-        expect(lines[1], lessThan(lines[2]));
-        expect(lines[2], lessThan(lines[3]));
       },
     );
 
@@ -1699,7 +1694,111 @@ void main() {
         PermissionMode.readAll,
         reason: 'a single Shift+Tab steps ask → read-all',
       );
-      expect(io.written.toString(), contains('permission mode: read-all'));
+      // The strip announces the new mode — never the scrollback (tin-k4m8).
+      expect(
+        io.written.toString().contains('permission mode: read-all'),
+        isFalse,
+        reason: 'cycling prints no transcript line; the strip label shows it',
+      );
+    });
+  });
+
+  group('Permission-mode label visibility', () {
+    // tin-q9w2: the mode label must be on screen from the FIRST presented
+    // frame (it used to be written pre-alt-screen in create(), which nothing
+    // ever repainted, and the strip row was claimed by panel borders in
+    // full-width layouts, so first paint's erase wiped it). Asserted against
+    // a decoded grid: label on the strip row, and never inside the scrollback.
+    Future<GridProbe> runSession(
+      List<int> bytes, {
+      FakeProvider? provider,
+      List<({Duration at, List<int> bytes})> schedule = const [],
+    }) async {
+      final io = FakeStdio()..hasTerminalValue = false;
+      final config = Config.parse(const ['--backend', 'ansi']);
+      final app = await buildAppComposition(
+        config: config,
+        registry: builtinRegistry(),
+        provider: provider ?? FakeProvider.done(),
+        store: MemorySessionStore(),
+      );
+      addTearDown(app.scheduler.dispose);
+      final coordinator = await TuiCoordinator.create(
+        app: app,
+        io: io,
+        terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
+      );
+      coordinator.pendingFirstLoadEnvironmentAsk = null;
+      if (schedule.isEmpty) {
+        io.feedBytes(bytes);
+      } else {
+        // Phased input: a submit that triggers a turn must not share one
+        // chunk with the next line, or the REPL queue swallows it.
+        for (final step in schedule) {
+          io.feedLater(step.bytes, step.at);
+        }
+      }
+      await coordinator.run().timeout(const Duration(seconds: 10));
+      // Teardown leaves the alt screen; the label lives in the alt screen, so
+      // decode only the last alt-screen segment of the session's output.
+      final out = io.written.toString();
+      final begin = out.lastIndexOf('\x1b[?1049h');
+      final end = out.lastIndexOf('\x1b[?1049l');
+      expect(begin, greaterThanOrEqualTo(0), reason: 'entered alt screen');
+      final vt = VirtualTerminal(width: 80, height: 24);
+      vt.feed(out.substring(0, end));
+      return GridProbe(vt, 23);
+    }
+
+    test('label is on the strip row from the first frame, never in scrollback',
+        () async {
+      final probe =
+          await runSession(const [0x2f, 0x65, 0x78, 0x69, 0x74, 0x0d, 0x0d]);
+      // The strip owns the last row: 'mode: ask' lives there, exactly once.
+      expect(probe.stripText, contains('mode: ask'));
+      expect(probe.labelRows, 1);
+      // …and no transcript line ever announces the mode (tin-k4m8).
+      expect(probe.stripText.contains('permission mode:'), isFalse);
+    });
+
+    test('label survives /clear, setErrorStrip and clearErrorStrip', () async {
+      // The strip is exercised the way production drives it: a mid-stream
+      // StreamNotice (warning) lands on it via the agent sink, and the next
+      // turn boundary clears it. Both /clear and turn boundaries re-render the
+      // row — the label must outlive each (tin-q9w2). Input is PHASED: a
+      // submit that starts a turn must not share one stdin chunk with the
+      // next line (the REPL queues mid-dispatch input).
+      const enter = 0x0d;
+      const clear = [0x2f, 0x63, 0x6c, 0x65, 0x61, 0x72, enter, enter];
+      const hi = [0x68, 0x69, enter, enter];
+      const exit = [0x2f, 0x65, 0x78, 0x69, 0x74, enter, enter];
+      final provider = FakeProvider(const [
+        [
+          // Mid-stream warning → notice → strip shows it (setErrorStrip).
+          StreamNotice('pool: member 1 failed, retrying'),
+          MessageComplete(
+            content: [TextBlock('one')],
+            stopReason: 'end_turn',
+          ),
+        ],
+        // Second turn ends clean: the boundary clears the strip notice.
+        [
+          MessageComplete(content: [TextBlock('two')], stopReason: 'end_turn'),
+        ],
+      ]);
+      final probe = await runSession(
+        const [],
+        provider: provider,
+        schedule: [
+          (at: Duration(milliseconds: 300), bytes: clear),
+          (at: Duration(milliseconds: 900), bytes: hi),
+          (at: Duration(milliseconds: 1800), bytes: hi),
+          (at: Duration(milliseconds: 2700), bytes: exit),
+        ],
+      );
+      expect(probe.stripText, contains('mode: ask'));
+      expect(probe.labelRows, 1);
+      expect(probe.stripText.contains('permission mode:'), isFalse);
     });
   });
 
@@ -1989,4 +2088,28 @@ void main() {
       expect(saved.defaultModel, 'claude-sonnet-4-6');
     });
   });
+}
+
+/// Thin wrapper over [VirtualTerminal] that tracks how many times the
+/// permission-mode label was PAINTED on the strip row. tin-q9w2 asserts the
+/// count is exactly 1: the strip repaints on /clear, setErrorStrip and
+/// clearErrorStrip, but if any of those erased the row without repainting the
+/// label (the defect), the count would drop to 0.
+class GridProbe {
+  final VirtualTerminal vt;
+  final int stripRow;
+  GridProbe(this.vt, this.stripRow);
+
+  /// Final state of the strip row.
+  String get stripText => vt.rowText(stripRow);
+
+  /// How many rows of the final grid contain the label (exactly 1 expected —
+  /// on the strip row, and nowhere else).
+  int get labelRows {
+    var n = 0;
+    for (var r = 0; r < vt.height; r++) {
+      if (vt.rowText(r).contains('mode: ask')) n++;
+    }
+    return n;
+  }
 }

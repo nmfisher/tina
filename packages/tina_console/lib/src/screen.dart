@@ -550,20 +550,26 @@ class Screen {
       segs.add(colorize(color, t));
     }
     be.saveCursor();
-    // Erase first: a shorter status must never leave residue, and an empty
-    // strip hands the row back to the border painter below.
+    // Erase first: a shorter status must never leave residue. The strip owns
+    // its whole row (tin-q9w2) — the boxes stop one row above it, so unlike
+    // the old border-row placement there is no border to re-assert here.
     be.eraseCells(row, 1, inner);
     if (segs.isEmpty) {
-      // Nothing on the strip: the plain border row returns.
+      if (_modeLabel == null && _errorStrip == null) {
+        // A caller cleared the label: the row legitimately goes blank (this
+        // is also the recurse guard for putAtAbsolute's strip re-assert).
+        be.restoreCursor();
+        be.flush();
+        return;
+      }
+      // Only the notice went away: re-render so the label alone remains.
       be.restoreCursor();
-      redrawFrame();
+      _renderStrip();
       return;
     }
     be.moveCursor(row, 1);
     be.writeText(segs.join('  '));
     be.restoreCursor();
-    // The write spans the info box's bottom-border corners; re-assert them.
-    _repairBordersForRow(row);
     be.flush();
   }
 
@@ -608,6 +614,10 @@ class Screen {
           left: _layout.infoLeftCol,
           right: _layout.infoRightCol,
           top: _layout.topBorderRow,
+          // Stop the info box above the strip row — the strip is an
+          // always-visible full-width row (tin-q9w2), so the info box's
+          // bottom border owns the row above the strip and the strip's
+          // erase/write keeps clear of the border row.
           bottom: _layout.bottomBorderRow,
           title: 'info',
         ),
@@ -817,6 +827,10 @@ class Screen {
     be.writeText(clipped);
     if (OpCounters.enabled) OpCounters.instance.gridWrites++;
     _scheduleBorderRepair(row);
+    // The strip is an always-visible row (tin-q9w2): any absolute write that
+    // lands on it — a relocated input row, a notice typed over it — must
+    // re-assert the label, or the write's erase silently consumes it.
+    if (row == _layout.stripRow) _renderStrip();
     if (!moveCursor) be.restoreCursor();
     be.flush();
   }

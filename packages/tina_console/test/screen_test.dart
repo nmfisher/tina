@@ -19,11 +19,12 @@ void main() {
       screen.redrawFrame();
       vt.feed(io.written.toString());
 
-      // Info box corners.
+      // Info box corners. Bottom border is on the row above the strip
+      // (tin-q9w2), which owns the last row.
       expect(vt.charAt(0, layout.infoLeftCol), '┌');
       expect(vt.charAt(0, layout.infoRightCol), '┐');
-      expect(vt.charAt(23, layout.infoLeftCol), '└');
-      expect(vt.charAt(23, layout.infoRightCol), '┘');
+      expect(vt.charAt(layout.bottomBorderRow, layout.infoLeftCol), '└');
+      expect(vt.charAt(layout.bottomBorderRow, layout.infoRightCol), '┘');
       // Vertical sides on a content row.
       final r = vt.rowText(5);
       expect(r[layout.infoLeftCol], '│');

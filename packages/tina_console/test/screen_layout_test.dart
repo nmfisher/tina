@@ -12,8 +12,10 @@ void main() {
       expect(l.chat.width, 78);
       // Input lives above the reserved mode/status strip.
       expect(l.input.row, 21);
-      expect(l.stripRow, 22);
-      expect(l.bottomBorderRow, 23);
+      // The strip is the LAST row in full-width layouts (tin-q9w2) so the
+      // panel box (border + interior rows) can never cover it.
+      expect(l.stripRow, 23);
+      expect(l.bottomBorderRow, 22);
     });
 
     test('wide terminal splits chat + info', () {
@@ -31,9 +33,11 @@ void main() {
       // Info interior.
       expect(l.info.col, 66);
       expect(l.info.width, 33);
-      // Border rows.
+      // Border rows. The strip owns the last row; the shared bottom border
+      // (and each panel's bottom border) sits above it (tin-q9w2).
       expect(l.topBorderRow, 0);
-      expect(l.bottomBorderRow, 23);
+      expect(l.bottomBorderRow, 22);
+      expect(l.stripRow, 23);
       expect(l.input.row, 21);
     });
 
@@ -43,8 +47,10 @@ void main() {
       // the info box now.
       expect(l.borderCharFor(0, l.infoLeftCol), '┌');
       expect(l.borderCharFor(0, l.infoRightCol), '┐');
-      expect(l.borderCharFor(29, l.infoLeftCol), '└');
-      expect(l.borderCharFor(29, l.infoRightCol), '┘');
+      // The info box's bottom border is on bottomBorderRow (29 on a 30-row
+      // terminal), one row above the strip (tin-q9w2).
+      expect(l.borderCharFor(l.bottomBorderRow, l.infoLeftCol), '└');
+      expect(l.borderCharFor(l.bottomBorderRow, l.infoRightCol), '┘');
       // Sides inside the box height.
       expect(l.borderCharFor(5, l.infoRightCol), '│');
       // Chat-area columns are no longer Screen borders.
