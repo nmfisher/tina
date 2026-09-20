@@ -190,7 +190,10 @@ SearchTool _buildSearch(ProjectCapabilities caps) =>
     SearchTool(repoRoot: caps.projectRoot);
 
 GrepTool _buildGrep(ProjectCapabilities caps) {
-  final tool = GrepTool();
+  // `rg` is a process spawn like any other, so it gets the shared runner
+  // (sandboxed whenever the sandbox is enabled) rather than its own
+  // `IoProcessRunner`. The file-system sandbox alone cannot cover a spawn.
+  final tool = GrepTool(processRunner: caps.processRunner);
   if (!caps.confineFiles) return tool;
   return tool
     ..projectRoot = caps.projectRoot
@@ -225,8 +228,10 @@ StatTool _buildStat(ProjectCapabilities caps) {
 WhichTool _buildWhich(ProjectCapabilities caps) =>
     WhichTool(environment: caps.environment, workingDirectory: caps.projectRoot);
 
-GitTool _buildGit(ProjectCapabilities caps) =>
-    GitTool(workingDirectory: caps.projectRoot);
+GitTool _buildGit(ProjectCapabilities caps) => GitTool(
+      processRunner: caps.processRunner,
+      workingDirectory: caps.projectRoot,
+    );
 
 PluginDescriptor _writeSummaryPlugin(ProjectCapabilities caps) =>
     PluginDescriptor(

@@ -179,5 +179,49 @@ void main() {
       final branches = await tool.execute({'args': 'branch'});
       expect(branches.content, contains('* main'));
     });
+
+    test('reflog lists, but its mutating forms are rejected', () async {
+      final tool = buildTool();
+      for (final args in ['reflog', 'reflog -n 5', 'reflog show']) {
+        expect((await tool.execute({'args': args})).isError, isFalse,
+            reason: args);
+      }
+      // `reflog` used to be waved through as read-only with any arguments,
+      // so these rewrote .git/logs on a default-allowed tool.
+      for (final args in [
+        'reflog delete',
+        'reflog expire --expire=now --all',
+        'reflog delete --all',
+      ]) {
+        expect((await tool.execute({'args': args})).isError, isTrue,
+            reason: args);
+      }
+    });
+
+    test('a branch flag that mutates with no operand is rejected', () async {
+      final tool = buildTool();
+      // The guard matched flag strings exactly, so the `=value` form and the
+      // operand-free `--unset-upstream` slipped past the operand rule too.
+      for (final args in [
+        'branch --set-upstream-to=origin/main',
+        'branch --unset-upstream',
+        'branch -u origin/main',
+      ]) {
+        expect((await tool.execute({'args': args})).isError, isTrue,
+            reason: args);
+      }
+      expect((await tool.execute({'args': 'branch -a'})).isError, isFalse);
+    });
+
+    test('--no-index cannot read files outside the repository', () async {
+      final tool = buildTool();
+      for (final args in [
+        'diff --no-index /etc/passwd /etc/hosts',
+        'diff --no-index=/etc/passwd /etc/hosts',
+      ]) {
+        expect((await tool.execute({'args': args})).isError, isTrue,
+            reason: args);
+      }
+    });
   });
 }

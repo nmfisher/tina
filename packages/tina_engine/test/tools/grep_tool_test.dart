@@ -35,6 +35,44 @@ MemoryProcessRunner _noRgRunner() =>
     MemoryProcessRunner((exe, args) => throw Exception('rg not installed'));
 
 void main() {
+  // The boundary that matters most: the model's pattern is DATA, and must
+  // never be able to become control. Before this, `pattern` was a bare argv
+  // element, so ripgrep parsed a dash-leading pattern as an OPTION —
+  // `--pre=<cmd>` makes ripgrep run <cmd> for every file it searches, on a
+  // default-allowed tool with no approval.
+  group('model input is data, never an option', () {
+    GrepTool toolFor(MemoryProcessRunner runner) => GrepTool(
+          processRunner: runner,
+          fileEnumerator: MemoryFileEnumerator({}),
+          fs: MemoryFileSystem()..directories.add('/repo'),
+        )..projectRoot = '/repo';
+
+    test('a dash-leading pattern is fenced behind --', () async {
+      final runner = _rgRunner(searchStdout: ['a.dart:1:x\n']);
+      await toolFor(runner)
+          .execute({'pattern': '--pre=touch /tmp/pwned', 'path': '/repo'});
+
+      final args = runner.starts.last.arguments;
+      final fence = args.indexOf('--');
+      expect(fence, isNonNegative,
+          reason: 'positional arguments must be fenced from options');
+      expect(args.sublist(fence + 1), ['--pre=touch /tmp/pwned', '/repo']);
+      expect(args.sublist(0, fence), isNot(contains('--pre=touch /tmp/pwned')),
+          reason: 'the pattern must not appear in the option region at all');
+    });
+
+    test('a dash-leading glob cannot become a second option', () async {
+      final runner = _rgRunner(searchStdout: ['a.dart:1:x\n']);
+      await toolFor(runner).execute(
+          {'pattern': 'x', 'glob': '--pre=touch /tmp/pwned', 'path': '/repo'});
+
+      final args = runner.starts.last.arguments;
+      expect(args, contains('--glob=--pre=touch /tmp/pwned'));
+      expect(args.where((a) => a == '--pre=touch /tmp/pwned'), isEmpty,
+          reason: 'the glob value must never be its own argv element');
+    });
+  });
+
   group('GrepTool (ripgrep path)', () {
     test('finds matches with path:line:content', () async {
       final runner = _rgRunner(searchStdout: [

@@ -1144,14 +1144,15 @@ class SubAgentScheduler {
   /// absent from the policy → `ask` (the unmapped-tool default) → denied by the
   /// auto-deny asker. The parent's static permission rules carry forward.
   ///
-  /// **bash is deliberately NOT auto-allowed.** `write`/`edit` are confined by
-  /// `SandboxedFileSystem` and backed up, so they're safe to pre-approve; bash
-  /// is the uncontained destructive vector, so it inherits the *parent's* bash
-  /// decision (`ask` normally → a prompt under an interactive asker, a deny
-  /// under the auto-deny asker; `allow` under `--yolo` or an explicit `--allow
-  /// bash:…`). The parent's `defaults` are spread in first so this inheritance
-  /// holds even when the parent expresses bash via a default (e.g. `--yolo`)
-  /// rather than a static rule.
+  /// **A few tools are deliberately NOT auto-allowed** (see
+  /// [_neverPreApproved]): `write`/`edit` are confined by `SandboxedFileSystem`
+  /// and backed up, so they're safe to pre-approve, but bash/exec are the
+  /// uncontained vectors and fetch/web_search are egress. Those inherit the
+  /// *parent's* decision (`ask` normally → a prompt under an interactive asker,
+  /// a deny under the auto-deny asker; `allow` under `--yolo` or an explicit
+  /// `--allow bash:…`). The parent's `defaults` are spread in first so this
+  /// inheritance holds even when the parent expresses it via a default (e.g.
+  /// `--yolo`) rather than a static rule.
   PermissionPolicy _policyForProfile(
           ToolProfile profile, PermissionPolicy parent,
           {bool gateWrites = false}) =>
@@ -1159,7 +1160,7 @@ class SubAgentScheduler {
         defaults: {
           ...parent.defaults,
           for (final t in _effectiveProfileTools(profile))
-            if (t.schema.name != 'bash' && t.schema.name != 'exec' &&
+            if (!_neverPreApproved.contains(t.schema.name) &&
                 // Gated path (e.g. workflow nodes with their own asker):
                 // write/edit prompt per call like the main agent instead of
                 // being pre-approved; they inherit the parent's decision
@@ -1177,6 +1178,15 @@ class SubAgentScheduler {
         allowAllByDefault: parent.allowAllByDefault,
       );
 
+  /// Tools a profile never widens to `allow`, whatever profile it is.
+  ///
+  /// Membership is about the *kind* of risk, not read-versus-write. `bash` and
+  /// `exec` are uncontained processes; `fetch` and `web_search` are egress —
+  /// and a "read-only" scout legitimately carries them, which is exactly why
+  /// classifying a tool by its profile would silently pre-approve sending the
+  /// project to a URL. These keep the parent's decision (normally `ask`).
+  static const _neverPreApproved = {'bash', 'exec', 'fetch', 'web_search'};
+
   /// Widen [policy] in place with the profile's tool set — the caller keeps
   /// the same instance for a whole run, so session rules the asker remembers
   /// ("always allow") persist across every node that shares it. Idempotent;
@@ -1185,7 +1195,7 @@ class SubAgentScheduler {
       {required bool gateWrites}) {
     for (final t in _effectiveProfileTools(profile)) {
       final name = t.schema.name;
-      if (name == 'bash' || name == 'exec') continue; // never auto-allow bash
+      if (_neverPreApproved.contains(name)) continue;
       if (gateWrites && (name == 'write' || name == 'edit')) continue;
       policy.defaults[name] = PermissionDecision.allow;
     }

@@ -4,6 +4,10 @@ import 'tool_input.dart';
 
 /// Subcommands that are read-only with any arguments — no flag combination
 /// under these can mutate the repo, so they need no further guarding.
+///
+/// `reflog` is deliberately NOT here: bare `git reflog` lists, but
+/// `git reflog delete` and `git reflog expire` rewrite `.git/logs`. It is a
+/// restricted subcommand whose listing forms are guarded below.
 const Set<String> _readOnlySubcommands = {
   'status',
   'log',
@@ -14,12 +18,17 @@ const Set<String> _readOnlySubcommands = {
   'describe',
   'shortlog',
   'rev-parse',
-  'reflog',
 };
 
 /// Subcommands that mutate under some forms, allowed here only in their
 /// listing shapes. Each has a dedicated guard below.
-const Set<String> _restrictedSubcommands = {'branch', 'tag', 'remote'};
+const Set<String> _restrictedSubcommands = {'branch', 'tag', 'remote', 'reflog'};
+
+/// Flags this auto-allowed tool accepts under no subcommand. Two ways a
+/// "read-only" git command reaches outside its lane: `--output` writes a file,
+/// and `--no-index` makes `git diff` read arbitrary paths that need not be in
+/// the repository at all.
+const Set<String> _forbiddenFlags = {'--output', '--no-index'};
 
 /// Human-readable form of what's allowed — embedded in rejection errors so
 /// the model self-corrects on the next call instead of guessing.
@@ -109,12 +118,16 @@ class GitTool implements Tool {
   /// restricted ones are checked in their listing forms, everything else is
   /// rejected.
   String? _readOnlyViolation(List<String> parts) {
-    // Even a read-only subcommand can write a file via `--output`/`--output=`
-    // (e.g. `git log --output=/tmp/x`); since this tool is auto-allowed,
-    // reject it outright.
+    // Flags that write a file or read outside the repository are rejected
+    // whichever subcommand carries them, in both `--flag` and `--flag=value`
+    // forms. Checked by name so `--no-index=/x` cannot slip past.
     for (final arg in parts) {
-      if (arg == '--output' || arg.startsWith('--output=')) {
-        return 'git --output writes a file — not allowed here.';
+      final name = arg.startsWith('--') && arg.contains('=')
+          ? arg.substring(0, arg.indexOf('='))
+          : arg;
+      if (_forbiddenFlags.contains(name)) {
+        return 'git $name is not allowed here — this tool runs only '
+            '$_allowlistHelp. Mutating operations need bash.';
       }
     }
     final sub = parts.first;
@@ -126,14 +139,30 @@ class GitTool implements Tool {
     }
     return switch (sub) {
       'branch' => _guard(rest, subcommand: 'branch', flags: {
-          '-d', '-D', '-m', '-M', '-t', '--edit-description', '--set-upstream-to',
+          '-d', '-D', '-m', '-M', '-t', '-u', '--edit-description',
+          '--set-upstream-to', '--unset-upstream',
         }, operandsRequireList: true),
       'tag' => _guard(rest, subcommand: 'tag', flags: {
-          '-d', '-f', '-s', '-a', '-m', '-u',
+          '-d', '-f', '-s', '-a', '-m', '-u', '--delete', '--annotate',
+          '--force', '--sign',
         }, operandsRequireList: true),
       'remote' => _guardRemote(rest),
+      'reflog' => _guardReflog(rest),
       _ => 'git $sub is not allowed here',
     };
+  }
+
+  /// `git reflog` lists; `delete` and `expire` rewrite `.git/logs`. The
+  /// mutating forms are operand-led, so name them directly.
+  String? _guardReflog(List<String> rest) {
+    const mutating = {'delete', 'expire'};
+    for (final arg in rest) {
+      if (mutating.contains(arg)) {
+        return 'git reflog $arg rewrites the reflog — not allowed here. '
+            'Only listing forms are available ($_allowlistHelp).';
+      }
+    }
+    return null;
   }
 
   /// Shared guard for `branch`/`tag`: only listing forms. Any mutating flag
@@ -151,7 +180,12 @@ class GitTool implements Tool {
       if (arg == '-l' || arg == '--list') {
         hasList = true;
       } else if (arg.startsWith('-')) {
-        if (flags.contains(arg)) {
+        // Match a flag's `=value` form too: `--set-upstream-to=origin/main` is
+        // the same mutation as the bare flag, and it needs no operand — which
+        // is exactly the shape the operand rule below cannot catch.
+        final mutating = flags.any(
+            (flag) => arg == flag || arg.startsWith('$flag='));
+        if (mutating) {
           return 'git $subcommand $arg mutates the repo — not allowed here. '
               'Only listing forms of $subcommand are available ($_allowlistHelp).';
         }

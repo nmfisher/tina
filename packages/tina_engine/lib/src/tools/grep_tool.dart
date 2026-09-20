@@ -190,7 +190,14 @@ class GrepTool implements Tool {
       '--line-number',
       '--with-filename',
       if (caseInsensitive) '--ignore-case',
-      if (glob != null) ...['--glob', glob],
+      // One token per option, so a glob's *value* can never be read as a second
+      // option. `['--glob', glob]` let a glob of `--pre=<cmd>` become a flag.
+      if (glob != null) '--glob=$glob',
+      // Everything after this is a positional argument. Without it, ripgrep
+      // parses a model-supplied pattern that begins with a dash as an OPTION —
+      // `--pre=<cmd>` makes ripgrep run <cmd> for every file it searches. The
+      // pattern is data; it must never be able to become control.
+      '--',
       pattern,
       path,
     ];

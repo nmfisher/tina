@@ -13,7 +13,10 @@ import 'package:tina_engine/src/tools/project_tool_plugins.dart';
 import 'package:tina_engine/src/tools/sandbox.dart';
 import 'package:tina_engine/src/tools/sandbox_runner.dart';
 import 'package:tina_engine/src/runtime/runtime.dart';
+import 'package:tina_engine/src/tools/bash_tool.dart';
 import 'package:tina_engine/src/tools/edit_tool.dart';
+import 'package:tina_engine/src/tools/git_tool.dart';
+import 'package:tina_engine/src/tools/grep_tool.dart';
 import 'package:tina_engine/src/tools/write_tool.dart';
 import 'package:tina_engine/src/tools/tavily_search.dart';
 import 'package:tina_engine/src/tools/web_search.dart';
@@ -139,6 +142,33 @@ void main() {
   });
 
   group('project tool plugins', () {
+    test('every tool that spawns a process uses the shared runner', () {
+      // A file-system sandbox cannot confine a subprocess, so the ONLY thing
+      // that makes a spawn confined is which runner the tool was handed; a
+      // tool that builds its own `IoProcessRunner` silently opts out of the
+      // sandbox. `grep` and `git` both did.
+      final caps = ProjectCapabilities.build(
+        projectRoot: tempDir.path,
+        env: const {},
+        sandboxEnabled: false,
+      );
+      final runtime = PluginRuntime(
+        name: 'project-tools-test',
+        plugins: projectToolPlugins(caps),
+      )..activateSync();
+      final byName = {
+        for (final t in toolRegistryFromScope(runtime.scope).all)
+          t.schema.name: t
+      };
+
+      expect((byName['bash']! as BashTool).processRunner,
+          same(caps.processRunner));
+      expect((byName['grep']! as GrepTool).processRunner,
+          same(caps.processRunner));
+      expect((byName['git']! as GitTool).processRunner,
+          same(caps.processRunner));
+    });
+
     test('built catalog names and order are exactly the frozen catalog, plus '
         'web_search only when a key is present', () {
       final caps = ProjectCapabilities.build(
