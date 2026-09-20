@@ -102,5 +102,34 @@ void main() {
       expect(
           PermissionMode.allowEdits.label, isNot(PermissionMode.allowEdits.name));
     });
+
+    // The read-only boundary is still a hand-written list (_readOnlyTools plus
+    // the named control-plane exceptions). This pins its machine-touching half
+    // to the declarations, so the two cannot drift: a tool that declares it
+    // only reads must be permitted in read-all, and anything that writes or
+    // runs a model-chosen program must not be.
+    //
+    // Control-plane tools are deliberately outside this check — whether
+    // `ask_user` or `broadcast_region` is usable in read-only mode is a
+    // product judgement about interaction, not a fact about the machine, and
+    // it stays an explicit decision until the boundary itself is derived.
+    test('the read-only boundary agrees with what machine tools declare', () {
+      final readOnly = PermissionPolicy(mode: PermissionMode.readAll);
+      var checked = 0;
+      for (final entry in kToolCapabilities.entries) {
+        final caps = entry.value;
+        if (!caps.touchesTheMachine) continue;
+        checked++;
+        final isMachineRead =
+            caps.writes == WriteScope.none && caps.spawns != SpawnScope.modelArgv;
+        expect(readOnly.executionBlock(entry.key, const {}) != null,
+            !isMachineRead,
+            reason: '${entry.key} declares reads=${caps.reads.name}, '
+                'writes=${caps.writes.name}, spawns=${caps.spawns.name}, '
+                'network=${caps.network.name}');
+      }
+      expect(checked, greaterThan(10),
+          reason: 'the sweep must actually be looking at the tool set');
+    });
   });
 }
