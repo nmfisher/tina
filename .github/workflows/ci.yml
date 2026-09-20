@@ -99,14 +99,27 @@ jobs:
       # the first live run: without these pub gets, root analyze saw 23
       # URI_DOES_NOT_EXIST errors for console's test-only imports. This
       # mirrors a dev machine, where every package has been pub-got.
+      #
+      # The package list below is GENERATED from tool/architecture/policy.json
+      # (ownedPackages), not written by hand. A hand-written copy here went
+      # stale the first time a package joined the policy without editing this
+      # file, and CI failed with a bare PathNotFoundException that never named
+      # the fix. Do not turn this back into a list of cd commands — one list,
+      # the policy's, is the point. ownedPackages also names the root package
+      # ("tina"), which is the repo root, not packages/tina; it is mapped to
+      # "." and skipped because the step above already pub-got it. The vendored
+      # dart_notcurses submodule is NOT in ownedPackages, so reading the policy
+      # (not a packages/* glob) is also what keeps the submodule out.
       - name: pub get (owned packages, for analyze and architecture checks)
         run: |
-          (cd packages/tina_app && dart pub get)
-          (cd packages/tina_engine && dart pub get)
-          (cd packages/tina_console && dart pub get)
-          (cd packages/tina_index && dart pub get)
-          (cd packages/attractor && dart pub get)
-          (cd packages/fuzzy_ranker && dart pub get)
+          # jq's -r prints raw strings, one per owned package; the root
+          # package "tina" maps to "." and is skipped below.
+          directories=$(jq -r '.ownedPackages[] | if . == "tina" then "." else "packages/\(.)" end' tool/architecture/policy.json)
+          for d in $directories; do
+            if [ "$d" = "." ]; then continue; fi  # root: pub get ran above
+            echo "pub get in $d"
+            (cd "$d" && dart pub get)
+          done
 
       # Root's own tests import tina_console → the dart_notcurses build hook
       # runs on dart test → the system linker deps must be present (see the
