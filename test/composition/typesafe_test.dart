@@ -6,7 +6,6 @@ import 'package:test/test.dart';
 import 'package:tina/composition/typesafe.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina/tui/settings_panel.dart';
-import 'package:tina_engine/judgments.dart';
 import 'package:tina_app/tina_app.dart';
 
 import '../helpers/overlay_fixtures.dart';
