@@ -217,8 +217,12 @@ class Config extends RuntimeConfig implements ResumeRequest {
       'yolo',
       negatable: false,
       help:
-          'Default every tool to allow (skip all permission prompts). '
-          'Explicit --deny rules still apply.',
+          'Skip all permission prompts AND lift the configurable budgets: '
+          'the bash sandbox is disabled (unless --sandbox re-asserts it), '
+          'every token cap, the requests-per-minute throttle, the step cap, '
+          'and sub-agent depth/concurrency limits are turned off. Explicit '
+          'flags win over yolo; --safe-mode and explicit --deny rules still '
+          'apply.',
     )
     ..addOption(
       'permission-mode',

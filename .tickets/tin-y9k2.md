@@ -1,6 +1,6 @@
 ---
 id: tin-y9k2
-status: open
+status: closed
 deps: []
 links: [tin-1h8p, tin-cmpt, tin-y0l0]
 created: 2026-09-20
@@ -77,13 +77,37 @@ have. Exactly the failure mode this ticket removes.
 ## Acceptance
 
 1. No `--yolo`: every default byte-identical (root + package suites green,
-   unchanged).
+   unchanged). — regression test: "without --yolo, every budget keeps its
+   default".
 2. `--yolo`: sandbox pass-through with a "disabled by --yolo" reason; token
-   caps off; step cap unbounded; sub-agent depth/concurrency unbounded.
-3. `--yolo --sandbox`: sandbox stays ON (explicit beats yolo).
-4. `--yolo --max-turn-tokens 500000`: cap fires at 500k (explicit beats yolo).
-5. `--yolo --safe-mode`: still read-only (safe mode dominance).
-6. `--yolo --deny 'bash:rm *'`: deny still wins.
-7. `[limits]` config-file values are ignored under `--yolo` (file < yolo),
-   while no-`--yolo` runs still honor them.
-8. `--max-steps 0` parses everywhere and means unbounded.
+   caps off; step cap unbounded; sub-agent depth/concurrency unbounded. —
+   tests in `test/permissions/config_test.dart`, engine suites.
+3. `--yolo --sandbox`: sandbox stays ON (explicit beats yolo). — test:
+   "sandbox precedence: explicit flag > --yolo > defaults".
+4. `--yolo --max-turn-tokens 500000`: cap fires at 500k (explicit beats yolo;
+   same chain for every parseLimit flag). — test: "--yolo lifts every budget".
+5. `--yolo --safe-mode`: still read-only (safe-mode dominance). —
+   pre-existing test, untouched and green.
+6. `--yolo --deny 'bash:rm *'`: deny still wins. — pre-existing test, green.
+7. `[limits]` config-file values ignored under `--yolo` (file < yolo), still
+   honored without. — same test as (4).
+8. `--max-steps 0` parses everywhere and means unbounded. — test: "--max-steps
+   rejects negatives only; 0 = unbounded"; agent loop skips the cap
+   (`packages/tina_engine/lib/src/agent/agent.dart`).
+
+## Implemented
+
+- Sandbox: `de2518f` — tri-state `--sandbox`/`--no-sandbox` (wasParsed),
+  `kSandboxOffReasonYolo` vs `kSandboxOffReasonNoSandbox`, threaded through
+  `RuntimeConfig.sandboxOffReason` → capabilities log, startup notice, ask chip.
+- Budgets: `d4c3fa3` — `parseLimit` yolo tier (CLI > yolo > file > default)
+  for the eight `[limits]` flags; `--max-steps` accepts 0 = unbounded (no
+  file key, so CLI > yolo(0) > default 500); `AgentQuota` `<= 0` = unbounded
+  for depth and live slots; `PipelineEngine.yolo` lifts the attractor
+  total-step cap (per-node visits stay hard). Action cap and fault timers
+  untouched, per the ticket.
+- Docs/help: this commit — `--yolo` help text, `docs/features/sandbox.md`,
+  `docs/features/manager_loop.md`.
+- Evidence from the wild: during implementation, an agent run under `--yolo`
+  aborted with `[budget] per-turn token budget exceeded (1019224 > 1000000)`.
+  Under this change it would not have.

@@ -46,6 +46,10 @@ Escape hatches (all compose):
 
 - `--no-sandbox` — disable confinement entirely (e.g. a command that must
   write to `$HOME` or system paths).
+- `--yolo` — implies `--no-sandbox`: an unattended run must not stop to
+  re-grant write access. Pass `--yolo --sandbox` to keep the sandbox on; an
+  explicit flag always wins over yolo. Off-reason strings in the notice, the
+  log, and the ask chip name who disabled it (`--no-sandbox` vs `--yolo`).
 - `TINA_SANDBOX_ALLOW=/path:/other` — extra writable roots (colon-separated,
   existing directories, same on both backends; granted even under
   `--sandbox-readonly`).
@@ -76,10 +80,10 @@ tools, not about the agent:
 | `dart analyze` (edit verifier) | no | verification only, no approved write |
 | summary sidecar, environment probes | no | write only inside the project's own data dir |
 
-Disclosure: an approval prompt carries a `[sandbox: off]` chip when this host
-cannot confine bash at all, and a one-time startup notice names the reason (the
-same string the sandbox logger records). An explicit `--no-sandbox` is not
-announced — the user asked for it.
+Disclosure: an approval prompt carries a `[sandbox: off]` chip whenever bash
+runs unsandboxed — host limitation, `--no-sandbox`, or `--yolo` — and a
+one-time startup notice names the reason (the same string the sandbox logger
+records).
 
 ## Runtime directory approval
 
