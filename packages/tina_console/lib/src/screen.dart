@@ -608,6 +608,10 @@ class Screen {
           left: _layout.infoLeftCol,
           right: _layout.infoRightCol,
           top: _layout.topBorderRow,
+          // Stop the info box above the strip row — the strip is an
+          // always-visible full-width row (tin-q9w2), so the info box's
+          // bottom border owns the row above the strip and the strip's
+          // erase/write keeps clear of the border row.
           bottom: _layout.bottomBorderRow,
           title: 'info',
         ),

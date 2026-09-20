@@ -140,8 +140,14 @@ class ScreenLayout {
     // Reserve space for a usable transcript even on small terminals.
     final sideWidth = sidebarWidth <= 0 || w < 30
         ? 0 : sidebarWidth.clamp(10, (w ~/ 3).clamp(10, w - 20));
-    final bottomBorder = sideWidth > 0 ? h - 2 : h - 1;
-    final stripRow = sideWidth > 0 ? h - 1 : h - 2;
+    // The strip owns the LAST row in every layout, and the panel boxes stop
+    // one row above it. The primary panel's input row is the bottom INTERIOR
+    // row of its box (box bottom - 1); with the box ending at h-2 that input
+    // row is h-3 — distinct from the strip. (Full-width layouts used to put
+    // the box bottom AT h-1, putting the input row on the strip row: the
+    // first-paint relocateInput erased the mode label — tin-q9w2.)
+    final bottomBorder = h - 2;
+    final stripRow = h - 1;
     final inputRow = h - 3;
 
     // Menu box geometry (rows 0–2 when present).
