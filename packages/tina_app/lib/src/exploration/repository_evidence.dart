@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:classifier/judgments.dart';
+import 'package:classifier/exploration.dart';
 import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
-import 'models.dart';
 
 /// Git-aware bounded scan of fresh working-tree files. Git is used only to
 /// enumerate names, with fixed arguments; no shell, hooks, builds, or writes.

@@ -42,13 +42,12 @@ export 'src/workflows/pipeline_commands.dart';
 export 'src/workflows/pipeline_runner.dart';
 export 'src/workflows/workflow_names.dart';
 export 'src/workflows/workflow_supervisor.dart';
-export 'src/exploration/models.dart';
-export 'src/exploration/exploration_workflow.dart';
+// Exploration lives in the classifier package; these shared exports keep
+// `package:tina_app/tina_app.dart` the single public surface for the
+// structured-judgment workflow the app composes.
+export 'package:classifier/exploration.dart';
+export 'package:classifier/judgments.dart';
+export 'package:classifier/typesafe_classifier.dart';
+
 export 'src/exploration/repository_evidence.dart';
 export 'src/exploration/explore_project_tool.dart';
-
-export 'src/exploration/repository_ranker.dart';
-export 'src/exploration/file_chunker.dart';
-
-export 'src/exploration/exploration_cache.dart';
-export 'src/exploration/file_exploration_cache.dart';

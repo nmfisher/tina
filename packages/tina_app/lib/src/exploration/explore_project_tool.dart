@@ -1,7 +1,7 @@
 import 'dart:convert';
+import 'package:classifier/judgments.dart';
+import 'package:classifier/exploration.dart';
 import 'package:tina_engine/tina_engine.dart';
-import 'exploration_workflow.dart';
-import 'models.dart';
 
 /// Invocation-scoped dependencies: credentials are resolved when the tool runs,
 /// and the owned HTTP service is closed on success, cancellation, or failure.
