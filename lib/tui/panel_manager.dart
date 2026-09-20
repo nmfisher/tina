@@ -202,7 +202,14 @@ class PanelManager {
       final frame = ordered[i];
       final slot = scrolling ? i - _scrollOffset : i;
       final indent = indentForDepth(tree.depthOf(frame.conversationId));
-      final row = stackTop + slot * perPanel;
+      // Window slots tile the stack; slots past the window park BELOW it —
+      // starting one row under the stack's bottom border, so a parked panel's
+      // virtual top is always strictly below the last visible panel (the box
+      // bottom row inclusive — tin-q9w2's uniform layout leaves no spare row
+      // inside the box for the old slot*perPanel row to land on).
+      final row = slot < visibleCount
+          ? stackTop + slot * perPanel
+          : stackTop + stackHeight + (slot - visibleCount) * perPanel;
       final inWindow = !scrolling ||
           (i >= _scrollOffset && i < _scrollOffset + visibleCount);
       if (!inWindow) {

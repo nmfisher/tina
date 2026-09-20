@@ -1037,8 +1037,11 @@ class TuiCoordinator {
         }
         screen.setModeLabel('mode: ${policy.mode.label}');
       };
-      // Set initial mode label
-      screen.setModeLabel('mode: ${policy.mode.label}');
+      // NOTE: no startup setModeLabel here. create() runs before run()'s
+      // first paint (enterAltScreen → redrawFrame); painting the strip now
+      // is a wasted pre-alt-screen write, and moving the paint earlier can't
+      // make it any more visible — redrawFrame re-renders the strip on every
+      // first paint anyway (tin-q9w2). The label first shows with the frame.
       // Session picker (Alt+S): switch among live sessions or resume a saved one.
       controller.openSessionPicker = () async {
         final live = sessionManager
@@ -2542,6 +2545,11 @@ class TuiCoordinator {
       await _showFallbackOverlay(screen, _warning);
     }
     _refreshSessionMenu();
+    // The mode label joins the first paint — before any user input, so the
+    // strip is populated from the very first frame (tin-q9w2). The startup
+    // call used to live in create(), which runs before the alt screen is
+    // even entered; the label it painted was never part of a presented frame.
+    screen.setModeLabel('mode: ${policy.mode.label}');
 
     if (setupMode) {
       // First-run setup overlay on top of the (idle) chat. The overlay writes
