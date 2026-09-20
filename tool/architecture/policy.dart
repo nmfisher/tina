@@ -131,6 +131,10 @@ class ArchitecturePolicy {
         package.name,
         (next) => next == package.name,
       )) {
+        // Tested against the toolchain (2026-09-20): a two-package path
+        // dependency cycle resolves fine — dart pub get exits 0 and dart
+        // analyze is clean even with the two packages importing each other.
+        // Nothing in pub rejects a cycle, so this rule is the only guard.
         found.add(
           DependencyViolation(
             'package-cycle',
