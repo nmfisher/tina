@@ -397,7 +397,10 @@ class Config extends RuntimeConfig implements ResumeRequest {
     ..addOption(
       'max-steps',
       defaultsTo: '500',
-      help: 'Maximum tool-calling steps allowed in a single user turn.',
+      help:
+          'Maximum tool-calling steps allowed in a single user turn. '
+          '0 = unbounded (a runaway turn is still caught by the hard '
+          'tool-call cap; --yolo implies 0 unless you pass this flag).',
     )
     ..addOption(
       'watchdog-seconds',
@@ -694,6 +697,11 @@ class Config extends RuntimeConfig implements ResumeRequest {
     // cleanly separates a real CLI value from the ArgParser fallback. A file
     // value of 0 is honored (explicit "unbounded"); only an absent file value
     // (null) falls through to [defaultValue].
+    // tin-y9k2: under --yolo the file tier is skipped — the user asked for a
+    // run nothing may throttle — so the chain becomes CLI > --yolo > file >
+    // default. The CLI tier still dominates yolo: `--yolo --max-steps 50`
+    // stops at 50. `0` here means "cap off" everywhere it flows.
+    final yolo = res['yolo'] as bool;
     int parseLimit(String name, int? fileValue, int defaultValue) {
       if (res.wasParsed(name)) {
         final raw = res[name] as String;
@@ -705,6 +713,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
         }
         return n;
       }
+      if (yolo) return 0;
       return fileValue ?? defaultValue;
     }
 
@@ -794,7 +803,13 @@ class Config extends RuntimeConfig implements ResumeRequest {
         0,
       ),
       autoCompactThreshold: parseBudget('auto-compact-threshold', kDefaultAutoCompactThreshold),
-      maxSteps: parsePositive('max-steps', kDefaultMaxSteps.toString()),
+      // tin-y9k2: --max-steps accepts 0 = unbounded. There is no [limits]
+      // file key for it, so the chain is CLI > --yolo(0) > default.
+      maxSteps: res.wasParsed('max-steps')
+          ? parseBudget('max-steps', kDefaultMaxSteps.toString())
+          : yolo
+              ? 0
+              : kDefaultMaxSteps,
       watchdogSeconds: parseBudget('watchdog-seconds', kDefaultWatchdogSeconds.toString()),
       streamIdleTimeout: Duration(
         seconds: parsePositive('stream-idle-timeout', kDefaultStreamIdleTimeoutSeconds.toString()),

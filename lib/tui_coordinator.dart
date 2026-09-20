@@ -504,6 +504,7 @@ class TuiCoordinator {
         pipeline: pipeline,
         workflowsDir: workflowsDir,
         runsRoot: runsRoot,
+        yolo: app.config.yolo,
         // Workflow nodes that omit `llm_model` run under the model the
         // LAUNCHING conversation is on right now, not the one the process
         // started with.

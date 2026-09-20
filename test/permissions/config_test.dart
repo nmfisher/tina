@@ -164,9 +164,66 @@ void main() {
       expect(_parse(['--max-steps', '200']).maxSteps, 200);
     });
 
-    test('--max-steps rejects zero and negative', () {
-      expect(() => _parse(['--max-steps', '0']), throwsFormatException);
+    test('--max-steps rejects negatives only; 0 = unbounded (tin-y9k2)', () {
+      expect(_parse([]).maxSteps, 500);
+      expect(_parse(['--max-steps', '200']).maxSteps, 200);
+      expect(_parse(['--max-steps', '0']).maxSteps, 0);
       expect(() => _parse(['--max-steps', '-1']), throwsFormatException);
+    });
+
+    test('without --yolo, every budget keeps its default (regression)', () {
+      final c = _parse([]);
+      expect(c.sandboxEnabled, isTrue);
+      expect(c.maxTurnTokens, 1000000);
+      expect(c.maxSessionTokens, 10000000);
+      expect(c.maxRequestTokens, 200000);
+      expect(c.maxGlobalTokens, 50000000);
+      expect(c.maxSubAgentTokens, 2000000);
+      expect(c.maxSubAgentDepth, 3);
+      expect(c.maxSubAgentConcurrency, 6);
+      expect(c.requestsPerMinute, 0); // rpm off by default, not a yolo value
+      expect(c.maxSteps, 500);
+    });
+
+    test('--yolo lifts every budget; an explicit flag still wins (tin-y9k2)',
+        () {
+      final c = _parse(['--yolo']);
+      expect(c.sandboxEnabled, isFalse);
+      expect(c.maxTurnTokens, 0);
+      expect(c.maxSessionTokens, 0);
+      expect(c.maxRequestTokens, 0);
+      expect(c.maxGlobalTokens, 0);
+      expect(c.maxSubAgentTokens, 0);
+      expect(c.maxSubAgentDepth, 0);
+      expect(c.maxSubAgentConcurrency, 0);
+      expect(c.maxSteps, 0);
+
+      // Explicit flag > --yolo: a bounded yolo run stays bounded.
+      final bounded = _parse(['--yolo', '--max-steps', '50']);
+      expect(bounded.maxSteps, 50);
+      expect(
+        _parse(['--yolo', '--max-turn-tokens', '500000']).maxTurnTokens,
+        500000,
+      );
+
+      // Config-file values are ignored under --yolo (file < yolo)...
+      final withFile = Config.parse(
+        const ['--yolo'],
+        env: const {'ANTHROPIC_API_KEY': 'test'},
+        userConfig: const UserConfig(
+          limits: LimitsConfig(maxTurnTokens: 250000),
+        ),
+      );
+      expect(withFile.maxTurnTokens, 0);
+      // ...and still honored without it (file < default? no: file > default).
+      final noYoloFile = Config.parse(
+        const [],
+        env: const {'ANTHROPIC_API_KEY': 'test'},
+        userConfig: const UserConfig(
+          limits: LimitsConfig(maxTurnTokens: 250000),
+        ),
+      );
+      expect(noYoloFile.maxTurnTokens, 250000);
     });
 
     test('--watchdog-seconds defaults to 300; overrides and 0 kept', () {

@@ -432,6 +432,7 @@ Future<void> _runNonInteractive(
         workflowsDir: Directory(p.join(tinaDataDir.path, 'workflows')),
         runsRoot: Directory(p.join(tinaDataDir.path, 'runs')),
         defaultModelReference: '${app.config.provider}/${app.config.model}',
+        yolo: app.config.yolo,
       );
       final rawInput = startup.prompt?.trim();
       try {
