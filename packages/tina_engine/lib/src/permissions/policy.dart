@@ -1,9 +1,37 @@
 import 'dart:convert';
 
 import '../tools/execution_request.dart';
+import '../tools/tool_capabilities.dart';
 import 'approval_target.dart';
 
 enum PermissionDecision { allow, deny, ask }
+
+/// What a tool's declared capabilities imply on their own, with no configured
+/// or remembered rule in play.
+///
+/// This is the safe default: capabilities that were never declared arrive as
+/// [ToolCapabilities.undeclared], the worst case on every axis, so an
+/// undeclared tool is asked about rather than trusted. The axes are
+/// independent by design — a read-only tool that spawns a process, or one that
+/// reaches the network, is not a read-only tool — which is exactly what one
+/// allow/ask bit per tool could not express.
+PermissionDecision deriveToolDecision(ToolCapabilities caps) {
+  // A reviewed exception is the only route to an automatic `allow` for a tool
+  // that reaches past the sandbox, and it is a declared field a test reads
+  // rather than a sentence in a comment nobody rechecks.
+  if (caps.justification != null) return PermissionDecision.allow;
+  if (caps.spawns == SpawnScope.modelArgv) return PermissionDecision.ask;
+  if (caps.network == NetworkScope.egress) return PermissionDecision.ask;
+  // Nothing on the machine → no basis for an automatic allow. Control-plane
+  // tools (`launch_workflow`, `delegate`) live here: their effect is other
+  // agents, which is a decision, not an absence of one.
+  if (caps.reads == ReadScope.none) return PermissionDecision.ask;
+  if (caps.reads == ReadScope.host) return PermissionDecision.ask;
+  if (caps.writes != WriteScope.none) return PermissionDecision.ask;
+  // Reads only, or a fixed program whose arguments the tool assembles and
+  // fences behind `--`.
+  return PermissionDecision.allow;
+}
 
 /// Session-wide permission mode, layered on top of the per-tool defaults.
 ///
@@ -187,29 +215,18 @@ class PermissionPolicy {
         defaults = Map.from(defaults ?? _builtinDefaults),
         staticRules = List.unmodifiable(rules ?? const []);
 
-  static const _builtinDefaults = {
-    'read': PermissionDecision.allow,
-    'write': PermissionDecision.ask,
-    'edit': PermissionDecision.ask,
-    'bash': PermissionDecision.ask,
-    'exec': PermissionDecision.ask,
-    'execution_info': PermissionDecision.allow,
-    // Read-only tools never mutate anything, so they run without prompting.
-    // Users can still deny any of them via a session/static rule.
-    'search': PermissionDecision.allow,
-    'grep': PermissionDecision.allow,
-    'glob': PermissionDecision.allow,
-    'ls': PermissionDecision.allow,
-    'stat': PermissionDecision.allow,
-    'which': PermissionDecision.allow,
-    // Network reads and the summary sidecar: gated by default (explicit here
-    // rather than via the `?? ask` fallback, so /permissions lists them).
-    'fetch': PermissionDecision.ask,
-    'web_search': PermissionDecision.ask,
-    'write_summary': PermissionDecision.allow,
-    // The git tool's subcommand allowlist makes mutation impossible, so it
-    // is read-only by construction (see GitTool).
-    'git': PermissionDecision.allow,
+  /// The base decision table, DERIVED from each tool's declared capabilities
+  /// rather than hand-written. See [deriveToolDecision].
+  ///
+  /// The hand-written version had to be read carefully to notice that `grep`
+  /// spawns a process and `git` writes repository metadata. A derived one
+  /// cannot say `allow` for a tool whose own declaration says it reaches past
+  /// the project sandbox. A tool that declares nothing is absent here and
+  /// falls to `?? ask` in [check].
+  static final Map<String, PermissionDecision> _builtinDefaults = {
+    for (final entry in kToolCapabilities.entries)
+      if (entry.value.touchesTheMachine)
+        entry.key: deriveToolDecision(entry.value),
   };
 
   PermissionDecision check(String tool, Map<String, dynamic> input) {

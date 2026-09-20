@@ -20,6 +20,13 @@ import 'process_runner.dart';
 
 /// Where a tool reads from.
 enum ReadScope {
+  /// Reads nothing on the machine: a control-plane tool (`delegate`,
+  /// `ask_user`, `launch_workflow`). Having no machine effect is NOT a reason
+  /// to auto-approve something — starting an autonomous workflow touches
+  /// nothing itself and is still the user's decision — so this is the one
+  /// value that never derives an `allow`.
+  none,
+
   /// Confined to the project root (and never the Tina data tree).
   project,
 
@@ -106,6 +113,17 @@ class ToolCapabilities {
       writes == WriteScope.host ||
       reads == ReadScope.host;
 
+  /// True when the tool does anything to the machine at all. A control-plane
+  /// tool does not, and is therefore left out of the derived decision table
+  /// entirely: it stays at the `?? ask` fallback (and shows as such in
+  /// `/permissions`), because "touches nothing" is not the same as "safe to
+  /// run unattended" — `launch_workflow` starts an autonomous run.
+  bool get touchesTheMachine =>
+      reads != ReadScope.none ||
+      writes != WriteScope.none ||
+      spawns != SpawnScope.none ||
+      network != NetworkScope.none;
+
   /// The one-line reason this tool may be auto-approved despite escaping, or
   /// null when it does not escape.
   String? get justification => reviewed;
@@ -162,19 +180,20 @@ const Map<String, ToolCapabilities> kToolCapabilities = {
   ),
 
   // --- orchestration ----------------------------------------------------
-  'delegate': ToolCapabilities(),
-  'send': ToolCapabilities(),
-  'receive': ToolCapabilities(),
-  'close': ToolCapabilities(),
-  'ask_user': ToolCapabilities(),
-  'stop_workflow': ToolCapabilities(),
-  'launch_workflow': ToolCapabilities(),
-  'broadcast_region': ToolCapabilities(),
+  'delegate': ToolCapabilities(reads: ReadScope.none),
+  'send': ToolCapabilities(reads: ReadScope.none),
+  'receive': ToolCapabilities(reads: ReadScope.none),
+  'close': ToolCapabilities(reads: ReadScope.none),
+  'ask_user': ToolCapabilities(reads: ReadScope.none),
+  'stop_workflow': ToolCapabilities(reads: ReadScope.none),
+  'launch_workflow': ToolCapabilities(reads: ReadScope.none),
+  'broadcast_region': ToolCapabilities(reads: ReadScope.none),
   'repo_structure': ToolCapabilities(),
   'list_regions': ToolCapabilities(),
   'query_region': ToolCapabilities(),
   'read_summary': ToolCapabilities(),
-  'allocate_region': ToolCapabilities(writes: WriteScope.sidecar),
+  'allocate_region': ToolCapabilities(
+      reads: ReadScope.none, writes: WriteScope.sidecar),
   'render_image': ToolCapabilities(
     reads: ReadScope.host,
     reviewed: 'reads an image path to paint it into the panel; the bytes are '

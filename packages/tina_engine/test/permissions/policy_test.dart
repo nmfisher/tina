@@ -477,4 +477,97 @@ void main() {
           PermissionDecision.allow);
     });
   });
+
+  // The base decision table is now DERIVED from each tool's declared
+  // capabilities (see deriveToolDecision). These tests pin the derivation
+  // itself, which is the point of moving it out of a hand-written map: the
+  // contract is stated once and checked, instead of being inferred by reading
+  // the table.
+  group('deriveToolDecision', () {
+    test('a pure read of the project is the only thing allowed outright', () {
+      expect(deriveToolDecision(const ToolCapabilities()),
+          PermissionDecision.allow);
+      // A fixed program the tool assembles and fences is still a read: rg and
+          // git are read-only queries, and their spawn is contained.
+      expect(
+          deriveToolDecision(const ToolCapabilities(spawns: SpawnScope.fixed)),
+          PermissionDecision.allow);
+    });
+
+    test('each independent axis can withhold the allow on its own', () {
+      const cases = <String, ToolCapabilities>{
+        'a model-chosen program': ToolCapabilities(
+            spawns: SpawnScope.modelArgv),
+        'egress': ToolCapabilities(network: NetworkScope.egress),
+        'a host read': ToolCapabilities(reads: ReadScope.host),
+        'a project write': ToolCapabilities(writes: WriteScope.project),
+        'a sidecar write': ToolCapabilities(writes: WriteScope.sidecar),
+        'a host write': ToolCapabilities(writes: WriteScope.host),
+        // The one that used to be auto-approved by omission: a tool that
+        // touches nothing at all. Its effect is other agents, which is a
+        // decision rather than an absence of one.
+        'no machine effect': ToolCapabilities(reads: ReadScope.none),
+      };
+      cases.forEach((why, caps) {
+        expect(deriveToolDecision(caps), PermissionDecision.ask, reason: why);
+      });
+    });
+
+    test('a reviewed reason is the only route past the sandbox', () {
+      const escaping = ToolCapabilities(
+          reads: ReadScope.host, reviewed: 'states why, in a field');
+      expect(deriveToolDecision(escaping), PermissionDecision.allow);
+      expect(escaping.escapesTheSandbox, isTrue);
+      // The same declaration without the reason is asked about.
+      expect(deriveToolDecision(const ToolCapabilities(reads: ReadScope.host)),
+          PermissionDecision.ask);
+    });
+
+    test('undeclared is the worst case, so silence is never an allow', () {
+      expect(deriveToolDecision(ToolCapabilities.undeclared),
+          PermissionDecision.ask);
+      expect(capabilitiesFor('a-tool-nobody-declared'),
+          ToolCapabilities.undeclared);
+    });
+
+    test('the derived table reproduces the decisions it replaced', () {
+      // Frozen on purpose: this is the migration check for swapping a
+      // hand-written map for a derived one. If a change to a declaration moves
+      // one of these, that is a real behaviour change and belongs in a commit
+      // that says so.
+      final p = PermissionPolicy();
+      const expected = {
+        'read': PermissionDecision.allow,
+        'write': PermissionDecision.ask,
+        'edit': PermissionDecision.ask,
+        'bash': PermissionDecision.ask,
+        'exec': PermissionDecision.ask,
+        'execution_info': PermissionDecision.allow,
+        'search': PermissionDecision.allow,
+        'grep': PermissionDecision.allow,
+        'glob': PermissionDecision.allow,
+        'ls': PermissionDecision.allow,
+        'stat': PermissionDecision.allow,
+        'which': PermissionDecision.allow,
+        'fetch': PermissionDecision.ask,
+        'web_search': PermissionDecision.ask,
+        'write_summary': PermissionDecision.allow,
+        'git': PermissionDecision.allow,
+      };
+      expected.forEach((tool, decision) {
+        expect(p.check(tool, const {}), decision, reason: tool);
+      });
+    });
+
+    test('a control-plane tool stays out of the table entirely', () {
+      // Not merely `ask` in the map: absent, so `/permissions` keeps showing
+      // it as a default rather than a decision the table made, and `--yolo`
+      // owns the widening rather than a mutated map.
+      final p = PermissionPolicy();
+      expect(p.defaults.containsKey('launch_workflow'), isFalse);
+      expect(p.defaults.containsKey('delegate'), isFalse);
+      expect(p.defaults.containsKey('ask_user'), isFalse);
+      expect(p.check('launch_workflow', const {}), PermissionDecision.ask);
+    });
+  });
 }
