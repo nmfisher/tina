@@ -1,3 +1,4 @@
+import 'package:file_tree/file_tree.dart' show GitProcess;
 import 'dart:io' show Process;
 
 import 'process_registry.dart';
@@ -22,7 +23,7 @@ class RunResult {
 /// A process started via [ProcessRunner.start]. This is the slice of
 /// `dart:io`'s [Process] the streaming tools (bash, grep) depend on: live
 /// stdout/stderr byte streams, an exit-code future, and a kill handle.
-abstract class RunningProcess {
+abstract class RunningProcess implements GitProcess {
   Stream<List<int>> get stdout;
   Stream<List<int>> get stderr;
   Future<int> get exitCode;
@@ -124,8 +125,8 @@ class _IoRunningProcess implements RunningProcess {
   @override
   int get pid => _proc.pid;
   @override
-  Future<int> get exitCode =>
-      _proc.exitCode.whenComplete(() => ChildProcessRegistry.instance.untrack(pid));
+  Future<int> get exitCode => _proc.exitCode
+      .whenComplete(() => ChildProcessRegistry.instance.untrack(pid));
   @override
   bool kill({bool force = false}) => _proc.kill();
 }

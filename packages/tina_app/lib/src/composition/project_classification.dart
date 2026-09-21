@@ -115,11 +115,6 @@ String classificationReportText(ProjectClassificationReport report) {
             : 'incomplete'}: '
         '${report.executed} requests run, ${report.restored} classifications restored, ${report.reusedRequests} request checkpoints reused.',
   ];
-  if (report.discovery != null) {
-    lines.add(
-      '.::scopes: ${report.discovery!.result.value?.paths.join(', ') ?? report.discovery!.result.outcome.name}',
-    );
-  }
   for (final entry in report.records.entries) {
     final result = entry.value.result;
     lines.add(

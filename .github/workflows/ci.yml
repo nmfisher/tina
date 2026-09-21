@@ -377,3 +377,21 @@ jobs:
       - name: test (classifier)
         working-directory: packages/classifier
         run: dart test -j 4
+
+  file_tree:
+    name: file_tree (packages/file_tree)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (file_tree)
+        working-directory: packages/file_tree
+        run: dart pub get
+      - name: analyze (file_tree)
+        working-directory: packages/file_tree
+        run: dart analyze
+      - name: test (file_tree)
+        working-directory: packages/file_tree
+        run: dart test -j 4

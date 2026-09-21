@@ -5,7 +5,6 @@ import 'package:tina_engine/tina_engine.dart';
 
 import 'package:tina_app/src/session/conversation.dart';
 import 'package:tina_app/src/session/session_manager.dart';
-import 'package:tina_app/src/summaries/summary_index.dart';
 
 abstract interface class UsageCapabilities {
   Conversation get active;
@@ -60,15 +59,7 @@ abstract interface class PermissionsCapabilities {
 
 abstract interface class IndexCapabilities {
   Conversation get active;
-  SummaryIndex? get summaryIndex;
-  Future<bool> Function(String prompt)? get confirm;
   SpendLedger? get spendLedger;
-  Future<void> Function(
-    Conversation conv,
-    List<String>? dirs, {
-    bool repartition,
-  })?
-  get runBackgroundIndex;
   Future<void> Function(Conversation conv, String mode)? get runClassification;
 }
 

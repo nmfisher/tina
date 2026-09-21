@@ -5,6 +5,7 @@ version: 0.1.0
 environment:
   sdk: ^3.0.0
 dependencies:
+  file_tree: { path: ../file_tree }
   tina_index: { path: ../tina_index }
   code_assets: ^1.0.0
   ffi: ^2.1.0

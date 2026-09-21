@@ -835,19 +835,7 @@ class IndexCommands {
   final IndexCapabilities ctx;
   IndexCommands(this.ctx);
 
-  /// `/index` — refresh classifications and directory summaries.
-  /// `status` inspects both; `refresh` explicitly recomputes both.
-  ///
-  /// A pure-git probe ([SummaryIndex.status], no LLM) decides what to do:
-  /// first run → the LIVE main agent designs the region layout (a `CmdRun`
-  /// proposal turn) and the user approves it on the next `/index`; nothing
-  /// stale → report up to date and confirm before a full re-run; partly stale
-  /// → report the stale dirs and re-run just those; everything stale → index
-  /// all. The fleet runs via [SummaryIndex.refresh] (race-free
-  /// manifest+commit). Status is posted to the host as notices.
-  ///
-  /// When [CommandContext.summaryIndex] is null (no composition available),
-  /// degrades to the ad-hoc in-chat review ([_indexPrompt]).
+  /// Classify languages in the directory tree and merge findings upward.
   Future<CmdResult> _handleIndex(String input) async {
     final parts = input.trim().split(RegExp(r'\s+'));
     final mode = parts.length == 1 ? '' : parts[1];
@@ -856,10 +844,7 @@ class IndexCommands {
       return const CmdHandled();
     }
     final conversation = ctx.active;
-    // A tripped spend cap pauses every agent — /index must not be the one
-    // loophole (the fleet runs on its own ephemeral ledger, merged only after
-    // the run, so the cap itself can't stop it). Headless has no ledger and
-    // is unaffected.
+    // Classification uses the same session spending limit as other agent work.
     if (mode != 'status' && ctx.spendLedger?.tripped == true) {
       conversation.host.showMessage(
         'Token spend ceiling already tripped — /index skipped. '
@@ -868,44 +853,12 @@ class IndexCommands {
       );
       return const CmdHandled();
     }
-    await ctx.runClassification?.call(conversation, mode);
-    final idx = ctx.summaryIndex;
-    if (idx == null) {
-      if (mode == 'status') {
-        conversation.host.showMessage('Summary index unavailable.\n');
-        return const CmdHandled();
-      }
-      conversation.host.showMessage(
-        'summary sidecar unavailable; falling back to an ad-hoc review\n',
-        style: HostMessageStyle.dim,
-      );
-      return CmdRun(_indexPrompt);
+    final run = ctx.runClassification;
+    if (run == null) {
+      conversation.host.showMessage('Language index unavailable.\n');
+    } else {
+      await run(conversation, mode);
     }
-    // The TUI runs the fleet in the background (input stays live, Esc-Esc
-    // cancels); headless has no wiring and runs it inline, blocking to
-    // completion.
-    final bg = ctx.runBackgroundIndex;
-    return runIndexDance(
-      host: conversation.host,
-      summaryIndex: idx,
-      mode: mode,
-      confirm: ctx.confirm,
-      refreshFn: bg == null
-          ? null
-          : ({bool repartition = false, List<String>? dirs}) {
-              bg(conversation, dirs, repartition: repartition);
-              return Future<SummaryIndexResult?>.value();
-            },
-    );
+    return const CmdHandled();
   }
-
-  /// The fixed prompt `/index` injects into the active conversation when the
-  /// sidecar service is unavailable (degraded mode). The main agent reviews the
-  /// repo structure and delegates (at most 2) sub-agents to summarize areas —
-  /// reusing the normal `delegate` flow, no sidecar wiring. The "at most 2" cap
-  /// is enforced by instruction, not structurally.
-  static const _indexPrompt = '''
-Review the structure of this repository. Identify its main areas / subsystems, then spawn AT MOST 2 sub-agents (via `delegate`) — each summarizing one area of the repo you choose. Keep the partition to two areas or fewer.
-
-Each sub-agent should report a concise summary of what its area does, its key types/functions, and how it fits with the rest of the repo. Cite concrete file paths. Do not summarize more than two areas.''';
 }

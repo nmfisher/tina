@@ -11,7 +11,6 @@ import 'package:tina/composition/models_dev_seed.dart';
 import 'package:tina/logging.dart';
 
 import 'package:tina/host/headless_watchdog.dart';
-import 'package:tina/session_commands/session_command_handlers.dart';
 import 'package:tina/session_commands/startup_session_picker.dart';
 
 import 'package:tina_engine/tina_engine.dart';
@@ -478,8 +477,8 @@ Future<void> _runNonInteractive(
       return;
     }
 
-    // Headless indexing runs classification and the summary workflow inline.
-    // Status performs no model calls; Ctrl+C reaches either execution stage.
+    // Headless /index runs only the language classifier and tree reduction.
+    // Status performs no model calls; Ctrl+C cancels pending classification.
     final prompt = startup.prompt?.trim() ?? '';
     if (prompt == '/index' || prompt.startsWith('/index ')) {
       final parts = prompt.split(RegExp(r'\s+'));
@@ -499,25 +498,6 @@ Future<void> _runNonInteractive(
         );
         host.showMessage(classificationReportText(report));
         if (report.cancelled || report.failures.isNotEmpty) exitCode = 1;
-        if (!cancelled.isCompleted) {
-          // Reuse the approved allocation layout from interactive sessions.
-          final idx = buildSummaryIndex(
-            config: app.config,
-            registry: app.registry,
-            environment: app.environment,
-            toolScope: app.pipeline.tools,
-            promptContext: app.pipeline.promptContext,
-            projectRoot: Directory.current.path,
-            allocations: AllocationsStore.forProject(Directory.current.path),
-          );
-          await runIndexDance(
-            host: host,
-            summaryIndex: idx,
-            confirm: null,
-            mode: mode,
-            cancelSignal: cancelled.future,
-          );
-        }
         if (cancelled.isCompleted) exitCode = 1;
       } catch (e) {
         host.showMessage(

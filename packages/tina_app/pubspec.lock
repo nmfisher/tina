@@ -127,6 +127,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "7.0.1"
+  file_tree:
+    dependency: "direct main"
+    description:
+      path: "../file_tree"
+      relative: true
+    source: path
+    version: "0.1.0"
   frontend_server_client:
     dependency: transitive
     description:

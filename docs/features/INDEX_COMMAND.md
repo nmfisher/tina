@@ -1,145 +1,35 @@
-# The `/index` command
+# /index
 
-`/index` maintains project classifications and a **per-directory summary index**
-of your repository. Classifications describe the languages, frameworks, build
-systems, test systems and target platforms used by each project scope. For every
-folder it watches, tina writes a short, plain-language summary of what lives
-there — the major types, the entry points, how the pieces
-fit together. Those summaries power the **region agents**: instead of asking the
-main agent to re-read the whole repo every time, tina can route a scoped
-question to a small, fast agent that already knows one area cold.
+`/index` classifies programming languages in the project directory tree. It does
+not create summaries, propose regions, run setup, or classify frameworks, build
+systems, test systems, or target platforms.
 
-## What gets indexed
+1. Discover directories down to the leaves using the source's file inventory.
+2. Use the language classifier to classify each directory's direct files.
+   Independent directories can run in parallel. Files directly in parent
+   directories are included too.
+3. Walk back up the tree, merging each node's findings with its children's
+   language results. Merging adds no new language guesses.
+4. Save local and merged results in `.tina/classifications`.
 
-On a normal (TUI) session the **first** `/index` asks the main agent to design
-the layout: it reviews your folder structure and decides which folders deserve
-their own summary — skipping trivial ones, merging closely-related ones, splitting
-large dense ones. Whatever it proposes becomes **the partition**: from then on,
-`/index` indexes exactly those folders and nothing else.
+Unchanged classifications restore from disk. If `docs/user` changes, only its
+local classifier reruns; `docs/dev` remains reusable. Changed findings propagate
+through `docs` to the root. If the consumed output is unchanged, propagation
+stops. Failed children block their ancestors; incomplete coverage stays visible.
 
-When you never propose a layout (for example, a headless run, or if the proposal
-turn allocated nothing), tina falls back to a deterministic **default partition**:
+- `/index`: restore current results and classify missing or stale inputs.
+- `/index status`: validate saved results without model calls or writes.
+- `/index refresh`: rerun language classification and rebuild merged results.
 
-- every top-level directory (except `.dart_tool`, `build`, `dist`, and hidden
-  folders), plus
-- every `packages/*/lib` directory.
+Double-Esc cancels interactive work and releases input. Headless Ctrl+C cancels
+the same workflow. Completed checkpoints survive cancellation. Headless runs
+with missing, failed or incomplete results exit nonzero.
 
-Once any layout has been approved, it **replaces** the default — the default
-partition is only used until you propose something.
+The default source supplies filenames and selected manifest contents, applies
+Git ignores and collection exclusions, and requires a Git repository. It does
+not read every source file's contents. Input selection and freshness are source
+policy; only the classifier decides the language labels.
 
-## Using `/index` in the REPL
-
-Type `/index` and press enter. Tina restores current classifications and runs
-missing or stale classification tasks. For summaries, it probes the repository
-with plain `git` and acts on one of four states:
-
-| State | What `/index` does |
-|-------|--------------------|
-| **First run** | The main agent designs the region layout (a proposal turn). Run `/index` again to approve it and generate the summaries. |
-| **Everything stale** | Re-summaries all watched folders. |
-| **Partly stale** | Reports which folders drifted and re-summaries *only* those. |
-| **Up to date** | Reports "up to date" and asks before re-running everything. |
-
-`/index status` reports summary staleness and checks saved classifications without
-model calls, writes, or layout prompts. It remains available when the spend cap
-is tripped. `/index refresh` explicitly recomputes classifications and all
-summaries using the current allocation layout, without a confirmation prompt.
-
-### The first-run flow
-
-1. You run `/index`. tina says it has no index yet and hands the main agent a
-   **proposal turn**.
-2. The main agent inspects the repo and calls `allocate_region` for each folder
-   it wants summarized, then reports the proposed layout.
-3. You run `/index` **again**. tina shows the proposed regions and asks
-   **"Summarize the N proposed regions? [y/N]"**.
-4. You approve → the fleet generates the summaries. Decline → no summaries are written.
-   Classification runs independently of summary layout approval.
-
-If a proposal turn runs but allocates nothing (the agent found nothing worth
-indexing, or every region was later deleted), tina does **not** loop forever.
-The next `/index` offers to index the default partition instead — **[y/N]**.
-
-### Staleness (how tina knows what changed)
-
-A folder is considered **stale** when either:
-
-- its committed tree changed (`git` sees a different tree at `HEAD`), **or**
-- its working tree changed — an edit, a new untracked file, or a staged change
-  inside that folder, even if you have not committed yet.
-
-So you do not have to commit before re-indexing: edit a file, run `/index`, and
-that folder gets refreshed. Commit it afterward and it becomes stale again, so a
-later `/index` keeps the summary in step with `HEAD`.
-
-> Note: staleness tracks the **set of changed files** in a folder, not the exact
-> bytes of already-dirty content. Re-editing a file you have not committed since
-> the last index will not by itself re-trigger a re-summary until the set of
-> changed files changes (a new untracked file, a new modification, or a commit).
-
-## It runs in the background
-
-In the TUI, `/index` launches the summarization fleet and **returns immediately**.
-Your input stays live — you can keep chatting, ask questions, or scroll while the
-summaries are generated. Progress and the final "Indexed N directories" notice
-stream into the chat.
-
-- **Cancel:** press **Esc** twice (Esc-Esc) to cancel an in-flight index. The
-  first Esc arms the cancel; the second confirms it.
-- **Concurrent runs:** starting a second `/index` while one is already running
-  warns you it is busy and does not launch a second fleet.
-
-## Spend cap
-
-`/index` uses tokens (it spins up summarizer agents). If your session's token
-spend ceiling has already been tripped, `/index` refuses to run and tells you to
-raise the cap (or check `/spend`) first — it will not be the one loophole around
-the limit.
-
-## Headless / non-interactive use
-
-To index once and exit — useful in CI or a script — pass the command as a prompt:
-
-```sh
-tina --prompt /index
-```
-
-There is no interactive main agent here, so the **default partition** is used
-(unless you already approved a layout in a previous TUI session, in which case
-that layout is reused). The run blocks until the summaries are written and prints
-its "Indexed N directories" result before exiting. There is no background mode
-and Ctrl+C cancels the active work.
-
-## Where the summaries live
-
-`/index` stores everything in a **separate git repository** at
-`.tina/summaries` inside your project:
-
-- `manifest.json` — the index: one entry per watched folder recording the commit
-  it was summarized at, the tree hash, and the summary file.
-- `<folder>.md` — the human-readable summary for each folder (folder names are
-  URL-encoded, e.g. `packages/foo/lib` → `packages%2Ffoo%2Flib.md`).
-- `allocations.json` — your approved region layout (the partition).
-
-The summaries repo is independent of your project's history, so indexing never
-pollutes your commits. Removing a watched folder from disk marks its summary for
-deletion on the next `/index`.
-
-## Region agents: the payoff
-
-Once summaries exist, the main agent can spin up a **region agent** for any
-watched folder — a small, fast agent pre-loaded with that folder's summary (at
-session start, with zero extra LLM calls) and able to answer questions scoped to
-that area:
-
-- `query_region` — ask one region a question.
-- `broadcast_region` — ask every region at once (e.g. "which part owns auth?").
-- `list_regions` / `read_summary` — see what is indexed and the stale state.
-- `allocate_region` / `forget_region` — grow or shrink your layout; the change
-  takes effect on the next `/index`.
-
-If a region's underlying code has drifted, `list_regions` flags it stale so you
-know to run `/index` before trusting its summary.
-
-Classifications are stored separately in `.tina/classifications`; see
-[Project classification](project_classification.md) for source and cache details.
+See [project classification](project_classification.md) for limits and storage,
+[classifier](../../packages/classifier/README.md) for the generic tree API, and
+[file_tree](../../packages/file_tree/README.md) for shared filesystem machinery.

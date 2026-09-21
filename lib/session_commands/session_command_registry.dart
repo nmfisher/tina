@@ -212,7 +212,7 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
   SessionCommandEntry(
     names: const ['/index'],
     argsHint: '[status|refresh]',
-    summary: 'refresh project classifications and directory summaries',
+    summary: 'classify languages and merge directory results',
     helpOrder: 8,
     handler: (h, t) => h.index._handleIndex(t),
   ),

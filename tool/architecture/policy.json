@@ -7,7 +7,8 @@
     "tina_index",
     "attractor",
     "fuzzy_ranker",
-    "classifier"
+    "classifier",
+    "file_tree"
   ],
   "vendoredPackages": [
     "dart_notcurses"
@@ -50,6 +51,10 @@
       "test"
     ],
     "classifier": [
+      "lib",
+      "test"
+    ],
+    "file_tree": [
       "lib",
       "test"
     ]
@@ -140,7 +145,8 @@
     "packages/classifier/lib/src/classification/planning.dart",
     "packages/tina_app/lib/src/classification/project_classifiers.dart",
     "packages/tina_app/lib/src/classification/project_classification_workflow.dart",
-    "packages/tina_app/lib/src/classification/repository_text_source.dart"
+    "packages/tina_app/lib/src/classification/repository_text_source.dart",
+    "packages/classifier/lib/src/classification/tree.dart"
   ],
   "baseline": "baseline.json",
   "excludedRoots": {

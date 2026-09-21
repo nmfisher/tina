@@ -73,34 +73,20 @@ layout = "sidebar"
 
 The `--layout` option overrides the saved preference.
 
-On first load, Tina offers to have the main agent set up the project and write
-`.tina/ENVIRONMENT.md`. It uses the main conversation's current model, history,
-tools, and approvals, and decides whether and how many sub-agents to delegate
-to within the configured limits. Ctrl+C cancels the task.
-
-Environment setup begins with an enforced inspection phase: the main agent uses
-read/list/search tools and can delegate read-only scouts. Bash, file edits, and
-workflow launches are blocked during inspection. After inspecting the repo,
-the main agent calls `begin_environment_execution` with its findings and setup,
-build, and test commands. This needs no confirmation; it enables the normal
-tools on the next step, with normal command/write approvals. The main agent
-keeps ownership throughout, and the phase restriction ends with that turn.
-
 `read-all` mode blocks shell commands, file edits, workflow launches, and
 full-access delegation without an approval prompt, including previously allowed
 commands. Switch modes to enable execution. Dedicated inspection tools remain
 available. Mode changes also apply to delegated agents and workflow nodes.
-Tool schemas and the system prompt stay unchanged across mode and environment
-phase changes; mode notices are appended to the conversation to preserve earlier
+Tool schemas and the system prompt stay unchanged across mode changes; mode notices are appended to the conversation to preserve earlier
 request prefixes for prompt caching.
 
-Set `[environment] auto_populate` to `"ask"` (default), `"always"`, or `"never"`
-to control that startup behavior. The former `[environment] model` setting is
-ignored. `/index` requests setup in the main conversation when the record is
-missing or stale; run `/index` again afterward for directory summaries.
-
-Tina marks the record verified only after a completed setup turn creates or
-updates the file. Cancelled, failed, or prose-only attempts remain unverified.
+`/index` classifies programming languages only. It visits the directory tree,
+classifies each directory's own files, and merges the findings up to the project
+root. Unchanged results are restored from `.tina/classifications`; changed
+branches are recomputed without reclassifying their siblings. `/index status`
+checks saved results without model calls; `/index refresh` recomputes them.
+Language decisions come from the classifier. Indexing does not generate region
+summaries or launch a setup conversation.
 
 ## Running inside tmux
 

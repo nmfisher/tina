@@ -23,15 +23,10 @@ class ClassifierProvider extends LlmProvider {
             id: 'submit',
             name: 'submit_classification',
             input: {
-              'outcome': system.contains('scope_classifier')
-                  ? 'classified'
-                  : 'unknown',
-              'value': system.contains('scope_classifier')
-                  ? {'paths': <String>[]}
-                  : null,
+              'outcome': 'unknown',
+              'value': null,
               'evidence': <String>[],
-              'explanation':
-                  'No nested scopes; insufficient evidence for other dimensions.',
+              'explanation': 'Insufficient evidence for this dimension.',
             },
           ),
         ],
@@ -95,8 +90,8 @@ void main() {
       final baseline = created.length;
       final result = await runProjectClassification(first);
       expect(result.failures, isEmpty);
-      expect(result.executed, 6);
-      expect(created.skip(baseline), hasLength(6));
+      expect(result.executed, 1);
+      expect(created.skip(baseline), hasLength(1));
       expect(
         created.skip(baseline).every((p) => p.closed && p.calls == 1),
         isTrue,
@@ -106,12 +101,12 @@ void main() {
       addTearDown(second.dispose);
       final beforeRestore = created.length;
       final restored = await runProjectClassification(second, mode: 'status');
-      expect(restored.restored, 6);
+      expect(restored.restored, 2);
       expect(restored.executed, 0);
       expect(created.length, beforeRestore);
       expect(
         classificationReportText(restored),
-        contains('6 classifications restored'),
+        contains('2 classifications restored'),
       );
     },
   );

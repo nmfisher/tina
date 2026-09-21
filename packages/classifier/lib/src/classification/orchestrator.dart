@@ -10,6 +10,8 @@ import 'models.dart';
 import 'planning.dart';
 import 'store.dart';
 
+part 'tree.dart';
+
 class ClassificationTask<I, O> {
   final String key;
   final SourceRequest request;

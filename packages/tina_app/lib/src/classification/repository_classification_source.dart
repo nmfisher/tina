@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_tree/file_tree.dart' as tree;
+
 import 'repository_evidence.dart';
 import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
@@ -49,17 +51,12 @@ class RepositoryEvidenceReader {
         !name.startsWith('credentials');
   }
 
-  Future<void> _safe(String relative) async {
-    await sandbox.validatePath(p.join(root, relative));
-    var current = root;
-    for (final part in relative.split('/')) {
-      current = p.join(current, part);
-      if (await FileSystemEntity.type(current, followLinks: false) ==
-          FileSystemEntityType.link) {
-        throw StateError('Evidence path contains a symlink');
-      }
-    }
-  }
+  Future<tree.Snapshot> scan() => tree.scan(
+    list: () async =>
+        (await observe(EvidenceQuery(EvidenceKind.listing, '.'))).value
+            as List<String>,
+    maxFiles: 20000,
+  );
 
   Future<EvidenceRead> observe(EvidenceQuery query) async {
     if (policy?.check(query.kind == EvidenceKind.file ? 'read' : 'glob', {
@@ -70,7 +67,10 @@ class RepositoryEvidenceReader {
     }
     await sandbox.validatePath(root);
     if (query.kind == EvidenceKind.listing) {
-      final listing = await enumerator.enumerate(root);
+      // Leaf freshness checks list only that subtree, not the whole repository.
+      final directory = p.join(root, query.path);
+      await sandbox.validatePath(directory);
+      final listing = await enumerator.enumerate(directory);
       if (listing.status != GitListingStatus.completed ||
           listing.gaps.isNotEmpty) {
         throw StateError(
@@ -81,10 +81,12 @@ class RepositoryEvidenceReader {
       // tree. They must disappear from our inventory so filename-based and
       // negative classifications invalidate on deletion as well as addition.
       final candidates = listing.paths
+          .map((path) => query.path == '.' ? path : '${query.path}/$path')
           .where(
             (path) =>
                 _eligible(path) &&
                 insideScope(path, query.path) &&
+                (!query.directOnly || tree.parent(path) == query.path) &&
                 !query.excludedScopes.any((s) => insideScope(path, s)),
           )
           .toList();
@@ -105,33 +107,15 @@ class RepositoryEvidenceReader {
     }
     if (!_eligible(query.path))
       throw StateError('Evidence path excluded by collection policy');
-    await _safe(query.path);
-    final file = File(p.join(root, query.path));
-    final type = await FileSystemEntity.type(file.path, followLinks: false);
-    if (type == FileSystemEntityType.notFound) return EvidenceRead(null);
-    if (type != FileSystemEntityType.file)
-      throw StateError('Evidence must be a regular file');
-    final before = await file.stat();
-    const maxBytes = 128 * 1024;
-    if (before.size > maxBytes)
-      throw StateError('Evidence file exceeds 128 KiB');
-    final handle = await file.open();
-    try {
-      final bytes = await handle.read(maxBytes + 1);
-      final after = await file.stat();
-      await _safe(query.path);
-      if (bytes.length > maxBytes ||
-          before.size != after.size ||
-          before.modified != after.modified ||
-          before.changed != after.changed) {
-        throw StateError('Evidence changed or exceeded the read limit');
-      }
-      final text = utf8.decode(bytes);
-      if (text.contains('\u0000'))
-        throw StateError('Binary evidence is unsupported');
-      return EvidenceRead(text);
-    } finally {
-      await handle.close();
-    }
+    final bytes = await tree.readFile(
+      root,
+      query.path,
+      validate: sandbox.validatePath,
+    );
+    if (bytes == null) return EvidenceRead(null);
+    final text = utf8.decode(bytes);
+    if (text.contains('\u0000'))
+      throw StateError('Binary evidence is unsupported');
+    return EvidenceRead(text);
   }
 }

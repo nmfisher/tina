@@ -333,40 +333,6 @@ Future<void> main() async {
     });
   });
 
-  group('SessionCommandHandlers /index', () {
-    late FakeHostInterface host;
-    late FakeProvider provider;
-    late Conversation conv;
-
-    setUp(() {
-      host = FakeHostInterface();
-      provider = FakeProvider.always(model: 'test-model');
-      conv = Conversation(
-        id: 'test-conv',
-        label: 'test-model',
-        agent: _fakeAgent(provider, host),
-        provider: provider,
-        host: host,
-        policy: PermissionPolicy(),
-      );
-    });
-
-    test('dispatches a CmdRun carrying the index prompt (not handled)', () async {
-      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
-      final result = await handlers.dispatch('/index');
-      expect(result, isA<CmdRun>());
-      final run = result as CmdRun;
-      // The prompt instructs a review + ≤2 delegations via `delegate`.
-      expect(run.prompt, contains('AT MOST 2'));
-      expect(run.prompt.toLowerCase(), contains('delegate'));
-      expect(run.prompt, contains('repository'));
-    });
-
-    test('is a recognized command (in allCommands)', () {
-      expect(SessionCommandHandlers.allCommands, contains('/index'));
-    });
-  });
-
   group('SessionCommandHandlers /spend', () {
     late FakeHostInterface host;
     late FakeProvider provider;

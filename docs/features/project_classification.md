@@ -1,16 +1,15 @@
 # Project classification
 
-`/index` discovers project scopes and classifies programming languages,
-frameworks, build systems, test systems and target platforms. `/index status`
-validates/restores saved results without model calls or writes. `/index refresh`
-reruns all work. The same commands work with `tina --prompt`; incomplete headless
-runs exit nonzero. TUI double-Esc and headless Ctrl+C cancel. Nothing runs on
-startup. The same `/index` invocation also maintains directory summaries;
-see [the index command](INDEX_COMMAND.md).
+`/index` classifies programming languages only, from the leaves of the directory
+tree back to the root. `/index status` validates/restores saved results without
+model calls or writes. `/index refresh` reruns classification. The same commands
+work with `tina --prompt`; incomplete headless runs exit nonzero. TUI double-Esc
+and headless Ctrl+C cancel. Nothing runs on startup. Indexing does not launch
+summary agents, region-layout proposals, setup, or other project classifiers.
 
 The reusable API is documented in [classifier](../../packages/classifier/README.md).
 The project feature is an application recipe built on that API. Paths, repository
-queries, scope discovery, label types and built-in classifier definitions live in
+queries, directory discovery, label types and the language classifier live in
 `packages/tina_app/lib/src/classification`. The generic classifier package has no
 knowledge of programming languages, files, paths or a mandatory discovery phase.
 
@@ -45,19 +44,22 @@ This implementation requires a Git repository.
 
 ## Classification and hierarchy
 
-The scope agent returns `ProjectScopes`. Each discovered scope records its
-nearest parent; child scopes are excluded from the parent's own source view.
-The remaining agents return `ProjectLabels`. Their dependency graph is:
+The source builds a directory tree from its complete Git file inventory using
+`file_tree`. Each directory has a stable relative-path key. A directory's own
+input contains only its direct files; child files belong to the child node.
+Empty directories are not inferred from Git's file inventory.
 
-```mermaid
-flowchart TD
-  language --> framework
-  language --> build_system
-  framework --> test_system
-  build_system --> test_system
-  framework --> target_platform
-  build_system --> target_platform
-```
+The language classifier returns `ProjectLabels` with evidence citations.
+Independent local jobs run in parallel. Starting at the leaves, `LanguageMerge`
+unions the supported language labels from the node's own result and its children.
+This code does not infer languages from extensions or content. Unknown results
+do not establish absence, and incomplete coverage propagates to parents. No
+local model call is made for a node with no direct files.
+
+For example, editing selected input under `docs/user` invalidates that local
+classification. `docs/dev`, `src` and `test` retain their results. If the output
+changes, `docs/user`, `docs` and the root merge again. If the classifier returns
+the same result, evidence and coverage, ancestors restore unchanged.
 
 The source prepares evidence; agents interpret it. The generic engine adapter
 receives typed prepared input and advertises only `submit_classification`, whose
@@ -93,11 +95,14 @@ provider credentials and agent transcripts are not stored; endpoint identity is
 hashed.
 
 Restoration checks source freshness, contract/encoder/splitter/plan/agent/model
-identities, budget configuration and prerequisite record identities. Relevant
-changes invalidate dependent work; independent branches remain reusable.
-Interrupted chunked work resumes from matching request checkpoints. Source
-changes during execution prevent final publication. Incomplete discovery does
-not delete previously known scopes. Old immutable records are retained; GC is
+identities, budget configuration and consumed results. Local and aggregate results are
+separate: `docs/user::language::local` and `docs/user::language`. Parent receipts
+persist child keys and hashes of result/evidence/coverage, excluding storage IDs.
+Relevant changes invalidate dependent work; independent branches remain reusable.
+Interrupted chunked work resumes from matching request checkpoints. Locals check source freshness before publication; the completed tree checks
+membership and all local receipts again before returning current aggregates.
+Incomplete discovery does not delete previously known nodes. Successful runs
+retire pointers for deleted nodes and the removed non-language tasks. Old immutable records are retained; GC is
 deferred. Old v1 records are cache misses under the new v2 schema.
 
 The old environment workflow, startup setup prompt, `ENVIRONMENT.md` injection

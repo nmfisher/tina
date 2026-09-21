@@ -1,7 +1,5 @@
 import 'package:classifier/classification.dart';
 
-import 'repository_evidence.dart';
-
 class ProjectLabel {
   final String value;
   final List<String> evidence;
@@ -24,16 +22,6 @@ class ProjectLabels {
         this.labels.map((l) => l.value).toSet().length != this.labels.length) {
       throw const FormatException('Invalid project label set');
     }
-  }
-}
-
-class ProjectScopes {
-  final List<String> paths;
-  ProjectScopes(Iterable<String> paths) : paths = List.unmodifiable(paths) {
-    if (this.paths.length > 255 ||
-        this.paths.toSet().length != this.paths.length ||
-        this.paths.any((p) => !validProjectPath(p, root: false)))
-      throw const FormatException('Invalid project scopes');
   }
 }
 
@@ -74,90 +62,25 @@ final projectLabelsContract = DataContract<ProjectLabels>(
     }),
   ),
 );
-final projectScopesContract = DataContract<ProjectScopes>(
-  id: 'tina.project_scopes',
-  schema: {
-    'type': 'object',
-    'properties': {
-      'paths': {
-        'type': 'array',
-        'maxItems': 255,
-        'items': {'type': 'string'},
-      },
-    },
-    'required': ['paths'],
-    'additionalProperties': false,
-  },
-  encode: (v) => {'paths': v.paths},
-  decode: (v) => ProjectScopes((jsonObject(v)['paths'] as List).cast<String>()),
-);
-
-class ProjectClassifier {
-  final String id;
-  final List<String> requires;
-  final ClassifierDefinition<TextEvidence, ProjectLabels> definition;
-  ProjectClassifier(this.id, String instructions, {this.requires = const []})
-    : definition = ClassifierDefinition(
-        id: id,
-        agentType: '${id}_classifier',
-        instructions: instructions,
-        input: textEvidenceContract,
-        output: projectLabelsContract,
-        validateValue: (value, evidence) {
-          if (value.labels.any(
-            (l) => l.evidence.any((id) => !evidence.contains(id)),
-          )) {
-            throw const FormatException(
-              'Labels must cite the submitted evidence',
-            );
-          }
-        },
-      );
-}
-
-final scopeClassifier = ClassifierDefinition<TextEvidence, ProjectScopes>(
-  id: 'scopes',
-  agentType: 'scope_classifier',
-  input: textEvidenceContract,
-  output: projectScopesContract,
+final languageClassifier = ClassifierDefinition<TextEvidence, ProjectLabels>(
+  id: 'language',
+  agentType: 'language_classifier',
   instructions:
-      'Discover independently meaningful packages, applications, services and libraries from the supplied evidence. '
-      'Return repository-relative directory paths in paths, excluding the implicit root. '
-      'Do not create scopes for ordinary source folders, generated code, fixtures or vendored dependencies. '
-      'A repository without nested packages has an empty paths list. Use unknown if the supplied evidence cannot establish boundaries.',
+      'Identify all programming languages used by the supplied files. '
+      'Distinguish source languages from dependency implementation languages; '
+      'exclude generated and vendored code. Classify only from supplied evidence.',
+  input: textEvidenceContract,
+  output: projectLabelsContract,
+  validateValue: (value, evidence) {
+    if (value.labels.any(
+      (label) => label.evidence.any((id) => !evidence.contains(id)),
+    )) {
+      throw const FormatException('Labels must cite the submitted evidence');
+    }
+  },
 );
-final projectClassifiers = <ProjectClassifier>[
-  ProjectClassifier(
-    'language',
-    'Identify all programming languages used by this scope. '
-        'Distinguish source languages from dependency implementation languages; exclude generated and vendored code.',
-  ),
-  ProjectClassifier(
-    'framework',
-    'Identify application/library frameworks used by this scope. '
-        'Use dependency, configuration and source evidence; a language alone does not establish a framework.',
-    requires: ['language'],
-  ),
-  ProjectClassifier(
-    'build_system',
-    'Identify build and package-management systems configured for this scope from supplied evidence.',
-    requires: ['language'],
-  ),
-  ProjectClassifier(
-    'test_system',
-    'Identify test frameworks and runners configured for this scope. Do not claim a passing test baseline.',
-    requires: ['framework', 'build_system'],
-  ),
-  ProjectClassifier(
-    'target_platform',
-    'Identify actually configured target platforms, such as android, ios, web, linux, macos, windows, server or embedded. '
-        'A framework supporting a platform does not establish that this project targets it.',
-    requires: ['framework', 'build_system'],
-  ),
-];
 
-/// Aggregation is application policy. In particular, targets and frameworks are
-/// not inferred from language alone and unknown chunks do not prove absence.
+/// Large input sets use the shared chunking plan; unknown chunks do not prove absence.
 ClassificationPlan<TextEvidence, O> projectClassificationPlan<O>(
   ClassifierDefinition<TextEvidence, O> direct,
 ) {
@@ -198,3 +121,65 @@ ClassificationPlan<TextEvidence, O> projectClassificationPlan<O>(
     ),
   );
 }
+
+/// Language aggregation is a union of classifier findings. This reducer never
+/// infers a language from filenames or content; only the classifier does that.
+class LanguageMerge
+    implements ClassificationPlan<Part<ProjectLabels>, ProjectLabels> {
+  LanguageMerge();
+  @override
+  Object get identity => {'id': 'tina.language_merge', 'revision': 1};
+  @override
+  DataContract<Part<ProjectLabels>> get input =>
+      partContract(projectLabelsContract);
+  @override
+  DataContract<ProjectLabels> get output => projectLabelsContract;
+  @override
+  Future<ClassificationResult<ProjectLabels>> run(
+    SourceSnapshot<Part<ProjectLabels>> snapshot,
+    Map<String, Object?> upstream,
+    ClassificationDispatcher dispatcher,
+  ) async {
+    final parts = snapshot.units.map((unit) => unit.value).toList();
+    final labels = <String, Set<String>>{};
+    for (final part in parts) {
+      for (final label in part.result.value?.labels ?? <ProjectLabel>[]) {
+        (labels[label.value] ??= {}).addAll(label.evidence);
+      }
+    }
+    final names = labels.keys.toList()..sort();
+    if (names.isNotEmpty) {
+      return ClassificationResult(
+        outcome: ClassificationOutcome.classified,
+        value: ProjectLabels([
+          for (final name in names)
+            ProjectLabel(name, labels[name]!.toList()..sort()),
+        ]),
+        evidence: labels.values.expand((ids) => ids).toSet().toList()..sort(),
+        explanation:
+            'Supported language findings from this node and its children. Unknown parts do not establish absence.',
+      );
+    }
+    final absent =
+        parts.isNotEmpty &&
+        snapshot.coverage.complete &&
+        parts.every(
+          (part) => part.result.outcome == ClassificationOutcome.notApplicable,
+        );
+    return ClassificationResult(
+      outcome: absent
+          ? ClassificationOutcome.notApplicable
+          : ClassificationOutcome.unknown,
+      explanation: absent
+          ? 'No applicable language findings in any part.'
+          : 'No supported language findings; absence is not established.',
+    );
+  }
+}
+
+TreePlan<TextEvidence, ProjectLabels> languageTreePlan() => TreePlan(
+  id: 'language',
+  output: projectLabelsContract,
+  local: (_) => projectClassificationPlan(languageClassifier),
+  merge: (_) => LanguageMerge(),
+);

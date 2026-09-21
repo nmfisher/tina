@@ -30,7 +30,7 @@ class RepositoryTextEncoder
 
 /// Selection and formatting belong to this source adapter. The classifier sees
 /// only the TextEvidence contract. A filename-only projection never reads files.
-class RepositoryTextSource implements ClassificationSource<TextEvidence> {
+class RepositoryTextSource implements TreeSource<TextEvidence> {
   final RepositoryEvidenceReader reader;
   final RepositoryProjection projection;
   final InputEncoder<RepositoryDocument, TextEvidence> encoder;
@@ -64,7 +64,7 @@ class RepositoryTextSource implements ClassificationSource<TextEvidence> {
   @override
   Object get identity => {
     'id': 'tina.repository_source',
-    'revision': 2,
+    'revision': 3,
     'projection': projection.name,
     'encoder': encoder.identity,
     'content_names': contentNames.toList()..sort(),
@@ -73,6 +73,38 @@ class RepositoryTextSource implements ClassificationSource<TextEvidence> {
     'max_content_bytes': maxContentBytes,
     'splitter': const TextInputSplitter().identity,
   };
+
+  @override
+  Future<TreeSnapshot> tree(
+    SourceRequest request,
+    JudgmentCancellation cancellation,
+  ) async {
+    if (request.subject != '.') throw ArgumentError('Project tree starts at .');
+    if (cancellation.isCancelled) throw StateError('Classification cancelled');
+    final view = await reader.scan();
+    return TreeSnapshot('.', [
+      for (final entry in view.entries.values)
+        if (entry.directory)
+          Node(
+            entry.path,
+            input: entry.children.any((key) => !view.entries[key]!.directory)
+                ? SourceRequest(entry.path, parameters: {'direct_only': true})
+                : null,
+            children: entry.children.where(
+              (key) => view.entries[key]!.directory,
+            ),
+          ),
+    ], SourceRevision({'names': view.root.names}));
+  }
+
+  @override
+  Future<bool> isTreeCurrent(
+    SourceRevision revision,
+    JudgmentCancellation cancellation,
+  ) async {
+    if (cancellation.isCancelled) return false;
+    return (await reader.scan()).root.names == revision.receipt['names'];
+  }
 
   Future<Map<String, Object?>> _observe(EvidenceQuery query) async {
     try {
@@ -103,6 +135,7 @@ class RepositoryTextSource implements ClassificationSource<TextEvidence> {
       EvidenceKind.listing,
       request.subject,
       excludedScopes: excluded,
+      directOnly: request.parameters['direct_only'] == true,
     );
     final inventory = await _observe(query);
     if (inventory.containsKey('error'))

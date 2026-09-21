@@ -75,6 +75,54 @@ session. Discovery of entities or a hierarchy is an application phase, not a
 mandatory feature of the scheduler. Direct concurrent calls to `classify` obey
 the same global executor concurrency limit as graph jobs.
 
+## Trees
+
+`TreeSource<I>` adds tree discovery and membership freshness to an ordinary
+source. It returns a `TreeSnapshot` containing `Node`s. Each node has a stable
+key, an optional request for its own input, and child keys. Keys need not be
+filesystem paths; `::` is reserved for readable cache keys. Discovery must fail
+on an incomplete inventory instead of silently omitting children.
+
+`TreePlan<I, O>` supplies two plan factories: `local` classifies a node's own
+input, and `merge` reduces `Part<O>` values from that local result and the
+children. Each part contains its key, result (including evidence), and coverage.
+Factories can choose different classifiers at different nodes. A merge can be
+code-only or use `ChunkedClassificationPlan`; the package assumes no reduction
+rule. A node with no own input skips local classification.
+
+```dart
+final report = await orchestrator.run((session) => session.runTree(
+  source: source,
+  request: SourceRequest('catalog'),
+  plan: TreePlan(
+    id: 'category',
+    output: categoryContract,
+    local: (node) => localPlan,
+    merge: (node) => mergePlan,
+  ),
+));
+```
+
+The scheduler runs independent locals in parallel, then merges from leaves to
+root. It shares the session's cancellation, call limits and request checkpoints.
+Local and aggregate results have separate keys, such as `docs/user::category::local`
+and `docs/user::category`. Parent receipts store child keys and hashes of exactly
+the parts consumed. They do not depend on child storage IDs or raw input receipts.
+If new input produces the same result, evidence and coverage, propagation stops.
+
+Restoration discovers the current tree and checks each source receipt. Additions,
+removals and moves change parent membership. Failed children block their parents;
+incomplete coverage propagates through merges. Membership and completed locals
+are checked again before returning results, so a change during another branch's
+execution cannot be reported as a current aggregate. Completed checkpoints still
+survive a failure or cancellation. Applications can retire old task pointers with
+`retainTasks(plan.keys(tree))` after successful discovery and validation.
+
+Tina's `/index` uses directory nodes, classifies programming languages only, and
+merges supported language labels by union. Input selection stays in its source:
+by default it supplies filenames and selected manifest contents. A complete
+result covers that projection, not a read of every file's content.
+
 ## Restore and implementation contracts
 
 Sources must include collector/selection/encoder configuration and revisions in

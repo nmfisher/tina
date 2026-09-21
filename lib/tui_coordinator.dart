@@ -2224,10 +2224,8 @@ class TuiCoordinator {
       coordinator._tmux = tmux;
       coordinator._panelHost = panelHost;
 
-      // `/index`: the per-directory summary sidecar service built above (it
-      // shares the region registry's allocations, so `/index` covers allocated
-      // regions too). The y/n confirm renders as the same arrow-key picker the
-      // other choices use (Yes/No entries), not a bare key read.
+      // Keep summary services available to region tools. /index itself only
+      // runs language classification through the cancellable background job.
       controller.summaryIndex = summaryIndex;
       controller.runClassification = (conversation, mode) =>
           controller.background.runClassification(

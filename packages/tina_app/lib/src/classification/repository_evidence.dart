@@ -11,53 +11,18 @@ bool validProjectPath(String path, {bool root = true}) =>
 bool insideScope(String path, String scope) =>
     scope == '.' || path == scope || path.startsWith('$scope/');
 
-class ClassificationScope {
-  final String path;
-  final String? parent;
-  ClassificationScope(this.path, {this.parent}) {
-    if (!validProjectPath(path) ||
-        (parent != null &&
-            (!validProjectPath(parent!) ||
-                parent == path ||
-                !insideScope(path, parent!)))) {
-      throw ArgumentError('Invalid classification scope');
-    }
-  }
-  Map<String, Object?> toJson() => {'path': path, 'parent': parent};
-}
-
-List<ClassificationScope> classificationScopes(Iterable<String> discovered) {
-  final paths = {'.', ...discovered}.toList()..sort();
-  if (paths.length > 256 || paths.any((p) => !validProjectPath(p))) {
-    throw const FormatException('Invalid discovered scopes');
-  }
-  return [
-    for (final path in paths)
-      ClassificationScope(
-        path,
-        parent: path == '.'
-            ? null
-            : (paths.where((p) => p != path && insideScope(path, p)).toList()
-                    ..sort(
-                      (a, b) => (b == '.' ? 0 : b.length).compareTo(
-                        a == '.' ? 0 : a.length,
-                      ),
-                    ))
-                  .first,
-      ),
-  ];
-}
-
 enum EvidenceKind { file, listing }
 
 class EvidenceQuery {
   final EvidenceKind kind;
   final String path;
   final List<String> excludedScopes;
+  final bool directOnly;
   EvidenceQuery(
     this.kind,
     this.path, {
     Iterable<String> excludedScopes = const [],
+    this.directOnly = false,
   }) : excludedScopes = List.unmodifiable(excludedScopes.toList()..sort()) {
     if (!validProjectPath(path, root: kind == EvidenceKind.listing) ||
         this.excludedScopes.any((p) => !validProjectPath(p))) {
@@ -69,11 +34,13 @@ class EvidenceQuery {
     'kind': kind.name,
     'path': path,
     'excluded_scopes': excludedScopes,
+    'direct_only': directOnly,
   };
   factory EvidenceQuery.fromJson(Map<String, dynamic> json) => EvidenceQuery(
     EvidenceKind.values.byName(json['kind'] as String),
     json['path'] as String,
     excludedScopes: (json['excluded_scopes'] as List).cast<String>(),
+    directOnly: json['direct_only'] as bool? ?? false,
   );
 }
 
