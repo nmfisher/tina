@@ -4,6 +4,8 @@ import 'package:tina_engine/tina_engine.dart';
 
 import 'chat_transcript.dart';
 import 'markdown_renderer.dart';
+import 'chat_renderer.dart';
+import '../frontend/renderers.dart';
 
 /// The one-line marker this sink writes for a reasoning block, until the
 /// transcript renders reasoning as a block with a count.
@@ -35,6 +37,7 @@ const int kBlockBodyLines = 200;
 class ChatAgentSink implements AgentSink {
   final ScrollingTextRegion chat;
   final Spinner spinner;
+  final Renderers renderers;
 
   /// How much streamed tool output to print in the chat before capping.
   final int displayCap;
@@ -50,12 +53,15 @@ class ChatAgentSink implements AgentSink {
   /// notices never reach the strip.
   final void Function(String text, {required bool error})? onStrip;
 
-  ChatAgentSink(this.chat, this.spinner,
-      {this.displayCap = 600,
-      this.onRawText,
-      this.onStrip,
-      ChatSpeaker? speaker})
-      : speaker = speaker ?? const ChatSpeaker(id: 'main', label: 'main') {
+  ChatAgentSink(
+    this.chat,
+    this.spinner, {
+    this.displayCap = 600,
+    this.renderers = const Renderers(),
+    this.onRawText,
+    this.onStrip,
+    ChatSpeaker? speaker,
+  }) : speaker = speaker ?? const ChatSpeaker(id: 'main', label: 'main') {
     // The gutter is fixed for the life of the sink: a conversation has exactly
     // two speakers, so a wider label from a later block cannot re-flow rows
     // that are already painted.
@@ -101,7 +107,8 @@ class ChatAgentSink implements AgentSink {
 
   int get _width => chat.bounds.width;
 
-  MarkdownStyle get _style => MarkdownStyle.fromChatTheme(chat.screen.theme.chat);
+  MarkdownStyle get _style =>
+      MarkdownStyle.fromChatTheme(chat.screen.theme.chat);
 
   /// Drop the accumulated raw markdown for this turn (a new user message
   /// starts a new turn). Called by the host when it shows the user's line.
@@ -145,9 +152,9 @@ class ChatAgentSink implements AgentSink {
     }
     _blocks.add(block);
     _blockRow.add(_rows);
-    final lines = renderTranscript([block], width: _width, gutter: _gutter);
+    final lines = _render(block);
     _blockRows.add(lines.length);
-    _writeLines(lines, _rowStyleFor(block));
+    _writeLines(lines);
     _rows += lines.length;
     _maybeHintFolding();
   }
@@ -165,10 +172,14 @@ class ChatAgentSink implements AgentSink {
 
   /// Repaint the block at [index], whose rows are the tail of the transcript.
   void _repaintBlock(int index) {
+    if (index != _blocks.length - 1) {
+      rerender();
+      _maybeHintFolding();
+      return;
+    }
     final block = _blocks[index];
-    final lines = renderTranscript([block], width: _width, gutter: _gutter);
-    chat.rewriteFrom(_blockRow[index],
-        [for (final line in lines) _regionLine(line, _rowStyleFor(block))]);
+    final lines = _render(block);
+    chat.rewriteFrom(_blockRow[index], _regionLines(lines, index));
     _rows += lines.length - _blockRows[index];
     _blockRows[index] = lines.length;
     _maybeHintFolding();
@@ -188,13 +199,10 @@ class ChatAgentSink implements AgentSink {
         out.add(const RegionLine(''));
         _rows++;
       }
-      final lines =
-          renderTranscript([_blocks[i]], width: _width, gutter: _gutter);
+      final lines = _render(_blocks[i]);
       _blockRow.add(_rows);
       _blockRows.add(lines.length);
-      for (final line in lines) {
-        out.add(_regionLine(line, _rowStyleFor(_blocks[i])));
-      }
+      out.addAll(_regionLines(lines, i));
       _rows += lines.length;
     }
     chat.rewriteFrom(0, out);
@@ -208,10 +216,11 @@ class ChatAgentSink implements AgentSink {
     _blockRows.clear();
     _rows = 0;
     _toolBlock = null;
+    _highlighted = null;
     _hintedFolding = false; // a cleared transcript can hint again
   }
 
-  void _writeLines(List<MarkdownLine> lines, String? rowStyle) {
+  void _writeLines(List<RenderLine> lines) {
     final style = _style;
     final styled = chat.screen.ansi.useColor;
     for (final line in lines) {
@@ -220,39 +229,31 @@ class ChatAgentSink implements AgentSink {
         continue;
       }
       final ser = serializeLine(line, style, styled: styled);
-      chat.beginStyle(ser.bar ?? rowStyle ?? style.base);
+      chat.beginStyle(ser.bar ?? style.base);
       if (ser.text.isNotEmpty) chat.appendStyled(ser.text);
       chat.appendStyled('\n');
       chat.endStyle();
     }
   }
 
-  RegionLine _regionLine(MarkdownLine line, String? rowStyle) {
+  RegionLine _regionLine(RenderLine line, [String? rowStyle]) {
     if (line.isBlank) return const RegionLine('');
+    if (rowStyle != null) line = RenderLine(bar: rowStyle, runs: line.runs);
     final ser = serializeLine(line, _style, styled: chat.screen.ansi.useColor);
-    return RegionLine(ser.text, bar: ser.bar ?? rowStyle);
+    return RegionLine(ser.text, bar: ser.bar);
   }
 
-  /// The theme code a whole block's rows carry. Prose is left to
-  /// [MarkdownStyle.base], so its inline runs restore the agent colour.
-  String? _rowStyleFor(ChatBlock block) {
-    final theme = chat.screen.theme.chat;
-    return switch (block.kind) {
-      ChatBlockKind.user => theme.userText,
-      ChatBlockKind.prose => null,
-      ChatBlockKind.reasoning => theme.dim,
-      ChatBlockKind.toolCall => theme.dim,
-      ChatBlockKind.notice => switch (block.notice) {
-          'warn' => theme.yellow,
-          'error' => theme.red,
-          _ => theme.dim,
-        },
-    };
-  }
+  List<RenderLine> _render(ChatBlock block) => renderers.render(
+    block,
+    RenderContext(width: _width, theme: chat.screen.theme),
+    fallback: ChatRenderer(gutter: _gutter),
+  );
 
   /// The user's own message: its own block, under the `you` speaker.
   void userMessage(String text) {
-    final body = text.endsWith('\n') ? text.substring(0, text.length - 1) : text;
+    final body = text.endsWith('\n')
+        ? text.substring(0, text.length - 1)
+        : text;
     if (!_blocksActive) {
       chat.writeStyledLine('• $body', chat.screen.theme.chat.userText);
       return;
@@ -294,9 +295,9 @@ class ChatAgentSink implements AgentSink {
   /// The indexes of the blocks that can fold, in order — what `/blocks` lists
   /// and what the transcript cursor steps through.
   List<int> get foldableIndexes => [
-        for (var i = 0; i < _blocks.length; i++)
-          if (_blocks[i].canFold) i,
-      ];
+    for (var i = 0; i < _blocks.length; i++)
+      if (_blocks[i].canFold) i,
+  ];
 
   /// The region row a block starts at, so a caller can bring it into view.
   int? rowOfBlock(int index) =>
@@ -309,33 +310,25 @@ class ChatAgentSink implements AgentSink {
       ? _blockRow[index] + _blockRows[index] - 1
       : null;
 
-  /// Mark the block at [index] as the cursor's focus — its header row takes the
-  /// selection colour — or clear the mark with null. Repaints only the blocks
-  /// affected, so stepping the cursor costs one block, not the transcript.
+  /// Mark the selected header. Rebuild rows so renderer height changes and
+  /// selection in the middle of the transcript cannot discard later blocks.
   void highlightBlock(int? index) {
     if (!_blocksActive || _highlighted == index) return;
-    final previous = _highlighted;
     _highlighted = index;
-    if (previous != null) _repaintBlockRows(previous);
-    if (index != null) _repaintBlockRows(index);
+    rerender();
   }
 
-  /// Repaint one block's rows, marking its header when it holds the cursor.
-  void _repaintBlockRows(int index) {
-    if (index < 0 || index >= _blocks.length) return;
-    final block = _blocks[index];
-    final lines = renderTranscript([block], width: _width, gutter: _gutter);
-    final focused = _highlighted == index;
-    final header = lines.indexWhere((l) => !l.isBlank);
-    chat.rewriteFrom(_blockRow[index], [
+  List<RegionLine> _regionLines(List<RenderLine> lines, int index) {
+    final header = lines.indexWhere((line) => !line.isBlank);
+    return [
       for (var i = 0; i < lines.length; i++)
         _regionLine(
           lines[i],
-          focused && i == header
+          _highlighted == index && i == header
               ? chat.screen.theme.border.selection
-              : _rowStyleFor(block),
+              : null,
         ),
-    ]);
+    ];
   }
 
   /// Repaint after a fold. Folding a block anywhere but the end changes how
@@ -402,7 +395,8 @@ class ChatAgentSink implements AgentSink {
   String _bodyOf(String produced) {
     var text = produced;
     if (text.length > kBlockBodyLimit) {
-      text = '${text.substring(0, kBlockBodyLimit)}\n'
+      text =
+          '${text.substring(0, kBlockBodyLimit)}\n'
           '… (truncated at $kBlockBodyLimit chars)';
     }
     final lines = text.split('\n');
@@ -419,7 +413,9 @@ class ChatAgentSink implements AgentSink {
       // owns the passthrough/color/detached fallback (inside
       // [ScrollingTextRegion.appendStyled]).
       chat.beginStyle(chat.screen.theme.chat.agentText);
-      chat.appendStyled(s); // stays open across chunks; closed by next plain write
+      chat.appendStyled(
+        s,
+      ); // stays open across chunks; closed by next plain write
       return;
     }
     final blocks = (_md ??= MarkdownStreamSplitter()).push(s);
@@ -534,8 +530,7 @@ class ChatAgentSink implements AgentSink {
     // Whichever the tool produced more of: a failure's `result` carries the
     // message, a success's streamed output carries the work. Taking the longer
     // keeps what the two previous code paths each retained.
-    final produced =
-        e.result.length > streamed.length ? e.result : streamed;
+    final produced = e.result.length > streamed.length ? e.result : streamed;
 
     if (_blocksActive) {
       final index = _toolBlock;
@@ -555,16 +550,20 @@ class ChatAgentSink implements AgentSink {
     }
 
     if (_capped) {
-      chat.dim('  … (${streamed.length - displayCap} more chars — '
-          '/output for the full output)\n');
+      chat.dim(
+        '  … (${streamed.length - displayCap} more chars — '
+        '/output for the full output)\n',
+      );
     }
     final timing = _timing(e.elapsed);
     if (e.isError) {
       const cap = 200;
       // The duration goes in parentheses here: `failed · 1.4s: boom` reads as
       // if the timing were part of the message.
-      chat.red('  failed${timing.isEmpty ? '' : ' ($timing)'}: '
-          '${_truncate(e.result, cap)}\n');
+      chat.red(
+        '  failed${timing.isEmpty ? '' : ' ($timing)'}: '
+        '${_truncate(e.result, cap)}\n',
+      );
       if (e.result.length > cap) {
         // The printed render cut the error off; point at the retained copy.
         chat.dim('  … (/output for the full error)\n');
@@ -572,7 +571,6 @@ class ChatAgentSink implements AgentSink {
     } else {
       chat.dim('  ok${timing.isEmpty ? '' : ' · $timing'}\n');
     }
-
   }
 
   /// A measured duration as `41ms` / `1.4s` / `2m 3s`, or empty when the tool
@@ -592,12 +590,17 @@ class ChatAgentSink implements AgentSink {
       // Severity is a *word* here, not a glyph: the markers worth having
       // (U+26A0 and friends) are East Asian Ambiguous, which tina's width
       // table counts as one cell while some terminals lay out as two.
-      _add(ChatBlock.notice(speaker, message.trim(),
+      _add(
+        ChatBlock.notice(
+          speaker,
+          message.trim(),
           notice: switch (kind) {
             NoticeKind.info => null,
             NoticeKind.warning => 'warn',
             NoticeKind.error => 'error',
-          }));
+          },
+        ),
+      );
     } else {
       // Terminate any open row first: a notice drawn over unterminated streamed
       // output glues onto its tail, like the #30 prompts did (#31).

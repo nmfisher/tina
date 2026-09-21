@@ -1,3 +1,4 @@
+import 'frontend/renderers.dart';
 import 'package:tina_app/tina_app.dart';
 import 'pipeline/tina_interviewer.dart';
 import 'package:tina/config/provider_selection.dart';
@@ -446,6 +447,7 @@ class TuiCoordinator {
         required bool isActive,
       }) {
         final host = TuiConversationHost(
+          renderers: Renderers(app.pluginScope),
           conversationId: conversationId,
           chat: ScrollingTextRegion(screen)..detach(),
           spinner: Spinner(enabled: false),
@@ -667,6 +669,7 @@ class TuiCoordinator {
         ),
       );
       final initialHost = TuiConversationHost(
+        renderers: Renderers(app.pluginScope),
         conversationId: initialConversationId,
         chat: screen.chat,
         spinner: spinner,
@@ -1621,6 +1624,7 @@ class TuiCoordinator {
         ).info;
         final chat = ScrollingTextRegion(screen, bounds: bounds)..detach();
         return TuiConversationHost(
+          renderers: Renderers(app.pluginScope),
           conversationId: conversationId,
           chat: chat,
           spinner: Spinner(enabled: false),

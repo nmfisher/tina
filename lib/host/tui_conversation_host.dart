@@ -7,6 +7,7 @@ import 'package:tina_engine/tina_engine.dart';
 
 import '../chat/chat_agent_sink.dart';
 import '../chat/chat_transcript.dart';
+import '../frontend/renderers.dart';
 import '../tui/permission_approval.dart';
 
 final _log = Logger('tina.agent.bus');
@@ -40,6 +41,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     this.primary = true,
     this.panel,
     this.roleLabel = 'main',
+    this.renderers = const Renderers(),
 
     /// Why bash on this host runs unsandboxed, when it does — shown as a chip
     /// on every approval prompt. Null when the sandbox is on. Defaults to the
@@ -47,8 +49,8 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     /// callers pass the config's sandbox-off reason so `--no-sandbox` and
     /// `--yolo` get named, not just "off".
     String? sandboxOffReason,
-  })  : sandboxOffReason = sandboxOffReason ?? sandboxPassThroughReason,
-        _active = active {
+  }) : sandboxOffReason = sandboxOffReason ?? sandboxPassThroughReason,
+       _active = active {
     _logSub = _bus.events.listen(_onBusEvent);
   }
 
@@ -58,6 +60,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
   /// built from — so the transcript's gutter and the border name the agent
   /// identically.
   final String roleLabel;
+  final Renderers renderers;
 
   final ScrollingTextRegion chat;
   final Spinner spinner;
@@ -144,6 +147,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
   late final ChatAgentSink _chatSink = ChatAgentSink(
     chat,
     spinner,
+    renderers: renderers,
     onRawText: (text) {
       lastRawMarkdown = text;
     },

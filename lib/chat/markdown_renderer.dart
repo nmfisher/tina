@@ -53,29 +53,9 @@ class MarkdownStyle {
       );
 }
 
-/// One span of text; [code] is an inline SGR string layered over the row's
-/// base style, or null for base-styled prose.
-class MarkdownRun {
-  final String text;
-  final String? code;
-
-  const MarkdownRun(this.text, this.code);
-}
-
-/// One rendered visual line: [runs] laid out left to right, optionally over
-/// a row-level [bar] style. An empty [runs] list is a blank line.
-class MarkdownLine {
-  final String? bar;
-  final List<MarkdownRun> runs;
-
-  const MarkdownLine({this.bar, this.runs = const []});
-
-  const MarkdownLine.blank()
-      : bar = null,
-        runs = const [];
-
-  bool get isBlank => bar == null && runs.every((r) => r.text.isEmpty);
-}
+/// Compatibility names for the shared UI rendering types.
+typedef MarkdownRun = RenderRun;
+typedef MarkdownLine = RenderLine;
 
 /// Render one closed block of markdown source into styled lines, blank-line
 /// separated at the top level. Content is never dropped: unknown constructs
@@ -402,7 +382,7 @@ SerializedLine serializeLine(MarkdownLine line, MarkdownStyle style,
     sb
       ..write('\x1b[${run.code}m')
       ..write(run.text)
-      ..write('\x1b[0m\x1b[${style.base}m');
+      ..write('\x1b[0m\x1b[${line.bar ?? style.base}m');
   }
   return SerializedLine(sb.toString(), line.bar);
 }

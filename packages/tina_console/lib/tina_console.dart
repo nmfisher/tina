@@ -16,6 +16,8 @@
 /// - [fuzzyScore] / [rankFuzzy]: subsequence-fuzzy ranking helpers.
 library;
 
+export 'src/renderer.dart';
+
 export 'src/backend/backend_factory.dart';
 export 'src/backend/backend_surface.dart';
 export 'src/backend/input_backend.dart';

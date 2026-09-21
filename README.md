@@ -111,6 +111,8 @@ with the agent still running; reattach any time with `tmux attach -t tina`.
 ## Architecture
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`docs/`](docs/) for design notes.
+UI plugins can customize transcript blocks through typed
+[`Renderer<T>` contributions](docs/features/renderers.md).
 
 ## License
 

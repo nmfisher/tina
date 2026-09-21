@@ -2,6 +2,7 @@ import 'package:tina/chat/chat_agent_sink.dart';
 import 'package:tina/chat/chat_transcript.dart';
 import 'package:tina/tui/transcript_cursor.dart';
 import 'package:tina_console/tina_console.dart';
+import 'package:tina_console/testing.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
 
@@ -14,9 +15,10 @@ void main() {
   late ScrollingTextRegion chat;
   late ChatAgentSink sink;
   late LineEditor editor;
+  late FakeStdio io;
 
   setUp(() {
-    final io = FakeStdio()..columns = 200;
+    io = FakeStdio()..columns = 200;
     screen = Screen(
         io: io,
         layout: ScreenLayout.fromSize(200, 24),
@@ -157,6 +159,12 @@ void main() {
     expect(calls().last.folded, isFalse);
     // The *end* of the revealed block is what is on screen: revealing is a
     // question about the contents, so the header alone would be no answer.
-    expect(painted(), contains('xxxx-line-19'));
+    // A scrollback redraw deliberately clears the tail-row paint snapshots.
+    // Inspect the actual viewport rather than assuming those snapshots exist.
+    final terminal = VirtualTerminal(width: 200, height: 24)
+      ..feed(io.written.toString());
+    expect([
+      for (var row = 0; row < 24; row++) terminal.rowText(row),
+    ].join('\n'), contains('xxxx-line-19'));
   });
 }
