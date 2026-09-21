@@ -70,6 +70,8 @@ jobs:
           sdk: '3.12'
       - name: Resolve dependencies
         run: dart pub get
+      - name: Check native keyboard decoding
+        run: python3 tool/altkey_pty_driver.py
       - name: Test native PTY lifecycle on macOS
         working-directory: packages/tina_engine
         run: |
@@ -162,6 +164,9 @@ jobs:
       - name: test (root)
         working-directory: .
         run: dart test -j 4
+
+      - name: Check native keyboard decoding
+        run: python3 tool/altkey_pty_driver.py
 
   engine:
     name: engine (packages/tina_engine)

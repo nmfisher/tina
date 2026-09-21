@@ -23,23 +23,24 @@ const List<String> _projectOwnedPluginIds = [
 /// The default execution plugin profile — the exact plugin list
 /// [buildExecutionRuntime] mounts, in the same declared order:
 ///
-/// 1. `tina.app.spend-ledger` — the conversation-wide [SpendLedger]. The
+/// 1. `tina.engine.skills` — the scoped, lazy skill registry.
+/// 2. `tina.app.spend-ledger` — the conversation-wide [SpendLedger]. The
 ///    ledger is created BEFORE anything can build a provider, so the runtime
 ///    factory meters every provider built from here on — the startup provider
 ///    (AppComposition.buildStartupProvider), per-conversation providers, and
 ///    every sub-agent. (An injected test provider bypasses the factory and so
 ///    isn't metered, which is fine for fakes.) The ordering is guaranteed by
 ///    declaration order and by the factory plugin's explicit `requires` edge.
-/// 2. `tina.app.live-quotas` — shared cap sources for existing and future
+/// 3. `tina.app.live-quotas` — shared cap sources for existing and future
 ///    agents; changing caps preserves their independently accumulated spend.
-/// 3. `tina.app.provider-decorators` — decorator contributions mount BEFORE
+/// 4. `tina.app.provider-decorators` — decorator contributions mount BEFORE
 ///    the factory: the factory plugin requires the ProviderDecoratorStage
 ///    marker (an order-only edge), so every registered decorator contribution
 ///    exists before the factory builds its policy stack. Empty by default —
 ///    the factory then wraps metering only, exactly the pre-plugin behavior.
-/// 4. `tina.app.provider-factory` — the conversation-owned
+/// 5. `tina.app.provider-factory` — the conversation-owned
 ///    [LlmProviderFactory], with `orderOnDecoratorStage: true`.
-/// 5. `tina.engine.project-capabilities` and 6.
+/// 6. `tina.engine.project-capabilities` and 7.
 ///    `tina.engine.project-tool-scope` — the stage that owns the project:
 ///    capabilities, then the tool scope assembled from them (the scope plugin
 ///    `requires` the capabilities key, which fixes the order).
@@ -69,6 +70,7 @@ List<PluginDescriptor> defaultExecutionPlugins({
 }) {
   final gate = pauseGate ?? PauseGate();
   return [
+    skillsPlugin(),
     spendLedgerPlugin(config),
     liveQuotasPlugin(config),
     providerDecoratorsPlugin(providerDecorators),

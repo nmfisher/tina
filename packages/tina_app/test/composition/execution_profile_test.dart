@@ -53,12 +53,13 @@ List<PluginDescriptor> _defaultProfile() {
 }
 
 void main() {
-  test('the default profile lists exactly the six plugins in declared order',
+  test('the default profile lists its plugins in declared order',
       () {
     final plugins = _defaultProfile();
     expect(
       [for (final plugin in plugins) plugin.id],
       [
+        'tina.engine.skills',
         _ledgerPluginId,
         'tina.app.live-quotas',
         _decoratorsPluginId,
@@ -152,7 +153,7 @@ void main() {
       sandboxNet: false,
       sandboxReadOnly: false,
     );
-    // Duplicate the ledger plugin: two providers of the ledger key with no
+    // Duplicate the first plugin: two providers of the same key with no
     // selection -> a composition error at validate time.
     final overridden = [...plugins, plugins.first];
 
@@ -221,8 +222,9 @@ void main() {
       expect(
         [for (final plugin in borrowed) plugin.id],
         [
+          'tina.engine.skills',
           _ledgerPluginId,
-        'tina.app.live-quotas',
+          'tina.app.live-quotas',
           _decoratorsPluginId,
           _factoryPluginId,
         ],

@@ -113,6 +113,8 @@ with the agent still running; reattach any time with `tmux attach -t tina`.
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`docs/`](docs/) for design notes.
 UI plugins can customize transcript blocks through typed
 [`Renderer<T>` contributions](docs/features/renderers.md).
+Execution plugins can register static or lazy skills through the scoped
+[skill registry](docs/features/skills.md).
 
 ## License
 

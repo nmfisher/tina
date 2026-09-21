@@ -96,6 +96,9 @@ void main() {
     // decorator contributions, so the factory's policy stack is metering
     // only — the pre-plugin composition.
     expect(providerDecoratorsFromScope(runtime.pluginScope), isEmpty);
+    final skills = runtime.pluginScope.lookup(skillsServiceKey);
+    expect(skills, isNotNull);
+    expect((await skills!.list()).skills, isEmpty);
   });
 
   test('a decorator contribution runs around the metered provider and '
