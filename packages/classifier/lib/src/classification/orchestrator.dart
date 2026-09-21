@@ -243,6 +243,7 @@ class ClassificationSession {
         this,
         task.source.identity,
         snapshot.splitter?.identity,
+        task.key,
       );
       final result = await task.plan.run(snapshot, task.upstream, dispatcher);
       _check();
@@ -410,8 +411,14 @@ class _TaskDispatcher implements ClassificationDispatcher {
   final ClassificationSession session;
   final Object sourceIdentity;
   final Object? splitterIdentity;
+  final String taskKey;
   final recordIds = <String>[];
-  _TaskDispatcher(this.session, this.sourceIdentity, this.splitterIdentity);
+  _TaskDispatcher(
+    this.session,
+    this.sourceIdentity,
+    this.splitterIdentity,
+    this.taskKey,
+  );
   @override
   ClassificationBudget get budget => session._owner.budget;
   @override
@@ -464,14 +471,30 @@ class _TaskDispatcher implements ClassificationDispatcher {
       if (session.executed >= session._owner.maxCalls)
         throw StateError('Classification request limit reached');
       session.executed++;
-      return session._bounded(
-        () => session._owner.executor.execute(
-          request,
-          session.cancellation,
-          maxInputTokens: budget.inputLimit,
-          maxOutputTokens: budget.outputTokens,
-        ),
+      final timer = Stopwatch()..start();
+      session._progress?.call(
+        'Request $taskKey: ${request.input.units.length} inputs, '
+        '${session._owner.executor.estimate(request)} estimated input tokens',
       );
+      try {
+        final result = await session._bounded(
+          () => session._owner.executor.execute(
+            request,
+            session.cancellation,
+            maxInputTokens: budget.inputLimit,
+            maxOutputTokens: budget.outputTokens,
+          ),
+        );
+        session._progress?.call(
+          'Completed request $taskKey in ${timer.elapsedMilliseconds} ms',
+        );
+        return result;
+      } catch (_) {
+        session._progress?.call(
+          'Failed request $taskKey after ${timer.elapsedMilliseconds} ms',
+        );
+        rethrow;
+      }
     });
     request.validate(result);
     final id = await session._publish(key, {

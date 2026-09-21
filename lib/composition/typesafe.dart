@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:tina/config/user_config.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina_app/tina_app.dart';
+import 'package:tina_app/classification.dart' show ProjectClassificationReport;
 
 /// File credential wins over environment, consistently with chat credentials.
 /// An absent/cleared file credential falls back to TYPESAFE_API_KEY.
@@ -36,6 +37,49 @@ TypeSafeJudgmentService? createConfiguredTypeSafeService({
   );
   if (config == null) return null;
   return TypeSafeJudgmentService(config: config, clientFactory: clientFactory);
+}
+
+/// Both interactive and headless /index use this composition boundary. It
+/// reloads classifier settings for each run and never constructs a chat provider.
+Future<ProjectClassificationReport> runConfiguredProjectClassification(
+  AppComposition app, {
+  String mode = '',
+  Future<void>? cancelSignal,
+  void Function(String)? onProgress,
+  SpendLedger? spendLedger,
+  Directory? tinaDir,
+  http.Client Function()? clientFactory,
+}) async {
+  if (!const ['', 'status', 'refresh'].contains(mode)) {
+    throw ArgumentError('Usage: /index [status|refresh]');
+  }
+  final service = createConfiguredTypeSafeService(
+    env: app.environment.env,
+    tinaDir: tinaDir,
+    clientFactory: clientFactory,
+  );
+  if (service == null) {
+    throw StateError(
+      'Configure Typesafe in /settings or set TYPESAFE_API_KEY before running /index.',
+    );
+  }
+  try {
+    return await runProjectClassification(
+      app,
+      judgments: service,
+      requestBudget: service.config.requestBudget,
+      serviceIdentity: {
+        'endpoint': service.config.endpoint.toString(),
+        'model': service.config.model,
+      },
+      spendLedger: spendLedger,
+      mode: mode,
+      cancelSignal: cancelSignal,
+      onProgress: onProgress,
+    );
+  } finally {
+    service.close();
+  }
 }
 
 /// One shared tool per frontend, with fresh credentials and transport per run.

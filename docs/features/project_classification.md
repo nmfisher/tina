@@ -25,9 +25,9 @@ reads. `RepositoryTextSource` selects and encodes that data as `TextEvidence`:
   input encoder are configurable and versioned independently of classifiers.
 
 `runProjectClassification` accepts the projection programmatically; the command
-uses filenames plus the selected manifest/configuration contents. No arbitrary
-source-file reading is performed by the agent. An application can supply another
-source or encoder without changing the classifier or engine adapter.
+uses filenames only, including names of binary assets, without reading their
+contents. Content-only edits do not invalidate this projection. An application
+can supply another source or encoder without changing the judgment executor.
 
 Every input unit carries a stable evidence ID, a meaning, and location metadata.
 The source tracks listing and content dependencies and validates their freshness.
@@ -56,43 +56,54 @@ This code does not infer languages from extensions or content. Unknown results
 do not establish absence, and incomplete coverage propagates to parents. No
 local model call is made for a node with no direct files.
 
-For example, editing selected input under `docs/user` invalidates that local
+For example, adding a filename under `docs/user` invalidates that local
 classification. `docs/dev`, `src` and `test` retain their results. If the output
 changes, `docs/user`, `docs` and the root merge again. If the classifier returns
 the same result, evidence and coverage, ancestors restore unchanged.
 
-The source prepares evidence; agents interpret it. The generic engine adapter
-receives typed prepared input and advertises only `submit_classification`, whose
-output schema comes from the classifier's output contract. It has no file tools.
-The normal engine driver, provider factory, permission checks, metering and pause
-gate are reused. A valid submission ends the local turn without an extra model
-request. The configured provider/model is used independently of chat history.
+`JudgmentClassifier<I, O>` prepares typed judgment questions and decodes their
+answers into a classification. `JudgmentExecutor` calls the existing
+`JudgmentService` directly. Both frontends construct the configured Typesafe
+service, defaulting to `jev-latest`. Saved Typesafe credentials take precedence
+over `TYPESAFE_API_KEY`; missing credentials produce a configuration error.
+Chat models, reasoning settings, tools and agent turns are not involved, and
+there is no chat fallback. The existing judgment transport, metering and pause
+gate are reused.
 
-Small inputs use one request. Larger inputs are packed and, if necessary, split
-into text excerpts with scalar offsets. Project-specific observation and
-aggregation instructions combine supported findings and resolve conflicts while
-preserving citations. Unknown/incomplete observations do not prove absence.
-There is no implicit generic label union or confidence averaging.
+Each request carries its input text once and asks independent yes/no (`noul`)
+questions for a versioned vocabulary of languages, plus `other` and `non_code`.
+These are possible model answers, not extension rules. Languages with probability
+at least 0.9 become labels. A complete negative requires `non_code` at least 0.9
+and every language at most 0.1; uncertain or conflicting answers stay unknown.
+Citations identify the supporting input chunk, not individual file predictions.
+The vocabulary, thresholds and decoder revision participate in cache identity.
 
-Packing budgets the complete serialized request, with output and safety reserves.
-The model catalog's context/output limits are used when known; the fallback
-context is 32,768 tokens. Requests use at most 12,000 estimated input tokens and
-4,096 output tokens (also constrained by configuration and model limits). The
-estimator is conservative, not an exact provider tokenizer. Retries retain the
-engine's input and turn guards. Default run limits are three concurrent calls,
-128 classification calls, five minutes, and 120,000 recorded tokens, alongside
-the application's shared limits. In-flight requests can finish after a spend
-ceiling is reached.
+Small inputs use one request. Larger inputs are packed using the complete
+serialized judgment request, including state, questions and model. Source-owned
+splitters handle oversized units. `ReducedClassificationPlan` merges chunk
+findings in code, and `LanguageMerge` does the same up the directory tree.
+Neither step calls a model or averages probabilities. Unknown/incomplete
+observations do not prove absence.
+
+The Typesafe request budget defaults to 24,000 estimated input tokens, including
+1,024 framing tokens. The estimate charges one token per UTF-8 byte; it is a
+conservative operating bound, not an exact tokenizer. Default run limits are four
+concurrent requests, 256 requests and five minutes. Typesafe requests time out
+after 30 seconds. Interactive runs use the shared spend ledger; standalone runs
+use a 120,000-token ledger. Progress reports the configured model, input count,
+estimated input tokens and elapsed request time. These diagnostics contain no raw
+input text. Completed requests are checkpointed for reuse after interruption.
 
 ## Persistence
 
 `.tina/classifications/manifest.json` references immutable `records/<sha256>.json`
 files. The directory is self-ignored and writer-locked. Each completed request,
-including chunk observations and aggregation steps, is checkpointed. A final
+including each input chunk, is checkpointed. Code merges have their own final
+records but make no requests. A final
 record references those request records and stores typed output, coverage,
 versioned provenance and an opaque source freshness receipt. Raw evidence text,
-provider credentials and agent transcripts are not stored; endpoint identity is
-hashed.
+credentials and raw model responses are not stored. The service endpoint and
+configured model are included in cache provenance.
 
 Restoration checks source freshness, contract/encoder/splitter/plan/agent/model
 identities, budget configuration and consumed results. Local and aggregate results are

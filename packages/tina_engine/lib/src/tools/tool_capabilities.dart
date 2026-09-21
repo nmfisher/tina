@@ -221,7 +221,6 @@ const Map<String, ToolCapabilities> kToolCapabilities = {
   'query_region': ToolCapabilities(indirect: IndirectWork.readOnlyOnly),
   'read_summary': ToolCapabilities(),
   // Validates an in-memory result; the host owns all persistence.
-  'submit_classification': ToolCapabilities(reads: ReadScope.none),
   'allocate_region':
       ToolCapabilities(reads: ReadScope.none, writes: WriteScope.sidecar),
   'render_image': ToolCapabilities(

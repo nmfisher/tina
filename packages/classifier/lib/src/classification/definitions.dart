@@ -120,7 +120,7 @@ class ClassificationRequest<I, O> {
   };
 }
 
-/// The adapter owns request serialization/tokenization and the agent runtime.
+/// The adapter owns request serialization/tokenization and model invocation.
 /// Estimate must cover the exact initial request: instructions, input, schemas
 /// and framing. Retry/history growth must also be bounded by the adapter.
 abstract interface class ClassificationExecutor {

@@ -2,41 +2,35 @@ import 'package:classifier/classification.dart';
 import 'package:classifier/judgments.dart';
 import 'package:tina_engine/tina_engine.dart';
 
-import '../classification/classification_agent_runner.dart';
 import '../classification/file_classification_store.dart';
 import '../classification/repository_classification_source.dart';
 import '../classification/repository_text_source.dart';
 import '../classification/project_classification_workflow.dart';
 import 'app_composition.dart';
-import 'provider_resolution.dart';
+import '../exploration/metered_judgment_service.dart';
 
-/// One command invocation owns its local limits; runtime providers retain the
-/// application's metering, rate limit and pause behavior. Restore builds none.
+/// Runs language indexing through the supplied judgment service, sharing the
+/// application's metering and pause behavior. Restore makes no model requests.
 Future<ProjectClassificationReport> runProjectClassification(
   AppComposition app, {
+  required JudgmentService judgments,
+  required JudgmentRequestBudget requestBudget,
+  required Object serviceIdentity,
+  SpendLedger? spendLedger,
   String mode = '',
-  RepositoryProjection projection = RepositoryProjection.filenamesAndContents,
+  RepositoryProjection projection = RepositoryProjection.filenames,
   Future<void>? cancelSignal,
   void Function(String)? onProgress,
 }) async {
   if (!const ['', 'status', 'refresh'].contains(mode))
     throw ArgumentError('Usage: /index [status|refresh]');
   final root = app.pipeline.tools.projectRoot;
-  final config = app.config;
-  final model = app.registry.findModel('${config.provider}/${config.model}');
-  final contextWindow = (model?.contextWindow ?? 0) > 0
-      ? model!.contextWindow
-      : 32768;
-  final outputCaps = [
-    4096,
-    contextWindow ~/ 4,
-    if (config.maxTokens > 0) config.maxTokens,
-    if ((model?.maxOutput ?? 0) > 0) model!.maxOutput!,
-  ];
-  outputCaps.sort();
+  // Limits come from the classifier transport, never the conversation model.
   final budget = ClassificationBudget(
-    contextTokens: contextWindow,
-    outputTokens: outputCaps.first,
+    contextTokens: requestBudget.maxInputTokens + 2048,
+    outputTokens: 1024,
+    safetyTokens: 1024,
+    maxInputTokens: requestBudget.maxInputTokens,
   );
   final stop = JudgmentCancellation();
   var finished = false;
@@ -48,35 +42,24 @@ Future<ProjectClassificationReport> runProjectClassification(
       if (!finished) stop.cancel();
     },
   );
-  final ledger = SpendLedger(maxGlobalTokens: 120000, requestsPerMinute: 0);
+  final ledger =
+      spendLedger ?? SpendLedger(maxGlobalTokens: 120000, requestsPerMinute: 0);
   final rules = [...app.policy.staticRules, ...app.policy.sessionRules];
-  final runner = EngineClassificationExecutor(
-    configuration: {
-      'adapter_revision': 2, 'provider': config.provider, 'model': config.model,
-      // Endpoint is configuration, but store only its digest (URLs may contain credentials).
-      'endpoint': canonicalFingerprint(config.baseUrl),
-      'reasoning_effort': config.reasoningEffort,
-      'max_tokens': config.maxTokens,
-      'policy': rules.map((r) => r.toJson()).toList(),
-      'max_steps': 3,
-      'run_tokens': 120000,
-    },
-    createProvider: (outputLimit) => MeteringProvider(
-      buildResolved(
-        app.providers,
-        config,
-        '${config.provider}/${config.model}',
-        maxTokensOverride: outputLimit,
-        apiKeyOverride: config.apiKey,
-        baseUrlOverride: config.baseUrl,
-      ),
-      ledger,
+  final runner = JudgmentExecutor(
+    service: MeteredJudgmentService(
+      inner: judgments,
+      ledger: ledger,
+      budget: requestBudget,
+      outputTokenAllowance: 1024,
+      pauseGate: app.pauseGate,
     ),
-    driverFactory:
-        app.scheduler.driverFactory ?? const DefaultAgentDriverFactory(),
-    policy: app.policy,
-    pauseGate: app.pauseGate,
+    budget: requestBudget,
+    identity: {
+      'service': serviceIdentity,
+      'policy': rules.map((r) => r.toJson()).toList(),
+    },
   );
+  onProgress?.call('Language classifier: ${requestBudget.model}');
   try {
     final source = RepositoryTextSource(
       projection: projection,
@@ -94,6 +77,8 @@ Future<ProjectClassificationReport> runProjectClassification(
       store: FileClassificationStore(root),
       executor: runner,
       budget: budget,
+      concurrency: 4,
+      maxCalls: 256,
     ).run(
       (session) => classifyProject(session, source),
       refresh: mode == 'refresh',

@@ -14,8 +14,11 @@ A classification task binds these contracts:
   identities, not Dart runtime type names, are used in persistence.
 - `ClassifierDefinition<I, O>` pairs typed inputs and outputs with an agent type,
   instructions, versions, and optional domain validation.
-- `ClassificationExecutor` binds requests to an agent runtime and estimates the
-  complete serialized request. No particular model API is built into this layer.
+- `JudgmentClassifier<I, O>` adds typed judgment preparation and decoding, with a
+  versioned `spec` for question vocabulary and decision policy.
+- `ClassificationExecutor` binds requests to model execution and estimates the
+  complete serialized request. `JudgmentExecutor` uses a `JudgmentService`
+  directly, with its existing transport, cancellation and request budget.
 - `ClassificationPlan<I, O>` defines single-request or bounded map/reduce execution.
 - `ClassificationOrchestrator` owns cancellation, call limits, global concurrency,
   dependency scheduling, durable checkpoints and restoration through an injected
@@ -37,11 +40,11 @@ final task = ClassificationTask<TextEvidence, CategorySet>(
 );
 final record = await ClassificationOrchestrator(
   store: store,
-  executor: agentExecutor,
+  executor: executor,
 ).run((session) => session.classify(task));
 ```
 
-`catalogSource`, `categoryClassifier`, `store`, and `agentExecutor` above are
+`catalogSource`, `categoryClassifier`, `store`, and `executor` above are
 application-owned implementations. Repository-specific adapters and the project
 classification recipe live in `tina_app`, not this API.
 
@@ -57,8 +60,14 @@ content. Structured sources may be atomic or provide a different splitter.
 space. Packing calls the executor's estimator on the complete request, including
 instructions, input/output schemas, upstream results and framing. Executor
 implementations must enforce the same limits on retries and any retained history.
-The engine adapter uses a conservative UTF-8-byte estimate and an engine guard
-on every actual request; this is an operating bound, not an exact tokenizer.
+`JudgmentExecutor` budgets the actual state/questions/model serialization using
+`JudgmentRequestBudget`. Its default conservative UTF-8-byte estimate is an
+operating bound, not an exact tokenizer.
+
+`ReducedClassificationPlan<I, O>` classifies bounded chunks independently and
+reduces their results in code. Its caller supplies the reduction function and a
+versioned reduction identity. Chunk requests share the session's concurrency,
+cancellation and durable checkpoints; reduction makes no model request.
 
 `ChunkedClassificationPlan<I, P, O>` uses a direct `I -> O` request when it fits.
 Otherwise it runs explicit `I -> P` observations, bounded `PartialObservation<P>
@@ -120,7 +129,8 @@ survive a failure or cancellation. Applications can retire old task pointers wit
 
 Tina's `/index` uses directory nodes, classifies programming languages only, and
 merges supported language labels by union. Input selection stays in its source:
-by default it supplies filenames and selected manifest contents. A complete
+by default it supplies filenames only. It uses Typesafe/JEV judgment questions,
+independently of the chat provider. A complete
 result covers that projection, not a read of every file's content.
 
 ## Restore and implementation contracts

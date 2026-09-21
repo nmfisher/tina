@@ -107,7 +107,7 @@ Future<void> main() async {
   for (final source in [
     'lib/src/summaries/summary_index.dart',
     'lib/src/summaries/summary_runner.dart',
-    'lib/src/classification/classification_agent_runner.dart',
+    'lib/src/classification/project_classifiers.dart',
   ]) {
     test('$source cannot construct application or execution composition', () {
       expect(
@@ -123,7 +123,7 @@ Future<void> main() async {
   for (final source in [
     'lib/src/summaries/summary_index.dart',
     'lib/src/summaries/summary_repository.dart',
-    'lib/src/classification/classification_agent_runner.dart',
+    'lib/src/classification/project_classifiers.dart',
     'lib/src/summaries/summary_runner.dart',
   ]) {
     test('$source does not perform filesystem or process IO', () {

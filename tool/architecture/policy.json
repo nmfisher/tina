@@ -136,7 +136,7 @@
     "packages/tina_app/lib/src/summaries/summary_index.dart",
     "packages/tina_app/lib/src/summaries/summary_repository.dart",
     "packages/tina_app/lib/src/summaries/summary_runner.dart",
-    "packages/tina_app/lib/src/classification/classification_agent_runner.dart",
+    "packages/classifier/lib/src/classification/judgments.dart",
     "packages/classifier/lib/src/classification/orchestrator.dart",
     "packages/classifier/lib/src/classification/models.dart",
     "packages/classifier/lib/src/classification/definitions.dart",

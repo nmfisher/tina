@@ -25,10 +25,11 @@ Double-Esc cancels interactive work and releases input. Headless Ctrl+C cancels
 the same workflow. Completed checkpoints survive cancellation. Headless runs
 with missing, failed or incomplete results exit nonzero.
 
-The default source supplies filenames and selected manifest contents, applies
-Git ignores and collection exclusions, and requires a Git repository. It does
-not read every source file's contents. Input selection and freshness are source
-policy; only the classifier decides the language labels.
+The command uses the configured Typesafe classifier (default `jev-latest`). Set
+its API key in `/settings` or `TYPESAFE_API_KEY`. It never uses the chat model or
+falls back to it. The default source supplies filenames only, applies Git ignores
+and collection exclusions, and requires a Git repository. Input selection and
+freshness are source policy; only the classifier decides the language labels.
 
 See [project classification](project_classification.md) for limits and storage,
 [classifier](../../packages/classifier/README.md) for the generic tree API, and

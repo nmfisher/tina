@@ -1,54 +1,32 @@
-import '../helpers/memory_session_store.dart';
 import 'dart:io';
-
+import 'package:tina_app/classification.dart' show ProjectClassificationReport;
 import 'package:test/test.dart';
 import 'package:tina_app/tina_app.dart';
 import 'package:tina_engine/tina_engine.dart';
+import '../helpers/memory_session_store.dart';
 
-class ClassifierProvider extends LlmProvider {
+class Service implements JudgmentService {
   int calls = 0;
-  bool closed = false;
-  ClassifierProvider(super.model);
   @override
-  Stream<StreamEvent> send({
-    required String system,
-    required List<Message> messages,
-    required List<ToolSchema> tools,
-  }) async* {
+  Future<JudgmentResult> evaluate(
+    JudgmentRequest request, {
+    JudgmentCancellation? cancellation,
+  }) async {
     calls++;
-    if (calls == 1) {
-      yield MessageComplete(
-        content: [
-          ToolUseBlock(
-            id: 'submit',
-            name: 'submit_classification',
-            input: {
-              'outcome': 'unknown',
-              'value': null,
-              'evidence': <String>[],
-              'explanation': 'Insufficient evidence for this dimension.',
-            },
-          ),
-        ],
-        stopReason: 'tool_use',
-      );
-    } else {
-      yield const MessageComplete(
-        content: [TextBlock('Done')],
-        stopReason: 'end_turn',
-      );
-    }
-  }
-
-  @override
-  void close() {
-    closed = true;
+    return JudgmentResult.fromJson({
+      'model': 'jev-test',
+      'usage': {'input_tokens': 100, 'output_tokens': 50},
+      'answers': {
+        for (final key in request.questions.keys)
+          key: {'type': 'noul', 'noul': 0.5},
+      },
+    }, request: request);
   }
 }
 
 void main() {
   test(
-    'application composition checkpoints and restores without constructing classifier providers',
+    'index uses judgments and restores independently of the chat model',
     () async {
       final project = await Directory.systemTemp.createTemp(
         'classification-composition-',
@@ -56,7 +34,6 @@ void main() {
       addTearDown(() => project.delete(recursive: true));
       await Process.run('git', ['init', '-q', project.path]);
       await File('${project.path}/README.md').writeAsString('Example');
-      final created = <ClassifierProvider>[];
       final registry = ProviderRegistry(env: const {})
         ..register(
           ProviderDescriptor(
@@ -64,17 +41,14 @@ void main() {
             name: 'Test',
             authSources: const [],
             defaultBaseUrl: 'https://example.test',
-            builder: (options) {
-              final provider = ClassifierProvider(options.model);
-              created.add(provider);
-              return provider;
-            },
+            builder: (_) =>
+                throw StateError('Index must never construct a chat provider'),
           ),
         );
-      Future<AppComposition> build() => buildAppComposition(
+      Future<AppComposition> build(String model) => buildAppComposition(
         config: RuntimeConfig(
           provider: 'test',
-          model: 'model',
+          model: model,
           permissionMode: PermissionMode.readAll,
         ),
         registry: registry,
@@ -82,32 +56,39 @@ void main() {
         projectRoot: project.path,
         loadProjectContext: false,
       );
-      final first = await build();
-      final status = await runProjectClassification(first, mode: 'status');
-      expect(status.executed, 0);
-      expect(status.records, isEmpty);
-      expect(created.every((p) => p.calls == 0), isTrue);
-      final baseline = created.length;
-      final result = await runProjectClassification(first);
-      expect(result.failures, isEmpty);
-      expect(result.executed, 1);
-      expect(created.skip(baseline), hasLength(1));
-      expect(
-        created.skip(baseline).every((p) => p.closed && p.calls == 1),
-        isTrue,
+      final service = Service();
+      Future<ProjectClassificationReport> run(
+        AppComposition app, {
+        String mode = '',
+      }) => runProjectClassification(
+        app,
+        judgments: service,
+        requestBudget: JudgmentRequestBudget(model: 'jev-test'),
+        serviceIdentity: 'test-judgments',
+        mode: mode,
       );
+      final first = await build('slow-chat-model');
+      final status = await run(first, mode: 'status');
+      expect(status.executed, 0);
+      expect(service.calls, 0);
+      final result = await run(first);
+      expect(result.failures, isEmpty);
+      expect(service.calls, 1);
       await first.dispose();
-      final second = await build();
+      final second = await build('another-chat-model');
       addTearDown(second.dispose);
-      final beforeRestore = created.length;
-      final restored = await runProjectClassification(second, mode: 'status');
+      final restored = await run(second, mode: 'status');
+      expect(restored.failures, isEmpty);
       expect(restored.restored, 2);
       expect(restored.executed, 0);
-      expect(created.length, beforeRestore);
+      expect(service.calls, 1);
       expect(
         classificationReportText(restored),
         contains('2 classifications restored'),
       );
+      final refreshed = await run(second, mode: 'refresh');
+      expect(refreshed.failures, isEmpty);
+      expect(service.calls, 2);
     },
   );
 }

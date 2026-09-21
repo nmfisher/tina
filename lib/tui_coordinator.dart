@@ -2231,8 +2231,9 @@ class TuiCoordinator {
           controller.background.runClassification(
             conversation,
             (cancelSignal, progress) async => classificationReportText(
-              await runProjectClassification(
+              await runConfiguredProjectClassification(
                 app,
+                spendLedger: controller.spendLedger,
                 mode: mode,
                 cancelSignal: cancelSignal,
                 onProgress: progress,

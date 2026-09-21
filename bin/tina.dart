@@ -490,7 +490,7 @@ Future<void> _runNonInteractive(
       try {
         if (parts.length > 2 || !const ['', 'status', 'refresh'].contains(mode))
           throw ArgumentError('Usage: /index [status|refresh]');
-        final report = await runProjectClassification(
+        final report = await runConfiguredProjectClassification(
           app,
           mode: mode,
           cancelSignal: cancelled.future,

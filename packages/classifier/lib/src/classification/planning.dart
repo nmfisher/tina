@@ -91,6 +91,66 @@ class SingleRequestPlan<I, O> implements ClassificationPlan<I, O> {
   );
 }
 
+/// Classify bounded chunks independently and reduce their results in code.
+/// The caller owns reduction semantics and includes their version in [reduction].
+/// Every dispatched chunk uses the session's shared concurrency and checkpoints.
+class ReducedClassificationPlan<I, O> implements ClassificationPlan<I, O> {
+  final ClassifierDefinition<I, O> classifier;
+  final Object reduction;
+  final ClassificationResult<O> Function(
+    List<ClassificationResult<O>>,
+    InputCoverage,
+  )
+  reduce;
+  ReducedClassificationPlan({
+    required this.classifier,
+    required Object reduction,
+    required this.reduce,
+  }) : reduction = freezeJson(reduction)!;
+  @override
+  Object get identity => {
+    'kind': 'code_reduce',
+    'revision': 1,
+    'classifier': classifier.identity,
+    'reduction': reduction,
+  };
+  @override
+  DataContract<I> get input => classifier.input;
+  @override
+  DataContract<O> get output => classifier.output;
+  @override
+  Future<ClassificationResult<O>> run(
+    SourceSnapshot<I> snapshot,
+    Map<String, Object?> upstream,
+    ClassificationDispatcher dispatcher,
+  ) async {
+    ClassificationRequest<I, O> request(List<SourceUnit<I>> units) =>
+        ClassificationRequest(
+          classifier,
+          ClassificationInput(units, snapshot.coverage, upstream: upstream),
+        );
+    final groups = packClassificationUnits(
+      snapshot.units,
+      splitter: snapshot.splitter,
+      fits: (units) => dispatcher.fits(request(units)),
+      maxChunks: dispatcher.budget.maxChunks,
+    );
+    final results = await Future.wait([
+      for (final group in groups) dispatcher.dispatch(request(group)),
+    ]);
+    final result = reduce(results, snapshot.coverage);
+    classifier.validate(
+      result,
+      ClassificationInput(
+        snapshot.units,
+        snapshot.coverage,
+        upstream: upstream,
+      ).evidenceIds.union({for (final value in results) ...value.evidence}),
+    );
+    return result;
+  }
+}
+
 class PartialObservation<P> {
   final ClassificationResult<P> result;
   PartialObservation(this.result);
