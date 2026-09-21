@@ -243,7 +243,7 @@ extension TreeSession on ClassificationSession {
           for (final key in node.children)
             Part(key, records[key]!.result, records[key]!.coverage),
         ];
-        final input = _PartsSource(plan.output, parts);
+        final input = PartsSource(plan.output, parts);
         tasks.add(
           ClassificationNode(
             plan.key(node),
@@ -283,11 +283,13 @@ extension TreeSession on ClassificationSession {
   }
 }
 
-class _PartsSource<O> implements ClassificationSource<Part<O>> {
+/// The shared source and revision codec for merged child results. Readers can
+/// use it to validate a saved merge without executing its classification plan.
+class PartsSource<O> implements ClassificationSource<Part<O>> {
   @override
   final DataContract<Part<O>> contract;
   final List<Part<O>> parts;
-  _PartsSource(DataContract<O> output, this.parts)
+  PartsSource(DataContract<O> output, this.parts)
     : contract = partContract(output);
   @override
   Object get identity => {'id': 'classifier.parts', 'revision': 1};

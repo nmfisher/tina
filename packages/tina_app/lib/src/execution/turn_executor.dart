@@ -3,6 +3,7 @@ import 'package:tina_engine/tina_engine.dart';
 import 'package:tina_app/src/session/conversation.dart';
 import 'package:tina_app/src/workflows/workflow_supervisor.dart';
 import 'package:tina_app/src/platform/environment.dart';
+import 'input_routes.dart';
 
 enum TurnState { idle, running, cancelling, closed }
 
@@ -29,6 +30,7 @@ class TurnExecutor {
   /// A registry owned by this turn, created when queued work actually starts.
   final ToolRegistry? Function(Conversation, String)? toolsForTurn;
   final Environment environment;
+  final InputRoutes? inputRoutes;
   int autoCompactThreshold;
   final int autoCompactPreserveRecent;
   final _slots = <String, _TurnSlot>{};
@@ -42,6 +44,7 @@ class TurnExecutor {
     this.onTurnStarted,
     this.toolsForTurn,
     this.environment = const PlatformEnvironment(),
+    this.inputRoutes,
     this.autoCompactThreshold = 0,
     this.autoCompactPreserveRecent = 2,
   });
@@ -57,7 +60,7 @@ class TurnExecutor {
     return _slots[id]?.state ?? TurnState.idle;
   }
 
-  TurnSubmission submit(String id, String prompt) {
+  TurnSubmission submit(String id, String prompt, {bool route = true}) {
     final conversation = findConversation(id);
     if (_closing ||
         _closed.contains(id) ||
@@ -66,13 +69,13 @@ class TurnExecutor {
       return TurnSubmission.rejected;
     }
     if (_slots.containsKey(id)) {
-      conversation.messageQueue.enqueue(prompt);
+      conversation.messageQueue.enqueue(prompt, route: route);
       return TurnSubmission.queued;
     }
     final slot = _TurnSlot(conversation);
     _slots[id] = slot;
     conversation.turnCompletion = slot.idle.future;
-    unawaited(_drain(slot, prompt));
+    unawaited(_drain(slot, (text: prompt, route: route)));
     return TurnSubmission.started;
   }
 
@@ -96,7 +99,11 @@ class TurnExecutor {
 
   void injectWorkflowResult(WorkflowRun run) {
     if (run.status == WorkflowRunStatus.cancelled) return;
-    final result = submit(run.conversationId, _workflowOutcomePrompt(run));
+    final result = submit(
+      run.conversationId,
+      _workflowOutcomePrompt(run),
+      route: false,
+    );
     if (result == TurnSubmission.queued) {
       try {
         findConversation(run.conversationId)?.host.showMessage(
@@ -132,9 +139,9 @@ class TurnExecutor {
     } catch (_) {}
   }
 
-  Future<void> _drain(_TurnSlot slot, String first) async {
+  Future<void> _drain(_TurnSlot slot, ({String text, bool route}) first) async {
     final s = slot.conversation;
-    String? next = first;
+    ({String text, bool route})? next = first;
     try {
       while (next != null &&
           !_closing &&
@@ -149,9 +156,14 @@ class TurnExecutor {
         void Function(bool)? finish;
         var completed = false;
         try {
-          final turnTools = toolsForTurn?.call(s, next);
-          finish = onTurnStarted?.call(s, next);
-          completed = await _runTurn(s, next, turnTools: turnTools);
+          final turnTools = toolsForTurn?.call(s, next.text);
+          finish = onTurnStarted?.call(s, next.text);
+          completed = await _runTurn(
+            s,
+            next.text,
+            route: next.route,
+            turnTools: turnTools,
+          );
         } catch (_) {
           // Cosmetic host failures must not strand admission or shutdown.
         } finally {
@@ -168,7 +180,7 @@ class TurnExecutor {
             await persistUsage?.call(s);
           } catch (_) {}
         }
-        next = s.messageQueue.dequeue();
+        next = s.messageQueue.take();
       }
     } finally {
       s.cancelCompleter = null;
@@ -184,6 +196,7 @@ class TurnExecutor {
   Future<bool> _runTurn(
     Conversation s,
     String input, {
+    bool route = true,
     ToolRegistry? turnTools,
   }) async {
     final cancel = s.cancelCompleter!;
@@ -191,6 +204,20 @@ class TurnExecutor {
     s.host.showSeparator();
     s.host.showMessage('$input\n', style: HostMessageStyle.user);
     s.host.showSeparator();
+
+    if (route && inputRoutes != null) {
+      final outcome = await inputRoutes!.run(
+        text: input,
+        conversationId: s.id,
+        history: s.history,
+        cancelSignal: cancel.future,
+        host: s.host,
+        recorder: s.recorder,
+      );
+      if (outcome != InputOutcome.pass) {
+        return outcome == InputOutcome.handled && !cancel.isCompleted;
+      }
+    }
 
     // Auto-compact before the turn if the about-to-be-sent request is large.
     // The summary is persisted via replace before new turn progress starts.

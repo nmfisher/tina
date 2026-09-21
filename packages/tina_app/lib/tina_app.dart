@@ -6,6 +6,7 @@ library;
 
 export 'src/commands/command_capabilities.dart';
 export 'src/commands/command_context.dart';
+export 'src/commands/command_registry.dart';
 export 'src/commands/session_export.dart';
 export 'src/composition/agent_composition.dart';
 export 'src/composition/app_composition.dart';
@@ -20,6 +21,7 @@ export 'src/config/startup_options.dart';
 export 'src/execution/background_job_supervisor.dart';
 export 'src/execution/project_background_jobs.dart';
 export 'src/execution/turn_executor.dart';
+export 'src/execution/input_routes.dart';
 export 'src/persistence/session_restore.dart';
 export 'src/platform/environment.dart';
 export 'src/project/gitignore_guard.dart';

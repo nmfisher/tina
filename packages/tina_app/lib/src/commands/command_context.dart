@@ -9,13 +9,13 @@ import 'package:tina_app/src/session/conversation.dart';
 import 'package:tina_app/src/session/session_manager.dart';
 import 'package:tina_app/src/summaries/summary_index.dart';
 
-/// The dispatch result of [SessionCommandHandlers.dispatch]. The input wasn't a
+/// The dispatch result of a command handler. The input wasn't a
 /// command ([CmdNotCommand] — pass it through to the agent), a command was
 /// handled ([CmdHandled] — continue the input loop), `/exit` was invoked
 /// ([CmdExit] — return from the loop), or the command produced a prompt
 /// ([CmdRun]) the caller should execute as a normal agent turn.
 ///
-/// [CmdRun] is the seam for commands like `/index` that don't do their own work
+/// [CmdRun] is the seam for commands that don't do their own work
 /// but inject a fixed user prompt into the conversation — the controller runs it
 /// through the same turn path a typed line takes (echo, auto-compact,
 /// persistence, cancel), so the command needs no separate machinery.
@@ -28,7 +28,8 @@ class CmdNotCommand extends CmdResult {
 }
 
 class CmdHandled extends CmdResult {
-  const CmdHandled();
+  final bool failed;
+  const CmdHandled({this.failed = false});
 }
 
 class CmdExit extends CmdResult {

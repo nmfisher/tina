@@ -20,6 +20,9 @@ typedef ReadLine = Future<String?> Function(String prompt);
 class SessionController {
   final SessionManager sessionManager;
   final ReadLine readLine;
+  final InputRoutes? inputRoutes;
+  final PluginScope? pluginScope;
+  final Set<String> hiddenCommandFeatures;
   final SessionStore? sessionStore;
   final Future<void>? exitSignal;
 
@@ -150,7 +153,10 @@ class SessionController {
   /// [CommandContext] seam. Lazy so it can capture `this`.
   late final SessionCommandHandlers _commands = SessionCommandHandlers(
     ControllerCommandAdapter(this),
+    pluginScope: pluginScope,
+    hiddenFeatures: hiddenCommandFeatures,
   );
+  CommandRegistry get commands => _commands.commands;
 
   /// Lines Enter-completed while a capture window was armed around a slow
   /// command dispatch (tin-y8kh). Flushed through the normal dispatch path
@@ -164,7 +170,7 @@ class SessionController {
     final cancel = Completer<void>();
     _commandCancellation = cancel;
     try {
-      final result = await _commands.dispatch(line);
+      final result = await _commands.dispatch(line, cancelSignal: cancel.future);
       return cancel.isCompleted ? const CmdHandled() : result;
     } finally {
       _commandCancellation = null;
@@ -243,11 +249,15 @@ class SessionController {
       if (shutdownWorkflows != null) shutdownWorkflows!(),
     ]);
     await _flushUsage();
+    await _commands.dispose();
   }
 
   SessionController({
     required this.sessionManager,
     required this.readLine,
+    this.inputRoutes,
+    this.pluginScope,
+    this.hiddenCommandFeatures = const {},
     this.sessionStore,
     this.exitSignal,
     this.onSessionsChanged,
@@ -530,6 +540,7 @@ class SessionController {
 
   // -- Turn execution facade ----------------------------------------------
   late final TurnExecutor turns = TurnExecutor(
+    inputRoutes: inputRoutes,
     findConversation: _findConversation,
     environment: environment,
     autoCompactThreshold: autoCompactThreshold,

@@ -22,7 +22,7 @@ const kWorkflowFeature = 'workflow';
 /// read and tested in isolation. Operates purely through a [CommandContext] —
 /// no input loop, no host of its own. [dispatch] is the entry point the
 /// controller calls each input line; it echoes the command, runs any registered
-/// hook, and switches on the command word exactly as the controller used to.
+/// hook, and dispatches through the scoped plugin command registry.
 class SessionCommandHandlers {
   final DispatchCapabilities ctx;
   final UsageCommands usage;
@@ -33,11 +33,17 @@ class SessionCommandHandlers {
   final PermissionsCommands permissions;
   final IndexCommands index;
   final WorkflowCapabilities workflow;
+  final PluginScope? pluginScope;
+  final Set<String>? hiddenFeatures;
+  PluginRuntime? _runtime;
+  CommandRegistry? _commands;
 
   /// Legacy adapter for existing integrations. Each family receives a narrow view.
   SessionCommandHandlers(
     CommandContext context, {
     ReleaseChecker? Function(Map<String, String> env)? releaseCheckerFactory,
+    PluginScope? pluginScope,
+    Set<String>? hiddenFeatures,
   }) : this.withCapabilities(
          dispatch: context,
          usage: context,
@@ -49,6 +55,8 @@ class SessionCommandHandlers {
          index: context,
          workflow: context,
          releaseCheckerFactory: releaseCheckerFactory,
+         pluginScope: pluginScope,
+         hiddenFeatures: hiddenFeatures,
        );
 
   SessionCommandHandlers.withCapabilities({
@@ -61,6 +69,8 @@ class SessionCommandHandlers {
     required PermissionsCapabilities permissions,
     required IndexCapabilities index,
     required this.workflow,
+    this.pluginScope,
+    this.hiddenFeatures,
     ReleaseChecker? Function(Map<String, String> env)? releaseCheckerFactory,
   }) : ctx = dispatch,
        usage = UsageCommands(usage),
@@ -74,30 +84,58 @@ class SessionCommandHandlers {
        permissions = PermissionsCommands(permissions),
        index = IndexCommands(index);
 
-  /// Seam for tests: builds the [ReleaseChecker] `/update` uses. Production
-  /// calls leave it null and a real checker (with [Platform.environment])
-  /// is constructed per invocation and closed afterwards.
+  /// Built-ins and extensions are ordinary contributions in one live view.
+  /// The frontend-owned child borrows app plugins and never disposes them.
+  CommandRegistry get commands {
+    if (_commands != null) return _commands!;
+    final runtime = PluginRuntime(
+      name: 'session-commands',
+      parent: pluginScope,
+      plugins: [
+        PluginDescriptor(
+          id: 'tina.commands',
+          factory: FnPluginFactory((context) {
+            for (final entry in _kSessionCommandEntries) {
+              context.register(
+                Command(
+                  names: entry.names,
+                  argsHint: entry.argsHint,
+                  summary: entry.summary,
+                  helpOrder: entry.helpOrder,
+                  helpContinuation: entry.helpContinuation,
+                  inHelp: entry.inHelp,
+                  feature: entry.feature,
+                  handler: (call) => entry.handler(this, call.line),
+                ),
+                id: 'tina.command.${entry.primary.substring(1)}',
+              );
+            }
+            return Object();
+          }),
+        ),
+      ],
+    );
+    _runtime = runtime;
+    runtime.activateSync();
+    return _commands = CommandRegistry(
+      runtime.scope,
+      hiddenFeatures: hiddenFeatures ?? registry.hiddenFeatures,
+    );
+  }
 
-  /// Every recognized slash command, in display order — derived from the
-  /// command registry ([registry], via [SessionCommandRegistry.allNames]),
-  /// which remains the single source of truth for [dispatch] and the `/`
-  /// command-completion palette ([CommandCompletionProvider]). Kept as a
-  /// getter (not deleted) because existing tests and callers name it; the
-  /// compiler-checked derivation cannot drift from the registry.
+  Future<void> dispose() async => _runtime?.dispose();
+
+  /// Compatibility catalog of built-in names. Live frontends use [commands],
+  /// which includes plugin contributions and per-instance feature settings.
   static List<String> get allCommands => registry.allNames;
 
-  /// The ordered command table every command surface dispatches, completes,
-  /// and renders help from. Replaced once at startup by [configureFeatures] so
-  /// the disabled-feature filtering is decided in one place; before that call
-  /// it holds the full table (which is what unit tests want).
+  /// Compatibility metadata only; not used for live dispatch or help.
   static SessionCommandRegistry registry = SessionCommandRegistry(
     _kSessionCommandEntries,
   );
 
-  /// Point dispatch, `/help`, and the `/` completion palette at the features
-  /// this session actually has. Called once by the TUI before it reads any
-  /// input; idempotent, so calling it again (or from a second entry point) is
-  /// harmless.
+  /// Legacy catalog configuration. New frontends pass [hiddenFeatures] on
+  /// construction so one frontend cannot change another's command surface.
   static void configureFeatures({required bool workflow}) {
     registry = SessionCommandRegistry(
       _kSessionCommandEntries,
@@ -107,39 +145,19 @@ class SessionCommandHandlers {
     );
   }
 
-  Future<CmdResult> dispatch(String trimmed) async {
-    final word = trimmed.split(RegExp(r'\s+')).first;
-    final entry = registry.lookup(word);
-    if (entry == null) {
-      if (word.startsWith('/')) {
-        ctx.active.host.showMessage(
-          '$word: unknown command\n',
-          style: HostMessageStyle.error,
-        );
-        return const CmdHandled();
-      }
-      return const CmdNotCommand();
-    }
-
-    ctx.active.host.showMessage('$trimmed\n', style: HostMessageStyle.user);
-    ctx.active.host.showSeparator();
-
-    // Run any registered hook for this command before the default action. The
-    // hook may prepare or clear state that the default handler then acts on.
-    // Keyed by the typed word, so hooks fire for aliases too (`/quit` fires
-    // the `/quit` hook, not the `/exit` one).
-    final hook = ctx.commandHooks[word];
-    if (hook != null) {
-      await hook();
-    }
-
-    return entry.handler(this, trimmed);
-  }
+  Future<CmdResult> dispatch(String trimmed, {Future<void>? cancelSignal}) =>
+      commands.dispatch(
+        trimmed,
+        host: ctx.active.host,
+        conversationId: ctx.active.id,
+        cancelSignal: cancelSignal,
+        hooks: ctx.commandHooks,
+      );
 
   void _printHelp() {
     // Rendered structurally from the command registry — same bytes as the
     // pre-registry literal (golden-tested in
     // test/session_commands/session_command_registry_test.dart).
-    ctx.active.host.showMessage(registry.renderHelp());
+    ctx.active.host.showMessage(commands.renderHelp());
   }
 }

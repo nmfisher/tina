@@ -847,7 +847,7 @@ class IndexCommands {
     }
     final conversation = ctx.active;
     // Classification uses the same session spending limit as other agent work.
-    if (options.method == LanguageMethod.jev && options.mode != 'status' && ctx.spendLedger?.tripped == true) {
+    if (options.method == LanguageMethod.jev && options.mode != 'status' && options.mode != 'view' && ctx.spendLedger?.tripped == true) {
       conversation.host.showMessage(
         'Token spend ceiling already tripped — /index skipped. '
         'Raise the cap (or /spend to review) first.\n',

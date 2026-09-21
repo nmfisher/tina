@@ -16,6 +16,7 @@ import 'package:tina/completion/command_completion_provider.dart';
 import 'package:tina/session_commands/session_command_handlers.dart';
 import 'package:tina/composition/config_providers.dart';
 import 'package:tina/composition/typesafe.dart';
+import 'package:tina/tui/index_browser.dart';
 
 import 'package:tina/config.dart';
 
@@ -974,6 +975,11 @@ class TuiCoordinator {
       editor.focusManager = focusManager;
 
       controller = SessionController(
+        inputRoutes: app.inputRoutes,
+        pluginScope: app.pluginScope,
+        hiddenCommandFeatures: config.enableWorkflow
+            ? const {}
+            : const {kWorkflowFeature},
         sessionManager: sessionManager,
         readLine: editor.readLine,
         sessionStore: store,
@@ -982,6 +988,9 @@ class TuiCoordinator {
         onActiveFocusChanged: () => relocateInput(),
         autoCompactThreshold: config.autoCompactThreshold,
         environment: app.environment,
+      );
+      editor.commandProvider = CommandCompletionProvider(
+        names: () => controller.commands.allNames,
       );
       // State the input log records beside the editor's own, so a freeze can be
       // read back from the log afterwards: which session and conversation were
@@ -2224,23 +2233,49 @@ class TuiCoordinator {
       coordinator._tmux = tmux;
       coordinator._panelHost = panelHost;
 
-      // Keep summary services available to region tools. /index itself only
-      // runs language classification through the cancellable background job.
+      // Keep summary services available to region tools. Index classification
+      // runs as a cancellable job; browsing only reads saved checkpoints.
       controller.summaryIndex = summaryIndex;
-      controller.runClassification = (conversation, options) =>
-          controller.background.runClassification(
-            conversation,
-            (cancelSignal, progress) async => classificationReportText(
-              await runConfiguredProjectClassification(
-                app,
-                spendLedger: controller.spendLedger,
-                method: options.method,
-                mode: options.mode,
-                cancelSignal: cancelSignal,
-                onProgress: progress,
-              ),
+      controller.runClassification = (conversation, options) async {
+        if (options.mode == 'view') {
+          final cancel = controller.commandCancelSignal;
+          var cancelled = false;
+          cancel?.then((_) => cancelled = true);
+          conversation.host.showMessage('Reading saved index…\n');
+          try {
+            final view = await readProjectIndex(app, cancelSignal: cancel);
+            if (!cancelled) {
+              await runIndexBrowser(
+                screen: screen,
+                editor: editor,
+                view: view,
+                cancelSignal: cancel,
+              );
+            }
+          } catch (e) {
+            if (!cancelled) {
+              conversation.host.showMessage(
+                'Index view unavailable: $e\n',
+                style: HostMessageStyle.error,
+              );
+            }
+          }
+          return;
+        }
+        await controller.background.runClassification(
+          conversation,
+          (cancelSignal, progress) async => classificationReportText(
+            await runConfiguredProjectClassification(
+              app,
+              spendLedger: controller.spendLedger,
+              method: options.method,
+              mode: options.mode,
+              cancelSignal: cancelSignal,
+              onProgress: progress,
             ),
-          );
+          ),
+        );
+      };
 
       // .gitignore guard: session transcripts land in `<cwd>/.tina/sessions/`
       // — inside the repo's working tree, where they could be committed. If the
@@ -2429,11 +2464,6 @@ class TuiCoordinator {
   }
 
   Future<RunOutcome> run({bool setupMode = false}) async {
-    // Command surfaces first: a feature this session does not have must not be
-    // dispatchable, completable, or listed in `/help`. The workflow surface
-    // ships off (see [RuntimeConfig.enableWorkflow]), so `/workflow` is absent
-    // from all three unless it was enabled at launch.
-    SessionCommandHandlers.configureFeatures(workflow: config.enableWorkflow);
     _sigintSub = ProcessSignal.sigint.watch().listen((_) {
       // Once quit has begun, don't inject: the editor's input pipeline may be
       // mid-teardown (or its render loop wedged), and injecting then can

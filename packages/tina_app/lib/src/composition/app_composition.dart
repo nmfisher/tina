@@ -8,6 +8,7 @@ import 'package:tina_app/src/platform/environment.dart';
 import 'package:tina_app/src/composition/execution_runtime.dart';
 import 'package:tina_app/src/composition/provider_resolution.dart';
 import 'package:tina_app/src/composition/runtime_resources.dart';
+import 'package:tina_app/src/execution/input_routes.dart';
 
 export 'package:tina_app/src/composition/runtime_resources.dart';
 
@@ -32,6 +33,8 @@ class AppComposition {
   final SessionStore store;
   final AgentPipeline pipeline;
   final SubAgentScheduler scheduler;
+  final InputRoutes? inputRoutes;
+  final PluginScope? pluginScope;
 
   /// Composition-level P5 replacement seam: the agent-driver factory handed to
   /// [scheduler], which uses it to build the agent loop of every scheduler
@@ -90,6 +93,8 @@ class AppComposition {
     required this.store,
     required this.pipeline,
     required this.scheduler,
+    this.inputRoutes,
+    this.pluginScope,
     this.driverFactory,
     this.persistence,
     required this.spendLedger,
@@ -188,6 +193,8 @@ class AppComposition {
 /// A same-project background run borrows [toolScope] to retain the live tools
 /// and write lock; other runs acquire a fresh scope. A borrowed [promptContext]
 /// carries the parent runtime's project sources and trust decision.
+/// [plugins] extends the default execution profile; contributions such as
+/// input routers and handlers are available to both frontends through this app.
 Future<AppComposition> buildAppComposition({
   required RuntimeConfig config,
   required ProviderRegistry registry,
@@ -202,6 +209,7 @@ Future<AppComposition> buildAppComposition({
   bool? loadProjectContext,
   AgentDriverFactory? driverFactory,
   SubAgentPersistenceFactory? persistence,
+  List<PluginDescriptor> plugins = const [],
 }) async {
   final resources = RuntimeResources();
   try {
@@ -217,6 +225,7 @@ Future<AppComposition> buildAppComposition({
       loadProjectContext: loadProjectContext,
       driverFactory: driverFactory,
       persistence: persistence,
+      plugins: plugins,
     );
     resources.own(runtime.dispose);
     final env = runtime.environment;
@@ -251,6 +260,8 @@ Future<AppComposition> buildAppComposition({
       store: sessionStore,
       pipeline: pipeline,
       scheduler: scheduler,
+      inputRoutes: runtime.inputRoutes,
+      pluginScope: runtime.pluginScope,
       driverFactory: driverFactory,
       persistence: persistence,
       spendLedger: ledger,

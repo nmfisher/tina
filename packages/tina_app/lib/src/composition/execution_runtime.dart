@@ -10,6 +10,7 @@ import 'package:tina_app/src/composition/execution_profile.dart';
 import 'package:tina_app/src/composition/runtime_resources.dart';
 
 import 'package:tina_app/src/execution/project_execution.dart';
+import 'package:tina_app/src/execution/input_routes.dart';
 
 class ExecutionRuntime implements ProjectExecution {
   final RuntimeConfig config;
@@ -31,6 +32,7 @@ class ExecutionRuntime implements ProjectExecution {
   /// The runtime's own plugin scope (ledger, provider factory, and — when the
   /// runtime owns the project — the built capabilities and tool scope).
   final PluginScope pluginScope;
+  late final InputRoutes inputRoutes = InputRoutes(pluginScope);
   ExecutionRuntime({
     required this.config,
     required this.environment,
@@ -74,6 +76,7 @@ class ExecutionRuntime implements ProjectExecution {
 /// conversation-owned plugins. An override is validated by the runtime BEFORE
 /// any factory runs, so a bad profile fails before any provider, ledger, or
 /// scheduler exists.
+/// [plugins] appends extensions to that profile, without replacing built-ins.
 Future<ExecutionRuntime> buildExecutionRuntime({
   required RuntimeConfig config,
   required ProviderRegistry registry,
@@ -85,6 +88,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
   AgentDriverFactory? driverFactory,
   SubAgentPersistenceFactory? persistence,
   List<PluginDescriptor>? executionPlugins,
+  List<PluginDescriptor> plugins = const [],
 }) async {
   final env = environment ?? const PlatformEnvironment();
   final root = p.normalize(
@@ -116,7 +120,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
   // assembled from them. When BORROWING a live same-project scope the profile
   // (default or override) is trimmed to the conversation-owned plugins — the
   // borrowed scope's capabilities stay exactly the ones its owner built.
-  final profile =
+  final baseProfile =
       executionPlugins ??
       defaultExecutionPlugins(
         config: config,
@@ -130,6 +134,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
         sandboxReadOnly: config.sandboxReadOnly,
         sandboxOffReason: config.sandboxOffReason,
       );
+  final profile = [...baseProfile, ...plugins];
   final mounted = toolScope == null ? profile : borrowedScopePlugins(profile);
   // Fix (P2): required application services are validated BEFORE activation —
   // the mounted profile must DECLARE the ledger and the provider factory, so

@@ -97,6 +97,8 @@ Configure Typesafe in `/settings` or set `TYPESAFE_API_KEY`; without it, languag
 indexing still works and the other classifications are reported as unavailable.
 Unchanged results restore from `.tina/classifications`. `/index status` checks
 saved results without model calls; `/index refresh` recomputes them.
+`/index view` opens an expandable directory tree with saved labels, input
+freshness, evidence and classifier details. It needs no model credentials.
 
 ## Running inside tmux
 

@@ -90,7 +90,7 @@ void main() {
     );
   });
 
-  for (final mode in ['', 'status', 'refresh']) {
+  for (final mode in ['', 'status', 'refresh', 'view']) {
     test('index $mode invokes only classification', () async {
       final calls = <String>[];
       final handlers = SessionCommandHandlers(
@@ -142,7 +142,8 @@ void main() {
     expect(await handlers.dispatch('/index jev refresh'), isA<CmdHandled>());
     expect(calls, isEmpty);
     expect(await handlers.dispatch('/index jev status'), isA<CmdHandled>());
-    expect(calls, ['status']);
+    expect(await handlers.dispatch('/index jev view'), isA<CmdHandled>());
+    expect(calls, ['status', 'view']);
   });
 
   test(

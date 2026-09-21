@@ -2,7 +2,7 @@ enum LanguageMethod { jev, extensions }
 
 class IndexOptions {
   static const defaultMethod = LanguageMethod.extensions;
-  static const usage = 'Usage: /index [jev|extensions] [status|refresh]';
+  static const usage = 'Usage: /index [jev|extensions] [status|refresh|view]';
   final LanguageMethod method;
   final String mode;
   const IndexOptions({this.method = defaultMethod, this.mode = ''});
@@ -19,6 +19,7 @@ class IndexOptions {
           method = LanguageMethod.values.byName(token);
         case 'status':
         case 'refresh':
+        case 'view':
           if (mode != null) throw ArgumentError(usage);
           mode = token;
         default:

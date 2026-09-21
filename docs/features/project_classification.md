@@ -16,6 +16,30 @@ queries, directory discovery, label types and project classifiers live in
 `packages/tina_app/lib/src/classification`. The generic classifier package has no
 knowledge of programming languages, files, paths or a mandatory discovery phase.
 
+## Browse saved results
+
+`/index view` opens a full-screen directory tree in the TUI. Up/down selects a
+directory; right expands it or enters its children; left collapses it or returns
+to its parent. Enter opens the selected directory's details and returns to the
+tree. Details include labels, explanations, evidence paths, coverage gaps,
+classifier/source metadata, and checkpoint IDs. Use arrows, Page Up/Page Down,
+or the mouse wheel to scroll; left/right pans long detail lines. Escape closes
+the browser, and double-Esc retains its global cancellation behavior.
+
+Each classification is marked **current**, **stale**, **incomplete**, or
+**missing**. Current means its saved source receipts and child results match;
+it does not promise compatibility with changed classifier settings. Unknown
+classification labels are distinct from missing results. Partial checkpoints
+from cancelled runs and removed directories remain visible.
+
+Viewing reads a snapshot of `.tina/classifications` and checks local evidence
+through the same repository source and merge revision logic used by indexing.
+It makes no classifier calls, needs no Typesafe credentials, and writes nothing.
+If inputs cannot be checked, results are marked incomplete. Close and reopen
+to refresh the snapshot. `tina --prompt '/index view'` prints a text summary.
+An optional `jev`/`extensions` argument does not filter the view: it always shows
+the saved index, whichever language implementation produced it.
+
 ## Source preparation
 
 `RepositoryEvidenceReader` supplies bounded Git enumeration and confined file

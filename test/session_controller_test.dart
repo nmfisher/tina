@@ -8,6 +8,7 @@ import 'package:tina_app/tina_app.dart';
 
 
 import 'package:tina/session_controller.dart';
+import 'package:tina/completion/command_completion_provider.dart';
 
 import 'helpers/memory_session_store.dart';
 import 'package:test/test.dart';
@@ -62,6 +63,8 @@ SessionController _buildController({
   Directory? workflowsDir,
   String? defaultWorkflow,
   List<Tool>? tools,
+  InputRoutes? inputRoutes,
+  PluginScope? pluginScope,
 }) {
   // Tests that pass real tools allow them statically — the asker seam
   // (host.askPermission) stays wired but is never consulted for them.
@@ -128,6 +131,8 @@ SessionController _buildController({
     ),
   );
   final controller = SessionController(
+    inputRoutes: inputRoutes,
+    pluginScope: pluginScope,
     sessionManager: sm,
     readLine: readLine.call,
     onActiveFocusChanged: () {},
@@ -154,6 +159,67 @@ Future<void> _pumpUntil(bool Function() pred,
 }
 
 void main() {
+  test('plugin command help, completion and CmdRun use the live input path', () async {
+    final scope = PluginScope('plugin');
+    addTearDown(scope.dispose);
+    final registration = scope.registerContribution(pluginId: 'test', id: 'plugin.ask',
+      contribution: Command(names: ['/ask', '/a'], summary: 'ask a question',
+        handler: (call) async => CmdRun(call.arguments)));
+    final router = _StalledInputRouter();
+    scope.registerContribution(pluginId: 'test', id: 'router', contribution: router);
+    final input = FakeReadLine();
+    final provider = FakeProvider.done();
+    final controller = _buildController(readLine: input, provider: provider,
+      inputRoutes: InputRoutes(scope), pluginScope: scope);
+    final completion = CommandCompletionProvider(names: () => controller.commands.allNames);
+    expect(await completion.complete('a'), containsAll(['/ask', '/a']));
+    input.enqueue('/help');
+    final run = controller.run();
+    await _pumpUntil(() => hostOf(controller).messages.join().contains('ask a question'));
+    expect(router.seen, isEmpty);
+    input.enqueue('/a hello');
+    await _pumpUntil(() => provider.calls.isNotEmpty);
+    await controller.turns.whenIdle(controller.active.id);
+    expect(router.seen, ['hello']);
+    await registration.dispose();
+    expect(await completion.complete('ask'), isEmpty);
+    expect(controller.commands.lookup('/ask'), isNull);
+    expect(controller.commands.renderHelp(), isNot(contains('ask a question')));
+    input.close();
+    await run;
+    expect(scope.isAdmitting, isTrue, reason: 'the frontend borrows app plugins');
+  });
+  test('commands bypass routers and cancelNow releases a stalled input plugin', () async {
+    final scope = PluginScope('input');
+    addTearDown(scope.dispose);
+    final router = _StalledInputRouter();
+    scope.registerContribution(pluginId: 'test', id: 'router', contribution: router);
+    final input = FakeReadLine();
+    final provider = FakeProvider.done();
+    final controller = _buildController(readLine: input, provider: provider,
+      inputRoutes: InputRoutes(scope));
+    var settingsOpened = false;
+    controller.openSettings = () async { settingsOpened = true; };
+    input.enqueue('/settings');
+    final run = controller.run();
+    await _pumpUntil(() => settingsOpened);
+    expect(router.seen, isEmpty);
+    input.enqueue('first');
+    await router.started.future;
+    input.enqueue('discard');
+    await _pumpUntil(() => controller.active.messageQueue.isNotEmpty);
+    expect(controller.cancelNow(), isTrue);
+    await controller.turns.whenIdle(controller.active.id).timeout(const Duration(seconds: 1));
+    expect(controller.active.messageQueue.isEmpty, isTrue);
+    expect(hostOf(controller).activitySignals.last, isFalse);
+    input.enqueue('replacement');
+    await _pumpUntil(() => provider.calls.isNotEmpty);
+    await controller.turns.whenIdle(controller.active.id);
+    input.close();
+    await run;
+    expect(router.seen, ['first', 'replacement']);
+    expect(provider.calls, hasLength(1));
+  });
   test('/explore runs under the restricted turn catalog and restores normal tools', () async {
     final read = _ExplorationForbiddenTool();
     final provider = FakeProvider(const [
@@ -1319,6 +1385,20 @@ void main() {
       await runFuture;
     });
   });
+}
+
+class _StalledInputRouter implements InputRouter {
+  final seen = <String>[];
+  final started = Completer<void>();
+  @override
+  Future<InputRoute?> route(InputContext input) {
+    seen.add(input.text);
+    if (input.text == 'first') {
+      started.complete();
+      return Completer<InputRoute?>().future;
+    }
+    return Future.value(null);
+  }
 }
 
 class _SlowProvider extends LlmProvider {

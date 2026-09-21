@@ -172,6 +172,18 @@ execute, or how permissions are checked. It sees `Agent`, `Screen` (only
 `bin/tina.dart` reuses `Agent` directly without involving any REPL code,
 passing a passthrough `Screen.chat` so output goes to plain stdout.
 
+### Input and command plugins
+
+`tina_app` exposes `CommandRegistry` and `InputRoutes` over the existing plugin
+runtime. Frontends register built-in slash commands in child scopes and inherit
+application command contributions. The live command registry supplies dispatch,
+help and completion. After command handling and queue admission, input routers
+may select a handler before compaction or agent execution; no classifier router
+is installed by default. Both extension points support cancellation.
+
+See [command plugins](docs/features/command_plugins.md) and
+[input routing](docs/features/input_routing.md) for contracts and examples.
+
 ### `packages/tina_engine/lib/src/agent/` — the tool-calling loop
 
 (Moved out of the app's `lib/` when the engine became a package; the

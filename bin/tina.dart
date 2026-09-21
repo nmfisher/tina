@@ -12,6 +12,7 @@ import 'package:tina/logging.dart';
 
 import 'package:tina/host/headless_watchdog.dart';
 import 'package:tina/session_commands/startup_session_picker.dart';
+import 'package:tina/session_commands/headless_commands.dart';
 
 import 'package:tina_engine/tina_engine.dart';
 
@@ -477,39 +478,34 @@ Future<void> _runNonInteractive(
       return;
     }
 
-    // Headless /index runs only the language classifier and tree reduction.
-    // Status performs no model calls; Ctrl+C cancels pending classification.
-    final prompt = startup.prompt?.trim() ?? '';
-    if (prompt == '/index' || prompt.startsWith('/index ')) {
-      final parts = prompt.split(RegExp(r'\s+'));
-      final cancelled = Completer<void>();
-      final signal = ProcessSignal.sigint.watch().listen((_) {
-        if (!cancelled.isCompleted) cancelled.complete();
-      });
-      try {
-        final options = IndexOptions.parse(parts.skip(1).join(' '));
-        final report = await runConfiguredProjectClassification(
-          app,
-          method: options.method,
-          mode: options.mode,
-          cancelSignal: cancelled.future,
-          onProgress: (text) => host.showMessage('$text\n'),
-        );
-        host.showMessage(classificationReportText(report));
-        if (report.cancelled || report.failures.isNotEmpty) exitCode = 1;
-        if (cancelled.isCompleted) exitCode = 1;
-      } catch (e) {
-        host.showMessage(
-          'Index unavailable: $e\n',
-          style: HostMessageStyle.error,
-        );
+    final commandRuntime = headlessCommands(app);
+    resources.own(commandRuntime.dispose);
+    final commands = CommandRegistry(commandRuntime.scope);
+    var rawPrompt = startup.prompt!;
+    final commandCancel = Completer<void>();
+    final commandSignal = ProcessSignal.sigint.watch().listen((_) {
+      if (!commandCancel.isCompleted) commandCancel.complete();
+    });
+    CmdResult commandResult;
+    try {
+      commandResult = await commands.dispatch(
+        rawPrompt,
+        host: host,
+        conversationId: app.initialConversationId,
+        cancelSignal: commandCancel.future,
+      );
+    } finally {
+      await commandSignal.cancel();
+    }
+    if (commandResult is CmdHandled || commandResult is CmdExit) {
+      if ((commandResult is CmdHandled && commandResult.failed) ||
+          commandCancel.isCompleted) {
         exitCode = 1;
-      } finally {
-        await signal.cancel();
-        await closeLogging();
       }
+      await closeLogging();
       return;
     }
+    if (commandResult case CmdRun(:final prompt)) rawPrompt = prompt;
 
     // Normal headless turns run the plain agent. Workflows are launched on demand
     // (use `--workflow <name>` for an explicit, run-to-completion pipeline);
@@ -599,7 +595,6 @@ Future<void> _runNonInteractive(
     );
 
     // Append concise summary instruction for headless --prompt runs.
-    final rawPrompt = startup.prompt!;
     var userInput =
         rawPrompt +
         (rawPrompt.trim().isNotEmpty ? '\n' : '') +
@@ -697,14 +692,38 @@ Future<void> _runNonInteractive(
         watchdog?.dispose();
       });
     }
+    final cancelInput = Completer<void>();
+    final inputSignal = ProcessSignal.sigint.watch().listen((_) {
+      if (!cancelInput.isCompleted) cancelInput.complete();
+    });
+    final cancelTurn = Future.any<void>([
+      cancelWatchdog.future,
+      cancelInput.future,
+    ]);
     try {
-      await driver.run(
-        history: history,
-        userInput: userInput,
-        cancelSignal: cancelWatchdog.future,
-      );
-      aborted = driver.abortedReason != null || (watchdog?.fired ?? false);
+      final outcome = await app.inputRoutes?.run(
+            text: rawPrompt,
+            conversationId: app.initialConversationId,
+            history: history,
+            cancelSignal: cancelTurn,
+            host: host,
+            recorder: recorder,
+          ) ??
+          InputOutcome.pass;
+      if (outcome == InputOutcome.pass) {
+        await driver.run(
+          history: history,
+          userInput: userInput,
+          cancelSignal: cancelTurn,
+        );
+        aborted = driver.abortedReason != null ||
+            (watchdog?.fired ?? false) || cancelInput.isCompleted;
+      } else {
+        aborted = outcome != InputOutcome.handled ||
+            (watchdog?.fired ?? false) || cancelInput.isCompleted;
+      }
     } finally {
+      await inputSignal.cancel();
       watchdogGrace?.cancel();
       await watchdogSub?.cancel();
       Wire.onWireEvent = null;

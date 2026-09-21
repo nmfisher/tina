@@ -1,11 +1,25 @@
 import 'dart:async';
 import 'package:test/test.dart';
 import 'package:tina_app/src/execution/turn_executor.dart';
+import 'package:tina_app/src/execution/input_routes.dart';
 import 'package:tina_app/src/session/conversation.dart';
 import 'package:tina_app/src/workflows/workflow_supervisor.dart';
 import 'package:tina_engine/tina_engine.dart';
 import '../helpers/fake_host_interface.dart';
 import '../helpers/memory_session_store.dart';
+
+class _Router implements InputRouter {
+  final Future<InputRoute?> Function(InputContext) callback;
+  _Router(this.callback);
+  @override
+  Future<InputRoute?> route(InputContext input) => callback(input);
+}
+
+class _Reply implements InputHandler {
+  @override
+  Future<String> handle(InputContext input, InputRoute route) async =>
+      'plugin reply';
+}
 
 class _Provider extends LlmProvider {
   _Provider() : super('controlled');
@@ -104,6 +118,125 @@ void main() {
   tearDown(() async {
     await executor.shutdown();
     await host.dispose();
+  });
+  test(
+    'a routed reply skips compaction and the agent, keeping turn persistence',
+    () async {
+      final scope = PluginScope('input');
+      addTearDown(scope.dispose);
+      scope.registerContribution(
+        pluginId: 'test',
+        id: 'router',
+        contribution: _Router((_) async => InputRoute('reply')),
+      );
+      scope.registerContribution(
+        pluginId: 'test',
+        id: 'reply',
+        contribution: _Reply(),
+      );
+      executor = TurnExecutor(
+        findConversation: (_) => conversation,
+        inputRoutes: InputRoutes(scope),
+        autoCompactThreshold: 1,
+        autoCompactPreserveRecent: 0,
+      );
+      executor.submit(conversation.id, 'hello');
+      await executor
+          .whenIdle(conversation.id)
+          .timeout(const Duration(seconds: 1));
+      expect(provider.streams, isEmpty);
+      expect(conversation.history.map((m) => m.role), [
+        Role.user,
+        Role.assistant,
+      ]);
+      expect(host.activitySignals.last, isFalse);
+      final rec = conversation.recorder!;
+      expect(
+        (await store.loadConversation(
+          rec.sessionId,
+          rec.conversationId,
+        )).length,
+        2,
+      );
+    },
+  );
+
+  test(
+    'cancelled routing releases the turn and cannot capture queued input',
+    () async {
+      final scope = PluginScope('input');
+      addTearDown(scope.dispose);
+      final started = Completer<void>();
+      final seen = <String>[];
+      scope.registerContribution(
+        pluginId: 'test',
+        id: 'router',
+        contribution: _Router((input) {
+          seen.add(input.text);
+          if (input.text == 'first') {
+            started.complete();
+            return Completer<InputRoute?>().future;
+          }
+          return Future.value(null);
+        }),
+      );
+      executor = TurnExecutor(
+        findConversation: (_) => conversation,
+        inputRoutes: InputRoutes(scope),
+      );
+      executor.submit(conversation.id, 'first');
+      await started.future;
+      expect(executor.submit(conversation.id, 'second'), TurnSubmission.queued);
+      expect(seen, ['first']);
+      executor.cancel(conversation.id);
+      await provider.started[0].future.timeout(const Duration(seconds: 1));
+      expect(seen, ['first', 'second']);
+      provider.finish(0);
+      await executor.whenIdle(conversation.id);
+      expect(
+        conversation.history
+            .where((m) => m.role == Role.user)
+            .map((m) => (m.content.single as TextBlock).text),
+        ['first', 'second'],
+      );
+      expect(executor.state(conversation.id), TurnState.idle);
+    },
+  );
+
+  test('queued workflow completions bypass user routers', () async {
+    final scope = PluginScope('input');
+    addTearDown(scope.dispose);
+    final seen = <String>[];
+    scope.registerContribution(
+      pluginId: 'test',
+      id: 'router',
+      contribution: _Router((input) async {
+        seen.add(input.text);
+        return null;
+      }),
+    );
+    executor = TurnExecutor(
+      findConversation: (_) => conversation,
+      inputRoutes: InputRoutes(scope),
+    );
+    executor.submit(conversation.id, 'first');
+    await provider.started[0].future;
+    executor.injectWorkflowResult(
+      WorkflowRun(
+        id: 'run',
+        workflowName: 'test',
+        conversationId: conversation.id,
+        goal: null,
+        input: null,
+        cancel: Completer<void>(),
+      )..status = WorkflowRunStatus.completed,
+    );
+    provider.finish(0);
+    await provider.started[1].future;
+    provider.finish(1);
+    await executor.whenIdle(conversation.id);
+    expect(seen, ['first']);
+    expect(provider.streams, hasLength(2));
   });
   test('session-owned closure is visible to admission and state', () async {
     conversation.beginClose();

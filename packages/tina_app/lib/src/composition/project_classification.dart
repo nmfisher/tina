@@ -3,6 +3,7 @@ import 'package:classifier/judgments.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 import '../classification/file_classification_store.dart';
+import '../classification/index_view.dart';
 import '../classification/extension_classifier.dart';
 import '../classification/index_options.dart';
 import '../classification/project_classifiers.dart';
@@ -11,6 +12,40 @@ import '../classification/repository_text_source.dart';
 import '../classification/project_classification_workflow.dart';
 import 'app_composition.dart';
 import '../exploration/metered_judgment_service.dart';
+
+RepositoryEvidenceReader _reader(AppComposition app) =>
+    RepositoryEvidenceReader(
+      root: app.pipeline.tools.projectRoot,
+      sandbox: SandboxedFileSystem(
+        const IoFileSystem(),
+        projectRoot: app.pipeline.tools.projectRoot,
+        tinaDir: tinaDirFromEnv(app.environment.env),
+      ),
+      policy: PermissionPolicy(
+        mode: PermissionMode.readAll,
+        rules: [...app.policy.staticRules, ...app.policy.sessionRules],
+      ),
+    );
+
+Future<IndexView> readProjectIndex(
+  AppComposition app, {
+  Future<void>? cancelSignal,
+}) async {
+  final stop = JudgmentCancellation();
+  cancelSignal?.then(
+    (_) => stop.cancel(),
+    onError: (Object _) => stop.cancel(),
+  );
+  try {
+    return await readIndex(
+      store: FileClassificationStore(app.pipeline.tools.projectRoot),
+      source: RepositoryTextSource(reader: _reader(app)),
+      cancellation: stop,
+    );
+  } finally {
+    stop.cancel();
+  }
+}
 
 /// Language, framework and tooling results share one persisted directory index.
 /// Language may run locally; framework and tooling always use judgments.
@@ -95,15 +130,7 @@ Future<ProjectClassificationReport> runProjectClassification(
     );
   }
   try {
-    final reader = RepositoryEvidenceReader(
-      root: root,
-      sandbox: SandboxedFileSystem(
-        const IoFileSystem(),
-        projectRoot: root,
-        tinaDir: tinaDirFromEnv(app.environment.env),
-      ),
-      policy: PermissionPolicy(mode: PermissionMode.readAll, rules: rules),
-    );
+    final reader = _reader(app);
     final source = RepositoryTextSource(projection: projection, reader: reader);
     return await ClassificationOrchestrator(
       store: FileClassificationStore(root),
