@@ -129,9 +129,12 @@ class UpdateCommands {
         case UpdateResult.manualRequired:
           host.showMessage(
             'this install can\'t be replaced in place (running from '
-            'source, or a read-only location).\n'
-            'Download the new bundle from ${release.releaseUrl} and replace '
-            'this installation manually.\n',
+            'source, a read-only location, or a directory tina doesn\'t '
+            'exclusively own — the updater only swaps a directory holding '
+            'nothing but tina).\n'
+            'Re-run install.sh to update in place (it touches only tina\'s '
+            'own files), or download the bundle from '
+            '${release.releaseUrl}.\n',
             style: HostMessageStyle.dim,
           );
         case UpdateResult.failed:

@@ -51,17 +51,76 @@ String? targetForCurrentPlatform() {
   }
 }
 
-/// The bundle root directory (`<…>/bundle`) containing the running binary's
-/// `bin/` + `lib/`, or null when the layout doesn't look like an extracted
-/// release bundle (e.g. `dart run`, where resolvedExecutable is the VM).
-String? bundleRootForCurrentProcess({String? resolvedExecutable}) {
+/// Marker file present in a bundle root the updater may replace. A purely
+/// structural `<root>/bin/tina` walk can land on a shared prefix like
+/// `~/.local`; before the marker existed, an update renamed the whole
+/// directory aside and the next launch swept it away — destroying everything
+/// else installed there (v0.7.1, 2026-09-20). The marker plus the contents
+/// check in [isOwnedBundleRoot] make a swap possible only into a directory
+/// that exists exclusively for tina.
+const bundleMarkerName = '.tina-bundle';
+
+final _tinaLibEntry = RegExp(r'^lib(tina|notcurses)');
+
+/// Whether [root] is a directory the updater owns outright: it carries
+/// [bundleMarkerName], holds `bin/tina`, and contains nothing beyond tina's
+/// own files — `bin/` with only `tina` in it, `lib/` with only tina and
+/// notcurses libraries, and dotfiles. Anything else (a shared prefix like
+/// `~/.local`, foreign tools in `bin/`, a legacy unmarked install) fails
+/// this check and must never be renamed, replaced, or deleted by the
+/// updater.
+bool isOwnedBundleRoot(String root) {
+  if (!File(p.join(root, 'bin', 'tina')).existsSync()) return false;
+  if (!File(p.join(root, bundleMarkerName)).existsSync()) return false;
+  try {
+    for (final entry in Directory(root).listSync(followLinks: false)) {
+      switch (p.basename(entry.path)) {
+        case 'bin':
+          if (Directory(entry.path)
+              .listSync()
+              .any((e) => p.basename(e.path) != 'tina')) {
+            return false;
+          }
+        case 'lib':
+          if (Directory(entry.path)
+              .listSync()
+              .any((e) => !_tinaLibEntry.hasMatch(p.basename(e.path)))) {
+            return false;
+          }
+        default:
+          if (!p.basename(entry.path).startsWith('.')) return false;
+      }
+    }
+  } on FileSystemException {
+    return false;
+  }
+  return true;
+}
+
+/// The structural bundle-root candidate for the running process
+/// (`<root>/bin/tina` shape), without the ownership check —
+/// [installRelease] layers ownership on top so an unowned candidate gets a
+/// distinct, actionable refusal instead of a generic manualRequired.
+String? bundleRootCandidateForCurrentProcess({String? resolvedExecutable}) {
   final exe = resolvedExecutable ?? Platform.resolvedExecutable;
   if (p.basename(exe) != 'tina') return null;
   final binDir = p.dirname(exe);
   if (p.basename(binDir) != 'bin') return null;
-  final root = p.dirname(binDir);
   if (!File(p.join(binDir, 'tina')).existsSync()) return null;
-  return root;
+  return p.dirname(binDir);
+}
+
+/// The bundle root the updater may replace: the running binary's
+/// `<…>/bin/tina` layout — but only when that root is exclusively tina's
+/// ([isOwnedBundleRoot]). Null when the layout doesn't look like an
+/// extracted release bundle at all (e.g. `dart run`, where
+/// resolvedExecutable is the VM), or when the candidate root is shared with
+/// other tools' files.
+String? bundleRootForCurrentProcess({String? resolvedExecutable}) {
+  final candidate = bundleRootCandidateForCurrentProcess(
+      resolvedExecutable: resolvedExecutable);
+  if (candidate == null || !isOwnedBundleRoot(candidate)) return null;
+  return candidate;
 }
 
 /// Downloads and installs [release] over the running installation.
@@ -86,8 +145,16 @@ Future<UpdateResult> installRelease(
   final assetUrl = assetName == null ? null : release.assetUrls[assetName];
   if (target == null || assetUrl == null) return UpdateResult.unsupported;
 
-  final bundleRoot = bundleRootOverride ?? bundleRootForCurrentProcess();
-  if (bundleRoot == null) return UpdateResult.manualRequired;
+  final candidate = bundleRootOverride ?? bundleRootCandidateForCurrentProcess();
+  if (candidate == null) return UpdateResult.manualRequired;
+  if (!isOwnedBundleRoot(candidate)) {
+    notice('$candidate is not an exclusively-tina directory (missing '
+        '$bundleMarkerName, or it holds files that aren\'t tina\'s) — the '
+        'updater will not replace it. Re-run install.sh: it updates only '
+        'tina\'s own files.');
+    return UpdateResult.manualRequired;
+  }
+  final bundleRoot = candidate;
 
   final ownsClient = client == null;
   final http_ = client ?? http.Client();
@@ -162,14 +229,35 @@ Future<UpdateResult> installRelease(
 Future<UpdateResult> _swapBundle(
     Directory newBundle, Directory bundleRoot, void Function(String) notice) async {
   final old = Directory('${bundleRoot.path}.old');
+  // Belt and braces: the caller checked too, but re-verify at the moment of
+  // the rename — a root that stopped looking exclusively tina's between
+  // check and swap aborts here instead of being moved aside.
+  if (!isOwnedBundleRoot(bundleRoot.path)) {
+    throw UpdateError(
+        '${bundleRoot.path} is not an exclusively-tina directory; refusing '
+        'to swap it');
+  }
   try {
-    if (old.existsSync()) old.deleteSync(recursive: true);
+    if (old.existsSync()) {
+      // A `<root>.old` left by anything else (another tool's backup
+      // convention, a user's mv) is never ours to delete.
+      if (!isOwnedBundleRoot(old.path)) {
+        throw UpdateError(
+            'a foreign ${old.path} exists; refusing to delete it — remove '
+            'it by hand, then update again');
+      }
+      old.deleteSync(recursive: true);
+    }
     bundleRoot.renameSync(old.path);
+  } on UpdateError {
+    rethrow;
   } catch (e) {
     throw UpdateError(
         'cannot move the current installation aside (read-only location?): $e');
   }
   try {
+    File(p.join(newBundle.path, bundleMarkerName))
+        .writeAsStringSync('tina bundle root\n');
     _moveDir(newBundle, bundleRoot);
   } catch (e) {
     // Roll back so the install is no worse than before.
@@ -237,7 +325,15 @@ void cleanupStaleOldBundle({String? bundleRootOverride}) {
     final root = bundleRootOverride ?? bundleRootForCurrentProcess();
     if (root == null) return;
     final old = Directory('$root.old');
-    if (old.existsSync()) old.deleteSync(recursive: true);
+    if (!old.existsSync()) return;
+    // Sweep only what an earlier tina update left behind. A `<root>.old`
+    // created by anything else — another tool's backup convention, a user's
+    // own mv — is never ours to delete.
+    if (!isOwnedBundleRoot(old.path)) {
+      _log.fine('leaving ${old.path} alone: not a tina bundle');
+      return;
+    }
+    old.deleteSync(recursive: true);
   } catch (e) {
     _log.fine('stale .old bundle cleanup failed', e);
   }

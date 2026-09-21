@@ -48,11 +48,17 @@ void main() {
     return (archive: archive, checksum: checksum);
   }
 
-  /// A fake installed bundle: `<root>/bin/tina` with [marker] inside.
-  Directory buildInstalledBundle(String marker) {
+  /// A fake installed bundle: `<root>/bin/tina` with [marker] inside,
+  /// stamped with [bundleMarkerName] unless [marked] is false (legacy
+  /// pre-marker layouts).
+  Directory buildInstalledBundle(String marker, {bool marked = true}) {
     final root = Directory(p.join(scratch!.path, 'installed', 'bundle'));
     Directory(p.join(root.path, 'bin')).createSync(recursive: true);
     File(p.join(root.path, 'bin', 'tina')).writeAsStringSync(marker);
+    if (marked) {
+      File(p.join(root.path, bundleMarkerName))
+          .writeAsStringSync('tina bundle root\n');
+    }
     return root;
   }
 
@@ -71,6 +77,42 @@ void main() {
   group('bundleRootForCurrentProcess', () {
     test('recognizes a <root>/bin/tina layout', () {
       final root = buildInstalledBundle('x');
+      final exe = p.join(root.path, 'bin', 'tina');
+      expect(bundleRootForCurrentProcess(resolvedExecutable: exe), root.path);
+    });
+
+    test('rejects an unmarked (legacy) layout', () {
+      final root = buildInstalledBundle('x', marked: false);
+      final exe = p.join(root.path, 'bin', 'tina');
+      expect(bundleRootForCurrentProcess(resolvedExecutable: exe), isNull);
+    });
+
+    test('rejects a root shared with other tools (foreign bin entry)', () {
+      final root = buildInstalledBundle('x');
+      File(p.join(root.path, 'bin', 'hermes')).writeAsStringSync('#!/bin/sh');
+      final exe = p.join(root.path, 'bin', 'tina');
+      expect(bundleRootForCurrentProcess(resolvedExecutable: exe), isNull);
+    });
+
+    test('rejects a root shared with other tools (foreign lib entry)', () {
+      final root = buildInstalledBundle('x');
+      Directory(p.join(root.path, 'lib')).createSync();
+      File(p.join(root.path, 'lib', 'libforeign.so')).writeAsStringSync('x');
+      final exe = p.join(root.path, 'bin', 'tina');
+      expect(bundleRootForCurrentProcess(resolvedExecutable: exe), isNull);
+    });
+
+    test('rejects a root shared with other tools (foreign top-level dir)',
+        () {
+      final root = buildInstalledBundle('x');
+      Directory(p.join(root.path, 'share')).createSync();
+      final exe = p.join(root.path, 'bin', 'tina');
+      expect(bundleRootForCurrentProcess(resolvedExecutable: exe), isNull);
+    });
+
+    test('ignores dotfiles when judging ownership', () {
+      final root = buildInstalledBundle('x');
+      File(p.join(root.path, '.DS_Store')).writeAsStringSync('');
       final exe = p.join(root.path, 'bin', 'tina');
       expect(bundleRootForCurrentProcess(resolvedExecutable: exe), root.path);
     });
@@ -121,6 +163,9 @@ void main() {
           File(p.join('${installed.path}.old', 'bin', 'tina'))
               .readAsStringSync(),
           'old');
+      expect(File(p.join(installed.path, bundleMarkerName)).existsSync(),
+          isTrue,
+          reason: 'the installed root carries the ownership marker');
       expect(lines.any((l) => l.contains('restart')), isTrue);
     }, skip: !hasTar);
 
@@ -196,6 +241,56 @@ void main() {
       expect(result, UpdateResult.manualRequired);
     }, skip: !hasTar);
 
+    test('refuses to swap a root that is not exclusively tina\'s', () async {
+      final installed = buildInstalledBundle('old', marked: false);
+      Directory(p.join(installed.path, 'share', 'signal-cli'))
+          .createSync(recursive: true);
+      File(p.join(installed.path, 'share', 'signal-cli', 'account.db'))
+          .writeAsStringSync('store');
+      final fixture = buildArchive('new-tina');
+      final lines = <String>[];
+
+      final result = await installRelease(
+        releaseFor('https://example.com/asset'),
+        notice: lines.add,
+        bundleRootOverride: installed.path,
+        workDirOverride: p.join(scratch!.path, 'work'),
+        archiveSupplier: () async => fixture.archive,
+      );
+
+      expect(result, UpdateResult.manualRequired);
+      expect(lines.join(), contains('install.sh'));
+      expect(File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(),
+          'old');
+      expect(Directory('${installed.path}.old').existsSync(), isFalse,
+          reason: 'an unowned root must never be renamed aside');
+    }, skip: !hasTar);
+
+    test('refuses to delete a foreign <root>.old', () async {
+      final installed = buildInstalledBundle('old');
+      // Something else's backup directory, sitting where the swap would
+      // want to sweep it.
+      final foreign = Directory('${installed.path}.old')..createSync();
+      File(p.join(foreign.path, 'keep.txt')).writeAsStringSync('not tina\'s');
+      final fixture = buildArchive('new-tina');
+      final lines = <String>[];
+
+      final result = await installRelease(
+        releaseFor('https://example.com/asset'),
+        notice: lines.add,
+        bundleRootOverride: installed.path,
+        workDirOverride: p.join(scratch!.path, 'work'),
+        archiveSupplier: () async => fixture.archive,
+      );
+
+      expect(result, UpdateResult.failed);
+      expect(lines.join(), contains('refusing to delete'));
+      expect(foreign.existsSync(), isTrue,
+          reason: 'a foreign .old is never ours to delete');
+      expect(File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(),
+          'old', reason: 'the swap aborted before touching the install');
+    }, skip: !hasTar);
+
     test('a non-bundle archive (no bundle/bin/tina) fails and rolls back',
         () async {
       final installed = buildInstalledBundle('old');
@@ -228,11 +323,34 @@ void main() {
 
   test('cleanupStaleOldBundle removes the .old sibling', () {
     final installed = buildInstalledBundle('old');
-    Directory('${installed.path}.old').createSync(recursive: true);
+    // What a previous tina update leaves: a marked bundle, renamed aside.
+    Directory(p.join('${installed.path}.old', 'bin')).createSync(recursive: true);
+    File(p.join('${installed.path}.old', 'bin', 'tina')).writeAsStringSync('x');
+    File(p.join('${installed.path}.old', bundleMarkerName))
+        .writeAsStringSync('tina bundle root\n');
 
     cleanupStaleOldBundle(bundleRootOverride: installed.path);
     expect(Directory('${installed.path}.old').existsSync(), isFalse);
     expect(installed.existsSync(), isTrue);
+  });
+
+  test('cleanupStaleOldBundle leaves a .old that is not a tina bundle', () {
+    final installed = buildInstalledBundle('old');
+    final foreign = Directory('${installed.path}.old')..createSync();
+    File(p.join(foreign.path, 'keep.txt')).writeAsStringSync('not tina\'s');
+
+    cleanupStaleOldBundle(bundleRootOverride: installed.path);
+    expect(foreign.existsSync(), isTrue);
+  });
+
+  test('cleanupStaleOldBundle leaves .old of an unowned root', () {
+    final installed = buildInstalledBundle('old', marked: false);
+    Directory(p.join(installed.path, 'share')).createSync();
+    final old = Directory('${installed.path}.old')..createSync();
+
+    cleanupStaleOldBundle(bundleRootOverride: installed.path);
+    expect(old.existsSync(), isTrue,
+        reason: 'an unowned root is never swept, whatever sits beside it');
   });
 }
 

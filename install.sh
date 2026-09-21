@@ -153,6 +153,42 @@ if [ -d "$BUNDLE_ROOT/lib" ]; then
   cp -R "$BUNDLE_ROOT/lib/." "$LIB_DIR/"
 fi
 
+# Mark the prefix as exclusively tina's so the in-app updater (/update) may
+# swap it. The updater independently refuses any directory whose contents
+# aren't tina's alone, so only stamp when this prefix really is tina-only —
+# otherwise say so, because /update will never touch such an install.
+PREFIX="$(dirname "$INSTALL_DIR")"
+SHARED=0
+for entry in "$PREFIX"/* "$PREFIX"/.[!.]*; do
+  [ -e "$entry" ] || continue
+  name="$(basename "$entry")"
+  case "$name" in
+    .tina-bundle) ;;
+    bin)
+      for f in "$entry"/*; do
+        [ -e "$f" ] || continue
+        [ "$(basename "$f")" = "tina" ] || SHARED=1
+      done
+      ;;
+    lib)
+      for f in "$entry"/*; do
+        [ -e "$f" ] || continue
+        case "$(basename "$f")" in
+          libtina*|libnotcurses*) ;;
+          *) SHARED=1 ;;
+        esac
+      done
+      ;;
+    *) SHARED=1 ;;
+  esac
+done
+if [ "$SHARED" = 0 ]; then
+  printf 'tina bundle root\n' > "$PREFIX/.tina-bundle"
+else
+  say "note: $PREFIX holds files besides tina's — tina's /update will never"
+  say "      replace it; re-run install.sh to update in place."
+fi
+
 # Prove the installed layout can load its native asset before claiming
 # success — `--version` does NOT exercise this (it exits before backend init),
 # which is exactly how a binary-only install once shipped as "verified".
