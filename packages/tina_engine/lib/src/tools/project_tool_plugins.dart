@@ -186,8 +186,11 @@ BashTool _buildBash(ProjectCapabilities caps) {
       processRunner: caps.processRunner);
 }
 
-SearchTool _buildSearch(ProjectCapabilities caps) =>
-    SearchTool(repoRoot: caps.projectRoot);
+SearchTool _buildSearch(ProjectCapabilities caps) => SearchTool(
+      repoRoot: caps.projectRoot,
+      // `git ls-files` is a process spawn, so it takes the shared runner.
+      processRunner: caps.processRunner,
+    );
 
 GrepTool _buildGrep(ProjectCapabilities caps) {
   // `rg` is a process spawn like any other, so it gets the shared runner

@@ -2,13 +2,22 @@ import 'dart:io';
 
 import 'package:tina_index/tina_index.dart';
 import 'package:path/path.dart' as p;
-import 'tool.dart';
 
-class SearchTool implements Tool {
+import 'process_runner.dart';
+import 'tool.dart';
+import 'tool_capabilities.dart';
+
+class SearchTool implements Tool, SpawnsProcess {
   final String repoRoot;
   CodeGraph? _graph;
 
-  SearchTool({String? repoRoot})
+  /// The runner every subprocess goes through, so a listing is confined
+  /// exactly when the sandbox is on. Injected by the composition rather than
+  /// chosen here.
+  @override
+  final ProcessRunner processRunner;
+
+  SearchTool({String? repoRoot, required this.processRunner})
       : repoRoot = repoRoot ?? Directory.current.path;
 
   @override
@@ -44,7 +53,7 @@ class SearchTool implements Tool {
       return ToolResult.error('symbol is required');
     }
 
-    final graph = _loadGraph();
+    final graph = await _loadGraph();
     if (graph == null) {
       return ToolResult.error('Failed to build dependency graph');
     }
@@ -127,10 +136,29 @@ class SearchTool implements Tool {
     return ToolResult(out.toString());
   }
 
-  CodeGraph? _loadGraph() {
+  Future<CodeGraph?> _loadGraph() async {
     if (_graph != null) return _graph;
-    _graph = GraphStore.load(repoRoot) ?? GraphStore.rebuildFromRepo(repoRoot);
+    // A cached graph costs nothing; a rebuild needs the file listing, which is
+    // asked for through the runner rather than spawned by the index package.
+    _graph = GraphStore.load(repoRoot) ??
+        GraphStore.rebuildFromRepo(repoRoot, files: await _trackedFiles());
     return _graph;
+  }
+
+  /// The repository's `.dart` files as git reports them, or null when git
+  /// cannot be run — in which case the index walks the tree itself.
+  Future<List<String>?> _trackedFiles() async {
+    try {
+      final result = await processRunner.run(
+        'git',
+        GraphStore.gitListFilesArgs,
+        workingDirectory: repoRoot,
+      );
+      if (result.exitCode != 0) return null;
+      return GraphStore.dartFilesFromGitListing(result.stdout);
+    } catch (_) {
+      return null;
+    }
   }
 
   List<String> _resolveSeeds(CodeGraph graph, String symbol) {

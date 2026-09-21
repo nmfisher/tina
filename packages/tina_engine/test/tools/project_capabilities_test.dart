@@ -434,8 +434,8 @@ void main() {
   });
 }
 
-/// Spawning tools that cannot yet expose a runner to the framework. `search`
-/// reaches `Process.runSync('git ls-files')` inside tina_index, which has no
-/// runner seam — a real gap, listed here rather than passing silently. Fixing
-/// it is what removes this entry.
-const _spawnsWithoutRunner = {'search'};
+/// Spawning tools that cannot yet expose a runner to the framework. Empty:
+/// `search` used to reach `Process.runSync('git ls-files')` inside tina_index,
+/// and now takes the shared runner and hands the listing in. The set stays as
+/// the place to name a gap explicitly rather than let one pass silently.
+const _spawnsWithoutRunner = <String>{};

@@ -43,11 +43,33 @@ class GraphStore {
     return rebuildFromRepo(repoRoot);
   }
 
-  static CodeGraph rebuildFromRepo(String repoRoot) {
-    // Synchronous rebuild using walker + builder.
-    final files = _walkSync(repoRoot);
+  /// The command that lists a repository's files, for a caller that has a
+  /// process story of its own. This package deliberately does NOT run it: the
+  /// subprocess used to live here, which is how the index came to spawn `git`
+  /// outside whatever sandbox the calling tool had been given.
+  static const List<String> gitListFilesArgs = [
+    'ls-files',
+    '--cached',
+    '--others',
+    '--exclude-standard',
+  ];
+
+  /// The repository-relative `.dart` files in a `git ls-files` listing.
+  static List<String> dartFilesFromGitListing(String stdout) => [
+        for (final line in stdout.split('\n'))
+          if (line.isNotEmpty && line.endsWith('.dart')) line
+      ];
+
+  /// Rebuild the graph, parsing [files] when the caller supplies them.
+  ///
+  /// Without [files] the tree is walked directly, skipping build output. That
+  /// is the safe default and the only option for a caller with no subprocess:
+  /// a caller that can list through git (see [gitListFilesArgs]) gets the more
+  /// accurate answer, including respecting `.gitignore`.
+  static CodeGraph rebuildFromRepo(String repoRoot, {List<String>? files}) {
+    final all = files ?? _walkManual(repoRoot);
     final allSymbols = <Symbol>[];
-    for (final relPath in files) {
+    for (final relPath in all) {
       final absPath = p.join(repoRoot, relPath);
       if (!File(absPath).existsSync()) continue;
       allSymbols.addAll(SymbolExtractor.parseFile(absPath));
@@ -58,23 +80,7 @@ class GraphStore {
     return graph;
   }
 
-  static List<String> _walkSync(String repoRoot) {
-    // Try git ls-files synchronously.
-    try {
-      final result = Process.runSync(
-        'git',
-        ['ls-files', '--cached', '--others', '--exclude-standard'],
-        workingDirectory: repoRoot,
-      );
-      if (result.exitCode == 0) {
-        return (result.stdout as String)
-            .split('\n')
-            .where((l) => l.isNotEmpty && l.endsWith('.dart'))
-            .toList();
-      }
-    } catch (_) {}
-
-    // Fallback: walk manually.
+  static List<String> _walkManual(String repoRoot) {
     const skip = {'.git', '.dart_tool', 'node_modules', 'build', 'dist'};
     final out = <String>[];
     _walkDir(Directory(repoRoot), '', skip, out);

@@ -2,7 +2,11 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import 'package:tina_engine/src/tools/process_runner.dart';
 import 'package:tina_engine/tina_engine.dart';
+import 'package:tina_index/tina_index.dart';
+
+import '../helpers/memory_process_runner.dart';
 
 String get repoRoot => Directory.current.path;
 
@@ -11,7 +15,13 @@ void main() {
     late SearchTool tool;
 
     setUp(() {
-      tool = SearchTool(repoRoot: repoRoot);
+      // A real runner, so the listing is what git reports — the same input
+      // these assertions were written against. The runner path itself is
+      // covered by the dedicated test below.
+      tool = SearchTool(
+        repoRoot: repoRoot,
+        processRunner: const IoProcessRunner(),
+      );
     });
 
     test('schema has correct name and required symbol param', () {
@@ -60,5 +70,23 @@ void main() {
       final result = await tool.execute({});
       expect(result.isError, isTrue);
     });
+
+    test('asks for the file listing through the runner it was given', () async {
+      final dir = Directory.systemTemp.createTempSync('search-runner-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final runner = MemoryProcessRunner(
+          (exe, args) => MemoryRunningProcess(stdoutChunks: <String>['a.dart\n']));
+      final scoped = SearchTool(repoRoot: dir.path, processRunner: runner);
+
+      await scoped.execute({'symbol': 'anything'});
+
+      // One spawn, and it is the listing — handed to a runner the composition
+      // chose, which is how the subprocess ends up sandboxed when the sandbox
+      // is on. It used to be a `Process.runSync` inside tina_index.
+      expect(runner.runs, hasLength(1));
+      expect(runner.runs.single.executable, 'git');
+      expect(runner.runs.single.arguments, GraphStore.gitListFilesArgs);
+    });
+
   });
 }
