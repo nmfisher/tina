@@ -121,7 +121,7 @@ void main() {
     () async {
       final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
       expect(await handlers.dispatch('/index'), isA<CmdHandled>());
-      expect(host.messages.join(), contains('Language index unavailable'));
+      expect(host.messages.join(), contains('Project index unavailable'));
     },
   );
 

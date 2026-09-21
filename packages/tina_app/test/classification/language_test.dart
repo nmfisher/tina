@@ -145,7 +145,7 @@ void main() {
     },
   );
   test('unknown chunks cannot turn a negative chunk into complete absence', () {
-    final merged = mergeLanguages([
+    final merged = mergeLabels([
       ClassificationResult(
         outcome: ClassificationOutcome.notApplicable,
         explanation: 'Data',

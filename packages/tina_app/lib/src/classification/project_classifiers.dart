@@ -239,10 +239,10 @@ ClassificationPlan<TextEvidence, ProjectLabels> languagePlan() =>
     ReducedClassificationPlan(
       classifier: languageClassifier,
       reduction: {'id': 'tina.language_union', 'revision': 1},
-      reduce: mergeLanguages,
+      reduce: mergeLabels,
     );
 
-ClassificationResult<ProjectLabels> mergeLanguages(
+ClassificationResult<ProjectLabels> mergeLabels(
   List<ClassificationResult<ProjectLabels>> results,
   InputCoverage coverage,
 ) {
@@ -262,7 +262,7 @@ ClassificationResult<ProjectLabels> mergeLanguages(
       ]),
       evidence: labels.values.expand((ids) => ids).toSet().toList()..sort(),
       explanation:
-          'Supported language findings. Unknown parts do not establish absence.',
+          'Supported findings. Unknown parts do not establish absence.',
     );
   }
   final absent =
@@ -276,18 +276,17 @@ ClassificationResult<ProjectLabels> mergeLanguages(
         ? ClassificationOutcome.notApplicable
         : ClassificationOutcome.unknown,
     explanation: absent
-        ? 'No source languages in any part.'
-        : 'No supported language findings; absence is not established.',
+        ? 'No matching labels in any part.'
+        : 'No supported findings; absence is not established.',
   );
 }
 
-/// Language aggregation is a union of classifier findings. This reducer never
-/// infers a language from filenames or content; only the classifier does that.
-class LanguageMerge
+/// Union of classifier findings, shared by all project classifications.
+class LabelMerge
     implements ClassificationPlan<Part<ProjectLabels>, ProjectLabels> {
-  LanguageMerge();
+  LabelMerge();
   @override
-  Object get identity => {'id': 'tina.language_merge', 'revision': 2};
+  Object get identity => {'id': 'tina.label_merge', 'revision': 1};
   @override
   DataContract<Part<ProjectLabels>> get input =>
       partContract(projectLabelsContract);
@@ -299,7 +298,7 @@ class LanguageMerge
     Map<String, Object?> upstream,
     ClassificationDispatcher dispatcher,
   ) async {
-    return mergeLanguages(
+    return mergeLabels(
       snapshot.units.map((unit) => unit.value.result).toList(),
       snapshot.coverage,
     );
@@ -312,5 +311,5 @@ TreePlan<TextEvidence, ProjectLabels> languageTreePlan({
   id: 'language',
   output: projectLabelsContract,
   local: (_) => local ?? languagePlan(),
-  merge: (_) => LanguageMerge(),
+  merge: (_) => LabelMerge(),
 );

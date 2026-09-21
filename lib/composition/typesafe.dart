@@ -54,21 +54,22 @@ Future<ProjectClassificationReport> runConfiguredProjectClassification(
   if (!const ['', 'status', 'refresh'].contains(mode)) {
     throw ArgumentError(IndexOptions.usage);
   }
-  if (method == LanguageMethod.extensions) {
-    return runProjectClassification(
-      app,
-      method: method,
-      mode: mode,
-      cancelSignal: cancelSignal,
-      onProgress: onProgress,
-    );
-  }
   final service = createConfiguredTypeSafeService(
     env: app.environment.env,
     tinaDir: tinaDir,
     clientFactory: clientFactory,
   );
   if (service == null) {
+    if (method == LanguageMethod.extensions) {
+      return runProjectClassification(
+        app,
+        method: method,
+        mode: mode,
+        cancelSignal: cancelSignal,
+        onProgress: onProgress,
+        spendLedger: spendLedger,
+      );
+    }
     throw StateError(
       'Configure Typesafe in /settings or set TYPESAFE_API_KEY before running /index.',
     );

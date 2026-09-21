@@ -25,12 +25,18 @@ class LocalClassifier<I, O> extends ClassifierDefinition<I, O> {
   Map<String, Object?> get identity => {...super.identity, 'local': spec};
 }
 
-/// Executes local rules without a model, token budget or network request.
+/// Executes local rules without model calls. An optional fallback handles other
+/// classifier types in the same session, sharing its cache and cancellation.
 class LocalExecutor implements ClassificationExecutor {
-  const LocalExecutor();
+  final ClassificationExecutor? fallback;
+  const LocalExecutor({this.fallback});
 
   @override
-  Object get configuration => const {'kind': 'local', 'revision': 1};
+  Object get configuration => {
+    'kind': 'local',
+    'revision': 1,
+    if (fallback != null) 'fallback': fallback!.configuration,
+  };
 
   LocalClassifier<I, O> _classifier<I, O>(ClassificationRequest<I, O> request) {
     final definition = request.definition;
@@ -42,6 +48,9 @@ class LocalExecutor implements ClassificationExecutor {
 
   @override
   int estimate<I, O>(ClassificationRequest<I, O> request) {
+    if (request.definition is! LocalClassifier<I, O> && fallback != null) {
+      return fallback!.estimate(request);
+    }
     _classifier(request);
     return 0;
   }
@@ -53,6 +62,14 @@ class LocalExecutor implements ClassificationExecutor {
     required int maxInputTokens,
     required int maxOutputTokens,
   }) async {
+    if (request.definition is! LocalClassifier<I, O> && fallback != null) {
+      return fallback!.execute(
+        request,
+        cancellation,
+        maxInputTokens: maxInputTokens,
+        maxOutputTokens: maxOutputTokens,
+      );
+    }
     if (cancellation.isCancelled) {
       throw const JudgmentException(
         JudgmentFailure.cancelled,

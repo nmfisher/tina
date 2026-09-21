@@ -126,7 +126,10 @@ void main() {
           'Default /index must not construct an HTTP client',
         ),
       );
-      expect(first.failures, isEmpty);
+      expect(
+        first.failures.keys,
+        unorderedEquals(['.::framework', '.::tooling']),
+      );
       expect(
         first.records['.::language']!.result.value!.labels.map((l) => l.value),
         ['dart', 'python'],
@@ -144,7 +147,7 @@ void main() {
       expect(requests, hasLength(1));
       final local = await run(method: LanguageMethod.extensions);
       expect(local.failures, isEmpty);
-      expect(local.reusedRequests, 1);
+      expect(local.executed, 1);
       expect(requests, hasLength(1));
       expect(
         (await run(
@@ -158,6 +161,73 @@ void main() {
   );
 
   test(
+    'default index stores model framework and tooling results beside local languages',
+    () async {
+      await settings();
+      await File('${project.path}/requirements.txt').writeAsString('fastapi');
+      await File('${project.path}/Dockerfile').writeAsString('FROM python:3');
+      respond = (request) async {
+        final body = jsonDecode(request.body) as Map;
+        return http.Response(
+          jsonEncode({
+            'model': 'jev-test',
+            'usage': {'input_tokens': 100, 'output_tokens': 50},
+            'answers': {
+              for (final id in (body['questions'] as Map).keys)
+                id: {
+                  'type': 'noul',
+                  'noul': ['fastapi', 'docker'].contains(id) ? 0.99 : 0.01,
+                },
+            },
+          }),
+          200,
+        );
+      };
+      final result = await run(method: LanguageMethod.extensions);
+      expect(result.failures, isEmpty);
+      expect(
+        result.records.keys,
+        containsAll(['.::language', '.::framework', '.::tooling']),
+      );
+      expect(
+        result.records['.::framework']!.result.value!.labels.single.value,
+        'fastapi',
+      );
+      expect(
+        result.records['.::tooling']!.result.value!.labels.single.value,
+        'docker',
+      );
+      expect(requests, hasLength(2));
+      expect(
+        requests.every((r) => !r.body.contains('SECRET FILE CONTENT')),
+        isTrue,
+      );
+      expect(
+        (await run(method: LanguageMethod.extensions, mode: 'status')).failures,
+        isEmpty,
+      );
+      expect(requests, hasLength(2));
+      expect(clients.every((c) => c.closed), isTrue);
+      // Losing credentials reports the missing work without deleting saved results.
+      await File('${temp.path}/config').delete();
+      final missing = await run(method: LanguageMethod.extensions);
+      expect(
+        missing.failures.keys,
+        unorderedEquals(['.::framework', '.::tooling']),
+      );
+      final manifest = jsonDecode(
+        await File(
+          '${project.path}/.tina/classifications/manifest.json',
+        ).readAsString(),
+      );
+      expect(
+        (manifest['records'] as Map).keys,
+        containsAll(['task:.::framework', 'task:.::tooling']),
+      );
+    },
+  );
+
+  test(
     'extension trees restore untouched branches and ignore content-only edits',
     () async {
       final a = Directory('${project.path}/docs/user')
@@ -167,14 +237,20 @@ void main() {
       File('${a.path}/README.md').writeAsStringSync('User docs');
       File('${b.path}/check.py').writeAsBytesSync([0, 255, 0]);
       final first = await run(method: LanguageMethod.extensions);
-      expect(first.failures, isEmpty);
+      expect(
+        first.failures.keys,
+        unorderedEquals(['.::framework', '.::tooling']),
+      );
       expect(
         first.records['.::language']!.result.value!.labels.map((l) => l.value),
         ['dart', 'markdown', 'python'],
       );
       File('${a.path}/new.dart').writeAsStringSync('');
       final changed = await run(method: LanguageMethod.extensions);
-      expect(changed.failures, isEmpty);
+      expect(
+        changed.failures.keys,
+        unorderedEquals(['.::framework', '.::tooling']),
+      );
       expect(changed.executed, 1);
       expect(
         changed.records['docs/dev::language']!.id,
@@ -261,7 +337,8 @@ void main() {
       respond = (_) async => http.Response('denied', 401);
       final report = await run();
       expect(report.failures['.::language'], contains('authentication'));
-      expect(report.records, isEmpty);
+      expect(report.records.keys, ['.::tooling']);
+      expect(report.failures['.::framework'], contains('prerequisite'));
       expect(requests, hasLength(1));
       expect(clients.single.closed, isTrue);
     },

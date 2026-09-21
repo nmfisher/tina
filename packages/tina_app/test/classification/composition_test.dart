@@ -80,12 +80,12 @@ void main() {
       addTearDown(second.dispose);
       final restored = await run(second, mode: 'status');
       expect(restored.failures, isEmpty);
-      expect(restored.restored, 2);
+      expect(restored.restored, 6);
       expect(restored.executed, 0);
       expect(service.calls, 1);
       expect(
         classificationReportText(restored),
-        contains('2 classifications restored'),
+        contains('6 classifications restored'),
       );
       final refreshed = await run(second, mode: 'refresh');
       expect(refreshed.failures, isEmpty);

@@ -38,6 +38,10 @@ class RepositoryTextSource implements TreeSource<TextEvidence> {
   final List<String> contentSuffixes;
   final int maxContentFiles;
   final int maxContentBytes;
+
+  /// Restrict evidence to selected manifests/configuration names and suffixes.
+  /// Directory discovery still includes the complete repository tree.
+  final bool selectedOnly;
   RepositoryTextSource({
     required this.reader,
     this.projection = RepositoryProjection.filenamesAndContents,
@@ -52,6 +56,7 @@ class RepositoryTextSource implements TreeSource<TextEvidence> {
     ],
     this.maxContentFiles = 64,
     this.maxContentBytes = 1024 * 1024,
+    this.selectedOnly = false,
   }) : contentNames = Set.unmodifiable(contentNames),
        contentSuffixes = List.unmodifiable(contentSuffixes) {
     if (maxContentFiles < 1 || maxContentBytes < 1)
@@ -66,6 +71,7 @@ class RepositoryTextSource implements TreeSource<TextEvidence> {
     'id': 'tina.repository_source',
     'revision': 3,
     'projection': projection.name,
+    'selected_only': selectedOnly,
     'encoder': encoder.identity,
     'content_names': contentNames.toList()..sort(),
     'content_suffixes': contentSuffixes,
@@ -140,7 +146,13 @@ class RepositoryTextSource implements TreeSource<TextEvidence> {
     final inventory = await _observe(query);
     if (inventory.containsKey('error'))
       throw StateError('A complete repository inventory is unavailable');
-    final paths = (inventory['value'] as List).cast<String>();
+    bool selected(String path) =>
+        contentNames.contains(path.split('/').last) ||
+        contentSuffixes.any(path.endsWith);
+    final paths = (inventory['value'] as List)
+        .cast<String>()
+        .where((path) => !selectedOnly || selected(path))
+        .toList();
     final receipts = <Map<String, Object?>>[_receipt(inventory)];
     final units = <SourceUnit<TextEvidence>>[
       for (final path in paths)
@@ -152,19 +164,13 @@ class RepositoryTextSource implements TreeSource<TextEvidence> {
     ];
     final gaps = <String>[];
     if (projection == RepositoryProjection.filenamesAndContents) {
-      final selected = paths
-          .where(
-            (p) =>
-                contentNames.contains(p.split('/').last) ||
-                contentSuffixes.any(p.endsWith),
-          )
-          .toList();
+      final selectedPaths = paths.where(selected).toList();
       var bytes = 0;
-      if (selected.length > maxContentFiles)
+      if (selectedPaths.length > maxContentFiles)
         gaps.add(
-          'Content file limit: selected ${selected.length}, read at most $maxContentFiles.',
+          'Content file limit: selected ${selectedPaths.length}, read at most $maxContentFiles.',
         );
-      for (final path in selected.take(maxContentFiles)) {
+      for (final path in selectedPaths.take(maxContentFiles)) {
         if (cancellation.isCancelled)
           throw StateError('Classification cancelled');
         final observed = await _observe(
@@ -253,4 +259,37 @@ const projectManifestNames = {
   'lerna.json',
   'nx.json',
   'app.json',
+};
+
+const toolingConfigNames = {
+  'compose.yaml',
+  'compose.yml',
+  'docker-compose.yaml',
+  'docker-compose.yml',
+  'Containerfile',
+  'Jenkinsfile',
+  'BUILD',
+  'BUILD.bazel',
+  'MODULE.bazel',
+  'WORKSPACE',
+  'WORKSPACE.bazel',
+  'Pipfile',
+  'setup.py',
+  'setup.cfg',
+  'ruff.toml',
+  '.ruff.toml',
+  '.prettierrc',
+  '.prettierrc.json',
+  'eslint.config.js',
+  'eslint.config.mjs',
+  'eslint.config.ts',
+  '.eslintrc.json',
+  'webpack.config.js',
+  'vitest.config.ts',
+  'playwright.config.ts',
+  'playwright.config.js',
+  'bunfig.toml',
+  'deno.json',
+  'deno.jsonc',
+  'Package.swift',
 };

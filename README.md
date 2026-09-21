@@ -89,13 +89,14 @@ available. Mode changes also apply to delegated agents and workflow nodes.
 Tool schemas and the system prompt stay unchanged across mode changes; mode notices are appended to the conversation to preserve earlier
 request prefixes for prompt caching.
 
-`/index` classifies programming languages only. It visits the directory tree,
-classifies each directory's own files, and merges the findings up to the project
-root. Unchanged results are restored from `.tina/classifications`; changed
-branches are recomputed without reclassifying their siblings. `/index status`
-checks saved results without model calls; `/index refresh` recomputes them.
-Language decisions come from the classifier. Indexing does not generate region
-summaries or launch a setup conversation.
+`/index` classifies languages, frameworks and tooling, merging directory results
+up to the repository root. Language detection defaults to local extension
+matching; `/index jev` uses Typesafe/JEV for languages too. Framework and tooling
+classification uses Typesafe/JEV with selected manifests and configuration files.
+Configure Typesafe in `/settings` or set `TYPESAFE_API_KEY`; without it, language
+indexing still works and the other classifications are reported as unavailable.
+Unchanged results restore from `.tina/classifications`. `/index status` checks
+saved results without model calls; `/index refresh` recomputes them.
 
 ## Running inside tmux
 

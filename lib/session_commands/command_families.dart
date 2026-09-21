@@ -835,7 +835,7 @@ class IndexCommands {
   final IndexCapabilities ctx;
   IndexCommands(this.ctx);
 
-  /// Classify languages in the directory tree and merge findings upward.
+  /// Classify languages, frameworks and tooling, merging findings upward.
   Future<CmdResult> _handleIndex(String input) async {
     final parts = input.trim().split(RegExp(r'\s+'));
     IndexOptions options;
@@ -857,7 +857,7 @@ class IndexCommands {
     }
     final run = ctx.runClassification;
     if (run == null) {
-      conversation.host.showMessage('Language index unavailable.\n');
+      conversation.host.showMessage('Project index unavailable.\n');
     } else {
       await run(conversation, options);
     }

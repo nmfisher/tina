@@ -12,8 +12,8 @@ import '../classification/project_classification_workflow.dart';
 import 'app_composition.dart';
 import '../exploration/metered_judgment_service.dart';
 
-/// Both language implementations share source preparation, tree merging,
-/// cancellation and persistence. Only JEV needs a judgment service.
+/// Language, framework and tooling results share one persisted directory index.
+/// Language may run locally; framework and tooling always use judgments.
 Future<ProjectClassificationReport> runProjectClassification(
   AppComposition app, {
   LanguageMethod method = IndexOptions.defaultMethod,
@@ -34,6 +34,8 @@ Future<ProjectClassificationReport> runProjectClassification(
       'JEV classification requires a judgment service and budget',
     );
   }
+  final hasJudgments =
+      judgments != null && requestBudget != null && serviceIdentity != null;
   if (method == LanguageMethod.extensions &&
       projection != RepositoryProjection.filenames) {
     throw ArgumentError(
@@ -42,10 +44,10 @@ Future<ProjectClassificationReport> runProjectClassification(
   }
   final root = app.pipeline.tools.projectRoot;
   // Limits come from the classifier transport, never the conversation model.
-  final budget = method == LanguageMethod.extensions
+  final budget = !hasJudgments
       ? ClassificationBudget()
       : ClassificationBudget(
-          contextTokens: requestBudget!.maxInputTokens + 2048,
+          contextTokens: requestBudget.maxInputTokens + 2048,
           outputTokens: 1024,
           safetyTokens: 1024,
           maxInputTokens: requestBudget.maxInputTokens,
@@ -63,41 +65,46 @@ Future<ProjectClassificationReport> runProjectClassification(
   final ledger =
       spendLedger ?? SpendLedger(maxGlobalTokens: 120000, requestsPerMinute: 0);
   final rules = [...app.policy.staticRules, ...app.policy.sessionRules];
-  final ClassificationExecutor runner = method == LanguageMethod.extensions
-      ? const LocalExecutor()
-      : JudgmentExecutor(
-          service: MeteredJudgmentService(
-            inner: judgments!,
-            ledger: ledger,
-            budget: requestBudget!,
-            outputTokenAllowance: 1024,
-            pauseGate: app.pauseGate,
+  final runner = LocalExecutor(
+    fallback: !hasJudgments
+        ? null
+        : JudgmentExecutor(
+            service: MeteredJudgmentService(
+              inner: judgments,
+              ledger: ledger,
+              budget: requestBudget,
+              outputTokenAllowance: 1024,
+              pauseGate: app.pauseGate,
+            ),
+            budget: requestBudget,
+            identity: {
+              'service': serviceIdentity,
+              'policy': rules.map((r) => r.toJson()).toList(),
+            },
           ),
-          budget: requestBudget,
-          identity: {
-            'service': serviceIdentity,
-            'policy': rules.map((r) => r.toJson()).toList(),
-          },
-        );
+  );
   onProgress?.call(
     'Language classifier: ${method == LanguageMethod.extensions ? 'extensions (local)' : requestBudget!.model}',
   );
   final local = method == LanguageMethod.extensions
       ? SingleRequestPlan(extensionClassifier())
       : languagePlan();
-  try {
-    final source = RepositoryTextSource(
-      projection: projection,
-      reader: RepositoryEvidenceReader(
-        root: root,
-        sandbox: SandboxedFileSystem(
-          const IoFileSystem(),
-          projectRoot: root,
-          tinaDir: tinaDirFromEnv(app.environment.env),
-        ),
-        policy: PermissionPolicy(mode: PermissionMode.readAll, rules: rules),
-      ),
+  if (hasJudgments) {
+    onProgress?.call(
+      'Framework and tooling classifiers: ${requestBudget.model}',
     );
+  }
+  try {
+    final reader = RepositoryEvidenceReader(
+      root: root,
+      sandbox: SandboxedFileSystem(
+        const IoFileSystem(),
+        projectRoot: root,
+        tinaDir: tinaDirFromEnv(app.environment.env),
+      ),
+      policy: PermissionPolicy(mode: PermissionMode.readAll, rules: rules),
+    );
+    final source = RepositoryTextSource(projection: projection, reader: reader);
     return await ClassificationOrchestrator(
       store: FileClassificationStore(root),
       executor: runner,
@@ -105,7 +112,32 @@ Future<ProjectClassificationReport> runProjectClassification(
       concurrency: 4,
       maxCalls: method == LanguageMethod.extensions ? 20000 : 256,
     ).run(
-      (session) => classifyProject(session, source, local: local),
+      (session) => classifyProject(
+        session,
+        source,
+        local: local,
+        detailsSource: hasJudgments
+            ? RepositoryTextSource(
+                reader: reader,
+                selectedOnly: true,
+                contentNames: {...projectManifestNames, ...toolingConfigNames},
+                contentSuffixes: const [
+                  '.gradle',
+                  '.gradle.kts',
+                  '.csproj',
+                  '.fsproj',
+                  '.yaml',
+                  '.yml',
+                  '.tf',
+                  '.tf.json',
+                ],
+              )
+            : null,
+        detailsError: hasJudgments
+            ? null
+            : 'Configure Typesafe in /settings or set TYPESAFE_API_KEY '
+                  'to classify frameworks and tooling.',
+      ),
       refresh: mode == 'refresh',
       restoreOnly: mode == 'status',
       cancellation: stop,

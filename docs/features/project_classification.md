@@ -1,17 +1,18 @@
 # Project classification
 
-`/index` classifies programming and markup languages, from the leaves of the directory
+`/index` classifies languages, frameworks and tooling, from the leaves of the directory
 tree back to the root. `/index status` validates/restores saved results without
 model calls or writes. `/index refresh` reruns classification. The same commands
 work with `tina --prompt`; incomplete headless runs exit nonzero. TUI double-Esc
 and headless Ctrl+C cancel. Nothing runs on startup. Indexing does not launch
-summary agents, region-layout proposals, setup, or other project classifiers.
-The default is local extension matching. `/index jev` selects the model-based
-implementation; both methods accept `status` and `refresh`.
+summary agents, region-layout proposals, setup or experts.
+Language detection defaults to local extension matching. `/index jev` selects
+the model-based language implementation; both methods accept `status` and
+`refresh`. Framework and tooling classifications use Typesafe/JEV in either mode.
 
 The reusable API is documented in [classifier](../../packages/classifier/README.md).
 The project feature is an application recipe built on that API. Paths, repository
-queries, directory discovery, label types and the language classifier live in
+queries, directory discovery, label types and project classifiers live in
 `packages/tina_app/lib/src/classification`. The generic classifier package has no
 knowledge of programming languages, files, paths or a mandatory discovery phase.
 
@@ -26,10 +27,14 @@ reads. `RepositoryTextSource` selects and encodes that data as `TextEvidence`:
   selected manifests/configuration files. Selection names/suffixes and the raw
   input encoder are configurable and versioned independently of classifiers.
 
-`runProjectClassification` accepts the projection programmatically; the command
-uses filenames only, including names of binary assets, without reading their
-contents. Content-only edits do not invalidate this projection. An application
-can supply another source or encoder without changing the judgment executor.
+Language classification uses filenames only, including names of binary assets,
+without reading their contents. Content-only edits do not invalidate language
+results. Framework/tooling evidence uses a separate `RepositoryTextSource` with
+`selectedOnly: true`: only selected manifests and configuration files contribute
+filenames and contents. Binary asset directories therefore make no framework or
+tooling model calls. Import-only usage without a selected manifest/configuration
+file is not detected by this initial source; it stays unknown. Applications can
+supply other sources or encoders without changing the judgment executor.
 
 Every input unit carries a stable evidence ID, a meaning, and location metadata.
 The source tracks listing and content dependencies and validates their freshness.
@@ -52,7 +57,7 @@ input contains only its direct files; child files belong to the child node.
 Empty directories are not inferred from Git's file inventory.
 
 The language classifier returns `ProjectLabels` with evidence citations.
-Independent local jobs run in parallel. Starting at the leaves, `LanguageMerge`
+Independent local jobs run in parallel. Starting at the leaves, `LabelMerge`
 unions the supported language labels from the node's own result and its children.
 The merger does not infer languages from extensions or content. Unknown results
 do not establish absence, and incomplete coverage propagates to parents. No
@@ -69,15 +74,19 @@ matching its exact case, then lowercase. For example `.C` maps to C++, `.c` to C
 and `.PY` to Python. It returns sorted, unique labels with the matching file IDs
 as evidence. Unknown extensions and extensionless names stay unknown; content is
 never read and there is no model fallback. The immutable rule table is part of
-cache identity and can be replaced programmatically. Local runs have a 20,000-call
-limit and share the same five-minute deadline and cancellation as model runs.
-Model spend limits do not block local classification.
+cache identity and can be replaced programmatically. Extension-based runs allow 20,000 classifier calls; `/index jev` allows 256.
+All dimensions share a five-minute deadline. Model
+spend limits do not block local language classification; framework/tooling model
+requests still respect the spend ledger.
 
 For `/index jev`, `JudgmentClassifier<I, O>` prepares typed judgment questions and decodes their
 answers into a classification. `JudgmentExecutor` calls the existing
 `JudgmentService` directly. Both frontends construct the configured Typesafe
 service, defaulting to `jev-latest`. Saved Typesafe credentials take precedence
-over `TYPESAFE_API_KEY`; missing credentials produce a configuration error.
+over `TYPESAFE_API_KEY`. Missing credentials produce an error for `/index jev`.
+For the default extension method, language results are still saved, and both
+framework and tooling appear as unavailable in the report. Existing framework
+and tooling pointers are preserved until a configured run can validate them.
 Chat models, reasoning settings, tools and agent turns are not involved, and
 there is no chat fallback. The existing judgment transport, metering and pause
 gate are reused.
@@ -97,18 +106,47 @@ The vocabulary, thresholds and decoder revision participate in cache identity.
 Small inputs use one request. Larger inputs are packed using the complete
 serialized judgment request, including state, questions and model. Source-owned
 splitters handle oversized units. `ReducedClassificationPlan` merges chunk
-findings in code, and `LanguageMerge` does the same up the directory tree.
+findings in code, and `LabelMerge` does the same up the directory tree.
 Neither step calls a model or averages probabilities. Unknown/incomplete
 observations do not prove absence.
 
 The Typesafe request budget defaults to 24,000 estimated input tokens, including
 1,024 framing tokens. The estimate charges one token per UTF-8 byte; it is a
 conservative operating bound, not an exact tokenizer. Default run limits are four
-concurrent requests, 256 requests and five minutes. Typesafe requests time out
+concurrent requests and five minutes, with the total classifier call limits
+described above. Typesafe requests time out
 after 30 seconds. Interactive runs use the shared spend ledger; standalone runs
 use a 120,000-token ledger. Progress reports the configured model, input count,
 estimated input tokens and elapsed request time. These diagnostics contain no raw
 input text. Completed requests are checkpointed for reuse after interruption.
+
+## Frameworks and tooling
+
+Each directory stores three classifications: `language`, `framework`, and
+`tooling`. Once the language tree completes, framework and tooling trees run in
+parallel under the same session limits. Framework candidates are selected from
+that directory's merged language result: Dart includes Flutter, Python includes
+FastAPI/Django/Flask, and JavaScript/TypeScript includes React/Next.js/Express.
+If languages are unknown, incomplete or outside the mapping, the full framework
+vocabulary is considered. The detected languages do not prove framework usage.
+Tooling uses a language-independent vocabulary including Docker, Kubernetes,
+Terraform, GitHub Actions, build tools, package managers and test tools.
+
+Each candidate receives an independent yes/no judgment. Probabilities do not sum
+to one; all candidates above 0.5 become labels. `other` means evidence supports
+something outside the candidate list. `unknown` means evidence is insufficient.
+`none` requires at least 0.9 probability, complete source coverage, and all
+candidates, `other`, and `unknown` at most 0.1; it becomes `notApplicable` in the
+stored result. Positive labels take precedence over negative/unknown judgments.
+No selected evidence produces `unknown` without a model request. A manifest-only
+source does not claim to have inspected all source code.
+
+The vocabulary, candidate selection, thresholds, source selection and language
+prerequisites participate in cache identity. Each directory consumes its own
+language result, so changing one subtree does not invalidate siblings. Editing a
+manifest invalidates framework/tooling results while filename-based languages
+restore unchanged. Chunking and tree merging reuse `ReducedClassificationPlan`
+and `LabelMerge`; neither merge step calls a model.
 
 ## Persistence
 
@@ -123,7 +161,8 @@ configured model are included in cache provenance.
 
 Restoration checks source freshness, contract/encoder/splitter/plan/agent/model
 identities, budget configuration and consumed results. Local and aggregate results are
-separate: `docs/user::language::local` and `docs/user::language`. Parent receipts
+separate: `docs/user::language::local` and `docs/user::language`, with matching
+`::framework` and `::tooling` keys in the same manifest and record directory. Parent receipts
 persist child keys and hashes of result/evidence/coverage, excluding storage IDs.
 Relevant changes invalidate dependent work; independent branches remain reusable.
 Method selection is explicit and included in cache identity. Switching methods
@@ -132,7 +171,7 @@ the other's. Immutable request checkpoints for both methods remain reusable.
 Interrupted chunked work resumes from matching request checkpoints. Locals check source freshness before publication; the completed tree checks
 membership and all local receipts again before returning current aggregates.
 Incomplete discovery does not delete previously known nodes. Successful runs
-retire pointers for deleted nodes and the removed non-language tasks. Old immutable records are retained; GC is
+retire pointers for deleted nodes across all three classifications. Old immutable records are retained; GC is
 deferred. Old v1 records are cache misses under the new v2 schema.
 
 The old environment workflow, startup setup prompt, `ENVIRONMENT.md` injection
