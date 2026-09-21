@@ -594,16 +594,23 @@ Future<List<String>?> runQuestionOverlay({
   required LineEditor editor,
   required List<({String text, List<String> options})> questions,
   Future<InputEvent> Function()? readEvent,
+  String footer = '  ↑↓ option · ←→ question · enter select · esc cancel',
+  // Return an option index to select it for the focused question.
+  int? Function(InputEvent event)? shortcut,
 }) =>
-    _QuestionForm(screen, editor, questions, readEvent ?? editor.captureKeyReader()).run();
+    _QuestionForm(screen, editor, questions,
+        readEvent ?? editor.captureKeyReader(), footer, shortcut).run();
 
 class _QuestionForm {
-  _QuestionForm(this._screen, this._editor, this._questions, this._readEvent);
+  _QuestionForm(this._screen, this._editor, this._questions, this._readEvent,
+      this._footer, this._shortcut);
 
   final Screen _screen;
   final LineEditor _editor;
   final List<({String text, List<String> options})> _questions;
   final Future<InputEvent> Function() _readEvent;
+  final String _footer;
+  final int? Function(InputEvent event)? _shortcut;
 
   late final OverlayRegion _overlay = OverlayRegion(_screen, Rect.empty);
 
@@ -622,22 +629,27 @@ class _QuestionForm {
       _optionFocus.add(0);
       _committed.add(null);
     }
-    _render();
-    while (true) {
-      final ev = await _readEvent();
-      if (ev is EscapeKey ||
-          (ev is ControlKey && ev.code == ControlCode.ctrlC)) {
-        _dispose();
-        return null;
-      }
-      if (_dispatch(ev)) {
-        _dispose();
-        return [
-          for (var q = 0; q < _questions.length; q++)
-            _questions[q].options[_committed[q] ?? _optionFocus[q]],
-        ];
-      }
+    try {
       _render();
+      while (true) {
+        final ev = await _readEvent();
+        if (ev is ScrollEvent) continue;
+        if (ev is EscapeKey ||
+            (ev is ControlKey && ev.code == ControlCode.ctrlC)) {
+          return null;
+        }
+        final option = _shortcut?.call(ev);
+        if (option != null) _optionFocus[_questionFocus] = option;
+        if (_dispatch(option == null ? ev : ControlKey(ControlCode.enter))) {
+          return [
+            for (var q = 0; q < _questions.length; q++)
+              _questions[q].options[_committed[q] ?? _optionFocus[q]],
+          ];
+        }
+        _render();
+      }
+    } finally {
+      _dispose();
     }
   }
 
@@ -725,7 +737,7 @@ class _QuestionForm {
 
   void _render() {
     final body = _body();
-    final footer = _dim('  ↑↓ option · ←→ question · enter select · esc cancel');
+    final footer = _dim(_footer);
     final maxH = _availableHeight();
     final wanted = body.length + 1; // + footer
     final h = wanted > maxH ? maxH : wanted;

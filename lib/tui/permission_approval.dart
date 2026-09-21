@@ -17,18 +17,15 @@ Future<PermissionResponse> runPermissionApproval({
   ]);
   write('  approve?\n');
   var acknowledged = false;
-  final choice = await runListOverlay<ApprovalChoice>(
+  final choices = prompt.choices;
+  final labels = [for (final choice in choices) '[${choice.key}] ${choice.label}'];
+  final answers = await runQuestionOverlay(
     screen: screen,
     editor: editor,
-    title: 'Approve ${prompt.toolName}?',
-    body:
-        '${prompt.toolName}: ${prompt.key}\n'
-        '${prompt.outsideSandbox || prompt.sandboxAccess != null ? prompt.accessDescription : prompt.alwaysScopeNote}',
-    entries: [
-      for (final choice in prompt.choices)
-        (display: '[${choice.key}] ${choice.label}', value: choice),
+    questions: [
+      (text: 'Approve ${prompt.toolName}?', options: labels),
     ],
-    footer: '↑↓ move · enter select · esc deny · esc esc stop',
+    footer: '  ↑↓ move · enter select · esc deny · esc esc stop',
     readEvent: () => editor.readKey(
       globalKeys: true,
       panelNavigation: false,
@@ -37,7 +34,9 @@ Future<PermissionResponse> runPermissionApproval({
     shortcut: (event) {
       if (event is CharInput) {
         final choice = prompt.choiceForKey(event.text);
-        if (choice != null) return choice;
+        if (choice != null) {
+          return choices.indexWhere((entry) => entry.key == choice.key);
+        }
       }
       if (event is ControlKey && event.code == ControlCode.backtab) {
         editor.onBackTab?.call();
@@ -50,6 +49,7 @@ Future<PermissionResponse> runPermissionApproval({
       return null;
     },
   );
+  final choice = answers == null ? null : choices[labels.indexOf(answers.single)];
   write(choice == null ? '  approval cancelled\n' : '  ${choice.label}\n');
   return choice?.response ?? PermissionResponse.denyOnce;
 }

@@ -331,7 +331,7 @@ void main() {
 
   for (final conversation in [false, true]) {
     test(
-      'approval choices are vertical and arrows move the marker conversation=$conversation',
+      'approval choices appear inline and arrows move focus conversation=$conversation',
       () async {
         final io = FakeStdio();
         final screen = Screen(
@@ -372,13 +372,25 @@ void main() {
         final deny = initial.indexWhere((row) => row.contains('[n] deny once'));
         expect(allow, greaterThanOrEqualTo(0));
         expect(deny, allow + 1);
-        expect(initial[allow], contains('▸'));
+        final inputRow = screen.input.bounds.row;
+        expect(initial[inputRow], contains('Approve bash?'));
+        expect(initial[inputRow - 1], contains('enter select'));
+        expect(initial[allow].indexOf('[y]'), screen.input.bounds.col + 4);
+        expect(initial.join('\n'), isNot(contains('┌')));
+        expect(initial.join('\n'), isNot(contains('└')));
+        String selected(String label) => screen.colorize(
+          screen.theme.completion.selected,
+          '    $label',
+        );
+        expect(io.written.toString(), contains(selected('[y] allow once')));
+        io.written.clear();
         editor.inject(ArrowKey(ArrowDirection.down));
         await _flush();
-        expect(rows()[deny], contains('▸'));
+        expect(io.written.toString(), contains(selected('[n] deny once')));
+        io.written.clear();
         editor.inject(ArrowKey(ArrowDirection.up));
         await _flush();
-        expect(rows()[allow], contains('▸'));
+        expect(io.written.toString(), contains(selected('[y] allow once')));
         editor.inject(ArrowKey(ArrowDirection.down));
         await _flush();
         editor.inject(ControlKey(ControlCode.enter));
