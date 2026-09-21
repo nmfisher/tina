@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the packaged notcurses UI in a fresh project before publication.
 
-No model calls: use a dummy local provider, decline environment setup, then quit.
+No model calls: use a dummy local provider, open command help, then quit.
 The PTY answers terminal queries so native initialization uses the normal path.
 """
 
@@ -39,8 +39,6 @@ model = "smoke"
 api_key = "smoke-placeholder"
 base_url = "http://127.0.0.1:1"
 wire = "openai"
-[environment]
-auto_populate = "ask"
 ''')
         env = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -70,23 +68,18 @@ auto_populate = "ask"
         prompt_seen = False
         quit_sent = False
         quit_at = None
-        select_at = None
-        selected = False
+        help_at = None
+        help_sent = False
+        help_seen = False
         deadline = time.monotonic() + 45
         try:
             while time.monotonic() < deadline:
-                if select_at is not None and time.monotonic() >= select_at:
-                    os.write(master, b"\x1b[B\x1b[B")
-                    select_at = None
-                    quit_at = time.monotonic() + 0.3
+                if help_at is not None and not help_sent and time.monotonic() >= help_at:
+                    os.write(master, b"/help\r")
+                    help_sent = True
                 if quit_at is not None and not quit_sent and time.monotonic() >= quit_at:
-                    if not selected:
-                        os.write(master, b"\r")
-                        selected = True
-                        quit_at = time.monotonic() + 1
-                    else:
-                        os.write(master, b"/quit\r")
-                        quit_sent = True
+                    os.write(master, b"/quit\r")
+                    quit_sent = True
                 readable, _, _ = select.select([master], [], [], 0.1)
                 if readable:
                     try:
@@ -114,19 +107,21 @@ auto_populate = "ask"
                         consumed = match.end()
                     query_buffer = query_buffer[consumed:][-64:]
                     plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", output)
-                    if not prompt_seen and b"No ENVIRONMENT.md yet" in plain:
+                    if not prompt_seen and b"main (smoke)" in plain:
                         prompt_seen = True
-                        # Select Not now; exercise navigation and submission.
-                        # Let the native startup reply drain finish first.
-                        select_at = time.monotonic() + 1.2
+                        # Let the native startup reply drain finish before input.
+                        help_at = time.monotonic() + 1.2
+                    if help_sent and not help_seen and b"ESC cancels" in plain:
+                        help_seen = True
+                        quit_at = time.monotonic() + 0.3
                 elif process.poll() is not None:
                     break
             code = process.wait(timeout=5)
-            if not prompt_seen or not quit_sent or code != 0 or b"tina crashed:" in output:
+            if not prompt_seen or not help_seen or not quit_sent or code != 0 or b"tina crashed:" in output:
                 raise RuntimeError(
-                    f"80x{rows}: prompt={prompt_seen}, quit={quit_sent}, exit={code}"
+                    f"80x{rows}: prompt={prompt_seen}, help={help_seen}, quit={quit_sent}, exit={code}"
                 )
-            print(f"PASS 80x{rows}: environment picker, Not now, /quit, clean exit")
+            print(f"PASS 80x{rows}: startup, /help, /quit, clean exit")
         except Exception:
             print(output.decode("utf-8", errors="replace").replace("\x1b", "<ESC>"))
             raise
