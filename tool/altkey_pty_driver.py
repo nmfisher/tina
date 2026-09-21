@@ -27,7 +27,9 @@ def report_failure(message):
     if os.environ.get("GITHUB_ACTIONS") == "true":
         # Keep the failure readable in check annotations when log downloads
         # are unavailable. Only synthetic keyboard input is logged here.
-        escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        # GitHub truncates annotations at roughly 4 KiB. Keep the tail, where
+        # native startup errors appear after Dart's build progress output.
+        escaped = message[-3000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
         print(f"::error title=Native keyboard test::{escaped}", flush=True)
 
 def master_loop(master, proc, mute):
