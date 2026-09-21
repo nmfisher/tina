@@ -123,7 +123,7 @@ void main() {
         excludedScopes: ['b'],
       );
       final first = await source.observe(query);
-      expect(first.value, ['.gitignore', 'a/pubspec.yaml']);
+      expect(first.value, ['a/pubspec.yaml']);
       await write('a/main.dart', 'void main() {}');
       expect(
         (await source.observe(query)).fingerprint,

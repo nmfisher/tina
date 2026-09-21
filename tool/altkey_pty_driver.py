@@ -16,9 +16,19 @@ import select
 import subprocess
 import sys
 import time
+import traceback
 
 LOG = sys.argv[1] if len(sys.argv) > 1 else "/tmp/altkey_verify/probe.log"
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def report_failure(message):
+    print(message, flush=True)
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        # Keep the failure readable in check annotations when log downloads
+        # are unavailable. Only synthetic keyboard input is logged here.
+        escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        print(f"::error title=Native keyboard test::{escaped}", flush=True)
 
 def master_loop(master, proc, mute):
     """Read probe output, answer capability queries, return once it rendered."""
@@ -123,7 +133,7 @@ def run(log_path, mute):
     expected = [event for _, events in cases for event in events]
     if actual != expected or proc.returncode != 0:
         print(log, end="")
-        print(f"FAIL: expected {expected}, got {actual}, exit={proc.returncode}")
+        report_failure(f"FAIL: expected {expected}, got {actual}, exit={proc.returncode}")
         return 1
     mode = "PTY detour" if mute else "terminal replies"
     print(f"PASS ({mode}): text, modifiers, repeats and releases")
@@ -131,4 +141,9 @@ def run(log_path, mute):
 
 
 if __name__ == "__main__":
-    sys.exit(run(LOG, False) | run(LOG + ".mute", True))
+    try:
+        result = run(LOG, False) | run(LOG + ".mute", True)
+    except Exception:
+        report_failure(traceback.format_exc())
+        result = 1
+    sys.exit(result)
