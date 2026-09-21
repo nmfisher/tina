@@ -322,32 +322,26 @@ void main() {
           hostOf(controller).messages.any((m) => m.contains('/exit')), isTrue);
     });
 
-    test('/index runs a turn with the fixed prompt, not the raw command word',
+    test('/index invokes classification without starting a conversation turn',
         () async {
-      // /index returns CmdRun(prompt): the controller must start a normal turn
-      // with the fixed prompt as the user input, never "/index". The provider
-      // records every send() call, so we assert on what the agent actually saw.
       final rl = FakeReadLine();
       final provider = FakeProvider.done();
       final controller =
           _buildController(readLine: rl, provider: provider);
+      final modes = <String>[];
+      controller.runClassification = (conversation, mode) async {
+        expect(conversation, same(controller.active));
+        modes.add(mode);
+      };
 
       rl.enqueue('/index');
       final runFuture = controller.run();
-      await _pumpUntil(() => provider.calls.isNotEmpty);
+      await _pumpUntil(() => modes.isNotEmpty);
       rl.close();
       await runFuture;
 
-      expect(provider.calls, hasLength(1));
-      final userTexts = provider.calls.single.messages
-          .where((m) => m.role == Role.user)
-          .expand((m) => m.content)
-          .whereType<TextBlock>()
-          .map((b) => b.text)
-          .toList();
-      // The agent saw the fixed index prompt, never the raw "/index" word.
-      expect(userTexts.any((t) => t.contains('AT MOST 2')), isTrue);
-      expect(userTexts.any((t) => t.trim() == '/index'), isFalse);
+      expect(modes, ['']);
+      expect(provider.calls, isEmpty);
     });
 
     test('a command is processed after a turn has been started', () async {
