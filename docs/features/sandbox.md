@@ -69,7 +69,7 @@ The sandbox wraps one seam: the process runner behind `bash` and `exec`. Every
 other tool that spawns a process uses a plain `IoProcessRunner` (or raw
 `Process.runSync`) and is **not** confined — `git`, `grep`, `ls`/`glob` (via the
 repo file enumerator), the `dart analyze` edit verifier, the summary sidecar,
-and the environment probes. That is deliberate (they are read-only or
+and the classification persistence. That is deliberate (they are read-only or
 project-local), and it means "the sandbox is on" is a statement about the shell
 tools, not about the agent:
 
@@ -78,7 +78,7 @@ tools, not about the agent:
 | `bash`, `exec` | yes | the process runner is wrapped |
 | `git`, `grep`, `ls`, `glob`, `repo_structure` | no | read-only helpers; reads are open anyway |
 | `dart analyze` (edit verifier) | no | verification only, no approved write |
-| summary sidecar, environment probes | no | write only inside the project's own data dir |
+| summary sidecar, classification persistence | no | write only inside the project's own data dir |
 
 Disclosure: an approval prompt carries a `[sandbox: off]` chip whenever bash
 runs unsandboxed — host limitation, `--no-sandbox`, or `--yolo` — and a

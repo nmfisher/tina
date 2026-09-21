@@ -172,10 +172,8 @@ abstract class CommandContext
   })?
   get runBackgroundIndex;
 
-  /// Queue environment setup in the session's main conversation. Returns
-  /// after admission; execution uses the normal turn/approval/delegate path.
-  /// Null in headless, which never auto-runs setup.
-  Future<void> Function(Conversation conv)? get runEnvironment;
+  /// Run or restore project classifications in an isolated background job.
+  Future<void> Function(Conversation conv, String mode)? get runClassification;
 
   /// Open the visual node editor (`/workflow new` / `/workflow edit`). Wired by
   /// the TUI; null in headless.

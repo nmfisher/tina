@@ -52,10 +52,8 @@ class SessionController {
   /// the editor can render `[N queued]`; [end] settles the window so the loop
   /// can flush what was captured. Wired by the TUI coordinator; null in
   /// headless (where dispatch is fast enough not to matter).
-  void Function(
-    void Function(String line) onCaptureSubmit,
-    int queueCount,
-  )? beginInputCapture;
+  void Function(void Function(String line) onCaptureSubmit, int queueCount)?
+  beginInputCapture;
   void Function()? endInputCapture;
 
   /// Per-session draft input saved across switches, keyed by session id. Lets a
@@ -112,10 +110,7 @@ class SessionController {
   /// in-chat review).
   SummaryIndex? summaryIndex;
 
-  /// Environment task instructions and record verification. Execution uses
-  /// the main conversation and its normal turn lifecycle. Null in headless.
-  EnvironmentIndex? environmentIndex;
-  void Function(String conversationId)? onConversationFocusRequested;
+  Future<void> Function(Conversation, String)? runClassification;
 
   /// Ask a yes/no confirmation (`/index` up-to-date re-run prompt, `/model`'s
   /// "make this the global default"). [body] is optional explanatory text
@@ -219,74 +214,6 @@ class SessionController {
               '${sessionManager.active.providerId}/${conv.provider.model}',
   );
   bool get isIndexRunning => jobs.running('index');
-  final Map<String, String> _environmentRequests = {};
-  bool get isEnvironmentRunning => _environmentRequests.isNotEmpty;
-
-  /// Submit to the session's main conversation, even when a child is focused.
-  /// No new provider, host, job, or fixed scout population is created.
-  Future<void> runEnvironment(Conversation source) async {
-    final index = environmentIndex;
-    if (index == null) return;
-    final session = sessionManager.all.firstWhere(
-      (s) => s.conversationById(source.id) != null,
-    );
-    final main = session.conversations.first;
-    if (main.isClosed) return;
-    if (sessionManager.activeId != session.id) switchSession(session.id);
-    presentConversationSelection(sessionManager.selectConversation(main.id));
-    onConversationFocusRequested?.call(main.id);
-    if (_environmentRequests.containsKey(main.id)) {
-      source.host.showMessage(
-        'Environment setup is already queued or running in the main conversation.\n',
-        style: HostMessageStyle.dim,
-      );
-      return;
-    }
-    // MessageQueue normalizes submissions; keep the same text as the key
-    // used to recognize this task when a queued turn eventually starts.
-    final prompt = index.taskPrompt().trim();
-    _environmentRequests[main.id] = prompt;
-    final submission = turns.submit(main.id, prompt);
-    if (submission == TurnSubmission.rejected) {
-      _environmentRequests.remove(main.id);
-      return;
-    }
-    source.host.showMessage(
-      submission == TurnSubmission.queued
-          ? 'Environment setup queued in the main conversation.\n'
-          : 'Environment setup started in the main conversation (Ctrl+C to cancel).\n',
-      style: HostMessageStyle.dim,
-    );
-  }
-
-  void Function(bool)? _beginEnvironmentTurn(
-    Conversation conversation,
-    String prompt,
-  ) {
-    if (_environmentRequests[conversation.id] != prompt) return null;
-    final index = environmentIndex!;
-    try {
-      final before = index.beginVerification();
-      return (completed) {
-        _environmentRequests.remove(conversation.id);
-        final updated = index.finishVerification(before, completed: completed);
-        conversation.host.showMessage(
-          updated
-              ? 'Environment record updated (.tina/ENVIRONMENT.md).\n'
-              : 'Environment record was not verified; setup remains incomplete.\n',
-          style: updated ? HostMessageStyle.success : HostMessageStyle.warning,
-        );
-      };
-    } catch (e) {
-      _environmentRequests.remove(conversation.id);
-      conversation.host.showMessage(
-        'Environment verification unavailable: $e\n',
-        style: HostMessageStyle.warning,
-      );
-      return null;
-    }
-  }
-
   Future<void> Function(Conversation, List<String>?, {bool repartition})?
   get runBackgroundIndex => background.runIndex;
   Future<void> Function()? shutdownWorkflows;
@@ -300,7 +227,6 @@ class SessionController {
       jobStop,
       if (shutdownWorkflows != null) shutdownWorkflows!(),
     ]);
-    _environmentRequests.clear();
     await _flushUsage();
   }
 
@@ -462,7 +388,10 @@ class SessionController {
     }
   }
 
-  Future<_DispatchOutcome> _dispatchOne(String line, Conversation target) async {
+  Future<_DispatchOutcome> _dispatchOne(
+    String line,
+    Conversation target,
+  ) async {
     final cmd = await _commands.dispatch(line);
     if (cmd is CmdExit) return _DispatchOutcome.exitRequested;
     if (cmd is CmdHandled) return _DispatchOutcome.handled;
@@ -520,7 +449,7 @@ class SessionController {
     }
     if (!s.isRunning) {
       // No turn, but a background index run may be cancellable.
-      if (isIndexRunning) {
+      if (isIndexRunning || jobs.running('classify')) {
         if (!_cancelArmed) {
           _cancelArmed = true;
           s.host.showMessage(
@@ -564,7 +493,7 @@ class SessionController {
     // conversation's turn: a concurrent proposal turn must not shield a
     // doomed fleet from the operator's Esc-Esc.
     var hit = false;
-    if (isIndexRunning) {
+    if (isIndexRunning || jobs.running('classify')) {
       jobs.cancelAll();
       hit = true;
     }
@@ -588,11 +517,8 @@ class SessionController {
       onSessionsChanged?.call();
     },
     persistUsage: (conversation) => _flushUsageFor(conversation),
-    onTurnStarted: _beginEnvironmentTurn,
     toolsForTurn: (conversation, prompt) =>
-        _environmentRequests[conversation.id] == prompt
-        ? EnvironmentToolStage(conversation.driver.tools)
-        : explorationToolsForTurn(conversation.driver.tools, prompt),
+        explorationToolsForTurn(conversation.driver.tools, prompt),
   );
   void _startTurn(Conversation conversation, String input) =>
       turns.submit(conversation.id, input);

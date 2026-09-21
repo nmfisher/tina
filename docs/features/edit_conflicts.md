@@ -3,7 +3,7 @@
 The standard `edit` tool checks its exact match before requesting approval.
 Invalid arguments, missing matches, and ambiguous matches return to the agent
 without prompting the user, writing a file, or creating a backup. Permission
-denials and environment-stage restrictions are checked before preparation.
+denials and exploration-stage restrictions are checked before preparation.
 
 `EditRequest` and `prepareEdit` hold the shared validation and matching logic.
 `EditTool.prepare` reads through the configured filesystem and sandbox, then

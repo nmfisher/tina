@@ -2,7 +2,6 @@ import 'package:tina_app/tina_app.dart';
 import 'dart:async';
 import 'dart:io';
 
-
 import 'package:tina/config.dart';
 import 'package:tina/config/setup.dart';
 import 'package:tina/config/user_config.dart';
@@ -11,10 +10,8 @@ import 'package:tina/composition/typesafe.dart';
 import 'package:tina/composition/models_dev_seed.dart';
 import 'package:tina/logging.dart';
 
-
 import 'package:tina/host/headless_watchdog.dart';
 import 'package:tina/session_commands/session_command_handlers.dart';
-
 
 import 'package:tina_engine/tina_engine.dart';
 
@@ -86,7 +83,10 @@ Future<void> _run(List<String> argv) async {
       // its own GET /v1/models to refine the models.dev list. A config-declared
       // id wins — registerConfigProviders ran first and the seed skips
       // collisions (id, credential env var, base-URL host).
-      final providerCatalog = await _seedModelsDevProviders(registry, mergedEnv);
+      final providerCatalog = await _seedModelsDevProviders(
+        registry,
+        mergedEnv,
+      );
       // mergedEnv (not the raw environment): a key configured in ~/.tina/config
       // rather than the shell must reach the live-models catalog too, or it
       // sees no credentials and silently skips that provider's /v1/models.
@@ -458,6 +458,36 @@ Future<void> _runNonInteractive(
     // so the up-to-date branch reports and stops, matching the deleted bin's
     // `--dry-run` behavior.
     final prompt = startup.prompt?.trim() ?? '';
+    if (prompt == '/classify' || prompt.startsWith('/classify ')) {
+      final parts = prompt.split(RegExp(r'\s+'));
+      final mode = parts.length == 1 ? '' : parts[1];
+      final cancelled = Completer<void>();
+      final signal = ProcessSignal.sigint.watch().listen((_) {
+        if (!cancelled.isCompleted) cancelled.complete();
+      });
+      try {
+        if (parts.length > 2)
+          throw ArgumentError('Usage: /classify [status|refresh]');
+        final report = await runProjectClassification(
+          app,
+          mode: mode,
+          cancelSignal: cancelled.future,
+          onProgress: (text) => host.showMessage('$text\n'),
+        );
+        host.showMessage(classificationReportText(report));
+        if (report.cancelled || report.failures.isNotEmpty) exitCode = 1;
+      } catch (e) {
+        host.showMessage(
+          'Classification unavailable: $e\n',
+          style: HostMessageStyle.error,
+        );
+        exitCode = 1;
+      } finally {
+        await signal.cancel();
+        await closeLogging();
+      }
+      return;
+    }
     if (prompt == '/index') {
       // Load the on-disk allocations (a TUI session's approved layout) so the
       // headless run measures the SAME partition. Without this, every allocated
@@ -772,10 +802,7 @@ Future<ModelsDevProviderCatalog?> _seedModelsDevProviders(
   if (env['COCOON_MODELS_DEV'] == '0') return null;
   final catalog = ModelsDevProviderCatalog(env: env);
   await catalog.loadFromCache();
-  registerModelsDevProviders(
-    registry: registry,
-    providers: catalog.providers,
-  );
+  registerModelsDevProviders(registry: registry, providers: catalog.providers);
   registry.providerCatalog = catalog;
   return catalog;
 }

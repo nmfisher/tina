@@ -98,7 +98,6 @@ void main() {
       'send',
       'allocate',
       'unknown_plugin',
-      'begin_environment_execution',
     ]) {
       policy.remember(name, '*', PermissionDecision.allow);
       expect(policy.check(name, {}), PermissionDecision.deny, reason: name);
@@ -227,11 +226,11 @@ void main() {
 
   test('initial read-all blocks even local control tools before approval',
       () async {
-    final transition = _ControlTool('begin_environment_execution');
+    final transition = _ControlTool('submit_test_result');
     final bash = _Tool('bash');
     await Agent(
       provider: _Provider((step) => step == 0
-          ? [_call('bash'), _call('begin_environment_execution')]
+          ? [_call('bash'), _call('submit_test_result')]
           : const [TextBlock('done')]),
       tools: ToolRegistry([bash, transition]),
       sink: FakeAgentSink(),

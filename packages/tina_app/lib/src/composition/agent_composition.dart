@@ -5,7 +5,6 @@ import '../exploration/explore_project_tool.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 import 'package:tina_app/src/config/runtime_config.dart';
-import 'package:tina_app/src/environment/environment_tool_stage.dart';
 import 'package:tina_app/src/workflows/ask_user_tool.dart';
 import 'package:tina_app/src/workflows/launch_workflow_tool.dart';
 import 'package:tina_app/src/workflows/workflow_supervisor.dart';
@@ -60,7 +59,9 @@ SubAgentScheduler createScheduler({
     quota: quota,
     driverFactory: driverFactory,
   );
-  scheduler.budgetFactory = scope?.lookup(liveQuotasServiceKey)?.delegatedBudget;
+  scheduler.budgetFactory = scope
+      ?.lookup(liveQuotasServiceKey)
+      ?.delegatedBudget;
   scheduler.delegateToolBuilder = (ctx) => DelegateTool(ctx);
   // Thread the user's configured policy to unattended agents (workflow nodes)
   // so the bash decision (--yolo / --allow bash:… / default ask) is inherited
@@ -85,7 +86,6 @@ SubAgentScheduler createScheduler({
   scheduler.mountedScope = scope;
   return scheduler;
 }
-
 
 /// Build the driver for one conversation from [pipeline]'s main role.
 ///
@@ -115,6 +115,7 @@ AgentDriver buildAgent({
   required PermissionPolicy policy,
   required RuntimeConfig config,
   bool withSubAgents = true,
+
   /// Fixed role capability boundary, independent of live permission mode.
   AgentToolAccess toolAccess = AgentToolAccess.standard,
   ExploreProjectTool? exploreProject,
@@ -172,7 +173,6 @@ AgentDriver buildAgent({
   // tools below can append without re-wrapping the registry.
   var tools = [
     ...pipeline.tools.buildTools(safeMode: config.safeMode).all,
-    EnvironmentToolStage.transitionTool,
     if (exploreProject != null) exploreProject,
   ];
   // The workflow surface, when the host provides a supervisor: launch a DOT
@@ -343,20 +343,26 @@ AgentDriver buildAgent({
   final request = AgentDriverRequest(
     provider: provider,
     tools: toolAccess == AgentToolAccess.orchestrator
-        ? orchestratorTools(AskUserTool(askUser), exploreProject: exploreProject)
+        ? orchestratorTools(
+            AskUserTool(askUser),
+            exploreProject: exploreProject,
+          )
         : agentTools,
     sink: host,
     policy: effectivePolicy,
     asker: resolvedAsker,
-    budget: scheduler.mountedScopeValue?.lookup(liveQuotasServiceKey)?.mainBudget()
-        ?? config.buildTokenBudget(),
+    budget:
+        scheduler.mountedScopeValue
+            ?.lookup(liveQuotasServiceKey)
+            ?.mainBudget() ??
+        config.buildTokenBudget(),
     pauseGate: scheduler.pauseGate,
     maxSteps: config.maxSteps,
     system: toolAccess == AgentToolAccess.orchestrator
         ? '$resolvedSystem\nYou are an orchestrator without filesystem or shell '
-            'access. Use explore_project for repository evidence when available. '
-            'Treat per-file judgments as probabilities, not source excerpts. Report coverage gaps. '
-            'Do not claim to have inspected files beyond supplied evidence.'
+              'access. Use explore_project for repository evidence when available. '
+              'Treat per-file judgments as probabilities, not source excerpts. Report coverage gaps. '
+              'Do not claim to have inspected files beyond supplied evidence.'
         : resolvedSystem,
     // The scope contributions mounted for this scheduler ride along, so the
     // main build runs under the same guards/hooks/observers as delegates.

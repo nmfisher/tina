@@ -107,8 +107,6 @@ void main() {
         mainIdentity: 'JOIN-IDENTITY',
         promptContext: PromptContext(
           projectRoot: tmp.path,
-          projectEnvironmentSource: () =>
-              '<project-environment>\ntoolchain: Dart\n</project-environment>',
         ),
       );
       final resolved =

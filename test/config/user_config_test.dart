@@ -593,24 +593,6 @@ models = ["stub-1", "stub-2|Stub Two"]
       },
     );
 
-    test('parseEnvironmentAutoPopulate maps raw values', () {
-      expect(
-        parseEnvironmentAutoPopulate('always'),
-        EnvironmentAutoPopulate.always,
-      );
-      expect(
-        parseEnvironmentAutoPopulate('never'),
-        EnvironmentAutoPopulate.never,
-      );
-      expect(parseEnvironmentAutoPopulate('ask'), EnvironmentAutoPopulate.ask);
-      // Unknown / absent fall to ask (the safe default: never auto-spend).
-      expect(
-        parseEnvironmentAutoPopulate('sometimes'),
-        EnvironmentAutoPopulate.ask,
-      );
-      expect(parseEnvironmentAutoPopulate(null), EnvironmentAutoPopulate.ask);
-    });
-
     test('[tui] mouse_wheel round-trips through loadUserConfig', () {
       writeUserConfig(
         const UserConfig(mouseWheel: false),

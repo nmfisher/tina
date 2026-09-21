@@ -8,8 +8,6 @@ import 'package:tina_app/src/summaries/sidecar_repo.dart';
 import 'package:tina_app/src/summaries/git_summary_repository.dart';
 import 'package:tina_app/src/summaries/summary_index.dart';
 import 'package:tina_app/src/summaries/summary_runner.dart';
-import 'package:tina_app/src/environment/environment_index.dart';
-import 'package:tina_app/src/environment/file_environment_repository.dart';
 import 'package:tina_app/src/composition/execution_runtime.dart';
 
 SummaryInspection buildSummaryInspection({
@@ -29,7 +27,6 @@ GitSummaryRepository _summaryRepository(
   ),
   allocations: allocations,
   partition: partition,
-  environment: FileEnvironmentRepository(projectRoot: project),
 );
 
 SummaryIndex buildSummaryIndex({
@@ -60,13 +57,6 @@ SummaryIndex buildSummaryIndex({
     spendLedger: spendLedger,
   );
 }
-
-EnvironmentIndex buildEnvironmentIndex({required String projectRoot}) =>
-    EnvironmentIndex(
-      repository: FileEnvironmentRepository(
-        projectRoot: p.normalize(p.absolute(projectRoot)),
-      ),
-    );
 
 /// Standalone adapter binds run options at composition, never inside services.
 class ProjectServiceRun<T> {

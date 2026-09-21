@@ -46,6 +46,7 @@ LlmProvider buildResolved(
   LlmProviderFactory providers,
   RuntimeConfig config,
   String ref, {
+  int? maxTokensOverride,
   String? apiKeyOverride,
   String? baseUrlOverride,
 }) {
@@ -54,7 +55,7 @@ LlmProvider buildResolved(
     ref,
     apiKeyOverride: sameProvider ? apiKeyOverride : null,
     baseUrlOverride: sameProvider ? baseUrlOverride : null,
-    maxTokens: config.maxTokens,
+    maxTokens: maxTokensOverride ?? config.maxTokens,
     reasoningEffort: sameProvider ? config.reasoningEffort : null,
     streamIdleTimeout: config.streamIdleTimeout,
     requestTimeout: config.requestTimeout,

@@ -55,7 +55,6 @@ void main() {
             (ref: 'test/model', profile: ToolProfile.readOnly),
         sideConversationPresenter: (_) => throw StateError('attachment failed'),
       );
-      coordinator.pendingFirstLoadEnvironmentAsk = null;
       await coordinator.controller.openSpawn!();
       expect(coordinator.sessionManager.active.conversationCount, 2);
       final side = coordinator.sessionManager.active.conversations.last;
@@ -143,7 +142,6 @@ void main() {
         io: io,
         terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
       );
-      coordinator.pendingFirstLoadEnvironmentAsk = null;
       coordinator.pendingGitignoreAsk = null;
       // Ctrl-C opens the confirmation; the second quits with it still visible.
       io.feedBytes([0x03, 0x03]);
@@ -186,11 +184,6 @@ void main() {
       io: io,
       terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
     );
-    // This test drives the raw first-paint sequence; skip the first-load
-    // environment ask (this repo has no ENVIRONMENT.md, so run() would show
-    // the picker before the REPL). The ask has its own test below.
-    coordinator.pendingFirstLoadEnvironmentAsk = null;
-
     io.feedBytes([
       0x2f,
       0x65,
@@ -307,7 +300,6 @@ void main() {
         io: io,
         terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
       );
-      coordinator.pendingFirstLoadEnvironmentAsk = null;
 
       // The ACTIVE conversation's provider was built at create() — under the
       // current config base (and still under the /model-swapped model the meta
@@ -461,10 +453,6 @@ void main() {
         io: io,
         terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
       );
-      // Skip the first-load environment ask (see its dedicated test below) —
-      // this test drives the history replay, not the startup picker.
-      coordinator.pendingFirstLoadEnvironmentAsk = null;
-
       io.feedBytes([0x2f, 0x65, 0x78, 0x69, 0x74, 0x0d, 0x0d]); // /exit
 
       await coordinator.run().timeout(const Duration(seconds: 5));
@@ -485,138 +473,6 @@ void main() {
       );
     },
   );
-
-  // The first-load ask's gate reads the process cwd's ENVIRONMENT.md — the
-  // repo root is NOT a fixture (the ceremony can legitimately write one
-  // during real use, and did), so these tests point the cwd at a fresh temp
-  // project for their duration.
-  void chdirToFreshProject() {
-    final dir = Directory.systemTemp.createTempSync('tina-first-load-');
-    final old = Directory.current;
-    Directory.current = dir;
-    addTearDown(() {
-      Directory.current = old;
-      try {
-        dir.deleteSync(recursive: true);
-      } catch (_) {}
-    });
-  }
-
-  for (final choice in ['now', 'later', 'always', 'never']) {
-    test(
-      'first load environment setup at 10 rows: $choice uses the normal main turn',
-      () async {
-        chdirToFreshProject();
-        final io = FakeStdio()..hasTerminalValue = false;
-        final provider = FakeProvider.done();
-        final config = Config.parse(
-          const ['--backend', 'ansi'],
-          userConfig: UserConfig(
-            environmentAutoPopulate: choice == 'always' || choice == 'never'
-                ? choice
-                : 'ask',
-          ),
-        );
-        final store = MemorySessionStore();
-        final app = await buildAppComposition(
-          config: config,
-          registry: builtinRegistry(),
-          provider: provider,
-          store: store,
-          environment: FakeEnvironment(
-            env: Map.of(Platform.environment)..['COCOON_UPDATE_CHECK'] = '0',
-          ),
-        );
-        final coordinator = await TuiCoordinator.create(
-          app: app,
-          io: io,
-          terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 10),
-        );
-        coordinator.pendingGitignoreAsk = null;
-        expect(coordinator.pendingFirstLoadEnvironmentAsk, isNotNull);
-        final run = coordinator.run();
-        if (choice == 'now' || choice == 'later') {
-          await pumpEventQueue();
-          expect(coordinator.editor.isReadingKey, isTrue);
-          expect(provider.calls, isEmpty);
-          if (choice == 'later') {
-            io.feedBytes([0x1b, 0x5b, 0x42, 0x1b, 0x5b, 0x42]); // Not now
-            await pumpEventQueue();
-          }
-          io.feedBytes([0x0d]);
-        }
-        await pumpEventQueue(times: 100);
-        final main = coordinator.sessionManager.activeConversation;
-        await coordinator.controller.turns.whenIdle(main.id);
-        final runs = choice == 'now' || choice == 'always';
-        expect(provider.calls.length, runs ? 1 : 0);
-        expect(coordinator.spawnedPanels, isEmpty);
-        expect(coordinator.sessionManager.active.conversationCount, 1);
-        if (runs) {
-          expect(
-            main.history.first.content.whereType<TextBlock>().single.text,
-            contains('how many sub-agents to spawn'),
-          );
-          expect(main.recorder, isNotNull);
-        }
-        io.feedBytes([0x03, 0x03]);
-        await run.timeout(const Duration(seconds: 5));
-        io.close();
-      },
-    );
-  }
-
-  test('environment setup spawns exactly the children the main agent delegates', () async {
-    chdirToFreshProject();
-    final children = <FakeProvider>[];
-    final registry = ProviderRegistry(env: const {})..register(ProviderDescriptor(
-      id: 'test', name: 'Test', authSources: const [],
-      defaultBaseUrl: 'https://example.test',
-      builder: (options) {
-        final provider = FakeProvider.done(model: options.model);
-        children.add(provider);
-        return provider;
-      },
-    ));
-    final provider = FakeProvider([
-      [MessageComplete(content: [ToolUseBlock(id: 'delegate-env', name: 'delegate', input: {
-        'delegations': [
-          {'task': 'Inspect the toolchain'},
-          {'task': 'Identify test commands'},
-        ],
-      })], stopReason: 'tool_use')],
-      [MessageComplete(content: [TextBlock('Inspection finished; setup still needed.')],
-        stopReason: 'end_turn')],
-    ], model: 'main-model');
-    // Sidebar layout on purpose: this test asserts the conversation tree the
-    // sidebar renders (depths + selection). The default layout is tiled.
-    final config = Config.parse(
-      ['--model', 'test/main-model', '--backend', 'ansi', '--layout', 'sidebar'],
-      env: const {}, registry: registry);
-    final app = await buildAppComposition(config: config, registry: registry,
-      provider: provider, store: MemorySessionStore(),
-      environment: FakeEnvironment(env: const {'COCOON_UPDATE_CHECK': '0'}));
-    final coordinator = await TuiCoordinator.create(app: app,
-      io: FakeStdio()..hasTerminalValue = false,
-      terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 40));
-    final main = coordinator.sessionManager.activeConversation;
-    expect(coordinator.spawnedPanels, isEmpty);
-    // Composition may build an idle classifier provider. Only work launched
-    // by this task counts toward its delegation choices.
-    expect(children.every((child) => child.calls.isEmpty), isTrue);
-    children.clear();
-    await coordinator.controller.runEnvironment(main);
-    await coordinator.controller.turns.whenIdle(main.id);
-    expect(provider.calls, hasLength(2));
-    expect(children, hasLength(2));
-    expect(coordinator.spawnedPanels, hasLength(2));
-    expect(coordinator.sessionManager.active.conversationCount, 3);
-    expect(coordinator.panelManager.sidebar!.entries.map((e) => e.depth), [0, 1, 1]);
-    expect(coordinator.panelManager.selectedFrame, same(coordinator.panelManager.primaryFrame));
-    expect(main.history.expand((m) => m.content).whereType<ToolResultBlock>(), isNotEmpty);
-    await coordinator.controller.shutdown();
-    await app.dispose();
-  });
 
   group('resume restores the panel structure', () {
     // Seeds a session with one active primary conversation + [spawnCount] spawn
@@ -824,8 +680,14 @@ void main() {
 
         final io = FakeStdio()..hasTerminalValue = false;
         // Sidebar layout on purpose (see the test name); the default is tiled.
-        final config = Config.parse(
-            ['--resume', sid, '--backend', 'ansi', '--layout', 'sidebar']);
+        final config = Config.parse([
+          '--resume',
+          sid,
+          '--backend',
+          'ansi',
+          '--layout',
+          'sidebar',
+        ]);
         final app = await buildAppComposition(
           config: config,
           registry: builtinRegistry(),
@@ -1620,51 +1482,50 @@ void main() {
     // switch `/permissions <mode>` performs. Unlike that command the cycling
     // is SILENT in the scrollback (tin-k4m8): the strip's always-visible label
     // is the announcement. Driven end-to-end through the real REPL, real bytes.
-    test(
-      'four presses walk the ring and wrap home, silently',
-      () async {
-        final io = FakeStdio()..hasTerminalValue = false;
-        final config = Config.parse(const ['--backend', 'ansi']);
-        final app = await buildAppComposition(
-          config: config,
-          registry: builtinRegistry(),
-          provider: FakeProvider.done(),
-          store: MemorySessionStore(),
+    test('four presses walk the ring and wrap home, silently', () async {
+      final io = FakeStdio()..hasTerminalValue = false;
+      final config = Config.parse(const ['--backend', 'ansi']);
+      final app = await buildAppComposition(
+        config: config,
+        registry: builtinRegistry(),
+        provider: FakeProvider.done(),
+        store: MemorySessionStore(),
+      );
+      final coordinator = await TuiCoordinator.create(
+        app: app,
+        io: io,
+        terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
+      );
+
+      // Four Shift+Tabs (ask → read-all → allow-edits → auto → ask), then
+      // /exit: Enter accepts the command picker's suggestion, Enter submits.
+      const backtab = [0x1b, 0x5b, 0x5a];
+      io.feedBytes([
+        ...backtab,
+        ...backtab,
+        ...backtab,
+        ...backtab,
+        0x2f, 0x65, 0x78, 0x69, 0x74, // /exit
+        0x0d,
+        0x0d,
+      ]);
+
+      await coordinator.run().timeout(const Duration(seconds: 5));
+
+      // The base policy landed back on ask after wrapping the whole ring…
+      expect(app.policy.mode, PermissionMode.ask);
+      // …and the walk is SILENT in the scrollback (tin-k4m8): the strip's
+      // always-visible label announces each step; a transcript line per
+      // press scrolled the conversation on every cycle.
+      final out = io.written.toString();
+      for (final label in ['read-all', 'allow-edits', 'auto']) {
+        expect(
+          out.indexOf('permission mode: $label'),
+          -1,
+          reason: 'no announce line for $label — the strip shows it',
         );
-        final coordinator = await TuiCoordinator.create(
-          app: app,
-          io: io,
-          terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
-        );
-        coordinator.pendingFirstLoadEnvironmentAsk = null;
-
-        // Four Shift+Tabs (ask → read-all → allow-edits → auto → ask), then
-        // /exit: Enter accepts the command picker's suggestion, Enter submits.
-        const backtab = [0x1b, 0x5b, 0x5a];
-        io.feedBytes([
-          ...backtab,
-          ...backtab,
-          ...backtab,
-          ...backtab,
-          0x2f, 0x65, 0x78, 0x69, 0x74, // /exit
-          0x0d,
-          0x0d,
-        ]);
-
-        await coordinator.run().timeout(const Duration(seconds: 5));
-
-        // The base policy landed back on ask after wrapping the whole ring…
-        expect(app.policy.mode, PermissionMode.ask);
-        // …and the walk is SILENT in the scrollback (tin-k4m8): the strip's
-        // always-visible label announces each step; a transcript line per
-        // press scrolled the conversation on every cycle.
-        final out = io.written.toString();
-        for (final label in ['read-all', 'allow-edits', 'auto']) {
-          expect(out.indexOf('permission mode: $label'), -1,
-              reason: 'no announce line for $label — the strip shows it');
-        }
-      },
-    );
+      }
+    });
 
     test('one press from ask lands on read-all on the base policy', () async {
       final io = FakeStdio()..hasTerminalValue = false;
@@ -1680,7 +1541,6 @@ void main() {
         io: io,
         terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
       );
-      coordinator.pendingFirstLoadEnvironmentAsk = null;
 
       io.feedBytes([
         0x1b, 0x5b, 0x5a, // Shift+Tab
@@ -1728,7 +1588,6 @@ void main() {
         io: io,
         terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
       );
-      coordinator.pendingFirstLoadEnvironmentAsk = null;
       if (schedule.isEmpty) {
         io.feedBytes(bytes);
       } else {
@@ -1750,16 +1609,25 @@ void main() {
       return GridProbe(vt, 23);
     }
 
-    test('label is on the strip row from the first frame, never in scrollback',
-        () async {
-      final probe =
-          await runSession(const [0x2f, 0x65, 0x78, 0x69, 0x74, 0x0d, 0x0d]);
-      // The strip owns the last row: 'mode: ask' lives there, exactly once.
-      expect(probe.stripText, contains('mode: ask'));
-      expect(probe.labelRows, 1);
-      // …and no transcript line ever announces the mode (tin-k4m8).
-      expect(probe.stripText.contains('permission mode:'), isFalse);
-    });
+    test(
+      'label is on the strip row from the first frame, never in scrollback',
+      () async {
+        final probe = await runSession(const [
+          0x2f,
+          0x65,
+          0x78,
+          0x69,
+          0x74,
+          0x0d,
+          0x0d,
+        ]);
+        // The strip owns the last row: 'mode: ask' lives there, exactly once.
+        expect(probe.stripText, contains('mode: ask'));
+        expect(probe.labelRows, 1);
+        // …and no transcript line ever announces the mode (tin-k4m8).
+        expect(probe.stripText.contains('permission mode:'), isFalse);
+      },
+    );
 
     test('label survives /clear, setErrorStrip and clearErrorStrip', () async {
       // The strip is exercised the way production drives it: a mid-stream
@@ -1776,10 +1644,7 @@ void main() {
         [
           // Mid-stream warning → notice → strip shows it (setErrorStrip).
           StreamNotice('pool: member 1 failed, retrying'),
-          MessageComplete(
-            content: [TextBlock('one')],
-            stopReason: 'end_turn',
-          ),
+          MessageComplete(content: [TextBlock('one')], stopReason: 'end_turn'),
         ],
         // Second turn ends clean: the boundary clears the strip notice.
         [
@@ -1809,7 +1674,12 @@ void main() {
       final app = await buildAppComposition(
         // Sidebar layout on purpose: the cancel gesture is exercised while the
         // focus ring navigates the sidebar (see the focusPanel call below).
-        config: Config.parse(const ['--backend', 'ansi', '--layout', 'sidebar']),
+        config: Config.parse(const [
+          '--backend',
+          'ansi',
+          '--layout',
+          'sidebar',
+        ]),
         registry: builtinRegistry(),
         provider: FakeProvider.done(),
         store: MemorySessionStore(),
@@ -1822,7 +1692,6 @@ void main() {
         io: io,
         terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 24),
       );
-      coordinator.pendingFirstLoadEnvironmentAsk = null;
       coordinator.pendingGitignoreAsk = null;
       var exited = false;
       final run = coordinator.run().then((_) => exited = true);
@@ -1856,7 +1725,6 @@ void main() {
       expect(response, PermissionResponse.denyOnce);
       expect(editor.isReadingKey, isFalse);
       expect(exited, isFalse);
-      expect(coordinator.controller.isEnvironmentRunning, isFalse);
 
       // Idle again, the quit confirm arms on the first Ctrl+C and the second
       // quits — Ctrl+C is the quit flow at every input state.
@@ -1888,8 +1756,12 @@ void main() {
       // the same written row. The default layout is tiled (a wider chat), so
       // the gesture is exercised under the sidebar geometry it was written
       // against; the Esc semantics are what is under test, not the wrapping.
-      final config =
-          Config.parse(const ['--backend', 'ansi', '--layout', 'sidebar']);
+      final config = Config.parse(const [
+        '--backend',
+        'ansi',
+        '--layout',
+        'sidebar',
+      ]);
       // Each response re-issues the same denied bash call — the exact
       // circuit-breaker shape (#27) that kept the comet sweeping.
       List<StreamEvent> toolTurn(String id) => [
@@ -1923,7 +1795,6 @@ void main() {
         io: io,
         terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
       );
-      coordinator.pendingFirstLoadEnvironmentAsk = null;
 
       int countOf(String needle) =>
           needle.allMatches(io.written.toString().replaceAll('\n', ' ')).length;

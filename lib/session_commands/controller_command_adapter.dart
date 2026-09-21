@@ -78,8 +78,8 @@ class ControllerCommandAdapter implements CommandContext {
   })?
   get runBackgroundIndex => controller.runBackgroundIndex;
   @override
-  Future<void> Function(Conversation conv)? get runEnvironment =>
-      controller.runEnvironment;
+  Future<void> Function(Conversation conv, String mode)?
+  get runClassification => controller.runClassification;
   @override
   Future<void> Function({String? name, bool isNew})? get openWorkflowEditor =>
       controller.openWorkflowEditor;

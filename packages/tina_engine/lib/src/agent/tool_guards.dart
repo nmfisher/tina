@@ -33,7 +33,7 @@ class PolicyToolGuard implements ToolGuard {
 }
 
 /// The mandatory phase gate, as a [ToolGuard]: the step's [ToolRegistry] view
-/// (e.g. the environment-stage registry delegating to its own per-step
+/// (e.g. an exploration registry delegating to its own per-step
 /// registry) keeps the same-phase semantics the executor applied second,
 /// before any extra guard.
 class RegistryPhaseGuard implements ToolGuard {
@@ -99,8 +99,7 @@ List<ToolGuard> toolGuardsFromScope(PluginScope scope) => [
 /// Composition plugin (engine style, like project_tool_plugins.dart) that
 /// registers the mandatory [PolicyToolGuard] for [policy] as a contribution
 /// and exposes it under [toolGuardServiceKey].
-PluginDescriptor policyGuardPlugin(PermissionPolicy policy) =>
-    PluginDescriptor(
+PluginDescriptor policyGuardPlugin(PermissionPolicy policy) => PluginDescriptor(
       id: 'tina.guard.policy',
       provides: [toolGuardServiceKey],
       factory: FnPluginFactory((context) {

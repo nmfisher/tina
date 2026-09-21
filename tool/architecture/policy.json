@@ -102,7 +102,7 @@
     "packages/tina_app/lib/src/platform/",
     "packages/tina_app/lib/src/persistence/",
     "packages/tina_app/lib/src/summaries/",
-    "packages/tina_app/lib/src/environment/",
+    "packages/tina_app/lib/src/classification/",
     "packages/tina_app/lib/src/workflows/",
     "packages/tina_app/lib/src/exploration/",
     "packages/tina_app/lib/src/regions/",
@@ -115,7 +115,9 @@
     "packages/classifier/lib/src/judgments/request_packer.dart",
     "packages/classifier/lib/src/judgments/batch_runner.dart",
     "packages/tina_app/lib/src/summaries/summary_repository.dart",
-    "packages/tina_app/lib/src/summaries/summary_models.dart"
+    "packages/tina_app/lib/src/summaries/summary_models.dart",
+    "packages/classifier/lib/src/shared/fingerprint.dart",
+    "packages/classifier/lib/src/shared/range_packer.dart"
   ],
   "noDirectIoFiles": [
     "packages/classifier/lib/src/exploration/models.dart",
@@ -129,8 +131,16 @@
     "packages/tina_app/lib/src/summaries/summary_index.dart",
     "packages/tina_app/lib/src/summaries/summary_repository.dart",
     "packages/tina_app/lib/src/summaries/summary_runner.dart",
-    "packages/tina_app/lib/src/environment/environment_index.dart",
-    "packages/tina_app/lib/src/environment/environment_repository.dart"
+    "packages/tina_app/lib/src/classification/classification_agent_runner.dart",
+    "packages/classifier/lib/src/classification/orchestrator.dart",
+    "packages/classifier/lib/src/classification/models.dart",
+    "packages/classifier/lib/src/classification/definitions.dart",
+    "packages/classifier/lib/src/classification/evidence.dart",
+    "packages/classifier/lib/src/classification/store.dart",
+    "packages/classifier/lib/src/classification/planning.dart",
+    "packages/tina_app/lib/src/classification/project_classifiers.dart",
+    "packages/tina_app/lib/src/classification/project_classification_workflow.dart",
+    "packages/tina_app/lib/src/classification/repository_text_source.dart"
   ],
   "baseline": "baseline.json",
   "excludedRoots": {

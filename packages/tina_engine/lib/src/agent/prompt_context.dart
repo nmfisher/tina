@@ -7,13 +7,11 @@ import 'package:path/path.dart' as p;
 class PromptContext {
   final String projectRoot;
   final bool loadProjectContext;
-  final String? Function()? projectEnvironmentSource;
   final String? Function()? repoSummarySource;
 
   PromptContext({
     String? projectRoot,
     this.loadProjectContext = true,
-    this.projectEnvironmentSource,
     this.repoSummarySource,
   }) : projectRoot =
             p.normalize(p.absolute(projectRoot ?? Directory.current.path));

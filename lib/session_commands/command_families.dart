@@ -182,9 +182,9 @@ class FrontendCommands {
   }
 
   void _noTranscript() => ctx.active.host.showMessage(
-        'this session has no transcript to fold.\n',
-        style: HostMessageStyle.warning,
-      );
+    'this session has no transcript to fold.\n',
+    style: HostMessageStyle.warning,
+  );
 
   Future<void> _handleSettings() async {
     final open = ctx.openSettings;
@@ -776,7 +776,7 @@ class PermissionsCommands {
       removed == 0
           ? 'nothing remembered for ${target ?? 'this conversation'}\n'
           : 'revoked $removed remembered '
-              '${removed == 1 ? 'approval' : 'approvals'}\n',
+                '${removed == 1 ? 'approval' : 'approvals'}\n',
       style: removed == 0 ? HostMessageStyle.dim : HostMessageStyle.normal,
     );
   }
@@ -815,8 +815,7 @@ class PermissionsCommands {
         'remembered approvals (/permissions revoke to forget):\n',
       );
       for (final grant in policy.sessionGrants) {
-        ctx.active.host.showMessage('  $grant\n',
-            style: HostMessageStyle.dim);
+        ctx.active.host.showMessage('  $grant\n', style: HostMessageStyle.dim);
       }
     } else if (policy.staticRules.isEmpty) {
       ctx.active.host.showMessage(
@@ -830,6 +829,20 @@ class PermissionsCommands {
 class IndexCommands {
   final IndexCapabilities ctx;
   IndexCommands(this.ctx);
+
+  Future<CmdResult> _handleClassify(String input) async {
+    final parts = input.trim().split(RegExp(r'\s+'));
+    final mode = parts.length == 1 ? '' : parts[1];
+    final conversation = ctx.active;
+    if (parts.length > 2 || !const ['', 'status', 'refresh'].contains(mode)) {
+      conversation.host.showMessage('Usage: /classify [status|refresh]\n');
+    } else if (ctx.runClassification == null) {
+      conversation.host.showMessage('Project classification is unavailable.\n');
+    } else {
+      await ctx.runClassification!(conversation, mode);
+    }
+    return const CmdHandled();
+  }
 
   /// `/index` — refresh the per-directory summary sidecar, staleness-aware.
   ///
@@ -869,7 +882,6 @@ class IndexCommands {
     // cancels); headless has no wiring and runs it inline, blocking to
     // completion.
     final bg = ctx.runBackgroundIndex;
-    final env = ctx.runEnvironment;
     return runIndexDance(
       host: conversation.host,
       summaryIndex: idx,
@@ -880,7 +892,6 @@ class IndexCommands {
               bg(conversation, dirs, repartition: repartition);
               return Future<SummaryIndexResult?>.value();
             },
-      runEnvironment: env == null ? null : () => env(conversation),
     );
   }
 

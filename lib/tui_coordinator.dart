@@ -1119,17 +1119,19 @@ class TuiCoordinator {
       controller.foldTranscript = (verb, argument) async {
         final host = sessionManager.activeConversation.host;
         if (host is! TuiConversationHost) {
-          host.showMessage('this session has no transcript to fold.\n',
-              style: HostMessageStyle.warning);
+          host.showMessage(
+            'this session has no transcript to fold.\n',
+            style: HostMessageStyle.warning,
+          );
           return;
         }
         final transcript = host.transcript;
 
         /// The foldable blocks, in order, numbered from 1 for the user.
         List<int> foldable() => [
-              for (var i = 0; i < transcript.blocks.length; i++)
-                if (transcript.blocks[i].canFold) i,
-            ];
+          for (var i = 0; i < transcript.blocks.length; i++)
+            if (transcript.blocks[i].canFold) i,
+        ];
 
         void report(String message) =>
             host.showMessage(message, style: HostMessageStyle.dim);
@@ -1143,30 +1145,37 @@ class TuiCoordinator {
           final lines = StringBuffer('foldable blocks:\n');
           for (var n = 0; n < indexes.length; n++) {
             final block = transcript.blocks[indexes[n]];
-            lines.writeln('  ${n + 1}. '
-                '${block.folded ? '▸' : '▾'} ${blockSummary(block)}');
+            lines.writeln(
+              '  ${n + 1}. '
+              '${block.folded ? '▸' : '▾'} ${blockSummary(block)}',
+            );
           }
-          lines.write('  /show <n> reveals one, /hide <n> closes it, '
-              'or use "all".\n');
+          lines.write(
+            '  /show <n> reveals one, /hide <n> closes it, '
+            'or use "all".\n',
+          );
           report(lines.toString());
           return;
         }
 
         final indexes = foldable();
         if (argument == 'all') {
-          final changed =
-              transcript.setAllFolds(folded: verb == 'hide');
-          report(changed == 0
-              ? 'nothing to ${verb == 'hide' ? 'fold' : 'unfold'}.\n'
-              : '$changed block${changed == 1 ? '' : 's'} '
-                  '${verb == 'hide' ? 'folded' : 'revealed'}.\n');
+          final changed = transcript.setAllFolds(folded: verb == 'hide');
+          report(
+            changed == 0
+                ? 'nothing to ${verb == 'hide' ? 'fold' : 'unfold'}.\n'
+                : '$changed block${changed == 1 ? '' : 's'} '
+                      '${verb == 'hide' ? 'folded' : 'revealed'}.\n',
+          );
           return;
         }
 
         final n = int.tryParse(argument);
         if (n == null || n < 1 || n > indexes.length) {
-          report('no block $argument — /blocks lists '
-              '${indexes.length} foldable block${indexes.length == 1 ? '' : 's'}.\n');
+          report(
+            'no block $argument — /blocks lists '
+            '${indexes.length} foldable block${indexes.length == 1 ? '' : 's'}.\n',
+          );
           return;
         }
         final index = indexes[n - 1];
@@ -1178,8 +1187,10 @@ class TuiCoordinator {
           report('block $n ${verb == 'show' ? 'revealed' : 'folded'}.\n');
           return;
         }
-        report('block $n is already '
-            '${verb == 'show' ? 'open' : 'folded'}.\n');
+        report(
+          'block $n is already '
+          '${verb == 'show' ? 'open' : 'folded'}.\n',
+        );
       };
       // `/workflow new` + `/workflow edit` — visual node editor.
       controller.openWorkflowEditor = ({name, isNew = false}) async {
@@ -1257,7 +1268,9 @@ class TuiCoordinator {
         reloadConfigProviders();
         final envMap = app.environment.env;
         final host = sessionManager.activeConversation.host;
-        final quotas = scheduler.mountedScopeValue?.lookup(liveQuotasServiceKey);
+        final quotas = scheduler.mountedScopeValue?.lookup(
+          liveQuotasServiceKey,
+        );
         var quotaSaved = false;
         UserConfig? wrote;
         try {
@@ -1307,7 +1320,10 @@ class TuiCoordinator {
             style: HostMessageStyle.success,
           );
         } else {
-          host.showMessage('(settings unchanged)\n', style: HostMessageStyle.dim);
+          host.showMessage(
+            '(settings unchanged)\n',
+            style: HostMessageStyle.dim,
+          );
         }
       };
 
@@ -1461,12 +1477,6 @@ class TuiCoordinator {
       );
       contentCoordinator.bindPrimary(conversationId: initialConversationId);
       panelManager.onSelectFrame = (frame) => frame.onFocus?.call();
-      controller.onConversationFocusRequested = (id) {
-        final frame = panelManager.allFrames
-            .where((frame) => frame.conversationId == id)
-            .firstOrNull;
-        if (frame != null) focusManager.focusPanel(frame);
-      };
       // Repoint the forward-declared [relocateInput] at the coordinator, which
       // resolves the active frame and performs the content-agnostic retarget.
       relocateInput = contentCoordinator.relocateInput;
@@ -1511,11 +1521,13 @@ class TuiCoordinator {
           );
           return true;
         }
-        unawaited(runTranscriptCursor(
-          editor: editor,
-          chat: host.chat,
-          transcript: transcript,
-        ));
+        unawaited(
+          runTranscriptCursor(
+            editor: editor,
+            chat: host.chat,
+            transcript: transcript,
+          ),
+        );
         return true;
       };
 
@@ -1824,17 +1836,19 @@ class TuiCoordinator {
             // a replacement driver covers this path too, with the
             // scheduler's scope-resolved contributions attached. No wired
             // factory → the trivial adapter, the historical behavior.
-            final driver = scheduler.driverFor(AgentDriverRequest(
-              provider: agent.provider,
-              tools: agent.tools,
-              sink: agent.sink,
-              policy: agent.policy,
-              asker: agent.asker,
-              maxSteps: agent.maxSteps,
-              budget: agent.budget,
-              pauseGate: agent.pauseGate,
-              system: agent.system,
-            ));
+            final driver = scheduler.driverFor(
+              AgentDriverRequest(
+                provider: agent.provider,
+                tools: agent.tools,
+                sink: agent.sink,
+                policy: agent.policy,
+                asker: agent.asker,
+                maxSteps: agent.maxSteps,
+                budget: agent.budget,
+                pauseGate: agent.pauseGate,
+                system: agent.system,
+              ),
+            );
             final conv = Conversation(
               id: conversationId,
               label: label,
@@ -2208,70 +2222,24 @@ class TuiCoordinator {
       // regions too). The y/n confirm renders as the same arrow-key picker the
       // other choices use (Yes/No entries), not a bare key read.
       controller.summaryIndex = summaryIndex;
-      controller.environmentIndex = buildEnvironmentIndex(
-        projectRoot: Directory.current.path,
-      );
-      // Offer a normal main-conversation task on first load. Defer admission
-      // until startup dialogs have finished so approvals cannot race them.
-      if (!config.safeMode &&
-          pipeline.loadProjectContext &&
-          !EnvironmentRecord.exists(Directory.current.path)) {
-        coordinator.pendingFirstLoadEnvironmentAsk = () async {
-          switch (config.environmentAutoPopulate) {
-            case EnvironmentAutoPopulate.never:
-              return;
-            case EnvironmentAutoPopulate.always:
-              coordinator._environmentSetupRequested = true;
-            case EnvironmentAutoPopulate.ask:
-              final choice = await runListOverlay<String>(
-                screen: screen,
-                editor: editor,
-                entries: const [
-                  (
-                    display: 'Set up with the main agent (this session)',
-                    value: 'now',
-                  ),
-                  (display: 'Always set up on first load', value: 'always'),
-                  (display: 'Not now', value: 'later'),
-                ],
-                title: 'No ENVIRONMENT.md yet — set up this project?',
-                footer: '↑↓ move · enter select · esc cancel',
-                accent: 'cyan',
-                body:
-                    'The main agent will inspect the repository, run relevant '
-                    'setup/build/test commands, check authentication status, and '
-                    'write .tina/ENVIRONMENT.md from real results.\n\n'
-                    'It decides whether to delegate, how many sub-agents to use, '
-                    'and what each should do. Work stays in the main conversation '
-                    'with its current model and normal approvals. Ctrl+C cancels.',
-              );
-              if (choice == null || choice == 'later') return;
-              if (choice == 'always') {
-                try {
-                  final cfg = loadUserConfig(env: app.environment.env);
-                  writeUserConfig(
-                    cfg.copyWith(environmentAutoPopulate: 'always'),
-                    env: app.environment.env,
-                  );
-                  initialHost.showMessage(
-                    'Saved: the main agent will set up new projects automatically '
-                    '(`[environment] auto_populate` in ~/.tina/config).\n',
-                    style: HostMessageStyle.dim,
-                  );
-                } catch (_) {}
-              }
-              coordinator._environmentSetupRequested = true;
-          }
-        };
-      }
+      controller.runClassification = (conversation, mode) =>
+          controller.background.runClassification(
+            conversation,
+            (cancelSignal, progress) async => classificationReportText(
+              await runProjectClassification(
+                app,
+                mode: mode,
+                cancelSignal: cancelSignal,
+                onProgress: progress,
+              ),
+            ),
+          );
 
       // .gitignore guard: session transcripts land in `<cwd>/.tina/sessions/`
       // — inside the repo's working tree, where they could be committed. If the
       // repo's .gitignore doesn't cover `.tina` yet (and the user hasn't said
       // "don't ask again" for this repo), offer to add it. Recorded here,
-      // performed in [run] after the first paint — the same lifecycle as the
-      // first-load environment ask above (the picker needs the editor's key
-      // stream). Interactive only; headless runs never create panels.
+      // performed in [run] after the first paint when the editor is ready.
       final gitRoot = gitRepoRootFor(Directory.current.path);
       final gitignoreAsks = GitignoreAskStore.forTinaDir(
         tinaDirFromEnv(app.environment.env),
@@ -2332,7 +2300,7 @@ class TuiCoordinator {
             final release = await checker.checkCached();
             if (release != null && isNewer(release.tag)) {
               // Let the screen settle first so the notice lands in a painted
-              // chat (same reason as the ENVIRONMENT.md notice above).
+              // chat before the screen is ready.
               await Future<void>.delayed(const Duration(milliseconds: 50));
               initialHost.showMessage(
                 'tina ${release.tag} is available — /update to install\n',
@@ -2573,10 +2541,12 @@ class TuiCoordinator {
     editor.restoreHistory(
       conv.history
           .where((message) => message.role == Role.user)
-          .map((message) => message.content
-              .whereType<TextBlock>()
-              .map((block) => block.text)
-              .join('\n')),
+          .map(
+            (message) => message.content
+                .whereType<TextBlock>()
+                .map((block) => block.text)
+                .join('\n'),
+          ),
     );
     if (conv.history.isNotEmpty) {
       replayHistory(conv.host, conv.history);
@@ -2593,26 +2563,11 @@ class TuiCoordinator {
     // every input state, intercepted in the editor before any consumer.
     // Cancel is Esc / double-Esc only.)
 
-    // First-load environment ask (recorded by create): run it now, after the
-    // first paint and before the REPL takes the keyboard. Consumed once.
-    final firstLoadAsk = pendingFirstLoadEnvironmentAsk;
-    if (firstLoadAsk != null) {
-      pendingFirstLoadEnvironmentAsk = null;
-      await firstLoadAsk();
-    }
-
-    // .gitignore ask (recorded by create), same lifecycle as above. Runs
-    // after the environment ask so an env-agent launch isn't held up.
     final gitignoreAsk = pendingGitignoreAsk;
     if (gitignoreAsk != null) {
       pendingGitignoreAsk = null;
       await gitignoreAsk();
     }
-    if (_environmentSetupRequested) {
-      _environmentSetupRequested = false;
-      await controller.runEnvironment(sessionManager.activeConversation);
-    }
-
     // Once-per-install tmux notice (tin-f5xt): the first interactive run
     // inside tmux on the notcurses backend notes that `--backend ansi`
     // renders more predictably there. The marker under the tina data dir
@@ -2658,20 +2613,10 @@ class TuiCoordinator {
     return RunOutcome.normal;
   }
 
-  /// The first-load environment-setup ask, recorded by [create] when
-  /// `ENVIRONMENT.md` is absent and the project is trusted, and performed by
-  /// [run] after the first paint but before the REPL loop starts — the picker
-  /// needs the editor's key stream, which the line loop would otherwise
-  /// hold. Null (the common case) means no ask is pending. Public so `create`
-  /// (a factory) can set it on the instance it is building; tests can clear
-  /// it to skip the picker.
-  Future<void> Function()? pendingFirstLoadEnvironmentAsk;
-  bool _environmentSetupRequested = false;
-
   /// The .gitignore ask, recorded by [create] when the cwd is inside a git
   /// repo whose `.gitignore` doesn't cover `.tina` (and the user hasn't
   /// declined for that repo). Same recorded-by-create / performed-by-run
-  /// lifecycle as [pendingFirstLoadEnvironmentAsk].
+  /// lifecycle after the first paint.
   Future<void> Function()? pendingGitignoreAsk;
 
   /// Capture exit state, close the store, leave the alt screen, print the resume

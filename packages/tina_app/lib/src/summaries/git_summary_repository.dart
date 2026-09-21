@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:tina_app/src/environment/environment_repository.dart';
 import 'package:tina_app/src/summaries/allocations_store.dart';
 import 'package:tina_app/src/summaries/sidecar_repo.dart';
 import 'package:tina_app/src/summaries/summary_repository.dart';
@@ -8,11 +7,9 @@ import 'package:tina_app/src/summaries/summary_repository.dart';
 class GitSummaryRepository implements SummaryRepository {
   final SidecarSummaryRepo sidecar;
   final AllocationsStore? allocations;
-  final EnvironmentRepository environment;
   final List<String>? partition;
   GitSummaryRepository({
     required this.sidecar,
-    required this.environment,
     this.allocations,
     this.partition,
   });
@@ -31,7 +28,6 @@ class GitSummaryRepository implements SummaryRepository {
     } on ProcessException {
       sha = null;
     }
-    final env = environment.inspect();
     return SummarySnapshot(
       manifest: manifest,
       repartitioned: sidecar.staleDirs(parts, SummaryManifest.empty()),
@@ -42,8 +38,6 @@ class GitSummaryRepository implements SummaryRepository {
         headSha: sha,
         firstRun: manifest.dirs.isEmpty,
         hasAllocations: allocations?.dirs.isNotEmpty ?? false,
-        envFirstLoad: !env.recordPresent,
-        envStaleReason: env.staleReason,
       ),
     );
   }

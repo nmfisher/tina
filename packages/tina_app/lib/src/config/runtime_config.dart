@@ -1,8 +1,5 @@
 import 'package:tina_engine/tina_engine.dart';
 
-import 'package:tina_app/src/config/environment_options.dart';
-export 'package:tina_app/src/config/environment_options.dart';
-
 /// Immutable execution settings, independent of parsing, persistence and terminal UI.
 class RuntimeConfig {
   /// Registry provider id, e.g. "anthropic", "openai", "glm".
@@ -119,11 +116,6 @@ class RuntimeConfig {
   /// a no-op where no backend exists.
   final bool sandboxReadOnly;
 
-  /// First-load environment-setup behavior from `[environment] auto_populate`
-  /// in ~/.tina/config (`ask`/`always`/`never`). `ask` (the default) shows a
-  /// picker on first load; `always` runs without asking; `never` skips.
-  final EnvironmentAutoPopulate environmentAutoPopulate;
-
   /// The default `"provider/model"` for region agents from `[regions] model` —
   /// the fast tier the main agent routes scoped questions to. null = region
   /// agents inherit the main agent's model.
@@ -191,7 +183,6 @@ class RuntimeConfig {
     this.sandboxOffReason = kSandboxOffReasonNoSandbox,
     this.sandboxNet = false,
     this.sandboxReadOnly = false,
-    this.environmentAutoPopulate = EnvironmentAutoPopulate.ask,
     this.regionsModel,
     this.modelExplicit = false,
     this.transportRetryAttempts = 5,

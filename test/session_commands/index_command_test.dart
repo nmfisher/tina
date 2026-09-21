@@ -70,7 +70,7 @@ class _FakeCtx implements CommandContext {
     this.confirm,
     this.spendLedger,
     this.runBackgroundIndex,
-    this.runEnvironment,
+    this.runClassification,
   });
 
   final Conversation conversation;
@@ -94,9 +94,9 @@ class _FakeCtx implements CommandContext {
   Future<void> Function(Conversation conv, List<String>? dirs,
       {bool repartition})? runBackgroundIndex;
 
-  /// null by default (headless: the environment agent never auto-runs).
+  /// Optional classifier command capability.
   @override
-  Future<void> Function(Conversation conv)? runEnvironment;
+  Future<void> Function(Conversation conv, String mode)? runClassification;
 
   @override
   Map<String, FutureOr<void> Function()> get commandHooks => const {};
@@ -408,74 +408,25 @@ void main() {
     expect(_notices().join(), isNot(contains('Indexed')));
   });
 
-  test('stale environment region: requests main setup before summary work',
-      () async {
-    final idx = _StubIndex(
-      SummaryIndexStatus(
-        totalDirs: 2,
-        staleDirs: const ['lib'],
-        headSha: 'abcdef1234567890',
-        firstRun: true,
-        deletedDirs: const [],
-        envFirstLoad: true,
-      ),
-      refreshResult: _result(2),
-    );
-    var envRuns = 0;
-    final handlers = SessionCommandHandlers(_FakeCtx(
-      conversation: conv,
-      summaryIndex: idx,
-      runEnvironment: (c) async => envRuns++,
-    ));
-    final res = await handlers.dispatch('/index');
-
-    expect(res, isA<CmdHandled>());
-    expect(envRuns, 1);
-    expect(idx.refreshCalls, 0);
-    expect(_notices().join(),
-        contains('Run /index again after environment setup'));
-  });
-
-  test('stale environment region, headless: only reports, never runs', () async {
-    final idx = _StubIndex(
-      SummaryIndexStatus(
-        totalDirs: 2,
-        staleDirs: const ['lib'],
-        headSha: 'abcdef1234567890',
-        firstRun: true,
-        deletedDirs: const [],
-        envStaleReason: 'inputs changed since the last measurement',
-      ),
-      refreshResult: _result(2),
-    );
-    var envRuns = 0;
-    final handlers = SessionCommandHandlers(_FakeCtx(
-      conversation: conv,
-      summaryIndex: idx,
-      runEnvironment: null, // headless wiring
-    ));
-    final res = await handlers.dispatch('/index');
-
-    expect(res, isA<CmdHandled>());
-    expect(envRuns, 0);
-    expect(_notices().join(),
-        contains('refresh it from an interactive session'));
-  });
-
-  test('current environment region: no environment notice', () async {
-    final idx = _StubIndex(
-      _status(total: 2, stale: const ['lib']),
-      refreshResult: _result(1),
-    );
-    var envRuns = 0;
-    final handlers = SessionCommandHandlers(_FakeCtx(
-      conversation: conv,
-      summaryIndex: idx,
-      runEnvironment: (c) async => envRuns++,
-    ));
-    await handlers.dispatch('/index');
-
-    expect(envRuns, 0);
-    expect(_notices().join(), isNot(contains('environment agent')));
-  });
+  for (final mode in ['', 'status', 'refresh']) {
+    test('classify $mode routes independently of index', () async {
+      final calls = <String>[];
+      final handlers = SessionCommandHandlers(
+        _FakeCtx(
+          conversation: conv,
+          runClassification: (conversation, mode) async {
+            calls.add(mode);
+          },
+        ),
+      );
+      expect(
+        await handlers.dispatch('/classify $mode'.trim()),
+        isA<CmdHandled>(),
+      );
+      expect(calls, [mode]);
+      await handlers.dispatch('/classify invalid');
+      expect(calls, [mode]);
+      expect(_notices().join(), contains('Usage: /classify'));
+    });
+  }
 }

@@ -83,15 +83,6 @@ class SummaryIndexStatus {
   /// but nothing is summarized yet on a first run).
   final bool hasAllocations;
 
-  /// Whether `.tina/ENVIRONMENT.md` is absent — the main agent's first-load
-  /// signal. Pure file read, like the rest of this probe.
-  final bool envFirstLoad;
-
-  /// Why the environment region is stale, or null when current. From the
-  /// machine-owned tracking entry under `.tina/environment/`, never from the
-  /// record's prose.
-  final String? envStaleReason;
-
   const SummaryIndexStatus({
     required this.totalDirs,
     required this.staleDirs,
@@ -99,12 +90,7 @@ class SummaryIndexStatus {
     required this.headSha,
     required this.firstRun,
     this.hasAllocations = false,
-    this.envFirstLoad = false,
-    this.envStaleReason,
   });
-
-  /// The environment region is stale (first load counts — nothing measured).
-  bool get envStale => envFirstLoad || envStaleReason != null;
 
   int get staleCount => staleDirs.length;
 

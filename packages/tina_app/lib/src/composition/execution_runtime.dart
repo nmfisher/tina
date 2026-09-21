@@ -4,7 +4,6 @@ import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
 
 import 'package:tina_app/src/config/runtime_config.dart';
-import 'package:tina_app/src/environment/environment_prompt.dart';
 import 'package:tina_app/src/platform/environment.dart';
 import 'package:tina_app/src/composition/agent_composition.dart';
 import 'package:tina_app/src/composition/execution_profile.dart';
@@ -117,7 +116,8 @@ Future<ExecutionRuntime> buildExecutionRuntime({
   // assembled from them. When BORROWING a live same-project scope the profile
   // (default or override) is trimmed to the conversation-owned plugins — the
   // borrowed scope's capabilities stay exactly the ones its owner built.
-  final profile = executionPlugins ??
+  final profile =
+      executionPlugins ??
       defaultExecutionPlugins(
         config: config,
         registry: registry,
@@ -130,8 +130,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
         sandboxReadOnly: config.sandboxReadOnly,
         sandboxOffReason: config.sandboxOffReason,
       );
-  final mounted =
-      toolScope == null ? profile : borrowedScopePlugins(profile);
+  final mounted = toolScope == null ? profile : borrowedScopePlugins(profile);
   // Fix (P2): required application services are validated BEFORE activation —
   // the mounted profile must DECLARE the ledger and the provider factory, so
   // an incomplete profile fails here as a composition error before ANY
@@ -143,8 +142,9 @@ Future<ExecutionRuntime> buildExecutionRuntime({
     (providerFactoryServiceKey, 'tina.app.provider-factory'),
   ];
   for (final (key, pluginId) in requiredServices) {
-    final declared =
-        mounted.any((plugin) => plugin.provides.any((k) => k == key));
+    final declared = mounted.any(
+      (plugin) => plugin.provides.any((k) => k == key),
+    );
     if (!declared) {
       throw PluginCompositionError(
         'the execution profile provides no $key '
@@ -161,8 +161,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
   // the composition threw, and nothing disposed what was acquired.)
   if (toolScope == null &&
       !mounted.any(
-        (plugin) =>
-            plugin.provides.any((k) => k == projectToolScopeServiceKey),
+        (plugin) => plugin.provides.any((k) => k == projectToolScopeServiceKey),
       )) {
     throw PluginCompositionError(
       'the execution profile provides no project tool scope '
@@ -184,7 +183,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
     parent: toolScope == null
         ? null
         : (PluginScope('borrowed-project-tools')
-          ..provide(projectToolScopeServiceKey, toolScope)),
+            ..provide(projectToolScopeServiceKey, toolScope)),
   );
   final resources = RuntimeResources();
   // Fix: cleanup ownership is established BEFORE activation — the runtime's
@@ -219,8 +218,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
     // the tool-scope stage fails before activation now, but a plugin that
     // DECLARED projectToolScopeServiceKey without binding it still surfaces
     // here as a composition error.
-    final tools =
-        toolScope ?? runtime.scope.lookup(projectToolScopeServiceKey);
+    final tools = toolScope ?? runtime.scope.lookup(projectToolScopeServiceKey);
     if (tools == null) {
       throw PluginCompositionError(
         'the execution profile provides no project tool scope',
@@ -270,7 +268,6 @@ Future<ExecutionRuntime> buildExecutionRuntime({
           PromptContext(
             projectRoot: root,
             loadProjectContext: loadProjectContext ?? true,
-            projectEnvironmentSource: () => projectEnvironmentBlock(root),
             repoSummarySource: () => repoSummaryBlock(root),
           ),
     );
@@ -285,8 +282,9 @@ Future<ExecutionRuntime> buildExecutionRuntime({
     // otherwise the scope's mounted factory; otherwise null — the default
     // factory behavior. Missing service keys produce actionable composition
     // errors, never a null assertion after activation.
-    final scopeDriverFactory =
-        runtime.scope.lookup(agentDriverFactoryServiceKey);
+    final scopeDriverFactory = runtime.scope.lookup(
+      agentDriverFactoryServiceKey,
+    );
     final resolvedDriverFactory = driverFactory ?? scopeDriverFactory;
     final scheduler = createScheduler(
       config: config,

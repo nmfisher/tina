@@ -173,7 +173,8 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
   SessionCommandEntry(
     names: const ['/settings'],
     argsHint: '',
-    summary: 'configure providers, models and live quotas (theme needs restart)',
+    summary:
+        'configure providers, models and live quotas (theme needs restart)',
     helpOrder: 15,
     handler: (h, _) => _handled(h.frontend._handleSettings),
   ),
@@ -207,6 +208,13 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     summary: 'render an image in the focused panel',
     helpOrder: 7,
     handler: (h, t) => _handled(() => h.frontend._handleImage(t)),
+  ),
+  SessionCommandEntry(
+    names: const ['/classify'],
+    argsHint: '[status|refresh]',
+    summary: 'classify project scopes, languages, frameworks and platforms',
+    helpOrder: 8,
+    handler: (h, t) => h.index._handleClassify(t),
   ),
   SessionCommandEntry(
     names: const ['/index'],
@@ -292,8 +300,9 @@ class SessionCommandRegistry {
   final Set<String> hiddenFeatures;
 
   /// The entries whose feature is enabled, in registry order.
-  Iterable<SessionCommandEntry> get available =>
-      commands.where((e) => e.feature == null || !hiddenFeatures.contains(e.feature));
+  Iterable<SessionCommandEntry> get available => commands.where(
+    (e) => e.feature == null || !hiddenFeatures.contains(e.feature),
+  );
 
   /// Every recognized name (primary names and aliases, flattened in registry
   /// order) — the `/` completion palette's offering.
@@ -321,7 +330,9 @@ class SessionCommandRegistry {
       ..sort((a, b2) => a.helpOrder.compareTo(b2.helpOrder));
     for (final entry in visible) {
       final label = '${entry.primary} ${entry.argsHint}'.trim();
-      b.write('  ${label.padRight(15)}${label.length >= 15 ? ' ' : ''}${entry.summary}\n');
+      b.write(
+        '  ${label.padRight(15)}${label.length >= 15 ? ' ' : ''}${entry.summary}\n',
+      );
       final continuation = entry.helpContinuation;
       if (continuation != null) {
         b.write('  ${''.padRight(15)}$continuation\n');

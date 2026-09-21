@@ -75,6 +75,7 @@ void main() {
           '  /auto-compact  show/set the auto-compact threshold (off|<n>)\n'
           '  /model         pick a provider/model for the active session\n'
           '  /image <path>  render an image in the focused panel\n'
+          '  /classify [status|refresh] classify project scopes, languages, frameworks and platforms\n'
           '  /index         refresh the per-directory summary index '
           '(staleness-aware, runs in the background)\n'
           '  /workflow      list/show/new/edit/run DOT pipelines '
@@ -126,7 +127,7 @@ void main() {
           '/explore', '/exit', '/quit', '/help', '/clear', '/compact', '/auto-compact',
           '/permissions', '/sessions', '/session', '/resume', '/save',
           '/model', '/settings', '/prompts', '/spawn', '/branch', '/image',
-          '/index', '/workflow', '/blocks', '/show', '/hide', '/spend', '/update', '/detach',
+          '/classify', '/index', '/workflow', '/blocks', '/show', '/hide', '/spend', '/update', '/detach',
         ],
       );
     });
@@ -282,7 +283,8 @@ String _goldenHelpBody() =>
         '  /auto-compact  show/set the auto-compact threshold (off|<n>)\n'
         '  /model         pick a provider/model for the active session\n'
         '  /image <path>  render an image in the focused panel\n'
-        '  /index         refresh the per-directory summary index '
+        '  /classify [status|refresh] classify project scopes, languages, frameworks and platforms\n'
+          '  /index         refresh the per-directory summary index '
         '(staleness-aware, runs in the background)\n'
         '  /workflow      list/show/new/edit/run DOT pipelines '
         '(/workflow show|new|edit|run <name>)\n'

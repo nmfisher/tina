@@ -487,7 +487,7 @@ void main() {
       addTearDown(coordinator.controller.shutdown);
 
       final main = coordinator.sessionManager.activeConversation;
-      await coordinator.controller.runEnvironment(main);
+      coordinator.controller.turns.submit(main.id, 'Delegate a scoped inspection.');
       await coordinator.controller.turns.whenIdle(main.id);
 
       // One delegated child became a live panel — a first-class session.

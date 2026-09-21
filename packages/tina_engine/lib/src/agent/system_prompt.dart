@@ -93,20 +93,13 @@ List<PromptContributor> defaultPromptContributors({
 
   // The warm-load blocks, gated by the same trust flag as AGENTS.md. A
   // throwing source must never break every prompt build — treat it as
-  // absent. The repo summary leads (cheap factual orientation); the
-  // environment record follows (measured setup/test baseline).
+  // absent. The repository summary supplies factual orientation.
   String? repoSummary;
-  String? projectEnv;
   if (trusted) {
     try {
       repoSummary = context.repoSummarySource?.call();
     } catch (_) {
       repoSummary = null;
-    }
-    try {
-      projectEnv = context.projectEnvironmentSource?.call();
-    } catch (_) {
-      projectEnv = null;
     }
   }
 
@@ -118,11 +111,6 @@ List<PromptContributor> defaultPromptContributors({
     environment
       ..writeln()
       ..write(repoSummary);
-  }
-  if (projectEnv != null && projectEnv.isNotEmpty) {
-    environment
-      ..writeln()
-      ..write(projectEnv);
   }
 
   return [

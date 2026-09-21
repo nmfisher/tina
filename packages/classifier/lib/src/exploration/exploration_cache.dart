@@ -1,3 +1,4 @@
+import '../shared/fingerprint.dart';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import '../judgments/batch_runner.dart'
@@ -12,16 +13,7 @@ const explorationCacheRevision = 1;
 
 String evidenceHash(String text) =>
     sha256.convert(utf8.encode(text)).toString();
-String explorationFingerprint(Object? value) =>
-    evidenceHash(jsonEncode(_canonical(value)));
-Object? _canonical(Object? value) {
-  if (value is Map) {
-    final keys = value.keys.cast<String>().toList()..sort();
-    return {for (final key in keys) key: _canonical(value[key])};
-  }
-  if (value is List) return value.map(_canonical).toList();
-  return value;
-}
+String explorationFingerprint(Object? value) => canonicalFingerprint(value);
 
 /// Storage is optional and best effort. Implementations must bound record reads
 /// and publish complete records atomically. Keys are SHA-256 strings, not paths.

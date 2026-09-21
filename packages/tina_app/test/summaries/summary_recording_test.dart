@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_app/src/execution/project_execution.dart';
-import 'package:tina_app/src/environment/file_environment_repository.dart';
 import 'package:tina_app/src/summaries/git_summary_repository.dart';
 import 'package:tina_app/src/summaries/sidecar_repo.dart';
 import 'package:tina_app/src/summaries/summary_index.dart';
@@ -32,10 +31,7 @@ void main() {
       root: fixture.sidecarRoot,
       projectRoot: project,
     );
-    repository = GitSummaryRepository(
-      sidecar: sidecar,
-      environment: FileEnvironmentRepository(projectRoot: project.path),
-    );
+    repository = GitSummaryRepository(sidecar: sidecar);
   });
   tearDown(() => temp.deleteSync(recursive: true));
   test(

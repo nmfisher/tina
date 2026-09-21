@@ -7,8 +7,6 @@ import 'package:tina_engine/tina_engine.dart';
 import 'theme_overrides.dart';
 import 'typesafe_settings.dart';
 export 'typesafe_settings.dart';
-export 'package:tina_app/tina_app.dart'
-    show EnvironmentAutoPopulate, parseEnvironmentAutoPopulate;
 export 'theme_overrides.dart';
 
 /// The config schema version this build understands. The file declares its
@@ -50,8 +48,12 @@ const _knownProviderKeys = {
 };
 const _knownPromptKeys = {'identity'};
 const _knownTypeSafeKeys = {
-  'api_key', 'model', 'exploration_token_budget', 'exploration_timeout_seconds',
-  'exploration_metadata_token_budget', 'exploration_selection_threshold',
+  'api_key',
+  'model',
+  'exploration_token_budget',
+  'exploration_timeout_seconds',
+  'exploration_metadata_token_budget',
+  'exploration_selection_threshold',
 };
 const _knownRegionsKeys = {'model'};
 const _knownPermissionsKeys = {'mode', 'model'};
@@ -237,7 +239,8 @@ class ProviderConfig {
     final maxOutput = m['max_output'];
     if (maxOutput != null && (maxOutput is! int || maxOutput <= 0)) {
       throw const FormatException(
-          'providers.<id>.max_output must be a positive integer');
+        'providers.<id>.max_output must be a positive integer',
+      );
     }
     Set<String>? disabled;
     final raw = m['disabled_models'];
@@ -469,13 +472,11 @@ class UserConfig {
   /// [Config.trustDefault].
   final String? trustDefault;
 
-  /// First-load environment-setup behavior from `[environment]
-  /// auto_populate` (`ask`/`always`/`never`). Null when absent → `ask`.
-  /// Flows into `Config.parse` as [Config.environmentAutoPopulate].
+  /// Legacy `[environment] auto_populate`, preserved on save but ignored.
   final String? environmentAutoPopulate;
 
   /// Legacy `[environment] model`, preserved on save for compatibility.
-  /// Environment tasks now use the main conversation's model; this is ignored.
+  /// Project classification uses the configured model; this setting is ignored.
   final String? environmentModel;
 
   /// Mouse-wheel capture from `[tui] mouse_wheel`. False (the default, null
@@ -642,7 +643,9 @@ class UserConfig {
       reasoningEffort: def?['reasoning_effort'] as String?,
       defaultWorkflow: def?['workflow'] as String?,
       providers: providers,
-      typeSafe: typeSafeRaw == null ? null : TypeSafeSettings.fromMap(typeSafeRaw),
+      typeSafe: typeSafeRaw == null
+          ? null
+          : TypeSafeSettings.fromMap(typeSafeRaw),
       limits: limitsRaw == null ? null : LimitsConfig.fromMap(limitsRaw),
       theme: theme,
       themeVariant: themeVariant,

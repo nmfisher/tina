@@ -19,6 +19,41 @@ class ProjectBackgroundJobs {
     required this.modelRefOf,
   });
   bool get isIndexRunning => supervisor.running('index');
+  Future<void> runClassification(
+    Conversation conversation,
+    Future<String> Function(
+      Future<void> cancellation,
+      void Function(String) progress,
+    )
+    run,
+  ) async {
+    final job = supervisor.start('classify', conversation.id, (job) async {
+      try {
+        final text = await run(
+          job.cancelled,
+          (text) => conversation.host.showMessage(
+            '$text\n',
+            style: HostMessageStyle.dim,
+          ),
+        );
+        conversation.host.showMessage(text);
+      } catch (e) {
+        conversation.host.showMessage(
+          'Classification unavailable: $e\n',
+          style: HostMessageStyle.error,
+        );
+      } finally {
+        await persistUsage(conversation);
+      }
+    });
+    conversation.host.showMessage(
+      job == null
+          ? 'Classification is already running.\n'
+          : 'Classification started (double-Esc to cancel).\n',
+      style: HostMessageStyle.dim,
+    );
+  }
+
   Future<void> runIndex(
     Conversation conv,
     List<String>? dirs, {

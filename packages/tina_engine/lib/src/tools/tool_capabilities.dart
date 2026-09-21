@@ -1,4 +1,3 @@
-
 /// What a tool actually does — declared, not inferred from its name.
 ///
 /// The permission table answers "may this run?" with one bit per tool, which
@@ -221,21 +220,15 @@ const Map<String, ToolCapabilities> kToolCapabilities = {
   'list_regions': ToolCapabilities(),
   'query_region': ToolCapabilities(indirect: IndirectWork.readOnlyOnly),
   'read_summary': ToolCapabilities(),
-  'allocate_region': ToolCapabilities(
-      reads: ReadScope.none, writes: WriteScope.sidecar),
+  // Validates an in-memory result; the host owns all persistence.
+  'submit_classification': ToolCapabilities(reads: ReadScope.none),
+  'allocate_region':
+      ToolCapabilities(reads: ReadScope.none, writes: WriteScope.sidecar),
   'render_image': ToolCapabilities(
     reads: ReadScope.host,
     reviewed: 'reads an image path to paint it into the panel; the bytes are '
         'never returned to the model',
   ),
-  // A framework stage transition ("exploration is done; begin execution"),
-  // not a model-side effect: it flips a flag on the environment stage and
-  // touches nothing. It is also a LocalControlTool, so the executor never
-  // consults `check()` for it — the declaration is recorded anyway, because it
-  // documents that the tool is machine-neutral and makes the residual visible:
-  // a `--deny` rule naming it is inert rather than enforced.
-  'begin_environment_execution': ToolCapabilities(
-      reads: ReadScope.none, indirect: IndirectWork.anyProfile),
 };
 
 /// The declaration for [tool], or the worst case when nothing is declared.

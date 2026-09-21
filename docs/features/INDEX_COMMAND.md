@@ -131,3 +131,6 @@ that area:
 
 If a region's underlying code has drifted, `list_regions` flags it stale so you
 know to run `/index` before trusting its summary.
+
+Project language/framework/platform classification is separate: see
+[Project classification](project_classification.md) for `/classify`.

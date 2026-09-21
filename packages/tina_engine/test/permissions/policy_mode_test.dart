@@ -126,7 +126,7 @@ void main() {
 
       const blocked = [
         'write', 'edit', 'bash', 'exec', 'write_summary', 'allocate_region',
-        'send', 'launch_workflow', 'begin_environment_execution',
+        'send', 'launch_workflow',
       ];
       for (final tool in blocked) {
         expect(p.executionBlock(tool, const {}), isNotNull, reason: tool);

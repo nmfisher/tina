@@ -34,7 +34,7 @@ enforced on both supported backends.
 
 Both execution tools prompt in `ask` and `allow-edits`, unless a command rule
 already permits the call. `auto` uses the existing classifier for command
-approval. `read-all`, safe mode, and environment inspection block execution.
+approval. `read-all`, safe mode, and exploration inspection block execution.
 `execution_info` remains available for read-only diagnostics. Runtime mode and
 phase changes do not change the advertised schemas.
 

@@ -178,7 +178,6 @@ Future<CmdResult> runIndexDance({
   required SummaryIndex summaryIndex,
   Future<bool> Function(String prompt)? confirm,
   IndexRefreshFn? refreshFn,
-  Future<void> Function()? runEnvironment,
 }) async {
   // Run the fleet and report, or hand it off. [startMsg] is posted only in
   // inline mode (the background task announces itself); [verb] labels the
@@ -199,24 +198,6 @@ Future<CmdResult> runIndexDance({
   }
 
   final status = await summaryIndex.status();
-
-  // Environment work belongs to the main conversation. Finish that task
-  // before offering directory-summary dialogs or launching an index fleet.
-  if (status.envStale) {
-    if (runEnvironment != null) {
-      await runEnvironment();
-      host.showMessage(
-        'Run /index again after environment setup to refresh directory summaries.\n',
-      );
-      return const CmdHandled();
-    } else {
-      host.showMessage(
-        'Environment record is ${status.envFirstLoad ? 'missing' : 'stale'}'
-        '${status.envStaleReason == null ? '' : ' (${status.envStaleReason})'}'
-        ' — refresh it from an interactive session.\n',
-      );
-    }
-  }
 
   if (status.totalDirs == 0) {
     host.showMessage('No directories to index.\n');

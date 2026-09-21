@@ -3,6 +3,7 @@ description: >
   Structured judgments (questions, answers, request budgeting, batch
   execution, the Typesafe HTTP service) and repository exploration
   (evidence models, ranking, chunking, caching, snapshotting, workflow).
+  Typed source-driven classification with context planning and restoration.
   Independent of the agent runtime. Judgment and exploration APIs have
   no direct I/O; the Typesafe transport is exposed separately.
 publish_to: none

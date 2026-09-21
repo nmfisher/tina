@@ -179,80 +179,19 @@ void main() {
     });
   });
 
-  group('projectEnvironmentSource hook', () {
-    late Directory tmp;
-    String? Function()? projectEnvironmentSource;
-    String? Function()? repoSummarySource;
-
-    AgentPipeline pipeline() => AgentPipeline(
-          mainIdentity: defaultPipeline.mainIdentity,
-          promptContext: PromptContext(
-            projectRoot: tmp.path,
-            projectEnvironmentSource: projectEnvironmentSource,
-            repoSummarySource: repoSummarySource,
-          ),
-        );
-
-    setUp(() {
-      projectEnvironmentSource = null;
-      repoSummarySource = null;
-      tmp = Directory.systemTemp.createTempSync('tina_sysprompt_env_');
-    });
-
-    tearDown(() {
-      projectEnvironmentSource = null;
-      tmp.deleteSync(recursive: true);
-    });
-
-    test('injects the block inside <environment> when the hook is set', () {
-      projectEnvironmentSource = () =>
-          '<project-environment>\ntoolchain: Dart\n</project-environment>';
-      final s = resolveMainPrompt(pipeline(), cwd: tmp.path);
-      expect(s, contains('<project-environment>'));
-      expect(s, contains('toolchain: Dart'));
-      // The block rides inside the environment funnel, after the date line.
-      expect(s.indexOf('date:'), lessThan(s.indexOf('<project-environment>')));
-    });
-
-    test('withholds the block when loadProjectContext is false', () {
-      projectEnvironmentSource = () => 'LEAKED ENVIRONMENT';
-      final s = resolveMainPrompt(pipeline(),
-          cwd: tmp.path, loadProjectContext: false);
-      expect(s, isNot(contains('LEAKED ENVIRONMENT')));
-    });
-
-    test('a throwing source cannot break prompt assembly', () {
-      projectEnvironmentSource = () => throw StateError('boom');
-      final s = resolveMainPrompt(pipeline(), cwd: tmp.path);
-      expect(s, contains('<environment>'));
-      expect(s, contains('cwd:'));
-    });
-
-    test('no hook (default): byte-identical output to a null source', () {
-      projectEnvironmentSource = null;
-      final a = resolveMainPrompt(pipeline(), cwd: tmp.path);
-      final b = resolveMainPrompt(pipeline(), cwd: tmp.path);
-      expect(a, equals(b));
-      expect(a, isNot(contains('<project-environment>')));
-    });
-  });
-
   group('repoSummarySource hook', () {
     late Directory tmp;
-    String? Function()? projectEnvironmentSource;
     String? Function()? repoSummarySource;
 
     AgentPipeline pipeline() => AgentPipeline(
           mainIdentity: defaultPipeline.mainIdentity,
           promptContext: PromptContext(
             projectRoot: tmp.path,
-            projectEnvironmentSource: projectEnvironmentSource,
             repoSummarySource: repoSummarySource,
           ),
         );
 
     setUp(() {
-      projectEnvironmentSource = null;
       repoSummarySource = null;
       tmp = Directory.systemTemp.createTempSync('tina_sysprompt_repo_');
     });
@@ -262,18 +201,12 @@ void main() {
       tmp.deleteSync(recursive: true);
     });
 
-    test(
-        'injects the block inside <environment>, before any '
-        '<project-environment>', () {
+    test('injects the block inside <environment>', () {
       repoSummarySource = () => '<repo>\nbranch: main @ abc1234\n</repo>';
-      projectEnvironmentSource = () =>
-          '<project-environment>\ntoolchain: Dart\n</project-environment>';
-      addTearDown(() => projectEnvironmentSource = null);
       final s = resolveMainPrompt(pipeline(), cwd: tmp.path);
       expect(s, contains('<repo>'));
       expect(s, contains('branch: main @ abc1234'));
       expect(s.indexOf('date:'), lessThan(s.indexOf('<repo>')));
-      expect(s.indexOf('<repo>'), lessThan(s.indexOf('<project-environment>')));
     });
 
     test('withholds the block when loadProjectContext is false', () {
@@ -321,7 +254,8 @@ void main() {
       expect(stripped, contains('launched as a sub-agent'));
       expect(stripped, contains('A failure unrelated to your change'));
       // No stray blank line or orphaned list marker where the bullet was.
-      expect(stripped, contains('You have these ways to act:\n\n- For a small'));
+      expect(
+          stripped, contains('You have these ways to act:\n\n- For a small'));
     });
 
     test('stripping is a no-op on an identity with no workflow guidance', () {
@@ -364,7 +298,6 @@ void main() {
           promptContext: PromptContext(
         projectRoot: a.path,
         repoSummarySource: () => 'A repo $revision',
-        projectEnvironmentSource: () => 'A environment $revision',
       ));
       var untrustedReads = 0;
       final second = AgentPipeline(
@@ -385,7 +318,6 @@ void main() {
         expect(prompt, contains('cwd: ${b.path}'));
         expect(prompt, isNot(contains('B instructions')));
         expect(prompt, isNot(contains('B repo')));
-        expect(prompt, isNot(contains('A environment')));
       }
       expect(untrustedReads, 0);
       revision = 2;
@@ -397,7 +329,6 @@ void main() {
         expect(prompt, contains('cwd: ${a.path}'));
         expect(prompt, contains('A revised'));
         expect(prompt, contains('A repo 2'));
-        expect(prompt, contains('A environment 2'));
         expect(prompt, isNot(contains('B instructions')));
       }
     });

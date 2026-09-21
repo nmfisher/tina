@@ -72,7 +72,7 @@ void main() {
       expect(agent.tools['stop_workflow'], isNull);
     });
 
-    test('main policy follows live mode while the environment catalog stays stable', () async {
+    test('main policy follows live mode while the tool catalog stays stable', () async {
       final config = testConfig();
       final scheduler = createScheduler(config: config,
           registry: ProviderRegistry(env: {}), pipeline: defaultPipeline);
@@ -88,7 +88,6 @@ void main() {
       final before = schemas(driver.tools);
       policy.mode = PermissionMode.readAll;
       expect(policy.check('bash', {}), PermissionDecision.deny);
-      expect(schemas(EnvironmentToolStage(driver.tools)), before);
       policy.mode = PermissionMode.ask;
       expect(policy.check('bash', {}), PermissionDecision.ask);
       expect(schemas(driver.tools), before);
@@ -796,10 +795,9 @@ const _sampleCalls = <String, Map<String, dynamic>>{
   'broadcast_region': {'task': 'what does this region do?'},
   'forget_region': {'dir': 'lib/tui'},
   // Never prompts: read-only default, orchestration, or a local-control tool
-  // the executor force-allows (begin_environment_execution).
+  // exposed by this composition.
   'allocate_region': {'dir': 'lib/tui'},
   'ask_user': {'questions': <Object>[]},
-  'begin_environment_execution': {'findings': 'a Dart monorepo'},
   'close': {'channel': 'team'},
   'delegate': {'delegations': <Object>[]},
   'execution_info': <String, dynamic>{},

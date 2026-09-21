@@ -373,7 +373,7 @@ App composition now accepts
 permission mode and `withSubAgents`. It advertises the concrete `ask_user`
 and, when supplied, `explore_project` tools and installs a deny-by-default execution guard. File tools, shell tools,
 plugin aliases, general delegation, channel messaging, region/summary access,
-environment transitions, and arbitrary workflow launching are excluded.
+arbitrary workflow launching are excluded.
 Changing approval mode or replacing the per-turn registry does not grant those
 capabilities. Restrictions stay on this driver, not sibling conversations.
 

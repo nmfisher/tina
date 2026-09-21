@@ -15,12 +15,8 @@ export 'src/composition/execution_profile.dart';
 export 'src/composition/project_services.dart';
 export 'src/composition/provider_resolution.dart';
 export 'src/composition/runtime_plugins.dart';
-export 'src/config/environment_options.dart';
 export 'src/config/runtime_config.dart';
 export 'src/config/startup_options.dart';
-export 'src/environment/environment_index.dart';
-export 'src/environment/environment_tool_stage.dart';
-export 'src/environment/environment_record.dart';
 export 'src/execution/background_job_supervisor.dart';
 export 'src/execution/project_background_jobs.dart';
 export 'src/execution/turn_executor.dart';
@@ -53,3 +49,5 @@ export 'src/exploration/repository_evidence.dart';
 export 'src/exploration/explore_project_tool.dart';
 export 'src/exploration/metered_judgment_service.dart';
 export 'src/exploration/file_exploration_cache.dart';
+
+export 'src/composition/project_classification.dart';
