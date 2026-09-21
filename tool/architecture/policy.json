@@ -6,7 +6,8 @@
     "tina_console",
     "tina_index",
     "attractor",
-    "fuzzy_ranker"
+    "fuzzy_ranker",
+    "classifier"
   ],
   "vendoredPackages": [
     "dart_notcurses"
@@ -45,6 +46,10 @@
       "test"
     ],
     "fuzzy_ranker": [
+      "lib",
+      "test"
+    ],
+    "classifier": [
       "lib",
       "test"
     ]
@@ -104,20 +109,20 @@
     "packages/tina_app/lib/src/project/"
   ],
   "pureFiles": [
-    "packages/tina_engine/lib/src/judgments/models.dart",
-    "packages/tina_engine/lib/src/judgments/service.dart",
-    "packages/tina_engine/lib/src/judgments/request_budget.dart",
-    "packages/tina_engine/lib/src/judgments/batch_runner.dart",
+    "packages/classifier/lib/src/judgments/models.dart",
+    "packages/classifier/lib/src/judgments/service.dart",
+    "packages/classifier/lib/src/judgments/request_budget.dart",
+    "packages/classifier/lib/src/judgments/batch_runner.dart",
     "packages/tina_app/lib/src/summaries/summary_repository.dart",
     "packages/tina_app/lib/src/summaries/summary_models.dart"
   ],
   "noDirectIoFiles": [
-    "packages/tina_app/lib/src/exploration/models.dart",
-    "packages/tina_app/lib/src/exploration/exploration_cache.dart",
-    "packages/tina_app/lib/src/exploration/exploration_snapshot.dart",
-    "packages/tina_app/lib/src/exploration/repository_ranker.dart",
-    "packages/tina_app/lib/src/exploration/file_chunker.dart",
-    "packages/tina_app/lib/src/exploration/exploration_workflow.dart",
+    "packages/classifier/lib/src/exploration/models.dart",
+    "packages/classifier/lib/src/exploration/exploration_cache.dart",
+    "packages/classifier/lib/src/exploration/exploration_snapshot.dart",
+    "packages/classifier/lib/src/exploration/repository_ranker.dart",
+    "packages/classifier/lib/src/exploration/file_chunker.dart",
+    "packages/classifier/lib/src/exploration/exploration_workflow.dart",
     "packages/tina_app/lib/src/exploration/explore_project_tool.dart",
     "packages/tina_app/lib/src/summaries/summary_index.dart",
     "packages/tina_app/lib/src/summaries/summary_repository.dart",

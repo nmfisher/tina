@@ -1,4 +1,4 @@
-import 'package:tina_engine/judgments.dart';
+import '../judgments/service.dart' show JudgmentCancellation, JudgmentFailure;
 
 class ProjectEvidence {
   final String path;

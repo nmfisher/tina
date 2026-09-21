@@ -10,9 +10,10 @@ environment:
   sdk: ^3.12.0
 
 dependencies:
-  crypto: ^3.0.7
   attractor:
     path: ../attractor
+  classifier:
+    path: ../classifier
   path: ^1.9.0
   tina_engine:
     path: ../tina_engine

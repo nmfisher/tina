@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:test/test.dart';
-import 'package:tina_engine/judgments.dart';
+import 'package:classifier/judgments.dart';
+import 'package:classifier/typesafe_classifier.dart';
 
 final q = NoulQuestion('q', instructions: 'Relevant?');
 JudgmentRequest req([String s = 'hello']) =>

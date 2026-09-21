@@ -4,7 +4,8 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
-import 'package:tina_engine/judgments.dart';
+import 'package:classifier/judgments.dart';
+import 'package:classifier/typesafe_classifier.dart';
 
 class TestClient extends http.BaseClient {
   final Future<http.StreamedResponse> Function(http.BaseRequest) handler;

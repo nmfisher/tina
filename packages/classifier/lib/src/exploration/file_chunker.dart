@@ -1,4 +1,6 @@
-import 'package:tina_engine/judgments.dart';
+import '../judgments/models.dart' show JudgmentRequest, NoulQuestion;
+import '../judgments/request_budget.dart' show JudgmentRequestBudget;
+import '../judgments/service.dart' show JudgmentException, JudgmentFailure;
 import 'models.dart';
 
 class EvidenceChunk {

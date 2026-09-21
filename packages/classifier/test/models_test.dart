@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:test/test.dart';
-import 'package:tina_engine/judgments.dart';
+import 'package:classifier/judgments.dart';
 
 void main() {
   late ChoiceQuestion route;

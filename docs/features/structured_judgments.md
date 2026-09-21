@@ -1,7 +1,8 @@
 # Structured judgments with TypeSafe
 
 Backend implementation, 2026-09-17. Public entry point:
-`package:tina_engine/judgments.dart` (also exported by `tina_engine.dart`).
+`package:classifier/judgments.dart` (the HTTP service lives in
+`package:classifier/typesafe_classifier.dart`).
 
 ## How it fits
 
@@ -252,7 +253,7 @@ This function can be called by application composition with an explicitly
 resolved credential. It returns data to its caller; it does not spawn a worker.
 
 ```dart
-import 'package:tina_engine/judgments.dart';
+import 'package:classifier/typesafe_classifier.dart';
 
 Future<({String worker, double confidence, double blockedProbability})>
     assessTask(String apiKey, Map<String, Object?> task) async {

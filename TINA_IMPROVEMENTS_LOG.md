@@ -1764,3 +1764,28 @@ tree); death is now confirmed only via a recorded PID's state after a 60s+
 log freeze, never a ps-grep miss. Queued next: the timer-system proposal
 (#33) was presented to the owner 2026-09-05 and awaits sign-off before any
 implementation leg.
+
+### Classifier extract + first CI repair (2026-09-20)
+
+Extracted `packages/classifier` (structured judgments + repository
+exploration; 5 sources from tina_engine, 7 from tina_app, 3 judgment test
+files) and opened PR #57. Seven of eight CI checks passed; the root job
+failed — the architecture import-boundary test died opening
+`packages/classifier/.dart_tool/package_config.json`, because ci.yml's
+hand-written root pub-get step did not know the new package. Local runs
+cannot catch this (a dev machine has pub-got everything); only the workflow
+file can. Fixed in the PR: classifier joined that pub-get list, gained its
+own matrix job (plain checkout — no terminal, no native assets, unlike
+engine/console/index), and the header now reads "seven owned packages". So
+it cannot recur: PR #58 replaced the hand-written pub-get list with a loop
+generated from policy.json's `ownedPackages`, and added
+`test/architecture/ci_owned_packages_guard_test.dart`, which fails when an
+owned package has no CI job. This PR's own list-diffing guard
+(`ci_owned_packages_test.dart`) asserted the hand-written pub-get lines, so
+it was deleted when the list became generated — a generated list needs no
+diff. Demonstrated red against the pre-fix workflow before turning green
+(`Set:['classifier']` named in the failure). Root 909→911.
+Lesson of the round, same shape as the A08 inventory rule: two hand-written
+lists that must agree, with no check between them, will drift — and the
+drift surfaces at the worst place, CI, after the PR looks done. The durable
+fix is one list, generated from the policy, not two synchronized copies.

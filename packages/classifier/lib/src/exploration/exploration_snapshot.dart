@@ -1,4 +1,4 @@
-import 'package:tina_engine/judgments.dart';
+import '../judgments/service.dart' show JudgmentFailure;
 import 'models.dart';
 
 /// Internal full-fidelity snapshot, independent of the compact chat handoff.
