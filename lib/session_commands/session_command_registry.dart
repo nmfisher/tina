@@ -211,7 +211,7 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
   ),
   SessionCommandEntry(
     names: const ['/index'],
-    argsHint: '[status|refresh]',
+    argsHint: '[jev|extensions] [status|refresh]',
     summary: 'classify languages and merge directory results',
     helpOrder: 8,
     handler: (h, t) => h.index._handleIndex(t),

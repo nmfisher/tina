@@ -61,10 +61,12 @@ void main() {
     '${temp.path}/config',
   ).writeAsString('[typesafe]\napi_key = "$key"\nmodel = "$model"\n');
   Future<ProjectClassificationReport> run({
+    LanguageMethod method = LanguageMethod.jev,
     String mode = '',
     Future<void>? cancel,
   }) => runConfiguredProjectClassification(
     app,
+    method: method,
     mode: mode,
     tinaDir: temp,
     clientFactory: client,
@@ -113,6 +115,79 @@ void main() {
     await app.dispose();
     await temp.delete(recursive: true);
   });
+
+  test(
+    'extensions need no key or HTTP and never reuse JEV results as local rules',
+    () async {
+      final first = await runConfiguredProjectClassification(
+        app,
+        tinaDir: temp,
+        clientFactory: () => throw StateError(
+          'Default /index must not construct an HTTP client',
+        ),
+      );
+      expect(first.failures, isEmpty);
+      expect(
+        first.records['.::language']!.result.value!.labels.map((l) => l.value),
+        ['dart', 'python'],
+      );
+      expect(requests, isEmpty);
+      expect(clients, isEmpty);
+      expect(
+        (await run(method: LanguageMethod.extensions, mode: 'status')).restored,
+        2,
+      );
+      await settings();
+      final modeled = await run(method: LanguageMethod.jev);
+      expect(modeled.failures, isEmpty);
+      expect(modeled.executed, 1);
+      expect(requests, hasLength(1));
+      final local = await run(method: LanguageMethod.extensions);
+      expect(local.failures, isEmpty);
+      expect(local.reusedRequests, 1);
+      expect(requests, hasLength(1));
+      expect(
+        (await run(
+          method: LanguageMethod.extensions,
+          mode: 'refresh',
+        )).executed,
+        1,
+      );
+      expect(requests, hasLength(1));
+    },
+  );
+
+  test(
+    'extension trees restore untouched branches and ignore content-only edits',
+    () async {
+      final a = Directory('${project.path}/docs/user')
+        ..createSync(recursive: true);
+      final b = Directory('${project.path}/docs/dev')
+        ..createSync(recursive: true);
+      File('${a.path}/README.md').writeAsStringSync('User docs');
+      File('${b.path}/check.py').writeAsBytesSync([0, 255, 0]);
+      final first = await run(method: LanguageMethod.extensions);
+      expect(first.failures, isEmpty);
+      expect(
+        first.records['.::language']!.result.value!.labels.map((l) => l.value),
+        ['dart', 'markdown', 'python'],
+      );
+      File('${a.path}/new.dart').writeAsStringSync('');
+      final changed = await run(method: LanguageMethod.extensions);
+      expect(changed.failures, isEmpty);
+      expect(changed.executed, 1);
+      expect(
+        changed.records['docs/dev::language']!.id,
+        first.records['docs/dev::language']!.id,
+      );
+      File(
+        '${b.path}/check.py',
+      ).writeAsStringSync('Entirely different contents');
+      expect((await run(method: LanguageMethod.extensions)).executed, 0);
+      expect(requests, isEmpty);
+      expect(clients, isEmpty);
+    },
+  );
 
   test(
     'index sends configured JEV judgments, merges languages and restores without HTTP',

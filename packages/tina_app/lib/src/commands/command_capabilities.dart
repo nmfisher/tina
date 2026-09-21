@@ -1,3 +1,4 @@
+import '../classification/index_options.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -60,7 +61,8 @@ abstract interface class PermissionsCapabilities {
 abstract interface class IndexCapabilities {
   Conversation get active;
   SpendLedger? get spendLedger;
-  Future<void> Function(Conversation conv, String mode)? get runClassification;
+  Future<void> Function(Conversation conv, IndexOptions options)?
+  get runClassification;
 }
 
 abstract interface class DispatchCapabilities {

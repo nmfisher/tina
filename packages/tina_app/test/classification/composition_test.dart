@@ -62,6 +62,7 @@ void main() {
         String mode = '',
       }) => runProjectClassification(
         app,
+        method: LanguageMethod.jev,
         judgments: service,
         requestBudget: JudgmentRequestBudget(model: 'jev-test'),
         serviceIdentity: 'test-judgments',

@@ -35,15 +35,16 @@ void main() {
     SourceUnit('one', TextEvidence('names', 'main.dart')),
   ], InputCoverage());
   Future<ClassificationResult<ProjectLabels>> evaluate(
-    Map<String, double> values,
-  ) async {
+    Map<String, double> values, {
+    ClassificationInput<TextEvidence>? evidence,
+  }) async {
     final executor = JudgmentExecutor(
       service: Service(values),
       budget: JudgmentRequestBudget(),
       identity: 'test',
     );
     return executor.execute(
-      ClassificationRequest(languageClassifier, input),
+      ClassificationRequest(languageClassifier, evidence ?? input),
       JudgmentCancellation(),
       maxInputTokens: 24000,
       maxOutputTokens: 1024,
@@ -66,16 +67,80 @@ void main() {
         ClassificationOutcome.unknown,
       );
       expect(
-        (await evaluate({'non_code': 0.99})).outcome,
+        (await evaluate({'no_language': 0.99})).outcome,
         ClassificationOutcome.notApplicable,
       );
       expect(
-        (await evaluate({'dart': 0.99, 'non_code': 0.99})).outcome,
-        ClassificationOutcome.unknown,
+        (await evaluate({
+          'dart': 0.71,
+          'no_language': 0.99,
+        })).value!.labels.single.value,
+        'dart',
       );
       expect(
         (await evaluate({'other': 0.99})).value!.labels.single.value,
         'other',
+      );
+    },
+  );
+  test(
+    'README and six Python filenames retain both Markdown and Python',
+    () async {
+      const names = [
+        'README.md',
+        'render.py',
+        'render_cage_manifest.py',
+        'render_cage_perspective.py',
+        'render_ict_pairs.py',
+        'render_multifamily_pairs.py',
+        'render_seams.py',
+      ];
+      final evidence = ClassificationInput([
+        for (final name in names)
+          SourceUnit(
+            'path:$name',
+            TextEvidence(
+              'repository-relative filename',
+              'prediction_model/python/dataset/blender/$name',
+            ),
+          ),
+      ], InputCoverage());
+      // Python=0.71 is the live JEV result that the old 0.9 cutoff discarded.
+      // Markdown is a separate positive, even though only one input uses it.
+      final result = await evaluate({
+        'python': 0.71,
+        'markdown': 0.8,
+      }, evidence: evidence);
+      expect(result.value!.labels.map((label) => label.value), [
+        'markdown',
+        'python',
+      ]);
+      expect(result.evidence.toSet(), evidence.evidenceIds);
+      final request = languageClassifier.prepare(evidence);
+      expect(request.questions.keys, containsAll(['markdown', 'python']));
+      expect(
+        (request.state.value as Map)['inputs']['repository-relative filename'],
+        names
+            .map((name) => 'prediction_model/python/dataset/blender/$name')
+            .toList(),
+      );
+    },
+  );
+
+  test(
+    'a tie remains unknown and incomplete input cannot establish absence',
+    () async {
+      expect(
+        (await evaluate({'python': 0.5})).outcome,
+        ClassificationOutcome.unknown,
+      );
+      final incomplete = ClassificationInput(
+        input.units,
+        InputCoverage(complete: false, gaps: ['Some names were not collected']),
+      );
+      expect(
+        (await evaluate({'no_language': 0.99}, evidence: incomplete)).outcome,
+        ClassificationOutcome.unknown,
       );
     },
   );

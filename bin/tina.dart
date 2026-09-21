@@ -482,17 +482,16 @@ Future<void> _runNonInteractive(
     final prompt = startup.prompt?.trim() ?? '';
     if (prompt == '/index' || prompt.startsWith('/index ')) {
       final parts = prompt.split(RegExp(r'\s+'));
-      final mode = parts.length == 1 ? '' : parts[1];
       final cancelled = Completer<void>();
       final signal = ProcessSignal.sigint.watch().listen((_) {
         if (!cancelled.isCompleted) cancelled.complete();
       });
       try {
-        if (parts.length > 2 || !const ['', 'status', 'refresh'].contains(mode))
-          throw ArgumentError('Usage: /index [status|refresh]');
+        final options = IndexOptions.parse(parts.skip(1).join(' '));
         final report = await runConfiguredProjectClassification(
           app,
-          mode: mode,
+          method: options.method,
+          mode: options.mode,
           cancelSignal: cancelled.future,
           onProgress: (text) => host.showMessage('$text\n'),
         );

@@ -1,11 +1,13 @@
 # Project classification
 
-`/index` classifies programming languages only, from the leaves of the directory
+`/index` classifies programming and markup languages, from the leaves of the directory
 tree back to the root. `/index status` validates/restores saved results without
 model calls or writes. `/index refresh` reruns classification. The same commands
 work with `tina --prompt`; incomplete headless runs exit nonzero. TUI double-Esc
 and headless Ctrl+C cancel. Nothing runs on startup. Indexing does not launch
 summary agents, region-layout proposals, setup, or other project classifiers.
+The default is local extension matching. `/index jev` selects the model-based
+implementation; both methods accept `status` and `refresh`.
 
 The reusable API is documented in [classifier](../../packages/classifier/README.md).
 The project feature is an application recipe built on that API. Paths, repository
@@ -52,7 +54,7 @@ Empty directories are not inferred from Git's file inventory.
 The language classifier returns `ProjectLabels` with evidence citations.
 Independent local jobs run in parallel. Starting at the leaves, `LanguageMerge`
 unions the supported language labels from the node's own result and its children.
-This code does not infer languages from extensions or content. Unknown results
+The merger does not infer languages from extensions or content. Unknown results
 do not establish absence, and incomplete coverage propagates to parents. No
 local model call is made for a node with no direct files.
 
@@ -61,7 +63,17 @@ classification. `docs/dev`, `src` and `test` retain their results. If the output
 changes, `docs/user`, `docs` and the root merge again. If the classifier returns
 the same result, evidence and coverage, ancestors restore unchanged.
 
-`JudgmentClassifier<I, O>` prepares typed judgment questions and decodes their
+`extensionClassifier()` uses `LocalClassifier<TextEvidence, ProjectLabels>` and
+`LocalExecutor`. It examines only the final extension of each filename, first
+matching its exact case, then lowercase. For example `.C` maps to C++, `.c` to C,
+and `.PY` to Python. It returns sorted, unique labels with the matching file IDs
+as evidence. Unknown extensions and extensionless names stay unknown; content is
+never read and there is no model fallback. The immutable rule table is part of
+cache identity and can be replaced programmatically. Local runs have a 20,000-call
+limit and share the same five-minute deadline and cancellation as model runs.
+Model spend limits do not block local classification.
+
+For `/index jev`, `JudgmentClassifier<I, O>` prepares typed judgment questions and decodes their
 answers into a classification. `JudgmentExecutor` calls the existing
 `JudgmentService` directly. Both frontends construct the configured Typesafe
 service, defaulting to `jev-latest`. Saved Typesafe credentials take precedence
@@ -71,10 +83,14 @@ there is no chat fallback. The existing judgment transport, metering and pause
 gate are reused.
 
 Each request carries its input text once and asks independent yes/no (`noul`)
-questions for a versioned vocabulary of languages, plus `other` and `non_code`.
-These are possible model answers, not extension rules. Languages with probability
-at least 0.9 become labels. A complete negative requires `non_code` at least 0.9
-and every language at most 0.1; uncertain or conflicting answers stay unknown.
+questions for a versioned vocabulary of programming and markup languages
+(including Markdown), plus `other` and `no_language`. These are possible model
+answers, not extension rules. The model may infer a language from a filename or
+extension; one matching file is enough, regardless of the mix of other files.
+Each language with probability greater than 0.5 becomes a label. An exact tie
+stays unknown. A general `no_language` answer never vetoes a positive language
+finding. With no positive findings, a complete negative requires `no_language`
+at least 0.9 and every language at most 0.1; other cases stay unknown.
 Citations identify the supporting input chunk, not individual file predictions.
 The vocabulary, thresholds and decoder revision participate in cache identity.
 
@@ -110,6 +126,9 @@ identities, budget configuration and consumed results. Local and aggregate resul
 separate: `docs/user::language::local` and `docs/user::language`. Parent receipts
 persist child keys and hashes of result/evidence/coverage, excluding storage IDs.
 Relevant changes invalidate dependent work; independent branches remain reusable.
+Method selection is explicit and included in cache identity. Switching methods
+updates the active tree pointers, without interpreting one method's answers as
+the other's. Immutable request checkpoints for both methods remain reusable.
 Interrupted chunked work resumes from matching request checkpoints. Locals check source freshness before publication; the completed tree checks
 membership and all local receipts again before returning current aggregates.
 Incomplete discovery does not delete previously known nodes. Successful runs

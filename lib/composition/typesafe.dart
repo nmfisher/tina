@@ -43,6 +43,7 @@ TypeSafeJudgmentService? createConfiguredTypeSafeService({
 /// reloads classifier settings for each run and never constructs a chat provider.
 Future<ProjectClassificationReport> runConfiguredProjectClassification(
   AppComposition app, {
+  LanguageMethod method = IndexOptions.defaultMethod,
   String mode = '',
   Future<void>? cancelSignal,
   void Function(String)? onProgress,
@@ -51,7 +52,16 @@ Future<ProjectClassificationReport> runConfiguredProjectClassification(
   http.Client Function()? clientFactory,
 }) async {
   if (!const ['', 'status', 'refresh'].contains(mode)) {
-    throw ArgumentError('Usage: /index [status|refresh]');
+    throw ArgumentError(IndexOptions.usage);
+  }
+  if (method == LanguageMethod.extensions) {
+    return runProjectClassification(
+      app,
+      method: method,
+      mode: mode,
+      cancelSignal: cancelSignal,
+      onProgress: onProgress,
+    );
   }
   final service = createConfiguredTypeSafeService(
     env: app.environment.env,
@@ -66,6 +76,7 @@ Future<ProjectClassificationReport> runConfiguredProjectClassification(
   try {
     return await runProjectClassification(
       app,
+      method: method,
       judgments: service,
       requestBudget: service.config.requestBudget,
       serviceIdentity: {

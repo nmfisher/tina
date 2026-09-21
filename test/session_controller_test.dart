@@ -331,7 +331,7 @@ void main() {
       final modes = <String>[];
       controller.runClassification = (conversation, mode) async {
         expect(conversation, same(controller.active));
-        modes.add(mode);
+        modes.add(mode.mode);
       };
 
       rl.enqueue('/index');

@@ -16,6 +16,9 @@ A classification task binds these contracts:
   instructions, versions, and optional domain validation.
 - `JudgmentClassifier<I, O>` adds typed judgment preparation and decoding, with a
   versioned `spec` for question vocabulary and decision policy.
+- `LocalClassifier<I, O>` supplies a deterministic function and versioned rule
+  `spec`. `LocalExecutor` runs it without model tokens or network access, using
+  the same typed validation, scheduling and cache machinery.
 - `ClassificationExecutor` binds requests to model execution and estimates the
   complete serialized request. `JudgmentExecutor` uses a `JudgmentService`
   directly, with its existing transport, cancellation and request budget.
@@ -129,8 +132,8 @@ survive a failure or cancellation. Applications can retire old task pointers wit
 
 Tina's `/index` uses directory nodes, classifies programming languages only, and
 merges supported language labels by union. Input selection stays in its source:
-by default it supplies filenames only. It uses Typesafe/JEV judgment questions,
-independently of the chat provider. A complete
+by default it supplies filenames only and uses local extension rules. `/index jev`
+selects Typesafe/JEV judgment questions, independently of the chat provider. A complete
 result covers that projection, not a read of every file's content.
 
 ## Restore and implementation contracts

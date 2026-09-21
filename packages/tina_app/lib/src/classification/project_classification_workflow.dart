@@ -23,14 +23,15 @@ class ProjectClassificationReport {
 /// are source-owned; the classifier supplies findings and parents merge them.
 Future<ProjectClassificationReport> classifyProject(
   ClassificationSession session,
-  TreeSource<TextEvidence> source,
-) async {
+  TreeSource<TextEvidence> source, {
+  ClassificationPlan<TextEvidence, ProjectLabels>? local,
+}) async {
   final failures = <String, String>{};
   final records = <String, ClassificationRecord<ProjectLabels>>{};
   try {
     final request = SourceRequest('.');
     final tree = await session.readTree(source, request);
-    final plan = languageTreePlan();
+    final plan = languageTreePlan(local: local);
     final result = await session.runTree(
       source: source,
       request: request,

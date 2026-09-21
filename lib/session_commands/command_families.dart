@@ -838,14 +838,16 @@ class IndexCommands {
   /// Classify languages in the directory tree and merge findings upward.
   Future<CmdResult> _handleIndex(String input) async {
     final parts = input.trim().split(RegExp(r'\s+'));
-    final mode = parts.length == 1 ? '' : parts[1];
-    if (parts.length > 2 || !const ['', 'status', 'refresh'].contains(mode)) {
-      ctx.active.host.showMessage('Usage: /index [status|refresh]\n');
+    IndexOptions options;
+    try {
+      options = IndexOptions.parse(parts.skip(1).join(' '));
+    } on ArgumentError {
+      ctx.active.host.showMessage('${IndexOptions.usage}\n');
       return const CmdHandled();
     }
     final conversation = ctx.active;
     // Classification uses the same session spending limit as other agent work.
-    if (mode != 'status' && ctx.spendLedger?.tripped == true) {
+    if (options.method == LanguageMethod.jev && options.mode != 'status' && ctx.spendLedger?.tripped == true) {
       conversation.host.showMessage(
         'Token spend ceiling already tripped — /index skipped. '
         'Raise the cap (or /spend to review) first.\n',
@@ -857,7 +859,7 @@ class IndexCommands {
     if (run == null) {
       conversation.host.showMessage('Language index unavailable.\n');
     } else {
-      await run(conversation, mode);
+      await run(conversation, options);
     }
     return const CmdHandled();
   }

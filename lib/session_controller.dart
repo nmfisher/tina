@@ -110,7 +110,7 @@ class SessionController {
   /// in-chat review).
   SummaryIndex? summaryIndex;
 
-  Future<void> Function(Conversation, String)? runClassification;
+  Future<void> Function(Conversation, IndexOptions)? runClassification;
 
   /// Ask a yes/no confirmation (`/index` up-to-date re-run prompt, `/model`'s
   /// "make this the global default"). [body] is optional explanatory text

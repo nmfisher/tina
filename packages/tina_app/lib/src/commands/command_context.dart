@@ -1,3 +1,4 @@
+import '../classification/index_options.dart';
 import 'package:tina_app/src/commands/command_capabilities.dart';
 import 'dart:async';
 import 'dart:io';
@@ -173,7 +174,8 @@ abstract class CommandContext
   get runBackgroundIndex;
 
   /// Run or restore project classifications in an isolated background job.
-  Future<void> Function(Conversation conv, String mode)? get runClassification;
+  Future<void> Function(Conversation conv, IndexOptions options)?
+  get runClassification;
 
   /// Open the visual node editor (`/workflow new` / `/workflow edit`). Wired by
   /// the TUI; null in headless.

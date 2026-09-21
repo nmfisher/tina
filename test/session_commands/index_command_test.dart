@@ -62,7 +62,8 @@ class _FakeCtx implements CommandContext {
 
   /// Optional classifier command capability.
   @override
-  Future<void> Function(Conversation conv, String mode)? runClassification;
+  Future<void> Function(Conversation conv, IndexOptions options)?
+  runClassification;
 
   @override
   Map<String, FutureOr<void> Function()> get commandHooks => const {};
@@ -101,7 +102,8 @@ void main() {
               throw StateError('Index must not launch summaries'),
           runClassification: (conversation, mode) async {
             expect(conversation, same(conv));
-            calls.add(mode);
+            expect(mode.method, LanguageMethod.extensions);
+            calls.add(mode.mode);
           },
         ),
       );
@@ -123,7 +125,7 @@ void main() {
     },
   );
 
-  test('spend cap blocks classification but allows index status', () async {
+  test('spend cap blocks JEV classification but allows its status', () async {
     final calls = <String>[];
     final ledger = SpendLedger(maxGlobalTokens: 1, requestsPerMinute: 0);
     ledger.record(TokenUsage(inputTokens: 100, outputTokens: 0));
@@ -132,14 +134,42 @@ void main() {
         conversation: conv,
         spendLedger: ledger,
         runClassification: (_, mode) async {
-          calls.add(mode);
+          calls.add(mode.mode);
         },
       ),
     );
-    expect(await handlers.dispatch('/index'), isA<CmdHandled>());
-    expect(await handlers.dispatch('/index refresh'), isA<CmdHandled>());
+    expect(await handlers.dispatch('/index jev'), isA<CmdHandled>());
+    expect(await handlers.dispatch('/index jev refresh'), isA<CmdHandled>());
     expect(calls, isEmpty);
-    expect(await handlers.dispatch('/index status'), isA<CmdHandled>());
+    expect(await handlers.dispatch('/index jev status'), isA<CmdHandled>());
     expect(calls, ['status']);
   });
+
+  test(
+    'extension indexing remains available after the model spend cap is reached',
+    () async {
+      final calls = <IndexOptions>[];
+      final ledger = SpendLedger(maxGlobalTokens: 1, requestsPerMinute: 0);
+      ledger.record(TokenUsage(inputTokens: 100, outputTokens: 0));
+      final handlers = SessionCommandHandlers(
+        _FakeCtx(
+          conversation: conv,
+          spendLedger: ledger,
+          runClassification: (_, options) async => calls.add(options),
+        ),
+      );
+      await handlers.dispatch('/index extensions');
+      await handlers.dispatch('/index extensions refresh');
+      await handlers.dispatch('/index status extensions');
+      expect(
+        calls.map((c) => c.method),
+        everyElement(LanguageMethod.extensions),
+      );
+      expect(calls.map((c) => c.mode), ['', 'refresh', 'status']);
+      await handlers.dispatch('/index extensions jev');
+      await handlers.dispatch('/index refresh status');
+      expect(calls, hasLength(3));
+      expect(host.messages.join(), contains(IndexOptions.usage));
+    },
+  );
 }

@@ -2227,14 +2227,15 @@ class TuiCoordinator {
       // Keep summary services available to region tools. /index itself only
       // runs language classification through the cancellable background job.
       controller.summaryIndex = summaryIndex;
-      controller.runClassification = (conversation, mode) =>
+      controller.runClassification = (conversation, options) =>
           controller.background.runClassification(
             conversation,
             (cancelSignal, progress) async => classificationReportText(
               await runConfiguredProjectClassification(
                 app,
                 spendLedger: controller.spendLedger,
-                mode: mode,
+                method: options.method,
+                mode: options.mode,
                 cancelSignal: cancelSignal,
                 onProgress: progress,
               ),

@@ -1,6 +1,6 @@
 # /index
 
-`/index` classifies programming languages in the project directory tree. It does
+`/index` classifies programming and markup languages in the project directory tree. It does
 not create summaries, propose regions, run setup, or classify frameworks, build
 systems, test systems, or target platforms.
 
@@ -17,17 +17,23 @@ local classifier reruns; `docs/dev` remains reusable. Changed findings propagate
 through `docs` to the root. If the consumed output is unchanged, propagation
 stops. Failed children block their ancestors; incomplete coverage stays visible.
 
-- `/index`: restore current results and classify missing or stale inputs.
+- `/index`: use local extension rules, restoring current results and classifying missing or stale inputs.
 - `/index status`: validate saved results without model calls or writes.
 - `/index refresh`: rerun language classification and rebuild merged results.
+- `/index extensions`: explicitly select the local extension classifier.
+- `/index jev`: use the configured Typesafe/JEV classifier instead.
+- `/index jev status` and `/index jev refresh`: inspect or rebuild JEV results.
 
 Double-Esc cancels interactive work and releases input. Headless Ctrl+C cancels
 the same workflow. Completed checkpoints survive cancellation. Headless runs
 with missing, failed or incomplete results exit nonzero.
 
-The command uses the configured Typesafe classifier (default `jev-latest`). Set
-its API key in `/settings` or `TYPESAFE_API_KEY`. It never uses the chat model or
-falls back to it. The default source supplies filenames only, applies Git ignores
+Extension classification needs no API key or network access. It maps the final
+filename extension to a language, with per-file evidence. Unknown extensions,
+extensionless files and ambiguous entries such as `.h` and `.m` remain unknown;
+there is no automatic model fallback. `/index jev` uses the configured Typesafe
+model (default `jev-latest`); set its API key in `/settings` or `TYPESAFE_API_KEY`.
+Neither implementation uses the chat model. The default source supplies filenames only, applies Git ignores
 and collection exclusions, and requires a Git repository. Input selection and
 freshness are source policy; only the classifier decides the language labels.
 

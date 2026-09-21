@@ -3,19 +3,23 @@ import 'package:classifier/judgments.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 import '../classification/file_classification_store.dart';
+import '../classification/extension_classifier.dart';
+import '../classification/index_options.dart';
+import '../classification/project_classifiers.dart';
 import '../classification/repository_classification_source.dart';
 import '../classification/repository_text_source.dart';
 import '../classification/project_classification_workflow.dart';
 import 'app_composition.dart';
 import '../exploration/metered_judgment_service.dart';
 
-/// Runs language indexing through the supplied judgment service, sharing the
-/// application's metering and pause behavior. Restore makes no model requests.
+/// Both language implementations share source preparation, tree merging,
+/// cancellation and persistence. Only JEV needs a judgment service.
 Future<ProjectClassificationReport> runProjectClassification(
   AppComposition app, {
-  required JudgmentService judgments,
-  required JudgmentRequestBudget requestBudget,
-  required Object serviceIdentity,
+  LanguageMethod method = IndexOptions.defaultMethod,
+  JudgmentService? judgments,
+  JudgmentRequestBudget? requestBudget,
+  Object? serviceIdentity,
   SpendLedger? spendLedger,
   String mode = '',
   RepositoryProjection projection = RepositoryProjection.filenames,
@@ -23,15 +27,29 @@ Future<ProjectClassificationReport> runProjectClassification(
   void Function(String)? onProgress,
 }) async {
   if (!const ['', 'status', 'refresh'].contains(mode))
-    throw ArgumentError('Usage: /index [status|refresh]');
+    throw ArgumentError(IndexOptions.usage);
+  if (method == LanguageMethod.jev &&
+      (judgments == null || requestBudget == null || serviceIdentity == null)) {
+    throw ArgumentError(
+      'JEV classification requires a judgment service and budget',
+    );
+  }
+  if (method == LanguageMethod.extensions &&
+      projection != RepositoryProjection.filenames) {
+    throw ArgumentError(
+      'Extension classification requires the filename projection',
+    );
+  }
   final root = app.pipeline.tools.projectRoot;
   // Limits come from the classifier transport, never the conversation model.
-  final budget = ClassificationBudget(
-    contextTokens: requestBudget.maxInputTokens + 2048,
-    outputTokens: 1024,
-    safetyTokens: 1024,
-    maxInputTokens: requestBudget.maxInputTokens,
-  );
+  final budget = method == LanguageMethod.extensions
+      ? ClassificationBudget()
+      : ClassificationBudget(
+          contextTokens: requestBudget!.maxInputTokens + 2048,
+          outputTokens: 1024,
+          safetyTokens: 1024,
+          maxInputTokens: requestBudget.maxInputTokens,
+        );
   final stop = JudgmentCancellation();
   var finished = false;
   cancelSignal?.then(
@@ -45,21 +63,28 @@ Future<ProjectClassificationReport> runProjectClassification(
   final ledger =
       spendLedger ?? SpendLedger(maxGlobalTokens: 120000, requestsPerMinute: 0);
   final rules = [...app.policy.staticRules, ...app.policy.sessionRules];
-  final runner = JudgmentExecutor(
-    service: MeteredJudgmentService(
-      inner: judgments,
-      ledger: ledger,
-      budget: requestBudget,
-      outputTokenAllowance: 1024,
-      pauseGate: app.pauseGate,
-    ),
-    budget: requestBudget,
-    identity: {
-      'service': serviceIdentity,
-      'policy': rules.map((r) => r.toJson()).toList(),
-    },
+  final ClassificationExecutor runner = method == LanguageMethod.extensions
+      ? const LocalExecutor()
+      : JudgmentExecutor(
+          service: MeteredJudgmentService(
+            inner: judgments!,
+            ledger: ledger,
+            budget: requestBudget!,
+            outputTokenAllowance: 1024,
+            pauseGate: app.pauseGate,
+          ),
+          budget: requestBudget,
+          identity: {
+            'service': serviceIdentity,
+            'policy': rules.map((r) => r.toJson()).toList(),
+          },
+        );
+  onProgress?.call(
+    'Language classifier: ${method == LanguageMethod.extensions ? 'extensions (local)' : requestBudget!.model}',
   );
-  onProgress?.call('Language classifier: ${requestBudget.model}');
+  final local = method == LanguageMethod.extensions
+      ? SingleRequestPlan(extensionClassifier())
+      : languagePlan();
   try {
     final source = RepositoryTextSource(
       projection: projection,
@@ -78,9 +103,9 @@ Future<ProjectClassificationReport> runProjectClassification(
       executor: runner,
       budget: budget,
       concurrency: 4,
-      maxCalls: 256,
+      maxCalls: method == LanguageMethod.extensions ? 20000 : 256,
     ).run(
-      (session) => classifyProject(session, source),
+      (session) => classifyProject(session, source, local: local),
       refresh: mode == 'refresh',
       restoreOnly: mode == 'status',
       cancellation: stop,
@@ -98,7 +123,7 @@ String classificationReportText(ProjectClassificationReport report) {
             : report.failures.isEmpty
             ? 'complete'
             : 'incomplete'}: '
-        '${report.executed} requests run, ${report.restored} classifications restored, ${report.reusedRequests} request checkpoints reused.',
+        '${report.executed} classifier calls, ${report.restored} classifications restored, ${report.reusedRequests} request checkpoints reused.',
   ];
   for (final entry in report.records.entries) {
     final result = entry.value.result;

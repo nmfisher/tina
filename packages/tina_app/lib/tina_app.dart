@@ -51,3 +51,4 @@ export 'src/exploration/metered_judgment_service.dart';
 export 'src/exploration/file_exploration_cache.dart';
 
 export 'src/composition/project_classification.dart';
+export 'src/classification/index_options.dart';
