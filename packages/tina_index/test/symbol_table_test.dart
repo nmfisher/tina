@@ -1,12 +1,9 @@
-import 'dart:io';
-
-import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'package:tina_index/symbol.dart';
 import 'package:tina_index/symbol_table.dart';
 
-String get repoRoot => p.normalize(p.join(Directory.current.path, '..', '..'));
+import 'helpers/index_project.dart';
 
 void main() {
   group('SymbolTable.build', () {
@@ -93,25 +90,27 @@ void main() {
   });
 
   group('SymbolTable.buildFromRepo', () {
-    test('indexes the tina repo', () async {
+    test('indexes source files and excludes generated directories', () async {
+      final repoRoot = createIndexProject(extraFiles: {
+        '.dart_tool/generated.dart': 'class Generated {}',
+      }).path;
       final table = await SymbolTable.buildFromRepo(repoRoot);
       expect(table.length, greaterThan(0));
 
-      // Key classes present
-      expect(table.lookupByName('Agent'), isNotEmpty);
-      expect(table.lookupByName('LlmProvider'), isNotEmpty);
-      expect(table.lookupByName('AnthropicProvider'), isNotEmpty);
-      expect(
-          table.lookupByName('ProviderStreamConsumer'), isNotEmpty);
+      expect(table.lookupByName('Controller'), hasLength(1));
+      expect(table.lookupByName('Base'), hasLength(1));
+      expect(table.lookupByName('First'), hasLength(1));
+      expect(table.lookupByName('Second'), hasLength(1));
+      expect(table.lookupByName('Generated'), isEmpty);
 
       // No symbols from .dart_tool
       expect(table.qualifiedNames, isNot(anyElement(contains('.dart_tool'))));
 
-      // Children of Agent
-      final agentQName = table.qualifiedNames.firstWhere(
-        (q) => q.endsWith('.Agent') && q.contains('agent/agent'),
+      // Children of the fixture controller
+      final controllerId = table.qualifiedNames.firstWhere(
+        (q) => q == 'lib/controller.Controller',
       );
-      final children = table.childrenOf(agentQName);
+      final children = table.childrenOf(controllerId);
       expect(children.map((s) => s.name), contains('run'));
     });
   });

@@ -5,22 +5,28 @@ import 'package:test/test.dart';
 
 import 'package:tina_index/walker.dart';
 
-String get repoRoot => p.normalize(p.join(Directory.current.path, '..', '..'));
+import 'helpers/index_project.dart';
 
 void main() {
   group('DartFileWalker', () {
-    test('finds .dart files in tina repo', () async {
+    test('finds Dart files across nested directories', () async {
+      final repoRoot = createIndexProject(extraFiles: {
+        'packages/nested/lib/component.dart': 'class Component {}',
+        'README.md': 'Not Dart source',
+      }).path;
       final walker = DartFileWalker(repoRoot: repoRoot);
       final files = await walker.walk();
       expect(files, isNotEmpty);
-      expect(files, contains('lib/config.dart'));
-      // A06 moved the application layer into its own package; the walker sees
-      // the whole repo, so it must find it there too.
-      expect(files, contains('packages/tina_app/lib/src/session/session.dart'));
+      expect(files, contains('lib/controller.dart'));
+      expect(files, contains('packages/nested/lib/component.dart'));
       expect(files.every((f) => f.endsWith('.dart')), isTrue);
     });
 
     test('excludes .dart_tool and build directories', () async {
+      final repoRoot = createIndexProject(extraFiles: {
+        '.dart_tool/generated.dart': 'class ToolGenerated {}',
+        'build/generated.dart': 'class BuildGenerated {}',
+      }).path;
       final walker = DartFileWalker(repoRoot: repoRoot);
       final files = await walker.walk();
       expect(files, isNot(anyElement(contains('.dart_tool'))));

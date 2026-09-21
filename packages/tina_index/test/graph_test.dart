@@ -1,7 +1,3 @@
-import 'dart:io';
-
-import 'package:path/path.dart' as p;
-
 import 'package:test/test.dart';
 
 import 'package:tina_index/edge.dart';
@@ -9,75 +5,66 @@ import 'package:tina_index/graph.dart';
 import 'package:tina_index/graph_builder.dart';
 import 'package:tina_index/symbol_table.dart';
 
-String get repoRoot => p.normalize(p.join(Directory.current.path, '..', '..'));
+import 'helpers/index_project.dart';
 
 void main() {
   group('GraphBuilder', () {
     late CodeGraph graph;
 
-    setUpAll(() async {
+    setUp(() async {
+      final repoRoot = createIndexProject().path;
       final table = await SymbolTable.buildFromRepo(repoRoot);
       graph = GraphBuilder.build(table, repoRoot);
       GraphBuilder.addImportEdges(graph, repoRoot);
     });
 
-    test('AnthropicProvider extends LlmProvider', () {
-      final anthropicEdges = graph.edgesFrom(
-        'packages/tina_engine/lib/src/llm/anthropic.AnthropicProvider',
+    test('First extends Base', () {
+      final firstEdges = graph.edgesFrom(
+        'lib/first.First',
       );
       expect(
-        anthropicEdges,
+        firstEdges,
         contains(predicate<Edge>(
-          (e) =>
-              e.kind == EdgeKind.extends_ &&
-              e.toId.contains('LlmProvider'),
+          (e) => e.kind == EdgeKind.extends_ && e.toId.contains('Base'),
         )),
       );
     });
 
-    test('OpenAiCompatibleAdapter extends LlmProvider', () {
-      final openaiEdges = graph.edgesFrom(
-        'packages/tina_engine/lib/src/llm/openai_compatible.OpenAiCompatibleAdapter',
+    test('Second extends Base', () {
+      final secondEdges = graph.edgesFrom(
+        'lib/second.Second',
       );
       expect(
-        openaiEdges,
+        secondEdges,
         contains(predicate<Edge>(
-          (e) =>
-              e.kind == EdgeKind.extends_ &&
-              e.toId.contains('LlmProvider'),
+          (e) => e.kind == EdgeKind.extends_ && e.toId.contains('Base'),
         )),
       );
     });
 
-    test('LlmProvider has multiple extends edges pointing to it', () {
-      final toLlmProvider =
-          graph.edgesTo('packages/tina_engine/lib/src/llm/provider.LlmProvider');
+    test('Base has multiple extends edges pointing to it', () {
+      final toBase = graph.edgesTo('lib/base.Base');
       final extendsEdges =
-          toLlmProvider.where((e) => e.kind == EdgeKind.extends_).toList();
-      // anthropic, gemini, and openai_compatible all extend it; keep the
-      // bound loose so adding a provider doesn't break this test.
-      expect(extendsEdges.length, greaterThanOrEqualTo(2));
+          toBase.where((e) => e.kind == EdgeKind.extends_).toList();
+      expect(extendsEdges.map((e) => e.fromId),
+          unorderedEquals(['lib/first.First', 'lib/second.Second']));
     });
 
-    test('Agent has no extends edge', () {
-      final agentQName = graph.symbols.qualifiedNames.firstWhere(
-        (q) => q.endsWith('.Agent') && q.contains('agent/agent'),
+    test('class without a superclass has no extends edge', () {
+      final controllerId = graph.symbols.qualifiedNames.firstWhere(
+        (q) => q == 'lib/controller.Controller',
       );
-      final agentEdges = graph.edgesFrom(agentQName);
+      final controllerEdges = graph.edgesFrom(controllerId);
       expect(
-        agentEdges.where((e) => e.kind == EdgeKind.extends_),
+        controllerEdges.where((e) => e.kind == EdgeKind.extends_),
         isEmpty,
       );
     });
 
-    test('graph has edges', () {
-      expect(graph.edges, isNotEmpty);
-    });
-
     test('summaries can be set and retrieved via manifest', () {
-      const agentPath = 'packages/tina_engine/lib/src/agent/agent.dart';
-      graph.setSummary(agentPath, 'abc123', 'Core agent loop');
-      expect(graph.summaryFor(agentPath), 'Core agent loop');
+      const controllerPath = 'lib/controller.dart';
+      graph.setSummary(controllerPath, 'abc123', 'Controller entry point');
+      expect(graph.summaryFor(controllerPath), 'Controller entry point');
       expect(graph.summaryFor('nonexistent.dart'), isNull);
     });
 
@@ -106,23 +93,23 @@ void main() {
       }
     });
 
-    test('agent.dart imports agent_sink.dart', () {
+    test('relative imports resolve to indexed files', () {
       final importEdges = graph
-          .edgesFrom('packages/tina_engine/lib/src/agent/agent.dart')
+          .edgesFrom('lib/controller.dart')
           .where((e) => e.kind == EdgeKind.imports);
       expect(
         importEdges.map((e) => e.toId),
-        contains('packages/tina_engine/lib/src/agent/agent_sink.dart'),
+        contains('lib/first.dart'),
       );
     });
 
-    test('anthropic.dart imports provider.dart', () {
+    test('package imports resolve within the project', () {
       final importEdges = graph
-          .edgesFrom('packages/tina_engine/lib/src/llm/anthropic.dart')
+          .edgesFrom('lib/second.dart')
           .where((e) => e.kind == EdgeKind.imports);
       expect(
         importEdges.map((e) => e.toId),
-        contains('packages/tina_engine/lib/src/llm/provider.dart'),
+        contains('lib/base.dart'),
       );
     });
 

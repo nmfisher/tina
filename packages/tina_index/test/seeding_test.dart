@@ -1,46 +1,33 @@
-import 'dart:io';
-
-import 'package:path/path.dart' as p;
-
 import 'package:test/test.dart';
 
 import 'package:tina_index/seeding.dart';
-import 'package:tina_index/store.dart';
+import 'package:tina_index/extractor.dart';
 import 'package:tina_index/symbol.dart';
 import 'package:tina_index/symbol_table.dart';
 
-String get repoRoot => p.normalize(p.join(Directory.current.path, '..', '..'));
-
 void main() {
   group('seedQuery', () {
-    late SymbolTable symbols;
+    final symbols = SymbolTable.build(
+      SymbolExtractor.parseString(
+          '/fixture/lib/task/task.dart',
+          '\n'
+              'class Task { void run() {} }\n'
+              'class TaskRunner {}\n'
+              'class TaskHandler {}\n'
+              'class TaskQueue {}\n'),
+      '/fixture',
+    );
 
-    setUpAll(() {
-      final graph = GraphStore.rebuildFromRepo(repoRoot);
-      symbols = graph.symbols;
+    test('exact name matches rank ahead of prefix matches', () {
+      final results = seedQuery(symbols, 'Task');
+      expect(results, isNotEmpty);
+      expect(results.first, 'lib/task/task.Task');
     });
 
-    test('"stream" returns streaming-related symbols', () {
-      final results = seedQuery(symbols, 'stream');
+    test('path query finds declarations from that file', () {
+      final results = seedQuery(symbols, 'task/task');
       expect(results, isNotEmpty);
-      // ProviderStreamConsumer should rank high.
-      expect(
-        results.any((r) => r.contains('StreamConsumer')),
-        isTrue,
-        reason: 'Expected StreamConsumer in results: $results',
-      );
-    });
-
-    test('"LlmProvider" returns LlmProvider as top result', () {
-      final results = seedQuery(symbols, 'LlmProvider');
-      expect(results, isNotEmpty);
-      expect(results.first, contains('LlmProvider'));
-    });
-
-    test('"agent/agent.dart" returns symbols from that file', () {
-      final results = seedQuery(symbols, 'agent/agent');
-      expect(results, isNotEmpty);
-      expect(results.any((r) => r.contains('Agent')), isTrue);
+      expect(results, contains('lib/task/task.Task'));
     });
 
     test('"xyzzy-nothing" returns empty list', () {
@@ -49,8 +36,8 @@ void main() {
     });
 
     test('results are capped at maxResults', () {
-      final results = seedQuery(symbols, 'a', maxResults: 3);
-      expect(results.length, lessThanOrEqualTo(3));
+      final results = seedQuery(symbols, 'Task', maxResults: 3);
+      expect(results, hasLength(3));
     });
 
     test('empty query returns empty list', () {
@@ -77,16 +64,15 @@ void main() {
           'lib/file$i.Cfg${classes[i]}.streamIdleTimeout': sym(
               'streamIdleTimeout', 'lib/file$i.dart',
               parent: 'Cfg${classes[i]}'),
-        'lib/consumer.ProviderStreamConsumer': sym(
-            'ProviderStreamConsumer', 'lib/consumer.dart'),
+        'lib/consumer.ProviderStreamConsumer':
+            sym('ProviderStreamConsumer', 'lib/consumer.dart'),
       };
       final table = SymbolTable.fromMap(byId);
 
       final results = seedQuery(table, 'stream');
 
       // The seven identical member names collapse to their best bearer…
-      final bareNames =
-          results.map((r) => r.split('.').last).toSet();
+      final bareNames = results.map((r) => r.split('.').last).toSet();
       expect(bareNames.length, results.length,
           reason: 'no bare name may appear twice: $results');
       // …and the diverse camelCase match survives them.

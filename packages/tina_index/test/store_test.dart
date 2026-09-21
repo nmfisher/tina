@@ -1,23 +1,21 @@
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
-
 import 'package:test/test.dart';
 
 import 'dart:convert';
 
 import 'package:tina_index/store.dart';
 
-String get repoRoot => p.normalize(p.join(Directory.current.path, '..', '..'));
+import 'helpers/index_project.dart';
 
 void main() {
   group('GraphStore', () {
     late String tempDir;
+    late String repoRoot;
 
     setUp(() {
-      tempDir = Directory.systemTemp
-          .createTempSync('tina_graph_test_')
-          .path;
+      repoRoot = createIndexProject().path;
+      tempDir = Directory.systemTemp.createTempSync('tina_graph_test_').path;
     });
 
     tearDown(() {
@@ -25,25 +23,24 @@ void main() {
     });
 
     test('save and load round-trips graph', () async {
-      // Build a real graph from the tina repo.
+      // Build a graph from an isolated source tree.
       final original = GraphStore.rebuildFromRepo(repoRoot);
       GraphStore.save(original, tempDir);
 
       // Verify the file was created.
       expect(File(GraphStore.graphPath(tempDir)).existsSync(), isTrue);
 
-      // Load and compare. Since filePaths are absolute in the original
-      // but relative in the serialized form, we compare structure.
+      // Compare the stored graph structure and a known symbol.
       final loaded = GraphStore.load(tempDir);
       expect(loaded, isNotNull);
       expect(loaded!.symbols.length, original.symbols.length);
       expect(loaded.edges.length, original.edges.length);
 
       // Spot-check a symbol.
-      final agentQName = original.symbols.qualifiedNames.firstWhere(
-        (q) => q.endsWith('.Agent') && q.contains('agent/agent'),
+      final controllerId = original.symbols.qualifiedNames.firstWhere(
+        (q) => q == 'lib/controller.Controller',
       );
-      expect(loaded.symbols[agentQName], isNotNull);
+      expect(loaded.symbols[controllerId], isNotNull);
     });
 
     test('load returns null when no graph file exists', () {
@@ -51,9 +48,7 @@ void main() {
     });
 
     test('load returns null on corrupt file', () {
-      File(GraphStore.graphPath(tempDir))
-          .parent
-          .createSync(recursive: true);
+      File(GraphStore.graphPath(tempDir)).parent.createSync(recursive: true);
       File(GraphStore.graphPath(tempDir)).writeAsStringSync('not json');
       expect(GraphStore.load(tempDir), isNull);
     });
@@ -66,26 +61,28 @@ void main() {
 
     test('summaries round-trip through save and load', () {
       final original = GraphStore.rebuildFromRepo(repoRoot);
-      original.setSummary('lib/agent/agent.dart', 'abc123', 'Core agent loop');
-      original.setSummary('lib/llm/provider.dart', 'def456', 'LLM provider interface');
+      original.setSummary(
+          'lib/controller.dart', 'abc123', 'Controller entry point');
+      original.setSummary('lib/base.dart', 'def456', 'Base interface');
       GraphStore.save(original, tempDir);
 
       final loaded = GraphStore.load(tempDir);
       expect(loaded, isNotNull);
-      expect(loaded!.summaryFor('lib/agent/agent.dart'), 'Core agent loop');
-      expect(loaded.summaryFor('lib/llm/provider.dart'), 'LLM provider interface');
+      expect(
+          loaded!.summaryFor('lib/controller.dart'), 'Controller entry point');
+      expect(loaded.summaryFor('lib/base.dart'), 'Base interface');
     });
 
     test('manifest round-trips through save and load', () {
       final original = GraphStore.rebuildFromRepo(repoRoot);
-      original.setContentHash('lib/agent/agent.dart', 'hash111');
-      original.setContentHash('lib/agent/agent.Agent', 'hash222');
+      original.setContentHash('lib/controller.dart', 'hash111');
+      original.setContentHash('lib/controller.Controller', 'hash222');
       GraphStore.save(original, tempDir);
 
       final loaded = GraphStore.load(tempDir);
       expect(loaded, isNotNull);
-      expect(loaded!.manifest['lib/agent/agent.dart'], 'hash111');
-      expect(loaded.manifest['lib/agent/agent.Agent'], 'hash222');
+      expect(loaded!.manifest['lib/controller.dart'], 'hash111');
+      expect(loaded.manifest['lib/controller.Controller'], 'hash222');
     });
 
     test('load handles graph without summaries or manifest', () {
@@ -99,7 +96,7 @@ void main() {
     });
 
     test('v1 migration discards old summaries', () {
-      // Write a v1-format graph file using the real repo so paths resolve.
+      // Write a v1-format graph file from the fixture.
       final original = GraphStore.rebuildFromRepo(repoRoot);
       final v1Json = {
         'version': 1,
@@ -107,19 +104,12 @@ void main() {
             .map((e) => {'id': e.key, ...e.value.toJson()})
             .toList(),
         'edges': original.edges.map((e) => e.toJson()).toList(),
-        'fileHashes': {
-          'packages/tina_engine/lib/src/agent/agent.dart': 'oldhash'
-        },
-        'summaries': {
-          'packages/tina_engine/lib/src/agent/agent.dart': 'Old summary text'
-        },
+        'fileHashes': {'lib/controller.dart': 'oldhash'},
+        'summaries': {'lib/controller.dart': 'Old summary text'},
       };
 
-      File(GraphStore.graphPath(tempDir))
-          .parent
-          .createSync(recursive: true);
-      File(GraphStore.graphPath(tempDir))
-          .writeAsStringSync(jsonEncode(v1Json));
+      File(GraphStore.graphPath(tempDir)).parent.createSync(recursive: true);
+      File(GraphStore.graphPath(tempDir)).writeAsStringSync(jsonEncode(v1Json));
 
       // Load the file we just wrote. (The old version loaded from
       // repoRoot, which only worked if a stale .tina/graph.json happened

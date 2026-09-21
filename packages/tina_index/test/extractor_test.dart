@@ -1,13 +1,10 @@
-import 'dart:io';
-
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'package:tina_index/extractor.dart';
 import 'package:tina_index/symbol.dart';
 
-String get repoRoot =>
-    p.normalize(p.join(p.dirname(p.fromUri(Platform.script.path)), '..', '..'));
+import 'helpers/index_project.dart';
 
 void main() {
   group('SymbolExtractor.parseString', () {
@@ -88,8 +85,7 @@ class Config {
   int count = 0;
 }
 ''');
-      final fields =
-          symbols.where((s) => s.kind == SymbolKind.field).toList();
+      final fields = symbols.where((s) => s.kind == SymbolKind.field).toList();
       expect(fields, hasLength(2));
       expect(fields.map((s) => s.name), containsAll(['name', 'count']));
       for (final f in fields) {
@@ -123,9 +119,11 @@ void _helper() {}
     });
 
     test('line ranges are correct', () {
-      final symbols = SymbolExtractor.parseString('test.dart', 'class Foo {\n'
-          '  void bar() {}\n'
-          '}\n');
+      final symbols = SymbolExtractor.parseString(
+          'test.dart',
+          'class Foo {\n'
+              '  void bar() {}\n'
+              '}\n');
       final foo = symbols.firstWhere((s) => s.name == 'Foo');
       expect(foo.lineStart, 1);
       expect(foo.lineEnd, 3);
@@ -137,20 +135,15 @@ void _helper() {}
   });
 
   group('SymbolExtractor.parseFile', () {
-    test('parses agent.dart from tina repo', () {
-      final path = p.join(repoRoot, 'lib', 'agent', 'agent.dart');
-      if (!File(path).existsSync()) return; // skip if running outside repo
-
-      final symbols = SymbolExtractor.parseFile(path);
-      final agent = symbols.where((s) => s.name == 'Agent').toList();
-      expect(agent, hasLength(1));
-      expect(agent.first.kind, SymbolKind.class_);
-
-      final agentMethods = symbols
-          .where((s) => s.parentName == 'Agent' && s.kind == SymbolKind.method)
-          .map((s) => s.name)
-          .toList();
-      expect(agentMethods, containsAll(['run', 'compact']));
+    test('reads declarations and member relationships from a file', () {
+      final root = createIndexProject();
+      final symbols =
+          SymbolExtractor.parseFile(p.join(root.path, 'lib/controller.dart'));
+      final controller = symbols.where((s) => s.name == 'Controller').single;
+      expect(controller.kind, SymbolKind.class_);
+      final run = symbols.where((s) => s.name == 'run').single;
+      expect(run.kind, SymbolKind.method);
+      expect(run.parentName, 'Controller');
     });
   });
 }
