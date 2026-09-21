@@ -157,6 +157,19 @@ class SessionController {
   /// when the slow command settles; empty when no window ever captured
   /// anything.
   final List<String> _captured = [];
+  Completer<void>? _commandCancellation;
+  Future<void>? get commandCancelSignal => _commandCancellation?.future;
+
+  Future<CmdResult> _dispatchCommand(String line) async {
+    final cancel = Completer<void>();
+    _commandCancellation = cancel;
+    try {
+      final result = await _commands.dispatch(line);
+      return cancel.isCompleted ? const CmdHandled() : result;
+    } finally {
+      _commandCancellation = null;
+    }
+  }
 
   /// The capture seam's on-submit callback: enqueue the completed line. Empty
   /// lines are ignored (an Enter with an empty queue draft is a no-op, same
@@ -217,6 +230,8 @@ class SessionController {
   Future<void> Function(Conversation, List<String>?, {bool repartition})?
   get runBackgroundIndex => background.runIndex;
   Future<void> Function()? shutdownWorkflows;
+  /// Stop background workflows and queued human dialogs without shutting down.
+  bool Function()? cancelPendingWork;
   Future<void>? _shutdown;
   Future<void> shutdown() => _shutdown ??= _stop();
   Future<void> _stop() async {
@@ -321,7 +336,7 @@ class SessionController {
         // around each flushed line's own dispatch; the loop top disarms
         // right before the next readLine.
         final target = active;
-        final cmd = await _commands.dispatch(trimmed);
+        final cmd = await _dispatchCommand(trimmed);
         if (cmd is CmdExit) {
           final stay = await handleExitIntent();
           if (stay) continue;
@@ -392,7 +407,7 @@ class SessionController {
     String line,
     Conversation target,
   ) async {
-    final cmd = await _commands.dispatch(line);
+    final cmd = await _dispatchCommand(line);
     if (cmd is CmdExit) return _DispatchOutcome.exitRequested;
     if (cmd is CmdHandled) return _DispatchOutcome.handled;
     if (cmd case CmdRun(:final prompt)) {
@@ -483,25 +498,32 @@ class SessionController {
     return true;
   }
 
-  /// Cancel the active conversation and background index work immediately.
-  /// Used by Ctrl+C and rapid Esc-Esc, including across approval prompts.
-  /// Returns false when idle so input clearing and quit behavior still work.
+  /// Emergency stop: discard pending instructions and cancel all live work.
+  /// New submissions are still admitted after the cancelled turns unwind.
   bool cancelNow() {
-    final s = active;
     _cancelArmed = false;
-    // Background index jobs cancel INDEPENDENTLY of the
-    // conversation's turn: a concurrent proposal turn must not shield a
-    // doomed fleet from the operator's Esc-Esc.
-    var hit = false;
-    if (isIndexRunning || jobs.running('classify')) {
-      jobs.cancelAll();
+    var hit = _captured.isNotEmpty;
+    _captured.clear();
+    final command = _commandCancellation;
+    if (command != null && !command.isCompleted) {
+      command.complete();
       hit = true;
     }
-    if (!s.isRunning) return hit;
-    final c = s.cancelCompleter;
-    if (c != null && !c.isCompleted) {
-      if (!turns.cancel(s.id)) c.complete();
-      hit = true;
+    hit = (cancelPendingWork?.call() ?? false) || hit;
+    // Cancel all job kinds, including ones added in the future.
+    hit = jobs.hasActiveJobs || hit;
+    jobs.cancelAll();
+    for (final session in sessionManager.all) {
+      for (final conversation in session.conversations) {
+        hit = conversation.messageQueue.isNotEmpty || hit;
+        conversation.messageQueue.clear();
+        if (turns.cancel(conversation.id)) hit = true;
+        final cancel = conversation.cancelCompleter;
+        if (cancel != null && !cancel.isCompleted) {
+          cancel.complete();
+          hit = true;
+        }
+      }
     }
     return hit;
   }

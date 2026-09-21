@@ -1002,6 +1002,13 @@ class TuiCoordinator {
         };
       };
       controller.shutdownWorkflows = supervisor.shutdown;
+      controller.cancelPendingWork = () {
+        final pending = supervisor.active.isNotEmpty || attentionQueue.active;
+        supervisor.stopAll();
+        unawaited(scheduler.cancelAll());
+        attentionQueue.cancelAll();
+        return pending;
+      };
       // Workflow completion → agent turn: the supervisor's onComplete hook wakes
       // the launching conversation with a synthetic turn carrying the outcome
       // (auto agent turn on completion), so the agent reports and acts on it.

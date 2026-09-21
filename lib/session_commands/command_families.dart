@@ -658,7 +658,12 @@ class HistoryCommands {
     final s = ctx.active;
     // Through the driver: a scripted (or otherwise agent-less) conversation
     // has no agent to compact — the driver owns this operation.
-    await s.driver.compact(s.history);
+    final activity = RunActivity(s.host);
+    try {
+      await s.driver.compact(s.history, cancelSignal: ctx.commandCancelSignal);
+    } finally {
+      activity.complete();
+    }
     final rec = s.recorder;
     if (rec != null) {
       try {

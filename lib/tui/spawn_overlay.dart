@@ -172,6 +172,8 @@ Focusable? modalTakeFocus(LineEditor editor) {
 /// Restore blue to the conversation panel that was focused before the modal opened.
 void modalRestoreFocus(LineEditor editor, Focusable? prev) {
   final fm = editor.focusManager;
+  // Emergency cancellation (or explicit navigation) has already chosen focus.
+  if (fm?.focused != null) return;
   if (prev != null) {
     fm?.focusPanel(prev);
   } else if (fm?.home != null) {
@@ -202,6 +204,7 @@ Future<T?> runListOverlay<T>({
   /// trap the user in the very prompt that appeared because they tried to
   /// quit (Ctrl+C → "Exit or detach?" → Ctrl+C used to mean "cancel/stay").
   T Function()? onCtrlC,
+  T? Function(InputEvent event)? shortcut,
 }) {
   final footerFn = footer is String Function(int)
       ? footer
@@ -211,10 +214,11 @@ Future<T?> runListOverlay<T>({
     entries,
     title,
     footerFn,
-    readEvent ?? editor.readKey,
+    readEvent ?? editor.captureKeyReader(),
     accent,
     body,
     onCtrlC,
+    shortcut,
   ).run();
 }
 
@@ -228,6 +232,7 @@ class _ListPickerForm<T> {
     this._accent,
     this._bodyText,
     this._onCtrlC,
+    this._shortcut,
   );
 
   final Screen _screen;
@@ -238,6 +243,7 @@ class _ListPickerForm<T> {
   final String? _accent;
   final String? _bodyText;
   final T Function()? _onCtrlC;
+  final T? Function(InputEvent event)? _shortcut;
 
   late final OverlayRegion _overlay;
   late Rect _rect;
@@ -318,6 +324,11 @@ class _ListPickerForm<T> {
           }
           return null;
         }
+        // A wheel notch does not change selection. In particular it must
+        // not invoke transcript-writing feedback or redraw an approval.
+        if (ev is ScrollEvent) continue;
+        final answer = _shortcut?.call(ev);
+        if (answer != null) return answer;
         _layout();
         if (_dispatch(ev)) {
           return _selected;
@@ -584,7 +595,7 @@ Future<List<String>?> runQuestionOverlay({
   required List<({String text, List<String> options})> questions,
   Future<InputEvent> Function()? readEvent,
 }) =>
-    _QuestionForm(screen, editor, questions, readEvent ?? editor.readKey).run();
+    _QuestionForm(screen, editor, questions, readEvent ?? editor.captureKeyReader()).run();
 
 class _QuestionForm {
   _QuestionForm(this._screen, this._editor, this._questions, this._readEvent);

@@ -139,6 +139,25 @@ void main() {
     expect(saved, isFalse);
   });
 
+  test('double-Esc exits a dirty workflow without reopening discard confirmation', () async {
+    final screen = fakeScreen();
+    final editor = LineEditor(screen: screen);
+    addTearDown(editor.close);
+    final pending = runWorkflowEditor(
+      screen: screen, editor: editor,
+      graph: parseDot('digraph E { start [shape=Mdiamond]; done [shape=Msquare]; start -> done }'),
+      name: null, pipeline: defaultPipeline,
+      workflowsDir: Directory.systemTemp, isNew: true,
+    );
+    await pumpEventQueue();
+    editor.inject(EscapeKey());
+    await pumpEventQueue(); // the ordinary Esc opens discard confirmation
+    expect(editor.isReadingKey, isTrue);
+    editor.inject(EscapeKey());
+    expect(await pending.timeout(overlayTimeout), isFalse);
+    expect(editor.isReadingKey, isFalse);
+  });
+
   test('graph editor: Ctrl-C with unsaved changes asks before discarding',
       () async {
     final screen = fakeScreen(columns: 80, lines: 24);

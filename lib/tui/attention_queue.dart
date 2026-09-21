@@ -18,9 +18,18 @@ class AttentionQueue {
   /// A modal is currently holding the keyboard.
   bool get active => _active;
   bool _active = false;
+  int _generation = 0;
 
-  Future<T> run<T>(Future<T> Function() modal, {void Function()? onQueued}) {
+  /// Invalidate waiting dialogs. The editor releases the current key reader.
+  void cancelAll() => _generation++;
+
+  Future<T> run<T>(
+    Future<T> Function() modal, {
+    required T Function() onCancel,
+    void Function()? onQueued,
+  }) {
     final done = Completer<T>();
+    final generation = _generation;
     final queuedBehind = _active;
     if (queuedBehind) onQueued?.call();
     // Claim synchronously, so `active` (and a racing enqueue's queuedBehind
@@ -30,7 +39,7 @@ class AttentionQueue {
     _tail = _tail.then((_) async {
       _active = true;
       try {
-        final result = await modal();
+        final result = generation == _generation ? await modal() : onCancel();
         if (!done.isCompleted) done.complete(result);
       } catch (e, s) {
         if (!done.isCompleted) done.completeError(e, s);

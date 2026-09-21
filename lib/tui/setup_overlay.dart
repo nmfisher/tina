@@ -29,7 +29,7 @@ Future<UserConfig?> runSetupOverlay({
     registry,
     env,
     tinaDir,
-    readEvent ?? editor.readKey,
+    readEvent ?? editor.captureKeyReader(),
     initial,
   ).run();
 }

@@ -11,6 +11,8 @@ class ControllerCommandAdapter implements CommandContext {
   final SessionController controller;
   ControllerCommandAdapter(this.controller);
   @override
+  Future<void>? get commandCancelSignal => controller.commandCancelSignal;
+  @override
   Conversation get active => controller.active;
   @override
   SessionManager get sessionManager => controller.sessionManager;

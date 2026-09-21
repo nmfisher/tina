@@ -46,6 +46,7 @@ abstract interface class SessionsCapabilities {
 }
 
 abstract interface class HistoryCapabilities {
+  Future<void>? get commandCancelSignal;
   Conversation get active;
   int get autoCompactThreshold;
   set autoCompactThreshold(int value);

@@ -335,7 +335,9 @@ void main() {
           await pumpEventQueue();
           expect(editor.isReadingKey, isTrue);
           io.feedBytes(key.codeUnits);
-          expect(await response.timeout(const Duration(seconds: 2)), expected);
+          final actual = await response.timeout(const Duration(seconds: 2));
+          expect(actual.decision, expected.decision);
+          expect(actual.remember, expected.remember);
         }
         expect(host.messages.join(), isNot(contains('input disabled')));
         // Outside an approval, text still cannot become a main-chat draft.

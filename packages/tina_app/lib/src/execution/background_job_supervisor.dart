@@ -23,6 +23,7 @@ class BackgroundJobSupervisor {
   bool _closing = false;
   int _next = 0;
   Future<void>? _shutdown;
+  bool get hasActiveJobs => _jobs.isNotEmpty;
   bool running(String kind) => _jobs.containsKey(kind);
   BackgroundJob? start(
     String kind,

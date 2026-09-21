@@ -71,11 +71,12 @@ Future<void> runMaximizedPanelOverlay({
       screen.colorize('2', ' ' * layout.width),
   ]);
 
+  final read = readEvent ?? editor.captureKeyReader();
   final prev = modalTakeFocus(editor);
   try {
     paintFrame();
     while (true) {
-      final ev = await (readEvent ?? editor.readKey)();
+      final ev = await read();
       if (ev is EscapeKey ||
           (ev is ControlKey &&
               (ev.code == ControlCode.ctrlC || ev.code == ControlCode.ctrlO))) {

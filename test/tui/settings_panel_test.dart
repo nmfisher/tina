@@ -101,6 +101,21 @@ void main() {
 
   // -- index menu -----------------------------------------------------------
 
+  test('double-Esc leaves nested settings without reopening the index', () async {
+    final screen = fakeScreen();
+    final editor = LineEditor(screen: screen);
+    addTearDown(editor.close);
+    final pending = runSettingsPanel(screen: screen, editor: editor,
+        registry: spawnRegistry(), env: const {}, tinaDir: tmp.dir);
+    await pumpEventQueue();
+    editor.inject(ControlKey(ControlCode.enter));
+    await pumpEventQueue();
+    editor.inject(EscapeKey());
+    editor.inject(EscapeKey());
+    expect(await pending.timeout(overlayTimeout), isNull);
+    expect(editor.isReadingKey, isFalse);
+  });
+
   test('Esc at the index closes settings, writing nothing', () async {
     final screen = fakeScreen();
     canned.events = [EscapeKey()];

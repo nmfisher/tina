@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:tina_app/tina_app.dart';
 import 'package:tina/config.dart';
+import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina/pipeline/workflow_permission_asker.dart';
 import 'package:tina_console/tina_console.dart';
@@ -1741,128 +1742,59 @@ void main() {
     },
   );
 
-  group('double-Esc force-cancels through an open approval', () {
-    // Owner bug 2026-08-24: "I pressed Escape twice and the border was still
-    // animating." A bash approval was open; its readKey loop eats single Escs
-    // as "deny", the model re-issued the denied call, and nothing ever
-    // stopped the turn. The parser must emit one EscapeKey per rapid press,
-    // the editor's 450ms double window must survive the readKey swipe, and
-    // the second Esc must force-cancel the run underneath the modal.
-    test('rapid Esc-Esc across two approvals stops the turn', () async {
-      final io = FakeStdio()..hasTerminalValue = false;
-      // Layout pinned on purpose. This test recognises the deny echo by
-      // counting the substring ' esc' in the raw paint stream, which holds
-      // only while the approval row is narrow enough that the echo lands on
-      // the same written row. The default layout is tiled (a wider chat), so
-      // the gesture is exercised under the sidebar geometry it was written
-      // against; the Esc semantics are what is under test, not the wrapping.
-      final config = Config.parse(const [
-        '--backend',
-        'ansi',
-        '--layout',
-        'sidebar',
-      ]);
-      // Each response re-issues the same denied bash call — the exact
-      // circuit-breaker shape (#27) that kept the comet sweeping.
-      List<StreamEvent> toolTurn(String id) => [
-        MessageComplete(
-          content: [
-            ToolUseBlock(
-              id: id,
-              name: 'bash',
-              input: const {'command': 'echo hi'},
-            ),
-          ],
-          stopReason: 'tool_use',
-        ),
-      ];
-      final app = await buildAppComposition(
-        config: config,
-        registry: builtinRegistry(),
-        provider: FakeProvider([toolTurn('c1'), toolTurn('c2')]),
-        store: MemorySessionStore(),
-        // Hermeticity: the background update check probes GitHub and drops a
-        // banner into the chat — a real release (0.4.1, 2026-08-24) landed it
-        // between the approval and the first Esc, breaking the echo this test
-        // pumps for. Timing-sensitive TUI tests must not see the network.
-        environment: FakeEnvironment(
-          env: {for (final e in Platform.environment.entries) e.key: e.value}
-            ..['COCOON_UPDATE_CHECK'] = '0',
-        ),
-      );
-      final coordinator = await TuiCoordinator.create(
-        app: app,
-        io: io,
-        terminalGeometry: const FakeTerminalGeometry(columns: 80, lines: 24),
-      );
-
-      int countOf(String needle) =>
-          needle.allMatches(io.written.toString().replaceAll('\n', ' ')).length;
-
-      Future<void> pumpUntil(
-        bool Function() cond, {
-        Duration timeout = const Duration(seconds: 5),
-      }) async {
-        final deadline = DateTime.now().add(timeout);
-        while (!cond()) {
-          if (DateTime.now().isAfter(deadline)) {
-            fail(
-              'pumpUntil timed out after ${timeout.inSeconds}s; output '
-              'tail:\n${io.written.toString().split('\n').skip(0).join('\n')}',
-            );
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 5));
-        }
+  test('double-Esc cancels approval with a draft and accepts immediate replacement', () async {
+    final io = FakeStdio()..hasTerminalValue = false;
+    final provider = _GatedApprovalProvider();
+    final app = await buildAppComposition(
+      config: Config.parse(const ['--backend', 'ansi']),
+      registry: builtinRegistry(),
+      provider: provider,
+      store: MemorySessionStore(),
+      environment: FakeEnvironment(env: {'COCOON_UPDATE_CHECK': '0'}),
+    );
+    final coordinator = await TuiCoordinator.create(
+      app: app, io: io,
+      terminalGeometry: const FakeTerminalGeometry(columns: 100, lines: 30),
+    );
+    final editor = coordinator.editor;
+    final conversation = coordinator.sessionManager.activeConversation;
+    final host = conversation.host as TuiConversationHost;
+    final busy = <bool>[];
+    final renderBusy = host.onBusyChanged;
+    host.onBusyChanged = (value) { busy.add(value); renderBusy?.call(value); };
+    final run = coordinator.run();
+    Future<void> until(bool Function() ready) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (!ready()) {
+        if (DateTime.now().isAfter(deadline)) fail('input/turn did not settle');
+        await pumpEventQueue();
       }
-
-      // The two Escs are separated by pump polling whose latency varies
-      // with code layout (a fresh kernel compile can flip this test), so the
-      // double-Esc window is widened for the run — the gesture semantics
-      // (deny, force-cancel, unwind) are what's under test, not the 450ms.
-      LineEditor.debugDoubleEscWindow = const Duration(seconds: 5);
-      final runFuture = coordinator.run().timeout(const Duration(seconds: 20));
-
-      io.feedBytes([0x68, 0x69, 0x0d]); // hi + Enter — starts the turn
-      await pumpUntil(() => countOf('approve?') >= 1); // approval #1 armed
-
-      io.feedBytes([0x1b]); // first Esc: denies approval #1
-      await pumpUntil(() => countOf(' esc') >= 1); // deny echo landed
-
-      // The model re-issues the denied call — approval #2 arms.
-      await pumpUntil(() => countOf('approve?') >= 2);
-
-      io.feedBytes([0x1b]); // second Esc, inside the widened window
-      // The turn MUST stop: force-cancel + the denial unwind. The end state
-      // (cancelled vs denied-to-completion) races the double-Esc force-cancel
-      // against the modal's own deny, so pin the invariant — not running —
-      // rather than one specific ending's echo.
-      await pumpUntil(
-        () => !coordinator.sessionManager.activeConversation.isRunning,
-        timeout: const Duration(seconds: 10),
-      );
-      LineEditor.debugDoubleEscWindow = null;
-
-      // Let the turn teardown settle before driving the prompt — keys fed
-      // mid-unwind are swallowed (queued/ignored) and the loop never sees
-      // the /exit.
-      await Future<void>.delayed(const Duration(milliseconds: 400));
-      io.feedBytes([0x2f, 0x65, 0x78, 0x69, 0x74, 0x0d]); // /exit + accept
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      io.feedBytes([0x0d]); // submit
-      await runFuture;
-
-      final out = io.written.toString();
-      expect(
-        out,
-        contains('[cancelled]'),
-        reason: 'the double-Esc force-cancelled turn is indicated',
-      );
-      expect(
-        out,
-        contains('approve?'),
-        reason: 'sanity: the approval row really opened',
-      );
-    });
+    }
+    await until(() => editor.pendingLine != null);
+    editor.inject(CharInput('first instruction'));
+    editor.inject(ControlKey(ControlCode.enter));
+    await until(() => conversation.isRunning && editor.pendingLine != null);
+    editor.inject(CharInput('unsent draft'));
+    provider.toolReady.complete();
+    await until(() => editor.isReadingKey);
+    expect(editor.editState.buffer, 'unsent draft');
+    editor.inject(EscapeKey());
+    editor.inject(EscapeKey());
+    editor.inject(CharInput('replacement instruction'));
+    editor.inject(ControlKey(ControlCode.enter));
+    await until(() => provider.calls.length == 2 && !conversation.isRunning);
+    expect(busy.last, isFalse);
+    expect(host.hasActiveRuns, isFalse);
+    expect(editor.isReadingKey, isFalse);
+    final prompts = conversation.history.where((m) => m.role == Role.user)
+        .expand((m) => m.content.whereType<TextBlock>()).map((b) => b.text);
+    expect(prompts, ['first instruction', 'replacement instruction']);
+    expect(conversation.history.expand((m) => m.content.whereType<TextBlock>())
+        .any((b) => b.text == '[cancelled]'), isTrue);
+    editor.inject(CharInput('/exit'));
+    editor.inject(ControlKey(ControlCode.enter));
+    await run.timeout(const Duration(seconds: 5));
+    io.close();
   });
 
   group('openModelPicker: offer the pick as the global default', () {
@@ -1982,5 +1914,20 @@ class GridProbe {
       if (vt.rowText(r).contains('mode: ask')) n++;
     }
     return n;
+  }
+}
+
+class _GatedApprovalProvider extends FakeProvider {
+  final toolReady = Completer<void>();
+  _GatedApprovalProvider() : super([
+    [MessageComplete(content: [ToolUseBlock(id: 'approval', name: 'bash',
+      input: const {'command': 'echo approval-test'})], stopReason: 'tool_use')],
+    [MessageComplete(content: [TextBlock('replacement complete')], stopReason: 'end_turn')],
+  ]);
+  @override
+  Stream<StreamEvent> send({required String system,
+    required List<Message> messages, required List<ToolSchema> tools}) async* {
+    if (calls.isEmpty) await toolReady.future;
+    yield* super.send(system: system, messages: messages, tools: tools);
   }
 }

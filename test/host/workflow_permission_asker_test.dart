@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:tina/pipeline/workflow_permission_asker.dart';
 import 'package:tina/host/tui_conversation_host.dart';
 import 'package:tina_console/tina_console.dart';
+import 'package:tina_console/testing.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
 
@@ -18,62 +19,108 @@ Future<void> _flush() async {
   await Future<void>.delayed(Duration.zero);
 }
 
+Matcher _samePermission(PermissionResponse expected) =>
+    isA<PermissionResponse>()
+        .having((r) => r.decision, 'decision', expected.decision)
+        .having((r) => r.remember, 'remember', expected.remember);
+
 void main() {
   for (final conversation in [false, true]) {
     for (final drafting in [false, true]) {
-      test('cancel releases approval conversation=$conversation drafting=$drafting', () async {
-        final io = FakeStdio();
-        final screen = Screen(io: io, layout: ScreenLayout.fromSize(160, 30), ansi: AnsiCapable.yes);
-        final editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
-        addTearDown(editor.close);
-        final host = TuiConversationHost(conversationId: 'test',
-            chat: screen.chat, screen: screen, editor: editor,
-            spinner: Spinner(enabled: false, region: screen.status), primary: true);
-        host.setActive(true);
-        final workflow = WorkflowPermissionAsker(sink: FakeAgentSink(), screen: screen, editor: editor);
-        final ask = conversation ? host.askPermission : workflow.ask;
-        if (drafting) {
-          unawaited(editor.readLine('> '));
+      test(
+        'cancel releases approval conversation=$conversation drafting=$drafting',
+        () async {
+          final io = FakeStdio();
+          final screen = Screen(
+            io: io,
+            layout: ScreenLayout.fromSize(160, 30),
+            ansi: AnsiCapable.yes,
+          );
+          final editor = LineEditor(
+            screen: screen,
+            escapeTimeout: Duration.zero,
+          );
+          addTearDown(editor.close);
+          final host = TuiConversationHost(
+            conversationId: 'test',
+            chat: screen.chat,
+            screen: screen,
+            editor: editor,
+            spinner: Spinner(enabled: false, region: screen.status),
+            primary: true,
+          );
+          host.setActive(true);
+          final workflow = WorkflowPermissionAsker(
+            sink: FakeAgentSink(),
+            screen: screen,
+            editor: editor,
+          );
+          final ask = conversation ? host.askPermission : workflow.ask;
+          if (drafting) {
+            unawaited(editor.readLine('> '));
+            await _flush();
+            io.feedBytes([0x78]);
+            await _flush();
+          }
+          final cancel = Completer<void>();
+          final pending = ask(
+            PermissionPrompt(
+              'bash',
+              const {'command': 'dart test'},
+              outsideSandbox: true,
+              cancelSignal: cancel.future,
+            ),
+          );
           await _flush();
-          io.feedBytes([0x78]);
+          cancel.complete();
+          expect(
+            (await pending.timeout(const Duration(seconds: 2))).decision,
+            PermissionDecision.deny,
+          );
+          expect(editor.isReadingKey, isFalse);
+          if (drafting) {
+            expect(editor.editState.buffer, 'x');
+            io.feedBytes([0x0d]);
+            await _flush();
+          }
+          // An abandoned read must not capture the next prompt's answer.
+          final next = ask(_bashPrompt('next'));
           await _flush();
-        }
-        final cancel = Completer<void>();
-        final pending = ask(PermissionPrompt('bash', const {'command': 'dart test'},
-            outsideSandbox: true, cancelSignal: cancel.future));
-        await _flush();
-        cancel.complete();
-        expect((await pending.timeout(const Duration(seconds: 2))).decision, PermissionDecision.deny);
-        expect(editor.isReadingKey, isFalse);
-        if (drafting) {
-          expect(editor.editState.buffer, 'x');
-          io.feedBytes([0x0d]);
-          await _flush();
-        }
-        // An abandoned read must not capture the next prompt's answer.
-        final next = ask(_bashPrompt('next'));
-        await _flush();
-        io.feedBytes([0x79]);
-        expect((await next.timeout(const Duration(seconds: 2))).decision, PermissionDecision.allow);
-      });
+          io.feedBytes([0x79]);
+          expect(
+            (await next.timeout(const Duration(seconds: 2))).decision,
+            PermissionDecision.allow,
+          );
+        },
+      );
     }
   }
 
-  test('cancelled queued read leaves the current keyboard owner intact', () async {
-    final io = FakeStdio();
-    final screen = Screen(io: io, layout: ScreenLayout.fromSize(160, 30), ansi: AnsiCapable.yes);
-    final editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
-    addTearDown(editor.close);
-    final owner = editor.readKey();
-    await _flush();
-    final cancel = Completer<void>();
-    final queued = editor.readKey(globalKeys: true, cancelSignal: cancel.future);
-    cancel.complete();
-    expect(await queued, ControlKey(ControlCode.ctrlC));
-    expect(editor.isReadingKey, isTrue);
-    io.feedBytes([0x79]);
-    expect(await owner, CharInput('y'));
-  });
+  test(
+    'cancelled queued read leaves the current keyboard owner intact',
+    () async {
+      final io = FakeStdio();
+      final screen = Screen(
+        io: io,
+        layout: ScreenLayout.fromSize(160, 30),
+        ansi: AnsiCapable.yes,
+      );
+      final editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
+      addTearDown(editor.close);
+      final owner = editor.readKey();
+      await _flush();
+      final cancel = Completer<void>();
+      final queued = editor.readKey(
+        globalKeys: true,
+        cancelSignal: cancel.future,
+      );
+      cancel.complete();
+      expect(await queued, ControlKey(ControlCode.ctrlC));
+      expect(editor.isReadingKey, isTrue);
+      io.feedBytes([0x79]);
+      expect(await owner, CharInput('y'));
+    },
+  );
 
   for (final conversation in [false, true]) {
     for (final (keys, decision, remember) in [
@@ -81,25 +128,49 @@ void main() {
       ([0x64], PermissionDecision.deny, false),
       ([0x61], PermissionDecision.allow, true),
       ([0x1b, 0x5b, 0x42, 0x0d], PermissionDecision.allow, true),
-      ([0x1b, 0x5b, 0x42, 0x1b, 0x5b, 0x42, 0x0d], PermissionDecision.deny, false),
+      (
+        [0x1b, 0x5b, 0x42, 0x1b, 0x5b, 0x42, 0x0d],
+        PermissionDecision.deny,
+        false,
+      ),
       // 0x03 removed: Ctrl+C is the quit flow in the editor and can no longer
       // settle an approval as a deny; Esc (0x1b) is the deny gesture.
     ]) {
       test('outside approval conversation=$conversation keys=$keys', () async {
         final io = FakeStdio();
-        final screen = Screen(io: io, layout: ScreenLayout.fromSize(160, 30), ansi: AnsiCapable.yes);
+        final screen = Screen(
+          io: io,
+          layout: ScreenLayout.fromSize(160, 30),
+          ansi: AnsiCapable.yes,
+        );
         final editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
         final sink = FakeAgentSink();
-        final host = TuiConversationHost(conversationId: 'test',
-            chat: screen.chat, screen: screen, editor: editor,
-            spinner: Spinner(enabled: false, region: screen.status), primary: true);
+        final host = TuiConversationHost(
+          conversationId: 'test',
+          chat: screen.chat,
+          screen: screen,
+          editor: editor,
+          spinner: Spinner(enabled: false, region: screen.status),
+          primary: true,
+        );
         host.setActive(true);
-        final workflow = WorkflowPermissionAsker(sink: sink, screen: screen, editor: editor);
-        final prompt = PermissionPrompt('bash', const {'command': 'dart test'},
-            outsideSandbox: true, retryExplanation: 'Read-only file system');
-        final pending = conversation ? host.askPermission(prompt) : workflow.ask(prompt);
+        final workflow = WorkflowPermissionAsker(
+          sink: sink,
+          screen: screen,
+          editor: editor,
+        );
+        final prompt = PermissionPrompt(
+          'bash',
+          const {'command': 'dart test'},
+          outsideSandbox: true,
+          retryExplanation: 'Read-only file system',
+        );
+        final pending = conversation
+            ? host.askPermission(prompt)
+            : workflow.ask(prompt);
         await _flush();
-        final output = conversation ? io.written.toString() : sink.notices.map((n) => n.message).join();
+        final output =
+            io.written.toString() + sink.notices.map((n) => n.message).join();
         expect(output, contains('definitely OK'));
         expect(output, contains('run outside sandbox once'));
         expect(output, contains('outside for session'));
@@ -158,7 +229,7 @@ void main() {
       expect(notices, contains('Read-only file system'));
       expect(notices, contains('tests never started'));
       expect(notices, contains('so the command can be retried'));
-      expect(notices, contains('[a] session directories'));
+      expect(io.written.toString(), contains('[a] session directories'));
       expect(notices, isNot(contains('[d]eny always')));
       // The old deny-always shortcut must not silently install a command rule.
       io.feedBytes([0x64]);
@@ -172,56 +243,44 @@ void main() {
     });
   }
 
-  test(
-    'askPermission readKey waits while the user is typing a prompt',
-    () async {
-      // Live repro (80x24, real provider): the env ceremony's first approval
-      // armed while the user was still typing their prompt; the prompt's Enter
-      // answered the approval as a deny (not y/a/d) and the prompt was never
-      // submitted. The asker must wait for the in-flight readLine to submit
-      // before arming its readKey.
-      final io = FakeStdio();
-      final screen = Screen(
-        io: io,
-        layout: ScreenLayout.fromSize(80, 24),
-        ansi: AnsiCapable.yes,
-      );
-      final ed = LineEditor(screen: screen, escapeTimeout: Duration.zero);
-      final sink = FakeAgentSink();
-      final asker = WorkflowPermissionAsker(
-        sink: sink,
-        screen: screen,
-        editor: ed,
-      );
-
-      // The user is typing a prompt (readLine pending) when the approval lands.
-      final line = ed.readLine('> ');
-      await _flush();
-      io.feedBytes([0x61]); // 'a'
-      await _flush();
-      final ask = asker.ask(_bashPrompt('ls -la'));
-      await _flush();
-
-      // The approval's readKey is not armed yet — it must wait for the submit.
-      expect(
-        ed.isReadingKey,
-        isFalse,
-        reason: 'approval must not arm while the user is typing',
-      );
-
-      // The Enter submits the user's prompt — it must NOT answer the approval.
-      io.feedBytes([0x0d]);
-      final submitted = await line.timeout(const Duration(seconds: 2));
-      expect(submitted, 'a', reason: 'the prompt must submit, not be eaten');
-
-      // Now the approval arms and the next key answers it.
-      await _flush();
-      expect(ed.isReadingKey, isTrue);
-      io.feedBytes([0x79]); // 'y'
-      final response = await ask.timeout(const Duration(seconds: 2));
-      expect(response, PermissionResponse.allowOnce);
-    },
-  );
+  for (final conversation in [false, true]) {
+    test(
+      'approval accepts an answer with an unsent draft conversation=$conversation',
+      () async {
+        final io = FakeStdio();
+        final screen = Screen(io: io, layout: ScreenLayout.fromSize(80, 24));
+        final editor = LineEditor(screen: screen);
+        addTearDown(editor.close);
+        final host = TuiConversationHost(
+          conversationId: 'test',
+          chat: screen.chat,
+          screen: screen,
+          editor: editor,
+          spinner: Spinner(enabled: false, region: screen.status),
+          primary: true,
+        );
+        host.setActive(true);
+        final workflow = WorkflowPermissionAsker(
+          sink: FakeAgentSink(),
+          screen: screen,
+          editor: editor,
+        );
+        final line = editor.readLine('> ');
+        await _flush();
+        editor.inject(CharInput('unsent draft'));
+        final pending = (conversation ? host.askPermission : workflow.ask)(
+          _bashPrompt('ls'),
+        );
+        await _flush();
+        expect(editor.isReadingKey, isTrue);
+        editor.inject(CharInput('y'));
+        expect((await pending).decision, PermissionDecision.allow);
+        expect(editor.editState.buffer, 'unsent draft');
+        editor.inject(ControlKey(ControlCode.enter));
+        expect(await line, 'unsent draft');
+      },
+    );
+  }
 
   test(
     'empty pending readLine does not stall the approval (no deadlock)',
@@ -263,59 +322,71 @@ void main() {
       // The first key answers it.
       io.feedBytes([0x79]); // 'y'
       final response = await ask.timeout(const Duration(seconds: 2));
-      expect(response, PermissionResponse.allowOnce);
+      expect(response, _samePermission(PermissionResponse.allowOnce));
 
       // The input loop's readLine is still pending untouched.
       expect(ed.isEditing, isTrue);
     },
   );
 
-  test(
-    'arrows move the selection without deciding; Enter confirms it',
-    () async {
-      // 02ddd3e made approvals a selectable list: ↑/↓ move the highlight,
-      // Enter confirms the highlighted option, y/n/a/d remain shortcuts.
-      // An arrow must never decide the ask; Enter now MUST (it is the
-      // confirm key), so it is asserted positively here.
-      final io = FakeStdio();
-      final screen = Screen(
-        io: io,
-        layout: ScreenLayout.fromSize(80, 24),
-        ansi: AnsiCapable.yes,
-      );
-      final ed = LineEditor(screen: screen, escapeTimeout: Duration.zero);
-      final asker = WorkflowPermissionAsker(
-        sink: FakeAgentSink(),
-        screen: screen,
-        editor: ed,
-      );
+  for (final conversation in [false, true]) {
+    test(
+      'approval choices are vertical and arrows move the marker conversation=$conversation',
+      () async {
+        final io = FakeStdio();
+        final screen = Screen(
+          io: io,
+          layout: ScreenLayout.fromSize(100, 30),
+          ansi: AnsiCapable.yes,
+        );
+        final editor = LineEditor(screen: screen);
+        addTearDown(editor.close);
+        final host = TuiConversationHost(
+          conversationId: 'test',
+          chat: screen.chat,
+          screen: screen,
+          editor: editor,
+          spinner: Spinner(enabled: false, region: screen.status),
+          primary: true,
+        );
+        host.setActive(true);
+        final workflow = WorkflowPermissionAsker(
+          sink: FakeAgentSink(),
+          screen: screen,
+          editor: editor,
+        );
+        final ask = (conversation ? host.askPermission : workflow.ask)(
+          _bashPrompt('cargo test'),
+        );
+        await _flush();
+        List<String> rows() {
+          final terminal = VirtualTerminal(width: 100, height: 30)
+            ..feed(io.written.toString());
+          return [for (var row = 0; row < 30; row++) terminal.rowText(row)];
+        }
 
-      final ask = asker.ask(_bashPrompt('cargo test'));
-      var decided = false;
-      unawaited(ask.whenComplete(() => decided = true));
-      await _flush();
-      expect(ed.isReadingKey, isTrue);
-
-      // ↑ arrow — not an answer, just redraws the row with the selection.
-      io.feedBytes([0x1b, 0x5b, 0x41]);
-      await _flush();
-      expect(
-        decided,
-        isFalse,
-        reason: 'an arrow key is not an answer — the read stays armed',
-      );
-
-      // Enter — the confirm key: it settles the ask with the highlighted
-      // option. No arrow was answered with, so the default (allow once).
-      io.feedBytes([0x0d]);
-      final response = await ask.timeout(const Duration(seconds: 2));
-      expect(
-        response,
-        PermissionResponse.allowOnce,
-        reason: 'Enter confirms the highlighted option',
-      );
-    },
-  );
+        final initial = rows();
+        final allow = initial.indexWhere(
+          (row) => row.contains('[y] allow once'),
+        );
+        final deny = initial.indexWhere((row) => row.contains('[n] deny once'));
+        expect(allow, greaterThanOrEqualTo(0));
+        expect(deny, allow + 1);
+        expect(initial[allow], contains('▸'));
+        editor.inject(ArrowKey(ArrowDirection.down));
+        await _flush();
+        expect(rows()[deny], contains('▸'));
+        editor.inject(ArrowKey(ArrowDirection.up));
+        await _flush();
+        expect(rows()[allow], contains('▸'));
+        editor.inject(ArrowKey(ArrowDirection.down));
+        await _flush();
+        editor.inject(ControlKey(ControlCode.enter));
+        expect(await ask, _samePermission(PermissionResponse.denyOnce));
+        expect(editor.isReadingKey, isFalse);
+      },
+    );
+  }
 
   test(
     'Ctrl+C arms the quit confirm and never settles the approval; Esc denies',
@@ -338,12 +409,15 @@ void main() {
       var settled = false;
       response.then((_) => settled = true);
       await _flush();
-      expect(settled, isFalse,
-          reason: 'the first ctrl+c is the quit flow, not a deny');
+      expect(
+        settled,
+        isFalse,
+        reason: 'the first ctrl+c is the quit flow, not a deny',
+      );
       io.feedBytes([0x1b]); // esc denies the prompt
       expect(
         await response.timeout(const Duration(seconds: 2)),
-        PermissionResponse.denyOnce,
+        _samePermission(PermissionResponse.denyOnce),
       );
       expect(editor.isReadingKey, isFalse);
       editor.close();
@@ -371,7 +445,7 @@ void main() {
     await _flush();
     expect(
       await esc.timeout(const Duration(seconds: 2)),
-      PermissionResponse.denyOnce,
+      _samePermission(PermissionResponse.denyOnce),
     );
 
     // 'n' — an explicit single deny.
@@ -380,7 +454,7 @@ void main() {
     io.feedBytes([0x6e]); // 'n'
     expect(
       await n.timeout(const Duration(seconds: 2)),
-      PermissionResponse.denyOnce,
+      _samePermission(PermissionResponse.denyOnce),
     );
 
     // 'd' — deny + remember.
@@ -389,7 +463,7 @@ void main() {
     io.feedBytes([0x64]); // 'd'
     expect(
       await d.timeout(const Duration(seconds: 2)),
-      PermissionResponse.denyAlways,
+      _samePermission(PermissionResponse.denyAlways),
     );
   });
 
@@ -425,9 +499,9 @@ void main() {
     // never to the screen — assert on what the fake recorded.
     String notices() => sink.notices.map((n) => n.message).join('\n');
     expect(
-      notices(),
-      contains('approve? [y] allow once [a] allow always [d] deny ‹'),
-      reason: '(a) the row names what each key decides',
+      io.written.toString(),
+      contains('[y] allow once'),
+      reason: 'the overlay names what each key decides',
     );
     expect(
       notices(),
@@ -465,7 +539,7 @@ void main() {
     io.feedBytes([0x6e]); // 'n' — the answer
     expect(
       await ask.timeout(const Duration(seconds: 2)),
-      PermissionResponse.denyOnce,
+      _samePermission(PermissionResponse.denyOnce),
     );
   });
 

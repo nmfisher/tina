@@ -5,6 +5,7 @@ import 'package:tina_engine/tina_engine.dart';
 
 import '../tui/attention_queue.dart';
 import '../tui/spawn_overlay.dart';
+import '../tui/text_input_overlay.dart';
 
 /// The tina implementation of attractor's [Interviewer]. At a `hexagon`/human
 /// gate, it presents the question using the TUI's existing overlay/key-capture
@@ -34,7 +35,8 @@ class TinaInterviewer implements Interviewer {
     if (!_interactive) return const HeadlessInterviewer().ask(question);
     final queue = attentionQueue;
     if (queue == null) return _ask(question);
-    return queue.run(() => _ask(question), onQueued: _notifyQueued);
+    return queue.run(() => _ask(question),
+        onCancel: () => const Answer.cancelled(), onQueued: _notifyQueued);
   }
 
   Future<Answer> _ask(Question question) async {
@@ -81,8 +83,9 @@ class TinaInterviewer implements Interviewer {
     // Only y/n decide (Esc counts as no — the "get me out" key). Anything
     // else — arrows, Enter, stray characters — is not an answer and must
     // not decide the gate; the read stays armed for the next key.
+    final read = editor!.captureKeyReader(globalKeys: true);
     while (true) {
-      final ev = await editor!.readKey(globalKeys: true);
+      final ev = await read();
       if (ev is CharInput) {
         final ch = ev.text.toLowerCase();
         if (ch == 'y') {
@@ -91,6 +94,8 @@ class TinaInterviewer implements Interviewer {
         if (ch == 'n') {
           return const Answer(kind: AnswerValue.no, value: 'no');
         }
+      } else if (ev is ControlKey && ev.code == ControlCode.ctrlC) {
+        return const Answer.cancelled();
       } else if (ev is EscapeKey) {
         return const Answer(kind: AnswerValue.no, value: 'no');
       }
@@ -98,7 +103,7 @@ class TinaInterviewer implements Interviewer {
   }
 
   Future<Answer> _freeform(Question q) async {
-    final text = await editor!.readLine('? ');
+    final text = await runTextInputOverlay(screen: screen!, editor: editor!, prompt: q.text);
     if (text == null) return const Answer.cancelled();
     return Answer(text: text, value: text);
   }

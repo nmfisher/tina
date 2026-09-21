@@ -465,6 +465,59 @@ void main() {
       expect((controller.active.history.last.content.single as TextBlock).text, '[cancelled]');
     });
 
+    test('cancelNow stops inactive conversations and all background job kinds', () async {
+      final controller = _buildController(readLine: FakeReadLine(), provider: _SlowProvider());
+      final original = controller.active;
+      controller.turns.submit(original.id, 'background turn');
+      await controller.newSession();
+      expect(controller.active, isNot(same(original)));
+      expect(controller.active.isRunning, isFalse);
+      final job = controller.jobs.start('custom-job', original.id, (job) => job.cancelled)!;
+      expect(controller.cancelNow(), isTrue);
+      await Future.wait([controller.turns.whenIdle(original.id), job.done]);
+      expect(original.isRunning, isFalse);
+      expect(job.cancellationRequested, isTrue);
+      expect(controller.jobs.hasActiveJobs, isFalse);
+      await controller.shutdown();
+    });
+
+    test('cancelNow stops manual compaction and releases command dispatch', () async {
+      final input = FakeReadLine();
+      final controller = _buildController(readLine: input, provider: _SlowProvider());
+      controller.active.history.add(const Message(role: Role.user, content: [TextBlock('history')]));
+      input.enqueue('/compact');
+      final run = controller.run();
+      await _pumpUntil(() => hostOf(controller).sink.texts.contains('streaming'));
+      expect(controller.cancelNow(), isTrue);
+      await _pumpUntil(() => controller.commandCancelSignal == null);
+      expect(hostOf(controller).activitySignals.last, isFalse);
+      expect(controller.active.history.single.content.single, isA<TextBlock>());
+      input.close();
+      await run;
+    });
+
+    test('cancelNow discards pending instructions and accepts a replacement', () async {
+      final input = FakeReadLine();
+      final controller = _buildController(readLine: input, provider: _SlowProvider());
+      input.enqueue('first');
+      final run = controller.run();
+      await _pumpUntil(() => controller.active.isRunning);
+      input.enqueue('discard me');
+      await _pumpUntil(() => controller.active.messageQueue.isNotEmpty);
+      controller.cancelNow();
+      await controller.turns.whenIdle(controller.active.id);
+      expect(controller.active.messageQueue.isEmpty, isTrue);
+      expect(hostOf(controller).activitySignals.last, isFalse);
+      expect(hostOf(controller).messages.any((m) => m.startsWith('discard me\n')), isFalse);
+      input.enqueue('replacement');
+      await _pumpUntil(() => controller.active.isRunning);
+      expect((controller.active.history.last.content.first as TextBlock).text, 'replacement');
+      controller.cancelNow();
+      await controller.turns.whenIdle(controller.active.id);
+      input.close();
+      await run;
+    });
+
     test('#31: cancelling a turn keeps the queue and drains it into the next '
         'turn (previously "[N queued messages discarded]")', () async {
       final rl = FakeReadLine();
@@ -479,7 +532,8 @@ void main() {
       await _pumpUntil(() => controller.active.messageQueue.length == 2,
           reason: 'both messages queued while running');
 
-      controller.cancelNow(); // rapid-Esc cancel
+      controller.cancelActiveTurn(); // ordinary cancellation retains the queue
+      controller.cancelActiveTurn();
       // The unwind retains the cancelled exchange and drains survivor 1
       // into the next turn; pump until that turn is running.
       await _pumpUntil(

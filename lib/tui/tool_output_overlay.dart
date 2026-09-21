@@ -41,11 +41,12 @@ Future<void> runToolOutputViewer({
 
   void paint() => overlay.show(frame().split('\n'));
 
+  final read = readEvent ?? editor.captureKeyReader();
   final prev = modalTakeFocus(editor);
   try {
     paint();
     while (true) {
-      final ev = await (readEvent ?? editor.readKey)();
+      final ev = await read();
       if (ev is EscapeKey ||
           (ev is ControlKey && ev.code == ControlCode.ctrlC)) {
         break;

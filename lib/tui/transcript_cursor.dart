@@ -48,10 +48,11 @@ Future<void> runTranscriptCursor({
   }
 
   paint();
+  final read = readEvent ?? editor.captureKeyReader();
   final prev = modalTakeFocus(editor);
   try {
     while (true) {
-      final event = await (readEvent ?? editor.readKey)();
+      final event = await read();
 
       if (event is EscapeKey) break;
       if (event is ControlKey &&

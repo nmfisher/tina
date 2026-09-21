@@ -34,7 +34,7 @@ Future<String?> runModelSearchOverlay({
       providerNames,
       title,
       recentRefs,
-      readEvent ?? editor.readKey,
+      readEvent ?? editor.captureKeyReader(),
       accent,
     ).run();
 

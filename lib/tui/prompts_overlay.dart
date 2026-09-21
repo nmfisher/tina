@@ -31,7 +31,7 @@ Future<UserConfig?> runPromptsOverlay({
     pipeline,
     env,
     tinaDir,
-    readEvent ?? editor.readKey,
+    readEvent ?? editor.captureKeyReader(),
     initial ?? UserConfig.empty,
   ).run();
 }

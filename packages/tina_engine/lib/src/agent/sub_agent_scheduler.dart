@@ -1248,9 +1248,7 @@ class SubAgentScheduler {
 
   /// Cancel every live job (session/app teardown).
   Future<void> cancelAll() async {
-    for (final job in _jobs) {
-      await job.cancel();
-    }
+    await Future.wait(_jobs.toList().map((job) => job.cancel()));
   }
 
   /// Release resources. After this, [events] closes and further spawns are

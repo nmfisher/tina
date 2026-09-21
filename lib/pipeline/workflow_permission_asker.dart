@@ -3,6 +3,7 @@ import 'package:tina_engine/tina_engine.dart';
 
 import '../host/tui_conversation_host.dart';
 import '../tui/attention_queue.dart';
+import '../tui/permission_approval.dart';
 
 /// The interactive permission asker for workflow node agents — the
 /// `launch_workflow` counterpart of the main conversation's
@@ -46,6 +47,7 @@ class WorkflowPermissionAsker {
     if (queue == null) return _ask(p);
     return queue.run(
       () => _ask(p),
+      onCancel: () => PermissionResponse.denyOnce,
       onQueued: () {
         sink.notice(
           'waiting for your input — another dialog is open…',
@@ -118,117 +120,12 @@ class WorkflowPermissionAsker {
       final host = sink as TuiConversationHost;
       host.chat.ensureNewline();
     }
-    // Approval is a selectable list (up/down arrows) with Enter to confirm.
-    final isSandboxAccess = p.sandboxAccess != null;
-    final options = [
-      (text: p.outsideSandbox ? 'run outside sandbox once' : 'allow once', key: 'y'),
-      (
-        text: p.outsideSandbox ? 'outside for session'
-            : isSandboxAccess ? 'session directories' : 'allow always',
-        key: 'a',
-      ),
-      (text: 'deny', key: 'd'),
-    ];
-    var selectedIndex = 0;
-    final optionStr = options.map((o) => '[${o.key}] ${o.text}').join(' ');
-    _write('  approve? $optionStr ‹ ', HostMessageStyle.normal);
-    // If the user is mid-prompt (a readLine in flight WITH unsent content),
-    // the approval must not steal their typing — the prompt's Enter would
-    // answer this readKey as a deny (it is not y/a/d) and the prompt would
-    // never be submitted. Wait for the readLine to submit before arming;
-    // the approval's own row stays visible meanwhile.
-    //
-    // The TUI's input loop ALWAYS sits in readLine (the next prompt is armed
-    // the moment the current one submits), so an empty pending readLine must
-    // NOT trigger the wait — that deadlocks every approval behind the user's
-    // next prompt (live vanish in the sweep runs: 22 queued 'y's, the
-    // approval never armed).
-    final pending = editor!.pendingLine;
-    if (pending != null && editor!.editState.buffer.isNotEmpty) {
-      if (p.cancelSignal == null) {
-        await pending.catchError((_) => '');
-      } else {
-        final stopped = await Future.any([
-          pending.then((_) => false, onError: (_) => false),
-          p.cancelSignal!.then((_) => true),
-        ]);
-        if (stopped) return PermissionResponse.denyOnce;
-      }
-    }
-    // globalKeys: the focus ring's shortcuts cycle panels, they must not
-    // answer the approval (tin-c5nw).
-    //
-    // Approval is a selectable list: up/down arrows to choose, Enter to confirm.
-    // Old y/n/a/d keys still work as shortcuts. Esc still denies — the
-    // "get me out" key keeps its meaning.
-    // #51c: exactly ONE dimmed ack per ask — the first non-answer key proves
-    // the prompt is alive (its keys are being swallowed), later ones stay
-    // silent so a wheel spam or a stuck key can't flood the transcript.
-    var ackedIgnoredKey = false;
-    while (true) {
-      final event = await editor!.readKey(globalKeys: true, cancelSignal: p.cancelSignal);
-      if (event is CharInput) {
-        switch (event.text.toLowerCase()) {
-          case 'y':
-            _write('y\n', HostMessageStyle.normal);
-            return PermissionResponse.allowOnce;
-          case 'a':
-            _write('a\n', HostMessageStyle.normal);
-            return PermissionResponse.allowAlways;
-          case 'd':
-            if (p.outsideSandbox) return PermissionResponse.denyOnce;
-            if (isSandboxAccess) break;
-            _write('d\n', HostMessageStyle.normal);
-            return PermissionResponse.denyAlways;
-          case 'n':
-            _write('n\n', HostMessageStyle.normal);
-            return PermissionResponse.denyOnce;
-        }
-      } else if (event is ArrowKey) {
-        // Up/down arrows cycle through the approval options.
-        if (event.direction == ArrowDirection.up) {
-          if (selectedIndex > 0) selectedIndex--;
-        } else if (event.direction == ArrowDirection.down) {
-          if (selectedIndex < options.length - 1) selectedIndex++;
-        }
-        // Redraw the approval row with updated selection.
-        _write('\x1b[1A\x1b[2K', HostMessageStyle.normal); // move up and clear
-        final optionStr = options.map((o) => '[${o.key}] ${o.text}').join(' ');
-        _write('  approve? $optionStr ‹ ', HostMessageStyle.normal);
-      } else if (event is EscapeKey) {
-        _write('esc\n', HostMessageStyle.normal);
-        return PermissionResponse.denyOnce;
-      } else if (event is ControlKey && event.code == ControlCode.ctrlC) {
-        _write('cancelled\n', HostMessageStyle.normal);
-        return PermissionResponse.denyOnce;
-      } else if (event is ControlKey && event.code == ControlCode.enter) {
-        final selected = options[selectedIndex];
-        _write(selected.text, HostMessageStyle.normal);
-        switch (selected.key) {
-          case 'y':
-            _write('\n', HostMessageStyle.normal);
-            return PermissionResponse.allowOnce;
-          case 'a':
-            _write('\n', HostMessageStyle.normal);
-            return PermissionResponse.allowAlways;
-          case 'd':
-            if (p.outsideSandbox) return PermissionResponse.denyOnce;
-            if (isSandboxAccess) continue;
-            _write('\n', HostMessageStyle.normal);
-            return PermissionResponse.denyAlways;
-          default:
-            continue;
-        }
-      }
-      // Not an answer key: the read stays armed. One-shot ack on the first
-      // one that surfaces here; keys the focus ring consumes (panel cycling)
-      // never reach this loop and get no ack — that is the point of #51c,
-      // feedback for keys the prompt itself swallowed.
-      if (!ackedIgnoredKey) {
-        ackedIgnoredKey = true;
-        _write(ignoredKeyAck, HostMessageStyle.dim);
-      }
-    }
+    return runPermissionApproval(
+      screen: screen!,
+      editor: editor!,
+      prompt: p,
+      write: (text) => _write(text, HostMessageStyle.normal),
+    );
   }
 
   /// Render through the sink, using the host's message styles when it has

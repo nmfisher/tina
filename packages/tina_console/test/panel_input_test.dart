@@ -125,14 +125,17 @@ void main() {
     expect(interrupts, 0);
   });
 
-  test('Escape cancels cycling, then belongs to the panel again', () {
+  test('double Escape leaves an exclusive panel and returns chat input', () {
     editor.inject(ControlKey(ControlCode.ctrlG));
     editor.inject(EscapeKey());
     expect(focus.isCycling, isFalse);
     expect(focus.focused, same(panel));
     final escape = EscapeKey();
     editor.inject(escape);
-    expect(received, [escape]);
+    expect(received, isEmpty);
+    expect(focus.focused, same(chat));
+    editor.inject(CharInput('new instruction'));
+    expect(editor.editState.buffer, 'new instruction');
   });
 
   test('queue and cancel monitoring do not take input from the panel', () {

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:tina/host/tui_conversation_host.dart';
+import 'package:tina/pipeline/workflow_permission_asker.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
@@ -143,6 +144,33 @@ void main() {
           PermissionDecision.allow);
     });
 
+    for (final workflow in [false, true]) {
+      test('wheel and arrow bursts do not append approvals workflow=$workflow', () async {
+        final ask = workflow
+            ? WorkflowPermissionAsker(sink: host, screen: screen, editor: editor).ask
+            : host.askPermission;
+        final pending = ask(bashPrompt());
+        await _flush();
+        final rows = screen.chat.contentRows;
+        final beforeWheel = io.written.length;
+        for (var i = 0; i < 20; i++) {
+          editor.inject(ScrollEvent(up: i.isEven));
+          await _flush();
+        }
+        expect(io.written.length, beforeWheel,
+            reason: 'wheel events do not print or repaint the approval');
+        for (var i = 0; i < 20; i++) {
+          editor.inject(ArrowKey(i.isEven ? ArrowDirection.down : ArrowDirection.up));
+          await _flush();
+        }
+        expect(screen.chat.contentRows, rows,
+            reason: 'arrows change the overlay, never append transcript rows');
+        expect(editor.isReadingKey, isTrue);
+        editor.inject(ControlKey(ControlCode.enter));
+        expect((await pending.timeout(const Duration(seconds: 2))).decision, PermissionDecision.allow);
+      });
+    }
+
     test('arrow selection moves the highlighted answer', () async {
       final pending = host.askPermission(bashPrompt());
       await _flush();
@@ -154,28 +182,13 @@ void main() {
       expect(response.remember, isFalse);
     });
 
-    test('the redraw repeats the row it printed, verbatim', () async {
-      final pending = host.askPermission(bashPrompt());
-      await _flush();
-      final row = bashPrompt().approvalOptionsText;
-      io.feedBytes([0x1b, 0x5b, 0x42]); // down arrow
-      await _flush();
-      expect(output().split(row).length - 1, greaterThanOrEqualTo(2),
-          reason: 'the row is printed and then redrawn from the same string:\n'
-              '${output()}');
-      io.feedBytes([0x79]);
-      await pending.timeout(const Duration(seconds: 2));
-    });
-
-    test('an outside-sandbox answer echoes and closes its row', () async {
+    test('an outside-sandbox answer records its decision', () async {
       // Pressing d used to answer without echoing or terminating the row.
       final response = await answer(outsidePrompt(), [0x64]);
       expect(response.decision, PermissionDecision.deny);
       expect(response.remember, isFalse,
           reason: 'outside-sandbox prompts have no deny-always');
-      // The echo lands on the row it answered (the row-owner write closes the
-      // row rather than emitting a bare newline).
-      expect(output(), contains('‹ d'));
+      expect(output(), contains('  deny'));
     });
 
     test('an outside-sandbox allow-for-session carries its own scope', () async {

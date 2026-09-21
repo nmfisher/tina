@@ -69,6 +69,8 @@ class LineEditor {
   // Whether the armed [_keyCompleter] yields to the focus ring's global keys
   // (see [readKey]). Cleared with the completer it belongs to.
   bool _keyCompleterGlobal = false;
+  bool _keyPanelNavigation = true;
+  void Function()? _restoreKeyMonitor;
   // Turn token serializing concurrent [readKey] callers. readKey overwrites
   // [_keyCompleter] with no save/restore, so without serialization a second
   // caller would orphan the first (it would never complete). Non-null while a
@@ -78,6 +80,7 @@ class LineEditor {
 
   // Queue-mode state (active during cancel monitoring when queue params set).
   String _qBuf = '';
+  ({String buffer, int cursor})? _capturedDraft;
   int _qCursor = 0;
   void Function(String)? _onQueueSubmit;
   int _qCount = 0;
@@ -118,20 +121,12 @@ class LineEditor {
   /// Remove [surface] from first-claim dispatch. No-op if not registered.
   void unregisterModal(ModalSurface surface) => _modals.remove(surface);
 
-  /// Called on a **double** ESC at the chat prompt. Return `true` if a running
-  /// operation was cancelled (the REPL cancels the active session's in-flight
-  /// turn); return `false` to instead clear the input. Single ESC no longer
-  /// cancels or opens the menu — it just arms the double-ESC window.
+  /// Handle a single Esc that reaches the chat input.
   bool Function()? onEscape;
 
-  /// Called when a second standalone Esc arrives within the double-Esc window
-  /// (~450ms) — from ANY input context: the prompt's own dispatch, or a
-  /// modal's armed [readKey] (a permission approval swallows single Escs as
-  /// "deny", so the prompt-level [onEscape] never sees them). Return `true`
-  /// when the gesture was handled (a running turn was force-cancelled); the
-  /// dispatch path then consumes the event. The readKey path always delivers
-  /// the event afterwards, so the modal's own Esc semantics still close its
-  /// row while the run underneath is stopping.
+  /// Cancel pending work on rapid Esc-Esc, before any panel or prompt can
+  /// consume it. The editor also releases pending key reads, dismisses input
+  /// overlays, returns focus home, and clears the draft.
   bool Function()? onDoubleEscape;
 
   /// Cancel running work on Ctrl+C, including while a global approval is
@@ -179,6 +174,8 @@ class LineEditor {
   /// Timestamp of the last standalone ESC at the prompt, for double-Esc
   /// detection. Null after a double completes or the window elapses.
   DateTime? _lastEsc;
+  DateTime? _lastGlobalEsc;
+  Completer<void> _cancelKeyReads = Completer<void>();
 
   /// [debugDoubleEscWindow] overrides it in tests: a fresh kernel compile
   /// reshuffles async timing enough to overflow a fixed window
@@ -237,6 +234,9 @@ class LineEditor {
     await _input.ready;
     _prompt = prompt;
     _edit = _edit.clear().resetNavigation();
+    final draft = _capturedDraft;
+    _capturedDraft = null;
+    if (draft != null) _edit = _edit.loadState(draft.buffer, draft.cursor);
     _dialog.reset();
     _picker.reset();
     _commandPicker.reset();
@@ -244,6 +244,15 @@ class LineEditor {
     _redraw();
     _ensureListening();
     return _completer!.future;
+  }
+
+  /// Snapshot of the next emergency cancellation. Capture once for an entire
+  /// interaction, so nested dialogs cannot reopen after double-Esc.
+  Future<void> get inputCancelled => _cancelKeyReads.future;
+
+  Future<InputEvent> Function() captureKeyReader({bool globalKeys = false}) {
+    final cancel = inputCancelled;
+    return () => readKey(globalKeys: globalKeys, cancelSignal: cancel);
   }
 
   /// Wait for the next input event. Suspends any active cancel-monitor for
@@ -263,11 +272,17 @@ class LineEditor {
   /// shortcut must never become prompt input (tin-c5nw: Ctrl+G at an open
   /// approval used to answer it as a deny). Approval and gate prompts pass
   /// `true`; overlays that own the whole screen keep the default.
+  /// Set [panelNavigation] to false when arrows select an answer even while
+  /// another panel is focused.
   /// [cancelSignal] releases this read as Ctrl+C, including while queued behind
   /// another reader. A late signal never cancels a subsequent reader.
-  Future<InputEvent> readKey({bool globalKeys = false, Future<void>? cancelSignal}) async {
+  Future<InputEvent> readKey({bool globalKeys = false, bool panelNavigation = true, Future<void>? cancelSignal}) async {
     var cancelled = false;
-    final stop = cancelSignal?.then((_) { cancelled = true; });
+    final cancellation = _cancelKeyReads;
+    final stop = Future.any([
+      cancellation.future,
+      if (cancelSignal != null) cancelSignal,
+    ]).then((_) { cancelled = true; });
     // Overflow chars from a paste are drained to the next readKey ONLY while
     // the burst window is still open (the paste is still arriving). Once the
     // window has expired the queued chars are stale — they must never answer
@@ -295,18 +310,16 @@ class LineEditor {
     _pending.clear();
 
     while (_readKeyTurn != null) {
-      if (stop == null) {
-        await _readKeyTurn!.future;
-      } else {
-        await Future.any([_readKeyTurn!.future, stop]);
-        if (cancelled) return ControlKey(ControlCode.ctrlC);
-      }
+      await Future.any([_readKeyTurn!.future, stop]);
+      if (cancelled) return ControlKey(ControlCode.ctrlC);
     }
-    if (cancelled) return ControlKey(ControlCode.ctrlC);
+    if (cancelled || !identical(cancellation, _cancelKeyReads)) {
+      return ControlKey(ControlCode.ctrlC);
+    }
     final turn = Completer<void>();
     _readKeyTurn = turn;
     try {
-      return await _readKeyOnce(globalKeys, stop);
+      return await _readKeyOnce(globalKeys, panelNavigation, stop);
     } finally {
       _readKeyTurn = null;
       turn.complete();
@@ -316,7 +329,7 @@ class LineEditor {
   /// True while a [readKey] is awaiting a keystroke.
   bool get isReadingKey => _keyCompleter != null;
 
-  Future<InputEvent> _readKeyOnce(bool globalKeys, Future<void>? stop) {
+  Future<InputEvent> _readKeyOnce(bool globalKeys, bool panelNavigation, Future<void>? stop) {
     final c = Completer<InputEvent>();
     final savedCancel = _cancelHandler;
     final savedQueueSubmit = _onQueueSubmit;
@@ -324,6 +337,16 @@ class LineEditor {
     _onQueueSubmit = null;
     _keyCompleter = c;
     _keyCompleterGlobal = globalKeys;
+    _keyPanelNavigation = panelNavigation;
+    var restored = false;
+    void restoreMonitor() {
+      if (restored) return;
+      restored = true;
+      _cancelHandler = savedCancel;
+      _onQueueSubmit = savedQueueSubmit;
+      _restoreKeyMonitor = null;
+    }
+    _restoreKeyMonitor = restoreMonitor;
     stop?.then((_) {
       // A late cancellation must not settle a newer modal's read.
       if (identical(_keyCompleter, c)) {
@@ -337,8 +360,7 @@ class LineEditor {
       stderr.writeln('[readkey] armed');
     }
     return c.future.whenComplete(() {
-      _cancelHandler = savedCancel;
-      _onQueueSubmit = savedQueueSubmit;
+      restoreMonitor();
       _keyCompleterGlobal = false;
       if (debugKeys) {
         stderr.writeln('[readkey] completed');
@@ -393,6 +415,9 @@ class LineEditor {
 
   void endInputCaptureWindow() {
     if (!_queueModeActive) return;
+    // A replacement instruction may already be partly typed while a cancelled
+    // command unwinds. Hand that draft to readLine instead of erasing it.
+    if (_qBuf.isNotEmpty) _capturedDraft = (buffer: _qBuf, cursor: _qCursor);
     endCancelMonitor();
   }
 
@@ -426,12 +451,7 @@ class LineEditor {
   /// stale, and the per-panel saved state is authoritative.
   bool get isEditing => _completer != null || _queueModeActive;
 
-  /// The in-flight [readLine], or null when the user is not typing a prompt.
-  /// A background asker (e.g. a workflow run's permission prompt) awaits this
-  /// before arming its own [readKey] — otherwise the approval steals the
-  /// user's typing, the prompt's Enter answers the approval as a deny (it is
-  /// not y/a/d), and the prompt is never submitted (live repro, 80x24:
-  /// ceremony's first approval ate the submitted prompt's Enter).
+  /// The pending conversation input. Modal key reads preserve its draft.
   Future<String?>? get pendingLine => _completer?.future;
 
   /// Load edit state from a panel and render the input line, even when no
@@ -461,7 +481,7 @@ class LineEditor {
   /// PasteInputs held while a global readKey (approval / gate prompt) is
   /// armed — tin-w8dl. Delivered through [_onEventInner] once the prompt's
   /// readKey completes; a chained prompt re-arms first and re-holds them.
-  /// Never cleared except by delivery, so no paste content is ever dropped.
+  /// Emergency cancellation and quit discard these with the pending draft.
   final List<PasteInput> _heldPastes = [];
 
   /// Deliver held pastes one microtask after a readKey completes — after the
@@ -646,6 +666,19 @@ class LineEditor {
     if (debugKeys) {
       stderr.writeln('[keys] event: $event');
     }
+    if (event is EscapeKey) {
+      final now = DateTime.now();
+      final isDouble = _lastGlobalEsc != null &&
+          now.difference(_lastGlobalEsc!) <= _activeDoubleEscWindow;
+      _lastGlobalEsc = isDouble ? null : now;
+      _lastEsc = isDouble ? null : now;
+      if (isDouble) {
+        _forceCancelInput();
+        return KeyHandledBy.appShortcut;
+      }
+    } else {
+      _lastGlobalEsc = null;
+    }
     // The quit gate. Ctrl+C is ONLY the quit flow, at every input state and
     // ahead of every other consumer (exclusive panels, readKeys, overlays,
     // the cancel monitor, the line buffer): the first press arms the on-screen
@@ -693,9 +726,8 @@ class LineEditor {
       // tin-w8dl: a paste arriving while a GLOBAL readKey (approval / gate
       // prompt) is armed must not land in the editor buffer underneath the
       // prompt — the user's next Enter then answers the prompt and the paste
-      // is stranded with no Enter left to submit it. askPermission already
-      // defers arming while a readLine has unsent content; this is the
-      // mirror for content arriving AFTER the arm. Held, never dropped;
+      // is stranded with no Enter left to submit it. An existing draft stays in the
+      // editor while the approval owns answer keys. Held, never dropped;
       // delivered through the full pipeline once the prompt resolves (a
       // chained prompt re-arms first and simply re-holds).
       //
@@ -726,25 +758,12 @@ class LineEditor {
       // — pre-fix, Ctrl+G at an open approval landed in the prompt's readKey
       // and answered it as a deny (tin-c5nw).
       if (_keyCompleterGlobal && _handleFocusRingKeys(event)) {
-        // The ring consumed the key while a global prompt is armed. An Esc
-        // eaten by the ring (exit cycling, return home) must still count
-        // toward the double-Esc force-cancel: the modal-swallow stamping in
-        // the answer path below never sees it, yet the gesture has to span
-        // ring navigation (e.g. Esc out of the sidebar, Esc again to stop).
-        if (event is! EscapeKey) return KeyHandledBy.focusRing;
-        final now = DateTime.now();
-        final isDouble = _lastEsc != null &&
-            now.difference(_lastEsc!) <= _activeDoubleEscWindow;
-        _lastEsc = isDouble ? null : now;
-        if (isDouble) onDoubleEscape?.call();
-        if (!isDouble) return KeyHandledBy.focusRing;
-        // Double-Esc: the force-cancel fired above, and the same Esc still
-        // answers the prompt below (an approval reads it as its deny), so
-        // the awaiting asker settles instead of hanging.
+        return KeyHandledBy.focusRing;
       }
       // The prompt owns answer keys, even on a read-only panel. Only
       // navigation is offered to the focused view while an approval is open.
       if (_keyCompleterGlobal &&
+          _keyPanelNavigation &&
           !_exclusivePanelFocused &&
           (event is ArrowKey || event is ScrollEvent) &&
           (_focusManager?.focused?.handleEvent(event) ?? false)) {
@@ -756,19 +775,6 @@ class LineEditor {
         PasteAudit.log(
           'readKey ANSWERED by $event (global=$_keyCompleterGlobal)',
         );
-      }
-      if (event is EscapeKey) {
-        // Stamp the double-Esc window on the readKey path too (the dispatch
-        // path below stamps its own). A modal's Esc handling swallows the
-        // event — "deny" for an approval — so this is the only place a
-        // double press spanning a modal registers. The force-cancel fires as
-        // a side call and the event is STILL delivered: the modal needs its
-        // Esc to close its row while the run underneath stops.
-        final now = DateTime.now();
-        final isDouble = _lastEsc != null &&
-            now.difference(_lastEsc!) <= _activeDoubleEscWindow;
-        _lastEsc = isDouble ? null : now;
-        if (isDouble) onDoubleEscape?.call();
       }
       c.complete(event);
       // After completing a readKey, open a short burst window during which
@@ -827,6 +833,41 @@ class LineEditor {
       );
     }
     return _dispatchEvent(event);
+  }
+
+  void _forceCancelInput() {
+    // Release both the current prompt and readers queued behind it. A new
+    // prompt belongs to a new cancellation generation.
+    final reads = _cancelKeyReads;
+    _cancelKeyReads = Completer<void>();
+    reads.complete();
+    final key = _keyCompleter;
+    _keyCompleter = null;
+    _keyCompleterGlobal = false;
+    key?.complete(EscapeKey());
+    _restoreKeyMonitor?.call();
+    _burstTimer?.cancel();
+    _burstTimer = null;
+    _pending.clear();
+    _heldPastes.clear();
+    _dialog.dismiss();
+    _activePicker?.closeState();
+    for (final modal in _modals.toList()) {
+      if (modal.isActive) modal.handleEvent(EscapeKey());
+    }
+    _menuBar?.deactivate();
+    _focusManager?.cancel();
+    _focusManager?.returnHome();
+    _edit = _edit.clear().resetNavigation();
+    _capturedDraft = null;
+    _qBuf = '';
+    _qCursor = 0;
+    if (onDoubleEscape != null) {
+      onDoubleEscape!();
+    } else {
+      _cancelHandler?.call();
+    }
+    _redraw();
   }
 
   int _pendingChars() =>
@@ -1199,35 +1240,7 @@ class LineEditor {
         }
 
       case EscapeKey():
-        // At the chat prompt: a single Esc cancels a running turn (via
-        // onEscape — responsive "panic" cancel). If nothing is running,
-        // onEscape returns false and we fall through to double-Esc, which
-        // clears the input. Single Esc no longer activates the menu bar.
-        //
-        // A RAPID double-Esc force-cancels first (onDoubleEscape), ahead of
-        // both of those: the first press may have armed the prompt's warning
-        // OR answered a modal (an approval row eats single Escs as "deny" —
-        // the stamp in the readKey path keeps the window alive across it),
-        // and the second must mean "stop", not a re-arm. Consumed only when
-        // something was actually running; otherwise the gesture falls
-        // through to the input clear below.
-        final now = DateTime.now();
-        final isDouble = _lastEsc != null &&
-            now.difference(_lastEsc!) <= _activeDoubleEscWindow;
-        _lastEsc = isDouble ? null : now;
-        if (isDouble && (onDoubleEscape?.call() ?? false)) {
-          break;
-        }
-        if (onEscape?.call() ?? false) {
-          break;
-        }
-        if (isDouble) {
-          if (_edit.buffer.isNotEmpty) {
-            _edit = _edit.clear();
-            _dialog.dismiss();
-            _redraw();
-          }
-        }
+        onEscape?.call();
       case AltKey(:final letter):
         if (onAltKey?.call(AltKey(letter)) ?? false) {
           return KeyHandledBy.appShortcut;
@@ -1322,6 +1335,7 @@ class LineEditor {
     key?.complete(ControlKey(ControlCode.ctrlC));
     _complete(null);
     _edit = _edit.clear().resetNavigation();
+    _capturedDraft = null;
     _qBuf = '';
     _qCursor = 0;
     // Nothing pending may surface after the quit: held pastes and burst

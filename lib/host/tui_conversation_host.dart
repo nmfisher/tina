@@ -7,6 +7,7 @@ import 'package:tina_engine/tina_engine.dart';
 
 import '../chat/chat_agent_sink.dart';
 import '../chat/chat_transcript.dart';
+import '../tui/permission_approval.dart';
 
 final _log = Logger('tina.agent.bus');
 
@@ -291,98 +292,12 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
           chat.dim('  ⋯\n');
       }
     }
-    // The approval row is always the last thing shown, immediately above the
-    // input field. It stays open across the readKey so the answer character
-    // lands on the same line. The row is marked with an ownership token so a
-    // background writer (e.g. the environment ceremony) streaming while the
-    // approval pends starts its own row instead of merging its text onto the
-    // prompt (tin-6a2f).
-    final rowToken = Object();
-    // The answers this prompt offers, from the engine: the row below, the keys
-    // accepted, and the scope a remembered answer is filed under all read the
-    // same list, so a key can no longer be advertised and then do nothing.
-    final choices = p.choices;
-    var selectedIndex = 0;
-    // Written once and reused by the arrow redraw, so the two cannot diverge.
-    void writeRow() => chat.write('  approve? ${p.approvalOptionsText} ‹ ',
-        rowOwner: rowToken);
-    writeRow();
-    // If the user is mid-prompt (a readLine in flight WITH unsent content),
-    // the approval must not steal their typing — the prompt's Enter would
-    // answer this readKey as a deny (it is not y/a/d) and the prompt would
-    // never be submitted. Wait for the readLine to submit before arming;
-    // the approval's own row stays visible meanwhile. An EMPTY pending
-    // readLine (the input loop always sits in one) must not wait — that
-    // deadlocks the approval behind the user's next prompt (tin-8n7c).
-    final pending = editor!.pendingLine;
-    if (pending != null && editor!.editState.buffer.isNotEmpty) {
-      if (p.cancelSignal == null) {
-        await pending.catchError((_) => '');
-      } else {
-        final stopped = await Future.any([
-          pending.then((_) => false, onError: (_) => false),
-          p.cancelSignal!.then((_) => true),
-        ]);
-        if (stopped) return PermissionResponse.denyOnce;
-      }
-    }
-    // globalKeys: panel-cycling shortcuts (Ctrl+G/Ctrl+W) and the ring's
-    // other navigation keys must cycle panels here, not answer the prompt
-    // (tin-c5nw — Ctrl+G used to land in this readKey as a deny).
-    //
-    // Approval is a selectable list: up/down arrows to choose, Enter to confirm.
-    // Old y/n/a/d keys still work as shortcuts. Esc still denies — the
-    // "get me out" key keeps its meaning.
-    //
-    // #51c: exactly ONE dimmed ack per ask — the first non-answer key proves
-    // the prompt is alive (its keys are being swallowed); later ones stay
-    // silent so a wheel spam can't flood the transcript. Keys the focus ring
-    // consumes (panel cycling) never surface here and get no ack.
-    var ackedIgnoredKey = false;
-    while (true) {
-      final event = await editor!.readKey(globalKeys: true, cancelSignal: p.cancelSignal);
-      if (event is CharInput) {
-        final choice = p.choiceForKey(event.text);
-        if (choice != null) {
-          // Echo the key the row advertises, then answer with the choice's
-          // meaning — including the scope it lasts for.
-          chat.write('${choice.key}\n', rowOwner: rowToken);
-          return choice.response;
-        }
-      } else if (event is ArrowKey) {
-        // Up/down arrows cycle through the approval options.
-        if (event.direction == ArrowDirection.up) {
-          if (selectedIndex > 0) selectedIndex--;
-        } else if (event.direction == ArrowDirection.down) {
-          if (selectedIndex < choices.length - 1) selectedIndex++;
-        }
-        // Redraw the approval row with updated selection.
-        chat.write('\x1b[1A\x1b[2K', rowOwner: rowToken); // move up and clear
-        writeRow();
-      } else if (event is EscapeKey) {
-        chat.write('esc\n', rowOwner: rowToken);
-        return PermissionResponse.denyOnce;
-      } else if (event is ControlKey && event.code == ControlCode.ctrlC) {
-        chat.write('cancelled\n', rowOwner: rowToken);
-        return PermissionResponse.denyOnce;
-      } else if (event is ControlKey && event.code == ControlCode.enter) {
-        // Enter confirms the highlighted choice, whatever it is: label, then the
-        // newline that closes the row.
-        final selected = choices[selectedIndex];
-        chat.write('${selected.label}\n', rowOwner: rowToken);
-        return selected.response;
-      } else if (event is ControlKey && event.code == ControlCode.backtab) {
-        // Cycle the permission mode while the approval pends — the strip's
-        // mode label updates live; the answer keys are unaffected.
-        editor!.onBackTab?.call();
-      }
-      // Not an answer key: ignored, keep listening. The FIRST one echoes a
-      // one-shot dim ack on the same row (#51c); the rest stay silent.
-      if (!ackedIgnoredKey) {
-        ackedIgnoredKey = true;
-        chat.write(ignoredKeyAck, rowOwner: rowToken);
-      }
-    }
+    return runPermissionApproval(
+      screen: screen,
+      editor: editor!,
+      prompt: p,
+      write: chat.write,
+    );
   }
 
   @override

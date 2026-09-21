@@ -12,7 +12,7 @@ Future<bool> runSpendPauseDialog({
   required LineEditor editor,
   Future<InputEvent> Function()? readEvent,
 }) async {
-  final read = readEvent ?? editor.readKey;
+  final read = readEvent ?? editor.captureKeyReader();
 
   final raw = <String>[
     'Per-session token limit reached.',

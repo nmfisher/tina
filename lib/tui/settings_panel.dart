@@ -38,6 +38,7 @@ Future<UserConfig?> runSettingsPanel({
   LimitsConfig Function(LimitsConfig saved)? currentQuota,
   void Function(LimitsConfig)? onQuotaSaved,
 }) async {
+  readEvent ??= editor.captureKeyReader();
   UserConfig? lastWritten;
   // The modal is the single blue panel while open: blur the focused conversation
   // panel (so the chat is no longer cyan) and refocus it on close — exactly one
@@ -321,11 +322,12 @@ Future<UserConfig?> runTypeSafePanel({
     );
   }
 
+  final read = readEvent ?? editor.captureKeyReader();
   if (screen.layout.width <= 0 || screen.layout.height <= 0) return null;
   try {
     render();
     while (true) {
-      final event = await (readEvent ?? editor.readKey)();
+      final event = await read();
       if (event is EscapeKey ||
           (event is ControlKey && event.code == ControlCode.ctrlC))
         return null;
@@ -402,7 +404,7 @@ Future<UserConfig?> runProvidersPanel({
   Future<InputEvent> Function()? readEvent,
 }) {
   return _ProvidersForm(screen, registry, env, tinaDir,
-      readEvent ?? editor.readKey, initial).run();
+      readEvent ?? editor.captureKeyReader(), initial).run();
 }
 
 enum _ProvidersResult { changed, wrote, cancelled }
@@ -1049,7 +1051,7 @@ Future<UserConfig?> runQuotaPanel({
   void Function(LimitsConfig)? onSaved,
 }) {
   return _QuotaForm(
-          screen, env, tinaDir, readEvent ?? editor.readKey, initial, onSaved)
+          screen, env, tinaDir, readEvent ?? editor.captureKeyReader(), initial, onSaved)
       .run();
 }
 
