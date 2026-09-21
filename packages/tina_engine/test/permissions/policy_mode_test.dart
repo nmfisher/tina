@@ -103,33 +103,55 @@ void main() {
           PermissionMode.allowEdits.label, isNot(PermissionMode.allowEdits.name));
     });
 
-    // The read-only boundary is still a hand-written list (_readOnlyTools plus
-    // the named control-plane exceptions). This pins its machine-touching half
-    // to the declarations, so the two cannot drift: a tool that declares it
-    // only reads must be permitted in read-all, and anything that writes or
-    // runs a model-chosen program must not be.
-    //
-    // Control-plane tools are deliberately outside this check — whether
-    // `ask_user` or `broadcast_region` is usable in read-only mode is a
-    // product judgement about interaction, not a fact about the machine, and
-    // it stays an explicit decision until the boundary itself is derived.
-    test('the read-only boundary agrees with what machine tools declare', () {
-      final readOnly = PermissionPolicy(mode: PermissionMode.readAll);
-      var checked = 0;
-      for (final entry in kToolCapabilities.entries) {
-        final caps = entry.value;
-        if (!caps.touchesTheMachine) continue;
-        checked++;
-        final isMachineRead =
-            caps.writes == WriteScope.none && caps.spawns != SpawnScope.modelArgv;
-        expect(readOnly.executionBlock(entry.key, const {}) != null,
-            !isMachineRead,
-            reason: '${entry.key} declares reads=${caps.reads.name}, '
-                'writes=${caps.writes.name}, spawns=${caps.spawns.name}, '
-                'network=${caps.network.name}');
+    // The read-only boundary is now DERIVED from declarations
+    // (_widenableReadOnly) rather than a list of names plus a list of
+    // exceptions to it. This is the frozen behaviour those lists encoded,
+    // including the case that looked arbitrary: query_region and
+    // broadcast_region run their sub-agents under the read-only profile, while
+    // delegate and send can reach one that writes.
+    test('read-only permits reads and read-only agent work, and nothing else',
+        () {
+      final p = PermissionPolicy(mode: PermissionMode.readAll);
+
+      const permitted = [
+        'read', 'grep', 'glob', 'ls', 'stat', 'which', 'git', 'search',
+        'fetch', 'web_search', 'execution_info', 'render_image',
+        'repo_structure', 'list_regions', 'read_summary', 'query_region',
+        'broadcast_region', 'ask_user', 'receive', 'close', 'stop_workflow',
+        'explore_project',
+      ];
+      for (final tool in permitted) {
+        expect(p.executionBlock(tool, const {}), isNull, reason: tool);
       }
-      expect(checked, greaterThan(10),
-          reason: 'the sweep must actually be looking at the tool set');
+
+      const blocked = [
+        'write', 'edit', 'bash', 'exec', 'write_summary', 'allocate_region',
+        'send', 'launch_workflow', 'begin_environment_execution',
+      ];
+      for (final tool in blocked) {
+        expect(p.executionBlock(tool, const {}), isNotNull, reason: tool);
+      }
+
+      // A delegation is judged by what it delegates TO: read-only scouts are
+      // the whole point of read-only mode, and a full-access one is not.
+      expect(
+          p.executionBlock('delegate', const {
+            'delegations': [
+              {'task': 'look', 'tools': 'read-only'}
+            ]
+          }),
+          isNull);
+      expect(
+          p.executionBlock('delegate', const {
+            'delegations': [
+              {'task': 'change', 'tools': 'full'}
+            ]
+          }),
+          isNotNull);
+
+      // A read-only delegation is still a decision the user makes, not a
+      // default: `delegate` stays outside the decision table entirely.
+      expect(p.check('delegate', const {}), PermissionDecision.ask);
     });
   });
 }

@@ -64,6 +64,25 @@ enum SpawnScope {
   modelArgv,
 }
 
+/// Whether a tool can set OTHER agents in motion, and how far they may go.
+///
+/// This is the axis the read-only boundary turns on. Some tools have no
+/// machine effect themselves and still matter in a read-only mode: `delegate`
+/// and `send` can hand work to an agent that writes, while `query_region` and
+/// `broadcast_region` run their sub-agents under [ToolProfile.readOnly]. The
+/// old boundary was a list of names, and it encoded exactly this distinction
+/// without saying so.
+enum IndirectWork {
+  /// Sets nothing else in motion.
+  none,
+
+  /// Runs other agents, but only ever under the read-only profile.
+  readOnlyOnly,
+
+  /// Can cause work that writes or runs a model-chosen program.
+  anyProfile,
+}
+
 /// Whether a tool can send data off the machine.
 enum NetworkScope {
   /// Local only.
@@ -80,6 +99,10 @@ class ToolCapabilities {
   final SpawnScope spawns;
   final NetworkScope network;
 
+  /// See [IndirectWork]. Defaults to [IndirectWork.none] because a tool that
+  /// starts other agents has to say so.
+  final IndirectWork indirect;
+
   /// Why it is acceptable to auto-approve this tool *even though* it escapes
   /// the sandbox, in plain words. Required for any escaping tool that is
   /// allowed by default: the point is that the justification is a field a test
@@ -91,6 +114,7 @@ class ToolCapabilities {
     this.writes = WriteScope.none,
     this.spawns = SpawnScope.none,
     this.network = NetworkScope.none,
+    this.indirect = IndirectWork.none,
     this.reviewed,
   });
 
@@ -101,6 +125,7 @@ class ToolCapabilities {
     writes: WriteScope.host,
     spawns: SpawnScope.modelArgv,
     network: NetworkScope.egress,
+    indirect: IndirectWork.anyProfile,
   );
 
   /// True when auto-approving this tool would grant something the project
@@ -180,17 +205,21 @@ const Map<String, ToolCapabilities> kToolCapabilities = {
   ),
 
   // --- orchestration ----------------------------------------------------
-  'delegate': ToolCapabilities(reads: ReadScope.none),
-  'send': ToolCapabilities(reads: ReadScope.none),
+  'delegate': ToolCapabilities(
+      reads: ReadScope.none, indirect: IndirectWork.anyProfile),
+  'send': ToolCapabilities(
+      reads: ReadScope.none, indirect: IndirectWork.anyProfile),
   'receive': ToolCapabilities(reads: ReadScope.none),
   'close': ToolCapabilities(reads: ReadScope.none),
   'ask_user': ToolCapabilities(reads: ReadScope.none),
   'stop_workflow': ToolCapabilities(reads: ReadScope.none),
-  'launch_workflow': ToolCapabilities(reads: ReadScope.none),
-  'broadcast_region': ToolCapabilities(reads: ReadScope.none),
+  'launch_workflow': ToolCapabilities(
+      reads: ReadScope.none, indirect: IndirectWork.anyProfile),
+  'broadcast_region': ToolCapabilities(
+      reads: ReadScope.none, indirect: IndirectWork.readOnlyOnly),
   'repo_structure': ToolCapabilities(),
   'list_regions': ToolCapabilities(),
-  'query_region': ToolCapabilities(),
+  'query_region': ToolCapabilities(indirect: IndirectWork.readOnlyOnly),
   'read_summary': ToolCapabilities(),
   'allocate_region': ToolCapabilities(
       reads: ReadScope.none, writes: WriteScope.sidecar),
@@ -205,7 +234,8 @@ const Map<String, ToolCapabilities> kToolCapabilities = {
   // consults `check()` for it — the declaration is recorded anyway, because it
   // documents that the tool is machine-neutral and makes the residual visible:
   // a `--deny` rule naming it is inert rather than enforced.
-  'begin_environment_execution': ToolCapabilities(reads: ReadScope.none),
+  'begin_environment_execution': ToolCapabilities(
+      reads: ReadScope.none, indirect: IndirectWork.anyProfile),
 };
 
 /// The declaration for [tool], or the worst case when nothing is declared.

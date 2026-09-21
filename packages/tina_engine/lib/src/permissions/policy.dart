@@ -26,6 +26,9 @@ PermissionDecision deriveToolDecision(ToolCapabilities caps) {
   // tools (`launch_workflow`, `delegate`) live here: their effect is other
   // agents, which is a decision, not an absence of one.
   if (caps.reads == ReadScope.none) return PermissionDecision.ask;
+  // A tool that can hand work to an agent which writes is not itself a machine
+  // effect, so the axes above would miss it.
+  if (caps.indirect == IndirectWork.anyProfile) return PermissionDecision.ask;
   if (caps.reads == ReadScope.host) return PermissionDecision.ask;
   if (caps.writes != WriteScope.none) return PermissionDecision.ask;
   // Reads only, or a fixed program whose arguments the tool assembles and
@@ -275,30 +278,40 @@ class PermissionPolicy {
       }
       return null;
     }
-    if (_readOnlyTools.contains(tool) ||
-        const {
-          'broadcast_region',
-          'receive',
-          'close',
-          'ask_user',
-          'stop_workflow',
-          'render_image',
-        }.contains(tool)) return null;
+    // One rule over declarations, rather than a list of names plus a list of
+    // exceptions to that list.
+    if (_widenableReadOnly(tool)) return null;
     return '$tool is disabled in read-all (read-only) mode. '
         'Use read, grep, search, ls, glob, stat, which, or read-only git. '
         'Do not retry through bash or another agent. The user must switch '
         'to an execution-capable mode before setup, builds, tests, or writes.';
   }
 
-  /// Tools that only ever read. [PermissionMode.readAll] and [allowEdits]
-  /// auto-approve these; `_builtinDefaults` already allows most of them — the
-  /// set additionally covers the network reads and region queries that gate
-  /// by default.
-  static const _readOnlyTools = {
-    'execution_info', 'read', 'search', 'grep', 'glob', 'ls', 'stat', 'which', 'git',
-    'fetch', 'web_search', 'repo_structure', 'list_regions',
-    'read_summary', 'query_region', 'explore_project',
-  };
+  /// Whether the declared capabilities make [tool] safe to widen in a
+  /// read-only mode: nothing it does — and nothing it can set in motion —
+  /// writes, or runs a program the model chose.
+  ///
+  /// This replaces a hand-written list of sixteen names. The list was correct,
+  /// including the case that looked arbitrary: `query_region` and
+  /// `broadcast_region` run their sub-agents under the read-only profile, while
+  /// `delegate` and `send` can reach one that writes. That reasoning was in
+  /// nobody's head but the list's.
+  ///
+  /// An undeclared tool answers with the worst case, so it is not widened.
+  static bool _widenableReadOnly(String tool) {
+    if (_readOnlyButUndeclared.contains(tool)) return true;
+    final caps = capabilitiesFor(tool);
+    return caps.writes == WriteScope.none &&
+        caps.spawns != SpawnScope.modelArgv &&
+        caps.indirect != IndirectWork.anyProfile;
+  }
+
+  /// Mounted by the application and read-only in practice, but deliberately NOT
+  /// declared yet: declaring it a project read would also derive an `allow`
+  /// default for it, flipping it from ask. That is a posture change, and it
+  /// needs its own decision rather than arriving as a side effect of removing
+  /// a list. Named here and in the application-side sweep so it stays visible.
+  static const _readOnlyButUndeclared = {'explore_project'};
 
   /// Widen a default decision according to [mode]. Session/static rules are
   /// unaffected — an explicit `--deny` still denies in every mode.
@@ -308,11 +321,10 @@ class PermissionPolicy {
       case PermissionMode.auto:
         return d;
       case PermissionMode.readAll:
-        return _readOnlyTools.contains(tool) ? PermissionDecision.allow : d;
+        return _widenableReadOnly(tool) ? PermissionDecision.allow : d;
       case PermissionMode.allowEdits:
-        return (_readOnlyTools.contains(tool) ||
-                tool == 'write' ||
-                tool == 'edit')
+        return (_widenableReadOnly(tool) ||
+                capabilitiesFor(tool).writes == WriteScope.project)
             ? PermissionDecision.allow
             : d;
     }
