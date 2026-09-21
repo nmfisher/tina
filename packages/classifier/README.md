@@ -166,3 +166,8 @@ interrupted manifest update may leave an unreferenced immutable record. The
 application's store supplies writer exclusion and bounded reads; retention/GC
 policy is application-owned. Schema v1 project-specific records are cache misses
 under schema v2. Neither schema executes restored content as instructions.
+
+Stores may implement `CheckpointStore` to publish a record and its reference in
+one transaction and retire task references directly. The orchestrator uses this
+interface when available instead of rewriting the full manifest per checkpoint.
+Tina's SQLite adapter implements it; the core classifier has no database dependency.

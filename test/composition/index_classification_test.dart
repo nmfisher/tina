@@ -7,7 +7,8 @@ import 'package:http/testing.dart';
 import 'package:test/test.dart';
 import 'package:tina/composition/typesafe.dart';
 import 'package:tina_app/tina_app.dart';
-import 'package:tina_app/classification.dart' show ProjectClassificationReport;
+import 'package:tina_app/classification.dart'
+    show ProjectClassificationReport, SqliteClassificationStore;
 import 'package:tina_engine/tina_engine.dart';
 import '../helpers/fake_environment.dart';
 import '../helpers/memory_session_store.dart';
@@ -215,11 +216,9 @@ void main() {
         missing.failures.keys,
         unorderedEquals(['.::framework', '.::tooling']),
       );
-      final manifest = jsonDecode(
-        await File(
-          '${project.path}/.tina/classifications/manifest.json',
-        ).readAsString(),
-      );
+      final store = await SqliteClassificationStore.open(project.path);
+      addTearDown(store.close);
+      final manifest = (await store.readManifest())!;
       expect(
         (manifest['records'] as Map).keys,
         containsAll(['task:.::framework', 'task:.::tooling']),

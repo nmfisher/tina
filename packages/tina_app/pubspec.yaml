@@ -18,6 +18,7 @@ dependencies:
   path: ^1.9.0
   tina_engine:
     path: ../tina_engine
+  sqlite3: ^3.5.2
 
 dev_dependencies:
   analyzer: ^13.0.0

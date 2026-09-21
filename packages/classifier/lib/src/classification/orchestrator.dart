@@ -298,6 +298,12 @@ class ClassificationSession {
     final id = canonicalFingerprint(record);
     final write = _checkpoint.then((_) async {
       _check();
+      final store = _owner.store;
+      if (store is CheckpointStore) {
+        await store.publish(key, id, record);
+        _manifest[key] = id;
+        return;
+      }
       await _owner.store.writeRecord(id, record);
       // Only mutate the in-memory manifest after the corresponding publication succeeds.
       final next = {..._manifest, key: id};
@@ -394,10 +400,14 @@ class ClassificationSession {
           (key, _) =>
               key.startsWith('task:') && !keys.contains(key.substring(5)),
         );
-      await _owner.store.writeManifest({
-        'schema_version': classificationSchemaVersion,
-        'records': next,
-      });
+      if (_owner.store case final CheckpointStore store) {
+        await store.retainTasks(keys);
+      } else {
+        await _owner.store.writeManifest({
+          'schema_version': classificationSchemaVersion,
+          'records': next,
+        });
+      }
       _manifest
         ..clear()
         ..addAll(next);

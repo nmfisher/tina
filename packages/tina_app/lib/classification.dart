@@ -3,6 +3,7 @@
 library;
 
 export 'src/classification/file_classification_store.dart';
+export 'src/classification/sqlite_classification_store.dart';
 export 'src/classification/index_view.dart';
 export 'src/classification/project_classifiers.dart';
 export 'src/classification/technology_classifiers.dart';

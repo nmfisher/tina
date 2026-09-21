@@ -26,19 +26,25 @@ classifier/source metadata, and checkpoint IDs. Use arrows, Page Up/Page Down,
 or the mouse wheel to scroll; left/right pans long detail lines. Escape closes
 the browser, and double-Esc retains its global cancellation behavior.
 
-Each classification is marked **current**, **stale**, **incomplete**, or
-**missing**. Current means its saved source receipts and child results match;
-it does not promise compatibility with changed classifier settings. Unknown
-classification labels are distinct from missing results. Partial checkpoints
-from cancelled runs and removed directories remain visible.
+Each classification is marked **saved**, **incomplete**, or **missing**. Saved
+means a completed checkpoint exists; it does not claim that the repository is
+unchanged. `/index status` explicitly checks freshness. Partial checkpoints from
+cancelled runs remain visible, and unknown labels are distinct from missing
+results.
 
-Viewing reads a snapshot of `.tina/classifications` and checks local evidence
-through the same repository source and merge revision logic used by indexing.
-It makes no classifier calls, needs no Typesafe credentials, and writes nothing.
-If inputs cannot be checked, results are marked incomplete. Close and reopen
-to refresh the snapshot. `tina --prompt '/index view'` prints a text summary.
-An optional `jev`/`extensions` argument does not filter the view: it always shows
-the saved index, whichever language implementation produced it.
+Opening the browser reads only the root and its first page of direct children
+from SQLite. Expanding a directory loads its children in pages of 100; select
+“load more” to fetch another page. Enter loads evidence and classifier details
+for the selected node. No repository scan, Git process, file-content read, or
+classifier call is part of browsing. Storage runs on a worker isolate so database
+work cannot block terminal input. The reader retains a consistent snapshot while
+indexing publishes newer results; close and reopen to refresh it.
+
+`tina --prompt '/index view'` prints all saved directory summaries using the same
+paged queries. No Typesafe credentials are needed. An optional `jev`/`extensions`
+argument does not filter the view: it shows whichever method produced the saved
+index. Existing JSON indexes are converted once on first open, with a migration
+notice; that one-time conversion can take longer than subsequent opens.
 
 ## Source preparation
 
@@ -174,19 +180,36 @@ and `LabelMerge`; neither merge step calls a model.
 
 ## Persistence
 
-`.tina/classifications/manifest.json` references immutable `records/<sha256>.json`
-files. The directory is self-ignored and writer-locked. Each completed request,
-including each input chunk, is checkpointed. Code merges have their own final
-records but make no requests. A final
-record references those request records and stores typed output, coverage,
-versioned provenance and an opaque source freshness receipt. Raw evidence text,
-credentials and raw model responses are not stored. The service endpoint and
-configured model are included in cache provenance.
+`.tina/classifications/index.db` is the authoritative SQLite store. It replaces
+the JSON manifest and record directory; there is no duplicate display snapshot.
+SQLite maintains its normal WAL and shared-memory sidecars while connections are
+open. The directory remains self-ignored.
+
+Records keep their content-addressed IDs. `refs` holds the current task/request
+references, `nodes` indexes parent/child relationships, and `labels` holds each
+project label and its evidence once. Other typed output stays in the record's
+value field. Large provenance and evidence fields are fetched only for details.
+The browser's small summary queries use indexed node/reference lookups.
+
+Each completed request or merge publishes its record and reference in one short
+transaction. A writer lock covers an indexing run; WAL readers can browse the
+previous committed state concurrently. Cancellation preserves committed progress.
+The generic classifier uses `CheckpointStore` for atomic publication without
+rewriting a full manifest on every result. It has no SQLite dependency.
+
+Migration imports and validates the legacy records and their references in a
+transaction, retaining record IDs and request links. After commit, it removes the
+imported JSON files and manifest. An interrupted cleanup resumes on next open;
+a failed import leaves the legacy files intact. No classifier rerun is needed.
+
+A final record stores typed output, coverage, versioned provenance and an opaque
+source receipt. Raw evidence text, credentials and raw model responses are not
+stored. The service endpoint and configured model remain in cache provenance.
 
 Restoration checks source freshness, contract/encoder/splitter/plan/agent/model
 identities, budget configuration and consumed results. Local and aggregate results are
 separate: `docs/user::language::local` and `docs/user::language`, with matching
-`::framework` and `::tooling` keys in the same manifest and record directory. Parent receipts
+`::framework` and `::tooling` keys in the same database. Parent receipts
 persist child keys and hashes of result/evidence/coverage, excluding storage IDs.
 Relevant changes invalidate dependent work; independent branches remain reusable.
 Method selection is explicit and included in cache identity. Switching methods

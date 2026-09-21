@@ -29,7 +29,7 @@ class UnknownExecutor implements ClassificationExecutor {
 
 void main() {
   late Directory root;
-  late FileClassificationStore store;
+  late SqliteClassificationStore store;
   late RepositoryEvidenceReader reader;
   late UnknownExecutor executor;
   Future<void> write(String path, String contents) async {
@@ -62,18 +62,14 @@ void main() {
     expect(report.failures, isEmpty);
   }
 
-  Future<IndexView> view([JudgmentCancellation? cancellation]) => readIndex(
-    store: store,
-    source: source(),
-    cancellation: cancellation ?? JudgmentCancellation(),
-  );
+  Future<IndexView> view() => readIndex(store: store);
   IndexState state(IndexView view, String path, [String kind = 'language']) =>
       view.directories[path]!.results[kind]!.state;
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('index-view-');
     await Process.run('git', ['init', '-q', root.path]);
-    store = FileClassificationStore(root.path);
+    store = await SqliteClassificationStore.open(root.path, create: true);
     executor = UnknownExecutor();
     reader = RepositoryEvidenceReader(
       root: root.path,
@@ -87,99 +83,113 @@ void main() {
     await write('src/main.py', 'print(1)');
     await write('src/Dockerfile', 'FROM python');
   });
-  tearDown(() => root.delete(recursive: true));
+  tearDown(() async {
+    await store.close();
+    await root.delete(recursive: true);
+  });
 
   test(
-    'browsing saved labels and evidence is read-only and makes no classifier calls',
+    'opening queries saved summaries without scanning the repository or loading details',
     () async {
       await build();
-      final before = await store.readManifest();
       final calls = executor.calls;
+      await Directory('${root.path}/.git').delete(recursive: true);
+      final before = await store.readManifest();
       final result = await view();
       expect(result.warning, isNull);
-      expect(result.directories['.']!.children, ['docs', 'src']);
-      for (final kind in indexKinds) {
-        expect(state(result, '.', kind), IndexState.current);
-      }
+      expect(result.directories.keys, unorderedEquals(['.', 'docs', 'src']));
+      expect(state(result, '.'), IndexState.saved);
       expect(
         result.directories['docs']!.results['language']!.labels,
         'markdown',
       );
-      expect(result.directories['src']!.details, contains('path:src/main.py'));
-      expect(
-        result.directories['src']!.details,
-        contains('Local classifier and source'),
-      );
+      expect(result.directories['src']!.results['language']!.record, isNull);
+      final details = await result.loadDetails('src');
+      expect(details.details, contains('path:src/main.py'));
+      expect(details.details, contains('Local classifier and source'));
       expect(executor.calls, calls);
       expect(await store.readManifest(), before);
     },
   );
 
   test(
-    'filename and content changes invalidate only affected branches and ancestors',
+    'view shows saved results after edits; explicit status checks freshness',
     () async {
       await build();
-      await write('src/Dockerfile', 'FROM alpine');
-      var result = await view();
-      expect(state(result, 'src'), IndexState.current);
-      expect(state(result, 'src', 'tooling'), IndexState.stale);
-      expect(state(result, '.', 'tooling'), IndexState.stale);
-      expect(state(result, 'docs', 'tooling'), IndexState.current);
       await write('src/extra.dart', 'void main() {}');
-      result = await view();
-      expect(state(result, 'src'), IndexState.stale);
-      expect(state(result, '.'), IndexState.stale);
-      expect(state(result, 'docs'), IndexState.current);
-    },
-  );
-
-  test(
-    'new and deleted directories remain distinguishable from saved results',
-    () async {
-      await build();
-      await Directory('${root.path}/docs').delete(recursive: true);
-      await write('test/new.py', '');
       final result = await view();
-      expect(result.directories['docs']!.removed, isTrue);
-      expect(state(result, 'docs'), IndexState.stale);
-      expect(state(result, 'test'), IndexState.missing);
-      expect(state(result, '.'), isNot(IndexState.current));
-    },
-  );
-
-  test(
-    'partial and corrupt checkpoints do not hide healthy siblings',
-    () async {
-      await build();
-      final manifest = (await store.readManifest())!;
-      final ids = manifest['records'] as Map;
-      ids.remove('task:src::language');
-      final corrupt = ids['task:docs::tooling'];
-      await File('${store.root}/records/$corrupt.json').writeAsString('{}');
-      await store.writeManifest(manifest);
-      final result = await view();
-      expect(state(result, 'src'), IndexState.incomplete);
+      expect(state(result, 'src'), IndexState.saved);
       expect(
         result.directories['src']!.results['language']!.labels,
-        contains('python'),
+        isNot(contains('dart')),
       );
-      expect(state(result, 'docs'), IndexState.current);
-      expect(state(result, 'docs', 'tooling'), IndexState.incomplete);
-      expect(state(result, '.'), IndexState.incomplete);
+      final report =
+          await ClassificationOrchestrator(
+            store: store,
+            executor: LocalExecutor(fallback: executor),
+          ).run(
+            (session) => classifyProject(
+              session,
+              source(),
+              local: SingleRequestPlan(extensionClassifier()),
+            ),
+            restoreOnly: true,
+          );
+      expect(report.failures.keys, contains('src::language'));
     },
   );
 
+  test('partial checkpoints remain visible without a merged result', () async {
+    await build();
+    await store.withWriter(() async {
+      final manifest = (await store.readManifest())!;
+      (manifest['records'] as Map).remove('task:src::language');
+      await store.writeManifest(manifest);
+    });
+    final result = await view();
+    expect(state(result, 'src'), IndexState.incomplete);
+    expect(
+      result.directories['src']!.results['language']!.labels,
+      contains('python'),
+    );
+    expect(state(result, 'docs'), IndexState.saved);
+  });
+
   test(
-    'empty index creates no storage, and cancellation stops the reader',
+    'large trees page by direct children and load grandchildren only on expansion',
     () async {
-      final result = await view();
-      expect(result.warning, contains('No saved index'));
-      expect(state(result, 'src'), IndexState.missing);
-      expect(await Directory(store.root).exists(), isFalse);
-      await expectLater(
-        view(JudgmentCancellation()..cancel()),
-        throwsStateError,
+      await build();
+      await store.withWriter(() async {
+        final manifest = (await store.readManifest())!;
+        final refs = manifest['records'] as Map;
+        final id = refs['task:src::language'];
+        for (var i = 0; i < 10000; i++) {
+          refs['task:wide/dir${i.toString().padLeft(5, '0')}/leaf::language'] =
+              id;
+        }
+        await store.writeManifest(manifest);
+      });
+      final clock = Stopwatch()..start();
+      final fresh = await SqliteClassificationStore.open(root.path);
+      addTearDown(fresh.close);
+      final result = await readIndex(store: fresh);
+      clock.stop();
+      print(
+        'SQLite fresh connection + index open, 20,004 nodes: ${clock.elapsedMilliseconds} ms',
       );
+      expect(
+        result.directories.keys,
+        unorderedEquals(['.', 'docs', 'src', 'wide']),
+      );
+      await result.loadChildren('wide');
+      expect(result.directories['wide']!.children, hasLength(100));
+      expect(result.directories['wide']!.hasMore, isTrue);
+      expect(result.directories, hasLength(104));
+      final first = result.directories['wide']!.children.first;
+      await result.loadChildren(first);
+      expect(result.directories[first]!.children, ['$first/leaf']);
+      await result.loadChildren('wide');
+      expect(result.directories['wide']!.children, hasLength(200));
     },
   );
 }

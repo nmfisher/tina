@@ -150,7 +150,11 @@ void main() {
       );
       final details = RepositoryTextSource(reader: reader, selectedOnly: true);
       final service = Service();
-      final store = FileClassificationStore(root.path);
+      final store = await SqliteClassificationStore.open(
+        root.path,
+        create: true,
+      );
+      addTearDown(store.close);
       Future<ProjectClassificationReport> run({bool status = false}) =>
           ClassificationOrchestrator(
             store: store,

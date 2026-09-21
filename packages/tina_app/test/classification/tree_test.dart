@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:classifier/classification.dart';
 import 'package:classifier/judgments.dart';
 import 'package:test/test.dart';
-import 'package:tina_app/src/classification/file_classification_store.dart';
+import 'package:tina_app/src/classification/sqlite_classification_store.dart';
 import 'package:tina_app/src/classification/project_classification_workflow.dart';
 import 'package:tina_app/src/classification/repository_classification_source.dart';
 import 'package:tina_app/src/classification/repository_text_source.dart';
@@ -51,6 +51,7 @@ class LanguageExecutor implements ClassificationExecutor {
 void main() {
   late Directory root;
   late LanguageExecutor executor;
+  late SqliteClassificationStore store;
   Future<void> write(String path, String content) async {
     final file = File('${root.path}/$path');
     await file.parent.create(recursive: true);
@@ -70,10 +71,7 @@ void main() {
     contentSuffixes: const ['.txt'],
   );
   Future<ProjectClassificationReport> run({bool restore = false}) =>
-      ClassificationOrchestrator(
-        store: FileClassificationStore(root.path),
-        executor: executor,
-      ).run(
+      ClassificationOrchestrator(store: store, executor: executor).run(
         (session) => classifyProject(session, source()),
         restoreOnly: restore,
       );
@@ -82,12 +80,16 @@ void main() {
     root = await Directory.systemTemp.createTemp('language-tree-');
     await Process.run('git', ['init', '-q', root.path]);
     executor = LanguageExecutor();
+    store = await SqliteClassificationStore.open(root.path, create: true);
     await write('docs/user/code.txt', 'dart');
     await write('docs/dev/code.txt', 'python');
     await write('src/code.txt', 'dart');
     await write('test/code.txt', 'python');
   });
-  tearDown(() => root.delete(recursive: true));
+  tearDown(() async {
+    await store.close();
+    await root.delete(recursive: true);
+  });
 
   test(
     'index classifies only languages, merges upward, and restores from disk',
@@ -168,9 +170,7 @@ void main() {
         ),
         ['dart', 'ruby'],
       );
-      final manifest =
-          (await FileClassificationStore(root.path).readManifest())!['records']
-              as Map;
+      final manifest = (await store.readManifest())!['records'] as Map;
       expect(manifest.keys, isNot(contains('task:docs/dev::language')));
       expect(manifest.keys, contains('task:docs::language::local'));
     },
@@ -180,7 +180,6 @@ void main() {
     'incomplete input stays visible in parent coverage and old non-language tasks are retired',
     () async {
       await run();
-      final store = FileClassificationStore(root.path);
       await store.withWriter(() async {
         final manifest = (await store.readManifest())!;
         final pointers = manifest['records'] as Map;

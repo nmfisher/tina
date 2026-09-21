@@ -2,7 +2,7 @@ import 'package:classifier/classification.dart';
 import 'package:classifier/judgments.dart';
 import 'package:tina_engine/tina_engine.dart';
 
-import '../classification/file_classification_store.dart';
+import '../classification/sqlite_classification_store.dart';
 import '../classification/index_view.dart';
 import '../classification/extension_classifier.dart';
 import '../classification/index_options.dart';
@@ -30,20 +30,28 @@ RepositoryEvidenceReader _reader(AppComposition app) =>
 Future<IndexView> readProjectIndex(
   AppComposition app, {
   Future<void>? cancelSignal,
+  void Function(String)? onProgress,
 }) async {
-  final stop = JudgmentCancellation();
+  var cancelled = false;
   cancelSignal?.then(
-    (_) => stop.cancel(),
-    onError: (Object _) => stop.cancel(),
+    (_) => cancelled = true,
+    onError: (Object _) => cancelled = true,
+  );
+  final store = await SqliteClassificationStore.open(
+    app.pipeline.tools.projectRoot,
+    cancelSignal: cancelSignal,
+    onProgress: (text) {
+      if (!cancelled) onProgress?.call(text);
+    },
   );
   try {
-    return await readIndex(
-      store: FileClassificationStore(app.pipeline.tools.projectRoot),
-      source: RepositoryTextSource(reader: _reader(app)),
-      cancellation: stop,
-    );
-  } finally {
-    stop.cancel();
+    if (cancelled) throw StateError('Index view cancelled');
+    final view = await readIndex(store: store);
+    if (cancelled) throw StateError('Index view cancelled');
+    return view;
+  } catch (_) {
+    await store.close();
+    rethrow;
   }
 }
 
@@ -129,11 +137,17 @@ Future<ProjectClassificationReport> runProjectClassification(
       'Framework and tooling classifiers: ${requestBudget.model}',
     );
   }
+  final store = await SqliteClassificationStore.open(
+    root,
+    create: mode != 'status',
+    cancelSignal: cancelSignal,
+    onProgress: onProgress,
+  );
   try {
     final reader = _reader(app);
     final source = RepositoryTextSource(projection: projection, reader: reader);
     return await ClassificationOrchestrator(
-      store: FileClassificationStore(root),
+      store: store,
       executor: runner,
       budget: budget,
       concurrency: 4,
@@ -172,6 +186,7 @@ Future<ProjectClassificationReport> runProjectClassification(
     );
   } finally {
     finished = true;
+    await store.close();
   }
 }
 

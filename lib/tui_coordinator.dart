@@ -2243,15 +2243,21 @@ class TuiCoordinator {
           cancel?.then((_) => cancelled = true);
           conversation.host.showMessage('Reading saved index…\n');
           try {
-            final view = await readProjectIndex(app, cancelSignal: cancel);
-            if (!cancelled) {
-              await runIndexBrowser(
-                screen: screen,
-                editor: editor,
-                view: view,
-                cancelSignal: cancel,
-              );
-            }
+            final view = await readProjectIndex(
+              app,
+              cancelSignal: cancel,
+              onProgress: (text) => conversation.host.showMessage('$text\n'),
+            );
+            try {
+              if (!cancelled) {
+                await runIndexBrowser(
+                  screen: screen,
+                  editor: editor,
+                  view: view,
+                  cancelSignal: cancel,
+                );
+              }
+            } finally { await view.close(); }
           } catch (e) {
             if (!cancelled) {
               conversation.host.showMessage(

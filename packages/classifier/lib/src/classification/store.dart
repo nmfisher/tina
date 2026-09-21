@@ -7,3 +7,10 @@ abstract interface class ClassificationStore {
   Future<void> writeRecord(String id, Map<String, Object?> record);
   Future<void> writeManifest(Map<String, Object?> manifest);
 }
+
+/// Stores with transactional checkpoints can update one reference without
+/// rewriting the entire manifest. The classifier remains storage-independent.
+abstract interface class CheckpointStore implements ClassificationStore {
+  Future<void> publish(String key, String id, Map<String, Object?> record);
+  Future<void> retainTasks(Set<String> keys);
+}

@@ -5,6 +5,10 @@ import 'package:tina_console/tina_console.dart';
 
 import 'spawn_overlay.dart' show modalTakeFocus, modalRestoreFocus;
 
+class _BrowserClosed {
+  const _BrowserClosed();
+}
+
 /// A snapshot browser, using the same full-screen surface and input lease as
 /// the workflow/output viewers. It never appends frames to chat scrollback.
 Future<void> runIndexBrowser({
@@ -16,6 +20,9 @@ Future<void> runIndexBrowser({
 }) async {
   final read = readEvent ?? editor.captureKeyReader();
   final stop = cancelSignal?.then<InputEvent>((_) => EscapeKey());
+  Future<T> wait<T>(Future<T> work) => stop == null
+      ? work
+      : Future.any([work, stop.then<T>((_) => throw const _BrowserClosed())]);
   final previous = modalTakeFocus(editor);
   final overlay = OverlayRegion(
     screen,
@@ -41,6 +48,9 @@ Future<void> runIndexBrowser({
       if (expanded.contains(path)) {
         for (final child in view.directories[path]!.children) {
           visit(child, depth + 1);
+        }
+        if (view.directories[path]!.hasMore) {
+          result.add((path: '$path::more', depth: depth + 1));
         }
       }
     }
@@ -69,13 +79,12 @@ Future<void> runIndexBrowser({
           .indexWhere((r) => r.path == selected)
           .clamp(0, visible.length - 1);
       selected = visible[focus].path;
-      final directory = view.directories[selected]!;
-      final details = detail
-          ? detailCache.putIfAbsent(
-              selected,
-              () => directory.details.split('\n'),
-            )
-          : const <String>[];
+      final more = selected.endsWith('::more');
+      final directory =
+          view.directories[more
+              ? selected.substring(0, selected.length - 6)
+              : selected]!;
+      final details = detail ? detailCache[selected]! : const <String>[];
       final lines = <String>[
         crop(
           detail
@@ -85,7 +94,7 @@ Future<void> runIndexBrowser({
         ),
         crop(
           view.warning ??
-              'Input freshness only · no classifier calls · reopen to refresh',
+              'Saved results · freshness not checked · /index status checks inputs',
           width,
         ),
       ];
@@ -119,8 +128,17 @@ Future<void> runIndexBrowser({
             continue;
           }
           final row = visible[offset + i];
+          if (row.path.endsWith('::more')) {
+            lines.add(
+              crop(
+                '${row.path == selected ? '>' : ' '} ${'  ' * row.depth}… load more',
+                width,
+              ),
+            );
+            continue;
+          }
           final node = view.directories[row.path]!;
-          final marker = node.children.isEmpty
+          final marker = !node.hasChildren && node.children.isEmpty
               ? ' '
               : expanded.contains(row.path)
               ? '▾'
@@ -152,7 +170,21 @@ Future<void> runIndexBrowser({
       if (event is EscapeKey ||
           event is ControlKey && event.code == ControlCode.ctrlC)
         return;
+      if (more &&
+          (event is ControlKey && event.code == ControlCode.enter ||
+              event is ArrowKey && event.direction == ArrowDirection.right)) {
+        final count = directory.children.length;
+        await wait(view.loadChildren(directory.path));
+        selected = directory.children.length > count
+            ? directory.children[count]
+            : directory.path;
+        continue;
+      }
       if (event is ControlKey && event.code == ControlCode.enter) {
+        if (!detail && !detailCache.containsKey(selected)) {
+          final result = await wait(view.loadDetails(selected));
+          detailCache[selected] = result.details.split('\n');
+        }
         detail = !detail;
         detailRow = 0;
         detailCol = 0;
@@ -173,13 +205,17 @@ Future<void> runIndexBrowser({
           case ArrowDirection.right:
             if (detail) {
               detailCol += 4;
-            } else if (!expanded.add(selected) &&
-                directory.children.isNotEmpty) {
+            } else if (!expanded.contains(selected)) {
+              await wait(view.loadChildren(selected));
+              expanded.add(selected);
+            } else if (directory.children.isNotEmpty) {
               selected = directory.children.first;
             }
           case ArrowDirection.left:
             if (detail) {
               detailCol -= 4;
+            } else if (more) {
+              selected = directory.path;
             } else if (!expanded.remove(selected) && selected != '.') {
               selected = selected.contains('/')
                   ? selected.substring(0, selected.lastIndexOf('/'))
@@ -194,6 +230,8 @@ Future<void> runIndexBrowser({
             visible[(focus + movement).clamp(0, visible.length - 1)].path;
       }
     }
+  } on _BrowserClosed {
+    // Global cancellation also interrupts outstanding database reads.
   } finally {
     overlay.hide();
     overlay.dispose();

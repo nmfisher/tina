@@ -37,8 +37,13 @@ PluginRuntime headlessCommands(AppComposition app) {
                   final view = await readProjectIndex(
                     app,
                     cancelSignal: call.cancelSignal,
+                    onProgress: (text) => call.write('$text\n'),
                   );
-                  call.write('${view.text}\n');
+                  try {
+                    call.write('${await view.readText()}\n');
+                  } finally {
+                    await view.close();
+                  }
                   return const CmdHandled();
                 }
                 final report = await runConfiguredProjectClassification(

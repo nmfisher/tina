@@ -5,6 +5,8 @@ import 'package:classifier/classification.dart';
 import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
 
+/// Legacy JSON storage, retained for migration and compatibility tests only.
+/// Production indexing and browsing use SqliteClassificationStore.
 /// Immutable content-addressed records with an atomically replaced manifest.
 /// An advisory lock prevents competing processes from losing checkpoints.
 class FileClassificationStore implements ClassificationStore {

@@ -25,6 +25,70 @@ IndexView fixture() => IndexView({
 });
 
 void main() {
+  test('load-more rows fetch another page and details are lazy', () async {
+    var pages = 0;
+    var details = 0;
+    final root = fixture().directories['.']!;
+    root.children.clear();
+    root.hasMore = true;
+    final view = IndexView(
+      {'.': root},
+      children: (path, offset, limit) async {
+        pages++;
+        expect(path, '.');
+        expect(offset, 0);
+        return [
+          IndexDirectory('src', [], fixture().directories['src']!.results),
+        ];
+      },
+      details: (path) async {
+        details++;
+        return fixture().directories[path]!;
+      },
+    );
+    final screen = fakeScreen();
+    final events = CannedEvents()
+      ..events = [
+        ArrowKey(ArrowDirection.down), // load more
+        ControlKey(ControlCode.enter), // fetch and select src
+        ControlKey(ControlCode.enter), // details
+        ControlKey(ControlCode.enter), // tree
+        ControlKey(ControlCode.enter), // cached details
+        EscapeKey(),
+      ];
+    await runIndexBrowser(
+      screen: screen,
+      editor: LineEditor(screen: screen),
+      view: view,
+      readEvent: events.readEvent,
+    ).timeout(overlayTimeout);
+    expect(pages, 1);
+    expect(details, 1);
+    expect(root.children, ['src']);
+  });
+
+  test(
+    'global cancellation interrupts a stalled database detail read',
+    () async {
+      final cancel = Completer<void>();
+      final view = IndexView(
+        fixture().directories,
+        details: (_) {
+          cancel.complete();
+          return Completer<IndexDirectory>().future;
+        },
+      );
+      final screen = fakeScreen();
+      await runIndexBrowser(
+        screen: screen,
+        editor: LineEditor(screen: screen),
+        view: view,
+        cancelSignal: cancel.future,
+        readEvent: () async => ControlKey(ControlCode.enter),
+      ).timeout(overlayTimeout);
+    },
+  );
+
   test(
     'tree navigation, details and wheel repaint without writing chat',
     () async {
