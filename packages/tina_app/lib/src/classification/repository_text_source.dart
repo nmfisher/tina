@@ -69,7 +69,8 @@ class RepositoryTextSource implements TreeSource<TextEvidence> {
   @override
   Object get identity => {
     'id': 'tina.repository_source',
-    'revision': 3,
+    'revision': 4,
+    'skip_hidden': reader.skipHidden,
     'projection': projection.name,
     'selected_only': selectedOnly,
     'encoder': encoder.identity,

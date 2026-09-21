@@ -48,6 +48,20 @@ notice; that one-time conversion can take longer than subsequent opens.
 
 ## Source preparation
 
+Indexing excludes files and directories whose names start with a period at any
+depth, including tracked files. Configure this in `~/.tina/config`:
+
+```toml
+[index]
+skip_hidden = true
+```
+
+The default is `true`. Setting it to `false` allows other dotfiles/directories,
+but existing exclusions such as `.git`, `.tina`, `.env` and private keys still
+apply. The setting covers language, framework and tooling inputs. Changes take
+effect on the next Tina session and `/index` run; saved cache records are not
+erased by changing this setting.
+
 `RepositoryEvidenceReader` supplies bounded Git enumeration and confined file
 reads. `RepositoryTextSource` selects and encodes that data as `TextEvidence`:
 

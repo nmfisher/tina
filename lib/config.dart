@@ -115,6 +115,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     this.forceLock = false,
     super.transportRetryAttempts = 0,
     super.enableWorkflow = false,
+    super.indexSkipHidden = true,
     this.models,
   });
 
@@ -153,6 +154,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     modelExplicit: modelExplicit,
     transportRetryAttempts: transportRetryAttempts,
     enableWorkflow: enableWorkflow,
+    indexSkipHidden: indexSkipHidden,
   );
 
   TerminalConfig get terminal => TerminalConfig(
@@ -915,6 +917,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
       enableWorkflow:
           (res['enable-workflow'] as bool) ||
           (userConfig?.featuresWorkflow ?? false),
+      indexSkipHidden: userConfig?.indexSkipHidden ?? true,
     );
   }
 }

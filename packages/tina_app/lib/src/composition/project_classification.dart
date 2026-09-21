@@ -16,6 +16,7 @@ import '../exploration/metered_judgment_service.dart';
 RepositoryEvidenceReader _reader(AppComposition app) =>
     RepositoryEvidenceReader(
       root: app.pipeline.tools.projectRoot,
+      skipHidden: app.config.indexSkipHidden,
       sandbox: SandboxedFileSystem(
         const IoFileSystem(),
         projectRoot: app.pipeline.tools.projectRoot,

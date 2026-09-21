@@ -5,6 +5,7 @@ import 'package:classifier/judgments.dart';
 import 'package:test/test.dart';
 import 'package:tina_app/src/classification/repository_classification_source.dart';
 import 'package:tina_app/src/classification/repository_text_source.dart';
+import 'package:tina_app/src/classification/repository_evidence.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 class CustomEncoder implements InputEncoder<RepositoryDocument, TextEvidence> {
@@ -131,6 +132,77 @@ void main() {
     expect(snapshot.coverage.complete, isFalse);
     expect(snapshot.units.length, 1);
   });
+
+  test(
+    'hidden paths are excluded at every depth, including tracked files',
+    () async {
+      for (final path in [
+        '.hidden.txt',
+        '.config/manifest.txt',
+        'src/.private/manifest.txt',
+        'src/.hidden.txt',
+        'src/visible.txt',
+        '.env',
+        'credentials.json',
+      ]) {
+        final file = File('${project.path}/$path');
+        await file.parent.create(recursive: true);
+        await file.writeAsString('sensitive marker');
+      }
+      await Process.run('git', ['-C', project.path, 'add', '.']);
+      final names = await source(
+        RepositoryProjection.filenames,
+      ).snapshot(SourceRequest('.'), stop);
+      expect(names.units.map((unit) => unit.value.text), [
+        'document.txt',
+        'src/visible.txt',
+      ]);
+      final tree = await source(
+        RepositoryProjection.filenames,
+      ).tree(SourceRequest('.'), stop);
+      expect(tree.nodes.keys, unorderedEquals(['.', 'src']));
+      for (final path in [
+        '.hidden.txt',
+        '.config/manifest.txt',
+        'src/.private/manifest.txt',
+        'src/.hidden.txt',
+      ]) {
+        await expectLater(
+          reader.observe(EvidenceQuery(EvidenceKind.file, path)),
+          throwsStateError,
+        );
+      }
+      final hidden = await reader.observe(
+        EvidenceQuery(EvidenceKind.listing, 'src/.private'),
+      );
+      expect(hidden.value, isEmpty);
+
+      final previous = source(RepositoryProjection.filenames);
+      reader = RepositoryEvidenceReader(
+        root: project.path,
+        sandbox: reader.sandbox,
+        skipHidden: false,
+      );
+      final allowed = source(RepositoryProjection.filenames);
+      expect(
+        canonicalFingerprint(allowed.identity),
+        isNot(canonicalFingerprint(previous.identity)),
+      );
+      expect(await allowed.isCurrent(names.revision, stop), isFalse);
+      final all = await allowed.snapshot(SourceRequest('.'), stop);
+      expect(
+        all.units.map((unit) => unit.value.text),
+        unorderedEquals([
+          'document.txt',
+          '.hidden.txt',
+          '.config/manifest.txt',
+          'src/.private/manifest.txt',
+          'src/.hidden.txt',
+          'src/visible.txt',
+        ]),
+      );
+    },
+  );
 
   test(
     'child scopes are excluded by the source, not interpreted by the generic classifier',

@@ -7,6 +7,27 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
+  test('index setting survives config edits and save/load', () {
+    final tmp = Directory.systemTemp.createTempSync('tina-index-config-');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    expect(UserConfig.empty.indexSkipHidden, isNull);
+    for (final value in [true, false]) {
+      final config = UserConfig.fromMap({
+        'index': {'skip_hidden': value},
+      });
+      expect(config.isEmpty, isFalse);
+      writeUserConfig(
+        config.copyWith(defaultModel: 'test'),
+        env: const {},
+        tinaDir: tmp,
+      );
+      expect(
+        loadUserConfig(env: const {}, tinaDir: tmp).indexSkipHidden,
+        value,
+      );
+    }
+  });
+
   test('provider max_output round-trips and rejects invalid values', () {
     final tmp = Directory.systemTemp.createTempSync('tina-output-limit-');
     addTearDown(() => tmp.deleteSync(recursive: true));

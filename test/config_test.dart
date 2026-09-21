@@ -264,6 +264,23 @@ void main() {
       }
     });
 
+    test(
+      'index skips hidden paths by default and carries config to runtime',
+      () {
+        for (final value in [null, true, false]) {
+          final config = Config.parse(
+            [],
+            env: const {},
+            userConfig: UserConfig.fromMap({
+              'index': {if (value != null) 'skip_hidden': value},
+            }),
+          );
+          expect(config.indexSkipHidden, value ?? true);
+          expect(config.runtime.indexSkipHidden, value ?? true);
+        }
+      },
+    );
+
     test('invalid layout values fail with a configuration error', () {
       expect(
         () => Config.parse(['--layout', 'unknown'], env: const {}),

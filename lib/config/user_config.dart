@@ -31,6 +31,7 @@ const _knownTopLevelKeys = {
   'tui',
   'permissions',
   'typesafe',
+  'index',
 };
 
 const _knownDefaultKeys = {'provider', 'model', 'workflow', 'reasoning_effort'};
@@ -58,6 +59,7 @@ const _knownTypeSafeKeys = {
 const _knownRegionsKeys = {'model'};
 const _knownPermissionsKeys = {'mode', 'model'};
 const _knownEnvironmentKeys = {'auto_populate', 'model'};
+const _knownIndexKeys = {'skip_hidden'};
 const _knownLimitsKeys = {
   'max_global_tokens',
   'max_sub_agent_tokens',
@@ -496,6 +498,9 @@ class UserConfig {
   /// for exactly what the switch covers and what stays available without it.
   final bool? featuresWorkflow;
 
+  /// `[index] skip_hidden`: exclude dotfiles/directories; defaults to true.
+  final bool? indexSkipHidden;
+
   /// The `[regions]` table: defaults for region agents (fast model, etc.).
   /// Null when absent.
   final RegionsConfig? regions;
@@ -525,6 +530,7 @@ class UserConfig {
     this.mouseWheel,
     this.layout,
     this.featuresWorkflow,
+    this.indexSkipHidden,
     this.regions,
     this.permissions,
     this.version = kCurrentConfigVersion,
@@ -547,6 +553,7 @@ class UserConfig {
       environmentModel == null &&
       mouseWheel == null &&
       layout == null &&
+      indexSkipHidden == null &&
       (regions == null || regions!.isEmpty) &&
       (permissions == null || permissions!.isEmpty);
 
@@ -569,6 +576,7 @@ class UserConfig {
     String? environmentModel,
     bool? mouseWheel,
     String? layout,
+    bool? indexSkipHidden,
     RegionsConfig? regions,
     PermissionsConfig? permissions,
   }) => UserConfig(
@@ -588,6 +596,7 @@ class UserConfig {
     environmentModel: environmentModel ?? this.environmentModel,
     mouseWheel: mouseWheel ?? this.mouseWheel,
     layout: layout ?? this.layout,
+    indexSkipHidden: indexSkipHidden ?? this.indexSkipHidden,
     featuresWorkflow: featuresWorkflow ?? this.featuresWorkflow,
     regions: regions ?? this.regions,
     permissions: permissions ?? this.permissions,
@@ -656,6 +665,7 @@ class UserConfig {
       mouseWheel: mouseWheel,
       layout: tuiRaw?['layout'] as String?,
       featuresWorkflow: featuresWorkflow,
+      indexSkipHidden: (m['index'] as Map?)?['skip_hidden'] as bool?,
       regions: regionsRaw == null ? null : RegionsConfig.fromMap(regionsRaw),
       permissions: permissionsRaw == null
           ? null
@@ -781,6 +791,12 @@ void _warnUnknownKeys(Map<String, dynamic> m, String path) {
       if (!_knownEnvironmentKeys.contains(k)) {
         warn('environment.$k', _knownEnvironmentKeys);
       }
+    }
+  }
+  final index = m['index'];
+  if (index is Map) {
+    for (final key in index.keys) {
+      if (!_knownIndexKeys.contains(key)) warn('index.$key', _knownIndexKeys);
     }
   }
 }
@@ -914,6 +930,8 @@ String userConfigToToml(UserConfig config) {
       },
     if (config.featuresWorkflow != null)
       'features': {'workflow': config.featuresWorkflow},
+    if (config.indexSkipHidden != null)
+      'index': {'skip_hidden': config.indexSkipHidden},
     if (config.mouseWheel != null || config.layout != null)
       'tui': {
         if (config.mouseWheel != null) 'mouse_wheel': config.mouseWheel,
@@ -1110,6 +1128,11 @@ api_key = "sk-ant-..."
 # layout = "tiled" # "tiled" (default: conversations side by side, no list) or
 #                   # "sidebar" (adds a left column listing the conversation tree)
 # mouse_wheel = false
+
+# Indexing skips files and directories whose names start with a period,
+# at any depth. Existing secret-file exclusions still apply when disabled.
+# [index]
+# skip_hidden = true
 
 # Optional surfaces that ship off by default. `workflow` brings back the
 # DOT-pipeline surface: the main agent's launch_workflow/stop_workflow tools,

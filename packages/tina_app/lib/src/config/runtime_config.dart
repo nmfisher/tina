@@ -150,6 +150,9 @@ class RuntimeConfig {
   /// a deliberate one-shot the user typed, and is unaffected.
   final bool enableWorkflow;
 
+  /// Exclude dotfiles and entire dot-directories from project classification.
+  final bool indexSkipHidden;
+
   RuntimeConfig({
     this.provider = 'anthropic',
     this.apiKey = '',
@@ -187,6 +190,7 @@ class RuntimeConfig {
     this.modelExplicit = false,
     this.transportRetryAttempts = 5,
     this.enableWorkflow = false,
+    this.indexSkipHidden = true,
   }) : permissionRules = List.unmodifiable(permissionRules),
        promptOverrides = Map.unmodifiable(promptOverrides);
 

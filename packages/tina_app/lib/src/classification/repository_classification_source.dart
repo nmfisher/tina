@@ -14,10 +14,12 @@ class RepositoryEvidenceReader {
   final SandboxedFileSystem sandbox;
   final GitFileEnumerator enumerator;
   final PermissionPolicy? policy;
+  final bool skipHidden;
   RepositoryEvidenceReader({
     required this.root,
     required this.sandbox,
     this.policy,
+    this.skipHidden = true,
     ProcessRunner processes = const IoProcessRunner(),
   }) : enumerator = GitFileEnumerator(
          processes: processes,
@@ -28,6 +30,7 @@ class RepositoryEvidenceReader {
   bool _eligible(String path) {
     if (!validProjectPath(path, root: false)) return false;
     final parts = path.toLowerCase().split('/');
+    if (skipHidden && parts.any((part) => part.startsWith('.'))) return false;
     if (parts.any(
       const {
         '.git',

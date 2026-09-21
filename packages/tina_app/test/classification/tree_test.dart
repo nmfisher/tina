@@ -58,9 +58,10 @@ void main() {
     await file.writeAsString(content);
   }
 
-  RepositoryTextSource source() => RepositoryTextSource(
+  RepositoryTextSource source({bool skipHidden = true}) => RepositoryTextSource(
     reader: RepositoryEvidenceReader(
       root: root.path,
+      skipHidden: skipHidden,
       sandbox: SandboxedFileSystem(
         const IoFileSystem(),
         projectRoot: root.path,
@@ -70,11 +71,13 @@ void main() {
     contentNames: const [],
     contentSuffixes: const ['.txt'],
   );
-  Future<ProjectClassificationReport> run({bool restore = false}) =>
-      ClassificationOrchestrator(store: store, executor: executor).run(
-        (session) => classifyProject(session, source()),
-        restoreOnly: restore,
-      );
+  Future<ProjectClassificationReport> run({
+    bool restore = false,
+    bool skipHidden = true,
+  }) => ClassificationOrchestrator(store: store, executor: executor).run(
+    (session) => classifyProject(session, source(skipHidden: skipHidden)),
+    restoreOnly: restore,
+  );
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('language-tree-');
@@ -90,6 +93,37 @@ void main() {
     await store.close();
     await root.delete(recursive: true);
   });
+
+  test(
+    'enabling hidden exclusion replaces merged results and removes hidden nodes',
+    () async {
+      await write('src/.hidden.txt', 'ruby');
+      await write('docs/.private/code.txt', 'rust');
+      final before = await run(skipHidden: false);
+      expect(before.failures, isEmpty);
+      expect(
+        before.records['.::language']!.result.value!.labels.map(
+          (label) => label.value,
+        ),
+        ['dart', 'python', 'ruby', 'rust'],
+      );
+
+      final after = await run();
+      expect(after.failures, isEmpty);
+      expect(
+        after.records['.::language']!.result.value!.labels.map(
+          (label) => label.value,
+        ),
+        ['dart', 'python'],
+      );
+      final manifest = (await store.readManifest())!['records'] as Map;
+      expect(manifest.keys, isNot(contains('task:docs/.private::language')));
+      executor.calls.clear();
+      final restored = await run(restore: true);
+      expect(restored.failures, isEmpty);
+      expect(executor.calls, isEmpty);
+    },
+  );
 
   test(
     'index classifies only languages, merges upward, and restores from disk',
