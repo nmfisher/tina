@@ -10,6 +10,7 @@ class StartupOptions {
   final bool showVersion;
   final String? prompt;
   final bool listSessions;
+  final bool resumePicker;
   final String? workflow;
   final bool verbose;
   final bool initConfig;
@@ -29,6 +30,7 @@ class StartupOptions {
     this.showVersion = false,
     this.prompt,
     this.listSessions = false,
+    this.resumePicker = false,
     this.workflow,
     this.verbose = false,
     this.initConfig = false,

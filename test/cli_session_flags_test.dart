@@ -65,6 +65,51 @@ void main() {
     });
   });
 
+  group('--resume optional id', () {
+    Config parse(List<String> args) => Config.parse(
+      args, env: const {}, registry: testRegistry(const {}),
+    );
+
+    test('bare flag requests a startup picker', () {
+      final cfg = parse(['--resume']);
+      expect(cfg.resumePicker, isTrue);
+      expect(cfg.resumeSessionId, isNull);
+      expect(cfg.launch.startup.resumePicker, isTrue);
+    });
+    test('following flags remain options', () {
+      final cfg = parse(['--resume', '--model', 'chosen', '--backend', 'ansi']);
+      expect(cfg.resumePicker, isTrue);
+      expect(cfg.model, 'chosen');
+      expect(cfg.backend, BackendChoice.ansi);
+    });
+    test('explicit IDs preserve direct resume', () {
+      for (final args in [['--resume', 'saved'], ['--resume=saved']]) {
+        final cfg = parse(args);
+        expect(cfg.resumePicker, isFalse);
+        expect(cfg.resumeSessionId, 'saved');
+      }
+    });
+    test('does not reinterpret option values or arguments after --', () {
+      expect(parse(['--prompt', '--resume']).prompt, '--resume');
+      expect(parse(['--prompt=--resume']).resumePicker, isFalse);
+      expect(parse(['--', '--resume']).resumePicker, isFalse);
+    });
+    test('picker conflicts with continue and noninteractive work', () {
+      for (final args in [
+        ['--resume', '--continue'],
+        ['--resume', '-c'],
+        ['--resume', '--prompt', 'task'],
+        ['--resume', '--workflow', 'task'],
+      ]) {
+        expect(() => parse(args), throwsFormatException);
+      }
+    });
+    test('informational flags still exit without picking', () {
+      expect(parse(['--resume', '--help']).showHelp, isTrue);
+      expect(parse(['--resume', '--list']).listSessions, isTrue);
+    });
+  });
+
   group('--continue flag', () {
     test('parses --continue into continueLatest', () {
       final cfg = Config.parse(

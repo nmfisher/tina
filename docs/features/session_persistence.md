@@ -1,5 +1,16 @@
 # Session persistence and cancellation
 
+`tina --resume` lists saved sessions, most recent first, and asks for a session
+number. Each entry includes its title, update time, message count, ID and project
+directory. Enter or `q` cancels; an empty list exits without starting a session.
+Selection happens before project trust and agent initialization, so the resumed
+session uses its saved directory and the usual session lock.
+
+`tina --resume <id>` resumes directly. `tina --continue` resumes the latest session
+for the current directory, and `tina --list` prints saved sessions and exits.
+The startup picker requires a terminal; scripts and `--prompt`/`--workflow` runs
+must supply an explicit ID. Inside Tina, `/sessions` or Alt+S opens the TUI picker.
+
 Interactive conversations and delegated agent sessions save progress during a
 turn. The user prompt, assistant completions, reasoning records, and each
 completed tool result are written before the next tool or approval starts.

@@ -12,6 +12,7 @@ import 'package:tina/logging.dart';
 
 import 'package:tina/host/headless_watchdog.dart';
 import 'package:tina/session_commands/session_command_handlers.dart';
+import 'package:tina/session_commands/startup_session_picker.dart';
 
 import 'package:tina_engine/tina_engine.dart';
 
@@ -188,8 +189,34 @@ Future<void> _run(List<String> argv) async {
       // folder-scoped by design and needs no chdir. `resumeCwdFor` is pure and
       // never throws on a bad id; resolveSession surfaces a missing session.
       final sessionStore = JsonlSessionStore.defaultLocation();
-      if (config.resumeSessionId != null) {
-        await _restoreSessionCwd(sessionStore, config.resumeSessionId!);
+      var resume = launch.startup.resume;
+      if (launch.startup.resumePicker) {
+        try {
+          if (!stdin.hasTerminal) {
+            stderr.writeln(
+              '--resume without an id needs an interactive terminal. '
+              'Use --list, then --resume <id>.',
+            );
+            exitCode = 64;
+            return;
+          }
+          final id = pickStartupSession(
+            await sessionStore.listSessions(),
+            readLine: stdin.readLineSync,
+            write: stdout.write,
+          );
+          if (id == null) return;
+          resume = ResumeRequest(resumeSessionId: id);
+        } finally {
+          // Composition takes ownership only after a selection succeeds.
+          if (resume.resumeSessionId == null) {
+            await sessionStore.close();
+            registry.catalog?.close();
+          }
+        }
+      }
+      if (resume.resumeSessionId != null) {
+        await _restoreSessionCwd(sessionStore, resume.resumeSessionId!);
       }
 
       // Project-trust gate: decide once, before any agent is built, whether this
@@ -204,7 +231,7 @@ Future<void> _run(List<String> argv) async {
 
       final app = await buildAppComposition(
         config: launch.runtime,
-        resumeRequest: launch.startup.resume,
+        resumeRequest: resume,
         registry: registry,
         store: sessionStore,
         ownsStore: true,
@@ -736,6 +763,8 @@ bool _shouldRunStdinSetup(List<String> argv, Environment environment) {
         a == '--help' ||
         a == '-h' ||
         a == '--version' ||
+        a == '--resume' ||
+        a.startsWith('--resume=') ||
         a == '--list' ||
         a == '-l' ||
         a == '--init-config' ||

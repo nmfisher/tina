@@ -26,7 +26,14 @@ const int kDefaultMaxSubAgentConcurrency = 6;
 const String kDefaultAutoCompactThreshold = '120000';
 
 const _reasoningEfforts = [
-  'auto', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max',
+  'auto',
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
 ];
 
 /// Root compatibility facade. Application code consumes [runtime].
@@ -42,6 +49,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
   final String? resumeSessionId;
   final bool continueLatest;
   final bool listSessions;
+  final bool resumePicker;
   final String? workflow;
   final BackendChoice backend;
   final bool verbose;
@@ -69,6 +77,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     required this.resumeSessionId,
     required this.continueLatest,
     required this.listSessions,
+    this.resumePicker = false,
     this.workflow,
     super.defaultWorkflow,
     required super.maxTurnTokens,
@@ -164,6 +173,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     showVersion: showVersion,
     prompt: prompt,
     listSessions: listSessions,
+    resumePicker: resumePicker,
     workflow: workflow,
     verbose: verbose,
     initConfig: initConfig,
@@ -277,7 +287,9 @@ class Config extends RuntimeConfig implements ResumeRequest {
     )
     ..addOption(
       'resume',
-      help: 'Resume a saved session by id. See /sessions inside the REPL.',
+      valueHelp: 'id',
+      help:
+          'Resume a saved session; omit the id to choose from saved sessions.',
     )
     ..addFlag(
       'continue',
@@ -557,13 +569,40 @@ class Config extends RuntimeConfig implements ResumeRequest {
     forceLock: false,
   );
 
+  /// args requires option values. Give a bare --resume an empty value while
+  /// leaving other options' values and the -- terminator untouched.
+  static List<String> _resumeArguments(List<String> argv) {
+    final result = <String>[];
+    for (var i = 0; i < argv.length; i++) {
+      final arg = argv[i];
+      if (arg == '--') {
+        result.addAll(argv.skip(i));
+        break;
+      }
+      if (arg == '--resume' &&
+          (i + 1 == argv.length || argv[i + 1].startsWith('-'))) {
+        result.add('--resume=');
+        continue;
+      }
+      result.add(arg);
+      final option = arg.startsWith('--') && !arg.contains('=')
+          ? _parser.options[arg.substring(2)]
+          : arg.startsWith('-') && arg.length == 2
+          ? _parser.findByAbbreviation(arg.substring(1))
+          : null;
+      if (option != null && !option.isFlag && i + 1 < argv.length)
+        result.add(argv[++i]);
+    }
+    return result;
+  }
+
   factory Config.parse(
     List<String> argv, {
     Map<String, String>? env,
     ProviderRegistry? registry,
     UserConfig? userConfig,
   }) {
-    final res = _parser.parse(argv);
+    final res = _parser.parse(_resumeArguments(argv));
     // --help / --init-config / --list short-circuit before provider/key
     // resolution: each runs on a fresh install with no credentials, so none of
     // the parser's real defaults (token budgets, auto-compact, etc.) matter —
@@ -645,7 +684,8 @@ class Config extends RuntimeConfig implements ResumeRequest {
         (desc.models.isNotEmpty ? desc.models.keys.first : '');
     final defaultBaseUrl = env['${envPrefix}_BASE_URL'] ?? desc.defaultBaseUrl;
 
-    final maxTokens = int.tryParse(res['max-output-tokens'] as String) ??
+    final maxTokens =
+        int.tryParse(res['max-output-tokens'] as String) ??
         ProviderRegistry.defaultMaxTokens;
 
     final effort =
@@ -666,11 +706,20 @@ class Config extends RuntimeConfig implements ResumeRequest {
     // Model tiers were removed with the delegate catalog (a delegation now
     // carries its own llm_provider/llm_model). Nothing to parse here.
 
-    final resumeId = res['resume'] as String?;
+    final resumeValue = res['resume'] as String?;
+    final resumePicker = resumeValue == '';
+    final resumeId = resumePicker ? null : resumeValue;
     final continueLatest = res['continue'] as bool;
-    if (resumeId != null && continueLatest) {
+    if (resumeValue != null && continueLatest) {
       throw const FormatException(
         '--resume and --continue are mutually exclusive.',
+      );
+    }
+
+    if (resumePicker && (res['prompt'] != null || res['workflow'] != null)) {
+      throw const FormatException(
+        'Use --resume <id> with --prompt or --workflow. '
+        'Use --list to see saved sessions.',
       );
     }
 
@@ -725,8 +774,9 @@ class Config extends RuntimeConfig implements ResumeRequest {
     // parser maps --sandbox/--no-sandbox into a tri-state via wasParsed:
     // unparsed = the user said nothing (so --yolo may turn the sandbox off),
     // parsed true/false = explicit intent, which always wins. See tin-y9k2.
-    final sandboxFlag =
-        res.wasParsed('sandbox') ? res['sandbox'] as bool : null;
+    final sandboxFlag = res.wasParsed('sandbox')
+        ? res['sandbox'] as bool
+        : null;
     final explicitNoSandbox = res['no-sandbox'] as bool;
     final bool sandboxEnabled;
     final String? sandboxOffReason;
@@ -760,6 +810,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
       models: res['models'] as String?,
       permissionRules: rules,
       resumeSessionId: resumeId,
+      resumePicker: resumePicker,
       continueLatest: continueLatest,
       listSessions: false,
       workflow: res['workflow'] as String?,
@@ -804,22 +855,37 @@ class Config extends RuntimeConfig implements ResumeRequest {
         fileLimits?.requestsPerMinute,
         0,
       ),
-      autoCompactThreshold: parseBudget('auto-compact-threshold', kDefaultAutoCompactThreshold),
+      autoCompactThreshold: parseBudget(
+        'auto-compact-threshold',
+        kDefaultAutoCompactThreshold,
+      ),
       // tin-y9k2: --max-steps accepts 0 = unbounded. There is no [limits]
       // file key for it, so the chain is CLI > --yolo(0) > default.
       maxSteps: res.wasParsed('max-steps')
           ? parseBudget('max-steps', kDefaultMaxSteps.toString())
           : yolo
-              ? 0
-              : kDefaultMaxSteps,
-      watchdogSeconds: parseBudget('watchdog-seconds', kDefaultWatchdogSeconds.toString()),
+          ? 0
+          : kDefaultMaxSteps,
+      watchdogSeconds: parseBudget(
+        'watchdog-seconds',
+        kDefaultWatchdogSeconds.toString(),
+      ),
       streamIdleTimeout: Duration(
-        seconds: parsePositive('stream-idle-timeout', kDefaultStreamIdleTimeoutSeconds.toString()),
+        seconds: parsePositive(
+          'stream-idle-timeout',
+          kDefaultStreamIdleTimeoutSeconds.toString(),
+        ),
       ),
       requestTimeout: Duration(
-        seconds: parsePositive('request-timeout', kDefaultRequestTimeoutSeconds.toString()),
+        seconds: parsePositive(
+          'request-timeout',
+          kDefaultRequestTimeoutSeconds.toString(),
+        ),
       ),
-      transportRetryAttempts: parseBudget('transport-retry-attempts', kDefaultTransportRetryAttempts.toString()),
+      transportRetryAttempts: parseBudget(
+        'transport-retry-attempts',
+        kDefaultTransportRetryAttempts.toString(),
+      ),
       backend: switch (res['backend'] as String) {
         'ansi' => BackendChoice.ansi,
         _ => BackendChoice.notcurses,
@@ -847,7 +913,8 @@ class Config extends RuntimeConfig implements ResumeRequest {
       modelExplicit: res.wasParsed('model'),
       forceLock: res['force'] as bool,
       enableWorkflow:
-          (res['enable-workflow'] as bool) || (userConfig?.featuresWorkflow ?? false),
+          (res['enable-workflow'] as bool) ||
+          (userConfig?.featuresWorkflow ?? false),
     );
   }
 }
