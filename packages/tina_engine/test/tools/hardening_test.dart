@@ -15,6 +15,7 @@ import 'package:test/test.dart';
 import '../helpers/fake_agent_sink.dart';
 import '../helpers/fake_provider.dart';
 import '../helpers/fake_tool.dart';
+import '../helpers/memory_file_enumerator.dart';
 import '../helpers/memory_file_system.dart';
 import '../helpers/memory_process_runner.dart';
 
@@ -518,6 +519,7 @@ void main() {
       expect(redact(long).length, lessThan(long.length));
     });
   });
+  _sweepArgv();
 }
 
 // ---------------------------------------------------------------------------
@@ -553,4 +555,128 @@ class _RecordingProcessRunner implements ProcessRunner {
     started = true;
     return const RunResult(exitCode: 0, stdout: '', stderr: '');
   }
+
+}
+
+// ---------------------------------------------------------------------------
+// argv sweep: model input must never be able to become an option.
+//
+// The behavioural half of the capability sweep. Capabilities say a tool
+// spawns a fixed program and takes model data; this drives each such tool with
+// input chosen to look like a flag and checks what actually reached the
+// process. The grep bug (a pattern of `--pre=<cmd>` read as an option that
+// runs a command) is caught here without anyone reading the tool.
+//
+// Two disciplines are acceptable, and every spawning tool must have one:
+//   fenced     — model values are emitted as positionals behind `--`;
+//   validated  — model values are checked against an allow-list and refused.
+// What is NOT acceptable is model text reaching the option region unchecked.
+// ---------------------------------------------------------------------------
+
+/// Inputs chosen to be read as options if anything lets them out of the
+/// positional region. Shared, so a new tool is tested against the same list
+/// rather than whatever its author happened to think of.
+const _hostileValues = <String>[
+  '--pre=touch /tmp/pwned',
+  '--output=/tmp/pwned',
+  '--glob=*',
+  '-',
+  '--',
+  'pattern; rm -rf /',
+  '../../../etc/passwd',
+];
+
+/// What the tool did with [hostile] supplied as [parameter]: the argv it
+/// handed the process, or the refusal it returned instead.
+typedef _ArgvProbe = Future<({List<String>? argv, bool refused})> Function(
+    String parameter, String hostile);
+
+final Map<String, _ArgvProbe> _argvDrivers = {
+  'grep': (parameter, hostile) async {
+    final runner = MemoryProcessRunner((exe, args) => MemoryRunningProcess(
+        stdoutChunks: args.contains('--version')
+            ? <String>['rg 14\n']
+            : <String>[]));
+    final tool = GrepTool(
+      processRunner: runner,
+      fileEnumerator: MemoryFileEnumerator({}),
+      fs: MemoryFileSystem()..directories.add('/repo'),
+    )..projectRoot = '/repo';
+    final input = <String, dynamic>{'path': '/repo', 'pattern': 'x'};
+    if (parameter == 'glob') {
+      input['glob'] = hostile;
+    } else {
+      input['pattern'] = hostile;
+    }
+    final result = await tool.execute(input);
+    if (result.isError) return (argv: null, refused: true);
+    // The last invocation is the search; the first is the `--version` probe.
+    return (argv: runner.starts.last.arguments, refused: false);
+  },
+  'git': (parameter, hostile) async {
+    final runner = MemoryProcessRunner((exe, args) =>
+        MemoryRunningProcess(stdoutChunks: <String>['should not run']));
+    final tool = GitTool(processRunner: runner);
+    // git takes one `args` string; the hostile value is the whole of it, so
+    // the weaponised token would have to survive as the subcommand or a flag.
+    final result = await tool.execute({'args': hostile});
+    return (argv: null, refused: result.isError);
+  },
+};
+
+void _sweepArgv() {
+  test('every tool declaring a fixed spawn is driven or accounted for', () {
+    final spawners = [
+      for (final entry in kToolCapabilities.entries)
+        if (entry.value.spawns == SpawnScope.fixed) entry.key
+    ];
+    expect(spawners, isNotEmpty, reason: 'the sweep must have tools to drive');
+    // The ratchet: a new spawning tool must be driven, not trusted. `search`
+    // and `write_summary` build their git argv from fixed internals with no
+    // model text reaching it, so they are covered by the runner baseline in
+    // project_capabilities_test instead.
+    const coveredElsewhere = {'search', 'write_summary'};
+    final undriven = [
+      for (final name in spawners)
+        if (!_argvDrivers.containsKey(name) && !coveredElsewhere.contains(name))
+          name
+    ];
+    expect(undriven, isEmpty,
+        reason: 'add an argv driver for these, so their spawn is driven with '
+            'hostile input rather than assumed safe');
+  });
+
+  test('fenced: model values are positionals, never in the option region',
+      () async {
+    for (final parameter in const ['pattern', 'glob']) {
+      for (final hostile in _hostileValues) {
+        final probe = await _argvDrivers['grep']!(parameter, hostile);
+        expect(probe.refused, isFalse,
+            reason: 'grep searches for a leading-dash pattern, it does not '
+                'refuse it: $hostile');
+        final argv = probe.argv!;
+        final fence = argv.indexOf('--');
+        expect(fence, isNonNegative, reason: 'no fence for "$hostile": $argv');
+        expect(argv.sublist(0, fence), isNot(contains(hostile)),
+            reason: '"$hostile" reached the option region: $argv');
+        if (parameter == 'pattern') {
+          // Still searched for, just as data.
+          expect(argv.sublist(fence + 1), contains(hostile),
+              reason: 'the pattern must not be dropped: $argv');
+        } else {
+          // An option value stays one token with its flag.
+          expect(argv, contains('--glob=$hostile'),
+              reason: 'a glob value must be joined to its flag: $argv');
+        }
+      }
+    }
+  });
+
+  test('validated: a hostile args string is refused, not run', () async {
+    for (final hostile in _hostileValues) {
+      final probe = await _argvDrivers['git']!('args', hostile);
+      expect(probe.refused, isTrue,
+          reason: 'git must refuse "$hostile" rather than hand it to git');
+    }
+  });
 }

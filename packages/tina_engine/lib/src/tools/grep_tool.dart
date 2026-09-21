@@ -1,4 +1,3 @@
-import 'tool_capabilities.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -6,11 +5,13 @@ import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import 'fenced_arguments.dart';
 import 'file_enumerator.dart';
 import 'file_system.dart';
 import 'process_runner.dart';
 import 'sandbox.dart';
 import 'tool.dart';
+import 'tool_capabilities.dart';
 import 'tool_input.dart';
 
 final _log = Logger('tina.tools.grep');
@@ -186,25 +187,21 @@ class GrepTool implements Tool, SpawnsProcess {
     required bool caseInsensitive,
     required Future<void>? cancelSignal,
   }) async {
-    final args = <String>[
-      '--no-heading',
-      '--line-number',
-      '--with-filename',
-      if (caseInsensitive) '--ignore-case',
-      // One token per option, so a glob's *value* can never be read as a second
-      // option. `['--glob', glob]` let a glob of `--pre=<cmd>` become a flag.
-      if (glob != null) '--glob=$glob',
-      // Everything after this is a positional argument. Without it, ripgrep
-      // parses a model-supplied pattern that begins with a dash as an OPTION —
-      // `--pre=<cmd>` makes ripgrep run <cmd> for every file it searches. The
-      // pattern is data; it must never be able to become control.
-      '--',
-      pattern,
-      path,
-    ];
+    // Assembled through FencedArguments so the model's pattern cannot reach
+    // the option region: a pattern of `--pre=<cmd>` used to be read as a flag
+    // that makes ripgrep run <cmd> for every file it searches.
+    final args = FencedArguments()
+      ..flag('--no-heading')
+      ..flag('--line-number')
+      ..flag('--with-filename');
+    if (caseInsensitive) args.flag('--ignore-case');
+    if (glob != null) args.option('--glob', glob);
+    args
+      ..value(pattern)
+      ..value(path);
     final RunningProcess proc;
     try {
-      proc = await processRunner.start('rg', args);
+      proc = await processRunner.start('rg', args.build());
     } catch (e) {
       return ToolResult.error('Failed to start rg: $e');
     }
