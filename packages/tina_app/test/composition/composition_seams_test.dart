@@ -24,6 +24,9 @@ ProviderRegistry _registryWithUsageProvider() {
 /// just enough [AgentDriver] to prove the composition hands THIS driver (not
 /// the built-in agent loop) to the scheduler.
 class _ScriptedDriver implements AgentDriver {
+
+  @override
+  PermissionPolicy get policy => PermissionPolicy();
   final AgentDriverRequest request;
 
   _ScriptedDriver(this.request);
@@ -436,6 +439,59 @@ void main() {
       },
     );
   });
+
+  test(
+      'every tool the interactive main mounts declares what it does, and none '
+      'that reaches past the sandbox is auto-approved', () async {
+    final comp = await _build();
+    addTearDown(comp.dispose);
+    final host = FakeHostInterface();
+    addTearDown(host.dispose);
+    // The interactive main is the widest posture the application mounts
+    // (delegate, the channel surface, image rendering) and is where the audit's
+    // widening lived — so this is the policy a user actually runs under, not
+    // the one the composition was handed.
+    final driver = buildAgent(
+      pipeline: comp.pipeline,
+      scheduler: comp.scheduler,
+      conversationId: comp.initialConversationId,
+      provider: comp.buildStartupProvider(),
+      host: host,
+      policy: comp.policy,
+      config: comp.config,
+      withSubAgents: true,
+    );
+
+    final mounted = {for (final t in driver.tools.all) t.schema.name};
+    expect(mounted, isNotEmpty, reason: 'the sweep must see a real tool set');
+    const notYetDeclared = {
+      // Mounted only when the orchestrator wires the explorer. Declaring it as
+      // a project read would flip it from ask to allow, and a posture change
+      // needs its own decision rather than arriving as a side effect of a
+      // declaration. Named here so it is visible rather than silent.
+      'explore_project',
+    };
+    final undeclared = [
+      for (final name in mounted)
+        if (!kToolCapabilities.containsKey(name) &&
+            !notYetDeclared.contains(name))
+          name
+    ];
+    expect(undeclared, isEmpty,
+        reason: 'declare what these do before mounting them');
+
+    for (final entry in kToolCapabilities.entries) {
+      final caps = entry.value;
+      if (!caps.escapesTheSandbox || caps.justification != null) continue;
+      expect(driver.policy.check(entry.key, const {}),
+          isNot(PermissionDecision.allow),
+          reason: '${entry.key} reaches past the project sandbox '
+              '(reads=${caps.reads.name}, writes=${caps.writes.name}, '
+              'spawns=${caps.spawns.name}, network=${caps.network.name}) and '
+              'the application auto-approves it');
+    }
+  });
+
 }
 
 /// Minimal usage-reporting provider so the runtime (and its classifier probe)
@@ -564,6 +620,9 @@ class _RecordingProvider extends LlmProvider {
 /// anything reaches past the driver for an agent it fails loudly instead of
 /// silently running the built-in loop.
 class _ScriptedDriver_merged implements AgentDriver {
+
+  @override
+  PermissionPolicy get policy => PermissionPolicy();
   _ScriptedDriver_merged(this.provider);
 
   @override

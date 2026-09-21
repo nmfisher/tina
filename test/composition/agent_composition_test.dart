@@ -698,6 +698,8 @@ class _CountingDriverFactory implements AgentDriverFactory {
 
 /// Records the request it was created from and drives a real inner agent.
 class _CapturingDriver implements AgentDriver {
+  @override
+  PermissionPolicy get policy => PermissionPolicy();
   final AgentDriverRequest request;
   _CapturingDriver(this.request);
 

@@ -38,6 +38,9 @@ class _EchoTool extends Tool {
 /// appending one assistant message to the history. Lets a test prove the
 /// coordinator invoked the REPLACEMENT, not the default agent build.
 class _ScriptedDriver implements AgentDriver {
+
+  @override
+  PermissionPolicy get policy => PermissionPolicy();
   final String resultText;
   int runCount = 0;
   List<Message>? lastHistory;

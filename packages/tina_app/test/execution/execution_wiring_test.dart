@@ -36,6 +36,9 @@ class _RecordingProvider extends LlmProvider {
 /// appends a canned assistant message; `compact` records its arguments and
 /// rewrites history with a summary. Nothing reaches the wrapped agent.
 class _ScriptedDriver implements AgentDriver {
+
+  @override
+  PermissionPolicy get policy => PermissionPolicy();
   _ScriptedDriver(this.agent);
 
   /// The agent this driver must drive (same history/provider surface). Never

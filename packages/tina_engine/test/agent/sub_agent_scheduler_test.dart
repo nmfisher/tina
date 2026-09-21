@@ -13,6 +13,9 @@ import '../helpers/fake_provider.dart';
 /// A driver that scripts a single turn — the seam replacement whose
 /// execution proves the panelized path went through [AgentDriverFactory].
 class _ScriptedSessionDriver implements AgentDriver {
+
+  @override
+  PermissionPolicy get policy => PermissionPolicy();
   int runs = 0;
 
   @override

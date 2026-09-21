@@ -199,6 +199,13 @@ const Map<String, ToolCapabilities> kToolCapabilities = {
     reviewed: 'reads an image path to paint it into the panel; the bytes are '
         'never returned to the model',
   ),
+  // A framework stage transition ("exploration is done; begin execution"),
+  // not a model-side effect: it flips a flag on the environment stage and
+  // touches nothing. It is also a LocalControlTool, so the executor never
+  // consults `check()` for it — the declaration is recorded anyway, because it
+  // documents that the tool is machine-neutral and makes the residual visible:
+  // a `--deny` rule naming it is inert rather than enforced.
+  'begin_environment_execution': ToolCapabilities(reads: ReadScope.none),
 };
 
 /// The declaration for [tool], or the worst case when nothing is declared.

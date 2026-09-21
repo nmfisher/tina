@@ -74,6 +74,16 @@ abstract class AgentDriver {
   /// The tool registry this driver's agent runs with.
   ToolRegistry get tools;
 
+  /// The permission policy this driver's tools are actually gated by.
+  ///
+  /// Exposed for the same reason [tools] is: what a running agent is permitted
+  /// should be inspectable rather than inferred from the configuration it was
+  /// built with. The application widens the base policy before handing it here
+  /// (delegate, the channel surface, image rendering), so this is deliberately
+  /// NOT the policy the caller passed in — and the permission sweep checks it
+  /// as the posture the user is really running under.
+  PermissionPolicy get policy;
+
   /// The provider this driver's agent sends requests to. Mutable so a caller
   /// (e.g. a `/model` swap) can swap the provider instance at runtime; the
   /// agent re-reads it on each [run].
@@ -103,6 +113,9 @@ abstract class AgentDriver {
 /// the adapter that lets a coordinator hand a plain [Agent] to code that
 /// speaks [AgentDriver].
 class AgentDriverAdapter implements AgentDriver {
+
+  @override
+  PermissionPolicy get policy => agent.policy;
   /// The wrapped agent — every operation below delegates to it. Kept public
   /// (not part of the [AgentDriver] contract): a caller that genuinely needs
   /// the concrete build type-tests for this adapter and unwraps it.

@@ -1164,6 +1164,9 @@ void main() {
 }
 
 class _ScriptedDriver implements AgentDriver {
+
+  @override
+  PermissionPolicy get policy => PermissionPolicy();
   _ScriptedDriver(this.request) : provider = request.provider;
   final AgentDriverRequest request;
   int runs = 0;

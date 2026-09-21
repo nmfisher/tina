@@ -722,6 +722,8 @@ class _PanelCountingFactory implements AgentDriverFactory {
 }
 
 class _PanelScriptedDriver implements AgentDriver {
+  @override
+  PermissionPolicy get policy => PermissionPolicy();
   final runInputs = <String>[];
 
   @override
