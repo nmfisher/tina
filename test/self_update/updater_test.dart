@@ -23,19 +23,28 @@ void main() {
 
   /// Builds a tarball containing `bundle/bin/tina` with [marker] inside,
   /// plus an optional correct `.sha256` sidecar; returns both paths.
-  ({File archive, File checksum}) buildArchive(String marker,
-      {bool withChecksum = true}) {
+  ({File archive, File checksum}) buildArchive(
+    String marker, {
+    bool withChecksum = true,
+  }) {
     final s = scratch!;
     final src = Directory(p.join(s.path, 'src'))..createSync(recursive: true);
     final bundle = Directory(p.join(src.path, 'bundle'));
     Directory(p.join(bundle.path, 'bin')).createSync(recursive: true);
     Directory(p.join(bundle.path, 'lib')).createSync(recursive: true);
     File(p.join(bundle.path, 'bin', 'tina')).writeAsStringSync(marker);
-    File(p.join(bundle.path, 'lib', 'libfake.so')).writeAsStringSync('lib');
+    File(
+      p.join(bundle.path, 'lib', 'libnotcurses_merged.so'),
+    ).writeAsStringSync('lib');
 
     final archive = File(p.join(s.path, 'tina-v9.9.9-test.tar.gz'));
-    final r = Process.runSync(
-        'tar', ['czf', archive.path, '-C', src.path, 'bundle']);
+    final r = Process.runSync('tar', [
+      'czf',
+      archive.path,
+      '-C',
+      src.path,
+      'bundle',
+    ]);
     expect(r.exitCode, 0, reason: 'fixture tar build failed: ${r.stderr}');
 
     var checksum = File(p.join(s.path, 'unused.sha256'));
@@ -56,25 +65,68 @@ void main() {
     Directory(p.join(root.path, 'bin')).createSync(recursive: true);
     File(p.join(root.path, 'bin', 'tina')).writeAsStringSync(marker);
     if (marked) {
-      File(p.join(root.path, bundleMarkerName))
-          .writeAsStringSync('tina bundle root\n');
+      File(
+        p.join(root.path, bundleMarkerName),
+      ).writeAsStringSync('tina bundle root\n');
     }
     return root;
   }
 
-  ReleaseInfo releaseFor(String assetUrl, {String? checksumUrl}) =>
-      ReleaseInfo(
-        tag: 'v9.9.9',
-        releaseUrl: 'https://example.com/rel',
-        assetUrls: {
-          'tina-v9.9.9-${targetForCurrentPlatform()}.tar.gz': assetUrl,
-          if (checksumUrl != null)
-            'tina-v9.9.9-${targetForCurrentPlatform()}.tar.gz.sha256':
-                checksumUrl,
-        },
-      );
+  ReleaseInfo releaseFor(String assetUrl, {String? checksumUrl}) => ReleaseInfo(
+    tag: 'v9.9.9',
+    releaseUrl: 'https://example.com/rel',
+    assetUrls: {
+      'tina-v9.9.9-${targetForCurrentPlatform()}.tar.gz': assetUrl,
+      if (checksumUrl != null)
+        'tina-v9.9.9-${targetForCurrentPlatform()}.tar.gz.sha256': checksumUrl,
+    },
+  );
 
   group('bundleRootForCurrentProcess', () {
+    test(
+      'resolves a launcher in a shared bin directory to the private bundle',
+      () {
+        final root = buildInstalledBundle('x');
+        final bin = Directory(p.join(scratch!.path, 'shared', 'bin'))
+          ..createSync(recursive: true);
+        File(p.join(bin.path, 'other')).writeAsStringSync('keep');
+        final launcher = Link(p.join(bin.path, 'tina'))
+          ..createSync(
+            p.relative(p.join(root.path, 'bin', 'tina'), from: bin.path),
+          );
+        expect(
+          bundleRootForCurrentProcess(resolvedExecutable: launcher.path),
+          root.path,
+        );
+      },
+    );
+
+    test('broken and cyclic launchers have no bundle root', () {
+      final launcher = Link(p.join(scratch!.path, 'tina'))
+        ..createSync('missing');
+      expect(
+        bundleRootForCurrentProcess(resolvedExecutable: launcher.path),
+        isNull,
+      );
+      launcher.updateSync('tina');
+      expect(
+        bundleRootForCurrentProcess(resolvedExecutable: launcher.path),
+        isNull,
+      );
+    });
+
+    test('rejects linked bundle directories and hidden directories', () {
+      final root = buildInstalledBundle('x');
+      final alias = Link(p.join(scratch!.path, 'alias'))..createSync(root.path);
+      expect(isOwnedBundleRoot(alias.path), isFalse);
+      final foreign = Directory(p.join(scratch!.path, 'foreign'))..createSync();
+      final lib = Link(p.join(root.path, 'lib'))..createSync(foreign.path);
+      expect(isOwnedBundleRoot(root.path), isFalse);
+      lib.deleteSync();
+      Directory(p.join(root.path, '.data')).createSync();
+      expect(isOwnedBundleRoot(root.path), isFalse);
+    });
+
     test('recognizes a <root>/bin/tina layout', () {
       final root = buildInstalledBundle('x');
       final exe = p.join(root.path, 'bin', 'tina');
@@ -102,8 +154,7 @@ void main() {
       expect(bundleRootForCurrentProcess(resolvedExecutable: exe), isNull);
     });
 
-    test('rejects a root shared with other tools (foreign top-level dir)',
-        () {
+    test('rejects a root shared with other tools (foreign top-level dir)', () {
       final root = buildInstalledBundle('x');
       Directory(p.join(root.path, 'share')).createSync();
       final exe = p.join(root.path, 'bin', 'tina');
@@ -121,18 +172,21 @@ void main() {
       final s = scratch!;
       File(p.join(s.path, 'bin', 'other')).createSync(recursive: true);
       expect(
-          bundleRootForCurrentProcess(
-              resolvedExecutable: p.join(s.path, 'bin', 'other')),
-          isNull);
+        bundleRootForCurrentProcess(
+          resolvedExecutable: p.join(s.path, 'bin', 'other'),
+        ),
+        isNull,
+      );
       // Right name, but the file doesn't exist on disk.
       expect(
-          bundleRootForCurrentProcess(
-              resolvedExecutable: p.join(s.path, 'bin', 'tina')),
-          isNull);
+        bundleRootForCurrentProcess(
+          resolvedExecutable: p.join(s.path, 'bin', 'tina'),
+        ),
+        isNull,
+      );
     });
 
-    test('dart-run process (VM as resolvedExecutable) has no bundle root',
-        () {
+    test('dart-run process (VM as resolvedExecutable) has no bundle root', () {
       // Under `dart test` the resolved executable is the VM, never a bundle.
       expect(bundleRootForCurrentProcess(), isNull);
     });
@@ -154,18 +208,23 @@ void main() {
 
       expect(result, UpdateResult.success);
       expect(
-          File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(),
-          'new-tina');
+        File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(),
+        'new-tina',
+      );
       expect(
-          Directory('${installed.path}.old').existsSync(), isTrue,
-          reason: 'the old bundle is renamed aside for a later-launch sweep');
+        Directory('${installed.path}.old').existsSync(),
+        isTrue,
+        reason: 'the old bundle is renamed aside for a later-launch sweep',
+      );
       expect(
-          File(p.join('${installed.path}.old', 'bin', 'tina'))
-              .readAsStringSync(),
-          'old');
-      expect(File(p.join(installed.path, bundleMarkerName)).existsSync(),
-          isTrue,
-          reason: 'the installed root carries the ownership marker');
+        File(p.join('${installed.path}.old', 'bin', 'tina')).readAsStringSync(),
+        'old',
+      );
+      expect(
+        File(p.join(installed.path, bundleMarkerName)).existsSync(),
+        isTrue,
+        reason: 'the installed root carries the ownership marker',
+      );
       expect(lines.any((l) => l.contains('restart')), isTrue);
     }, skip: !hasTar);
 
@@ -177,8 +236,7 @@ void main() {
       });
 
       final result = await installRelease(
-        releaseFor('https://example.com/asset',
-            checksumUrl: 'checksum'),
+        releaseFor('https://example.com/asset', checksumUrl: 'checksum'),
         notice: (_) {},
         client: client,
         bundleRootOverride: installed.path,
@@ -187,8 +245,10 @@ void main() {
       );
 
       expect(result, UpdateResult.success);
-      expect(File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(),
-          'new-tina');
+      expect(
+        File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(),
+        'new-tina',
+      );
     }, skip: !hasTar);
 
     test('a wrong sha256 fails without touching the install', () async {
@@ -199,8 +259,7 @@ void main() {
       final client = _UrlClient({'checksum': bad.readAsStringSync()});
 
       final result = await installRelease(
-        releaseFor('https://example.com/asset',
-            checksumUrl: 'checksum'),
+        releaseFor('https://example.com/asset', checksumUrl: 'checksum'),
         notice: (_) {},
         client: client,
         bundleRootOverride: installed.path,
@@ -209,8 +268,10 @@ void main() {
       );
 
       expect(result, UpdateResult.failed);
-      expect(File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(),
-          'old');
+      expect(
+        File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(),
+        'old',
+      );
       expect(Directory('${installed.path}.old').existsSync(), isFalse);
     }, skip: !hasTar);
 
@@ -222,10 +283,12 @@ void main() {
           'tina-v9.9.9-windows-x64.tar.gz': 'https://example.com/win',
         },
       );
-      final result = await installRelease(release,
-          notice: (_) {},
-          bundleRootOverride: '/tmp/whatever',
-          workDirOverride: p.join(scratch!.path, 'work'));
+      final result = await installRelease(
+        release,
+        notice: (_) {},
+        bundleRootOverride: '/tmp/whatever',
+        workDirOverride: p.join(scratch!.path, 'work'),
+      );
       expect(result, UpdateResult.unsupported);
     });
 
@@ -243,10 +306,12 @@ void main() {
 
     test('refuses to swap a root that is not exclusively tina\'s', () async {
       final installed = buildInstalledBundle('old', marked: false);
-      Directory(p.join(installed.path, 'share', 'signal-cli'))
-          .createSync(recursive: true);
-      File(p.join(installed.path, 'share', 'signal-cli', 'account.db'))
-          .writeAsStringSync('store');
+      Directory(
+        p.join(installed.path, 'share', 'signal-cli'),
+      ).createSync(recursive: true);
+      File(
+        p.join(installed.path, 'share', 'signal-cli', 'account.db'),
+      ).writeAsStringSync('store');
       final fixture = buildArchive('new-tina');
       final lines = <String>[];
 
@@ -260,10 +325,15 @@ void main() {
 
       expect(result, UpdateResult.manualRequired);
       expect(lines.join(), contains('install.sh'));
-      expect(File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(),
-          'old');
-      expect(Directory('${installed.path}.old').existsSync(), isFalse,
-          reason: 'an unowned root must never be renamed aside');
+      expect(
+        File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(),
+        'old',
+      );
+      expect(
+        Directory('${installed.path}.old').existsSync(),
+        isFalse,
+        reason: 'an unowned root must never be renamed aside',
+      );
     }, skip: !hasTar);
 
     test('refuses to delete a foreign <root>.old', () async {
@@ -285,49 +355,71 @@ void main() {
 
       expect(result, UpdateResult.failed);
       expect(lines.join(), contains('refusing to delete'));
-      expect(foreign.existsSync(), isTrue,
-          reason: 'a foreign .old is never ours to delete');
-      expect(File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(),
-          'old', reason: 'the swap aborted before touching the install');
-    }, skip: !hasTar);
-
-    test('a non-bundle archive (no bundle/bin/tina) fails and rolls back',
-        () async {
-      final installed = buildInstalledBundle('old');
-      final s = scratch!;
-      final src = Directory(p.join(s.path, 'badsrc'))
-        ..createSync(recursive: true);
-      File(p.join(src.path, 'readme.txt')).writeAsStringSync('not a bundle');
-      final archive = File(p.join(s.path, 'bad.tar.gz'));
       expect(
-          Process.runSync(
-                  'tar', ['czf', archive.path, '-C', src.path, 'readme.txt'])
-              .exitCode,
-          0);
-
-      final result = await installRelease(
-        releaseFor('https://example.com/asset'),
-        notice: (_) {},
-        bundleRootOverride: installed.path,
-        workDirOverride: p.join(s.path, 'work'),
-        archiveSupplier: () async => archive,
+        foreign.existsSync(),
+        isTrue,
+        reason: 'a foreign .old is never ours to delete',
       );
-
-      expect(result, UpdateResult.failed);
-      expect(File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(),
-          'old');
-      expect(Directory('${installed.path}.old').existsSync(), isFalse,
-          reason: 'the swap must roll back on a bad archive');
+      expect(
+        File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(),
+        'old',
+        reason: 'the swap aborted before touching the install',
+      );
     }, skip: !hasTar);
+
+    test(
+      'a non-bundle archive (no bundle/bin/tina) fails and rolls back',
+      () async {
+        final installed = buildInstalledBundle('old');
+        final s = scratch!;
+        final src = Directory(p.join(s.path, 'badsrc'))
+          ..createSync(recursive: true);
+        File(p.join(src.path, 'readme.txt')).writeAsStringSync('not a bundle');
+        final archive = File(p.join(s.path, 'bad.tar.gz'));
+        expect(
+          Process.runSync('tar', [
+            'czf',
+            archive.path,
+            '-C',
+            src.path,
+            'readme.txt',
+          ]).exitCode,
+          0,
+        );
+
+        final result = await installRelease(
+          releaseFor('https://example.com/asset'),
+          notice: (_) {},
+          bundleRootOverride: installed.path,
+          workDirOverride: p.join(s.path, 'work'),
+          archiveSupplier: () async => archive,
+        );
+
+        expect(result, UpdateResult.failed);
+        expect(
+          File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(),
+          'old',
+        );
+        expect(
+          Directory('${installed.path}.old').existsSync(),
+          isFalse,
+          reason: 'the swap must roll back on a bad archive',
+        );
+      },
+      skip: !hasTar,
+    );
   });
 
   test('cleanupStaleOldBundle removes the .old sibling', () {
     final installed = buildInstalledBundle('old');
     // What a previous tina update leaves: a marked bundle, renamed aside.
-    Directory(p.join('${installed.path}.old', 'bin')).createSync(recursive: true);
+    Directory(
+      p.join('${installed.path}.old', 'bin'),
+    ).createSync(recursive: true);
     File(p.join('${installed.path}.old', 'bin', 'tina')).writeAsStringSync('x');
-    File(p.join('${installed.path}.old', bundleMarkerName))
-        .writeAsStringSync('tina bundle root\n');
+    File(
+      p.join('${installed.path}.old', bundleMarkerName),
+    ).writeAsStringSync('tina bundle root\n');
 
     cleanupStaleOldBundle(bundleRootOverride: installed.path);
     expect(Directory('${installed.path}.old').existsSync(), isFalse);
@@ -349,8 +441,11 @@ void main() {
     final old = Directory('${installed.path}.old')..createSync();
 
     cleanupStaleOldBundle(bundleRootOverride: installed.path);
-    expect(old.existsSync(), isTrue,
-        reason: 'an unowned root is never swept, whatever sits beside it');
+    expect(
+      old.existsSync(),
+      isTrue,
+      reason: 'an unowned root is never swept, whatever sits beside it',
+    );
   });
 }
 

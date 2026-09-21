@@ -137,4 +137,6 @@ if __name__ == "__main__":
     parser.add_argument("binary", type=Path)
     args = parser.parse_args()
     for terminal_rows in (10, 24):
-        smoke(args.binary.resolve(strict=True), terminal_rows)
+        # Keep launcher symlinks intact: native assets must resolve correctly
+        # when the user starts Tina through the installed PATH entry.
+        smoke(args.binary.absolute(), terminal_rows)

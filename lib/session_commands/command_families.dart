@@ -132,8 +132,8 @@ class UpdateCommands {
             'source, a read-only location, or a directory tina doesn\'t '
             'exclusively own — the updater only swaps a directory holding '
             'nothing but tina).\n'
-            'Re-run install.sh to update in place (it touches only tina\'s '
-            'own files), or download the bundle from '
+            'Re-run the latest install.sh to install a private bundle '
+            'with a launcher on PATH, or download the bundle from '
             '${release.releaseUrl}.\n',
             style: HostMessageStyle.dim,
           );

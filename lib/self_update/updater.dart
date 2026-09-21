@@ -70,25 +70,37 @@ final _tinaLibEntry = RegExp(r'^lib(tina|notcurses)');
 /// this check and must never be renamed, replaced, or deleted by the
 /// updater.
 bool isOwnedBundleRoot(String root) {
-  if (!File(p.join(root, 'bin', 'tina')).existsSync()) return false;
-  if (!File(p.join(root, bundleMarkerName)).existsSync()) return false;
+  FileSystemEntityType type(String path) =>
+      FileSystemEntity.typeSync(path, followLinks: false);
   try {
+    if (type(root) != FileSystemEntityType.directory ||
+        type(p.join(root, 'bin', 'tina')) != FileSystemEntityType.file ||
+        type(p.join(root, bundleMarkerName)) != FileSystemEntityType.file) {
+      return false;
+    }
     for (final entry in Directory(root).listSync(followLinks: false)) {
       switch (p.basename(entry.path)) {
         case 'bin':
-          if (Directory(entry.path)
-              .listSync()
-              .any((e) => p.basename(e.path) != 'tina')) {
+          if (entry is! Directory ||
+              entry
+                  .listSync(followLinks: false)
+                  .any((e) => e is! File || p.basename(e.path) != 'tina')) {
             return false;
           }
         case 'lib':
-          if (Directory(entry.path)
-              .listSync()
-              .any((e) => !_tinaLibEntry.hasMatch(p.basename(e.path)))) {
+          if (entry is! Directory ||
+              entry
+                  .listSync(followLinks: false)
+                  .any(
+                    (e) =>
+                        e is! File ||
+                        !_tinaLibEntry.hasMatch(p.basename(e.path)),
+                  )) {
             return false;
           }
         default:
-          if (!p.basename(entry.path).startsWith('.')) return false;
+          if (entry is! File || !p.basename(entry.path).startsWith('.'))
+            return false;
       }
     }
   } on FileSystemException {
@@ -102,7 +114,16 @@ bool isOwnedBundleRoot(String root) {
 /// [installRelease] layers ownership on top so an unowned candidate gets a
 /// distinct, actionable refusal instead of a generic manualRequired.
 String? bundleRootCandidateForCurrentProcess({String? resolvedExecutable}) {
-  final exe = resolvedExecutable ?? Platform.resolvedExecutable;
+  String exe;
+  try {
+    // The installed launcher lives in a shared bin directory. Resolve it to
+    // the private bundle before deriving the root or checking ownership.
+    exe = File(
+      resolvedExecutable ?? Platform.resolvedExecutable,
+    ).resolveSymbolicLinksSync();
+  } on FileSystemException {
+    return null;
+  }
   if (p.basename(exe) != 'tina') return null;
   final binDir = p.dirname(exe);
   if (p.basename(binDir) != 'bin') return null;
@@ -118,7 +139,8 @@ String? bundleRootCandidateForCurrentProcess({String? resolvedExecutable}) {
 /// other tools' files.
 String? bundleRootForCurrentProcess({String? resolvedExecutable}) {
   final candidate = bundleRootCandidateForCurrentProcess(
-      resolvedExecutable: resolvedExecutable);
+    resolvedExecutable: resolvedExecutable,
+  );
   if (candidate == null || !isOwnedBundleRoot(candidate)) return null;
   return candidate;
 }
@@ -141,17 +163,22 @@ Future<UpdateResult> installRelease(
   Future<File> Function()? archiveSupplier,
 }) async {
   final target = targetForCurrentPlatform();
-  final assetName = target == null ? null : 'tina-${release.tag}-$target.tar.gz';
+  final assetName = target == null
+      ? null
+      : 'tina-${release.tag}-$target.tar.gz';
   final assetUrl = assetName == null ? null : release.assetUrls[assetName];
   if (target == null || assetUrl == null) return UpdateResult.unsupported;
 
-  final candidate = bundleRootOverride ?? bundleRootCandidateForCurrentProcess();
+  final candidate =
+      bundleRootOverride ?? bundleRootCandidateForCurrentProcess();
   if (candidate == null) return UpdateResult.manualRequired;
   if (!isOwnedBundleRoot(candidate)) {
-    notice('$candidate is not an exclusively-tina directory (missing '
-        '$bundleMarkerName, or it holds files that aren\'t tina\'s) — the '
-        'updater will not replace it. Re-run install.sh: it updates only '
-        'tina\'s own files.');
+    notice(
+      '$candidate is not an exclusively-tina directory (missing '
+      '$bundleMarkerName, or it holds files that aren\'t tina\'s) — the '
+      'updater will not replace it. Re-run the latest install.sh to migrate '
+      'tina to a private bundle and enable /update.',
+    );
     return UpdateResult.manualRequired;
   }
   final bundleRoot = candidate;
@@ -160,20 +187,26 @@ Future<UpdateResult> installRelease(
   final http_ = client ?? http.Client();
   try {
     // 1. Download (or let the test supplier provide) the archive.
-    final workDir = Directory(workDirOverride ??
-        p.join(Directory.systemTemp.path, 'tina-update-${DateTime.now().microsecondsSinceEpoch}'));
+    final workDir = Directory(
+      workDirOverride ??
+          p.join(
+            Directory.systemTemp.path,
+            'tina-update-${DateTime.now().microsecondsSinceEpoch}',
+          ),
+    );
     await workDir.create(recursive: true);
-    final archive = await (archiveSupplier ??
-        () async {
-          notice('downloading $assetName…');
-          final resp = await http_.get(Uri.parse(assetUrl));
-          if (resp.statusCode != 200) {
-            throw UpdateError('download failed: HTTP ${resp.statusCode}');
-          }
-          final f = File(p.join(workDir.path, assetName));
-          await f.writeAsBytes(resp.bodyBytes);
-          return f;
-        })();
+    final archive =
+        await (archiveSupplier ??
+            () async {
+              notice('downloading $assetName…');
+              final resp = await http_.get(Uri.parse(assetUrl));
+              if (resp.statusCode != 200) {
+                throw UpdateError('download failed: HTTP ${resp.statusCode}');
+              }
+              final f = File(p.join(workDir.path, assetName));
+              await f.writeAsBytes(resp.bodyBytes);
+              return f;
+            })();
 
     // 2. Verify SHA-256 when the release ships a checksum asset; a missing
     //    one (pre-checksum releases) passes with a warning.
@@ -184,31 +217,44 @@ Future<UpdateResult> installRelease(
       notice('verifying checksum…');
       final resp = await http_.get(Uri.parse(checksumUrl));
       if (resp.statusCode == 200) {
-        final expected = RegExp(r'^[0-9a-fA-F]{64}')
-            .firstMatch(resp.body.trim())
-            ?.group(0)
-            ?.toLowerCase();
+        final expected = RegExp(
+          r'^[0-9a-fA-F]{64}',
+        ).firstMatch(resp.body.trim())?.group(0)?.toLowerCase();
         final actual = await _sha256(archive);
         if (expected == null || actual == null || expected != actual) {
           throw UpdateError('checksum mismatch for $assetName');
         }
       } else {
-        notice('checksum asset unreachable (HTTP ${resp.statusCode}); '
-            'skipping verification');
+        notice(
+          'checksum asset unreachable (HTTP ${resp.statusCode}); '
+          'skipping verification',
+        );
       }
     }
 
     // 3. Extract. The tarball contains a top-level `bundle/` dir.
     final extracted = Directory(p.join(workDir.path, 'x'));
     await extracted.create(recursive: true);
-    final tar = await Process.run(
-        'tar', ['xzf', archive.absolute.path, '-C', extracted.path]);
+    final tar = await Process.run('tar', [
+      'xzf',
+      archive.absolute.path,
+      '-C',
+      extracted.path,
+    ]);
     if (tar.exitCode != 0) {
       throw UpdateError('extraction failed: ${tar.stderr}');
     }
     final newBundle = Directory(p.join(extracted.path, 'bundle'));
     if (!File(p.join(newBundle.path, 'bin', 'tina')).existsSync()) {
       throw UpdateError('archive layout unexpected: no bundle/bin/tina');
+    }
+    final marker = File(p.join(newBundle.path, bundleMarkerName));
+    if (FileSystemEntity.isLinkSync(marker.path)) {
+      throw UpdateError('archive layout unexpected: linked bundle marker');
+    }
+    marker.writeAsStringSync('tina bundle root\n');
+    if (!isOwnedBundleRoot(newBundle.path)) {
+      throw UpdateError('archive is not an exclusively-tina bundle');
     }
 
     // 4. Swap: rename the live bundle aside (open inodes keep the running
@@ -227,15 +273,19 @@ Future<UpdateResult> installRelease(
 }
 
 Future<UpdateResult> _swapBundle(
-    Directory newBundle, Directory bundleRoot, void Function(String) notice) async {
+  Directory newBundle,
+  Directory bundleRoot,
+  void Function(String) notice,
+) async {
   final old = Directory('${bundleRoot.path}.old');
   // Belt and braces: the caller checked too, but re-verify at the moment of
   // the rename — a root that stopped looking exclusively tina's between
   // check and swap aborts here instead of being moved aside.
   if (!isOwnedBundleRoot(bundleRoot.path)) {
     throw UpdateError(
-        '${bundleRoot.path} is not an exclusively-tina directory; refusing '
-        'to swap it');
+      '${bundleRoot.path} is not an exclusively-tina directory; refusing '
+      'to swap it',
+    );
   }
   try {
     if (old.existsSync()) {
@@ -243,8 +293,9 @@ Future<UpdateResult> _swapBundle(
       // convention, a user's mv) is never ours to delete.
       if (!isOwnedBundleRoot(old.path)) {
         throw UpdateError(
-            'a foreign ${old.path} exists; refusing to delete it — remove '
-            'it by hand, then update again');
+          'a foreign ${old.path} exists; refusing to delete it — remove '
+          'it by hand, then update again',
+        );
       }
       old.deleteSync(recursive: true);
     }
@@ -253,11 +304,10 @@ Future<UpdateResult> _swapBundle(
     rethrow;
   } catch (e) {
     throw UpdateError(
-        'cannot move the current installation aside (read-only location?): $e');
+      'cannot move the current installation aside (read-only location?): $e',
+    );
   }
   try {
-    File(p.join(newBundle.path, bundleMarkerName))
-        .writeAsStringSync('tina bundle root\n');
     _moveDir(newBundle, bundleRoot);
   } catch (e) {
     // Roll back so the install is no worse than before.
@@ -267,8 +317,10 @@ Future<UpdateResult> _swapBundle(
     } catch (_) {}
     throw UpdateError('moving the new bundle into place failed: $e');
   }
-  notice('installed ${p.basename(bundleRoot.path)} update — '
-      'restart tina to finish');
+  notice(
+    'installed ${p.basename(bundleRoot.path)} update — '
+    'restart tina to finish',
+  );
   return UpdateResult.success;
 }
 
@@ -306,9 +358,9 @@ Future<String?> _sha256(File f) async {
   ]) {
     final r = Process.runSync(cmd.$1, [...cmd.$2, f.absolute.path]);
     if (r.exitCode == 0) {
-      final hex = RegExp(r'^[0-9a-fA-F]{64}')
-          .firstMatch((r.stdout as String).trim())
-          ?.group(0);
+      final hex = RegExp(
+        r'^[0-9a-fA-F]{64}',
+      ).firstMatch((r.stdout as String).trim())?.group(0);
       if (hex != null) return hex.toLowerCase();
     }
   }

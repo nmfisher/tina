@@ -1,6 +1,6 @@
 #!/bin/sh
 # tina installer — downloads the latest GitHub release, verifies it against a
-# minisign signature over the checksum manifest, and installs the binary.
+# minisign signature over the checksum manifest, and installs a private bundle.
 #
 #   curl -fsSL https://raw.githubusercontent.com/nmfisher/tina/main/install.sh | sh
 #   # or download first, read it, then run:
@@ -14,7 +14,9 @@
 # GitHub account being compromised — pin --version and audit if you need that.
 #
 # Flags:
-#   --dir DIR                  install directory (default: ~/.local/bin)
+#   --dir DIR                  launcher directory (default: ~/.local/bin)
+#   --bundle-dir DIR           private bundle (default: $XDG_DATA_HOME/tina,
+#                              or ~/.local/share/tina)
 #   --version vX.Y.Z           install a specific tag instead of latest
 #   --insecure-checksum-only   skip signature verification (checksum only)
 set -eu
@@ -26,6 +28,7 @@ PUBKEY_COMMENT='minisign public key 998FE64CB07F896A'
 PUBKEY='RWRqiX+wTOaPmS7+JVz0pccep+0NBr6xDpLrf37v054BXCPDnGbpma92'
 
 INSTALL_DIR="${TINA_INSTALL_DIR:-$HOME/.local/bin}"
+BUNDLE_DIR="${TINA_BUNDLE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/tina}"
 VERSION=''
 VERIFY_SIG=1
 
@@ -35,6 +38,7 @@ die() { printf 'install.sh: %s\n' "$*" >&2; exit 1; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --dir) [ $# -ge 2 ] || die '--dir needs a value'; INSTALL_DIR=$2; shift 2 ;;
+    --bundle-dir) [ $# -ge 2 ] || die '--bundle-dir needs a value'; BUNDLE_DIR=$2; shift 2 ;;
     --version) [ $# -ge 2 ] || die '--version needs a value'; VERSION=$2; shift 2 ;;
     --insecure-checksum-only) VERIFY_SIG=0; shift ;;
     *) die "unknown flag: $1 (see --help usage in the header)" ;;
@@ -60,7 +64,27 @@ fetch_soft() { # fetch_soft URL OUT — returns non-zero on failure (silent)
 
 # --- scratch space ------------------------------------------------------------
 TMP=$(mktemp -d) || die 'mktemp failed'
-trap 'rm -rf "$TMP"' EXIT
+STAGE=''
+LAUNCH_STAGE=''
+MOVED_OLD=0
+INSTALLED=0
+DONE=0
+cleanup() {
+  if [ "$DONE" = 0 ]; then
+    # A failed launcher replacement must leave the previous install usable.
+    if [ "$INSTALLED" = 1 ]; then
+      mv "$BUNDLE_DIR" "$STAGE/failed" || return
+    fi
+    if [ "$MOVED_OLD" = 1 ]; then
+      mv "$BUNDLE_DIR.old" "$BUNDLE_DIR" || return
+    fi
+  fi
+  [ -z "$STAGE" ] || rm -rf "$STAGE"
+  [ -z "$LAUNCH_STAGE" ] || rm -rf "$LAUNCH_STAGE"
+  rm -rf "$TMP"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
 
 # --- resolve the release ----------------------------------------------------
 if [ -n "$VERSION" ]; then
@@ -135,70 +159,84 @@ if [ "$VERIFY_SIG" = 1 ]; then
   say "signature ok: sha256sums.txt (key $PUBKEY_COMMENT)"
 fi
 
-# --- install --------------------------------------------------------------------
-mkdir -p "$INSTALL_DIR" || die "cannot create $INSTALL_DIR"
+# Keep ownership checks aligned with isOwnedBundleRoot in updater.dart. Neither
+# installer nor updater may rename a shared prefix or follow a linked bundle.
+owned_bundle() {
+  [ -d "$1" ] && [ ! -L "$1" ] || return 1
+  [ -f "$1/.tina-bundle" ] && [ ! -L "$1/.tina-bundle" ] || return 1
+  [ -f "$1/bin/tina" ] && [ ! -L "$1/bin/tina" ] || return 1
+  for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    [ ! -L "$entry" ] || return 1
+    case "$(basename "$entry")" in
+      bin|lib)
+        [ -d "$entry" ] || return 1
+        for f in "$entry"/* "$entry"/.[!.]* "$entry"/..?*; do
+          [ -e "$f" ] || [ -L "$f" ] || continue
+          [ -f "$f" ] && [ ! -L "$f" ] || return 1
+          case "$(basename "$entry")/$(basename "$f")" in
+            bin/tina|lib/libtina*|lib/libnotcurses*) ;;
+            *) return 1 ;;
+          esac
+        done
+        ;;
+      .*) [ -f "$entry" ] || return 1 ;;
+      *) return 1 ;;
+    esac
+  done
+}
+
+# --- install -----------------------------------------------------------------
+# Canonicalize parent directories so launcher targets are absolute, including
+# --dir/--bundle-dir arguments containing spaces or relative paths.
+mkdir -p "$INSTALL_DIR" "$(dirname "$BUNDLE_DIR")"
+INSTALL_DIR=$(cd "$INSTALL_DIR" && pwd -P)
+BUNDLE_DIR="$(cd "$(dirname "$BUNDLE_DIR")" && pwd -P)/$(basename "$BUNDLE_DIR")"
+case "$(basename "$BUNDLE_DIR")" in
+  .|..|/) die 'bundle directory must have its own name' ;;
+esac
+case "$INSTALL_DIR/" in
+  "$BUNDLE_DIR/"*) die 'launcher directory must be outside the private bundle' ;;
+esac
+[ ! -d "$INSTALL_DIR/tina" ] || die "$INSTALL_DIR/tina is a directory"
+if [ -e "$BUNDLE_DIR" ] || [ -L "$BUNDLE_DIR" ]; then
+  owned_bundle "$BUNDLE_DIR" || die "$BUNDLE_DIR is not an exclusively-tina bundle; leaving it untouched"
+fi
+if [ -e "$BUNDLE_DIR.old" ] || [ -L "$BUNDLE_DIR.old" ]; then
+  owned_bundle "$BUNDLE_DIR.old" || die "$BUNDLE_DIR.old is not an exclusively-tina bundle; leaving it untouched"
+fi
+
 tar -xzf "$TMP/$ASSET" -C "$TMP"
-BIN=$(find "$TMP" -name tina -type f | head -1)
-[ -n "$BIN" ] || die 'tina binary not found in the bundle'
-BUNDLE_ROOT=$(dirname "$(dirname "$BIN")")   # …/bundle (contains bin/ + lib/)
-chmod +x "$BIN" && mv "$BIN" "$INSTALL_DIR/tina"
+SOURCE="$TMP/bundle"
+[ -f "$SOURCE/bin/tina" ] || die 'bundle/bin/tina not found in the archive'
+[ ! -L "$SOURCE/.tina-bundle" ] || die 'archive has a linked bundle marker'
+printf 'tina bundle root\n' > "$SOURCE/.tina-bundle"
+owned_bundle "$SOURCE" || die 'archive is not a tina-only bundle'
+chmod +x "$SOURCE/bin/tina"
 
-# The native notcurses asset resolves at `../lib/` RELATIVE TO THE EXECUTABLE
-# (dart native-assets layout: <root>/bin/tina + <root>/lib/libnotcurses_merged.*).
-# Installing the binary alone leaves a tina that cannot start — install the
-# bundle's lib/ beside it. exe at <dir>/tina → libs at <dir>/../lib.
-LIB_DIR="$(dirname "$INSTALL_DIR")/lib"
-if [ -d "$BUNDLE_ROOT/lib" ]; then
-  mkdir -p "$LIB_DIR" || die "cannot create $LIB_DIR"
-  cp -R "$BUNDLE_ROOT/lib/." "$LIB_DIR/"
+# Stage on the destination filesystem before moving the live bundle. Keep bin/
+# and lib/ together: Dart resolves native assets relative to the real executable.
+STAGE=$(mktemp -d "$(dirname "$BUNDLE_DIR")/.tina-install.XXXXXX")
+cp -R "$SOURCE" "$STAGE/bundle"
+LAUNCH_STAGE=$(mktemp -d "$INSTALL_DIR/.tina-launcher.XXXXXX")
+ln -s "$BUNDLE_DIR/bin/tina" "$LAUNCH_STAGE/tina"
+if [ -d "$BUNDLE_DIR.old" ]; then
+  rm -rf "$BUNDLE_DIR.old"
 fi
+if [ -d "$BUNDLE_DIR" ]; then
+  mv "$BUNDLE_DIR" "$BUNDLE_DIR.old"
+  MOVED_OLD=1
+fi
+mv "$STAGE/bundle" "$BUNDLE_DIR"
+INSTALLED=1
+# Rename the link over the old binary/link, never copy through an existing link.
+# Legacy libraries in the shared ../lib directory remain untouched.
+mv -f "$LAUNCH_STAGE/tina" "$INSTALL_DIR/tina"
+DONE=1
 
-# Mark the prefix as exclusively tina's so the in-app updater (/update) may
-# swap it. The updater independently refuses any directory whose contents
-# aren't tina's alone, so only stamp when this prefix really is tina-only —
-# otherwise say so, because /update will never touch such an install.
-PREFIX="$(dirname "$INSTALL_DIR")"
-SHARED=0
-for entry in "$PREFIX"/* "$PREFIX"/.[!.]*; do
-  [ -e "$entry" ] || continue
-  name="$(basename "$entry")"
-  case "$name" in
-    .tina-bundle) ;;
-    bin)
-      for f in "$entry"/*; do
-        [ -e "$f" ] || continue
-        [ "$(basename "$f")" = "tina" ] || SHARED=1
-      done
-      ;;
-    lib)
-      for f in "$entry"/*; do
-        [ -e "$f" ] || continue
-        case "$(basename "$f")" in
-          libtina*|libnotcurses*) ;;
-          *) SHARED=1 ;;
-        esac
-      done
-      ;;
-    *) SHARED=1 ;;
-  esac
-done
-if [ "$SHARED" = 0 ]; then
-  printf 'tina bundle root\n' > "$PREFIX/.tina-bundle"
-else
-  say "note: $PREFIX holds files besides tina's — tina's /update will never"
-  say "      replace it; re-run install.sh to update in place."
-fi
-
-# Prove the installed layout can load its native asset before claiming
-# success — `--version` does NOT exercise this (it exits before backend init),
-# which is exactly how a binary-only install once shipped as "verified".
-NATIVE_LIB=$(find "$LIB_DIR" -name 'libnotcurses_merged.*' 2>/dev/null | head -1)
-if [ -n "$NATIVE_LIB" ]; then
-  say "installed: $INSTALL_DIR/tina (+ native libs in $LIB_DIR)"
-else
-  say "installed: $INSTALL_DIR/tina"
-  say "WARNING: bundle contains no libnotcurses_merged — the notcurses backend will fail to start."
-fi
+say "installed bundle: $BUNDLE_DIR"
+say "launcher: $INSTALL_DIR/tina -> $BUNDLE_DIR/bin/tina"
+say 'Future updates: run /update in tina, then restart.'
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
   *) say "NOTE: $INSTALL_DIR is not on your PATH — add it to your shell profile." ;;

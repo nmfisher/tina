@@ -78,7 +78,10 @@ jobs:
       - name: Build native CLI
         run: dart build cli --target bin/tina.dart
       - name: Open first-load picker and quit at small and normal sizes
-        run: python3 tool/smoke_interactive.py build/cli/macos_arm64/bundle/bin/tina
+        run: |
+          mkdir -p "$RUNNER_TEMP/tina-launcher"
+          ln -s "$PWD/build/cli/macos_arm64/bundle/bin/tina" "$RUNNER_TEMP/tina-launcher/tina"
+          python3 tool/smoke_interactive.py "$RUNNER_TEMP/tina-launcher/tina"
 
   root:
     name: root (tina)

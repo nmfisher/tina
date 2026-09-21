@@ -20,10 +20,19 @@ curl -fsSL https://raw.githubusercontent.com/nmfisher/tina/main/install.sh | sh
 
 Requires `curl` or `wget`, a `sha256` tool, and `minisign` for signature
 verification (`apt install minisign` / `brew install minisign`; without it,
-append `--insecure-checksum-only` for checksum-only verification). Installs to
-`~/.local/bin` (override with `--dir`), and you can pin a version with
+append `--insecure-checksum-only` for checksum-only verification). Installs the
+bundle in `${XDG_DATA_HOME:-~/.local/share}/tina` and a symlink launcher at
+`~/.local/bin/tina`. Override the launcher directory with `--dir` or
+`TINA_INSTALL_DIR`, and the private bundle with `--bundle-dir` or
+`TINA_BUNDLE_DIR`. You can pin a version with
 `--version v0.6.1`. The script's header documents its trust model: the pinned
 key detects tampered release assets, not a compromised GitHub account.
+
+`/update` replaces only the private bundle; restart Tina afterward. For an older
+install with the binary directly in `~/.local/bin` and libraries in
+`~/.local/lib`, re-run the installer above once to migrate. It replaces the Tina
+launcher and leaves shared libraries and other applications untouched.
+Configuration and sessions remain in `~/.tina`.
 
 Prebuilt bundles are also attached to each
 [release](../../releases) to unpack by hand:

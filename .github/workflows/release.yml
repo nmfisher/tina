@@ -296,8 +296,8 @@ jobs:
       # anywhere) exits before native-asset loading, so the notcurses lib was
       # never exercised at the installed layout. This runs the actual
       # installer (pinned to the tag that just shipped) and asserts the
-      # layout the dart native-assets loader expects: <dir>/tina plus the
-      # merged notcurses library at <dir>/../lib/.
+      # private bundle layout and its launcher symlink. Native libraries stay
+      # beside the real binary in the private bundle, outside the PATH directory.
       - name: Verify installer against the published release
         if: github.event_name == 'push'
         run: |
@@ -305,11 +305,15 @@ jobs:
           curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/${{ env.TAG }}/install.sh" \
             -o install-check.sh
           dir="$RUNNER_TEMP/tina-installed"
-          sh install-check.sh --dir "$dir" --version "${{ env.TAG }}"
+          bundle="$RUNNER_TEMP/tina-bundle"
+          sh install-check.sh --dir "$dir" --bundle-dir "$bundle" --version "${{ env.TAG }}"
+          test -L "$dir/tina"
           test -x "$dir/tina"
-          lib="$(find "$(dirname "$dir")/lib" -name 'libnotcurses_merged.*' | head -1)"
+          test "$(readlink "$dir/tina")" = "$bundle/bin/tina"
+          test -f "$bundle/.tina-bundle"
+          lib="$(find "$bundle/lib" -name 'libnotcurses_merged.*' | head -1)"
           test -n "$lib" || {
-            echo "installed layout is missing libnotcurses_merged at $(dirname "$dir")/lib — the notcurses backend cannot start" >&2
+            echo "installed bundle is missing libnotcurses_merged at $bundle/lib" >&2
             exit 1
           }
           "$dir/tina" --version
