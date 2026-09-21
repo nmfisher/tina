@@ -43,6 +43,23 @@ JudgmentBatchRunner runner(Fake service,
             timeout: timeout,
             requestTimeout: callTimeout));
 void main() {
+  test('explicit pre-dispatch rejections release reservations for queued work', () async {
+    var calls = 0;
+    final unit = JudgmentRequestBudget().estimate(req()) + 100;
+    final batch = runner(Fake((r, _) async {
+      if (++calls == 1) {
+        throw const JudgmentException(JudgmentFailure.closed, attempted: false);
+      }
+      return result(r);
+    }), tokens: unit, concurrency: 2);
+    final out = await batch.run([req(), req()]);
+    expect(calls, 2);
+    expect(out.items.first.attempted, isFalse);
+    expect(out.items.first.failure, JudgmentFailure.closed);
+    expect(out.items.last.result, isNotNull);
+    expect(out.chargedTokens, unit);
+  });
+
   test('complete measured usage releases reservations for queued requests',
       () async {
     var calls = 0;

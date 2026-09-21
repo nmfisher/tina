@@ -12,4 +12,3 @@ export 'src/exploration/file_chunker.dart';
 export 'src/exploration/exploration_cache.dart';
 export 'src/exploration/exploration_snapshot.dart';
 export 'src/exploration/exploration_workflow.dart';
-export 'src/exploration/file_exploration_cache.dart';

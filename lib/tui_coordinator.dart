@@ -683,6 +683,8 @@ class TuiCoordinator {
       final exploreProject = createConfiguredExplorationTool(
         projectRoot: pipeline.tools.projectRoot,
         env: app.environment.env,
+        spendLedger: app.spendLedger,
+        pauseGate: app.pauseGate,
       );
       final initialDriver = buildAgent(
         exploreProject: exploreProject,

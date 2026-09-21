@@ -144,7 +144,8 @@ class JudgmentBatchRunner {
             halt(JudgmentFailure.budgetExceeded);
           }
         } on JudgmentException catch (e) {
-          items[index] = JudgmentBatchItem._(null, e.failure, true);
+          if (!e.attempted) charged -= reserved;
+          items[index] = JudgmentBatchItem._(null, e.failure, e.attempted);
         } catch (_) {
           // Stop siblings on programming/adapter errors and preserve the error.
           halt(JudgmentFailure.cancelled);

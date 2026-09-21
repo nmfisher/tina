@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
-import 'exploration_cache.dart';
+import 'package:classifier/exploration.dart';
+import 'package:tina_engine/tina_engine.dart' show atomicWriteBytes;
 
 /// One atomic JSON file per content-addressed record. Readers never see partial
 /// writes; concurrent processes may safely replace the same deterministic key.
@@ -56,31 +57,19 @@ class FileExplorationCache implements ExplorationCache {
   @override
   Future<void> write(String key, Map<String, dynamic> record) async {
     _validateKey(key);
-    Directory? temporary;
     try {
       final bytes = utf8.encode(jsonEncode(record));
       if (bytes.length > maxRecordBytes) return;
       final dir = await _directory(create: true);
       if (dir == null) return;
-      temporary = await dir.createTemp('.write-');
       final ignore = File(p.join(dir.path, '.gitignore'));
       if (await FileSystemEntity.type(ignore.path, followLinks: false) ==
           FileSystemEntityType.notFound) {
-        final stagedIgnore = File(p.join(temporary.path, 'ignore'));
-        await stagedIgnore.writeAsString('*\n');
-        await stagedIgnore.rename(ignore.path);
+        await atomicWriteBytes(ignore.path, utf8.encode('*\n'));
       }
-      final file = File(p.join(temporary.path, 'record.json'));
-      await file.writeAsBytes(bytes, flush: true);
-      await file.rename(p.join(dir.path, '$key.json'));
+      await atomicWriteBytes(p.join(dir.path, '$key.json'), bytes);
     } catch (_) {
       /* Read-only or unavailable storage simply disables reuse. */
-    } finally {
-      if (temporary != null) {
-        try {
-          await temporary.delete(recursive: true);
-        } catch (_) {}
-      }
     }
   }
 }

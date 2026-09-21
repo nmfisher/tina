@@ -532,6 +532,8 @@ Future<void> _runNonInteractive(
       exploreProject: createConfiguredExplorationTool(
         projectRoot: app.pipeline.tools.projectRoot,
         env: app.environment.env,
+        spendLedger: app.spendLedger,
+        pauseGate: app.pauseGate,
       ),
       pipeline: app.pipeline,
       scheduler: app.scheduler,

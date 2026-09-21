@@ -4,6 +4,7 @@ import 'package:tina_index/tina_index.dart';
 import 'package:path/path.dart' as p;
 
 import 'process_runner.dart';
+import 'git_file_enumerator.dart';
 import 'tool.dart';
 import 'tool_capabilities.dart';
 
@@ -33,8 +34,7 @@ class SearchTool implements Tool, SpawnsProcess {
           'properties': {
             'symbol': {
               'type': 'string',
-              'description':
-                  "Qualified symbol name (e.g. 'LlmProvider', "
+              'description': "Qualified symbol name (e.g. 'LlmProvider', "
                   "'agent/agent.Agent')",
             },
           },
@@ -53,7 +53,7 @@ class SearchTool implements Tool, SpawnsProcess {
       return ToolResult.error('symbol is required');
     }
 
-    final graph = await _loadGraph();
+    final graph = await _loadGraph(cancelSignal: cancelSignal);
     if (graph == null) {
       return ToolResult.error('Failed to build dependency graph');
     }
@@ -77,7 +77,8 @@ class SearchTool implements Tool, SpawnsProcess {
       final qName = entry.key;
       final sym = entry.value;
       out.writeln();
-      out.writeln('── $qName (${sym.kind.name}${sym.isAbstract ? ', abstract' : ''}) ──');
+      out.writeln(
+          '── $qName (${sym.kind.name}${sym.isAbstract ? ', abstract' : ''}) ──');
 
       // Show symbol-level summary, falling back to file-level.
       final symbolSummary = graph.summaryFor(qName);
@@ -109,8 +110,8 @@ class SearchTool implements Tool, SpawnsProcess {
       }
 
       // Show relationships.
-      final edges = subgraph.edges.where(
-          (e) => e.fromId == qName || e.toId == qName);
+      final edges =
+          subgraph.edges.where((e) => e.fromId == qName || e.toId == qName);
       for (final e in edges) {
         if (e.fromId == qName) {
           out.writeln('  → ${e.kind.name}: ${e.toId}');
@@ -136,29 +137,22 @@ class SearchTool implements Tool, SpawnsProcess {
     return ToolResult(out.toString());
   }
 
-  Future<CodeGraph?> _loadGraph() async {
+  Future<CodeGraph?> _loadGraph({Future<void>? cancelSignal}) async {
     if (_graph != null) return _graph;
     // A cached graph costs nothing; a rebuild needs the file listing, which is
     // asked for through the runner rather than spawned by the index package.
-    _graph = GraphStore.load(repoRoot) ??
-        GraphStore.rebuildFromRepo(repoRoot, files: await _trackedFiles());
-    return _graph;
-  }
-
-  /// The repository's `.dart` files as git reports them, or null when git
-  /// cannot be run — in which case the index walks the tree itself.
-  Future<List<String>?> _trackedFiles() async {
-    try {
-      final result = await processRunner.run(
-        'git',
-        GraphStore.gitListFilesArgs,
-        workingDirectory: repoRoot,
-      );
-      if (result.exitCode != 0) return null;
-      return GraphStore.dartFilesFromGitListing(result.stdout);
-    } catch (_) {
-      return null;
-    }
+    final cached = GraphStore.load(repoRoot);
+    if (cached != null) return _graph = cached;
+    final listing = await GitFileEnumerator(processes: processRunner)
+        .enumerate(repoRoot, cancelSignal: cancelSignal);
+    if (listing.status != GitListingStatus.completed &&
+        listing.status != GitListingStatus.failed) return null;
+    // Only unavailable Git permits the index's walk fallback. A cancelled or
+    // truncated listing must not produce and cache an incomplete graph.
+    return _graph = GraphStore.rebuildFromRepo(repoRoot,
+        files: listing.status == GitListingStatus.failed
+            ? null
+            : listing.paths.where((p) => p.endsWith('.dart')).toList());
   }
 
   List<String> _resolveSeeds(CodeGraph graph, String symbol) {

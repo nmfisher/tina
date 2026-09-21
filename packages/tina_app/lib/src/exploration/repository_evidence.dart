@@ -158,104 +158,21 @@ class RepositoryEvidenceSource implements ProjectEvidenceSource {
     List<String> gaps,
   ) async {
     if (cancellation.isCancelled) return [];
-    final paths = <String>{};
-    RunningProcess? process;
-    StreamSubscription<List<int>>? stdout;
-    StreamSubscription<List<int>>? stderr;
-    final done = Completer<void>();
-    var truncated = false;
-    var failed = false;
-    var timedOut = false;
-    void finish() {
-      if (!done.isCompleted) done.complete();
-    }
-
-    void stop() {
-      process?.kill();
-      finish();
-    }
-
-    final detach = cancellation.listen(stop);
-    final timer = Timer(const Duration(seconds: 10), () {
-      timedOut = true;
-      gaps.add('File enumeration deadline reached.');
-      stop();
-    });
+    final stopped = Completer<void>();
+    final detach = cancellation.listen(() => stopped.complete());
     try {
-      final starting = processes.start('git', const [
-        '--no-optional-locks',
-        '-c',
-        'core.fsmonitor=false',
-        'ls-files',
-        '-z',
-        '--cached',
-        '--others',
-        '--exclude-standard',
-        '--',
-        '.',
-      ], workingDirectory: root);
-      // Observe a late start after cancellation and close it immediately.
-      starting.then((p) {
-        if (done.isCompleted) p.kill();
-      }, onError: (Object _) {});
-      process = await Future.any<RunningProcess?>([
-        starting,
-        done.future.then((_) => null),
-      ]);
-      if (process == null) return [];
-      var count = 0;
-      final pending = <int>[];
-      stderr = process.stderr.listen((_) {}, onError: (Object _) {});
-      stdout = process.stdout.listen(
-        (chunk) {
-          if (done.isCompleted) return;
-          for (final byte in chunk) {
-            if (++count > 4 * 1024 * 1024 ||
-                pending.length > 4096 ||
-                paths.length >= maxFiles) {
-              truncated = true;
-              stop();
-              return;
-            }
-            if (byte == 0) {
-              try {
-                paths.add(utf8.decode(pending));
-              } on FormatException {
-                gaps.add('Non-UTF8 filename skipped.');
-              }
-              pending.clear();
-            } else {
-              pending.add(byte);
-            }
-          }
-        },
-        onError: (Object _) {
-          failed = true;
-          stop();
-        },
-        onDone: finish,
-      );
-      await done.future;
-      if (!truncated && !timedOut && !cancellation.isCancelled) {
-        final code = await process.exitCode.timeout(
-          const Duration(seconds: 1),
-          onTimeout: () => -1,
-        );
-        if (code != 0 || failed) {
-          throw const JudgmentException(JudgmentFailure.invalidRequest);
-        }
+      final listing = await GitFileEnumerator(
+        processes: processes,
+        maxFiles: maxFiles,
+        maxOutputBytes: 4 * 1024 * 1024,
+      ).enumerate(root, cancelSignal: stopped.future);
+      gaps.addAll(listing.gaps);
+      if (listing.status == GitListingStatus.failed) {
+        throw const JudgmentException(JudgmentFailure.invalidRequest);
       }
-      if (truncated)
-        gaps.add('File enumeration capped at $maxFiles paths / 4 MiB.');
-      return paths.toList();
-    } on ProcessException {
-      throw const JudgmentException(JudgmentFailure.invalidRequest);
+      return listing.paths;
     } finally {
-      timer.cancel();
       detach();
-      process?.kill();
-      await stdout?.cancel();
-      await stderr?.cancel();
     }
   }
 }

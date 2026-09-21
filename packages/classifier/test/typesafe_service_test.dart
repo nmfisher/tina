@@ -185,7 +185,8 @@ void main() {
         config: TypeSafeConfig(apiKey: 'key'),
         clientFactory: () => throw StateError('must not allocate'));
     await expectLater(service.evaluate(request, cancellation: token),
-        throwsA(failure(JudgmentFailure.cancelled)));
+        throwsA(failure(JudgmentFailure.cancelled)
+            .having((e) => e.attempted, 'attempted', false)));
   });
 
   test('cancelling one request leaves its sibling usable', () async {
@@ -247,13 +248,15 @@ void main() {
     final futures = List.generate(
         3,
         (_) => expectLater(service.evaluate(request),
-            throwsA(failure(JudgmentFailure.closed))));
+            throwsA(failure(JudgmentFailure.closed)
+                .having((e) => e.attempted, 'attempted', true))));
     service.close();
     service.close();
     await Future.wait(futures);
     expect(clients.every((c) => c.closeCount == 1), isTrue);
     await expectLater(
-        service.evaluate(request), throwsA(failure(JudgmentFailure.closed)));
+        service.evaluate(request), throwsA(failure(JudgmentFailure.closed)
+            .having((e) => e.attempted, 'attempted', false)));
     expect(clients.length, 3);
     pending.completeError(http.ClientException('closed'));
   });

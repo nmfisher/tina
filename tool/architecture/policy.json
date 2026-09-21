@@ -112,6 +112,7 @@
     "packages/classifier/lib/src/judgments/models.dart",
     "packages/classifier/lib/src/judgments/service.dart",
     "packages/classifier/lib/src/judgments/request_budget.dart",
+    "packages/classifier/lib/src/judgments/request_packer.dart",
     "packages/classifier/lib/src/judgments/batch_runner.dart",
     "packages/tina_app/lib/src/summaries/summary_repository.dart",
     "packages/tina_app/lib/src/summaries/summary_models.dart"
@@ -124,6 +125,7 @@
     "packages/classifier/lib/src/exploration/file_chunker.dart",
     "packages/classifier/lib/src/exploration/exploration_workflow.dart",
     "packages/tina_app/lib/src/exploration/explore_project_tool.dart",
+    "packages/tina_app/lib/src/exploration/metered_judgment_service.dart",
     "packages/tina_app/lib/src/summaries/summary_index.dart",
     "packages/tina_app/lib/src/summaries/summary_repository.dart",
     "packages/tina_app/lib/src/summaries/summary_runner.dart",

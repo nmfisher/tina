@@ -68,6 +68,7 @@ export 'src/persistence/session_lock.dart';
 export 'src/persistence/session_store.dart';
 export 'src/platform/paths.dart';
 export 'src/tools/atomic_write.dart';
+export 'src/tools/git_file_enumerator.dart';
 export 'src/tools/audit.dart';
 export 'src/tools/bash_tool.dart';
 export 'src/tools/brave_search.dart';

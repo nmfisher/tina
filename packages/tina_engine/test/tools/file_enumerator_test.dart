@@ -44,8 +44,11 @@ void main() {
   });
 
   group('MemoryFileEnumerator', () {
-    test('returns the seeded list for a known root, empty for unknown', () async {
-      final e = MemoryFileEnumerator({'/r': ['a.dart', 'b.txt']});
+    test('returns the seeded list for a known root, empty for unknown',
+        () async {
+      final e = MemoryFileEnumerator({
+        '/r': ['a.dart', 'b.txt']
+      });
       expect(await e.enumerate('/r'), ['a.dart', 'b.txt']);
       expect(await e.enumerate('/other'), isEmpty);
     });
@@ -59,38 +62,43 @@ void main() {
   group('RepoFileEnumerator', () {
     test('returns git ls-files output when git exits 0', () async {
       final runner = MemoryProcessRunner.always(MemoryRunningProcess(
-        stdoutChunks: ['lib/a.dart\n', 'test/b.dart\n'],
+        stdoutChunks: ['lib/a.dart\x00', 'test/b.dart\x00'],
         exitCodeValue: 0,
       ));
       final e = RepoFileEnumerator(
           processRunner: runner, fallback: MemoryFileEnumerator({}));
       expect(await e.enumerate('/repo'), ['lib/a.dart', 'test/b.dart']);
-      expect(runner.runs.single.executable, 'git');
-      expect(runner.runs.single.arguments,
-          ['ls-files', '--cached', '--others', '--exclude-standard']);
+      expect(runner.starts.single.executable, 'git');
+      expect(runner.starts.single.arguments, GitFileEnumerator.arguments);
     });
 
     test('git succeeding with no files returns empty (does NOT fall back)',
         () async {
       final runner = MemoryProcessRunner.always(
           MemoryRunningProcess(exitCodeValue: 0)); // empty stdout
-      final fallback = MemoryFileEnumerator({'/repo': ['should-not-appear']});
+      final fallback = MemoryFileEnumerator({
+        '/repo': ['should-not-appear']
+      });
       final e = RepoFileEnumerator(processRunner: runner, fallback: fallback);
       expect(await e.enumerate('/repo'), isEmpty);
     });
 
     test('falls back to walk when git exits non-zero', () async {
-      final runner = MemoryProcessRunner.always(
-          MemoryRunningProcess(exitCodeValue: 128));
-      final fallback = MemoryFileEnumerator({'/repo': ['walked.dart']});
+      final runner =
+          MemoryProcessRunner.always(MemoryRunningProcess(exitCodeValue: 128));
+      final fallback = MemoryFileEnumerator({
+        '/repo': ['walked.dart']
+      });
       final e = RepoFileEnumerator(processRunner: runner, fallback: fallback);
       expect(await e.enumerate('/repo'), ['walked.dart']);
     });
 
     test('falls back to walk when git is unavailable (throws)', () async {
-      final runner = MemoryProcessRunner(
-          (_, __) => throw Exception('git not found'));
-      final fallback = MemoryFileEnumerator({'/repo': ['walked.dart']});
+      final runner =
+          MemoryProcessRunner((_, __) => throw Exception('git not found'));
+      final fallback = MemoryFileEnumerator({
+        '/repo': ['walked.dart']
+      });
       final e = RepoFileEnumerator(processRunner: runner, fallback: fallback);
       expect(await e.enumerate('/repo'), ['walked.dart']);
     });
@@ -100,12 +108,12 @@ void main() {
       final tmp = Directory.systemTemp.createTempSync('tina_walk_');
       try {
         final file = File('${tmp.path}/only.dart')..writeAsStringSync('');
-        final runner = MemoryProcessRunner(
-            (_, __) => throw Exception('git not found'));
+        final runner =
+            MemoryProcessRunner((_, __) => throw Exception('git not found'));
         final e = RepoFileEnumerator(
             processRunner: runner, fallback: const WalkFileEnumerator());
         expect(await e.enumerate(file.path), ['only.dart']);
-        expect(runner.runs, isEmpty);
+        expect(runner.starts, isEmpty);
       } finally {
         tmp.deleteSync(recursive: true);
       }
@@ -130,8 +138,7 @@ void main() {
       }
     });
 
-    test('file root returns just that file, no exception or warning',
-        () async {
+    test('file root returns just that file, no exception or warning', () async {
       final tmp = Directory.systemTemp.createTempSync('tina_walk_');
       try {
         final file = File('${tmp.path}/single.dart')..writeAsStringSync('');

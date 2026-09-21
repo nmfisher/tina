@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'models.dart';
 import 'service.dart';
+import 'request_packer.dart';
 
 /// Estimates the COMPLETE serialized request. Custom estimators must be
 /// conservative and monotonic as evidence is added. The fallback charges one
@@ -40,7 +41,10 @@ class JudgmentRequestBudget {
   int check(JudgmentRequest request) {
     final tokens = estimate(request);
     if (tokens > maxInputTokens) {
-      throw const JudgmentException(JudgmentFailure.requestTooLarge);
+      throw const JudgmentException(
+        JudgmentFailure.requestTooLarge,
+        attempted: false,
+      );
     }
     return tokens;
   }
@@ -56,49 +60,33 @@ class JudgmentRequestBudget {
     required List<JudgmentQuestion> questions,
     int maxChunks = 256,
   }) {
-    if (maxChunks <= 0) throw ArgumentError.value(maxChunks, 'maxChunks');
     final runes = text.runes.toList();
-    final chunks = <JudgmentEvidenceChunk>[];
-    var start = 0;
-    JudgmentRequest request(int end) => JudgmentRequest(state: {
-          'source': source,
-          'start_scalar': start,
-          'end_scalar': end,
-          'text': String.fromCharCodes(runes.sublist(start, end)),
-        }, questions: questions);
-    do {
-      if (chunks.length == maxChunks) {
-        throw const JudgmentException(JudgmentFailure.requestTooLarge);
-      }
-      check(request(start)); // Fail when questions/metadata alone cannot fit.
-      var low = start;
-      var high = runes.length;
-      while (low < high) {
-        final mid = (low + high + 1) ~/ 2;
-        if (estimate(request(mid)) <= maxInputTokens) {
-          low = mid;
-        } else {
-          high = mid - 1;
-        }
-      }
-      var end = low;
-      if (end == start && start < runes.length) {
-        throw const JudgmentException(JudgmentFailure.requestTooLarge);
-      }
-      if (end < runes.length) {
-        for (var i = end - 1; i >= start; i--) {
-          if (runes[i] == 10) {
-            end = i + 1;
-            break;
+    return List.unmodifiable(
+      packRequestRanges<JudgmentEvidenceChunk>(
+        length: runes.length,
+        maxChunks: maxChunks,
+        build: (start, end) => JudgmentEvidenceChunk(
+          start,
+          end,
+          JudgmentRequest(
+            state: {
+              'source': source,
+              'start_scalar': start,
+              'end_scalar': end,
+              'text': String.fromCharCodes(runes.sublist(start, end)),
+            },
+            questions: questions,
+          ),
+        ),
+        fits: (chunk) => estimate(chunk.request) <= maxInputTokens,
+        chooseEnd: (start, end) {
+          for (var i = end - 1; i >= start; i--) {
+            if (runes[i] == 10) return i + 1;
           }
-        }
-      }
-      final packed = request(end);
-      check(packed);
-      chunks.add(JudgmentEvidenceChunk(start, end, packed));
-      start = end;
-    } while (start < runes.length);
-    return List.unmodifiable(chunks);
+          return end;
+        },
+      ),
+    );
   }
 }
 

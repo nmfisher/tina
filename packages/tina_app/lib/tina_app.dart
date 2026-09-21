@@ -51,3 +51,5 @@ export 'package:classifier/typesafe_classifier.dart';
 
 export 'src/exploration/repository_evidence.dart';
 export 'src/exploration/explore_project_tool.dart';
+export 'src/exploration/metered_judgment_service.dart';
+export 'src/exploration/file_exploration_cache.dart';

@@ -42,18 +42,46 @@ Future<void> atomicWriteFile(
   String content,
 ) async {
   final tmp = await fs.createTempFile(near: path);
-  await fs.writeFile(tmp, content);
+  await _publishAtomically(
+    write: () => fs.writeFile(tmp, content),
+    publish: () => fs.rename(tmp, path),
+    cleanup: () => fs.delete(tmp),
+  );
+}
+
+/// Publish flushed bytes from an exclusively created temporary directory on the
+/// destination filesystem. The caller owns directory validation and creation.
+/// In particular, cache callers must still enforce their no-symlink policy.
+Future<void> atomicWriteBytes(String path, List<int> bytes) async {
+  final temporary = await Directory(p.dirname(path)).createTemp('.tina-write-');
+  final staged = File(p.join(temporary.path, 'content'));
+  await _publishAtomically(
+    write: () async {
+      await staged.writeAsBytes(bytes, flush: true);
+    },
+    publish: () async {
+      await staged.rename(path);
+    },
+    cleanup: () async {
+      await temporary.delete(recursive: true);
+    },
+  );
+}
+
+Future<void> _publishAtomically({
+  required Future<void> Function() write,
+  required Future<void> Function() publish,
+  required Future<void> Function() cleanup,
+}) async {
   try {
-    await fs.rename(tmp, path);
-  } catch (e) {
-    // Rename failed (shouldn't happen — same dir → same filesystem). Clean up
-    // the temp so we don't litter, and surface the error; the target is intact.
+    await write();
+    await publish();
+  } finally {
     try {
-      await fs.delete(tmp);
+      await cleanup();
     } catch (_) {
-      // Best-effort cleanup; the original error is the one that matters.
+      // Cleanup must not hide the original write/rename failure.
     }
-    rethrow;
   }
 }
 
@@ -129,8 +157,7 @@ class BackupStore {
     registry.sort((a, b) => a.time.compareTo(b.time)); // oldest first
 
     var totalBytes = registry.fold<int>(0, (sum, e) => sum + e.size);
-    while (registry.length > kMaxBackups ||
-        totalBytes > kMaxBackupTotalBytes) {
+    while (registry.length > kMaxBackups || totalBytes > kMaxBackupTotalBytes) {
       final oldest = registry.removeAt(0);
       totalBytes -= oldest.size;
       if (await fs.fileExists(oldest.backupPath)) {
@@ -159,8 +186,8 @@ class BackupStore {
   }
 
   Future<void> _writeRegistry(List<BackupEntry> entries) async {
-    final text =
-        const JsonEncoder.withIndent('  ').convert(entries.map((e) => e.toJson()).toList());
+    final text = const JsonEncoder.withIndent('  ')
+        .convert(entries.map((e) => e.toJson()).toList());
     await fs.writeFile(_registryPath, text);
   }
 

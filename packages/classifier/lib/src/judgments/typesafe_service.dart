@@ -78,9 +78,11 @@ class TypeSafeJudgmentService implements JudgmentService {
     JudgmentRequest request, {
     JudgmentCancellation? cancellation,
   }) async {
-    if (_closed) throw const JudgmentException(JudgmentFailure.closed);
+    if (_closed) {
+      throw const JudgmentException(JudgmentFailure.closed, attempted: false);
+    }
     if (cancellation?.isCancelled ?? false) {
-      throw const JudgmentException(JudgmentFailure.cancelled);
+      throw const JudgmentException(JudgmentFailure.cancelled, attempted: false);
     }
     config.requestBudget.check(request);
     final body = jsonEncode(request.toJson(model: config.model));

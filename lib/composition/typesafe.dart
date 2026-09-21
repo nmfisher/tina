@@ -44,6 +44,8 @@ TypeSafeJudgmentService? createConfiguredTypeSafeService({
 ExploreProjectTool createConfiguredExplorationTool({
   required String projectRoot,
   required Map<String, String> env,
+  required SpendLedger spendLedger,
+  PauseGate? pauseGate,
   Directory? tinaDir,
   http.Client Function()? clientFactory,
   ProjectEvidenceSource? evidenceSource,
@@ -57,6 +59,14 @@ ExploreProjectTool createConfiguredExplorationTool({
       clientFactory: clientFactory,
     );
     try {
+      const outputTokenAllowance = 1024;
+      final metered = MeteredJudgmentService(
+        inner: service,
+        ledger: spendLedger,
+        pauseGate: pauseGate,
+        budget: service.config.requestBudget,
+        outputTokenAllowance: outputTokenAllowance,
+      );
       final source =
           evidenceSource ??
           RepositoryEvidenceSource(
@@ -79,7 +89,7 @@ ExploreProjectTool createConfiguredExplorationTool({
         selectionThreshold:
             settings.typeSafe?.explorationSelectionThreshold ?? 0.9,
         metadataRunner: JudgmentBatchRunner(
-          service: service,
+          service: metered,
           budget: service.config.requestBudget,
           limits: JudgmentBatchLimits(
             concurrency: 4,
@@ -87,11 +97,11 @@ ExploreProjectTool createConfiguredExplorationTool({
             maxChargedTokens:
                 settings.typeSafe?.explorationMetadataTokenBudget ?? 60000,
             timeout: timeout,
-            outputTokenAllowance: 1024,
+            outputTokenAllowance: outputTokenAllowance,
           ),
         ),
         runner: JudgmentBatchRunner(
-          service: service,
+          service: metered,
           budget: service.config.requestBudget,
           limits: JudgmentBatchLimits(
             concurrency: 4,
@@ -99,7 +109,7 @@ ExploreProjectTool createConfiguredExplorationTool({
             maxChargedTokens:
                 settings.typeSafe?.explorationTokenBudget ?? 120000,
             timeout: timeout,
-            outputTokenAllowance: 1024,
+            outputTokenAllowance: outputTokenAllowance,
           ),
         ),
       );

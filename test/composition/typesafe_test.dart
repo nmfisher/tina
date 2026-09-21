@@ -7,6 +7,7 @@ import 'package:tina/composition/typesafe.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina/tui/settings_panel.dart';
 import 'package:tina_app/tina_app.dart';
+import 'package:tina_engine/tina_engine.dart' show SpendLedger;
 
 import '../helpers/overlay_fixtures.dart';
 
@@ -18,7 +19,9 @@ void main() {
       fixture.setUp('tina_cache_composition_');
       addTearDown(fixture.tearDown);
       var calls = 0;
+      final ledger = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
       ExploreProjectTool build() => createConfiguredExplorationTool(
+        spendLedger: ledger,
         projectRoot: fixture.dir.path,
         env: const {'TYPESAFE_API_KEY': 'key'},
         tinaDir: fixture.dir,
@@ -41,6 +44,10 @@ void main() {
       );
       await build().execute({'question': 'widget', 'mode': 'verify'});
       expect(calls, 2);
+      expect(ledger.totalEstimatedTokens, greaterThan(0));
+      final charged = ledger.grandTotalTokens;
+      ledger.updateLimits(maxGlobalTokens: 1, requestsPerMinute: 0);
+      expect(ledger.tripped, isTrue);
       final repeated = jsonDecode(
         (await build().execute({
           'question': 'widget',
@@ -49,7 +56,16 @@ void main() {
       );
       expect(repeated['cache']['answer_hit'], isTrue);
       expect(repeated['usage']['charged_tokens'], 0);
+      expect(ledger.grandTotalTokens, charged);
       expect(calls, 2);
+      final blocked = await build().execute({
+        'question': 'different question',
+        'mode': 'verify',
+      });
+      expect(blocked.isError, isTrue);
+      expect(blocked.content, contains('budgetExceeded'));
+      expect(calls, 2);
+      ledger.updateLimits(maxGlobalTokens: 0, requestsPerMinute: 0);
       await build().execute({
         'question': 'widget',
         'mode': 'verify',
@@ -66,7 +82,9 @@ void main() {
       fixture.setUp('tina_explore_composition_');
       addTearDown(fixture.tearDown);
       final auth = <String?>[];
+      final ledger = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
       final tool = createConfiguredExplorationTool(
+        spendLedger: ledger,
         projectRoot: fixture.dir.path,
         env: const {},
         tinaDir: fixture.dir,

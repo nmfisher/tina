@@ -2,9 +2,7 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
-import 'package:tina_engine/src/tools/process_runner.dart';
 import 'package:tina_engine/tina_engine.dart';
-import 'package:tina_index/tina_index.dart';
 
 import '../helpers/memory_process_runner.dart';
 
@@ -29,8 +27,7 @@ void main() {
       final props =
           tool.schema.inputSchema['properties'] as Map<String, dynamic>;
       expect(props, contains('symbol'));
-      final required =
-          tool.schema.inputSchema['required'] as List;
+      final required = tool.schema.inputSchema['required'] as List;
       expect(required, contains('symbol'));
     });
 
@@ -74,8 +71,8 @@ void main() {
     test('asks for the file listing through the runner it was given', () async {
       final dir = Directory.systemTemp.createTempSync('search-runner-');
       addTearDown(() => dir.deleteSync(recursive: true));
-      final runner = MemoryProcessRunner(
-          (exe, args) => MemoryRunningProcess(stdoutChunks: <String>['a.dart\n']));
+      final runner = MemoryProcessRunner((exe, args) =>
+          MemoryRunningProcess(stdoutChunks: <String>['a.dart\x00']));
       final scoped = SearchTool(repoRoot: dir.path, processRunner: runner);
 
       await scoped.execute({'symbol': 'anything'});
@@ -83,10 +80,9 @@ void main() {
       // One spawn, and it is the listing — handed to a runner the composition
       // chose, which is how the subprocess ends up sandboxed when the sandbox
       // is on. It used to be a `Process.runSync` inside tina_index.
-      expect(runner.runs, hasLength(1));
-      expect(runner.runs.single.executable, 'git');
-      expect(runner.runs.single.arguments, GraphStore.gitListFilesArgs);
+      expect(runner.starts, hasLength(1));
+      expect(runner.starts.single.executable, 'git');
+      expect(runner.starts.single.arguments, GitFileEnumerator.arguments);
     });
-
   });
 }

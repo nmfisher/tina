@@ -4,6 +4,7 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import 'process_runner.dart';
+import 'git_file_enumerator.dart';
 
 final _log = Logger('tina.tools.files');
 
@@ -116,8 +117,9 @@ List<String> _walk(String root) {
 }
 
 /// Enumerates files in repo order, honouring .gitignore: tries
-/// `git ls-files --cached --others --exclude-standard` first, and falls back to
-/// [WalkFileEnumerator] when git is unavailable or exits non-zero.
+/// a bounded, NUL-delimited Git listing first, and falls back to
+/// [WalkFileEnumerator] when git is unavailable or exits non-zero. Deadlines
+/// and size limits throw [FileEnumerationException] instead of hiding gaps.
 ///
 /// The [fallback] is itself a [FileEnumerator] (default [WalkFileEnumerator])
 /// so the git→walk decision is unit-testable with two fakes and no real I/O.
@@ -140,19 +142,15 @@ class RepoFileEnumerator implements FileEnumerator {
     if (FileSystemEntity.typeSync(root) == FileSystemEntityType.file) {
       return [p.basename(root)];
     }
-    try {
-      final res = await processRunner.run(
-        'git',
-        const ['ls-files', '--cached', '--others', '--exclude-standard'],
-        workingDirectory: root,
-      );
-      if (res.exitCode == 0) {
-        return res.stdout.split('\n').where((l) => l.isNotEmpty).toList();
-      }
-    } catch (e) {
-      _log.fine('git ls-files failed, falling back to walk', e);
+    final listing =
+        await GitFileEnumerator(processes: processRunner).enumerate(root);
+    if (listing.status == GitListingStatus.completed) {
+      return listing.paths;
     }
-    return fallback.enumerate(root);
+    if (listing.status == GitListingStatus.failed) {
+      return fallback.enumerate(root);
+    }
+    throw FileEnumerationException(listing);
   }
 }
 

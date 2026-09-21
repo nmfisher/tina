@@ -1,6 +1,6 @@
 import '../judgments/models.dart' show JudgmentRequest, NoulQuestion;
 import '../judgments/request_budget.dart' show JudgmentRequestBudget;
-import '../judgments/service.dart' show JudgmentException, JudgmentFailure;
+import '../judgments/request_packer.dart';
 import 'models.dart';
 
 class EvidenceChunk {
@@ -85,29 +85,13 @@ class FileChunker {
       );
     }
 
-    final chunks = <EvidenceChunk>[];
-    var start = 0;
-    do {
-      if (chunks.length >= maxChunks) {
-        throw const JudgmentException(JudgmentFailure.requestTooLarge);
-      }
-      budget.check(chunk(start, start).request);
-      var low = start;
-      var high = runes.length;
-      while (low < high) {
-        final end = (low + high + 1) ~/ 2;
-        if (budget.estimate(chunk(start, end).request) <=
-            budget.maxInputTokens) {
-          low = end;
-        } else {
-          high = end - 1;
-        }
-      }
-      if (low == start && start < runes.length) {
-        throw const JudgmentException(JudgmentFailure.requestTooLarge);
-      }
-      var end = low;
-      if (end < runes.length) {
+    return packRequestRanges<EvidenceChunk>(
+      length: runes.length,
+      maxChunks: maxChunks,
+      build: chunk,
+      fits: (region) =>
+          budget.estimate(region.request) <= budget.maxInputTokens,
+      chooseEnd: (start, end) {
         // Prefer blank lines (often declaration boundaries), then any newline,
         // in the latter half of the region so packing remains efficient.
         final floor = start + (end - start) ~/ 2;
@@ -120,25 +104,22 @@ class FileChunker {
             break;
           }
         }
-        end = newline ?? end;
-      }
-      final region = chunk(start, end);
-      budget.check(region.request);
-      chunks.add(region);
-      if (end == runes.length) break;
-      // Up to three lines of context, bounded to a quarter of the new region.
-      final floor = end - (end - start) ~/ 4;
-      var next = end;
-      var boundaries = 0;
-      for (var i = end - 2; i >= floor; i--) {
-        if (runes[i] == 10) {
-          next = i + 1;
-          if (++boundaries == 3) break;
+        return newline ?? end;
+      },
+      nextStart: (start, end) {
+        // Up to three lines of context, bounded to a quarter of the new region.
+        final floor = end - (end - start) ~/ 4;
+        var next = end;
+        var boundaries = 0;
+        for (var i = end - 2; i >= floor; i--) {
+          if (runes[i] == 10) {
+            next = i + 1;
+            if (++boundaries == 3) break;
+          }
         }
-      }
-      if (next == end) next = end - ((end - start) ~/ 8).clamp(0, 128);
-      start = next > start ? next : end;
-    } while (start < runes.length);
-    return chunks;
+        if (next == end) next = end - ((end - start) ~/ 8).clamp(0, 128);
+        return next > start ? next : end;
+      },
+    ).toList();
   }
 }
