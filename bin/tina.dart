@@ -451,14 +451,10 @@ Future<void> _runNonInteractive(
       return;
     }
 
-    // `/index` headless: run the staleness dance directly (no agent turn). The
-    // summary fleet runs via SummaryIndex.refresh (its own ephemeral composition),
-    // so the non-interactive agent isn't needed — the dance's notices stream to
-    // the HeadlessHost (stdout/stderr). confirm is null (no interactive input),
-    // so the up-to-date branch reports and stops, matching the deleted bin's
-    // `--dry-run` behavior.
+    // Headless indexing runs classification and the summary workflow inline.
+    // Status performs no model calls; Ctrl+C reaches either execution stage.
     final prompt = startup.prompt?.trim() ?? '';
-    if (prompt == '/classify' || prompt.startsWith('/classify ')) {
+    if (prompt == '/index' || prompt.startsWith('/index ')) {
       final parts = prompt.split(RegExp(r'\s+'));
       final mode = parts.length == 1 ? '' : parts[1];
       final cancelled = Completer<void>();
@@ -466,8 +462,8 @@ Future<void> _runNonInteractive(
         if (!cancelled.isCompleted) cancelled.complete();
       });
       try {
-        if (parts.length > 2)
-          throw ArgumentError('Usage: /classify [status|refresh]');
+        if (parts.length > 2 || !const ['', 'status', 'refresh'].contains(mode))
+          throw ArgumentError('Usage: /index [status|refresh]');
         final report = await runProjectClassification(
           app,
           mode: mode,
@@ -476,35 +472,34 @@ Future<void> _runNonInteractive(
         );
         host.showMessage(classificationReportText(report));
         if (report.cancelled || report.failures.isNotEmpty) exitCode = 1;
+        if (!cancelled.isCompleted) {
+          // Reuse the approved allocation layout from interactive sessions.
+          final idx = buildSummaryIndex(
+            config: app.config,
+            registry: app.registry,
+            environment: app.environment,
+            toolScope: app.pipeline.tools,
+            promptContext: app.pipeline.promptContext,
+            projectRoot: Directory.current.path,
+            allocations: AllocationsStore.forProject(Directory.current.path),
+          );
+          await runIndexDance(
+            host: host,
+            summaryIndex: idx,
+            confirm: null,
+            mode: mode,
+            cancelSignal: cancelled.future,
+          );
+        }
+        if (cancelled.isCompleted) exitCode = 1;
       } catch (e) {
         host.showMessage(
-          'Classification unavailable: $e\n',
+          'Index unavailable: $e\n',
           style: HostMessageStyle.error,
         );
         exitCode = 1;
       } finally {
         await signal.cancel();
-        await closeLogging();
-      }
-      return;
-    }
-    if (prompt == '/index') {
-      // Load the on-disk allocations (a TUI session's approved layout) so the
-      // headless run measures the SAME partition. Without this, every allocated
-      // dir falls outside the default partition and gets classified as deleted —
-      // destroying the approved layout's summaries.
-      final idx = buildSummaryIndex(
-        config: app.config,
-        registry: app.registry,
-        environment: app.environment,
-        toolScope: app.pipeline.tools,
-        promptContext: app.pipeline.promptContext,
-        projectRoot: Directory.current.path,
-        allocations: AllocationsStore.forProject(Directory.current.path),
-      );
-      try {
-        await runIndexDance(host: host, summaryIndex: idx, confirm: null);
-      } finally {
         await closeLogging();
       }
       return;

@@ -1,8 +1,10 @@
 # The `/index` command
 
-`/index` builds and maintains a **per-directory summary index** of your
-repository. For every folder it watches, tina writes a short, plain-language
-summary of what lives there — the major types, the entry points, how the pieces
+`/index` maintains project classifications and a **per-directory summary index**
+of your repository. Classifications describe the languages, frameworks, build
+systems, test systems and target platforms used by each project scope. For every
+folder it watches, tina writes a short, plain-language summary of what lives
+there — the major types, the entry points, how the pieces
 fit together. Those summaries power the **region agents**: instead of asking the
 main agent to re-read the whole repo every time, tina can route a scoped
 question to a small, fast agent that already knows one area cold.
@@ -27,8 +29,9 @@ partition is only used until you propose something.
 
 ## Using `/index` in the REPL
 
-Type `/index` and press enter. tina probes the repository with plain `git` (no
-LLM calls) to decide what to do, then acts on one of four states:
+Type `/index` and press enter. Tina restores current classifications and runs
+missing or stale classification tasks. For summaries, it probes the repository
+with plain `git` and acts on one of four states:
 
 | State | What `/index` does |
 |-------|--------------------|
@@ -36,6 +39,11 @@ LLM calls) to decide what to do, then acts on one of four states:
 | **Everything stale** | Re-summaries all watched folders. |
 | **Partly stale** | Reports which folders drifted and re-summaries *only* those. |
 | **Up to date** | Reports "up to date" and asks before re-running everything. |
+
+`/index status` reports summary staleness and checks saved classifications without
+model calls, writes, or layout prompts. It remains available when the spend cap
+is tripped. `/index refresh` explicitly recomputes classifications and all
+summaries using the current allocation layout, without a confirmation prompt.
 
 ### The first-run flow
 
@@ -45,7 +53,8 @@ LLM calls) to decide what to do, then acts on one of four states:
    it wants summarized, then reports the proposed layout.
 3. You run `/index` **again**. tina shows the proposed regions and asks
    **"Summarize the N proposed regions? [y/N]"**.
-4. You approve → the fleet generates the summaries. Decline → nothing is written.
+4. You approve → the fleet generates the summaries. Decline → no summaries are written.
+   Classification runs independently of summary layout approval.
 
 If a proposal turn runs but allocates nothing (the agent found nothing worth
 indexing, or every region was later deleted), tina does **not** loop forever.
@@ -99,7 +108,7 @@ There is no interactive main agent here, so the **default partition** is used
 (unless you already approved a layout in a previous TUI session, in which case
 that layout is reused). The run blocks until the summaries are written and prints
 its "Indexed N directories" result before exiting. There is no background mode
-and no Esc-to-cancel in this mode.
+and Ctrl+C cancels the active work.
 
 ## Where the summaries live
 
@@ -132,5 +141,5 @@ that area:
 If a region's underlying code has drifted, `list_regions` flags it stale so you
 know to run `/index` before trusting its summary.
 
-Project language/framework/platform classification is separate: see
-[Project classification](project_classification.md) for `/classify`.
+Classifications are stored separately in `.tina/classifications`; see
+[Project classification](project_classification.md) for source and cache details.

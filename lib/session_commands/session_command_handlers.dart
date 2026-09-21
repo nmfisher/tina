@@ -178,7 +178,11 @@ Future<CmdResult> runIndexDance({
   required SummaryIndex summaryIndex,
   Future<bool> Function(String prompt)? confirm,
   IndexRefreshFn? refreshFn,
+  String mode = '',
+  Future<void>? cancelSignal,
 }) async {
+  if (!const ['', 'status', 'refresh'].contains(mode))
+    throw ArgumentError('Usage: /index [status|refresh]');
   // Run the fleet and report, or hand it off. [startMsg] is posted only in
   // inline mode (the background task announces itself); [verb] labels the
   // inline completion report.
@@ -193,14 +197,34 @@ Future<CmdResult> runIndexDance({
       return;
     }
     if (startMsg.isNotEmpty) host.showMessage(startMsg);
-    final r = await summaryIndex.refresh(repartition: repartition, dirs: dirs);
+    final r = await summaryIndex.refresh(
+      repartition: repartition,
+      dirs: dirs,
+      cancelSignal: cancelSignal,
+    );
     _postIndexRefresh(host, r, verb: verb);
   }
 
   final status = await summaryIndex.status();
+  if (mode == 'status') {
+    host.showMessage(
+      'Summary index: ${status.totalDirs} directories, '
+      '${status.staleCount} stale, ${status.deletedDirs.length} deleted.\n',
+    );
+    return const CmdHandled();
+  }
 
   if (status.totalDirs == 0) {
     host.showMessage('No directories to index.\n');
+    return const CmdHandled();
+  }
+
+  if (mode == 'refresh') {
+    await refreshAndReport(
+      startMsg: 'Re-indexing ${status.totalDirs} dirs…\n',
+      verb: 'Re-indexed',
+      repartition: true,
+    );
     return const CmdHandled();
   }
 

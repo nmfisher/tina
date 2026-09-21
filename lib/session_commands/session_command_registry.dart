@@ -210,20 +210,11 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     handler: (h, t) => _handled(() => h.frontend._handleImage(t)),
   ),
   SessionCommandEntry(
-    names: const ['/classify'],
-    argsHint: '[status|refresh]',
-    summary: 'classify project scopes, languages, frameworks and platforms',
-    helpOrder: 8,
-    handler: (h, t) => h.index._handleClassify(t),
-  ),
-  SessionCommandEntry(
     names: const ['/index'],
-    argsHint: '',
-    summary:
-        'refresh the per-directory summary index (staleness-aware, runs '
-        'in the background)',
+    argsHint: '[status|refresh]',
+    summary: 'refresh project classifications and directory summaries',
     helpOrder: 8,
-    handler: (h, _) => h.index._handleIndex(),
+    handler: (h, t) => h.index._handleIndex(t),
   ),
   SessionCommandEntry(
     names: const ['/workflow'],

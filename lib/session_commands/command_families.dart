@@ -830,21 +830,8 @@ class IndexCommands {
   final IndexCapabilities ctx;
   IndexCommands(this.ctx);
 
-  Future<CmdResult> _handleClassify(String input) async {
-    final parts = input.trim().split(RegExp(r'\s+'));
-    final mode = parts.length == 1 ? '' : parts[1];
-    final conversation = ctx.active;
-    if (parts.length > 2 || !const ['', 'status', 'refresh'].contains(mode)) {
-      conversation.host.showMessage('Usage: /classify [status|refresh]\n');
-    } else if (ctx.runClassification == null) {
-      conversation.host.showMessage('Project classification is unavailable.\n');
-    } else {
-      await ctx.runClassification!(conversation, mode);
-    }
-    return const CmdHandled();
-  }
-
-  /// `/index` — refresh the per-directory summary sidecar, staleness-aware.
+  /// `/index` — refresh classifications and directory summaries.
+  /// `status` inspects both; `refresh` explicitly recomputes both.
   ///
   /// A pure-git probe ([SummaryIndex.status], no LLM) decides what to do:
   /// first run → the LIVE main agent designs the region layout (a `CmdRun`
@@ -856,27 +843,38 @@ class IndexCommands {
   ///
   /// When [CommandContext.summaryIndex] is null (no composition available),
   /// degrades to the ad-hoc in-chat review ([_indexPrompt]).
-  Future<CmdResult> _handleIndex() async {
-    final conversation = ctx.active;
-    final idx = ctx.summaryIndex;
-    if (idx == null) {
-      conversation.host.showMessage(
-        'summary sidecar unavailable; falling back to an ad-hoc review\n',
-        style: HostMessageStyle.dim,
-      );
-      return CmdRun(_indexPrompt);
+  Future<CmdResult> _handleIndex(String input) async {
+    final parts = input.trim().split(RegExp(r'\s+'));
+    final mode = parts.length == 1 ? '' : parts[1];
+    if (parts.length > 2 || !const ['', 'status', 'refresh'].contains(mode)) {
+      ctx.active.host.showMessage('Usage: /index [status|refresh]\n');
+      return const CmdHandled();
     }
+    final conversation = ctx.active;
     // A tripped spend cap pauses every agent — /index must not be the one
     // loophole (the fleet runs on its own ephemeral ledger, merged only after
     // the run, so the cap itself can't stop it). Headless has no ledger and
     // is unaffected.
-    if (ctx.spendLedger?.tripped == true) {
+    if (mode != 'status' && ctx.spendLedger?.tripped == true) {
       conversation.host.showMessage(
         'Token spend ceiling already tripped — /index skipped. '
         'Raise the cap (or /spend to review) first.\n',
         style: HostMessageStyle.error,
       );
       return const CmdHandled();
+    }
+    await ctx.runClassification?.call(conversation, mode);
+    final idx = ctx.summaryIndex;
+    if (idx == null) {
+      if (mode == 'status') {
+        conversation.host.showMessage('Summary index unavailable.\n');
+        return const CmdHandled();
+      }
+      conversation.host.showMessage(
+        'summary sidecar unavailable; falling back to an ad-hoc review\n',
+        style: HostMessageStyle.dim,
+      );
+      return CmdRun(_indexPrompt);
     }
     // The TUI runs the fleet in the background (input stays live, Esc-Esc
     // cancels); headless has no wiring and runs it inline, blocking to
@@ -885,6 +883,7 @@ class IndexCommands {
     return runIndexDance(
       host: conversation.host,
       summaryIndex: idx,
+      mode: mode,
       confirm: ctx.confirm,
       refreshFn: bg == null
           ? null

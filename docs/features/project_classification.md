@@ -1,11 +1,12 @@
 # Project classification
 
-`/classify` discovers project scopes and classifies programming languages,
-frameworks, build systems, test systems and target platforms. `/classify status`
-validates/restores saved results without model calls or writes. `/classify refresh`
+`/index` discovers project scopes and classifies programming languages,
+frameworks, build systems, test systems and target platforms. `/index status`
+validates/restores saved results without model calls or writes. `/index refresh`
 reruns all work. The same commands work with `tina --prompt`; incomplete headless
 runs exit nonzero. TUI double-Esc and headless Ctrl+C cancel. Nothing runs on
-startup, and `/index` remains independent.
+startup. The same `/index` invocation also maintains directory summaries;
+see [the index command](INDEX_COMMAND.md).
 
 The reusable API is documented in [classifier](../../packages/classifier/README.md).
 The project feature is an application recipe built on that API. Paths, repository

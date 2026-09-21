@@ -51,6 +51,9 @@ class _FakeCtx implements CommandContext {
   SummaryIndex? get summaryIndex => null;
 
   @override
+  Future<void> Function(Conversation, String)? get runClassification => null;
+
+  @override
   Future<bool> Function(String prompt)? get confirm => null;
 
   @override

@@ -20,7 +20,7 @@ Future<ProjectClassificationReport> runProjectClassification(
   void Function(String)? onProgress,
 }) async {
   if (!const ['', 'status', 'refresh'].contains(mode))
-    throw ArgumentError('Usage: /classify [status|refresh]');
+    throw ArgumentError('Usage: /index [status|refresh]');
   final root = app.pipeline.tools.projectRoot;
   final config = app.config;
   final model = app.registry.findModel('${config.provider}/${config.model}');

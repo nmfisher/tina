@@ -38,6 +38,7 @@ class _StubIndex implements SummaryIndex {
   SummaryIndexResult? refreshResult;
   int refreshCalls = 0;
   bool? lastRepartition;
+  Future<void>? lastCancelSignal;
   bool _proposalShown = false;
 
   @override
@@ -55,6 +56,7 @@ class _StubIndex implements SummaryIndex {
     String? modelRef,
     Future<void>? cancelSignal,
   }) async {
+    lastCancelSignal = cancelSignal;
     refreshCalls++;
     lastRepartition = repartition;
     return refreshResult!;
@@ -409,24 +411,86 @@ void main() {
   });
 
   for (final mode in ['', 'status', 'refresh']) {
-    test('classify $mode routes independently of index', () async {
+    test('index $mode runs classification and summary workflow', () async {
       final calls = <String>[];
+      final idx = _StubIndex(
+        _status(total: 3, stale: const []),
+        refreshResult: _result(3),
+      );
       final handlers = SessionCommandHandlers(
         _FakeCtx(
           conversation: conv,
+          summaryIndex: idx,
           runClassification: (conversation, mode) async {
             calls.add(mode);
           },
         ),
       );
-      expect(
-        await handlers.dispatch('/classify $mode'.trim()),
-        isA<CmdHandled>(),
-      );
+      expect(await handlers.dispatch('/index $mode'.trim()), isA<CmdHandled>());
       expect(calls, [mode]);
-      await handlers.dispatch('/classify invalid');
+      expect(idx.refreshCalls, mode == 'refresh' ? 1 : 0);
+      if (mode == 'refresh') expect(idx.lastRepartition, isTrue);
+      if (mode == 'status')
+        expect(_notices().join(), contains('Summary index:'));
+      await handlers.dispatch('/index invalid');
+      await handlers.dispatch('/index status extra');
       expect(calls, [mode]);
-      expect(_notices().join(), contains('Usage: /classify'));
+      expect(_notices().join(), contains('Usage: /index'));
     });
   }
+
+  test(
+    'status checks stale summaries without refresh, confirmation or proposal',
+    () async {
+      final idx = _StubIndex(_status(total: 3, stale: ['lib'], firstRun: true));
+      final handlers = SessionCommandHandlers(
+        _FakeCtx(
+          conversation: conv,
+          summaryIndex: idx,
+          confirm: (_) async => throw StateError('Status must not confirm'),
+        ),
+      );
+      expect(await handlers.dispatch('/index status'), isA<CmdHandled>());
+      expect(idx.refreshCalls, 0);
+      expect(idx.proposalShown, isFalse);
+      expect(_notices().join(), contains('1 stale'));
+    },
+  );
+
+  test('spend cap blocks classification but allows index status', () async {
+    final calls = <String>[];
+    final ledger = SpendLedger(maxGlobalTokens: 1, requestsPerMinute: 0);
+    ledger.record(TokenUsage(inputTokens: 100, outputTokens: 0));
+    final handlers = SessionCommandHandlers(
+      _FakeCtx(
+        conversation: conv,
+        spendLedger: ledger,
+        runClassification: (_, mode) async {
+          calls.add(mode);
+        },
+      ),
+    );
+    expect(await handlers.dispatch('/index'), isA<CmdHandled>());
+    expect(await handlers.dispatch('/index refresh'), isA<CmdHandled>());
+    expect(calls, isEmpty);
+    expect(await handlers.dispatch('/index status'), isA<CmdHandled>());
+    expect(calls, ['status']);
+  });
+
+  test(
+    'headless summary refresh receives the index cancellation signal',
+    () async {
+      final idx = _StubIndex(
+        _status(total: 1, stale: ['lib']),
+        refreshResult: _result(1),
+      );
+      final stop = Completer<void>();
+      await runIndexDance(
+        host: host,
+        summaryIndex: idx,
+        cancelSignal: stop.future,
+      );
+      expect(idx.lastCancelSignal, same(stop.future));
+    },
+  );
 }
