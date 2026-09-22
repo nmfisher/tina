@@ -502,9 +502,7 @@ class SessionController {
     // Second Esc: cancel.
     _cancelArmed = false;
     final c = s.cancelCompleter;
-    if (c != null && !c.isCompleted) {
-      if (!turns.cancel(s.id)) c.complete();
-    }
+    if (!turns.cancel(s.id) && c != null && !c.isCompleted) c.complete();
     return true;
   }
 
@@ -527,6 +525,7 @@ class SessionController {
       for (final conversation in session.conversations) {
         hit = conversation.messageQueue.isNotEmpty || hit;
         conversation.messageQueue.clear();
+        hit = turns.cancelInputs(conversation.id) || hit;
         if (turns.cancel(conversation.id)) hit = true;
         final cancel = conversation.cancelCompleter;
         if (cancel != null && !cancel.isCompleted) {

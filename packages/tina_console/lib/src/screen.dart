@@ -7,6 +7,7 @@ import 'backend/ansi_backend.dart';
 import 'backend/backend_surface.dart';
 import 'backend/terminal_backend.dart';
 import 'rect.dart';
+import 'renderer.dart';
 import 'region.dart';
 import 'screen_layout.dart';
 import 'stdio.dart';
@@ -504,6 +505,13 @@ class Screen {
   String? _errorStrip;
   bool _errorStripIsError = false;
   String? _modeLabel;
+  List<RenderLine> _statusLines = const [];
+
+  /// Plugin-provided strip content. The screen owns placement and clipping.
+  void setStatusLines(List<RenderLine> lines) {
+    _statusLines = List.unmodifiable(lines);
+    if (!passthrough) _renderStrip();
+  }
 
   /// The always-visible permission-mode indicator on the strip (e.g.
   /// 'mode: ask'). Survives error show/clear.
@@ -541,7 +549,6 @@ class Screen {
     final row = _layout.stripRow;
     final inner = _layout.width - 2;
     final segs = <String>[];
-    if (_modeLabel != null) segs.add(colorize('2', _modeLabel!));
     if (_errorStrip != null) {
       var t = _errorStrip!.replaceAll('\n', ' ').trim();
       final host = theme.hostMessage;
@@ -549,26 +556,26 @@ class Screen {
       if (t.length > inner) t = t.substring(0, inner);
       segs.add(colorize(color, t));
     }
+    if (_modeLabel != null) segs.add(colorize('2', _modeLabel!));
+    for (final line in _statusLines) {
+      final text = line.runs.map((run) {
+        final text = run.text.replaceAll(RegExp(r'[\x00-\x1f\x7f]'), ' ');
+        return run.code == null ? text : colorize(run.code!, text);
+      }).join();
+      if (text.isNotEmpty) segs.add(line.bar == null ? text : colorize(line.bar!, text));
+    }
     be.saveCursor();
     // Erase first: a shorter status must never leave residue. The strip owns
     // its whole row (tin-q9w2) — the boxes stop one row above it, so unlike
     // the old border-row placement there is no border to re-assert here.
     be.eraseCells(row, 1, inner);
     if (segs.isEmpty) {
-      if (_modeLabel == null && _errorStrip == null) {
-        // A caller cleared the label: the row legitimately goes blank (this
-        // is also the recurse guard for putAtAbsolute's strip re-assert).
-        be.restoreCursor();
-        be.flush();
-        return;
-      }
-      // Only the notice went away: re-render so the label alone remains.
       be.restoreCursor();
-      _renderStrip();
+      be.flush();
       return;
     }
     be.moveCursor(row, 1);
-    be.writeText(segs.join('  '));
+    be.writeText(_clipToVisibleCols(segs.join('  │  '), inner));
     be.restoreCursor();
     be.flush();
   }
@@ -585,7 +592,7 @@ class Screen {
     _repaintBoxBorders();
     // The strip sits between input and bottom border; repaint it after the
     // borders so it wins.
-    if (_errorStrip != null || _modeLabel != null) _renderStrip();
+    if (_errorStrip != null || _modeLabel != null || _statusLines.isNotEmpty) _renderStrip();
     // Park the cursor at the chat region's top-left.
     be.moveCursor(_layout.chat.row, _layout.chat.col);
     be.flush();

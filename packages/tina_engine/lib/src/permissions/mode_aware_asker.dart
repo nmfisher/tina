@@ -17,6 +17,9 @@ import 'classifier.dart';
 /// with `decidedBy: 'classifier'` recording that no human answered. Identical
 /// calls short-circuit the rule cascade before ever re-classifying — a fan-out
 /// of 30 identical bash calls pays one classifier round-trip, not 30.
+/// Outside-sandbox approvals use the same exact session grant as a human
+/// approval, and include the execution boundary in the classifier request.
+/// Extra writable-directory grants still require the interactive asker.
 PermissionAsker modeAwareAsker({
   required PermissionPolicy policy,
   required PermissionClassifier classifier,
@@ -24,13 +27,18 @@ PermissionAsker modeAwareAsker({
   void Function(String line)? notice,
 }) {
   return (prompt) async {
-    if (prompt.outsideSandbox || prompt.sandboxAccess != null || policy.mode != PermissionMode.auto)
+    if (prompt.sandboxAccess != null || policy.mode != PermissionMode.auto)
       return fallback(prompt);
-    final verdict = await classifier.allow(prompt.toolName, prompt.input);
+    var cancelled = false;
+    prompt.cancelSignal?.then((_) => cancelled = true);
+    final verdict = await classifier.allowPrompt(prompt);
+    if (cancelled) return PermissionResponse.denyOnce;
+    if (policy.mode != PermissionMode.auto) return fallback(prompt);
     if (verdict == null) return fallback(prompt);
+    final boundary = prompt.outsideSandbox ? ' outside sandbox' : '';
     notice?.call(verdict
-        ? '  ${prompt.toolName} allowed by classifier: ${prompt.key}\n'
-        : '  ${prompt.toolName} denied by classifier: ${prompt.key}\n');
+        ? '  ${prompt.toolName} allowed by classifier$boundary: ${prompt.key}\n'
+        : '  ${prompt.toolName} denied by classifier$boundary: ${prompt.key}\n');
     return verdict
         ? const PermissionResponse(PermissionDecision.allow,
             remember: true, decidedBy: 'classifier')

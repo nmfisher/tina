@@ -207,17 +207,17 @@ void main() {
     input.enqueue('first');
     await router.started.future;
     input.enqueue('discard');
-    await _pumpUntil(() => controller.active.messageQueue.isNotEmpty);
+    await _pumpUntil(() => controller.active.pendingInputs == 2 && router.seen.contains('discard'));
     expect(controller.cancelNow(), isTrue);
     await controller.turns.whenIdle(controller.active.id).timeout(const Duration(seconds: 1));
     expect(controller.active.messageQueue.isEmpty, isTrue);
-    expect(hostOf(controller).activitySignals.last, isFalse);
+    expect(controller.active.isRunning, isFalse);
     input.enqueue('replacement');
     await _pumpUntil(() => provider.calls.isNotEmpty);
     await controller.turns.whenIdle(controller.active.id);
     input.close();
     await run;
-    expect(router.seen, ['first', 'replacement']);
+    expect(router.seen, ['first', 'discard', 'replacement']);
     expect(provider.calls, hasLength(1));
   });
   test('/explore runs under the restricted turn catalog and restores normal tools', () async {

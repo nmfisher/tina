@@ -12,10 +12,12 @@ void main() {
       expect(await deny.allow('bash', const {'command': 'rm -rf /'}), isFalse);
     });
 
-    test('answer embedded in prose still parses', () async {
-      final c = PermissionClassifier(_ScriptedProvider('The call is safe. ALLOW'));
-      expect(await c.allow('edit', const {}), isTrue);
-    });
+    for (final answer in ['The call is safe. ALLOW', 'NOT ALLOW', 'ALLOW or DENY']) {
+      test('ambiguous or non-verdict output falls back: $answer', () async {
+        final c = PermissionClassifier(_ScriptedProvider(answer));
+        expect(await c.allow('edit', const {}), isNull);
+      });
+    }
 
     test('stream error -> null', () async {
       final c = PermissionClassifier(_ScriptedProvider('', error: StateError('boom')));
@@ -70,7 +72,7 @@ class _NeverCompletingProvider extends LlmProvider {
     required List<Message> messages,
     required List<ToolSchema> tools,
   }) =>
-      const Stream.empty();
+      StreamController<StreamEvent>().stream;
 }
 
 class _ThrowingProvider extends LlmProvider {

@@ -5,7 +5,11 @@ class RenderContext {
   final int width;
   final Theme theme;
 
-  const RenderContext({required this.width, required this.theme});
+  /// Animation step supplied by hosts that support animated rendering.
+  final int animationFrame;
+
+  const RenderContext(
+      {required this.width, required this.theme, this.animationFrame = 0});
 }
 
 /// One span of text with an optional inline SGR style.
@@ -22,9 +26,13 @@ class RenderLine {
   final String? bar;
   final List<RenderRun> runs;
 
-  const RenderLine({this.bar, this.runs = const []});
+  /// Request another render with an advanced animation frame in status hosts.
+  final bool animated;
+
+  const RenderLine({this.bar, this.runs = const [], this.animated = false});
   const RenderLine.blank()
       : bar = null,
+        animated = false,
         runs = const [];
 
   bool get isBlank => bar == null && runs.every((run) => run.text.isEmpty);

@@ -4,10 +4,17 @@ import 'package:tina_app/src/session/conversation.dart';
 import 'package:tina_app/src/workflows/workflow_supervisor.dart';
 import 'package:tina_app/src/platform/environment.dart';
 import 'input_routes.dart';
+import '../session/message_queue.dart';
 
 enum TurnState { idle, running, cancelling, closed }
 
 enum TurnSubmission { started, queued, rejected }
+
+class _Admission {
+  final cancel = Completer<void>();
+  final done = Completer<void>();
+  bool discard = false;
+}
 
 class _TurnSlot {
   final Conversation conversation;
@@ -35,6 +42,8 @@ class TurnExecutor {
   final int autoCompactPreserveRecent;
   final _slots = <String, _TurnSlot>{};
   final _closed = <String>{};
+  final _admissions = <String, List<_Admission>>{};
+  final _observed = <Conversation>{};
   bool _closing = false;
   Future<void>? _shutdown;
   TurnExecutor({
@@ -57,7 +66,8 @@ class TurnExecutor {
         conversation.isClosed) {
       return TurnState.closed;
     }
-    return _slots[id]?.state ?? TurnState.idle;
+    return _slots[id]?.state ??
+        (_admissions.containsKey(id) ? TurnState.running : TurnState.idle);
   }
 
   TurnSubmission submit(String id, String prompt, {bool route = true}) {
@@ -68,20 +78,112 @@ class TurnExecutor {
         conversation.isClosed) {
       return TurnSubmission.rejected;
     }
+    final routes = inputRoutes;
+    if (routes == null ||
+        (!routes.hasProcessors && !_admissions.containsKey(id))) {
+      return _submitReady(conversation, prompt, route: route);
+    }
+    // One close listener per conversation, rather than retaining a detached
+    // history snapshot through a new close-future listener for every prompt.
+    if (_observed.add(conversation)) {
+      conversation.closeSignal.then((_) {
+        cancelInputs(id);
+        _observed.remove(conversation);
+      });
+    }
+    final pending = _admissions.putIfAbsent(id, () => []);
+    final previous = pending.lastOrNull?.done.future;
+    final result = previous != null || _slots.containsKey(id)
+        ? TurnSubmission.queued
+        : TurnSubmission.started;
+    final admission = _Admission();
+    pending.add(admission);
+    conversation.pendingInputs++;
+    conversation.inputCompletion = admission.done.future;
+    // Start independent classification immediately, but commit its decision
+    // after earlier submissions. Slow work never owns the editor's readLine.
+    final prepared = route
+        ? routes.prepare(
+            text: prompt,
+            conversationId: id,
+            history: conversation.history,
+            cancelSignal: admission.cancel.future,
+          )
+        : Future<PreparedInput?>.value(null);
+    unawaited(() async {
+      try {
+        final input = await prepared;
+        if (previous != null) await previous;
+        if (admission.discard ||
+            _closing ||
+            conversation.isClosed ||
+            _closed.contains(id) ||
+            !identical(findConversation(id), conversation))
+          return;
+        if (input?.outcome == InputOutcome.handled) return;
+        _submitReady(
+          conversation,
+          input?.text ?? prompt,
+          route: route,
+          prepared: input,
+        );
+      } finally {
+        pending.remove(admission);
+        if (pending.isEmpty) _admissions.remove(id);
+        conversation.pendingInputs--;
+        if (identical(conversation.inputCompletion, admission.done.future)) {
+          conversation.inputCompletion = null;
+        }
+        admission.done.complete();
+        _changed();
+      }
+    }());
+    _changed();
+    return result;
+  }
+
+  TurnSubmission _submitReady(
+    Conversation conversation,
+    String prompt, {
+    required bool route,
+    PreparedInput? prepared,
+  }) {
+    final id = conversation.id;
     if (_slots.containsKey(id)) {
-      conversation.messageQueue.enqueue(prompt, route: route);
+      conversation.messageQueue.enqueue(
+        prompt,
+        route: route,
+        prepared: prepared,
+      );
       return TurnSubmission.queued;
     }
     final slot = _TurnSlot(conversation);
     _slots[id] = slot;
     conversation.turnCompletion = slot.idle.future;
-    unawaited(_drain(slot, (text: prompt, route: route)));
+    unawaited(_drain(slot, (text: prompt, route: route, prepared: prepared)));
     return TurnSubmission.started;
+  }
+
+  /// Emergency cancellation also covers input not yet admitted to the queue.
+  bool cancelInputs(String id) {
+    final background = inputRoutes?.cancelBackground(id) ?? false;
+    final pending = _admissions[id];
+    if (pending == null) return background;
+    for (final item in pending) {
+      item.discard = true;
+      if (!item.cancel.isCompleted) item.cancel.complete();
+    }
+    return true;
   }
 
   bool cancel(String id) {
     final slot = _slots[id];
-    if (slot == null) return false;
+    if (slot == null) {
+      final first = _admissions[id]?.firstOrNull;
+      if (first == null) return false;
+      if (!first.cancel.isCompleted) first.cancel.complete();
+      return true;
+    }
     slot.state = TurnState.cancelling;
     final cancel = slot.conversation.cancelCompleter;
     if (cancel != null && !cancel.isCompleted) cancel.complete();
@@ -114,11 +216,20 @@ class TurnExecutor {
     }
   }
 
-  Future<void> whenIdle(String id) => _slots[id]?.idle.future ?? Future.value();
+  Future<void> whenIdle(String id) async {
+    while (_admissions.containsKey(id) || _slots.containsKey(id)) {
+      final pending = _admissions[id]?.lastOrNull?.done.future;
+      if (pending != null) await pending;
+      final turn = _slots[id]?.idle.future;
+      if (turn != null) await turn;
+    }
+  }
+
   Future<void> close(String id) {
     _closed.add(id);
     final c = findConversation(id);
     c?.beginClose();
+    cancelInputs(id);
     cancel(id);
     return whenIdle(id);
   }
@@ -126,11 +237,12 @@ class TurnExecutor {
   Future<void> shutdown() => _shutdown ??= _stop();
   Future<void> _stop() async {
     _closing = true;
-    final slots = _slots.values.toList();
-    for (final slot in slots) {
-      close(slot.conversation.id);
-    }
-    await Future.wait(slots.map((s) => s.idle.future));
+    final ids = {
+      ..._slots.keys,
+      ..._admissions.keys,
+      ..._observed.map((conversation) => conversation.id),
+    };
+    await Future.wait(ids.map(close));
   }
 
   void _changed() {
@@ -139,9 +251,9 @@ class TurnExecutor {
     } catch (_) {}
   }
 
-  Future<void> _drain(_TurnSlot slot, ({String text, bool route}) first) async {
+  Future<void> _drain(_TurnSlot slot, QueuedInput first) async {
     final s = slot.conversation;
-    ({String text, bool route})? next = first;
+    QueuedInput? next = first;
     try {
       while (next != null &&
           !_closing &&
@@ -162,6 +274,7 @@ class TurnExecutor {
             s,
             next.text,
             route: next.route,
+            prepared: next.prepared,
             turnTools: turnTools,
           );
         } catch (_) {
@@ -197,23 +310,36 @@ class TurnExecutor {
     Conversation s,
     String input, {
     bool route = true,
+    PreparedInput? prepared,
     ToolRegistry? turnTools,
   }) async {
     final cancel = s.cancelCompleter!;
     final toolInterrupt = s.toolInterruptCompleter!;
     s.host.showSeparator();
-    s.host.showMessage('$input\n', style: HostMessageStyle.user);
+    s.host.showMessage(
+      '${prepared?.originalText ?? input}\n',
+      style: HostMessageStyle.user,
+    );
     s.host.showSeparator();
 
     if (route && inputRoutes != null) {
-      final outcome = await inputRoutes!.run(
-        text: input,
-        conversationId: s.id,
+      final ready =
+          prepared ??
+          await inputRoutes!.prepare(
+            text: input,
+            conversationId: s.id,
+            history: s.history,
+            cancelSignal: cancel.future,
+          );
+      cancel.future.then((_) => ready.cancel());
+      final outcome = await inputRoutes!.deliver(
+        ready,
         history: s.history,
         cancelSignal: cancel.future,
         host: s.host,
         recorder: s.recorder,
       );
+      input = ready.text;
       if (outcome != InputOutcome.pass) {
         return outcome == InputOutcome.handled && !cancel.isCompleted;
       }

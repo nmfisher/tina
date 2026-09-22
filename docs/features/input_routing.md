@@ -1,94 +1,138 @@
-# Input routing plugins
+# Input processors and status plugins
 
-The application can route a user message before compaction or agent execution.
-No routers are installed by default, and there is no classifier router yet.
-
-The input path is:
+Plugins can inspect, transform, route or consume submitted user prompts before
+those prompts enter the agent queue. They use the existing plugin registry.
 
 ```text
-command handling → conversation queue → input routers → selected handler
-                                                     → current agent (fallback)
+user submission
+  → command plugins (slash commands)
+  → input processors (sync or async, in registration order)
+  → conversation queue (submission order)
+  → selected input handler or current agent
+
+input processor → status source → Renderer → strip beneath the input
 ```
 
-TUI input and headless `--prompt` use the same `InputRoutes` service.
-[Command plugins](command_plugins.md) handle slash commands first. Built-in
-commands such as `/index` keep their command path. A command that expands into an
-agent prompt enters the normal input path. Internal workflow completion messages
-bypass routers, including when queued. Delegated agents and individual model/tool
-calls do not go through this user-input extension point.
+TUI input and headless `--prompt` use the same `InputRoutes` service. Recognized
+slash commands keep their [command path](command_plugins.md). A command that
+returns `CmdRun` sends its expanded prompt through processors. Unknown commands
+follow the ordinary prompt path. Internal workflow results bypass processors;
+delegated agent turns and individual tool/model calls are not user submissions.
 
 ## Contracts
 
-All types are exported by `package:tina_app/tina_app.dart`:
+The input types are exported by `package:tina_app/tina_app.dart`:
 
-- `InputContext`: original text, conversation ID, a detached history snapshot,
-  cancellation signal and cancellation state. It exposes no live conversation,
-  driver, host or mutable queue.
-- `InputRouter.route(context)`: asynchronously returns an `InputRoute` or null.
-- `InputRoute`: the handler's contribution ID and optional JSON data. A future
-  classifier router can pass labels here without changing the user's text.
+- `InputContext`: submission `id`, `conversationId`, `originalText`, current
+  `text`, JSON `data`, detached history, `cancelSignal` and `isCancelled`.
+- `InputProcessor.process(context)`: returns `FutureOr<InputDecision>`.
+- `InputDecision.pass(data: ...)`: continue, optionally adding metadata.
+- `InputDecision.replace(text, data: ...)`: replace text for later processors
+  and the agent. Empty replacement is an error; use `stop` to consume input.
+- `InputDecision.route(InputRoute('handler.id', data: ...))`: select a named
+  `InputHandler`, ending processor selection.
+- `InputDecision.stop()`: consume the submission without an agent turn.
 - `InputHandler.handle(context, route)`: asynchronously returns a text reply.
-- `InputRoutes`: reads live contributions from the existing plugin scope and
-  manages routing, reply presentation and transcript persistence.
 
-Routers run in contribution registration order. The first non-null route wins.
-When all routers return null, the current conversation agent receives the input
-through its existing driver. Plugin activation follows the runtime's dependency
-order; declare dependencies when router registration order matters.
+Metadata is copied and deeply frozen between processors. Later values replace
+same-named keys. Metadata is available to later processors and handlers; it is
+not automatically inserted into the agent prompt or persisted. A processor can
+explicitly replace text if the agent needs additional information.
 
-An unknown handler, plugin failure, removal during execution, or timeout fails
-that turn visibly; it does not silently send the message to the default model.
+The context exposes no live driver, host or mutable queue. Plugins return
+decisions; the host alone forwards input. Legacy `InputRouter` contributions
+remain supported as pass/route processors. Contributions run in registration
+order; declare plugin dependencies when that order matters.
 
-## Registering a plugin
+## Registering a processor
 
-Pass additional plugins to `buildAppComposition(plugins: [...])`. This extends
-the built-in execution profile. `buildExecutionRuntime` also accepts this list;
-its existing `executionPlugins` argument still replaces the base profile.
+Pass plugins to `buildAppComposition(plugins: [...])`. `buildExecutionRuntime`
+also accepts this list.
 
 ```dart
+class Rewrite implements InputProcessor {
+  @override
+  InputDecision process(InputContext input) => InputDecision.replace(
+    'Review this request: ${input.text}',
+    data: {'rewritten': true},
+  );
+}
+
 final plugin = PluginDescriptor(
   id: 'my.input',
   factory: FnPluginFactory((context) {
-    context.register(MyRouter(), id: 'my.router');
-    context.register(MyHandler(), id: 'my.handler');
+    context.register(Rewrite(), id: 'my.rewrite');
     return Object();
   }),
 );
 ```
 
-`MyRouter` implements `InputRouter` and can return `InputRoute('my.handler')`.
-`MyHandler` implements `InputHandler`. These are ordinary runtime contributions,
-not a second plugin registry. Registrations can be revoked; scope disposal owns
-plugin cleanup. There is no filesystem plugin loader or configuration-based
-router selection added by this change.
+A classifier can instead await a typed result, then return `pass`, `replace`,
+`route` or `stop`. The frontend does not need to know which classifier or source
+was used. Services come from declared `ServiceKey` dependencies. Model requests
+must use the normal metered services; processing grants no extra tool authority.
 
-Plugins obtain services through declared `ServiceKey` dependencies. A future
-classifier plugin should reuse the judgment service and shared spend ledger;
-a model-backed handler should use the metered provider factory. Routing itself
-performs no model calls and grants no additional tool or permission authority.
-Model/agent selection belongs in the selected handler, not in the frontend.
-The initial handler contract returns a completed text reply; streaming handlers
-are not part of this extension yet.
+## Ordering, cancellation and history
 
-## Turn ownership
+Independent submissions can prepare concurrently, so a slow classifier does not
+hold the editor. Decisions enter the queue in submission order. Selected handlers
+run in turn order with ordinary agent turns, avoiding concurrent history writes.
+History in each context is a snapshot taken at submission, not a future view of
+an earlier turn's eventual reply. Focus changes never change a submission's owner.
 
-Routing starts when a queued message actually begins its turn. It stays pinned
-to that conversation even if the user changes focus. The turn runner owns busy
-state, cancellation, queued messages and usage persistence. A routed reply skips
-agent compaction and execution. The original user input is written before the
-handler starts, followed by its reply; pass-through routing leaves history alone
-so the ordinary agent writes the input exactly once. Routing failures and
-cancellations are also recorded.
+The UI echoes the original text. For an agent turn, the ordinary driver records
+the effective (possibly transformed) text exactly once. Routed replies record the
+original submission followed by the handler reply. Processing failures are
+reported in turn order and never silently fall through to the model. `stop`
+creates no conversation entry. Original text and metadata remain available in
+the context but are not added as a second persisted transcript.
 
-Cancellation interrupts waits on both routers and handlers. Plugins receive the
-same cancellation signal and must stop their own requests/work. The host ignores
-late results, so a stalled plugin cannot hold the input open or append to a later
-turn. Routing plus handler execution has a five-minute deadline by default;
-`InputRoutes(scope, timeout: ...)` can change it. Deadline expiry also signals
-cancellation. Interactive double-Esc uses the existing cancel-and-clear path;
-headless Ctrl+C cancels the same routing/agent turn.
+Cancellation interrupts processor and handler waits, including uncooperative
+plugins. Double-Esc discards pending admissions, clears queued inputs and cancels
+background work. Late decisions cannot enqueue input or append replies. Plugin
+removal fails work that still depends on its contribution. Processing and handler
+execution each have a five-minute timeout by default (`InputRoutes(timeout: ...)`).
+Closing a conversation cancels pending preparation before disposing its resources.
 
-Before routing, the headless frontend may construct its ordinary provider/driver
-and run the existing local tree-health check. It sends no agent model request
-until routers have passed. Routers see the raw `--prompt`, before the headless
-summary instruction and tree-health text are added to the agent's prompt.
+For work that should continue after returning `pass`, call
+`input.background(future)`. This registers it for emergency cancellation without
+delaying forwarding. The plugin must observe `cancelSignal`, cancel its transport,
+and report failures through its own status. Background failures cannot retract an
+already forwarded message. Plugin disposal must also cancel owned work.
+
+Headless processing sees the raw prompt; tree-health context and the headless
+summary instruction are added to the effective prompt afterwards.
+
+## Git status plugin
+
+Interactive CLI sessions install `configuredGitInputPlugin`. It uses the existing Typesafe/JEV
+judgment service and shared spend ledger, independently of the chat model.
+`InputTextSource` supplies the latest submitted prompt and up to six recent text
+messages. Tool payloads are excluded. `gitClassifier` asks independent questions
+for common Git subcommands, `other`, no Git request, and unclear intent. Multiple
+subcommands can be selected. Oversized input is unknown rather than being split
+across a negation or silently truncated; the full request is checked against the
+judgment token budget before dispatch.
+
+By default, `GitInput` immediately passes the prompt and updates status in the
+background. `GitInput(check, background: false)` waits and adds the typed result's
+JSON to `input.data['git']` before forwarding. A missing service, timeout or request
+failure produces an unavailable status and does not block the agent.
+
+Status is keyed by conversation and submission. Newer prompts replace older
+status; late results cannot overwrite them. Recognized slash commands that do not
+produce an agent prompt do not run this classifier. Results stay in memory and
+are not stored in the project index. The indicator predicts intent; it neither
+executes Git nor confirms that the agent ran Git.
+
+`StatusSource` exposes `read(conversationId)` and a change stream. The frontend's
+`InputStatus` bridge reads the focused conversation and uses registered
+`Renderer<T>` contributions to paint the existing strip beneath the editor.
+`GitStatusRenderer` supplies the Git labels. Other plugins can publish and render
+their own types through the same path. Status updates preserve the editor cursor,
+mode label and error notices; plugin removal clears its status.
+
+While classification runs, the status cycles through `| / - \` every 120 ms.
+Status renderers request animation with `RenderLine(animated: true)` and read
+`RenderContext.animationFrame`. The bridge uses the screen's shared animation
+clock and stops when the visible status settles, is removed, or is disposed.

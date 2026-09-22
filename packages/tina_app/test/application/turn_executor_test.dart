@@ -7,6 +7,7 @@ import 'package:tina_app/src/workflows/workflow_supervisor.dart';
 import 'package:tina_engine/tina_engine.dart';
 import '../helpers/fake_host_interface.dart';
 import '../helpers/memory_session_store.dart';
+import 'input_processors_test.dart' show Processor;
 
 class _Router implements InputRouter {
   final Future<InputRoute?> Function(InputContext) callback;
@@ -119,6 +120,139 @@ void main() {
     await executor.shutdown();
     await host.dispose();
   });
+  test(
+    'parallel preparation forwards transformed prompts once in submission order',
+    () async {
+      final scope = PluginScope('input');
+      addTearDown(scope.dispose);
+      final entered = [Completer<void>(), Completer<void>()];
+      final releases = [Completer<InputDecision>(), Completer<InputDecision>()];
+      scope.registerContribution(
+        pluginId: 'test',
+        id: 'processor',
+        contribution: Processor((input) {
+          final i = input.text == 'first' ? 0 : 1;
+          entered[i].complete();
+          return releases[i].future;
+        }),
+      );
+      executor = TurnExecutor(
+        findConversation: (_) => conversation,
+        inputRoutes: InputRoutes(scope),
+      );
+      executor.submit(conversation.id, 'first');
+      executor.submit(conversation.id, 'second');
+      await Future.wait(entered.map((c) => c.future));
+      releases[1].complete(const InputDecision.replace('second changed'));
+      await Future<void>.delayed(Duration.zero);
+      expect(provider.streams, isEmpty);
+      releases[0].complete(const InputDecision.replace('first changed'));
+      await provider.started[0].future;
+      provider.finish(0);
+      await provider.started[1].future;
+      provider.finish(1);
+      await executor.whenIdle(conversation.id);
+      expect(
+        conversation.history
+            .where((m) => m.role == Role.user)
+            .map((m) => (m.content.single as TextBlock).text),
+        ['first changed', 'second changed'],
+      );
+      expect(host.messages, contains('first\n'));
+      expect(host.messages, contains('second\n'));
+      expect(provider.streams, hasLength(2));
+    },
+  );
+
+  test(
+    'emergency cancellation discards every pending admission and ignores late decisions',
+    () async {
+      final scope = PluginScope('input');
+      addTearDown(scope.dispose);
+      final entered = Completer<void>();
+      final stalled = Completer<InputDecision>();
+      var count = 0;
+      scope.registerContribution(
+        pluginId: 'test',
+        id: 'processor',
+        contribution: Processor((input) {
+          if (input.text == 'replacement') return const InputDecision.pass();
+          if (++count == 2) entered.complete();
+          return stalled.future;
+        }),
+      );
+      executor = TurnExecutor(
+        findConversation: (_) => conversation,
+        inputRoutes: InputRoutes(scope),
+      );
+      executor.submit(conversation.id, 'first');
+      executor.submit(conversation.id, 'second');
+      await entered.future;
+      expect(executor.cancelInputs(conversation.id), isTrue);
+      await executor
+          .whenIdle(conversation.id)
+          .timeout(const Duration(seconds: 1));
+      stalled.complete(const InputDecision.replace('late'));
+      await Future<void>.delayed(Duration.zero);
+      expect(provider.streams, isEmpty);
+      expect(conversation.messageQueue.isEmpty, isTrue);
+      expect(conversation.isRunning, isFalse);
+      executor.submit(conversation.id, 'replacement');
+      await provider.started[0].future;
+      provider.finish(0);
+      await executor.whenIdle(conversation.id);
+      expect(provider.streams, hasLength(1));
+    },
+  );
+
+  test(
+    'conversation closure cancels stalled preparation and releases resources',
+    () async {
+      final scope = PluginScope('input');
+      addTearDown(scope.dispose);
+      final entered = Completer<InputContext>();
+      scope.registerContribution(
+        pluginId: 'test',
+        id: 'processor',
+        contribution: Processor((input) {
+          entered.complete(input);
+          return Completer<InputDecision>().future;
+        }),
+      );
+      executor = TurnExecutor(
+        findConversation: (_) => conversation,
+        inputRoutes: InputRoutes(scope),
+      );
+      executor.submit(conversation.id, 'pending');
+      final context = await entered.future;
+      conversation.beginClose();
+      await executor
+          .whenIdle(conversation.id)
+          .timeout(const Duration(seconds: 1));
+      expect(context.isCancelled, isTrue);
+      expect(provider.streams, isEmpty);
+      expect(conversation.pendingInputs, 0);
+    },
+  );
+
+  test('stop never reaches the agent or queue', () async {
+    final scope = PluginScope('input');
+    addTearDown(scope.dispose);
+    scope.registerContribution(
+      pluginId: 'test',
+      id: 'processor',
+      contribution: Processor((_) => const InputDecision.stop()),
+    );
+    executor = TurnExecutor(
+      findConversation: (_) => conversation,
+      inputRoutes: InputRoutes(scope),
+    );
+    executor.submit(conversation.id, 'consume');
+    await executor.whenIdle(conversation.id);
+    expect(provider.streams, isEmpty);
+    expect(conversation.isRunning, isFalse);
+  });
+
   test(
     'a routed reply skips compaction and the agent, keeping turn persistence',
     () async {

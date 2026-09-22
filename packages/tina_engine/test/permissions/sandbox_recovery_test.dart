@@ -198,6 +198,34 @@ void main() {
   });
 
   for (final toolName in ['bash', 'exec']) {
+    for (final answer in ['ALLOW', 'DENY']) {
+      test('auto $answer controls the real $toolName outside-sandbox retry', () async {
+        final policy = PermissionPolicy(mode: PermissionMode.auto, allowAllByDefault: true);
+        final judge = _ApprovalProvider(answer);
+        final asker = modeAwareAsker(policy: policy, classifier: PermissionClassifier(judge),
+          fallback: (_) async => fail('classifier supplied a verdict'));
+        final input = toolName == 'bash' ? <String, dynamic>{'command': command}
+            : <String, dynamic>{'executable': '/bin/sh', 'args': ['-c', command]};
+        final history = await run([[input]], asker, permissions: policy, toolName: toolName);
+        expect(judge.calls, 1);
+        expect(inner.starts.first.executable, contains('bwrap'));
+        expect(inner.starts, hasLength(answer == 'ALLOW' ? 2 : 1));
+        expect(results(history).single.isError, answer != 'ALLOW');
+        if (answer == 'ALLOW') {
+          expect(inner.starts.last.executable, '/bin/sh');
+          await run([[input]], asker, permissions: policy, toolName: toolName);
+          expect(judge.calls, 1, reason: 'exact session approval is reused');
+          expect(inner.starts, hasLength(3));
+          expect(inner.starts.last.executable, '/bin/sh');
+          policy.remember(toolName, PermissionPolicy.keyFor(toolName, input), PermissionDecision.deny);
+          await run([[input]], asker, permissions: policy, toolName: toolName);
+          expect(inner.starts, hasLength(3), reason: 'an explicit deny still blocks the remembered grant');
+        }
+      });
+    }
+  }
+
+  for (final toolName in ['bash', 'exec']) {
     test('$toolName failure immediately asks separately and retries outside sandbox', () async {
       final prompts = <PermissionPrompt>[];
       final history = await run([
@@ -558,5 +586,17 @@ class _Provider extends LlmProvider {
           ToolUseBlock(id: 'u$index-$i', name: toolName, input: calls[i])
       ], stopReason: 'tool_use');
     }
+  }
+}
+
+class _ApprovalProvider extends LlmProvider {
+  final String answer;
+  int calls = 0;
+  _ApprovalProvider(this.answer) : super('test-judge');
+  @override
+  Stream<StreamEvent> send({required String system, required List<Message> messages,
+      required List<ToolSchema> tools}) async* {
+    calls++;
+    yield TextDelta(answer);
   }
 }

@@ -129,21 +129,28 @@ there. It identifies only existing immediate parent directories (or the named
 directory itself), without guessing broader roots. Ordinary `Permission denied`
 and errors without a clear path retain investigation guidance.
 
-Tina immediately presents a separate **run outside sandbox once / outside for session / deny** prompt,
+Tina immediately requests separate **run outside sandbox once / outside for session / deny** approval,
 without waiting for the model to inspect caches or submit another command. It
 shows the original failure and warns that the first attempt may have partially
 changed files and that the retry repeats the entire command. Approval runs the
 same frozen executable, arguments, cwd and environment with the host runner,
 outside filesystem and network confinement, as the current OS user. It does not
 provide root privileges. Denial, cancellation, or a change to read-all blocks the
-retry. Neither ordinary command approvals nor auto/yolo mode satisfy this separate
-approval. The session option stores a separate exact invocation grant in memory;
+retry. Ordinary command approvals and `--yolo` do not satisfy this separate
+approval. In Auto mode, the permission classifier can approve or deny the retry.
+It receives the sandbox failure, prepared command and cwd, and whether network
+isolation will be removed. Routine toolchain/cache writes outside the project
+can be approved. A classifier approval remembers the exact invocation for the
+session; errors, timeouts and invalid responses fall back to the human prompt.
+Cancellation stops classification without opening a late prompt. In other modes,
+the human answers directly. The session option stores a separate exact invocation grant in memory;
 ordinary wildcard rules and directory grants remain independent. Matching calls
 (tool, executable, arguments, cwd, timeout and full environment) then run directly
 outside the sandbox. Other calls remain sandboxed. Derived agents in the same
 running session can reuse an exact match, subject to their own deny/mode/phase
 gates. Once approvals are never cached, and no grant survives a restart. A failed approved retry does not
-start another approval loop; headless runs refuse this escalation.
+start another approval loop. Headless Auto mode can use classifier approval;
+headless runs refuse any escalation that still requires a human answer.
 
 ## Known limitations
 

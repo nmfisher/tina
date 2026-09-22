@@ -7,6 +7,7 @@ import 'package:tina/config/setup.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina/composition/config_providers.dart';
 import 'package:tina/composition/typesafe.dart';
+import 'package:tina/composition/git_input.dart';
 import 'package:tina/composition/models_dev_seed.dart';
 import 'package:tina/logging.dart';
 
@@ -236,6 +237,10 @@ Future<void> _run(List<String> argv) async {
         store: sessionStore,
         ownsStore: true,
         loadProjectContext: loadProjectContext,
+        plugins: [
+          if (!launch.startup.nonInteractive)
+            configuredGitInputPlugin(environment.env),
+        ],
       );
 
       try {
@@ -595,6 +600,7 @@ Future<void> _runNonInteractive(
     );
 
     // Append concise summary instruction for headless --prompt runs.
+    var inputPrefix = '';
     var userInput =
         rawPrompt +
         (rawPrompt.trim().isNotEmpty ? '\n' : '') +
@@ -613,10 +619,11 @@ Future<void> _runNonInteractive(
     if (File('pubspec.yaml').existsSync()) {
       final notice = await DartAnalyzeVerifier().projectCheck();
       if (notice != null) {
-        userInput =
+        inputPrefix =
             '<tree-health>\n'
             '${DartAnalyzeVerifier.wrapTreeHealth(notice, editActionable: DartAnalyzeVerifier.editActionable(app.policy))}'
-            '\n</tree-health>\n\n$userInput';
+            '\n</tree-health>\n\n';
+        userInput = '$inputPrefix$userInput';
       }
     }
 
@@ -701,15 +708,26 @@ Future<void> _runNonInteractive(
       cancelInput.future,
     ]);
     try {
-      final outcome = await app.inputRoutes?.run(
-            text: rawPrompt,
-            conversationId: app.initialConversationId,
-            history: history,
-            cancelSignal: cancelTurn,
-            host: host,
-            recorder: recorder,
-          ) ??
-          InputOutcome.pass;
+      final prepared = await app.inputRoutes?.prepare(
+        text: rawPrompt,
+        conversationId: app.initialConversationId,
+        history: history,
+        cancelSignal: cancelTurn,
+      );
+      final outcome = prepared == null
+          ? InputOutcome.pass
+          : await app.inputRoutes!.deliver(
+              prepared,
+              history: history,
+              cancelSignal: cancelTurn,
+              host: host,
+              recorder: recorder,
+            );
+      if (prepared != null) {
+        userInput = '$inputPrefix${prepared.text}\n'
+            '${HeadlessHost.kHeadlessSummaryInstruction}';
+        cancelTurn.then((_) => prepared.cancel());
+      }
       if (outcome == InputOutcome.pass) {
         await driver.run(
           history: history,

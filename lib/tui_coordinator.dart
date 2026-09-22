@@ -17,6 +17,7 @@ import 'package:tina/completion/command_completion_provider.dart';
 import 'package:tina/session_commands/session_command_handlers.dart';
 import 'package:tina/composition/config_providers.dart';
 import 'package:tina/composition/typesafe.dart';
+import 'tui/input_status.dart';
 import 'package:tina/tui/index_browser.dart';
 
 import 'package:tina/config.dart';
@@ -186,6 +187,7 @@ class TuiCoordinator {
   /// it via this field so the order lives in one place.
   late final ResizeCoordinator _resizeCoordinator;
   PanelHost? _panelHost;
+  InputStatus? _inputStatus;
 
   /// The thin tmux integration (tin-f5xt): `$TMUX` checks, the detach seam,
   /// and the attach-target the exit hint names. Set in [create]'s wiring
@@ -974,6 +976,7 @@ class TuiCoordinator {
         ..register(menuBar);
       editor.focusManager = focusManager;
 
+      InputStatus? inputStatus;
       controller = SessionController(
         inputRoutes: app.inputRoutes,
         pluginScope: app.pluginScope,
@@ -984,11 +987,25 @@ class TuiCoordinator {
         readLine: editor.readLine,
         sessionStore: store,
         exitSignal: exitCompleter.future,
-        onSessionsChanged: refreshSessionMenu,
-        onActiveFocusChanged: () => relocateInput(),
+        onSessionsChanged: () {
+          refreshSessionMenu();
+          inputStatus?.refresh();
+        },
+        onActiveFocusChanged: () {
+          relocateInput();
+          inputStatus?.refresh();
+        },
         autoCompactThreshold: config.autoCompactThreshold,
         environment: app.environment,
       );
+      if (app.pluginScope != null) {
+        inputStatus = InputStatus(
+          screen: screen,
+          scope: app.pluginScope!,
+          conversationId: () => controller.active.id,
+        );
+        acquired.own(inputStatus.dispose);
+      }
       editor.commandProvider = CommandCompletionProvider(
         names: () => controller.commands.allNames,
       );
@@ -2233,6 +2250,7 @@ class TuiCoordinator {
       // the exit hint; the detach/dialog closures below consult `$TMUX` on it.
       coordinator._tmux = tmux;
       coordinator._panelHost = panelHost;
+      coordinator._inputStatus = inputStatus;
 
       // Keep summary services available to region tools. Index classification
       // runs as a cancellable job; browsing only reads saved checkpoints.
@@ -2505,6 +2523,7 @@ class TuiCoordinator {
         drawInfoFrame: !panelManager.hasSpawnedFrames,
       );
       panelManager.refreshSidebar();
+      _inputStatus?.refresh();
     });
 
     try {
@@ -2568,6 +2587,7 @@ class TuiCoordinator {
     // call used to live in create(), which runs before the alt screen is
     // even entered; the label it painted was never part of a presented frame.
     screen.setModeLabel('mode: ${policy.mode.label}');
+    _inputStatus?.start();
 
     if (setupMode) {
       // First-run setup overlay on top of the (idle) chat. The overlay writes
@@ -2758,6 +2778,7 @@ class TuiCoordinator {
       // It must run before panels are destroyed and notcurses_stop frees the
       // planes. Print latency diagnostics later, on the normal scrollback.
       ..own(() => editor.close(reportLatency: false))
+      ..own(() => _inputStatus?.dispose())
       ..own(editor.disposeInput)
       ..own(() => app.pipeline.imageRenderer.coordinate(null))
       ..own(() => unawaited(subAgentScheduler.dispose()));

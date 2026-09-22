@@ -488,8 +488,10 @@ class SessionManager {
     final resources = RuntimeResources()
       ..own(conversation.host.dispose)
       ..own(conversation.provider.close);
-    final pending = conversation.turnCompletion;
-    if (pending == null) return resources.dispose();
+    final pending = Future.wait([
+      if (conversation.inputCompletion != null) conversation.inputCompletion!,
+      if (conversation.turnCompletion != null) conversation.turnCompletion!,
+    ]);
     return () async {
       await pending;
       await resources.dispose();

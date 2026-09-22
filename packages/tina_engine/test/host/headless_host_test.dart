@@ -12,7 +12,7 @@ void main() {
           'bash', {'command': 'dart test'}, outsideSandbox: true));
       expect(response.decision, PermissionDecision.deny);
       expect(response.remember, isFalse);
-      expect(response.note, contains('explicit interactive approval'));
+      expect(response.note, contains('interactive approval is unavailable'));
       expect(err.toString(), contains('outside the sandbox'));
       expect(err.toString(), isNot(contains('--yolo')));
       expect(err.toString(), isNot(contains('--allow')));

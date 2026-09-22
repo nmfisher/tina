@@ -81,17 +81,22 @@ class Conversation {
   /// completed future as fired); null when idle.
   Completer<void>? toolInterruptCompleter;
 
+  int pendingInputs = 0;
+  Future<void>? inputCompletion;
+  final _closed = Completer<void>();
+  Future<void> get closeSignal => _closed.future;
   bool isClosed = false;
   Future<void>? turnCompletion;
   void beginClose() {
     isClosed = true;
+    if (!_closed.isCompleted) _closed.complete();
     messageQueue.clear();
     final cancel = cancelCompleter;
     if (cancel != null && !cancel.isCompleted) cancel.complete();
   }
 
   /// Busy through cancellation acknowledgement and recording.
-  bool get isRunning => cancelCompleter != null;
+  bool get isRunning => cancelCompleter != null || pendingInputs > 0;
 
   Conversation({
     required this.id,

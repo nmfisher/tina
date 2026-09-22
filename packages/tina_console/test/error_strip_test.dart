@@ -22,6 +22,32 @@ void main() {
     io.written.clear();
   });
 
+  test('plugin status survives redraw and clearing without displacing errors', () {
+    screen.setModeLabel('mode: auto');
+    screen.setStatusLines(const [RenderLine(runs: [RenderRun('Last input: git push', null)])]);
+    screen.setErrorStrip('provider error', error: true);
+    screen.redrawFrame();
+    vt.feed(io.written.toString());
+    final row = vt.rowText(layout.stripRow);
+    expect(row, contains('provider error'));
+    expect(row, contains('mode: auto'));
+    expect(row, contains('Last input: git push'));
+    expect(row.indexOf('provider error'), lessThan(row.indexOf('Last input')));
+    screen.setStatusLines(const []);
+    vt.feed(io.written.toString());
+    expect(vt.rowText(layout.stripRow), isNot(contains('git push')));
+    expect(vt.rowText(layout.stripRow), contains('mode: auto'));
+    expect(vt.rowText(layout.stripRow), contains('provider error'));
+  });
+
+  test('plugin status is clipped and cannot inject terminal controls', () {
+    screen.setStatusLines([RenderLine(runs: [RenderRun('status\n\x1b[2J${'x' * 200}', null)])]);
+    vt.feed(io.written.toString());
+    expect(vt.rowText(layout.stripRow), contains('status'));
+    expect(vt.charAt(layout.stripRow, 99), ' ');
+    expect(vt.rowText(layout.bottomBorderRow), contains('└'));
+  });
+
   test('error strip renders above the bottom border; corners intact', () {
     screen.setErrorStrip('provider error: 502 — retry 1/3 in 0.8s',
         error: true);

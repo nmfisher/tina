@@ -181,6 +181,10 @@ class PluginScope {
   final PluginScope? parent;
   final _services = <ServiceKey, Object>{};
   final _contributions = <Contribution>[];
+  final _changes = StreamController<void>.broadcast();
+
+  /// Registration and lifecycle changes; consumers must reread live contributions.
+  Stream<void> get changes => _changes.stream;
   final _registrations = <String, Registration>{};
   ScopeLifecycleState _state = ScopeLifecycleState.active;
 
@@ -281,8 +285,10 @@ class PluginScope {
     // cleanup then removed the new registration.)
     registration.onDisposeStart(() {
       _contributions.remove(contribution);
+      _changes.add(null);
     });
     _contributions.add(contribution);
+    _changes.add(null);
     _registrations[contribution.id] = registration;
     // Scope teardown backstop: the SAME idempotent registration, so early
     // release plus teardown runs the cleanup exactly once.
@@ -342,11 +348,13 @@ class PluginScope {
   Future<void> dispose() {
     if (_state == ScopeLifecycleState.disposed) return resources.dispose();
     _state = ScopeLifecycleState.stopping;
+    if (!_changes.isClosed) _changes.add(null);
     return resources.dispose().whenComplete(() {
       // Owned services leave the registry; borrowed parent bindings are
       // untouched (they were never in _services).
       _services.clear();
       _state = ScopeLifecycleState.disposed;
+      unawaited(_changes.close());
     });
   }
 }

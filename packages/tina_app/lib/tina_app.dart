@@ -54,3 +54,7 @@ export 'src/exploration/file_exploration_cache.dart';
 
 export 'src/composition/project_classification.dart';
 export 'src/classification/index_options.dart';
+
+export 'src/execution/input_status.dart';
+export 'src/execution/git_input.dart';
+export 'src/classification/git_classifier.dart';
