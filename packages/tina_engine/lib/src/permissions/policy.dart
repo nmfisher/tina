@@ -75,29 +75,66 @@ class PermissionRule {
   final String toolName;
   final String pattern;
   final PermissionDecision decision;
+  final RegExp? _regex;
+  bool get isRegex => _regex != null;
 
   const PermissionRule({
     required this.toolName,
     required this.pattern,
     required this.decision,
-  });
+  }) : _regex = null;
+
+  /// A regular expression matching the entire approval target, not a substring.
+  /// Compile at construction so invalid rules cannot reach permission checks.
+  factory PermissionRule.regex({
+    required String toolName,
+    required String pattern,
+    required PermissionDecision decision,
+  }) {
+    RegExp(pattern); // Validate before adding the full-match boundary.
+    // matchAsPrefix supplies the start boundary. This end assertion, unlike
+    // $, cannot match before a final newline and still allows backtracking.
+    return PermissionRule._compiled(
+        toolName, pattern, decision, RegExp('(?:$pattern)(?![\\s\\S])'));
+  }
+
+  PermissionRule._compiled(
+      this.toolName, this.pattern, this.decision, this._regex);
+
+  bool matches(ApprovalTarget target) {
+    if (isRegex) return _regex!.matchAsPrefix(target.label) != null;
+    if (target.invocation && pattern.startsWith('[')) {
+      return pattern == target.label;
+    }
+    return globMatch(pattern, target.label,
+        starMatchesSlash: target.starMatchesSlash);
+  }
 
   @override
-  String toString() => '${decision.name}: $toolName:$pattern';
+  String toString() =>
+      '${decision.name}${isRegex ? ' (regex)' : ''}: $toolName:$pattern';
 
   /// Wire shape for persistence. [decision] round-trips via its enum name.
   Map<String, dynamic> toJson() => {
         'toolName': toolName,
         'pattern': pattern,
         'decision': decision.name,
+        if (isRegex) 'match': 'regex',
       };
 
-  factory PermissionRule.fromJson(Map<String, dynamic> j) => PermissionRule(
-        toolName: j['toolName'] as String,
-        pattern: j['pattern'] as String,
-        decision:
-            PermissionDecision.values.byName(j['decision'] as String),
-      );
+  factory PermissionRule.fromJson(Map<String, dynamic> j) {
+    final constructor = switch (j['match']) {
+      null || 'glob' => PermissionRule.new,
+      'regex' => PermissionRule.regex,
+      _ =>
+        throw FormatException('Unknown permission rule match: ${j['match']}'),
+    };
+    return constructor(
+      toolName: j['toolName'] as String,
+      pattern: j['pattern'] as String,
+      decision: PermissionDecision.values.byName(j['decision'] as String),
+    );
+  }
 }
 
 /// How long an approval lasts.
@@ -337,12 +374,23 @@ class PermissionPolicy {
     GrantScope scope = GrantScope.conversation,
     GrantSource source = GrantSource.user,
   }) {
+    rememberRule(
+        PermissionRule(
+          toolName: tool,
+          pattern: pattern,
+          decision: decision,
+        ),
+        scope: scope,
+        source: source);
+  }
+
+  void rememberRule(
+    PermissionRule rule, {
+    GrantScope scope = GrantScope.conversation,
+    GrantSource source = GrantSource.user,
+  }) {
     sessionGrants.add(SessionGrant(
-      rule: PermissionRule(
-        toolName: tool,
-        pattern: pattern,
-        decision: decision,
-      ),
+      rule: rule,
       scope: scope,
       source: source,
     ));
@@ -372,7 +420,7 @@ class PermissionPolicy {
     for (final r in [...staticRules, ...sessionRules]) {
       if (r.decision != PermissionDecision.allow) continue;
       if (r.toolName != tool && r.toolName != '*') continue;
-      final display = '$tool:${r.pattern}';
+      final display = '$tool:${r.pattern}${r.isRegex ? ' (regex)' : ''}';
       if (!out.contains(display)) out.add(display);
     }
     return out;
@@ -412,8 +460,8 @@ class PermissionPolicy {
         if (input.containsKey('environment')) {
           // A custom environment is part of what was authorized: the same
           // command under a different environment is a different call.
-          return ApprovalTarget.invocation(_invocationKey(input,
-              commandKey: 'command', includeArgs: false));
+          return ApprovalTarget.invocation(
+              _invocationKey(input, commandKey: 'command', includeArgs: false));
         }
         // The EXACT command, not `firstWord *`: one `rm` approval must not
         // silently cover `rm -rf .` for the rest of the conversation.
@@ -498,8 +546,7 @@ class PermissionPolicy {
                 PermissionDecision.values.byName(e.value as String),
         },
         rules: (j['staticRules'] as List? ?? const [])
-            .map((e) =>
-                PermissionRule.fromJson(e as Map<String, dynamic>))
+            .map((e) => PermissionRule.fromJson(e as Map<String, dynamic>))
             .toList(),
         mode: PermissionMode.values.byName(j['mode'] as String? ?? 'ask'),
         allowAllByDefault: j['allowAllByDefault'] as bool? ?? false,
@@ -507,16 +554,7 @@ class PermissionPolicy {
 
   static bool _appliesTo(PermissionRule r, String tool, ApprovalTarget target) {
     if (r.toolName != '*' && r.toolName != tool) return false;
-    // A rule that is itself a serialized invocation is compared exactly, never
-    // globbed — `[` and `]` are glob metacharacters.
-    if (target.invocation && r.pattern.startsWith('[')) {
-      return r.pattern == target.label;
-    }
-    // Whether `*` spans `/` is the target's call, not the tool's: commands and
-    // urls are full of slashes and want it to, paths keep the shell rule where
-    // `**` is what crosses directories.
-    return globMatch(r.pattern, target.label,
-        starMatchesSlash: target.starMatchesSlash);
+    return r.matches(target);
   }
 }
 
@@ -525,8 +563,7 @@ class PermissionPolicy {
 /// it true `*` matches anything too. Which one applies is the
 /// [ApprovalTarget]'s decision, not the tool's.
 /// Other regex metachars are escaped.
-bool globMatch(String pattern, String input,
-    {bool starMatchesSlash = false}) {
+bool globMatch(String pattern, String input, {bool starMatchesSlash = false}) {
   final sb = StringBuffer(r'^');
   for (var i = 0; i < pattern.length; i++) {
     final c = pattern[i];
@@ -547,13 +584,14 @@ bool globMatch(String pattern, String input,
   return RegExp(sb.toString()).hasMatch(input);
 }
 
-PermissionRule parsePermissionRule(String spec, PermissionDecision decision) {
+PermissionRule parsePermissionRule(String spec, PermissionDecision decision,
+    {bool regex = false}) {
   final idx = spec.indexOf(':');
   if (idx <= 0 || idx == spec.length - 1) {
-    throw FormatException(
-        'Permission rule must be TOOL:PATTERN, got: "$spec"');
+    throw FormatException('Permission rule must be TOOL:PATTERN, got: "$spec"');
   }
-  return PermissionRule(
+  final constructor = regex ? PermissionRule.regex : PermissionRule.new;
+  return constructor(
     toolName: spec.substring(0, idx),
     pattern: spec.substring(idx + 1),
     decision: decision,

@@ -214,23 +214,37 @@ void main() {
     // Agent.run's own) — idempotent at the host. The invariant: raised while
     // the turn is in flight, never cleared before it ends.
     expect(sideCue, isNotEmpty);
-    expect(sideCue, everyElement(isTrue),
-        reason: 'a turn in flight raises its panel busy cue regardless of '
-            'focus (tin-y4qn)');
+    expect(
+      sideCue,
+      everyElement(isTrue),
+      reason:
+          'a turn in flight raises its panel busy cue regardless of '
+          'focus (tin-y4qn)',
+    );
 
-    // The comet actually renders on the unfocused panel: one manual animation
-    // step must emit comet-head cells into the byte stream.
+    // Borderless panels animate the prompt even when unfocused.
+    final promptBefore = sideFrame.inputPrompt!();
     final before = io.written.length;
-    sideFrame.advanceBusyTick();
-    expect(io.written.toString().substring(before).contains('━'), isTrue,
-        reason: 'the busy unfocused panel paints the comet on its rails');
+    for (var i = 0; i < 3; i++) sideFrame.advanceBusyTick();
+    expect(sideFrame.inputPrompt!(), isNot(promptBefore));
+    expect(
+      io.written.toString().substring(before),
+      contains(' > '),
+      reason: 'the busy unfocused panel repaints its prompt spinner',
+    );
 
     sideGate.release();
     await pumpUntil(() => !sideConv.isRunning);
-    expect(sideCue.last, isFalse,
-        reason: 'cue clears when the unfocused turn completes');
-    expect(sessionManager.activeConversationId, 'main',
-        reason: 'focus never moved — the turn ran entirely in the background');
+    expect(
+      sideCue.last,
+      isFalse,
+      reason: 'cue clears when the unfocused turn completes',
+    );
+    expect(
+      sessionManager.activeConversationId,
+      'main',
+      reason: 'focus never moved — the turn ran entirely in the background',
+    );
   });
 
   test(

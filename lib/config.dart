@@ -218,6 +218,18 @@ class Config extends RuntimeConfig implements ResumeRequest {
           '--allow "read:/workspace/**". Can be repeated.',
     )
     ..addMultiOption(
+      'allow-regex',
+      splitCommas: false,
+      help: 'Allow rule: TOOL:REGEX, matched against the entire approval target. '
+          'Example: --allow-regex "bash:git (status|diff)". Can be repeated.',
+    )
+    ..addMultiOption(
+      'deny-regex',
+      splitCommas: false,
+      help: 'Deny rule: same syntax as --allow-regex. '
+          'Deny rules take precedence over configured allow rules.',
+    )
+    ..addMultiOption(
       'deny',
       help:
           'Deny rule: same syntax as --allow. Deny rules take '
@@ -701,8 +713,12 @@ class Config extends RuntimeConfig implements ResumeRequest {
     final rules = <PermissionRule>[
       for (final s in res['deny'] as List<String>)
         parsePermissionRule(s, PermissionDecision.deny),
+      for (final s in res['deny-regex'] as List<String>)
+        parsePermissionRule(s, PermissionDecision.deny, regex: true),
       for (final s in res['allow'] as List<String>)
         parsePermissionRule(s, PermissionDecision.allow),
+      for (final s in res['allow-regex'] as List<String>)
+        parsePermissionRule(s, PermissionDecision.allow, regex: true),
     ];
 
     // Model tiers were removed with the delegate catalog (a delegation now

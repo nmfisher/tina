@@ -6,6 +6,7 @@ import 'package:tina/pipeline/workflow_permission_asker.dart';
 
 import 'package:tina/tui_coordinator.dart';
 import 'package:tina/tui/conversation_panel_coordinator.dart';
+import 'package:tina/tui/conversation_style.dart';
 import 'package:tina/tui/panel_manager.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
@@ -37,7 +38,7 @@ void main() {
   late _RecordingSessionManager sessionManager;
   late ConversationPanelCoordinator coordinator;
 
-  void configure({bool showSidebar = false}) {
+  void configure({bool showSidebar = false, PluginScope? pluginScope}) {
     io = FakeStdio()..columns = 120;
     final layout = ScreenLayout.fromSize(
       120,
@@ -74,11 +75,94 @@ void main() {
       sessionManager: sessionManager,
       editor: editor,
       primaryHost: sessionManager.initialHost,
+      pluginScope: pluginScope,
     );
     coordinator.bindPrimary(conversationId: 'primary');
   }
 
   setUp(configure);
+
+  test(
+    'live prompt and border plugins preserve drafts and approval input',
+    () async {
+      editor.close();
+      coordinator.dispose();
+      panelManager.dispose();
+      final scope = PluginScope('test');
+      final childScope = PluginScope('child', parent: scope);
+      configure(pluginScope: childScope);
+      addTearDown(() async {
+        coordinator.dispose();
+        editor.close();
+        panelManager.dispose();
+        await childScope.dispose();
+        await scope.dispose();
+        io.close();
+      });
+      sessionManager.activeConversation.modelReference = 'test/first';
+      focusManager
+        ..register(primaryFrame)
+        ..home = primaryFrame;
+      panelManager.layout();
+      coordinator.relayContent();
+      focusManager.focusPanel(primaryFrame);
+      coordinator.relocateInput(force: true);
+      final line = editor.readLine('> ');
+      await pumpEventQueue();
+      editor.loadEditState('unsent draft', 4);
+      expect(primaryFrame.border, isFalse);
+      expect(screen.input.prompt, contains('first > '));
+
+      sessionManager.activeConversation.modelReference = 'test/second';
+      primaryFrame.relabel('main (second)');
+      expect(screen.input.prompt, contains('second > '));
+      final registration = scope.registerContribution(
+        pluginId: 'test',
+        id: 'prompt',
+        contribution: _Prompt(),
+      );
+      final style = scope.registerContribution(
+        pluginId: 'test',
+        id: 'style',
+        contribution: const ConversationStyle(border: true),
+      );
+      await pumpEventQueue();
+      expect(primaryFrame.border, isTrue);
+      expect(screen.input.prompt, contains('custom second > '));
+      expect(editor.editState, (buffer: 'unsent draft', cursor: 4));
+
+      await style.dispose();
+      await registration.dispose();
+      await pumpEventQueue();
+      expect(primaryFrame.border, isFalse);
+      expect(screen.input.bounds.row, primaryFrame.inputRect.row);
+      expect(screen.input.bounds.col, primaryFrame.inputRect.col);
+      expect(screen.input.bounds.width, primaryFrame.inputRect.width);
+      expect(screen.input.prompt, contains('second > '));
+
+      final approval = editor.readKey(globalKeys: true);
+      await pumpEventQueue();
+      screen.input.render(prompt: 'Review rule: ', buffer: 'rule', cursor: 4);
+      sessionManager.initialHost.setActivity(true);
+      for (var i = 0; i < 3; i++) primaryFrame.advanceBusyTick();
+      final replacement = scope.registerContribution(
+        pluginId: 'test', id: 'prompt', contribution: _Prompt(),
+      );
+      await pumpEventQueue();
+      expect(screen.input.prompt, 'Review rule: ');
+      expect(screen.input.buffer, 'rule');
+      await replacement.dispose();
+      await pumpEventQueue();
+      editor.inject(ControlKey(ControlCode.enter));
+      await approval;
+      sessionManager.initialHost.setActivity(false);
+      editor.refresh();
+      expect(editor.editState, (buffer: 'unsent draft', cursor: 4));
+      expect(screen.input.prompt, contains('second > '));
+      editor.inject(ControlKey(ControlCode.enter));
+      expect(await line, 'unsent draft');
+    },
+  );
 
   for (final sidebar in [false, true]) {
     test(
@@ -605,6 +689,15 @@ AgentDriver _agentBuilder({
     system: 'sys',
   ),
 );
+
+class _Prompt extends Renderer<ConversationPrompt> {
+  @override
+  List<RenderLine> render(ConversationPrompt value, RenderContext context) => [
+    RenderLine(
+      runs: [RenderRun('custom ${value.model.split('/').last} > ', null)],
+    ),
+  ];
+}
 
 Conversation _dummyConversation(String id, {bool detached = true}) {
   // Background conversation chats start detached (buffered) exactly like the

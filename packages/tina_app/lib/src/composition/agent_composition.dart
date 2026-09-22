@@ -313,7 +313,7 @@ AgentDriver buildAgent({
         '${inert.length == 1 ? 'rule names a tool' : 'rules name tools'} that '
         '${inert.length == 1 ? 'is' : 'are'} not available here, so '
         '${inert.length == 1 ? 'it' : 'they'} can never match:\n'
-        '${inert.map((r) => '    ${r.toolName}:${r.pattern} '
+        '${inert.map((r) => '    ${r.toolName}:${r.pattern}${r.isRegex ? ' (regex)' : ''} '
             '(${r.decision.name})\n').join()}'
         '  Check the spelling, or the project capabilities the tool needs.\n',
         style: HostMessageStyle.warning,

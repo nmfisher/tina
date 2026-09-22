@@ -48,18 +48,12 @@ class ChatAgentSink implements AgentSink {
   /// model's bytes, verbatim.
   final void Function(String text)? onRawText;
 
-  /// Mirrors warning/error notices to the dedicated error strip beneath the
-  /// input box (bottom border row). Null = chat scrollback only. Info
-  /// notices never reach the strip.
-  final void Function(String text, {required bool error})? onStrip;
-
   ChatAgentSink(
     this.chat,
     this.spinner, {
     this.displayCap = 600,
     this.renderers = const Renderers(),
     this.onRawText,
-    this.onStrip,
     ChatSpeaker? speaker,
   }) : speaker = speaker ?? const ChatSpeaker(id: 'main', label: 'main') {
     // The gutter is fixed for the life of the sink: a conversation has exactly
@@ -613,9 +607,6 @@ class ChatAgentSink implements AgentSink {
         case NoticeKind.error:
           chat.red(message);
       }
-    }
-    if (kind != NoticeKind.info) {
-      onStrip?.call(message.trim(), error: kind == NoticeKind.error);
     }
   }
 

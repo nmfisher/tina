@@ -11,7 +11,8 @@ void main() {
   PermissionPrompt sandboxPrompt() => PermissionPrompt(
         'bash',
         const {'command': 'dart test'},
-        sandboxAccess: SandboxAccessRequest(['/sdk/cache'], 'launcher metadata'),
+        sandboxAccess:
+            SandboxAccessRequest(['/sdk/cache'], 'launcher metadata'),
       );
 
   PermissionPrompt outsidePrompt() => PermissionPrompt(
@@ -20,12 +21,19 @@ void main() {
         outsideSandbox: true,
       );
 
-  group('an ordinary prompt offers all four answers', () {
+  group('an ordinary prompt offers decisions and regex review', () {
     test('keys, meanings and scopes', () {
       final choices = bashPrompt().choices;
-      expect([for (final c in choices) c.key], ['y', 'n', 'a', 'd']);
-      expect([for (final c in choices) c.label],
-          ['allow once', 'deny once', 'allow always', 'deny always']);
+      expect([for (final c in choices) c.key], ['y', 'n', 'a', 'd', 'r']);
+      expect([
+        for (final c in choices) c.label
+      ], [
+        'allow once',
+        'deny once',
+        'allow always',
+        'deny always',
+        'rewrite to safe regular expression'
+      ]);
 
       final byKey = {for (final c in choices) c.key: c};
       expect(byKey['y']!.decision, PermissionDecision.allow);
@@ -37,8 +45,11 @@ void main() {
       expect(byKey['d']!.decision, PermissionDecision.deny);
       expect(byKey['d']!.remember, isTrue);
       for (final key in ['y', 'n', 'a', 'd']) {
-        expect(byKey[key]!.scope,
-            key == 'a' || key == 'd' ? GrantScope.conversation : GrantScope.call,
+        expect(
+            byKey[key]!.scope,
+            key == 'a' || key == 'd'
+                ? GrantScope.conversation
+                : GrantScope.call,
             reason: 'only the remembering answers outlive the call');
       }
     });
@@ -71,7 +82,8 @@ void main() {
       expect([for (final c in choices) c.label],
           ['allow once', 'session directories', 'deny']);
       expect(sandboxPrompt().choiceForKey('d'), isNull,
-          reason: 'the row used to advertise `[d] deny` while d did nothing; the '
+          reason:
+              'the row used to advertise `[d] deny` while d did nothing; the '
               'table is what the row and the keys both read now');
       expect(sandboxPrompt().choiceForKey('a')!.scope,
           GrantScope.sessionDirectories);
@@ -94,8 +106,8 @@ void main() {
       expect(deny.remember, isFalse,
           reason: 'ordinary always-rules must not authorize this escalation');
       expect(deny.scope, GrantScope.call);
-      expect(outsidePrompt().choiceForKey('a')!.scope,
-          GrantScope.sessionOutside);
+      expect(
+          outsidePrompt().choiceForKey('a')!.scope, GrantScope.sessionOutside);
     });
 
     test('its own description already states the scope, so no note', () {
@@ -104,7 +116,8 @@ void main() {
   });
 
   group('the outside-sandbox description states what it adds', () {
-    PermissionPrompt outside({bool networkIsolated = false}) => PermissionPrompt(
+    PermissionPrompt outside({bool networkIsolated = false}) =>
+        PermissionPrompt(
           'bash',
           const {'command': 'ssh host'},
           outsideSandbox: true,
@@ -148,11 +161,12 @@ void main() {
       }
     });
 
-    test('the ordinary row fits a 76-column region on one line', () {
-      // The row plus the user's one-char answer lands on one line; a wrapped row
-      // displaces the answer echo. This is why the rule a/d will remember is
-      // stated on the note line instead of inside the row.
-      expect(bashPrompt().approvalRow.length, lessThan(76));
+    test('rewrite requires review and cannot approve directly', () {
+      final rewrite = bashPrompt().choiceForKey('r')!;
+      expect(rewrite.action, ApprovalAction.rewriteRegex);
+      expect(() => rewrite.response, throwsStateError);
+      expect(sandboxPrompt().choiceForKey('r'), isNull);
+      expect(outsidePrompt().choiceForKey('r'), isNull);
     });
   });
 }

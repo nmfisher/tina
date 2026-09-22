@@ -5,6 +5,51 @@ import 'package:test/test.dart';
 
 void main() {
   group('Config permission flags', () {
+    test('regex options preserve commas, colons and repeated rules', () {
+      final policy = _parse([
+        '--allow-regex',
+        r'bash:echo [0-9]{1,3}',
+        '--allow-regex',
+        r'fetch:https://example\.com/.*',
+      ]).buildPolicy();
+      expect(policy.staticRules, hasLength(2));
+      expect(
+        policy.check('bash', {'command': 'echo 123'}),
+        PermissionDecision.allow,
+      );
+      expect(
+        policy.check('bash', {'command': 'echo 1234'}),
+        PermissionDecision.ask,
+      );
+      expect(
+        policy.check('fetch', {'url': 'https://example.com/docs'}),
+        PermissionDecision.allow,
+      );
+    });
+
+    test('configured denies win across both pattern types', () {
+      for (final flags in [
+        ['--allow', 'bash:git *', '--deny-regex', 'bash:git (push|commit).*'],
+        ['--allow-regex', 'bash:git .*', '--deny', 'bash:git push*'],
+      ]) {
+        final policy = _parse(flags).buildPolicy();
+        expect(
+          policy.check('bash', {'command': 'git status'}),
+          PermissionDecision.allow,
+        );
+        expect(
+          policy.check('bash', {'command': 'git push --force'}),
+          PermissionDecision.deny,
+        );
+      }
+    });
+
+    test('invalid allow or deny regex fails startup', () {
+      for (final flag in ['--allow-regex', '--deny-regex']) {
+        expect(() => _parse([flag, 'bash:[']), throwsFormatException);
+      }
+    });
+
     test(
       '--allow and --deny populate permissionRules; deny is listed first',
       () {

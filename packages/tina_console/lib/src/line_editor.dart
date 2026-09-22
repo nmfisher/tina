@@ -51,6 +51,11 @@ class LineEditor {
   StreamSubscription<InputEvent>? _sub;
   String _prompt = '';
 
+  /// Optional live prompt for conversation input, evaluated on each repaint.
+  /// Does not change input text or key-only approval/question reads.
+  String Function()? promptBuilder;
+  String get _currentPrompt => promptBuilder?.call() ?? _prompt;
+
   /// How many key events have reached the editor. A rising count with no new
   /// presentation is what the stuck check looks for.
   int _keyCount = 0;
@@ -69,6 +74,7 @@ class LineEditor {
   // Whether the armed [_keyCompleter] yields to the focus ring's global keys
   // (see [readKey]). Cleared with the completer it belongs to.
   bool _keyCompleterGlobal = false;
+  bool _keyAcceptsPaste = false;
   bool _keyPanelNavigation = true;
   void Function()? _restoreKeyMonitor;
   // Turn token serializing concurrent [readKey] callers. readKey overwrites
@@ -276,13 +282,21 @@ class LineEditor {
   /// another panel is focused.
   /// [cancelSignal] releases this read as Ctrl+C, including while queued behind
   /// another reader. A late signal never cancels a subsequent reader.
-  Future<InputEvent> readKey({bool globalKeys = false, bool panelNavigation = true, Future<void>? cancelSignal}) async {
+  /// [acceptPaste] lets a prompt's text field receive bracketed paste. Keep it
+  /// false for approval choices so pasted text cannot select an answer.
+  Future<InputEvent> readKey(
+      {bool globalKeys = false,
+      bool panelNavigation = true,
+      bool acceptPaste = false,
+      Future<void>? cancelSignal}) async {
     var cancelled = false;
     final cancellation = _cancelKeyReads;
     final stop = Future.any([
       cancellation.future,
       if (cancelSignal != null) cancelSignal,
-    ]).then((_) { cancelled = true; });
+    ]).then((_) {
+      cancelled = true;
+    });
     // Overflow chars from a paste are drained to the next readKey ONLY while
     // the burst window is still open (the paste is still arriving). Once the
     // window has expired the queued chars are stale — they must never answer
@@ -319,7 +333,7 @@ class LineEditor {
     final turn = Completer<void>();
     _readKeyTurn = turn;
     try {
-      return await _readKeyOnce(globalKeys, panelNavigation, stop);
+      return await _readKeyOnce(globalKeys, panelNavigation, acceptPaste, stop);
     } finally {
       _readKeyTurn = null;
       turn.complete();
@@ -329,7 +343,8 @@ class LineEditor {
   /// True while a [readKey] is awaiting a keystroke.
   bool get isReadingKey => _keyCompleter != null;
 
-  Future<InputEvent> _readKeyOnce(bool globalKeys, bool panelNavigation, Future<void>? stop) {
+  Future<InputEvent> _readKeyOnce(bool globalKeys, bool panelNavigation,
+      bool acceptPaste, Future<void>? stop) {
     final c = Completer<InputEvent>();
     final savedCancel = _cancelHandler;
     final savedQueueSubmit = _onQueueSubmit;
@@ -338,6 +353,7 @@ class LineEditor {
     _keyCompleter = c;
     _keyCompleterGlobal = globalKeys;
     _keyPanelNavigation = panelNavigation;
+    _keyAcceptsPaste = acceptPaste;
     var restored = false;
     void restoreMonitor() {
       if (restored) return;
@@ -346,6 +362,7 @@ class LineEditor {
       _onQueueSubmit = savedQueueSubmit;
       _restoreKeyMonitor = null;
     }
+
     _restoreKeyMonitor = restoreMonitor;
     stop?.then((_) {
       // A late cancellation must not settle a newer modal's read.
@@ -362,6 +379,7 @@ class LineEditor {
     return c.future.whenComplete(() {
       restoreMonitor();
       _keyCompleterGlobal = false;
+      _keyAcceptsPaste = false;
       if (debugKeys) {
         stderr.writeln('[readkey] completed');
       }
@@ -428,6 +446,7 @@ class LineEditor {
   /// underneath an active [readLine] (e.g. a session switch erased and
   /// redrew the chat area).
   void refresh() {
+    if (_readKeyTurn != null || _modals.any((m) => m.isActive)) return;
     if (_completer == null && !_queueModeActive) return;
     if (_queueModeActive) {
       _renderQueueDisplay();
@@ -460,7 +479,8 @@ class LineEditor {
     // Saved state carries only real text; any prior placeholder spans no
     // longer apply.
     _edit = _edit.loadState(buffer, cursor);
-    screen.input.render(prompt: _prompt, buffer: buffer, cursor: cursor);
+    if (_readKeyTurn != null || _modals.any((m) => m.isActive)) return;
+    screen.input.render(prompt: _currentPrompt, buffer: buffer, cursor: cursor);
   }
 
   /// Seed Up/Down recall from a restored conversation's user messages.
@@ -494,6 +514,9 @@ class LineEditor {
     }
     scheduleMicrotask(() {
       if (_heldPastes.isEmpty) return;
+      // Text pasted before entering a prompt's editor belongs to the draft,
+      // not to that newly opened field. Only fresh pastes enter the field.
+      if (_keyCompleterGlobal && _keyAcceptsPaste) return;
       final deliver = List<PasteInput>.of(_heldPastes);
       _heldPastes.clear();
       for (final paste in deliver) {
@@ -736,7 +759,7 @@ class LineEditor {
       _dialog.dismiss();
       if (event is EscapeKey && promptOwnsEsc) return KeyHandledBy.modal;
     }
-    if (_keyCompleterGlobal && event is PasteInput) {
+    if (_keyCompleterGlobal && !_keyAcceptsPaste && event is PasteInput) {
       // tin-w8dl: a paste arriving while a GLOBAL readKey (approval / gate
       // prompt) is armed must not land in the editor buffer underneath the
       // prompt — the user's next Enter then answers the prompt and the paste
@@ -759,13 +782,12 @@ class LineEditor {
       return KeyHandledBy.heldPaste;
     }
     if (_keyCompleter != null &&
-        (event is! PasteInput || !_keyCompleterGlobal)) {
+        (event is! PasteInput || !_keyCompleterGlobal || _keyAcceptsPaste)) {
       // A non-global readKey is an overlay that owns the screen (settings,
       // prompts, spawn, pickers) — a paste belongs to ITS focused text field,
       // not the conversation buffer hidden underneath, so it answers the
-      // readKey like any typed char. Global readKeys (approval / gate
-      // prompts) never see pastes: those are held above and delivered to the
-      // buffer once the prompt resolves.
+      // readKey like any typed char. Global readKeys only receive pastes when
+      // their current text field explicitly opts in; choices hold them above.
       // A global readKey (an approval or gate prompt) still yields to the
       // focus ring: Ctrl+G/Ctrl+W cycle panels, and while cycling the ring is
       // modal over every key. Consumed here, the key never answers the prompt
@@ -1115,8 +1137,8 @@ class LineEditor {
       case ControlKey(:final code):
         switch (code) {
           case ControlCode.ctrlC:
-            // Unreachable: _onEventInner handles Ctrl+C before dispatch
-            // (clear draft → quit confirm → quit).
+          // Unreachable: _onEventInner handles Ctrl+C before dispatch
+          // (clear draft → quit confirm → quit).
           case ControlCode.ctrlD:
             if (_edit.buffer.isEmpty) {
               _complete(null);
@@ -1319,7 +1341,7 @@ class LineEditor {
   void _redraw() {
     InputLatency.stage(LatencyStage.bufferMutated);
     screen.input.render(
-      prompt: _prompt,
+      prompt: _currentPrompt,
       buffer: _edit.toDisplay(),
       cursor: _edit.displayCursor(_edit.cursor),
     );
@@ -1447,7 +1469,8 @@ class LineEditor {
 
   void _renderQueueDisplay() {
     if (_qBuf.isNotEmpty) {
-      screen.input.render(prompt: '> ', buffer: _qBuf, cursor: _qCursor);
+      screen.input
+          .render(prompt: _currentPrompt, buffer: _qBuf, cursor: _qCursor);
     } else if (_qCount > 0) {
       final useColor = screen.ansi.useColor;
       final label = useColor

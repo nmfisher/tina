@@ -151,8 +151,6 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     onRawText: (text) {
       lastRawMarkdown = text;
     },
-    onStrip: (text, {required bool error}) =>
-        screen.setErrorStrip(text, error: error),
     speaker: ChatSpeaker(id: conversationId, label: roleLabel),
   );
 
@@ -290,9 +288,6 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
         // [lastRawMarkdown].
         _chatSink.beginAssistantTurn();
         lastRawMarkdown = '';
-        // The user has moved on: the error strip beneath the input had its
-        // chance. A new notice re-renders it.
-        screen.clearErrorStrip();
         // Its own transcript block, under the `you` speaker; the sink owns the
         // rendering (and keeps the legacy bullet line on a passthrough screen).
         _chatSink.userMessage(message);

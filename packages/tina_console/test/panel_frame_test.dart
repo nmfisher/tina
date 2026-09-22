@@ -20,7 +20,8 @@ void main() {
     io = FakeStdio()..columns = 100;
     // Split with no info frame — the real spawn layout. Panels self-draw their
     // own borders inside the (frameless) info column.
-    final layout = ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: false);
+    final layout =
+        ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: false);
     screen = Screen(io: io, layout: layout, ansi: AnsiCapable.yes);
     vt = VirtualTerminal(width: 100, height: 24);
     screen.redrawFrame();
@@ -34,6 +35,33 @@ void main() {
   // panelRect interior: rows 6..9, cols 69..94.
 
   group('PanelFrame (secondary chrome)', () {
+    test('borderless panels reclaim border cells and can restore the border',
+        () {
+      final panel = PanelFrame(
+        screen: screen,
+        label: 'model',
+        conversationId: 'c1',
+        border: false,
+      );
+      addTearDown(panel.dispose);
+      panel.setReservesInput(true);
+      panel.setOuter(panelRect);
+      expect(io.written.toString(), isNot(contains('┌')));
+      expect(panel.interior, panelRect);
+      expect(panel.inputRect.row, panelRect.bottom);
+      expect(panel.inputRect.width, panelRect.width);
+      expect(panel.contentInterior.bottom, lessThan(panel.inputRect.row));
+      panel.setBorder(true);
+      expect(panel.inputRect.row, panelRect.bottom - 1);
+      vt.feed(io.written.toString());
+      expect(vt.charAt(panelRect.row, panelRect.col), '┌');
+      io.written.clear();
+      panel.setBorder(false);
+      vt.feed(io.written.toString());
+      expect(vt.charAt(panelRect.row, panelRect.col), ' ');
+      expect(vt.charAt(panelRect.bottom, panelRect.right), ' ');
+    });
+
     test('setOuter draws a bordered box with the label in the title', () {
       final panel = PanelFrame(
         screen: screen,
@@ -91,7 +119,8 @@ void main() {
       // A repaint happened: the border was rewritten (no longer yellow).
       final out = io.written.toString();
       expect(out, isNot(isEmpty));
-      expect(out, isNot(contains('\x1b[33m')), reason: 'yellow highlight cleared');
+      expect(out, isNot(contains('\x1b[33m')),
+          reason: 'yellow highlight cleared');
     });
 
     test('setBusy repaints the border (busy cue) without firing onFocus', () {
@@ -251,7 +280,8 @@ void main() {
       return null;
     }
 
-    test('setBusy(true) sweeps a comet head along the top and bottom rails', () {
+    test('setBusy(true) sweeps a comet head along the top and bottom rails',
+        () {
       final panel = PanelFrame(
         screen: screen,
         label: 'm',

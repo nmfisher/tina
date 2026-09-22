@@ -164,13 +164,13 @@ void main() {
 
   test('first paint follows the alt-screen-enter escape', () async {
     // Regression guard for the startup first-paint ordering. The first paint
-    // (the chat frame) must happen AFTER screen.enterAltScreen(): enterAltScreen
+    // (the conversation prompt) must happen AFTER screen.enterAltScreen(): enterAltScreen
     // redraws the frame, so anything painted before it is erased and the screen
     // is blank on startup until something forces a repaint.
     //
     // We drive the real create() + run() against a fake stdio, feed /exit so
     // the REPL returns, then assert on the captured byte stream: the
-    // alt-screen-enter escape must precede the first frame border.
+    // alt-screen-enter escape must precede the first model prompt.
     final io = FakeStdio()..hasTerminalValue = false;
     final config = Config.parse(const ['--backend', 'ansi']);
 
@@ -195,12 +195,13 @@ void main() {
       0x0d,
     ]); // /exit: Enter accepts, Enter submits
 
+    final model = coordinator.controller.active.modelReference.split('/').last;
     await coordinator.run().timeout(const Duration(seconds: 5));
     io.close();
 
     final out = io.written.toString();
     final altScreen = out.indexOf('\x1b[?1049h');
-    final frameBorder = out.indexOf('┌');
+    final frameBorder = out.indexOf('$model > ');
     expect(
       altScreen,
       greaterThanOrEqualTo(0),
@@ -209,14 +210,14 @@ void main() {
     expect(
       frameBorder,
       greaterThanOrEqualTo(0),
-      reason: 'chat frame should paint',
+      reason: 'the model prompt should paint',
     );
     expect(
       altScreen,
       lessThan(frameBorder),
       reason:
-          'frame must paint after entering the alt screen; painting '
-          'beforehand leaves the borders erased by the frame redraw and the '
+          'prompt must paint after entering the alt screen; painting '
+          'beforehand leaves it erased by the frame redraw and the '
           'screen blank on startup',
     );
   });
@@ -800,10 +801,11 @@ void main() {
         coordinator.focusManager.focusPanel(coordinator.spawnedPanels.single);
         final out = io.written.toString();
         expect(
-          out,
+          coordinator.spawnedPanels.single.label,
           contains('research-0 (anthropic-small)'),
           reason: 'branch panel must restore with a branch role label',
         );
+        expect(out, contains('anthropic-small > '));
 
         // The branch's on-disk meta is ConversationKind.branch, linked to its
         // parent — the fork lineage is inspectable in the manifest.
@@ -1630,11 +1632,9 @@ void main() {
       },
     );
 
-    test('label survives /clear, setErrorStrip and clearErrorStrip', () async {
-      // The strip is exercised the way production drives it: a mid-stream
-      // StreamNotice (warning) lands on it via the agent sink, and the next
-      // turn boundary clears it. Both /clear and turn boundaries re-render the
-      // row — the label must outlive each (tin-q9w2). Input is PHASED: a
+    test('label survives /clear, notices and new turns', () async {
+      // Notices stay in the conversation; the mode label stays on the strip.
+      // Input is PHASED: a
       // submit that starts a turn must not share one stdin chunk with the
       // next line (the REPL queues mid-dispatch input).
       const enter = 0x0d;
@@ -1643,11 +1643,11 @@ void main() {
       const exit = [0x2f, 0x65, 0x78, 0x69, 0x74, enter, enter];
       final provider = FakeProvider(const [
         [
-          // Mid-stream warning → notice → strip shows it (setErrorStrip).
+          // Mid-stream warning remains in the conversation.
           StreamNotice('pool: member 1 failed, retrying'),
           MessageComplete(content: [TextBlock('one')], stopReason: 'end_turn'),
         ],
-        // Second turn ends clean: the boundary clears the strip notice.
+        // A second turn must leave the status strip intact.
         [
           MessageComplete(content: [TextBlock('two')], stopReason: 'end_turn'),
         ],
@@ -1895,8 +1895,8 @@ void main() {
 
 /// Thin wrapper over [VirtualTerminal] that tracks how many times the
 /// permission-mode label was PAINTED on the strip row. tin-q9w2 asserts the
-/// count is exactly 1: the strip repaints on /clear, setErrorStrip and
-/// clearErrorStrip, but if any of those erased the row without repainting the
+/// count is exactly 1: the strip repaints on /clear and frame updates,
+/// but if any of those erased the row without repainting the
 /// label (the defect), the count would drop to 0.
 class GridProbe {
   final VirtualTerminal vt;

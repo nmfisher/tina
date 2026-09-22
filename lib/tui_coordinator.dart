@@ -960,8 +960,8 @@ class TuiCoordinator {
       late final ConversationPanelCoordinator contentCoordinator;
 
       // The primary conversation's panel wraps screen.chat and — like every
-      // spawned panel — draws its own chrome (a titled border using the
-      // provider/model as the label). Its outer rect is assigned by
+      // spawned panel — owns its chrome and input row. The conversation
+      // coordinator applies plugin styles and the model prompt. Its outer rect is assigned by
       // [PanelManager.layout] on first paint and resize.
       final primaryPanel = PanelFrame(
         screen: screen,
@@ -1527,6 +1527,7 @@ class TuiCoordinator {
         sessionManager: sessionManager,
         editor: editor,
         primaryHost: initialHost,
+        pluginScope: app.pluginScope,
       );
       contentCoordinator.bindPrimary(conversationId: initialConversationId);
       panelManager.onSelectFrame = (frame) => frame.onFocus?.call();

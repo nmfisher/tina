@@ -46,6 +46,34 @@ void main() {
     late FakeStdio io;
     setUp(() => io = FakeStdio());
 
+    test('text fields receive fresh paste and preserve paste held before entry', () async {
+      final (editor, _) = _rig(io);
+      addTearDown(editor.close);
+      final line = editor.readLine('> ');
+      await _flush();
+      final approval = editor.readKey(globalKeys: true);
+      var fieldAnswered = false;
+      final field = () async {
+        await approval;
+        final value = await editor.readKey(globalKeys: true, acceptPaste: true);
+        fieldAnswered = true;
+        return value;
+      }();
+      await _flush();
+      editor.inject(PasteInput('original draft'));
+      await _flush();
+      editor.inject(CharInput('r'));
+      await _flush();
+      expect(fieldAnswered, isFalse);
+      expect(editor.editState.buffer, isEmpty);
+      editor.inject(PasteInput('git (status|diff)'));
+      expect(await field, PasteInput('git (status|diff)'));
+      await _flush();
+      expect(editor.editState.buffer, 'original draft');
+      editor.inject(ControlKey(ControlCode.enter));
+      expect(await line, 'original draft');
+    });
+
     test('held while the prompt waits, delivered once it resolves', () async {
       final (editor, _) = _rig(io);
       final line = editor.readLine('> ');

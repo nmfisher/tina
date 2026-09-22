@@ -2,11 +2,13 @@ import 'backend/backend_surface.dart';
 import 'comet.dart';
 import 'focusable.dart';
 import 'input_event.dart';
+import 'line_layout.dart' show stripAnsi;
 import 'panel_input.dart';
 import 'rect.dart';
 import 'screen.dart';
+import 'term_width.dart' show plainWidth;
 
-/// A focusable chrome frame: a bordered box with a title bar and an optional
+/// A focusable chrome frame: an optionally bordered box with a title bar and an optional
 /// busy (turn-in-flight) comet. It owns only rectangles and focus state — it
 /// knows nothing about the content it frames.
 ///
@@ -91,8 +93,40 @@ class PanelFrame implements Focusable, PanelInputTarget {
     required this.conversationId,
     this.inputMode = PanelInputMode.sharedEditor,
     bool ownsCanvas = false,
+    bool border = true,
   })  : _label = label,
+        _border = border,
         _ownsCanvas = ownsCanvas;
+
+  bool _border;
+  bool get border => _border;
+  bool get busy => _busy;
+  int get animationFrame => _busyTick ~/ 3;
+  int get newLines => _scrollBadge;
+  bool get highlighted => _isHighlighted;
+
+  /// Application-owned prompt formatting; the frame knows no model types.
+  String Function()? inputPrompt;
+
+  /// Return true when the shared editor owns this row (including while a
+  /// modal temporarily holds its keyboard). Prevents stale saved drafts from
+  /// painting over the live editor when focus is on a menu or sidebar.
+  bool Function()? onInputChanged;
+
+  void setBorder(bool value) {
+    if (_border == value) return;
+    if (!_parked && !_outer.isEmpty) {
+      _write(_outer.row, _outer.col, ' ' * _outer.width, _outer.width);
+      _write(_outer.bottom, _outer.col, ' ' * _outer.width, _outer.width);
+      for (var row = _outer.row + 1; row < _outer.bottom; row++) {
+        _write(row, _outer.col, ' ', 1);
+        _write(row, _outer.right, ' ', 1);
+      }
+    }
+    _border = value;
+    _ensureFrameSurface();
+    render();
+  }
 
   Rect _outer = Rect.empty;
   bool _hasFocus = false;
@@ -345,15 +379,17 @@ class PanelFrame implements Focusable, PanelInputTarget {
     render();
   }
 
-  /// The content rectangle: [bounds] inset by the 1-cell border this frame
-  /// draws. The content adapter positions its surface here; when the bottom row
+  /// The content rectangle: [bounds] inset by the 1-cell border when enabled.
+  /// The content adapter positions its surface here; when the bottom row
   /// is reserved for the shared input line it applies a bottom inset rather
   /// than shrinking this rect.
   Rect get interior {
     final b = _outer;
+    if (!_border) return b;
     final interiorW = b.width > 2 ? b.width - 2 : 1;
     final interiorH = b.height > 2 ? b.height - 2 : 1;
-    return Rect(row: b.row + 1, col: b.col + 1, width: interiorW, height: interiorH);
+    return Rect(
+        row: b.row + 1, col: b.col + 1, width: interiorW, height: interiorH);
   }
 
   /// Cells of breathing room between the panel chrome (border — and the
@@ -383,12 +419,13 @@ class PanelFrame implements Focusable, PanelInputTarget {
   /// active input target — the bottom interior row. Returns [Rect.empty] when
   /// the panel is too small to host an input row (under three rows or cols).
   Rect get inputRect {
-    final b = _outer;
-    if (b.height < 3 || b.width < 3) return Rect.empty;
+    if (_border && (_outer.height < 3 || _outer.width < 3)) return Rect.empty;
+    final b = interior;
+    if (_outer.isEmpty || b.isEmpty) return Rect.empty;
     return Rect(
-      row: b.bottom - 1,
-      col: b.col + 1,
-      width: b.width - 2,
+      row: b.bottom,
+      col: b.col,
+      width: b.width,
       height: 1,
     );
   }
@@ -475,6 +512,11 @@ class PanelFrame implements Focusable, PanelInputTarget {
         final b = _outer;
         if (b.isEmpty || _parked) return;
 
+        if (!_border) {
+          _renderInputRow();
+          return;
+        }
+
         _write(b.row, b.col, _topRow(), b.width);
 
         // Sides: │ ... │ (skip when too short to have an interior row).
@@ -493,22 +535,23 @@ class PanelFrame implements Focusable, PanelInputTarget {
   /// focused panel the editor's [screen.input] paints on top with cursor
   /// positioning; for unfocused panels this is the only input rendering.
   void _renderInputRow() {
-    final b = _outer;
-    if (b.isEmpty || b.height < 3) return;
-    final row = b.bottom - 1;
-    final col = b.col + 1;
-    final width = b.width - 2;
-    if (width <= 0) return;
-    if (inputBuffer.isEmpty && !_hasFocus) return;
-    final prompt = _hasFocus ? '> ' : '';
-    final maxBuf = width - prompt.length;
+    if (!_reservesInput && inputPrompt != null) return;
+    if (onInputChanged?.call() == true) return;
+    final b = inputRect;
+    if (b.isEmpty) return;
+    final width = b.width;
+    if (inputBuffer.isEmpty && !_hasFocus && inputPrompt == null) return;
+    final prompt = inputPrompt?.call() ?? (_hasFocus ? '> ' : '');
+    final maxBuf = (width - plainWidth(stripAnsi(prompt))).clamp(0, width);
     final buf = inputBuffer.length > maxBuf
         ? inputBuffer.substring(inputBuffer.length - maxBuf)
         : inputBuffer;
+    final padding =
+        (width - plainWidth(stripAnsi('$prompt$buf'))).clamp(0, width);
     screen.putAtAbsolute(
-      row: row,
-      col: col,
-      text: '$prompt$buf',
+      row: b.row,
+      col: b.col,
+      text: '$prompt$buf${' ' * padding}',
       maxCols: width,
       moveCursor: false,
       clipRect: b,
@@ -520,6 +563,8 @@ class PanelFrame implements Focusable, PanelInputTarget {
   void _repaintBusyRailDelta(int previousTick) => screen.frame(() {
         final b = _outer;
         if (b.isEmpty || _parked) return;
+        if (_busyTick % 3 == 0 && inputPrompt != null) _renderInputRow();
+        if (!_border) return;
         final innerW = b.width > 2 ? b.width - 2 : 1;
         final titleWidth = label.length > innerW ? innerW : label.length;
         _repaintCometRuns(

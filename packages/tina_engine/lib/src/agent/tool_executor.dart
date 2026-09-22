@@ -571,8 +571,14 @@ class ToolExecutor {
           access == null &&
           !isCancelled() &&
           !state.toolInterrupted) {
-        policy.remember(use.name, prompt.alwaysPattern, decision,
-            scope: resp.scope, source: resp.source);
+        if (resp.rule case final rule?) {
+          if (decision == PermissionDecision.allow) {
+            policy.rememberRule(rule, scope: resp.scope, source: resp.source);
+          }
+        } else {
+          policy.remember(use.name, prompt.alwaysPattern, decision,
+              scope: resp.scope, source: resp.source);
+        }
       }
       // Record the approval itself, not just the denials (auditDenial). This is
       // the only place that knows the final decision, the scope it was granted
@@ -584,7 +590,9 @@ class ToolExecutor {
         scope: resp.scope.name,
         decidedBy: resp.decidedBy,
         target: prompt.key,
-        remember: resp.remember ? prompt.alwaysPattern : null,
+        remember: resp.remember
+            ? resp.rule?.toString() ?? prompt.alwaysPattern
+            : null,
       );
       // Sealed arguments: the snapshot taken BEFORE authorization stays the
       // one truth for the whole dispatch — nothing is re-read from the live
@@ -960,6 +968,10 @@ class ToolExecutor {
           await context.ready();
         }
         if (context.isCancelled) return PermissionResponse.denyOnce;
+      }
+      if (!prompt.acceptsRule(response)) {
+        return const PermissionResponse(PermissionDecision.deny,
+            note: 'The reviewed approval rule does not match this request.');
       }
       return response;
     } on InvocationCancelled {

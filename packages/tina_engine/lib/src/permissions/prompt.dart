@@ -5,6 +5,43 @@ import '../tools/edit_preparation.dart';
 import 'sandbox_access.dart';
 
 class PermissionPrompt {
+  bool get canRewriteRegex =>
+      !outsideSandbox && sandboxAccess == null && key.isNotEmpty;
+
+  /// Start with the exact target, escaping operators and control characters.
+  /// This does not infer that the command itself is safe to execute.
+  String get suggestedRegex => RegExp.escape(key).replaceAllMapped(
+      RegExp(r'[\x00-\x1f\x7f]'),
+      (match) =>
+          '\\x${match[0]!.codeUnitAt(0).toRadixString(16).padLeft(2, '0')}');
+
+  PermissionRule regexRule(String pattern) {
+    if (!canRewriteRegex)
+      throw const FormatException(
+          'Regex rules are unavailable for this approval.');
+    final rule = PermissionRule.regex(
+        toolName: toolName,
+        pattern: pattern,
+        decision: PermissionDecision.allow);
+    if (!rule.matches(target))
+      throw const FormatException('The regex must match this approval target.');
+    return rule;
+  }
+
+  bool acceptsRule(PermissionResponse response) {
+    final rule = response.rule;
+    return rule == null ||
+        (canRewriteRegex &&
+            response.remember &&
+            response.scope == GrantScope.conversation &&
+            response.decidedBy == 'user' &&
+            response.decision == PermissionDecision.allow &&
+            rule.decision == PermissionDecision.allow &&
+            rule.toolName == toolName &&
+            rule.isRegex &&
+            rule.matches(target));
+  }
+
   final String toolName;
   final Map<String, dynamic> input;
   final SandboxAccessRequest? sandboxAccess;
@@ -12,6 +49,7 @@ class PermissionPrompt {
   final PreparedEdit? preparedEdit;
   final String? retryExplanation;
   final String? retrySafety;
+
   /// Separate user authorization; never satisfied by ordinary command rules.
   final bool outsideSandbox;
 
@@ -20,11 +58,17 @@ class PermissionPrompt {
   /// Only then does running outside actually add network access — the prompt
   /// claims exactly what the answer grants, no more.
   final bool sandboxNetworkIsolated;
+
   /// Settle the prompt and release any keyboard ownership when its turn stops.
   final Future<void>? cancelSignal;
   const PermissionPrompt(this.toolName, this.input,
-      {this.sandboxAccess, this.retryExplanation, this.retrySafety, this.execution, this.preparedEdit,
-      this.outsideSandbox = false, this.sandboxNetworkIsolated = false,
+      {this.sandboxAccess,
+      this.retryExplanation,
+      this.retrySafety,
+      this.execution,
+      this.preparedEdit,
+      this.outsideSandbox = false,
+      this.sandboxNetworkIsolated = false,
       this.cancelSignal});
 
   /// The answers this prompt offers, in the order the row shows them: each key,
@@ -79,31 +123,38 @@ class PermissionPrompt {
         ),
       ];
     }
-    return const [
-      ApprovalChoice(
+    return [
+      const ApprovalChoice(
         key: 'y',
         label: 'allow once',
         decision: PermissionDecision.allow,
       ),
-      ApprovalChoice(
+      const ApprovalChoice(
         key: 'n',
         label: 'deny once',
         decision: PermissionDecision.deny,
       ),
-      ApprovalChoice(
+      const ApprovalChoice(
         key: 'a',
         label: 'allow always',
         decision: PermissionDecision.allow,
         remember: true,
         scope: GrantScope.conversation,
       ),
-      ApprovalChoice(
+      const ApprovalChoice(
         key: 'd',
         label: 'deny always',
         decision: PermissionDecision.deny,
         remember: true,
         scope: GrantScope.conversation,
       ),
+      if (canRewriteRegex)
+        const ApprovalChoice(
+          key: 'r',
+          label: 'rewrite to safe regular expression',
+          decision: PermissionDecision.deny,
+          action: ApprovalAction.rewriteRegex,
+        ),
     ];
   }
 
@@ -118,8 +169,9 @@ class PermissionPrompt {
   }
 
   /// The `[y] label [n] label …` text an asker frames into its row.
-  String get approvalOptionsText =>
-      [for (final choice in choices) '[${choice.key}] ${choice.label}'].join(' ');
+  String get approvalOptionsText => [
+        for (final choice in choices) '[${choice.key}] ${choice.label}'
+      ].join(' ');
 
   String get approvalRow => '  approve? $approvalOptionsText ‹ ';
 
@@ -194,6 +246,10 @@ class PermissionPrompt {
 class PermissionResponse {
   final PermissionDecision decision;
 
+  /// A reviewed rule overrides the default remembered pattern. The executor
+  /// validates its target, decision and scope before dispatch or remembering.
+  final PermissionRule? rule;
+
   /// If true and decision is allow/deny, the policy will add a session rule
   /// using the prompt's [PermissionPrompt.alwaysPattern]. For a sandbox access
   /// prompt, allow remembers only the directories for this project session.
@@ -229,6 +285,7 @@ class PermissionResponse {
     this.note,
     this.decidedBy = 'user',
     this.scope = GrantScope.call,
+    this.rule,
   });
 
   static const allowOnce = PermissionResponse(PermissionDecision.allow);
@@ -252,12 +309,15 @@ typedef PermissionAsker = Future<PermissionResponse> Function(PermissionPrompt);
 /// [decision] and [remember] are the answer; [scope] is how long it lasts. The
 /// row is built from these (see [PermissionPrompt.approvalOptionsText]), so what
 /// the user is shown and what their key does are the same list.
+enum ApprovalAction { decide, rewriteRegex }
+
 class ApprovalChoice {
   final String key;
   final String label;
   final PermissionDecision decision;
   final bool remember;
   final GrantScope scope;
+  final ApprovalAction action;
 
   const ApprovalChoice({
     required this.key,
@@ -265,11 +325,16 @@ class ApprovalChoice {
     required this.decision,
     this.remember = false,
     this.scope = GrantScope.call,
+    this.action = ApprovalAction.decide,
   });
 
   /// What answering this choice returns.
-  PermissionResponse get response =>
-      PermissionResponse(decision, remember: remember, scope: scope);
+  PermissionResponse get response {
+    if (action != ApprovalAction.decide) {
+      throw StateError('This action requires review before approval.');
+    }
+    return PermissionResponse(decision, remember: remember, scope: scope);
+  }
 
   @override
   String toString() => '[$key] $label';

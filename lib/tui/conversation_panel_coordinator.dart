@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_engine/tina_engine.dart' show HostMessageStyle;
+import 'package:tina_engine/tina_engine.dart'
+    show HostMessageStyle, PluginScope;
 
 import '../host/tui_conversation_host.dart';
 import 'package:tina_app/tina_app.dart';
 import 'panel_manager.dart';
+import 'conversation_style.dart';
 
 /// Whether spawned panels use the frame-owns-canvas model: the [PanelFrame]
 /// owns the chat's [BackendSurface] and the region borrows it, so geometry
@@ -46,7 +48,64 @@ class ConversationPanelCoordinator {
     required this.sessionManager,
     required this.editor,
     required this.primaryHost,
-  });
+    this.pluginScope,
+  }) {
+    editor.promptBuilder = () => _prompt(_activeFrame());
+    for (var scope = pluginScope; scope != null; scope = scope.parent) {
+      _styleChanges.add(scope.changes.listen((_) => _refreshStyle()));
+    }
+  }
+
+  final PluginScope? pluginScope;
+  final _styleChanges = <StreamSubscription<void>>[];
+
+  void _refreshStyle() {
+    if (_bindings.isEmpty || !sessionManager.hasActiveSession) return;
+    final style = ConversationStyle.resolve(pluginScope);
+    for (final binding in _bindings.values) {
+      binding.frame.setBorder(style.border);
+    }
+    relayContent();
+    relocateInput(force: true);
+    for (final binding in _bindings.values) {
+      binding.frame.render();
+    }
+  }
+
+  String _prompt(PanelFrame frame) {
+    final conversation = sessionManager.hasActiveSession
+        ? sessionManager.active.conversationById(frame.conversationId)
+        : null;
+    return renderConversationPrompt(
+      ConversationPrompt(
+        conversationId: frame.conversationId,
+        model: conversation == null
+            ? frame.label
+            : conversation.modelReference.isEmpty
+            ? conversation.provider.model
+            : conversation.modelReference,
+        busy: frame.busy,
+        focused: frame.hasFocus,
+        highlighted: frame.highlighted,
+        newLines: frame.newLines,
+      ),
+      panelManager.screen,
+      pluginScope,
+      width: frame.inputRect.width,
+      animationFrame: frame.animationFrame,
+    );
+  }
+
+  void _styleFrame(PanelFrame frame) {
+    frame.setBorder(ConversationStyle.resolve(pluginScope).border);
+    frame.inputPrompt = () => _prompt(frame);
+    frame.onInputChanged = () {
+      if (!sessionManager.hasActiveSession || _activeFrame() != frame)
+        return false;
+      editor.refresh();
+      return true;
+    };
+  }
 
   final PanelManager panelManager;
   final SessionManager sessionManager;
@@ -89,6 +148,7 @@ class ConversationPanelCoordinator {
   /// chrome via the inverted [onBusyChanged] callback.
   void bindPrimary({required String conversationId}) {
     final frame = panelManager.primaryFrame;
+    _styleFrame(frame);
     _bindings[conversationId] = _ContentBinding(
       conversationId: conversationId,
       frame: frame,
@@ -129,6 +189,7 @@ class ConversationPanelCoordinator {
       conversationId: host.conversationId,
       ownsCanvas: _frameOwnedCanvas,
     );
+    _styleFrame(frame);
     final binding = _ContentBinding(
       conversationId: host.conversationId,
       frame: frame,
@@ -208,9 +269,7 @@ class ConversationPanelCoordinator {
     // Retarget immediately: a delayed persistence completion must not restore
     // an older draft after the user has already selected another sidebar row.
     panelManager.relocateInput(frame);
-    unawaited(
-      sessionManager.persistSelection(selection, persist: isPrimary),
-    );
+    unawaited(sessionManager.persistSelection(selection, persist: isPrimary));
   }
 
   /// Disable text input on a read-only (host-only) panel: text-bearing
@@ -339,7 +398,8 @@ class ConversationPanelCoordinator {
     }
     if (panelManager.sidebar != null) {
       final selected = panelManager.selectedFrame;
-      if (sessionManager.active.conversationById(selected.conversationId) == null) {
+      if (sessionManager.active.conversationById(selected.conversationId) ==
+          null) {
         panelManager.screen.input.setBoundsOverride(Rect.empty);
         return;
       }
@@ -394,7 +454,14 @@ class ConversationPanelCoordinator {
       _bindings[conversationId]?.content.surface;
 
   void dispose() {
+    for (final subscription in _styleChanges) {
+      unawaited(subscription.cancel());
+    }
+    _styleChanges.clear();
+    editor.promptBuilder = null;
     for (final b in _bindings.values) {
+      b.frame.inputPrompt = null;
+      b.frame.onInputChanged = null;
       // Drop scrollback callbacks first so a pending microtask can't repaint a
       // frame we're about to tear down.
       b.host.chat.onScrollbackChanged = null;

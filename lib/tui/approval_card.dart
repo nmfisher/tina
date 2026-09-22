@@ -11,6 +11,7 @@ class ApprovalCard {
   final String? mode;
   final String? sandboxWarning;
   final bool details;
+  final PermissionRule? rule;
 
   const ApprovalCard({
     required this.prompt,
@@ -18,6 +19,7 @@ class ApprovalCard {
     this.mode,
     this.sandboxWarning,
     this.details = false,
+    this.rule,
   });
 
   String get title => switch (prompt.toolName) {
@@ -147,7 +149,9 @@ class ApprovalRenderer extends Renderer<ApprovalCard> {
     } else {
       // Serialized invocations are readable above; don't repeat their JSON.
       add(
-        prompt.target.invocation
+        card.rule != null
+            ? 'Remember regex: "${card.rule!.pattern}" for this conversation, until tina exits.'
+            : prompt.target.invocation
             ? 'Remember: this exact invocation for this conversation, until tina exits.'
             : 'Remember: "${prompt.alwaysPattern}" for this conversation, until tina exits.',
         theme.dim,
@@ -170,7 +174,7 @@ class ApprovalRenderer extends Renderer<ApprovalCard> {
         }
       }
       add('Tool: ${prompt.toolName}', theme.dim);
-      add('Rule: ${prompt.alwaysPattern}', theme.dim);
+      add('Rule: ${card.rule?.toString() ?? prompt.alwaysPattern}', theme.dim);
     }
     return lines;
   }

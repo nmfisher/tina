@@ -90,7 +90,7 @@ class PromptSession {
     if (active) _paint?.call();
   }
 
-  Future<InputEvent> read() async {
+  Future<InputEvent> read({bool acceptPaste = false}) async {
     while (!closed && !cancelled) {
       if (!isActive) {
         await _changed.future;
@@ -101,6 +101,7 @@ class PromptSession {
       final event = await owner.editor.readKey(
         globalKeys: true,
         panelNavigation: false,
+        acceptPaste: acceptPaste,
         cancelSignal: changed.future,
       );
       // A cancelled key read caused by suspension is never a user answer.

@@ -74,3 +74,38 @@ Other UI surfaces can call `Renderers.render` with their own input type and
 fallback; menus and the index browser retain their existing rendering.
 Headless/passthrough output keeps its plain-text path. Rendered
 styles and borders are not added to stored messages or sent to models.
+
+## Conversation border and input prompt
+
+Conversations are borderless by default. The input prompt shows `model > `,
+with a rotating `| / - \\` indicator while busy and an unread-line count when
+scrolled back. Switching conversations or changing models updates the prompt
+without replacing the draft. Workflow and other non-conversation panels keep
+their existing borders.
+
+Plugins can register `ConversationStyle(border: true)` to restore conversation
+borders, and `Renderer<ConversationPrompt>` to replace the prompt. Both types
+are in `package:tina/tui/conversation_style.dart`. For example, inside the
+plugin factory:
+
+```dart
+context.register(const ConversationStyle(border: true), id: 'chat.style');
+context.register(MyPrompt(), id: 'chat.prompt');
+```
+
+```dart
+class MyPrompt extends Renderer<ConversationPrompt> {
+  @override
+  List<RenderLine> render(ConversationPrompt value, RenderContext context) => [
+    RenderLine(runs: [RenderRun('[${value.model}] > ', context.theme.chat.dim)]),
+  ];
+}
+```
+
+The prompt value carries the conversation ID, model reference, busy/focus state,
+keyboard highlight and unread count; the render context supplies the animation
+frame. The host uses the first rendered line, clips it to at most half the input
+width and leaves the remainder for typing. Input handling, approval forms and
+submitted text stay under the host's control. Registration and removal apply
+live, including to spawned and restored conversations. These are Dart plugin
+contributions through the existing composition API.

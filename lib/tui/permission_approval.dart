@@ -7,6 +7,7 @@ import '../chat/markdown_renderer.dart';
 import '../frontend/renderers.dart';
 import 'approval_card.dart';
 import 'prompts.dart';
+import 'regex_review.dart';
 
 /// Shared inline approval for conversations and workflow nodes. The frame uses
 /// the same input-anchored region as questions; it is never a centered popup.
@@ -37,6 +38,8 @@ Future<PermissionResponse> runPermissionApproval({
   var details = false;
   var acknowledged = false;
   ApprovalChoice? answer;
+  RegexReview? rewrite;
+  PermissionResponse? rewrittenAnswer;
 
   ApprovalCard card() => ApprovalCard(
     prompt: prompt,
@@ -44,6 +47,7 @@ Future<PermissionResponse> runPermissionApproval({
     mode: policy == null ? null : permissionModeChip(policy.mode),
     sandboxWarning: sandboxWarning,
     details: details,
+    rule: rewrittenAnswer?.rule,
   );
 
   String style(String text, String? code) =>
@@ -71,16 +75,26 @@ Future<PermissionResponse> runPermissionApproval({
     final height = input.row - screen.layout.chat.row;
     if (height <= 0 || input.width < 4) return;
     final width = input.width - 2;
-    final content = body(width);
+    final content = rewrite == null
+        ? body(width)
+        : [for (final line in rewrite.lines) ...approvalWrap(line, width)];
+    final labels = rewrite == null
+        ? [
+            for (final choice in choices)
+              '[${choice.key}] ${approvalChoiceLabel(choice)}',
+          ]
+        : rewrite.reviewing
+        ? RegexReview.actions
+        : <String>[];
+    final focus = rewrite?.selected ?? selected;
     final actions = <String>[];
-    for (var i = 0; i < choices.length; i++) {
-      final label =
-          '${i == selected ? '❯' : ' '} [${choices[i].key}] ${approvalChoiceLabel(choices[i])}';
+    for (var i = 0; i < labels.length; i++) {
+      final label = '${i == focus ? '❯' : ' '} ${labels[i]}';
       for (final row in approvalWrap(label, width)) {
         actions.add(
           style(
             row,
-            i == selected
+            i == focus
                 ? screen.theme.completion.selected
                 : screen.theme.completion.dim,
           ),
@@ -89,11 +103,11 @@ Future<PermissionResponse> runPermissionApproval({
     }
     // Small panels retain the selected answer and navigation rather than
     // hiding the focused choice behind the preview.
-    if (actions.length > height - 5) {
+    if (labels.isNotEmpty && actions.length > height - 5) {
       actions.clear();
       actions.addAll(
         approvalWrap(
-          '❯ ${selected + 1}/${choices.length} [${choices[selected].key}] ${approvalChoiceLabel(choices[selected])}',
+          '❯ ${focus + 1}/${labels.length} ${labels[focus]}',
           width,
         ).map((row) => style(row, screen.theme.completion.selected)),
       );
@@ -105,11 +119,15 @@ Future<PermissionResponse> runPermissionApproval({
         ? 'Preview ${offset + 1}–$end/${content.length} · PgUp/PgDn or wheel'
         : '';
     final lines = [
-      '┌ ${card().title} · ${prompt.outsideSandbox ? 'outside sandbox · ' : ''}awaiting approval',
+      '┌ ${rewrite == null ? card().title : 'Review regex rule'} · ${prompt.outsideSandbox ? 'outside sandbox · ' : ''}awaiting approval',
       for (final row in content.skip(offset).take(pageSize)) '│ $row',
       '│ ${style(count, screen.theme.completion.dim)}',
       for (final row in actions) '│ $row',
-      '│ ↑↓ choose · Enter confirm · Tab ${details ? 'less' : 'details'} · Esc deny',
+      rewrite == null
+          ? '│ ↑↓ choose · Enter confirm · Tab ${details ? 'less' : 'details'} · Esc deny'
+          : rewrite.reviewing
+          ? '│ ↑↓ choose · Enter confirm · Esc edit'
+          : '│ Enter review · Esc back · Ctrl+C cancel',
       '└',
     ];
     overlay.update(
@@ -122,9 +140,11 @@ Future<PermissionResponse> runPermissionApproval({
       lines: lines,
     );
     screen.input.render(
-      prompt: '❯ ',
-      buffer: 'Approve ${prompt.toolName}?',
-      cursor: 0,
+      prompt: rewrite != null && !rewrite.reviewing ? 'Regex: ' : '❯ ',
+      buffer: rewrite != null && !rewrite.reviewing
+          ? rewrite.input.buffer
+          : 'Approve ${prompt.toolName}?',
+      cursor: rewrite != null && !rewrite.reviewing ? rewrite.input.cursor : 0,
     );
   }
 
@@ -132,16 +152,49 @@ Future<PermissionResponse> runPermissionApproval({
   try {
     paint();
     while (true) {
-      final event = await session.read();
-      if (event is EscapeKey ||
+      final event = await session.read(
+        acceptPaste: rewrite != null && !rewrite.reviewing,
+      );
+      if (session.cancelled ||
           event is ControlKey && event.code == ControlCode.ctrlC)
         break;
+      if (rewrite != null) {
+        if (event is ScrollEvent) {
+          offset += event.up ? -3 : 3;
+        } else if (event is ArrowKey &&
+            (event.direction == ArrowDirection.pageUp ||
+                event.direction == ArrowDirection.pageDown)) {
+          offset += event.direction == ArrowDirection.pageUp
+              ? -pageSize
+              : pageSize;
+        } else {
+          final result = rewrite.handle(event);
+          if (result == RegexReviewResult.approved) {
+            rewrittenAnswer = rewrite.response;
+            break;
+          }
+          if (result == RegexReviewResult.back) rewrite = null;
+          offset = 0;
+        }
+        paint();
+        continue;
+      }
+      if (event is EscapeKey) break;
+      ApprovalChoice? choice;
       if (event is CharInput) {
-        answer = prompt.choiceForKey(event.text);
-        if (answer != null) break;
+        choice = prompt.choiceForKey(event.text);
       }
       if (event is ControlKey && event.code == ControlCode.enter) {
-        answer = choices[selected];
+        choice = choices[selected];
+      }
+      if (choice?.action == ApprovalAction.rewriteRegex) {
+        rewrite = RegexReview(prompt);
+        offset = 0;
+        paint();
+        continue;
+      }
+      if (choice != null) {
+        answer = choice;
         break;
       }
       if (event is ArrowKey) {
@@ -184,7 +237,11 @@ Future<PermissionResponse> runPermissionApproval({
   }
   // Store one settled card in scrollback. Repainting/scrolling while awaiting
   // an answer never appends copies of the prompt to the conversation.
-  final result = answer == null ? 'cancelled' : approvalChoiceLabel(answer);
+  final result = rewrittenAnswer != null
+      ? 'allow matching regex for this conversation'
+      : answer == null
+      ? 'cancelled'
+      : approvalChoiceLabel(answer);
   write(
     [
       '┌ ${card().title} · $result',
@@ -193,5 +250,5 @@ Future<PermissionResponse> runPermissionApproval({
       '└\n',
     ].join('\n'),
   );
-  return answer?.response ?? PermissionResponse.denyOnce;
+  return rewrittenAnswer ?? answer?.response ?? PermissionResponse.denyOnce;
 }

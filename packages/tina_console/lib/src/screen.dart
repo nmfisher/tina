@@ -496,14 +496,9 @@ class Screen {
 
   /// Paint the entire frame: menu box + chat box + info box (when split),
   /// each tinted per the current focus/highlight state.
-  // -- Error strip -----------------------------------------------------------
-  // The dedicated error section directly beneath the input box: while set,
-  // the bottom border row renders the latest warning/error notice instead of
-  // the plain border line (statusline style — no layout shift). Info notices
-  // never touch it; the strip clears when the user submits a new message.
-
-  String? _errorStrip;
-  bool _errorStripIsError = false;
+  // -- Status strip ----------------------------------------------------------
+  // Permission mode and plugin status sit beneath the input box. Warnings and
+  // errors are rendered in the conversation only.
   String? _modeLabel;
   List<RenderLine> _statusLines = const [];
 
@@ -514,7 +509,7 @@ class Screen {
   }
 
   /// The always-visible permission-mode indicator on the strip (e.g.
-  /// 'mode: ask'). Survives error show/clear.
+  /// 'mode: ask'). Survives plugin status updates.
   void setModeLabel(String? label) {
     if (passthrough) return;
     if (_modeLabel == label) return;
@@ -522,40 +517,13 @@ class Screen {
     _renderStrip();
   }
 
-  /// Show [text] on the strip — red for errors, yellow for warnings.
-  /// Replaces any previous status; [clearErrorStrip] removes it (the mode
-  /// label stays).
-  void setErrorStrip(String text, {required bool error}) {
-    if (passthrough) return;
-    if (_errorStrip == text && _errorStripIsError == error) return;
-    _errorStrip = text;
-    _errorStripIsError = error;
-    _renderStrip();
-  }
-
-  /// Remove the status text. The mode label (if set) remains on the strip.
-  void clearErrorStrip() {
-    if (_errorStrip == null) return;
-    _errorStrip = null;
-    _renderStrip();
-  }
-
-  /// Compose and paint the strip: the mode label (dim, always) followed by
-  /// the active status text (yellow/red). The row is erased first so a
-  /// shorter status never leaves residue; border corners are re-asserted.
+  /// Paint the mode label and plugin status, erasing stale text first.
   void _renderStrip() {
     if (passthrough) return;
     final be = _backend!;
     final row = _layout.stripRow;
     final inner = _layout.width - 2;
     final segs = <String>[];
-    if (_errorStrip != null) {
-      var t = _errorStrip!.replaceAll('\n', ' ').trim();
-      final host = theme.hostMessage;
-      final color = _errorStripIsError ? host.error : host.warning;
-      if (t.length > inner) t = t.substring(0, inner);
-      segs.add(colorize(color, t));
-    }
     if (_modeLabel != null) segs.add(colorize('2', _modeLabel!));
     for (final line in _statusLines) {
       final text = line.runs.map((run) {
@@ -592,7 +560,7 @@ class Screen {
     _repaintBoxBorders();
     // The strip sits between input and bottom border; repaint it after the
     // borders so it wins.
-    if (_errorStrip != null || _modeLabel != null || _statusLines.isNotEmpty) _renderStrip();
+    if (_modeLabel != null || _statusLines.isNotEmpty) _renderStrip();
     // Park the cursor at the chat region's top-left.
     be.moveCursor(_layout.chat.row, _layout.chat.col);
     be.flush();
