@@ -61,7 +61,8 @@ typedef MarkdownLine = RenderLine;
 /// separated at the top level. Content is never dropped: unknown constructs
 /// fall back to their text content.
 List<MarkdownLine> renderMarkdown(String source, MarkdownStyle style) {
-  final nodes = md.Document().parse(source);
+  // Enable GitHub Flavored Markdown to support tables.
+  final nodes = md.Document(extensionSet: md.ExtensionSet.gitHubFlavored).parse(source);
   final out = <MarkdownLine>[];
   for (final node in nodes) {
     if (out.isNotEmpty) out.add(const MarkdownLine.blank());
@@ -116,6 +117,8 @@ List<MarkdownLine> _renderNode(md.Node node, MarkdownStyle style,
       return [
         MarkdownLine(runs: [MarkdownRun('${indent}───', style.dim)]),
       ];
+    case 'table':
+      return _renderTable(node, style, indent: indent);
     default:
       // Unknown block (html fragments, extension constructs we do not
       // enable): recurse so text survives, unstyled.
@@ -331,6 +334,114 @@ List<MarkdownLine> _renderList(md.Element list, MarkdownStyle style,
     }
   }
   return out;
+}
+
+/// Render a markdown table as ASCII box-drawn grid.
+List<MarkdownLine> _renderTable(md.Element table, MarkdownStyle style,
+    {required String indent}) {
+  // Extract all rows from thead and tbody.
+  final rows = <List<String>>[];
+  for (final child in table.children ?? const <md.Node>[]) {
+    if (child is! md.Element) continue;
+    if (child.tag != 'thead' && child.tag != 'tbody') continue;
+    for (final row in child.children ?? const <md.Node>[]) {
+      if (row is! md.Element || row.tag != 'tr') continue;
+      final cells = <String>[];
+      for (final cell in row.children ?? const <md.Node>[]) {
+        if (cell is! md.Element || (cell.tag != 'td' && cell.tag != 'th')) continue;
+        cells.add(_normalizeCellText(cell.textContent));
+      }
+      rows.add(cells);
+    }
+  }
+  if (rows.isEmpty) return const [];
+
+  // Compute column widths based on header (first row) and content.
+  final colCount = rows.first.length;
+  final colWidths = List<int>.filled(colCount, 0);
+  for (final row in rows) {
+    for (var i = 0; i < colCount && i < row.length; i++) {
+      final w = row[i].length;
+      if (w > colWidths[i]) colWidths[i] = w;
+    }
+  }
+  // Minimum column width of 3.
+  for (var i = 0; i < colCount; i++) {
+    if (colWidths[i] < 3) colWidths[i] = 3;
+  }
+
+  // Helper to draw a row with borders.
+  String rowLine(List<String> cells, bool header) {
+    final sb = StringBuffer();
+    sb.write('┌');
+    for (var i = 0; i < colCount; i++) {
+      final text = i < cells.length ? cells[i] : '';
+      sb.write(text.padRight(colWidths[i]));
+      sb.write('┬');
+    }
+    sb.write('┐');
+    return sb.toString();
+  }
+
+  String separatorLine(bool header) {
+    final sb = StringBuffer();
+    sb.write('├');
+    for (var i = 0; i < colCount; i++) {
+      sb.write('─' * colWidths[i]);
+      sb.write('┼');
+    }
+    sb.write('┤');
+    return sb.toString();
+  }
+
+  String dataRow(List<String> cells) {
+    final sb = StringBuffer();
+    sb.write('│');
+    for (var i = 0; i < colCount; i++) {
+      final text = i < cells.length ? cells[i] : '';
+      sb.write(text.padRight(colWidths[i]));
+      sb.write('│');
+    }
+    return sb.toString();
+  }
+
+  final out = <MarkdownLine>[];
+  // Header row.
+  out.add(MarkdownLine(
+    runs: [MarkdownRun(indent + rowLine(rows.first, true), style.dim)],
+  ));
+  // Separator after header.
+  out.add(MarkdownLine(
+    runs: [MarkdownRun(indent + separatorLine(true), style.dim)],
+  ));
+  // Data rows.
+  if (rows.length > 1) {
+    for (var i = 1; i < rows.length; i++) {
+      out.add(MarkdownLine(
+        runs: [MarkdownRun(indent + dataRow(rows[i]), null)],
+      ));
+      // Separator between data rows (except last).
+      if (i < rows.length - 1) {
+        out.add(MarkdownLine(
+          runs: [MarkdownRun(indent + separatorLine(false), style.dim)],
+        ));
+      }
+    }
+  }
+  // Footer border.
+  final totalWidth = colWidths.reduce((a, b) => a + b + 1);
+  out.add(MarkdownLine(
+    runs: [MarkdownRun(indent + '└' + ('─' * totalWidth) + '┘', style.dim)],
+  ));
+
+  return out;
+}
+
+/// Normalize cell text: collapse whitespace and decode entities.
+String _normalizeCellText(String text) {
+  // Simple whitespace normalization.
+  text = text.replaceAllMapped(RegExp(r'\s+'), (m) => ' ');
+  return text.trim();
 }
 
 List<MarkdownLine> _renderCodeBlock(md.Element pre, MarkdownStyle style) {
