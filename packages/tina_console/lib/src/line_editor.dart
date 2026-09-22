@@ -133,7 +133,7 @@ class LineEditor {
   /// open. Return false when idle to keep normal input-clear/quit behavior.
   /// Local overlays retain their own Ctrl+C handling. A global readKey still
   /// receives Ctrl+C after cancellation so its prompt can settle as denied.
-  @Deprecated('Ctrl+C is now always the quit flow; this hook is never called')
+  @Deprecated('Ctrl+C clears input or confirms quit; this hook is never called')
   bool Function()? onInterrupt;
 
   /// Called for Ctrl+O — the panel-maximize toggle. Offered after the
@@ -402,8 +402,8 @@ class LineEditor {
   /// window were dropped on the floor and the user had to retype. This arms
   /// the same queue-mode capture used mid-turn: keystrokes are echoed in the
   /// input region and handed to [onSubmit] on Enter (multi-entry works —
-  /// Enter does not end the capture). Cancel stays inert; Ctrl+C is captured
-  /// like any char, matching queue mode's semantics. Pairs with
+  /// Enter does not end the capture). Cancel stays inert; Ctrl+C clears the
+  /// draft or confirms quit, as in queue mode. Pairs with
   /// [endInputCaptureWindow]; [readKey] save/restores the monitor around an
   /// approval prompt, so a nested prompt during the window is safe. No-op to
   /// end when nothing is armed (the window never spans a [readLine], so the
@@ -679,14 +679,28 @@ class LineEditor {
     } else {
       _lastGlobalEsc = null;
     }
-    // The quit gate. Ctrl+C is ONLY the quit flow, at every input state and
-    // ahead of every other consumer (exclusive panels, readKeys, overlays,
-    // the cancel monitor, the line buffer): the first press arms the on-screen
-    // confirm ("Ctrl+C again to exit"), the second quits. Cancel is Esc's job;
-    // buffer clearing is double-Esc's. A quit while a readKey (approval /
-    // overlay prompt) is armed completes it with the ctrlC event so the
+    // Ctrl+C clears the shared input first. With an empty input, it arms the
+    // quit confirmation; another press quits. Running work and pending
+    // approvals are unaffected by clearing the draft. A quit while a readKey
+    // (approval / overlay prompt) is armed completes it with ctrlC so the
     // awaiting code settles as cancelled instead of hanging.
     if (event is ControlKey && event.code == ControlCode.ctrlC) {
+      final hasDraft =
+          _queueModeActive ? _qBuf.isNotEmpty : _edit.buffer.isNotEmpty;
+      if (!_dialog.isVisible && !_exclusivePanelFocused && hasDraft) {
+        _activePicker?.closeState();
+        _lastEsc = null;
+        _capturedDraft = null;
+        if (_queueModeActive) {
+          _qBuf = '';
+          _qCursor = 0;
+          _renderQueueDisplay();
+          return KeyHandledBy.queuedInput;
+        }
+        _edit = _edit.clear().resetNavigation();
+        _redraw();
+        return KeyHandledBy.chatBox;
+      }
       final modalActive = _modals.any((m) => m.isActive);
       if (_exclusivePanelFocused &&
           !modalActive &&
@@ -1101,8 +1115,8 @@ class LineEditor {
       case ControlKey(:final code):
         switch (code) {
           case ControlCode.ctrlC:
-            // Unreachable: the quit gate at the top of _onEventInner
-            // intercepts Ctrl+C before dispatch (quit confirm → quit).
+            // Unreachable: _onEventInner handles Ctrl+C before dispatch
+            // (clear draft → quit confirm → quit).
           case ControlCode.ctrlD:
             if (_edit.buffer.isEmpty) {
               _complete(null);

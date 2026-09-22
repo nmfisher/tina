@@ -10,7 +10,7 @@ import 'input_event.dart';
 /// `return`, so a key that does nothing visible can name who took it. The value
 /// is written by [InputLog.key].
 enum KeyHandledBy {
-  /// Ctrl+C — the quit flow, handled ahead of everything else.
+  /// Ctrl+C with empty input — the quit confirmation or confirmed exit.
   quit,
 
   /// An overlay, dialog, or completion picker took it.

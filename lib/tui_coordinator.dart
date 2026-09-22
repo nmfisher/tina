@@ -896,9 +896,6 @@ class TuiCoordinator {
             ),
           ],
         ),
-        // (The old Edit > Clear Input entry injected Ctrl+C to clear the
-        // buffer; Ctrl+C now arms the quit confirm, and double-Esc is the
-        // clear-input gesture, so the entry had no honest binding left.)
         viewMenu,
         Menu(
           label: 'Help',

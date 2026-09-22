@@ -108,7 +108,7 @@ void main() {
       ed.close();
     });
 
-    test('SIGINT-style inject(Ctrl-C) arms the confirm; typing continues',
+    test('SIGINT-style inject(Ctrl-C) clears the draft; typing continues',
         () async {
       final input = FakeInputBackend();
       final ed = _makeEditor(input);
@@ -116,10 +116,10 @@ void main() {
       await _flush();
       input.emit(CharInput('a'));
       input.emit(CharInput('b'));
-      ed.inject(ControlKey(ControlCode.ctrlC)); // arms the quit confirm
-      input.emit(CharInput('x')); // dismisses it and types
+      ed.inject(ControlKey(ControlCode.ctrlC)); // clears the draft
+      input.emit(CharInput('x'));
       input.emit(ControlKey(ControlCode.enter));
-      expect(await f, 'abx');
+      expect(await f, 'x');
       ed.close();
     });
 

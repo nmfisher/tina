@@ -5,12 +5,10 @@ import 'stdio_fake.dart';
 
 /// Ctrl+C at every input state — the regression matrix.
 ///
-/// The contract: Ctrl+C is ONLY the quit flow, at every input state and ahead
-/// of every other consumer. First press arms the on-screen confirm ("Ctrl+C
-/// again to exit"); second press quits (readLine completes with null; an armed
-/// readKey completes with the ctrlC event). Ctrl+C never cancels work, never
-/// clears the buffer, never answers a prompt as a deny — cancel is Esc's job,
-/// clearing is double-Esc's.
+/// Ctrl+C clears a nonempty shared draft first. With an empty draft, it arms
+/// the quit confirmation, then quits on the next press (readLine completes
+/// with null; an armed readKey completes with ctrlC). Clearing a draft must
+/// not cancel work or answer an approval.
 void main() {
   Future<void> flush() async {
     await Future<void>.microtask(() {});
@@ -46,21 +44,28 @@ void main() {
     await flush();
     io.feedBytes([0x78]); // 'x' dismisses the dialog, types into the buffer
     await flush();
-    io.feedBytes([0x03, 0x03]); // arm + quit
+    io.feedBytes([0x03, 0x03, 0x03]); // clear + arm + quit
     expect(await f, isNull);
   });
 
-  test('prompt with text: ctrl+c arms the confirm, draft is NOT cleared',
-      () async {
+  test('prompt with text: ctrl+c clears, then arms, then quits', () async {
     final (io, _, ed) = rig();
     final f = ed.readLine('> ');
+    var exited = false;
+    f.then((_) => exited = true);
     await flush();
     io.feedBytes([0x61, 0x62]); // 'ab'
     await flush();
     io.feedBytes([0x03]);
     await flush();
-    expect(ed.editState.buffer, 'ab',
-        reason: 'ctrl+c no longer clears the buffer; double-Esc does');
+    expect(ed.editState, (buffer: '', cursor: 0));
+    expect(ed.currentState()['confirm_visible'], isFalse);
+    expect(exited, isFalse);
+    expect(io.written.toString(), isNot(contains('Ctrl+C again to exit')));
+    io.feedBytes([0x03]);
+    await flush();
+    expect(ed.currentState()['confirm_visible'], isTrue);
+    expect(exited, isFalse);
     io.feedBytes([0x03]);
     expect(await f, isNull);
   });
@@ -79,8 +84,64 @@ void main() {
     expect(maximizeFired, 0, reason: 'ctrl+c never reaches the hook');
   });
 
-  test('queue mode (agent running): first ctrl+c arms, second quits',
-      () async {
+  for (final busy in [false, true]) {
+    test('draft with approval (busy=$busy): clear, confirm, quit', () async {
+      final (io, _, ed) = rig();
+      addTearDown(ed.close);
+      addTearDown(io.close);
+      final line = ed.readLine('> ');
+      await flush();
+      var cancelled = false;
+      final submitted = <String>[];
+      if (busy) {
+        ed.beginCancelMonitor(() => cancelled = true,
+            onQueueSubmit: submitted.add);
+      }
+      ed.inject(PasteInput('draft\nwith multiple lines'));
+      await flush();
+      var answered = false;
+      final approval = ed.readKey(globalKeys: true);
+      approval.then((_) => answered = true);
+      ed.inject(ControlKey(ControlCode.ctrlC));
+      await flush();
+      expect(ed.currentState()['confirm_visible'], isFalse);
+      expect(answered, isFalse);
+      expect(cancelled, isFalse);
+      expect(submitted, isEmpty);
+
+      ed.inject(ControlKey(ControlCode.ctrlC));
+      await flush();
+      expect(ed.currentState()['confirm_visible'], isTrue);
+      expect(answered, isFalse);
+      ed.inject(ControlKey(ControlCode.ctrlC));
+      expect(await approval, ControlKey(ControlCode.ctrlC));
+      expect(await line, isNull);
+      expect(cancelled, isFalse);
+    });
+  }
+
+  test('busy draft clears without losing submitted messages', () async {
+    final (io, _, ed) = rig();
+    addTearDown(ed.close);
+    addTearDown(io.close);
+    var cancelled = false;
+    final submitted = <String>[];
+    ed.beginCancelMonitor(() => cancelled = true, onQueueSubmit: submitted.add);
+    ed.inject(CharInput('already queued'));
+    ed.inject(ControlKey(ControlCode.enter));
+    ed.inject(CharInput('discard this'));
+    ed.inject(ControlKey(ControlCode.ctrlC));
+    await flush();
+    expect(ed.currentState()['confirm_visible'], isFalse);
+    expect(ed.currentState()['queued_lines'], 1);
+    ed.inject(CharInput('replacement'));
+    ed.inject(ControlKey(ControlCode.enter));
+    await flush();
+    expect(submitted, ['already queued', 'replacement']);
+    expect(cancelled, isFalse);
+  });
+
+  test('queue mode (agent running): first ctrl+c arms, second quits', () async {
     final (io, _, ed) = rig();
     var cancelled = 0;
     final submitted = <String>[];

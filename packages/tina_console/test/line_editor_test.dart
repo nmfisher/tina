@@ -227,8 +227,7 @@ void main() {
       expect(await f, isNull);
     });
 
-    test('Ctrl-C cancels nothing; the confirm arms and the draft survives',
-        () async {
+    test('Ctrl-C clears the draft without cancelling running work', () async {
       final ed = _editor(io);
       var running = true;
       // ignore: deprecated_member_use_from_same_package
@@ -241,10 +240,9 @@ void main() {
       await _flush();
       io.feedBytes([0x61, 0x62, 0x03]);
       await _flush();
-      expect(running, isTrue,
-          reason: 'ctrl+c is the quit flow; it never cancels work');
-      expect(ed.editState.buffer, 'ab');
-      io.feedBytes([0x03]); // confirm quit
+      expect(running, isTrue, reason: 'clearing input must not cancel work');
+      expect(ed.editState.buffer, isEmpty);
+      io.feedBytes([0x03, 0x03]); // arm, then confirm quit
       expect(await line, isNull);
       ed.close();
     });
@@ -291,17 +289,17 @@ void main() {
       ed.close();
     });
 
-    test('Ctrl-C with non-empty buffer does not clear it; double-Esc does',
+    test('Ctrl-C clears the draft and allows a replacement instruction',
         () async {
       final ed = _editor(io);
       final f = ed.readLine('> ');
       await _flush();
       io.feedBytes([0x61, 0x62, 0x03]);
       await _flush();
-      expect(ed.editState.buffer, 'ab',
-          reason: 'ctrl+c arms the quit confirm; the draft is untouched');
-      io.feedBytes([0x03]);
-      expect(await f, isNull);
+      expect(ed.editState, (buffer: '', cursor: 0));
+      expect(ed.currentState()['confirm_visible'], isFalse);
+      io.feedBytes([0x78, 0x0d]);
+      expect(await f, 'x');
     });
 
     test('double-Esc clears the input; single Esc does not', () async {
