@@ -1140,8 +1140,9 @@ class Agent {
           use: use,
           stepTools: stepTools,
           step: step,
-          isCancelled: () => cancelled,
+          isCancelled: () => cancelled || executorState.cancelled,
         );
+        cancelled = cancelled || executorState.cancelled;
         if (outcome.interruptedInFlight) interruptedCallIndex = callIndex;
         final result = outcome.result;
         final pending = recordResult(interruptedCallIndex == callIndex

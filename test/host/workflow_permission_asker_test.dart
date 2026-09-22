@@ -402,7 +402,7 @@ void main() {
   }
 
   test(
-    'Ctrl+C arms the quit confirm and never settles the approval; Esc denies',
+    'Ctrl+C arms the quit confirm and never settles the approval; Esc cancels',
     () async {
       final io = FakeStdio();
       final screen = Screen(
@@ -427,17 +427,17 @@ void main() {
         isFalse,
         reason: 'the first ctrl+c is the quit flow, not a deny',
       );
-      io.feedBytes([0x1b]); // esc denies the prompt
+      io.feedBytes([0x1b]); // esc cancels the turn
       expect(
         await response.timeout(const Duration(seconds: 2)),
-        _samePermission(PermissionResponse.denyOnce),
+        same(PermissionResponse.cancel),
       );
       expect(editor.isReadingKey, isFalse);
       editor.close();
     },
   );
 
-  test('Esc explicitly denies; n denies; d denies always', () async {
+  test('Esc cancels; n denies; d denies always', () async {
     final io = FakeStdio();
     final screen = Screen(
       io: io,
@@ -458,7 +458,7 @@ void main() {
     await _flush();
     expect(
       await esc.timeout(const Duration(seconds: 2)),
-      _samePermission(PermissionResponse.denyOnce),
+      same(PermissionResponse.cancel),
     );
 
     // 'n' — an explicit single deny.
@@ -539,7 +539,7 @@ void main() {
       reason: 'the first swallowed key gets a one-shot ack',
     );
     // …the second ignored key gets none.
-    io.feedBytes([0x72]); // 'r' — still not an answer
+    io.feedBytes([0x78]); // 'x' — still not an answer ('r' opens regex review)
     await _flush();
     final afterSecond = sink.notices.map((n) => n.message).join().split('…').length - 1;
     expect(

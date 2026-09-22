@@ -103,7 +103,10 @@ The approval shows the command, canonical directory paths, and reason:
 - **a** approves the command once and grants those directories for the current
   project session, shared by its main agent, delegates, and other agents
   borrowing the same project tool scope.
-- **n**, **Esc**, or **Ctrl+C** denies the invocation.
+- **n** denies the request and lets the agent continue.
+- **Esc** cancels the turn and returns to the input draft. The agent waits for
+  your next submitted message.
+- **Ctrl+C** clears a draft first; with an empty draft it opens quit confirmation.
 
 A directory grant includes its contents. Paths must be absolute, existing
 directories; symlinks are resolved before approval. Request a narrow cache

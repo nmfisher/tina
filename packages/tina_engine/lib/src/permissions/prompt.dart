@@ -246,6 +246,10 @@ class PermissionPrompt {
 class PermissionResponse {
   final PermissionDecision decision;
 
+  /// Dismiss the approval and stop this turn, without asking the model to
+  /// react to a denial. The next model request requires a new user input.
+  final bool cancelled;
+
   /// A reviewed rule overrides the default remembered pattern. The executor
   /// validates its target, decision and scope before dispatch or remembering.
   final PermissionRule? rule;
@@ -286,10 +290,13 @@ class PermissionResponse {
     this.decidedBy = 'user',
     this.scope = GrantScope.call,
     this.rule,
+    this.cancelled = false,
   });
 
   static const allowOnce = PermissionResponse(PermissionDecision.allow);
   static const denyOnce = PermissionResponse(PermissionDecision.deny);
+  static const cancel =
+      PermissionResponse(PermissionDecision.deny, cancelled: true);
   static const allowAlways = PermissionResponse(PermissionDecision.allow,
       remember: true, scope: GrantScope.conversation);
   static const denyAlways = PermissionResponse(PermissionDecision.deny,

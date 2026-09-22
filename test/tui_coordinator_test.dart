@@ -1723,7 +1723,7 @@ void main() {
       io.feedBytes([0x1b]); // double-Esc: the cancel gesture across the modal
       await job.done.timeout(const Duration(seconds: 2));
       expect(job.cancellationRequested, isTrue);
-      expect(response, PermissionResponse.denyOnce);
+      expect(response?.decision, PermissionDecision.deny);
       expect(editor.isReadingKey, isFalse);
       expect(exited, isFalse);
 
@@ -1741,6 +1741,62 @@ void main() {
       io.close();
     },
   );
+
+  test('Escape cancels approval, preserves typing and waits for Enter', () async {
+    final io = FakeStdio()..hasTerminalValue = false;
+    final provider = _GatedApprovalProvider();
+    final app = await buildAppComposition(
+      config: Config.parse(const ['--backend', 'ansi']),
+      registry: builtinRegistry(),
+      provider: provider,
+      store: MemorySessionStore(),
+      environment: FakeEnvironment(env: {'COCOON_UPDATE_CHECK': '0'}),
+    );
+    final coordinator = await TuiCoordinator.create(
+      app: app, io: io,
+      terminalGeometry: const FakeTerminalGeometry(columns: 100, lines: 30),
+    );
+    coordinator.pendingGitignoreAsk = null;
+    final editor = coordinator.editor;
+    final conversation = coordinator.sessionManager.activeConversation;
+    final run = coordinator.run();
+    Future<void> until(bool Function() ready) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (!ready()) {
+        if (DateTime.now().isAfter(deadline)) fail('input/turn did not settle');
+        await pumpEventQueue();
+      }
+    }
+    try {
+      await until(() => editor.pendingLine != null);
+      editor.inject(CharInput('first instruction'));
+      editor.inject(ControlKey(ControlCode.enter));
+      await until(() => conversation.isRunning && editor.pendingLine != null);
+      editor.inject(CharInput('do this '));
+      provider.toolReady.complete();
+      await until(() => editor.isReadingKey);
+      editor.inject(EscapeKey());
+      // No delay: these keystrokes must not be swallowed by the old form.
+      editor.inject(CharInput('instead'));
+      await until(() => !conversation.isRunning && !editor.isReadingKey);
+      expect(editor.editState.buffer, 'do this instead');
+      expect(provider.calls, hasLength(1), reason: 'Escape is not a model turn');
+      await pumpEventQueue();
+      expect(provider.calls, hasLength(1));
+      expect(conversation.history.expand((m) => m.content.whereType<ToolResultBlock>())
+          .single.content, contains('cancelled'));
+      editor.inject(ControlKey(ControlCode.enter));
+      await until(() => provider.calls.length == 2 && !conversation.isRunning);
+      expect(conversation.history.where((m) => m.role == Role.user)
+          .expand((m) => m.content.whereType<TextBlock>()).map((b) => b.text),
+          ['first instruction', 'do this instead']);
+    } finally {
+      editor.inject(CharInput('/exit'));
+      editor.inject(ControlKey(ControlCode.enter));
+      await run.timeout(const Duration(seconds: 5));
+      io.close();
+    }
+  });
 
   test('double-Esc cancels approval with a draft and accepts immediate replacement', () async {
     final io = FakeStdio()..hasTerminalValue = false;

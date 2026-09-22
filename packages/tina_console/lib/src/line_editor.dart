@@ -819,8 +819,12 @@ class LineEditor {
       // typing speed (~30ms between keystrokes) so only paste bursts are
       // intercepted.
       _burstTimer?.cancel();
-      _burstTimer = Timer(
-          Duration(milliseconds: _burstWindowMs), () => _burstTimer = null);
+      // Escape dismisses a form. Text immediately following it belongs to
+      // the conversation draft, not a subsequent approval read.
+      _burstTimer = event is EscapeKey
+          ? null
+          : Timer(
+              Duration(milliseconds: _burstWindowMs), () => _burstTimer = null);
       _scheduleHeldPasteDelivery();
       return KeyHandledBy.openPrompt;
     }

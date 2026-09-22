@@ -2642,9 +2642,8 @@ class TuiCoordinator {
     // ESC cancels the active conversation's in-flight turn. The controller is
     // UI-agnostic and never touches the editor, so the TUI owns this wiring.
     editor.onEscape = controller.cancelActiveTurn;
-    // A RAPID double-Esc force-cancels from any input context (owner bug
-    // 2026-08-24: an approval modal swallows single Escs as "deny", so the
-    // prompt's arm-then-cancel never fires and the border keeps animating).
+    // A rapid double-Esc force-cancels all pending work from any input
+    // context. A single Esc in a tool approval cancels only its own turn.
     editor.onDoubleEscape = controller.cancelNow;
     // (editor.onInterrupt is retired: Ctrl+C is now the quit confirm flow at
     // every input state, intercepted in the editor before any consumer.

@@ -37,6 +37,7 @@ Future<PermissionResponse> runPermissionApproval({
   var pageSize = 1;
   var details = false;
   var acknowledged = false;
+  var cancelledByUser = false;
   ApprovalChoice? answer;
   RegexReview? rewrite;
   PermissionResponse? rewrittenAnswer;
@@ -124,7 +125,7 @@ Future<PermissionResponse> runPermissionApproval({
       '│ ${style(count, screen.theme.completion.dim)}',
       for (final row in actions) '│ $row',
       rewrite == null
-          ? '│ ↑↓ choose · Enter confirm · Tab ${details ? 'less' : 'details'} · Esc deny'
+          ? '│ ↑↓ choose · Enter confirm · Tab ${details ? 'less' : 'details'} · Esc cancel turn'
           : rewrite.reviewing
           ? '│ ↑↓ choose · Enter confirm · Esc edit'
           : '│ Enter review · Esc back · Ctrl+C cancel',
@@ -179,7 +180,10 @@ Future<PermissionResponse> runPermissionApproval({
         paint();
         continue;
       }
-      if (event is EscapeKey) break;
+      if (event is EscapeKey) {
+        cancelledByUser = true;
+        break;
+      }
       ApprovalChoice? choice;
       if (event is CharInput) {
         choice = prompt.choiceForKey(event.text);
@@ -250,5 +254,7 @@ Future<PermissionResponse> runPermissionApproval({
       '└\n',
     ].join('\n'),
   );
-  return rewrittenAnswer ?? answer?.response ?? PermissionResponse.denyOnce;
+  return cancelledByUser
+      ? PermissionResponse.cancel
+      : rewrittenAnswer ?? answer?.response ?? PermissionResponse.denyOnce;
 }

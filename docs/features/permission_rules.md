@@ -1,5 +1,9 @@
 # Permission rules
 
+Escape dismisses a pending tool approval and cancels the current turn. The
+draft is preserved; the model is not called again until you submit a message.
+Choosing **deny once** explicitly sends a denial and lets the agent continue.
+
 Use `--allow TOOL:PATTERN` and `--deny TOOL:PATTERN` for existing wildcard rules.
 Use `--allow-regex TOOL:REGEX` and `--deny-regex TOOL:REGEX` for regular expressions:
 

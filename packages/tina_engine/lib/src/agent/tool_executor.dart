@@ -218,6 +218,9 @@ String deniedContent(PermissionPolicy policy, String tool) {
 /// [toolInterrupted] from the operator-interrupt signal, and hands it to the
 /// executor.
 class ToolCallState {
+  /// The approval was dismissed; stop before another tool or model request.
+  bool cancelled = false;
+
   /// Operator interrupt (#31), distinct from cancel: fires the turn-stop
   /// AROUND TOOL EXECUTION only — never mid-stream. Armed eagerly (by the
   /// run loop's `toolInterruptSignal?.then(...)` wiring) so an interrupt
@@ -559,6 +562,15 @@ class ToolExecutor {
           retrySafety: retrySafety);
       if (recovery != null) state.promptedSandboxRetries.add(retryKey!);
       resp = await _ask(prompt);
+      if (state.cancelled) {
+        return (
+          result: ToolResultBlock(
+              toolUseId: use.id,
+              content: 'Not executed: turn cancelled.',
+              isError: true),
+          interruptedInFlight: interruptedInFlight,
+        );
+      }
       changedModeBlock = runtimeBlock();
       decision = changedModeBlock == null &&
               resp.decision == PermissionDecision.allow &&
@@ -963,6 +975,11 @@ class ToolExecutor {
               asker(prompt),
               stop.then((_) => PermissionResponse.denyOnce),
             ]));
+      if (response.cancelled) {
+        state.cancelled = true;
+        context?.invocation.cancel('Tool approval cancelled by user');
+        return response;
+      }
       if (context != null) {
         while (context.invocation.isHeld && !context.isCancelled) {
           await context.ready();
