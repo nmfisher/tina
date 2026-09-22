@@ -29,7 +29,7 @@ void main() {
       root: project.path,
       sandbox: SandboxedFileSystem(
         const IoFileSystem(),
-        projectRoot: project.path,
+        workspaceRoot: project.path,
         tinaDir: Directory('${project.path}/private'),
       ),
     );
@@ -92,7 +92,7 @@ void main() {
         root: project.path,
         sandbox: SandboxedFileSystem(
           const IoFileSystem(),
-          projectRoot: project.path,
+          workspaceRoot: project.path,
           tinaDir: Directory('${project.path}/private'),
         ),
         policy: PermissionPolicy(

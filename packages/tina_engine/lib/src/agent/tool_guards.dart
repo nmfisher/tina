@@ -96,7 +96,7 @@ List<ToolGuard> toolGuardsFromScope(PluginScope scope) => [
           contribution.contribution as ToolGuard,
     ];
 
-/// Composition plugin (engine style, like project_tool_plugins.dart) that
+/// Composition plugin (engine style, like workspace_tool_plugins.dart) that
 /// registers the mandatory [PolicyToolGuard] for [policy] as a contribution
 /// and exposes it under [toolGuardServiceKey].
 PluginDescriptor policyGuardPlugin(PermissionPolicy policy) => PluginDescriptor(

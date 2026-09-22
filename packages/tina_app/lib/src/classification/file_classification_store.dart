@@ -12,9 +12,9 @@ import 'package:tina_engine/tina_engine.dart';
 class FileClassificationStore implements ClassificationStore {
   final String root;
   static final _writers = <String>{};
-  FileClassificationStore(String projectRoot)
+  FileClassificationStore(String workspaceRoot)
     : root = p.join(
-        p.normalize(p.absolute(projectRoot)),
+        p.normalize(p.absolute(workspaceRoot)),
         '.tina',
         'classifications',
       );

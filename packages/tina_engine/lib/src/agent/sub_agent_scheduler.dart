@@ -1068,7 +1068,7 @@ class SubAgentScheduler {
       final system = resolveIdentityPrompt(systemPrompt,
           context: pipeline.promptContext,
           safeMode: safeMode,
-          loadProjectContext: pipeline.loadProjectContext,
+          loadWorkspaceContext: pipeline.loadWorkspaceContext,
           scope: mountedScopeValue);
       if (includeDelegate && delegateToolBuilder != null) {
         final nestedCtx = AgentToolContext(

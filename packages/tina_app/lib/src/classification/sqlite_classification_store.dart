@@ -28,7 +28,7 @@ class SqliteClassificationStore implements CheckpointStore {
   SqliteClassificationStore._(this.root);
 
   static Future<SqliteClassificationStore> open(
-    String projectRoot, {
+    String workspaceRoot, {
     bool create = false,
     void Function(String)? onProgress,
     Future<void>? cancelSignal,
@@ -38,10 +38,10 @@ class SqliteClassificationStore implements CheckpointStore {
     String? reservation;
     if (create ||
         await File(
-          p.join(projectRoot, '.tina', 'classifications', 'manifest.json'),
+          p.join(workspaceRoot, '.tina', 'classifications', 'manifest.json'),
         ).exists()) {
       reservation = p.join(
-        await Directory(projectRoot).resolveSymbolicLinks(),
+        await Directory(workspaceRoot).resolveSymbolicLinks(),
         '.tina',
         'classifications',
       );
@@ -49,7 +49,7 @@ class SqliteClassificationStore implements CheckpointStore {
         throw StateError('Classification is already running');
     }
     final store = SqliteClassificationStore._(
-      p.join(p.absolute(projectRoot), '.tina', 'classifications'),
+      p.join(p.absolute(workspaceRoot), '.tina', 'classifications'),
     );
     var opening = true;
     var cancelled = false;
@@ -109,7 +109,7 @@ class SqliteClassificationStore implements CheckpointStore {
       await Isolate.spawn(
         _serve,
         (
-          projectRoot: projectRoot,
+          workspaceRoot: workspaceRoot,
           create: create,
           reply: store._replies.sendPort,
         ),
@@ -229,7 +229,7 @@ class SqliteClassificationStore implements CheckpointStore {
 }
 
 Future<void> _serve(
-  ({String projectRoot, bool create, SendPort reply}) args,
+  ({String workspaceRoot, bool create, SendPort reply}) args,
 ) async {
   final port = ReceivePort();
   var cancelled = false;
@@ -245,7 +245,7 @@ Future<void> _serve(
   _Database? store;
   try {
     store = await _Database.open(
-      args.projectRoot,
+      args.workspaceRoot,
       args.create,
       (text) => args.reply.send({'progress': text}),
       () => cancelled,
@@ -293,13 +293,13 @@ class _Database {
   }
 
   static Future<_Database> open(
-    String projectRoot,
+    String workspaceRoot,
     bool create,
     void Function(String) progress,
     bool Function() cancelled,
   ) async {
     final store = _Database(
-      p.join(p.absolute(projectRoot), '.tina', 'classifications'),
+      p.join(p.absolute(workspaceRoot), '.tina', 'classifications'),
       create,
     );
     final path = p.join(store.root, 'index.db');
@@ -330,7 +330,7 @@ class _Database {
           store.schema();
           if (migrate) {
             progress('Migrating saved classifications to SQLite (one time)…');
-            await store.migrate(projectRoot, check);
+            await store.migrate(workspaceRoot, check);
           }
           final ignore = File(p.join(store.root, '.gitignore'));
           await store.safe(ignore.path);
@@ -589,8 +589,8 @@ class _Database {
     }
   }
 
-  Future<void> migrate(String projectRoot, void Function() check) async {
-    final old = FileClassificationStore(projectRoot);
+  Future<void> migrate(String workspaceRoot, void Function() check) async {
+    final old = FileClassificationStore(workspaceRoot);
     final imported = db!
         .select("SELECT 1 FROM meta WHERE key='legacy_imported'")
         .isNotEmpty;

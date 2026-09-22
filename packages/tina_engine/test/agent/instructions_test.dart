@@ -17,13 +17,13 @@ PluginContext plugin(PluginScope scope) => PluginContext(
 Future<String> loadPrompt(String identity,
     {required String cwd,
     PluginScope? scope,
-    bool loadProjectContext = true}) async {
+    bool loadWorkspaceContext = true}) async {
   final base = resolveIdentityPrompt(identity,
-      cwd: cwd, loadProjectContext: loadProjectContext);
+      cwd: cwd, loadWorkspaceContext: loadWorkspaceContext);
   final context = AgentContext(
       stage: AgentStage.request,
       cwd: cwd,
-      loadProjectContext: loadProjectContext,
+      loadWorkspaceContext: loadWorkspaceContext,
       model: 'test');
   try {
     final result = await AgentsInstructions(scope).beforeRequest(context,
@@ -77,7 +77,7 @@ void main() {
       () async {
     File('${dir.path}/AGENTS.md').writeAsStringSync('private');
     await loadPrompt('identity',
-        cwd: dir.path, scope: scope, loadProjectContext: false);
+        cwd: dir.path, scope: scope, loadWorkspaceContext: false);
     expect(observer.loads, isEmpty);
     final child = scope.child('child');
     await loadPrompt('identity', cwd: dir.path, scope: child);

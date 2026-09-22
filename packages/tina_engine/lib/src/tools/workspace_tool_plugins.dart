@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-import '../agent/project_tool_scope.dart';
+import '../agent/workspace_tool_scope.dart';
 import '../agent/tool_profile.dart';
 import '../runtime/plugin.dart';
 import 'bash_tool.dart';
@@ -15,7 +15,7 @@ import 'git_tool.dart';
 import 'glob_tool.dart';
 import 'grep_tool.dart';
 import 'ls_tool.dart';
-import 'project_capabilities.dart';
+import 'workspace_capabilities.dart';
 import 'read_tool.dart';
 import 'search_tool.dart';
 import 'sandbox_runner.dart';
@@ -30,7 +30,7 @@ import 'write_tool.dart';
 /// The frozen project tool catalog — the tools the runtime registry exposes,
 /// in exactly this order. `web_search` (registered by the web-search plugin
 /// when an API key is configured) joins after the catalog.
-const List<String> kProjectToolCatalog = [
+const List<String> kWorkspaceToolCatalog = [
   'read',
   'write',
   'edit',
@@ -50,26 +50,26 @@ const List<String> kProjectToolCatalog = [
 const _braveKeyEnv = 'BRAVE_API_KEY';
 const _tavilyKeyEnv = 'TAVILY_API_KEY';
 
-/// Composition plugin that builds the project's [ProjectCapabilities] via
-/// [ProjectCapabilities.build] (confined) and exposes it under
-/// [projectCapabilitiesServiceKey].
-PluginDescriptor projectCapabilitiesPlugin({
-  required String projectRoot,
+/// Composition plugin that builds the project's [WorkspaceCapabilities] via
+/// [WorkspaceCapabilities.build] (confined) and exposes it under
+/// [workspaceCapabilitiesServiceKey].
+PluginDescriptor workspaceCapabilitiesPlugin({
+  required String workspaceRoot,
   required Map<String, String> env,
   bool sandboxEnabled = true,
   bool sandboxNet = false,
   bool sandboxReadOnly = false,
 
   /// Who turned the sandbox off, when [sandboxEnabled] is false — forwarded
-  /// to [ProjectCapabilities.build] for the startup log. Null = not disabled.
+  /// to [WorkspaceCapabilities.build] for the startup log. Null = not disabled.
   String? sandboxOffReason,
 }) =>
     PluginDescriptor(
-      id: 'tina.engine.project-capabilities',
-      provides: [projectCapabilitiesServiceKey],
+      id: 'tina.engine.workspace-capabilities',
+      provides: [workspaceCapabilitiesServiceKey],
       factory: FnPluginFactory((context) {
-        final caps = ProjectCapabilities.build(
-          projectRoot: projectRoot,
+        final caps = WorkspaceCapabilities.build(
+          workspaceRoot: workspaceRoot,
           env: env,
           confineFiles: true,
           sandboxEnabled: sandboxEnabled,
@@ -82,16 +82,16 @@ PluginDescriptor projectCapabilitiesPlugin({
       }),
     );
 
-/// Composition plugin that assembles the [ProjectToolScope] from the already
-/// built capabilities. Requires [projectCapabilitiesServiceKey], so it
+/// Composition plugin that assembles the [WorkspaceToolScope] from the already
+/// built capabilities. Requires [workspaceCapabilitiesServiceKey], so it
 /// activates strictly after the capabilities plugin.
-PluginDescriptor projectToolScopePlugin() => PluginDescriptor(
-      id: 'tina.engine.project-tool-scope',
-      requires: {projectCapabilitiesServiceKey},
-      provides: [projectToolScopeServiceKey],
+PluginDescriptor workspaceToolScopePlugin() => PluginDescriptor(
+      id: 'tina.engine.workspace-tool-scope',
+      requires: {workspaceCapabilitiesServiceKey},
+      provides: [workspaceToolScopeServiceKey],
       factory: FnPluginFactory((context) {
-        final caps = context.require(projectCapabilitiesServiceKey);
-        return ProjectToolScope.fromCapabilities(caps);
+        final caps = context.require(workspaceCapabilitiesServiceKey);
+        return WorkspaceToolScope.fromCapabilities(caps);
       }),
     );
 
@@ -102,10 +102,10 @@ PluginDescriptor projectToolScopePlugin() => PluginDescriptor(
 /// the profiles compose the sidecar tool themselves (read-only/full sets and
 /// the policy candidates — exactly where it appeared before).
 final ServiceKey<Tool> writeSummaryToolServiceKey =
-    ServiceKey<Tool>('tina.engine.project_write_summary_tool');
+    ServiceKey<Tool>('tina.engine.workspace_write_summary_tool');
 
-/// Plugin id for the project tool named [name].
-String projectToolPluginId(String name) => 'tina.tool.$name';
+/// Plugin id for the workspace tool named [name].
+String workspaceToolPluginId(String name) => 'tina.tool.$name';
 
 /// One plugin per project tool, wired from [caps] exactly as the tool scope
 /// wired them by hand: file-tool roots, sandbox fs, backup stores, the bash
@@ -113,18 +113,18 @@ String projectToolPluginId(String name) => 'tina.tool.$name';
 /// the shared mutation lock on write/edit; search/which/git always carry
 /// their root/env wiring.
 ///
-/// Declared order is the frozen catalog ([kProjectToolCatalog]) followed by
+/// Declared order is the frozen catalog ([kWorkspaceToolCatalog]) followed by
 /// the sidecar `write_summary` and then `web_search`.
-List<PluginDescriptor> projectToolPlugins(ProjectCapabilities caps) => [
+List<PluginDescriptor> workspaceToolPlugins(WorkspaceCapabilities caps) => [
       _toolPlugin('read', caps, _buildRead),
       _toolPlugin('write', caps, _buildWrite),
       _toolPlugin('edit', caps, _buildEdit),
       _toolPlugin('fetch', caps, _buildFetch),
       _toolPlugin('bash', caps, _buildBash),
-      _toolPlugin('exec', caps, (c) => ExecTool(projectRoot: c.projectRoot,
+      _toolPlugin('exec', caps, (c) => ExecTool(workspaceRoot: c.workspaceRoot,
           environment: c.environment, processRunner: c.processRunner)),
       _toolPlugin('execution_info', caps, (c) => ExecutionInfoTool(
-          projectRoot: c.projectRoot, environment: c.environment, runner: c.processRunner)),
+          workspaceRoot: c.workspaceRoot, environment: c.environment, runner: c.processRunner)),
       _toolPlugin('search', caps, _buildSearch),
       _toolPlugin('grep', caps, _buildGrep),
       _toolPlugin('glob', caps, _buildGlob),
@@ -140,11 +140,11 @@ List<PluginDescriptor> projectToolPlugins(ProjectCapabilities caps) => [
 /// registers it as the scope's contribution under the tool's own name.
 PluginDescriptor _toolPlugin(
   String name,
-  ProjectCapabilities caps,
-  Tool Function(ProjectCapabilities caps) build,
+  WorkspaceCapabilities caps,
+  Tool Function(WorkspaceCapabilities caps) build,
 ) =>
     PluginDescriptor(
-      id: projectToolPluginId(name),
+      id: workspaceToolPluginId(name),
       factory: FnPluginFactory((context) {
         final tool = build(caps);
         context.register(tool, id: tool.schema.name);
@@ -152,114 +152,114 @@ PluginDescriptor _toolPlugin(
       }),
     );
 
-ReadTool _buildRead(ProjectCapabilities caps) {
+ReadTool _buildRead(WorkspaceCapabilities caps) {
   final tool = ReadTool();
   if (!caps.confineFiles) return tool;
   return tool
-    ..projectRoot = caps.projectRoot
+    ..workspaceRoot = caps.workspaceRoot
     ..fs = caps.fileSystem!;
 }
 
-WriteTool _buildWrite(ProjectCapabilities caps) {
+WriteTool _buildWrite(WorkspaceCapabilities caps) {
   // The shared per-file lock: always wired, confined or not.
   final tool = WriteTool()..mutationLock = caps.mutationLock;
   if (!caps.confineFiles) return tool;
   return tool
-    ..projectRoot = caps.projectRoot
+    ..workspaceRoot = caps.workspaceRoot
     ..fs = caps.fileSystem!
     ..backupStore = caps.backups!;
 }
 
-EditTool _buildEdit(ProjectCapabilities caps) {
+EditTool _buildEdit(WorkspaceCapabilities caps) {
   final tool = EditTool()..mutationLock = caps.mutationLock;
   if (!caps.confineFiles) return tool;
   return tool
-    ..projectRoot = caps.projectRoot
+    ..workspaceRoot = caps.workspaceRoot
     ..fs = caps.fileSystem!
     ..backupStore = caps.backups!;
 }
 
-FetchTool _buildFetch(ProjectCapabilities caps) => FetchTool();
+FetchTool _buildFetch(WorkspaceCapabilities caps) => FetchTool();
 
-BashTool _buildBash(ProjectCapabilities caps) {
-  return BashTool(projectRoot: caps.projectRoot, environment: caps.environment,
+BashTool _buildBash(WorkspaceCapabilities caps) {
+  return BashTool(workspaceRoot: caps.workspaceRoot, environment: caps.environment,
       processRunner: caps.processRunner);
 }
 
-SearchTool _buildSearch(ProjectCapabilities caps) => SearchTool(
-      repoRoot: caps.projectRoot,
+SearchTool _buildSearch(WorkspaceCapabilities caps) => SearchTool(
+      repoRoot: caps.workspaceRoot,
       // `git ls-files` is a process spawn, so it takes the shared runner.
       processRunner: caps.processRunner,
     );
 
-GrepTool _buildGrep(ProjectCapabilities caps) {
+GrepTool _buildGrep(WorkspaceCapabilities caps) {
   // `rg` is a process spawn like any other, so it gets the shared runner
   // (sandboxed whenever the sandbox is enabled) rather than its own
   // `IoProcessRunner`. The file-system sandbox alone cannot cover a spawn.
   final tool = GrepTool(processRunner: caps.processRunner);
   if (!caps.confineFiles) return tool;
   return tool
-    ..projectRoot = caps.projectRoot
+    ..workspaceRoot = caps.workspaceRoot
     ..fs = caps.fileSystem!
     ..sandbox = caps.fileSystem!;
 }
 
-GlobTool _buildGlob(ProjectCapabilities caps) {
+GlobTool _buildGlob(WorkspaceCapabilities caps) {
   final tool = GlobTool();
   if (!caps.confineFiles) return tool;
   return tool
-    ..projectRoot = caps.projectRoot
+    ..workspaceRoot = caps.workspaceRoot
     ..sandbox = caps.fileSystem!;
 }
 
-LsTool _buildLs(ProjectCapabilities caps) {
+LsTool _buildLs(WorkspaceCapabilities caps) {
   final tool = LsTool();
   if (!caps.confineFiles) return tool;
   return tool
-    ..projectRoot = caps.projectRoot
+    ..workspaceRoot = caps.workspaceRoot
     ..sandbox = caps.fileSystem!;
 }
 
-StatTool _buildStat(ProjectCapabilities caps) {
+StatTool _buildStat(WorkspaceCapabilities caps) {
   final tool = StatTool();
   if (!caps.confineFiles) return tool;
   return tool
-    ..projectRoot = caps.projectRoot
+    ..workspaceRoot = caps.workspaceRoot
     ..sandbox = caps.fileSystem!;
 }
 
-WhichTool _buildWhich(ProjectCapabilities caps) =>
-    WhichTool(environment: caps.environment, workingDirectory: caps.projectRoot);
+WhichTool _buildWhich(WorkspaceCapabilities caps) =>
+    WhichTool(environment: caps.environment, workingDirectory: caps.workspaceRoot);
 
-GitTool _buildGit(ProjectCapabilities caps) => GitTool(
+GitTool _buildGit(WorkspaceCapabilities caps) => GitTool(
       processRunner: caps.processRunner,
-      workingDirectory: caps.projectRoot,
+      workingDirectory: caps.workspaceRoot,
     );
 
-PluginDescriptor _writeSummaryPlugin(ProjectCapabilities caps) =>
+PluginDescriptor _writeSummaryPlugin(WorkspaceCapabilities caps) =>
     PluginDescriptor(
-      id: projectToolPluginId('write-summary'),
+      id: workspaceToolPluginId('write-summary'),
       provides: [writeSummaryToolServiceKey],
       factory: FnPluginFactory((context) {
         final tool = WriteSummaryTool();
         if (caps.confineFiles) {
           // The per-directory summaries sidecar:
-          // `<projectRoot>/.tina/summaries` — project-local (so it tracks
+          // `<workspaceRoot>/.tina/summaries` — project-local (so it tracks
           // this repo, under the gitignored `.tina/`), and distinct from the
           // global `~/.tina` data tree the sandbox denies. Summaries reflect
           // committed main-repo HEAD, so the sidecar is pinned to the
           // project, not the user's home.
           tool.sidecarRoot =
-              Directory(p.join(caps.projectRoot, '.tina', 'summaries'));
-          tool.projectRoot = caps.projectRoot;
+              Directory(p.join(caps.workspaceRoot, '.tina', 'summaries'));
+          tool.workspaceRoot = caps.workspaceRoot;
         }
         return tool;
       }),
     );
 
-PluginDescriptor _webSearchPlugin(ProjectCapabilities caps) =>
+PluginDescriptor _webSearchPlugin(WorkspaceCapabilities caps) =>
     PluginDescriptor(
-      id: projectToolPluginId('web-search'),
+      id: workspaceToolPluginId('web-search'),
       factory: FnPluginFactory((context) {
         final env = caps.environment;
         final braveKey = env[_braveKeyEnv];
@@ -293,7 +293,7 @@ PluginDescriptor _webSearchPlugin(ProjectCapabilities caps) =>
 
 /// Assembles the [ToolRegistry] an activated plugin scope exposes: every
 /// [Tool] contribution, in declared order — the frozen catalog
-/// ([kProjectToolCatalog]), with uncatalogued tools (`web_search`) keeping
+/// ([kWorkspaceToolCatalog]), with uncatalogued tools (`web_search`) keeping
 /// their registration order after it — and [stripForSafeMode] applied when
 /// [safeMode] is on.
 ///
@@ -334,8 +334,8 @@ ToolRegistry toolRegistryFromScope(PluginScope scope, {bool safeMode = false}) {
   }
 
   int rank(Tool tool) {
-    final index = kProjectToolCatalog.indexOf(tool.schema.name);
-    return index == -1 ? kProjectToolCatalog.length : index;
+    final index = kWorkspaceToolCatalog.indexOf(tool.schema.name);
+    return index == -1 ? kWorkspaceToolCatalog.length : index;
   }
 
   collected.sort((a, b) {

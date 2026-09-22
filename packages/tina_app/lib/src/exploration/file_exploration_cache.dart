@@ -7,15 +7,15 @@ import 'package:tina_engine/tina_engine.dart' show atomicWriteBytes;
 /// One atomic JSON file per content-addressed record. Readers never see partial
 /// writes; concurrent processes may safely replace the same deterministic key.
 class FileExplorationCache implements ExplorationCache {
-  final String projectRoot;
+  final String workspaceRoot;
   final int maxRecordBytes;
   FileExplorationCache(
-    this.projectRoot, {
+    this.workspaceRoot, {
     this.maxRecordBytes = 8 * 1024 * 1024,
   });
 
   Future<Directory?> _directory({required bool create}) async {
-    var root = await Directory(projectRoot).resolveSymbolicLinks();
+    var root = await Directory(workspaceRoot).resolveSymbolicLinks();
     for (final component in ['.tina', 'exploration']) {
       root = p.join(root, component);
       var type = await FileSystemEntity.type(root, followLinks: false);

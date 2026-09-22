@@ -10,8 +10,8 @@ import '../helpers/fake_environment.dart';
 const _ledgerPluginId = 'tina.app.spend-ledger';
 const _decoratorsPluginId = 'tina.app.provider-decorators';
 const _factoryPluginId = 'tina.app.provider-factory';
-const _capabilitiesPluginId = 'tina.engine.project-capabilities';
-const _toolScopePluginId = 'tina.engine.project-tool-scope';
+const _capabilitiesPluginId = 'tina.engine.workspace-capabilities';
+const _toolScopePluginId = 'tina.engine.workspace-tool-scope';
 
 ProviderRegistry _registryWithUsageProvider({
   void Function()? onBuilderCalled,
@@ -44,7 +44,7 @@ List<PluginDescriptor> _defaultProfile() {
     config: RuntimeConfig(provider: 'test', model: 'a'),
     registry: ProviderRegistry(env: const {}),
     providerDecorators: const [],
-    projectRoot: root.path,
+    workspaceRoot: root.path,
     environment: FakeEnvironment(),
     sandboxEnabled: RuntimeConfig().sandboxEnabled,
     sandboxNet: RuntimeConfig().sandboxNet,
@@ -95,7 +95,7 @@ void main() {
         config: RuntimeConfig(provider: 'test', model: 'a'),
         registry: ProviderRegistry(env: const {}),
         providerDecorators: const [],
-        projectRoot: root.path,
+        workspaceRoot: root.path,
         environment: FakeEnvironment(),
         sandboxEnabled: RuntimeConfig().sandboxEnabled,
         sandboxNet: RuntimeConfig().sandboxNet,
@@ -114,10 +114,10 @@ void main() {
       isA<RuntimeProviderFactory>(),
     );
     expect(
-      runtime.scope.lookup(projectCapabilitiesServiceKey),
+      runtime.scope.lookup(workspaceCapabilitiesServiceKey),
       isNotNull,
     );
-    expect(runtime.scope.lookup(projectToolScopeServiceKey), isNotNull);
+    expect(runtime.scope.lookup(workspaceToolScopeServiceKey), isNotNull);
   });
 
   test('buildExecutionRuntime with the default profile exposes every service',
@@ -128,12 +128,12 @@ void main() {
       config: RuntimeConfig(provider: 'test', model: 'a'),
       registry: _registryWithUsageProvider(),
       environment: FakeEnvironment(),
-      projectRoot: root.path,
+      workspaceRoot: root.path,
     );
     addTearDown(runtime.dispose);
 
     expect(runtime.spendLedger, isA<SpendLedger>());
-    expect(runtime.pluginScope.lookup(projectToolScopeServiceKey), isNotNull);
+    expect(runtime.pluginScope.lookup(workspaceToolScopeServiceKey), isNotNull);
   });
 
   test('a duplicate plugin id in an override fails before any provider is '
@@ -148,7 +148,7 @@ void main() {
       config: RuntimeConfig(provider: 'test', model: 'a'),
       registry: registry,
       providerDecorators: const [],
-      projectRoot: root.path,
+      workspaceRoot: root.path,
       environment: FakeEnvironment(),
       sandboxEnabled: true,
       sandboxNet: false,
@@ -163,7 +163,7 @@ void main() {
         config: RuntimeConfig(provider: 'test', model: 'a'),
         registry: registry,
         environment: FakeEnvironment(),
-        projectRoot: root.path,
+        workspaceRoot: root.path,
         executionPlugins: overridden,
       ),
       throwsA(isA<PluginCompositionError>()),
@@ -183,7 +183,7 @@ void main() {
       config: RuntimeConfig(provider: 'test', model: 'a'),
       registry: registry,
       providerDecorators: const [],
-      projectRoot: root.path,
+      workspaceRoot: root.path,
       environment: FakeEnvironment(),
       sandboxEnabled: true,
       sandboxNet: false,
@@ -197,7 +197,7 @@ void main() {
       config: RuntimeConfig(provider: 'test', model: 'a'),
       registry: registry,
       environment: FakeEnvironment(),
-      projectRoot: root.path,
+      workspaceRoot: root.path,
       executionPlugins: overridden,
     );
 
@@ -255,14 +255,14 @@ void main() {
       'factory on its scheduler', () async {
     final root = await _tempProject();
     addTearDown(() => root.delete(recursive: true));
-    final borrowed = ProjectToolScope(projectRoot: root.path, env: const {});
+    final borrowed = WorkspaceToolScope(workspaceRoot: root.path, env: const {});
     final factory = _CountingDriverFactory();
     final extended = [
       ...defaultExecutionPlugins(
         config: RuntimeConfig(provider: 'test', model: 'a'),
         registry: _registryWithUsageProvider(),
         providerDecorators: const [],
-        projectRoot: root.path,
+        workspaceRoot: root.path,
         environment: FakeEnvironment(),
         sandboxEnabled: RuntimeConfig().sandboxEnabled,
         sandboxNet: RuntimeConfig().sandboxNet,

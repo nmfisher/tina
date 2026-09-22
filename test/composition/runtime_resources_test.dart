@@ -102,7 +102,7 @@ void main() {
             config: config.runtime,
             resumeRequest: config.resumeRequest,
             registry: registry,
-            projectRoot: root.path,
+            workspaceRoot: root.path,
             store: store,
             ownsStore: owned,
           );

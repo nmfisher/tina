@@ -165,7 +165,7 @@ AgentDriver buildAgent({
         pipeline,
         overrides: config.promptOverrides,
         safeMode: config.safeMode,
-        loadProjectContext: pipeline.loadProjectContext,
+        loadWorkspaceContext: pipeline.loadWorkspaceContext,
         scope: scheduler.mountedScopeValue,
         workflowEnabled: config.enableWorkflow,
       );

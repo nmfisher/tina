@@ -1,7 +1,7 @@
 import 'package:tina_engine/tina_engine.dart';
 
 /// An owned execution scope without sessions, persistence or frontend state.
-abstract interface class ProjectExecution {
+abstract interface class WorkspaceExecution {
   LlmProviderFactory get providers;
   PermissionPolicy get policy;
   AgentPipeline get pipeline;
@@ -11,7 +11,7 @@ abstract interface class ProjectExecution {
   Future<void> dispose();
 }
 
-typedef ProjectExecutionFactory = Future<ProjectExecution> Function();
+typedef WorkspaceExecutionFactory = Future<WorkspaceExecution> Function();
 
 /// Output, permission and cancellation adapters are borrowed for the run.
 class RunInteraction {

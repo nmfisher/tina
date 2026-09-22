@@ -114,7 +114,7 @@ Future<void> main() async {
         violations(source, {
           'lib/src/composition/app_composition.dart',
           'lib/src/composition/execution_runtime.dart',
-          'lib/src/composition/project_services.dart',
+          'lib/src/composition/workspace_services.dart',
         }),
         isEmpty,
       );

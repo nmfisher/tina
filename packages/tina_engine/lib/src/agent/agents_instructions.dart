@@ -28,7 +28,7 @@ class AgentsInstructions extends AgentMiddleware {
   @override
   Future<AgentDecision<AgentRequest>> beforeRequest(
       AgentContext context, AgentRequest request) async {
-    if (!context.loadProjectContext || context.stage == AgentStage.compact) {
+    if (!context.loadWorkspaceContext || context.stage == AgentStage.compact) {
       return AgentDecision.next(request);
     }
     final loaded = await loadAgentsInstructions(context);
@@ -56,7 +56,7 @@ const int _agentsTotalByteCap = 200 * 1024;
 Future<InstructionLoad> loadAgentsInstructions(AgentContext context) async {
   context.check();
   final startDir = context.cwd;
-  if (!context.loadProjectContext) {
+  if (!context.loadWorkspaceContext) {
     return InstructionLoad(InstructionKind.agents, const [], cwd: startDir);
   }
   final out = <Instruction>[];

@@ -10,7 +10,7 @@ const int _defaultMaxResults = 200;
 
 class GlobTool implements Tool {
   /// Captured project root; null retains standalone cwd-relative behavior.
-  String? projectRoot;
+  String? workspaceRoot;
 
   /// Source of the file list glob patterns are matched against. Defaults to
   /// [RepoFileEnumerator] (git-aware); tests inject a fake for determinism.
@@ -68,9 +68,9 @@ class GlobTool implements Tool {
       pattern = requiredString(input, 'pattern');
       path = resolveToolPath(
           optionalString(input, 'path') ??
-              projectRoot ??
+              workspaceRoot ??
               Directory.current.path,
-          projectRoot);
+          workspaceRoot);
       maxResults = optionalInt(input, 'maxResults') ?? _defaultMaxResults;
     } on ToolValidationException catch (e) {
       return ToolResult.error(e.message);

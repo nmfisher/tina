@@ -29,19 +29,19 @@ const int _recentCommits = 5;
 /// agent starts a conversation already knowing the repo state it would
 /// otherwise re-derive via `git status` / `ls` round trips.
 ///
-/// Returns null when [projectRoot] is not a git repository (or git is
+/// Returns null when [workspaceRoot] is not a git repository (or git is
 /// unavailable), in which case the block is simply omitted. Never throws —
 /// a summary failure must not break prompt assembly.
-String? repoSummaryBlock(String projectRoot) {
+String? repoSummaryBlock(String workspaceRoot) {
   try {
-    return _build(projectRoot);
+    return _build(workspaceRoot);
   } catch (_) {
     return null;
   }
 }
 
-String? _build(String projectRoot) {
-  final inside = _git(projectRoot, [
+String? _build(String workspaceRoot) {
+  final inside = _git(workspaceRoot, [
     'rev-parse',
     '--is-inside-work-tree',
   ]);
@@ -50,12 +50,12 @@ String? _build(String projectRoot) {
   final buf = StringBuffer('<repo>');
   // Branch + HEAD. --show-current is empty on a detached HEAD; fall back to
   // the abbreviated ref so the line still says something useful.
-  var branch = _git(projectRoot, ['branch', '--show-current'])?.trim() ?? '';
+  var branch = _git(workspaceRoot, ['branch', '--show-current'])?.trim() ?? '';
   if (branch.isEmpty) {
-    branch = _git(projectRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])?.trim() ??
+    branch = _git(workspaceRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])?.trim() ??
         '(unknown)';
   }
-  final head = _git(projectRoot, ['rev-parse', '--short', 'HEAD'])?.trim();
+  final head = _git(workspaceRoot, ['rev-parse', '--short', 'HEAD'])?.trim();
   if (head == null || head.isEmpty) {
     // A repo with no commits yet: still useful (branch + tree), skip the
     // commit-dependent lines.
@@ -64,15 +64,15 @@ String? _build(String projectRoot) {
       ..writeln('branch: $branch (no commits yet)');
   } else {
     final subject =
-        _git(projectRoot, ['log', '-1', '--pretty=format:%s'])?.trim() ?? '';
+        _git(workspaceRoot, ['log', '-1', '--pretty=format:%s'])?.trim() ?? '';
     buf
       ..writeln()
       ..writeln('branch: $branch @ $head ($subject)');
-    final statusCounts = _statusCounts(projectRoot);
+    final statusCounts = _statusCounts(workspaceRoot);
     if (statusCounts != null) {
       buf.writeln('status: $statusCounts');
     }
-    final log = _git(projectRoot,
+    final log = _git(workspaceRoot,
         ['log', '-$_recentCommits', '--pretty=format:%h %s']);
     if (log != null && log.trim().isNotEmpty) {
       buf
@@ -81,7 +81,7 @@ String? _build(String projectRoot) {
     }
   }
 
-  final tree = _treeSection(projectRoot);
+  final tree = _treeSection(workspaceRoot);
   if (tree != null) {
     buf
       ..writeln()

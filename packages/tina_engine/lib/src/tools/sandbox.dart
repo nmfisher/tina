@@ -49,9 +49,9 @@ class SandboxedFileSystem implements FileSystem {
 
   SandboxedFileSystem(
     this._inner, {
-    required String projectRoot,
+    required String workspaceRoot,
     required Directory tinaDir,
-  })  : _projectRoot = projectRoot,
+  })  : _projectRoot = workspaceRoot,
         _tinaDir = tinaDir.path;
 
   /// Real, symlink-resolved project root. Resolved lazily and cached.

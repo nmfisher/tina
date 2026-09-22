@@ -15,11 +15,11 @@ import '../exploration/metered_judgment_service.dart';
 
 RepositoryEvidenceReader _reader(AppComposition app) =>
     RepositoryEvidenceReader(
-      root: app.pipeline.tools.projectRoot,
+      root: app.pipeline.tools.workspaceRoot,
       skipHidden: app.config.indexSkipHidden,
       sandbox: SandboxedFileSystem(
         const IoFileSystem(),
-        projectRoot: app.pipeline.tools.projectRoot,
+        workspaceRoot: app.pipeline.tools.workspaceRoot,
         tinaDir: tinaDirFromEnv(app.environment.env),
       ),
       policy: PermissionPolicy(
@@ -39,7 +39,7 @@ Future<IndexView> readProjectIndex(
     onError: (Object _) => cancelled = true,
   );
   final store = await SqliteClassificationStore.open(
-    app.pipeline.tools.projectRoot,
+    app.pipeline.tools.workspaceRoot,
     cancelSignal: cancelSignal,
     onProgress: (text) {
       if (!cancelled) onProgress?.call(text);
@@ -86,7 +86,7 @@ Future<ProjectClassificationReport> runProjectClassification(
       'Extension classification requires the filename projection',
     );
   }
-  final root = app.pipeline.tools.projectRoot;
+  final root = app.pipeline.tools.workspaceRoot;
   // Limits come from the classifier transport, never the conversation model.
   final budget = !hasJudgments
       ? ClassificationBudget()

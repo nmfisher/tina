@@ -78,7 +78,7 @@ void main() {
       final tinaDir = Directory.systemTemp.createTempSync('tina_ls_tina_');
       addTearDown(() => tinaDir.deleteSync(recursive: true));
       final sandbox = SandboxedFileSystem(const IoFileSystem(),
-          projectRoot: tmp.path, tinaDir: tinaDir);
+          workspaceRoot: tmp.path, tinaDir: tinaDir);
       final outside = Directory.systemTemp.createTempSync('tina_ls_out_');
       addTearDown(() => outside.deleteSync(recursive: true));
       final res = await LsTool(sandbox: sandbox).execute({'path': outside.path});

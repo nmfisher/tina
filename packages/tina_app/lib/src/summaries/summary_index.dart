@@ -1,5 +1,5 @@
 import 'package:tina_engine/tina_engine.dart';
-import 'package:tina_app/src/execution/project_execution.dart';
+import 'package:tina_app/src/execution/workspace_execution.dart';
 import 'package:tina_app/src/summaries/summary_repository.dart';
 import 'package:tina_app/src/summaries/summary_models.dart';
 export 'package:tina_app/src/summaries/summary_models.dart' show SummaryIndexStatus, SummaryIndexResult;

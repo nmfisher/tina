@@ -464,8 +464,8 @@ class ToolExecutor {
             use.name,
             PermissionPolicy.keyFor(use.name, use.input),
             p.normalize(resolveToolPath(
-                optionalString(use.input, 'cwd') ?? tool.projectRoot ?? '.',
-                tool.projectRoot)),
+                optionalString(use.input, 'cwd') ?? tool.workspaceRoot ?? '.',
+                tool.workspaceRoot)),
           ])
         : null;
     final recovery = state.sandboxFailures[retryKey];

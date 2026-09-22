@@ -33,7 +33,7 @@ void main() {
     _git(project, ['add', '-A']);
     _git(project, ['commit', '-m', 'init']);
 
-    repo = SidecarSummaryRepo(root: sidecarRoot, projectRoot: project);
+    repo = SidecarSummaryRepo(root: sidecarRoot, workspaceRoot: project);
   });
 
   tearDown(() {

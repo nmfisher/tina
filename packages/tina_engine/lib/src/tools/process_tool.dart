@@ -139,13 +139,13 @@ final List<(RegExp, String)> kBashDenylist = [
 
 /// Validate that a `cwd` stays within the project root. Returns null when OK,
 /// otherwise a human-readable violation message. A broken symlink or a cwd
-/// outside the root is rejected. When [projectRoot] is null (e.g. tests that
+/// outside the root is rejected. When [workspaceRoot] is null (e.g. tests that
 /// don't set one) the check is skipped — bash has no fs of its own, so the root
 /// is threaded in explicitly.
-String? assertCwdWithinProject(String? cwd, String? projectRoot) {
-  if (cwd == null || projectRoot == null) return null;
+String? assertCwdWithinWorkspace(String? cwd, String? workspaceRoot) {
+  if (cwd == null || workspaceRoot == null) return null;
   final target = Directory(cwd).resolveSymbolicLinksSync();
-  final root = Directory(projectRoot).resolveSymbolicLinksSync();
+  final root = Directory(workspaceRoot).resolveSymbolicLinksSync();
   if (target != root && !p.isWithin(root, target)) {
     return 'cwd escapes the project root: $cwd';
   }
@@ -189,15 +189,15 @@ abstract class ProcessTool implements Tool, SpawnsProcess {
   /// Subprocess execution is injected so the tool is unit-testable without
   /// spawning a real shell. Defaults to [IoProcessRunner] (/bin/sh); app
   /// composition swaps in a [SandboxedProcessRunner] to confine writes. Mutable
-  /// (set once at composition, like [projectRoot]).
+  /// (set once at composition, like [workspaceRoot]).
   ProcessRunner processRunner;
 
   /// Project root the shell's `cwd` is confined to. Mutable so app composition
   /// can set it once. Null disables the cwd sandbox (e.g. in tests that don't
   /// set a root). Bash has no [FileSystem] of its own, so the root is threaded
-  /// in explicitly and validated with [assertCwdWithinProject] before the
+  /// in explicitly and validated with [assertCwdWithinWorkspace] before the
   /// shell starts.
-  String? projectRoot;
+  String? workspaceRoot;
 
   /// Where to spill full output once a stream exceeds [outputByteCap]. Defaults
   /// to the OS temp dir; tests inject a directory they can inspect.
@@ -207,7 +207,7 @@ abstract class ProcessTool implements Tool, SpawnsProcess {
     this.timeout = const Duration(seconds: 60),
     this.postKillGrace = const Duration(seconds: 10),
     ProcessRunner? processRunner,
-    this.projectRoot,
+    this.workspaceRoot,
     Map<String, String>? environment,
     this.preparedRequest,
     Directory Function()? tempDirFactory,
@@ -237,8 +237,8 @@ abstract class ProcessTool implements Tool, SpawnsProcess {
     final overrides = executionEnvironmentOverrides(input);
     final env = {...environment, ...overrides};
     final cwd = p.normalize(p.absolute(resolveToolPath(
-        optionalString(input, 'cwd') ?? projectRoot ?? Directory.current.path,
-        projectRoot)));
+        optionalString(input, 'cwd') ?? workspaceRoot ?? Directory.current.path,
+        workspaceRoot)));
     final executable =
         usesShell ? '/bin/sh' : requiredString(input, 'executable');
     final rawArgs = usesShell
@@ -327,7 +327,7 @@ abstract class ProcessTool implements Tool, SpawnsProcess {
     // Cwd sandbox (review H1/M2): the shell's working directory must stay
     // within the project root. Runs inside execute (after the ask-gate) but is
     // unconditional, so yolo can't skip it. Honest-label: prompt-then-block.
-    final cwdViolation = assertCwdWithinProject(cwd, projectRoot);
+    final cwdViolation = assertCwdWithinWorkspace(cwd, workspaceRoot);
     if (cwdViolation != null) {
       auditDenial(kind: auditSandbox, detail: cwdViolation);
       return ToolResult.error(cwdViolation);

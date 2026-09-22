@@ -8,10 +8,10 @@ void main() {
     test('carries the entry identity and a captured project-context flag', () {
       final p = AgentPipeline(
         mainIdentity: 'the main agent',
-        promptContext: PromptContext(loadProjectContext: false),
+        promptContext: PromptContext(loadWorkspaceContext: false),
       );
       expect(p.mainIdentity, 'the main agent');
-      expect(p.loadProjectContext, isFalse);
+      expect(p.loadWorkspaceContext, isFalse);
     });
 
     test('defaultPipeline carries the shipped main identity', () {

@@ -226,7 +226,7 @@ Future<void> _run(List<String> argv) async {
       // project (headless skips, TUI asks on the tty before the TUI takes over)
       // unless --trust / [trust] default override. Captured by the runtime pipeline
       // so every agent (main, sub, /spawn) honors the same decision.
-      final loadProjectContext = await _resolveProjectTrust(
+      final loadWorkspaceContext = await _resolveProjectTrust(
         launch.startup,
         mergedEnv,
       );
@@ -237,7 +237,7 @@ Future<void> _run(List<String> argv) async {
         registry: registry,
         store: sessionStore,
         ownsStore: true,
-        loadProjectContext: loadProjectContext,
+        loadWorkspaceContext: loadWorkspaceContext,
         plugins: [
           if (!launch.startup.nonInteractive)
             configuredGitInputPlugin(environment.env),
@@ -565,7 +565,7 @@ Future<void> _runNonInteractive(
     // factory must own the headless loop exactly as it owns the TUI's.
     final driver = buildAgent(
       exploreProject: createConfiguredExplorationTool(
-        projectRoot: app.pipeline.tools.projectRoot,
+        workspaceRoot: app.pipeline.tools.workspaceRoot,
         env: app.environment.env,
         spendLedger: app.spendLedger,
         pauseGate: app.pauseGate,

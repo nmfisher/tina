@@ -427,7 +427,7 @@ void main() {
           ),
           registry: registry,
           environment: FakeEnvironment(env: env),
-          projectRoot: temp.path,
+          workspaceRoot: temp.path,
           store: MemorySessionStore(),
         );
         addTearDown(() async {

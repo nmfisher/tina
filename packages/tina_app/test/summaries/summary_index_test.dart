@@ -1,4 +1,4 @@
-import 'package:tina_app/src/composition/project_services.dart';
+import 'package:tina_app/src/composition/workspace_services.dart';
 // Tests for [SummaryIndex] — the in-app façade over the summary sidecar.
 // These focus on [SummaryIndex.status], the pure-git staleness probe (no LLM,
 // no [Config]/[ProviderRegistry] needed), against a real temp git repo. The
@@ -44,12 +44,12 @@ void main() {
 
   SidecarSummaryRepo _repo() => SidecarSummaryRepo(
     root: Directory('${project.path}/.tina'),
-    projectRoot: project,
+    workspaceRoot: project,
   );
 
   // No config/registry — status() is the pure-git probe.
   SummaryInspection _index() =>
-      buildSummaryInspection(projectRoot: project.path);
+      buildSummaryInspection(workspaceRoot: project.path);
 
   // Seed the sidecar the way a fleet run would: write each dir's summary file
   // (so record()'s honesty guard records it), then record + save the manifest.
@@ -105,7 +105,7 @@ void main() {
       _git(project, ['commit', '-m', 'add lib/src']);
 
       final idx = buildSummaryInspection(
-        projectRoot: project.path,
+        workspaceRoot: project.path,
         allocations: AllocationsStore.forProject(project.path),
       );
       AllocationsStore.forProject(

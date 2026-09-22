@@ -25,10 +25,10 @@ import 'tool.dart';
 /// The project tool scope supplies the sidecar root at construction time;
 /// tests can construct the tool with a temp directory directly.
 class WriteSummaryTool implements Tool {
-  WriteSummaryTool({this.sidecarRoot, this.projectRoot});
+  WriteSummaryTool({this.sidecarRoot, this.workspaceRoot});
 
-  /// The sidecar summaries repo root (`<projectRoot>/.tina/summaries`).
-  /// Injected at app composition (see `ProjectToolScope`); a test passes a
+  /// The sidecar summaries repo root (`<workspaceRoot>/.tina/summaries`).
+  /// Injected at app composition (see `WorkspaceToolScope`); a test passes a
   /// temp directory via the constructor. Must be set before [execute] runs
   /// against the live path.
   Directory? sidecarRoot;
@@ -36,7 +36,7 @@ class WriteSummaryTool implements Tool {
   /// The main repo root, so the header's `git rev-parse` runs against the
   /// right repo regardless of the process cwd (tests + concurrent runs change
   /// cwd). Injected at composition alongside [sidecarRoot].
-  String? projectRoot;
+  String? workspaceRoot;
 
   @override
   ToolSchema get schema => const ToolSchema(
@@ -97,13 +97,13 @@ class WriteSummaryTool implements Tool {
 
     // Stamp the tracking header from the real main-repo HEAD + the dir's tree
     // hash, so the header is unforgeable by the summarizer child. Run git with
-    // `-C <projectRoot>` so this is independent of the process cwd (tests and
+    // `-C <workspaceRoot>` so this is independent of the process cwd (tests and
     // concurrent runs change cwd).
     final String commit;
     final String tree;
     try {
-      commit = _git(projectRoot, ['rev-parse', 'HEAD']);
-      tree = _git(projectRoot, ['rev-parse', 'HEAD:$dir']);
+      commit = _git(workspaceRoot, ['rev-parse', 'HEAD']);
+      tree = _git(workspaceRoot, ['rev-parse', 'HEAD:$dir']);
     } on ProcessException catch (e) {
       return ToolResult.error(
           'write_summary: could not read git HEAD/tree for "$dir": '
@@ -127,7 +127,7 @@ class WriteSummaryTool implements Tool {
 
 /// Run `git -C [workingDir]` with [args] and return trimmed stdout. When
 /// [workingDir] is null, runs in the process cwd (kept for completeness; the
-/// live path always sets it via [WriteSummaryTool.projectRoot]). Throws
+/// live path always sets it via [WriteSummaryTool.workspaceRoot]). Throws
 /// [_GitFailure] on a non-zero exit (with the trimmed stderr) and lets
 /// [ProcessException] propagate (git not found / not a repo at all).
 String _git(String? workingDir, List<String> args) {

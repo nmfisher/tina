@@ -1243,14 +1243,14 @@ Future<Conversation> _restore(
   final runtime = await buildExecutionRuntime(
     config: config,
     registry: registry,
-    projectRoot: root.path,
+    workspaceRoot: root.path,
     environment: environment,
     executionPlugins: [
       ...defaultExecutionPlugins(
         config: config,
         registry: registry,
         providerDecorators: const [],
-        projectRoot: root.path,
+        workspaceRoot: root.path,
         environment: environment,
         sandboxEnabled: false,
         sandboxNet: false,

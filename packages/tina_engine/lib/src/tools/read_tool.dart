@@ -7,7 +7,7 @@ import 'tool.dart';
 
 class ReadTool implements Tool {
   /// Captured project root; null retains standalone cwd-relative behavior.
-  String? projectRoot;
+  String? workspaceRoot;
 
   /// The filesystem this tool reads through. Mutable so app composition can
   /// inject a [SandboxedFileSystem] once (the codebase's established injection
@@ -58,7 +58,7 @@ class ReadTool implements Tool {
     if (rawPath == null || rawPath.isEmpty) {
       return ToolResult.error('filePath is required');
     }
-    final path = resolveToolPath(rawPath, projectRoot);
+    final path = resolveToolPath(rawPath, workspaceRoot);
     // Validate against the sandbox BEFORE any existence probe, so an
     // out-of-project target's existence can't be probed. Sandboxed only;
     // MemoryFileSystem skips the is-check.

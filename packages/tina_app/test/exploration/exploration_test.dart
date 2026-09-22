@@ -19,7 +19,7 @@ void main() {
       processes: processes,
       sandbox: SandboxedFileSystem(
         const IoFileSystem(),
-        projectRoot: dir.path,
+        workspaceRoot: dir.path,
         tinaDir: Directory(p.join(dir.path, '.tina')),
       ),
     );
@@ -155,7 +155,7 @@ void main() {
         root: root.path,
         sandbox: SandboxedFileSystem(
           const IoFileSystem(),
-          projectRoot: root.path,
+          workspaceRoot: root.path,
           tinaDir: Directory(p.join(dir.path, 'tina')),
         ),
       );

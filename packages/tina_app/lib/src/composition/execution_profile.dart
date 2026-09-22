@@ -15,9 +15,9 @@ import 'package:tina_app/src/platform/environment.dart';
 /// project-owned — not by an allowlist of known ids — is the point: an
 /// allowlist silently dropped every extension it did not know, so a
 /// borrowed runtime lost its driver factory.
-const List<String> _projectOwnedPluginIds = [
-  'tina.engine.project-capabilities',
-  'tina.engine.project-tool-scope',
+const List<String> _workspaceOwnedPluginIds = [
+  'tina.engine.workspace-capabilities',
+  'tina.engine.workspace-tool-scope',
 ];
 
 /// The default execution plugin profile — the exact plugin list
@@ -41,8 +41,8 @@ const List<String> _projectOwnedPluginIds = [
 ///    the factory then wraps metering only, exactly the pre-plugin behavior.
 /// 5. `tina.app.provider-factory` — the conversation-owned
 ///    [LlmProviderFactory], with `orderOnDecoratorStage: true`.
-/// 6. `tina.engine.project-capabilities` and 7.
-///    `tina.engine.project-tool-scope` — the stage that owns the project:
+/// 6. `tina.engine.workspace-capabilities` and 7.
+///    `tina.engine.workspace-tool-scope` — the stage that owns the project:
 ///    capabilities, then the tool scope assembled from them (the scope plugin
 ///    `requires` the capabilities key, which fixes the order).
 ///
@@ -59,14 +59,14 @@ List<PluginDescriptor> defaultExecutionPlugins({
   required ProviderRegistry registry,
   PauseGate? pauseGate,
   required List<ProviderDecorator> providerDecorators,
-  required String projectRoot,
+  required String workspaceRoot,
   required Environment environment,
   required bool sandboxEnabled,
   required bool sandboxNet,
   required bool sandboxReadOnly,
 
   /// Who disabled the sandbox, when [sandboxEnabled] is false — forwarded to
-  /// [ProjectCapabilities] for the one-time startup log. Null when enabled.
+  /// [WorkspaceCapabilities] for the one-time startup log. Null when enabled.
   String? sandboxOffReason,
 }) {
   final gate = pauseGate ?? PauseGate();
@@ -77,25 +77,25 @@ List<PluginDescriptor> defaultExecutionPlugins({
     liveQuotasPlugin(config),
     providerDecoratorsPlugin(providerDecorators),
     providerFactoryPlugin(config, registry, gate, orderOnDecoratorStage: true),
-    projectCapabilitiesPlugin(
-      projectRoot: projectRoot,
+    workspaceCapabilitiesPlugin(
+      workspaceRoot: workspaceRoot,
       env: environment.env,
       sandboxEnabled: sandboxEnabled,
       sandboxNet: sandboxNet,
       sandboxReadOnly: sandboxReadOnly,
       sandboxOffReason: sandboxOffReason,
     ),
-    projectToolScopePlugin(),
+    workspaceToolScopePlugin(),
   ];
 }
 
 /// The plugins of [plugins] a borrowing runtime mounts: everything EXCEPT the
-/// project-owned stages ([_projectOwnedPluginIds]) — the conversation-owned
+/// project-owned stages ([_workspaceOwnedPluginIds]) — the conversation-owned
 /// prefix rides along in the list's own order, and so does any conversation
 /// extension (a driver factory plugin, a custom conversation plugin). The
 /// borrowed scope keeps the capabilities its owner built; the borrowing
 /// conversation keeps its own extensions.
 List<PluginDescriptor> borrowedScopePlugins(List<PluginDescriptor> plugins) => [
   for (final plugin in plugins)
-    if (!_projectOwnedPluginIds.contains(plugin.id)) plugin,
+    if (!_workspaceOwnedPluginIds.contains(plugin.id)) plugin,
 ];

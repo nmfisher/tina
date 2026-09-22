@@ -1,11 +1,11 @@
 import '../permissions/policy.dart';
 import '../tools/tool.dart';
 import '../tools/render_image_tool.dart';
-import 'project_tool_scope.dart';
+import 'workspace_tool_scope.dart';
 import 'prompt_context.dart';
 import 'tool_profile.dart';
 
-export 'project_tool_scope.dart';
+export 'workspace_tool_scope.dart';
 export 'prompt_context.dart';
 export 'tool_profile.dart';
 
@@ -27,30 +27,30 @@ class AgentPipeline {
   final PromptContext promptContext;
 
   /// The trust decision captured for this runtime.
-  bool get loadProjectContext => promptContext.loadProjectContext;
+  bool get loadWorkspaceContext => promptContext.loadWorkspaceContext;
 
-  final ProjectToolScope tools;
+  final WorkspaceToolScope tools;
 
   AgentPipeline({
     this.mainIdentity = '',
-    ProjectToolScope? tools,
+    WorkspaceToolScope? tools,
     PromptContext? promptContext,
-  })  : tools = tools ?? ProjectToolScope.unconfined(),
+  })  : tools = tools ?? WorkspaceToolScope.unconfined(),
         promptContext =
-            promptContext ?? PromptContext(projectRoot: tools?.projectRoot);
+            promptContext ?? PromptContext(workspaceRoot: tools?.workspaceRoot);
 }
 
 /// Standalone assembly. Application callers use their pipeline's tool scope.
 List<Tool> toolSetFor(ToolProfile profile) =>
-    ProjectToolScope.unconfined().toolSetFor(profile);
+    WorkspaceToolScope.unconfined().toolSetFor(profile);
 
 /// Standalone policy reconstruction; application restore uses its live scope.
 List<Tool> toolsFromPolicy(PermissionPolicy policy) =>
-    ProjectToolScope.unconfined().toolsFromPolicy(policy);
+    WorkspaceToolScope.unconfined().toolsFromPolicy(policy);
 
 /// Standalone base tools; application agents use their live scope.
 ToolRegistry buildTools({bool safeMode = false}) =>
-    ProjectToolScope.unconfined().buildTools(safeMode: safeMode);
+    WorkspaceToolScope.unconfined().buildTools(safeMode: safeMode);
 
 /// The shipped pipeline: the entry agent's identity. Sub-agent identities are
 /// not declared here — they inherit this (resolved) at delegation time.

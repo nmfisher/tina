@@ -9,11 +9,11 @@ import 'package:tina_app/src/composition/agent_composition.dart';
 import 'package:tina_app/src/composition/execution_profile.dart';
 import 'package:tina_app/src/composition/runtime_resources.dart';
 
-import 'package:tina_app/src/execution/project_execution.dart';
+import 'package:tina_app/src/execution/workspace_execution.dart';
 import '../execution/interrupts.dart';
 import 'package:tina_app/src/execution/input_routes.dart';
 
-class ExecutionRuntime implements ProjectExecution {
+class ExecutionRuntime implements WorkspaceExecution {
   final RuntimeConfig config;
   final Environment environment;
   @override
@@ -87,10 +87,10 @@ Future<ExecutionRuntime> buildExecutionRuntime({
   required RuntimeConfig config,
   required ProviderRegistry registry,
   Environment? environment,
-  String? projectRoot,
-  ProjectToolScope? toolScope,
+  String? workspaceRoot,
+  WorkspaceToolScope? toolScope,
   PromptContext? promptContext,
-  bool? loadProjectContext,
+  bool? loadWorkspaceContext,
   AgentDriverFactory? driverFactory,
   SubAgentPersistenceFactory? persistence,
   List<PluginDescriptor>? executionPlugins,
@@ -99,19 +99,19 @@ Future<ExecutionRuntime> buildExecutionRuntime({
   final env = environment ?? const PlatformEnvironment();
   final root = p.normalize(
     p.absolute(
-      projectRoot ??
-          toolScope?.projectRoot ??
-          promptContext?.projectRoot ??
+      workspaceRoot ??
+          toolScope?.workspaceRoot ??
+          promptContext?.workspaceRoot ??
           Directory.current.path,
     ),
   );
-  if (toolScope != null && toolScope.projectRoot != root) {
-    throw ArgumentError('toolScope must belong to the requested projectRoot');
+  if (toolScope != null && toolScope.workspaceRoot != root) {
+    throw ArgumentError('toolScope must belong to the requested workspaceRoot');
   }
   if (promptContext != null &&
-      (promptContext.projectRoot != root ||
-          (loadProjectContext != null &&
-              loadProjectContext != promptContext.loadProjectContext))) {
+      (promptContext.workspaceRoot != root ||
+          (loadWorkspaceContext != null &&
+              loadWorkspaceContext != promptContext.loadWorkspaceContext))) {
     throw ArgumentError(
       'promptContext must match the requested project and trust',
     );
@@ -133,7 +133,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
         registry: registry,
         pauseGate: pauseGate,
         providerDecorators: const [],
-        projectRoot: root,
+        workspaceRoot: root,
         environment: env,
         sandboxEnabled: config.sandboxEnabled,
         sandboxNet: config.sandboxNet,
@@ -177,12 +177,12 @@ Future<ExecutionRuntime> buildExecutionRuntime({
   // the composition threw, and nothing disposed what was acquired.)
   if (toolScope == null &&
       !mounted.any(
-        (plugin) => plugin.provides.any((k) => k == projectToolScopeServiceKey),
+        (plugin) => plugin.provides.any((k) => k == workspaceToolScopeServiceKey),
       )) {
     throw PluginCompositionError(
       'the execution profile provides no project tool scope '
       '(required tool-scope stage missing before activation)',
-      pluginId: 'tina.engine.project-tool-scope',
+      pluginId: 'tina.engine.workspace-tool-scope',
     );
   }
   // A borrowed tool scope stays with its owner: expose it to this runtime's
@@ -191,15 +191,15 @@ Future<ExecutionRuntime> buildExecutionRuntime({
   // teardown never touches parent-owned bindings or resources — disposing
   // this runtime releases only its own root scope, so the lender's resources
   // are released exactly once, by the lender. Without it, an extension that
-  // requires projectToolScopeServiceKey fails dependency validation even
+  // requires workspaceToolScopeServiceKey fails dependency validation even
   // though composition handed it the scope.
   final runtime = PluginRuntime(
     name: 'execution',
     plugins: mounted,
     parent: toolScope == null
         ? null
-        : (PluginScope('borrowed-project-tools')
-            ..provide(projectToolScopeServiceKey, toolScope)),
+        : (PluginScope('borrowed-workspace-tools')
+            ..provide(workspaceToolScopeServiceKey, toolScope)),
   );
   final resources = RuntimeResources();
   // Fix: cleanup ownership is established BEFORE activation — the runtime's
@@ -228,17 +228,17 @@ Future<ExecutionRuntime> buildExecutionRuntime({
     // A nested same-project run borrows the live scope (including its write
     // lock). Independent compositions construct independent tool instances —
     // each runtime's plugins build their own scope under
-    // [projectToolScopeServiceKey]; the lookup is non-null because the two
+    // [workspaceToolScopeServiceKey]; the lookup is non-null because the two
     // project plugins above activated, or `toolScope` was borrowed verbatim.
     // Post-activation re-check (defense in depth): a profile that omitted
     // the tool-scope stage fails before activation now, but a plugin that
-    // DECLARED projectToolScopeServiceKey without binding it still surfaces
+    // DECLARED workspaceToolScopeServiceKey without binding it still surfaces
     // here as a composition error.
-    final tools = toolScope ?? runtime.scope.lookup(projectToolScopeServiceKey);
+    final tools = toolScope ?? runtime.scope.lookup(workspaceToolScopeServiceKey);
     if (tools == null) {
       throw PluginCompositionError(
         'the execution profile provides no project tool scope',
-        pluginId: 'tina.engine.project-tool-scope',
+        pluginId: 'tina.engine.workspace-tool-scope',
       );
     }
     // The runtime owns its own scope resources; its teardown is already
@@ -281,7 +281,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
     // A nested same-project run borrows the live scope (including its write
     // lock). Independent compositions construct independent tool instances —
     // each runtime's plugins build their own scope under
-    // [projectToolScopeServiceKey]; the lookup is non-null because the two
+    // [workspaceToolScopeServiceKey]; the lookup is non-null because the two
     // project plugins above activated, or `toolScope` was borrowed verbatim.
     final pipeline = AgentPipeline(
       mainIdentity: defaultPipeline.mainIdentity,
@@ -289,8 +289,8 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       promptContext:
           promptContext ??
           PromptContext(
-            projectRoot: root,
-            loadProjectContext: loadProjectContext ?? true,
+            workspaceRoot: root,
+            loadWorkspaceContext: loadWorkspaceContext ?? true,
             repoSummarySource: () => repoSummaryBlock(root),
           ),
     );

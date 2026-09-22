@@ -11,12 +11,12 @@ import 'tool_input.dart';
 
 /// Read-only observations, not inferred authority to write any reported path.
 class ExecutionInfoTool implements Tool {
-  final String projectRoot;
+  final String workspaceRoot;
   final Map<String, String> environment;
   final ProcessRunner runner;
 
   ExecutionInfoTool(
-      {required this.projectRoot,
+      {required this.workspaceRoot,
       required Map<String, String> environment,
       required this.runner})
       : environment = Map.unmodifiable(environment);
@@ -53,7 +53,7 @@ class ExecutionInfoTool implements Tool {
       resolver = File('/etc/resolv.conf').resolveSymbolicLinksSync();
     } on FileSystemException {/* Report absence without guessing. */}
     return ToolResult(const JsonEncoder.withIndent('  ').convert({
-      'projectRoot': projectRoot,
+      'workspaceRoot': workspaceRoot,
       'sandbox': sandbox?.backendDescription ??
           'pass-through: no filesystem confinement',
       'network': sandbox?.networkIsolated == true
@@ -77,7 +77,7 @@ class ExecutionInfoTool implements Tool {
       'readOnlyOverrides': sandbox?.accessPolicy.readOnlyPaths ?? [],
       if (name != null)
         'executable':
-            resolveExecutionExecutable(name, environment, projectRoot),
+            resolveExecutionExecutable(name, environment, workspaceRoot),
       'note': 'Cache paths are observations, not write grants. DNS/network failures '
           'and dependency resolution failures do not establish a filesystem denial.',
     }));

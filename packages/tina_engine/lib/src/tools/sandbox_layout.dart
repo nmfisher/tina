@@ -38,7 +38,7 @@ class SandboxHostLayout {
 /// writable grants follow the base read-only namespace and project mount.
 List<String> buildLinuxSandboxArguments(
     {required SandboxHostLayout host,
-    required String? projectRoot,
+    required String? workspaceRoot,
     required Iterable<String> writablePaths,
     required bool readOnlyProject,
     required bool isolateNetwork}) {
@@ -52,10 +52,10 @@ List<String> buildLinuxSandboxArguments(
       resolver
     ],
     for (final dir in host.temporaryDirectories) ...['--bind', dir, dir],
-    if (projectRoot != null) ...[
+    if (workspaceRoot != null) ...[
       readOnlyProject ? '--ro-bind' : '--bind',
-      projectRoot,
-      projectRoot
+      workspaceRoot,
+      workspaceRoot
     ],
     for (final dir in writablePaths) ...['--bind', dir, dir],
     '--dev', '/dev', '--proc', '/proc',

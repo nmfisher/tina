@@ -10,7 +10,7 @@ class ExecTool extends ProcessTool {
       {super.timeout,
       super.postKillGrace,
       super.processRunner,
-      super.projectRoot,
+      super.workspaceRoot,
       super.tempDirFactory,
       super.environment,
       super.preparedRequest});
@@ -23,7 +23,7 @@ class ExecTool extends ProcessTool {
       ExecTool(
           timeout: timeout,
           postKillGrace: postKillGrace,
-          projectRoot: projectRoot,
+          workspaceRoot: workspaceRoot,
           tempDirFactory: tempDirFactory,
           environment: environment,
           processRunner: runner ?? processRunner,

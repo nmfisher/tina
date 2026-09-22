@@ -10,7 +10,7 @@ import 'tool.dart';
 
 class EditTool implements Tool {
   /// Captured project root; null retains standalone cwd-relative behavior.
-  String? projectRoot;
+  String? workspaceRoot;
 
   /// The filesystem this tool reads/writes through. Mutable so app composition
   /// can inject a [SandboxedFileSystem] once. Defaults to the real filesystem.
@@ -69,7 +69,7 @@ class EditTool implements Tool {
   /// the user decides. Preparation never writes or creates a backup.
   Future<EditPreparation> prepare(Map<String, dynamic> input) async {
     try {
-      final request = EditRequest.fromInput(input, projectRoot);
+      final request = EditRequest.fromInput(input, workspaceRoot);
       return await _withLock(request.path, () => _prepare(request));
     } on ToolValidationException catch (e) {
       return EditPreparation.failed(ToolResult.error(e.message));
@@ -154,7 +154,7 @@ class EditTool implements Tool {
     // Direct callers prepare and apply under one lock, preserving serialized
     // read/modify/write behavior for concurrent edits of different regions.
     try {
-      final request = EditRequest.fromInput(input, projectRoot);
+      final request = EditRequest.fromInput(input, workspaceRoot);
       return await _withLock(request.path, () async {
         final result = await _prepare(request);
         return result.error ?? await _apply(result.edit!);

@@ -30,7 +30,7 @@ final _log = Logger('tina.tools.grep');
 /// bypass). When [sandbox] is null (tests), the assert is skipped.
 class GrepTool implements Tool, SpawnsProcess {
   /// Captured project root; null retains standalone cwd-relative behavior.
-  String? projectRoot;
+  String? workspaceRoot;
   static const int _defaultMaxResults = 100;
 
   /// Per-match line cap. A single match on a minified/bundled multi-KB line
@@ -119,9 +119,9 @@ class GrepTool implements Tool, SpawnsProcess {
       pattern = requiredString(input, 'pattern');
       path = resolveToolPath(
           optionalString(input, 'path') ??
-              projectRoot ??
+              workspaceRoot ??
               Directory.current.path,
-          projectRoot);
+          workspaceRoot);
       glob = optionalString(input, 'glob');
       maxResults = optionalInt(input, 'maxResults') ?? _defaultMaxResults;
       caseInsensitive = optionalBool(input, 'caseInsensitive') ?? false;

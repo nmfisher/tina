@@ -160,7 +160,7 @@ void main() {
       sessions: manager,
       config: RuntimeConfig(safeMode: safeMode, permissionMode: mode),
       pipeline: AgentPipeline(
-        promptContext: PromptContext(loadProjectContext: false),
+        promptContext: PromptContext(loadWorkspaceContext: false),
       ),
       providers: factory,
       store: store,

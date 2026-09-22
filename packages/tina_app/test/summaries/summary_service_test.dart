@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:test/test.dart';
-import 'package:tina_app/src/execution/project_execution.dart';
+import 'package:tina_app/src/execution/workspace_execution.dart';
 import 'package:tina_app/src/summaries/summary_index.dart';
 import 'package:tina_app/src/summaries/summary_models.dart';
 import 'package:tina_app/src/summaries/summary_repository.dart';

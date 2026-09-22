@@ -20,13 +20,13 @@ void main() {
     inner = MemoryProcessRunner(
         (_, __) => MemoryRunningProcess(stdoutChunks: ['ok']));
     runner = SandboxedProcessRunner(
-      projectRoot: temp.path,
+      workspaceRoot: temp.path,
       inner: inner,
       backend: SandboxBackend.bwrap,
       // Model an external directory despite keeping test fixtures in /tmp.
       accessPolicy: SandboxAccessPolicy(),
     );
-    bash = BashTool(processRunner: runner, projectRoot: temp.path);
+    bash = BashTool(processRunner: runner, workspaceRoot: temp.path);
   });
   tearDown(() => temp.deleteSync(recursive: true));
 
@@ -257,7 +257,7 @@ void main() {
   test('read-only project inside temp still needs explicit access', () {
     final confined = BashTool(
         processRunner: SandboxedProcessRunner(
-            projectRoot: temp.path,
+            workspaceRoot: temp.path,
             sandboxReadOnly: true,
             backend: SandboxBackend.bwrap));
     expect(confined.requestAccess(input()), isNotNull);
@@ -265,7 +265,7 @@ void main() {
 
   test('macOS receives the same invocation-only grant', () async {
     final mac = SandboxedProcessRunner(
-        projectRoot: temp.path,
+        workspaceRoot: temp.path,
         inner: inner,
         backend: SandboxBackend.sandboxExec,
         accessPolicy: SandboxAccessPolicy());
@@ -283,7 +283,7 @@ void main() {
         stderrChunks: ['Read-only file system'], exitCodeValue: 1));
     final tool = BashTool(
         processRunner: SandboxedProcessRunner(
-            projectRoot: temp.path,
+            workspaceRoot: temp.path,
             inner: inner,
             backend: SandboxBackend.bwrap));
     final result = await tool.execute({'command': 'echo test'});
@@ -295,7 +295,7 @@ void main() {
   test('Linux actually confines writes before and after a once grant',
       () async {
     final native =
-        SandboxedProcessRunner(projectRoot: temp.path, sandboxReadOnly: true);
+        SandboxedProcessRunner(workspaceRoot: temp.path, sandboxReadOnly: true);
     final path = cache.resolveSymbolicLinksSync();
     final args = ['-c', 'echo written > "$path/probe"'];
     expect((await native.run('/bin/sh', args)).exitCode, isNot(0));

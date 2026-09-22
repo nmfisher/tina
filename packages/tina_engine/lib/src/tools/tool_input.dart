@@ -41,10 +41,10 @@ bool? optionalBool(Map<String, dynamic> input, String key) {
 }
 
 /// Resolve a model-supplied path against the owning runtime, when scoped.
-String resolveToolPath(String path, String? projectRoot) =>
-    projectRoot == null || p.isAbsolute(path)
+String resolveToolPath(String path, String? workspaceRoot) =>
+    workspaceRoot == null || p.isAbsolute(path)
         ? path
-        : p.normalize(p.join(projectRoot, path));
+        : p.normalize(p.join(workspaceRoot, path));
 
 /// A deeply unmodifiable view of a tool-call input map.
 ///

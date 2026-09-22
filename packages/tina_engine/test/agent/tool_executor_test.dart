@@ -224,7 +224,7 @@ void main() {
       // deny upstream of it.
       final bash = BashTool(
         processRunner: SandboxedProcessRunner(
-          projectRoot: temp.path,
+          workspaceRoot: temp.path,
           inner: MemoryProcessRunner((_, __) {
             ran = true;
             return MemoryRunningProcess(stdoutChunks: ['ok']);
@@ -232,7 +232,7 @@ void main() {
           backend: SandboxBackend.bwrap,
           accessPolicy: SandboxAccessPolicy(),
         ),
-        projectRoot: temp.path,
+        workspaceRoot: temp.path,
       );
       final executor = ToolExecutor(
         policy: PermissionPolicy(defaults: {
@@ -276,7 +276,7 @@ void main() {
           seen.add('executed: ${arguments.join(' ')}');
           return MemoryRunningProcess(stdoutChunks: ['ok']);
         }),
-        projectRoot: Directory.systemTemp.path,
+        workspaceRoot: Directory.systemTemp.path,
       );
       final executor = ToolExecutor(
         policy: PermissionPolicy(defaults: {

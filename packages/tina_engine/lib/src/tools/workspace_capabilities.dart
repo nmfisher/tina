@@ -15,24 +15,24 @@ import 'sandbox_runner.dart';
 final _log = Logger('tina.sandbox');
 
 /// Service key under which a composition registers/resolves the project's
-/// [ProjectCapabilities].
-final ServiceKey<ProjectCapabilities> projectCapabilitiesServiceKey =
-    ServiceKey<ProjectCapabilities>('tina.engine.project_capabilities');
+/// [WorkspaceCapabilities].
+final ServiceKey<WorkspaceCapabilities> workspaceCapabilitiesServiceKey =
+    ServiceKey<WorkspaceCapabilities>('tina.engine.workspace_capabilities');
 
 /// The project-owned construction results every borrower of a project scope
 /// shares: the normalized root, the environment snapshot, the per-project file
 /// mutation lock and — when confined — the sandboxed file system, backup store
-/// and bash process runner. Built once per scope via [ProjectCapabilities.build];
+/// and bash process runner. Built once per scope via [WorkspaceCapabilities.build];
 /// creating another scope never changes these instances or their sandbox
 /// configuration.
-class ProjectCapabilities {
+class WorkspaceCapabilities {
   /// The normalized, absolute project root all tool paths resolve against.
-  final String projectRoot;
+  final String workspaceRoot;
 
   /// The environment snapshot the tools see (unmodifiable).
   final Map<String, String> environment;
 
-  /// Whether file tools are confined to [projectRoot] via [fileSystem] and
+  /// Whether file tools are confined to [workspaceRoot] via [fileSystem] and
   /// [backups]. False leaves the file tools unwired (standalone assembly for
   /// engine consumers without application setup).
   final bool confineFiles;
@@ -49,7 +49,7 @@ class ProjectCapabilities {
   /// capabilities so every agent/sub-agent shares it.
   final FileMutationLock mutationLock;
 
-  /// The confined file system rooted at [projectRoot], or null when
+  /// The confined file system rooted at [workspaceRoot], or null when
   /// [confineFiles] is false.
   final SandboxedFileSystem? fileSystem;
 
@@ -67,8 +67,8 @@ class ProjectCapabilities {
   /// same `.tina/backups` dir. Chooses [SandboxedProcessRunner] vs
   /// [IoProcessRunner] by [sandboxEnabled], feeding it extra write-roots from
   /// the `TINA_SANDBOX_ALLOW` env var (colon-separated, empties dropped).
-  factory ProjectCapabilities.build({
-    required String projectRoot,
+  factory WorkspaceCapabilities.build({
+    required String workspaceRoot,
     required Map<String, String> env,
     bool confineFiles = true,
     bool sandboxEnabled = true,
@@ -79,7 +79,7 @@ class ProjectCapabilities {
     /// log. Defaults to the historical `--no-sandbox` wording.
     String sandboxOffReason = kSandboxOffReasonNoSandbox,
   }) {
-    final root = p.normalize(p.absolute(projectRoot));
+    final root = p.normalize(p.absolute(workspaceRoot));
     final environment = Map<String, String>.unmodifiable(env);
     // One shared per-file lock so concurrent agents editing/writing the same
     // file serialize (AgentQuota allows several to run at once). Owned by the
@@ -92,7 +92,7 @@ class ProjectCapabilities {
       final io = const IoFileSystem();
       fileSystem = SandboxedFileSystem(
         io,
-        projectRoot: root,
+        workspaceRoot: root,
         tinaDir: tinaDirFromEnv(env),
       );
       backups = BackupStore(
@@ -118,7 +118,7 @@ class ProjectCapabilities {
           .where((s) => s.isNotEmpty)
           .toList();
       final runner = SandboxedProcessRunner(
-        projectRoot: root,
+        workspaceRoot: root,
         environment: environment,
         extraAllowPaths: extra,
         sandboxNet: sandboxNet,
@@ -134,8 +134,8 @@ class ProjectCapabilities {
       _log.info('bash sandbox: pass-through ($sandboxOffReason)');
     }
 
-    return ProjectCapabilities._(
-      projectRoot: root,
+    return WorkspaceCapabilities._(
+      workspaceRoot: root,
       environment: environment,
       confineFiles: confineFiles,
       sandboxEnabled: sandboxEnabled,
@@ -147,8 +147,8 @@ class ProjectCapabilities {
     );
   }
 
-  ProjectCapabilities._({
-    required this.projectRoot,
+  WorkspaceCapabilities._({
+    required this.workspaceRoot,
     required this.environment,
     required this.confineFiles,
     required this.sandboxEnabled,

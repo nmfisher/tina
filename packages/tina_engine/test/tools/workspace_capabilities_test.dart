@@ -3,13 +3,13 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-import 'package:tina_engine/src/agent/project_tool_scope.dart';
+import 'package:tina_engine/src/agent/workspace_tool_scope.dart';
 import 'package:tina_engine/src/agent/tool_profile.dart';
 import 'package:tina_engine/src/tools/atomic_write.dart';
 import 'package:tina_engine/src/tools/mutation_lock.dart';
 import 'package:tina_engine/src/tools/process_runner.dart';
-import 'package:tina_engine/src/tools/project_capabilities.dart';
-import 'package:tina_engine/src/tools/project_tool_plugins.dart';
+import 'package:tina_engine/src/tools/workspace_capabilities.dart';
+import 'package:tina_engine/src/tools/workspace_tool_plugins.dart';
 import 'package:tina_engine/src/tools/sandbox.dart';
 import 'package:tina_engine/src/tools/sandbox_runner.dart';
 import 'package:tina_engine/src/permissions/policy.dart';
@@ -34,16 +34,16 @@ void main() {
     await tempDir.delete(recursive: true);
   });
 
-  group('ProjectCapabilities.build', () {
+  group('WorkspaceCapabilities.build', () {
     test('confined build wires a SandboxedProcessRunner, sandboxed fs and a '
         'backup store', () {
-      final caps = ProjectCapabilities.build(
-        projectRoot: tempDir.path,
+      final caps = WorkspaceCapabilities.build(
+        workspaceRoot: tempDir.path,
         env: const {},
       );
 
-      expect(p.isAbsolute(caps.projectRoot), isTrue);
-      expect(caps.projectRoot, p.normalize(p.absolute(tempDir.path)));
+      expect(p.isAbsolute(caps.workspaceRoot), isTrue);
+      expect(caps.workspaceRoot, p.normalize(p.absolute(tempDir.path)));
       expect(caps.confineFiles, isTrue);
       expect(caps.sandboxEnabled, isTrue);
       expect(caps.fileSystem, isA<SandboxedFileSystem>());
@@ -54,8 +54,8 @@ void main() {
 
     test('confined build shares one BackupStore (and fs) across the store and '
         'the sandbox', () {
-      final caps = ProjectCapabilities.build(
-        projectRoot: tempDir.path,
+      final caps = WorkspaceCapabilities.build(
+        workspaceRoot: tempDir.path,
         env: const {},
       );
 
@@ -66,8 +66,8 @@ void main() {
     });
 
     test('unconfined build wires IoProcessRunner and null fs/backups', () {
-      final caps = ProjectCapabilities.build(
-        projectRoot: tempDir.path,
+      final caps = WorkspaceCapabilities.build(
+        workspaceRoot: tempDir.path,
         env: const {},
         confineFiles: false,
         sandboxEnabled: false,
@@ -82,8 +82,8 @@ void main() {
     });
 
     test('environment snapshot is unmodifiable', () {
-      final caps = ProjectCapabilities.build(
-        projectRoot: tempDir.path,
+      final caps = WorkspaceCapabilities.build(
+        workspaceRoot: tempDir.path,
         env: const {'TINA_TEST_KEY': 'v'},
       );
 
@@ -94,12 +94,12 @@ void main() {
 
     test('two builds for the same root produce INDEPENDENT mutation locks and '
         'sandboxes', () {
-      final a = ProjectCapabilities.build(
-        projectRoot: tempDir.path,
+      final a = WorkspaceCapabilities.build(
+        workspaceRoot: tempDir.path,
         env: const {},
       );
-      final b = ProjectCapabilities.build(
-        projectRoot: tempDir.path,
+      final b = WorkspaceCapabilities.build(
+        workspaceRoot: tempDir.path,
         env: const {},
       );
 
@@ -108,31 +108,31 @@ void main() {
       expect(identical(a.fileSystem, b.fileSystem), isFalse,
           reason: 'each build owns its own sandbox');
       expect(identical(a.processRunner, b.processRunner), isFalse);
-      expect(a.projectRoot, b.projectRoot);
+      expect(a.workspaceRoot, b.workspaceRoot);
     });
 
     test('the same capabilities object means one shared mutation lock', () {
-      // The lock identity comes from the capabilities: ProjectToolScope's
+      // The lock identity comes from the capabilities: WorkspaceToolScope's
       // private constructor assigns `mutationLock = capabilities.mutationLock`,
       // so two scopes sharing one capabilities object would share one lock.
       // The public API builds capabilities per scope, so verify the identity
       // anchor: one capabilities object owns exactly one lock, while scopes
       // built separately each get their own.
-      final shared = ProjectCapabilities.build(
-        projectRoot: tempDir.path,
+      final shared = WorkspaceCapabilities.build(
+        workspaceRoot: tempDir.path,
         env: const {},
         sandboxEnabled: false,
       );
       expect(shared.mutationLock, same(shared.mutationLock));
       expect(shared.mutationLock, isA<FileMutationLock>());
 
-      final scopeA = ProjectToolScope(
-        projectRoot: tempDir.path,
+      final scopeA = WorkspaceToolScope(
+        workspaceRoot: tempDir.path,
         env: const {},
         sandboxEnabled: false,
       );
-      final scopeB = ProjectToolScope(
-        projectRoot: tempDir.path,
+      final scopeB = WorkspaceToolScope(
+        workspaceRoot: tempDir.path,
         env: const {},
         sandboxEnabled: false,
       );
@@ -149,14 +149,14 @@ void main() {
       // that makes a spawn confined is which runner the tool was handed; a
       // tool that builds its own `IoProcessRunner` silently opts out of the
       // sandbox. `grep` and `git` both did.
-      final caps = ProjectCapabilities.build(
-        projectRoot: tempDir.path,
+      final caps = WorkspaceCapabilities.build(
+        workspaceRoot: tempDir.path,
         env: const {},
         sandboxEnabled: false,
       );
       final runtime = PluginRuntime(
         name: 'project-tools-test',
-        plugins: projectToolPlugins(caps),
+        plugins: workspaceToolPlugins(caps),
       )..activateSync();
       final byName = {
         for (final t in toolRegistryFromScope(runtime.scope).all)
@@ -172,15 +172,15 @@ void main() {
     });
 
     group('declared capabilities are enforced against the gate', () {
-      ({ProjectCapabilities caps, Map<String, dynamic> tools}) mounted() {
-        final caps = ProjectCapabilities.build(
-          projectRoot: tempDir.path,
+      ({WorkspaceCapabilities caps, Map<String, dynamic> tools}) mounted() {
+        final caps = WorkspaceCapabilities.build(
+          workspaceRoot: tempDir.path,
           env: const {},
           sandboxEnabled: false,
         );
         final runtime = PluginRuntime(
           name: 'capability-sweep',
-          plugins: projectToolPlugins(caps),
+          plugins: workspaceToolPlugins(caps),
         )..activateSync();
         return (
           caps: caps,
@@ -237,14 +237,14 @@ void main() {
 
     test('built catalog names and order are exactly the frozen catalog, plus '
         'web_search only when a key is present', () {
-      final caps = ProjectCapabilities.build(
-        projectRoot: tempDir.path,
+      final caps = WorkspaceCapabilities.build(
+        workspaceRoot: tempDir.path,
         env: const {},
         sandboxEnabled: false,
       );
       final runtime = PluginRuntime(
         name: 'project-tools-test',
-        plugins: projectToolPlugins(caps),
+        plugins: workspaceToolPlugins(caps),
       )..activateSync();
 
       expect(
@@ -273,8 +273,8 @@ void main() {
 
       final withKey = PluginRuntime(
         name: 'project-tools-test',
-        plugins: projectToolPlugins(ProjectCapabilities.build(
-          projectRoot: tempDir.path,
+        plugins: workspaceToolPlugins(WorkspaceCapabilities.build(
+          workspaceRoot: tempDir.path,
           env: const {'BRAVE_API_KEY': 'brave-test-key'},
           sandboxEnabled: false,
         )),
@@ -307,8 +307,8 @@ void main() {
 
     test('with both keys set, web_search resolves to the Tavily-backed tool',
         () {
-      final caps = ProjectCapabilities.build(
-        projectRoot: tempDir.path,
+      final caps = WorkspaceCapabilities.build(
+        workspaceRoot: tempDir.path,
         env: const {
           'BRAVE_API_KEY': 'brave-test-key',
           'TAVILY_API_KEY': 'tavily-test-key',
@@ -317,7 +317,7 @@ void main() {
       );
       final runtime = PluginRuntime(
         name: 'project-tools-test',
-        plugins: projectToolPlugins(caps),
+        plugins: workspaceToolPlugins(caps),
       )..activateSync();
 
       final webSearch = toolRegistryFromScope(runtime.scope)['web_search']!;
@@ -328,14 +328,14 @@ void main() {
 
     test('safeMode strips write/edit/bash (and write_summary is not in the '
         'base registry)', () {
-      final caps = ProjectCapabilities.build(
-        projectRoot: tempDir.path,
+      final caps = WorkspaceCapabilities.build(
+        workspaceRoot: tempDir.path,
         env: const {},
         sandboxEnabled: false,
       );
       final runtime = PluginRuntime(
         name: 'project-tools-test',
-        plugins: projectToolPlugins(caps),
+        plugins: workspaceToolPlugins(caps),
       )..activateSync();
 
       final safe = toolRegistryFromScope(runtime.scope, safeMode: true);
@@ -350,23 +350,23 @@ void main() {
     test('two scopes from two capabilities objects have independent tool '
         'instances; two scopes from ONE capabilities object share the lock',
         () {
-      final caps = ProjectCapabilities.build(
-        projectRoot: tempDir.path,
+      final caps = WorkspaceCapabilities.build(
+        workspaceRoot: tempDir.path,
         env: const {},
         sandboxEnabled: false,
       );
-      final capsB = ProjectCapabilities.build(
-        projectRoot: tempDir.path,
+      final capsB = WorkspaceCapabilities.build(
+        workspaceRoot: tempDir.path,
         env: const {},
         sandboxEnabled: false,
       );
 
       // Two capabilities objects → fully independent runtimes and tools.
       final runtimeA = PluginRuntime(
-          name: 'project-tools-a', plugins: projectToolPlugins(caps))
+          name: 'project-tools-a', plugins: workspaceToolPlugins(caps))
         ..activateSync();
       final runtimeB = PluginRuntime(
-          name: 'project-tools-b', plugins: projectToolPlugins(capsB))
+          name: 'project-tools-b', plugins: workspaceToolPlugins(capsB))
         ..activateSync();
       final writeA = toolRegistryFromScope(runtimeA.scope)['write']!;
       final writeB = toolRegistryFromScope(runtimeB.scope)['write']!;
@@ -376,7 +376,7 @@ void main() {
       // One capabilities object → two runtimes, one shared mutation lock
       // (the lock's identity comes from the capabilities, not the runtime).
       final runtimeC = PluginRuntime(
-          name: 'project-tools-c', plugins: projectToolPlugins(caps))
+          name: 'project-tools-c', plugins: workspaceToolPlugins(caps))
         ..activateSync();
       final writeC = toolRegistryFromScope(runtimeC.scope)['write']!;
       expect(identical(writeA, writeC), isFalse,
@@ -393,8 +393,8 @@ void main() {
     });
 
     test('read-only profile list and order matches the fixed profile', () {
-      final scope = ProjectToolScope(
-        projectRoot: tempDir.path,
+      final scope = WorkspaceToolScope(
+        workspaceRoot: tempDir.path,
         env: const {},
         sandboxEnabled: false,
       );
@@ -421,8 +421,8 @@ void main() {
 
     test('buildTools exposes web_search through the scope with one key set',
         () {
-      final scope = ProjectToolScope(
-        projectRoot: tempDir.path,
+      final scope = WorkspaceToolScope(
+        workspaceRoot: tempDir.path,
         env: const {'BRAVE_API_KEY': 'brave-test-key'},
         sandboxEnabled: false,
       );

@@ -61,18 +61,18 @@ class _Section implements PromptContributor {
 ///
 /// The warm-load sources are read afresh on every call, and a throwing source
 /// is treated as absent — one bad hook must never break every prompt build.
-/// [loadProjectContext] false withholds the repository summary. Project files
+/// [loadWorkspaceContext] false withholds the repository summary. Project files
 /// are loaded separately by request middleware using the runtime trust context.
 List<PromptContributor> defaultPromptContributors({
   required String identity,
   required PromptContext context,
   String? cwd,
   bool safeMode = false,
-  bool? loadProjectContext,
+  bool? loadWorkspaceContext,
   List<PromptContributor>? extraContributors,
 }) {
-  final resolvedCwd = cwd ?? context.projectRoot;
-  final trusted = context.loadProjectContext && (loadProjectContext ?? true);
+  final resolvedCwd = cwd ?? context.workspaceRoot;
+  final trusted = context.loadWorkspaceContext && (loadWorkspaceContext ?? true);
   final os = Platform.operatingSystem;
   final today = DateTime.now().toIso8601String().split('T').first;
   // The warm-load blocks, gated by the same trust flag as AGENTS.md. A
@@ -148,7 +148,7 @@ String _buildAgentPrompt({
   required PromptContext context,
   String? cwd,
   bool safeMode = false,
-  bool? loadProjectContext,
+  bool? loadWorkspaceContext,
   List<PromptContributor>? extraContributors,
 }) =>
     joinPromptContributors(defaultPromptContributors(
@@ -156,7 +156,7 @@ String _buildAgentPrompt({
       context: context,
       cwd: cwd,
       safeMode: safeMode,
-      loadProjectContext: loadProjectContext,
+      loadWorkspaceContext: loadWorkspaceContext,
       extraContributors: extraContributors,
     ));
 
@@ -173,14 +173,14 @@ String _buildAgentPrompt({
 /// sub-agent inherits its parent's *resolved* prompt verbatim, so overriding
 /// `main` here changes every agent that inherits it.
 ///
-/// [loadProjectContext] gates the repository summary here. Agent middleware
+/// [loadWorkspaceContext] gates the repository summary here. Agent middleware
 /// receives the runtime PromptContext trust decision separately.
 String resolveMainPrompt(
   AgentPipeline pipeline, {
   Map<String, String>? overrides,
   String? cwd,
   bool safeMode = false,
-  bool? loadProjectContext,
+  bool? loadWorkspaceContext,
   PluginScope? scope,
   bool workflowEnabled = true,
 }) {
@@ -195,7 +195,7 @@ String resolveMainPrompt(
       context: pipeline.promptContext,
       cwd: cwd,
       safeMode: safeMode,
-      loadProjectContext: loadProjectContext,
+      loadWorkspaceContext: loadWorkspaceContext,
       extraContributors:
           scope == null ? null : promptContributorsFromScope(scope));
 }
@@ -212,7 +212,7 @@ String resolveIdentityPrompt(
   PromptContext? context,
   String? cwd,
   bool safeMode = false,
-  bool? loadProjectContext,
+  bool? loadWorkspaceContext,
   PluginScope? scope,
 }) =>
     _buildAgentPrompt(
@@ -220,7 +220,7 @@ String resolveIdentityPrompt(
         context: context ?? PromptContext(),
         cwd: cwd,
         safeMode: safeMode,
-        loadProjectContext: loadProjectContext,
+        loadWorkspaceContext: loadWorkspaceContext,
         extraContributors:
             scope == null ? null : promptContributorsFromScope(scope));
 

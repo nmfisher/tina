@@ -92,7 +92,7 @@ void main() {
       () {
     final policy = PermissionPolicy()
       ..remember('exec', '*', PermissionDecision.allow);
-    final scope = ProjectToolScope.unconfined();
+    final scope = WorkspaceToolScope.unconfined();
     final before = jsonEncode(scope
         .buildTools()
         .schemas
@@ -171,10 +171,10 @@ void main() {
       'execution_info omits secrets and reports cache location without granting it',
       () async {
     final info = ExecutionInfoTool(
-        projectRoot: Directory.current.path,
+        workspaceRoot: Directory.current.path,
         environment: {'HOME': '/home/test', 'API_KEY': 'secret-value'},
         runner: SandboxedProcessRunner(
-            projectRoot: Directory.current.path,
+            workspaceRoot: Directory.current.path,
             backend: SandboxBackend.bwrap,
             accessPolicy: SandboxAccessPolicy()));
     final result = await info.execute({});
@@ -195,12 +195,12 @@ void main() {
       final inner = MemoryProcessRunner(
           (_, __) => MemoryRunningProcess(stdoutChunks: ['ok']));
       final runner = SandboxedProcessRunner(
-          projectRoot: temp.path,
+          workspaceRoot: temp.path,
           inner: inner,
           backend: SandboxBackend.bwrap,
           accessPolicy: SandboxAccessPolicy());
-      final tool = ExecTool(processRunner: runner, projectRoot: temp.path);
-      final sibling = ExecTool(processRunner: runner, projectRoot: temp.path);
+      final tool = ExecTool(processRunner: runner, workspaceRoot: temp.path);
+      final sibling = ExecTool(processRunner: runner, workspaceRoot: temp.path);
       final input = <String, dynamic>{
         'executable': '/bin/sh',
         'args': ['-c', 'true'],
@@ -242,9 +242,9 @@ void main() {
         exitCodeValue: 1,
         stderrChunks: ['${cache.path}/stamp: Read-only file system\n']));
     final tool = ExecTool(
-        projectRoot: temp.path,
+        workspaceRoot: temp.path,
         processRunner: SandboxedProcessRunner(
-            projectRoot: temp.path,
+            workspaceRoot: temp.path,
             inner: inner,
             backend: SandboxBackend.bwrap,
             accessPolicy: SandboxAccessPolicy()));

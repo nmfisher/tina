@@ -95,7 +95,7 @@
   "finalComposition": [
     "packages/tina_app/lib/src/composition/app_composition.dart",
     "packages/tina_app/lib/src/composition/execution_runtime.dart",
-    "packages/tina_app/lib/src/composition/project_services.dart",
+    "packages/tina_app/lib/src/composition/workspace_services.dart",
     "lib/tui_coordinator.dart",
     "lib/config.dart"
   ],

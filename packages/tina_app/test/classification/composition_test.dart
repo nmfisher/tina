@@ -53,8 +53,8 @@ void main() {
         ),
         registry: registry,
         store: MemorySessionStore(),
-        projectRoot: project.path,
-        loadProjectContext: false,
+        workspaceRoot: project.path,
+        loadWorkspaceContext: false,
       );
       final service = Service();
       Future<ProjectClassificationReport> run(

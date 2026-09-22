@@ -14,7 +14,7 @@ resource limits under sandbox-exec).
 
 Code: `packages/tina_engine/lib/src/tools/sandbox_runner.dart` (the backend
 dispatch, both profile builders, the pass-through degradation), wired through
-`ProjectToolScope` (`packages/tina_engine/lib/src/agent/project_tool_scope.dart`).
+`WorkspaceToolScope` (`packages/tina_engine/lib/src/agent/workspace_tool_scope.dart`).
 Directory grants live in `packages/tina_engine/lib/src/permissions/sandbox_access.dart`.
 
 ## Why a structural guard
@@ -171,7 +171,7 @@ headless runs refuse any escalation that still requires a human answer.
 
 ## Where it hooks in
 
-`ProjectToolScope` wraps its shared `BashTool` process runner in a
+`WorkspaceToolScope` wraps its shared `BashTool` process runner in a
 `SandboxedProcessRunner`. The runner owns a `SandboxAccessPolicy`, seeded from
 startup grants. The agent permission gate validates requests, collects an
 explicit answer for new directories, and creates an invocation runner after

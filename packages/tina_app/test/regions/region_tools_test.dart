@@ -74,9 +74,9 @@ void main() {
     tempRoot = t.tempRoot;
     project = t.project;
     sidecarRoot = t.sidecarRoot;
-    repo = SidecarSummaryRepo(root: sidecarRoot, projectRoot: project);
+    repo = SidecarSummaryRepo(root: sidecarRoot, workspaceRoot: project);
     repo.init();
-    regions = RegionRegistry(projectRoot: project.path);
+    regions = RegionRegistry(workspaceRoot: project.path);
     scheduler = _RecordingScheduler();
     // A second, allocated region so broadcast has two targets.
     Directory('${project.path}/lib/src').createSync();
@@ -119,7 +119,7 @@ void main() {
     test('no regions when the sidecar is empty', () async {
       final empty = Directory.systemTemp.createTempSync('tina-empty-');
       try {
-        final bare = RegionRegistry(projectRoot: empty.path);
+        final bare = RegionRegistry(workspaceRoot: empty.path);
         final r = await ListRegionsTool(bare).execute({});
         expect(r.content, contains('No regions'));
       } finally {

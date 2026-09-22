@@ -9,7 +9,7 @@ import 'tool.dart';
 
 class WriteTool implements Tool {
   /// Captured project root; null retains standalone cwd-relative behavior.
-  String? projectRoot;
+  String? workspaceRoot;
 
   /// The filesystem this tool writes through. Mutable so app composition can
   /// inject a [SandboxedFileSystem] once. Defaults to the real filesystem.
@@ -60,7 +60,7 @@ class WriteTool implements Tool {
     if (rawPath == null || rawPath.isEmpty) {
       return ToolResult.error('filePath is required');
     }
-    final path = resolveToolPath(rawPath, projectRoot);
+    final path = resolveToolPath(rawPath, workspaceRoot);
     if (content == null) {
       return ToolResult.error('content is required');
     }

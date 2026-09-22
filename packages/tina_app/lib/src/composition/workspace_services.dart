@@ -11,10 +11,10 @@ import 'package:tina_app/src/summaries/summary_runner.dart';
 import 'package:tina_app/src/composition/execution_runtime.dart';
 
 SummaryInspection buildSummaryInspection({
-  required String projectRoot,
+  required String workspaceRoot,
   AllocationsStore? allocations,
 }) =>
-    SummaryInspection(repository: _summaryRepository(projectRoot, allocations));
+    SummaryInspection(repository: _summaryRepository(workspaceRoot, allocations));
 
 GitSummaryRepository _summaryRepository(
   String project,
@@ -23,7 +23,7 @@ GitSummaryRepository _summaryRepository(
 ]) => GitSummaryRepository(
   sidecar: SidecarSummaryRepo(
     root: Directory('$project/.tina'),
-    projectRoot: Directory(project),
+    workspaceRoot: Directory(project),
   ),
   allocations: allocations,
   partition: partition,
@@ -32,24 +32,24 @@ GitSummaryRepository _summaryRepository(
 SummaryIndex buildSummaryIndex({
   required RuntimeConfig config,
   required ProviderRegistry registry,
-  required String projectRoot,
+  required String workspaceRoot,
   Environment? environment,
-  ProjectToolScope? toolScope,
+  WorkspaceToolScope? toolScope,
   PromptContext? promptContext,
   AllocationsStore? allocations,
   SpendLedger? spendLedger,
   List<String>? partition,
 }) {
-  projectRoot = p.normalize(p.absolute(projectRoot));
+  workspaceRoot = p.normalize(p.absolute(workspaceRoot));
   return SummaryIndex(
-    repository: _summaryRepository(projectRoot, allocations, partition),
+    repository: _summaryRepository(workspaceRoot, allocations, partition),
     fleet: SummaryRunner(
       config: config,
       executionFactory: () => buildExecutionRuntime(
         config: config,
         registry: registry,
         environment: environment,
-        projectRoot: projectRoot,
+        workspaceRoot: workspaceRoot,
         toolScope: toolScope,
         promptContext: promptContext,
       ),
@@ -59,17 +59,17 @@ SummaryIndex buildSummaryIndex({
 }
 
 /// Standalone adapter binds run options at composition, never inside services.
-class ProjectServiceRun<T> {
+class WorkspaceServiceRun<T> {
   final Future<T> Function() run;
-  ProjectServiceRun(this.run);
+  WorkspaceServiceRun(this.run);
 }
 
-ProjectServiceRun<StaleSet> buildSummaryRun({
+WorkspaceServiceRun<StaleSet> buildSummaryRun({
   required RuntimeConfig config,
   required ProviderRegistry registry,
-  required String projectRoot,
+  required String workspaceRoot,
   Environment? environment,
-  ProjectToolScope? toolScope,
+  WorkspaceToolScope? toolScope,
   PromptContext? promptContext,
   SpendLedger? spendLedger,
   bool dryRun = false,
@@ -82,14 +82,14 @@ ProjectServiceRun<StaleSet> buildSummaryRun({
   final service = buildSummaryIndex(
     config: config,
     registry: registry,
-    projectRoot: projectRoot,
+    workspaceRoot: workspaceRoot,
     environment: environment,
     toolScope: toolScope,
     promptContext: promptContext,
     spendLedger: spendLedger,
     partition: partition,
   );
-  return ProjectServiceRun(
+  return WorkspaceServiceRun(
     () async => (await service.refresh(
       dryRun: dryRun,
       repartition: repartition,

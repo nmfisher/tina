@@ -5,7 +5,7 @@ import 'process_tool.dart';
 import 'tool.dart';
 
 export 'process_tool.dart'
-    show assertCwdWithinProject, bashIsDenied, kBashDenylist;
+    show assertCwdWithinWorkspace, bashIsDenied, kBashDenylist;
 
 /// Shell adapter over the shared execution lifecycle.
 class BashTool extends ProcessTool {
@@ -13,7 +13,7 @@ class BashTool extends ProcessTool {
       {super.timeout,
       super.postKillGrace,
       super.processRunner,
-      super.projectRoot,
+      super.workspaceRoot,
       super.tempDirFactory,
       super.environment,
       super.preparedRequest});
@@ -30,7 +30,7 @@ class BashTool extends ProcessTool {
       BashTool(
           timeout: timeout,
           postKillGrace: postKillGrace,
-          projectRoot: projectRoot,
+          workspaceRoot: workspaceRoot,
           tempDirFactory: tempDirFactory,
           environment: environment,
           processRunner: runner ?? processRunner,

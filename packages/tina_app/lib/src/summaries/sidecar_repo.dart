@@ -8,7 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart' show summarySlug;
 
 /// The per-directory summary sidecar: a standalone git repo under
-/// `<projectRoot>/.tina/summaries/` that tracks the main repo from outside
+/// `<workspaceRoot>/.tina/summaries/` that tracks the main repo from outside
 /// its tracked tree. `.tina/` is gitignored by the main repo, so the sidecar
 /// lives fully outside the main repo's history.
 ///
@@ -41,15 +41,15 @@ const _sidecarFallbackEmail = 'tina@localhost';
 class SidecarSummaryRepo {
   SidecarSummaryRepo({
     required this.root,
-    required this.projectRoot,
+    required this.workspaceRoot,
   })  : _summariesDir = Directory(p.join(root.path, 'summaries')),
         manifestPath = p.join(root.path, 'summaries', 'manifest.json');
 
-  /// The sidecar git repo root: `<projectRoot>/.tina/summaries`.
+  /// The sidecar git repo root: `<workspaceRoot>/.tina/summaries`.
   final Directory root;
 
   /// The main repo root, for `git -C` and `rev-parse HEAD:<dir>`.
-  final Directory projectRoot;
+  final Directory workspaceRoot;
 
   final Directory _summariesDir;
   final String manifestPath;
@@ -85,7 +85,7 @@ class SidecarSummaryRepo {
     file.writeAsStringSync(_prettyJson(manifest.toJson()));
   }
 
-  /// The default partition: top-level directories of [projectRoot] plus every
+  /// The default partition: top-level directories of [workspaceRoot] plus every
   /// `packages/*/lib` directory. Stable across runs (the manifest's key set is
   /// the pin), so a change in the partition only adds/removes keys here.
   ///
@@ -94,7 +94,7 @@ class SidecarSummaryRepo {
   List<String> defaultPartition() {
     final dirs = <String>[];
     // Top-level directories (repo-relative).
-    for (final entry in projectRoot.listSync(followLinks: false)) {
+    for (final entry in workspaceRoot.listSync(followLinks: false)) {
       if (entry is! Directory) continue;
       final name = p.basename(entry.path);
       if (name.startsWith('.') || kDefaultPartitionSkip.contains(name)) {
@@ -104,7 +104,7 @@ class SidecarSummaryRepo {
     }
     // Every packages/<pkg>/lib, so each package's library surface is
     // summarized on its own.
-    final packagesDir = Directory(p.join(projectRoot.path, 'packages'));
+    final packagesDir = Directory(p.join(workspaceRoot.path, 'packages'));
     if (packagesDir.existsSync()) {
       for (final pkg in packagesDir.listSync(followLinks: false)) {
         if (pkg is! Directory) continue;
@@ -137,7 +137,7 @@ class SidecarSummaryRepo {
     final stale = <String>[];
     final deleted = <String>[];
     for (final dir in partition) {
-      final onDisk = Directory(p.join(projectRoot.path, dir)).existsSync();
+      final onDisk = Directory(p.join(workspaceRoot.path, dir)).existsSync();
       final current = _treeHashOrNull(dir);
       if (!onDisk && current == null) {
         // The dir is gone from disk and from HEAD. If we had a summary, it's
@@ -174,7 +174,7 @@ class SidecarSummaryRepo {
 
   /// The current main-repo HEAD commit sha. Used to stamp the manifest + the
   /// commit message.
-  String headCommit() => _gitIn(projectRoot.path, ['rev-parse', 'HEAD']);
+  String headCommit() => _gitIn(workspaceRoot.path, ['rev-parse', 'HEAD']);
 
   /// The current tree hash for [dir] at HEAD, or null when the dir is absent.
   String? treeHash(String dir) => _treeHashOrNull(dir);
@@ -242,7 +242,7 @@ class SidecarSummaryRepo {
     final dirs = Map<String, DirSummary>.from(manifest.dirs);
     final commit = headCommit();
     for (final dir in regenerated) {
-      if (!Directory(p.join(projectRoot.path, dir)).existsSync()) {
+      if (!Directory(p.join(workspaceRoot.path, dir)).existsSync()) {
         continue; // vanished mid-run; skip rather than record.
       }
       if (!summaryWritten(dir)) {
@@ -326,7 +326,7 @@ class SidecarSummaryRepo {
   String? _treeHashOrNull(String dir) {
     final result = Process.runSync(
       'git',
-      ['-C', projectRoot.path, 'rev-parse', 'HEAD:$dir'],
+      ['-C', workspaceRoot.path, 'rev-parse', 'HEAD:$dir'],
       runInShell: false,
     );
     if (result.exitCode != 0) return null;
@@ -343,7 +343,7 @@ class SidecarSummaryRepo {
   String _dirtyDigest(String dir) {
     final result = Process.runSync(
       'git',
-      ['-C', projectRoot.path, 'status', '--porcelain', '--', dir],
+      ['-C', workspaceRoot.path, 'status', '--porcelain', '--', dir],
       runInShell: false,
     );
     if (result.exitCode != 0) return '';

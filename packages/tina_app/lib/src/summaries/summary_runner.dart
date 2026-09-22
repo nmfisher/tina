@@ -3,7 +3,7 @@ import 'package:tina_app/src/composition/provider_resolution.dart';
 import 'package:tina_app/src/composition/runtime_resources.dart';
 import 'package:tina_app/src/config/runtime_config.dart';
 import 'package:tina_engine/tina_engine.dart';
-import 'package:tina_app/src/execution/project_execution.dart';
+import 'package:tina_app/src/execution/workspace_execution.dart';
 import 'package:tina_app/src/summaries/summary_index.dart';
 import 'package:tina_app/src/summaries/summary_repository.dart';
 
@@ -11,7 +11,7 @@ import 'package:tina_app/src/summaries/summary_repository.dart';
 /// borrows interaction hosts and the factory's project tool scope.
 class SummaryRunner implements SummaryFleet {
   final RuntimeConfig config;
-  final ProjectExecutionFactory executionFactory;
+  final WorkspaceExecutionFactory executionFactory;
   SummaryRunner({required this.config, required this.executionFactory});
   @override
   Future<SpendLedger> run(SummaryPlan plan, RunInteraction interaction) async {

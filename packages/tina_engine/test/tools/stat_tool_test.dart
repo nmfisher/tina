@@ -63,7 +63,7 @@ void main() {
       final tinaDir = Directory.systemTemp.createTempSync('tina_stat_tina_');
       addTearDown(() => tinaDir.deleteSync(recursive: true));
       final sandbox = SandboxedFileSystem(const IoFileSystem(),
-          projectRoot: tmp.path, tinaDir: tinaDir);
+          workspaceRoot: tmp.path, tinaDir: tinaDir);
       final outside = File('/tmp/tina_stat_outside_tmp.txt')
         ..writeAsStringSync('x');
       addTearDown(() => outside.deleteSync());

@@ -175,7 +175,7 @@ void main() {
           ],
         ));
     final runner = SandboxedProcessRunner(
-        projectRoot: dir.path,
+        workspaceRoot: dir.path,
         inner: inner,
         backend: SandboxBackend.bwrap,
         accessPolicy: SandboxAccessPolicy());
@@ -199,7 +199,7 @@ void main() {
       use: const ToolUseBlock(
           id: 'call', name: 'bash', input: {'command': 'dart test'}),
       stepTools:
-          ToolRegistry([BashTool(projectRoot: dir.path, processRunner: runner)])
+          ToolRegistry([BashTool(workspaceRoot: dir.path, processRunner: runner)])
               .forStep(),
       step: 0,
       isCancelled: () => false,

@@ -595,7 +595,7 @@ class TuiCoordinator {
       // (allocate_region's background refresh + `/index`). Both are wired into
       // the main agent's tool set below and at the agentBuilder.
       final regions = RegionRegistry(
-        projectRoot: Directory.current.path,
+        workspaceRoot: Directory.current.path,
         defaultModel: config.regionsModel,
       );
       final summaryIndex = buildSummaryIndex(
@@ -604,7 +604,7 @@ class TuiCoordinator {
         environment: app.environment,
         toolScope: app.pipeline.tools,
         promptContext: app.pipeline.promptContext,
-        projectRoot: Directory.current.path,
+        workspaceRoot: Directory.current.path,
         allocations: regions.allocations,
         spendLedger: app.spendLedger,
       );
@@ -656,7 +656,7 @@ class TuiCoordinator {
             pipeline,
             overrides: config.promptOverrides,
             safeMode: config.safeMode,
-            loadProjectContext: pipeline.loadProjectContext,
+            loadWorkspaceContext: pipeline.loadWorkspaceContext,
           );
       final initialRecorder = SessionRecorder(
         store,
@@ -691,7 +691,7 @@ class TuiCoordinator {
         if (!transferred) await initialHost.dispose();
       });
       final exploreProject = createConfiguredExplorationTool(
-        projectRoot: pipeline.tools.projectRoot,
+        workspaceRoot: pipeline.tools.workspaceRoot,
         env: app.environment.env,
         spendLedger: app.spendLedger,
         pauseGate: app.pauseGate,

@@ -13,7 +13,7 @@ class EditRequest {
   const EditRequest(this.path, this.oldString, this.newString, this.replaceAll);
 
   factory EditRequest.fromInput(
-      Map<String, dynamic> input, String? projectRoot) {
+      Map<String, dynamic> input, String? workspaceRoot) {
     final path = requiredString(input, 'filePath');
     final old = input['oldString'];
     final replacement = input['newString'];
@@ -33,7 +33,7 @@ class EditRequest {
       throw const ToolValidationException('replaceAll must be a boolean');
     }
     return EditRequest(
-        resolveToolPath(path, projectRoot), old, replacement, all);
+        resolveToolPath(path, workspaceRoot), old, replacement, all);
   }
 }
 

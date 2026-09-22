@@ -62,7 +62,7 @@ void main() {
           budget: budget,
           maxSteps: 5,
           promptContext:
-              PromptContext(projectRoot: dir.path, loadProjectContext: trusted),
+              PromptContext(workspaceRoot: dir.path, loadWorkspaceContext: trusted),
           middleware:
               AgentMiddlewarePipeline(scope: scope, middleware: middleware));
 

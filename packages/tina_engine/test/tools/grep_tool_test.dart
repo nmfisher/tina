@@ -45,7 +45,7 @@ void main() {
           processRunner: runner,
           fileEnumerator: MemoryFileEnumerator({}),
           fs: MemoryFileSystem()..directories.add('/repo'),
-        )..projectRoot = '/repo';
+        )..workspaceRoot = '/repo';
 
     test('a dash-leading pattern is fenced behind --', () async {
       final runner = _rgRunner(searchStdout: ['a.dart:1:x\n']);

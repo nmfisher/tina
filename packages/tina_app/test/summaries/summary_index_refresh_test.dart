@@ -8,7 +8,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:tina_app/src/composition/project_services.dart';
+import 'package:tina_app/src/composition/workspace_services.dart';
 
 import 'package:tina_app/src/platform/environment.dart';
 import 'package:tina_app/src/summaries/allocations_store.dart';
@@ -44,11 +44,11 @@ void main() {
         config: testFleetConfig(),
         registry: registry,
         environment: const PlatformEnvironment(),
-        projectRoot: project.path,
+        workspaceRoot: project.path,
       );
 
   SidecarSummaryRepo _repo() =>
-      SidecarSummaryRepo(root: sidecarRoot, projectRoot: project);
+      SidecarSummaryRepo(root: sidecarRoot, workspaceRoot: project);
 
   /// Allocations over the default partition (the main agent's proposed layout
   /// — it REPLACES the default), seeded via the real store.
@@ -169,7 +169,7 @@ void main() {
       config: testFleetConfig(),
       registry: registry,
       environment: const PlatformEnvironment(),
-      projectRoot: project.path,
+      workspaceRoot: project.path,
       spendLedger: live,
     );
 
@@ -187,7 +187,7 @@ void main() {
       config: testFleetConfig(),
       registry: registry,
       environment: const PlatformEnvironment(),
-      projectRoot: project.path,
+      workspaceRoot: project.path,
       allocations: _allocations(['lib']),
     );
 

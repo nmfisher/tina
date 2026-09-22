@@ -102,7 +102,7 @@ final class AgentDecision<T> {
 final class AgentContext {
   final AgentStage stage;
   final String cwd;
-  final bool loadProjectContext;
+  final bool loadWorkspaceContext;
   final String model;
   final int step;
   final int attempt;
@@ -116,7 +116,7 @@ final class AgentContext {
   AgentContext({
     required this.stage,
     required this.cwd,
-    required this.loadProjectContext,
+    required this.loadWorkspaceContext,
     required this.model,
     Iterable<Message> history = const [],
     this.step = 0,

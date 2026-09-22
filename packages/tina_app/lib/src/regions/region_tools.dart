@@ -120,7 +120,7 @@ class RepoStructureTool implements Tool {
     Future<void>? cancelSignal,
     ToolOutputCallback? onOutput,
   }) async {
-    final root = _regions.projectRoot;
+    final root = _regions.workspaceRoot;
     final buf = StringBuffer();
     var totalFiles = 0;
     var totalDart = 0;

@@ -13,7 +13,7 @@ export 'src/composition/app_composition.dart';
 export 'src/composition/live_quotas.dart';
 export 'src/composition/edit_verifier.dart';
 export 'src/composition/execution_profile.dart';
-export 'src/composition/project_services.dart';
+export 'src/composition/workspace_services.dart';
 export 'src/composition/provider_resolution.dart';
 export 'src/composition/runtime_plugins.dart';
 export 'src/config/runtime_config.dart';

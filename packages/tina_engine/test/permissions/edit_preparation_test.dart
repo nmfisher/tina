@@ -197,7 +197,7 @@ void main() {
     final outside = File('${dir.path}/outside')
       ..writeAsStringSync('private-content');
     edit.fs = SandboxedFileSystem(const IoFileSystem(),
-        projectRoot: project.path, tinaDir: Directory('${dir.path}/data'));
+        workspaceRoot: project.path, tinaDir: Directory('${dir.path}/data'));
     final result = await run({...editInput, 'filePath': outside.path});
     expect(result.isError, true);
     expect(result.content, isNot(contains('private-content')));

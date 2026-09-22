@@ -5,14 +5,14 @@ import 'package:path/path.dart' as p;
 /// Runtime-owned prompt inputs. Sources are read afresh on every resolution;
 /// the project root and trust decision are captured once at composition.
 class PromptContext {
-  final String projectRoot;
-  final bool loadProjectContext;
+  final String workspaceRoot;
+  final bool loadWorkspaceContext;
   final String? Function()? repoSummarySource;
 
   PromptContext({
-    String? projectRoot,
-    this.loadProjectContext = true,
+    String? workspaceRoot,
+    this.loadWorkspaceContext = true,
     this.repoSummarySource,
-  }) : projectRoot =
-            p.normalize(p.absolute(projectRoot ?? Directory.current.path));
+  }) : workspaceRoot =
+            p.normalize(p.absolute(workspaceRoot ?? Directory.current.path));
 }

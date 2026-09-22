@@ -145,7 +145,7 @@ void main() {
         } catch (_) {}
       });
       final root = project.resolveSymbolicLinksSync();
-      final args = buildBwrapArgs(projectRoot: project.path);
+      final args = buildBwrapArgs(workspaceRoot: project.path);
       final binds = <String, String>{
         for (var i = 0; i < args.length - 1; i++)
           if (args[i] == '--ro-bind' || args[i] == '--bind')
@@ -196,7 +196,7 @@ void main() {
       // applies mounts in argv order, so the extra must bind AFTER the
       // project — even a read-only project posture leaves the extra writable.
       final args = buildBwrapArgs(
-        projectRoot: project.path,
+        workspaceRoot: project.path,
         extraAllowPaths: [extra.path],
         sandboxReadOnly: true,
       );
@@ -213,7 +213,7 @@ void main() {
 
     test('--sandbox-net adds --unshare-net before the -- separator', () {
       final args = buildBwrapArgs(
-        projectRoot: '/tmp',
+        workspaceRoot: '/tmp',
         sandboxNet: true,
       );
       final sep = args.indexOf('--');
@@ -230,7 +230,7 @@ void main() {
       });
       final root = project.resolveSymbolicLinksSync();
       final args = buildBwrapArgs(
-        projectRoot: project.path,
+        workspaceRoot: project.path,
         sandboxReadOnly: true,
       );
       final rootIdx = args.indexOf(root);
@@ -248,7 +248,7 @@ void main() {
     test('missing read-only dirs are skipped, unresolvable extras logged',
         () {
       final args = buildBwrapArgs(
-        projectRoot: '/nonexistent-project',
+        workspaceRoot: '/nonexistent-project',
         readOnlyBinds: ['/definitely/not/here', '/etc'],
       );
       expect(args.contains('/definitely/not/here'), isFalse,
@@ -272,7 +272,7 @@ void main() {
       });
       final runner = SandboxedProcessRunner(
         inner: inner,
-        projectRoot: project.path,
+        workspaceRoot: project.path,
         sandboxNet: true,
         backend: SandboxBackend.bwrap,
         unavailableReason: '',
@@ -298,7 +298,7 @@ void main() {
       final warnings = <String>[];
       final runner = SandboxedProcessRunner(
         inner: inner,
-        projectRoot: '/whatever',
+        workspaceRoot: '/whatever',
         backend: SandboxBackend.passThrough,
         unavailableReason: 'bwrap not found on PATH',
         warn: warnings.add,
@@ -322,7 +322,7 @@ void main() {
       final warnings = <String>[];
       final runner = SandboxedProcessRunner(
         inner: inner,
-        projectRoot: '/whatever',
+        workspaceRoot: '/whatever',
         enabled: false,
         backend: SandboxBackend.passThrough,
         unavailableReason: 'explicitly disabled (--no-sandbox)',
@@ -362,7 +362,7 @@ void main() {
     });
 
     test('a write under the project root succeeds', () async {
-      final runner = SandboxedProcessRunner(projectRoot: project.path);
+      final runner = SandboxedProcessRunner(workspaceRoot: project.path);
       final target = '${project.path}/inside.txt';
       final proc = await runner.start(
           '/bin/sh', ['-c', 'echo x > "$target" && cat "$target"']);
@@ -383,7 +383,7 @@ void main() {
         } catch (_) {}
       });
       outside.createSync(recursive: true);
-      final runner = SandboxedProcessRunner(projectRoot: project.path);
+      final runner = SandboxedProcessRunner(workspaceRoot: project.path);
       final proc = await runner.start(
           '/bin/sh', ['-c', 'mkdir -p "$outside" && touch "$outside/e.txt"']);
       final code = await proc.exitCode;
@@ -403,11 +403,11 @@ void main() {
         '--noproxy', '*', '-sS', '-m', '5', '-o', '/dev/null',
         'http://127.0.0.1:${server.port}/',
       ];
-      final shared = await SandboxedProcessRunner(projectRoot: project.path)
+      final shared = await SandboxedProcessRunner(workspaceRoot: project.path)
           .run('curl', args);
       expect(shared.exitCode, 0, reason: shared.stderr);
       final unshared = await SandboxedProcessRunner(
-              projectRoot: project.path, sandboxNet: true)
+              workspaceRoot: project.path, sandboxNet: true)
           .run('curl', args);
       expect(unshared.exitCode, 7,
           reason: 'isolated loopback cannot reach the host server');
@@ -418,7 +418,7 @@ void main() {
       final marker = File('${project.path}/seed.txt');
       marker.writeAsStringSync('seed');
       final runner = SandboxedProcessRunner(
-        projectRoot: project.path,
+        workspaceRoot: project.path,
         sandboxReadOnly: true,
       );
       // Temp stays writable (scratch output), the project does not.

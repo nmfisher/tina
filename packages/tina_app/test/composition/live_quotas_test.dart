@@ -105,7 +105,7 @@ void main() {
         config: config,
         registry: registry,
         environment: FakeEnvironment(),
-        projectRoot: root.path,
+        workspaceRoot: root.path,
         driverFactory: factory,
       );
       addTearDown(runtime.dispose);

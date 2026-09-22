@@ -13,7 +13,7 @@
 
 import 'dart:io';
 
-import 'package:tina_app/src/composition/project_services.dart';
+import 'package:tina_app/src/composition/workspace_services.dart';
 
 import 'package:tina_app/src/platform/environment.dart';
 import 'package:tina_app/src/summaries/sidecar_repo.dart';
@@ -21,7 +21,7 @@ import 'package:tina_engine/tina_engine.dart';
 import 'package:test/test.dart';
 
 import 'fleet_test_harness.dart';
-import 'package:tina_app/src/execution/project_execution.dart';
+import 'package:tina_app/src/execution/workspace_execution.dart';
 import 'package:tina_app/src/config/runtime_config.dart';
 import 'package:tina_app/src/summaries/summary_repository.dart';
 import 'package:tina_app/src/summaries/summary_runner.dart';
@@ -54,7 +54,7 @@ void main() {
       config: config,
       registry: registry,
       environment: const PlatformEnvironment(),
-      projectRoot: project.path,
+      workspaceRoot: project.path,
     );
 
     final stale = await runner.run().timeout(const Duration(seconds: 30));
@@ -75,7 +75,7 @@ void main() {
     // The manifest now tracks lib with a tree hash.
     final manifest = SidecarSummaryRepo(
       root: sidecarRoot,
-      projectRoot: project,
+      workspaceRoot: project,
     ).loadManifest();
     expect(manifest.dirs['lib'], isNotNull);
     expect(manifest.dirs['lib']!.file, 'lib.md');
@@ -93,7 +93,7 @@ void main() {
       config: testFleetConfig(),
       registry: registry,
       environment: const PlatformEnvironment(),
-      projectRoot: project.path,
+      workspaceRoot: project.path,
     );
 
     await runner.run().timeout(const Duration(seconds: 30));
@@ -110,7 +110,7 @@ void main() {
       config: testFleetConfig(),
       registry: registry,
       environment: const PlatformEnvironment(),
-      projectRoot: project.path,
+      workspaceRoot: project.path,
       dryRun: true,
     );
     final stale = await runner.run().timeout(const Duration(seconds: 10));
@@ -148,7 +148,7 @@ void main() {
   });
 }
 
-class _FailingExecution implements ProjectExecution {
+class _FailingExecution implements WorkspaceExecution {
   int disposals = 0;
   final failure = StateError('provider build');
   @override

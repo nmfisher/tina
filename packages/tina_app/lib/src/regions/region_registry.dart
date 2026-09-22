@@ -46,17 +46,17 @@ class Region {
 /// the moment the session loads.
 class RegionRegistry {
   RegionRegistry({
-    required this.projectRoot,
+    required this.workspaceRoot,
     this.defaultModel,
     AllocationsStore? allocations,
-  })  : _allocations = allocations ?? AllocationsStore.forProject(projectRoot),
+  })  : _allocations = allocations ?? AllocationsStore.forProject(workspaceRoot),
         _repo = SidecarSummaryRepo(
-          root: Directory('$projectRoot/.tina'),
-          projectRoot: Directory(projectRoot),
+          root: Directory('$workspaceRoot/.tina'),
+          workspaceRoot: Directory(workspaceRoot),
         );
 
   /// The main repo root being served.
-  final String projectRoot;
+  final String workspaceRoot;
 
   /// The default `"provider/model"` for region queries (from `[regions] model`
   /// in the user config); overridden per-region by an allocation.
@@ -91,10 +91,10 @@ class RegionRegistry {
       _allocations.modelFor(dir) ?? defaultModel;
 
   /// Allocate [dir] as a region, optionally with a dedicated fast model.
-  /// Returns false when the dir does not exist under [projectRoot] (a nested
+  /// Returns false when the dir does not exist under [workspaceRoot] (a nested
   /// path is fine — the slug handles it).
   bool allocate(String dir, {String? model}) {
-    if (!Directory(p.join(projectRoot, dir)).existsSync()) return false;
+    if (!Directory(p.join(workspaceRoot, dir)).existsSync()) return false;
     _allocations.set(dir: dir, model: model);
     return true;
   }

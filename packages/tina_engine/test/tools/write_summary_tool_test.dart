@@ -27,9 +27,9 @@ void main() {
     _git(project, ['init']);
     _git(project, ['add', '-A']);
     _git(project, ['commit', '-m', 'init']);
-    // The tool runs git with -C <projectRoot>, so no cwd mutation is needed —
+    // The tool runs git with -C <workspaceRoot>, so no cwd mutation is needed —
     // the test is isolated from the process's working directory.
-    tool = WriteSummaryTool(sidecarRoot: sidecar, projectRoot: project.path);
+    tool = WriteSummaryTool(sidecarRoot: sidecar, workspaceRoot: project.path);
   });
 
   tearDown(() {

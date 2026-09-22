@@ -293,8 +293,8 @@ void main() {
           policy: config.buildPolicy(),
           config: config,
           supervisor: noopSupervisor(),
-          regions: RegionRegistry(projectRoot: tmp.path),
-          summaryIndex: buildSummaryInspection(projectRoot: tmp.path),
+          regions: RegionRegistry(workspaceRoot: tmp.path),
+          summaryIndex: buildSummaryInspection(workspaceRoot: tmp.path),
         );
         final schemas = driver.tools.schemas;
         // The sweep is actually sweeping — not vacuously passing over one tool.
@@ -338,8 +338,8 @@ void main() {
           config: config,
           withSubAgents: true,
           supervisor: noopSupervisor(),
-          regions: RegionRegistry(projectRoot: tmp.path),
-          summaryIndex: buildSummaryInspection(projectRoot: tmp.path),
+          regions: RegionRegistry(workspaceRoot: tmp.path),
+          summaryIndex: buildSummaryInspection(workspaceRoot: tmp.path),
         );
         // The composition builds through the default factory, so unwrap its
         // adapter to reach the policy that actually gates the mounted tools.
@@ -603,7 +603,7 @@ void main() {
 
       Future<AppComposition> build(
         String root, {
-        ProjectToolScope? tools,
+        WorkspaceToolScope? tools,
         PromptContext? context,
         bool? trusted,
       }) async {
@@ -613,10 +613,10 @@ void main() {
           provider: FakeProvider.done(),
           store: MemorySessionStore(),
           environment: environment,
-          projectRoot: root,
+          workspaceRoot: root,
           toolScope: tools,
           promptContext: context,
-          loadProjectContext: trusted,
+          loadWorkspaceContext: trusted,
         );
         addTearDown(() async {
           await app.scheduler.dispose();
@@ -641,8 +641,8 @@ void main() {
           final prompts = app.pipeline.promptContext;
           final context = AgentContext(
             stage: AgentStage.request,
-            cwd: prompts.projectRoot,
-            loadProjectContext: prompts.loadProjectContext,
+            cwd: prompts.workspaceRoot,
+            loadWorkspaceContext: prompts.loadWorkspaceContext,
             model: 'test',
           );
           try {

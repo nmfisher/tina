@@ -213,7 +213,7 @@ String describeSandboxBackend(SandboxBackend backend,
 /// path that can't be resolved is skipped (with a log) rather than embedded
 /// verbatim — a bad allow-path must never silently widen or break the profile.
 String buildSandboxProfile({
-  required String projectRoot,
+  required String workspaceRoot,
   List<String> extraAllowPaths = const [],
   bool sandboxReadOnly = false,
   bool sandboxNet = false,
@@ -222,7 +222,7 @@ String buildSandboxProfile({
   final allow = <String>{};
   // The project root is the one path the agent must be able to write to —
   // unless the run is declared read-only, when it gets a read grant below.
-  final root = _resolve(projectRoot);
+  final root = _resolve(workspaceRoot);
   if (!sandboxReadOnly && root != null) allow.add(root);
   // macOS per-user temp + caches (`$TMPDIR` lives under /private/var/folders).
   allow.addAll(['/private/var/folders', '/private/tmp', '/tmp']);
@@ -268,7 +268,7 @@ String buildSandboxProfile({
 /// [extraAllowPaths] grant inside the project stays writable even under
 /// [sandboxReadOnly].
 List<String> buildBwrapArgs({
-  required String projectRoot,
+  required String workspaceRoot,
   List<String>? tempDirs,
   List<String> extraAllowPaths = const [],
   List<String> readOnlyBinds = kLinuxSandboxReadOnlyBinds,
@@ -282,7 +282,7 @@ List<String> buildBwrapArgs({
   return buildLinuxSandboxArguments(
     host: SandboxHostLayout.inspect(readOnlyDirectories: readOnlyBinds,
         temporaryDirectories: temps),
-    projectRoot: _resolve(projectRoot),
+    workspaceRoot: _resolve(workspaceRoot),
     writablePaths: [for (final path in extraAllowPaths)
       if (_resolve(path) case final String resolved) resolved],
     readOnlyProject: sandboxReadOnly,
@@ -342,7 +342,7 @@ class SandboxedProcessRunner implements ProcessRunner {
   SandboxedProcessRunner({
     ProcessRunner? inner,
     Map<String, String>? environment,
-    required String projectRoot,
+    required String workspaceRoot,
     List<String> extraAllowPaths = const [],
     SandboxAccessPolicy? accessPolicy,
     bool? enabled, // false = deliberate disable (--no-sandbox / tests)
@@ -355,13 +355,13 @@ class SandboxedProcessRunner implements ProcessRunner {
     void Function(String message)? warn, // test sink; defaults to the logger
   })  : environment = Map.unmodifiable(environment ?? Platform.environment),
         _inner = inner ?? const IoProcessRunner(),
-        _projectRoot = projectRoot,
+        _projectRoot = workspaceRoot,
         accessPolicy = accessPolicy ??
             SandboxAccessPolicy(
               writablePaths: extraAllowPaths,
-              readOnlyPaths: [if (sandboxReadOnly) projectRoot],
+              readOnlyPaths: [if (sandboxReadOnly) workspaceRoot],
               implicitWritablePaths: [
-                if (!sandboxReadOnly) projectRoot,
+                if (!sandboxReadOnly) workspaceRoot,
                 if ((backend ?? resolveSandboxBackend()) ==
                     SandboxBackend.sandboxExec) ...[
                   '/private/var/folders',
@@ -388,7 +388,7 @@ class SandboxedProcessRunner implements ProcessRunner {
     return SandboxedProcessRunner(
       inner: _inner,
       environment: environment,
-      projectRoot: _projectRoot,
+      workspaceRoot: _projectRoot,
       accessPolicy: invocationPolicy,
       enabled: _enabled,
       sandboxNet: _sandboxNet,
@@ -460,7 +460,7 @@ class SandboxedProcessRunner implements ProcessRunner {
     switch (_backend) {
       case SandboxBackend.sandboxExec:
         final profile = buildSandboxProfile(
-          projectRoot: _projectRoot,
+          workspaceRoot: _projectRoot,
           sandboxNet: _sandboxNet,
           extraAllowPaths: accessPolicy.writablePaths,
           sandboxReadOnly: _sandboxReadOnly,
@@ -468,7 +468,7 @@ class SandboxedProcessRunner implements ProcessRunner {
         return ('sandbox-exec', ['-p', profile, executable, ...arguments]);
       case SandboxBackend.bwrap:
         final args = buildBwrapArgs(
-          projectRoot: _projectRoot,
+          workspaceRoot: _projectRoot,
           tempDirs: _defaultBwrapTempDirs(environment),
           extraAllowPaths: accessPolicy.writablePaths,
           sandboxNet: _sandboxNet,

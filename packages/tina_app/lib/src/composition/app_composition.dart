@@ -196,7 +196,7 @@ class AppComposition {
 /// built. This function takes resolved [config] and an explicit [resumeRequest].
 /// A legacy config implementing ResumeRequest is accepted during migration;
 /// background runs with plain RuntimeConfig start fresh.
-/// [projectRoot] selects the tool sandbox and search root (defaults to cwd).
+/// [workspaceRoot] selects the tool sandbox and search root (defaults to cwd).
 /// A same-project background run borrows [toolScope] to retain the live tools
 /// and write lock; other runs acquire a fresh scope. A borrowed [promptContext]
 /// carries the parent runtime's project sources and trust decision.
@@ -209,11 +209,11 @@ Future<AppComposition> buildAppComposition({
   SessionStore? store,
   bool ownsStore = false,
   Environment? environment,
-  String? projectRoot,
-  ProjectToolScope? toolScope,
+  String? workspaceRoot,
+  WorkspaceToolScope? toolScope,
   ResumeRequest? resumeRequest,
   PromptContext? promptContext,
-  bool? loadProjectContext,
+  bool? loadWorkspaceContext,
   AgentDriverFactory? driverFactory,
   SubAgentPersistenceFactory? persistence,
   List<PluginDescriptor> plugins = const [],
@@ -226,10 +226,10 @@ Future<AppComposition> buildAppComposition({
       config: config,
       registry: registry,
       environment: environment,
-      projectRoot: projectRoot,
+      workspaceRoot: workspaceRoot,
       toolScope: toolScope,
       promptContext: promptContext,
-      loadProjectContext: loadProjectContext,
+      loadWorkspaceContext: loadWorkspaceContext,
       driverFactory: driverFactory,
       persistence: persistence,
       plugins: plugins,

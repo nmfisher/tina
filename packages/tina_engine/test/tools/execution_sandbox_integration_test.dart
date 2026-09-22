@@ -20,7 +20,7 @@ void main() {
           readOnlyDirectories: ['/usr', '/etc'],
           temporaryDirectories: ['/tmp'],
           resolverTarget: '/run/systemd/resolve/stub-resolv.conf'),
-      projectRoot: '/project',
+      workspaceRoot: '/project',
       writablePaths: [],
       readOnlyProject: false,
       isolateNetwork: false,
@@ -58,7 +58,7 @@ void main() {
               .where((d) => Directory(d).existsSync()),
           temporaryDirectories: [],
           resolverTarget: null),
-      projectRoot: null,
+      workspaceRoot: null,
       writablePaths: [],
       readOnlyProject: false,
       isolateNetwork: false,
@@ -82,7 +82,7 @@ void main() {
     // Also exercise the production host inspector and runner on this host.
     final hostResolver = File('/etc/resolv.conf');
     if (hostResolver.existsSync()) {
-      final actual = await SandboxedProcessRunner(projectRoot: temp.path)
+      final actual = await SandboxedProcessRunner(workspaceRoot: temp.path)
           .run('/bin/cat', ['/etc/resolv.conf']);
       expect(actual.exitCode, 0, reason: actual.stderr);
       expect(actual.stdout, hostResolver.readAsStringSync());

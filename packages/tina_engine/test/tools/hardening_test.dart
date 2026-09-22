@@ -37,7 +37,7 @@ void main() {
       File('${project.path}/ok.txt').writeAsStringSync('hello');
       fs = SandboxedFileSystem(
         const IoFileSystem(),
-        projectRoot: project.path,
+        workspaceRoot: project.path,
         tinaDir: tina,
       );
     });
@@ -279,7 +279,7 @@ void main() {
         ..writeAsStringSync('TOPSECRET');
       final tina = Directory('${t.path}/tina')..createSync();
       final sandbox = SandboxedFileSystem(const IoFileSystem(),
-          projectRoot: project.path, tinaDir: tina);
+          workspaceRoot: project.path, tinaDir: tina);
       final backups = BackupStore(
           fs: const IoFileSystem(),
           storeDir: Directory('${tina.path}/backups'));
@@ -314,7 +314,7 @@ void main() {
         ..writeAsStringSync('TOPSECRET');
       final tina = Directory('${t.path}/tina')..createSync();
       final sandbox = SandboxedFileSystem(const IoFileSystem(),
-          projectRoot: project.path, tinaDir: tina);
+          workspaceRoot: project.path, tinaDir: tina);
       final res =
           await ReadTool(fs: sandbox).execute({'filePath': secret.path});
       expect(res.isError, isTrue);
@@ -406,7 +406,7 @@ void main() {
       });
       final runner = _RecordingProcessRunner();
       final res =
-          await BashTool(processRunner: runner, projectRoot: project.path)
+          await BashTool(processRunner: runner, workspaceRoot: project.path)
               .execute({'command': 'echo hi', 'cwd': outside.path});
       expect(res.isError, isTrue);
       expect(res.content, contains('project root'));
@@ -601,7 +601,7 @@ final Map<String, _ArgvProbe> _argvDrivers = {
       processRunner: runner,
       fileEnumerator: MemoryFileEnumerator({}),
       fs: MemoryFileSystem()..directories.add('/repo'),
-    )..projectRoot = '/repo';
+    )..workspaceRoot = '/repo';
     final input = <String, dynamic>{'path': '/repo', 'pattern': 'x'};
     if (parameter == 'glob') {
       input['glob'] = hostile;

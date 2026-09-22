@@ -22,7 +22,7 @@ void main() {
       final ledger = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
       ExploreProjectTool build() => createConfiguredExplorationTool(
         spendLedger: ledger,
-        projectRoot: fixture.dir.path,
+        workspaceRoot: fixture.dir.path,
         env: const {'TYPESAFE_API_KEY': 'key'},
         tinaDir: fixture.dir,
         evidenceSource: _EvidenceSource(),
@@ -85,7 +85,7 @@ void main() {
       final ledger = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
       final tool = createConfiguredExplorationTool(
         spendLedger: ledger,
-        projectRoot: fixture.dir.path,
+        workspaceRoot: fixture.dir.path,
         env: const {},
         tinaDir: fixture.dir,
         evidenceSource: _EvidenceSource(),

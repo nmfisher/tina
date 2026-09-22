@@ -20,7 +20,7 @@ void main() {
         } catch (_) {}
       });
       final profile = buildSandboxProfile(
-        projectRoot: temp.path,
+        workspaceRoot: temp.path,
         extraAllowPaths: const [],
       );
       expect(profile, contains('(version 1)'));
@@ -45,7 +45,7 @@ void main() {
         } catch (_) {}
       });
       final profile = buildSandboxProfile(
-        projectRoot: a.path,
+        workspaceRoot: a.path,
         extraAllowPaths: [a.path],
       );
       expect(profile, contains('(subpath "${a.resolveSymbolicLinksSync()}")'));
@@ -61,7 +61,7 @@ void main() {
       });
       final resolved = temp.resolveSymbolicLinksSync();
       final profile = buildSandboxProfile(
-        projectRoot: temp.path,
+        workspaceRoot: temp.path,
         sandboxReadOnly: true,
       );
       // The project is no longer writable…
@@ -93,7 +93,7 @@ void main() {
       });
       final runner = SandboxedProcessRunner(
         inner: inner,
-        projectRoot: temp.path,
+        workspaceRoot: temp.path,
         enabled: true,
         // Pinned so the macOS rewrite is exercised on every platform; the
         // per-platform dispatch itself is covered in
@@ -116,7 +116,7 @@ void main() {
           MemoryRunningProcess(exitCodeValue: 0));
       final runner = SandboxedProcessRunner(
         inner: inner,
-        projectRoot: '/whatever',
+        workspaceRoot: '/whatever',
         enabled: false,
       );
       await runner.start('/bin/sh', ['-c', 'echo hi']);
@@ -142,7 +142,7 @@ void main() {
     });
 
     test('a write under the project root succeeds', () async {
-      final runner = SandboxedProcessRunner(projectRoot: project.path);
+      final runner = SandboxedProcessRunner(workspaceRoot: project.path);
       final target = '${project.path}/inside.txt';
       final proc = await runner.start('/bin/sh', ['-c', 'echo x > $target']);
       final code = await proc.exitCode;
@@ -168,7 +168,7 @@ void main() {
       // of the sandbox (not a missing-directory error), and so an unsandboxed
       // run would succeed here.
       outside.createSync(recursive: true);
-      final runner = SandboxedProcessRunner(projectRoot: project.path);
+      final runner = SandboxedProcessRunner(workspaceRoot: project.path);
       final target = '${outside.path}/escape.txt';
       final proc = await runner.start('/bin/sh', ['-c', 'echo x > $target']);
       final code = await proc.exitCode;
@@ -236,7 +236,7 @@ void main() {
       final resolved = home.resolveSymbolicLinksSync();
 
       final profile = buildSandboxProfile(
-        projectRoot: home.path,
+        workspaceRoot: home.path,
         sandboxReadOnly: true,
         homeOverride: home.path,
       );

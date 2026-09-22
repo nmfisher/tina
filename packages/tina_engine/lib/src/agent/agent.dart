@@ -1263,8 +1263,8 @@ class Agent {
     final prompts = promptContext ?? PromptContext();
     return AgentContext(
         stage: stage,
-        cwd: prompts.projectRoot,
-        loadProjectContext: prompts.loadProjectContext,
+        cwd: prompts.workspaceRoot,
+        loadWorkspaceContext: prompts.loadWorkspaceContext,
         model: provider.model,
         history: history,
         cancelSignal: cancelSignal,

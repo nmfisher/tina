@@ -108,8 +108,8 @@ void main() {
       registry: registry,
       store: MemorySessionStore(),
       environment: FakeEnvironment(env: env),
-      projectRoot: project.path,
-      loadProjectContext: false,
+      workspaceRoot: project.path,
+      loadWorkspaceContext: false,
     );
   });
   tearDown(() async {

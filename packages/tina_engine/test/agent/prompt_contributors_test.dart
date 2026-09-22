@@ -33,7 +33,7 @@ void main() {
     test('plain context yields [identity, environment]', () {
       final contributors = defaultPromptContributors(
         identity: 'IDENTITY',
-        context: PromptContext(projectRoot: tmp.path),
+        context: PromptContext(workspaceRoot: tmp.path),
       );
       expect(contributors.map((c) => c.id), ['identity', 'environment']);
     });
@@ -41,7 +41,7 @@ void main() {
     test('safeMode yields [safe_mode, identity, environment]', () {
       final contributors = defaultPromptContributors(
         identity: 'IDENTITY',
-        context: PromptContext(projectRoot: tmp.path),
+        context: PromptContext(workspaceRoot: tmp.path),
         safeMode: true,
       );
       expect(
@@ -55,16 +55,16 @@ void main() {
       addTearDown(() => empty.deleteSync(recursive: true));
       final contributors = defaultPromptContributors(
         identity: 'IDENTITY',
-        context: PromptContext(projectRoot: empty.path),
+        context: PromptContext(workspaceRoot: empty.path),
       );
       expect(contributors.map((c) => c.id), ['identity', 'environment']);
     });
 
-    test('loadProjectContext: false drops the project_context section', () {
+    test('loadWorkspaceContext: false drops the project_context section', () {
       final contributors = defaultPromptContributors(
         identity: 'IDENTITY',
-        context: PromptContext(projectRoot: tmp.path),
-        loadProjectContext: false,
+        context: PromptContext(workspaceRoot: tmp.path),
+        loadWorkspaceContext: false,
       );
       expect(contributors.map((c) => c.id), ['identity', 'environment']);
     });
@@ -86,7 +86,7 @@ void main() {
       final pipeline = AgentPipeline(
         mainIdentity: 'JOIN-IDENTITY',
         promptContext: PromptContext(
-          projectRoot: tmp.path,
+          workspaceRoot: tmp.path,
           repoSummarySource: () => '<repo>\nbranch: main @ abc1234\n</repo>',
         ),
       );
@@ -104,7 +104,7 @@ void main() {
       final pipeline = AgentPipeline(
         mainIdentity: 'JOIN-IDENTITY',
         promptContext: PromptContext(
-          projectRoot: tmp.path,
+          workspaceRoot: tmp.path,
         ),
       );
       final resolved =
@@ -122,7 +122,7 @@ void main() {
         () {
       final pipeline = AgentPipeline(
         mainIdentity: 'JOIN-IDENTITY',
-        promptContext: PromptContext(projectRoot: tmp.path),
+        promptContext: PromptContext(workspaceRoot: tmp.path),
       );
       final resolved = resolveMainPrompt(pipeline, cwd: tmp.path);
       final joined = joinPromptContributors(defaultPromptContributors(
@@ -183,7 +183,7 @@ void main() {
       final pipeline = AgentPipeline(
         mainIdentity: 'THROW-IDENTITY',
         promptContext: PromptContext(
-          projectRoot: tmp.path,
+          workspaceRoot: tmp.path,
           repoSummarySource: () => throw StateError('boom'),
         ),
       );

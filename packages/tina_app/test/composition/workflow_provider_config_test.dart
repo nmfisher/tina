@@ -157,8 +157,8 @@ _setup(_Client client) async {
     providers: factory,
     pipeline: AgentPipeline(
       promptContext: PromptContext(
-        projectRoot: root.path,
-        loadProjectContext: false,
+        workspaceRoot: root.path,
+        loadWorkspaceContext: false,
       ),
     ),
   );

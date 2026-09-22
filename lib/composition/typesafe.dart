@@ -98,7 +98,7 @@ Future<ProjectClassificationReport> runConfiguredProjectClassification(
 /// Normal ToolOutputEvents carry progress; the turn's cancel signal tears down
 /// the scan and requests. No separate background job can outlive the turn.
 ExploreProjectTool createConfiguredExplorationTool({
-  required String projectRoot,
+  required String workspaceRoot,
   required Map<String, String> env,
   required SpendLedger spendLedger,
   PauseGate? pauseGate,
@@ -126,10 +126,10 @@ ExploreProjectTool createConfiguredExplorationTool({
       final source =
           evidenceSource ??
           RepositoryEvidenceSource(
-            root: projectRoot,
+            root: workspaceRoot,
             sandbox: SandboxedFileSystem(
               const IoFileSystem(),
-              projectRoot: projectRoot,
+              workspaceRoot: workspaceRoot,
               tinaDir: tinaDir ?? tinaDirFromEnv(env),
             ),
           );
@@ -139,7 +139,7 @@ ExploreProjectTool createConfiguredExplorationTool({
       final workflow = ExplorationWorkflow(
         timeout: timeout,
         source: source,
-        cache: FileExplorationCache(projectRoot),
+        cache: FileExplorationCache(workspaceRoot),
         cacheEndpoint: config.endpoint.toString(),
 
         selectionThreshold:

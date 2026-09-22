@@ -142,7 +142,7 @@ void main() {
     AgentPipeline pipeline() => AgentPipeline(
           mainIdentity: defaultPipeline.mainIdentity,
           promptContext: PromptContext(
-            projectRoot: tmp.path,
+            workspaceRoot: tmp.path,
             repoSummarySource: repoSummarySource,
           ),
         );
@@ -165,10 +165,10 @@ void main() {
       expect(s.indexOf('date:'), lessThan(s.indexOf('<repo>')));
     });
 
-    test('withholds the block when loadProjectContext is false', () {
+    test('withholds the block when loadWorkspaceContext is false', () {
       repoSummarySource = () => 'LEAKED REPO SUMMARY';
       final s = resolveMainPrompt(pipeline(),
-          cwd: tmp.path, loadProjectContext: false);
+          cwd: tmp.path, loadWorkspaceContext: false);
       expect(s, isNot(contains('LEAKED REPO SUMMARY')));
     });
 
@@ -249,14 +249,14 @@ void main() {
       var revision = 1;
       final first = AgentPipeline(
           promptContext: PromptContext(
-        projectRoot: a.path,
+        workspaceRoot: a.path,
         repoSummarySource: () => 'A repo $revision',
       ));
       var untrustedReads = 0;
       final second = AgentPipeline(
           promptContext: PromptContext(
-        projectRoot: b.path,
-        loadProjectContext: false,
+        workspaceRoot: b.path,
+        loadWorkspaceContext: false,
         repoSummarySource: () {
           untrustedReads++;
           return 'B repo';
@@ -264,9 +264,9 @@ void main() {
       ));
       expect(resolveMainPrompt(first), contains('A repo 1'));
       for (final prompt in [
-        resolveMainPrompt(second, loadProjectContext: true),
+        resolveMainPrompt(second, loadWorkspaceContext: true),
         resolveIdentityPrompt('node',
-            context: second.promptContext, loadProjectContext: true)
+            context: second.promptContext, loadWorkspaceContext: true)
       ]) {
         expect(prompt, contains('cwd: ${b.path}'));
         expect(prompt, isNot(contains('B instructions')));

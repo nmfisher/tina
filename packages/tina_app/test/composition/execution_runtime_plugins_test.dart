@@ -13,8 +13,8 @@ const _factoryPluginId = 'tina.app.provider-factory';
 
 /// Witness key an extension binds from the borrowed tool scope; lets the
 /// test prove the extension activated and which instance it received.
-final ServiceKey<ProjectToolScope> _extensionToolScopeWitnessServiceKey =
-    ServiceKey<ProjectToolScope>('test.extension.tool_scope_witness');
+final ServiceKey<WorkspaceToolScope> _extensionToolScopeWitnessServiceKey =
+    ServiceKey<WorkspaceToolScope>('test.extension.tool_scope_witness');
 
 ProviderRegistry _registryWithUsageProvider() {
   final registry = ProviderRegistry(env: const {})
@@ -244,14 +244,14 @@ void main() {
       config: RuntimeConfig(provider: 'test', model: 'a'),
       registry: registry,
       environment: FakeEnvironment(),
-      projectRoot: rootA.path,
+      workspaceRoot: rootA.path,
     );
     addTearDown(runtimeA.dispose);
     final runtimeB = await buildExecutionRuntime(
       config: RuntimeConfig(provider: 'test', model: 'a'),
       registry: registry,
       environment: FakeEnvironment(),
-      projectRoot: rootB.path,
+      workspaceRoot: rootB.path,
     );
     addTearDown(runtimeB.dispose);
 
@@ -259,8 +259,8 @@ void main() {
     final scopeB = runtimeB.pipeline.tools;
     // Each runtime's plugins built their own scope — different roots, so the
     // write locks (and every tool instance) must be independent objects.
-    expect(scopeA.projectRoot, rootA.path);
-    expect(scopeB.projectRoot, rootB.path);
+    expect(scopeA.workspaceRoot, rootA.path);
+    expect(scopeB.workspaceRoot, rootB.path);
     expect(identical(scopeA, scopeB), isFalse);
     expect(identical(scopeA.mutationLock, scopeB.mutationLock), isFalse);
     Tool bashA(ToolRegistry r) => r.all.firstWhere((t) => t.schema.name == 'bash');
@@ -277,8 +277,8 @@ void main() {
       'capabilities built', () async {
     final root = await Directory.systemTemp.createTemp('tina_rt_borrow_');
     addTearDown(() async => await root.delete(recursive: true));
-    final borrowed = ProjectToolScope(
-      projectRoot: root.path,
+    final borrowed = WorkspaceToolScope(
+      workspaceRoot: root.path,
       env: const {},
     );
     final registry = _registryWithUsageProvider();
@@ -293,11 +293,11 @@ void main() {
     // Same object identity: the runtime borrows, it does not rebuild.
     expect(identical(runtime.pipeline.tools, borrowed), isTrue);
     // The capability stage ran no plugins — nothing of its own was built.
-    expect(runtime.pluginScope.lookup(projectCapabilitiesServiceKey), isNull);
+    expect(runtime.pluginScope.lookup(workspaceCapabilitiesServiceKey), isNull);
     // The borrowed tool scope resolves through the borrowed parent scope —
     // still the lender's object, exposed to this runtime's plugins but never
     // rebuilt or owned here.
-    expect(runtime.pluginScope.lookup(projectToolScopeServiceKey),
+    expect(runtime.pluginScope.lookup(workspaceToolScopeServiceKey),
         same(borrowed));
   });
 
@@ -310,7 +310,7 @@ void main() {
       config: RuntimeConfig(provider: 'test', model: 'a'),
       registry: registry,
       environment: FakeEnvironment(),
-      projectRoot: root.path,
+      workspaceRoot: root.path,
     );
     addTearDown(runtime.dispose);
 
@@ -336,13 +336,13 @@ void main() {
   });
 
   test('a borrowed tool scope satisfies an extension that requires '
-      'projectToolScopeServiceKey, without being disposed by the borrower',
+      'workspaceToolScopeServiceKey, without being disposed by the borrower',
       () async {
     final root = await Directory.systemTemp.createTemp('tina_rt_borrow_req_');
     addTearDown(() async => await root.delete(recursive: true));
     var borrowedDisposals = 0;
-    final borrowed = ProjectToolScope(
-      projectRoot: root.path,
+    final borrowed = WorkspaceToolScope(
+      workspaceRoot: root.path,
       env: const {},
     );
     // The borrowed scope's runtime owns the tool-scope service: validation
@@ -365,7 +365,7 @@ void main() {
             config: RuntimeConfig(provider: 'test', model: 'a'),
             registry: _registryWithUsageProvider(),
             providerDecorators: const [],
-            projectRoot: root.path,
+            workspaceRoot: root.path,
             environment: FakeEnvironment(),
             sandboxEnabled: false,
             sandboxNet: false,
@@ -375,10 +375,10 @@ void main() {
         // A conversation extension that needs the borrowed tool scope.
         PluginDescriptor(
           id: 'extension.needs-tool-scope',
-          requires: {projectToolScopeServiceKey},
+          requires: {workspaceToolScopeServiceKey},
           provides: [_extensionToolScopeWitnessServiceKey],
           factory: FnPluginFactory((context) {
-            final tools = context.require(projectToolScopeServiceKey);
+            final tools = context.require(workspaceToolScopeServiceKey);
             expect(identical(tools, borrowed), isTrue);
             return tools;
           }),
@@ -434,7 +434,7 @@ void main() {
         config: RuntimeConfig(provider: 'test', model: 'a'),
         registry: _registryWithUsageProvider(),
         environment: FakeEnvironment(),
-        projectRoot: root.path,
+        workspaceRoot: root.path,
         executionPlugins: incompleteProfile,
       );
     } catch (error) {
@@ -489,7 +489,7 @@ void main() {
         config: RuntimeConfig(provider: 'test', model: 'a'),
         registry: _registryWithUsageProvider(),
         environment: FakeEnvironment(),
-        projectRoot: root.path,
+        workspaceRoot: root.path,
         executionPlugins: profileWithoutToolScope,
       );
     } catch (error) {

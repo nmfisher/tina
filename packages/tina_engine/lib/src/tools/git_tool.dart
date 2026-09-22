@@ -48,7 +48,7 @@ class GitTool implements Tool, SpawnsProcess {
 
   /// Working directory for the git invocation. Defaults to the process cwd
   /// (re-pointed at the project root at composition, like BashTool's
-  /// `projectRoot`); tests point it at a temp repo.
+  /// `workspaceRoot`); tests point it at a temp repo.
   String? workingDirectory;
 
   GitTool({ProcessRunner? processRunner, this.workingDirectory})

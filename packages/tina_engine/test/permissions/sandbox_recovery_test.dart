@@ -28,11 +28,11 @@ void main() {
           ])
         : MemoryRunningProcess(stdoutChunks: ['success']));
     runner = SandboxedProcessRunner(
-        projectRoot: temp.path,
+        workspaceRoot: temp.path,
         inner: inner,
         backend: SandboxBackend.bwrap,
         accessPolicy: SandboxAccessPolicy());
-    bash = BashTool(projectRoot: temp.path, processRunner: runner);
+    bash = BashTool(workspaceRoot: temp.path, processRunner: runner);
   });
   tearDown(() => temp.deleteSync(recursive: true));
 
@@ -47,7 +47,7 @@ void main() {
     final history = <Message>[];
     await Agent(
       provider: _Provider(steps, toolName: toolName),
-      tools: ToolRegistry([bash, ExecTool(projectRoot: temp.path, processRunner: runner)]),
+      tools: ToolRegistry([bash, ExecTool(workspaceRoot: temp.path, processRunner: runner)]),
       sink: sink ?? FakeAgentSink(),
       system: 'test',
       asker: asker,
@@ -72,7 +72,7 @@ void main() {
           ])
         : MemoryRunningProcess(stdoutChunks: ['tests passed\n']));
     runner = SandboxedProcessRunner(
-        projectRoot: temp.path,
+        workspaceRoot: temp.path,
         inner: inner,
         backend: SandboxBackend.bwrap,
         accessPolicy: SandboxAccessPolicy());
@@ -174,7 +174,7 @@ void main() {
 
   test('a zero-exit EROFS without a path is only a warning', () async {
     bash.processRunner = SandboxedProcessRunner(
-        projectRoot: temp.path,
+        workspaceRoot: temp.path,
         inner: MemoryProcessRunner((_, __) =>
             MemoryRunningProcess(stderrChunks: ['Read-only file system\n'])),
         backend: SandboxBackend.bwrap,
@@ -187,7 +187,7 @@ void main() {
 
   test('pass-through execution does not diagnose sandbox failures', () async {
     bash.processRunner = SandboxedProcessRunner(
-        projectRoot: temp.path,
+        workspaceRoot: temp.path,
         inner: MemoryProcessRunner((_, __) =>
             MemoryRunningProcess(stderrChunks: ['Read-only file system\n'])),
         backend: SandboxBackend.passThrough);
@@ -380,7 +380,7 @@ void main() {
     inner = MemoryProcessRunner((_, __) => MemoryRunningProcess(
         exitCodeValue: 1, stderrChunks: ['${cache.path}/stamp: Read-only file system\n']));
     bash.processRunner = SandboxedProcessRunner(
-        projectRoot: temp.path, inner: inner, backend: SandboxBackend.bwrap,
+        workspaceRoot: temp.path, inner: inner, backend: SandboxBackend.bwrap,
         accessPolicy: SandboxAccessPolicy());
     var asks = 0;
     final history = await run([
@@ -498,7 +498,7 @@ void main() {
             ])
           : MemoryRunningProcess(stdoutChunks: ['pushed']));
       runner = SandboxedProcessRunner(
-          projectRoot: temp.path,
+          workspaceRoot: temp.path,
           inner: inner,
           backend: SandboxBackend.bwrap,
           accessPolicy: SandboxAccessPolicy());
@@ -530,7 +530,7 @@ void main() {
 
   test('real Linux logging wrapper masks the exit but still warns', () async {
     bash.processRunner =
-        SandboxedProcessRunner(projectRoot: cache.path, sandboxReadOnly: true);
+        SandboxedProcessRunner(workspaceRoot: cache.path, sandboxReadOnly: true);
     final log = '${temp.path}/output.log';
     final actual = '''/bin/sh -c 'echo written > "${cache.path}/probe"' '''
         '> "$log" 2>&1; echo "exit=\$?"; tail -4 "$log"';
@@ -547,7 +547,7 @@ void main() {
       'real Linux first failure retries outside only after explicit approval',
       () async {
     bash.processRunner =
-        SandboxedProcessRunner(projectRoot: cache.path, sandboxReadOnly: true);
+        SandboxedProcessRunner(workspaceRoot: cache.path, sandboxReadOnly: true);
     // Cache is read-only even though its parent is in writable /tmp.
     final actual = 'echo written > "${cache.path}/probe"';
     var asks = 0;

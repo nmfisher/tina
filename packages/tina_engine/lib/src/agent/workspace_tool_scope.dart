@@ -4,28 +4,28 @@ import '../permissions/policy.dart';
 import '../runtime/contracts.dart';
 import '../runtime/runtime.dart';
 import '../tools/mutation_lock.dart';
-import '../tools/project_capabilities.dart';
-import '../tools/project_tool_plugins.dart';
+import '../tools/workspace_capabilities.dart';
+import '../tools/workspace_tool_plugins.dart';
 import '../tools/tool.dart';
 
 import 'tool_profile.dart';
 
 /// Service key under which a composition registers/resolves the assembled
-/// [ProjectToolScope].
-final ServiceKey<ProjectToolScope> projectToolScopeServiceKey =
-    ServiceKey<ProjectToolScope>('tina.engine.project_tool_scope');
+/// [WorkspaceToolScope].
+final ServiceKey<WorkspaceToolScope> workspaceToolScopeServiceKey =
+    ServiceKey<WorkspaceToolScope>('tina.engine.workspace_tool_scope');
 
 /// Project-owned tools and write coordination. Main agents, delegates and
 /// same-project background runs borrow this scope. Creating another scope never
 /// changes these tool instances or their sandbox configuration.
 ///
 /// The tools are no longer wired by hand here: the scope composes a
-/// [PluginRuntime] from [projectToolPlugins] and activates it synchronously —
+/// [PluginRuntime] from [workspaceToolPlugins] and activates it synchronously —
 /// one plugin per tool, each factory building the tool from the shared
-/// [ProjectCapabilities]. The scope keeps only the capabilities' identity
+/// [WorkspaceCapabilities]. The scope keeps only the capabilities' identity
 /// fields; every tool lives in the runtime's scope as contributions.
-class ProjectToolScope {
-  final String projectRoot;
+class WorkspaceToolScope {
+  final String workspaceRoot;
   final Map<String, String> environment;
   final FileMutationLock mutationLock;
 
@@ -33,15 +33,15 @@ class ProjectToolScope {
   /// tool contributions.
   final PluginRuntime runtime;
 
-  ProjectToolScope({
-    required String projectRoot,
+  WorkspaceToolScope({
+    required String workspaceRoot,
     required Map<String, String> env,
     bool sandboxEnabled = true,
     bool sandboxNet = false,
     bool sandboxReadOnly = false,
   }) : this._(
-          capabilities: ProjectCapabilities.build(
-            projectRoot: projectRoot,
+          capabilities: WorkspaceCapabilities.build(
+            workspaceRoot: workspaceRoot,
             env: env,
             confineFiles: true,
             sandboxEnabled: sandboxEnabled,
@@ -52,10 +52,10 @@ class ProjectToolScope {
 
   /// Standalone tool assembly for engine consumers without application setup.
   /// Production composition uses the confined constructor above.
-  ProjectToolScope.unconfined({String? projectRoot, Map<String, String>? env})
+  WorkspaceToolScope.unconfined({String? workspaceRoot, Map<String, String>? env})
       : this._(
-          capabilities: ProjectCapabilities.build(
-            projectRoot: projectRoot ?? Directory.current.path,
+          capabilities: WorkspaceCapabilities.build(
+            workspaceRoot: workspaceRoot ?? Directory.current.path,
             env: env ?? Platform.environment,
             confineFiles: false,
             sandboxEnabled: false,
@@ -67,16 +67,16 @@ class ProjectToolScope {
   /// Composition seam: assembles the scope from already-built [capabilities].
   /// The app-level plugin that provides the scope as a service uses this; the
   /// two public constructors above keep building the capabilities themselves.
-  ProjectToolScope.fromCapabilities(ProjectCapabilities capabilities)
+  WorkspaceToolScope.fromCapabilities(WorkspaceCapabilities capabilities)
       : this._(capabilities: capabilities);
 
-  ProjectToolScope._({required ProjectCapabilities capabilities})
-      : projectRoot = capabilities.projectRoot,
+  WorkspaceToolScope._({required WorkspaceCapabilities capabilities})
+      : workspaceRoot = capabilities.workspaceRoot,
         environment = capabilities.environment,
         mutationLock = capabilities.mutationLock,
         runtime = PluginRuntime(
-          name: 'project-tools',
-          plugins: projectToolPlugins(capabilities),
+          name: 'workspace-tools',
+          plugins: workspaceToolPlugins(capabilities),
         ) {
     runtime.activateSync();
   }
@@ -169,14 +169,14 @@ class ProjectToolScope {
     }
     // The sidecar capture is composed by the runtime as a singleton under
     // [writeSummaryToolServiceKey], not as a registry contribution — see
-    // [projectToolPlugins].
+    // [workspaceToolPlugins].
     if (name == 'write_summary') return _writeSummary;
     return null;
   }
 
   /// The sidecar summaries capture: composed by the runtime under its
   /// [writeSummaryToolServiceKey] singleton (it is deliberately not a registry
-  /// contribution — see [projectToolPlugins]).
+  /// contribution — see [workspaceToolPlugins]).
   Tool get _writeSummary =>
       runtime.scope.lookup(writeSummaryToolServiceKey) as Tool;
 }

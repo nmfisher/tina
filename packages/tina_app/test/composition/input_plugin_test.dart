@@ -32,7 +32,7 @@ void main() {
         config: RuntimeConfig(provider: 'unused', model: 'unused'),
         registry: ProviderRegistry(env: const {}),
         store: MemorySessionStore(),
-        projectRoot: root.path,
+        workspaceRoot: root.path,
         plugins: [
           PluginDescriptor(
             id: 'echo-plugin',

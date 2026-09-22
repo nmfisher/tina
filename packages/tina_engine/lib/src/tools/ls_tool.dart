@@ -12,7 +12,7 @@ const int _defaultMaxResults = 200;
 /// without shelling out through `bash`.
 class LsTool implements Tool {
   /// Captured project root; null retains standalone cwd-relative behavior.
-  String? projectRoot;
+  String? workspaceRoot;
 
   /// Validates the runtime `path` against the project root + tina tree.
   /// Null in tests.
@@ -59,9 +59,9 @@ class LsTool implements Tool {
     try {
       path = resolveToolPath(
           optionalString(input, 'path') ??
-              projectRoot ??
+              workspaceRoot ??
               Directory.current.path,
-          projectRoot);
+          workspaceRoot);
       all = optionalBool(input, 'all') ?? false;
       maxResults = optionalInt(input, 'maxResults') ?? _defaultMaxResults;
     } on ToolValidationException catch (e) {

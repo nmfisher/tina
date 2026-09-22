@@ -28,7 +28,7 @@ class Allocation {
 }
 
 /// The user-allocated region partition: a small `allocations.json` in the
-/// sidecar root (`<projectRoot>/.tina/summaries/allocations.json`) recording
+/// sidecar root (`<workspaceRoot>/.tina/summaries/allocations.json`) recording
 /// which directories the main agent allocated. Kept separate from
 /// `manifest.json` so the summary manifest schema is untouched. The partition
 /// for staleness/refresh is the allocated regions when any exist (see
@@ -36,12 +36,12 @@ class Allocation {
 class AllocationsStore {
   AllocationsStore({required this.sidecarRoot});
 
-  /// The store for [projectRoot]'s sidecar
-  /// (`<projectRoot>/.tina/summaries/allocations.json`).
-  factory AllocationsStore.forProject(String projectRoot) =>
-      AllocationsStore(sidecarRoot: Directory('$projectRoot/.tina/summaries'));
+  /// The store for [workspaceRoot]'s sidecar
+  /// (`<workspaceRoot>/.tina/summaries/allocations.json`).
+  factory AllocationsStore.forProject(String workspaceRoot) =>
+      AllocationsStore(sidecarRoot: Directory('$workspaceRoot/.tina/summaries'));
 
-  /// The sidecar git repo root: `<projectRoot>/.tina/summaries`.
+  /// The sidecar git repo root: `<workspaceRoot>/.tina/summaries`.
   final Directory sidecarRoot;
 
   File get _file => File('${sidecarRoot.path}/allocations.json');

@@ -10,7 +10,7 @@ import '../summaries/fleet_test_harness.dart';
 /// A [SidecarSummaryRepo] that counts [loadManifest] calls, to prove the
 /// region list reads the manifest once (not once per region — the O(n²) bug).
 class _CountingRepo extends SidecarSummaryRepo {
-  _CountingRepo({required super.root, required super.projectRoot});
+  _CountingRepo({required super.root, required super.workspaceRoot});
   int loadManifestCalls = 0;
 
   @override
@@ -34,7 +34,7 @@ void main() {
     tempRoot = t.tempRoot;
     project = t.project;
     sidecarRoot = t.sidecarRoot;
-    repo = SidecarSummaryRepo(root: sidecarRoot, projectRoot: project);
+    repo = SidecarSummaryRepo(root: sidecarRoot, workspaceRoot: project);
     repo.init();
   });
 
@@ -44,7 +44,7 @@ void main() {
     } catch (_) {}
   });
 
-  RegionRegistry registry() => RegionRegistry(projectRoot: project.path);
+  RegionRegistry registry() => RegionRegistry(workspaceRoot: project.path);
 
   /// Seed a current summary for [dir] (matching the current tree hash, so it
   /// is not stale).
@@ -83,7 +83,7 @@ void main() {
   test('region summary reads reuse one manifest load (no O(n²) re-read)', () {
     seedSummary('lib');
     final counting = _CountingRepo(
-        root: sidecarRoot, projectRoot: project);
+        root: sidecarRoot, workspaceRoot: project);
     final manifest = counting.loadManifest();
     expect(counting.loadManifestCalls, 1);
     // The manifest-aware read resolves against the passed manifest — no
@@ -151,7 +151,7 @@ void main() {
     final r1 = registry();
     expect(r1.modelFor('lib'), isNull);
     final r2 = RegionRegistry(
-        projectRoot: project.path, defaultModel: 'deepseek/deepseek-chat');
+        workspaceRoot: project.path, defaultModel: 'deepseek/deepseek-chat');
     expect(r2.modelFor('lib'), 'deepseek/deepseek-chat');
     r2.allocate('lib', model: 'fast/fast-model');
     expect(registry().modelFor('lib'), 'fast/fast-model');

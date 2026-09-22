@@ -18,9 +18,9 @@ void main() {
 
   tearDown(() => temp.deleteSync(recursive: true));
 
-  ProjectToolScope scope(Directory root, {bool sandboxEnabled = false}) =>
-      ProjectToolScope(
-        projectRoot: root.path,
+  WorkspaceToolScope scope(Directory root, {bool sandboxEnabled = false}) =>
+      WorkspaceToolScope(
+        workspaceRoot: root.path,
         env: env,
         sandboxEnabled: sandboxEnabled,
       );
@@ -138,11 +138,11 @@ void main() {
     final tools = ToolRegistry(a.toolSetFor(ToolProfile.full));
     scope(second);
 
-    expect((tools['search']! as SearchTool).repoRoot, a.projectRoot);
-    expect((tools['git']! as GitTool).workingDirectory, a.projectRoot);
+    expect((tools['search']! as SearchTool).repoRoot, a.workspaceRoot);
+    expect((tools['git']! as GitTool).workingDirectory, a.workspaceRoot);
     final summary = tools['write_summary']! as WriteSummaryTool;
-    expect(summary.projectRoot, a.projectRoot);
-    expect(summary.sidecarRoot!.path, '${a.projectRoot}/.tina/summaries');
+    expect(summary.workspaceRoot, a.workspaceRoot);
+    expect(summary.sidecarRoot!.path, '${a.workspaceRoot}/.tina/summaries');
   });
 
   test('sandboxed and pass-through shells can coexist', () {
@@ -153,8 +153,8 @@ void main() {
 
     expect(bashA.processRunner, isA<SandboxedProcessRunner>());
     expect(bashB.processRunner, isA<IoProcessRunner>());
-    expect(bashA.projectRoot, a.projectRoot);
-    expect(bashB.projectRoot, b.projectRoot);
+    expect(bashA.workspaceRoot, a.workspaceRoot);
+    expect(bashB.workspaceRoot, b.workspaceRoot);
   });
 
   test('environment and optional search registration are scope snapshots', () {

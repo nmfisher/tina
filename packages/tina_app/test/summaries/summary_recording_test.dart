@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:test/test.dart';
-import 'package:tina_app/src/execution/project_execution.dart';
+import 'package:tina_app/src/execution/workspace_execution.dart';
 import 'package:tina_app/src/summaries/git_summary_repository.dart';
 import 'package:tina_app/src/summaries/sidecar_repo.dart';
 import 'package:tina_app/src/summaries/summary_index.dart';
@@ -29,7 +29,7 @@ void main() {
     project = fixture.project;
     sidecar = SidecarSummaryRepo(
       root: fixture.sidecarRoot,
-      projectRoot: project,
+      workspaceRoot: project,
     );
     repository = GitSummaryRepository(sidecar: sidecar);
   });
