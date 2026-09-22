@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
 
 import 'stdio_fake.dart';
+import 'virtual_terminal.dart';
 
 /// Test double for [InputBackend]. Lets tests push synthetic [InputEvent]s
 /// into the editor without going through stdin parsing — exercises the
@@ -380,6 +381,39 @@ void main() {
         await _flush();
         expect(submitted, ['z'], reason: 'capture must survive a nested readKey');
         ed.endInputCaptureWindow();
+        ed.close();
+      });
+
+      test('an empty window keeps the prompt row painted', () async {
+        final io = FakeStdio();
+        final input = FakeInputBackend();
+        final ed = _makeEditor(input, io: io);
+        final f = ed.readLine('> '); // subscribe the backend
+        await _flush();
+        input.emit(ControlKey(ControlCode.enter));
+        expect(await f, isEmpty); // finish the readLine the way a submit does
+        await _flush();
+
+        // Begin an empty capture window (the mid-/compact state): the input
+        // row must still show a prompt — pre-fix it was cleared, blanking the
+        // row until the dispatch settled and readLine re-armed.
+        final vt = VirtualTerminal(width: 80, height: 24);
+        ed.beginInputCaptureWindow((_) {});
+        vt.feed(io.written.toString());
+        final row = vt.rowText(vt.cursorRow);
+        expect(row, contains('>'),
+            reason: 'the empty capture window must keep a prompt painted');
+        final promptRow = vt.cursorRow;
+        io.written.clear();
+
+        // Ending the window with nothing typed must not blank the row either
+        // (no flash between window end and the next readLine arming).
+        ed.endInputCaptureWindow();
+        vt.feed(io.written.toString());
+        expect(vt.cursorRow, promptRow,
+            reason: 'the cursor stays parked on the input row');
+        expect(vt.rowText(vt.cursorRow), contains('>'),
+            reason: 'window end must not erase the prompt');
         ed.close();
       });
     });

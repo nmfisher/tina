@@ -407,7 +407,7 @@ class LineEditor {
 
   void endCancelMonitor() {
     _cancelHandler = null;
-    if (_queueModeActive) screen.input.clear();
+    if (_queueModeActive) _renderQueueDisplay();
     _queueModeActive = false;
     _onQueueSubmit = null;
     _qBuf = '';
@@ -1482,7 +1482,12 @@ class LineEditor {
           : '[$_qCount queued]';
       screen.input.render(prompt: label, buffer: '', cursor: 0);
     } else {
-      screen.input.clear();
+      // An empty capture window (e.g. a slow /compact still summarizing) must
+      // keep painting the prompt row: clearing here blanked the input line for
+      // the whole dispatch — nothing else owned the row until readLine
+      // re-armed — so the prompt visibly vanished mid-command (tin-y8kh).
+      // Rendering an empty buffer keeps the cursor parked and the row alive.
+      screen.input.render(prompt: _currentPrompt, buffer: '', cursor: 0);
     }
   }
 }
