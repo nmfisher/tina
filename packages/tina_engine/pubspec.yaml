@@ -5,6 +5,7 @@ version: 0.1.0
 environment:
   sdk: ^3.0.0
 dependencies:
+  crypto: ^3.0.6
   file_tree: { path: ../file_tree }
   tina_index: { path: ../tina_index }
   code_assets: ^1.0.0

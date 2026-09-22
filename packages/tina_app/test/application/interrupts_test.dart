@@ -5,6 +5,94 @@ import 'package:tina_app/tina_app.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 void main() {
+  for (final accept in [true, false]) {
+    test('review $accept resumes target without cancelling it', () async {
+      final calls = Invocations();
+      final target = calls.create(
+        component: const ComponentInfo('a', 'Agent'),
+        conversationId: 'c',
+      );
+      final source = calls.create(
+        component: const ComponentInfo('b', 'Reviewer'),
+        conversationId: 'c',
+      );
+      final decision = Completer<bool?>();
+      final shown = Completer<void>();
+      final output = <String>[];
+      var applied = false;
+      final interrupts = Interrupts(calls)
+        ..presenter = (prompt) {
+          expect(prompt.mode, InterruptMode.review);
+          expect(target.isHeld, isTrue);
+          shown.complete();
+          return decision.future;
+        };
+      final result = source.run(
+        (_) => interrupts.ask(
+          source: source,
+          target: target,
+          title: 'Enable rule?',
+          mode: InterruptMode.review,
+          onAccepted: () async {
+            expect(target.isHeld, isTrue);
+            expect(target.isCancelled, isFalse);
+            applied = true;
+          },
+        ),
+      );
+      await shown.future;
+      target.output(() => output.add('queued'));
+      expect(output, isEmpty);
+      decision.complete(accept);
+      expect(
+        await result,
+        accept ? InterruptResult.accepted : InterruptResult.declined,
+      );
+      await interrupts.ready('c');
+      expect(applied, accept);
+      expect(target.isCancelled, isFalse);
+      expect(target.isHeld, isFalse);
+      expect(output, ['queued']);
+      target.cancel();
+      interrupts.dispose();
+    });
+  }
+
+  test(
+    'cancel a review releases its hold without accepting or cancelling the target',
+    () async {
+      final calls = Invocations();
+      final target = calls.create(
+        component: const ComponentInfo('a', 'Agent'),
+        conversationId: 'c',
+      );
+      final source = calls.create(
+        component: const ComponentInfo('b', 'Reviewer'),
+        conversationId: 'c',
+      );
+      final shown = Completer<void>();
+      final interrupts = Interrupts(calls)
+        ..presenter = (_) {
+          shown.complete();
+          return Completer<bool?>().future;
+        };
+      final result = interrupts.ask(
+        source: source,
+        target: target,
+        title: 'Review',
+        mode: InterruptMode.review,
+      );
+      await shown.future;
+      interrupts.cancelAll();
+      expect(await result, InterruptResult.cancelled);
+      expect(target.isHeld, isFalse);
+      expect(target.isCancelled, isFalse);
+      target.cancel();
+      source.cancel();
+      interrupts.dispose();
+    },
+  );
+
   test('decline resumes output and leaves other holds intact', () async {
     final calls = Invocations();
     final target = calls.create(

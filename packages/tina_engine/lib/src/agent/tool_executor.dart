@@ -21,6 +21,7 @@ import '../permissions/sandbox_access.dart';
 import 'agent_sink.dart';
 import 'tool_guards.dart';
 import 'tool_hooks.dart';
+import 'tool_checks.dart';
 
 final _log = Logger('tina.agent');
 
@@ -299,12 +300,14 @@ class ToolExecutor {
   final List<ToolGuard> executionGuards;
 
   /// AROUND-execution hooks ([ToolExecutionHook]), awaited in order around
-  /// the actual `executionTool.execute(...)` call only — the guard gates and
-  /// the dispatch-boundary guard recheck stay outside the wrapper, exactly
-  /// where they are. The FIRST hook is the outermost wrapper. Exactly-once
+  /// the actual `executionTool.execute(...)` call. Checks and final guards
+  /// run inside the delegate. The FIRST hook is the outermost wrapper. Exactly-once
   /// delegation is enforced per hook (fail closed — see [ToolExecutionHook]);
   /// empty by default, which preserves the pre-hook behavior exactly.
   final List<ToolExecutionHook> executionHooks;
+
+  /// Optional awaited checks before dispatch, in registration order.
+  final List<ToolCheck> toolChecks;
 
   /// POST-tool hooks ([ToolResultHook]) plus the legacy verifier, run in
   /// order on a successful result: the verifier (adapted as
@@ -343,6 +346,7 @@ class ToolExecutor {
     this.toolInterruptSignal,
     this.toolStopSignal,
     this.executionGuards = const [],
+    this.toolChecks = const [],
     this.executionHooks = const [],
     this.resultHooks = const [],
     this.observers = const [],
@@ -710,6 +714,29 @@ class ToolExecutor {
       var rememberOutsideOnDispatch = false;
       var runningOutsideSandbox = usingOutsideGrant;
       Future<ToolResult> dispatch() async {
+        if (toolChecks.isNotEmpty) {
+          try {
+            await invocation?.ready();
+          } on InvocationCancelled {
+            return ToolResult.error('Cancelled before execution');
+          }
+          final blocked = await runToolChecks(
+            toolChecks,
+            ToolCallContext(
+                toolName: use.name,
+                toolId: use.id,
+                input: executionView,
+                isCancelled: isCancelled),
+            cancelSignal: invocation?.stopSignal(effectiveCancelSignal) ??
+                effectiveCancelSignal,
+            execution: executionTool is ProcessTool
+                ? executionTool.preparedRequest
+                : null,
+            outsideSandbox: runningOutsideSandbox,
+          );
+          if (blocked != null) return ToolResult.error(blocked);
+        }
+
         if (invocation != null) {
           try {
             while (invocation.invocation.isHeld && !invocation.isCancelled) {
@@ -720,6 +747,10 @@ class ToolExecutor {
           }
           if (invocation.isCancelled)
             return ToolResult.error('Cancelled before execution');
+        }
+        if (toolChecks.any((check) => !check.isAvailable)) {
+          return ToolResult.error(
+              'Tool checks changed before execution; retry with current policy.');
         }
         final finalBlock = runtimeBlock();
         if (finalBlock != null) {
@@ -998,11 +1029,8 @@ class ToolExecutor {
 
   /// Runs the AROUND-execution hook chain around [delegate]. The FIRST
   /// declared hook is the outermost wrapper (`hooks.reversed.fold`); the
-  /// guard gates and the dispatch-boundary guard recheck stay OUTSIDE this
-  /// wrapper, exactly where they are today (moving the recheck inside the
-  /// delegate is deliberately deferred until a real preparation hook needs
-  /// it — there is no async preparation between recheck and execute, so the
-  /// order is unobservable).
+  /// awaited checks and dispatch-boundary guard recheck stay inside the
+  /// delegate, so wrappers cannot bypass changes while awaiting.
   ///
   /// Each hook's [delegate] is exactly-once and fail closed:
   ///  * a second delegation throws, and ANY hook error is converted into an

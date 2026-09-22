@@ -313,6 +313,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       // resolves through the same scope.
       guards: toolGuardsFromScope(runtime.scope),
       executionHooks: toolExecutionHooksFromScope(runtime.scope),
+      toolChecks: toolChecksFromScope(runtime.scope),
       resultHooks: toolResultHooksFromScope(runtime.scope),
       observers: toolObserversFromScope(runtime.scope),
       scope: runtime.scope,

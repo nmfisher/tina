@@ -1,16 +1,7 @@
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
-
 import '../runtime/plugin.dart';
 import 'agent_pipeline.dart';
-
-/// Hard cap per file. Anyone who needs more than this is using AGENTS.md
-/// wrong; we still rather truncate than balloon every request.
-const int _agentsFileByteCap = 50 * 1024;
-
-/// And a cap on the total combined size across all AGENTS.md files found.
-const int _agentsTotalByteCap = 200 * 1024;
 
 /// Prepended to every agent's identity under `--safe-mode`. The write/edit/bash
 /// tools have already been removed from the registry; this is soft reinforcement
@@ -58,23 +49,20 @@ class _Section implements PromptContributor {
   String contribute() => _text();
 }
 
-/// The built-in prompt sections, in the exact byte order the assembled prompt
-/// has always had:
+/// Base prompt sections, assembled before invocation middleware:
 ///
 /// 1. `safe_mode` — the read-only preamble, only under `safeMode`; it glues
 ///    straight onto the identity.
 /// 2. `identity` — the role-specific identity (override-or-main is resolved by
 ///    the caller; this list carries the final string).
 /// 3. `environment` — the `<environment>` block: cwd/os/date lines, then the
-///    repo summary and project-environment records appended inside the block
-///    when their sources yield text.
-/// 4. `project_context` — the `<project-context>` AGENTS.md block, only when
-///    the (trust-gated) walk found at least one file.
+///    repository summary appended when its source yields text.
+/// Project instructions are supplied at request time by agent middleware.
 ///
 /// The warm-load sources are read afresh on every call, and a throwing source
 /// is treated as absent — one bad hook must never break every prompt build.
-/// [loadProjectContext] false withholds the AGENTS.md walk *and* the warm-load
-/// blocks: an untrusted project contributes nothing.
+/// [loadProjectContext] false withholds the repository summary. Project files
+/// are loaded separately by request middleware using the runtime trust context.
 List<PromptContributor> defaultPromptContributors({
   required String identity,
   required PromptContext context,
@@ -87,10 +75,6 @@ List<PromptContributor> defaultPromptContributors({
   final trusted = context.loadProjectContext && (loadProjectContext ?? true);
   final os = Platform.operatingSystem;
   final today = DateTime.now().toIso8601String().split('T').first;
-  final agents = trusted
-      ? _loadAgentsFiles(resolvedCwd)
-      : const <({String path, String content})>[];
-
   // The warm-load blocks, gated by the same trust flag as AGENTS.md. A
   // throwing source must never break every prompt build — treat it as
   // absent. The repository summary supplies factual orientation.
@@ -124,8 +108,6 @@ List<PromptContributor> defaultPromptContributors({
         () => '<environment>\n'
             '$environment\n'
             '</environment>\n'),
-    if (agents.isNotEmpty)
-      _Section('project_context', () => _renderAgentsBlock(agents)),
     // Profile-mounted sections trail the built-ins (one blank line each),
     // in registration order — a mounted section can extend or contextualize
     // the shared blocks but never reorder or shadow them.
@@ -159,15 +141,8 @@ String joinPromptContributors(List<PromptContributor> contributors) {
   return buf.toString();
 }
 
-/// Assembles a system prompt from a role-specific [identity] (the agent's
-/// purpose and tool guidance) followed by the shared environment block and any
-/// AGENTS.md project context discovered upward from [cwd]. [cwd] defaults to the
-/// runtime project root. Resolved fresh on each call so a new date or edited AGENTS.md
-/// lands on the next resolution.
-///
-/// When [loadProjectContext] is false the AGENTS.md walk is skipped — used by
-/// the project-trust gate to withhold an untrusted project's instructions from
-/// the system prompt. The `<project-environment>` block is gated the same way.
+/// Assembles the base identity, environment and static plugin contributions.
+/// Reading project instruction files belongs to request middleware.
 String _buildAgentPrompt({
   required String identity,
   required PromptContext context,
@@ -187,7 +162,7 @@ String _buildAgentPrompt({
 
 /// Resolve the entry agent's full system prompt: the `[prompts.main]` override
 /// from [overrides] when set (a non-empty string), else [pipeline.mainIdentity];
-/// then wrapped with the shared `<environment>` and `<project-context>` blocks.
+/// then wrapped with the shared environment and static prompt contributions.
 ///
 /// When [workflowEnabled] is false the built-in identity is passed through
 /// [stripWorkflowGuidance], so an agent with no `launch_workflow` tool is not
@@ -198,9 +173,8 @@ String _buildAgentPrompt({
 /// sub-agent inherits its parent's *resolved* prompt verbatim, so overriding
 /// `main` here changes every agent that inherits it.
 ///
-/// When [loadProjectContext] is false the `<project-context>` (AGENTS.md) block
-/// is omitted — the project-trust gate's withholding of an untrusted project's
-/// instructions.
+/// [loadProjectContext] gates the repository summary here. Agent middleware
+/// receives the runtime PromptContext trust decision separately.
 String resolveMainPrompt(
   AgentPipeline pipeline, {
   Map<String, String>? overrides,
@@ -228,12 +202,11 @@ String resolveMainPrompt(
 
 /// Resolve a system prompt from an explicit [identity] string (a node's
 /// `system_prompt` attribute — tin-80ll), wrapped with the shared
-/// `<environment>` and `<project-context>` blocks. This is the node-run analogue
+/// environment and static prompt contributions. This is the node-run analogue
 /// of [resolveMainPrompt]: where the entry agent's identity comes from
 /// [AgentPipeline.mainIdentity], a node's identity comes from its DOT attribute.
 ///
-/// When [loadProjectContext] is false the `<project-context>` (AGENTS.md) block
-/// is omitted.
+/// Project file loading is deferred until middleware prepares a request.
 String resolveIdentityPrompt(
   String identity, {
   PromptContext? context,
@@ -280,52 +253,3 @@ PluginDescriptor promptContributorPlugin(
         return contributor;
       }),
     );
-
-/// Walk from [startDir] up to filesystem root, collecting every AGENTS.md
-/// along the way. Returned root-first → cwd-last so the most specific rules
-/// land at the bottom of the system prompt (where instruction-following is
-/// strongest). Read failures and oversize files are skipped, not raised.
-List<({String path, String content})> _loadAgentsFiles(String startDir) {
-  final out = <({String path, String content})>[];
-  var totalBytes = 0;
-  var dir = Directory(startDir).absolute;
-  while (true) {
-    final candidate = File(p.join(dir.path, 'AGENTS.md'));
-    if (candidate.existsSync()) {
-      try {
-        var content = candidate.readAsStringSync();
-        if (content.length > _agentsFileByteCap) {
-          content =
-              '${content.substring(0, _agentsFileByteCap)}\n… (truncated)\n';
-        }
-        if (totalBytes + content.length <= _agentsTotalByteCap) {
-          out.insert(0, (path: candidate.path, content: content));
-          totalBytes += content.length;
-        }
-      } on FileSystemException {
-        // Skip unreadable files; one bad AGENTS.md shouldn't poison the
-        // whole walk.
-      }
-    }
-    final parent = dir.parent;
-    if (parent.path == dir.path) break;
-    dir = parent;
-  }
-  return out;
-}
-
-String _renderAgentsBlock(List<({String path, String content})> agents) {
-  final buf = StringBuffer()
-    ..writeln('<project-context>')
-    ..writeln(
-        'Project-specific instructions discovered in AGENTS.md files. The '
-        'innermost file (closest to cwd) overrides outer ones on conflict.');
-  for (final a in agents) {
-    buf
-      ..writeln()
-      ..writeln('--- ${a.path} ---')
-      ..writeln(a.content.trimRight());
-  }
-  buf.writeln('</project-context>');
-  return buf.toString();
-}

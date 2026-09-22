@@ -12,6 +12,9 @@ import 'pause_gate.dart';
 import 'token_budget.dart';
 import 'tool_guards.dart';
 import 'tool_hooks.dart';
+import 'tool_checks.dart';
+import 'agent_middleware.dart';
+import 'prompt_context.dart';
 import 'tool_executor.dart' show ToolResultVerifier;
 
 /// The replaceable unit behind the agent loop (the P5 seam): the operations
@@ -38,6 +41,10 @@ import 'tool_executor.dart' show ToolResultVerifier;
 ///    must honor holds at request and transcript boundaries, and cancellation
 ///    before starting new work. The request sink controls presentation; shared
 ///    providers and ToolExecutor enforce their own dispatch boundaries.
+///  * Replacement loops must honor [AgentDriverRequest.middleware] at admission
+///    and model-request boundaries, including compaction and retries, using the
+///    supplied [AgentDriverRequest.promptContext]. The default Agent does this.
+///    The pipeline is explicit so custom drivers can use the same contracts.
 ///  * A driver does NOT own provider lifecycle. The caller builds the
 ///    [LlmProvider], hands it in via [AgentDriverRequest.provider], and closes
 ///    it itself when the turn (or the channel) is done — including on error
@@ -249,6 +256,12 @@ class AgentDriverRequest {
   /// default) = none.
   final List<ToolExecutionHook> executionHooks;
 
+  /// Optional awaited checks before dispatch, in registration order.
+  final List<ToolCheck> toolChecks;
+
+  final AgentMiddlewarePipeline? middleware;
+  final PromptContext? promptContext;
+
   /// POST-tool hooks appending verdicts to successful tool results. Empty
   /// (the default) = none.
   final List<ToolResultHook> resultHooks;
@@ -289,6 +302,9 @@ class AgentDriverRequest {
     required this.pauseGate,
     required this.system,
     this.executionGuards = const [],
+    this.toolChecks = const [],
+    this.middleware,
+    this.promptContext,
     this.executionHooks = const [],
     this.resultHooks = const [],
     this.observers = const [],
@@ -329,6 +345,9 @@ class DefaultAgentDriverFactory implements AgentDriverFactory {
         system: request.system,
         executionGuards: request.executionGuards,
         executionHooks: request.executionHooks,
+        toolChecks: request.toolChecks,
+        middleware: request.middleware,
+        promptContext: request.promptContext,
         resultHooks: request.resultHooks,
         toolObservers: request.observers,
         resultVerifier: request.resultVerifier,

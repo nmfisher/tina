@@ -19,6 +19,9 @@ import 'tool_executor.dart';
 import 'tool_executor.dart' as tool_executor;
 import 'tool_guards.dart';
 import 'tool_hooks.dart';
+import 'tool_checks.dart';
+import 'agent_middleware.dart';
+import 'prompt_context.dart';
 
 final _log = Logger('tina.agent');
 
@@ -181,6 +184,7 @@ enum AbortedKind {
   steps,
   cancel,
   providerTerminal,
+  preparation,
 }
 
 const _compactSystemPrompt = '''
@@ -337,6 +341,12 @@ class Agent {
   /// default) = behavior unchanged.
   final List<ToolExecutionHook> executionHooks;
 
+  /// Optional awaited checks before dispatch, in registration order.
+  final List<ToolCheck> toolChecks;
+
+  final AgentMiddlewarePipeline? middleware;
+  final PromptContext? promptContext;
+
   /// POST-tool hooks ([ToolResultHook]) running after the legacy verifier
   /// on successful results: first non-null verdict is appended to the tool
   /// content, a throwing hook is skipped. Empty (the default) = behavior
@@ -368,6 +378,9 @@ class Agent {
     this.emptyCompletionRetryAttempts = 3,
     this.emptyCompletionBackoffDelay,
     this.executionGuards = const [],
+    this.toolChecks = const [],
+    this.middleware,
+    this.promptContext,
     this.executionHooks = const [],
     this.resultHooks = const [],
     this.toolObservers = const [],
@@ -507,6 +520,10 @@ class Agent {
         toolInterruptSignal: toolInterruptSignal,
         turnTools: turnTools,
       );
+    } on AgentMiddlewareError catch (error) {
+      abortedReason = error.message;
+      abortedKind = AbortedKind.preparation;
+      sink.notice('\n${error.message}\n', kind: NoticeKind.error);
     } on InvocationCancelled {
       abortedKind = AbortedKind.cancel;
     } finally {
@@ -539,11 +556,33 @@ class Agent {
       final pending = _notifyReplace(history);
       if (pending != null) await pending;
     }
+    var admitted =
+        AgentDecision.next(AgentInput(text: userInput, system: system));
+    if (middleware != null) {
+      final context =
+          _middlewareContext(AgentStage.invocation, history, cancelSignal);
+      try {
+        final prepared =
+            await middleware!.beforeInvocation(context, admitted.value!);
+        prepared.check();
+        admitted = prepared.decision;
+      } finally {
+        context.close();
+      }
+    }
+    final turnSystem = admitted.value?.system ?? system;
+    userInput = admitted.value?.text ?? userInput;
     final userMessage =
         Message(role: Role.user, content: [TextBlock(userInput)]);
     history.add(userMessage);
     final pendingUser = _notifyAppend(userMessage);
     if (pendingUser != null) await pendingUser;
+    if (admitted.action != AgentAction.next) {
+      if (admitted.action == AgentAction.reply) {
+        await _recordMiddlewareReply(history, admitted.text!, cancelSignal);
+      }
+      return;
+    }
 
     var cancelled = false;
     cancelSignal?.then((_) => cancelled = true);
@@ -590,6 +629,7 @@ class Agent {
       toolStopSignal: toolStopSignal,
       executionGuards: executionGuards,
       executionHooks: executionHooks,
+      toolChecks: toolChecks,
       resultHooks: resultHooks,
       observers: toolObservers,
     );
@@ -705,8 +745,8 @@ class Agent {
       stubAgedToolResults(history, currentStep: step);
 
       if (autoCompactThreshold > 0 && step - lastCompactAttempt >= 3) {
-        final estimate =
-            TokenBudget.estimateInputTokens(system, history, stepTools.schemas);
+        final estimate = TokenBudget.estimateInputTokens(
+            turnSystem, history, stepTools.schemas);
         final sizeTriggered = estimate > autoCompactThreshold;
         // Spend trigger: the per-turn cap counts every round trip's
         // input+output, so a many-step turn on a mid-size context burns
@@ -746,18 +786,6 @@ class Agent {
         }
       }
 
-      // Pre-flight: refuse a request whose input alone would blow past the
-      // per-request cap. Catches the "single tool returned 5MB of context"
-      // scenario before we put it on the wire.
-      final reject =
-          budget?.checkRequestInput(system, history, stepTools.schemas);
-      if (reject != null) {
-        sink.notice('\n[budget] $reject\n', kind: NoticeKind.error);
-        abortedReason = reject;
-        abortedKind = AbortedKind.budget;
-        return;
-      }
-
       // #28: the transport-retry ladder. `outcome.error` with a
       // transport-retryable [TurnOutcome.streamError] and attempts remaining
       // re-sends this step from the UNCHANGED history: nothing was appended
@@ -770,6 +798,7 @@ class Agent {
       // historical abort below.
       var attemptsUsed = 0;
       TurnOutcome outcome;
+      Set<String>? offeredTools;
       while (true) {
         final invocation = InvocationContext.current;
         if (invocation != null) {
@@ -779,17 +808,63 @@ class Agent {
           if (invocation.isCancelled)
             throw InvocationCancelled(invocation.invocation.cancelReason);
         }
-        final stream = provider.send(
-          system: system,
-          messages: history.any((m) => m.isReasoningOnly)
+        final context = middleware == null
+            ? null
+            : _middlewareContext(AgentStage.request, history, cancelSignal,
+                step: step, attempt: attemptsUsed);
+        try {
+          var requestSystem = turnSystem;
+          var requestMessages = history.any((m) => m.isReasoningOnly)
               ? history.where((m) => !m.isReasoningOnly).toList()
-              : history,
-          tools: stepTools.schemas,
-        );
-        outcome = await const ProviderStreamConsumer().consume(stream,
-            sink: sink,
-            cancelSignal: cancelSignal,
-            onCancelled: reportCancellation);
+              : history;
+          var requestTools = stepTools.schemas;
+          if (context != null) {
+            final prepared = await middleware!.beforeRequest(
+                context,
+                AgentRequest(
+                    system: requestSystem,
+                    messages: requestMessages,
+                    tools: requestTools));
+            await context.ready();
+            prepared.check();
+            final decision = prepared.decision;
+            if (decision.action != AgentAction.next) {
+              if (decision.action == AgentAction.reply) {
+                await _recordMiddlewareReply(
+                    history, decision.text!, cancelSignal);
+              }
+              return;
+            }
+            final request = decision.value!;
+            request.validateTools(requestTools);
+            requestSystem = request.system;
+            requestMessages = request.messages;
+            requestTools = request.tools;
+            offeredTools = requestTools.map((t) => t.name).toSet();
+          }
+          final reject = budget?.checkRequestInput(
+              requestSystem, requestMessages, requestTools);
+          if (reject != null) {
+            sink.notice('\n[budget] $reject\n', kind: NoticeKind.error);
+            abortedReason = reject;
+            abortedKind = AbortedKind.budget;
+            return;
+          }
+          if (cancelled) {
+            reportCancellation();
+            return;
+          }
+          final stream = provider.send(
+              system: requestSystem,
+              messages: requestMessages,
+              tools: requestTools);
+          outcome = await const ProviderStreamConsumer().consume(stream,
+              sink: sink,
+              cancelSignal: cancelSignal,
+              onCancelled: reportCancellation);
+        } finally {
+          context?.close();
+        }
         // Retain reasoning already delivered before cancellation. The consumer
         // pauses on holds, so this contains no pending, unconsumed deltas.
         if (outcome.reasoning.isNotEmpty) {
@@ -1113,6 +1188,14 @@ class Agent {
           if (pending != null) await pending;
           continue;
         }
+        if (offeredTools != null && !offeredTools.contains(use.name)) {
+          final pending = recordResult(ToolResultBlock(
+              toolUseId: use.id,
+              isError: true,
+              content: 'Tool ${use.name} was not offered for this request.'));
+          if (pending != null) await pending;
+          continue;
+        }
         final callIndex = results.length;
         if (interruptedCallIndex >= 0 && callIndex > interruptedCallIndex) {
           // Whole-batch invariant: every tool_use still gets its
@@ -1172,6 +1255,39 @@ class Agent {
     sink.notice('(max steps reached)\n', kind: NoticeKind.warning);
     abortedReason = 'max steps reached';
     abortedKind = AbortedKind.steps;
+  }
+
+  AgentContext _middlewareContext(
+      AgentStage stage, List<Message> history, Future<void>? cancelSignal,
+      {int step = 0, int attempt = 0}) {
+    final prompts = promptContext ?? PromptContext();
+    return AgentContext(
+        stage: stage,
+        cwd: prompts.projectRoot,
+        loadProjectContext: prompts.loadProjectContext,
+        model: provider.model,
+        history: history,
+        cancelSignal: cancelSignal,
+        step: step,
+        attempt: attempt);
+  }
+
+  Future<void> _recordMiddlewareReply(
+      List<Message> history, String text, Future<void>? cancelSignal) async {
+    final context =
+        _middlewareContext(AgentStage.request, history, cancelSignal);
+    try {
+      await context.ready();
+      final message = Message(role: Role.assistant, content: [TextBlock(text)]);
+      history.add(message);
+      final pending = _notifyAppend(message);
+      if (pending != null) await pending;
+      await context.ready();
+      sink.text(text);
+      sink.newline();
+    } finally {
+      context.close();
+    }
   }
 
   /// Replace (part of) [history] with a summarized user+assistant exchange.
@@ -1247,11 +1363,48 @@ class Agent {
         throw InvocationCancelled(invocation.invocation.cancelReason);
     }
     cancelSignal = invocation?.stopSignal(cancelSignal) ?? cancelSignal;
-    final stream = provider.send(
-      system: _compactSystemPrompt,
-      messages: summaryRequest,
-      tools: const [],
-    );
+    final context = middleware == null
+        ? null
+        : _middlewareContext(AgentStage.compact, history, cancelSignal);
+    late Stream<StreamEvent> stream;
+    try {
+      var request = AgentRequest(
+          system: _compactSystemPrompt,
+          messages: summaryRequest,
+          tools: const []);
+      String? reply;
+      if (context != null) {
+        final prepared = await middleware!.beforeRequest(context, request);
+        await context.ready();
+        prepared.check();
+        if (prepared.decision.action == AgentAction.stop) return false;
+        if (prepared.decision.action == AgentAction.reply) {
+          reply = prepared.decision.text!;
+        } else {
+          request = prepared.decision.value!;
+          request.validateTools(const []);
+        }
+      }
+      final reject = budget?.checkRequestInput(
+          request.system, request.messages, request.tools);
+      if (reject != null) {
+        sink.notice('compact failed: $reject\n', kind: NoticeKind.error);
+        return false;
+      }
+      stream = reply == null
+          ? provider.send(
+              system: request.system,
+              messages: request.messages,
+              tools: request.tools)
+          : Stream.value(TextDelta(reply));
+    } on AgentMiddlewareError catch (error) {
+      sink.notice('compact failed: ${error.message}\n', kind: NoticeKind.error);
+      return false;
+    } on InvocationCancelled {
+      return false;
+    } finally {
+      context?.close();
+    }
 
     final buf = StringBuffer();
     final done = Completer<void>();

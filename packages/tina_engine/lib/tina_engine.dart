@@ -124,3 +124,9 @@ export 'src/tools/execution_diagnostic.dart';
 export 'src/runtime/invocation.dart' hide Invocation;
 export 'src/agent/invocation_sink.dart';
 export 'src/host/invocation_host.dart';
+
+export 'src/agent/instructions.dart';
+export 'src/agent/tool_checks.dart';
+
+export 'src/agent/agent_middleware.dart';
+export 'src/agent/agents_instructions.dart';

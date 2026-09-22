@@ -24,26 +24,13 @@ void main() {
       expect(s, isNot(contains('<project-context>')));
     });
 
-    test('injects AGENTS.md content found in cwd', () {
-      File('${tmp.path}/AGENTS.md')
-          .writeAsStringSync('# project rules\n- always run dart format\n');
+    test(
+        'base prompt does not read AGENTS.md; middleware supplies it at send time',
+        () {
+      File('${tmp.path}/AGENTS.md').writeAsStringSync('PROJECT RULE');
       final s = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
-      expect(s, contains('<project-context>'));
-      expect(s, contains('always run dart format'));
-      expect(s, contains('AGENTS.md'));
-    });
-
-    test('concatenates outer and inner AGENTS.md, inner last', () {
-      final inner = Directory('${tmp.path}/sub')..createSync();
-      File('${tmp.path}/AGENTS.md').writeAsStringSync('OUTER RULE\n');
-      File('${inner.path}/AGENTS.md').writeAsStringSync('INNER RULE\n');
-      final s = resolveMainPrompt(defaultPipeline, cwd: inner.path);
-      final outerIdx = s.indexOf('OUTER RULE');
-      final innerIdx = s.indexOf('INNER RULE');
-      expect(outerIdx, isNonNegative);
-      expect(innerIdx, isNonNegative);
-      expect(outerIdx, lessThan(innerIdx),
-          reason: 'innermost AGENTS.md should win — render it last');
+      expect(s, isNot(contains('PROJECT RULE')));
+      expect(s, isNot(contains('<project-context>')));
     });
   });
 
@@ -83,8 +70,7 @@ void main() {
       expect(withEmpty, contains('coding assistant'));
     });
 
-    test('the override only replaces identity; the AGENTS.md wrapper survives',
-        () {
+    test('the override replaces identity and retains environment', () {
       File('${tmp.path}/AGENTS.md').writeAsStringSync('PROJECT RULE\n');
       const identity = 'Custom identity with no AGENTS mention.';
       final s = resolveMainPrompt(
@@ -92,8 +78,8 @@ void main() {
         overrides: {'main': identity},
         cwd: tmp.path,
       );
-      expect(s, contains('PROJECT RULE'));
-      expect(s, contains('<project-context>'));
+      expect(s, contains(identity));
+      expect(s, contains('<environment>'));
     });
   });
 
@@ -133,36 +119,6 @@ void main() {
       );
       expect(s, contains('<safe-mode>'));
       expect(s, contains('Custom identity.'));
-    });
-  });
-
-  group('resolveMainPrompt project-trust gating', () {
-    late Directory tmp;
-
-    setUp(() {
-      tmp = Directory.systemTemp.createTempSync('tina_sysprompt_trust_');
-      File('${tmp.path}/AGENTS.md')
-          .writeAsStringSync('UNTRUSTED PROJECT RULE\n');
-    });
-
-    tearDown(() {
-      tmp.deleteSync(recursive: true);
-    });
-
-    test('withholds AGENTS.md when loadProjectContext is false', () {
-      final s = resolveMainPrompt(defaultPipeline,
-          cwd: tmp.path, loadProjectContext: false);
-      expect(s, isNot(contains('<project-context>')));
-      expect(s, isNot(contains('UNTRUSTED PROJECT RULE')));
-      // Identity + environment still present.
-      expect(s, contains('coding assistant'));
-      expect(s, contains('<environment>'));
-    });
-
-    test('loads AGENTS.md when loadProjectContext is true (default)', () {
-      final s = resolveMainPrompt(defaultPipeline, cwd: tmp.path);
-      expect(s, contains('<project-context>'));
-      expect(s, contains('UNTRUSTED PROJECT RULE'));
     });
   });
 
@@ -267,9 +223,6 @@ void main() {
       final on = resolveMainPrompt(defaultPipeline);
       final off = resolveMainPrompt(defaultPipeline, workflowEnabled: false);
       expect(on, contains('launch_workflow'));
-      // The wrapped prompt carries the project's AGENTS.md as well, which is
-      // free to talk about workflows; what must be gone is the workflow
-      // *tooling* guidance.
       expect(off, isNot(contains('launch_workflow')));
       expect(off, isNot(contains('stop_workflow')));
       expect(off, contains('You have these ways to act:'));
@@ -327,7 +280,7 @@ void main() {
         resolveIdentityPrompt('node', context: first.promptContext)
       ]) {
         expect(prompt, contains('cwd: ${a.path}'));
-        expect(prompt, contains('A revised'));
+        expect(prompt, isNot(contains('A revised')));
         expect(prompt, contains('A repo 2'));
         expect(prompt, isNot(contains('B instructions')));
       }

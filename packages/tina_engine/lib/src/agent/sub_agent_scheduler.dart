@@ -24,6 +24,8 @@ import 'system_prompt.dart';
 import 'token_budget.dart';
 import 'tool_guards.dart';
 import 'tool_hooks.dart';
+import 'tool_checks.dart';
+import 'agent_middleware.dart';
 
 /// Lifecycle of a [SubAgentJob].
 enum SubAgentJobStatus {
@@ -346,6 +348,10 @@ class SubAgentScheduler {
   /// unwritten default) means no plugin contributed anything — every legacy
   /// construction site stays byte-identical.
   final Expando<List<ToolGuard>> _scopeGuards = Expando('scheduler.guards');
+  final Expando<List<ToolCheck>> _scopeToolChecks =
+      Expando('scheduler.toolChecks');
+  List<ToolCheck> get scopeToolChecks => _scopeToolChecks[this] ?? const [];
+
   final Expando<List<ToolExecutionHook>> _scopeExecutionHooks =
       Expando('scheduler.executionHooks');
   final Expando<List<ToolResultHook>> _scopeResultHooks =
@@ -357,11 +363,13 @@ class SubAgentScheduler {
   void mountScopeContributions({
     List<ToolGuard>? guards,
     List<ToolExecutionHook>? executionHooks,
+    List<ToolCheck>? toolChecks,
     List<ToolResultHook>? resultHooks,
     List<ToolObserver>? observers,
   }) {
     _scopeGuards[this] = guards;
     _scopeExecutionHooks[this] = executionHooks;
+    _scopeToolChecks[this] = toolChecks;
     _scopeResultHooks[this] = resultHooks;
     _scopeObservers[this] = observers;
   }
@@ -1156,6 +1164,13 @@ class SubAgentScheduler {
       executionGuards: request.executionGuards.isNotEmpty
           ? request.executionGuards
           : scopeGuards,
+      middleware: request.middleware ??
+          (mountedScopeValue == null
+              ? null
+              : AgentMiddlewarePipeline(scope: mountedScopeValue)),
+      promptContext: request.promptContext ?? pipeline.promptContext,
+      toolChecks:
+          request.toolChecks.isNotEmpty ? request.toolChecks : scopeToolChecks,
       executionHooks: request.executionHooks.isNotEmpty
           ? request.executionHooks
           : scopeExecutionHooks,

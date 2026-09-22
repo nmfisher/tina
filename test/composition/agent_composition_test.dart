@@ -637,12 +637,38 @@ void main() {
         context: a.pipeline.promptContext,
       );
       expect(background.pipeline.promptContext, same(a.pipeline.promptContext));
-      expect(
-        resolveMainPrompt(background.pipeline),
-        isNot(contains('FIRST PROJECT')),
-      );
-      expect(resolveMainPrompt(b.pipeline), contains('SECOND PROJECT'));
-      expect(resolveMainPrompt(a.pipeline), contains('cwd: ${first.path}'));
+      Future<String> requestSystem(AppComposition app) async {
+          final prompts = app.pipeline.promptContext;
+          final context = AgentContext(
+            stage: AgentStage.request,
+            cwd: prompts.projectRoot,
+            loadProjectContext: prompts.loadProjectContext,
+            model: 'test',
+          );
+          try {
+            final prepared =
+                await AgentMiddlewarePipeline(
+                  scope: app.scheduler.mountedScopeValue,
+                ).beforeRequest(
+                  context,
+                  AgentRequest(
+                    system: resolveMainPrompt(app.pipeline),
+                    messages: const [],
+                    tools: const [],
+                  ),
+                );
+            return prepared.decision.value!.system;
+          } finally {
+            context.close();
+          }
+        }
+
+        expect(
+          await requestSystem(background),
+          isNot(contains('FIRST PROJECT')),
+        );
+        expect(await requestSystem(b), contains('SECOND PROJECT'));
+        expect(resolveMainPrompt(a.pipeline), contains('cwd: ${first.path}'));
       await expectLater(
         build(second.path, context: a.pipeline.promptContext),
         throwsArgumentError,

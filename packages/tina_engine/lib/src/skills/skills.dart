@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import '../runtime/plugin.dart';
+import '../agent/instructions.dart';
 import 'skill.dart';
 
 export 'skill.dart';
@@ -218,6 +220,31 @@ class Skills {
       if (result != null && result.info != match.entry.info) {
         throw StateError(
             'Loaded skill metadata differs from its catalog entry');
+      }
+      if (result != null) {
+        final owner = match.owner.contribution;
+        final info = result.info;
+        notifyInstructions(
+            scope,
+            InstructionLoad(
+                InstructionKind.skill,
+                [
+                  Instruction(
+                    id: jsonEncode([
+                      'skill',
+                      owner.pluginId,
+                      owner.id,
+                      info.resourceBase?.toString(),
+                      info.name
+                    ]),
+                    kind: InstructionKind.skill,
+                    source: info.resourceBase,
+                    scope: cwd == null ? null : Uri.directory(cwd),
+                    text: result.content,
+                    sourceText: result.content,
+                  ),
+                ],
+                cwd: cwd));
       }
       return result;
     } finally {

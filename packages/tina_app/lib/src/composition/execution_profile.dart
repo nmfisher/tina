@@ -24,6 +24,7 @@ const List<String> _projectOwnedPluginIds = [
 /// [buildExecutionRuntime] mounts, in the same declared order:
 ///
 /// 1. `tina.engine.skills` — the scoped, lazy skill registry.
+///    `tina.engine.agents-instructions` — request-time project instructions.
 /// 2. `tina.app.spend-ledger` — the conversation-wide [SpendLedger]. The
 ///    ledger is created BEFORE anything can build a provider, so the runtime
 ///    factory meters every provider built from here on — the startup provider
@@ -71,6 +72,7 @@ List<PluginDescriptor> defaultExecutionPlugins({
   final gate = pauseGate ?? PauseGate();
   return [
     skillsPlugin(),
+    agentsInstructionsPlugin(),
     spendLedgerPlugin(config),
     liveQuotasPlugin(config),
     providerDecoratorsPlugin(providerDecorators),
@@ -94,6 +96,6 @@ List<PluginDescriptor> defaultExecutionPlugins({
 /// borrowed scope keeps the capabilities its owner built; the borrowing
 /// conversation keeps its own extensions.
 List<PluginDescriptor> borrowedScopePlugins(List<PluginDescriptor> plugins) => [
-      for (final plugin in plugins)
-        if (!_projectOwnedPluginIds.contains(plugin.id)) plugin,
-    ];
+  for (final plugin in plugins)
+    if (!_projectOwnedPluginIds.contains(plugin.id)) plugin,
+];

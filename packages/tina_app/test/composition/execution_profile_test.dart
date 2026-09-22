@@ -60,6 +60,7 @@ void main() {
       [for (final plugin in plugins) plugin.id],
       [
         'tina.engine.skills',
+        'tina.engine.agents-instructions',
         _ledgerPluginId,
         'tina.app.live-quotas',
         _decoratorsPluginId,
@@ -223,6 +224,7 @@ void main() {
         [for (final plugin in borrowed) plugin.id],
         [
           'tina.engine.skills',
+          'tina.engine.agents-instructions',
           _ledgerPluginId,
           'tina.app.live-quotas',
           _decoratorsPluginId,

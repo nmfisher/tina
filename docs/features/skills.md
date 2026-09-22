@@ -2,7 +2,8 @@
 
 `tina_engine` provides a skill registry through the plugin system. The default
 execution profile includes `skillsPlugin()`, which exposes `skillsServiceKey`.
-This is the registry layer: it does not scan `SKILL.md` files, add instructions
+Middleware can use this registry to choose when to load and supply instructions
+(see [agent middleware](agent-middleware.md)). The registry itself does not scan `SKILL.md` files, add instructions
 to prompts, execute resources, or expose an agent tool yet.
 
 The design follows [DSH's skill subsystem](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/skills.md):

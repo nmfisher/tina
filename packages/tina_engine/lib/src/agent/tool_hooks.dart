@@ -38,12 +38,9 @@ class ToolCallContext {
 }
 
 /// An AROUND-EXECUTION hook: awaited around the actual
-/// `executionTool.execute(...)` call only — after the guard gates and the
-/// dispatch-boundary guard recheck, which stay where they are today
-/// (outside the wrapper). Moving the recheck inside the delegate is
-/// deliberately deferred until a real preparation hook needs it; today there
-/// is no async preparation between recheck and execute, so the order is
-/// unobservable.
+/// `executionTool.execute(...)` call. Awaited checks and final permission,
+/// phase and cancellation checks run inside the delegate, immediately before
+/// execution, so a hook cannot bypass them by waiting before delegation.
 ///
 /// A hook runs [delegate] to execute the tool and may wrap the result.
 /// Delegation is EXACTLY-ONCE, enforced by the [ToolExecutor]:

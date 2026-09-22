@@ -60,3 +60,4 @@ export 'src/execution/git_input.dart';
 export 'src/classification/git_classifier.dart';
 
 export 'src/execution/interrupts.dart';
+export 'src/classification/rules.dart';

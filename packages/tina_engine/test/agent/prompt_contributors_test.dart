@@ -30,17 +30,15 @@ void main() {
       tmp.deleteSync(recursive: true);
     });
 
-    test('plain context yields [identity, environment, project_context]', () {
+    test('plain context yields [identity, environment]', () {
       final contributors = defaultPromptContributors(
         identity: 'IDENTITY',
         context: PromptContext(projectRoot: tmp.path),
       );
-      expect(contributors.map((c) => c.id),
-          ['identity', 'environment', 'project_context']);
+      expect(contributors.map((c) => c.id), ['identity', 'environment']);
     });
 
-    test('safeMode yields [safe_mode, identity, environment, project_context]',
-        () {
+    test('safeMode yields [safe_mode, identity, environment]', () {
       final contributors = defaultPromptContributors(
         identity: 'IDENTITY',
         context: PromptContext(projectRoot: tmp.path),
@@ -48,7 +46,7 @@ void main() {
       );
       expect(
         contributors.map((c) => c.id),
-        ['safe_mode', 'identity', 'environment', 'project_context'],
+        ['safe_mode', 'identity', 'environment'],
       );
     });
 

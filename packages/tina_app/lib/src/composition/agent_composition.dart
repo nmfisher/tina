@@ -41,6 +41,7 @@ SubAgentScheduler createScheduler({
   /// byte-identical to the pre-plugin wiring.
   List<ToolGuard>? guards,
   List<ToolExecutionHook>? executionHooks,
+  List<ToolCheck>? toolChecks,
   List<ToolResultHook>? resultHooks,
   List<ToolObserver>? observers,
   PluginScope? scope,
@@ -80,6 +81,7 @@ SubAgentScheduler createScheduler({
   scheduler.mountScopeContributions(
     guards: guards,
     executionHooks: executionHooks,
+    toolChecks: toolChecks,
     resultHooks: resultHooks,
     observers: observers,
   );
@@ -372,6 +374,11 @@ AgentDriver buildAgent({
       ...scheduler.scopeGuards,
     ],
     executionHooks: scheduler.scopeExecutionHooks,
+    toolChecks: scheduler.scopeToolChecks,
+    middleware: scheduler.mountedScopeValue == null
+        ? null
+        : AgentMiddlewarePipeline(scope: scheduler.mountedScopeValue),
+    promptContext: pipeline.promptContext,
     resultHooks: scheduler.scopeResultHooks,
     observers: scheduler.scopeObservers,
     resultVerifier: resultVerifier,
@@ -397,6 +404,7 @@ AgentDriver buildAgent({
       // Role restrictions belong to this driver, not sibling conversations.
       guards: scheduler.scopeGuards,
       executionHooks: request.executionHooks,
+      toolChecks: request.toolChecks,
       resultHooks: request.resultHooks,
       observers: request.observers,
     );

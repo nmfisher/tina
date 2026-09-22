@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina_engine/invocation.dart' as engine show Invocation;
 
+/// Handoff cancels the target on acceptance; review keeps it and resumes it.
+enum InterruptMode { handoff, review }
+
 enum InterruptResult { accepted, declined, cancelled, unavailable }
 
 class InterruptReason {
@@ -18,14 +21,16 @@ class InterruptPrompt {
   final engine.Invocation target;
   final String title;
   final String message;
+  final InterruptMode mode;
   final Future<void> cancelSignal;
   const InterruptPrompt(
     this.source,
     this.target,
     this.title,
     this.message,
-    this.cancelSignal,
-  );
+    this.cancelSignal, {
+    this.mode = InterruptMode.handoff,
+  });
 }
 
 typedef InterruptPresenter = Future<bool?> Function(InterruptPrompt prompt);
@@ -50,11 +55,15 @@ class Interrupts {
 
   /// [onAccepted] owns the handoff interval. Put replacement work here so the
   /// conversation queue cannot start its next instruction in the gap.
+  /// In review mode the accepted action runs with the target still held, then
+  /// releases this hold. It must not wait for the held target to do work.
+  /// This coordinates dispatch/output; it does not undo tools already running.
   Future<InterruptResult> ask({
     required engine.Invocation source,
     required engine.Invocation target,
     required String title,
     String message = '',
+    InterruptMode mode = InterruptMode.handoff,
     Future<void> Function()? onAccepted,
   }) async {
     if (_closed || presenter == null) return InterruptResult.unavailable;
@@ -111,7 +120,14 @@ class Interrupts {
       final decision = await Future.any<bool?>([
         Future.sync(
           () => show(
-            InterruptPrompt(source, target, title, message, stop.future),
+            InterruptPrompt(
+              source,
+              target,
+              title,
+              message,
+              stop.future,
+              mode: mode,
+            ),
           ),
         ),
         stop.future.then((_) => null),
@@ -121,9 +137,11 @@ class Interrupts {
       if (!decision) return InterruptResult.declined;
       // Target cancellation below is deliberate; do not mistake its signal
       // for withdrawal of the accepted handoff.
-      detachTarget();
-      target.cancel(InterruptReason(source.id, source.component.name));
-      await Future.any([target.done, stop.future]);
+      if (mode == InterruptMode.handoff) {
+        detachTarget();
+        target.cancel(InterruptReason(source.id, source.component.name));
+        await Future.any([target.done, stop.future]);
+      }
       if (stop.isCompleted || source.isCancelled)
         return InterruptResult.cancelled;
       if (onAccepted != null) {
