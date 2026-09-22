@@ -107,7 +107,7 @@ wire = "openai"
                         consumed = match.end()
                     query_buffer = query_buffer[consumed:][-64:]
                     plain = re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]", b"", output)
-                    if not prompt_seen and b"main (smoke)" in plain:
+                    if not prompt_seen and b"smoke >" in plain:
                         prompt_seen = True
                         # Let the native startup reply drain finish before input.
                         help_at = time.monotonic() + 1.2
