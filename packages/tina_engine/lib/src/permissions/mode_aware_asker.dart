@@ -10,7 +10,9 @@ import 'classifier.dart';
 /// The policy is consulted per call, so `/permissions <mode>` switches take
 /// effect immediately on agents already running. Any classifier failure
 /// (error, timeout, unparseable answer) falls back to [fallback] — the normal
-/// y/n prompt — never silently allows.
+/// y/n prompt — never silently allows. The failure is announced through
+/// [notice] (timeout, stream error, unreadable answer) so the ask that
+/// appears never looks like auto mode ignoring itself.
 ///
 /// A classifier verdict is remembered like a manual a/d: allow carries the same
 /// `remember` flag the user's `a` would (and deny the `d` equivalent), so the
@@ -32,10 +34,17 @@ PermissionAsker modeAwareAsker({
       return fallback(prompt);
     var cancelled = false;
     prompt.cancelSignal?.then((_) => cancelled = true);
-    final verdict = await classifier.allowPrompt(prompt);
+    final outcome = await classifier.classify(prompt);
+    final verdict = outcome.allow;
     if (cancelled) return PermissionResponse.denyOnce;
     if (policy.mode != PermissionMode.auto) return fallback(prompt);
-    if (verdict == null) return fallback(prompt);
+    if (verdict == null) {
+      // Say why the human is being asked after all: a silent fallback reads
+      // as auto mode ignoring itself. Same dim channel as the verdict line.
+      notice?.call(
+          '  ${prompt.toolName} classifier ${outcome.failure!.phrase(timeout: classifier.timeout)} — asking instead: ${prompt.key}\n');
+      return fallback(prompt);
+    }
     final boundary = prompt.outsideSandbox ? ' outside sandbox' : '';
     final line = verdict
         ? '  ${prompt.toolName} allowed by classifier$boundary: ${prompt.key}\n'

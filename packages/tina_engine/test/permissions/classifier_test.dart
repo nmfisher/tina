@@ -37,9 +37,47 @@ void main() {
       expect(await c.allow('write', const {}), isNull);
     });
 
+    test('classify reports the timeout as the failure reason', () async {
+      final c = PermissionClassifier(
+        _NeverCompletingProvider(),
+        timeout: const Duration(milliseconds: 20),
+      );
+      final outcome = await c.classify(PermissionPrompt('write', const {}));
+      expect(outcome.allow, isNull);
+      expect(outcome.failure, ClassifierFailure.timeout);
+      expect(outcome.decided, isFalse);
+      expect(
+        outcome.failure!.phrase(timeout: c.timeout),
+        'timed out after 20ms',
+        reason: 'sub-second test-scale timeouts print as milliseconds; the '
+            '30s default is pinned by the test below',
+      );
+    });
+
+    test('classify reports a stream error as the failure reason', () async {
+      final c =
+          PermissionClassifier(_ScriptedProvider('', error: StateError('boom')));
+      final outcome = await c.classify(PermissionPrompt('write', const {}));
+      expect(outcome.allow, isNull);
+      expect(outcome.failure, ClassifierFailure.streamError);
+    });
+
+    test('classify reports an unreadable answer as the failure reason',
+        () async {
+      final c = PermissionClassifier(_ScriptedProvider('maybe?'));
+      final outcome = await c.classify(PermissionPrompt('write', const {}));
+      expect(outcome.allow, isNull);
+      expect(outcome.failure, ClassifierFailure.unreadable);
+    });
+
     test('send() throwing is swallowed -> null', () async {
       final c = PermissionClassifier(_ThrowingProvider());
       expect(await c.allow('write', const {}), isNull);
+    });
+
+    test('default timeout is 30s', () {
+      expect(PermissionClassifier(_ScriptedProvider('ALLOW')).timeout,
+          const Duration(seconds: 30));
     });
   });
 }

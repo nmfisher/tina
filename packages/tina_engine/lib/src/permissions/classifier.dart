@@ -5,15 +5,65 @@ import '../llm/message.dart';
 import '../llm/provider.dart';
 import 'prompt.dart';
 
+/// Why a classifier call produced no verdict. Auto mode falls back to the
+/// interactive ask in every one of these cases; the reason is surfaced to the
+/// user so the fallback never looks like auto mode silently ignoring itself.
+enum ClassifierFailure {
+  /// No answer arrived within [PermissionClassifier.timeout].
+  timeout,
+
+  /// The provider stream failed (network, HTTP, provider error).
+  streamError,
+
+  /// The stream completed with something other than a bare ALLOW / DENY.
+  unreadable,
+
+  /// The turn was cancelled while the judge was still thinking.
+  cancelled;
+
+  /// Mid-sentence human phrase for the fallback notice, e.g.
+  /// "timed out after 30s". [timeout] only matters for [timeout]; sub-second
+  /// values print as milliseconds so a test-scale judge never reads "0s".
+  String phrase({required Duration timeout}) => switch (this) {
+        ClassifierFailure.timeout =>
+          'timed out after ${timeout.inSeconds >= 1 ? '${timeout.inSeconds}s' : '${timeout.inMilliseconds}ms'}',
+        ClassifierFailure.streamError => 'hit a stream error',
+        ClassifierFailure.unreadable => 'returned an unreadable answer',
+        ClassifierFailure.cancelled => 'was cancelled',
+      };
+}
+
+/// The result of one classifier call: a verdict, or the reason there was none.
+class ClassifierOutcome {
+  /// true = allow, false = deny, null = no verdict ([failure] says why).
+  final bool? allow;
+
+  final ClassifierFailure? failure;
+
+  const ClassifierOutcome._(this.allow, this.failure);
+
+  const ClassifierOutcome.allow() : this._(true, null);
+
+  const ClassifierOutcome.deny() : this._(false, null);
+
+  const ClassifierOutcome.failed(ClassifierFailure this.failure)
+      : allow = null;
+
+  bool get decided => allow != null;
+}
+
 /// One-shot safety judge for permission mode "auto": decides whether a tool
 /// call may run without asking the user. Any failure — network error, stream
-/// error, timeout, unparseable answer — yields null, and the caller falls
-/// back to the interactive prompt (fail-open only toward asking a human).
+/// error, timeout, unparseable answer — yields a null verdict, and the caller
+/// falls back to the interactive prompt (fail-open only toward asking a
+/// human). [ClassifierOutcome.failure] records which failure it was so the
+/// fallback can be announced instead of appearing unexplained.
 class PermissionClassifier {
   final LlmProvider provider;
   final Duration timeout;
 
-  PermissionClassifier(this.provider, {this.timeout = const Duration(seconds: 15)});
+  PermissionClassifier(this.provider,
+      {this.timeout = const Duration(seconds: 30)});
 
   static const _systemPrompt = 'You are the safety gate for a coding agent '
       'running in a project directory. You are shown one tool call. Answer '
@@ -35,9 +85,15 @@ class PermissionClassifier {
   Future<bool?> allow(String toolName, Map<String, dynamic> input) =>
       allowPrompt(PermissionPrompt(toolName, input));
 
-  /// Includes the actual execution boundary, separately from tool arguments.
-  /// Ambient environment values are not sent to the model.
-  Future<bool?> allowPrompt(PermissionPrompt prompt) async {
+  /// Verdict or null; use [classify] when the caller wants to say *why*.
+  Future<bool?> allowPrompt(PermissionPrompt prompt) async =>
+      (await classify(prompt)).allow;
+
+  /// One judge call over the prompt. Never throws: every failure mode lands
+  /// in [ClassifierOutcome.failure], so a caller falling back to the human
+  /// can name the reason (timeout, stream error, unreadable answer).
+  Future<ClassifierOutcome> classify(PermissionPrompt prompt) async {
+    var cancelled = false;
     try {
       final execution = prompt.execution;
       final context = {
@@ -88,28 +144,35 @@ class PermissionClassifier {
         },
       );
 
+      var timedOut = false;
       try {
         await Future.any<void>([
           done.future,
           if (prompt.cancelSignal != null)
-            prompt.cancelSignal!.then((_) {
-              err = StateError('cancelled');
-            }),
+            prompt.cancelSignal!.then((_) => cancelled = true),
         ]).timeout(timeout);
       } on TimeoutException {
-        return null;
+        timedOut = true;
       } finally {
         await sub.cancel();
       }
 
-      if (err != null) return null;
+      if (cancelled) {
+        return const ClassifierOutcome.failed(ClassifierFailure.cancelled);
+      }
+      if (timedOut) {
+        return const ClassifierOutcome.failed(ClassifierFailure.timeout);
+      }
+      if (err != null) {
+        return const ClassifierOutcome.failed(ClassifierFailure.streamError);
+      }
       return switch (buf.toString().trim().toUpperCase()) {
-        'ALLOW' => true,
-        'DENY' => false,
-        _ => null,
+        'ALLOW' => const ClassifierOutcome.allow(),
+        'DENY' => const ClassifierOutcome.deny(),
+        _ => const ClassifierOutcome.failed(ClassifierFailure.unreadable),
       };
     } catch (_) {
-      return null;
+      return const ClassifierOutcome.failed(ClassifierFailure.streamError);
     }
   }
 }

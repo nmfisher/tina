@@ -154,6 +154,7 @@ void main() {
       final policy = PermissionPolicy(mode: PermissionMode.auto);
       final classifier = PermissionClassifier(_ScriptedProvider('garbage'));
       var fallbackCalls = 0;
+      final notices = <String>[];
       final asker = modeAwareAsker(
         policy: policy,
         classifier: classifier,
@@ -161,10 +162,36 @@ void main() {
           fallbackCalls++;
           return PermissionResponse.allowOnce;
         },
+        notice: notices.add,
       );
 
       expect((await asker(prompt)).decision, PermissionDecision.allow);
       expect(fallbackCalls, 1);
+      expect(notices.single, contains('returned an unreadable answer'),
+          reason: 'the fallback is announced, not silent');
+      expect(notices.single, contains('bash classifier'));
+    });
+
+    test('a classifier timeout is announced before the fallback ask',
+        () async {
+      final policy = PermissionPolicy(mode: PermissionMode.auto);
+      final classifier = PermissionClassifier(
+        _NeverCompletingProvider(),
+        timeout: const Duration(milliseconds: 20),
+      );
+      final notices = <String>[];
+      final asker = modeAwareAsker(
+        policy: policy,
+        classifier: classifier,
+        fallback: (_) async => PermissionResponse.allowOnce,
+        notice: notices.add,
+      );
+
+      expect((await asker(prompt)).decision, PermissionDecision.allow);
+      expect(notices.single, contains('timed out after 20ms'),
+          reason: 'the notice names the configured timeout');
+      expect(notices.single, contains('bash classifier'));
+      expect(notices.single, contains(prompt.key));
     });
 
     test('switching the policy mode at runtime changes the path', () async {
@@ -213,4 +240,16 @@ class _ScriptedProvider extends LlmProvider {
     onRequest?.call();
     yield TextDelta(_answer);
   }
+}
+
+class _NeverCompletingProvider extends LlmProvider {
+  _NeverCompletingProvider() : super('never');
+
+  @override
+  Stream<StreamEvent> send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+  }) =>
+      StreamController<StreamEvent>().stream;
 }
