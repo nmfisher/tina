@@ -96,10 +96,9 @@ void main() {
 
 class _ScriptedProvider extends LlmProvider {
   final String _answer;
-  final void Function()? onRequest;
   final List<Map<String, dynamic>> calls;
 
-  _ScriptedProvider(this._answer, {this.onRequest, List<Map<String, dynamic>>? calls})
+  _ScriptedProvider(this._answer, {List<Map<String, dynamic>>? calls})
       : calls = calls ?? [],
         super('scripted');
 
@@ -114,7 +113,6 @@ class _ScriptedProvider extends LlmProvider {
       'messages': messages.map((m) => m.toJson()).toList(),
       'tools': tools,
     });
-    onRequest?.call();
     yield TextDelta(_answer);
   }
 }
