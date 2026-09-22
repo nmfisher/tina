@@ -105,8 +105,8 @@ Split the store's early duties from its app duties:
 - **The active store**: resolved when the runtime activates, via
   `scope.lookup(sessionStoreServiceKey)`. `buildAppComposition` keeps its
   `store:` override (tests and `bin/tina.dart`'s early-constructed instance —
-  see §5 phase 2 for how the pre-built store is *provided* into the scope
-  rather than bypassed).
+  see SP2 for how the pre-built store is *provided* into the scope rather
+  than bypassed).
 
 ### 3.4 Locking capability
 
@@ -143,23 +143,16 @@ per-plugin config — matching the split the runtime plan already describes
 
 ## 5. Migration path
 
-1. **Phase 1 — key + default plugin.** Add `sessionStoreServiceKey`, the
-   `jsonlSessionStorePlugin`, and register it in the default plugin list
-   (`defaultExecutionPlugins`, `execution_profile.dart`). The runtime must
-   activate before `AppComposition.store` is wired, so composition reads the
-   store from the scope lookup (falling back to today's inline construction
-   while phases land). No behavior change.
-2. **Phase 2 — early paths.** Extract `SessionIndex`; move `--list`, picker,
-   and `_restoreSessionCwd` onto it. `bin/tina.dart`'s pre-built store is
-   provided into the scope under `sessionStoreServiceKey` (replacing the
-   default plugin's binding) so the app and startup agree on one instance.
-3. **Phase 3 — selection config.** `[sessions]` table + `resolveSessionIndex`;
-   composition consults it when composing the plugin list.
-4. **Phase 4 — locking capability.** `LockableSessionStore`; delete the Jsonl
-   type test in `_acquireSessionLock`.
-5. **Phase 5 — example backend + docs.** An in-memory provider under
-   `packages/tina_engine/test/` exercising the full contract; update
-   `docs/features/session_persistence.md`.
+Split into independently landable phase specifications in
+[`session-persistence/`](session-persistence/):
+
+| ID | Phase | Prerequisites |
+| --- | --- | --- |
+| [SP1](session-persistence/01-service-key-and-jsonl-plugin.md) | Service key + JSONL plugin | None |
+| [SP2](session-persistence/02-session-index.md) | Session index for startup | SP1 |
+| [SP3](session-persistence/03-provider-selection.md) | Provider selection config | SP1; benefits from SP2 |
+| [SP4](session-persistence/04-lockable-store.md) | Lockable store capability | SP1 |
+| [SP5](session-persistence/05-example-backend-and-docs.md) | Example backend + docs | SP1 for the backend; SP1–SP4 for docs |
 
 Each phase lands green independently; nothing is feature-flagged.
 
@@ -176,7 +169,7 @@ Each phase lands green independently; nothing is feature-flagged.
   teardown closes the store exactly once (`context.own` semantics).
 - Integration: picker / `--resume` / `--continue` / `--list` against
   `SessionIndex`; lock acquisition via `LockableSessionStore`.
-- Golden: session file bytes before/after phase 1 must be identical for the
+- Golden: session file bytes before/after SP1 must be identical for the
   same scripted conversation.
 - Contract suite: run the existing persistence tests against the in-memory
   backend to prove the `SessionStore` contract is backend-neutral.
