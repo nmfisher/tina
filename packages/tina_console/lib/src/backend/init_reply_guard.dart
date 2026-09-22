@@ -730,11 +730,11 @@ class PosixReplyGuardOs implements ReplyGuardOs {
   static const int _tcsanow = 0;
   static const int _fGetFl = 3;
   static const int _fSetFl = 4;
-  static const int _oNonblock = 0x800;
+  static final int _oNonblock = Platform.isMacOS ? 0x0004 : 0x0800;
 
-  // Linux ioctl request values for the window-size copy (see _copyWinsize).
-  static const int _tiocgwinsz = 0x5413;
-  static const int _tiocswinsz = 0x5414;
+  // Darwin encodes direction and argument size in ioctl request values.
+  static final int _tiocgwinsz = Platform.isMacOS ? 0x40087468 : 0x5413;
+  static final int _tiocswinsz = Platform.isMacOS ? 0x80087467 : 0x5414;
 
   /// Copy the window size of [from] to [to] (either side of a pty pair
   /// works as [to]). Best-effort: a failure leaves the old size in place.
@@ -865,12 +865,15 @@ class PosixReplyGuardOs implements ReplyGuardOs {
       ffi.Int32 Function(ffi.Int32, ffi.Int32, ffi.Pointer<ffi.Uint8>),
       int Function(int, int, ffi.Pointer<ffi.Uint8>)>('tcsetattr');
 
+  // These C functions are variadic. Darwin arm64 passes their trailing
+  // arguments on the stack; fixed-argument signatures silently lose them.
   static final _fcntl = _libc.lookupFunction<
-      ffi.Int32 Function(ffi.Int32, ffi.Int32, ffi.Int64),
+      ffi.Int32 Function(ffi.Int32, ffi.Int32, ffi.VarArgs<(ffi.Int32,)>),
       int Function(int, int, int)>('fcntl');
 
   static final _ioctl = _libc.lookupFunction<
-      ffi.Int32 Function(ffi.Int32, ffi.Uint64, ffi.Pointer<ffi.Void>),
+      ffi.Int32 Function(ffi.Int32, ffi.UnsignedLong,
+          ffi.VarArgs<(ffi.Pointer<ffi.Void>,)>),
       int Function(int, int, ffi.Pointer<ffi.Void>)>('ioctl');
 }
 
