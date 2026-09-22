@@ -10,6 +10,11 @@
     "owner": "A07"
   },
   {
+    "key": "public-api|tool/altkey_probe.dart|tool/altkey_probe.dart|packages/tina_console/lib/src/backend/terminfo_environment.dart",
+    "reason": "Native keyboard diagnostic must use the same macOS terminfo initialization as the production backend",
+    "owner": "A07"
+  },
+  {
     "key": "public-api|tool/mute_diag_probe.dart|tool/mute_diag_probe.dart|packages/tina_console/lib/src/backend/init_reply_guard.dart",
     "reason": "Diagnostic probe tool intentionally reaches console internals",
     "owner": "A07"

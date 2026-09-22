@@ -76,6 +76,7 @@ Future<void> main(List<String> args) async {
     if (id == 0x71 && mods == 0) done = true; // plain 'q'
     if (id == 0x03) done = true; // Ctrl-C
   });
+  logLine('probe ready');
 
   final deadline = DateTime.now().add(const Duration(seconds: 120));
   while (!done && DateTime.now().isBefore(deadline)) {

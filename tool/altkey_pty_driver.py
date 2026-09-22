@@ -33,13 +33,17 @@ def report_failure(message):
         escaped = message[-3000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
         print(f"::error title=Native keyboard test::{escaped}", flush=True)
 
-def master_loop(master, proc, mute):
-    """Read probe output, answer capability queries, return once it rendered."""
+def master_loop(master, proc, mute, log_path):
+    """Drain initialization output until the probe has subscribed to input."""
     seen = b""
     pending = b""
     queries = re.compile(rb"\x1b\](10|11);\?|\x1b\[(>?)(?:0)?c|\x1b\[6n")
     deadline = time.time() + 150  # dart run cold start can be slow
     while time.time() < deadline:
+        if os.path.exists(log_path):
+            with open(log_path, encoding="utf-8") as log:
+                if "probe ready" in log.read():
+                    return
         r, _, _ = select.select([master], [], [], 0.5)
         if not r:
             if proc.poll() is not None:
@@ -68,12 +72,25 @@ def master_loop(master, proc, mute):
             os.write(master, reply)
             consumed = match.end()
         pending = pending[consumed:][-64:]
-        if b"altkey probe" in seen:
-            return
     raise RuntimeError(
         "probe never rendered (init did not complete?) — master saw:\n"
         + seen.decode("utf-8", "replace").replace("\x1b", "<ESC>")
     )
+
+
+def drain_output(master, proc, seconds):
+    # Keep behaving like a terminal while keys are sent and during teardown.
+    # macOS has a small PTY output buffer: stopping reads after the first
+    # title fragment can block render() before the input pump even starts.
+    deadline = time.monotonic() + seconds
+    while proc.poll() is None and time.monotonic() < deadline:
+        readable, _, _ = select.select([master], [], [], min(0.05, max(0, deadline - time.monotonic())))
+        if readable:
+            try:
+                if not os.read(master, 65536):
+                    break
+            except OSError:
+                break
 
 
 def run(log_path, mute):
@@ -103,7 +120,7 @@ def run(log_path, mute):
     )
     os.close(slave)
     try:
-        master_loop(master, proc, mute)
+        master_loop(master, proc, mute, log_path)
         cases = [
             (b"\x1bb", [(0x62, 2)]),                 # legacy Alt+b
             (b"\x1bf", [(0x66, 2)]),                 # legacy Alt+f
@@ -121,8 +138,9 @@ def run(log_path, mute):
         ]
         for encoded, _ in cases:
             os.write(master, encoded)
-            time.sleep(0.15)
-        proc.wait(timeout=10)
+            drain_output(master, proc, 0.15)
+        drain_output(master, proc, 10)
+        proc.wait(timeout=1)
     finally:
         # `dart run` can have a separate VM child. Kill the entire session we
         # created, including children keeping the PTY alive after its launcher
@@ -157,6 +175,10 @@ if __name__ == "__main__":
     try:
         result = run(LOG, False) | run(LOG + ".mute", True)
     except Exception:
+        for path in (LOG, LOG + ".mute"):
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as log:
+                    report_failure(f"Probe records ({path}):\n{log.read()[-2500:]}")
         report_failure(traceback.format_exc())
         result = 1
     finally:
