@@ -8,6 +8,7 @@ import 'package:tina/config/user_config.dart';
 import 'package:tina/composition/config_providers.dart';
 import 'package:tina/composition/typesafe.dart';
 import 'package:tina/composition/git_input.dart';
+import 'package:tina/composition/intent_input.dart';
 import 'package:tina/composition/models_dev_seed.dart';
 import 'package:tina/logging.dart';
 
@@ -240,6 +241,8 @@ Future<void> _run(List<String> argv) async {
         plugins: [
           if (!launch.startup.nonInteractive)
             configuredGitInputPlugin(environment.env),
+          if (!launch.startup.nonInteractive)
+            configuredIntentInputPlugin(environment.env),
         ],
       );
 
