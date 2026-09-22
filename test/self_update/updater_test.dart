@@ -36,6 +36,9 @@ void main() {
     File(
       p.join(bundle.path, 'lib', 'libnotcurses_merged.so'),
     ).writeAsStringSync('lib');
+    for (final name in ['libsqlite3.so', 'libsqlite3.dylib']) {
+      File(p.join(bundle.path, 'lib', name)).writeAsStringSync('sqlite');
+    }
 
     final archive = File(p.join(s.path, 'tina-v9.9.9-test.tar.gz'));
     final r = Process.runSync('tar', [

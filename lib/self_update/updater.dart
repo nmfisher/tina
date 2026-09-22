@@ -60,12 +60,12 @@ String? targetForCurrentPlatform() {
 /// that exists exclusively for tina.
 const bundleMarkerName = '.tina-bundle';
 
-final _tinaLibEntry = RegExp(r'^lib(tina|notcurses)');
+final _tinaLibEntry = RegExp(r'^lib(tina|notcurses)|^libsqlite3\.(so|dylib)$');
 
 /// Whether [root] is a directory the updater owns outright: it carries
 /// [bundleMarkerName], holds `bin/tina`, and contains nothing beyond tina's
 /// own files — `bin/` with only `tina` in it, `lib/` with only tina and
-/// notcurses libraries, and dotfiles. Anything else (a shared prefix like
+/// notcurses/SQLite libraries, and dotfiles. Anything else (a shared prefix like
 /// `~/.local`, foreign tools in `bin/`, a legacy unmarked install) fails
 /// this check and must never be renamed, replaced, or deleted by the
 /// updater.

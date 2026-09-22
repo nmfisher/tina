@@ -175,7 +175,7 @@ owned_bundle() {
           [ -e "$f" ] || [ -L "$f" ] || continue
           [ -f "$f" ] && [ ! -L "$f" ] || return 1
           case "$(basename "$entry")/$(basename "$f")" in
-            bin/tina|lib/libtina*|lib/libnotcurses*) ;;
+            bin/tina|lib/libtina*|lib/libnotcurses*|lib/libsqlite3.so|lib/libsqlite3.dylib) ;;
             *) return 1 ;;
           esac
         done

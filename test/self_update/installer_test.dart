@@ -31,6 +31,9 @@ void main() {
       '#!/bin/sh\necho "$version"\n',
     );
     write(p.join(source, 'bundle', 'lib', 'libnotcurses_merged.so'), version);
+    for (final name in ['libsqlite3.so', 'libsqlite3.dylib']) {
+      write(p.join(source, 'bundle', 'lib', name), version);
+    }
     final name = 'tina-v9.9.9-${targetForCurrentPlatform()}.tar.gz';
     archive = File(p.join(downloads, name));
     expect(
@@ -130,6 +133,9 @@ cp "$TINA_TEST_DOWNLOADS/${url##*/}" "$out"
       expect(updated, UpdateResult.success);
       expect((await Process.run(launcher, ['--version'])).stdout, 'new\n');
       expect(isOwnedBundleRoot(bundleDir), isTrue);
+      for (final name in ['libsqlite3.so', 'libsqlite3.dylib']) {
+        expect(File(p.join(bundleDir, 'lib', name)).readAsStringSync(), 'new');
+      }
       cleanupStaleOldBundle(bundleRootOverride: bundleDir);
       expect(Directory('$bundleDir.old').existsSync(), isFalse);
       expect(File(other).readAsStringSync(), 'other program');
@@ -180,6 +186,12 @@ cp "$TINA_TEST_DOWNLOADS/${url##*/}" "$out"
       expect(isOwnedBundleRoot(bundleDir), isFalse);
       expect((await install()).exitCode, isNot(0));
       File(p.join(bundleDir, 'bin', '.foreign')).deleteSync();
+      final foreignLib = File(p.join(bundleDir, 'lib', 'libsqlite3.data'))
+        ..writeAsStringSync('keep');
+      expect(isOwnedBundleRoot(bundleDir), isFalse);
+      expect((await install()).exitCode, isNot(0));
+      expect(foreignLib.readAsStringSync(), 'keep');
+      foreignLib.deleteSync();
       write(p.join('$bundleDir.old', 'keep'), 'foreign backup');
       expect((await install()).exitCode, isNot(0));
       expect(
