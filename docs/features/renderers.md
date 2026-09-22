@@ -61,7 +61,16 @@ assistant prose, reasoning, tool calls and notices. Streaming segments, tool
 updates, folding, selection and resize all render through the same adapter.
 Assistant prose is presented in markdown segments, not one block per whole turn.
 
+Approvals use `Renderer<ApprovalCard>` (`package:tina/tui/approval_card.dart`)
+for their tool preview, in both conversations and workflow nodes. The built-in
+`ApprovalRenderer` shows commands and working directories, existing edit/write
+previews, permission scope, and optional execution details. The shared host
+owns the inline frame and selectable answers; a renderer cannot change what
+an answer grants. Up/Down select, Enter confirms, Tab toggles details, and
+PgUp/PgDn or the mouse wheel scroll long previews. A settled card is appended
+once; scrolling the pending card never appends transcript copies.
+
 Other UI surfaces can call `Renderers.render` with their own input type and
-fallback; menus, approval controls and the index browser are not converted by
-this change. Headless/passthrough output keeps its plain-text path. Rendered
+fallback; menus and the index browser retain their existing rendering.
+Headless/passthrough output keeps its plain-text path. Rendered
 styles and borders are not added to stored messages or sent to models.

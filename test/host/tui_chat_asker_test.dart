@@ -152,13 +152,12 @@ void main() {
         final pending = ask(bashPrompt());
         await _flush();
         final rows = screen.chat.contentRows;
-        final beforeWheel = io.written.length;
         for (var i = 0; i < 20; i++) {
           editor.inject(ScrollEvent(up: i.isEven));
           await _flush();
         }
-        expect(io.written.length, beforeWheel,
-            reason: 'wheel events do not print or repaint the approval');
+        expect(screen.chat.contentRows, rows,
+            reason: 'wheel events scroll the card without appending transcript rows');
         for (var i = 0; i < 20; i++) {
           editor.inject(ArrowKey(i.isEven ? ArrowDirection.down : ArrowDirection.up));
           await _flush();
@@ -188,7 +187,7 @@ void main() {
       expect(response.decision, PermissionDecision.deny);
       expect(response.remember, isFalse,
           reason: 'outside-sandbox prompts have no deny-always');
-      expect(output(), contains('  deny'));
+      expect(output(), contains('· deny'));
     });
 
     test('an outside-sandbox allow-for-session carries its own scope', () async {

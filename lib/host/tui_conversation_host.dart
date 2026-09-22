@@ -256,51 +256,14 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
       );
     }
     chat.ensureNewline();
-    chat.yellow('  ${p.toolName}: ${p.key}\n');
-    // The mode chip rides under the header (#51b) — the TUI has no
-    // persistent footer, so each ask is the one place the active mode is
-    // visible while its keys are being read.
-    final policy = this.policy;
-    if (policy != null) {
-      chat.dim('  ${permissionModeChip(policy.mode)}\n');
-    }
-    // The mode chip says how calls are gated; this says whether they are
-    // confined at all. Without it, a user on a host where bash cannot be
-    // sandboxed answers every prompt believing the sandbox is there.
-    final sandboxChip = sandboxOffChip(sandboxOffReason);
-    if (sandboxChip != null) {
-      chat.yellow('  $sandboxChip\n');
-    }
-    if (p.execution != null) {
-      chat.dim(p.execution!.approvalDescription);
-    }
-    if (p.sandboxAccess != null || p.outsideSandbox) {
-      chat.yellow(p.accessDescription);
-    } else {
-      // The ordinary prompt used to say only "always allow", which reads as
-      // permanent and global. Say what a/d actually covers.
-      chat.dim(p.alwaysScopeNote);
-    }
-    final preview = await previewToolCall(p.toolName, p.input, preparedEdit: p.preparedEdit);
-    for (final entry in preview) {
-      switch (entry) {
-        case PreviewHeader(:final text):
-          chat.dim('  $text\n');
-        case PreviewAdded(:final text):
-          chat.green('  + $text\n');
-        case PreviewRemoved(:final text):
-          chat.red('  - $text\n');
-        case PreviewContext(:final text):
-          chat.dim('    $text\n');
-        case PreviewSeparator():
-          chat.dim('  ⋯\n');
-      }
-    }
     return runPermissionApproval(
       screen: screen,
       editor: editor!,
       prompt: p,
       write: chat.write,
+      renderers: renderers,
+      policy: policy,
+      sandboxWarning: sandboxOffChip(sandboxOffReason),
     );
   }
 

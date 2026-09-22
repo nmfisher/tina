@@ -171,9 +171,9 @@ void main() {
         await _flush();
         final output =
             io.written.toString() + sink.notices.map((n) => n.message).join();
-        expect(output, contains('definitely OK'));
+        expect(output, contains('can write anywhere your account can'));
         expect(output, contains('run outside sandbox once'));
-        expect(output, contains('outside for session'));
+        expect(output, contains('outside for this session'));
         expect(output, isNot(contains('allow always')));
         if (keys.length == 7) {
           io.feedBytes(keys.sublist(0, 3));
@@ -223,13 +223,13 @@ void main() {
       );
       final pending = asker.ask(prompt);
       await _flush();
-      final notices = sink.notices.map((n) => n.message).join('\n');
+      final notices = stripAnsi(io.written.toString());
       expect(notices, contains('/sdk/cache'));
       expect(notices, contains('launcher metadata'));
       expect(notices, contains('Read-only file system'));
       expect(notices, contains('tests never started'));
-      expect(notices, contains('so the command can be retried'));
-      expect(io.written.toString(), contains('[a] session directories'));
+      expect(notices, contains('The command is approved once'));
+      expect(io.written.toString(), contains('[a] allow these directories for this session'));
       expect(notices, isNot(contains('[d]eny always')));
       // The old deny-always shortcut must not silently install a command rule.
       io.feedBytes([0x64]);
@@ -374,13 +374,14 @@ void main() {
         expect(deny, allow + 1);
         final inputRow = screen.input.bounds.row;
         expect(initial[inputRow], contains('Approve bash?'));
-        expect(initial[inputRow - 1], contains('enter select'));
+        expect(initial.join('\n'), contains('Enter confirm'));
         expect(initial[allow].indexOf('[y]'), screen.input.bounds.col + 4);
-        expect(initial.join('\n'), isNot(contains('┌')));
-        expect(initial.join('\n'), isNot(contains('└')));
+        final title = initial.firstWhere((row) => row.contains('┌ Run command'));
+        expect(title.indexOf('┌'), screen.input.bounds.col);
+        expect(initial.join('\n'), contains('cargo test'));
         String selected(String label) => screen.colorize(
           screen.theme.completion.selected,
-          '    $label',
+          '❯ $label',
         );
         expect(io.written.toString(), contains(selected('[y] allow once')));
         io.written.clear();
@@ -507,9 +508,8 @@ void main() {
     await _flush();
     expect(ed.isReadingKey, isTrue);
 
-    // The asker writes through the sink (showMessage → notice on the fake),
-    // never to the screen — assert on what the fake recorded.
-    String notices() => sink.notices.map((n) => n.message).join('\n');
+    // Pending cards paint in place; only the settled card enters the sink.
+    String notices() => stripAnsi(io.written.toString());
     expect(
       io.written.toString(),
       contains('[y] allow once'),
@@ -525,7 +525,7 @@ void main() {
     // already spells its own scope out, so it carries no note.
     expect(
       notices(),
-      contains('this conversation, until tina exits'),
+      contains('this conversation'),
       reason: 'the ordinary prompt states the scope of an "always" answer',
     );
 
@@ -534,14 +534,14 @@ void main() {
     await _flush();
     expect(ed.isReadingKey, isTrue, reason: 'the read stays armed');
     expect(
-      notices(),
+      sink.notices.map((n) => n.message).join(),
       contains('…'),
       reason: 'the first swallowed key gets a one-shot ack',
     );
     // …the second ignored key gets none.
     io.feedBytes([0x72]); // 'r' — still not an answer
     await _flush();
-    final afterSecond = notices().split('…').length - 1;
+    final afterSecond = sink.notices.map((n) => n.message).join().split('…').length - 1;
     expect(
       afterSecond,
       1,
@@ -574,7 +574,7 @@ void main() {
         policy: policy,
       );
 
-      String notices() => sink.notices.map((n) => n.message).join('\n');
+      String notices() => stripAnsi(io.written.toString());
       var ask = asker.ask(_bashPrompt('ls'));
       await _flush();
       expect(notices(), contains('[mode: ask]'));
@@ -607,7 +607,7 @@ void main() {
       final ask2 = asker2.ask(_bashPrompt('ls'));
       await _flush();
       expect(
-        sink2.notices.map((n) => n.message).join('\n'),
+        stripAnsi(io2.written.toString()),
         isNot(contains('[mode:')),
       );
       io2.feedBytes([0x6e]);

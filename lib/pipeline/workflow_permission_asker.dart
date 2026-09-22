@@ -1,6 +1,7 @@
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 
+import '../frontend/renderers.dart';
 import '../host/tui_conversation_host.dart';
 import '../tui/attention_queue.dart';
 import '../tui/permission_approval.dart';
@@ -83,47 +84,17 @@ class WorkflowPermissionAsker {
       final host = sink as TuiConversationHost;
       host.chat.ensureNewline();
     }
-    _write('  ${p.toolName}: ${p.key}\n', HostMessageStyle.warning);
-    // The mode chip rides under the header (#51b) — dim, so it reads as
-    // metadata, not as part of the call being approved.
-    final policy = this.policy;
-    if (policy != null) {
-      _write('  ${permissionModeChip(policy.mode)}\n', HostMessageStyle.dim);
-    }
-    if (p.execution != null) {
-      _write(p.execution!.approvalDescription, HostMessageStyle.dim);
-    }
-    if (p.sandboxAccess != null || p.outsideSandbox) {
-      _write(p.accessDescription, HostMessageStyle.warning);
-    } else {
-      // Same note as the chat asker: what a/d covers, in plain words.
-      _write(p.alwaysScopeNote, HostMessageStyle.dim);
-    }
-    final preview = await previewToolCall(p.toolName, p.input, preparedEdit: p.preparedEdit);
-    for (final entry in preview) {
-      switch (entry) {
-        case PreviewHeader(:final text):
-          _write('  $text\n', HostMessageStyle.dim);
-        case PreviewAdded(:final text):
-          _write('  + $text\n', HostMessageStyle.success);
-        case PreviewRemoved(:final text):
-          _write('  - $text\n', HostMessageStyle.error);
-        case PreviewContext(:final text):
-          _write('    $text\n', HostMessageStyle.dim);
-        case PreviewSeparator():
-          _write('  ⋯\n', HostMessageStyle.dim);
-      }
-    }
-    // The prompt writes to chat; streamed prose ends mid-row (no trailing
-    // newline), so the first prompt line must start a fresh row (#30).
-    if (sink is TuiConversationHost) {
-      final host = sink as TuiConversationHost;
-      host.chat.ensureNewline();
-    }
     return runPermissionApproval(
       screen: screen!,
       editor: editor!,
       prompt: p,
+      policy: policy,
+      renderers: sink is TuiConversationHost
+          ? (sink as TuiConversationHost).renderers
+          : const Renderers(),
+      sandboxWarning: sink is TuiConversationHost
+          ? sandboxOffChip((sink as TuiConversationHost).sandboxOffReason)
+          : null,
       write: (text) => _write(text, HostMessageStyle.normal),
     );
   }
