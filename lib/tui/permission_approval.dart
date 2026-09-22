@@ -19,6 +19,7 @@ Future<PermissionResponse> runPermissionApproval({
   Renderers renderers = const Renderers(),
   PermissionPolicy? policy,
   String? sandboxWarning,
+  RegexSuggester? regexSuggester,
 }) async {
   final cancel = Future.any<void>([
     editor.inputCancelled,
@@ -192,7 +193,8 @@ Future<PermissionResponse> runPermissionApproval({
         choice = choices[selected];
       }
       if (choice?.action == ApprovalAction.rewriteRegex) {
-        rewrite = RegexReview(prompt);
+        rewrite = RegexReview(prompt, suggester: regexSuggester)
+          ..onChanged = paint;
         offset = 0;
         paint();
         continue;

@@ -5,6 +5,10 @@ import 'package:tina_engine/tina_engine.dart';
 /// cancellation and suspension; this never mutates the conversation draft.
 class RegexReview {
   final PermissionPrompt prompt;
+
+  /// The model that drafts a general-but-safe pattern, or null when no
+  /// classifier/provider is wired and only the literal escape is available.
+  final RegexSuggester? suggester;
   late TextLineInput input;
   PermissionRule? rule;
   String? error;
@@ -16,9 +20,68 @@ class RegexReview {
     'Back to approval',
   ];
 
-  RegexReview(this.prompt) {
+  /// Set while the model draft is in flight, cleared when it settles.
+  bool suggestionPending = false;
+
+  /// One-line status of the model draft: what arrived, or why nothing did.
+  String? status;
+
+  /// Whether the suggester's pattern (as opposed to the user's own edit) is
+  /// what the buffer currently holds.
+  bool get showingSuggestion => _suggestionArrived && !_userEdited;
+  bool _suggestionArrived = false;
+  bool _userEdited = false;
+
+  /// Set once the review has handed control back to the approval loop — a
+  /// draft that lands afterwards is dropped instead of repainting a dead form.
+  bool _settled = false;
+
+  /// Called when the async suggestion settles so the approval loop repaints.
+  void Function()? onChanged;
+
+  RegexReview(this.prompt, {this.suggester}) {
+    // The literal escape paints immediately: the form is usable before the
+    // model answers, and is the fallback when the draft fails or is refused.
     final suggestion = prompt.suggestedRegex;
     input = TextLineInput(buffer: suggestion, cursor: suggestion.length);
+    _startSuggestion();
+  }
+
+  void _startSuggestion() {
+    final suggester = this.suggester;
+    if (suggester == null) return;
+    suggestionPending = true;
+    status = 'asking the model to generalize the pattern…';
+    suggester.suggest(prompt).then((draft) {
+      if (_settled) return;
+      _applySuggestion(draft);
+      onChanged?.call();
+    });
+  }
+
+  void _applySuggestion(RegexSuggestion draft) {
+    suggestionPending = false;
+    if (!draft.isSuccess) {
+      status =
+          'model draft unavailable (${draft.failure!.phrase(timeout: suggester!.timeout)}) — literal pattern kept';
+      return;
+    }
+    // Too late to swap the buffer: the user already typed, confirmed a rule,
+    // or left. Their text (or their confirmed rule) wins over a late draft.
+    if (_userEdited || reviewing) {
+      status = 'model draft arrived late — your edit was kept';
+      return;
+    }
+    final pattern = draft.rule!.pattern;
+    input = TextLineInput(buffer: pattern, cursor: pattern.length);
+    _suggestionArrived = true;
+    status = 'model-drafted pattern — check what it allows before allowing';
+  }
+
+  /// Marks the form dead so a still-running draft cannot repaint it.
+  void abandon() {
+    _settled = true;
+    onChanged = null;
   }
 
   List<String> get lines => [
@@ -28,8 +91,11 @@ class RegexReview {
     'Regex: ${input.buffer}',
     'Matches the entire approval target.',
     'Scope: this conversation, until tina exits.',
-    if (!reviewing)
-      'The suggestion matches only this target. Edit to change what is allowed.',
+    if (!reviewing) ...[
+      if (status != null) status!,
+      if (status == null && suggester == null)
+        'The suggestion matches only this target. Edit to change what is allowed.',
+    ],
     if (reviewing) 'Allow this call and future matching calls?',
     if (error != null) error!,
   ];
@@ -43,7 +109,10 @@ class RegexReview {
 
   RegexReviewResult handle(InputEvent event) {
     if (event is EscapeKey) {
-      if (!reviewing) return RegexReviewResult.back;
+      if (!reviewing) {
+        abandon();
+        return RegexReviewResult.back;
+      }
       rule = null;
       return RegexReviewResult.pending;
     }
@@ -54,8 +123,14 @@ class RegexReview {
         if (event.direction == ArrowDirection.down)
           selected = (selected + 1).clamp(0, 2);
       } else if (event is ControlKey && event.code == ControlCode.enter) {
-        if (selected == 0) return RegexReviewResult.approved;
-        if (selected == 2) return RegexReviewResult.back;
+        if (selected == 0) {
+          abandon();
+          return RegexReviewResult.approved;
+        }
+        if (selected == 2) {
+          abandon();
+          return RegexReviewResult.back;
+        }
         rule = null;
       }
       return RegexReviewResult.pending;
@@ -81,9 +156,11 @@ class RegexReview {
       } else {
         input = input.insert(text);
         error = null;
+        _userEdited = true;
       }
     } else if (event is ControlKey && event.code == ControlCode.backspace) {
       input = input.backspace();
+      _userEdited = true;
     } else if (event is ArrowKey) {
       input = switch (event.direction) {
         ArrowDirection.left =>
@@ -97,6 +174,7 @@ class RegexReview {
         _ => input,
       };
     } else if (event is EditingKey) {
+      final before = input.buffer;
       input = switch (event.action) {
         EditingAction.home => input.moveHome(),
         EditingAction.end => input.moveEnd(),
@@ -106,6 +184,7 @@ class RegexReview {
         EditingAction.deleteWordBackward => input.killWordBackward(),
         EditingAction.deleteWordForward => input.killWordForward(),
       };
+      if (input.buffer != before) _userEdited = true;
     }
     return RegexReviewResult.pending;
   }

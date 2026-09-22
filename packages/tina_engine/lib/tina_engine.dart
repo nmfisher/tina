@@ -63,6 +63,7 @@ export 'src/permissions/approval_target.dart';
 export 'src/permissions/policy.dart';
 export 'src/permissions/preview.dart';
 export 'src/permissions/prompt.dart';
+export 'src/permissions/regex_suggester.dart';
 export 'src/permissions/sandbox_access.dart';
 export 'src/persistence/jsonl_session_store.dart';
 export 'src/persistence/session_lock.dart';

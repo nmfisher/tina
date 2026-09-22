@@ -28,6 +28,10 @@ class ExecutionRuntime implements ProjectExecution {
   final SpendLedger spendLedger;
   final PauseGate pauseGate;
   final PermissionClassifier? classifier;
+
+  /// Drafts general-but-safe allow patterns for the approval modal's `[r]`
+  /// rewrite choice; null when no classifier provider could be built.
+  final RegexSuggester? regexSuggester;
   final RuntimeResources resources;
 
   /// The runtime's own plugin scope (ledger, provider factory, and — when the
@@ -44,6 +48,7 @@ class ExecutionRuntime implements ProjectExecution {
     required this.spendLedger,
     required this.pauseGate,
     required this.classifier,
+    required this.regexSuggester,
     required this.resources,
     required this.pluginScope,
   });
@@ -266,6 +271,13 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       classifier = null;
     }
     if (classifier != null) resources.own(classifier.provider.close);
+    // The `[r] rewrite-to-regex` suggester shares the classifier's provider —
+    // one more judgment over the same cheap transport (already owned above).
+    // Null (unbuildable provider) degrades the rewrite choice to the literal
+    // escaped target.
+    final regexSuggester = classifier == null
+        ? null
+        : RegexSuggester(classifier.provider);
     // A nested same-project run borrows the live scope (including its write
     // lock). Independent compositions construct independent tool instances —
     // each runtime's plugins build their own scope under
@@ -329,6 +341,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       spendLedger: ledger,
       pauseGate: pauseGate,
       classifier: classifier,
+      regexSuggester: regexSuggester,
       resources: resources,
       pluginScope: runtime.scope,
     );

@@ -457,6 +457,7 @@ class TuiCoordinator {
           editor: editor,
           active: isActive,
           sandboxOffReason: config.sandboxOffReason,
+          regexSuggester: app.regexSuggester,
         );
         // #51b: the ask header's mode chip reads the app's base policy at
         // render time; setPermissionMode flips this object's mode live.
@@ -549,6 +550,7 @@ class TuiCoordinator {
                   editor: editor,
                   attentionQueue: attentionQueue,
                   policy: runPolicy,
+                  regexSuggester: app.regexSuggester,
                 ).ask
               : modeAwareAsker(
                   policy: scheduler.basePolicy ?? policy,
@@ -559,6 +561,7 @@ class TuiCoordinator {
                     editor: editor,
                     attentionQueue: attentionQueue,
                     policy: runPolicy,
+                    regexSuggester: app.regexSuggester,
                   ).ask,
                   notice: runSink.notice,
                 );
@@ -680,6 +683,7 @@ class TuiCoordinator {
         active: true,
         roleLabel: 'main',
         sandboxOffReason: config.sandboxOffReason,
+        regexSuggester: app.regexSuggester,
       )..policy = policy;
       initialHost.onBackgroundActivity = () =>
           handleBackgroundActivity?.call(initialConversationId);
@@ -1671,6 +1675,7 @@ class TuiCoordinator {
           // says `scout` rather than `main`.
           roleLabel: role,
           sandboxOffReason: config.sandboxOffReason,
+          regexSuggester: app.regexSuggester,
         )..policy = policy;
       }
 

@@ -80,6 +80,12 @@ class AppComposition {
   /// be built — auto mode then falls back to the interactive prompt.
   final PermissionClassifier? classifier;
 
+  /// Drafts general-but-safe allow patterns for the approval modal's `[r]`
+  /// rewrite choice; shares the classifier's provider. Null when that
+  /// provider could not be built — the rewrite then only offers the literal
+  /// escaped target.
+  final RegexSuggester? regexSuggester;
+
   final RuntimeResources _resources;
 
   Future<void> dispose() => _resources.dispose();
@@ -105,6 +111,7 @@ class AppComposition {
     this.initialManifest,
     this.startupProviderOverride,
     this.classifier,
+    this.regexSuggester,
     bool ownsStore = false,
     RuntimeResources? resources,
   }) : providers = providers ?? registry,
@@ -236,6 +243,7 @@ Future<AppComposition> buildAppComposition({
     final ledger = runtime.spendLedger;
     final pauseGate = runtime.pauseGate;
     final classifier = runtime.classifier;
+    final regexSuggester = runtime.regexSuggester;
     final resolved = await resolveSession(
       resumeRequest ??
           (config is ResumeRequest
@@ -271,6 +279,7 @@ Future<AppComposition> buildAppComposition({
       initialHistory: resolved.activeHistory,
       initialManifest: resolved.manifest,
       classifier: classifier,
+      regexSuggester: regexSuggester,
       resources: resources,
     );
   } catch (_) {

@@ -49,6 +49,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
     /// callers pass the config's sandbox-off reason so `--no-sandbox` and
     /// `--yolo` get named, not just "off".
     String? sandboxOffReason,
+    this.regexSuggester,
   }) : sandboxOffReason = sandboxOffReason ?? sandboxPassThroughReason,
        _active = active {
     _logSub = _bus.events.listen(_onBusEvent);
@@ -70,6 +71,11 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
   /// modal. Every conversation shares one editor; only an [_active]
   /// conversation's [askPermission] actually reads from it.
   final LineEditor? editor;
+
+  /// The model that drafts general-but-safe regex patterns for the `[r]`
+  /// rewrite choice on the approval modal; null keeps the literal escape as
+  /// the only seed. Threaded from the composition like the classifier.
+  final RegexSuggester? regexSuggester;
 
   /// Primary hosts own the `screen.chat` slot and route onto it via [setActive]
   /// (the session-switch path). Secondary hosts (spawned conversations) own a
@@ -261,6 +267,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
       write: chat.write,
       renderers: renderers,
       policy: policy,
+      regexSuggester: regexSuggester,
       sandboxWarning: sandboxOffChip(sandboxOffReason),
     );
   }

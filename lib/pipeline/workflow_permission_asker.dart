@@ -33,12 +33,17 @@ class WorkflowPermissionAsker {
   /// next ask without rebuilding the asker.
   final PermissionPolicy? policy;
 
+  /// The model that drafts general-but-safe regex patterns for the `[r]`
+  /// rewrite choice; null keeps the literal escape as the only seed.
+  final RegexSuggester? regexSuggester;
+
   WorkflowPermissionAsker({
     required this.sink,
     this.screen,
     this.editor,
     this.attentionQueue,
     this.policy,
+    this.regexSuggester,
   });
 
   bool get _interactive => screen != null && editor != null;
@@ -89,6 +94,7 @@ class WorkflowPermissionAsker {
       editor: editor!,
       prompt: p,
       policy: policy,
+      regexSuggester: regexSuggester,
       renderers: sink is TuiConversationHost
           ? (sink as TuiConversationHost).renderers
           : const Renderers(),
