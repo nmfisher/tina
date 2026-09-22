@@ -68,6 +68,7 @@ export 'src/permissions/sandbox_access.dart';
 export 'src/persistence/jsonl_session_store.dart';
 export 'src/persistence/session_lock.dart';
 export 'src/persistence/session_store.dart';
+export 'src/persistence/session_store_plugin.dart';
 export 'src/platform/paths.dart';
 export 'src/tools/atomic_write.dart';
 export 'src/tools/git_file_enumerator.dart';

@@ -22,7 +22,7 @@ remains the default with unchanged behavior.
 | Plugin runtime is real and usable | **Yes** — `runtime/plugin.dart`: descriptors declare `requires`/`provides`, factories get a `PluginContext` with `require`/`own`/`register`/`child`; `PluginScope.provide`/`lookup` (with parent fallback) is the service mechanism. Already proven by `tools/workspace_tool_plugins.dart`. |
 | `SessionStore` is contract-ready | **Yes** — `persistence/session_store.dart:350`. Plain Dart types, narrow REPL-level surface, two-level keys `(sessionId, conversationId)`. Explicitly designed for "nested files, SQLite, a remote service, etc." |
 | A separate `SessionRegistry` class is needed | **No** — the draft's registry duplicates `PluginScope` service resolution (registration, lookup, active-provider selection via which binding exists). This proposal uses a `ServiceKey<SessionStore>` instead. |
-| `SessionRecorder` exists to refactor | **No such class.** Persistence flows through `AppComposition.store` → `SessionController.sessionStore` (`lib/session_controller.dart`). The rewrite targets that wiring. |
+| `SessionRecorder` exists to refactor | **Exists — but not where the draft said.** `persistence/session_store.dart:453`: a REPL-side wrapper holding the active `(sessionId, conversationId)` over a `SessionStore`, designed so "swapping the backend only requires re-implementing `SessionStore`". The draft's §3.4 sketch (constructor injection of a registry) is unnecessary — the recorder already takes any `SessionStore`, so it needs no change at all. |
 | Wrapping `JsonlSessionStore` preserves compatibility | **Yes** — `defaultLocation()`, `directoryFor()`, and the on-disk format stay untouched; the plugin only changes *who constructs* the store. |
 
 ## 1. Goal
@@ -44,7 +44,10 @@ remains the default with unchanged behavior.
 - `packages/tina_app/lib/src/composition/app_composition.dart:223` —
   `store ?? JsonlSessionStore.defaultLocation()` fallback; `AppComposition.store`
   is the field everything downstream reads (`SessionController`, session
-  commands, attach/detach).
+  commands, `SessionRecorder` — the REPL-side wrapper at
+  `persistence/session_store.dart:453` holding the active
+  `(sessionId, conversationId)`; it already accepts any `SessionStore`, so
+  backend swaps need no recorder changes).
 - `bin/tina.dart:362` (`_acquireSessionLock`) — `if (store is! JsonlSessionStore)
   return;` then `SessionLock(store.directoryFor(sid))`. Advisory locking is a
   Jsonl-specific capability today.

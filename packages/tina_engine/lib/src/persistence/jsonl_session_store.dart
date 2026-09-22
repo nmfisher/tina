@@ -46,9 +46,15 @@ class JsonlSessionStore implements SessionStore {
 
   /// Default location: `$HOME/.tina/sessions/` (or `%USERPROFILE%` on
   /// Windows). Falls back to the current directory if neither is set.
-  factory JsonlSessionStore.defaultLocation() {
+  factory JsonlSessionStore.defaultLocation() =>
+      JsonlSessionStore(defaultSessionRoot());
+
+  /// The directory `defaultLocation()` uses — the single source of the
+  /// default sessions path, shared by the plugin so the legacy constructor
+  /// and the plugin binding cannot drift.
+  static Directory defaultSessionRoot() {
     final dir = p.join(tinaDirFromEnv(Platform.environment).path, 'sessions');
-    return JsonlSessionStore(Directory(dir));
+    return Directory(dir);
   }
 
   // Serialize read/modify/write transactions per session. Atomic renames alone

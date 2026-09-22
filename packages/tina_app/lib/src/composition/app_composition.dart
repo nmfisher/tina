@@ -220,8 +220,18 @@ Future<AppComposition> buildAppComposition({
 }) async {
   final resources = RuntimeResources();
   try {
-    final sessionStore = store ?? JsonlSessionStore.defaultLocation();
-    if (store == null || ownsStore) resources.own(sessionStore.close);
+    // SP1: when no store is injected and no caller plugin provides one, the
+    // default JSONL store is built by the session plugin and resolved from
+    // plugin scope after activation — the seam alternative backends bind (a
+    // caller plugin providing sessionStoreServiceKey replaces the default;
+    // two providers of one key would be an activation error). An injected
+    // [store] bypasses the plugin entirely (tests; bin/tina.dart's
+    // pre-runtime instance — see the session-persistence program, SP2).
+    // Summary-style runtimes (buildExecutionRuntime direct callers) mount no
+    // session plugin at all, so they never build an unused store.
+    final providesSessionStore = plugins.any(
+      (plugin) => plugin.provides.contains(sessionStoreServiceKey),
+    );
     final runtime = await buildExecutionRuntime(
       config: config,
       registry: registry,
@@ -232,9 +242,29 @@ Future<AppComposition> buildAppComposition({
       loadWorkspaceContext: loadWorkspaceContext,
       driverFactory: driverFactory,
       persistence: persistence,
-      plugins: plugins,
+      plugins: [
+        if (store == null && !providesSessionStore) jsonlSessionStorePlugin(),
+        ...plugins,
+      ],
     );
     resources.own(runtime.dispose);
+    final SessionStore sessionStore;
+    if (store != null) {
+      sessionStore = store;
+      if (ownsStore) resources.own(store.close);
+    } else {
+      final fromScope = runtime.pluginScope.lookup(sessionStoreServiceKey);
+      if (fromScope != null) {
+        sessionStore = fromScope;
+        // Ownership is the plugin's (context.own at build): scope teardown —
+        // reached through runtime.dispose above — closes it exactly once.
+      } else {
+        // Migration fallback: the plugin was not mounted (a caller-supplied
+        // profile without it). Keep the pre-SP1 behavior.
+        sessionStore = JsonlSessionStore.defaultLocation();
+        resources.own(sessionStore.close);
+      }
+    }
     final env = runtime.environment;
     final providers = runtime.providers;
     final policy = runtime.policy;

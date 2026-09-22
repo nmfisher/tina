@@ -47,6 +47,16 @@ today's inline construction while later phases land. The explicit `store:`
 override to `buildAppComposition` stays — tests and `bin/tina.dart`'s
 early-constructed instance (see SP2) depend on it.
 
+**Landed 2026-09-22 — design correction discovered during implementation:**
+the plugin does NOT go into `defaultExecutionPlugins`. That profile is also
+mounted by `buildSummaryIndex` → `buildExecutionRuntime` (summary runs that
+own no sessions); mounting the session plugin there would build an unused
+store in every summary run. The plugin is appended by
+`buildAppComposition` itself through the existing `plugins:` extension seam
+(the same mechanism the git/intent input plugins use) — but only when no
+`store:` override is injected. `SessionRecorder` (see the corrected assumption
+audit) needed no changes: it already takes any `SessionStore`.
+
 There is no separate `SessionRegistry` class: `PluginScope` already enforces
 registration uniqueness, replacement, and teardown ordering. Selection among
 backends is SP3's config concern, not a runtime data structure.
