@@ -172,18 +172,31 @@ JudgmentClassifier<TextEvidence, GitIntent> gitClassifier() {
         for (final c in gitCommands)
           if (score(c) >= 0.8) c,
       ];
-      final uncertain =
-          !input.coverage.complete ||
+
+      // Three decoded states, mirroring the intent classifier:
+      // - unclear = true → "unsure, needs more context" (contradictory
+      //   evidence — a selected command AND a confident `none` — stays unsure
+      //   rather than trusting either side).
+      // - unknown = false, commands=[] → "clearly not a git request"
+      //   (`none` confident, every command low).
+      // - unknown = false, commands!=[] → "git command detected".
+      const noneConfident = 0.9;
+      const commandQuiet = 0.1;
+      final clearlyNotGit =
+          score('none') >= noneConfident &&
+          gitCommands.every((c) => score(c) <= commandQuiet);
+      // A half-confident `none` alongside a selected command is contradictory
+      // evidence: unsure wins over either reading (threshold stays 0.5, not
+      // noneConfident — mid-score "no git here" must not upgrade to detected).
+      final unclear =
           score('unknown') >= 0.5 ||
           (selected.isNotEmpty && score('none') >= 0.5) ||
-          (selected.isEmpty &&
-              !(score('none') >= 0.9 &&
-                  gitCommands.every((c) => score(c) <= 0.1)));
+          (selected.isEmpty && !clearlyNotGit);
       return ClassificationResult(
         outcome: ClassificationOutcome.classified,
         value: GitIntent(
-          commands: uncertain ? const [] : selected,
-          unknown: uncertain,
+          unknown: unclear,
+          commands: unclear ? const [] : selected,
         ),
         evidence: input.units.map((u) => u.id),
         explanation: 'Predicted Git intent of submitted input.',

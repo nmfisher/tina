@@ -42,12 +42,34 @@ void main() {
       // Both below threshold → unclear, regardless of which is higher.
       (
         scores: <String, double>{'projectQuestion': .7, 'agentInstruction': .5},
-        type: null,
+        type: IntentType.unclear,
         confidence: 0.0,
       ),
       (
         scores: <String, double>{'projectQuestion': .5, 'agentInstruction': .7},
+        type: IntentType.unclear,
+        confidence: 0.0,
+      ),
+      // Confident `neither` with both categories quiet → clearly neither,
+      // not unclear (chit-chat, greetings, quotes).
+      (
+        scores: <String, double>{
+          'projectQuestion': .05,
+          'agentInstruction': .1,
+          'neither': .97,
+        },
         type: null,
+        confidence: 0.0,
+      ),
+      // A confident category AND a confident `neither` is contradictory
+      // evidence: unsure wins over either reading.
+      (
+        scores: <String, double>{
+          'projectQuestion': .9,
+          'agentInstruction': .1,
+          'neither': .95,
+        },
+        type: IntentType.unclear,
         confidence: 0.0,
       ),
       // Tie at or above threshold → instruction wins.
@@ -89,7 +111,7 @@ void main() {
             budget: pair.budget,
             cancellation: JudgmentCancellation(),
           );
-          expect(result.type, isNull);
+          expect(result.type, IntentType.unclear);
           expect(result.confidence, 0.0);
         }
         expect(service.requests, isEmpty);
@@ -307,7 +329,7 @@ void main() {
       expect(prepared.text, 'fix the bug');
     });
 
-    test('unclear result still publishes ready with a null type', () async {
+    test('clearly-neither result publishes ready with a null type', () async {
       final plugin = IntentInput(
         (input, token) async => const IntentResult(type: null, confidence: 0.0),
       );

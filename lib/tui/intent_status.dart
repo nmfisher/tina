@@ -15,7 +15,8 @@ class IntentStatusRenderer extends Renderer<IntentStatus> {
       IntentPhase.ready => switch (value.result?.type) {
         IntentType.projectQuestion => 'project question',
         IntentType.agentInstruction => 'agent instruction',
-        null => 'intent unclear',
+        IntentType.unclear => 'intent unclear',
+        null => 'no intent',
       },
     };
     return [

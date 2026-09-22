@@ -40,6 +40,13 @@ void main() {
         unknown: false,
       ),
       (
+        // Confident `none` with a mid-scoring command is still a clear
+        // "no git request": the quiet-command ceiling is 0.1, so 0.05 passes.
+        scores: <String, double>{'none': .95, 'commit': .05},
+        commands: <String>[],
+        unknown: false,
+      ),
+      (
         scores: <String, double>{'commit': .6},
         commands: <String>[],
         unknown: true,
@@ -50,7 +57,16 @@ void main() {
         unknown: false,
       ),
       (
+        // Contradictory evidence: a strong command AND a confident `none`.
+        // Unsure wins over either reading (conservative, as before).
         scores: <String, double>{'commit': .96, 'none': .9},
+        commands: <String>[],
+        unknown: true,
+      ),
+      (
+        // A half-confident `none` plus a selected command is also
+        // contradictory — the 0.5 threshold must not upgrade to detected.
+        scores: <String, double>{'commit': .96, 'none': .7},
         commands: <String>[],
         unknown: true,
       ),

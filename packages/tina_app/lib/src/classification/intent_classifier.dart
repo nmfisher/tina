@@ -4,12 +4,18 @@ import 'package:classifier/judgments.dart';
 /// Whether a piece of user input is a project question or an agent
 /// instruction. The model scores both categories independently; the decoder
 /// picks the higher-scoring one only when it clears the confidence threshold.
-/// A null [IntentResult.type] means no high-confidence intent — display-only,
-/// never acted on.
-enum IntentType { projectQuestion, agentInstruction }
+///
+/// Three decoded states, mirroring the git classifier:
+/// - [IntentType.unclear] — unsure, needs more context (also every
+///   orchestrator sentinel: oversized input, over-budget, missing service).
+/// - `type: null` — clearly neither (chatter, greetings, quotes): the `neither`
+///   question cleared 0.9 while both categories scored ≤ 0.1.
+/// - otherwise — the detected intent.
+enum IntentType { projectQuestion, agentInstruction, unclear }
 
 class IntentResult {
-  /// Null when neither category cleared the confidence threshold.
+  /// [IntentType.unclear] when nothing cleared its threshold; null when the
+  /// input is clearly neither category (see the enum's doc comment).
   final IntentType? type;
   final double confidence;
   const IntentResult({required this.type, required this.confidence});
@@ -22,12 +28,14 @@ final intentResultContract = DataContract<IntentResult>(
     'type': 'object',
     'properties': {
       'type': {
+        // null means "clearly neither intent" (chatter); `unclear` means the
+        // model could not decide. Every consumer treats both as display-only.
         'anyOf': [
+          {'type': 'null'},
           {
             'type': 'string',
-            'enum': ['projectQuestion', 'agentInstruction'],
+            'enum': ['projectQuestion', 'agentInstruction', 'unclear'],
           },
-          {'type': 'null'},
         ],
       },
       'confidence': {'type': 'number'},
@@ -93,6 +101,12 @@ JudgmentClassifier<TextEvidence, IntentResult> intentClassifier() {
           whenTrue: 'Instructing the agent',
           whenFalse: 'Not instructing the agent',
         ),
+        NoulQuestion(
+          'neither',
+          instructions:
+              'Is it clear the latest input is neither — e.g. chatter, a '
+              'greeting, or a quote — rather than an undecidable mixture?',
+        ),
       ],
     ),
     decode: (request, result, input) {
@@ -100,10 +114,23 @@ JudgmentClassifier<TextEvidence, IntentResult> intentClassifier() {
           result.answer(request.questions[id] as NoulQuestion).noul;
       final question = score('projectQuestion');
       final instruction = score('agentInstruction');
+      final neither = score('neither');
+      // Mirrors the git classifier's decode:
+      // - clearlyNeither: confident no-intent with every category low — the
+      //   "chit-chat" answer, distinct from "could not decide".
+      // - unclear: incomplete coverage, no category at threshold, or
+      //   contradictory evidence (a category at threshold AND confident
+      //   neither). Unsure stays unsure.
+      final clearlyNeither =
+          neither >= 0.9 && question <= 0.1 && instruction <= 0.1;
       final unclear =
           !input.coverage.complete ||
           (question < intentConfidenceThreshold &&
-              instruction < intentConfidenceThreshold);
+              instruction < intentConfidenceThreshold &&
+              !clearlyNeither) ||
+          ((question >= intentConfidenceThreshold ||
+                  instruction >= intentConfidenceThreshold) &&
+              neither >= 0.9);
       // Ties go to the instruction: an instruction misread as a question
       // silently does nothing, the reverse can start acting on a question.
       final instructs = instruction >= question;
@@ -111,11 +138,13 @@ JudgmentClassifier<TextEvidence, IntentResult> intentClassifier() {
         outcome: ClassificationOutcome.classified,
         value: IntentResult(
           type: unclear
+              ? IntentType.unclear
+              : clearlyNeither
               ? null
               : instructs
               ? IntentType.agentInstruction
               : IntentType.projectQuestion,
-          confidence: unclear
+          confidence: unclear || clearlyNeither
               ? 0.0
               : instructs
               ? instruction
@@ -131,16 +160,17 @@ JudgmentClassifier<TextEvidence, IntentResult> intentClassifier() {
 }
 
 /// Orchestrate intent classification: snapshot → judgment → decode. Mirrors
-/// [classifyGitInput]. Unclear or oversized input yields a null-type result
-/// (phase-ready "unclear" display), NOT null — null is reserved for a missing
-/// classifier service.
+/// [classifyGitInput]. Unclear or oversized input yields an
+/// [IntentType.unclear] result (phase-ready "intent unclear" display), NOT
+/// null — null is reserved for "clearly neither" (see the enum's doc) and a
+/// missing classifier service yields null overall.
 Future<IntentResult> classifyIntent({
   required ClassificationSource<TextEvidence> source,
   required JudgmentService service,
   required JudgmentRequestBudget budget,
   required JudgmentCancellation cancellation,
 }) async {
-  const unclear = IntentResult(type: null, confidence: 0.0);
+  const unclear = IntentResult(type: IntentType.unclear, confidence: 0.0);
   final snapshot = await source.snapshot(SourceRequest('input'), cancellation);
   if (!snapshot.coverage.complete) return unclear;
   final request = ClassificationRequest(
