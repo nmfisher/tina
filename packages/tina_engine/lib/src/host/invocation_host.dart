@@ -21,7 +21,7 @@ class InvocationHost extends InvocationSink implements HostInterface {
       }
       if (invocation!.isCancelled || invocation!.isDone)
         return PermissionResponse.denyOnce;
-      return host.askPermission(prompt);
+      return await host.askPermission(prompt);
     } on InvocationCancelled {
       return PermissionResponse.denyOnce;
     }
