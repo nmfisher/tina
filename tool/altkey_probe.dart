@@ -9,6 +9,7 @@ import 'dart:io';
 
 import 'package:dart_notcurses/dart_notcurses.dart' as nc;
 import 'package:tina_console/src/backend/init_reply_guard.dart';
+import 'package:tina_console/src/backend/terminfo_environment.dart';
 
 Future<void> main(List<String> args) async {
   final logPath = args.isNotEmpty ? args.first : '/tmp/altkey-probe.log';
@@ -21,11 +22,12 @@ Future<void> main(List<String> args) async {
   // terminal that never answers notcurses' capability queries) a bare init
   // blocks forever — the reply guard feeds a fallback DA1 reply and then
   // keeps the detour pty as fd 0 for the session, bridging real stdin in.
+  configureMacosTerminfo();
   final guard = TerminalReplyGuard()..prepare();
   nc.NotCurses ncs;
   try {
     ncs = nc.NotCurses(nc.CursesOptions(
-      loglevel: nc.LogLevel.silent,
+      loglevel: nc.LogLevel.error,
       flags: nc.OptionFlags.suppressBanners,
     ));
   } finally {
