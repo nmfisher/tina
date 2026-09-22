@@ -19,7 +19,11 @@ typedef GitCheck =
 
 /// An example input/status plugin. In background mode only status is updated;
 /// in awaited mode the result is also attached to input metadata before queuing.
-class GitInput implements InputProcessor, StatusSource {
+class GitInput implements Component, InputProcessor, StatusSource {
+  @override
+  String get id => 'tina.git-input.status';
+  @override
+  String get name => 'Git classifier';
   final GitCheck classify;
   final bool background;
   final Duration timeout;
@@ -51,16 +55,28 @@ class GitInput implements InputProcessor, StatusSource {
       _latest[input.conversationId] = cancel;
     }
     _running.add(cancel);
+    final invocation = input.invocation;
     void publish(GitPhase phase, [GitIntent? intent]) {
-      if (_closed || !identical(_latest[input.conversationId], cancel)) return;
-      _values[input.conversationId] = GitStatus(input.id, phase, intent);
-      _changes.add(null);
+      void deliver() {
+        if (_closed || !identical(_latest[input.conversationId], cancel))
+          return;
+        _values[input.conversationId] = GitStatus(input.id, phase, intent);
+        _changes.add(null);
+      }
+
+      if (invocation == null || phase == GitPhase.cancelled) {
+        deliver();
+      } else {
+        invocation.output(deliver);
+      }
     }
 
     publish(GitPhase.checking);
     var finished = false;
     input.cancelSignal.then((_) {
       if (!finished) cancel.cancel();
+      // A completed classification can still have its result held for display.
+      if (invocation?.isCancelled == true) publish(GitPhase.cancelled);
     });
     final stopped = Completer<GitIntent?>();
     final detach = cancel.listen(() {
@@ -121,11 +137,7 @@ PluginDescriptor gitInputPlugin({
   id: 'tina.git-input',
   factory: FnPluginFactory((context) {
     final plugin = GitInput(classify, background: background);
-    context.register(
-      plugin,
-      id: 'tina.git-input.status',
-      dispose: plugin.dispose,
-    );
+    context.register(plugin, dispose: plugin.dispose);
     return plugin;
   }),
 );

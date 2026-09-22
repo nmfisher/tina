@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../tools/tool.dart';
+import '../runtime/invocation.dart';
 import 'message.dart';
 import 'provider.dart';
 
@@ -265,38 +266,61 @@ class RateLimitedProvider implements LlmProvider {
         releasePermit();
         return;
       }
+      final invocation = InvocationContext.current?.invocation;
+      if (invocation != null) {
+        try {
+          while (invocation.isHeld &&
+              !invocation.isCancelled &&
+              !cancelled.isCompleted) {
+            await Future.any([invocation.ready(), cancelled.future]);
+          }
+        } on InvocationCancelled {
+          releasePermit();
+          if (!controller.isClosed) unawaited(controller.close());
+          return;
+        }
+        if (invocation.isCancelled ||
+            invocation.isDone ||
+            cancelled.isCompleted) {
+          releasePermit();
+          if (!controller.isClosed) unawaited(controller.close());
+          return;
+        }
+      }
       var saw429 = false;
-      innerSub = inner
-          .send(system: system, messages: messages, tools: tools)
-          .listen(
-            (event) {
-              // A 429 means the endpoint's real per-key limit is below our
-              // current spacing — widen the queue for every subsequent
-              // request (see defer). The policy retry above (and the
-              // scout/host-level retry) then re-acquires into the penalty.
-              if (event is StreamError && event.statusCode == 429) {
-                saw429 = true;
-                // Account rejection is not evidence of a rate ceiling.
-                if (!event.requiresUserAction) limiter.defer(limitKey);
-              }
-              if (!controller.isClosed) controller.add(event);
-            },
-            onError: (Object e, StackTrace st) {
-              if (!controller.isClosed) controller.addError(e, st);
-            },
-            onDone: () {
-              releasePermit();
-              // A clean completion resets the backoff floor — but not when
-              // the same stream carried a 429 (it completes normally after
-              // yielding the StreamError event).
-              if (!saw429) limiter.reportSuccess(limitKey);
-              if (!controller.isClosed) controller.close();
-            },
-          );
+      innerSub =
+          inner.send(system: system, messages: messages, tools: tools).listen(
+        (event) {
+          // A 429 means the endpoint's real per-key limit is below our
+          // current spacing — widen the queue for every subsequent
+          // request (see defer). The policy retry above (and the
+          // scout/host-level retry) then re-acquires into the penalty.
+          if (event is StreamError && event.statusCode == 429) {
+            saw429 = true;
+            // Account rejection is not evidence of a rate ceiling.
+            if (!event.requiresUserAction) limiter.defer(limitKey);
+          }
+          if (!controller.isClosed) controller.add(event);
+        },
+        onError: (Object e, StackTrace st) {
+          if (!controller.isClosed) controller.addError(e, st);
+        },
+        onDone: () {
+          releasePermit();
+          // A clean completion resets the backoff floor — but not when
+          // the same stream carried a 429 (it completes normally after
+          // yielding the StreamError event).
+          if (!saw429) limiter.reportSuccess(limitKey);
+          if (!controller.isClosed) controller.close();
+        },
+      );
+      if (controller.isPaused) innerSub!.pause();
     }
 
     controller = StreamController<StreamEvent>(
       onListen: () => unawaited(run()),
+      onPause: () => innerSub?.pause(),
+      onResume: () => innerSub?.resume(),
       onCancel: () {
         if (!cancelled.isCompleted) cancelled.complete();
         // Only the side that owns a subscription releases here — a waiter

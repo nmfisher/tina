@@ -3,17 +3,21 @@ import 'dart:convert';
 
 import 'package:classifier/classification.dart' show freezeJson;
 import 'package:tina_engine/tina_engine.dart';
+import 'package:tina_engine/invocation.dart' as engine show Invocation;
 
 /// A detached snapshot of one admitted user message. Plugins cannot mutate the
 /// live conversation, its host, queue or driver through this context.
 class InputContext {
+  final engine.Invocation? target;
+  engine.Invocation? get invocation => InvocationContext.current?.invocation;
+  final _ownedWork = <engine.Invocation, List<Future<void>>>{};
   final String originalText;
   String _text;
   String get text => _text;
 
   /// Monotonic submission order within this input pipeline.
   final int order;
-  String get id => '$order';
+  String get id => target?.inputId ?? '$order';
   Map<String, Object?> _data = const {};
   Map<String, Object?> get data => _data;
   final String conversationId;
@@ -29,6 +33,7 @@ class InputContext {
     Future<void> cancelSignal,
     this.order,
     this._backgroundChanged,
+    this.target,
   ) : originalText = text,
       _text = text,
       history = List.unmodifiable(
@@ -44,14 +49,20 @@ class InputContext {
     );
   }
 
-  Future<void> get cancelSignal => _stop.future;
-  bool get isCancelled => _stop.isCompleted;
+  Future<void> get cancelSignal =>
+      InvocationContext.current?.stopSignal(_stop.future) ?? _stop.future;
+  bool get isCancelled =>
+      _stop.isCompleted || InvocationContext.current?.isCancelled == true;
 
   /// Own background work without delaying forwarding. Cancellation releases
   /// host bookkeeping immediately; the work must observe cancelSignal itself.
   /// Report failures through the plugin's status, since they cannot fail a
   /// message that has already been forwarded.
   void background(Future<void> work) {
+    final call = invocation;
+    if (call != null) {
+      (_ownedWork[call] ??= []).add(work);
+    }
     _backgroundChanged(this, 1);
     Future.any<void>([work, cancelSignal]).then(
       (_) => _backgroundChanged(this, -1),
@@ -60,7 +71,7 @@ class InputContext {
   }
 
   void _cancel(Object reason) {
-    if (isCancelled) return;
+    if (_stop.isCompleted) return;
     _reason = reason;
     _stop.complete();
   }
@@ -70,12 +81,12 @@ class InputContext {
   Future<T> _wait<T>(FutureOr<T> Function() work) async {
     // Observe a signal that was already completed before this stage started.
     await Future<void>.value();
-    if (isCancelled) throw _reason!;
+    if (isCancelled) throw (_reason ?? const _InputCancelled());
     final value = await Future.any<T>([
       Future<T>.sync(work),
-      cancelSignal.then<T>((_) => throw _reason!),
+      cancelSignal.then<T>((_) => throw (_reason ?? const _InputCancelled())),
     ]);
-    if (isCancelled) throw _reason!;
+    if (isCancelled) throw (_reason ?? const _InputCancelled());
     return value;
   }
 }
@@ -164,6 +175,8 @@ class PreparedInput {
 class InputRoutes {
   final PluginScope scope;
   final Duration timeout;
+  late final Invocations invocations =
+      scope.lookup(invocationsServiceKey) ?? Invocations();
   int _nextId = 0;
   final _background = <InputContext, int>{};
   InputRoutes(this.scope, {this.timeout = const Duration(minutes: 5)}) {
@@ -206,6 +219,15 @@ class InputRoutes {
     FutureOr<T> Function() work, {
     List<Contribution> owners = const [],
   }) async {
+    final call = invocations.create(
+      component: owner.contribution is Component
+          ? owner.contribution as Component
+          : ComponentInfo(owner.id, owner.id),
+      conversationId: input.conversationId,
+      inputId: input.target?.inputId ?? input.id,
+      parent: InvocationContext.current?.invocation,
+    );
+    final result = Completer<T>();
     void check() {
       try {
         _check(owner);
@@ -214,19 +236,50 @@ class InputRoutes {
         }
       } catch (e) {
         input._cancel(e);
+        call.cancel(e);
       }
     }
 
     final changes = scope.changes.listen((_) => check(), onDone: check);
-    try {
-      check();
-      final value = await input._wait(work);
-      check();
-      if (input.isCancelled) throw input._reason!;
-      return value;
-    } finally {
-      await changes.cancel();
-    }
+    input._stop.future.then((_) {
+      if (!call.isDone) call.cancel(input._reason);
+    });
+    unawaited(() async {
+      try {
+        await call.run((context) async {
+          check();
+          final value = await Future.any<T>([
+            input._wait(work),
+            context.cancelSignal.then<T>((_) => throw const _InputCancelled()),
+          ]);
+          check();
+          if (input.isCancelled)
+            throw (input._reason ?? const _InputCancelled());
+          while (call.isHeld && !context.isCancelled) {
+            await context.ready();
+          }
+          if (context.isCancelled) throw const _InputCancelled();
+          result.complete(value);
+          // Background processors remain invocations after forwarding input.
+          var offset = 0;
+          while (offset < (input._ownedWork[call]?.length ?? 0)) {
+            final work = input._ownedWork[call]!.skip(offset).toList();
+            offset += work.length;
+            await Future.any<void>([
+              Future.wait(work).then((_) {}),
+              context.cancelSignal,
+            ]);
+            if (context.isCancelled) break;
+          }
+        });
+      } catch (e, st) {
+        if (!result.isCompleted) result.completeError(e, st);
+      } finally {
+        input._ownedWork.remove(call);
+        await changes.cancel();
+      }
+    }());
+    return result.future;
   }
 
   Future<PreparedInput> prepare({
@@ -234,6 +287,7 @@ class InputRoutes {
     required String conversationId,
     required List<Message> history,
     required Future<void> cancelSignal,
+    engine.Invocation? target,
   }) async {
     final input = InputContext._(
       text,
@@ -242,6 +296,7 @@ class InputRoutes {
       cancelSignal,
       ++_nextId,
       _track,
+      target,
     );
     final owners = <Contribution>[];
     final timer = Timer(
@@ -312,7 +367,9 @@ class InputRoutes {
     } catch (e) {
       return PreparedInput._(
         input,
-        e is _InputCancelled ? InputOutcome.cancelled : InputOutcome.failed,
+        e is _InputCancelled || e is InvocationCancelled
+            ? InputOutcome.cancelled
+            : InputOutcome.failed,
         null,
         e,
         owners,
@@ -334,7 +391,7 @@ class InputRoutes {
     final input = prepared.context;
     var active = true;
     cancelSignal.then((_) {
-      if (active) prepared.cancel();
+      if (active && prepared.context.target == null) prepared.cancel();
     });
     final timer = Timer(
       timeout,
@@ -380,6 +437,13 @@ class InputRoutes {
         () => (target.contribution as InputHandler).handle(input, route),
         owners: prepared._owners,
       );
+      final context = InvocationContext.current;
+      if (context != null) {
+        while (context.invocation.isHeld && !context.isCancelled) {
+          await context.ready();
+        }
+        if (context.isCancelled) throw const _InputCancelled();
+      }
       if (reply.trim().isEmpty)
         throw StateError('Input handler returned an empty reply');
       await save(Message(role: Role.assistant, content: [TextBlock(reply)]));
@@ -388,7 +452,7 @@ class InputRoutes {
       return InputOutcome.handled;
     } catch (e) {
       await saveUser();
-      final cancelled = e is _InputCancelled;
+      final cancelled = e is _InputCancelled || e is InvocationCancelled;
       final notice = cancelled ? '[cancelled]' : '[input routing failed: $e]';
       await save(Message(role: Role.assistant, content: [TextBlock(notice)]));
       host.showMessage(

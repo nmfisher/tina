@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:test/test.dart';
 import 'package:tina_app/src/execution/turn_executor.dart';
+import 'package:tina_app/src/execution/interrupts.dart';
 import 'package:tina_app/src/execution/input_routes.dart';
 import 'package:tina_app/src/session/conversation.dart';
 import 'package:tina_app/src/workflows/workflow_supervisor.dart';
@@ -120,6 +121,113 @@ void main() {
     await executor.shutdown();
     await host.dispose();
   });
+  for (final accept in [false, true]) {
+    test(
+      'interruption ${accept ? "accepts with handoff" : "declines"} without losing queued input',
+      () async {
+        final scope = PluginScope('input');
+        final calls = Invocations();
+        final interrupts = Interrupts(calls);
+        scope.provide(invocationsServiceKey, calls);
+        scope.provide(interruptsServiceKey, interrupts);
+        final shown = Completer<void>();
+        final decision = Completer<bool?>();
+        final result = Completer<InterruptResult>();
+        final handoff = Completer<void>();
+        final finishHandoff = Completer<void>();
+        interrupts.presenter = (prompt) {
+          expect(prompt.target.isHeld, isTrue);
+          shown.complete();
+          return decision.future;
+        };
+        scope.registerContribution(
+          pluginId: 'test',
+          id: 'classifier',
+          contribution: Processor((input) {
+            if (input.text != 'first') return const InputDecision.pass();
+            final source = input.invocation!;
+            input.background(() async {
+              await provider.started[0].future;
+              result.complete(
+                await interrupts.ask(
+                  source: source,
+                  target: input.target!,
+                  title: 'Switch?',
+                  onAccepted: () async {
+                    expect(input.target!.isDone, isTrue);
+                    handoff.complete();
+                    await finishHandoff.future;
+                  },
+                ),
+              );
+            }());
+            return const InputDecision.pass();
+          }),
+        );
+        executor = TurnExecutor(
+          findConversation: (_) => conversation,
+          inputRoutes: InputRoutes(scope),
+        );
+        executor.submit(conversation.id, 'first');
+        await shown.future;
+        executor.submit(conversation.id, 'second');
+        provider.streams[0].add(const TextDelta('unseen response'));
+        provider.finish(0);
+        await pumpEventQueue();
+        expect(
+          conversation.history.where((m) => m.role == Role.assistant),
+          isEmpty,
+        );
+        expect(provider.streams, hasLength(1));
+        decision.complete(accept);
+        if (accept) {
+          await handoff.future;
+          expect(provider.streams, hasLength(1));
+          expect(
+            conversation.history
+                .expand((m) => m.content)
+                .whereType<TextBlock>()
+                .map((b) => b.text),
+            isNot(contains('done')),
+          );
+          finishHandoff.complete();
+        }
+        expect(
+          await result.future,
+          accept ? InterruptResult.accepted : InterruptResult.declined,
+        );
+        await provider.started[1].future;
+        provider.finish(1);
+        await executor.whenIdle(conversation.id);
+        expect(
+          conversation.history
+              .where((m) => m.role == Role.user)
+              .expand((m) => m.content)
+              .whereType<TextBlock>()
+              .map((b) => b.text),
+          ['first', 'second'],
+        );
+        final rec = conversation.recorder!;
+        final saved = await store.loadConversation(
+          rec.sessionId,
+          rec.conversationId,
+        );
+        expect(
+          saved
+              .where((m) => m.role == Role.assistant)
+              .expand((m) => m.content)
+              .whereType<TextBlock>()
+              .where((b) => b.text == 'done'),
+          hasLength(accept ? 1 : 2),
+        );
+        expect(calls.active, isEmpty);
+        await executor.shutdown();
+        interrupts.dispose();
+        await scope.dispose();
+      },
+    );
+  }
+
   test(
     'parallel preparation forwards transformed prompts once in submission order',
     () async {

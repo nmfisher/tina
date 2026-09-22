@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:logging/logging.dart';
 
 import '../llm/http.dart' show isTransportRetryable;
+import '../runtime/invocation.dart';
+import 'invocation_sink.dart';
 import '../llm/message.dart';
 import '../llm/provider.dart';
 import '../permissions/policy.dart';
@@ -215,9 +217,17 @@ class Agent {
   final ToolRegistry tools;
   PermissionMode? _announcedMode;
   Message? _modeNotice;
-  final AgentSink sink;
+  final AgentSink _sink;
+  AgentSink get sink {
+    final call = InvocationContext.current?.invocation;
+    return call == null || _sink is InvocationSink
+        ? _sink
+        : InvocationSink(_sink, call);
+  }
+
   final PermissionPolicy policy;
   final PermissionAsker asker;
+
   /// Max tool-calling steps per user turn. `0` = unbounded (tin-y9k2: the
   /// loop below skips its cap when this is 0). Defaults to 500.
   final int maxSteps;
@@ -342,7 +352,7 @@ class Agent {
   Agent({
     required LlmProvider provider,
     required this.tools,
-    required this.sink,
+    required AgentSink sink,
     required this.policy,
     required this.asker,
     this.maxSteps = 500,
@@ -362,7 +372,8 @@ class Agent {
     this.resultHooks = const [],
     this.toolObservers = const [],
     required this.system,
-  }) : _provider = provider;
+  })  : _provider = provider,
+        _sink = sink;
 
   /// Await [onHistoryAppend] for [m], swallowing observer failures — a broken
   /// recorder must degrade to "not persisted", never abort the turn. The
@@ -485,7 +496,9 @@ class Agent {
     Future<void>? toolInterruptSignal,
     ToolRegistry? turnTools,
   }) async {
-    final activity = RunActivity(sink);
+    final activity = RunActivity(_sink);
+    cancelSignal =
+        InvocationContext.current?.stopSignal(cancelSignal) ?? cancelSignal;
     try {
       await _runTurn(
         history: history,
@@ -494,6 +507,8 @@ class Agent {
         toolInterruptSignal: toolInterruptSignal,
         turnTools: turnTools,
       );
+    } on InvocationCancelled {
+      abortedKind = AbortedKind.cancel;
     } finally {
       activity.complete();
     }
@@ -756,6 +771,14 @@ class Agent {
       var attemptsUsed = 0;
       TurnOutcome outcome;
       while (true) {
+        final invocation = InvocationContext.current;
+        if (invocation != null) {
+          while (invocation.invocation.isHeld && !invocation.isCancelled) {
+            await invocation.ready();
+          }
+          if (invocation.isCancelled)
+            throw InvocationCancelled(invocation.invocation.cancelReason);
+        }
         final stream = provider.send(
           system: system,
           messages: history.any((m) => m.isReasoningOnly)
@@ -763,17 +786,28 @@ class Agent {
               : history,
           tools: stepTools.schemas,
         );
-        outcome = await const ProviderStreamConsumer()
-            .consume(stream, sink: sink, cancelSignal: cancelSignal,
-                onCancelled: reportCancellation);
-        // Persist every observed attempt before cancellation/error handling.
-        // This local-only entry cannot be mistaken for a successful answer.
+        outcome = await const ProviderStreamConsumer().consume(stream,
+            sink: sink,
+            cancelSignal: cancelSignal,
+            onCancelled: reportCancellation);
+        // Retain reasoning already delivered before cancellation. The consumer
+        // pauses on holds, so this contains no pending, unconsumed deltas.
         if (outcome.reasoning.isNotEmpty) {
           final reasoningMessage = Message(
-              role: Role.assistant, content: const [], reasoning: outcome.reasoning);
+              role: Role.assistant,
+              content: const [],
+              reasoning: outcome.reasoning);
           history.add(reasoningMessage);
           final pendingReasoning = _notifyAppend(reasoningMessage);
           if (pendingReasoning != null) await pendingReasoning;
+        }
+        // Keep unseen generated content provisional until the hold is released.
+        if (invocation != null) {
+          while (invocation.invocation.isHeld && !invocation.isCancelled) {
+            await invocation.ready();
+          }
+          if (invocation.isCancelled)
+            throw InvocationCancelled(invocation.invocation.cancelReason);
         }
         final err = outcome.streamError;
         if (outcome.error == null ||
@@ -827,10 +861,10 @@ class Agent {
           abortedKind = AbortedKind.providerTerminal;
         } else {
           abortedKind = attemptsUsed > 0 &&
-                outcome.streamError != null &&
-                isTransportRetryable(outcome.streamError!)
-            ? AbortedKind.transport
-            : AbortedKind.provider;
+                  outcome.streamError != null &&
+                  isTransportRetryable(outcome.streamError!)
+              ? AbortedKind.transport
+              : AbortedKind.provider;
         }
         return;
       }
@@ -883,7 +917,8 @@ class Agent {
           if (!turnTouchedCheckpoint) {
             _checkpointAdvisoryFired = true;
             final advisoryMessage = Message(
-                role: Role.user, content: [TextBlock(kNoCheckpointAdvisoryLine)]);
+                role: Role.user,
+                content: [TextBlock(kNoCheckpointAdvisoryLine)]);
             history.add(advisoryMessage);
             final pendingAdvisory = _notifyAppend(advisoryMessage);
             if (pendingAdvisory != null) await pendingAdvisory;
@@ -925,8 +960,8 @@ class Agent {
 
       final diagnostics = outcome.diagnostics;
       final emptyCause = classifyEmptyCompletion(content, outcome.stopReason,
-          reasoningObserved:
-              diagnostics?.reasoningObserved == true || outcome.reasoning.isNotEmpty);
+          reasoningObserved: diagnostics?.reasoningObserved == true ||
+              outcome.reasoning.isNotEmpty);
       if (emptyCause == EmptyCompletionCause.outputLimit ||
           emptyCause == EmptyCompletionCause.reasoningOnly ||
           emptyCause == EmptyCompletionCause.filtered) {
@@ -975,18 +1010,24 @@ class Agent {
       if (emptyCause == EmptyCompletionCause.transient) {
         if (emptyCompletions < emptyCompletionRetryAttempts) {
           emptyCompletions++;
-          final delay = Duration(seconds: 1 << (emptyCompletions - 1).clamp(0, 4));
-          sink.notice('\n[provider] empty completion — retry '
+          final delay =
+              Duration(seconds: 1 << (emptyCompletions - 1).clamp(0, 4));
+          sink.notice(
+              '\n[provider] empty completion — retry '
               '$emptyCompletions/$emptyCompletionRetryAttempts in ${delay.inSeconds}s (Ctrl+C to cancel)\n',
               kind: NoticeKind.warning);
           if (emptyCompletionBackoffDelay != null) {
             final wait = emptyCompletionBackoffDelay!(delay);
-            await (cancelSignal == null ? wait : Future.any<void>([wait, cancelSignal]));
+            await (cancelSignal == null
+                ? wait
+                : Future.any<void>([wait, cancelSignal]));
           } else {
             final ready = Completer<void>();
             final timer = Timer(delay, ready.complete);
             try {
-              await (cancelSignal == null ? ready.future : Future.any<void>([ready.future, cancelSignal]));
+              await (cancelSignal == null
+                  ? ready.future
+                  : Future.any<void>([ready.future, cancelSignal]));
             } finally {
               timer.cancel();
             }
@@ -1026,6 +1067,7 @@ class Agent {
         results.add(result);
         return _notifyAppend(Message(role: Role.user, content: [result]));
       }
+
       // Operator interrupt (#31), batch-scope attribution. The signal is
       // sampled when the batch STARTS and again right after every call:
       //
@@ -1062,8 +1104,10 @@ class Agent {
             abortedKind = AbortedKind.steps;
           }
           final pending = recordResult(ToolResultBlock(
-            toolUseId: use.id, isError: true,
-            content: cancelled ? 'Not executed: turn cancelled.'
+            toolUseId: use.id,
+            isError: true,
+            content: cancelled
+                ? 'Not executed: turn cancelled.'
                 : 'Not executed: action limit reached.',
           ));
           if (pending != null) await pending;
@@ -1193,6 +1237,15 @@ class Agent {
         ? '--- compacting $priorCount messages (keeping ${suffix.length} recent) ---\n'
         : '--- compacting $priorCount messages ---\n');
 
+    final invocation = InvocationContext.current;
+    if (invocation != null) {
+      while (invocation.invocation.isHeld && !invocation.isCancelled) {
+        await invocation.ready();
+      }
+      if (invocation.isCancelled)
+        throw InvocationCancelled(invocation.invocation.cancelReason);
+    }
+    cancelSignal = invocation?.stopSignal(cancelSignal) ?? cancelSignal;
     final stream = provider.send(
       system: _compactSystemPrompt,
       messages: summaryRequest,
@@ -1242,6 +1295,22 @@ class Agent {
         if (!done.isCompleted) done.complete();
       },
     );
+    var paused = false;
+    void updatePause() {
+      final hold =
+          invocation?.invocation.isHeld == true && !invocation!.isCancelled;
+      if (hold && !paused) {
+        subscription.pause();
+        paused = true;
+      }
+      if (!hold && paused) {
+        subscription.resume();
+        paused = false;
+      }
+    }
+
+    final detach = invocation?.invocation.listen(updatePause);
+    updatePause();
     try {
       final cancelled = await Future.any([
         done.future.then((_) => false),
@@ -1249,9 +1318,16 @@ class Agent {
       ]);
       if (cancelled) return false;
     } finally {
+      detach?.call();
       await subscription.cancel();
     }
 
+    if (invocation != null) {
+      while (invocation.invocation.isHeld && !invocation.isCancelled) {
+        await invocation.ready();
+      }
+      if (invocation.isCancelled) return false;
+    }
     if (err != null) {
       sink.notice('compact failed: $err\n', kind: NoticeKind.error);
       return false;

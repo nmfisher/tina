@@ -10,6 +10,7 @@ import 'package:tina_app/src/composition/execution_profile.dart';
 import 'package:tina_app/src/composition/runtime_resources.dart';
 
 import 'package:tina_app/src/execution/project_execution.dart';
+import '../execution/interrupts.dart';
 import 'package:tina_app/src/execution/input_routes.dart';
 
 class ExecutionRuntime implements ProjectExecution {
@@ -134,7 +135,12 @@ Future<ExecutionRuntime> buildExecutionRuntime({
         sandboxReadOnly: config.sandboxReadOnly,
         sandboxOffReason: config.sandboxOffReason,
       );
-  final profile = [...baseProfile, ...plugins];
+  final profile = [
+    invocationPlugin(),
+    interruptionPlugin(),
+    ...baseProfile,
+    ...plugins,
+  ];
   final mounted = toolScope == null ? profile : borrowedScopePlugins(profile);
   // Fix (P2): required application services are validated BEFORE activation —
   // the mounted profile must DECLARE the ledger and the provider factory, so

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../agent/pause_gate.dart';
+import '../runtime/invocation.dart';
 import '../agent/spend_ledger.dart';
 import '../tools/tool.dart';
 import 'message.dart';
@@ -81,6 +82,33 @@ class MeteringProvider implements LlmProvider, AttemptUsageRecorder {
     // Completed by `onCancel` so a blocked RPM acquire aborts (the acquire races
     // its wait against this future) and any inner subscription is torn down.
     final cancelCompleter = Completer<void>();
+    final invocation = InvocationContext.current?.invocation;
+    void Function()? detach;
+    var paused = false;
+    void updatePause() {
+      final sub = innerSub;
+      if (sub == null) return;
+      final hold = controller.isPaused ||
+          (invocation?.isHeld == true && invocation?.isCancelled != true);
+      if (hold && !paused) {
+        sub.pause();
+        paused = true;
+      }
+      if (!hold && paused) {
+        sub.resume();
+        paused = false;
+      }
+    }
+
+    void updateInvocation() {
+      updatePause();
+      if ((invocation?.isCancelled == true || invocation?.isDone == true) &&
+          !controller.isClosed) {
+        if (!cancelCompleter.isCompleted) cancelCompleter.complete();
+        unawaited(innerSub?.cancel());
+        unawaited(controller.close());
+      }
+    }
 
     void emitTripped() {
       if (controller.isClosed) return;
@@ -114,6 +142,24 @@ class MeteringProvider implements LlmProvider, AttemptUsageRecorder {
         await controller.close();
         return;
       }
+      if (invocation != null) {
+        try {
+          while (invocation.isHeld &&
+              !invocation.isCancelled &&
+              !cancelCompleter.isCompleted) {
+            await Future.any([invocation.ready(), cancelCompleter.future]);
+          }
+        } on InvocationCancelled {
+          if (!controller.isClosed) unawaited(controller.close());
+          return;
+        }
+        if (invocation.isCancelled ||
+            invocation.isDone ||
+            cancelCompleter.isCompleted) {
+          if (!controller.isClosed) unawaited(controller.close());
+          return;
+        }
+      }
       innerSub =
           inner.send(system: system, messages: messages, tools: tools).listen(
         (event) {
@@ -134,15 +180,23 @@ class MeteringProvider implements LlmProvider, AttemptUsageRecorder {
           if (!controller.isClosed) controller.addError(e, st);
         },
         onDone: () {
+          detach?.call();
           if (!controller.isClosed) controller.close();
         },
       );
+      updatePause();
     }
 
     controller = StreamController<StreamEvent>(
-      onListen: () =>
-          Wire.withAttemptUsage(recordAttemptUsage, () => unawaited(run())),
+      onListen: () {
+        detach = invocation?.listen(updateInvocation);
+        updateInvocation();
+        Wire.withAttemptUsage(recordAttemptUsage, () => unawaited(run()));
+      },
+      onPause: updatePause,
+      onResume: updatePause,
       onCancel: () {
+        detach?.call();
         if (!cancelCompleter.isCompleted) cancelCompleter.complete();
         return innerSub?.cancel();
       },

@@ -1,3 +1,4 @@
+import '../runtime/invocation.dart';
 import 'policy.dart';
 import 'prompt.dart';
 import 'classifier.dart';
@@ -36,9 +37,15 @@ PermissionAsker modeAwareAsker({
     if (policy.mode != PermissionMode.auto) return fallback(prompt);
     if (verdict == null) return fallback(prompt);
     final boundary = prompt.outsideSandbox ? ' outside sandbox' : '';
-    notice?.call(verdict
+    final line = verdict
         ? '  ${prompt.toolName} allowed by classifier$boundary: ${prompt.key}\n'
-        : '  ${prompt.toolName} denied by classifier$boundary: ${prompt.key}\n');
+        : '  ${prompt.toolName} denied by classifier$boundary: ${prompt.key}\n';
+    final invocation = InvocationContext.current?.invocation;
+    if (invocation == null) {
+      notice?.call(line);
+    } else {
+      invocation.output(() => notice?.call(line), size: line.length);
+    }
     return verdict
         ? const PermissionResponse(PermissionDecision.allow,
             remember: true, decidedBy: 'classifier')

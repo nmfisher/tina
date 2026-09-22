@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../tools/tool.dart';
+import '../runtime/invocation.dart';
 import 'message.dart';
 import 'provider.dart';
 import 'retrying_provider.dart';
@@ -132,82 +133,94 @@ class PooledProvider implements LlmProvider {
     /// the attempt ran to its terminal event (or was cancelled). [memberIndex]
     /// / [tryNumber] tag the failed-attempt usage report (#46).
     Future<StreamError?> _attempt(LlmProvider member,
-        {required int memberIndex, required int tryNumber}) {
+        {required int memberIndex, required int tryNumber}) async {
+      final invocation = InvocationContext.current?.invocation;
+      if (invocation != null) {
+        try {
+          while (invocation.isHeld &&
+              !invocation.isCancelled &&
+              !cancelled.isCompleted) {
+            await Future.any([invocation.ready(), cancelled.future]);
+          }
+        } on InvocationCancelled {
+          return null;
+        }
+        if (invocation.isCancelled ||
+            invocation.isDone ||
+            cancelled.isCompleted) return null;
+      }
       final done = Completer<void>();
       StreamError? swallowed;
       var forwarded = false;
       late final StreamSubscription<StreamEvent> sub;
-      sub = member
-          .send(system: system, messages: messages, tools: tools)
-          .listen(
-            (event) {
-              // Cancelled or already swallowed: drop the rest — a
-              // failover (or teardown) supersedes this attempt.
-              if (cancelled.isCompleted || swallowed != null) return;
-              if (event is StreamNotice || event is ReasoningEvent) {
-                if (!controller.isClosed) controller.add(event);
-                return;
-              }
-              if (!forwarded &&
-                  event is StreamError &&
-                  !event.requiresUserAction) {
-                swallowed = event;
-                // #46: a member attempt that fails and rotates is a full
-                // body re-send — its cost was invisible before this fix.
-                bookFailedAttemptUsage(
-                    system: system,
-                    messages: messages,
-                    tools: tools,
-                    error: event,
-                    attempt: tryNumber,
-                    member: 'pool-$memberIndex');
-                return;
-              }
-              // A transient empty completion is a failed member response in
-              // substance — observed as an exhausted worker 200ing with
-              // zero content (poolside/laguna under load). Complete the
-              // send with it and the turn ends empty-handed; [Agent.run]
-              // would retry, but the retry may land on the same flapping
-              // member. Fail over HERE instead: cooldown + next member,
-              // same as any before-content error.
-              if (!forwarded &&
-                  event is MessageComplete &&
-                  classifyEmptyCompletion(event.content, event.stopReason,
+      sub =
+          member.send(system: system, messages: messages, tools: tools).listen(
+        (event) {
+          // Cancelled or already swallowed: drop the rest — a
+          // failover (or teardown) supersedes this attempt.
+          if (cancelled.isCompleted || swallowed != null) return;
+          if (event is StreamNotice || event is ReasoningEvent) {
+            if (!controller.isClosed) controller.add(event);
+            return;
+          }
+          if (!forwarded && event is StreamError && !event.requiresUserAction) {
+            swallowed = event;
+            // #46: a member attempt that fails and rotates is a full
+            // body re-send — its cost was invisible before this fix.
+            bookFailedAttemptUsage(
+                system: system,
+                messages: messages,
+                tools: tools,
+                error: event,
+                attempt: tryNumber,
+                member: 'pool-$memberIndex');
+            return;
+          }
+          // A transient empty completion is a failed member response in
+          // substance — observed as an exhausted worker 200ing with
+          // zero content (poolside/laguna under load). Complete the
+          // send with it and the turn ends empty-handed; [Agent.run]
+          // would retry, but the retry may land on the same flapping
+          // member. Fail over HERE instead: cooldown + next member,
+          // same as any before-content error.
+          if (!forwarded &&
+              event is MessageComplete &&
+              classifyEmptyCompletion(event.content, event.stopReason,
                       reasoningObserved:
                           event.diagnostics?.reasoningObserved ?? false) ==
-                      EmptyCompletionCause.transient) {
-                final emptyErr = StreamError(
-                    'member returned an empty completion',
-                    transient: true);
-                swallowed = emptyErr;
-                // #46: empty-completion failover is a swallowed full-body
-                // re-send — same invisible-spend fix.
-                bookFailedAttemptUsage(
-                    system: system,
-                    messages: messages,
-                    tools: tools,
-                    error: emptyErr,
-                    attempt: tryNumber,
-                    member: 'pool-$memberIndex');
-                return;
-              }
-              forwarded = true;
-              if (!controller.isClosed) controller.add(event);
-            },
-            onError: (Object e, StackTrace st) {
-              // Transport-channel errors (providers normally fold these
-              // into [StreamError] events) forward like content: failover
-              // only reacts to before-content StreamErrors, mirroring
-              // [RetryingProvider].
-              if (cancelled.isCompleted || swallowed != null) return;
-              forwarded = true;
-              if (!controller.isClosed) controller.addError(e, st);
-            },
-            onDone: () {
-              if (!done.isCompleted) done.complete();
-            },
-          );
+                  EmptyCompletionCause.transient) {
+            final emptyErr = StreamError('member returned an empty completion',
+                transient: true);
+            swallowed = emptyErr;
+            // #46: empty-completion failover is a swallowed full-body
+            // re-send — same invisible-spend fix.
+            bookFailedAttemptUsage(
+                system: system,
+                messages: messages,
+                tools: tools,
+                error: emptyErr,
+                attempt: tryNumber,
+                member: 'pool-$memberIndex');
+            return;
+          }
+          forwarded = true;
+          if (!controller.isClosed) controller.add(event);
+        },
+        onError: (Object e, StackTrace st) {
+          // Transport-channel errors (providers normally fold these
+          // into [StreamError] events) forward like content: failover
+          // only reacts to before-content StreamErrors, mirroring
+          // [RetryingProvider].
+          if (cancelled.isCompleted || swallowed != null) return;
+          forwarded = true;
+          if (!controller.isClosed) controller.addError(e, st);
+        },
+        onDone: () {
+          if (!done.isCompleted) done.complete();
+        },
+      );
       activeSub = sub;
+      if (controller.isPaused) sub.pause();
       activeDone = done;
       return done.future.then((_) async {
         await sub.cancel();
@@ -245,10 +258,9 @@ class PooledProvider implements LlmProvider {
           continue; // re-take; waiting is not a member attempt
         }
         final (member, index) = taken;
-        Wire.report('pool_rotate',
-            member: 'pool-$index', attempt: tried + 1);
-        final failure = await _attempt(member,
-            memberIndex: index, tryNumber: tried + 1);
+        Wire.report('pool_rotate', member: 'pool-$index', attempt: tried + 1);
+        final failure =
+            await _attempt(member, memberIndex: index, tryNumber: tried + 1);
         if (cancelled.isCompleted) {
           Wire.report('cancelled', member: 'pool-$index', inFlight: false);
           return;
@@ -282,6 +294,8 @@ class PooledProvider implements LlmProvider {
 
     controller = StreamController<StreamEvent>(
       onListen: () => unawaited(run()),
+      onPause: () => activeSub?.pause(),
+      onResume: () => activeSub?.resume(),
       onCancel: () {
         if (!cancelled.isCompleted) cancelled.complete();
         if (activeDone != null && !activeDone!.isCompleted) {

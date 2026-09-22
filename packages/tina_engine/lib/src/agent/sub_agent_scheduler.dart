@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../llm/message.dart';
+import '../runtime/invocation.dart';
 import '../llm/provider.dart';
 import '../llm/registry.dart';
 import '../host/host_interface.dart';
@@ -681,7 +682,51 @@ class SubAgentScheduler {
     required Future<void> cancelSignal,
     List<Message>? seedHistory,
   }) async {
-    await quota.acquire();
+    final parent = InvocationContext.current?.invocation;
+    if (parent == null) {
+      return _runBody(job, task,
+          cancelSignal: cancelSignal, seedHistory: seedHistory);
+    }
+    if (parent.isDone || parent.isCancelled) {
+      _finish(job, DelegationResult.error('cancelled'),
+          SubAgentJobStatus.cancelled);
+      return;
+    }
+    final call = parent.owner.create(
+        component: ComponentInfo('agent.${job.id}', job.label),
+        conversationId: parent.conversationId,
+        inputId: parent.inputId,
+        parent: parent);
+    cancelSignal.then((_) => call.cancel('Job cancelled'));
+    try {
+      await call.run((context) => _runBody(job, task,
+          cancelSignal: context.stopSignal(cancelSignal)!,
+          seedHistory: seedHistory));
+    } on InvocationCancelled {
+      _finish(job, DelegationResult.error('cancelled'),
+          SubAgentJobStatus.cancelled);
+    }
+  }
+
+  Future<void> _runBody(
+    SubAgentJob job,
+    String task, {
+    required Future<void> cancelSignal,
+    List<Message>? seedHistory,
+  }) async {
+    final claim = quota.acquire();
+    final acquired = await Future.any([
+      claim.then((_) => true),
+      cancelSignal.then((_) => false),
+    ]);
+    if (!acquired) {
+      // A cancelled queued child must not hold its parent's handoff hostage.
+      // Return the reserved slot when it arrives; never start the child.
+      unawaited(claim.then((_) => quota.release()));
+      _finish(job, DelegationResult.error('cancelled'),
+          SubAgentJobStatus.cancelled);
+      return;
+    }
     try {
       if (job.isCancelled || _disposed) {
         _finish(job, DelegationResult.error('cancelled'),
@@ -918,23 +963,39 @@ class SubAgentScheduler {
     PermissionAsker? asker,
   }) async {
     if (_disposed) return RunAgentResult.error('scheduler disposed');
-    return _track(_runStandalone(
-      systemPrompt: systemPrompt,
-      task: task,
-      parentReference: parentReference,
-      modelReference: modelReference,
-      originConversationId: originConversationId,
-      seedHistory: seedHistory,
-      cancelSignal: Future.any(
-          [_shutdown.future, if (cancelSignal != null) cancelSignal]),
-      sink: sink,
-      toolProfile: toolProfile,
-      includeDelegate: includeDelegate,
-      parentPolicy: parentPolicy,
-      gateWrites: gateWrites,
-      policy: policy,
-      asker: asker,
-    ));
+    final parent = InvocationContext.current?.invocation;
+    if (parent != null && (parent.isDone || parent.isCancelled)) {
+      return RunAgentResult.error('cancelled');
+    }
+    final call = parent?.owner.create(
+        component: const ComponentInfo('agent.standalone', 'Agent'),
+        conversationId: parent.conversationId,
+        inputId: parent.inputId,
+        parent: parent);
+    if (call != null) cancelSignal?.then((_) => call.cancel('Cancelled'));
+    Future<RunAgentResult> execute() => _runStandalone(
+          systemPrompt: systemPrompt,
+          task: task,
+          parentReference: parentReference,
+          modelReference: modelReference,
+          originConversationId: originConversationId,
+          seedHistory: seedHistory,
+          cancelSignal: Future.any(
+              [_shutdown.future, if (cancelSignal != null) cancelSignal]),
+          sink: sink,
+          toolProfile: toolProfile,
+          includeDelegate: includeDelegate,
+          parentPolicy: parentPolicy,
+          gateWrites: gateWrites,
+          policy: policy,
+          asker: asker,
+        );
+    if (call == null) return _track(execute());
+    try {
+      return await _track(call.run((_) => execute()));
+    } on InvocationCancelled {
+      return RunAgentResult.error('cancelled');
+    }
   }
 
   Future<RunAgentResult> _runStandalone({
@@ -1098,8 +1159,9 @@ class SubAgentScheduler {
       executionHooks: request.executionHooks.isNotEmpty
           ? request.executionHooks
           : scopeExecutionHooks,
-      resultHooks:
-          request.resultHooks.isNotEmpty ? request.resultHooks : scopeResultHooks,
+      resultHooks: request.resultHooks.isNotEmpty
+          ? request.resultHooks
+          : scopeResultHooks,
       observers:
           request.observers.isNotEmpty ? request.observers : scopeObservers,
     );

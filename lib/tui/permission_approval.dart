@@ -6,6 +6,7 @@ import 'package:tina_engine/tina_engine.dart';
 import '../chat/markdown_renderer.dart';
 import '../frontend/renderers.dart';
 import 'approval_card.dart';
+import 'prompts.dart';
 
 /// Shared inline approval for conversations and workflow nodes. The frame uses
 /// the same input-anchored region as questions; it is never a centered popup.
@@ -27,6 +28,7 @@ Future<PermissionResponse> runPermissionApproval({
     prompt.input,
     preparedEdit: prompt.preparedEdit,
   );
+  final session = Prompts.of(editor).open(cancelSignal: cancel);
   final overlay = OverlayRegion(screen, Rect.empty);
   final choices = prompt.choices;
   var selected = 0;
@@ -64,6 +66,7 @@ Future<PermissionResponse> runPermissionApproval({
       .toList();
 
   void paint() {
+    if (!session.isActive) return;
     final input = screen.input.bounds;
     final height = input.row - screen.layout.chat.row;
     if (height <= 0 || input.width < 4) return;
@@ -125,14 +128,11 @@ Future<PermissionResponse> runPermissionApproval({
     );
   }
 
+  session.attach(paint: paint, hide: overlay.hide);
   try {
     paint();
     while (true) {
-      final event = await editor.readKey(
-        globalKeys: true,
-        panelNavigation: false,
-        cancelSignal: cancel,
-      );
+      final event = await session.read();
       if (event is EscapeKey ||
           event is ControlKey && event.code == ControlCode.ctrlC)
         break;
@@ -173,7 +173,10 @@ Future<PermissionResponse> runPermissionApproval({
   } finally {
     overlay.hide();
     overlay.dispose();
-    if (editor.isEditing) {
+    session.close();
+    if (Prompts.of(editor).active != null) {
+      // The restored prompt owns the input row.
+    } else if (editor.isEditing) {
       editor.refresh();
     } else {
       screen.input.erase();

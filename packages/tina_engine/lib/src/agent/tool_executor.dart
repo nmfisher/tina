@@ -5,6 +5,8 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../llm/message.dart';
+import 'invocation_sink.dart';
+import '../runtime/invocation.dart';
 import '../permissions/policy.dart';
 import '../permissions/prompt.dart';
 import '../tools/tool.dart';
@@ -84,8 +86,8 @@ final class _HookDelegate {
     // error through cannot rebrand a tool failure as its own, and the
     // executor can tell them apart.
     final work = _start();
-    final marked = work.then<ToolResult>((r) => r,
-        onError: (Object e, StackTrace st) {
+    final marked =
+        work.then<ToolResult>((r) => r, onError: (Object e, StackTrace st) {
       Error.throwWithStackTrace(_DelegateFailure(e, st), st);
     });
     _future = marked;
@@ -331,7 +333,7 @@ class ToolExecutor {
   ToolExecutor({
     required this.policy,
     required this.asker,
-    required this.sink,
+    required AgentSink sink,
     required this.state,
     this.resultVerifier,
     this.cancelSignal,
@@ -341,7 +343,7 @@ class ToolExecutor {
     this.executionHooks = const [],
     this.resultHooks = const [],
     this.observers = const [],
-  });
+  }) : sink = sink is InvocationSink ? sink : InvocationSink(sink);
 
   /// Dispatch ONE tool call ([use]) against the step's [stepTools] snapshot.
   /// Every path returns EXACTLY ONE result — the block the batch appends for
@@ -352,6 +354,20 @@ class ToolExecutor {
     required int step,
     required bool Function() isCancelled,
   }) async {
+    final invocation = InvocationContext.current;
+    if (invocation != null) {
+      try {
+        await invocation.ready();
+      } on InvocationCancelled {
+        return (
+          result: ToolResultBlock(
+              toolUseId: use.id,
+              content: 'Cancelled before execution',
+              isError: true),
+          interruptedInFlight: false
+        );
+      }
+    }
     // Batch-scope attribution mirror reset: see [_interruptedCallIndex].
     if (step != _batchStep) {
       _batchStep = step;
@@ -463,8 +479,8 @@ class ToolExecutor {
         }
         final requestedAccess = tool.requestAccess(executionInput);
         final prepared = tool.prepare(executionInput);
-        usingOutsideGrant = policy.allowsOutsideSandbox(
-            use.name, prepared.preparedRequest!);
+        usingOutsideGrant =
+            policy.allowsOutsideSandbox(use.name, prepared.preparedRequest!);
         access = usingOutsideGrant ? null : requestedAccess;
         if (access != null) {
           // An agent can confirm a masked failure and request access on the
@@ -478,8 +494,8 @@ class ToolExecutor {
                   'retrySafety must explain the partial-effects checks and why replay is safe, on one line.');
             }
           }
-          if (access.paths.any((path) =>
-              state.deniedSandboxDirectories.any((denied) =>
+          if (access.paths.any((path) => state.deniedSandboxDirectories.any(
+              (denied) =>
                   path == denied ||
                   p.isWithin(denied, path) ||
                   p.isWithin(path, denied)))) {
@@ -488,7 +504,8 @@ class ToolExecutor {
           }
           decision = PermissionDecision.ask;
         }
-        executionTool = usingOutsideGrant ? prepared.outsideSandbox() : prepared;
+        executionTool =
+            usingOutsideGrant ? prepared.outsideSandbox() : prepared;
         if (usingOutsideGrant) decision = PermissionDecision.allow;
       }
     } on ToolValidationException catch (e) {
@@ -504,8 +521,10 @@ class ToolExecutor {
       final block = runtimeBlock();
       if (block != null || isCancelled() || state.toolInterrupted) {
         return (
-          result: ToolResultBlock(toolUseId: use.id,
-              content: block ?? 'edit cancelled before approval', isError: true),
+          result: ToolResultBlock(
+              toolUseId: use.id,
+              content: block ?? 'edit cancelled before approval',
+              isError: true),
           interruptedInFlight: interruptedInFlight,
         );
       }
@@ -514,7 +533,8 @@ class ToolExecutor {
         final summary = error is EditConflict ? error.summary : error.content;
         sink.notice('  edit not applied: $summary\n', kind: NoticeKind.warning);
         return (
-          result: ToolResultBlock(toolUseId: use.id, content: error.content, isError: true),
+          result: ToolResultBlock(
+              toolUseId: use.id, content: error.content, isError: true),
           interruptedInFlight: interruptedInFlight,
         );
       }
@@ -531,7 +551,9 @@ class ToolExecutor {
       final prompt = PermissionPrompt(use.name, executionInput,
           cancelSignal: toolStopSignal ?? cancelSignal,
           preparedEdit: preparedEdit,
-          execution: executionTool is ProcessTool ? executionTool.preparedRequest : null,
+          execution: executionTool is ProcessTool
+              ? executionTool.preparedRequest
+              : null,
           sandboxAccess: access,
           retryExplanation: recovery?.explanation,
           retrySafety: retrySafety);
@@ -592,8 +614,7 @@ class ToolExecutor {
         content = '$content\n$note';
       }
       if (denials >= consecutiveDenialNoticeThreshold) {
-        content =
-            '$content\nNOTE: $denials consecutive ${use.name} denials '
+        content = '$content\nNOTE: $denials consecutive ${use.name} denials '
             'this turn — this tool will keep being refused. Stop calling '
             'it; proceed with the allowed tools or answer from what you '
             'have.';
@@ -630,7 +651,8 @@ class ToolExecutor {
     // over (whether the execution then succeeds or errors).
     state.denialCounts.remove(use.name);
     if (usingOutsideGrant) {
-      sink.notice('  Running ${use.name} outside the sandbox (session approval).\n',
+      sink.notice(
+          '  Running ${use.name} outside the sandbox (session approval).\n',
           kind: NoticeKind.warning);
     }
     // Observation is additive: the sink call is unchanged (AgentSink /
@@ -667,11 +689,22 @@ class ToolExecutor {
       // requests fresh approval.
       var rememberOutsideOnDispatch = false;
       var runningOutsideSandbox = usingOutsideGrant;
-      Future<ToolResult> dispatch() {
+      Future<ToolResult> dispatch() async {
+        if (invocation != null) {
+          try {
+            while (invocation.invocation.isHeld && !invocation.isCancelled) {
+              await invocation.ready();
+            }
+          } on InvocationCancelled {
+            return ToolResult.error('Cancelled before execution');
+          }
+          if (invocation.isCancelled)
+            return ToolResult.error('Cancelled before execution');
+        }
         final finalBlock = runtimeBlock();
         if (finalBlock != null) {
-          return Future<ToolResult>.value(ToolResult(finalBlock,
-              isError: true));
+          return Future<ToolResult>.value(
+              ToolResult(finalBlock, isError: true));
         }
         if (isCancelled()) {
           return Future<ToolResult>.value(
@@ -683,13 +716,14 @@ class ToolExecutor {
               'Outside-sandbox execution blocked by the current permission policy.'));
         }
         if (rememberOutsideOnDispatch) {
-          policy.rememberOutsideSandbox(use.name,
-              (executionTool as ProcessTool).preparedRequest!);
+          policy.rememberOutsideSandbox(
+              use.name, (executionTool as ProcessTool).preparedRequest!);
           rememberOutsideOnDispatch = false;
         }
         return executionTool.execute(
           executionInput,
-          cancelSignal: effectiveCancelSignal,
+          cancelSignal: invocation?.stopSignal(effectiveCancelSignal) ??
+              effectiveCancelSignal,
           onOutput: (chunk, {bool stderr = false}) {
             sink.toolOutput(
                 ToolOutputEvent(use.name, use.id, chunk, stderr: stderr));
@@ -706,7 +740,9 @@ class ToolExecutor {
         isCancelled: isCancelled,
         delegate: dispatch,
       );
-      if (out is ProcessToolResult && !isCancelled() && !state.toolInterrupted) {
+      if (out is ProcessToolResult &&
+          !isCancelled() &&
+          !state.toolInterrupted) {
         for (final diagnostic in out.diagnostics) {
           sink.notice('${diagnostic.message}\n', kind: NoticeKind.warning);
         }
@@ -728,21 +764,27 @@ class ToolExecutor {
         final response = await _ask(prompt);
         final blocked = runtimeBlock();
         if (response.decision == PermissionDecision.allow &&
-            blocked == null && !isCancelled() && !state.toolInterrupted) {
+            blocked == null &&
+            !isCancelled() &&
+            !state.toolInterrupted) {
           // Keep explicit session grants separate from ordinary command rules.
           // Save only at dispatch, after hooks, mode and cancellation checks.
           rememberOutsideOnDispatch = response.remember;
           runningOutsideSandbox = true;
           executionTool = executionTool.outsideSandbox();
-          sink.notice('  Retrying ${use.name} outside the sandbox '
+          sink.notice(
+              '  Retrying ${use.name} outside the sandbox '
               '(${response.remember ? "approved for this session" : "approved once"}).\n',
               kind: NoticeKind.warning);
           out = await _runWithExecutionHooks(
-            toolName: use.name, toolId: use.id, input: executionView,
+            toolName: use.name,
+            toolId: use.id,
+            input: executionView,
             isCancelled: () => isCancelled() || state.toolInterrupted,
             delegate: () {
               if (state.toolInterrupted) {
-                return Future.value(ToolResult.error('Retry cancelled before execution.'));
+                return Future.value(
+                    ToolResult.error('Retry cancelled before execution.'));
               }
               return dispatch();
             },
@@ -828,10 +870,9 @@ class ToolExecutor {
       // here the text ships as the tool produced it.
       sink.toolComplete(ToolCompleteEvent(use.name, use.id,
           isError: out.isError, result: content, elapsed: out.elapsed));
-      _notifyObservers((observer) => observer.onToolComplete(
-          ToolCompleteEvent(use.name, use.id,
-              isError: out.isError, result: content,
-              elapsed: out.elapsed)));
+      _notifyObservers((observer) => observer.onToolComplete(ToolCompleteEvent(
+          use.name, use.id,
+          isError: out.isError, result: content, elapsed: out.elapsed)));
       // Post-tool stage: the success-only gate (#22a), now as hooks. The
       // legacy verifier runs first (adapted as [_VerifierHook], which
       // calls it with (name, input) and ignores the result — so
@@ -873,9 +914,9 @@ class ToolExecutor {
       _log.severe('unhandled exception in tool ${use.name}', e, st);
       sink.toolComplete(ToolCompleteEvent(use.name, use.id,
           isError: true, result: e.toString()));
-      _notifyObservers((observer) => observer.onToolComplete(
-          ToolCompleteEvent(use.name, use.id,
-              isError: true, result: e.toString())));
+      _notifyObservers((observer) => observer.onToolComplete(ToolCompleteEvent(
+          use.name, use.id,
+          isError: true, result: e.toString())));
       return (
         result: ToolResultBlock(
           toolUseId: use.id,
@@ -897,13 +938,33 @@ class ToolExecutor {
 
   /// Cancellation stops waiting even if a custom asker never settles. Built-in
   /// askers also use the signal to release their UI and keyboard ownership.
-  Future<PermissionResponse> _ask(PermissionPrompt prompt) {
-    final stop = prompt.cancelSignal;
-    if (stop == null) return asker(prompt);
-    return Future.any([
-      asker(prompt),
-      stop.then((_) => PermissionResponse.denyOnce),
-    ]);
+  Future<PermissionResponse> _ask(PermissionPrompt prompt) async {
+    final context = InvocationContext.current;
+    try {
+      if (context != null) {
+        while (context.invocation.isHeld && !context.isCancelled) {
+          await context.ready();
+        }
+        if (context.isCancelled) return PermissionResponse.denyOnce;
+      }
+      final stop =
+          context?.stopSignal(prompt.cancelSignal) ?? prompt.cancelSignal;
+      final response = await (stop == null
+          ? asker(prompt)
+          : Future.any([
+              asker(prompt),
+              stop.then((_) => PermissionResponse.denyOnce),
+            ]));
+      if (context != null) {
+        while (context.invocation.isHeld && !context.isCancelled) {
+          await context.ready();
+        }
+        if (context.isCancelled) return PermissionResponse.denyOnce;
+      }
+      return response;
+    } on InvocationCancelled {
+      return PermissionResponse.denyOnce;
+    }
   }
 
   /// Runs the AROUND-execution hook chain around [delegate]. The FIRST
@@ -966,16 +1027,22 @@ class ToolExecutor {
         if (handle.repeatAttempt) {
           // The hook swallowed its own double-delegation rejection:
           // exactly-once is still observable to the executor.
-          _log.warning('execution hook for $toolName called the delegate '
-              'more than once — failing the tool call closed', e, st);
+          _log.warning(
+              'execution hook for $toolName called the delegate '
+              'more than once — failing the tool call closed',
+              e,
+              st);
           return ToolResult(
             'tool execution hook failed: execution hook for $toolName '
             'called the delegate more than once',
             isError: true,
           );
         }
-        _log.warning('execution hook for $toolName failed — failing the '
-            'tool call closed', e, st);
+        _log.warning(
+            'execution hook for $toolName failed — failing the '
+            'tool call closed',
+            e,
+            st);
         return ToolResult(
           'tool execution hook failed: $e',
           isError: true,
@@ -1036,8 +1103,11 @@ class ToolExecutor {
       await work;
       return null;
     } on _DelegateFailure catch (f) {
-      _log.warning('delegated tool work failed — shipping the delegate '
-          'failure as the call result', f.error, f.stackTrace);
+      _log.warning(
+          'delegated tool work failed — shipping the delegate '
+          'failure as the call result',
+          f.error,
+          f.stackTrace);
       return ToolResult(f.error.toString(), isError: true);
     }
   }

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../llm/message.dart';
+import '../runtime/invocation.dart';
 import '../llm/provider.dart';
 
 import 'agent_sink.dart';
@@ -34,6 +35,9 @@ class ProviderStreamConsumer {
     Future<void>? cancelSignal,
     void Function()? onCancelled,
   }) async {
+    final invocation = InvocationContext.current?.invocation;
+    cancelSignal =
+        InvocationContext.current?.stopSignal(cancelSignal) ?? cancelSignal;
     sink.activityStart();
     final done = Completer<void>();
     List<ContentBlock>? content;
@@ -63,7 +67,7 @@ class ProviderStreamConsumer {
     late StreamSubscription<StreamEvent> sub;
     sub = stream.listen(
       (event) {
-        if (done.isCompleted) return;
+        if (done.isCompleted || invocation?.isCancelled == true) return;
         if (event is TextDelta) {
           sink.activityStop();
           sink.text(event.text);
@@ -122,6 +126,22 @@ class ProviderStreamConsumer {
       },
     );
 
+    var paused = false;
+    void updatePause() {
+      final hold = invocation?.isHeld == true && !invocation!.isCancelled;
+      if (hold && !paused) {
+        sub.pause();
+        paused = true;
+      }
+      if (!hold && paused) {
+        sub.resume();
+        paused = false;
+      }
+    }
+
+    final detach = invocation?.listen(updatePause);
+    updatePause();
+
     cancelSignal?.then((_) {
       // A turn reuses its cancellation signal across requests. Futures cannot
       // unsubscribe callbacks, so a settled request must make this a no-op.
@@ -135,6 +155,7 @@ class ProviderStreamConsumer {
     await done.future;
     // Release the subscription on every terminal path, including onError.
     // Never await the turn's cancellation future: it may never complete.
+    detach?.call();
     await sub.cancel();
 
     // A block still open here was cut off by the failure/cancel/close rather

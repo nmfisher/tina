@@ -37,10 +37,10 @@ void main() {
           reason: 'disabled limiter completes synchronously');
     });
 
-    test('concurrent acquires on one key start at least minInterval apart',
+    test('concurrent acquires on one key respect reserved launch times',
         () async {
-      final limiter = ProviderRateLimiter(
-          minInterval: const Duration(milliseconds: 40));
+      final limiter =
+          ProviderRateLimiter(minInterval: const Duration(milliseconds: 40));
       final watch = Stopwatch()..start();
       final t0 = <int>[];
       await Future.wait([
@@ -48,25 +48,26 @@ void main() {
           limiter.acquire('nim').then((_) => t0.add(watch.elapsedMilliseconds)),
       ]);
       t0.sort();
-      // The k-th waiter launches at ~k*interval. Allow scheduling slop, but
-      // require real spacing between the first and the last.
-      expect(t0.last - t0.first, greaterThanOrEqualTo(3 * 40 - 10),
-          reason: '4 waiters spaced 40ms: last ≈ 120ms after first');
+      // Callbacks may run late (and overdue slots may arrive together). Check
+      // against the batch's start, not a delayed first callback's timestamp.
+      for (var i = 1; i < t0.length; i++) {
+        expect(t0[i], greaterThanOrEqualTo(i * 40 - 10),
+            reason: 'waiter $i must not launch before its reserved slot');
+      }
     });
 
     test('separate keys do not block each other', () async {
-      final limiter = ProviderRateLimiter(
-          minInterval: const Duration(milliseconds: 80));
+      final limiter =
+          ProviderRateLimiter(minInterval: const Duration(milliseconds: 80));
       final watch = Stopwatch()..start();
-      await Future.wait(
-          [limiter.acquire('nim'), limiter.acquire('anthropic')]);
+      await Future.wait([limiter.acquire('nim'), limiter.acquire('anthropic')]);
       expect(watch.elapsedMilliseconds, lessThan(50),
           reason: 'each provider has its own slot queue');
     });
 
     test('an idle gap releases the slot (no burst penalty)', () async {
-      final limiter = ProviderRateLimiter(
-          minInterval: const Duration(milliseconds: 30));
+      final limiter =
+          ProviderRateLimiter(minInterval: const Duration(milliseconds: 30));
       await limiter.acquire('nim');
       await Future<void>.delayed(const Duration(milliseconds: 60));
       final watch = Stopwatch()..start();
@@ -76,15 +77,14 @@ void main() {
     });
 
     test('defer pushes the next launch past the penalty window', () async {
-      final limiter = ProviderRateLimiter(
-          minInterval: const Duration(milliseconds: 25));
+      final limiter =
+          ProviderRateLimiter(minInterval: const Duration(milliseconds: 25));
       await limiter.acquire('nim'); // provider now idle again
       limiter.defer('nim'); // a 429 escaped
       final watch = Stopwatch()..start();
       await limiter.acquire('nim');
       // First penalty = 4 × interval = 100ms (minus scheduling slop).
-      expect(watch.elapsedMilliseconds,
-          greaterThanOrEqualTo(4 * 25 - 10),
+      expect(watch.elapsedMilliseconds, greaterThanOrEqualTo(4 * 25 - 10),
           reason: 'a 429 defers the queue by 4 intervals');
       // reportSuccess resets the floor: the next defer is 4× again, not 8×.
       limiter.reportSuccess('nim');
@@ -96,8 +96,8 @@ void main() {
     });
 
     test('consecutive defers double the penalty, capped at 60s', () async {
-      final limiter = ProviderRateLimiter(
-          minInterval: const Duration(seconds: 1));
+      final limiter =
+          ProviderRateLimiter(minInterval: const Duration(seconds: 1));
       limiter.defer('nim'); // 4s
       limiter.defer('nim'); // 8s
       limiter.defer('nim'); // 16s
@@ -115,8 +115,8 @@ void main() {
 
     group('per-key interval override (setMinInterval / minIntervalFor)', () {
       test('setMinInterval installs a per-key override', () async {
-        final limiter = ProviderRateLimiter(
-            minInterval: const Duration(milliseconds: 100));
+        final limiter =
+            ProviderRateLimiter(minInterval: const Duration(milliseconds: 100));
         // Override for 'nim' to 50ms
         limiter.setMinInterval('nim', const Duration(milliseconds: 50));
 
@@ -126,8 +126,8 @@ void main() {
       });
 
       test('Duration.zero explicitly disables spacing for a key', () async {
-        final limiter = ProviderRateLimiter(
-            minInterval: const Duration(milliseconds: 100));
+        final limiter =
+            ProviderRateLimiter(minInterval: const Duration(milliseconds: 100));
         limiter.setMinInterval('nim', Duration.zero);
 
         expect(limiter.minIntervalFor('nim'), equals(Duration.zero),
@@ -144,17 +144,19 @@ void main() {
       });
 
       test('unset key falls back to global', () async {
-        final limiter = ProviderRateLimiter(
-            minInterval: const Duration(milliseconds: 100));
+        final limiter =
+            ProviderRateLimiter(minInterval: const Duration(milliseconds: 100));
         // No override for 'anthropic'
-        expect(limiter.minIntervalFor('anthropic'), equals(const Duration(milliseconds: 100)),
+        expect(limiter.minIntervalFor('anthropic'),
+            equals(const Duration(milliseconds: 100)),
             reason: 'unset key uses global');
       });
 
       test('reset clears per-key overrides', () async {
         final limiter = ProviderRateLimiter();
         limiter.setMinInterval('nim', Duration(milliseconds: 200));
-        expect(limiter.minIntervalFor('nim'), equals(Duration(milliseconds: 200)));
+        expect(
+            limiter.minIntervalFor('nim'), equals(Duration(milliseconds: 200)));
 
         limiter.reset();
         expect(limiter.minIntervalFor('nim'), equals(Duration.zero),
@@ -166,8 +168,10 @@ void main() {
         limiter.setMinInterval('nim', Duration(milliseconds: 50));
         limiter.setMinInterval('anthropic', Duration(milliseconds: 200));
 
-        expect(limiter.minIntervalFor('nim'), equals(Duration(milliseconds: 50)));
-        expect(limiter.minIntervalFor('anthropic'), equals(Duration(milliseconds: 200)));
+        expect(
+            limiter.minIntervalFor('nim'), equals(Duration(milliseconds: 50)));
+        expect(limiter.minIntervalFor('anthropic'),
+            equals(Duration(milliseconds: 200)));
       });
     });
 
@@ -228,29 +232,25 @@ void main() {
       return r;
     }
 
-    test('concurrent sends through one provider are spaced', () async {
+    test('concurrent sends respect the reserved launch schedule', () async {
       final starts = <DateTime>[];
-      final registry =
-          registryWith(_RecordingProvider(starts), minInterval: const Duration(milliseconds: 50));
+      final registry = registryWith(_RecordingProvider(starts),
+          minInterval: const Duration(milliseconds: 50));
       final provider = registry.build('stub/m');
+      final submitted = DateTime.now();
 
       await Future.wait([
         for (var i = 0; i < 3; i++)
-          provider
-              .send(
-                  system: 's',
-                  messages: const [
-                    Message(role: Role.user, content: [TextBlock('hi')])
-                  ],
-                  tools: const [])
-              .toList(),
+          provider.send(system: 's', messages: const [
+            Message(role: Role.user, content: [TextBlock('hi')])
+          ], tools: const []).toList(),
       ]);
 
       expect(starts, hasLength(3));
       for (var i = 1; i < starts.length; i++) {
-        final gap = starts[i].difference(starts[i - 1]).inMilliseconds;
-        expect(gap, greaterThanOrEqualTo(40),
-            reason: 'request starts are spaced by (nearly) the interval');
+        final elapsed = starts[i].difference(submitted).inMilliseconds;
+        expect(elapsed, greaterThanOrEqualTo(i * 50 - 10),
+            reason: 'request $i must not bypass its reserved slot');
       }
     });
 
@@ -262,14 +262,9 @@ void main() {
       final watch = Stopwatch()..start();
       await Future.wait([
         for (var i = 0; i < 3; i++)
-          provider
-              .send(
-                  system: 's',
-                  messages: const [
-                    Message(role: Role.user, content: [TextBlock('hi')])
-                  ],
-                  tools: const [])
-              .toList(),
+          provider.send(system: 's', messages: const [
+            Message(role: Role.user, content: [TextBlock('hi')])
+          ], tools: const []).toList(),
       ]);
       expect(watch.elapsedMilliseconds, lessThan(50),
           reason: 'no spacing unless the composition root opts in');
@@ -278,20 +273,18 @@ void main() {
     test('cancelling while parked on a slot never subscribes the inner send',
         () async {
       final starts = <DateTime>[];
-      final registry =
-          registryWith(_RecordingProvider(starts), minInterval: const Duration(milliseconds: 500));
+      final registry = registryWith(_RecordingProvider(starts),
+          minInterval: const Duration(milliseconds: 500));
       final provider = registry.build('stub/m');
 
       // First send holds the slot; the second parks for ~500ms and is
       // cancelled immediately — it must never reach the inner provider.
-      final first = provider.send(
-          system: 's',
-          messages: const [Message(role: Role.user, content: [TextBlock('a')])],
-          tools: const []);
-      final second = provider.send(
-          system: 's',
-          messages: const [Message(role: Role.user, content: [TextBlock('b')])],
-          tools: const []);
+      final first = provider.send(system: 's', messages: const [
+        Message(role: Role.user, content: [TextBlock('a')])
+      ], tools: const []);
+      final second = provider.send(system: 's', messages: const [
+        Message(role: Role.user, content: [TextBlock('b')])
+      ], tools: const []);
       final sub = second.listen(null);
       await sub.cancel();
       await first.toList();
@@ -308,16 +301,13 @@ void main() {
       final inner = _EventPerCallProvider((call) => call == 0
           ? const StreamError('NIM 429: Too Many Requests', statusCode: 429)
           : const TextDelta('ok'));
-      final registry = registryWith(inner,
-          minInterval: const Duration(milliseconds: 25));
+      final registry =
+          registryWith(inner, minInterval: const Duration(milliseconds: 25));
       final provider = registry.build('stub/m');
 
-      Future<void> send() => provider
-          .send(
-              system: 's',
-              messages: const [Message(role: Role.user, content: [TextBlock('x')])],
-              tools: const [])
-          .toList();
+      Future<void> send() => provider.send(system: 's', messages: const [
+            Message(role: Role.user, content: [TextBlock('x')])
+          ], tools: const []).toList();
 
       await send(); // 429 → defer('stub'): the queue now holds ~100ms.
       final watch = Stopwatch()..start();
@@ -336,12 +326,13 @@ void main() {
     test('maxConcurrent caps inner streams; done and cancel both free permits',
         () async {
       final inner = _GatedProvider();
-      final registry = registryWith(inner, minInterval: const Duration(milliseconds: 5))
-        ..rateLimiter.maxConcurrent = 2;
+      final registry =
+          registryWith(inner, minInterval: const Duration(milliseconds: 5))
+            ..rateLimiter.maxConcurrent = 2;
       final provider = registry.build('stub/m');
 
-      StreamSubscription<StreamEvent> send() =>
-          provider.send(system: 's', messages: const [], tools: const []).listen(null);
+      StreamSubscription<StreamEvent> send() => provider
+          .send(system: 's', messages: const [], tools: const []).listen(null);
 
       // Four requests; only two may reach the inner provider at once.
       final subs = [send(), send(), send(), send()];
@@ -389,8 +380,8 @@ void main() {
     test('a retry re-acquires a rate-limit slot (never bypasses the queue)',
         () async {
       final inner = _EventPerCallProvider((call) => call == 0
-          ? const StreamError('429', statusCode: 429,
-              retryAfter: Duration(milliseconds: 10))
+          ? const StreamError('429',
+              statusCode: 429, retryAfter: Duration(milliseconds: 10))
           : const TextDelta('ok'));
       final r = ProviderRegistry(env: const {'TEST_KEY': 'k'})
         ..register(desc('a', inner));
@@ -400,8 +391,7 @@ void main() {
 
       final watch = Stopwatch()..start();
       await provider
-          .send(system: 's', messages: const [], tools: const [])
-          .toList();
+          .send(system: 's', messages: const [], tools: const []).toList();
 
       expect(inner.attempts, 2, reason: 'exactly one retry');
       // The retry went back through the limiter: with the old

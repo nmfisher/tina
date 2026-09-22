@@ -1,3 +1,4 @@
+import '../runtime/invocation.dart';
 import 'dart:async';
 
 import '../agent/token_budget.dart' show TokenBudget;
@@ -86,7 +87,22 @@ class RetryingProvider implements LlmProvider {
       required List<ToolSchema> tools,
       required int retriesLeft,
       required int attemptNumber,
-    }) {
+    }) async {
+      final invocation = InvocationContext.current?.invocation;
+      if (invocation != null) {
+        try {
+          while (invocation.isHeld &&
+              !invocation.isCancelled &&
+              !cancelled.isCompleted) {
+            await Future.any([invocation.ready(), cancelled.future]);
+          }
+        } on InvocationCancelled {
+          return null;
+        }
+        if (invocation.isCancelled ||
+            invocation.isDone ||
+            cancelled.isCompleted) return null;
+      }
       final done = Completer<void>();
       StreamError? swallowed;
       var forwarded = false;
@@ -130,6 +146,7 @@ class RetryingProvider implements LlmProvider {
         },
       );
       activeSub = sub;
+      if (controller.isPaused) sub.pause();
       activeDone = done;
       return done.future.then((_) async {
         await sub.cancel();
@@ -166,10 +183,10 @@ class RetryingProvider implements LlmProvider {
         // Surface the swallowed failure: a pending retry must be visible in
         // the UI, not a silent multi-second stall with a loading border.
         if (!controller.isClosed) {
-          controller.add(StreamNotice(
-              'provider error: ${retryOf.error} — retry '
-              '${attempt + 1}/$maxRetries in '
-              '${(delay.inMilliseconds / 1000).toStringAsFixed(1)}s'));
+          controller
+              .add(StreamNotice('provider error: ${retryOf.error} — retry '
+                  '${attempt + 1}/$maxRetries in '
+                  '${(delay.inMilliseconds / 1000).toStringAsFixed(1)}s'));
         }
         // Park on the backoff; a cancel during it ends the send quietly.
         await Future.any([Future<void>.delayed(delay), cancelled.future]);
@@ -183,6 +200,8 @@ class RetryingProvider implements LlmProvider {
 
     controller = StreamController<StreamEvent>(
       onListen: () => unawaited(run()),
+      onPause: () => activeSub?.pause(),
+      onResume: () => activeSub?.resume(),
       onCancel: () {
         if (!cancelled.isCompleted) cancelled.complete();
         if (activeDone != null && !activeDone!.isCompleted) {
@@ -227,7 +246,9 @@ void bookFailedAttemptUsage({
   final status = error.statusCode;
   if (measured == null &&
       status != null &&
-      status >= 400 && status < 500 && status != 408) return;
+      status >= 400 &&
+      status < 500 &&
+      status != 408) return;
   final usage = measured != null
       ? WireUsage(
           inputTokens: measured.inputTokens,

@@ -1,15 +1,31 @@
+import 'package:tina_engine/invocation.dart' as engine show Invocation;
 import 'dart:collection';
 import '../execution/input_routes.dart';
 
-typedef QueuedInput = ({String text, bool route, PreparedInput? prepared});
+typedef QueuedInput = ({
+  String text,
+  bool route,
+  PreparedInput? prepared,
+  engine.Invocation? invocation,
+});
 
 class MessageQueue {
   final Queue<QueuedInput> _queue = Queue();
 
-  void enqueue(String message, {bool route = true, PreparedInput? prepared}) {
+  void enqueue(
+    String message, {
+    bool route = true,
+    PreparedInput? prepared,
+    engine.Invocation? invocation,
+  }) {
     final trimmed = message.trim();
     if (trimmed.isNotEmpty)
-      _queue.addLast((text: trimmed, route: route, prepared: prepared));
+      _queue.addLast((
+        text: trimmed,
+        route: route,
+        prepared: prepared,
+        invocation: invocation,
+      ));
   }
 
   String? dequeue() => take()?.text;
@@ -26,6 +42,7 @@ class MessageQueue {
   void clear() {
     for (final input in _queue) {
       input.prepared?.cancel();
+      input.invocation?.cancel('Queued input cleared');
     }
     _queue.clear();
   }

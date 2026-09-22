@@ -136,3 +136,10 @@ While classification runs, the status cycles through `| / - \` every 120 ms.
 Status renderers request animation with `RenderLine(animated: true)` and read
 `RenderContext.animationFrame`. The bridge uses the screen's shared animation
 clock and stops when the visible status settles, is removed, or is disposed.
+
+## Interruptions
+
+Processors have their own invocation and can identify the agent invocation for
+the same submission through `InputContext.target`. The runtime can hold that
+invocation while an inline choice is shown, then resume it or cancel and hand
+off. See [Components, invocations, and interruptions](interruptions.md).

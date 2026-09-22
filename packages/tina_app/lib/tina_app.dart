@@ -58,3 +58,5 @@ export 'src/classification/index_options.dart';
 export 'src/execution/input_status.dart';
 export 'src/execution/git_input.dart';
 export 'src/classification/git_classifier.dart';
+
+export 'src/execution/interrupts.dart';

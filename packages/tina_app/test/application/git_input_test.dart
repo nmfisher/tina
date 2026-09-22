@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:test/test.dart';
 import 'package:tina_app/tina_app.dart';
 import 'package:tina_engine/tina_engine.dart';
+import 'package:tina_engine/invocation.dart' as engine show Invocation;
 import 'input_processors_test.dart' show Processor;
 
 class Service implements JudgmentService {
@@ -147,6 +148,38 @@ void main() {
       history: [],
       cancelSignal: cancel ?? Completer<void>().future,
     );
+
+    for (final cancel in [false, true]) {
+      test(
+        'classifier status respects its own hold (cancel: $cancel)',
+        () async {
+          final calls = Invocations();
+          scope.provide(invocationsServiceKey, calls);
+          addTearDown(calls.dispose);
+          final result = Completer<GitIntent?>();
+          late engine.Invocation invocation;
+          final plugin = GitInput((input, _) {
+            invocation = input.invocation!;
+            return result.future;
+          });
+          register(plugin);
+          await submit('commit');
+          final hold = invocation.hold();
+          result.complete(GitIntent(commands: ['commit']));
+          await pumpEventQueue();
+          expect(plugin.read('a')!.phase, GitPhase.checking);
+          if (cancel) invocation.cancel();
+          await hold.dispose();
+          await invocation.done;
+          await pumpEventQueue();
+          expect(
+            plugin.read('a')!.phase,
+            cancel ? GitPhase.cancelled : GitPhase.ready,
+          );
+          if (!cancel) expect(plugin.read('a')!.intent!.commands, ['commit']);
+        },
+      );
+    }
 
     test(
       'background mode passes immediately; newest result wins per conversation',

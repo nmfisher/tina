@@ -1,4 +1,5 @@
 import 'package:tina_console/tina_console.dart';
+import 'prompts.dart';
 
 /// Modal shown when an agent trips its per-session token limit and pauses all
 /// agents. Returns `true` for Continue (resume + reset), `false` for Abort (Esc
@@ -12,7 +13,8 @@ Future<bool> runSpendPauseDialog({
   required LineEditor editor,
   Future<InputEvent> Function()? readEvent,
 }) async {
-  final read = readEvent ?? editor.captureKeyReader();
+  final session = Prompts.of(editor).open();
+  final read = readEvent ?? session.read;
 
   final raw = <String>[
     'Per-session token limit reached.',
@@ -25,24 +27,29 @@ Future<bool> runSpendPauseDialog({
   final boxH = raw.length + 2;
   final row = (screen.layout.height - boxH) ~/ 2;
   final col = (screen.layout.width - boxW) ~/ 2;
-  final overlay = OverlayRegion(screen, Rect(row: row, col: col, width: boxW, height: boxH));
+  final overlay = OverlayRegion(
+    screen,
+    Rect(row: row, col: col, width: boxW, height: boxH),
+  );
 
   final boxed = [for (final l in raw) ' ${l.padRight(maxW)} '];
-  overlay.show(boxed);
+  void paint() {
+    if (session.isActive) overlay.show(boxed);
+  }
+
+  session.attach(paint: paint, hide: overlay.hide);
+  paint();
   try {
     while (true) {
       final ev = await read();
       if (ev is ControlKey && ev.code == ControlCode.enter) return true;
-      if (ev is EscapeKey) return false;
+      if (ev is EscapeKey || ev is ControlKey && ev.code == ControlCode.ctrlC)
+        return false;
       // Ignore everything else (arrows, other chars) until Enter/Esc.
     }
   } finally {
-    // Re-show before hide: sub-agent streams may have overprinted the overlay
-    // while the dialog was up (the pause parks them at their NEXT request, but
-    // ones already mid-stream finish first). This leaves the last painted state
-    // matching what the user saw.
-    overlay.show(boxed);
     overlay.hide();
     overlay.dispose();
+    session.close();
   }
 }

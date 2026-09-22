@@ -998,6 +998,26 @@ class TuiCoordinator {
         autoCompactThreshold: config.autoCompactThreshold,
         environment: app.environment,
       );
+      final interrupts = app.pluginScope?.lookup(interruptsServiceKey);
+      if (interrupts != null) {
+        interrupts.presenter = (prompt) async {
+          if (controller.active.id != prompt.target.conversationId) return null;
+          final choice = await runQuestionOverlay(
+            screen: screen,
+            editor: editor,
+            priority: true,
+            cancelSignal: prompt.cancelSignal,
+            questions: [
+              (
+                text:
+                    '${prompt.title}${prompt.message.isEmpty ? '' : '\n${prompt.message}'}',
+                options: ['Accept', 'Decline'],
+              ),
+            ],
+          );
+          return choice == null ? null : choice.single == 'Accept';
+        };
+      }
       if (app.pluginScope != null) {
         inputStatus = InputStatus(
           screen: screen,
@@ -2276,7 +2296,9 @@ class TuiCoordinator {
                   cancelSignal: cancel,
                 );
               }
-            } finally { await view.close(); }
+            } finally {
+              await view.close();
+            }
           } catch (e) {
             if (!cancelled) {
               conversation.host.showMessage(

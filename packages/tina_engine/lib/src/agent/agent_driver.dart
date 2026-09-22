@@ -1,3 +1,5 @@
+import '../runtime/invocation.dart' show InvocationContext;
+import 'invocation_sink.dart';
 import '../llm/message.dart';
 import '../llm/provider.dart';
 import '../permissions/policy.dart';
@@ -32,6 +34,10 @@ import 'tool_executor.dart' show ToolResultVerifier;
 ///  * Cancellation rides the [run] `cancelSignal` exactly as it does for
 ///    [Agent.run] — completing it aborts the in-flight stream and the turn
 ///    exits cleanly; the caller never cancels the driver by other means.
+///  * Managed calls expose [InvocationContext.current]. Replacement drivers
+///    must honor holds at request and transcript boundaries, and cancellation
+///    before starting new work. The request sink controls presentation; shared
+///    providers and ToolExecutor enforce their own dispatch boundaries.
 ///  * A driver does NOT own provider lifecycle. The caller builds the
 ///    [LlmProvider], hands it in via [AgentDriverRequest.provider], and closes
 ///    it itself when the turn (or the channel) is done — including on error
@@ -113,9 +119,9 @@ abstract class AgentDriver {
 /// the adapter that lets a coordinator hand a plain [Agent] to code that
 /// speaks [AgentDriver].
 class AgentDriverAdapter implements AgentDriver {
-
   @override
   PermissionPolicy get policy => agent.policy;
+
   /// The wrapped agent — every operation below delegates to it. Kept public
   /// (not part of the [AgentDriver] contract): a caller that genuinely needs
   /// the concrete build type-tests for this adapter and unwraps it.
@@ -212,7 +218,8 @@ class AgentDriverRequest {
   final ToolRegistry tools;
 
   /// Where the turn's output streams.
-  final AgentSink sink;
+  final AgentSink _sink;
+  AgentSink get sink => _sink is InvocationSink ? _sink : InvocationSink(_sink);
 
   /// The permission policy tool calls run under.
   final PermissionPolicy policy;
@@ -274,7 +281,7 @@ class AgentDriverRequest {
   const AgentDriverRequest({
     required this.provider,
     required this.tools,
-    required this.sink,
+    required AgentSink sink,
     required this.policy,
     required this.asker,
     required this.maxSteps,
@@ -291,7 +298,7 @@ class AgentDriverRequest {
     this.transportRetryAttempts = 0,
     this.autoCompactThreshold = 0,
     this.autoCompactKeepMessages = 6,
-  });
+  }) : _sink = sink;
 }
 
 /// Builds a driver from the coordinator's request. A profile mounts a

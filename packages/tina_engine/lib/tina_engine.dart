@@ -120,3 +120,7 @@ export 'src/tools/execution_info_tool.dart';
 export 'src/tools/process_tool.dart' show ProcessTool;
 export 'src/tools/sandbox_layout.dart';
 export 'src/tools/execution_diagnostic.dart';
+
+export 'src/runtime/invocation.dart' hide Invocation;
+export 'src/agent/invocation_sink.dart';
+export 'src/host/invocation_host.dart';

@@ -2,6 +2,7 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 import 'package:tina/tui/model_search_overlay.dart';
+import 'prompts.dart';
 
 /// A model-picker overlay for the `/spawn` command: shows a flat, scrollable
 /// list of `"provider/model"` references from the configured providers in the
@@ -59,7 +60,9 @@ Future<String?> runSpawnOverlay({
   // is unchecked in /settings — the user explicitly excluded it from spawn.
   if (activeModelRef != null) {
     final slash = activeModelRef.indexOf('/');
-    final providerId = slash < 0 ? activeModelRef : activeModelRef.substring(0, slash);
+    final providerId = slash < 0
+        ? activeModelRef
+        : activeModelRef.substring(0, slash);
     final modelId = slash < 0 ? '' : activeModelRef.substring(slash + 1);
     if (providerId.isNotEmpty && modelId.isNotEmpty) {
       final idx = zeroCatalog.indexOf(providerId);
@@ -125,11 +128,10 @@ Future<ToolProfile?> runToolProfileOverlay({
 }) {
   final profiles = ToolProfile.values;
   String label(ToolProfile p) => switch (p) {
-        ToolProfile.readOnly =>
-          'read-only — explore the repo (no file or shell mutation)',
-        ToolProfile.full =>
-          'full — read, write, edit, and run shell',
-      };
+    ToolProfile.readOnly =>
+      'read-only — explore the repo (no file or shell mutation)',
+    ToolProfile.full => 'full — read, write, edit, and run shell',
+  };
   final entries = profiles
       .map((p) => (display: '${p.name} — ${label(p)}', value: p))
       .toList(growable: false);
@@ -140,10 +142,9 @@ Future<ToolProfile?> runToolProfileOverlay({
     title: 'Spawn — pick a tool profile',
     // Footer reflects the focused profile's tools, so re-derive per frame.
     footer: (focus) {
-      final names = toolSetFor(profiles[focus])
-          .map((t) => t.schema.name)
-          .toList()
-        ..sort();
+      final names = toolSetFor(
+        profiles[focus],
+      ).map((t) => t.schema.name).toList()..sort();
       return '↑↓ move · enter select · esc cancel · tools: ${names.join(", ")}';
     },
     readEvent: readEvent,
@@ -196,8 +197,8 @@ Future<T?> runListOverlay<T>({
   required Object? footer, // String | String Function(int focus)
   Future<InputEvent> Function()? readEvent,
   String? accent, // SGR border color; non-null ⇒ the frame is colorized cyan
-  String? body, // optional explanatory text rendered inside the box, above the entries
-
+  String?
+  body, // optional explanatory text rendered inside the box, above the entries
   /// What a Ctrl+C at this picker means. Null (default) keeps the long-pinned
   /// behavior: Ctrl+C cancels, returning null. When set, Ctrl+C returns the
   /// given value instead — the exit dialog uses this so mashing Ctrl+C can't
@@ -555,8 +556,9 @@ List<String> boxLines({
   final w = width;
   final innerW = w - 4;
   final titleSeg = ' $title ';
-  final titleFit =
-      titleSeg.length > w - 2 ? titleSeg.substring(0, w - 2) : titleSeg;
+  final titleFit = titleSeg.length > w - 2
+      ? titleSeg.substring(0, w - 2)
+      : titleSeg;
   final lines = <String>[
     '${paint('┌')}${paint(titleFit)}${paint('─' * (w - 2 - titleFit.length))}${paint('┐')}',
     ...body.map((s) => _wrapLine(innerW, s, paint)),
@@ -594,17 +596,43 @@ Future<List<String>?> runQuestionOverlay({
   required LineEditor editor,
   required List<({String text, List<String> options})> questions,
   Future<InputEvent> Function()? readEvent,
+  Future<void>? cancelSignal,
+  bool priority = false,
   String footer = '  ↑↓ option · ←→ question · enter select · esc cancel',
   // Return an option index to select it for the focused question.
   int? Function(InputEvent event)? shortcut,
-}) =>
-    _QuestionForm(screen, editor, questions,
-        readEvent ?? editor.captureKeyReader(), footer, shortcut).run();
+}) async {
+  final session = Prompts.of(
+    editor,
+  ).open(cancelSignal: cancelSignal, priority: priority);
+  final form = _QuestionForm(
+    screen,
+    editor,
+    questions,
+    readEvent ?? session.read,
+    footer,
+    shortcut,
+    session,
+  );
+  try {
+    return await form.run();
+  } finally {
+    session.close();
+  }
+}
 
 class _QuestionForm {
-  _QuestionForm(this._screen, this._editor, this._questions, this._readEvent,
-      this._footer, this._shortcut);
+  _QuestionForm(
+    this._screen,
+    this._editor,
+    this._questions,
+    this._readEvent,
+    this._footer,
+    this._shortcut,
+    this._session,
+  );
 
+  final PromptSession _session;
   final Screen _screen;
   final LineEditor _editor;
   final List<({String text, List<String> options})> _questions;
@@ -629,6 +657,7 @@ class _QuestionForm {
       _optionFocus.add(0);
       _committed.add(null);
     }
+    _session.attach(paint: _render, hide: _overlay.hide);
     try {
       _render();
       while (true) {
@@ -659,7 +688,10 @@ class _QuestionForm {
     // The form painted the input row with the focused question; hand the row
     // back. A parked readLine repaints itself; an idle input row is erased so
     // no question text lingers after the form is gone.
-    if (_editor.isEditing) {
+    _session.close();
+    if (Prompts.of(_editor).active != null) {
+      // A suspended prompt has regained the input row.
+    } else if (_editor.isEditing) {
       _editor.refresh();
     } else {
       _screen.input.erase();
@@ -674,13 +706,13 @@ class _QuestionForm {
       switch (ev.direction) {
         case ArrowDirection.up:
           if (options.isNotEmpty) {
-            _optionFocus[_questionFocus] =
-                (_optionFocus[_questionFocus] - 1).clamp(0, options.length - 1);
+            _optionFocus[_questionFocus] = (_optionFocus[_questionFocus] - 1)
+                .clamp(0, options.length - 1);
           }
         case ArrowDirection.down:
           if (options.isNotEmpty) {
-            _optionFocus[_questionFocus] =
-                (_optionFocus[_questionFocus] + 1).clamp(0, options.length - 1);
+            _optionFocus[_questionFocus] = (_optionFocus[_questionFocus] + 1)
+                .clamp(0, options.length - 1);
           }
         case ArrowDirection.left:
           if (_questionFocus > 0) _questionFocus--;
@@ -736,6 +768,7 @@ class _QuestionForm {
   // -- Render -----------------------------------------------------------------
 
   void _render() {
+    if (!_session.isActive) return;
     final body = _body();
     final footer = _dim(_footer);
     final maxH = _availableHeight();
@@ -768,11 +801,7 @@ class _QuestionForm {
   /// questions live IN the input field, not in a detached popover.
   void _renderInputRow() {
     final q = _questions[_questionFocus];
-    _screen.input.render(
-      prompt: '❯ ',
-      buffer: q.text,
-      cursor: q.text.length,
-    );
+    _screen.input.render(prompt: '❯ ', buffer: q.text, cursor: q.text.length);
   }
 
   String _dim(String s) => _screen.ansi.useColor
@@ -787,7 +816,11 @@ class _QuestionForm {
     final all = <String>[];
     for (var q = 0; q < _questions.length; q++) {
       final qFocus = q == _questionFocus;
-      all.add(qFocus ? _hi('❯ ${_questions[q].text}') : _dim('  ${_questions[q].text}'));
+      all.add(
+        qFocus
+            ? _hi('❯ ${_questions[q].text}')
+            : _dim('  ${_questions[q].text}'),
+      );
       final options = _questions[q].options;
       for (var o = 0; o < options.length; o++) {
         // No arrow indicator on options (owner follow-up 2026-08-24): ▸ read

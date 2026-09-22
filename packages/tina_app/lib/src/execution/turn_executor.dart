@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:tina_engine/tina_engine.dart';
+import 'package:tina_engine/invocation.dart' as engine show Invocation;
+import 'interrupts.dart';
 import 'package:tina_app/src/session/conversation.dart';
 import 'package:tina_app/src/workflows/workflow_supervisor.dart';
 import 'package:tina_app/src/platform/environment.dart';
@@ -19,6 +21,7 @@ class _Admission {
 class _TurnSlot {
   final Conversation conversation;
   final Completer<void> idle = Completer<void>();
+  engine.Invocation? invocation;
   TurnState state = TurnState.running;
   _TurnSlot(this.conversation);
 }
@@ -38,6 +41,10 @@ class TurnExecutor {
   final ToolRegistry? Function(Conversation, String)? toolsForTurn;
   final Environment environment;
   final InputRoutes? inputRoutes;
+  final Invocations invocations;
+  final Interrupts? interrupts;
+  int _nextInput = 0;
+  engine.Invocation? activeInvocation(String id) => _slots[id]?.invocation;
   int autoCompactThreshold;
   final int autoCompactPreserveRecent;
   final _slots = <String, _TurnSlot>{};
@@ -56,7 +63,8 @@ class TurnExecutor {
     this.inputRoutes,
     this.autoCompactThreshold = 0,
     this.autoCompactPreserveRecent = 2,
-  });
+  }) : invocations = inputRoutes?.invocations ?? Invocations(),
+       interrupts = inputRoutes?.scope.lookup(interruptsServiceKey);
 
   TurnState state(String id) {
     final conversation = _slots[id]?.conversation ?? findConversation(id);
@@ -78,10 +86,15 @@ class TurnExecutor {
         conversation.isClosed) {
       return TurnSubmission.rejected;
     }
+    final call = invocations.create(
+      component: const ComponentInfo('tina.agent', 'Agent'),
+      conversationId: id,
+      inputId: '${++_nextInput}',
+    );
     final routes = inputRoutes;
     if (routes == null ||
         (!routes.hasProcessors && !_admissions.containsKey(id))) {
-      return _submitReady(conversation, prompt, route: route);
+      return _submitReady(conversation, prompt, route: route, invocation: call);
     }
     // One close listener per conversation, rather than retaining a detached
     // history snapshot through a new close-future listener for every prompt.
@@ -108,9 +121,11 @@ class TurnExecutor {
             conversationId: id,
             history: conversation.history,
             cancelSignal: admission.cancel.future,
+            target: call,
           )
         : Future<PreparedInput?>.value(null);
     unawaited(() async {
+      var admitted = false;
       try {
         final input = await prepared;
         if (previous != null) await previous;
@@ -120,14 +135,18 @@ class TurnExecutor {
             _closed.contains(id) ||
             !identical(findConversation(id), conversation))
           return;
+        if (call.isCancelled) return;
         if (input?.outcome == InputOutcome.handled) return;
         _submitReady(
           conversation,
           input?.text ?? prompt,
           route: route,
           prepared: input,
+          invocation: call,
         );
+        admitted = true;
       } finally {
+        if (!admitted) call.cancel('Input not admitted');
         pending.remove(admission);
         if (pending.isEmpty) _admissions.remove(id);
         conversation.pendingInputs--;
@@ -147,6 +166,7 @@ class TurnExecutor {
     String prompt, {
     required bool route,
     PreparedInput? prepared,
+    required engine.Invocation invocation,
   }) {
     final id = conversation.id;
     if (_slots.containsKey(id)) {
@@ -154,21 +174,34 @@ class TurnExecutor {
         prompt,
         route: route,
         prepared: prepared,
+        invocation: invocation,
       );
       return TurnSubmission.queued;
     }
-    final slot = _TurnSlot(conversation);
+    final slot = _TurnSlot(conversation)..invocation = invocation;
     _slots[id] = slot;
     conversation.turnCompletion = slot.idle.future;
-    unawaited(_drain(slot, (text: prompt, route: route, prepared: prepared)));
+    unawaited(
+      _drain(slot, (
+        text: prompt,
+        route: route,
+        prepared: prepared,
+        invocation: invocation,
+      )),
+    );
     return TurnSubmission.started;
   }
 
   /// Emergency cancellation also covers input not yet admitted to the queue.
   bool cancelInputs(String id) {
+    final hadCalls = invocations.active.any(
+      (call) => call.conversationId == id,
+    );
+    interrupts?.cancelAll(conversationId: id);
+    invocations.cancelAll(conversationId: id, reason: 'Cancelled by user');
     final background = inputRoutes?.cancelBackground(id) ?? false;
     final pending = _admissions[id];
-    if (pending == null) return background;
+    if (pending == null) return background || hadCalls;
     for (final item in pending) {
       item.discard = true;
       if (!item.cancel.isCompleted) item.cancel.complete();
@@ -184,6 +217,7 @@ class TurnExecutor {
       if (!first.cancel.isCompleted) first.cancel.complete();
       return true;
     }
+    slot.invocation?.cancel('Cancelled by user');
     slot.state = TurnState.cancelling;
     final cancel = slot.conversation.cancelCompleter;
     if (cancel != null && !cancel.isCompleted) cancel.complete();
@@ -260,22 +294,57 @@ class TurnExecutor {
           !s.isClosed &&
           !_closed.contains(s.id) &&
           identical(findConversation(s.id), s)) {
+        await interrupts?.ready(s.id);
+        if (_closing || s.isClosed) break;
+        final call =
+            next.invocation ??
+            invocations.create(
+              component: const ComponentInfo('tina.agent', 'Agent'),
+              conversationId: s.id,
+            );
+        if (call.isCancelled) {
+          next = s.messageQueue.take();
+          continue;
+        }
+        slot.invocation = call;
         slot.state = TurnState.running;
         s.cancelCompleter = Completer<void>();
         s.toolInterruptCompleter = Completer<void>();
+        final cancel = s.cancelCompleter!;
         final activity = RunActivity(s.host);
+        var cancellationShown = false;
+        final detach = call.listen(() {
+          if (call.isCancelled) {
+            if (!cancel.isCompleted) cancel.complete();
+            activity.complete();
+            if (!cancellationShown) {
+              cancellationShown = true;
+              final reason = call.cancelReason;
+              s.host.notice(
+                reason is InterruptReason ? '\n[$reason]\n' : '\n[cancelled]\n',
+                kind: NoticeKind.warning,
+              );
+            }
+          }
+        });
+        cancel.future.then((_) {
+          if (!call.isDone) call.cancel('Cancelled by user');
+        });
         _changed();
         void Function(bool)? finish;
         var completed = false;
         try {
           final turnTools = toolsForTurn?.call(s, next.text);
           finish = onTurnStarted?.call(s, next.text);
-          completed = await _runTurn(
-            s,
-            next.text,
-            route: next.route,
-            prepared: next.prepared,
-            turnTools: turnTools,
+          final input = next;
+          completed = await call.run(
+            (_) => _runTurn(
+              s,
+              input.text,
+              route: input.route,
+              prepared: input.prepared,
+              turnTools: turnTools,
+            ),
           );
         } catch (_) {
           // Cosmetic host failures must not strand admission or shutdown.
@@ -288,11 +357,13 @@ class TurnExecutor {
               style: HostMessageStyle.warning,
             );
           }
+          detach();
           activity.complete();
           try {
             await persistUsage?.call(s);
           } catch (_) {}
         }
+        await interrupts?.ready(s.id);
         next = s.messageQueue.take();
       }
     } finally {
@@ -313,14 +384,15 @@ class TurnExecutor {
     PreparedInput? prepared,
     ToolRegistry? turnTools,
   }) async {
+    final host = InvocationHost(s.host, InvocationContext.current!.invocation);
     final cancel = s.cancelCompleter!;
     final toolInterrupt = s.toolInterruptCompleter!;
-    s.host.showSeparator();
-    s.host.showMessage(
+    host.showSeparator();
+    host.showMessage(
       '${prepared?.originalText ?? input}\n',
       style: HostMessageStyle.user,
     );
-    s.host.showSeparator();
+    host.showSeparator();
 
     if (route && inputRoutes != null) {
       final ready =
@@ -331,12 +403,13 @@ class TurnExecutor {
             history: s.history,
             cancelSignal: cancel.future,
           );
-      cancel.future.then((_) => ready.cancel());
+      if (ready.context.target == null)
+        cancel.future.then((_) => ready.cancel());
       final outcome = await inputRoutes!.deliver(
         ready,
         history: s.history,
         cancelSignal: cancel.future,
-        host: s.host,
+        host: host,
         recorder: s.recorder,
       );
       input = ready.text;
@@ -354,9 +427,9 @@ class TurnExecutor {
       try {
         await _maybeAutoCompact(s, input, turnTools: turnTools);
       } catch (e, st) {
-        s.host.showMessage('error: $e\n', style: HostMessageStyle.error);
+        host.showMessage('error: $e\n', style: HostMessageStyle.error);
         if (environment.env['COCOON_DEBUG'] == '1') {
-          s.host.showMessage('$st\n', style: HostMessageStyle.dim);
+          host.showMessage('$st\n', style: HostMessageStyle.dim);
         }
         if (!cancel.isCompleted) cancel.complete();
       }
@@ -378,7 +451,7 @@ class TurnExecutor {
           await rec.append(userMessage);
           userAlreadySaved = true;
         } catch (e) {
-          s.host.showMessage(
+          host.showMessage(
             'session write failed: $e\n',
             style: HostMessageStyle.error,
           );
@@ -398,7 +471,7 @@ class TurnExecutor {
         try {
           await rec?.append(message);
         } catch (e) {
-          s.host.showMessage(
+          host.showMessage(
             'session write failed: $e\n',
             style: HostMessageStyle.error,
           );
@@ -410,7 +483,7 @@ class TurnExecutor {
         try {
           await rec?.replace(messages);
         } catch (e) {
-          s.host.showMessage(
+          host.showMessage(
             'session write failed: $e\n',
             style: HostMessageStyle.error,
           );
@@ -441,9 +514,9 @@ class TurnExecutor {
         }
       } catch (e, st) {
         failed = true;
-        s.host.showMessage('error: $e\n', style: HostMessageStyle.error);
+        host.showMessage('error: $e\n', style: HostMessageStyle.error);
         if (environment.env['COCOON_DEBUG'] == '1') {
-          s.host.showMessage('$st\n', style: HostMessageStyle.dim);
+          host.showMessage('$st\n', style: HostMessageStyle.dim);
         }
       }
     }
@@ -463,10 +536,13 @@ class TurnExecutor {
     }
 
     if (cancel.isCompleted && (ran || s.history.length > preLen)) {
+      final reason = InvocationContext.current?.invocation.cancelReason;
       s.history.add(
-        const Message(
+        Message(
           role: Role.assistant,
-          content: [TextBlock('[cancelled]')],
+          content: [
+            TextBlock(reason is InterruptReason ? '[$reason]' : '[cancelled]'),
+          ],
         ),
       );
     }
@@ -477,7 +553,7 @@ class TurnExecutor {
       try {
         await rec.replace(s.history);
       } catch (e) {
-        s.host.showMessage(
+        host.showMessage(
           'session write failed: $e\n',
           style: HostMessageStyle.error,
         );
@@ -518,7 +594,10 @@ class TurnExecutor {
       try {
         await rec.replace(s.history);
       } catch (e) {
-        s.host.showMessage(
+        InvocationHost(
+          s.host,
+          InvocationContext.current!.invocation,
+        ).showMessage(
           'session write failed: $e\n',
           style: HostMessageStyle.error,
         );

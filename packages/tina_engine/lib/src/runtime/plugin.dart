@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'contracts.dart';
+import 'invocation.dart' show Component;
 
 export 'contracts.dart';
 
@@ -120,13 +121,17 @@ class PluginContext {
   /// stopped admitting registrations.
   Registration register(
     Object contribution, {
-    required String id,
+    String? id,
     FutureOr<void> Function()? dispose,
   }) {
+    final identity = id ?? (contribution is Component ? contribution.id : null);
+    if (identity == null || identity.isEmpty) {
+      throw ArgumentError('A contribution needs an id');
+    }
     return scope.registerContribution(
       pluginId: plugin.id,
       contribution: contribution,
-      id: id,
+      id: identity,
       dispose: dispose,
     );
   }
