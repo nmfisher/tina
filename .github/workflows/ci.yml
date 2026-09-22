@@ -71,6 +71,7 @@ jobs:
       - name: Resolve dependencies
         run: dart pub get
       - name: Check native keyboard decoding
+        timeout-minutes: 4
         run: python3 tool/altkey_pty_driver.py
       - name: Test native PTY lifecycle on macOS
         working-directory: packages/tina_engine
@@ -163,7 +164,13 @@ jobs:
 
       - name: test (root)
         working-directory: .
-        run: dart test -j 4
+        run: |
+          if dart test -j 4 --file-reporter "json:$RUNNER_TEMP/tina-tests.json"; then
+            exit 0
+          else
+            python3 tool/report_test_failures.py "$RUNNER_TEMP/tina-tests.json"
+            exit 1
+          fi
 
       - name: Check native keyboard decoding
         run: python3 tool/altkey_pty_driver.py

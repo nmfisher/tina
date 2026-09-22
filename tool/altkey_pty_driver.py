@@ -13,6 +13,7 @@ import os
 import pty
 import re
 import select
+import signal
 import subprocess
 import sys
 import time
@@ -123,9 +124,14 @@ def run(log_path, mute):
             time.sleep(0.15)
         proc.wait(timeout=10)
     finally:
-        if proc.poll() is None:
-            proc.kill()
-        proc.wait()
+        # `dart run` can have a separate VM child. Kill the entire session we
+        # created, including children keeping the PTY alive after its launcher
+        # exits. Killing only the launcher can hang PTY close on macOS.
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait(timeout=5)
         os.close(master)
 
     with open(log_path, encoding="utf-8") as source:
@@ -143,9 +149,16 @@ def run(log_path, mute):
 
 
 if __name__ == "__main__":
+    def timed_out(signum, frame):
+        raise TimeoutError("Keyboard harness timed out at:\n" + "".join(traceback.format_stack(frame)))
+
+    signal.signal(signal.SIGALRM, timed_out)
+    signal.alarm(180)
     try:
         result = run(LOG, False) | run(LOG + ".mute", True)
     except Exception:
         report_failure(traceback.format_exc())
         result = 1
+    finally:
+        signal.alarm(0)
     sys.exit(result)
