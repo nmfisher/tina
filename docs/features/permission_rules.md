@@ -37,12 +37,21 @@ semantics. The approval list's “always” choices continue to generate their
 existing rules automatically.
 
 Ordinary tool approvals also offer **rewrite to safe regular expression** (`r`).
-This opens an inline editor with an escaped regex matching exactly the current
-target. Suggestions are generated locally and immediately; they do not ask a
-model to infer which other commands are safe. Edit the expression, press Enter
+This opens an inline editor seeded with a model-drafted pattern: the approval's
+tool name and exact target are sent to the classifier model (the `[permissions]
+model`), which is asked for a conservative generalization — enumerate the safe
+alternatives rather than reach for wildcards, and never allow anything the
+target itself does not. Every draft is validated locally before it is shown: it
+must be a valid expression, match the entire current target, and contain no raw
+control characters. The editor paints the literal escaped target immediately,
+and the draft replaces it only if you have not typed yet; a late or failed draft
+(timeout, provider error, unusable answer) keeps the escape and says why. With
+no classifier provider configured, the rewrite offers only the literal escape,
+as before. Edit the expression, press Enter
 to review it, then choose **Allow and save for this conversation** to confirm.
 Invalid expressions and rules that do not match the current target cannot be
-confirmed. The command itself remains unchanged.
+confirmed. The command itself remains unchanged — and so does the model's
+suggestion: it is a starting point for you to judge, never an automatic grant.
 
 The reviewed rule lasts until the conversation ends or Tina exits, appears in
 `/permissions`, and can be removed with `/permissions revoke TOOL:PATTERN`.
