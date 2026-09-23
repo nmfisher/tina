@@ -8,21 +8,40 @@ import 'package:path/path.dart' as p;
 /// Lists files in the working directory, honoring .gitignore. Uses
 /// `git ls-files --cached --others --exclude-standard` when a git repo is
 /// available, falling back to a plain walk that skips well-known build
-/// directories. Results are cached after the first call; [invalidate] drops
-/// the cache.
+/// directories. Results are cached for [cacheTtl] so the @ picker reflects
+/// files moved or added since the last listing while per-keystroke queries
+/// don't re-run git; [invalidate] drops the cache immediately.
 class GitFileCompletionProvider implements CompletionProvider {
+  /// How long a cached listing stays fresh. Short enough that a picker
+  /// opened after files moved shows the current tree; long enough that the
+  /// queries fired on every keystroke while it's open all hit the cache.
+  static const cacheTtl = Duration(seconds: 3);
+
   final String workingDir;
   final int maxResults;
   final void Function(Object error, StackTrace stack)? onError;
 
+  /// Injectable so TTL behavior is testable without sleeping.
+  final DateTime Function() clock;
+
   List<String>? _cache;
+  DateTime? _cachedAt;
   Future<List<String>>? _loading;
 
   GitFileCompletionProvider({
     String? workingDir,
     this.maxResults = 50,
     this.onError,
-  }) : workingDir = workingDir ?? Directory.current.path;
+    DateTime Function()? clock,
+  })  : clock = clock ?? DateTime.now,
+        workingDir = workingDir ?? Directory.current.path;
+
+  bool get _cacheFresh {
+    final cachedAt = _cachedAt;
+    return _cache != null &&
+        cachedAt != null &&
+        clock().difference(cachedAt) < cacheTtl;
+  }
 
   @override
   Future<List<String>> complete(String query) async {
@@ -38,27 +57,33 @@ class GitFileCompletionProvider implements CompletionProvider {
 
   void invalidate() {
     _cache = null;
+    _cachedAt = null;
     _loading = null;
   }
 
   /// Eagerly enumerate files and populate the cache. If [onFile] is provided,
   /// it is called with the running count after each file is discovered.
-  /// If the cache is already populated, this is a no-op.
+  /// If the cache is fresh, this is a no-op.
   Future<void> prewarm({void Function(int count)? onFile}) async {
-    if (_cache != null) return;
+    if (_cacheFresh) return;
     final files = <String>[];
     final fromGit = await _streamGitLs(files, onFile: onFile);
     if (!fromGit) {
       await _walkFallbackTo(files, onFile: onFile);
     }
     _cache = files;
+    _cachedAt = clock();
   }
 
   Future<List<String>> _files() {
-    final cached = _cache;
-    if (cached != null) return Future.value(cached);
+    if (_cacheFresh) return Future.value(_cache!);
+    // Reuse an in-flight enumeration, but never a completed one: once the
+    // TTL expires a new listing must actually run, so _loading is cleared
+    // when it settles.
     return _loading ??= _enumerate().then((list) {
       _cache = list;
+      _cachedAt = clock();
+      _loading = null;
       return list;
     });
   }
