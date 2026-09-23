@@ -60,6 +60,7 @@ export 'src/execution/git_input.dart';
 export 'src/classification/git_classifier.dart';
 export 'src/execution/intent_input.dart';
 export 'src/classification/intent_classifier.dart';
+export 'src/execution/token_status.dart';
 
 export 'src/execution/interrupts.dart';
 export 'src/classification/rules.dart';

@@ -39,6 +39,17 @@ class SpendLimitExceeded implements Exception {
 /// clear would let a runaway loop escape the hard ceiling by clearing. [reset]
 /// exists for tests; production resets only on restart.
 class SpendLedger {
+  /// Fires after any visible total, limit, or trip state changed. Coalesced
+  /// and synchronous; listeners re-read the getters. Drives live UI (the
+  /// status strip's token counter) — never awaited for metering correctness.
+  final _changes = StreamController<void>.broadcast();
+
+  /// Change notifications for every mutation that alters what a consumer
+  /// would display: [record], [recordEstimated], [recordRetried], [seed],
+  /// [merge], [updateLimits], and [reset]. A no-op [updateLimits] still
+  /// notifies — cheap and keeps listeners simple.
+  Stream<void> get changes => _changes.stream;
+
   /// Hard global token ceiling across all agents. `0` = unbounded.
   int _maxGlobalTokens;
   int get maxGlobalTokens => _maxGlobalTokens;
@@ -142,6 +153,7 @@ class SpendLedger {
     }
     _maxGlobalTokens = maxGlobalTokens;
     _tripCheck();
+    _notify();
   }
 
   /// Running total of `input + output` tokens recorded this session.
@@ -196,6 +208,7 @@ class SpendLedger {
     }
     _totalTokens += usage.inputTokens + usage.outputTokens;
     _tripCheck();
+    _notify();
   }
 
   /// #46 (b): record one failed transport attempt's ESTIMATED usage — the
@@ -208,6 +221,7 @@ class SpendLedger {
   void recordEstimated(TokenUsage usage) {
     _totalEstimatedTokens += usage.inputTokens + usage.outputTokens;
     _tripCheck();
+    _notify();
   }
 
   /// #46 (c): book one RETRIED transport attempt — the single funnel entry
@@ -318,6 +332,7 @@ class SpendLedger {
   void seed(int tokens) {
     _seededTokens = tokens < 0 ? 0 : tokens;
     _totalTokens = _seededTokens;
+    _notify();
   }
 
   /// Merge another ledger's totals into this one (e.g. the summary fleet's
@@ -330,6 +345,7 @@ class SpendLedger {
     _totalTokens += other.totalTokens;
     _totalEstimatedTokens += other.totalEstimatedTokens;
     _tripCheck();
+    _notify();
   }
 
   /// Zero all state. For tests / a future explicit reset command — NOT wired to
@@ -346,7 +362,17 @@ class SpendLedger {
     _reason = null;
     _tokens = requestsPerMinute.toDouble();
     _lastRefill = _now();
+    _notify();
   }
+
+  void _notify() {
+    if (_changes.isClosed || !_changes.hasListener) return;
+    _changes.add(null);
+  }
+
+  /// Release the [changes] stream. Safe to call with live listeners (they
+  /// receive done). Owned by the app composition via `context.own`.
+  Future<void> close() => _changes.close();
 }
 
 /// Composition identity of the conversation-wide spend ledger. Provided by the

@@ -10,6 +10,7 @@ import 'rect.dart';
 import 'renderer.dart';
 import 'region.dart';
 import 'screen_layout.dart';
+import 'status_layout.dart';
 import 'stdio.dart';
 import 'styled_text.dart';
 import 'theme.dart';
@@ -502,6 +503,19 @@ class Screen {
   String? _modeLabel;
   List<RenderLine> _statusLines = const [];
 
+  /// Arranges mode label + status lines into the lines the strip paints.
+  /// Replaced wholesale by hosts that accept layout contributions; the
+  /// default preserves the pre-layout single left row.
+  StatusLayout _statusLayout = const DefaultStatusLayout();
+
+  /// Install a layout plugin contribution. Repaints; null restores the
+  /// default. The screen owns painting and geometry — the layout decides
+  /// only placement within the row.
+  void setStatusLayout(StatusLayout? layout) {
+    _statusLayout = layout ?? const DefaultStatusLayout();
+    if (!passthrough) _renderStrip();
+  }
+
   /// Plugin-provided strip content. The screen owns placement and clipping.
   void setStatusLines(List<RenderLine> lines) {
     _statusLines = List.unmodifiable(lines);
@@ -518,32 +532,84 @@ class Screen {
   }
 
   /// Paint the mode label and plugin status, erasing stale text first.
+  ///
+  /// Lines are grouped by [RenderLine.align]: everything else flows from the
+  /// strip's left edge, `right` lines anchor to its right edge. When both
+  /// groups share the row the right group wins the tail: the left group is
+  /// clipped to the gap left of it. This is the strip's layout policy as
+  /// painted today; a plugin [StatusLayout] arranges lines before they get
+  /// here (see [setStatusLines] callers in the app layer).
   void _renderStrip() {
     if (passthrough) return;
     final be = _backend!;
     final row = _layout.stripRow;
     final inner = _layout.width - 2;
-    final segs = <String>[];
-    if (_modeLabel != null) segs.add(colorize('2', _modeLabel!));
-    for (final line in _statusLines) {
-      final text = line.runs.map((run) {
-        final text = run.text.replaceAll(RegExp(r'[\x00-\x1f\x7f]'), ' ');
-        return run.code == null ? text : colorize(run.code!, text);
-      }).join();
-      if (text.isNotEmpty) segs.add(line.bar == null ? text : colorize(line.bar!, text));
+    // Layout arranges; painting groups left/right by align. A layout that
+    // throws leaves the last painted strip intact — a presentation extension
+    // cannot break the input loop.
+    List<RenderLine> arranged;
+    try {
+      arranged = _statusLayout.arrange(
+        StatusContent(modeLabel: _modeLabel, lines: _statusLines),
+        inner,
+      );
+    } catch (_) {
+      arranged = const DefaultStatusLayout().arrange(
+        StatusContent(modeLabel: _modeLabel, lines: _statusLines),
+        inner,
+      );
+    }
+    final left = <RenderLine>[];
+    final right = <RenderLine>[];
+    for (final line in arranged) {
+      (line.align == StatusAlign.right ? right : left).add(line);
+    }
+    String flatten(List<RenderLine> lines) => lines
+        .where((l) => !l.isBlank)
+        .map((line) {
+          final text = line.runs.map((run) {
+            final text =
+                run.text.replaceAll(RegExp(r'[\x00-\x1f\x7f]'), ' ');
+            return run.code == null ? text : colorize(run.code!, text);
+          }).join();
+          return line.bar == null
+              ? text
+              : colorize(line.bar!, text);
+        })
+        .where((text) => text.isNotEmpty)
+        .join('  │  ');
+
+    final leftText = flatten(left);
+    var rightText = flatten(right);
+    // Right group wins the tail: clip the left group so it never runs under
+    // the right-anchored text.
+    var leftBudget = inner;
+    if (rightText.isNotEmpty) {
+      final rightW = visibleWidth(rightText);
+      leftBudget = inner - rightW - 2; // breathing room between groups
+      if (leftBudget < 0) leftBudget = 0;
     }
     be.saveCursor();
     // Erase first: a shorter status must never leave residue. The strip owns
     // its whole row (tin-q9w2) — the boxes stop one row above it, so unlike
     // the old border-row placement there is no border to re-assert here.
     be.eraseCells(row, 1, inner);
-    if (segs.isEmpty) {
+    if (leftText.isEmpty && rightText.isEmpty) {
       be.restoreCursor();
       be.flush();
       return;
     }
-    be.moveCursor(row, 1);
-    be.writeText(_clipToVisibleCols(segs.join('  │  '), inner));
+    if (leftText.isNotEmpty) {
+      be.moveCursor(row, 1);
+      be.writeText(_clipToVisibleCols(leftText, leftBudget));
+    }
+    if (rightText.isNotEmpty) {
+      // Re-clip against the whole row: the right group must never wrap.
+      rightText = _clipToVisibleCols(rightText, inner);
+      final w = visibleWidth(rightText);
+      be.moveCursor(row, inner - w + 1);
+      be.writeText(rightText);
+    }
     be.restoreCursor();
     be.flush();
   }

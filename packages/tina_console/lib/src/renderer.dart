@@ -24,19 +24,27 @@ class RenderRun {
 /// rows within RenderContext.width; the host owns painting and scrolling.
 class RenderLine {
   final String? bar;
+
+  /// How the host should place this row when a surface offers more than one
+  /// position. `null` and [StatusAlign.left] behave identically: flush left.
+  final StatusAlign? align;
   final List<RenderRun> runs;
 
   /// Request another render with an advanced animation frame in status hosts.
   final bool animated;
 
-  const RenderLine({this.bar, this.runs = const [], this.animated = false});
+  const RenderLine({this.bar, this.align, this.runs = const [], this.animated = false});
   const RenderLine.blank()
       : bar = null,
+        align = null,
         animated = false,
         runs = const [];
 
   bool get isBlank => bar == null && runs.every((run) => run.text.isEmpty);
 }
+
+/// Where a surface places a [RenderLine] among peers.
+enum StatusAlign { left, right }
 
 /// Renders any UI value of type T, including non-message data. Return null to
 /// decline a value (for example, a particular block kind); an empty list hides

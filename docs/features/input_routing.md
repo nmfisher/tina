@@ -132,6 +132,24 @@ executes Git nor confirms that the agent ran Git.
 their own types through the same path. Status updates preserve the editor cursor,
 mode label and error notices; plugin removal clears its status.
 
+A plugin may also register a `StatusLayout` contribution to replace the strip's
+arrangement wholesale. A layout receives pure data — the mode label plus every
+status line — and the strip's inner width, and returns the lines to paint; it
+decides grouping and what to drop under width pressure, never where the strip
+sits. `RenderLine(align: StatusAlign.right)` anchors a line to the row's right
+edge: everything else flows from the left and is clipped before the right group.
+Like renderers, layout selection walks scopes nearest-first and the first
+registered wins; none installed restores the default left-aligned row. A
+throwing layout leaves the last painted strip intact.
+
+The built-in token-status plugin (`tina.token-status`) exercises the whole path:
+`LedgerTokenStatusSource` publishes `TokenUsageSummary` snapshots from the
+conversation-wide `SpendLedger` (its `changes` stream fires every record),
+`TokenUsageRenderer` paints `Σ 12,345 / 30,000 · 41%` right-aligned — estimated
+failed-attempt spend in yellow, `SPEND LIMIT TRIPPED` in red — and
+`PriorityStatusLayout` keeps the counter's right slot by dropping left lines
+end-backward under width pressure.
+
 While classification runs, the status cycles through `| / - \` every 120 ms.
 Status renderers request animation with `RenderLine(animated: true)` and read
 `RenderContext.animationFrame`. The bridge uses the screen's shared animation

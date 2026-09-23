@@ -194,4 +194,70 @@ void main() {
       expect(l.seededTokens, 0);
     });
   });
+
+  group('changes stream (live status display)', () {
+    // Broadcast delivery is a microtask late; pump between mutation and read.
+    Future<void> pump() => Future<void>.delayed(Duration.zero);
+
+    test('record, seed, merge, updateLimits, reset each notify once', () async {
+      final l = SpendLedger(maxGlobalTokens: 1000, requestsPerMinute: 0);
+      var events = 0;
+      final sub = l.changes.listen((_) => events++);
+      l.record(_u(10));
+      await pump();
+      expect(events, 1);
+      l.recordEstimated(_u(5));
+      await pump();
+      expect(events, 2);
+      l.recordRetried(_u(3), estimated: true);
+      await pump();
+      // recordRetried fans out into recordEstimated (one notify), not two.
+      expect(events, 3);
+      l.seed(100);
+      await pump();
+      expect(events, 4);
+      l.updateLimits(maxGlobalTokens: 2000, requestsPerMinute: 0);
+      await pump();
+      expect(events, 5);
+      l.reset();
+      await pump();
+      expect(events, 6);
+      // merge of an empty ledger stays silent (no-op fast path).
+      final empty = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
+      l.merge(empty);
+      await pump();
+      expect(events, 6);
+      // Merge with real totals notifies.
+      final fleet = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
+      fleet.record(_u(7));
+      l.merge(fleet);
+      await pump();
+      expect(events, 7);
+      await sub.cancel();
+    });
+
+    test('an estimated usage routed through record still notifies once', () async {
+      final l = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
+      var events = 0;
+      final sub = l.changes.listen((_) => events++);
+      l.record(const TokenUsage(
+        inputTokens: 4,
+        outputTokens: 0,
+        estimated: true,
+      ));
+      await pump();
+      expect(events, 1);
+      expect(l.totalEstimatedTokens, 4);
+      await sub.cancel();
+    });
+
+    test('close ends the stream without disturbing live listeners', () async {
+      final l = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
+      var done = false;
+      final sub = l.changes.listen(null, onDone: () => done = true);
+      await l.close();
+      expect(done, isTrue);
+      await sub.cancel();
+    });
+  });
 }

@@ -17,6 +17,7 @@
 library;
 
 export 'src/renderer.dart';
+export 'src/status_layout.dart';
 
 export 'src/backend/backend_factory.dart';
 export 'src/backend/backend_surface.dart';

@@ -80,6 +80,24 @@ class InputStatus {
         ),
       );
     }
+    // Layout contributions replace the strip's arrangement wholesale. Like
+    // renderers, nearest scope first, selection within each scope in
+    // registration order, first one wins; none installed restores the default.
+    StatusLayout layout = const DefaultStatusLayout();
+    for (PluginScope? current = scope; current != null; current = current.parent) {
+      if (!current.isAdmitting) continue;
+      var found = false;
+      for (final contribution in current.contributions) {
+        final candidate = contribution.contribution;
+        if (candidate is StatusLayout) {
+          layout = candidate;
+          found = true;
+          break;
+        }
+      }
+      if (found) break;
+    }
+    screen.setStatusLayout(layout);
     refresh();
   }
 

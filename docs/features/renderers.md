@@ -83,6 +83,21 @@ fallback; menus and the index browser retain their existing rendering.
 Headless/passthrough output keeps its plain-text path. Rendered
 styles and borders are not added to stored messages or sent to models.
 
+## Status strip layout
+
+The strip beneath the input is plugin-extensible end to end. A `StatusSource`
+(`package:tina_app`) publishes a typed value plus a change stream; a
+`Renderer<T>` turns it into `RenderLine`s; and a `StatusLayout` contribution
+(`package:tina_console`) may replace the strip's arrangement wholesale. A
+layout receives pure data — the host's mode label plus every status line — and
+the strip's inner width, and returns the lines to paint; it decides grouping
+and what to drop under width pressure, never where the strip sits.
+`RenderLine(align: StatusAlign.right)` anchors a line to the row's right edge;
+the strip clips the left group before the right-anchored text. Selection walks
+scopes nearest-first, first registration wins; a throwing layout leaves the
+last painted strip intact. See `docs/features/input_routing.md` for the
+built-in token-status plugin that combines all three contributions.
+
 ## Conversation border and input prompt
 
 Conversations are borderless by default. The input prompt shows `model > `,

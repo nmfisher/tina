@@ -23,8 +23,9 @@ PluginDescriptor spendLedgerPlugin(RuntimeConfig config) => PluginDescriptor(
     // (visible headless and in nohup logs, same channel as the watchdog); a
     // TUI may replace it with a chat renderer.
     ledger.onRetriedSpendNotice = stderr.writeln;
-    // The ledger owns no native state and holds no wire resources; nothing
-    // to own in the scope, so no `context.own` here.
+    // The ledger holds one broadcast stream controller ([changes]) now; the
+    // scope releases it at teardown.
+    context.own(ledger.close);
     return ledger;
   }),
 );

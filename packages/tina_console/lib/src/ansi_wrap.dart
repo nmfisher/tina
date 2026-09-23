@@ -1,3 +1,5 @@
+import 'term_width.dart';
+
 /// Split [text] into chunks where each has at most [maxCols] visible
 /// columns. ANSI escape sequences are preserved but don't count toward
 /// the column budget.
@@ -62,4 +64,32 @@ bool hasPrintableContent(String s) {
 bool _isCsiFinal(String ch) {
   final c = ch.codeUnitAt(0);
   return c >= 0x40 && c <= 0x7E;
+}
+
+/// Visible width of [s] in terminal columns, skipping ANSI (CSI) escape
+/// sequences. Wide runes count 2, combining marks 0 (term_width.dart's
+/// doctrine: err high, never low). Inverse of [clipToVisibleColumns] for
+/// layout arithmetic — measuring before painting, not clipping after.
+int visibleWidth(String s) {
+  var w = 0;
+  var i = 0;
+  while (i < s.length) {
+    if (s[i] == '\x1b') {
+      i++;
+      if (i < s.length && s[i] == '[') {
+        i++;
+        while (i < s.length && !_isCsiFinal(s[i])) {
+          i++;
+        }
+        if (i < s.length) i++;
+      } else if (i < s.length) {
+        i++;
+      }
+      continue;
+    }
+    final size = runeSizeAt(s, i);
+    w += runeWidth(codePointAt(s, i));
+    i += size;
+  }
+  return w;
 }
