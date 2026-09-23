@@ -376,7 +376,8 @@ void main() {
         expect(initial[inputRow], contains('Approve bash?'));
         expect(initial.join('\n'), contains('Enter confirm'));
         expect(initial[allow].indexOf('[y]'), screen.input.bounds.col + 4);
-        final title = initial.firstWhere((row) => row.contains('┌ Run command'));
+        final title = initial.firstWhere(
+            (row) => row.contains('┌ Run shell command'));
         expect(title.indexOf('┌'), screen.input.bounds.col);
         expect(initial.join('\n'), contains('cargo test'));
         String selected(String label) => screen.colorize(

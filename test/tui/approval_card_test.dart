@@ -53,6 +53,27 @@ void main() {
     },
   );
 
+  test('titles distinguish a shell line from a direct program run', () {
+    expect(
+      const ApprovalCard(
+        prompt: PermissionPrompt('bash', {'command': 'ls -la'}),
+      ).title,
+      'Run shell command',
+    );
+    expect(
+      const ApprovalCard(
+        prompt: PermissionPrompt('exec', {'executable': 'ls'}),
+      ).title,
+      'Run program',
+    );
+    // Anything else keeps its raw tool name — the header never invents a
+    // generic label that could hide which tool is being approved.
+    expect(
+      const ApprovalCard(prompt: PermissionPrompt('custom', {})).title,
+      'custom',
+    );
+  });
+
   test('wrapping preserves spaces, Unicode and literal shell operators', () {
     const command = 'printf "漢字 😀"  && echo "a b"';
     final rows = approvalWrap(command, 12);

@@ -22,8 +22,15 @@ class ApprovalCard {
     this.rule,
   });
 
+  /// Header for the approval frame, from the raw tool id. `bash` and `exec`
+  /// are deliberately named apart: `exec` runs a program with literal argv
+  /// (no shell parsing — "Shell expansions, pipes and redirects are not
+  /// interpreted", per the tool's own description), while `bash` runs a
+  /// `/bin/sh -c` line where they all ARE. Approving one is not approving
+  /// the other, so the title must not blur them into one "Run command".
   String get title => switch (prompt.toolName) {
-    'bash' || 'exec' => 'Run command',
+    'bash' => 'Run shell command',
+    'exec' => 'Run program',
     'edit' => 'Edit file',
     'write' => 'Write file',
     'read' => 'Read file',
