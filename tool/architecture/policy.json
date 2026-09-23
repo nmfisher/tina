@@ -152,7 +152,8 @@
   "baseline": "baseline.json",
   "excludedRoots": {
     "tina": [
-      "examples"
+      "examples",
+      "spikes"
     ],
     "tina_engine": [
       "hook"
