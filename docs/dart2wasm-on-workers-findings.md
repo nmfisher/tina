@@ -272,3 +272,58 @@ worker): the spike removes the platform-feasibility unknown and sets two
 design constraints from §3.1 — the instance ships as one static module
 compiled at deploy time, and no runtime codegen (no fetch-and-compile of
 snapshots/patches inside the worker).
+
+## 8. Comparison with other runtimes and frameworks
+
+Where this spike's route sits among the ways to run Dart server-side, with
+the honesty about what each is actually for:
+
+| Route | What it is | Fit for dispatched tina instances |
+|---|---|---|
+| **dart2wasm → workerd** (this spike) | Dart compiled to WasmGC, run inside Cloudflare's edge runtime as a static module | The only edge option found that runs real Dart today. Constrained: no processes/filesystem/runtime codegen — reason-only instances |
+| **dart2js → workerd** (`cloudflare_workers` pub pkg, "Dart Edge") | Dart compiled to JS as an ES-module worker | Same runtime constraints as above; package is ~3 years stale and built on pre-`dart:js_interop` bindings. Existence proof, not a foundation |
+| **Native Dart in a container** (Fly Machines, Cloudflare Containers, Railway, any Docker host) | AOT-compiled Dart binary with real processes, FS, and network | The only route that runs a *full* tina instance (bash/git/tests). Doesn't need the io-free engine split at all. Cold start and per-instance cost are the trade vs. edge |
+| **Serverpod** | Dart-native, batteries-included backend framework: own server, ORM, auth, codegen, migrations; deploys via Docker anywhere Dart runs (plus their hosted option) | Solves a different slice: a managed **control plane** (dispatch API, storage, auth) as a conventional Dart server. It does not run agents on the edge — its Dart runs server-side like any container. Relevant if the dispatch layer should be a full Dart service; overkill for a stateless edge dispatcher |
+| **wasmtime via FFI** (`docs/tina-wasm-proposal.md`) | tina *hosting* third-party wasm plugins in-process | The inverse direction of this spike (Dart as host, not guest); complementary, see §7 |
+
+Net: the edge route and the container route are complements, not
+competitors — reason-only instances are edge-shaped; test-running
+instances are container-shaped. Serverpod (or plain `shelf`) enters only
+when a durable control plane is needed; it neither replaces the edge
+runtime nor changes what an instance can execute.
+
+## 9. References
+
+Cloudflare docs (canonical pages; bodies are client-rendered and were not
+quotable at fetch time — the spike's claims about workerd behavior are
+anchored in the empirical error text in §3.1, not in these pages):
+
+- WebAssembly in Workers (overview; wasm modules, `CompiledWasm`-style
+  imports): <https://developers.cloudflare.com/workers/runtime-apis/webassembly/>
+- Wasm in JavaScript (the code-generation restriction from §3.1):
+  <https://developers.cloudflare.com/workers/runtime-apis/webassembly/javascript/>
+- Compatibility flags / dates (e.g. wasm module-import flags, the date
+  pin in `wrangler.toml`):
+  <https://developers.cloudflare.com/workers/configuration/compatibility-flags/> ·
+  <https://developers.cloudflare.com/workers/configuration/compatibility-dates/>
+- Limits (worker size, CPU time — the unmeasured scale risk from §6):
+  <https://developers.cloudflare.com/workers/platform/limits/>
+- Wrangler configuration (module rules, assets):
+  <https://developers.cloudflare.com/workers/wrangler/configuration/>
+
+Dart side:
+
+- Dart WebAssembly docs (dart2wasm, WasmGC, JS interop):
+  <https://dart.dev/wasm>
+- `dart:js_interop` (extension types, `external factory`, `toJS`
+  conversions used in §3.3–3.4):
+  <https://dart.dev/interop/js-interop>
+
+Prior art on pub.dev:
+
+- `cloudflare_workers` (Dart Edge, dart2js route, stale):
+  <https://pub.dev/packages/cloudflare_workers>
+- `cf_workers` (dart2wasm + `dart:js_interop` route, 2025; this spike
+  independently re-derived its wiring):
+  <https://pub.dev/packages/cf_workers>
+- Serverpod: <https://pub.dev/packages/serverpod> · <https://serverpod.dev>
