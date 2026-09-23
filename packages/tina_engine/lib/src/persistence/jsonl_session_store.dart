@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import '../llm/message.dart';
 import '../platform/paths.dart';
+import 'session_index.dart';
 import 'session_store.dart';
 
 final _log = Logger('tina.persistence');
@@ -38,7 +39,7 @@ final _log = Logger('tina.persistence');
 /// read in place by [listSessions] and materialized into the nested layout
 /// lazily — on the first [loadSession] (resume) or write — via copy-then-delete
 /// so an interrupted migration leaves both old and new and can be retried.
-class JsonlSessionStore implements SessionStore {
+class JsonlSessionStore implements SessionStore, SessionIndex {
   final Directory root;
   static final _rng = Random.secure();
 
@@ -399,6 +400,23 @@ class JsonlSessionStore implements SessionStore {
       return manifest;
     } on PathNotFoundException {
       throw StateError('Session not found: $sessionId');
+    }
+  }
+
+  /// Read-only [SessionIndex.cwdFor]: the recorded working directory, from
+  /// the manifest alone. Never materializes a legacy flat session (a write)
+  /// — those never recorded a cwd anyway, so null is correct for them too.
+  @override
+  Future<String?> cwdFor(String sessionId) async {
+    final mf = _manifestFile(sessionId);
+    try {
+      final manifest = SessionManifest.fromJson(
+          jsonDecode(await mf.readAsString()) as Map<String, dynamic>);
+      return manifest.cwd;
+    } on FileSystemException {
+      return null; // unknown session or unreadable manifest — not an error
+    } on FormatException {
+      return null; // corrupt manifest — degrade to null, like listSessions
     }
   }
 

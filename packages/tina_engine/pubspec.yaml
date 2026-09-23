@@ -3,7 +3,7 @@ description: The tina coding-agent engine — agent runtime, LLM providers/regis
 publish_to: none
 version: 0.1.0
 environment:
-  sdk: ^3.0.0
+  sdk: ^3.3.0
 dependencies:
   crypto: ^3.0.6
   file_tree: { path: ../file_tree }

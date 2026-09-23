@@ -220,15 +220,17 @@ Future<AppComposition> buildAppComposition({
 }) async {
   final resources = RuntimeResources();
   try {
-    // SP1: when no store is injected and no caller plugin provides one, the
-    // default JSONL store is built by the session plugin and resolved from
-    // plugin scope after activation — the seam alternative backends bind (a
-    // caller plugin providing sessionStoreServiceKey replaces the default;
-    // two providers of one key would be an activation error). An injected
-    // [store] bypasses the plugin entirely (tests; bin/tina.dart's
-    // pre-runtime instance — see the session-persistence program, SP2).
-    // Summary-style runtimes (buildExecutionRuntime direct callers) mount no
-    // session plugin at all, so they never build an unused store.
+    // SP1/SP2: when no store is injected and no caller plugin provides one,
+    // the default JSONL store is built by the session plugin and resolved
+    // from plugin scope after activation — the seam alternative backends
+    // bind (a caller plugin providing sessionStoreServiceKey replaces the
+    // default; two providers of one key would be an activation error). An
+    // injected [store] bypasses the plugin entirely (tests). The launcher's
+    // pre-runtime reads (picker, cwd restore, --list) go through the
+    // read-only SessionIndex, not a store — see the session-persistence
+    // program, SP2. Summary-style runtimes (buildExecutionRuntime direct
+    // callers) mount no session plugin at all, so they never build an
+    // unused store.
     final providesSessionStore = plugins.any(
       (plugin) => plugin.provides.contains(sessionStoreServiceKey),
     );

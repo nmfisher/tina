@@ -182,15 +182,14 @@ Future<void> _run(List<String> argv) async {
       // launch it via its launch_workflow tool).
       _seedDefaultWorkflowQuietly(environment.env);
 
-      // Construct the session store once and hand it to buildAppComposition (it
-      // would build an identical one internally). On `--resume <id>`, chdir to
-      // the session's recorded working directory BEFORE any project-context read
-      // so trust, AGENTS.md, the repo summary, the tool sandbox, and the
-      // environment agent all resolve against the folder the session actually
-      // lives in — not wherever tina was launched from. `--continue` is
-      // folder-scoped by design and needs no chdir. `resumeCwdFor` is pure and
-      // never throws on a bad id; resolveSession surfaces a missing session.
-      final sessionStore = JsonlSessionStore.defaultLocation();
+      // The startup paths below need only a read-only view of saved
+      // sessions. Resolve it via the SP2 index (a [SessionIndex]) rather
+      // than the full store: the picker and cwd restore run before any
+      // plugin runtime exists. A full store is built only when a session is
+      // actually resumed — the launcher hands THAT instance to
+      // buildAppComposition, so there is still exactly one store per process
+      // and one construction path.
+      final index = resolveSessionIndex();
       var resume = launch.startup.resume;
       if (launch.startup.resumePicker) {
         try {
@@ -203,7 +202,7 @@ Future<void> _run(List<String> argv) async {
             return;
           }
           final id = pickStartupSession(
-            await sessionStore.listSessions(),
+            await index.listSessions(),
             readLine: stdin.readLineSync,
             write: stdout.write,
           );
@@ -212,13 +211,12 @@ Future<void> _run(List<String> argv) async {
         } finally {
           // Composition takes ownership only after a selection succeeds.
           if (resume.resumeSessionId == null) {
-            await sessionStore.close();
             registry.catalog?.close();
           }
         }
       }
       if (resume.resumeSessionId != null) {
-        await _restoreSessionCwd(sessionStore, resume.resumeSessionId!);
+        await _restoreSessionCwd(index, resume.resumeSessionId!);
       }
 
       // Project-trust gate: decide once, before any agent is built, whether this
@@ -235,8 +233,10 @@ Future<void> _run(List<String> argv) async {
         config: launch.runtime,
         resumeRequest: resume,
         registry: registry,
-        store: sessionStore,
-        ownsStore: true,
+        // No pre-built store: the jsonl plugin (mounted by the composition
+        // when nothing else provides sessionStoreServiceKey) owns store
+        // construction and its close. The launcher's pre-runtime reads used
+        // the read-only SessionIndex instead (see resolveSessionIndex).
         loadWorkspaceContext: loadWorkspaceContext,
         plugins: [
           if (!launch.startup.nonInteractive)
@@ -386,8 +386,8 @@ Future<void> _releaseSessionLock() async {
 /// folder. Safe no-op when the recorded cwd is absent (legacy session), already
 /// matches the launch folder, or points at a directory that no longer exists
 /// (warned + left in the launch folder, matching `--continue`'s fallback).
-Future<void> _restoreSessionCwd(SessionStore store, String sessionId) async {
-  final cwd = await resumeCwdFor(store, sessionId);
+Future<void> _restoreSessionCwd(SessionIndex index, String sessionId) async {
+  final cwd = await index.cwdFor(sessionId);
   if (cwd == null || cwd.isEmpty) return; // legacy session — nothing to restore
   final dir = Directory(cwd);
   if (dir.path == Directory.current.path) return; // already home
@@ -798,22 +798,18 @@ bool _shouldRunStdinSetup(List<String> argv, Environment environment) {
 }
 
 /// Print every saved session to stdout in the same format `/sessions` uses
-/// inside the TUI, then return. Lightweight: only constructs the on-disk store,
-/// no provider or TUI.
+/// inside the TUI, then return. Lightweight: only the read-only session
+/// index — no store, no provider, no TUI.
 Future<void> _listSessions() async {
-  final store = JsonlSessionStore.defaultLocation();
-  try {
-    final sessions = await store.listSessions();
-    if (sessions.isEmpty) {
-      stdout.writeln('(no saved sessions)');
-      return;
-    }
-    for (final s in sessions) {
-      final stamp = _shortStamp(s.updatedAt);
-      stdout.writeln('${s.id}  $stamp  ${s.messageCount}msg  ${s.title}');
-    }
-  } finally {
-    await store.close();
+  final index = resolveSessionIndex();
+  final sessions = await index.listSessions();
+  if (sessions.isEmpty) {
+    stdout.writeln('(no saved sessions)');
+    return;
+  }
+  for (final s in sessions) {
+    final stamp = _shortStamp(s.updatedAt);
+    stdout.writeln('${s.id}  $stamp  ${s.messageCount}msg  ${s.title}');
   }
 }
 
