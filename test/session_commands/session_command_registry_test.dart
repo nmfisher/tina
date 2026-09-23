@@ -99,6 +99,7 @@ void main() {
           '  /show <n|all>  reveal a folded block (a tool call\'s output, a '
           'thought)\n'
           '  /hide <n|all>  collapse a block back to its one-line form\n'
+          '  /classifier-review [focus] review this session for Typesafe question ideas (fresh context)\n'
           'ESC cancels the active session\'s in-flight response.\n';
 
       // Dispatch echoes the trimmed line, then a separator, then the block.
@@ -126,6 +127,7 @@ void main() {
           '/permissions', '/sessions', '/session', '/resume', '/save',
           '/model', '/settings', '/prompts', '/spawn', '/branch', '/image',
           '/index', '/workflow', '/blocks', '/show', '/hide', '/spend', '/update', '/detach',
+          '/classifier-review',
         ],
       );
     });
@@ -305,4 +307,5 @@ String _goldenHelpBody() =>
         '  /show <n|all>  reveal a folded block (a tool call\'s output, a '
         'thought)\n'
         '  /hide <n|all>  collapse a block back to its one-line form\n'
+        '  /classifier-review [focus] review this session for Typesafe question ideas (fresh context)\n'
         "ESC cancels the active session's in-flight response.\n";

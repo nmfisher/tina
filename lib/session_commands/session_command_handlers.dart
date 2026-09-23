@@ -12,6 +12,7 @@ import '../tmux/tmux_support.dart';
 
 part 'session_command_registry.dart';
 part 'command_families.dart';
+part 'classifier_review.dart';
 
 /// Names the DOT-workflow feature in [SessionCommandEntry.feature] so the
 /// `/workflow` command disappears with the rest of the surface when it is

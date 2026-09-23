@@ -428,3 +428,35 @@ before expanding into persistent indexing. Use the same repository revision and
 questions, record expected paths, compare per-file precision/recall, wall time, actual
 usage when provided, and failures. Fixture tests validate plumbing and boundaries;
 they do not establish live model accuracy, pricing, or a speedup.
+
+## Session review: `/classifier-review`
+
+`/classifier-review [focus]` reviews the active conversation for judgment
+questions worth adding. It sends one fresh-context request — a dedicated
+system prompt, the conversation's provider, no tools — with the history
+passed as data, then streams the markdown reply into the transcript. The
+history and the session recorder are untouched: a review is advice, not a
+turn, so it never enters the conversation context or `/save`'s export.
+
+The prompt pins the question shapes (choice 1–255 options, score 2–10
+levels, noul; flat_snake ids; JSON-only state within the ~24k request
+budget) and the discriminator: a deterministic rule or an existing mechanism
+is not a candidate — TypeSafe is for decisions that must be judged. Every
+candidate must cite the session exchange that justifies it, name the state
+fields available at the decision moment, and name the caller that would act
+on the answer; an empty result stated plainly is a valid outcome. The
+transcript is declared data, so instructions embedded in tool output are
+reviewed, not obeyed.
+
+The final message carries session context the transcript lacks: model,
+permission mode, configured rules, and remembered approvals — counts exact,
+listings capped at 60 lines each. Approval decisions are sink output, never
+history messages, so the grants list is the only record of what was prompted
+and who answered. An optional `focus` argument (≤2000 characters) narrows
+the review, e.g. `/classifier-review commit messages`.
+
+The request is pre-flighted against the conversation's token budget
+(`--max-request-tokens`) and cancels on ESC like any command; spend is
+booked by the metered provider stack. The command runs headless and needs no
+TypeSafe key — it uses the chat provider to *propose* questions, not the
+TypeSafe API to answer them.

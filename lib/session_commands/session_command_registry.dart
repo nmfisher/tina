@@ -272,6 +272,13 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     helpOrder: 19,
     handler: (h, _) => _handled(h.frontend._handleDetach),
   ),
+  SessionCommandEntry(
+    names: const ['/classifier-review'],
+    argsHint: '[focus]',
+    summary: 'review this session for Typesafe question ideas (fresh context)',
+    helpOrder: 24,
+    handler: (h, t) => _handled(() => h.history._handleClassifierReview(t)),
+  ),
 ];
 
 /// The ordered command table dispatch, completion, and `/help` render from.

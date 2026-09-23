@@ -738,6 +738,149 @@ class HistoryCommands {
       style: HostMessageStyle.dim,
     );
   }
+
+  /// `/classifier-review [focus]` — mine THIS conversation's history for
+  /// TypeSafe question candidates in a fresh context: a dedicated system
+  /// prompt, no tools, history passed as data. Read-only — neither history
+  /// nor the recorder is touched; the review is advice, not a turn, so its
+  /// output never enters the conversation (or `/save`'s export).
+  ///
+  /// Unlike `/compact`, which may fire mid-turn from inside an agent run and
+  /// so waits out invocation holds, this dispatches from the input loop,
+  /// outside any InvocationContext — no hold machinery here. Spend is booked
+  /// by the metered provider stack like any other send; the pre-flight below
+  /// guards request SIZE against `--max-request-tokens`.
+  Future<void> _handleClassifierReview(String line) async {
+    final s = ctx.active;
+    final cancelSignal = ctx.commandCancelSignal;
+    final focus = line.substring(kClassifierReviewCommand.length).trim();
+    if (focus.length > kClassifierReviewMaxFocus) {
+      s.host.showMessage(
+        'Usage: $kClassifierReviewCommand '
+        '[focus, up to $kClassifierReviewMaxFocus characters]\n',
+        style: HostMessageStyle.error,
+      );
+      return;
+    }
+    if (s.history.isEmpty) {
+      s.host.notice('(nothing to review)\n');
+      return;
+    }
+    if (!s.hasAgent) {
+      // Driver-only (scripted) conversations have no provider to ask —
+      // `_NullProvider` would throw on send.
+      s.host.showMessage(
+        'no live model in this conversation — $kClassifierReviewCommand '
+        'needs one\n',
+        style: HostMessageStyle.warning,
+      );
+      return;
+    }
+    final messages = <Message>[
+      ...s.history.where((m) => !m.isReasoningOnly),
+      Message(role: Role.user, content: [
+        TextBlock(buildClassifierReviewQuestion(
+          modelReference:
+              s.modelReference.isEmpty ? s.provider.model : s.modelReference,
+          policy: s.policy,
+          messageCount: s.history.length,
+          focus: focus,
+        )),
+      ]),
+    ];
+    final system = kClassifierReviewSystemPrompt;
+    final reject = s.agent.budget
+        ?.checkRequestInput(system, messages, const <ToolSchema>[]);
+    if (reject != null) {
+      s.host.notice('classifier review failed: $reject\n',
+          kind: NoticeKind.error);
+      return;
+    }
+
+    final activity = RunActivity(s.host);
+    try {
+      s.host
+          .notice('--- classifier review: ${s.history.length} messages ---\n');
+      final stream = s.provider.send(
+          system: system, messages: messages, tools: const <ToolSchema>[]);
+      final buf = StringBuffer();
+      final done = Completer<void>();
+      Object? err;
+      var sawText = false;
+
+      // Deltas stream as they arrive; a provider that completes in one event
+      // (no deltas) falls back to the final content, so the review still
+      // renders instead of reporting an empty response.
+      void emit(String text) {
+        if (!sawText) {
+          s.host.activityStop();
+          sawText = true;
+        }
+        s.host.text(text);
+        buf.write(text);
+      }
+
+      final subscription = stream.listen(
+        (event) {
+          try {
+            if (event is TextDelta) {
+              emit(event.text);
+            } else if (event is MessageComplete && buf.isEmpty) {
+              for (final block in event.content) {
+                if (block is TextBlock && block.text.trim().isNotEmpty) {
+                  emit(block.text);
+                }
+              }
+            } else if (event is StreamError) {
+              err = event.error;
+            }
+          } catch (e) {
+            err = e;
+            if (!done.isCompleted) done.complete();
+          }
+        },
+        onDone: () {
+          try {
+            s.host.activityStop();
+            if (sawText) s.host.newline();
+          } catch (e) {
+            err = e;
+          } finally {
+            if (!done.isCompleted) done.complete();
+          }
+        },
+        onError: (Object e) {
+          err = e;
+          try {
+            s.host.activityStop();
+          } catch (_) {}
+          if (!done.isCompleted) done.complete();
+        },
+      );
+      try {
+        final cancelled = await Future.any([
+          done.future.then((_) => false),
+          if (cancelSignal != null) cancelSignal.then((_) => true),
+        ]);
+        if (cancelled) return;
+      } finally {
+        await subscription.cancel();
+      }
+      if (err != null) {
+        s.host.notice('classifier review failed: $err\n',
+            kind: NoticeKind.error);
+        return;
+      }
+      if (buf.toString().trim().isEmpty) {
+        s.host.notice('classifier review failed: empty response\n',
+            kind: NoticeKind.error);
+      }
+    } catch (e) {
+      s.host.notice('classifier review failed: $e\n', kind: NoticeKind.error);
+    } finally {
+      activity.complete();
+    }
+  }
 }
 
 class PermissionsCommands {
