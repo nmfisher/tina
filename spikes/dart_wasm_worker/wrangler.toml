@@ -1,0 +1,14 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "dart-wasm-worker-spike"
+main = "worker/index.js"
+compatibility_date = "2025-05-05"
+
+# workerd forbids runtime code generation (WebAssembly.compile), so the wasm
+# must be compiled by workerd itself: "CompiledWasm" imports it as a ready
+# WebAssembly.Module. dart2wasm's loader accepts a pre-compiled module and
+# supplies its own js-string polyfill import.
+rules = [{ type = "CompiledWasm", globs = ["**/*.wasm"] }]
+
+[assets]
+binding = "ASSETS"
+directory = "./public"

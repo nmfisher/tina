@@ -1,0 +1,9 @@
+name: dart_wasm_worker_spike
+description: >-
+  Spike: compile a Dart fetch handler with dart2wasm and run it under
+  Cloudflare workerd (the Workers runtime) via `wrangler dev`.
+publish_to: none
+version: 0.0.1
+
+environment:
+  sdk: ^3.0.0

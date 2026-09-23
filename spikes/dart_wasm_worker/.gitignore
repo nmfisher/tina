@@ -1,0 +1,6 @@
+# Local wrangler/miniflare state (KV/D1/R2 sqlite, caches). Regenerated
+# by `wrangler dev`; never commit.
+.wrangler/
+
+# Dart build output (wasm + JS glue) — see root .gitignore.
+build/
