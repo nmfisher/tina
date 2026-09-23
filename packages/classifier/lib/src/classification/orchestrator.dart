@@ -87,6 +87,7 @@ class ClassificationOrchestrator {
     bool restoreOnly = false,
     JudgmentCancellation? cancellation,
     void Function(String)? onProgress,
+    void Function(int done, int total)? onTaskProgress,
   }) async {
     if (_running) throw StateError('Classification already running');
     _running = true;
@@ -110,6 +111,7 @@ class ClassificationOrchestrator {
           refresh,
           restoreOnly,
           onProgress,
+          onTaskProgress,
         );
         return work(session!);
       }
@@ -132,9 +134,17 @@ class ClassificationSession {
   final bool refresh;
   final bool restoreOnly;
   final void Function(String)? _progress;
+
+  /// Settles whenever one more task finishes (succeeds, fails or blocks), so a
+  /// live indicator can show `done/total` without parsing progress strings.
+  /// [tasksTotal] is the count announced by [announceTaskTotal]; before that
+  /// fires it stays 0 and callbacks report 0/0.
+  final void Function(int done, int total)? _onTaskProgress;
   int executed = 0;
   int restored = 0;
   int reusedRequests = 0;
+  int tasksTotal = 0;
+  int _tasksDone = 0;
   Future<void> _checkpoint = Future.value();
   final _activeKeys = <String>{};
   int _inFlight = 0;
@@ -146,7 +156,23 @@ class ClassificationSession {
     this.refresh,
     this.restoreOnly,
     this._progress,
+    this._onTaskProgress,
   );
+
+  /// Announces how many classification tasks this run will settle. Idempotent
+  /// per call site: re-announcing a larger total replaces it (multi-dimension
+  /// workflows count their trees one at a time); the running count is never
+  /// reset, so a fraction only ever moves forward.
+  void announceTaskTotal(int total) {
+    if (total <= tasksTotal) return;
+    tasksTotal = total;
+    _onTaskProgress?.call(_tasksDone, tasksTotal);
+  }
+
+  void _taskSettled() {
+    _tasksDone++;
+    _onTaskProgress?.call(_tasksDone, tasksTotal);
+  }
 
   void _check() {
     if (cancellation.isCancelled) throw StateError('Classification cancelled');
@@ -188,95 +214,103 @@ class ClassificationSession {
     if (!_activeKeys.add(task.key))
       throw StateError('Duplicate active classification key');
     try {
-      final provenance = <String, Object?>{
-        'request': task.request.toJson(),
-        'source': task.source.identity,
-        'input': task.source.contract.identity,
-        'splitter': task.source.splitter?.identity,
-        'plan': task.plan.identity,
-        'executor': _owner.executor.configuration,
-        'budget': _owner.budget.identity,
-        'upstream': task.upstream,
-      };
-      final signature = canonicalFingerprint(provenance);
-      final manifestKey = 'task:${task.key}';
-      if (!refresh) {
-        final saved = await _load(manifestKey);
-        if (saved != null && saved['signature'] == signature) {
-          try {
-            final revision = SourceRevision(
-              jsonObject(saved['source_revision']),
+      return await _classifyInner(task);
+    } finally {
+      // Every settlement — record, failure or duplicate-key throw — counts
+      // toward the announced total, so a live fraction cannot stall on one
+      // task's error path.
+      _activeKeys.remove(task.key);
+      _taskSettled();
+    }
+  }
+
+  Future<ClassificationRecord<O>> _classifyInner<I, O>(
+    ClassificationTask<I, O> task,
+  ) async {
+    final provenance = <String, Object?>{
+      'request': task.request.toJson(),
+      'source': task.source.identity,
+      'input': task.source.contract.identity,
+      'splitter': task.source.splitter?.identity,
+      'plan': task.plan.identity,
+      'executor': _owner.executor.configuration,
+      'budget': _owner.budget.identity,
+      'upstream': task.upstream,
+    };
+    final signature = canonicalFingerprint(provenance);
+    final manifestKey = 'task:${task.key}';
+    if (!refresh) {
+      final saved = await _load(manifestKey);
+      if (saved != null && saved['signature'] == signature) {
+        try {
+          final revision = SourceRevision(jsonObject(saved['source_revision']));
+          if (await _bounded(
+            () => task.source.isCurrent(revision, cancellation),
+          )) {
+            final result = ClassificationResult.fromJson(
+              saved['result'],
+              task.plan.output,
             );
-            if (await _bounded(
-              () => task.source.isCurrent(revision, cancellation),
-            )) {
-              final result = ClassificationResult.fromJson(
-                saved['result'],
-                task.plan.output,
-              );
-              final coverage = InputCoverage.fromJson(saved['coverage']);
-              final record = ClassificationRecord(
-                _manifest[manifestKey]!,
-                result,
-                coverage,
-                task.plan.output,
-              );
-              restored++;
-              _progress?.call('Restored ${task.key}');
-              return record;
-            }
-          } catch (_) {
-            _check();
+            final coverage = InputCoverage.fromJson(saved['coverage']);
+            final record = ClassificationRecord(
+              _manifest[manifestKey]!,
+              result,
+              coverage,
+              task.plan.output,
+            );
+            restored++;
+            _progress?.call('Restored ${task.key}');
+            return record;
           }
+        } catch (_) {
+          _check();
         }
       }
-      if (restoreOnly) throw StateError('Missing or stale classification');
-      _progress?.call('Classifying ${task.key}');
-      final snapshot = await _bounded(
-        () => task.source.snapshot(task.request, cancellation),
-      );
-      if (canonicalFingerprint(snapshot.splitter?.identity) !=
-          canonicalFingerprint(task.source.splitter?.identity)) {
-        throw StateError('Snapshot/source splitting policies disagree');
-      }
-      final dispatcher = _TaskDispatcher(
-        this,
-        task.source.identity,
-        snapshot.splitter?.identity,
-        task.key,
-      );
-      final result = await task.plan.run(snapshot, task.upstream, dispatcher);
-      _check();
-      if (result.outcome == ClassificationOutcome.notApplicable &&
-          !snapshot.coverage.complete) {
-        throw StateError(
-          'Incomplete input cannot establish a complete negative classification',
-        );
-      }
-      if (!await _bounded(
-        () => task.source.isCurrent(snapshot.revision, cancellation),
-      )) {
-        throw StateError('Source changed during classification');
-      }
-      final json = <String, Object?>{
-        'schema_version': classificationSchemaVersion,
-        'signature': signature,
-        'provenance': provenance,
-        'source_revision': snapshot.revision.receipt,
-        'coverage': snapshot.coverage.toJson(),
-        'request_records': dispatcher.recordIds,
-        'result': result.toJson(task.plan.output),
-      };
-      final id = await _publish(manifestKey, json);
-      return ClassificationRecord(
-        id,
-        result,
-        snapshot.coverage,
-        task.plan.output,
-      );
-    } finally {
-      _activeKeys.remove(task.key);
     }
+    if (restoreOnly) throw StateError('Missing or stale classification');
+    _progress?.call('Classifying ${task.key}');
+    final snapshot = await _bounded(
+      () => task.source.snapshot(task.request, cancellation),
+    );
+    if (canonicalFingerprint(snapshot.splitter?.identity) !=
+        canonicalFingerprint(task.source.splitter?.identity)) {
+      throw StateError('Snapshot/source splitting policies disagree');
+    }
+    final dispatcher = _TaskDispatcher(
+      this,
+      task.source.identity,
+      snapshot.splitter?.identity,
+      task.key,
+    );
+    final result = await task.plan.run(snapshot, task.upstream, dispatcher);
+    _check();
+    if (result.outcome == ClassificationOutcome.notApplicable &&
+        !snapshot.coverage.complete) {
+      throw StateError(
+        'Incomplete input cannot establish a complete negative classification',
+      );
+    }
+    if (!await _bounded(
+      () => task.source.isCurrent(snapshot.revision, cancellation),
+    )) {
+      throw StateError('Source changed during classification');
+    }
+    final json = <String, Object?>{
+      'schema_version': classificationSchemaVersion,
+      'signature': signature,
+      'provenance': provenance,
+      'source_revision': snapshot.revision.receipt,
+      'coverage': snapshot.coverage.toJson(),
+      'request_records': dispatcher.recordIds,
+      'result': result.toJson(task.plan.output),
+    };
+    final id = await _publish(manifestKey, json);
+    return ClassificationRecord(
+      id,
+      result,
+      snapshot.coverage,
+      task.plan.output,
+    );
   }
 
   Future<Map<String, dynamic>?> _load(String key) async {

@@ -191,6 +191,9 @@ extension TreeSession on ClassificationSession {
     Set<String> blocked = const {},
   }) async {
     final view = tree ?? await readTree(source, request);
+    // Contribute this tree's size to the run-wide total; multi-tree workflows
+    // (locals, then per-level merges) therefore announce one tree at a time.
+    announceTaskTotal(tasksTotal + plan.keys(view).length);
     final failures = <String, String>{
       for (final key in blocked) key: 'Blocked by prerequisite',
     };
