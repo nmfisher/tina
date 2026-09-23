@@ -1,5 +1,35 @@
 # Session persistence and cancellation
 
+`JsonlSessionStore` is the shipped session backend, but the persistence
+contract is backend-neutral: it is defined by the `SessionStore` interface
+(`packages/tina_engine/lib/src/persistence/session_store.dart`) and proven
+by a shared contract suite
+(`packages/tina_engine/test/persistence/session_store_contract_test.dart`)
+that runs the same groups and expectations against the JSONL store and a
+non-file in-memory backend (SP5's acceptance criterion).
+
+Selection of the backend is configuration, not code identity: the `[sessions]`
+table in `~/.tina/config` names the provider —
+
+```toml
+[sessions]
+provider = "jsonl"        # default; the only shipped backend
+
+[sessions.jsonl]
+# root = "/custom/path"   # optional; defaults to ~/.tina/sessions/
+```
+
+An unknown provider id fails at startup (exit 64) before any session is
+created, never mid-session. The resume picker, `--resume`'s cwd restore, and
+`--list` resolve the same selection through a read-only `SessionIndex`, so
+startup reads and the runtime always see one backend.
+
+Advisory locking is a store capability, not a backend type test: a store
+implements `LockableSessionStore` (`lockNamespaceFor`) to declare that
+cross-process session locks apply; the JSONL store's namespace is its session
+directory. A backend without the capability skips locking, exactly as
+non-file backends always have. `--force` still takes a held lock.
+
 `tina --resume` lists saved sessions, most recent first, and asks for a session
 number. Each entry includes its title, update time, message count, ID and project
 directory. Enter or `q` cancels; an empty list exits without starting a session.

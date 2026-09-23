@@ -1,6 +1,6 @@
 # SP5 — Example backend + docs
 
-Status: proposed.
+Status: implemented (see "Landed" below).
 Prerequisites: SP1 only, for the backend itself; SP1–SP4 for the docs.
 Index: [README.md](README.md).
 
@@ -55,6 +55,31 @@ whichever keeps duplication lowest.
 ## Validation
 
 - The contract suite passes against the in-memory store.
+
+## Landed
+
+Implemented in commit (SP5):
+
+- `packages/tina_engine/test/persistence/in_memory_session_store.dart` —
+  the test-only non-file backend. Follows the documented contract
+  (caller-minted ids honored + collision-minted, full `ConversationMeta`,
+  append-creates-conversation, replace semantics, `StateError` surfaces,
+  title derivation matching the JSONL store, no-op `close`).
+- `packages/tina_engine/test/persistence/session_store_contract_test.dart` —
+  the shared suite, registered once per backend (`JsonlSessionStore`,
+  `InMemorySessionStore`).
+- **Migration step 2 executed:** the contract-level tests were removed from
+  `jsonl_session_store_test.dart`; that file now holds only JSONL-specific
+  behaviors (atomic-write mechanics, corrupt/torn-record recovery, missing
+  manifest/root/bad-manifest skipping, legacy flat-file migration,
+  project-local transcripts, raw session.json round-trip, manifest provider
+  migration). Two suite bugs the port itself caught: the in-memory
+  `setActiveConversation` initially validated against messages instead of
+  the manifest's conversation list, and `deleteConversation` no-op'd on
+  manifest-only conversations — both now mirror the contract.
+- `docs/features/session_persistence.md` rewritten header: backend-neutral
+  contract + shared suite, `[sessions]` selection (SP3), and the
+  `LockableSessionStore` capability (SP4).
 
 ## Note
 

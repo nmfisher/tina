@@ -1,6 +1,6 @@
 # Session persistence as a plugin — phase specifications
 
-Status: proposed; implementation has not started.
+Status: implemented — all five phases landed (SP1–SP5).
 Umbrella design and assumption audit: [`../session_persistence_plugin.md`](../session_persistence_plugin.md).
 Date: 2026-09-22.
 
@@ -30,7 +30,7 @@ by `tools/workspace_tool_plugins.dart`.
 | SP2 | [Session index for startup](02-session-index.md) | Pre-runtime startup reads go through a narrow `SessionIndex` | SP1 |
 | SP3 | [Provider selection config](03-provider-selection.md) | `[sessions]` selects the backend; unknown ids fail at startup — **implemented** | SP1; benefits from SP2 |
 | SP4 | [Lockable store capability](04-lockable-store.md) | Locking decided by capability, not a Jsonl type test — **implemented** | SP1 |
-| SP5 | [Example backend + docs](05-example-backend-and-docs.md) | A non-file backend passes the persistence contract suite; docs updated | SP1–SP4 for docs; SP1 only for the backend |
+| SP5 | [Example backend + docs](05-example-backend-and-docs.md) | A non-file backend passes the persistence contract suite; docs updated — **implemented** | SP1–SP4 for docs; SP1 only for the backend |
 
 ## Delivery sequence
 
