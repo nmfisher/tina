@@ -14,7 +14,10 @@ PluginDescriptor planUiPlugin({required PlanStore store}) => PluginDescriptor(
       id: 'tina.plan',
       provides: [planStoreServiceKey],
       factory: FnPluginFactory((context) {
-        context.scope.provide(planStoreServiceKey, store);
+        // The store instance is the plugin's root object; the runtime binds
+        // `provides` keys itself AFTER the factory returns. Do NOT also
+        // scope.provide(planStoreServiceKey) here — the second bind throws
+        // "already provided in scope execution" at activation.
         context.register(
           PlanStatusSource(store),
           id: 'tina.plan.status',
