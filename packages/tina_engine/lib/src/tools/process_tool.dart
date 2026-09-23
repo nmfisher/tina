@@ -520,33 +520,54 @@ abstract class ProcessTool implements Tool, SpawnsProcess {
             'and retrySafety on the actual failing command. Do not retry or '
             'request access for a command that only reads an old log. '
             'Command approval and allow-edits do not grant external write access.');
-      } else if (exitCode != 0 &&
-          RegExp(r'read-only file system|permission denied|operation not permitted',
-                  caseSensitive: false)
-              .hasMatch(output)) {
-        failure = SandboxWriteFailure.detect(
-            output, processRunner as SandboxedProcessRunner);
-        if (failure != null) {
+      } else if (exitCode != 0) {
+        // Auth-before-writes: an SSH publickey refusal with a missing agent
+        // socket is a sandbox-mount gap with its own remedy (reach the host
+        // agent), and "permission denied" text alone must not claim the
+        // write branch below — that would advise granting a directory the
+        // command never needed.
+        final agentSocket =
+            SandboxAgentSocketFailure.detect(output);
+        final writeGate = RegExp(
+                'read-only file system|operation not permitted',
+                caseSensitive: false)
+            .hasMatch(output) ||
+            // "Permission denied" only counts as write evidence when
+            // SandboxWriteFailure can use it — i.e. next to an EROFS marker
+            // or an absolute path it can attribute. Bare auth refusals fall
+            // through to the ownership/agent branches instead.
+            (RegExp('permission denied', caseSensitive: false)
+                    .hasMatch(output) &&
+                !RegExp('publickey|password|authentication',
+                        caseSensitive: false)
+                    .hasMatch(output));
+        if (writeGate) {
+          failure = SandboxWriteFailure.detect(
+              output, processRunner as SandboxedProcessRunner);
+          if (failure != null) {
+            report.writeln('\n${failure.recoveryInstructions}');
+          } else {
+            report.writeln(
+                '\nSandbox access may be responsible. If this command needs '
+                'to write outside the project/temp directories, request the narrow '
+                'existing directory in writablePaths with an accessReason. Command '
+                'approval alone does not grant filesystem access. Check for partial '
+                'effects before retrying; this command has not been retried automatically.');
+          }
+        } else if (agentSocket != null) {
+          failure = agentSocket;
           report.writeln('\n${failure.recoveryInstructions}');
-        } else {
-          report.writeln(
-              '\nSandbox access may be responsible. If this command needs '
-              'to write outside the project/temp directories, request the narrow '
-              'existing directory in writablePaths with an accessReason. Command '
-              'approval alone does not grant filesystem access. Check for partial '
-              'effects before retrying; this command has not been retried automatically.');
-        }
-      } else if (exitCode != 0 &&
-          RegExp(r'bad owner or permissions|is owned by uid',
-                  caseSensitive: false)
-              .hasMatch(output)) {
-        // A tool that refuses to read a file it believes somebody else owns.
-        // Kept out of the write branch above: there is no directory to grant
-        // here, so the write-access story would be a wrong guess rather than a
-        // near-miss. No evidence means no claim.
-        failure = SandboxOwnershipFailure.detect(output);
-        if (failure != null) {
-          report.writeln('\n${failure.recoveryInstructions}');
+        } else if (RegExp(r'bad owner or permissions|is owned by uid',
+                caseSensitive: false)
+            .hasMatch(output)) {
+          // A tool that refuses to read a file it believes somebody else owns.
+          // Kept out of the write branch above: there is no directory to grant
+          // here, so the write-access story would be a wrong guess rather than a
+          // near-miss. No evidence means no claim.
+          failure = SandboxOwnershipFailure.detect(output);
+          if (failure != null) {
+            report.writeln('\n${failure.recoveryInstructions}');
+          }
         }
       }
     }

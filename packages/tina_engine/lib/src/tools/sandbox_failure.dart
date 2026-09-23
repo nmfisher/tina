@@ -169,6 +169,64 @@ class SandboxOwnershipFailure extends SandboxFailure {
   }
 }
 
+/// An SSH authentication failure where the sandbox is why no key could be
+/// offered: the environment names an agent socket that does not exist inside
+/// the sandbox's mount namespace (the host's `/run/user/<uid>/...` tree is
+/// not mounted), so ssh had no identity to offer and the server refused
+/// publickey auth.
+///
+/// Deliberately conservative: it only claims the failure when the output
+/// shows an auth refusal AND `SSH_AUTH_SOCK` names a path that is absent
+/// here. A socket that exists and is reachable means the credentials
+/// themselves are bad — that is not tina's to fix, so no claim is made.
+class SandboxAgentSocketFailure extends SandboxFailure {
+  /// The agent socket path named by `SSH_AUTH_SOCK`.
+  final String socketPath;
+
+  SandboxAgentSocketFailure(this.socketPath);
+
+  /// The directory a writablePaths grant should request — derived from the
+  /// environment's socket path, never from the failing command's text.
+  String get parentDirectory => p.dirname(socketPath);
+
+  @override
+  String get explanation =>
+      'SSH reported "Permission denied (publickey)" and the environment\'s '
+      'SSH_AUTH_SOCK ($socketPath) does not exist inside the sandbox — the '
+      'host\'s agent socket is outside its mount namespace, so ssh had no '
+      'key to offer. Retrying the same command inside the sandbox cannot '
+      'succeed.';
+
+  @override
+  String get recoveryInstructions => '$explanation\n'
+      'Either request write access to the socket\'s parent directory '
+      '($parentDirectory) via writablePaths so the live agent becomes '
+      'reachable, or run this exact command once outside the sandbox. '
+      'Do not work around a denied retry.';
+
+  /// [sshAuthSock] defaults to the live environment; [exists] to the
+  /// filesystem. Tests inject both to state the host's answer directly.
+  static SandboxAgentSocketFailure? detect(String output,
+      {String? sshAuthSock, bool Function(String path)? exists}) {
+    final sock = sshAuthSock ?? Platform.environment['SSH_AUTH_SOCK'];
+    if (sock == null || sock.isEmpty) return null;
+    if (!RegExp('permission denied (?:\\(publickey\\)|\\(password\\))',
+            caseSensitive: false)
+        .hasMatch(output)) {
+      return null;
+    }
+    if (!sock.startsWith('/') || RegExp(r'[\x00-\x1f\x7f]').hasMatch(sock)) {
+      return null; // relative or hostile path — no claim
+    }
+    final present = (exists ?? _existsHere)(sock);
+    if (present) return null; // reachable agent → plain bad credentials
+    return SandboxAgentSocketFailure(sock);
+  }
+
+  static bool _existsHere(String path) =>
+      FileSystemEntity.typeSync(path) != FileSystemEntityType.notFound;
+}
+
 /// A successful shell can print a nested failure or simply read an old log.
 /// This warning is informational; it must never populate retry authorization.
 const maskedSandboxWarning =

@@ -487,7 +487,47 @@ void main() {
             reason: output);
       }
     });
+  });
 
+  group('an agent socket the sandbox cannot see', () {
+    const sock = '/run/user/1000/keyring/ssh';
+    const pushOutput =
+        'Bad owner or permissions on /etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf\n'
+        'git@github.com: Permission denied (publickey).\n'
+        'fatal: Could not read from remote repository.\n';
+
+    test('auth refusal + missing socket is a sandbox-mount gap', () {
+      final failure = SandboxAgentSocketFailure.detect(pushOutput,
+          sshAuthSock: sock, exists: (_) => false)!;
+      expect(failure.socketPath, sock);
+      expect(failure.parentDirectory, '/run/user/1000/keyring');
+      expect(failure.recoveryInstructions, contains('/run/user/1000/keyring'));
+      expect(failure.recoveryInstructions, contains('outside the sandbox'));
+    });
+
+    test('a reachable agent means plain bad credentials — no claim', () {
+      expect(
+          SandboxAgentSocketFailure.detect(pushOutput,
+              sshAuthSock: sock, exists: (_) => true),
+          isNull);
+    });
+
+    test('no SSH_AUTH_SOCK in the environment — no claim', () {
+      expect(SandboxAgentSocketFailure.detect(pushOutput, sshAuthSock: null),
+          isNull);
+    });
+
+    test('write failures and EROFS output do not claim the agent branch',
+        () {
+      const output = 'cp: cannot create \'/opt/x/y\': Read-only file system\n';
+      expect(
+          SandboxAgentSocketFailure.detect(output,
+              sshAuthSock: sock, exists: (_) => false),
+          isNull);
+    });
+  });
+
+  group('a command that refuses a file it thinks somebody else owns (linux)', () {
     test('a sandboxed ssh failure asks to retry outside the sandbox', () async {
       final config = File('${temp.path}/ssh_config')..writeAsStringSync('');
       var calls = 0;
