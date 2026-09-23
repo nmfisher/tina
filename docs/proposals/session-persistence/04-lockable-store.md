@@ -1,6 +1,6 @@
 # SP4 — Lockable store capability
 
-Status: proposed.
+Status: implemented (see "Landed" below).
 Prerequisites: SP1.
 Index: [README.md](README.md).
 
@@ -61,3 +61,26 @@ too.
 - A store that is `SessionStore` but not `LockableSessionStore` skips locking
   exactly as non-Jsonl stores do today.
 - `--force-lock` behavior unchanged.
+
+## Landed
+
+Implemented in commit (SP4):
+
+- `LockableSessionStore` in
+  `packages/tina_engine/lib/src/persistence/session_store.dart` (a sibling
+  of [SessionStore], as the migration allowed), barrel-exported.
+- `JsonlSessionStore` implements it:
+  `lockNamespaceFor(sid) => directoryFor(sid).path` (`directoryFor` stays
+  public — lock namespace source).
+- `SessionLock.forNamespace(String)` constructor: the lock contract needs a
+  path-like string, not a `Directory`, so non-file backends can declare a
+  namespace without a real directory object. `SessionLock(Directory)` is
+  unchanged.
+- `bin/tina.dart` `_acquireSessionLock`: `store is! LockableSessionStore`
+  early-return replaces the Jsonl type test.
+- Tests: `packages/tina_engine/test/persistence/lockable_store_test.dart` —
+  capability declared, namespace = session directory path,
+  `SessionLock.forNamespace` two-acquisition conflict via
+  `conflict.toMessage()`, and a plain `SessionStore` that does not satisfy
+  the capability. Launcher smoke-tested: live-pid lock conflict message and
+  `--force` takeover both behave as before.

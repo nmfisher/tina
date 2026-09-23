@@ -39,6 +39,12 @@ class SessionLock {
 
   SessionLock(this.sessionDir);
 
+  /// Construct from a [LockableSessionStore.lockNamespaceFor] string (SP4):
+  /// the namespace is a directory path for file backends, but the lock
+  /// contract itself only needs a path-like string.
+  SessionLock.forNamespace(String namespace)
+      : sessionDir = Directory(namespace);
+
   /// Try to take the lock. Returns `null` on success, or a [LockConflict]
   /// describing the live holder when the lock is taken and [force] is false.
   ///

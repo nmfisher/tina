@@ -443,6 +443,25 @@ abstract class SessionStore {
   Future<void> close();
 }
 
+/// Backends that support advisory cross-process locking (SP4).
+///
+/// Whether a store locks is a capability, not a type identity: the launcher's
+/// `_acquireSessionLock` type-tested `JsonlSessionStore` directly, which
+/// hardcoded one backend — a second backend would silently skip locking with
+/// no way to declare intent. Implementing this interface is that declaration.
+///
+/// [lockNamespaceFor] returns the directory (or backend namespace) in which
+/// to take the lock for [sessionId]; [SessionLock] is backend-neutral and
+/// takes the string as-is, so non-file backends with their own lock
+/// namespaces can declare the capability too. A plain [SessionStore] that
+/// does not implement this skips locking exactly as non-Jsonl stores always
+/// have.
+abstract interface class LockableSessionStore implements SessionStore {
+  /// Directory (or backend namespace) in which to take the lock for
+  /// [sessionId]. Callers hand the result straight to [SessionLock].
+  String lockNamespaceFor(String sessionId);
+}
+
 /// REPL-side wrapper that knows the active (sessionId, conversationId).
 /// Holding this in the REPL keeps those details out of the store interface —
 /// swapping the backend only requires re-implementing [SessionStore].

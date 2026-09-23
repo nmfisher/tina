@@ -39,7 +39,8 @@ final _log = Logger('tina.persistence');
 /// read in place by [listSessions] and materialized into the nested layout
 /// lazily — on the first [loadSession] (resume) or write — via copy-then-delete
 /// so an interrupted migration leaves both old and new and can be retried.
-class JsonlSessionStore implements SessionStore, SessionIndex {
+class JsonlSessionStore implements SessionStore, SessionIndex,
+    LockableSessionStore {
   final Directory root;
   static final _rng = Random.secure();
 
@@ -166,6 +167,12 @@ class JsonlSessionStore implements SessionStore, SessionIndex {
   /// files, and a per-session `.lock` live). Exposed so callers can place a
   /// [SessionLock] without reaching into the private layout.
   Directory directoryFor(String sessionId) => _sessionDir(sessionId);
+
+  /// [LockableSessionStore] (SP4): the session directory is the lock
+  /// namespace.
+  @override
+  String lockNamespaceFor(String sessionId) =>
+      directoryFor(sessionId).path;
 
   // -- Session / conversation creation -----------------------------------
 

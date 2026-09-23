@@ -367,10 +367,12 @@ Future<void> _acquireSessionLock(
 ) async {
   if (app.initialManifest == null) return; // fresh session — nothing to guard
   final store = app.store;
-  if (store is! JsonlSessionStore) return; // tests / non-file backends
+  // SP4: locking is a capability, not a backend type test. Stores that don't
+  // implement LockableSessionStore skip locking exactly as before.
+  if (store is! LockableSessionStore) return;
   final sid = app.initialSessionId;
   if (sid.isEmpty) return;
-  final lock = SessionLock(store.directoryFor(sid));
+  final lock = SessionLock.forNamespace(store.lockNamespaceFor(sid));
   final conflict = await lock.acquire(force: config.forceLock);
   if (conflict != null) {
     stderr.writeln(conflict.toMessage());
