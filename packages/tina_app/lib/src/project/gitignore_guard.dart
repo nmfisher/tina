@@ -8,18 +8,33 @@ import 'package:path/path.dart' as p;
 /// root, check whether its `.gitignore` already covers `.tina`, and remember
 /// the repos where the user declined so they aren't re-asked every launch.
 
-/// Walk up from [cwd] looking for a `.git` entry (directory, or the file a
-/// worktree/submodule uses). Returns the containing directory, or null when
-/// cwd is not inside a git repo (no ask — there's no `.gitignore` to update).
+/// Walk up from [cwd] looking for a `.git` entry that marks a repo root: a
+/// file (the worktree/submodule gitdir pointer) or an initialized directory
+/// (one containing a `HEAD` entry — git's own first structural requirement).
+/// Returns the containing directory, or null when cwd is not inside a git
+/// repo (no ask — there's no `.gitignore` to update).
+///
+/// An *empty* `.git` directory does not count: git's discovery rejects it
+/// too, and honoring debris from an interrupted init (e.g. a stray
+/// `/tmp/.git`) would make the guard target a bogus `.gitignore` in a
+/// directory the user doesn't consider a repo.
 String? gitRepoRootFor(String cwd) {
   var dir = Directory(cwd).absolute;
   while (true) {
-    final git = FileSystemEntity.typeSync(p.join(dir.path, '.git'));
-    if (git != FileSystemEntityType.notFound) return dir.path;
+    if (_isGitRootMarker(p.join(dir.path, '.git'))) return dir.path;
     final parent = dir.parent;
     if (parent.path == dir.path) return null; // filesystem root
     dir = parent;
   }
+}
+
+bool _isGitRootMarker(String gitPath) {
+  final type = FileSystemEntity.typeSync(gitPath);
+  if (type == FileSystemEntityType.file) return true; // worktree/submodule
+  if (type != FileSystemEntityType.directory) return false;
+  // Initialized repos always have HEAD; `git init` writes it immediately.
+  return FileSystemEntity.typeSync(p.join(gitPath, 'HEAD')) !=
+      FileSystemEntityType.notFound;
 }
 
 /// Whether any `.gitignore` [lines] entry ignores `.tina`. Pragmatic pattern

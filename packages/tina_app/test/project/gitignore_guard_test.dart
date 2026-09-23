@@ -18,7 +18,9 @@ void main() {
   group('gitRepoRootFor', () {
     test('finds the repo root from a nested directory', () async {
       final root = Directory(p.join(tmp.path, 'repo'))..createSync();
-      Directory(p.join(root.path, '.git')).createSync();
+      // Minimal initialized repo: git init always writes .git/HEAD.
+      final git = Directory(p.join(root.path, '.git'))..createSync();
+      File(p.join(git.path, 'HEAD')).writeAsStringSync('ref: refs/heads/main\n');
       final nested =
           Directory(p.join(root.path, 'a', 'b'))..createSync(recursive: true);
       expect(gitRepoRootFor(nested.path), root.path);
@@ -26,6 +28,16 @@ void main() {
 
     test('returns null outside a git repo', () {
       expect(gitRepoRootFor(tmp.path), isNull);
+    });
+
+    test('ignores an empty .git directory (interrupted init / debris)',
+        () async {
+      // Stray empty .git dirs in ancestors must not register as repos —
+      // git's own discovery rejects them (no HEAD), and so must we.
+      Directory(p.join(tmp.path, '.git')).createSync();
+      final nested =
+          Directory(p.join(tmp.path, 'sub'))..createSync(recursive: true);
+      expect(gitRepoRootFor(nested.path), isNull);
     });
 
     test('treats a .git file (worktree) as a repo root', () async {
