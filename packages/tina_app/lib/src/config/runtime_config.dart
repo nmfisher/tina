@@ -153,6 +153,17 @@ class RuntimeConfig {
   /// Exclude dotfiles and entire dot-directories from project classification.
   final bool indexSkipHidden;
 
+  /// Session-store backend selected via `[sessions] provider` (SP3).
+  /// `'jsonl'` (the default) is the file-backed store at the default
+  /// location. Validated against [sessionStoreProviderIds] at startup;
+  /// an unknown id fails before any session is created.
+  final String sessionStoreProvider;
+
+  /// Optional store root from `[sessions.jsonl] root` (SP3): relocates the
+  /// file-backed store (and the startup index) for users who keep sessions
+  /// outside the default location. Null = default location.
+  final String? sessionStoreRoot;
+
   RuntimeConfig({
     this.provider = 'anthropic',
     this.apiKey = '',
@@ -191,6 +202,8 @@ class RuntimeConfig {
     this.transportRetryAttempts = 5,
     this.enableWorkflow = false,
     this.indexSkipHidden = true,
+    this.sessionStoreProvider = 'jsonl',
+    this.sessionStoreRoot,
   }) : permissionRules = List.unmodifiable(permissionRules),
        promptOverrides = Map.unmodifiable(promptOverrides);
 

@@ -116,6 +116,8 @@ class Config extends RuntimeConfig implements ResumeRequest {
     super.transportRetryAttempts = 0,
     super.enableWorkflow = false,
     super.indexSkipHidden = true,
+    super.sessionStoreProvider = 'jsonl',
+    super.sessionStoreRoot,
     this.models,
   });
 
@@ -155,6 +157,8 @@ class Config extends RuntimeConfig implements ResumeRequest {
     transportRetryAttempts: transportRetryAttempts,
     enableWorkflow: enableWorkflow,
     indexSkipHidden: indexSkipHidden,
+    sessionStoreProvider: sessionStoreProvider,
+    sessionStoreRoot: sessionStoreRoot,
   );
 
   TerminalConfig get terminal => TerminalConfig(
@@ -812,7 +816,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
       sandboxOffReason = null;
     }
 
-    return Config(
+    final config = Config(
       provider: providerId,
       apiKey: apiKey,
       model: modelOverride.isNotEmpty
@@ -934,7 +938,24 @@ class Config extends RuntimeConfig implements ResumeRequest {
           (res['enable-workflow'] as bool) ||
           (userConfig?.featuresWorkflow ?? false),
       indexSkipHidden: userConfig?.indexSkipHidden ?? true,
+      sessionStoreProvider: userConfig?.sessions?.provider ?? 'jsonl',
+      sessionStoreRoot: userConfig?.sessions?.jsonlRoot,
     );
+    // SP3 fail-fast: an unknown [sessions] provider must surface at startup,
+    // before any session is created — never mid-session. FormatException
+    // rides the config-parse error path (bin/tina.dart exits 64 on it).
+    if (!sessionStoreProviderIds.contains(config.sessionStoreProvider)) {
+      throw FormatException(
+          '[sessions] provider "${config.sessionStoreProvider}" is unknown. '
+          'Known providers: ${sessionStoreProviderIds.join(', ')}.');
+    }
+    if (config.sessionStoreRoot != null &&
+        !Directory(config.sessionStoreRoot!).existsSync()) {
+      throw FormatException(
+          '[sessions.jsonl] root "${config.sessionStoreRoot}" does not exist. '
+          'Point it at an existing directory.');
+    }
+    return config;
   }
 }
 

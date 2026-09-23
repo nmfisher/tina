@@ -245,7 +245,11 @@ Future<AppComposition> buildAppComposition({
       driverFactory: driverFactory,
       persistence: persistence,
       plugins: [
-        if (store == null && !providesSessionStore) jsonlSessionStorePlugin(),
+        if (store == null && !providesSessionStore)
+          sessionStorePluginFor(config.sessionStoreProvider,
+              root: config.sessionStoreRoot == null
+                  ? null
+                  : Directory(config.sessionStoreRoot!)),
         ...plugins,
       ],
     );

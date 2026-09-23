@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'session_store.dart';
 import 'jsonl_session_store.dart';
+import 'session_store_plugin.dart';
 
 /// Read-only startup view of saved sessions.
 ///
@@ -54,10 +57,21 @@ class SessionIndexStore implements SessionIndex {
   }
 }
 
-/// The default startup index: the JSONL sessions at the default location.
+/// The startup index for the selected `[sessions] provider` (SP3): the
+/// JSONL sessions at the default location (or [root] when given, e.g. from
+/// config).
 ///
-/// SP3 replaces this constant default with a read of [RuntimeConfig]'s
-/// session backend selection. Until then every pre-runtime caller — the
-/// resume picker, `--resume`'s cwd restore, `--list` — resolves this.
-SessionIndex resolveSessionIndex() =>
-    JsonlSessionStore.defaultLocation() as SessionIndex;
+/// Selection and the composition's plugin list must agree, so both resolve
+/// through [sessionStorePluginFor]'s id validation: an unknown provider
+/// throws [FormatException] here — at startup, before any session read —
+/// rather than resolving a different backend than the runtime will mount.
+///
+/// Until SP5 only `jsonl` exists; SP3's config read selects within that
+/// set. [provider] defaults to 'jsonl'.
+SessionIndex resolveSessionIndex({String provider = 'jsonl', Directory? root}) {
+  // Validation-only: the id check is the point. The jsonl index reads the
+  // same root the plugin would build a store at, so startup and the
+  // runtime see one backend.
+  sessionStorePluginFor(provider, root: root);
+  return JsonlSessionStore(root ?? JsonlSessionStore.defaultSessionRoot());
+}

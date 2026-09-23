@@ -27,6 +27,7 @@ const _knownTopLevelKeys = {
   'theme',
   'trust',
   'regions',
+  'sessions',
   'environment',
   'tui',
   'permissions',
@@ -57,6 +58,8 @@ const _knownTypeSafeKeys = {
   'exploration_selection_threshold',
 };
 const _knownRegionsKeys = {'model'};
+const _knownSessionsKeys = {'provider', 'jsonl'};
+const _knownSessionsProviderKeys = {'root'};
 const _knownPermissionsKeys = {'mode', 'model'};
 const _knownEnvironmentKeys = {'auto_populate', 'model'};
 const _knownIndexKeys = {'skip_hidden'};
@@ -87,6 +90,37 @@ class RegionsConfig {
   Map<String, dynamic> toMap() => {if (model != null) 'model': model};
 
   bool get isEmpty => model == null;
+}
+
+/// The `[sessions]` table: session-store backend selection (SP3).
+///
+/// `provider` picks the backend (must match a registered
+/// `tina.engine.session-store-<id>`; unknown ids fail at startup, before
+/// any session is created). Per-backend tables (`[sessions.jsonl] root`)
+/// carry backend options. Absent table = the jsonl default, identical to
+/// today's behavior.
+class SessionsConfig {
+  /// Backend id from `[sessions] provider`. Null when absent ⇒ `'jsonl'`.
+  final String? provider;
+
+  /// Optional custom root from `[sessions.jsonl] root`. Null = default
+  /// location.
+  final String? jsonlRoot;
+
+  const SessionsConfig({this.provider, this.jsonlRoot});
+
+  factory SessionsConfig.fromMap(Map<String, dynamic> m) => SessionsConfig(
+        provider: m['provider'] as String?,
+        jsonlRoot: (m['jsonl'] as Map?)?['root'] as String?,
+      );
+
+  Map<String, dynamic> toMap() => {
+        if (provider != null) 'provider': provider,
+        if (jsonlRoot != null)
+          'jsonl': {'root': jsonlRoot},
+      };
+
+  bool get isEmpty => provider == null && jsonlRoot == null;
 }
 
 /// The `[permissions]` table: permission-mode defaults.
@@ -509,6 +543,10 @@ class UserConfig {
   /// Null when absent.
   final PermissionsConfig? permissions;
 
+  /// The `[sessions]` table: session-store backend selection (SP3).
+  /// Null when absent.
+  final SessionsConfig? sessions;
+
   /// Schema version the file declared (defaults to [kCurrentConfigVersion] when
   /// absent). [loadUserConfig] only returns a config whose version matches.
   final int version;
@@ -533,6 +571,7 @@ class UserConfig {
     this.indexSkipHidden,
     this.regions,
     this.permissions,
+    this.sessions,
     this.version = kCurrentConfigVersion,
   });
 
@@ -555,7 +594,8 @@ class UserConfig {
       layout == null &&
       indexSkipHidden == null &&
       (regions == null || regions!.isEmpty) &&
-      (permissions == null || permissions!.isEmpty);
+      (permissions == null || permissions!.isEmpty) &&
+      (sessions == null || sessions!.isEmpty);
 
   /// Copy with any subset of fields overridden; unlisted fields keep their
   /// values. The read-modify-write path for patching one setting without
@@ -579,6 +619,7 @@ class UserConfig {
     bool? indexSkipHidden,
     RegionsConfig? regions,
     PermissionsConfig? permissions,
+    SessionsConfig? sessions,
   }) => UserConfig(
     defaultProvider: defaultProvider ?? this.defaultProvider,
     defaultModel: defaultModel ?? this.defaultModel,
@@ -600,6 +641,7 @@ class UserConfig {
     featuresWorkflow: featuresWorkflow ?? this.featuresWorkflow,
     regions: regions ?? this.regions,
     permissions: permissions ?? this.permissions,
+    sessions: sessions ?? this.sessions,
     version: version,
   );
 
@@ -627,6 +669,7 @@ class UserConfig {
     final featuresRaw = (m['features'] as Map?)?.cast<String, dynamic>();
     final featuresWorkflow = featuresRaw?['workflow'] as bool?;
     final regionsRaw = (m['regions'] as Map?)?.cast<String, dynamic>();
+    final sessionsRaw = (m['sessions'] as Map?)?.cast<String, dynamic>();
     final permissionsRaw = (m['permissions'] as Map?)?.cast<String, dynamic>();
     final providers = <String, ProviderConfig>{};
     for (final e in (providersRaw ?? const <String, dynamic>{}).entries) {
@@ -667,6 +710,7 @@ class UserConfig {
       featuresWorkflow: featuresWorkflow,
       indexSkipHidden: (m['index'] as Map?)?['skip_hidden'] as bool?,
       regions: regionsRaw == null ? null : RegionsConfig.fromMap(regionsRaw),
+      sessions: sessionsRaw == null ? null : SessionsConfig.fromMap(sessionsRaw),
       permissions: permissionsRaw == null
           ? null
           : PermissionsConfig.fromMap(permissionsRaw),
@@ -767,6 +811,20 @@ void _warnUnknownKeys(Map<String, dynamic> m, String path) {
   if (regions is Map) {
     for (final k in regions.keys) {
       if (!_knownRegionsKeys.contains(k)) warn('regions.$k', _knownRegionsKeys);
+    }
+  }
+  final sessions = m['sessions'];
+  if (sessions is Map) {
+    for (final k in sessions.keys) {
+      if (!_knownSessionsKeys.contains(k)) {
+        warn('sessions.$k', _knownSessionsKeys);
+      } else if (k != 'provider' && sessions[k] is Map) {
+        for (final bk in (sessions[k] as Map).keys) {
+          if (!_knownSessionsProviderKeys.contains(bk)) {
+            warn('sessions.$k.$bk', _knownSessionsProviderKeys);
+          }
+        }
+      }
     }
   }
   final typeSafe = m['typesafe'];
@@ -941,6 +999,8 @@ String userConfigToToml(UserConfig config) {
       'regions': config.regions!.toMap(),
     if (config.permissions != null && !config.permissions!.isEmpty)
       'permissions': config.permissions!.toMap(),
+    if (config.sessions != null && !config.sessions!.isEmpty)
+      'sessions': config.sessions!.toMap(),
     if (config.typeSafe != null && !config.typeSafe!.isEmpty)
       'typesafe': config.typeSafe!.toMap(),
   };
@@ -1133,6 +1193,15 @@ api_key = "sk-ant-..."
 # at any depth. Existing secret-file exclusions still apply when disabled.
 # [index]
 # skip_hidden = true
+
+# Session persistence. `provider` selects the backend that stores saved
+# sessions and selects them for --resume/--list; "jsonl" (default, the only
+# one) writes JSONL files under the root below. An unknown id fails fast at
+# startup. `root` moves where the jsonl backend keeps them (must exist).
+# [sessions]
+# provider = "jsonl"
+# [sessions.jsonl]
+# root = "/path/to/dir"
 
 # Optional surfaces that ship off by default. `workflow` brings back the
 # DOT-pipeline surface: the main agent's launch_workflow/stop_workflow tools,

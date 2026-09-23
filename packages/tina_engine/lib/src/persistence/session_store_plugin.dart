@@ -28,3 +28,25 @@ PluginDescriptor jsonlSessionStorePlugin({Directory? root}) =>
         return store;
       }),
     );
+
+/// Session-store backend ids selectable via `[sessions] provider` (SP3).
+/// The plugin id for each is `tina.engine.session-store-<id>`.
+const List<String> sessionStoreProviderIds = ['jsonl'];
+
+/// The store plugin for a `[sessions] provider` id (SP3 selection).
+///
+/// Fails fast on an unknown id — before any session is created — because a
+/// typo'd provider must surface at startup, not mid-session. The error is a
+/// [FormatException] so config-parsing call sites exit through their normal
+/// `on FormatException` path.
+PluginDescriptor sessionStorePluginFor(String provider, {Directory? root}) {
+  if (!sessionStoreProviderIds.contains(provider)) {
+    throw FormatException(
+        'Unknown [sessions] provider "$provider". '
+        'Known providers: ${sessionStoreProviderIds.join(', ')}.');
+  }
+  return switch (provider) {
+    'jsonl' => jsonlSessionStorePlugin(root: root),
+    _ => throw StateError('unreachable: validated above'),
+  };
+}

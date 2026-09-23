@@ -167,7 +167,7 @@ Future<void> _run(List<String> argv) async {
         return;
       }
       if (config.listSessions) {
-        await _listSessions();
+        await _listSessions(config);
         return;
       }
       if (config.models != null) {
@@ -188,8 +188,16 @@ Future<void> _run(List<String> argv) async {
       // plugin runtime exists. A full store is built only when a session is
       // actually resumed — the launcher hands THAT instance to
       // buildAppComposition, so there is still exactly one store per process
-      // and one construction path.
-      final index = resolveSessionIndex();
+      // and one construction path. SP3: selection follows [sessions]
+      // provider/root from config — the same id the composition validates
+      // when mounting the store plugin, so startup reads and the runtime
+      // always see one backend.
+      final index = resolveSessionIndex(
+        provider: config.sessionStoreProvider,
+        root: config.sessionStoreRoot == null
+            ? null
+            : Directory(config.sessionStoreRoot!),
+      );
       var resume = launch.startup.resume;
       if (launch.startup.resumePicker) {
         try {
@@ -799,9 +807,15 @@ bool _shouldRunStdinSetup(List<String> argv, Environment environment) {
 
 /// Print every saved session to stdout in the same format `/sessions` uses
 /// inside the TUI, then return. Lightweight: only the read-only session
-/// index — no store, no provider, no TUI.
-Future<void> _listSessions() async {
-  final index = resolveSessionIndex();
+/// index — no store, no provider, no TUI. Selection follows the parsed
+/// config's [sessions] provider/root (SP3).
+Future<void> _listSessions(RuntimeConfig config) async {
+  final index = resolveSessionIndex(
+    provider: config.sessionStoreProvider,
+    root: config.sessionStoreRoot == null
+        ? null
+        : Directory(config.sessionStoreRoot!),
+  );
   final sessions = await index.listSessions();
   if (sessions.isEmpty) {
     stdout.writeln('(no saved sessions)');

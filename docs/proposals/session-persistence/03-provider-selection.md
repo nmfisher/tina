@@ -1,6 +1,6 @@
 # SP3 — Provider selection config
 
-Status: proposed.
+Status: implemented (see "Landed" below for deltas from this plan).
 Prerequisites: SP1; benefits from SP2.
 Index: [README.md](README.md).
 
@@ -63,3 +63,30 @@ error-handling rule and it lives here.
   any session creation.
 - `resolveSessionIndex` and the composed plugin list agree (same id read once,
   validated once).
+
+## Landed
+
+Implemented in commit (SP3):
+
+- `session_store_plugin.dart` (engine): `sessionStoreProviderIds = ['jsonl']`
+  and `sessionStorePluginFor(provider, {root})` — the one constructor both
+  the composition root and startup validation go through; unknown id throws
+  `FormatException` naming it.
+- `resolveSessionIndex({provider, root})` (SP2's function, extended):
+  validates via `sessionStorePluginFor`, then returns the read-only index.
+  **Delta:** the spec's `resolveSessionIndex(RuntimeConfig)` signature could
+  not be used verbatim — `RuntimeConfig` is a `tina_app` type and the index
+  lives in the engine, so callers pass the provider id and root directory.
+- `RuntimeConfig.sessionStoreProvider` / `.sessionStoreRoot` (tina_app);
+  `SessionsConfig` decoding in `lib/config/user_config.dart`
+  (`[sessions] provider`, `[sessions.jsonl] root`, unknown-key warnings,
+  save round-trip).
+- `lib/config.dart`: projects both fields into the runtime config and fails
+  fast on unknown provider or nonexistent root (`FormatException` rides the
+  existing parse error path; `bin/tina.dart` exits 64 on it).
+- `bin/tina.dart`: `--list`, the resume picker, and cwd restore all resolve
+  the index from the parsed config's provider/root.
+- Config template (`--init-config`) documents `[sessions]`.
+- Tests: `test/config/sessions_provider_test.dart` — absent config, explicit
+  jsonl, jsonl root, unknown id fail-fast, nonexistent root fail-fast, and
+  index/plugin-list agreement over `sessionStoreProviderIds`.
