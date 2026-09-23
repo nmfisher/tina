@@ -56,10 +56,18 @@ This is the existing Dart plugin composition API, not a new dynamic plugin loade
 ## Current integration
 
 All TUI conversation hosts use this hook, including background and spawned
-conversations. `ChatRenderer` supplies the current appearance for user prose,
-assistant prose, reasoning, tool calls and notices. Streaming segments, tool
-updates, folding, selection and resize all render through the same adapter.
-Assistant prose is presented in markdown segments, not one block per whole turn.
+conversations. The default appearance for user prose, assistant prose,
+reasoning, tool calls and notices is contributed by the built-in
+`tina.chat-renderer` plugin (`package:tina/composition/chat_renderer.dart`),
+which the launcher mounts first; the same `ChatRenderer` class remains the
+surfaces' fallback when no plugin scope is available (tests, headless). A
+plugin whose id sorts before `tina.chat-renderer` — any namespace not
+prefixed `tina.` — registers first and its renderer wins; the built-in then
+only handles blocks that renderer declines. Plugin activation registers
+contributions in plugin-id order, so list position in `plugins: [...]` does
+not matter. Streaming segments, tool updates, folding, selection and resize
+all render through the same adapter. Assistant prose is presented in markdown
+segments, not one block per whole turn.
 
 Approvals use `Renderer<ApprovalCard>` (`package:tina/tui/approval_card.dart`)
 for their tool preview, in both conversations and workflow nodes. The built-in

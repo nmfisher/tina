@@ -9,6 +9,7 @@ import 'package:tina/composition/config_providers.dart';
 import 'package:tina/composition/typesafe.dart';
 import 'package:tina/composition/git_input.dart';
 import 'package:tina/composition/intent_input.dart';
+import 'package:tina/composition/chat_renderer.dart';
 import 'package:tina/composition/models_dev_seed.dart';
 import 'package:tina/logging.dart';
 
@@ -247,6 +248,11 @@ Future<void> _run(List<String> argv) async {
         // the read-only SessionIndex instead (see resolveSessionIndex).
         loadWorkspaceContext: loadWorkspaceContext,
         plugins: [
+          // The default transcript appearance is a scope contribution, so a
+          // plugin whose id sorts before `tina.chat-renderer` overrides it
+          // (activation registers contributions in plugin-id order; the first
+          // registered renderer that handles a ChatBlock wins).
+          chatRendererPlugin(),
           if (!launch.startup.nonInteractive)
             configuredGitInputPlugin(environment.env),
           if (!launch.startup.nonInteractive)
