@@ -1,6 +1,6 @@
 ---
 id: tin-80ll
-status: done
+status: closed
 deps: []
 links: []
 created: 2026-08-07T14:26:36Z

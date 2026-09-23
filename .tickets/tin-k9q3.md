@@ -1,6 +1,6 @@
 ---
 id: tin-k9q3
-status: done
+status: closed
 deps: []
 links: []
 created: 2026-08-13T12:00:00Z

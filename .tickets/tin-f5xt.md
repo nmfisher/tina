@@ -1,6 +1,6 @@
 ---
 id: tin-f5xt
-status: done
+status: closed
 deps: []
 links: []
 created: 2026-08-06T11:36:51Z

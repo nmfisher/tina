@@ -1,66 +1,56 @@
 # Sweep status
-Now:     asb/mode-selector ready for PR — tin-k4m8 (Shift+Tab scrollback
-         announce) + tin-q9w2 (mode strip never visible) fixed as separate
-         commits; root 911 green, tina_console 916 green, analyze clean.
-Next:    Raise PR for asb/mode-selector. Then tin-9x4m (p3, /spawn picker
-         empty for custom providers) or a fresh probe batch from the
-         scenario-seeds list.
-Blocked: none
-Ask:     1) Parked features awaiting prioritization: tin-1h8p, tin-80ll
-         (+ its superseded sibling tin-923l), tin-f5xt, tin-k9q3.
-Last checkpoint: 2026-09-20 — mode-selector pair closed (see This
-         session). Previous checkpoint (2026-08-23): PR 17
-         merge-conflict resolution pushed; bash_tool spill-test flake
-         root-caused and logged. (2026-08-22): tin-g7rk closed; STATUS
-         rewritten; dart-sdk toolchain note corrected.
+Now:     Ticket sweep — no code changes. tin-k7f2 closed (Phase 1 landed
+         via PR #53; all six review defects fixed with regression tests,
+         verified on main). tin-1h8p, tin-80ll, tin-923l, tin-9x4m,
+         tin-f5xt, tin-k9q3 closed: all six were implemented and merged
+         weeks ago (PRs #31–#35, #52) but their frontmatter still read
+         the nonstandard `done` and this file still called them parked.
+         Every ticket now carries `open | start | closed` only; STATUS.md
+         no longer invents statuses.
+Next:    Pick up tin-p4wm item 3 (`/spawn`+`/branch` drop configured
+         static rules — smallest, has a crisp acceptance test), then
+         tin-w7dr (needs the live wheel repro first). tin-r6km resumes
+         at proposal P6–P8 + the PR #49 review fixes (P0–P5 review
+         items 1–3 and 5–7 remain open on main).
+Blocked: tin-r6km P8 is blocked on the review fixes; nothing else.
+Ask:     tin-p4wm item 2 needs a posture decision: declaring
+         `explore_project` a project read flips its default ask → allow.
+Last checkpoint: 2026-09-22 — ticket sweep; STATUS.md rewritten.
+         Previous (2026-09-20): mode-selector pair closed (see git).
 
 ## This session
 
-- tin-k4m8 (25fb0c2) — Shift+Tab cycling no longer prints a
-  `permission mode:` line into the scrollback; the strip label is the
-  announcement. Pinned cycling tests rewritten to assert the ring flips
-  `app.policy.mode` AND absence of the line in `io.written`. The
-  /permissions command message is untouched (explicit command, not a
-  keypress echo).
-- tin-q9w2 — mode label now visible from the FIRST frame and never
-  scrolls away. Root cause proven by probe: full-width layouts gave the
-  strip row h-2 while the panel box's inputRect claimed the same row, so
-  first paint's input erase wiped the label; create()'s startup paint was
-  pre-alt-screen and never presented at all. Layout half fixed in
-  tina_console a9905a9 (uniform rule: boxes stop above stripRow h-1) +
-  3391a63 (strip re-asserts itself on colliding writes). App half in
-  57ac02e: startup setModeLabel moved into run() after
-  _refreshSessionMenu (joins first paint); panel_manager parked-panel
-  virtual slots moved strictly below the visible stack (old slot*perPanel
-  folded onto the last visible panel once the box shrank a row — caught
-  by the panel_manager suite, not by a test authored for it).
-- Regression coverage: coordinator tests decode the session's output
-  through VirtualTerminal and assert 'mode: ask' sits on the strip row
-  from the first frame, on exactly one grid row, never in the scrollback;
-  and that it survives /clear, a mid-stream StreamNotice landing on the
-  strip (setErrorStrip) and the next turn boundary (clearErrorStrip).
-  Not automatable here: resize/side-panel-toggle survival remains
-  manual-verification surface (subpackage strip tests cover the
-  mechanics).
-- Tree health: packages/*/.dart_tool absent in a fresh checkout breaks
-  the architecture test + fake_async suite with confusing errors; a
-  `dart pub get` per subpackage fixes it (dart_notcurses needs its
-  submodule + online pub). pubspec.lock churn from those runs was
-  reverted, not committed.
+- Ticket sweep only. Frontmatter normalized (7 files), tin-k7f2's
+  REOPENED note resolved to closed-with-evidence, this file rewritten.
 
-## Open (hunted / not in play)
+## Open
 
-- tin-9x4m (p3) — /spawn picker empty for custom providers.
-- tin-1h8p, tin-80ll, tin-923l, tin-f5xt, tin-k9q3 — decided
-  feature/proposal tickets, parked pending user prioritization.
-
-## Closed this branch
-
-- tin-k4m8 (p1), tin-q9w2 (p1) — asb/mode-selector, commits 25fb0c2 +
-  57ac02e (plus tina_console a9905a9 + 3391a63), PR pending.
+- tin-p4wm (p1) — permission hardening: write_summary spawns outside
+  the framework; explore_project read-only-but-undeclared (needs a
+  decision); /spawn + /branch drop the user's configured static rules.
+  Adjacent (separate decision): LocalControlTool bypasses check();
+  auto-mode classifier substring parse can grant on DENY.
+- tin-r6km (p2) — plugin runtime, status: start. PR #49 merged P0–P5
+  partially; docs/proposals/plugin_runtime_pr49_fixes.md is the live
+  punch list (contribution wiring into production consumers, driver
+  replacement across all entry points, awaited rollback, argument
+  sealing); P6–P8 not started. Later phase commits
+  (describe()/profile, docs) live on side branches, not main.
+- tin-w7dr (p1) — mouse wheel while an approval pends duplicate-prints
+  the approval prompt. Not yet reproduced; first job is the live repro
+  (three named suspects in the ticket).
 
 ## Closed earlier
 
+- tin-k7f2 (p1) — PTY backend Phase 1, PR #53 (a3f008e, 2026-09-16) +
+  six review-fix commits e9b7f64, cdab3d6, 14970de, 92758fd, 147c1f7,
+  cf31087; regression tests in
+  packages/tina_engine/test/terminal/ (incl. pty_reap_test.dart).
+- tin-p4wm filed 1c2bbaa (2026-09-21). tin-k4m8 + tin-q9w2 — PR #55
+  (894a4cc, 2026-09-20). --yolo budget lift — PR #56 (36643a4).
+- tin-9x4m — PR #52 (#31), 2026-08-23. tin-1h8p — PR #32, 2026-08-25.
+  tin-80ll + tin-923l — PR #33, 2026-08-26 (923l superseded by 80ll).
+  tin-f5xt — PR #34, 2026-08-27. tin-k9q3 — PR #35, 2026-08-29.
 - tin-g7rk (p2) — asb/markdown-render PR (2026-08-22).
 - tin-y4qn, tin-w8dl, tin-p8k2, tin-b4n7, tin-q4vz, tin-h5nm, tin-k7tr,
   tin-g2w9, tin-3x9v (CNR) — PR #14.
@@ -75,20 +65,10 @@ Last checkpoint: 2026-09-20 — mode-selector pair closed (see This
 
 ## Notes
 
-- The tina-smoke container that originally surfaced tin-j3mk still owes
-  one re-run on a docker-capable host; this sandbox has none. The
-  MALLOC_PERTURB_ batch remains the in-sandbox stand-in.
-- Under `dart run` the TUI needs ~8–11 s to first paint in this sandbox;
-  inject reply bursts AFTER paint onset or the bytes land in the dart
-  CLI's stdin, not tina's (tin-k7tr hunt note).
-- Toolchain: /opt/dart-sdk (3.13.1) on PATH; initialize the
-  dart_notcurses submodule before `dart pub get`. `dart test` must run
-  from the package dir (root for the app suite, packages/tina_console
-  for its own).
 - Root `dart analyze` has pre-existing errors in tool/render_to_image.dart
   and tool/visual_test.dart (reference tina_console panel_layout/
   panel_renderer modules that don't exist; untouched since the initial
-  release) — not introduced by and not blocking the g7rk work.
+  release).
 - tina_engine's package suite has one pre-existing failure in this sandbox:
   process_tree_test 'kills a backgrounded descendant…'. Root and
   tina_console suites fully green. Probed 2026-08-23: spawned
@@ -120,3 +100,7 @@ Last checkpoint: 2026-09-20 — mode-selector pair closed (see This
   must be cut at the completion sentinel.
 - Re-open condition (tin-3x9v): any native SIGSEGV — tool/crash_gdb.sh
   first, then tool/crash_union.sh.
+- tin-k7f2 follow-ups, not defects: Phase 1 verified on Linux x64 only
+  (macOS/arm64 builds from the same C but is unverified); the crash-hunt
+  harnesses under tool/ (tin-3x9v etc.) are the standing regression
+  probes for the native layer the PTY work now shares.

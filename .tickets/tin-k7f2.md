@@ -1,6 +1,6 @@
 ---
 id: tin-k7f2
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-09-15
@@ -39,9 +39,10 @@ may only use async-signal-safe functions until exec.
 
 ## Acceptance
 
-Status: REOPENED for PR #53 review fixes. The original acceptance items
-passed their (flawed) tests, but review found six correctness defects that
-have since been fixed with regression tests:
+Status: closed 2026-09-22. Phase 1 complete, merged as PR #53
+(a3f008e). The original acceptance items passed their (flawed)
+tests; review found six correctness defects, all fixed with
+regression tests and merged in the same PR:
 
 1. [x] Double exec: the fork-2 child AND the supervisor relay child both
    reached `child_exec`, so every spawn ran the command twice.

@@ -1,9 +1,8 @@
 ---
 id: tin-923l
-status: done
+status: closed
 deps: []
 links: [tin-80ll]
-links: []
 created: 2026-08-07T10:52:21Z
 type: chore
 priority: 2

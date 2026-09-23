@@ -1,6 +1,6 @@
 ---
 id: tin-9x4m
-status: done
+status: closed
 deps: []
 links: []
 created: 2026-08-18T00:00:00Z
