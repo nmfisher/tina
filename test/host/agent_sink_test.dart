@@ -53,9 +53,9 @@ void main() {
       w.sink.newline(); // prose end: flush the held paragraph
 
       final out = w.written();
-      // The whole row carries the agent style, gutter and all — the gutter is
+      // The whole row carries the agent style, margin and all — the margin is
       // part of the transcript's own furniture, not a separate surface.
-      expect(out, contains('\x1b[39m main │ hello\x1b[0m'),
+      expect(out, contains('\x1b[39m hello\x1b[0m'),
           reason: 'agent prose must render as default-fg styled text');
       expect(out, isNot(contains('\x1b[30;47m')),
           reason: 'agent prose must not get a background bar');

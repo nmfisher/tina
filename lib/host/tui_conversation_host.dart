@@ -58,8 +58,8 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
   final String conversationId;
 
   /// The role this conversation runs as — the same string the panel title is
-  /// built from — so the transcript's gutter and the border name the agent
-  /// identically.
+  /// built from, so panels and routing name an agent identically. Not painted
+  /// on transcript rows.
   final String roleLabel;
   final Renderers renderers;
 
@@ -414,9 +414,8 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
   @override
   void handleResize() {
     chat.handleResize();
-    // The region re-flows its own rows at the new width, which breaks the
-    // gutter alignment the transcript laid out for the old one. The transcript
-    // is the source of truth, so repaint it.
+    // The region re-flows its own rows at the new width, so the transcript —
+    // the source of truth — must be repainted from its blocks.
     _chatSink.rerender();
   }
 

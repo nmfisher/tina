@@ -5,8 +5,8 @@ import 'package:tina_console/tina_console.dart';
 
 /// The rendered text of a transcript, one visual line per row, with the
 /// trailing padding removed so a golden reads as the user sees it.
-String _render(List<ChatBlock> blocks, {int width = 60, ChatGutter? gutter}) {
-  final lines = renderTranscript(blocks, width: width, gutter: gutter);
+String _render(List<ChatBlock> blocks, {int width = 60}) {
+  final lines = renderTranscript(blocks, width: width);
   final out = <String>[];
   for (final line in lines) {
     if (line.isBlank) {
@@ -19,7 +19,7 @@ String _render(List<ChatBlock> blocks, {int width = 60, ChatGutter? gutter}) {
 }
 
 /// Every rendered line must fit the requested width — the region wraps
-/// anything wider, which would push content out of the gutter.
+/// anything wider, which would push content past the panel edge.
 void _expectFits(String rendered, int width) {
   for (final line in rendered.split('\n')) {
     expect(plainWidth(line), lessThanOrEqualTo(width),
@@ -30,44 +30,6 @@ void _expectFits(String rendered, int width) {
 const _main = ChatSpeaker(id: 'c1', label: 'main');
 
 void main() {
-  group('the gutter', () {
-    test('is sized to the widest speaker, with a floor of 4', () {
-      expect(ChatGutter.forSpeakers(const [ChatSpeaker.you]).labelWidth, 4);
-      expect(ChatGutter.forSpeakers(const [_main]).labelWidth, 4);
-      expect(
-        ChatGutter.forSpeakers(
-            const [ChatSpeaker(id: 'a', label: 'reviewer')]).labelWidth,
-        8,
-      );
-    });
-
-    test('is capped so a long role name cannot eat the transcript', () {
-      expect(
-        ChatGutter.forSpeakers(
-            const [ChatSpeaker(id: 'a', label: 'a-very-long-role-name')])
-            .labelWidth,
-        ChatGutter.maxLabelWidth,
-      );
-    });
-
-    test('names the speaker on the opening line and blanks the rest', () {
-      final g = ChatGutter(4);
-      expect(g.opening(_main), ' main │ ');
-      expect(g.continuing, '      │ ');
-      expect(g.width, 8);
-    });
-
-    test('truncates a label that does not fit, keeping the column', () {
-      final g = ChatGutter(4);
-      expect(g.opening(const ChatSpeaker(id: 'a', label: 'reviewer')),
-          ' rev… │ ');
-      expect(
-          plainWidth(g.opening(
-              ChatSpeaker(id: 'a', label: 'x' * 40))),
-          g.width);
-    });
-  });
-
   group('block kinds', () {
     test('only reasoning and tool calls fold, and they start folded', () {
       expect(ChatBlockKind.user.canFold, isFalse);
@@ -89,12 +51,12 @@ void main() {
       final rendered = _render([
         ChatBlock.notice(_main, 'retrying after a 502', notice: 'warn'),
       ]);
-      expect(rendered, ' main │ warn · retrying after a 502');
+      expect(rendered, ' warn · retrying after a 502');
     });
   });
 
   group('rendering', () {
-    test('labels the user and the agent, one blank line between blocks', () {
+    test('rows carry no speaker prefix — one margin column only', () {
       final rendered = _render([
         ChatBlock.user('why is CI red?'),
         ChatBlock.prose(_main, [
@@ -102,9 +64,11 @@ void main() {
         ]),
       ]);
       expect(rendered, '''
-  you │ why is CI red?
+ why is CI red?
 
- main │ Looking at the failing job.''');
+ Looking at the failing job.''');
+      expect(rendered, isNot(contains('│')));
+      expect(rendered, isNot(contains('main')));
     });
 
     test('a folded tool call is one line: glyph, subject, status', () {
@@ -115,7 +79,7 @@ void main() {
             body: plainLines('test/a_test.dart:12: flake')),
       ]);
       expect(rendered,
-          ' main │ → bash · grep -rn flake test/ | head -20  ok · 41ms');
+          ' → bash · grep -rn flake test/ | head -20  ok · 41ms');
     });
 
     test('an expanded tool call nests its output under the header', () {
@@ -127,23 +91,23 @@ void main() {
       block.folded = false;
       final rendered = _render([block]);
       expect(rendered, '''
- main │ → bash · dart test  failed · 1.4s
-      │   00:01 +0 -1: rejectsBareColon [E]
-      │   Expected: <true>''');
+ → bash · dart test  failed · 1.4s
+   00:01 +0 -1: rejectsBareColon [E]
+   Expected: <true>''');
     });
 
     test('reasoning is a count until expanded', () {
       final block = ChatBlock.reasoning(_main, 'x' * 412);
-      expect(_render([block]), ' main │ ▸ reasoning  412 chars');
+      expect(_render([block]), ' ▸ reasoning  412 chars');
 
       block.folded = false;
       final expanded = _render([block]);
       final lines = expanded.split('\n');
-      expect(lines.first, ' main │ ▾ reasoning  412 chars');
+      expect(lines.first, ' ▾ reasoning  412 chars');
       expect(lines.length, greaterThan(1),
           reason: 'the text is revealed, not summarised');
       for (final line in lines.skip(1)) {
-        expect(line, startsWith('      │   '),
+        expect(line, startsWith(kNestedPrefix),
             reason: 'revealed text nests under its header');
       }
       // Nothing is lost in the wrap, and no line overflows.
@@ -153,7 +117,7 @@ void main() {
 
     test('the folded count tracks the text, so it cannot lie', () {
       expect(_render([ChatBlock.reasoning(_main, 'abcde')]),
-          ' main │ ▸ reasoning  5 chars');
+          ' ▸ reasoning  5 chars');
     });
 
     test('a partial reasoning block says so', () {
@@ -164,7 +128,7 @@ void main() {
   });
 
   group('wrapping', () {
-    test('a long paragraph wraps and every line keeps the gutter', () {
+    test('a long paragraph wraps under the shared margin', () {
       final rendered = _render([
         ChatBlock.prose(_main, [
           MarkdownLine(runs: [
@@ -178,10 +142,9 @@ void main() {
       _expectFits(rendered, 40);
       final lines = rendered.split('\n');
       expect(lines.length, greaterThan(1));
-      expect(lines.first, startsWith(' main │ '));
-      for (final line in lines.skip(1)) {
-        expect(line, startsWith('      │ '),
-            reason: 'a continuation must line up under the content');
+      for (final line in lines) {
+        expect(line, startsWith(kMargin),
+            reason: 'every row keeps the one-column margin');
       }
     });
 
@@ -201,14 +164,14 @@ void main() {
       }
     });
 
-    test('the user message wraps under its own label', () {
+    test('the user message wraps under the shared margin', () {
       final rendered = _render([
         ChatBlock.user('a message long enough that it cannot possibly fit on '
             'one single line of this transcript at all'),
       ], width: 40);
       _expectFits(rendered, 40);
-      expect(rendered.split('\n').first, startsWith('  you │ '));
-      expect(rendered.split('\n')[1], startsWith('      │ '));
+      expect(rendered.split('\n').first, startsWith(kMargin));
+      expect(rendered.split('\n')[1], startsWith(kMargin));
     });
 
     test('a code block wraps hard and keeps its bar', () {
@@ -247,17 +210,17 @@ void main() {
       _expectFits(rendered, 30);
     });
 
-    test('a transcript narrower than its gutter degrades instead of wrapping',
+    test('a transcript too narrow for even the margin degrades to plain text',
         () {
       final rendered = _render([
         ChatBlock.user('hello'),
-      ], width: 4);
+      ], width: 1);
       expect(rendered, 'hello');
     });
   });
 
   group('shapes the host relies on', () {
-    test('blank lines between blocks carry no gutter', () {
+    test('blank lines between blocks carry no prefix', () {
       final lines = renderTranscript([
         ChatBlock.user('one'),
         ChatBlock.user('two'),
@@ -272,14 +235,6 @@ void main() {
         ChatBlock.user('one'),
       ], width: 40);
       expect(lines.last.isBlank, isFalse);
-    });
-
-    test('an explicit gutter is honoured over the computed one', () {
-      final rendered = _render(
-        [ChatBlock.user('hi')],
-        gutter: const ChatGutter(8),
-      );
-      expect(rendered, '      you │ hi');
     });
   });
 }

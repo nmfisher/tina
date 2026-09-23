@@ -158,7 +158,7 @@ void main() {
       host.text('answer\n\n');
       host.newline();
       expect(painted(), contains('+---'));
-      expect(painted(), contains('you │ hello'));
+      expect(painted(), contains('hello'));
       expect(host.lastRawMarkdown, 'assistant **styled** answer\n\n');
       final prose = host.transcript.blocks.indexWhere(
         (b) => b.kind == ChatBlockKind.prose,

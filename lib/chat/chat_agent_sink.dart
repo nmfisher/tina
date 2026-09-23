@@ -55,15 +55,11 @@ class ChatAgentSink implements AgentSink {
     this.renderers = const Renderers(),
     this.onRawText,
     ChatSpeaker? speaker,
-  }) : speaker = speaker ?? const ChatSpeaker(id: 'main', label: 'main') {
-    // The gutter is fixed for the life of the sink: a conversation has exactly
-    // two speakers, so a wider label from a later block cannot re-flow rows
-    // that are already painted.
-    _gutter = ChatGutter.forSpeakers([ChatSpeaker.you, this.speaker]);
-  }
+  }) : speaker = speaker ?? const ChatSpeaker(id: 'main', label: 'main');
 
-  /// Who this sink's agent is. The gutter names the speaker, so a spawned or
-  /// delegated conversation's rows name *it* rather than a generic agent.
+  /// Who this sink's agent is. A spawned or delegated conversation's panel
+  /// title names *it*; its transcript rows are anonymous like every other
+  /// conversation's.
   final ChatSpeaker speaker;
 
   // --- the transcript -------------------------------------------------------
@@ -84,8 +80,6 @@ class ChatAgentSink implements AgentSink {
   /// Whether the fold hint has been shown. Once per conversation: a hint is
   /// only useful the first time there is something to fold.
   bool _hintedFolding = false;
-
-  late ChatGutter _gutter;
 
   /// Index of the block the transcript cursor is on, if it is open.
   int? _highlighted;
@@ -180,8 +174,8 @@ class ChatAgentSink implements AgentSink {
   }
 
   /// Paint every block again from scratch, rebuilding the row index. The
-  /// region re-flows its own rows on a resize, which breaks gutter alignment,
-  /// so the host calls this after one.
+  /// region re-flows its own rows on a resize, so the host calls this after
+  /// one.
   void rerender() {
     if (!_blocksActive || _blocks.isEmpty) return;
     final out = <RegionLine>[];
@@ -240,7 +234,7 @@ class ChatAgentSink implements AgentSink {
   List<RenderLine> _render(ChatBlock block) => renderers.render(
     block,
     RenderContext(width: _width, theme: chat.screen.theme),
-    fallback: ChatRenderer(gutter: _gutter),
+    fallback: const ChatRenderer(),
   );
 
   /// The user's own message: its own block, under the `you` speaker.

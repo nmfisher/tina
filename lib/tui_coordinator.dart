@@ -1645,7 +1645,7 @@ class TuiCoordinator {
       /// [_buildSpawnPanel]'s `relayContent` (and kept in sync by Phase 1's
       /// surface tracking). Centralized so every spawn site gets the same
       /// detach-then-relay sequence and a future site can't drift.
-      /// [role] names the speaker in the spawned transcript's gutter. The
+      /// [role] names the conversation in panel titles and routing. The
       /// delegated-agent path passes the job's role; the two callers that only
       /// have a conversation id (session operations, the side-conversation
       /// presenter) leave it at `main` until their own role is threaded through.
@@ -1671,8 +1671,8 @@ class TuiCoordinator {
           editor: editor,
           active: false,
           primary: false,
-          // The gutter names the speaker, so a delegated agent's own transcript
-          // says `scout` rather than `main`.
+          // The role is the conversation's identity for panels and routing;
+          // the transcript rows themselves stay anonymous.
           roleLabel: role,
           sandboxOffReason: config.sandboxOffReason,
           regexSuggester: app.regexSuggester,

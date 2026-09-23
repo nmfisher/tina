@@ -5,23 +5,23 @@
 /// colour alone. This layer gives those rows a *structure*: an ordered list of
 /// [ChatBlock]s, each belonging to a [ChatSpeaker], each either folded (one
 /// line) or expanded. [renderTranscript] turns that list into wrapped,
-/// gutter-prefixed [MarkdownLine]s.
+/// prefixed [MarkdownLine]s.
 ///
 /// Two rules the types are built around:
 ///
-///  * **The gutter names the speaker, the glyph names the kind.** A delegated
-///    agent's tool call reads `scout │ → bash · …` with no extra concepts, so
-///    the layout scales to many agents without a per-kind label vocabulary.
-///    [ChatSpeaker.label] is the same role string the panel title uses, so the
-///    gutter and the border cannot disagree.
+///  * **The glyph names the kind.** A tool call reads `→ bash · …` and a
+///    folded thought `▸ reasoning …`; who is speaking is carried by the row
+///    style and the panel title, not painted on every row. [ChatSpeaker] is
+///    kept as block identity — folds, selection and per-agent panels route by
+///    it — but no prefix names it.
 ///  * **Nothing here touches a Screen.** Every styling decision resolves
 ///    through the caller's runs and theme; the renderer is a pure function from
 ///    blocks + width to lines, so it can be golden-tested without a terminal.
 ///
 /// Wrapping lives here rather than in the region because a wrapped line's
-/// continuation must carry the same blank gutter as its first line. The region
-/// wraps at its own width and knows nothing about gutters, so a line handed to
-/// it already fits and its own wrap becomes a no-op.
+/// continuation must carry the same left prefix as its first line. The region
+/// wraps at its own width and knows nothing about prefixes, so a line handed
+/// to it already fits and its own wrap becomes a no-op.
 library;
 
 import 'package:tina_console/tina_console.dart';
@@ -52,18 +52,20 @@ enum ChatBlockKind {
 
 /// Who a block belongs to.
 ///
-/// [label] is the role the conversation runs as — `you`, `main`, `scout` — and
-/// is deliberately the same string the panel title is built from, so the two
-/// surfaces name an agent identically. [id] identifies the conversation/agent,
-/// which is what a future multi-agent view needs to route one agent's blocks
-/// into its own panel.
+/// [label] is the role the conversation runs as — `you`, `main`, `scout` — the
+/// same string the panel title is built from. It is identity, not decoration:
+/// the transcript no longer paints speaker labels, so the label names the
+/// agent to the rest of the app (panel titles, routing), not to the reader.
+/// [id] identifies the conversation/agent, which is what a future multi-agent
+/// view needs to route one agent's blocks into its own panel.
 class ChatSpeaker {
   const ChatSpeaker({required this.id, required this.label});
 
   /// The conversation or agent this speaker is.
   final String id;
 
-  /// The role shown in the gutter.
+  /// The role this conversation runs as (what the panel title shows). Not
+  /// painted per row.
   final String label;
 
   /// The user's own messages. Their "role" is a view of the conversation, not
@@ -184,98 +186,55 @@ class ChatBlock {
   bool get canFold => kind.canFold && hasBody;
 }
 
-/// The shared left gutter: a right-aligned label column, a rule, and content.
+/// The transcript's left furniture, kept after the speaker-label gutter was
+/// retired: one margin column so text is not glued to the panel border, the
+/// two-column nest under an expanded block's header, and the blank that
+/// separates blocks.
 ///
 /// ```text
-///  main │ The failure is a flake in `ParserTest.rejectsBareColon`.
-///       │ Two things point that way:
+///  The failure is a flake in `ParserTest.rejectsBareColon`.
+///  Two things point that way:
+///    → bash · dart test  failed · 1.4s
+///      00:01 +0 -1: rejectsBareColon [E]
 /// ```
-///
-/// The width is computed once per transcript from the speakers it contains, so
-/// a two-agent conversation does not pay for a seven-letter role it never uses.
-/// Continuation lines carry a blank label column, which is what makes a wrapped
-/// paragraph read as one block instead of several.
-class ChatGutter {
-  const ChatGutter(this.labelWidth);
+const String kMargin = ' ';
 
-  /// Columns reserved for the label. 4 fits `you`/`main`; longer roles widen
-  /// the gutter, bounded so a pathological role name cannot eat the transcript.
-  final int labelWidth;
+/// The prefix under an expanded header (tool output, revealed reasoning):
+/// two columns deeper than the margin, so the body reads as belonging to the
+/// call above it.
+const String kNestedPrefix = '$kMargin  ';
 
-  static const int minLabelWidth = 4;
-  static const int maxLabelWidth = 10;
-
-  /// One leading space, the label right-aligned in its column, and ` │ `.
-  int get width => labelWidth + 4;
-
-  /// The widest label among [speakers], clamped to the allowed range. Prose
-  /// inherits this too, so every line in a transcript shares one gutter.
-  factory ChatGutter.forSpeakers(Iterable<ChatSpeaker> speakers) {
-    var widest = minLabelWidth;
-    for (final speaker in speakers) {
-      final w = plainWidth(speaker.label);
-      if (w > widest) widest = w;
-    }
-    return ChatGutter(widest > maxLabelWidth ? maxLabelWidth : widest);
-  }
-
-  /// The gutter a transcript of [blocks] needs.
-  factory ChatGutter.forBlocks(Iterable<ChatBlock> blocks) =>
-      ChatGutter.forSpeakers(blocks.map((b) => b.speaker));
-
-  /// The prefix opening a block: ` main │ `. A label longer than the column is
-  /// truncated rather than allowed to push the content column out.
-  ///
-  /// The leading space is the transcript's margin from the panel border — it is
-  /// part of [width], and [continuing] carries it too, so the `│` rule is a
-  /// straight line down every row.
-  String opening(ChatSpeaker speaker) => ' ${_label(speaker.label)} │ ';
-
-  /// The prefix continuing a block: `      │ `.
-  String get continuing => '${' ' * (labelWidth + 1)} │ ';
-
-  /// A nested prefix for expanded content inside a block, so a tool's output
-  /// reads as belonging to the call above it. Two columns deeper than
-  /// [continuing].
-  String get nested => '$continuing  ';
-
-  String _label(String label) {
-    if (plainWidth(label) > labelWidth) {
-      return _truncateToWidth(label, labelWidth);
-    }
-    return label.padLeft(labelWidth);
-  }
-}
+/// The widest label a speaker prefix would have taken. Kept only so
+/// [ChatSpeaker.label] stays bounded where callers still show it.
+const int maxLabelWidth = 10;
 
 /// The block's one-line form as plain text — what its header shows, without
-/// the gutter. Used to list blocks outside a terminal.
+/// any prefix. Used to list blocks outside a terminal.
 String blockSummary(ChatBlock block) =>
     _headerRuns(block).map((r) => r.text).join().trim();
 
-/// Render [blocks] for a transcript [width] columns wide, gutter included.
+/// Render [blocks] for a transcript [width] columns wide.
 ///
 /// Each returned line already fits [width], so the region it is written to
-/// wraps nothing. Blocks are separated by a blank line; a blank line carries no
-/// gutter, so the separation reads as a gap rather than an empty row.
+/// wraps nothing. Blocks are separated by a blank line; a blank line carries
+/// no prefix, so the separation reads as a gap rather than an empty row.
 List<MarkdownLine> renderTranscript(
   List<ChatBlock> blocks, {
   required int width,
-  ChatGutter? gutter,
 }) {
-  final g = gutter ?? ChatGutter.forBlocks(blocks);
-  final contentWidth = width - g.width;
-  if (contentWidth <= 0) {
-    // Too narrow for a gutter: degrade to plain content rather than emit lines
-    // the region would wrap into misaligned soup.
+  if (width <= kMargin.length) {
+    // Too narrow for even the margin: degrade to plain content rather than
+    // emit lines the region would wrap into misaligned soup.
     return [
       for (final block in blocks) ..._bodyLines(block),
     ];
   }
 
+  final contentWidth = width - kMargin.length;
   final out = <MarkdownLine>[];
   for (final block in blocks) {
     if (out.isNotEmpty) out.add(const MarkdownLine.blank());
-    out.addAll(_renderBlock(block, g, contentWidth));
+    out.addAll(_renderBlock(block, contentWidth));
   }
   while (out.isNotEmpty && out.last.isBlank) {
     out.removeLast();
@@ -283,11 +242,9 @@ List<MarkdownLine> renderTranscript(
   return out;
 }
 
-List<MarkdownLine> _renderBlock(ChatBlock block, ChatGutter g, int width) {
-  final opening = g.opening(block.speaker);
-
+List<MarkdownLine> _renderBlock(ChatBlock block, int width) {
   if (block.kind == ChatBlockKind.prose) {
-    return _prefixAll(_wrap(block.body, width), opening, g.continuing);
+    return _prefixAll(_wrap(block.body, width), kMargin, kMargin);
   }
 
   // The header is the same row folded or expanded — expanding reveals the body
@@ -302,19 +259,19 @@ List<MarkdownLine> _renderBlock(ChatBlock block, ChatGutter g, int width) {
 
   final collapsed = block.folded || !block.hasBody;
   if (collapsed) {
-    return _prefixAll(header(), opening, g.continuing);
+    return _prefixAll(header(), kMargin, kMargin);
   }
 
   // Expanded: the header, then the body nested one level in (and the body
   // wrapped one level narrower, so a nested line and a header line end in the
   // same column).
-  final nestedWidth = width - (g.nested.length - g.width);
+  final nestedWidth = width - (kNestedPrefix.length - kMargin.length);
   return [
-    ..._prefixAll(header(), opening, g.continuing),
+    ..._prefixAll(header(), kMargin, kMargin),
     ..._prefixAll(
       _wrap(block.body, nestedWidth),
-      g.nested,
-      g.nested,
+      kNestedPrefix,
+      kNestedPrefix,
     ),
   ];
 }
@@ -545,13 +502,6 @@ String _takeWidth(String text, int width) {
   return i == 0 ? text.substring(0, runeSizeAt(text, 0)) : text.substring(0, i);
 }
 
-/// Truncate [label] to [width] columns, marking the cut.
-String _truncateToWidth(String label, int width) {
-  final head = _takeWidth(label, width);
-  if (head.length >= label.length) return head;
-  return width <= 1 ? head : '${_takeWidth(label, width - 1)}…';
-}
-
 /// Plain content lines from [text] — one visual line per source line.
 List<MarkdownLine> plainLines(String text) => [
       for (final line in text.split('\n'))
@@ -561,7 +511,7 @@ List<MarkdownLine> plainLines(String text) => [
     ];
 
 /// The body lines of a block, for the too-narrow fallback where there is no
-/// room for a gutter.
+/// room even for the margin.
 List<MarkdownLine> _bodyLines(ChatBlock block) => block.body.isEmpty
     ? [MarkdownLine(runs: [MarkdownRun(block.subject, null)])]
     : block.body;

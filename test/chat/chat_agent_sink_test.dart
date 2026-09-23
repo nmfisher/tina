@@ -48,7 +48,7 @@ void main() {
 
     final painted = _painted(chat);
     // Header only: the subject, its outcome, and nothing of the output.
-    expect(painted, contains('main │ → bash · echo hi'));
+    expect(painted, contains(' → bash · echo hi'));
     expect(painted, contains('ok'));
     expect(painted, isNot(contains('line one')));
     expect(painted, isNot(contains('line two')));
@@ -68,7 +68,7 @@ void main() {
     final painted = _painted(chat);
     // A 700-char dump costs one row: the header. No cap, no pointer — the
     // output simply is not the chat's business any more.
-    expect(painted, contains('main │ → bash · find .'));
+    expect(painted, contains(' → bash · find .'));
     expect(painted, contains('ok'));
     expect(painted.length, lessThan(120));
     expect(painted, isNot(contains('xxx')));
@@ -233,7 +233,7 @@ void main() {
     final row = _painted(chat)
         .split('\n')
         .firstWhere((l) => l.contains('→ bash · echo hi'));
-    expect(row, contains('main │ → bash · echo hi'));
+    expect(row, contains(' → bash · echo hi'));
   });
 
   test('a command the panel can hold is rendered whole', () {
@@ -324,7 +324,7 @@ void main() {
   });
 
   group('the transcript', () {
-    test('the user gets its own labelled block', () {
+    test('the user gets its own block, same as any other row', () {
       final chat = ScrollingTextRegion(_screen());
       final sink = ChatAgentSink(chat, Spinner(enabled: false),
           speaker: const ChatSpeaker(id: 'c1', label: 'main'));
@@ -334,20 +334,23 @@ void main() {
       sink.newline();
 
       final painted = _painted(chat);
-      expect(painted, contains('  you │ why is CI red?'));
-      expect(painted, contains(' main │ Looking at the failing job.'));
+      expect(painted, contains(' why is CI red?'));
+      expect(painted, contains(' Looking at the failing job.'));
     });
 
-    test('the speaker label is the one it was constructed with', () {
+    test('rows are anonymous — the speaker label reaches the panel, not them',
+        () {
       final chat = ScrollingTextRegion(_screen());
       final sink = ChatAgentSink(chat, Spinner(enabled: false),
           speaker: const ChatSpeaker(id: 'c2', label: 'scout'));
 
-      sink.text('scouting\n');
+      sink.text('on the trail\n');
       sink.newline();
 
-      // A delegated conversation names itself in its own panel's transcript.
-      expect(_painted(chat), contains('scout │ scouting'));
+      // A delegated conversation is named by its panel title; its rows look
+      // like every other conversation's.
+      expect(_painted(chat), contains(' on the trail'));
+      expect(_painted(chat), isNot(contains('scout')));
     });
 
     test('reasoning is a counted row, not the thought', () {
@@ -384,7 +387,7 @@ void main() {
       final painted = _painted(chat);
       expect(painted, contains('warn · retrying after a 502'));
       expect(painted, contains('error · the run failed'));
-      expect(painted, contains('main │ just so you know'));
+      expect(painted, contains(' just so you know'));
     });
 
     test('a resize re-lays the transcript out at the new width', () {
@@ -433,7 +436,7 @@ void main() {
     }
 
     final painted = _painted(chat);
-    expect(painted, contains('main │ $kFoldHint'));
+    expect(painted, contains(' $kFoldHint'));
     expect(kFoldHint.allMatches(painted).length, 1,
         reason: 'the second call has nothing new to announce');
   });
@@ -461,7 +464,7 @@ void main() {
       expect(expanded, contains('→ bash · ls  ok'));
       expect(expanded, contains('a.dart'));
       expect(expanded, contains('b.dart'));
-      expect(expanded, contains('      │   a.dart'));
+      expect(expanded, contains('   a.dart'));
 
       // And back again.
       expect(sink.toggleFold(0), isTrue);
@@ -553,6 +556,6 @@ void main() {
     final noticeRow =
         lines.where((l) => l.contains('[watchdog] turn idle for 5m')).toList();
     expect(noticeRow, hasLength(1));
-    expect(noticeRow.single.trimLeft(), 'main │ [watchdog] turn idle for 5m');
+    expect(noticeRow.single, ' [watchdog] turn idle for 5m');
   });
 }

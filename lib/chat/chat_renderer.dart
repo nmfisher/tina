@@ -4,8 +4,7 @@ import 'chat_transcript.dart';
 
 /// Default layout and row styles for all transcript block kinds.
 class ChatRenderer extends Renderer<ChatBlock> {
-  final ChatGutter? gutter;
-  const ChatRenderer({this.gutter});
+  const ChatRenderer();
 
   @override
   List<RenderLine> render(ChatBlock value, RenderContext context) {
@@ -21,11 +20,7 @@ class ChatRenderer extends Renderer<ChatBlock> {
       },
     };
     return [
-      for (final line in renderTranscript(
-        [value],
-        width: context.width,
-        gutter: gutter,
-      ))
+      for (final line in renderTranscript([value], width: context.width))
         if (line.isBlank)
           line
         else
