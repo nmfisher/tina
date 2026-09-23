@@ -10,6 +10,7 @@ import 'package:tina/composition/typesafe.dart';
 import 'package:tina/composition/git_input.dart';
 import 'package:tina/composition/intent_input.dart';
 import 'package:tina/composition/token_status.dart';
+import 'package:tina/composition/plan_ui.dart';
 import 'package:tina/composition/chat_renderer.dart';
 import 'package:tina/composition/models_dev_seed.dart';
 import 'package:tina/logging.dart';
@@ -258,6 +259,7 @@ Future<void> _run(List<String> argv) async {
             configuredGitInputPlugin(environment.env),
           if (!launch.startup.nonInteractive)
             configuredIntentInputPlugin(environment.env),
+          planUiPlugin(store: PlanStore()),
           tokenStatusPlugin(),
         ],
       );

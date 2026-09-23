@@ -2,6 +2,7 @@ import 'package:attractor/attractor.dart';
 import 'live_quotas.dart';
 import 'orchestrator_tools.dart';
 import '../exploration/explore_project_tool.dart';
+import '../plans/plan_plugin.dart' as plans;
 import 'package:tina_engine/tina_engine.dart';
 
 import 'package:tina_app/src/config/runtime_config.dart';
@@ -177,6 +178,19 @@ AgentDriver buildAgent({
     ...pipeline.tools.buildTools(safeMode: config.safeMode).all,
     if (exploreProject != null) exploreProject,
   ];
+  // The plugin-scope plan store (when a plan plugin is mounted) contributes a
+  // per-conversation update_plan tool (LocalControlTool: no approval ask) and
+  // a request middleware that injects the conversation's plan as agent
+  // context. Per-conversation by construction: a shared scope cannot know
+  // which conversation a turn belongs to, so these are minted here, keyed by
+  // [conversationId].
+  final planStore =
+      scheduler.mountedScopeValue?.lookup(plans.planStoreServiceKey);
+  AgentMiddleware? planMiddleware;
+  if (planStore != null) {
+    tools.add(plans.PlanTool(planStore, conversationId));
+    planMiddleware = plans.PlanMiddleware(planStore, conversationId);
+  }
   // The workflow surface, when the host provides a supervisor: launch a DOT
   // workflow in the background (the run's input/output streams into a live run
   // panel; the chat keeps the launch + completion notices) and stop a running
@@ -378,9 +392,12 @@ AgentDriver buildAgent({
     ],
     executionHooks: scheduler.scopeExecutionHooks,
     toolChecks: scheduler.scopeToolChecks,
-    middleware: scheduler.mountedScopeValue == null
+    middleware: scheduler.mountedScopeValue == null && planMiddleware == null
         ? null
-        : AgentMiddlewarePipeline(scope: scheduler.mountedScopeValue),
+        : AgentMiddlewarePipeline(
+            scope: scheduler.mountedScopeValue,
+            middleware: [if (planMiddleware != null) planMiddleware],
+          ),
     promptContext: pipeline.promptContext,
     resultHooks: scheduler.scopeResultHooks,
     observers: scheduler.scopeObservers,

@@ -64,3 +64,4 @@ export 'src/execution/token_status.dart';
 
 export 'src/execution/interrupts.dart';
 export 'src/classification/rules.dart';
+export 'src/plans/plan_plugin.dart';
