@@ -85,9 +85,11 @@ class LineEditor {
   void Function()? _cancelHandler;
 
   // Queue-mode state (active during cancel monitoring when queue params set).
-  String _qBuf = '';
+  // An immutable TextLineInput value, not bare fields, so the same cursor
+  // motion (word jumps, home/end, kills) works while typing mid-turn as in a
+  // live readLine — pre-tin-m8r3 every arrow was dropped in this mode.
+  TextLineInput _qEdit = const TextLineInput();
   ({String buffer, int cursor})? _capturedDraft;
-  int _qCursor = 0;
   void Function(String)? _onQueueSubmit;
   int _qCount = 0;
   bool _queueModeActive = false;
@@ -397,8 +399,7 @@ class LineEditor {
   }) {
     _cancelHandler = onCancel;
     _onQueueSubmit = onQueueSubmit;
-    _qBuf = '';
-    _qCursor = 0;
+    _qEdit = const TextLineInput();
     _qCount = queueCount;
     _queueModeActive = onQueueSubmit != null;
     if (_queueModeActive) _renderQueueDisplay();
@@ -410,8 +411,7 @@ class LineEditor {
     if (_queueModeActive) _renderQueueDisplay();
     _queueModeActive = false;
     _onQueueSubmit = null;
-    _qBuf = '';
-    _qCursor = 0;
+    _qEdit = const TextLineInput();
     _qCount = 0;
   }
 
@@ -435,7 +435,9 @@ class LineEditor {
     if (!_queueModeActive) return;
     // A replacement instruction may already be partly typed while a cancelled
     // command unwinds. Hand that draft to readLine instead of erasing it.
-    if (_qBuf.isNotEmpty) _capturedDraft = (buffer: _qBuf, cursor: _qCursor);
+    if (_qEdit.buffer.isNotEmpty) {
+      _capturedDraft = (buffer: _qEdit.buffer, cursor: _qEdit.cursor);
+    }
     endCancelMonitor();
   }
 
@@ -709,14 +711,13 @@ class LineEditor {
     // awaiting code settles as cancelled instead of hanging.
     if (event is ControlKey && event.code == ControlCode.ctrlC) {
       final hasDraft =
-          _queueModeActive ? _qBuf.isNotEmpty : _edit.buffer.isNotEmpty;
+          _queueModeActive ? _qEdit.buffer.isNotEmpty : _edit.buffer.isNotEmpty;
       if (!_dialog.isVisible && !_exclusivePanelFocused && hasDraft) {
         _activePicker?.closeState();
         _lastEsc = null;
         _capturedDraft = null;
         if (_queueModeActive) {
-          _qBuf = '';
-          _qCursor = 0;
+          _qEdit = const TextLineInput();
           _renderQueueDisplay();
           return KeyHandledBy.queuedInput;
         }
@@ -900,8 +901,7 @@ class LineEditor {
     _focusManager?.returnHome();
     _edit = _edit.clear().resetNavigation();
     _capturedDraft = null;
-    _qBuf = '';
-    _qCursor = 0;
+    _qEdit = const TextLineInput();
     if (onDoubleEscape != null) {
       onDoubleEscape!();
     } else {
@@ -1376,8 +1376,7 @@ class LineEditor {
     _complete(null);
     _edit = _edit.clear().resetNavigation();
     _capturedDraft = null;
-    _qBuf = '';
-    _qCursor = 0;
+    _qEdit = const TextLineInput();
     // Nothing pending may surface after the quit: held pastes and burst
     // overflow would otherwise dispatch into a dead readLine and repaint the
     // input row during teardown.
@@ -1399,9 +1398,8 @@ class LineEditor {
       case ScrollEvent():
         return; // the wheel never drives queue/command history.
       case EscapeKey():
-        if (_qBuf.isNotEmpty) {
-          _qBuf = '';
-          _qCursor = 0;
+        if (_qEdit.buffer.isNotEmpty) {
+          _qEdit = const TextLineInput();
           _renderQueueDisplay();
         } else {
           _cancelHandler!();
@@ -1409,19 +1407,14 @@ class LineEditor {
       case ControlKey(:final code):
         switch (code) {
           case ControlCode.enter:
-            if (_qBuf.isNotEmpty) {
-              _onQueueSubmit!(_qBuf);
+            if (_qEdit.buffer.isNotEmpty) {
+              _onQueueSubmit!(_qEdit.buffer);
               _qCount++;
             }
-            _qBuf = '';
-            _qCursor = 0;
+            _qEdit = const TextLineInput();
             _renderQueueDisplay();
           case ControlCode.backspace:
-            if (_qCursor > 0) {
-              _qBuf =
-                  _qBuf.substring(0, _qCursor - 1) + _qBuf.substring(_qCursor);
-              _qCursor--;
-            }
+            _qEdit = _qEdit.backspace();
             _renderQueueDisplay();
           case ControlCode.tab:
           case ControlCode.ctrlL:
@@ -1452,29 +1445,55 @@ class LineEditor {
             break;
         }
       case CharInput(:final text):
-        _qBuf = _qBuf.substring(0, _qCursor) + text + _qBuf.substring(_qCursor);
-        _qCursor += text.length;
+        _qEdit = _qEdit.insert(text);
         _renderQueueDisplay();
       case PasteInput(:final text):
-        // Queue mode is linear ASCII entry: inject the real pasted text (no
-        // placeholder) at the cursor.
-        _qBuf = _qBuf.substring(0, _qCursor) + text + _qBuf.substring(_qCursor);
-        _qCursor += text.length;
+        // Queue mode stays single-line: the pasted text goes in verbatim (no
+        // placeholder span — rendering below uses the raw buffer).
+        _qEdit = _qEdit.insert(text);
+        _renderQueueDisplay();
+      case ArrowKey ev
+          when ev.direction == ArrowDirection.left ||
+              ev.direction == ArrowDirection.right:
+        // Mid-turn editing is real editing: plain arrows step a character,
+        // Ctrl/Alt+Arrow jump a word — same semantics as a live readLine
+        // (pre-tin-m8r3 this mode dropped every motion key). Up/down stay
+        // inert: queue mode keeps no command history.
+        final isWord = ev.hasCtrl || ev.hasAlt;
+        _qEdit = ev.direction == ArrowDirection.left
+            ? (isWord ? _qEdit.moveWordLeft() : _qEdit.moveLeft())
+            : (isWord ? _qEdit.moveWordRight() : _qEdit.moveRight());
         _renderQueueDisplay();
       case ArrowKey():
-      case EditingKey():
+        // Up/down and page keys: queue mode keeps no command history, so the
+        // vertical arrows stay inert (left/right matched the guard above).
+        break;
+      case EditingKey(:final action):
+        // Home/End/Delete/kill keys edit the queued draft exactly as they
+        // would a live draft.
+        _qEdit = switch (action) {
+          EditingAction.home => _qEdit.moveHome(),
+          EditingAction.end => _qEdit.moveEnd(),
+          EditingAction.delete => _qEdit.deleteForward(),
+          EditingAction.killToEnd => _qEdit.killToEnd(),
+          EditingAction.killToStart => _qEdit.killToStart(),
+          EditingAction.deleteWordBackward => _qEdit.killWordBackward(),
+          EditingAction.deleteWordForward => _qEdit.killWordForward(),
+        };
+        _renderQueueDisplay();
       case AltKey():
       case FunctionKey():
       case UnknownEscape():
-        // Queue mode is linear ASCII entry only.
+        // Alt word-motion chords (Alt+b/d/f) and unknown sequences stay
+        // unhandled; F-keys and wheel/scroll never drive the queue line.
         break;
     }
   }
 
   void _renderQueueDisplay() {
-    if (_qBuf.isNotEmpty) {
-      screen.input
-          .render(prompt: _currentPrompt, buffer: _qBuf, cursor: _qCursor);
+    if (_qEdit.buffer.isNotEmpty) {
+      screen.input.render(
+          prompt: _currentPrompt, buffer: _qEdit.buffer, cursor: _qEdit.cursor);
     } else if (_qCount > 0) {
       final useColor = screen.ansi.useColor;
       final label = useColor

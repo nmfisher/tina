@@ -660,6 +660,94 @@ void main() {
       await _flush();
       expect(cancelled, isTrue);
     });
+
+    test('queue mode Ctrl-Left jumps a word; typing lands mid-buffer',
+        () async {
+      final ed = _editor(io);
+      ed.readLine('> ');
+      await _flush();
+      final submitted = <String>[];
+      ed.beginCancelMonitor(() {}, onQueueSubmit: submitted.add);
+      io.feedBytes('hello world'.codeUnits);
+      await _flush();
+      io.feedBytes([0x1b, 0x5b, 0x31, 0x3b, 0x35, 0x44]); // CSI 1;5D — Ctrl+Left
+      await _flush();
+      io.feedBytes([0x58, 0x0d]); // X, ⏎
+      await _flush();
+      expect(submitted, ['hello Xworld'],
+          reason: 'Ctrl+Left must park the cursor before "world" — '
+              'pre-tin-m8r3 queue mode dropped every arrow key');
+    });
+
+    test('queue mode Alt-Left jumps a word (CSI 1;3D)', () async {
+      final ed = _editor(io);
+      ed.readLine('> ');
+      await _flush();
+      final submitted = <String>[];
+      ed.beginCancelMonitor(() {}, onQueueSubmit: submitted.add);
+      io.feedBytes('hello world'.codeUnits);
+      await _flush();
+      io.feedBytes([0x1b, 0x5b, 0x31, 0x3b, 0x33, 0x44]); // CSI 1;3D — Alt+Left
+      await _flush();
+      io.feedBytes([0x58, 0x0d]); // X, ⏎
+      await _flush();
+      expect(submitted, ['hello Xworld']);
+    });
+
+    test('queue mode plain Left steps a character', () async {
+      final ed = _editor(io);
+      ed.readLine('> ');
+      await _flush();
+      final submitted = <String>[];
+      ed.beginCancelMonitor(() {}, onQueueSubmit: submitted.add);
+      io.feedBytes([0x61, 0x62]); // a, b
+      await _flush();
+      io.feedBytes([0x1b, 0x5b, 0x44]); // CSI D — Left
+      await _flush();
+      io.feedBytes([0x58, 0x0d]); // X, ⏎
+      await _flush();
+      expect(submitted, ['aXb']);
+    });
+
+    test('queue mode Up/Down stay inert', () async {
+      final ed = _editor(io);
+      ed.readLine('> ');
+      await _flush();
+      final submitted = <String>[];
+      ed.beginCancelMonitor(() {}, onQueueSubmit: submitted.add);
+      io.feedBytes([0x61, 0x62]); // a, b
+      await _flush();
+      io.feedBytes([0x1b, 0x5b, 0x41]); // CSI A — Up
+      await _flush();
+      io.feedBytes([0x1b, 0x5b, 0x42]); // CSI B — Down
+      await _flush();
+      io.feedBytes([0x58, 0x0d]); // X, ⏎
+      await _flush();
+      expect(submitted, ['abX'],
+          reason: 'queue mode keeps no history; Up/Down must not eat the draft');
+    });
+
+    test('queue mode Home/End/Delete edit the draft', () async {
+      final ed = _editor(io);
+      ed.readLine('> ');
+      await _flush();
+      final submitted = <String>[];
+      ed.beginCancelMonitor(() {}, onQueueSubmit: submitted.add);
+      io.feedBytes([0x61, 0x62]); // a, b
+      await _flush();
+      io.feedBytes([0x1b, 0x5b, 0x48]); // CSI H — Home
+      await _flush();
+      io.feedBytes([0x58]); // X  -> Xab
+      await _flush();
+      io.feedBytes([0x1b, 0x5b, 0x46]); // CSI F — End
+      await _flush();
+      io.feedBytes([0x7f, 0x0d]); // Backspace removes the trailing 'b', ⏎
+      await _flush();
+      expect(submitted, ['Xa'],
+          reason:
+              'Home parked at 0 for the X; End parked at the end, backspace '
+              'removed the trailing "b"');
+    });
   });
 
   group('LineEditor readKey', () {

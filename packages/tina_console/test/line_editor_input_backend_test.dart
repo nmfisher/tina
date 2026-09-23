@@ -232,7 +232,7 @@ void main() {
       ed.close();
     });
 
-    test('AltKey / FunctionKey / ArrowKey / EditingKey are silently ignored',
+    test('AltKey / FunctionKey / UnknownEscape are ignored; arrows edit',
         () async {
       final input = FakeInputBackend();
       final ed = _makeEditor(input);
@@ -247,14 +247,20 @@ void main() {
       // These must NOT crash and must NOT submit anything.
       input.emit(AltKey(0x66));
       input.emit(FunctionKey(FunctionKeyCode.f1));
+      input.emit(UnknownEscape([0x1b, 0x4f, 0x30]));
+      // Motion keys now edit the queued draft (tin-m8r3) instead of being
+      // dropped: left arrow steps a char, Home parks at column 0.
+      input.emit(CharInput('a'));
+      input.emit(CharInput('b'));
       input.emit(ArrowKey(ArrowDirection.left));
       input.emit(EditingKey(EditingAction.home));
-      input.emit(UnknownEscape([0x1b, 0x4f, 0x30]));
-      input.emit(CharInput('x'));
+      input.emit(CharInput('X'));
       input.emit(ControlKey(ControlCode.enter));
       await _flush();
-      expect(submitted, ['x'],
-          reason: 'non-text events should not contribute to the buffer');
+      expect(submitted, ['Xab'],
+          reason:
+              'Left+Home moved the cursor before X landed — with the old '
+              'drop-through it would be "abX"');
       expect(cancelled, isFalse);
       ed.endCancelMonitor();
       ed.close();
