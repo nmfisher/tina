@@ -274,6 +274,9 @@ AgentDriver buildAgent({
       // documented contract ("default every tool to allow"); without the
       // flag they stay ask as before.
       allowAllByDefault: policy.allowAllByDefault,
+      // Carry an already-wired classifier gate; when this copy is the one
+      // wrapped below, modeAwareAsker sets the flag itself.
+      classifierGatesShell: policy.classifierGatesShell,
     );
     final ctx = AgentToolContext(
       scheduler: scheduler,

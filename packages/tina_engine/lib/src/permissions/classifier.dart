@@ -92,7 +92,12 @@ class PermissionClassifier {
   /// One judge call over the prompt. Never throws: every failure mode lands
   /// in [ClassifierOutcome.failure], so a caller falling back to the human
   /// can name the reason (timeout, stream error, unreadable answer).
-  Future<ClassifierOutcome> classify(PermissionPrompt prompt) async {
+  /// [directive], when present, is appended to the system prompt — read-all
+  /// passes a read-only directive there, narrowing "ALLOW ordinary
+  /// development" to judgment under a mode the base prompt does not know
+  /// about, without maintaining a second prompt that could drift.
+  Future<ClassifierOutcome> classify(PermissionPrompt prompt,
+      {String? directive}) async {
     var cancelled = false;
     try {
       final execution = prompt.execution;
@@ -113,7 +118,9 @@ class PermissionClassifier {
         },
       };
       final stream = provider.send(
-        system: _systemPrompt,
+        system: directive == null
+            ? _systemPrompt
+            : '$_systemPrompt\n$directive',
         messages: [
           Message(role: Role.user, content: [
             TextBlock('Tool: ${prompt.toolName}\nInput:\n${jsonEncode(prompt.input)}'

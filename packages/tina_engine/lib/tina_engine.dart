@@ -61,6 +61,7 @@ export 'src/permissions/classifier.dart';
 export 'src/permissions/mode_aware_asker.dart';
 export 'src/permissions/approval_target.dart';
 export 'src/permissions/policy.dart';
+export 'src/permissions/read_only_commands.dart';
 export 'src/permissions/preview.dart';
 export 'src/permissions/prompt.dart';
 export 'src/permissions/regex_suggester.dart';

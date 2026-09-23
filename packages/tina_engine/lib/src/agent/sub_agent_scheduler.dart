@@ -1253,6 +1253,11 @@ class SubAgentScheduler {
         // (mapped and unmapped alike), so a tool the profile misses still
         // allows instead of ask.
         allowAllByDefault: parent.allowAllByDefault,
+        // Carry the classifier gate: the sub-agent runs under the same
+        // wrapped asker as its parent, so read-all's bash route must
+        // survive the copy — without it the child would fall back to the
+        // flat block its parent no longer uses.
+        classifierGatesShell: parent.classifierGatesShell,
       );
 
   /// Tools a profile never widens to `allow`, whatever profile it is.

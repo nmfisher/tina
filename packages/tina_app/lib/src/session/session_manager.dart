@@ -284,6 +284,9 @@ class SessionManager {
         // conversation would fall back to the plain table and re-prompt for
         // tools the startup flags had already allowed.
         allowAllByDefault: basePolicy.allowAllByDefault,
+        // Same reasoning for the classifier gate: a new conversation built
+        // under a wired classifier keeps read-all's bash route.
+        classifierGatesShell: basePolicy.classifierGatesShell,
       );
 
       // Capture the full per-conversation identity NOW (before the first write)

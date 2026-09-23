@@ -119,6 +119,9 @@ class PipelineRunner {
       // `--yolo` rides along: every node inherits the allow-all posture
       // without restating the four-tool map that used to hide it.
       allowAllByDefault: basePolicy?.allowAllByDefault ?? false,
+      // The classifier gate rides along too: node agents share the run's
+      // wrapped asker, so read-all's bash route must survive the copy.
+      classifierGatesShell: basePolicy?.classifierGatesShell ?? false,
     );
     final backend = TinaCodergenBackend(
       scheduler: scheduler,

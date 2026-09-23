@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../tools/execution_request.dart';
 import '../tools/tool_capabilities.dart';
 import 'approval_target.dart';
+import 'read_only_commands.dart';
 
 enum PermissionDecision { allow, deny, ask }
 
@@ -40,7 +41,10 @@ PermissionDecision deriveToolDecision(ToolCapabilities caps) {
 ///
 /// - [ask]: the built-in defaults — read-only tools run, mutating tools prompt.
 /// - [readAll]: read-only tools (including network reads) run without
-///   prompting; shell, writes, and indirect execution are blocked.
+///   prompting; shell, writes, and indirect execution are blocked. With a
+///   classifier gate wired (`classifierGatesShell`), `bash` is not blocked
+///   outright: a statically read-only command runs, everything else is
+///   judged by the classifier — fail-closed, never an interactive prompt.
 /// - [allowEdits]: reads plus `write`/`edit` run; `bash` still prompts.
 /// - [auto]: gate level identical to [ask], but the asker is an LLM
 ///   classifier that decides each call (see `modeAwareAsker`) — falling back
@@ -245,12 +249,23 @@ class PermissionPolicy {
   /// mutating tools.
   final bool allowAllByDefault;
 
+  /// Whether a classifier-wrapped asker is wired for this policy — set as a
+  /// side effect of `modeAwareAsker(...)` wrapping it, and spread by every
+  /// policy copy. The wrapper IS the gate this flag promises: in read-all it
+  /// turns bash's hard block in [executionBlock] into a route — statically
+  /// read-only commands allow in [_widen], everything else surfaces as
+  /// `ask`, which the wrapper answers fail-closed (verdict or deny, never
+  /// an interactive prompt). With the flag unset — no classifier anywhere —
+  /// read-all's bash block is exactly as it was, and no test's posture moves.
+  bool classifierGatesShell;
+
   PermissionPolicy({
     Map<String, PermissionDecision>? defaults,
     List<PermissionRule>? rules,
     PermissionMode mode = PermissionMode.ask,
     this.modeSource,
     this.allowAllByDefault = false,
+    this.classifierGatesShell = false,
   })  : _mode = mode,
         defaults = Map.from(defaults ?? _builtinDefaults),
         staticRules = List.unmodifiable(rules ?? const []);
@@ -299,11 +314,13 @@ class PermissionPolicy {
     final fallback = allowAllByDefault
         ? PermissionDecision.allow
         : defaults[tool] ?? PermissionDecision.ask;
-    return _widen(tool, fallback);
+    return _widen(tool, input, fallback);
   }
 
   /// Hard mode boundary, evaluated before remembered/static allows and again
-  /// immediately before execution. It never opens an approval prompt.
+  /// immediately before execution. It never opens an approval prompt — for
+  /// routed bash it is null by construction, and the `ask` that results is
+  /// answered in the asker layer (the classifier gate), never here.
   String? executionBlock(String tool, Map<String, dynamic> input) {
     if (mode != PermissionMode.readAll) return null;
     if (tool == 'delegate') {
@@ -315,6 +332,12 @@ class PermissionPolicy {
       }
       return null;
     }
+    // bash routes to the classifier gate instead of dying here — but only
+    // when the wrapper that answers `ask` fail-closed is actually wired
+    // ([classifierGatesShell]). No flag, no route: without it the block
+    // below hits bash exactly as before. `exec` deliberately has no route:
+    // widening it means re-running this review, not adding a line.
+    if (tool == 'bash' && classifierGatesShell) return null;
     // One rule over declarations, rather than a list of names plus a list of
     // exceptions to that list.
     if (_widenableReadOnly(tool)) return null;
@@ -350,14 +373,28 @@ class PermissionPolicy {
   /// a list. Named here and in the application-side sweep so it stays visible.
   static const _readOnlyButUndeclared = {'explore_project'};
 
-  /// Widen a default decision according to [mode]. Session/static rules are
+  /// Widen a default decision according to [mode], with the call's [input]
+  /// available where a route needs to inspect it. Session/static rules are
   /// unaffected — an explicit `--deny` still denies in every mode.
-  PermissionDecision _widen(String tool, PermissionDecision d) {
+  PermissionDecision _widen(
+      String tool, Map<String, dynamic> input, PermissionDecision d) {
     switch (mode) {
       case PermissionMode.ask:
       case PermissionMode.auto:
         return d;
       case PermissionMode.readAll:
+        if (tool == 'bash' && classifierGatesShell) {
+          // The route executionBlock opened. A statically read-only command
+          // proves itself; everything else asks — never `allow` (the
+          // classifier gate decides, fail-closed) and never plain `d`, which
+          // `--yolo` would widen to allow, punching the hole the block used
+          // to cover. A defaulted `deny` must not be widened past either;
+          // rules/session denies already returned from check() above.
+          if (d == PermissionDecision.deny) return d;
+          return isReadOnlyShellInput(input)
+              ? PermissionDecision.allow
+              : PermissionDecision.ask;
+        }
         return _widenableReadOnly(tool) ? PermissionDecision.allow : d;
       case PermissionMode.allowEdits:
         return (_widenableReadOnly(tool) ||

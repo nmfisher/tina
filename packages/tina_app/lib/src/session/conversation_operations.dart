@@ -193,6 +193,9 @@ class ConversationOperations {
         // Side conversations expose every mapped tool as an allow rule, so the
         // posture matters only for anything unmapped; carry it for fidelity.
         allowAllByDefault: configuredPolicy.allowAllByDefault,
+        // The side conversation shares the source conversation's mode and
+        // asker chain, so it shares the classifier gate too.
+        classifierGatesShell: source.policy.classifierGatesShell,
       );
       final system = resolveMainPrompt(
         pipeline,
