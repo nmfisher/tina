@@ -170,7 +170,10 @@ class SessionController {
     final cancel = Completer<void>();
     _commandCancellation = cancel;
     try {
-      final result = await _commands.dispatch(line, cancelSignal: cancel.future);
+      final result = await _commands.dispatch(
+        line,
+        cancelSignal: cancel.future,
+      );
       return cancel.isCompleted ? const CmdHandled() : result;
     } finally {
       _commandCancellation = null;
@@ -223,6 +226,7 @@ class SessionController {
     supervisor: jobs,
     summaryIndex: () => summaryIndex,
     persistUsage: _flushUsageFor,
+    pluginScope: pluginScope,
     // The conversation's proven model ref: the live ref a `/model` swap
     // leaves on the conversation (kept in step with the persisted meta by
     // changeModel — and correct even when that write failed), else the
@@ -236,6 +240,7 @@ class SessionController {
   Future<void> Function(Conversation, List<String>?, {bool repartition})?
   get runBackgroundIndex => background.runIndex;
   Future<void> Function()? shutdownWorkflows;
+
   /// Stop background workflows and queued human dialogs without shutting down.
   bool Function()? cancelPendingWork;
   Future<void>? _shutdown;

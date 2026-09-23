@@ -11,6 +11,7 @@ import 'package:tina/composition/git_input.dart';
 import 'package:tina/composition/intent_input.dart';
 import 'package:tina/composition/token_status.dart';
 import 'package:tina/composition/plan_ui.dart';
+import 'package:tina/composition/index_status.dart';
 import 'package:tina/composition/chat_renderer.dart';
 import 'package:tina/composition/models_dev_seed.dart';
 import 'package:tina/logging.dart';
@@ -260,7 +261,9 @@ Future<void> _run(List<String> argv) async {
           if (!launch.startup.nonInteractive)
             configuredIntentInputPlugin(environment.env),
           planUiPlugin(store: PlanStore()),
+          indexProgressPlugin(),
           tokenStatusPlugin(),
+          indexStatusPlugin(),
         ],
       );
 
@@ -747,7 +750,8 @@ Future<void> _runNonInteractive(
               recorder: recorder,
             );
       if (prepared != null) {
-        userInput = '$inputPrefix${prepared.text}\n'
+        userInput =
+            '$inputPrefix${prepared.text}\n'
             '${HeadlessHost.kHeadlessSummaryInstruction}';
         cancelTurn.then((_) => prepared.cancel());
       }
@@ -757,11 +761,15 @@ Future<void> _runNonInteractive(
           userInput: userInput,
           cancelSignal: cancelTurn,
         );
-        aborted = driver.abortedReason != null ||
-            (watchdog?.fired ?? false) || cancelInput.isCompleted;
+        aborted =
+            driver.abortedReason != null ||
+            (watchdog?.fired ?? false) ||
+            cancelInput.isCompleted;
       } else {
-        aborted = outcome != InputOutcome.handled ||
-            (watchdog?.fired ?? false) || cancelInput.isCompleted;
+        aborted =
+            outcome != InputOutcome.handled ||
+            (watchdog?.fired ?? false) ||
+            cancelInput.isCompleted;
       }
     } finally {
       await inputSignal.cancel();

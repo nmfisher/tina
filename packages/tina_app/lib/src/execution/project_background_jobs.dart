@@ -2,12 +2,14 @@ import 'package:tina_engine/tina_engine.dart';
 import 'package:tina_app/src/session/conversation.dart';
 import 'package:tina_app/src/summaries/summary_index.dart';
 import 'package:tina_app/src/execution/background_job_supervisor.dart';
+import 'package:tina_app/src/execution/index_progress_status.dart';
 
 /// Binds A05 services to job ownership and completion notices, without input IO.
 class ProjectBackgroundJobs {
   final BackgroundJobSupervisor supervisor;
   final SummaryIndex? Function() summaryIndex;
   final Future<void> Function(Conversation) persistUsage;
+  final PluginScope? pluginScope;
 
   /// The conversation's proven `"provider/model"` ref — persisted meta ref
   /// when present, else the session provider + the live provider model.
@@ -17,24 +19,39 @@ class ProjectBackgroundJobs {
     required this.summaryIndex,
     required this.persistUsage,
     required this.modelRefOf,
+    this.pluginScope,
   });
   bool get isIndexRunning => supervisor.running('index');
+
+  /// The live strip indicator, when the interactive composition mounted it.
+  /// Null headless (and in tests without the plugin) — progress then stays on
+  /// the dim transcript lines only.
+  IndexProgressStatus? get _indexProgress =>
+      pluginScope?.lookup(indexProgressServiceKey);
+
   Future<void> runClassification(
     Conversation conversation,
     Future<String> Function(
       Future<void> cancellation,
       void Function(String) progress,
+      void Function(int done, int total) taskProgress,
     )
     run,
   ) async {
+    final progress = _indexProgress;
     final job = supervisor.start('classify', conversation.id, (job) async {
+      progress?.begin();
       try {
         final text = await run(
           job.cancelled,
-          (text) => conversation.host.showMessage(
-            '$text\n',
-            style: HostMessageStyle.dim,
-          ),
+          (text) {
+            conversation.host.showMessage(
+              '$text\n',
+              style: HostMessageStyle.dim,
+            );
+          },
+          // Live strip counts; a no-op when headless (no indicator mounted).
+          (done, total) => progress?.progress(done, total),
         );
         conversation.host.showMessage(text);
       } catch (e) {
@@ -43,6 +60,7 @@ class ProjectBackgroundJobs {
           style: HostMessageStyle.error,
         );
       } finally {
+        progress?.end();
         await persistUsage(conversation);
       }
     });

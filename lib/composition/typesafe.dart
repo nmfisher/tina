@@ -47,6 +47,7 @@ Future<ProjectClassificationReport> runConfiguredProjectClassification(
   String mode = '',
   Future<void>? cancelSignal,
   void Function(String)? onProgress,
+  void Function(int done, int total)? onTaskProgress,
   SpendLedger? spendLedger,
   Directory? tinaDir,
   http.Client Function()? clientFactory,
@@ -67,6 +68,7 @@ Future<ProjectClassificationReport> runConfiguredProjectClassification(
         mode: mode,
         cancelSignal: cancelSignal,
         onProgress: onProgress,
+        onTaskProgress: onTaskProgress,
         spendLedger: spendLedger,
       );
     }
@@ -88,6 +90,7 @@ Future<ProjectClassificationReport> runConfiguredProjectClassification(
       mode: mode,
       cancelSignal: cancelSignal,
       onProgress: onProgress,
+      onTaskProgress: onTaskProgress,
     );
   } finally {
     service.close();

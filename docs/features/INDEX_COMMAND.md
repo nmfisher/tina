@@ -28,6 +28,14 @@ Double-Esc cancels interactive work and releases input. Headless Ctrl+C cancels
 the same workflow. Completed checkpoints survive cancellation. Headless runs
 with missing, failed or incomplete results exit nonzero.
 
+While an interactive `/index` runs, the background job frees the input and the
+status strip beneath it paints an `indexing · 12/54` line: one count per
+classifier task (locals plus per-level merges, summed across the language,
+framework and tooling trees), a spinner while the total is not announced yet,
+and removal when the run completes, fails or is cancelled. The strip line is
+display-only — the dim transcript progress lines and the final report are
+unchanged. Headless runs have no strip.
+
 Extension classification needs no API key or network access. It maps the final
 filename extension to a language, with per-file evidence. Unknown extensions,
 extensionless files and ambiguous entries such as `.h` and `.m` remain unknown;

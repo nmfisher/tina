@@ -69,6 +69,7 @@ Future<ProjectClassificationReport> runProjectClassification(
   RepositoryProjection projection = RepositoryProjection.filenames,
   Future<void>? cancelSignal,
   void Function(String)? onProgress,
+  void Function(int done, int total)? onTaskProgress,
 }) async {
   if (!const ['', 'status', 'refresh'].contains(mode))
     throw ArgumentError(IndexOptions.usage);
@@ -184,6 +185,7 @@ Future<ProjectClassificationReport> runProjectClassification(
       restoreOnly: mode == 'status',
       cancellation: stop,
       onProgress: onProgress,
+      onTaskProgress: onTaskProgress,
     );
   } finally {
     finished = true;

@@ -36,7 +36,6 @@ class _RecordingProvider extends LlmProvider {
 /// appends a canned assistant message; `compact` records its arguments and
 /// rewrites history with a summary. Nothing reaches the wrapped agent.
 class _ScriptedDriver implements AgentDriver {
-
   @override
   PermissionPolicy get policy => PermissionPolicy();
   _ScriptedDriver(this.agent);
@@ -318,40 +317,88 @@ void main() {
       );
     });
 
-    test('runIndex threads modelRefOf(conv) into the summary refresh',
-        () async {
-      String? lastModelRef;
-      final idx = _StubSummaryIndex(onRefresh: (modelRef) {
-        lastModelRef = modelRef;
-        return const SummaryIndexResult(
-          status: SummaryIndexStatus(
-            totalDirs: 1,
-            staleDirs: [],
-            deletedDirs: [],
-            headSha: 'zzz9998',
-            firstRun: false,
-            hasAllocations: false,
-          ),
-          regenerated: 1,
-          regeneratedDirs: ['lib'],
-          deletedDirs: [],
+    test(
+      'runIndex threads modelRefOf(conv) into the summary refresh',
+      () async {
+        String? lastModelRef;
+        final idx = _StubSummaryIndex(
+          onRefresh: (modelRef) {
+            lastModelRef = modelRef;
+            return const SummaryIndexResult(
+              status: SummaryIndexStatus(
+                totalDirs: 1,
+                staleDirs: [],
+                deletedDirs: [],
+                headSha: 'zzz9998',
+                firstRun: false,
+                hasAllocations: false,
+              ),
+              regenerated: 1,
+              regeneratedDirs: ['lib'],
+              deletedDirs: [],
+            );
+          },
         );
-      });
+        final jobs = ProjectBackgroundJobs(
+          supervisor: BackgroundJobSupervisor(),
+          summaryIndex: () => idx,
+          persistUsage: (_) async {},
+          modelRefOf: (conv) => 'nim/existing-model',
+        );
+
+        await jobs.runIndex(conv, null);
+
+        // The job is async; wait for the supervisor slot to drain.
+        while (jobs.isIndexRunning) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        expect(idx.refreshCalls, 1);
+        expect(lastModelRef, 'nim/existing-model');
+      },
+    );
+
+    test('runClassification brackets the job with indicator begin/end and '
+        'forwards task progress through the plugin scope', () async {
+      final status = IndexProgressStatus();
+      final scope = PluginScope('test');
+      scope.provide(indexProgressServiceKey, status);
       final jobs = ProjectBackgroundJobs(
         supervisor: BackgroundJobSupervisor(),
-        summaryIndex: () => idx,
+        summaryIndex: () => null,
         persistUsage: (_) async {},
-        modelRefOf: (conv) => 'nim/existing-model',
+        modelRefOf: (conv) => 'nim/m',
+        pluginScope: scope,
       );
+      // Resolve once the job has started and before it finishes.
+      final taskProgress = <({int done, int total})>[];
+      await jobs.runClassification(conv, (cancel, progress, report) async {
+        expect(status.running, isTrue);
+        report(2, 8);
+        taskProgress.add((done: 2, total: 8));
+        return 'done\n';
+      });
+      final value = status.read('c1');
+      expect(taskProgress.single.done, 2);
+      expect(status.running, isFalse, reason: 'end() runs in the job finally');
+      expect(value, isNull, reason: 'the line leaves the strip when done');
+    });
 
-      await jobs.runIndex(conv, null);
-
-      // The job is async; wait for the supervisor slot to drain.
-      while (jobs.isIndexRunning) {
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
-      expect(idx.refreshCalls, 1);
-      expect(lastModelRef, 'nim/existing-model');
+    test('runClassification works without an indicator (headless)', () async {
+      final jobs = ProjectBackgroundJobs(
+        supervisor: BackgroundJobSupervisor(),
+        summaryIndex: () => null,
+        persistUsage: (_) async {},
+        modelRefOf: (conv) => 'nim/m',
+      );
+      await jobs.runClassification(
+        conv,
+        (cancel, progress, report) async => 'ok\n',
+      );
+      expect(
+        host.messages.join(),
+        contains('ok'),
+        reason: 'transcript behavior unchanged headless',
+      );
     });
   });
   group('turn persistence', () {
@@ -359,7 +406,9 @@ void main() {
       test(
         'tool progress survives ${shutdown ? 'shutdown' : 'cancel'} during approval',
         () async {
-          final dir = await Directory.systemTemp.createTemp('turn-persistence-');
+          final dir = await Directory.systemTemp.createTemp(
+            'turn-persistence-',
+          );
           addTearDown(() => dir.delete(recursive: true));
           final store = JsonlSessionStore(Directory('${dir.path}/sessions'));
           final sid = await store.createSession(
@@ -428,7 +477,8 @@ void main() {
           expect(await tool.file.readAsString(), 'effect 2');
           expect(
             checkpoint.where(
-              (m) => m.role == Role.user && m.content.any((b) => b is TextBlock),
+              (m) =>
+                  m.role == Role.user && m.content.any((b) => b is TextBlock),
             ),
             hasLength(1),
           );

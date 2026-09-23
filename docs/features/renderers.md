@@ -99,8 +99,15 @@ and what to drop under width pressure, never where the strip sits.
 `RenderLine(align: StatusAlign.right)` anchors a line to the row's right edge;
 the strip clips the left group before the right-anchored text. Selection walks
 scopes nearest-first, first registration wins; a throwing layout leaves the
-last painted strip intact. See `docs/features/input_routing.md` for the
-built-in token-status plugin that combines all three contributions.
+last painted strip intact. Animated lines (`RenderLine(animated: true)`) are
+repainted on the host's animation clock while any rendered line requests it —
+that is how the background-index indicator spins. See
+`docs/features/input_routing.md` for the built-in token-status plugin that
+combines all three contributions, and `docs/features/INDEX_COMMAND.md` for the
+index-progress source (`IndexProgressStatus`, provided app-wide by
+`tina.index-progress`, consumed by `tina.index-status`), which is looked up
+through the plugin scope by the background-job wiring so the counts track the
+running classification.
 
 ## Conversation border and input prompt
 

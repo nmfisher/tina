@@ -2317,16 +2317,18 @@ class TuiCoordinator {
         }
         await controller.background.runClassification(
           conversation,
-          (cancelSignal, progress) async => classificationReportText(
-            await runConfiguredProjectClassification(
-              app,
-              spendLedger: controller.spendLedger,
-              method: options.method,
-              mode: options.mode,
-              cancelSignal: cancelSignal,
-              onProgress: progress,
-            ),
-          ),
+          (cancelSignal, progress, taskProgress) async =>
+              classificationReportText(
+                await runConfiguredProjectClassification(
+                  app,
+                  spendLedger: controller.spendLedger,
+                  method: options.method,
+                  mode: options.mode,
+                  cancelSignal: cancelSignal,
+                  onProgress: progress,
+                  onTaskProgress: taskProgress,
+                ),
+              ),
         );
       };
 
