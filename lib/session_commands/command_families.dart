@@ -68,11 +68,21 @@ class UpdateCommands {
   final UpdateCapabilities ctx;
   final ReleaseChecker? Function(Map<String, String> env)?
   releaseCheckerFactory;
-  UpdateCommands(this.ctx, {this.releaseCheckerFactory});
 
-  /// `/update` — check GitHub for a newer release and, after a y/n confirm,
-  /// download + swap the bundle in place (restart finishes it). Headless has
-  /// no confirm; it just reports the latest and links the release.
+  /// Test seam for the download/verify/extract stage: production leaves it
+  /// null and the handler calls [prepareUpdate] directly.
+  final Future<UpdatePrepareOutcome> Function(
+    ReleaseInfo release,
+    void Function(String line) notice,
+  )? prepareOverride;
+  UpdateCommands(this.ctx,
+      {this.releaseCheckerFactory, this.prepareOverride});
+
+  /// `/update` — check GitHub for a newer release, download + verify it,
+  /// then ask y/n before swapping the bundle in place (restart finishes it).
+  /// The confirm comes after the download, not before: a declined prompt
+  /// costs nothing and an accepted one starts at the swap. Headless has no
+  /// confirm; it just reports the latest and links the release.
   Future<void> _handleUpdate() async {
     final host = ctx.active.host;
     final injected = releaseCheckerFactory?.call(Platform.environment);
@@ -106,27 +116,20 @@ class UpdateCommands {
         );
         return;
       }
-      if (!await confirm('Download and install tina ${release.tag}?')) {
-        return;
-      }
-      final result = await installRelease(
-        release,
-        notice: (line) =>
-            host.showMessage('$line\n', style: HostMessageStyle.dim),
-      );
-      switch (result) {
-        case UpdateResult.success:
-          host.showMessage(
-            'updated — restart tina to finish.\n',
-            style: HostMessageStyle.dim,
-          );
-        case UpdateResult.unsupported:
+      void notice(String line) =>
+          host.showMessage('$line\n', style: HostMessageStyle.dim);
+      // Download + verify + extract first; swap only after the user says so.
+      final prepared = await (prepareOverride?.call(release, notice) ??
+          prepareUpdate(release, notice: notice));
+      switch (prepared) {
+        case UpdatePrepareUnsupported():
           host.showMessage(
             'no release asset for this platform — '
             'see ${ReleaseChecker.releasesPageUrl}\n',
             style: HostMessageStyle.dim,
           );
-        case UpdateResult.manualRequired:
+          return;
+        case UpdatePrepareManualRequired():
           host.showMessage(
             'this install can\'t be replaced in place (running from '
             'source, a read-only location, or a directory tina doesn\'t '
@@ -137,8 +140,31 @@ class UpdateCommands {
             '${release.releaseUrl}.\n',
             style: HostMessageStyle.dim,
           );
+          return;
+        case UpdatePrepareFailure():
+          return; // prepareUpdate already noticed the reason
+        case UpdatePrepareReady():
+          break;
+      }
+      if (!await confirm(
+        'tina ${prepared.update.tag} downloaded and verified — '
+        'install it now?',
+      )) {
+        prepared.update.discard();
+        return;
+      }
+      final result = await prepared.update.install(notice: notice);
+      switch (result) {
+        case UpdateResult.success:
+          host.showMessage(
+            'updated — restart tina to finish.\n',
+            style: HostMessageStyle.dim,
+          );
+        case UpdateResult.unsupported:
+        case UpdateResult.manualRequired:
+          break; // impossible after a ready prepare; nothing new to say
         case UpdateResult.failed:
-          break; // installRelease already noticed the reason
+          break; // install already noticed the reason
       }
     } finally {
       // An injected checker belongs to the test; only close one we made.

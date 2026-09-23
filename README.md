@@ -28,8 +28,9 @@ bundle in `${XDG_DATA_HOME:-~/.local/share}/tina` and a symlink launcher at
 `--version v0.6.1`. The script's header documents its trust model: the pinned
 key detects tampered release assets, not a compromised GitHub account.
 
-`/update` replaces only the private bundle; restart Tina afterward. For an older
-install with the binary directly in `~/.local/bin` and libraries in
+`/update` downloads and verifies the new release first, then asks for
+confirmation before swapping anything on disk; restart Tina afterward. For an
+older install with the binary directly in `~/.local/bin` and libraries in
 `~/.local/lib`, re-run the installer above once to migrate. It replaces the Tina
 launcher and leaves shared libraries and other applications untouched.
 Configuration and sessions remain in `~/.tina`.

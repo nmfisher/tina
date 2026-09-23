@@ -145,16 +145,123 @@ String? bundleRootForCurrentProcess({String? resolvedExecutable}) {
   return candidate;
 }
 
-/// Downloads and installs [release] over the running installation.
+/// Downloads and installs [release] over the running installation: thin
+/// compose of [prepareUpdate] + [PreparedUpdate.install] for callers that
+/// want one shot with no prompt in between.
+Future<UpdateResult> installRelease(
+  ReleaseInfo release, {
+  required void Function(String line) notice,
+  http.Client? client,
+  String? bundleRootOverride,
+  String? workDirOverride,
+  Future<File> Function()? archiveSupplier,
+}) async {
+  final prepared = await prepareUpdate(
+    release,
+    notice: notice,
+    client: client,
+    bundleRootOverride: bundleRootOverride,
+    workDirOverride: workDirOverride,
+    archiveSupplier: archiveSupplier,
+  );
+  return switch (prepared) {
+    UpdatePrepareUnsupported() => UpdateResult.unsupported,
+    UpdatePrepareManualRequired() => UpdateResult.manualRequired,
+    UpdatePrepareFailure() => UpdateResult.failed,
+    UpdatePrepareReady ready => ready.update.install(notice: notice),
+  };
+}
+
+/// How a [prepareUpdate] attempt ended. Only [UpdatePrepareReady] carries
+/// something forward; the others logged their reason via `notice` already.
+sealed class UpdatePrepareOutcome {
+  const UpdatePrepareOutcome();
+}
+
+/// Download/verify/extract failed midway; nothing changed on disk.
+class UpdatePrepareFailure extends UpdatePrepareOutcome {
+  const UpdatePrepareFailure();
+}
+
+/// No asset matches this platform — point the user at the Releases page.
+class UpdatePrepareUnsupported extends UpdatePrepareOutcome {
+  const UpdatePrepareUnsupported();
+}
+
+/// Can't replace the installation (not a bundle install, unwritable or
+/// unowned location) — the caller prints manual instructions.
+class UpdatePrepareManualRequired extends UpdatePrepareOutcome {
+  const UpdatePrepareManualRequired();
+}
+
+/// Ready to swap: the archive downloaded, checksum-verified, extracted, and
+/// ownership-checked.
+class UpdatePrepareReady extends UpdatePrepareOutcome {
+  const UpdatePrepareReady(this.update);
+  final PreparedUpdate update;
+}
+
+/// A downloaded, verified, extracted-but-not-installed update. `/update`
+/// reaches this state before prompting, so a declined confirm costs nothing
+/// and an accepted one starts at the swap.
+class PreparedUpdate {
+  PreparedUpdate._({
+    required this.tag,
+    required this.bundle,
+    required this.bundleRoot,
+    required this.workDir,
+  });
+
+  /// The release this update came from (e.g. `v0.8.18`).
+  final String tag;
+
+  /// The extracted new bundle (marker written, ownership-checked).
+  final Directory bundle;
+
+  /// The installation root this update would replace.
+  final String bundleRoot;
+
+  /// Scratch dir holding [bundle]; swept by [install]/[discard].
+  final Directory workDir;
+
+  /// Swap the new bundle into place over [bundleRoot] (old renamed to
+  /// `<root>.old`, removed on a later launch). Only [UpdateResult.success]
+  /// changed anything on disk; a failed swap is noticed and returns
+  /// [UpdateResult.failed] after any rollback.
+  Future<UpdateResult> install({
+    required void Function(String line) notice,
+  }) async {
+    try {
+      return await _swapBundle(bundle, Directory(bundleRoot), notice);
+    } on UpdateError catch (e) {
+      notice('update failed: ${e.message}');
+      return UpdateResult.failed;
+    } catch (e) {
+      _log.fine('update failed', e);
+      notice('update failed: $e');
+      return UpdateResult.failed;
+    }
+  }
+
+  /// Drop the update without touching the installation.
+  void discard() {
+    try {
+      if (workDir.existsSync()) workDir.deleteSync(recursive: true);
+    } catch (_) {}
+  }
+}
+
+/// Downloads, verifies, and extracts [release] — everything up to (but not
+/// including) the bundle swap.
 ///
 /// Sequence: pick the platform asset → download to [workDir] (a temp scratch
 /// dir) → verify the `*.sha256` asset when one exists → extract with system
-/// `tar` → swap the bundle dir (old renamed to `<root>.old`, removed on a
-/// later launch). [notice] receives progress lines for the chat stream.
+/// `tar` → ownership-check the extracted bundle. [notice] receives progress
+/// lines for the chat stream.
 ///
 /// The [bundleRootOverride] / [workDirOverride] / [archiveSupplier] seams
 /// exist for tests; production calls take the defaults.
-Future<UpdateResult> installRelease(
+Future<UpdatePrepareOutcome> prepareUpdate(
   ReleaseInfo release, {
   required void Function(String line) notice,
   http.Client? client,
@@ -167,11 +274,13 @@ Future<UpdateResult> installRelease(
       ? null
       : 'tina-${release.tag}-$target.tar.gz';
   final assetUrl = assetName == null ? null : release.assetUrls[assetName];
-  if (target == null || assetUrl == null) return UpdateResult.unsupported;
+  if (target == null || assetUrl == null) {
+    return const UpdatePrepareUnsupported();
+  }
 
   final candidate =
       bundleRootOverride ?? bundleRootCandidateForCurrentProcess();
-  if (candidate == null) return UpdateResult.manualRequired;
+  if (candidate == null) return const UpdatePrepareManualRequired();
   if (!isOwnedBundleRoot(candidate)) {
     notice(
       '$candidate is not an exclusively-tina directory (missing '
@@ -179,7 +288,7 @@ Future<UpdateResult> installRelease(
       'updater will not replace it. Re-run the latest install.sh to migrate '
       'tina to a private bundle and enable /update.',
     );
-    return UpdateResult.manualRequired;
+    return const UpdatePrepareManualRequired();
   }
   final bundleRoot = candidate;
 
@@ -257,16 +366,22 @@ Future<UpdateResult> installRelease(
       throw UpdateError('archive is not an exclusively-tina bundle');
     }
 
-    // 4. Swap: rename the live bundle aside (open inodes keep the running
-    // process alive), move the new one into place. Roll back on failure.
-    return await _swapBundle(newBundle, Directory(bundleRoot), notice);
+    // 4. Ready: everything is verified; the caller decides whether to swap.
+    return UpdatePrepareReady(
+      PreparedUpdate._(
+        tag: release.tag,
+        bundle: newBundle,
+        bundleRoot: bundleRoot,
+        workDir: workDir,
+      ),
+    );
   } on UpdateError catch (e) {
     notice('update failed: ${e.message}');
-    return UpdateResult.failed;
+    return const UpdatePrepareFailure();
   } catch (e) {
     _log.fine('update failed', e);
     notice('update failed: $e');
-    return UpdateResult.failed;
+    return const UpdatePrepareFailure();
   } finally {
     if (ownsClient) http_.close();
   }

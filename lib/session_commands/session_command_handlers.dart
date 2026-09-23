@@ -42,6 +42,10 @@ class SessionCommandHandlers {
   SessionCommandHandlers(
     CommandContext context, {
     ReleaseChecker? Function(Map<String, String> env)? releaseCheckerFactory,
+    Future<UpdatePrepareOutcome> Function(
+      ReleaseInfo release,
+      void Function(String line) notice,
+    )? prepareUpdateOverride,
     PluginScope? pluginScope,
     Set<String>? hiddenFeatures,
   }) : this.withCapabilities(
@@ -55,6 +59,7 @@ class SessionCommandHandlers {
          index: context,
          workflow: context,
          releaseCheckerFactory: releaseCheckerFactory,
+         prepareUpdateOverride: prepareUpdateOverride,
          pluginScope: pluginScope,
          hiddenFeatures: hiddenFeatures,
        );
@@ -72,11 +77,16 @@ class SessionCommandHandlers {
     this.pluginScope,
     this.hiddenFeatures,
     ReleaseChecker? Function(Map<String, String> env)? releaseCheckerFactory,
+    Future<UpdatePrepareOutcome> Function(
+      ReleaseInfo release,
+      void Function(String line) notice,
+    )? prepareUpdateOverride,
   }) : ctx = dispatch,
        usage = UsageCommands(usage),
        update = UpdateCommands(
          update,
          releaseCheckerFactory: releaseCheckerFactory,
+         prepareOverride: prepareUpdateOverride,
        ),
        frontend = FrontendCommands(frontend),
        sessions = SessionsCommands(sessions),
