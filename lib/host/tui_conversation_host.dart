@@ -260,7 +260,7 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
       );
     }
     chat.ensureNewline();
-    return runPermissionApproval(
+    final response = await runPermissionApproval(
       screen: screen,
       editor: editor!,
       prompt: p,
@@ -269,7 +269,17 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
       policy: policy,
       regexSuggester: regexSuggester,
       sandboxWarning: sandboxOffChip(sandboxOffReason),
+      // Queued, not written: the record prints after the tool row it belongs
+      // to, so the call is in the transcript exactly once.
+      onSettled: _chatSink.queueApproval,
     );
+    // A call that is refused or cancelled never gets that row, so there is
+    // nothing to wait behind: print its record now, ahead of the denial the
+    // executor is about to notice.
+    if (response.decision != PermissionDecision.allow) {
+      _chatSink.flushApproval();
+    }
+    return response;
   }
 
   @override

@@ -160,11 +160,53 @@ void main() {
         await flush();
         editor.inject(ControlKey(ControlCode.enter));
         expect((await pending).decision, PermissionDecision.deny);
-        expect(history.toString().split('┌').length - 1, 1);
-        expect(history.toString(), contains('deny once'));
+        // One settled record, one line, and it names the call itself: a denial
+        // never reaches the tool row that would otherwise print it. The
+        // preview card was for deciding, not for replaying into history.
+        final settled = history.toString();
+        expect(
+          settled.split('\n').where((line) => line.trim().isNotEmpty),
+          hasLength(1),
+        );
+        expect(settled, contains('bash: '));
+        expect(settled, contains('echo line_0'));
+        expect(settled, contains('deny once'));
+        expect(settled, isNot(contains('┌')));
+        expect(settled, isNot(contains('Directory: ')));
       },
     );
   }
+
+  test('an approved call hands its one-line record to onSettled', () async {
+    final io = FakeStdio();
+    final screen = Screen(
+      io: io,
+      layout: ScreenLayout.fromSize(100, 24),
+      ansi: AnsiCapable.yes,
+    );
+    final editor = LineEditor(screen: screen);
+    addTearDown(editor.close);
+    final history = StringBuffer();
+    final settled = StringBuffer();
+    final pending = runPermissionApproval(
+      screen: screen,
+      editor: editor,
+      prompt: PermissionPrompt('bash', {'command': 'git status'}),
+      write: history.write,
+      onSettled: settled.write,
+    );
+    await flush();
+    editor.inject(ControlKey(ControlCode.enter)); // first choice: allow once
+    expect((await pending).decision, PermissionDecision.allow);
+    // The record is the decision only — the call itself is the tool row's
+    // job, and a row that does not exist yet (this runs before the tool
+    // starts) is why the record is handed over rather than written.
+    expect(
+      settled.toString(),
+      '  Run shell command · allow once\n',
+    );
+    expect(history.isEmpty, isTrue);
+  });
 
   test(
     'Tab reveals details without answering; double Escape cancels',

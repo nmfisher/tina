@@ -79,8 +79,13 @@ void main() {
       expect(response.rule!.pattern, 'git (status|diff)');
       expect(response.rule!.isRegex, isTrue);
       expect(response.remember, isTrue);
-      expect(history.toString().split('┌').length - 1, 1);
-      expect(history.toString(), contains('Remember regex:'));
+      // One settled line, and it says the decision rather than replaying the
+      // card: the rule itself lives in the response (and the audit log), the
+      // call in its own tool row.
+      expect(
+        history.toString(),
+        '  Run shell command · allow matching regex for this conversation\n',
+      );
       editor.inject(ControlKey(ControlCode.enter));
       expect(await draft, 'keep my draft');
     },

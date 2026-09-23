@@ -106,6 +106,45 @@ class ChatAgentSink implements AgentSink {
     _md = null;
   }
 
+  // --- settled approvals ----------------------------------------------------
+
+  /// One settled approval record, queued by the permission modal.
+  ///
+  /// The modal answers *before* the engine starts the tool, so it cannot write
+  /// into the transcript at that moment: the tool row would come after it and
+  /// the call would be printed twice (once as the card's preview, once as the
+  /// row). Instead the record is queued here and printed by the sink, once,
+  /// *after* the row it belongs to.
+  String? _pendingApproval;
+
+  /// Queue the settled approval record ([record] carries its own trailing
+  /// newline). It prints at the next tool row, notice or prose boundary —
+  /// see [flushApproval].
+  void queueApproval(String record) {
+    // A record still waiting when the next approval settles (a cancelled call,
+    // whose tool never started) prints now rather than being dropped.
+    flushApproval();
+    _pendingApproval = record;
+  }
+
+  /// Print the queued approval record, if any.
+  ///
+  /// It lands as its own notice block so a later repaint keeps it — a raw
+  /// write between blocks is not part of the transcript the sink rebuilds
+  /// from.
+  void flushApproval() {
+    final record = _pendingApproval;
+    if (record == null) return;
+    _pendingApproval = null;
+    if (_blocksActive) {
+      _flushMarkdown(); // prose must not be held across the record's block
+      _add(ChatBlock.notice(speaker, record.trim()));
+      return;
+    }
+    chat.ensureNewline();
+    chat.dim(record.endsWith('\n') ? record : '$record\n');
+  }
+
   /// The current tool call's accumulated streamed output (from [toolStart] to
   /// [toolComplete]). Tool calls run one at a time per agent, so a single
   /// buffer is safe.
@@ -239,6 +278,7 @@ class ChatAgentSink implements AgentSink {
 
   /// The user's own message: its own block, under the `you` speaker.
   void userMessage(String text) {
+    flushApproval(); // a record left from the previous turn prints before it
     final body = text.endsWith('\n')
         ? text.substring(0, text.length - 1)
         : text;
@@ -395,6 +435,7 @@ class ChatAgentSink implements AgentSink {
 
   @override
   void text(String s) {
+    flushApproval(); // prose starts with nothing waiting behind it
     _raw.write(s);
     if (!_markdownActive) {
       // Verbatim: the policy layer only picks the style code; the surface
@@ -485,14 +526,16 @@ class ChatAgentSink implements AgentSink {
     _buffer.clear();
     _capped = false;
     if (!_blocksActive) {
-      chat.dim('→ ${_describe(e.toolName, e.input)}\n');
+      chat.dim('→ ${describeToolCall(e.toolName, e.input)}\n');
       _toolBlock = null;
+      flushApproval(); // after the row: an approval never precedes its call
       return;
     }
     // Header only: what the call produces is retained (see [toolComplete]) and
     // belongs behind the header, not printed under it.
     _add(ChatBlock.toolCall(speaker, subject: _subject(e.toolName, e.input)));
     _toolBlock = _blocks.length - 1;
+    flushApproval(); // after the row: an approval never precedes its call
   }
 
   @override
@@ -514,6 +557,7 @@ class ChatAgentSink implements AgentSink {
 
   @override
   void toolComplete(ToolCompleteEvent e) {
+    flushApproval(); // a call that never started (cancel) still gets its record
     final streamed = _buffer.toString();
     // Whichever the tool produced more of: a failure's `result` carries the
     // message, a success's streamed output carries the work. Taking the longer
@@ -573,6 +617,7 @@ class ChatAgentSink implements AgentSink {
 
   @override
   void notice(String message, {NoticeKind kind = NoticeKind.info}) {
+    flushApproval(); // a denied call's record comes before the denial itself
     _flushMarkdown(); // a notice interrupts prose: flush what is held
     if (_blocksActive) {
       // Severity is a *word* here, not a glyph: the markers worth having
@@ -609,72 +654,81 @@ class ChatAgentSink implements AgentSink {
 
   @override
   void activityStop() => spinner.stop();
+}
 
-  // --- description / truncation helpers (moved from agent.dart) ---
+// --- description / truncation helpers (moved from agent.dart) ---
 
-  String _describe(String name, Map<String, dynamic> input) {
-    switch (name) {
-      case 'exec':
-        return 'exec: ${input['executable']} ${input['args'] ?? []}';
-      case 'bash':
-        final cmd = input['command'] as String?;
-        // Head+tail: the tail of a long command is where the risk lives (a
-        // `| sh`, a trailing `; rm`, the redirect target) and the approval
-        // prompt it came from has long since scrolled away.
-        return cmd != null ? 'bash: ${_truncateHeadTail(cmd)}' : name;
-      case 'read':
-      case 'write':
-      case 'edit':
-        final path = input['filePath'] as String?;
-        return path != null ? '$name: $path' : name;
-      case 'glob':
-      case 'grep':
-        // Both read-only search tools take `pattern` (required) and `path`
-        // (optional); show the pattern, and the path when the caller set one.
-        final pattern = input['pattern'] as String?;
-        if (pattern == null) return name;
-        final path = input['path'] as String?;
-        return path != null ? '$name: $pattern in $path' : '$name: $pattern';
-      case 'search':
-        // The code-graph search tool's query lives under `symbol`.
-        final symbol = input['symbol'] as String?;
-        return symbol != null ? 'search: $symbol' : name;
-      default:
-        return _summarize(name, input);
-    }
+/// One-line description of a tool call: `bash: git status`, `edit: path`.
+///
+/// This is the form the passthrough tool row and the settled approval record
+/// print (the block header has its own, [ChatAgentSink]-side subject). It is
+/// shared with the approval so a call that gets *no* row of its own — denied
+/// or cancelled — still names itself exactly once in the transcript.
+///
+/// Not truncated here: the renderer keeps the head *and* tail of whatever does
+/// not fit, and it is the one that knows the width.
+String describeToolCall(String name, Map<String, dynamic> input) {
+  switch (name) {
+    case 'exec':
+      return 'exec: ${input['executable']} ${input['args'] ?? []}';
+    case 'bash':
+      final cmd = input['command'] as String?;
+      // Head+tail: the tail of a long command is where the risk lives (a
+      // `| sh`, a trailing `; rm`, the redirect target) and the approval
+      // prompt it came from has long since scrolled away.
+      return cmd != null ? 'bash: ${_truncateHeadTail(cmd)}' : name;
+    case 'read':
+    case 'write':
+    case 'edit':
+      final path = input['filePath'] as String?;
+      return path != null ? '$name: $path' : name;
+    case 'glob':
+    case 'grep':
+      // Both read-only search tools take `pattern` (required) and `path`
+      // (optional); show the pattern, and the path when the caller set one.
+      final pattern = input['pattern'] as String?;
+      if (pattern == null) return name;
+      final path = input['path'] as String?;
+      return path != null ? '$name: $pattern in $path' : '$name: $pattern';
+    case 'search':
+      // The code-graph search tool's query lives under `symbol`.
+      final symbol = input['symbol'] as String?;
+      return symbol != null ? 'search: $symbol' : name;
+    default:
+      return _summarize(name, input);
   }
+}
 
-  /// Compact one-line summary for tools without a dedicated case, so no tool
-  /// call hides its arguments. Renders `name: k=v k=v ...` and truncates the
-  /// whole summary to the same 80-char budget as the bash command, keeping it
-  /// short for narrow panels.
-  String _summarize(String name, Map<String, dynamic> input) {
-    if (input.isEmpty) return name;
-    final parts = <String>[];
-    for (final entry in input.entries) {
-      final value = entry.value;
-      if (value == null) continue;
-      final rendered = value is String ? value : value.toString();
-      parts.add('${entry.key}=$rendered');
-    }
-    final joined = parts.join(' ');
-    // Same head+tail treatment as the bash row: a long `k=v` summary keeps
-    // both ends so the value's tail is still visible in the tool row.
-    return joined.isEmpty ? name : '$name: ${_truncateHeadTail(joined)}';
+/// Compact one-line summary for tools without a dedicated case, so no tool
+/// call hides its arguments. Renders `name: k=v k=v ...` and truncates the
+/// whole summary to the same 80-char budget as the bash command, keeping it
+/// short for narrow panels.
+String _summarize(String name, Map<String, dynamic> input) {
+  if (input.isEmpty) return name;
+  final parts = <String>[];
+  for (final entry in input.entries) {
+    final value = entry.value;
+    if (value == null) continue;
+    final rendered = value is String ? value : value.toString();
+    parts.add('${entry.key}=$rendered');
   }
+  final joined = parts.join(' ');
+  // Same head+tail treatment as the bash row: a long `k=v` summary keeps
+  // both ends so the value's tail is still visible in the tool row.
+  return joined.isEmpty ? name : '$name: ${_truncateHeadTail(joined)}';
+}
 
-  String _truncate(String s, int n) =>
-      s.length <= n ? s : '${s.substring(0, n)}…';
+String _truncate(String s, int n) =>
+    s.length <= n ? s : '${s.substring(0, n)}…';
 
-  /// [s] shortened to roughly [max] chars, keeping its head AND its tail —
-  /// for tool-row subjects whose tail carries meaning even though the head is
-  /// the familiar part. Up to [max] chars renders verbatim; longer input
-  /// renders as `<first [head] chars>…<last chars>` (total stays within
-  /// [max]).
-  String _truncateHeadTail(String s, {int max = 80, int head = 52}) {
-    final tail = max - head - 1;
-    return s.length <= max
-        ? s
-        : '${s.substring(0, head)}…${s.substring(s.length - tail)}';
-  }
+/// [s] shortened to roughly [max] chars, keeping its head AND its tail —
+/// for tool-row subjects whose tail carries meaning even though the head is
+/// the familiar part. Up to [max] chars renders verbatim; longer input
+/// renders as `<first [head] chars>…<last chars>` (total stays within
+/// [max]).
+String _truncateHeadTail(String s, {int max = 80, int head = 52}) {
+  final tail = max - head - 1;
+  return s.length <= max
+      ? s
+      : '${s.substring(0, head)}…${s.substring(s.length - tail)}';
 }

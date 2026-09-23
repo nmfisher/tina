@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine/tina_engine.dart';
 
+import '../chat/chat_agent_sink.dart';
 import '../chat/markdown_renderer.dart';
 import '../frontend/renderers.dart';
 import 'approval_card.dart';
@@ -20,6 +21,7 @@ Future<PermissionResponse> runPermissionApproval({
   PermissionPolicy? policy,
   String? sandboxWarning,
   RegexSuggester? regexSuggester,
+  void Function(String record)? onSettled,
 }) async {
   final cancel = Future.any<void>([
     editor.inputCancelled,
@@ -241,21 +243,28 @@ Future<PermissionResponse> runPermissionApproval({
       screen.input.erase();
     }
   }
-  // Store one settled card in scrollback. Repainting/scrolling while awaiting
-  // an answer never appends copies of the prompt to the conversation.
+  // One settled line for scrollback. The decision is what the record is for:
+  // the call itself is printed by its own tool row, so it is named here only
+  // when no row will follow (a denial or a cancel never reaches the row).
+  // Repainting/scrolling while awaiting an answer never appends copies of the
+  // prompt to the conversation.
   final result = rewrittenAnswer != null
       ? 'allow matching regex for this conversation'
       : answer == null
       ? 'cancelled'
       : approvalChoiceLabel(answer);
-  write(
-    [
-      '┌ ${card().title} · $result',
-      for (final row in body(math.max(1, screen.input.bounds.width - 2)))
-        '│ $row',
-      '└\n',
-    ].join('\n'),
-  );
+  final response = rewrittenAnswer ?? answer?.response;
+  final line = response?.decision == PermissionDecision.allow
+      ? '${card().title} · $result'
+      : '${describeToolCall(prompt.toolName, prompt.input)} · $result';
+  // A record is one line however many the command spanned.
+  final record = '  ${line.replaceAll(RegExp(r'\s+'), ' ')}\n';
+  if (onSettled != null) {
+    // The host prints it after the tool row — see [ChatAgentSink.queueApproval].
+    onSettled(record);
+  } else {
+    write(record);
+  }
   return cancelledByUser
       ? PermissionResponse.cancel
       : rewrittenAnswer ?? answer?.response ?? PermissionResponse.denyOnce;

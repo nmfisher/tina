@@ -75,8 +75,12 @@ for their tool preview, in both conversations and workflow nodes. The built-in
 previews, permission scope, and optional execution details. The shared host
 owns the inline frame and selectable answers; a renderer cannot change what
 an answer grants. Up/Down select, Enter confirms, Tab toggles details, and
-PgUp/PgDn or the mouse wheel scroll long previews. A settled card is appended
-once; scrolling the pending card never appends transcript copies.
+PgUp/PgDn or the mouse wheel scroll long previews. Afterwards one settled
+line is appended: the decision, not a replay of the preview — the call itself
+is printed by its own tool row, and the settled line follows that row rather
+than preceding it, so a call is never printed twice. A call that is refused
+has no row to follow, so its line names the call and lands where the denial
+notice does. Scrolling the pending card never appends transcript copies.
 
 Other UI surfaces can call `Renderers.render` with their own input type and
 fallback; menus and the index browser retain their existing rendering.

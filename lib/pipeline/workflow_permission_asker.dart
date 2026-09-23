@@ -89,7 +89,7 @@ class WorkflowPermissionAsker {
       final host = sink as TuiConversationHost;
       host.chat.ensureNewline();
     }
-    return runPermissionApproval(
+    final response = await runPermissionApproval(
       screen: screen!,
       editor: editor!,
       prompt: p,
@@ -102,7 +102,22 @@ class WorkflowPermissionAsker {
           ? sandboxOffChip((sink as TuiConversationHost).sandboxOffReason)
           : null,
       write: (text) => _write(text, HostMessageStyle.normal),
+      // The run panel's transcript is the host's, so queueing there prints the
+      // record after the node's tool row — the call stays in the transcript
+      // exactly once. Any other sink has no transcript of ours to interleave
+      // with, so its record lands immediately.
+      onSettled: sink is TuiConversationHost
+          ? (sink as TuiConversationHost).transcript.queueApproval
+          : (record) => _write(record, HostMessageStyle.normal),
     );
+    // A refusal or a cancel never reaches the tool row its record would wait
+    // behind: print it now, ahead of the denial the executor is about to
+    // notice. (An allowed call keeps it queued for its row.)
+    if (sink is TuiConversationHost &&
+        response.decision != PermissionDecision.allow) {
+      (sink as TuiConversationHost).transcript.flushApproval();
+    }
+    return response;
   }
 
   /// Render through the sink, using the host's message styles when it has
