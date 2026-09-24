@@ -22,7 +22,7 @@ class _Limiter extends ProviderRateLimiter {
   int deferrals = 0;
   _Limiter() : super(minInterval: const Duration(milliseconds: 1));
   @override
-  void defer(String providerId) {
+  void defer(String providerId, {Duration? retryAfter}) {
     deferrals++;
   }
 }

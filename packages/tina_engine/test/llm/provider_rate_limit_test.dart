@@ -113,6 +113,45 @@ void main() {
           reason: 'the capped 60s penalty still holds the queue');
     });
 
+    test('a Retry-After hint raises the penalty above the learned floor',
+        () async {
+      final limiter =
+          ProviderRateLimiter(minInterval: const Duration(milliseconds: 25));
+      // First-penalty floor is 100ms; the server says wait 1s.
+      limiter.defer('nim', retryAfter: const Duration(seconds: 1));
+      var launched = false;
+      unawaited(limiter.acquire('nim').then((_) => launched = true));
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(launched, isFalse,
+          reason: 'the hinted 1s window holds the queue past the 100ms floor');
+      await Future<void>.delayed(const Duration(seconds: 1));
+      expect(launched, isTrue, reason: 'the hint expires like any penalty');
+    });
+
+    test('a hint below the learned floor never undercuts it', () async {
+      final limiter =
+          ProviderRateLimiter(minInterval: const Duration(milliseconds: 25));
+      // Two 429s: the first learns a 100ms floor, the second doubles it to
+      // 200ms — a 10ms hint on the second must not shrink the wait.
+      limiter.defer('nim');
+      limiter.defer('nim', retryAfter: const Duration(milliseconds: 10));
+      final watch = Stopwatch()..start();
+      await limiter.acquire('nim');
+      expect(watch.elapsedMilliseconds, greaterThanOrEqualTo(8 * 25 - 10),
+          reason: 'a tiny hint must not undercut the doubled floor');
+    });
+
+    test('a hint above the cap is capped at 60s', () async {
+      final limiter =
+          ProviderRateLimiter(minInterval: const Duration(milliseconds: 25));
+      limiter.defer('nim', retryAfter: const Duration(hours: 1));
+      var launched = false;
+      unawaited(limiter.acquire('nim').then((_) => launched = true));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(launched, isFalse,
+          reason: 'a misbehaving upstream hint is capped like the floor');
+    });
+
     group('per-key interval override (setMinInterval / minIntervalFor)', () {
       test('setMinInterval installs a per-key override', () async {
         final limiter =
@@ -321,6 +360,31 @@ void main() {
       await send();
       expect(watch2.elapsedMilliseconds, lessThan(4 * 25),
           reason: 'reportSuccess cleared the backoff penalty');
+    });
+
+    test('a hinted 429 StreamError parks the queue for the hinted window',
+        () async {
+      // The transport parses Retry-After off the response and carries it on
+      // the StreamError; the RateLimitedProvider must forward it to the
+      // limiter so the queue waits the server-declared window, not just the
+      // 4×interval floor.
+      final inner = _EventPerCallProvider((call) => call == 0
+          ? const StreamError('429: retry in 400ms',
+              statusCode: 429, retryAfter: Duration(milliseconds: 400))
+          : const TextDelta('ok'));
+      final registry =
+          registryWith(inner, minInterval: const Duration(milliseconds: 25));
+      final provider = registry.build('stub/m');
+
+      Future<void> send() => provider.send(system: 's', messages: const [
+            Message(role: Role.user, content: [TextBlock('x')])
+          ], tools: const []).toList();
+
+      await send(); // hinted 429 → the queue now holds ~400ms (not ~100ms)
+      final watch = Stopwatch()..start();
+      await send();
+      expect(watch.elapsedMilliseconds, greaterThanOrEqualTo(400),
+          reason: 'the Retry-After hint, not the floor, paced the retry');
     });
 
     test('maxConcurrent caps inner streams; done and cancel both free permits',

@@ -140,22 +140,41 @@ class ProviderRateLimiter {
   }
 
   /// Push the provider's queue forward after a 429: subsequent [acquire]s
-  /// wait out the penalty before launching. The penalty starts at four
-  /// intervals and doubles per consecutive 429 (capped at [_maxPenalty]);
-  /// [reportSuccess] resets it, so spacing self-tunes to whatever per-key
-  /// limit the endpoint actually enforces — the configured [minInterval] is
-  /// only a floor, not a guess that has to be right.
+  /// wait out the penalty before launching. Without a server hint the
+  /// penalty starts at four intervals and doubles per consecutive 429
+  /// (capped at [_maxPenalty]); [reportSuccess] resets it, so spacing
+  /// self-tunes to whatever per-key limit the endpoint actually enforces —
+  /// the configured [minInterval] is only a floor, not a guess that has to
+  /// be right.
+  ///
+  /// When the server supplied a `Retry-After` hint ([retryAfter], carried on
+  /// the 429 [StreamError] by the transport), the penalty waits
+  /// max(computed floor, hint): the hint RAISES a too-small learned floor —
+  /// the gap that used to turn one hinted 429 into a rapid re-429 loop
+  /// while the queue kept launching into a server-declared window — but
+  /// never undercuts the floor we already learned, which stays the
+  /// conservative bound when a server's hint is optimistic. The result is
+  /// capped at [_maxPenalty] like the computed path, so a misbehaving
+  /// upstream can't park a provider for hours. Deliberately no jitter here:
+  /// the penalty gates ONE serialized queue, and decorrelating across
+  /// concurrent clients is the retry layer's job (its own backoff is
+  /// already equal-jittered) — an exact penalty keeps the doubling chain
+  /// and its tests exact.
   ///
   /// Already-parked waiters keep their reserved launch times (their delay was
   /// fixed at acquire); they may launch into the penalty window and 429 again,
   /// which just extends it. Convergence over precision — no queue surgery.
-  void defer(String providerId) {
+  void defer(String providerId, {Duration? retryAfter}) {
     final interval = minIntervalFor(providerId);
     if (interval <= Duration.zero) return;
     // Seed with 2× so the first 429 lands on 4×interval, then doubles.
     final base = _penalties[providerId] ?? interval * 2;
-    final next = base * 2;
-    final penalty = next > _maxPenalty ? _maxPenalty : next;
+    var penalty = base * 2;
+    if (penalty > _maxPenalty) penalty = _maxPenalty;
+    if (retryAfter != null && retryAfter > penalty) {
+      penalty = retryAfter;
+    }
+    if (penalty > _maxPenalty) penalty = _maxPenalty;
     _penalties[providerId] = penalty;
     final target = _clock.elapsed + penalty;
     final cur = _nextFreeAt[providerId];
@@ -298,7 +317,9 @@ class RateLimitedProvider implements LlmProvider {
           if (event is StreamError && event.statusCode == 429) {
             saw429 = true;
             // Account rejection is not evidence of a rate ceiling.
-            if (!event.requiresUserAction) limiter.defer(limitKey);
+            if (!event.requiresUserAction) {
+              limiter.defer(limitKey, retryAfter: event.retryAfter);
+            }
           }
           if (!controller.isClosed) controller.add(event);
         },
