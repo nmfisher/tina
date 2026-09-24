@@ -987,20 +987,39 @@ void main() {
           0x1b, 0x5b, 0x32, 0x30, 0x31, 0x7e, // \e[201~
         ];
 
-    test('paste renders a placeholder, Enter submits the real text', () async {
+    test('paste renders flattened text, Enter submits the real text', () async {
       final ed = _editor(io);
       final f = ed.readLine('> ');
       await _flush();
       io.feedBytes(_pasteBytes('line1\nline2'));
       await _flush();
-      // 'line1\nline2' is 11 runes; the placeholder appears in the render.
+      // 'line1\nline2' is 11 runes — at or under the verbatim limit, so the
+      // render shows the paste (newlines flattened to spaces), not a chip.
       final out = io.written.toString();
-      expect(out, contains('[Pasted text : 11 chars]'));
+      expect(out, contains('line1 line2'));
+      expect(out.contains('[Pasted text :'), isFalse,
+          reason: 'a short paste is never hidden behind the chip');
       // The raw multi-line text must NOT leak as literal typed content.
       expect(out.contains('line1\nline2'), isFalse);
       // Enter submits the real text (newlines preserved).
       io.feedBytes([0x0d]);
       expect(await f, 'line1\nline2');
+    });
+
+    test('a long paste still renders the chip; Enter submits the real text',
+        () async {
+      final ed = _editor(io);
+      final f = ed.readLine('> ');
+      await _flush();
+      final body = 'x' * 40;
+      io.feedBytes(_pasteBytes(body));
+      await _flush();
+      final out = io.written.toString();
+      expect(out, contains('[Pasted text : 40 chars]'));
+      expect(out.contains('xxxxxxx'), isFalse,
+          reason: 'the long paste body itself stays hidden');
+      io.feedBytes([0x0d]);
+      expect(await f, body);
     });
 
     test('paste is atomic: left arrow then backspace removes the block',

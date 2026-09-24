@@ -209,30 +209,74 @@ void main() {
       expect(edit.cursor, 5);
       expect(edit.pasteSpans.single.start, 0);
       expect(edit.pasteSpans.single.end, 5);
-      // Placeholder uses rune count.
-      expect(edit.pasteSpans.single.placeholder, '[Pasted text : 5 chars]');
+      // Short pastes display verbatim, not as a chip.
+      expect(edit.pasteSpans.single.display, 'Hello');
+      expect(edit.toDisplay(), 'Hello');
+    });
+
+    test('short paste shows its text; long paste gets the chip', () {
+      edit = edit.addPaste('short and sweet'); // 15 runes < 24
+      expect(edit.toDisplay(), 'short and sweet');
+
+      edit = edit.addPaste('x' * 25); // just past the verbatim limit
+      // Only the long paste collapses; the earlier short one stays verbatim.
+      expect(edit.toDisplay(), 'short and sweet[Pasted text : 25 chars]');
+      expect(edit.buffer, 'short and sweet${'x' * 25}',
+          reason: 'the real text is intact under the chip');
+    });
+
+    test('verbatim limit boundary: 24 code points in, 25 collapses', () {
+      edit = edit.addPaste('y' * TextLineInput.verbatimPasteLimit);
+      expect(edit.toDisplay(), 'y' * TextLineInput.verbatimPasteLimit);
+      edit = edit.clear();
+      edit = edit.addPaste('y' * (TextLineInput.verbatimPasteLimit + 1));
+      expect(edit.toDisplay(), '[Pasted text : 25 chars]');
+    });
+
+    test('short multi-line paste flattens whitespace for the single line',
+        () {
+      edit = edit.addPaste('line1\nline2\t!');
+      final display = edit.toDisplay();
+      expect(display, 'line1 line2 !',
+          reason: 'newline and tab each become one space');
+      expect(display.length, 'line1\nline2\t!'.length,
+          reason: 'flattening preserves code-unit length');
+      expect(edit.buffer, 'line1\nline2\t!',
+          reason: 'the real text keeps its newlines for submit');
     });
 
     test('addPaste rune count counts code points, not units', () {
-      edit = edit.addPaste('😀😀'); // 2 runes, 4 code units
-      expect(edit.pasteSpans.single.placeholder, '[Pasted text : 2 chars]');
+      // 30 emoji = 30 runes but 60 UTF-16 code units: past the verbatim
+      // limit either way, so the chip must count runes.
+      edit = edit.addPaste('😀' * 30);
+      expect(edit.pasteSpans.single.display, '[Pasted text : 30 chars]');
     });
 
-    test('toDisplay replaces span text with placeholder', () {
+    test('verbatim decision compares runes, so wide glyphs stay visible', () {
+      // 24 emoji = 24 runes (48 code units): at the limit, shown verbatim.
+      edit = edit.addPaste('😀' * TextLineInput.verbatimPasteLimit);
+      expect(edit.toDisplay(), '😀' * TextLineInput.verbatimPasteLimit);
+    });
+
+    test('toDisplay leaves surrounding text alone around a chip span', () {
       edit = edit.insert('a');
-      edit = edit.addPaste('BCDE');
+      edit = edit.addPaste('B' * 30); // chip territory
       edit = edit.insert('z');
-      // Real buffer: a|BCDE|z ; display: a[Pasted text : 4 chars]z
-      expect(edit.toDisplay(), 'a[Pasted text : 4 chars]z');
+      // Real buffer: a|BB…B|z ; display keeps the neighbors, chips the paste.
+      expect(edit.toDisplay(), 'a[Pasted text : 30 chars]z');
     });
 
-    test('displayCursor maps real cursor into display space', () {
+    test('displayCursor is the identity: display length == real length', () {
       edit = edit.insert('a');
-      edit = edit.addPaste('BCDE'); // span [1..5), cursor at 5
-      // Cursor at end of paste (real 5) → display 1 + 24 = 25.
-      expect(edit.displayCursor(5), 1 + '[Pasted text : 4 chars]'.length);
-      // Cursor before the span (real 1) is unaffected.
+      edit = edit.addPaste('BCDE'); // verbatim span [1..5), cursor at 5
+      expect(edit.toDisplay().length, edit.buffer.length);
+      expect(edit.displayCursor(5), 5);
       expect(edit.displayCursor(1), 1);
+      // Same identity under a chip span: widths now differ, but the cursor
+      // index is expressed in real-buffer units in both spaces.
+      edit = edit.addPaste('Z' * 40);
+      expect(edit.displayCursor(edit.cursor), edit.cursor);
+      expect(edit.toDisplay().length, isNot(edit.buffer.length));
     });
 
     test('moveLeft skips over a paste span as one unit', () {
