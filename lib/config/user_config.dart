@@ -47,6 +47,7 @@ const _knownProviderKeys = {
   'members',
   'models',
   'requests_per_minute',
+  'min_request_interval_ms',
 };
 const _knownPromptKeys = {'identity'};
 const _knownTypeSafeKeys = {
@@ -247,6 +248,16 @@ class ProviderConfig {
   /// `[providers.<id>] requests_per_minute` in the user config.
   final int? requestsPerMinute;
 
+  /// Per-provider request START spacing override, in milliseconds. When set,
+  /// this beats every RPM-shaped knob (the `[providers.<id>]`
+  /// requests_per_minute override and the descriptor's built-in hint) — the
+  /// interval semantic is the direct form of "this endpoint wants at least
+  /// this many ms between request starts". 0 disables spacing for this
+  /// provider's queue keys (only the concurrency cap remains) — the escape
+  /// hatch for local endpoints the global 1s default should never bind.
+  /// Configured via `[providers.<id>] min_request_interval_ms`.
+  final int? minRequestIntervalMs;
+
   /// Explicit model ids this provider serves (`models = ["glm-5.2"]`).
   /// Meaningful for CUSTOM providers (`wire` set): those have no compiled
   /// catalog, so without this list the model pickers (`/spawn`, `/model`)
@@ -268,6 +279,7 @@ class ProviderConfig {
     this.disabledModels,
     this.members,
     this.requestsPerMinute,
+    this.minRequestIntervalMs,
     this.models,
   });
 
@@ -316,6 +328,7 @@ class ProviderConfig {
       // 0 is meaningful (explicitly disables spacing for this provider's
       // queues), so unlike the drop-empty lists above it is kept as-is.
       requestsPerMinute: m['requests_per_minute'] as int?,
+      minRequestIntervalMs: m['min_request_interval_ms'] as int?,
     );
   }
 
@@ -335,6 +348,7 @@ class ProviderConfig {
       members == other.members &&
       models == other.models &&
       requestsPerMinute == other.requestsPerMinute &&
+      minRequestIntervalMs == other.minRequestIntervalMs &&
       _setsEqual(disabledModels, other.disabledModels);
 
   @override
@@ -348,6 +362,7 @@ class ProviderConfig {
     members,
     models,
     requestsPerMinute,
+    minRequestIntervalMs,
     Set.of(disabledModels ?? const {}),
   );
 
@@ -955,6 +970,8 @@ String userConfigToToml(UserConfig config) {
             // queues), so unlike the drop-empty lists above it is kept as-is.
             if (e.value.requestsPerMinute != null)
               'requests_per_minute': e.value.requestsPerMinute,
+            if (e.value.minRequestIntervalMs != null)
+              'min_request_interval_ms': e.value.minRequestIntervalMs,
           },
       },
     if (config.limits != null && !config.limits!.isEmpty)
@@ -1156,6 +1173,10 @@ api_key = "sk-ant-..."
 # requests_per_minute  = 0          # global RPM throttle (0 = disabled)
 # min_request_interval_ms = 1000    # min spacing between request starts on one
 #                                   # provider; concurrent agents queue (0 = disabled)
+#                                   # Loopback/private endpoints are exempted
+#                                   # automatically. Per-provider overrides:
+#                                   # [providers.<id>] requests_per_minute, or
+#                                   # min_request_interval_ms (0 = no spacing).
 # max_concurrent_requests = 4       # max requests per provider on the wire at
 #                                   # once; extras queue until one finishes
 #                                   # (0 = uncapped)

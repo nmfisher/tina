@@ -140,6 +140,19 @@ Future<void> _run(List<String> argv) async {
       for (final entry in userConfig.providers.entries) {
         final rpm = entry.value.requestsPerMinute;
         if (rpm != null) registry.setRequestRate(entry.key, rpm);
+        // The interval form wins over the RPM form (see
+        // ProviderRegistry._effectiveSpacing); warn when both are set so the
+        // config smell is visible instead of silently resolved.
+        final intervalMs = entry.value.minRequestIntervalMs;
+        if (intervalMs != null && rpm != null) {
+          stderr.writeln(
+              'warning: [providers.${entry.key}] sets both '
+              'min_request_interval_ms and requests_per_minute; the interval '
+              'wins.');
+        }
+        if (intervalMs != null) {
+          registry.setRequestInterval(entry.key, intervalMs);
+        }
       }
       // Wire retries live at the TOP of the provider policy stack, so a
       // re-attempt re-acquires a rate-limit slot (never a stampede past the

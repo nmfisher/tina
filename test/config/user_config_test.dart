@@ -581,6 +581,53 @@ models = ["stub-1", "stub-2|Stub Two"]
     });
 
     test(
+        '[providers.<id>] min_request_interval_ms round-trips beside '
+        'requests_per_minute (interval wins at the engine)', () {
+      writeUserConfig(
+        const UserConfig(
+          providers: {
+            'nim': ProviderConfig(
+              requestsPerMinute: 40,
+              minRequestIntervalMs: 250,
+            ),
+            'local-llama': ProviderConfig(minRequestIntervalMs: 0),
+          },
+        ),
+        env: {},
+        tinaDir: tmp,
+      );
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.providers['nim']?.requestsPerMinute, 40);
+      expect(loaded.providers['nim']?.minRequestIntervalMs, 250);
+      expect(
+        loaded.providers['local-llama']?.minRequestIntervalMs,
+        0,
+        reason:
+            '0 is meaningful (explicitly disables spacing for that provider) '
+            'and must survive the round trip',
+      );
+      // A settings-panel-style rewrite that omits the interval (the pre-fix
+      // writeUserConfigPatch shape) must not clobber a sibling's interval.
+      writeUserConfig(
+        loaded.copyWith(
+          providers: {
+            ...loaded.providers,
+            'nim': const ProviderConfig(
+              apiKey: 'k',
+              requestsPerMinute: 40,
+              minRequestIntervalMs: 250,
+            ),
+          },
+        ),
+        env: {},
+        tinaDir: tmp,
+      );
+      final reloaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(reloaded.providers['local-llama']?.minRequestIntervalMs, 0,
+          reason: 'the nim write must not clobber sibling providers');
+    });
+
+    test(
       '[limits] max_concurrent_requests round-trips beside the interval',
       () {
         writeUserConfig(

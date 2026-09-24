@@ -874,6 +874,12 @@ class _ProvidersForm {
           baseUrl: filteredBaseUrls[id],
           models: _mergedModels(id),
           maxOutput: _existingProviders[id]?.maxOutput,
+          // Rate-limit overrides are not editable here but must survive a
+          // re-save: drop them and a settings write silently widens the
+          // provider's spacing back to the global default.
+          requestsPerMinute: _existingProviders[id]?.requestsPerMinute,
+          minRequestIntervalMs:
+              _existingProviders[id]?.minRequestIntervalMs,
           // Explicit, never null: an empty set is the curated
           // "every model enabled" state, distinct from an absent key (=
           // never curated = all disabled). The config round-trip preserves

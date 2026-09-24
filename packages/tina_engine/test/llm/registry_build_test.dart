@@ -28,6 +28,7 @@ ProviderDescriptor _desc(
   ],
   Map<String, ModelInfo> models = const {},
   int? requestsPerMinute,
+  int? minRequestIntervalMs,
   required ProviderBuilder builder,
 }) =>
     ProviderDescriptor(
@@ -38,6 +39,7 @@ ProviderDescriptor _desc(
       builder: builder,
       models: models,
       requestsPerMinute: requestsPerMinute,
+      minRequestIntervalMs: minRequestIntervalMs,
     );
 
 /// Registers a [ProviderDecorator] on [r] that appends `"<tag>"` to
@@ -282,6 +284,136 @@ void main() {
 
       r.build('p/m');
       expect(built.single.maxTokens, ProviderRegistry.defaultMaxTokens);
+    });
+  });
+
+  group('per-provider spacing precedence + local-endpoint exemption', () {
+    test('user min_request_interval_ms beats user requests_per_minute', () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('p', builder: _recording(built), requestsPerMinute: 60))
+        ..setRequestRate('p', 30) // 60s/30 = 2s spacing
+        ..setRequestInterval('p', 250); // must win over the RPM override
+      r.build('p/m');
+      expect(
+        r.rateLimiter
+            .minIntervalFor(providerQueueKey('https://example.test', 'k')),
+        const Duration(milliseconds: 250),
+      );
+    });
+
+    test('user interval beats the descriptor interval; descriptor interval '
+        'beats the descriptor RPM hint', () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc(
+          'hinted',
+          builder: _recording(built),
+          requestsPerMinute: 40, // → 1500ms
+          minRequestIntervalMs: 300,
+        ));
+      r.build('hinted/m');
+      expect(
+        r.rateLimiter
+            .minIntervalFor(providerQueueKey('https://example.test', 'k')),
+        const Duration(milliseconds: 300),
+        reason: 'the descriptor interval beats its own RPM hint',
+      );
+
+      r.setRequestInterval('hinted', 75);
+      r.build('hinted/m');
+      expect(
+        r.rateLimiter
+            .minIntervalFor(providerQueueKey('https://example.test', 'k')),
+        const Duration(milliseconds: 75),
+        reason: 'the user interval beats every descriptor-level knob',
+      );
+    });
+
+    test('a loopback endpoint is exempt from the registry-wide default', () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..rateLimiter.minInterval = const Duration(milliseconds: 1000)
+        ..register(_desc(
+          'local',
+          baseUrl: 'http://localhost:11434',
+          builder: _recording(built),
+        ));
+      r.build('local/m');
+      expect(
+        r.rateLimiter
+            .minIntervalFor(providerQueueKey('http://localhost:11434', 'k')),
+        Duration.zero,
+        reason: 'no hosted per-key limit exists on loopback; spacing there '
+            'is pure added latency',
+      );
+    });
+
+    test('a private-network endpoint is exempt too; the user can opt back in',
+        () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..rateLimiter.minInterval = const Duration(milliseconds: 1000)
+        ..register(_desc(
+          'lan',
+          baseUrl: 'http://192.168.1.50:8000',
+          builder: _recording(built),
+        ));
+      r.build('lan/m');
+      expect(
+        r.rateLimiter
+            .minIntervalFor(providerQueueKey('http://192.168.1.50:8000', 'k')),
+        Duration.zero,
+      );
+
+      r.setRequestInterval('lan', 0); // explicit opt back in
+      r.build('lan/m');
+      expect(
+        r.rateLimiter
+            .minIntervalFor(providerQueueKey('http://192.168.1.50:8000', 'k')),
+        Duration.zero,
+        reason: 'the explicit 0 override also disables spacing',
+      );
+    });
+
+    test('a hosted endpoint keeps the global default', () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..rateLimiter.minInterval = const Duration(milliseconds: 1000)
+        ..register(_desc('hosted', builder: _recording(built)));
+      r.build('hosted/m');
+      expect(
+        r.rateLimiter
+            .minIntervalFor(providerQueueKey('https://example.test', 'k')),
+        const Duration(milliseconds: 1000),
+      );
+    });
+
+    test('_isLocalEndpoint matches loopback/private forms only', () {
+      // Indirect coverage through the public seam: build a descriptor with no
+      // knobs against a 172.16/12 host and confirm the exemption applies,
+      // and against a lookalike public host and confirm it does not.
+      for (final entry in [
+        ('http://10.0.0.5:8000', true),
+        ('http://172.16.0.1:8000', true),
+        ('http://172.31.255.255:8000', true),
+        ('http://172.32.0.1:8000', false),
+        ('http://192.168.0.1:8000', true),
+        ('http://[::1]:8080', true),
+        ('http://localhost:11434', true),
+        ('http://example.test', false),
+      ]) {
+        final (url, expected) = entry;
+        final built = <ProviderInstance>[];
+        final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+          ..rateLimiter.minInterval = const Duration(milliseconds: 1000)
+          ..register(_desc('probe', baseUrl: url, builder: _recording(built)));
+        r.build('probe/m');
+        final got = r.rateLimiter
+            .minIntervalFor(providerQueueKey(url, 'k'));
+        expect(got == Duration.zero, expected,
+            reason: '$url → ${expected ? "exempt" : "global default"}');
+      }
     });
   });
 }

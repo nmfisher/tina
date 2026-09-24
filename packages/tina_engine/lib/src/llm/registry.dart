@@ -171,8 +171,15 @@ class ProviderDescriptor {
   /// builds a provider. Null (the default) means "no evidence for a ceiling":
   /// the queue key falls back to the registry-wide [ProviderRateLimiter
   /// .minInterval]. A user override via [ProviderRegistry.setRequestRate]
-  /// always wins over this hint.
+  /// or [ProviderRegistry.setRequestInterval] always wins over this hint.
   final int? requestsPerMinute;
+
+  /// The descriptor's own request START spacing, in milliseconds — the
+  /// interval form of [requestsPerMinute] for endpoints whose limit is
+  /// documented as a minimum gap rather than a rate. When set it beats the
+  /// RPM hint; user overrides (interval or RPM) beat both. Null (the
+  /// default) = no descriptor-level interval.
+  final int? minRequestIntervalMs;
 
   /// User-declared endpoint output ceiling; takes precedence over catalogs.
   /// The request's maxTokens can still choose a smaller cap.
@@ -187,6 +194,7 @@ class ProviderDescriptor {
     this.models = const {},
     this.listsRemoteModels = false,
     this.requestsPerMinute,
+    this.minRequestIntervalMs,
     this.maxOutputOverride,
   });
 }
@@ -379,15 +387,92 @@ class ProviderRegistry implements LlmProviderFactory {
     _requestRates[providerId] = rpm;
   }
 
-  /// The effective spacing for one descriptor's queue keys: the user override
-  /// ([_requestRates]) when present, else the descriptor's [ProviderDescriptor
-  /// .requestsPerMinute] hint, else null (fall back to the registry-wide
-  /// [rateLimiter.minInterval]). Returns null = "use the global default",
-  /// [Duration.zero] = spacing explicitly disabled for this provider.
-  Duration? _effectiveSpacing(ProviderDescriptor desc) {
-    final override = _requestRates[desc.id];
-    final rpm = override ?? desc.requestsPerMinute;
-    if (rpm == null) return null;
+  /// Per-provider request START spacing overrides, in milliseconds —
+  /// `[providers.<id>] min_request_interval_ms`. The most specific knob in
+  /// the spacing chain: when set it beats the RPM-shaped overrides (the
+  /// `[requests_per_minute]` map above and the descriptor's built-in hint),
+  /// because an interval is the direct form of "this endpoint wants at
+  /// least this many ms between starts". 0 explicitly disables spacing for
+  /// that provider's queues.
+  final Map<String, int> _requestIntervals = {};
+
+  /// Install (or replace) the per-provider request spacing override for
+  /// [providerId], in milliseconds. Same lazy/idempotent install contract as
+  /// [setRequestRate]. An interval and an RPM override both present is a
+  /// config smell — the interval wins — and the composition warns about it.
+  void setRequestInterval(String providerId, int intervalMs) {
+    if (intervalMs < 0) {
+      throw ArgumentError.value(
+          intervalMs, 'intervalMs', 'interval must be >= 0');
+    }
+    _requestIntervals[providerId] = intervalMs;
+  }
+
+  /// Hosts whose endpoints are exempt from the registry-wide spacing default:
+  /// loopback and private-network addresses, where a per-key hosted rate
+  /// limit does not exist and the 1s spacing default is pure added latency.
+  /// An explicit user config for the provider still wins (see
+  /// [_effectiveSpacing]). `setRequestInterval(id, 0)` restores the default
+  /// for a private endpoint that actually needs spacing.
+  static const _localHosts = {
+    'localhost', '127.0.0.1', '::1', '10.', '192.168.', '172.16.',
+    '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.',
+    '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.',
+    '172.29.', '172.30.', '172.31.',
+  };
+
+  static bool _isLocalEndpoint(String endpoint) {
+    final host = Uri.tryParse(endpoint)?.host.toLowerCase() ?? '';
+    if (host.isEmpty) return false;
+    for (final local in _localHosts) {
+      if (host == local || (local.endsWith('.') && host.startsWith(local))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// The effective spacing for one descriptor's queue keys: the interval
+  /// override ([_requestIntervals]) when present, else the RPM override
+  /// ([_requestRates]), else the descriptor's [ProviderDescriptor
+  /// .requestsPerMinute] hint, else null — EXCEPT that a descriptor
+  /// configured with a loopback/private base URL is freed from the
+  /// registry-wide default entirely: there is no per-key hosted limit to
+  /// respect, and spacing a local endpoint only adds latency. Returns null =
+  /// "use the global default", [Duration.zero] = spacing explicitly disabled
+  /// for this provider.
+  Duration? _effectiveSpacing(ProviderDescriptor desc,
+      {String? endpointForLocalCheck}) {
+    // Precedence: user interval > user RPM > descriptor interval > descriptor
+    // RPM > (nothing = the global default, from which local endpoints are
+    // exempt).
+    final userInterval = _requestIntervals[desc.id];
+    if (userInterval != null) {
+      return Duration(milliseconds: userInterval);
+    }
+    final userRpm = _requestRates[desc.id];
+    if (userRpm != null) {
+      return _spacingFromRpm(userRpm);
+    }
+    final descInterval = desc.minRequestIntervalMs;
+    if (descInterval != null) {
+      return Duration(milliseconds: descInterval);
+    }
+    final rpm = desc.requestsPerMinute;
+    if (rpm == null) {
+      // No user override and no hint: the global default would apply, but a
+      // local endpoint is exempt from it.
+      if (endpointForLocalCheck != null &&
+          _isLocalEndpoint(endpointForLocalCheck)) {
+        return Duration.zero;
+      }
+      return null;
+    }
+    return _spacingFromRpm(rpm);
+  }
+
+  /// RPM → spacing: 0 = disabled, else 60 s / [rpm] (rounded up to whole µs).
+  static Duration _spacingFromRpm(int rpm) {
     if (rpm == 0) return Duration.zero;
     return Duration(
         microseconds:
@@ -727,7 +812,8 @@ class ProviderRegistry implements LlmProviderFactory {
     // the same provider re-install the same value), so a pool of two NIM
     // keys spaces EACH key to NIM's ceiling (aggregate ≈ 2×) instead of one
     // shared queue. Null = no hint/override → the global default applies.
-    final spacing = _effectiveSpacing(desc);
+    final spacing =
+        _effectiveSpacing(desc, endpointForLocalCheck: endpoint);
     if (spacing != null) rateLimiter.setMinInterval(key, spacing);
     // The wrap decision must read the EFFECTIVE interval for THIS key (the
     // override just installed above, else the registry-wide default) — reading

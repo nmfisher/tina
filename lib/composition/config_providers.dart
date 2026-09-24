@@ -95,6 +95,7 @@ void registerConfigProviders(
           models: _configModels(id, pc, existing.models),
           listsRemoteModels: existing.listsRemoteModels,
           requestsPerMinute: existing.requestsPerMinute,
+          minRequestIntervalMs: pc.minRequestIntervalMs ?? existing.minRequestIntervalMs,
           maxOutputOverride: pc.maxOutput ?? existing.maxOutputOverride,
         ));
       }
