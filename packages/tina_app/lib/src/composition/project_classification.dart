@@ -159,6 +159,7 @@ Future<ProjectClassificationReport> runProjectClassification(
         session,
         source,
         local: local,
+        cancelSignal: cancelSignal,
         detailsSource: hasJudgments
             ? RepositoryTextSource(
                 reader: reader,

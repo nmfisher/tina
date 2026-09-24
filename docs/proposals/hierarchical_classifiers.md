@@ -260,6 +260,15 @@ hand-written CI job (`test/architecture/ci_owned_packages_guard_test.dart`).
    content-addressed restore makes revisits cheap, the hard cap stops cycles.
 6. ~~Failure-as-route~~ — **resolved**: `Condition.testsOutcome` already
    mandates explicit `outcome=fail` conditions for failure routing.
+7. **Built-in failure routing (corrected 2026-09-23).** The first draft of
+   `builtinIndexProgram` added `language → exit [outcome=fail]`. That edge
+   *recovers* a failed node into an exit-success run (attractor
+   `engine_test.dart`, "failed node can take explicit recovery edge") — it
+   masks the failure, contradicting decision 2. The built-in therefore has
+   **no** failure edge: a failed stage takes no unconditional edge, so the
+   run finishes `fail` and `details` is skipped (the old `classifyProject`
+   catch-all). Failure recovery stays opt-in per program via explicit
+   `outcome=fail` edges (decision 6).
 
 ## First implementation slice
 
@@ -268,9 +277,10 @@ hand-written CI job (`test/architecture/ci_owned_packages_guard_test.dart`).
    keys, maps `StageStatus`, bridges cancellation. Unit-test against a fake
    orchestrator.
 2. **Express today's `classifyProject` as a DOT program** — language →
-   framework (`label.*` conditions) / tooling / exit, with a failure edge.
-   Migration proof: checkpoint reuse across the rewrite (identical stage
-   signatures), correct invalidation when an edge/upstream changes.
+   details (framework/tooling) → exit; a failed stage ends the run without a
+   recovery edge (decision 7). Migration proof: checkpoint reuse across the
+   rewrite (identical stage signatures), correct invalidation when an
+   edge/upstream changes.
 3. **Workspace loading** — resolve `<repo>/.tina/programs/*.dot`, run the
    existing validator, surface diagnostics.
 4. **`/classifier-review` target** — proposals render as a DOT fragment the

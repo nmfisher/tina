@@ -69,32 +69,15 @@ digraph custom {
       );
     });
 
-    test('routes a failed language stage only via an explicit outcome edge',
-        () {
+    test('a failed language stage ends the run without a recovery edge', () {
       final graph = builtinIndexProgram().graph;
-      final failEdge = graph.outgoing('language').singleWhere((e) =>
-          e.to == 'exit' && e.hasCondition);
-      final condition = Condition.tryParse(failEdge.condition)!;
-
-      expect(failEdge.condition, 'outcome=fail');
-      // The engine only considers conditional edges for a failed node when
-      // the condition tests the outcome — this edge must.
-      expect(condition.testsOutcome, isTrue);
-      expect(
-        condition.evaluate(
-          const Outcome.success(),
-          Context.from({'outcome': 'success'}),
-        ),
-        isFalse,
-        reason: 'a successful stage must not take the fail edge',
-      );
-      expect(
-        condition.evaluate(
-          Outcome.fail('boom'),
-          Context.from({'outcome': 'fail'}),
-        ),
-        isTrue,
-      );
+      // No conditional (recovery) edges on language: the engine's fail rule
+      // takes no unconditional edge, so a hard failure finishes the run as
+      // failed and details is skipped. An explicit outcome=fail edge to exit
+      // would *recover* into an exit-success run instead (attractor
+      // engine_test: "failed node can take explicit recovery edge").
+      expect(graph.outgoing('language').where((e) => e.hasCondition), isEmpty);
+      expect(graph.outgoing('language').single.to, 'details');
     });
   });
 

@@ -119,8 +119,13 @@ ClassifyProgram parseClassifyProgram(
 /// * `start → language → details → exit` (unconditional default: details runs
 ///   after any non-failed language stage, exactly as `classifyProject` runs
 ///   framework/tooling regardless of which languages were found);
-/// * `language → exit` on `outcome=fail` (an explicit failure route, per the
-///   engine's rule that failures only follow explicit outcome conditions).
+/// * no failure edge: a `fail` stage takes no unconditional edge (engine
+///   edge-selection rule), so a hard language failure ends the run as failed
+///   with `details` skipped — `classifyProject`'s old catch-all. An explicit
+///   `language → exit [condition="outcome=fail"]` edge would instead *recover*
+///   into an exit-success run (attractor `engine_test.dart`, "failed node can
+///   take explicit recovery edge"), masking the failure; recovery stays opt-in
+///   per program (proposal decisions 6/7).
 ///
 /// No human gate: `/index` must never block on a prompt by default. User
 /// programs may add gates freely.
@@ -139,7 +144,6 @@ ClassifyProgram builtinIndexProgram({
     edges: [
       PipelineEdge(from: 'start', to: 'language'),
       PipelineEdge(from: 'language', to: 'details'),
-      PipelineEdge(from: 'language', to: 'exit', condition: 'outcome=fail'),
       PipelineEdge(from: 'details', to: 'exit'),
     ],
   );
