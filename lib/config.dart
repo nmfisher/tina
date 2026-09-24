@@ -60,6 +60,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
   final TrustDefault trustDefault;
   final bool mouseWheel;
   final LayoutStyle layout;
+  final PlanOverlayMode planOverlayMode;
   final bool forceLock;
 
   Config({
@@ -108,6 +109,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     this.trustDefault = TrustDefault.ask,
     this.mouseWheel = false,
     this.layout = LayoutStyle.tiled,
+    this.planOverlayMode = PlanOverlayMode.auto,
     super.regionsModel,
     super.permissionMode = PermissionMode.ask,
     super.permissionClassifierModel,
@@ -166,6 +168,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     theme: theme,
     mouseWheel: mouseWheel,
     layout: layout,
+    planOverlay: planOverlayMode,
   );
 
   ResumeRequest get resumeRequest => ResumeRequest(
@@ -926,6 +929,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
       trustDefault: _parseTrustDefault(userConfig?.trustDefault),
       mouseWheel: userConfig?.mouseWheel ?? false,
       layout: _resolveLayout(res['layout'] as String?, userConfig?.layout),
+      planOverlayMode: _resolvePlanOverlayMode(userConfig?.planOverlay),
       regionsModel: userConfig?.regions?.model,
       permissionMode: _resolvePermissionMode(
         res['permission-mode'] as String?,
@@ -965,6 +969,19 @@ LayoutStyle _resolveLayout(String? flagValue, String? fileValue) =>
       'sidebar' => LayoutStyle.sidebar,
       final value => throw FormatException(
         'Invalid [tui] layout "$value": expected sidebar or tiled.',
+      ),
+    };
+
+/// Resolve the plan-overlay visibility from `[tui] plan_overlay`. Absent →
+/// auto; an unknown value is a config error at startup (fail fast, like
+/// layout) rather than a silent auto.
+PlanOverlayMode _resolvePlanOverlayMode(String? fileValue) =>
+    switch (fileValue) {
+      null || 'auto' => PlanOverlayMode.auto,
+      'manual' => PlanOverlayMode.manual,
+      'off' => PlanOverlayMode.off,
+      final value => throw FormatException(
+        'Invalid [tui] plan_overlay "$value": expected auto, manual or off.',
       ),
     };
 

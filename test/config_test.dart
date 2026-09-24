@@ -321,6 +321,40 @@ void main() {
       expect(dflt.mouseWheel, isFalse);
     });
 
+    test('[tui] plan_overlay flows into Config.planOverlayMode', () {
+      final env = const {'ANTHROPIC_API_KEY': 'sk'};
+      PlanOverlayMode resolve(UserConfig cfg) => Config.parse(
+        const [],
+        env: env,
+        registry: testRegistry(env),
+        userConfig: cfg,
+      ).planOverlayMode;
+      // Absent → auto: show whenever the conversation has a plan.
+      expect(resolve(const UserConfig()), PlanOverlayMode.auto);
+      expect(resolve(const UserConfig(planOverlay: 'manual')),
+          PlanOverlayMode.manual);
+      expect(
+        resolve(const UserConfig(planOverlay: 'off')),
+        PlanOverlayMode.off,
+      );
+      // An unknown value fails fast at startup, like layout.
+      expect(
+        () => Config.parse(
+          [],
+          env: env,
+          registry: testRegistry(env),
+          userConfig: const UserConfig(planOverlay: 'sometimes'),
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('[tui] plan_overlay'),
+          ),
+        ),
+      );
+    });
+
     test('prompt overrides default to empty when the file sets none', () {
       final cfg = Config.parse(
         const [],

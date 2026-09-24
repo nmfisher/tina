@@ -29,6 +29,7 @@ class ResizeCoordinator {
     required this.panelManager,
     required this.relayContent,
     required this.relocateInput,
+    this.onAfterResize,
   });
 
   final SessionManager sessionManager;
@@ -44,6 +45,13 @@ class ResizeCoordinator {
   /// hoisted `_relocateInput`; Phase 5: `contentCoordinator`.
   final void Function({bool force}) relocateInput;
 
+  /// Last-word hook for floating surfaces docked to the chat area — the plan
+  /// overlay recomputes its bounds and repaints here, after every pane has
+  /// settled and before the final full refresh, so its repaint rides the same
+  /// flush instead of flashing a stale rectangle. Null when no such surface
+  /// exists (off-mode constructs nothing).
+  final void Function()? onAfterResize;
+
   void handleResize({required bool split, required bool drawInfoFrame}) {
     panelManager.applyScreenLayout(split: split, drawInfoFrame: drawInfoFrame);
     sessionManager.handleResize();
@@ -52,6 +60,7 @@ class ResizeCoordinator {
     panelManager.layout();
     relayContent();
     relocateInput(force: true);
+    onAfterResize?.call();
     // Full re-emission after the last render of the sequence: some terminals
     // (tmux) scroll the alternate screen when the pane shrinks, so the
     // terminal's grid no longer matches the backend's retained frame and

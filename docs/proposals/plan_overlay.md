@@ -1,6 +1,6 @@
 # Proposal: Plan overlay panel
 
-Status: draft
+Status: implemented (stages 1–4: model/approval, Ctrl+P toggle, overlay panel, config + wiring)
 Tickets: —
 
 ## Problem

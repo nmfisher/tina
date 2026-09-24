@@ -527,6 +527,11 @@ class UserConfig {
   /// Null when absent; the terminal defaults to tiled (no conversation list).
   final String? layout;
 
+  /// Plan-overlay visibility from `[tui] plan_overlay` (`auto`/`manual`/`off`).
+  /// Null when absent → auto (show whenever the focused conversation has a
+  /// plan). Flows into `Config.parse` as [Config.planOverlayMode].
+  final String? planOverlay;
+
   /// Whether the DOT-workflow surface is enabled, from `[features] workflow`.
   /// Null/absent means off (the default) — see [RuntimeConfig.enableWorkflow]
   /// for exactly what the switch covers and what stays available without it.
@@ -567,6 +572,7 @@ class UserConfig {
     this.environmentModel,
     this.mouseWheel,
     this.layout,
+    this.planOverlay,
     this.featuresWorkflow,
     this.indexSkipHidden,
     this.regions,
@@ -592,6 +598,7 @@ class UserConfig {
       environmentModel == null &&
       mouseWheel == null &&
       layout == null &&
+      planOverlay == null &&
       indexSkipHidden == null &&
       (regions == null || regions!.isEmpty) &&
       (permissions == null || permissions!.isEmpty) &&
@@ -616,6 +623,7 @@ class UserConfig {
     String? environmentModel,
     bool? mouseWheel,
     String? layout,
+    String? planOverlay,
     bool? indexSkipHidden,
     RegionsConfig? regions,
     PermissionsConfig? permissions,
@@ -637,6 +645,7 @@ class UserConfig {
     environmentModel: environmentModel ?? this.environmentModel,
     mouseWheel: mouseWheel ?? this.mouseWheel,
     layout: layout ?? this.layout,
+    planOverlay: planOverlay ?? this.planOverlay,
     indexSkipHidden: indexSkipHidden ?? this.indexSkipHidden,
     featuresWorkflow: featuresWorkflow ?? this.featuresWorkflow,
     regions: regions ?? this.regions,
@@ -665,6 +674,7 @@ class UserConfig {
     final environmentModel = environmentRaw?['model'] as String?;
     final tuiRaw = (m['tui'] as Map?)?.cast<String, dynamic>();
     final mouseWheel = tuiRaw?['mouse_wheel'] as bool?;
+    final planOverlay = tuiRaw?['plan_overlay'] as String?;
     // [features] workflow — the DOT-workflow surface, off unless set.
     final featuresRaw = (m['features'] as Map?)?.cast<String, dynamic>();
     final featuresWorkflow = featuresRaw?['workflow'] as bool?;
@@ -707,6 +717,7 @@ class UserConfig {
       environmentModel: environmentModel,
       mouseWheel: mouseWheel,
       layout: tuiRaw?['layout'] as String?,
+      planOverlay: planOverlay,
       featuresWorkflow: featuresWorkflow,
       indexSkipHidden: (m['index'] as Map?)?['skip_hidden'] as bool?,
       regions: regionsRaw == null ? null : RegionsConfig.fromMap(regionsRaw),
@@ -990,10 +1001,13 @@ String userConfigToToml(UserConfig config) {
       'features': {'workflow': config.featuresWorkflow},
     if (config.indexSkipHidden != null)
       'index': {'skip_hidden': config.indexSkipHidden},
-    if (config.mouseWheel != null || config.layout != null)
+    if (config.mouseWheel != null ||
+        config.layout != null ||
+        config.planOverlay != null)
       'tui': {
         if (config.mouseWheel != null) 'mouse_wheel': config.mouseWheel,
         if (config.layout != null) 'layout': config.layout,
+        if (config.planOverlay != null) 'plan_overlay': config.planOverlay,
       },
     if (config.regions != null && !config.regions!.isEmpty)
       'regions': config.regions!.toMap(),
@@ -1188,6 +1202,8 @@ api_key = "sk-ant-..."
 # layout = "tiled" # "tiled" (default: conversations side by side, no list) or
 #                   # "sidebar" (adds a left column listing the conversation tree)
 # mouse_wheel = false
+# plan_overlay = "auto" # "auto" (default: show whenever this conversation has
+#                        # a plan), "manual" (only Ctrl+P), or "off"
 
 # Indexing skips files and directories whose names start with a period,
 # at any depth. Existing secret-file exclusions still apply when disabled.

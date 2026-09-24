@@ -50,6 +50,7 @@ import 'package:tina/tui/transcript_cursor.dart';
 import 'package:tina/tui/conversation_panel_coordinator.dart';
 import 'package:tina/tui/resize_coordinator.dart';
 import 'package:tina/tui/session_picker_overlay.dart';
+import 'package:tina/tui/plan_overlay.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_console/src/backend/notcurses_backend.dart';
@@ -188,6 +189,7 @@ class TuiCoordinator {
   late final ResizeCoordinator _resizeCoordinator;
   PanelHost? _panelHost;
   InputStatus? _inputStatus;
+  PlanOverlay? _planOverlay;
 
   /// The thin tmux integration (tin-f5xt): `$TMUX` checks, the detach seam,
   /// and the attach-target the exit hint names. Set in [create]'s wiring
@@ -1621,6 +1623,23 @@ class TuiCoordinator {
       // Content relay and input relocation are now owned by the
       // [ConversationPanelCoordinator], so the resize sequence repoints at its
       // methods instead of the create-local closures it replaced.
+      // The plan overlay (Ctrl+P): a floating column over the chat area's
+      // top-right corner, driven by the plugin-scope plan store (the same
+      // instance the per-conversation `update_plan` tool writes — one shared
+      // scope, so the UI and the agent share one source of truth). Null when
+      // the plugin isn't mounted (lookup misses) or `[tui] plan_overlay` is
+      // `off` — in both cases Ctrl+P is left unconsumed.
+      final planStore = app.pluginScope?.lookup(planStoreServiceKey);
+      final planOverlay = (planStore == null ||
+              terminalConfig.planOverlay == PlanOverlayMode.off)
+          ? null
+          : PlanOverlay(
+              screen: screen,
+              store: planStore,
+              conversationId: () => controller.active.id,
+              mode: terminalConfig.planOverlay,
+            );
+
       final resizeCoordinator = ResizeCoordinator(
         sessionManager: sessionManager,
         menuBar: menuBar,
@@ -1628,7 +1647,19 @@ class TuiCoordinator {
         panelManager: panelManager,
         relayContent: contentCoordinator.relayContent,
         relocateInput: contentCoordinator.relocateInput,
+        onAfterResize: planOverlay?.relayout,
       );
+
+      // Ctrl+P: the plan overlay's show/expand toggle. Null when the overlay
+      // was not constructed (no plan plugin, or `[tui] plan_overlay` off) —
+      // the editor then leaves the key unconsumed. When it exists the key is
+      // always consumed, even when nothing changes visually.
+      editor.onPlanToggle = planOverlay == null
+          ? null
+          : () {
+              planOverlay.toggle();
+              return true;
+            };
 
       /// Create a detached chat region + host for a spawned side panel — the
       /// shared preamble of `/spawn`, `/branch`, and the delegated-sub-agent
@@ -2269,6 +2300,7 @@ class TuiCoordinator {
       coordinator._tmux = tmux;
       coordinator._panelHost = panelHost;
       coordinator._inputStatus = inputStatus;
+      coordinator._planOverlay = planOverlay;
 
       // Keep summary services available to region tools. Index classification
       // runs as a cancellable job; browsing only reads saved checkpoints.
@@ -2610,6 +2642,10 @@ class TuiCoordinator {
     // even entered; the label it painted was never part of a presented frame.
     screen.setModeLabel('mode: ${policy.mode.label}');
     _inputStatus?.start();
+    // The plan overlay joins the first paint too: start after the canonical
+    // resize sequence has settled the layout, so its initial bounds are
+    // correct and the region is visible from the first presented frame.
+    _planOverlay?.start();
 
     if (setupMode) {
       // First-run setup overlay on top of the (idle) chat. The overlay writes
@@ -2800,6 +2836,7 @@ class TuiCoordinator {
       // planes. Print latency diagnostics later, on the normal scrollback.
       ..own(() => editor.close(reportLatency: false))
       ..own(() => _inputStatus?.dispose())
+      ..own(() => _planOverlay?.dispose())
       ..own(editor.disposeInput)
       ..own(() => app.pipeline.imageRenderer.coordinate(null))
       ..own(() => unawaited(subAgentScheduler.dispose()));

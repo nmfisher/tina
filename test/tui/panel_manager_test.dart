@@ -552,6 +552,52 @@ void main() {
       );
     }
 
+    test('onAfterResize runs after the last pane settles, before refresh', () {
+      final focusManager = FocusManager();
+      final editor = _RecordingEditor(screen, order);
+      final primary = PanelFrame(
+        screen: screen,
+        label: 'primary',
+        conversationId: 'primary',
+      )..setReservesInput(true);
+      final pm = PanelManager(
+        screen: screen,
+        focusManager: focusManager,
+        editor: editor,
+        primaryFrame: primary,
+        terminalGeometry: _Geometry_merged(columns: 120, lines: 24),
+        menuBarEnabled: false,
+        tree: SpawnTree(rootId: 'primary'),
+      );
+      final c = ResizeCoordinator(
+        sessionManager: _RecordingSessionManager(order),
+        menuBar: _RecordingMenuBar(screen, order),
+        editor: editor,
+        panelManager: _RecordingPanelManager(pm, order),
+        relayContent: () => order.add('relayContent'),
+        relocateInput: ({bool force = false}) => order.add('relocateInput'),
+        onAfterResize: () => order.add('overlay.relayout'),
+      );
+
+      c.handleResize(split: true, drawInfoFrame: false);
+      expect(
+        order,
+        [
+          'panelManager.applyScreenLayout',
+          'sessionManager.handleResize',
+          'menuBar.render',
+          'editor.handleResize',
+          'panelManager.layout',
+          'relayContent',
+          'relocateInput',
+          // The floating surface repaints after every pane has settled, so its
+          // frame rides the same flush as the rest of the sequence.
+          'overlay.relayout',
+          'screen.refresh',
+        ],
+      );
+    });
+
     group('canonical order', () {
       test('runs the pinned sequence exactly once per resize', () {
         _coordinator().handleResize(split: true, drawInfoFrame: false);

@@ -641,6 +641,21 @@ models = ["stub-1", "stub-2|Stub Two"]
       expect(UserConfig.empty.layout, isNull);
     });
 
+    test('[tui] plan_overlay round-trips and survives a copyWith patch', () {
+      writeUserConfig(const UserConfig(planOverlay: 'manual'), env: {}, tinaDir: tmp);
+      final loaded = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(loaded.planOverlay, 'manual');
+      // Absent → null (the caller resolves null → auto).
+      writeUserConfig(const UserConfig(), env: {}, tinaDir: tmp);
+      expect(loadUserConfig(env: {}, tinaDir: tmp).planOverlay, isNull);
+      // A later settings write must not drop the stored value.
+      writeUserConfig(loaded.copyWith(mouseWheel: true), env: {}, tinaDir: tmp);
+      final patched = loadUserConfig(env: {}, tinaDir: tmp);
+      expect(patched.planOverlay, 'manual');
+      expect(patched.mouseWheel, isTrue);
+      expect(UserConfig.empty.planOverlay, isNull);
+    });
+
     test('copyWith patches one field without dropping the others', () {
       final base = UserConfig(
         defaultProvider: 'anthropic',

@@ -214,6 +214,7 @@ class _PromptsForm {
         case ControlCode.ctrlO:
         case ControlCode.ctrlR:
         case ControlCode.ctrlB:
+        case ControlCode.ctrlP:
           // Unused in the editor. ctrlC/Esc are handled in run()'s back path.
           break;
       }
