@@ -673,10 +673,13 @@ class Agent {
         // Append only: neither the system prompt nor the existing history or
         // tool schemas change when the user switches mode.
         final mode = policy.mode;
-        final notice = Message(role: Role.user, content: [
-          TextBlock('Runtime permission mode: ${mode.label}. '
-              '${mode == PermissionMode.readAll ? 'Read-only: shell, writes, and full-access delegation are disabled. Use dedicated inspection tools.' : 'Actions follow the current permission policy.'}')
-        ]);
+        final notice = Message(
+            role: Role.user,
+            isSynthetic: true,
+            content: [
+              TextBlock('Runtime permission mode: ${mode.label}. '
+                  '${mode == PermissionMode.readAll ? 'Read-only: shell, writes, and full-access delegation are disabled. Use dedicated inspection tools.' : 'Actions follow the current permission policy.'}')
+            ]);
         history.add(notice);
         final pending = _notifyAppend(notice);
         if (pending != null) await pending;
@@ -966,8 +969,10 @@ class Agent {
           final soft = budget?.softMarginNotice();
           if (soft != null) {
             _softMarginFired = true;
-            final softMessage =
-                Message(role: Role.user, content: [TextBlock(soft)]);
+            final softMessage = Message(
+                role: Role.user,
+                isSynthetic: true,
+                content: [TextBlock(soft)]);
             history.add(softMessage);
             final pendingSoft = _notifyAppend(softMessage);
             if (pendingSoft != null) await pendingSoft;
@@ -993,6 +998,7 @@ class Agent {
             _checkpointAdvisoryFired = true;
             final advisoryMessage = Message(
                 role: Role.user,
+                isSynthetic: true,
                 content: [TextBlock(kNoCheckpointAdvisoryLine)]);
             history.add(advisoryMessage);
             final pendingAdvisory = _notifyAppend(advisoryMessage);
@@ -1502,11 +1508,16 @@ class Agent {
     // happened). The replace seam below fires ONCE with the final post-compact
     // list, after the history is fully rebuilt.
     final rebuilt = [
+      // tin-hist: the summary pair is composed by the system, not typed by the
+      // operator — marking it synthetic keeps it out of the input editor's
+      // recall history after a restore (the model still sees it verbatim).
       Message(
           role: Role.user,
+          isSynthetic: true,
           content: [TextBlock('Prior conversation summary:\n\n$summary')]),
       const Message(
           role: Role.assistant,
+          isSynthetic: true,
           content: [TextBlock('Got it — continuing from this summary.')]),
       ...suffix,
     ];

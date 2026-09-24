@@ -32,6 +32,7 @@ import 'package:tina/pipeline/workflow_permission_asker.dart';
 import 'package:tina/self_update/release_checker.dart';
 import 'package:tina/self_update/updater.dart';
 import 'package:tina/tui/attention_queue.dart';
+import 'package:tina/tui/input_recall.dart';
 import 'package:tina/tui/panel_maximize.dart';
 import 'package:tina/tui/panel_host.dart';
 import 'package:tina/tui/run_panel_host.dart';
@@ -2658,18 +2659,13 @@ class TuiCoordinator {
 
     // Replay any loaded conversation history (--continue / --resume) into the
     // chat region. Without this the messages sit in the data model but the
-    // screen stays blank until the user types something new.
+    // screen stays blank until the user types something new. Only OPERATOR
+    // prompts join the recall history (tin-hist): system-composed user-role
+    // messages (budget notices, mode announcements, compaction summaries)
+    // are marked [Message.isSynthetic] and must never resurface in the text
+    // field when the user presses up arrow.
     final conv = sessionManager.activeConversation;
-    editor.restoreHistory(
-      conv.history
-          .where((message) => message.role == Role.user)
-          .map(
-            (message) => message.content
-                .whereType<TextBlock>()
-                .map((block) => block.text)
-                .join('\n'),
-          ),
-    );
+    editor.restoreHistory(recallHistoryLines(conv.history));
     if (conv.history.isNotEmpty) {
       replayHistory(conv.host, conv.history);
     }

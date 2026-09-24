@@ -104,10 +104,21 @@ class Message {
   final Role role;
   final List<ContentBlock> content;
   final List<ReasoningBlock> reasoning;
+
+  /// True when this user-role message was composed by the SYSTEM (budget
+  /// notices, mode announcements, compaction summaries) rather than typed by
+  /// the operator. Both travel as user-role text — that is what the model
+  /// must see — but only operator prompts belong in the input editor's ↑/↓
+  /// recall history (tin-hist: "Runtime permission mode: ..." used to resurface
+  /// in the text field when the user pressed up arrow). Defaults to false so
+  /// plain user messages need no change; nothing else keys off it.
+  final bool isSynthetic;
+
   const Message({
     required this.role,
     required this.content,
     this.reasoning = const [],
+    this.isSynthetic = false,
   });
 
   /// A transcript entry that must never become an empty API message.
@@ -118,6 +129,7 @@ class Message {
         'content': content.map((b) => b.toJson()).toList(),
         if (reasoning.isNotEmpty)
           'reasoning': reasoning.map((b) => b.toJson()).toList(),
+        if (isSynthetic) 'synthetic': true,
       };
 
   factory Message.fromJson(Map<String, dynamic> j) => Message(
@@ -130,6 +142,9 @@ class Message {
             .map((b) =>
                 ReasoningBlock.fromJson(Map<String, dynamic>.from(b as Map)))
             .toList(),
+        // Absent on legacy journal lines: old sessions had no synthetic
+        // marker, and restoring one must not erase typed prompts from recall.
+        isSynthetic: j['synthetic'] as bool? ?? false,
       );
 }
 
