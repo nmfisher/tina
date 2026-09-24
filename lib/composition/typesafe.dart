@@ -100,82 +100,91 @@ Future<ProjectClassificationReport> runConfiguredProjectClassification(
 /// One shared tool per frontend, with fresh credentials and transport per run.
 /// Normal ToolOutputEvents carry progress; the turn's cancel signal tears down
 /// the scan and requests. No separate background job can outlive the turn.
-ExploreProjectTool createConfiguredExplorationTool({
-  required String workspaceRoot,
+///
+/// PT0 (docs/proposals/plugin-first-tools/01): the configured
+/// [ExploreProjectTool]'s `open` — the plugin (`configuredExploreProjectPlugin`)
+/// closes over this, so the tool self-configures at invocation the same way
+/// `web_search` does.
+ExplorationLease? openConfiguredExplorationLease({
+  /// The exploration sandbox and search root. Defaults to the process cwd —
+  /// the same default [buildExecutionRuntime] uses for the workspace, and the
+  /// value production actually runs on (the launcher restores a resumed
+  /// session's cwd before composition, so both resolve identically). Tests
+  /// pass the fixture explicitly.
+  String? workspaceRoot,
   required Map<String, String> env,
   required SpendLedger spendLedger,
   PauseGate? pauseGate,
   Directory? tinaDir,
   http.Client Function()? clientFactory,
   ProjectEvidenceSource? evidenceSource,
-}) => ExploreProjectTool(
-  open: () {
-    final settings = loadUserConfig(env: env, tinaDir: tinaDir);
-    final config = resolveTypeSafeConfig(settings, env);
-    if (config == null) return null;
-    final service = TypeSafeJudgmentService(
-      config: config,
-      clientFactory: clientFactory,
+}) {
+  final root = workspaceRoot ?? Directory.current.path;
+  final settings = loadUserConfig(env: env, tinaDir: tinaDir);
+  final config = resolveTypeSafeConfig(settings, env);
+  if (config == null) return null;
+  final service = TypeSafeJudgmentService(
+    config: config,
+    clientFactory: clientFactory,
+  );
+  try {
+    const outputTokenAllowance = 1024;
+    final metered = MeteredJudgmentService(
+      inner: service,
+      ledger: spendLedger,
+      pauseGate: pauseGate,
+      budget: service.config.requestBudget,
+      outputTokenAllowance: outputTokenAllowance,
     );
-    try {
-      const outputTokenAllowance = 1024;
-      final metered = MeteredJudgmentService(
-        inner: service,
-        ledger: spendLedger,
-        pauseGate: pauseGate,
-        budget: service.config.requestBudget,
-        outputTokenAllowance: outputTokenAllowance,
-      );
-      final source =
-          evidenceSource ??
-          RepositoryEvidenceSource(
-            root: workspaceRoot,
-            sandbox: SandboxedFileSystem(
-              const IoFileSystem(),
-              workspaceRoot: workspaceRoot,
-              tinaDir: tinaDir ?? tinaDirFromEnv(env),
-            ),
-          );
-      final timeout = Duration(
-        seconds: settings.typeSafe?.explorationTimeoutSeconds ?? 120,
-      );
-      final workflow = ExplorationWorkflow(
-        timeout: timeout,
-        source: source,
-        cache: FileExplorationCache(workspaceRoot),
-        cacheEndpoint: config.endpoint.toString(),
+    final source =
+        evidenceSource ??
+        RepositoryEvidenceSource(
+          root: root,
+          sandbox: SandboxedFileSystem(
+            const IoFileSystem(),
+            workspaceRoot: root,
+            tinaDir: tinaDir ?? tinaDirFromEnv(env),
+          ),
+        );
+    final timeout = Duration(
+      seconds: settings.typeSafe?.explorationTimeoutSeconds ?? 120,
+    );
+    final workflow = ExplorationWorkflow(
+      timeout: timeout,
+      source: source,
+      cache: FileExplorationCache(root),
+      cacheEndpoint: config.endpoint.toString(),
 
-        selectionThreshold:
-            settings.typeSafe?.explorationSelectionThreshold ?? 0.9,
-        metadataRunner: JudgmentBatchRunner(
-          service: metered,
-          budget: service.config.requestBudget,
-          limits: JudgmentBatchLimits(
-            concurrency: 4,
-            maxRequests: 5000,
-            maxChargedTokens:
-                settings.typeSafe?.explorationMetadataTokenBudget ?? 60000,
-            timeout: timeout,
-            outputTokenAllowance: outputTokenAllowance,
-          ),
+      selectionThreshold:
+          settings.typeSafe?.explorationSelectionThreshold ?? 0.9,
+      metadataRunner: JudgmentBatchRunner(
+        service: metered,
+        budget: service.config.requestBudget,
+        limits: JudgmentBatchLimits(
+          concurrency: 4,
+          maxRequests: 5000,
+          maxChargedTokens:
+              settings.typeSafe?.explorationMetadataTokenBudget ?? 60000,
+          timeout: timeout,
+          outputTokenAllowance: outputTokenAllowance,
         ),
-        runner: JudgmentBatchRunner(
-          service: metered,
-          budget: service.config.requestBudget,
-          limits: JudgmentBatchLimits(
-            concurrency: 4,
-            maxRequests: 5000,
-            maxChargedTokens:
-                settings.typeSafe?.explorationTokenBudget ?? 120000,
-            timeout: timeout,
-            outputTokenAllowance: outputTokenAllowance,
-          ),
+      ),
+      runner: JudgmentBatchRunner(
+        service: metered,
+        budget: service.config.requestBudget,
+        limits: JudgmentBatchLimits(
+          concurrency: 4,
+          maxRequests: 5000,
+          maxChargedTokens:
+              settings.typeSafe?.explorationTokenBudget ?? 120000,
+          timeout: timeout,
+          outputTokenAllowance: outputTokenAllowance,
         ),
-      );
-      return ExplorationLease(workflow, service.close);
-    } catch (_) {
-      service.close();
-      rethrow;
-    }
-  },
-);
+      ),
+    );
+    return ExplorationLease(workflow, service.close);
+  } catch (_) {
+    service.close();
+    rethrow;
+  }
+}

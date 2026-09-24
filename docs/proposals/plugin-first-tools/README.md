@@ -1,6 +1,6 @@
 # Plugin-first tools — phase specifications
 
-Status: proposed.
+Status: PT0 implemented; PT1/PT2 proposed.
 Date: 2026-09-23.
 Parent context: `docs/proposals/plugin_architecture.md`, `docs/features/renderers.md`.
 

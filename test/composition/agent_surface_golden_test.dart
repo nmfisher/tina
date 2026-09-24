@@ -100,6 +100,16 @@ void main() {
       pipeline: defaultPipeline,
     );
     addTearDown(scheduler.dispose);
+    // PT0: explore_project crosses the execution scope now — provided under
+    // [exploreProjectToolServiceKey], read by buildAgent with the same lookup
+    // every other scope-provided tool rides. Mounting it here mirrors what
+    // the launcher's `configuredExploreProjectPlugin` does in production;
+    // when [exploreProject] is null the scope carries no tool, which is the
+    // tool-less shape all three driver goldens pin.
+    if (exploreProject != null) {
+      scheduler.mountedScope = PluginScope('test-explore')
+        ..provide(exploreProjectToolServiceKey, exploreProject);
+    }
     return buildAgent(
       pipeline: defaultPipeline,
       scheduler: scheduler,
@@ -113,7 +123,6 @@ void main() {
       regions: regions,
       summaryIndex: summaryIndex,
       askUser: askUser,
-      exploreProject: exploreProject,
     );
   }
 

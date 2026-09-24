@@ -11,6 +11,20 @@ class ExplorationLease {
   const ExplorationLease(this.workflow, this.close);
 }
 
+/// Service key under which the execution scope exposes the conversation
+/// family's [ExploreProjectTool] (PT0, docs/proposals/plugin-first-tools/01):
+/// `configuredExploreProjectPlugin` provides the launcher-configured instance
+/// here, and `buildAgent` picks it up with the same scope lookup every other
+/// registry tool rides. Typed as [Tool] — the engine-facing supertype — so the
+/// engine never imports this library; consumers cast after lookup.
+///
+/// Per-process by construction: the tool's dependencies (env, spend ledger,
+/// pause gate, workspace root) are process-scoped, so one shared instance
+/// serves every conversation, exactly like `web_search`.
+final exploreProjectToolServiceKey = ServiceKey<Tool>(
+  'tina.tool.explore-project',
+);
+
 class ExploreProjectTool implements Tool {
   final ExplorationLease? Function() open;
   bool _running = false;

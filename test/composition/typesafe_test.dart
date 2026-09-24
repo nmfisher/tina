@@ -20,27 +20,29 @@ void main() {
       addTearDown(fixture.tearDown);
       var calls = 0;
       final ledger = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
-      ExploreProjectTool build() => createConfiguredExplorationTool(
-        spendLedger: ledger,
-        workspaceRoot: fixture.dir.path,
-        env: const {'TYPESAFE_API_KEY': 'key'},
-        tinaDir: fixture.dir,
-        evidenceSource: _EvidenceSource(),
-        clientFactory: () => MockClient((request) async {
-          calls++;
-          final body = jsonDecode(request.body) as Map;
-          return http.Response(
-            jsonEncode({
-              'model': body['model'],
-              'usage': {},
-              'answers': {
-                for (final id in (body['questions'] as Map).keys)
-                  id: {'type': 'noul', 'noul': 0.9},
-              },
-            }),
-            200,
-          );
-        }),
+      ExploreProjectTool build() => ExploreProjectTool(
+        open: () => openConfiguredExplorationLease(
+          spendLedger: ledger,
+          workspaceRoot: fixture.dir.path,
+          env: const {'TYPESAFE_API_KEY': 'key'},
+          tinaDir: fixture.dir,
+          evidenceSource: _EvidenceSource(),
+          clientFactory: () => MockClient((request) async {
+            calls++;
+            final body = jsonDecode(request.body) as Map;
+            return http.Response(
+              jsonEncode({
+                'model': body['model'],
+                'usage': {},
+                'answers': {
+                  for (final id in (body['questions'] as Map).keys)
+                    id: {'type': 'noul', 'noul': 0.9},
+                },
+              }),
+              200,
+            );
+          }),
+        ),
       );
       await build().execute({'question': 'widget', 'mode': 'verify'});
       expect(calls, 2);
@@ -83,33 +85,35 @@ void main() {
       addTearDown(fixture.tearDown);
       final auth = <String?>[];
       final ledger = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
-      final tool = createConfiguredExplorationTool(
-        spendLedger: ledger,
-        workspaceRoot: fixture.dir.path,
-        env: const {},
-        tinaDir: fixture.dir,
-        evidenceSource: _EvidenceSource(),
-        clientFactory: () => MockClient((request) async {
-          auth.add(request.headers['Authorization']);
-          final body = jsonDecode(request.body) as Map;
-          if (body['state']['phase'] == 'file_ranking') {
-            expect(body['state'].containsKey('content'), isFalse);
-          } else {
-            expect(body['questions']['matches']['type'], 'noul');
-            expect(body['state']['content'], 'class Widget {}');
-          }
-          return http.Response(
-            jsonEncode({
-              'model': body['model'],
-              'usage': {},
-              'answers': {
-                for (final id in (body['questions'] as Map).keys)
-                  id: {'type': 'noul', 'noul': 0.9},
-              },
-            }),
-            200,
-          );
-        }),
+      final tool = ExploreProjectTool(
+        open: () => openConfiguredExplorationLease(
+          spendLedger: ledger,
+          workspaceRoot: fixture.dir.path,
+          env: const {},
+          tinaDir: fixture.dir,
+          evidenceSource: _EvidenceSource(),
+          clientFactory: () => MockClient((request) async {
+            auth.add(request.headers['Authorization']);
+            final body = jsonDecode(request.body) as Map;
+            if (body['state']['phase'] == 'file_ranking') {
+              expect(body['state'].containsKey('content'), isFalse);
+            } else {
+              expect(body['questions']['matches']['type'], 'noul');
+              expect(body['state']['content'], 'class Widget {}');
+            }
+            return http.Response(
+              jsonEncode({
+                'model': body['model'],
+                'usage': {},
+                'answers': {
+                  for (final id in (body['questions'] as Map).keys)
+                    id: {'type': 'noul', 'noul': 0.9},
+                },
+              }),
+              200,
+            );
+          }),
+        ),
       );
       expect(
         (await tool.execute({

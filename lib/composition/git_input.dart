@@ -5,12 +5,20 @@ import 'typesafe.dart';
 
 /// The classifier transport is selected independently of the conversation model.
 /// Credentials are read per request so changes in /settings take effect live.
+///
+/// PT0 self-gating: [interactive] carries the launcher's interactivity decision
+/// (a plain parameter, per the proposal — not an env flag), and a headless
+/// launch contributes nothing. The descriptor is still mounted, so consumers
+/// that inspect the plugin list see it; the factory's `Object()` result binds
+/// no services and registers no contributions.
 PluginDescriptor configuredGitInputPlugin(
-  Map<String, String> env,
-) => PluginDescriptor(
+  Map<String, String> env, {
+  bool interactive = true,
+}) => PluginDescriptor(
   id: 'tina.git-input',
   requires: {spendLedgerServiceKey},
   factory: FnPluginFactory((context) {
+    if (!interactive) return Object();
     final ledger = context.require(spendLedgerServiceKey);
     final plugin = GitInput((input, cancellation) async {
       final service = createConfiguredTypeSafeService(env: env);

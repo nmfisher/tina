@@ -690,14 +690,7 @@ class TuiCoordinator {
       acquired.own(() async {
         if (!transferred) await initialHost.dispose();
       });
-      final exploreProject = createConfiguredExplorationTool(
-        workspaceRoot: pipeline.tools.workspaceRoot,
-        env: app.environment.env,
-        spendLedger: app.spendLedger,
-        pauseGate: app.pauseGate,
-      );
       final initialDriver = buildAgent(
-        exploreProject: exploreProject,
         pipeline: pipeline,
         scheduler: scheduler,
         conversationId: initialConversationId,
@@ -748,7 +741,6 @@ class TuiCoordinator {
               required HostInterface host,
               required PermissionPolicy policy,
             }) => buildAgent(
-              exploreProject: exploreProject,
               pipeline: pipeline,
               scheduler: scheduler,
               conversationId: conversationId,

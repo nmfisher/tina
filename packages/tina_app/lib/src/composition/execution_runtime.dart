@@ -93,6 +93,12 @@ Future<ExecutionRuntime> buildExecutionRuntime({
   bool? loadWorkspaceContext,
   AgentDriverFactory? driverFactory,
   SubAgentPersistenceFactory? persistence,
+
+  /// The conversation-wide pause gate; a fresh gate when null (the
+  /// pre-existing behavior). [buildAppComposition] forwards the launcher's
+  /// gate so composition plugins (PT0 explore_project) share it — metering
+  /// and pause must observe one switch, not one per surface.
+  PauseGate? pauseGate,
   List<PluginDescriptor>? executionPlugins,
   List<PluginDescriptor> plugins = const [],
 }) async {
@@ -116,7 +122,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       'promptContext must match the requested project and trust',
     );
   }
-  final pauseGate = PauseGate();
+  final gate = pauseGate ?? PauseGate();
   final policy = config.buildPolicy();
   // The plugin profile: the default five-plugin list by default, or the
   // caller's override. See [defaultExecutionPlugins] for the ordering story:
@@ -131,7 +137,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       defaultExecutionPlugins(
         config: config,
         registry: registry,
-        pauseGate: pauseGate,
+        pauseGate: gate,
         providerDecorators: const [],
         workspaceRoot: root,
         environment: env,
@@ -314,7 +320,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       registry: registry,
       providers: providers,
       pipeline: pipeline,
-      pauseGate: pauseGate,
+      pauseGate: gate,
       quota: quota,
       driverFactory: resolvedDriverFactory,
       persistence: persistence,
@@ -339,7 +345,7 @@ Future<ExecutionRuntime> buildExecutionRuntime({
       pipeline: pipeline,
       scheduler: scheduler,
       spendLedger: ledger,
-      pauseGate: pauseGate,
+      pauseGate: gate,
       classifier: classifier,
       regexSuggester: regexSuggester,
       resources: resources,

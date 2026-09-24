@@ -6,9 +6,9 @@ import 'package:tina/config.dart';
 import 'package:tina/config/setup.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina/composition/config_providers.dart';
-import 'package:tina/composition/typesafe.dart';
 import 'package:tina/composition/git_input.dart';
 import 'package:tina/composition/intent_input.dart';
+import 'package:tina/composition/explore_project.dart';
 import 'package:tina/composition/token_status.dart';
 import 'package:tina/composition/plan_ui.dart';
 import 'package:tina/composition/index_status.dart';
@@ -241,6 +241,11 @@ Future<void> _run(List<String> argv) async {
         mergedEnv,
       );
 
+      // PT0: the pause gate is born here — the earliest point that can see
+      // both the composition and its plugins — so the explore_project plugin
+      // and the runtime meter/pause on ONE gate instead of each building its
+      // own.
+      final pauseGate = PauseGate();
       final app = await buildAppComposition(
         config: launch.runtime,
         resumeRequest: resume,
@@ -250,16 +255,32 @@ Future<void> _run(List<String> argv) async {
         // construction and its close. The launcher's pre-runtime reads used
         // the read-only SessionIndex instead (see resolveSessionIndex).
         loadWorkspaceContext: loadWorkspaceContext,
+        pauseGate: pauseGate,
         plugins: [
           // The default transcript appearance is a scope contribution, so a
           // plugin whose id sorts before `tina.chat-renderer` overrides it
           // (activation registers contributions in plugin-id order; the first
           // registered renderer that handles a ChatBlock wins).
           chatRendererPlugin(),
-          if (!launch.startup.nonInteractive)
-            configuredGitInputPlugin(environment.env),
-          if (!launch.startup.nonInteractive)
-            configuredIntentInputPlugin(environment.env),
+          // PT0 self-gating: the interactivity decision travels WITH the
+          // plugin as a plain parameter, and a headless launch contributes
+          // nothing (the launcher no longer decides for the plugin).
+          configuredGitInputPlugin(
+            environment.env,
+            interactive: !launch.startup.nonInteractive,
+          ),
+          configuredIntentInputPlugin(
+            environment.env,
+            interactive: !launch.startup.nonInteractive,
+          ),
+          // explore_project crosses the scope like every other registry tool;
+          // the tool fails closed when Typesafe isn't configured. The tool is
+          // mounted unconditionally — /explore turns read it from the scope
+          // whether or not a TUI conversation is ever built.
+          configuredExploreProjectPlugin(
+            env: environment.env,
+            pauseGate: pauseGate,
+          ),
           planUiPlugin(store: PlanStore()),
           indexProgressPlugin(),
           tokenStatusPlugin(),
@@ -587,12 +608,6 @@ Future<void> _runNonInteractive(
     // The composed driver runs the turn — a scope-selected replacement
     // factory must own the headless loop exactly as it owns the TUI's.
     final driver = buildAgent(
-      exploreProject: createConfiguredExplorationTool(
-        workspaceRoot: app.pipeline.tools.workspaceRoot,
-        env: app.environment.env,
-        spendLedger: app.spendLedger,
-        pauseGate: app.pauseGate,
-      ),
       pipeline: app.pipeline,
       scheduler: app.scheduler,
       conversationId: app.initialConversationId,

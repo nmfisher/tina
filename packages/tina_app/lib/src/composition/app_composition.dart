@@ -216,6 +216,12 @@ Future<AppComposition> buildAppComposition({
   bool? loadWorkspaceContext,
   AgentDriverFactory? driverFactory,
   SubAgentPersistenceFactory? persistence,
+
+  /// The conversation-wide pause gate, born in the launcher so composition
+  /// plugins can share the runtime's gate (PT0: `configuredExploreProjectPlugin`
+  /// receives it) instead of each building its own. Defaults to a fresh gate —
+  /// every pre-PT0 caller keeps exactly the pre-existing construction shape.
+  PauseGate? pauseGate,
   List<PluginDescriptor> plugins = const [],
 }) async {
   final resources = RuntimeResources();
@@ -244,6 +250,7 @@ Future<AppComposition> buildAppComposition({
       loadWorkspaceContext: loadWorkspaceContext,
       driverFactory: driverFactory,
       persistence: persistence,
+      pauseGate: pauseGate,
       plugins: [
         if (store == null && !providesSessionStore)
           sessionStorePluginFor(config.sessionStoreProvider,
@@ -277,7 +284,10 @@ Future<AppComposition> buildAppComposition({
     final pipeline = runtime.pipeline;
     final scheduler = runtime.scheduler;
     final ledger = runtime.spendLedger;
-    final pauseGate = runtime.pauseGate;
+    // Not named `pauseGate` — that name is the composition parameter (the
+    // launcher's gate, forwarded to the runtime); this is the same instance
+    // handed back by the runtime.
+    final runtimeGate = runtime.pauseGate;
     final classifier = runtime.classifier;
     final regexSuggester = runtime.regexSuggester;
     final resolved = await resolveSession(
@@ -309,7 +319,7 @@ Future<AppComposition> buildAppComposition({
       driverFactory: driverFactory,
       persistence: persistence,
       spendLedger: ledger,
-      pauseGate: pauseGate,
+      pauseGate: runtimeGate,
       initialSessionId: resolved.sessionId,
       initialConversationId: resolved.activeConversationId,
       initialHistory: resolved.activeHistory,

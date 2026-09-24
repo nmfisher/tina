@@ -1,6 +1,6 @@
 # PT0 — Launcher-conditional plugins + explore_project
 
-Status: proposed.
+Status: implemented (PT0 self-gating, explore_project scope plugin, goldens byte-identical).
 Prerequisites: none.
 Index: [README.md](README.md).
 

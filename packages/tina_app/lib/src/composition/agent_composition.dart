@@ -121,7 +121,6 @@ AgentDriver buildAgent({
 
   /// Fixed role capability boundary, independent of live permission mode.
   AgentToolAccess toolAccess = AgentToolAccess.standard,
-  ExploreProjectTool? exploreProject,
   WorkflowSupervisor? supervisor,
   RegionRegistry? regions,
   SummaryInspection? summaryIndex,
@@ -174,6 +173,17 @@ AgentDriver buildAgent({
   // Base registry both modes share: the full file/shell tool set (write/edit/
   // bash are stripped under --safe-mode). Start from a list so the orchestration
   // tools below can append without re-wrapping the registry.
+  //
+  // PT0: `explore_project` rides the mounted execution scope
+  // ([exploreProjectToolServiceKey], provided by the launcher's
+  // `configuredExploreProjectPlugin`) instead of a hand-threaded parameter —
+  // the same lookup every other scope-provided tool rides. The scope is
+  // per-process, so one shared tool instance serves every conversation of the
+  // session; sub-agents are unchanged (they read [pipeline.tools], which is
+  // the mounted tool scope, and the orchestrator role re-reads the key below).
+  final exploreProject = scheduler.mountedScopeValue
+      ?.lookup(exploreProjectToolServiceKey)
+      as ExploreProjectTool?;
   var tools = [
     ...pipeline.tools.buildTools(safeMode: config.safeMode).all,
     if (exploreProject != null) exploreProject,
