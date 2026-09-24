@@ -18,7 +18,25 @@ class PlanOverlayUi {
   /// when the plan does not fit the terminal.
   final bool collapsed;
 
-  const PlanOverlayUi({this.collapsed = false});
+  /// Index into [Plan.items] of the cycle-selected row (expanded mode only),
+  /// or null for no selection. Rendered with a `❯` marker; the host wires
+  /// Enter to it.
+  final int? selectedIndex;
+
+  /// True while focus cycling has highlighted this overlay — the host draws
+  /// the box border in the cycling tint instead of dim.
+  final bool highlighted;
+
+  /// True while this overlay owns keyboard focus — the footer advertises the
+  /// selection keys.
+  final bool focused;
+
+  const PlanOverlayUi({
+    this.collapsed = false,
+    this.selectedIndex,
+    this.highlighted = false,
+    this.focused = false,
+  });
 }
 
 /// Renders the plan overlay box as a list of paintable lines (borders
@@ -33,6 +51,10 @@ class PlanOverlayUi {
 /// │ · pending item               │   dim
 /// └ ctrl+p collapse · /plan appr ┘
 /// ```
+///
+/// Selection (focused cycling): the [PlanOverlayUi.selectedIndex] row gains a
+/// `❯` marker, and when [PlanOverlayUi.focused] the footer advertises the
+/// keys: `enter approve · r reject · ↑↓ select`.
 List<String> renderPlanOverlayLines({
   required Plan plan,
   required PlanOverlayUi ui,
@@ -47,80 +69,90 @@ List<String> renderPlanOverlayLines({
       .where((i) => i.state == PlanState.inProgress)
       .map((i) => i.text)
       .join(' · ');
-  final footer = ui.collapsed ? 'ctrl+p expand' : 'ctrl+p collapse';
+  final footer = ui.focused
+      ? '↑↓ select · ↵ approve · r reject · ␣ toggle item'
+      : ui.collapsed
+          ? 'ctrl+p expand'
+          : 'ctrl+p collapse';
 
   final interior = ui.collapsed
       ? <(String, String?)>[
           // Collapsed: only the in-progress row.
-          if (active.isNotEmpty) ('▸ $active', 'active'),
+          if (active.isNotEmpty) ('▸ $active', 'accent'),
         ]
       : [
-          // Expanded: every item.
-          for (final item in plan.items)
+          // Expanded: every item. The selected row (host-driven, while the
+          // overlay is cycled to) swaps its state glyph for a ❯ marker;
+          // color still encodes the state.
+          for (final (index, item) in plan.items.indexed)
             (
-              switch (item.state) {
-                PlanState.pending => '· ${item.text}',
-                PlanState.inProgress => '▸ ${item.text}',
-                PlanState.done => '✓ ${item.text}',
-              },
+              '${index == ui.selectedIndex ? '❯' : switch (item.state) {
+                PlanState.pending => '·',
+                PlanState.inProgress => '▸',
+                PlanState.done => '✓',
+              }} ${item.text}',
               switch (item.state) {
                 PlanState.pending => null,
-                PlanState.inProgress => 'active',
-                PlanState.done => 'done',
+                PlanState.inProgress => 'accent',
+                PlanState.done => 'ok',
               },
             ),
         ];
+
+  // While the focus ring highlights this overlay, its chrome takes the
+  // cycling tint instead of dim (same vocabulary the panels use).
+  final borderCode = ui.highlighted ? 'highlight' : 'dim';
 
   final lines = <String>[];
   // Top border with the header embedded, box-drawing style. The title is
   // ellipsized (never silently hard-cut) when it overflows the box.
   final titleSeg = _fit(' $header ', width - 2);
   lines.add(
-    '${_p(paint, '┌', 'border')}'
+    '${_p(paint, '┌', borderCode)}'
     '${_p(paint, titleSeg, 'header')}'
-    '${_p(paint, '─' * (width - 2 - titleSeg.length), 'border')}'
-    '${_p(paint, '┐', 'border')}',
+    '${_p(paint, '─' * (width - 2 - titleSeg.length), borderCode)}'
+    '${_p(paint, '┐', borderCode)}',
   );
   for (final (text, kind) in interior) {
     final shown = _fit(text, innerW);
     final pad = ' ' * (innerW - _visible(shown));
     final styled = switch (kind) {
-      'active' => _p(paint, shown, 'active'),
-      'done' => _p(paint, shown, 'done'),
+      'accent' => _p(paint, shown, 'accent'),
+      'ok' => _p(paint, shown, 'ok'),
       _ => shown, // pending/header rows render plain, dim padding around
     };
     lines.add(
-      '${_p(paint, '│', 'border')} '
+      '${_p(paint, '│', borderCode)} '
       '$styled$pad'
-      ' ${_p(paint, '│', 'border')}',
+      ' ${_p(paint, '│', borderCode)}',
     );
   }
   // Footer.
   final footerShown = _fit(footer, innerW);
   final footerPad = ' ' * (innerW - _visible(footerShown));
   lines.add(
-    '${_p(paint, '│', 'border')} '
+    '${_p(paint, '│', borderCode)} '
     '${_p(paint, '$footerShown$footerPad', 'footer')}'
-    ' ${_p(paint, '│', 'border')}',
+    ' ${_p(paint, '│', borderCode)}',
   );
   lines.add(
-    '${_p(paint, '└', 'border')}'
-    '${_p(paint, '─' * (width - 2), 'border')}'
-    '${_p(paint, '┘', 'border')}',
+    '${_p(paint, '└', borderCode)}'
+    '${_p(paint, '─' * (width - 2), borderCode)}'
+    '${_p(paint, '┘', borderCode)}',
   );
   return lines;
-  // Codes are symbolic ('border', 'active', 'done', 'header', 'footer') and
+  // Codes are symbolic ('dim', 'header', 'accent', 'ok', 'highlight') and
   // the HOST maps them to Theme SGR strings via its injected [PlanPaint], so
   // the renderer has no theme dependency at all.
 }
 
 String _p(PlanPaint paint, String text, String kind) {
   final code = switch (kind) {
-    'border' => 'dim',
+    'dim' => 'dim',
     'header' => 'header',
-    'active' => 'accent',
-    'done' => 'ok',
-    'footer' => 'dim',
+    'accent' => 'accent',
+    'ok' => 'ok',
+    'highlight' => 'highlight',
     _ => null,
   };
   return paint(text, code);
@@ -173,26 +205,37 @@ int planOverlayContentHeight(Plan plan, {required bool collapsed}) {
   return plan.items.length + 1; // items + footer
 }
 
-/// The non-modal, always-live plan column.
+/// The plan column: an [OverlayRegion] docked inside the chat area's
+/// top-right corner, re-rendered on every [PlanStore.changes] event for the
+/// FOCUSED conversation (via [conversationId], the same callback the status
+/// strip uses).
 ///
-/// Owns an [OverlayRegion] docked inside the chat area's top-right corner and
-/// re-renders it on every [PlanStore.changes] event for the FOCUSED
-/// conversation (via [conversationId], the same callback the status strip
-/// uses). Never touches the keyboard: Ctrl+P (wired by the coordinator to
-/// [toggle]) and `/plan` are the only inputs, so typing/streaming keeps
-/// working while the overlay is up.
+/// It is also a [Focusable]: Ctrl+G cycles highlight it like any panel, and
+/// once FOCUSED it claims ↑/↓ (move the selection), Enter/`a` (approve the
+/// plan), `r` (reject the plan), and space (toggle the selected item
+/// pending↔done) — the same store writes `/plan approve|reject|done|pending`
+/// perform, so the agent, the status strip, and this overlay all re-render
+/// from one source of truth. Everything else (text, paste, other keys) falls
+/// through to the shared chat editor so typing/streaming keeps working while
+/// the overlay is up. Collapsed mode and Ctrl+P (wired by the coordinator to
+/// [toggle]) behave as before; the overlay is only focusable while its region
+/// is painted.
 ///
 /// Visibility: [PlanOverlayMode.auto] shows the overlay whenever the
 /// conversation has a plan (degrading to collapsed when it does not fit);
 /// [manual] only after Ctrl+P; [off] constructs nothing (the coordinator
 /// skips [start]). Ctrl+P records a user override that wins over the mode
 /// until toggled back.
-class PlanOverlay {
+class PlanOverlay implements Focusable {
   PlanOverlay({
     required this.screen,
     required this.store,
     required this.conversationId,
+    this.focusManager,
     this.mode = PlanOverlayMode.auto,
+    this.onApprove,
+    this.onReject,
+    this.onSpace,
   });
 
   final Screen screen;
@@ -200,9 +243,24 @@ class PlanOverlay {
   final String Function() conversationId;
   final PlanOverlayMode mode;
 
+  /// Focus ring this overlay joins when started. The overlay unregisters
+  /// itself in [dispose]; [FocusManager] skips it while hidden via
+  /// [canFocus].
+  final FocusManager? focusManager;
+
+  /// Plan action hooks, mirroring `/plan`. When [onApprove]/[onReject] are
+  /// null the overlay writes the store directly (the same thing the command
+  /// does). [onSpace] defaults to the per-item pending↔done toggle.
+  final void Function()? onApprove;
+  final void Function()? onReject;
+  final void Function()? onSpace;
+
   OverlayRegion? _region;
   StreamSubscription<void>? _sub;
   bool _started = false;
+  bool _focused = false;
+  bool _highlighted = false;
+  int? _selected;
 
   /// User override: null = follow [mode]; true/false = forced show/hide.
   bool? _userOverride;
@@ -211,9 +269,177 @@ class PlanOverlay {
   @visibleForTesting
   bool get regionVisible => _region?.isVisible ?? false;
 
-  /// Test/debug surface: the painted bounds, or null while hidden.
+  /// True while this overlay holds focus — visible only in debug/test
+  /// surfaces that need it; the ring's source of truth is [FocusManager].
   @visibleForTesting
-  Rect? get bounds => (_region?.isVisible ?? false) ? _region!.bounds : null;
+  bool get debugFocused => _focused;
+
+  // -- Focusable ------------------------------------------------------------
+
+  @override
+  bool get hasFocus => _focused;
+
+  /// Only focusable while painted: a hidden overlay would be a ring entry
+  /// that highlights nothing and swallows keys.
+  @override
+  bool get canFocus => _region?.isVisible ?? false;
+
+  /// The painted box while shown (so spatial cycling reaches it); the empty
+  /// rect while hidden takes it out of spatial navigation.
+  @override
+  Rect get bounds =>
+      (_region?.isVisible ?? false) ? _region!.bounds : Rect.empty;
+
+  @override
+  void focus() {
+    _focused = true;
+    _highlighted = false;
+    _setSelected(firstActionableIndex);
+    render();
+  }
+
+  @override
+  void blur() {
+    _focused = false;
+    _selected = null;
+    render();
+  }
+
+  @override
+  void highlight() {
+    _highlighted = true;
+    render();
+  }
+
+  @override
+  void unhighlight() {
+    _highlighted = false;
+    render();
+  }
+
+  @override
+  bool handleEvent(InputEvent event) {
+    if (!_focused) return false;
+    if (event is ScrollEvent) {
+      _setSelected((_selected ?? 0) + (event.up ? -1 : 1));
+      return true;
+    }
+    if (event is ArrowKey) {
+      switch (event.direction) {
+        case ArrowDirection.up:
+          _setSelected((_selected ?? 0) - 1);
+        case ArrowDirection.down:
+          _setSelected((_selected ?? 0) + 1);
+        case ArrowDirection.pageUp:
+          _setSelected(0);
+        case ArrowDirection.pageDown:
+        case ArrowDirection.left:
+        case ArrowDirection.right:
+          return false; // spatial cycling keys must reach the focus ring
+      }
+      return true;
+    }
+    if (event is ControlKey) {
+      // All control combos stay with the editor/global handlers (Ctrl+P
+      // toggles this overlay, Ctrl+W kills a word, Ctrl+C interrupts…). Only
+      // plain arrows and the three verbs are ours.
+      return false;
+    }
+    if (event is EscapeKey) return false;
+    if (event is CharInput) {
+      switch (event.text) {
+        case 'a' || 'A':
+          (onApprove ?? _approve)();
+          return true;
+        case 'r' || 'R':
+          (onReject ?? _reject)();
+          return true;
+        case ' ' when onSpace != null:
+          onSpace!();
+          return true;
+        case ' ':
+          _toggleItem();
+          return true;
+      }
+      return false; // typing must reach the chat editor
+    }
+    return false;
+  }
+
+  /// Enter/`a`: mirror `/plan approve` (the active item advances as the agent
+  /// works; done items stay done). No-op without a plan.
+  void _approve() {
+    final id = conversationId();
+    if (store.read(id).isEmpty) return;
+    store.approve(id);
+    refresh();
+  }
+
+  /// `r`: mirror `/plan reject`.
+  void _reject() {
+    final id = conversationId();
+    if (store.read(id).isEmpty) return;
+    store.reject(id);
+    refresh();
+  }
+
+  /// Space: toggle the selected item pending↔done (the `/plan done <n>` /
+  /// `/plan pending <n>` pair). Refresh comes from the store's change stream.
+  void _toggleItem() {
+    final id = conversationId();
+    final plan = store.read(id);
+    final item = selectedItem;
+    if (plan.isEmpty || item == null) return;
+    final index = plan.items.indexOf(item);
+    if (index < 0) return;
+    try {
+      store.update(id, [
+        for (final (i, it) in plan.items.indexed)
+          (
+            text: it.text,
+            state: i == index
+                ? (it.state == PlanState.done
+                    ? PlanState.pending
+                    : PlanState.done)
+                : it.state,
+          ),
+      ]);
+    } on ArgumentError {
+      return; // mirror /plan: a rejected update just keeps the old plan
+    }
+  }
+
+  /// Row under the selection, or null when nothing is selected (collapsed,
+  /// hidden, or blurred).
+  ({String text, PlanState state})? get selectedItem {
+    final i = _selected;
+    final items = store.read(conversationId()).items;
+    if (i == null || i < 0 || i >= items.length) return null;
+    return items[i];
+  }
+
+  /// First non-done item, or 0 — where focusing lands the selection.
+  int get firstActionableIndex {
+    final items = store.read(conversationId()).items;
+    final i = items.indexWhere((item) => item.state != PlanState.done);
+    return i < 0 ? 0 : i;
+  }
+
+  void _setSelected(int i) {
+    final count = store.read(conversationId()).items.length;
+    if (count == 0) return;
+    final next = i.clamp(0, count - 1);
+    if (next == _selected) return;
+    _selected = next;
+    render();
+  }
+
+  /// Repaint when any visual input to the chrome changed (selection, focus,
+  /// highlight). No-op while hidden — [refresh] paints these flags.
+  void render() {
+    if (!(_region?.isVisible ?? false)) return;
+    refresh();
+  }
 
   /// The plan width: capped, and never wider than the chat area.
   static const _maxWidth = 44;
@@ -227,6 +453,7 @@ class PlanOverlay {
   void start() {
     if (_started) return;
     _started = true;
+    focusManager?.register(this);
     _sub = store.changes.listen((_) => refresh(),
         onError: (Object _) => refresh());
     refresh();
@@ -264,7 +491,12 @@ class PlanOverlay {
       _hide();
       return;
     }
-    final ui = PlanOverlayUi(collapsed: collapsed);
+    final ui = PlanOverlayUi(
+      collapsed: collapsed,
+      selectedIndex: _focused ? _selected : null,
+      highlighted: _highlighted,
+      focused: _focused,
+    );
     final height =
         (planOverlayContentHeight(plan, collapsed: collapsed) + 2)
             .clamp(3, chat.height);
@@ -285,16 +517,17 @@ class PlanOverlay {
   }
 
   /// Symbolic code → Theme SGR string. The same vocabulary the renderer
-  /// emits (`border`/`header`/`active`/`done`/`footer`), so a custom theme
+  /// emits (`dim`/`header`/`accent`/`ok`/`highlight`), so a custom theme
   /// restyles the overlay with the config.
   String _themePaint(String text, String? code) {
     if (text.isEmpty) return text;
     final theme = screen.theme;
     final sgr = switch (code) {
-      'header' || 'footer' => theme.chat.dim,
-      'active' => theme.chat.cyan,
-      'done' => theme.chat.green,
-      // 'border' and pending rows render in the default style.
+      'dim' => theme.chat.dim,
+      'accent' => theme.chat.cyan,
+      'ok' => theme.chat.green,
+      'highlight' => theme.chat.yellow,
+      // Pending rows render in the default style.
       _ => null,
     };
     return sgr == null ? text : screen.colorize(sgr, text);
@@ -302,12 +535,21 @@ class PlanOverlay {
 
   void _hide() {
     final region = _region;
+    // Dropping off-screen drops our claims: no selection, no highlight, and
+    // not focused — a stale focused flag would let a/r/space act on an
+    // invisible panel. (A stale [FocusManager.focused] pointer is harmless:
+    // [handleEvent] no-ops while unfocused, and the ring skips us via
+    // [canFocus].)
+    _focused = false;
+    _highlighted = false;
+    _selected = null;
     if (region == null) return;
     region.hide();
   }
 
   void dispose() {
     _started = false;
+    focusManager?.unregister(this);
     _sub?.cancel();
     _sub = null;
     _region?.dispose();
