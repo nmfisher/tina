@@ -212,13 +212,15 @@ void main() {
 
       input.emit(ControlKey(ControlCode.ctrlG));
       await _flush();
-      // NOTE (discovered while writing these tests): when the read-only
-      // panel's onPanelKey HANDLER CLAIMS ctrlG, the editor's panel route
-      // (line_editor.dart:756 → :654 'ownership, rather than the handler's
-      // return value, prevents fallback') eats it and the ring entry key is
-      // unreachable — the "documented escape hatch" has a gap while an
-      // exclusive panel holds focus. Our read-only wiring swallows TEXT but
-      // DECLINES ctrlG, which is what this test pins: the ring must engage.
+      // NOTE: the ring is offered its entry keys before any focused panel's
+      // handler runs, so ctrlG is reachable under the wedge no matter what the
+      // handler does — declining it (as our read-only wiring does), or even
+      // claiming it. An earlier note here claimed the opposite ("the panel
+      // route eats a claimed ctrlG"); that was wrong, and
+      // keyboard_ownership_recovery_test pins the real rule: a handler that
+      // claims everything still never sees ctrlG. What this test pins is the
+      // other half — a DECLINING handler must not be needed for the ring to
+      // engage.
       expect(rig.focus.isCycling, isTrue,
           reason: 'with a declining panel handler, ctrlG must still reach '
               'the focus ring');

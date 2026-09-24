@@ -1491,8 +1491,17 @@ class LineEditor {
           case ControlCode.backspace:
             _qEdit = _qEdit.backspace();
             _renderQueueDisplay();
-          case ControlCode.tab:
           case ControlCode.ctrlL:
+            // Ctrl+L clears the transcript mid-turn exactly as it does at the
+            // idle prompt (see the prompt-mode case above). It used to be
+            // grouped with the no-ops below, which made the one key a user
+            // presses when output floods the screen — "this looks stuck" — the
+            // one key that stopped working while a turn was running. Only the
+            // chat area is erased: the queue buffer, the queued count and the
+            // turn itself are untouched.
+            screen.clearChat();
+            _renderQueueDisplay();
+          case ControlCode.tab:
           case ControlCode.ctrlD:
           case ControlCode.ctrlW:
           case ControlCode.ctrlG:

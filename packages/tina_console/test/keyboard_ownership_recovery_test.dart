@@ -226,5 +226,68 @@ void main() {
       expect(await line, 'z');
       ed.close();
     });
+
+    test('a panel handler that CLAIMS ctrlG cannot steal it from the ring',
+        () async {
+      // The entry key is offered to the focus ring before any panel handler,
+      // so a handler's claim cannot make the documented escape hatch
+      // unreachable: ownership is decided in the dispatch order, not by the
+      // handler's return value. (An earlier comment on the wedge test claimed
+      // the opposite — that a claiming handler ate ctrlG. It does not; this
+      // pins that so the note cannot drift back.)
+      final (ed, input, screen) = _rig();
+      final chat =
+          PanelFrame(screen: screen, label: 'Chat', conversationId: 'chat');
+      final side = PanelFrame(
+        screen: screen,
+        label: 'Environment',
+        conversationId: 'env',
+        inputMode: PanelInputMode.readOnly,
+      );
+      final seen = <InputEvent>[];
+      side.onPanelKey = (event) {
+        seen.add(event);
+        return true; // greediest possible handler: claims everything
+      };
+      final focus = FocusManager()
+        ..register(chat)
+        ..register(side)
+        ..home = chat;
+      ed.focusManager = focus;
+
+      // Mid-turn (monitor armed) with the side panel focused.
+      ed.beginCancelMonitor(() {});
+      await _flush();
+      focus.focusPanel(side);
+      await _flush();
+      input.emit(ControlKey(ControlCode.ctrlG));
+      await _flush();
+      expect(focus.isCycling, isTrue,
+          reason: 'the ring claims ctrlG ahead of the focused panel');
+      expect(seen, isEmpty,
+          reason: 'a claimed ctrlG must never reach the panel handler');
+
+      input.emit(EscapeKey());
+      await _flush();
+      expect(focus.isCycling, isFalse);
+
+      // And with the prompt armed (idle) the same rule holds.
+      ed.endCancelMonitor();
+      final line = ed.readLine('> ');
+      await _flush();
+      input.emit(ControlKey(ControlCode.ctrlG));
+      await _flush();
+      expect(focus.isCycling, isTrue,
+          reason: 'an armed prompt does not hand ctrlG to the panel either');
+      expect(seen, isEmpty,
+          reason: 'still nothing for the panel handler to claim');
+      input.emit(EscapeKey());
+      await _flush();
+      input.emit(CharInput('o'));
+      input.emit(CharInput('k'));
+      input.emit(ControlKey(ControlCode.enter));
+      expect(await line, 'ok', reason: 'no event lost across the ring trip');
+      ed.close();
+    });
   });
 }

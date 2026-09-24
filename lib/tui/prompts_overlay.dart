@@ -216,6 +216,11 @@ class _PromptsForm {
         case ControlCode.ctrlB:
         case ControlCode.ctrlP:
           // Unused in the editor. ctrlC/Esc are handled in run()'s back path.
+          // ctrlL (the chat prompt's "clear the transcript") is inert here on
+          // purpose: this overlay owns the screen and the chat area underneath
+          // it is not visible, so there is nothing to clear — and run()'s loop
+          // repaints the overlay after every key anyway. Only the chat prompt
+          // and queue mode (mid-turn) map it, both to Screen.clearChat.
           break;
       }
       return;

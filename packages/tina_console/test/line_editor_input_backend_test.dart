@@ -55,6 +55,14 @@ LineEditor _makeEditor(FakeInputBackend input, {FakeStdio? io}) {
   return LineEditor(screen: screen, input: input);
 }
 
+/// Every row of the terminal as painted so far, joined — enough to assert that
+/// a transcript line is (or is no longer) on screen.
+String _screenText(FakeStdio io) {
+  final vt = VirtualTerminal(width: 80, height: 24)
+    ..feed(io.written.toString());
+  return [for (var r = 0; r < 24; r++) vt.rowText(r)].join('\n');
+}
+
 void main() {
   group('LineEditor with external InputBackend', () {
     test('readLine consumes events from the injected backend', () async {
@@ -266,7 +274,7 @@ void main() {
       ed.close();
     });
 
-    test('Tab / Ctrl-L / Ctrl-D are ignored in queue mode', () async {
+    test('Tab / Ctrl-D are ignored in queue mode', () async {
       final input = FakeInputBackend();
       final ed = _makeEditor(input);
       ed.readLine('> ');
@@ -275,12 +283,42 @@ void main() {
       ed.beginCancelMonitor(() {}, onQueueSubmit: submitted.add);
       input.emit(CharInput('h'));
       input.emit(ControlKey(ControlCode.tab));
-      input.emit(ControlKey(ControlCode.ctrlL));
       input.emit(ControlKey(ControlCode.ctrlD));
       input.emit(CharInput('i'));
       input.emit(ControlKey(ControlCode.enter));
       await _flush();
       expect(submitted, ['hi']);
+      ed.endCancelMonitor();
+      ed.close();
+    });
+
+    test('Ctrl-L clears the transcript in queue mode, queue intact', () async {
+      final io = FakeStdio();
+      final input = FakeInputBackend();
+      final ed = _makeEditor(input, io: io);
+      ed.readLine('> ');
+      await _flush();
+      // A turn's output is on screen; Ctrl+L mid-turn must erase it the same
+      // way it does at the idle prompt (it used to be swallowed here — the
+      // "screen looks stuck" gesture was dead exactly when output flooded).
+      ed.screen.chat.write('mid-turn output');
+      await _flush();
+      expect(_screenText(io), contains('mid-turn output'));
+
+      final submitted = <String>[];
+      ed.beginCancelMonitor(() {}, onQueueSubmit: submitted.add);
+      input.emit(CharInput('h'));
+      input.emit(ControlKey(ControlCode.ctrlL));
+      input.emit(CharInput('i'));
+      await _flush();
+      expect(_screenText(io), isNot(contains('mid-turn output')),
+          reason: 'Ctrl+L erases the chat area while a turn runs');
+
+      input.emit(ControlKey(ControlCode.enter));
+      await _flush();
+      expect(submitted, ['hi'],
+          reason: 'the queued line still submits — the clear left the queue '
+              'buffer alone');
       ed.endCancelMonitor();
       ed.close();
     });
