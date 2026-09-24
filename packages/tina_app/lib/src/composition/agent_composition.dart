@@ -3,6 +3,7 @@ import 'live_quotas.dart';
 import 'orchestrator_tools.dart';
 import '../exploration/explore_project_tool.dart';
 import '../plans/plan_plugin.dart' as plans;
+import '../goals/goal_plugin.dart' as goals;
 import 'package:tina_engine/tina_engine.dart';
 
 import 'package:tina_app/src/config/runtime_config.dart';
@@ -200,6 +201,17 @@ AgentDriver buildAgent({
   if (planStore != null) {
     tools.add(plans.PlanTool(planStore, conversationId));
     planMiddleware = plans.PlanMiddleware(planStore, conversationId);
+  }
+  // The plugin-scope goal store (when a goal plugin is mounted) contributes
+  // only a request middleware that injects the conversation's goal — the goal
+  // has no agent write surface (the user owns it via /goal) and the judge
+  // runs outside the agent build (host turn wiring). Per-conversation by the
+  // same construction as the plan store above.
+  final goalStore =
+      scheduler.mountedScopeValue?.lookup(goals.goalStoreServiceKey);
+  AgentMiddleware? goalMiddleware;
+  if (goalStore != null) {
+    goalMiddleware = goals.GoalMiddleware(goalStore, conversationId);
   }
   // The workflow surface, when the host provides a supervisor: launch a DOT
   // workflow in the background (the run's input/output streams into a live run
@@ -402,11 +414,16 @@ AgentDriver buildAgent({
     ],
     executionHooks: scheduler.scopeExecutionHooks,
     toolChecks: scheduler.scopeToolChecks,
-    middleware: scheduler.mountedScopeValue == null && planMiddleware == null
+    middleware: scheduler.mountedScopeValue == null &&
+            planMiddleware == null &&
+            goalMiddleware == null
         ? null
         : AgentMiddlewarePipeline(
             scope: scheduler.mountedScopeValue,
-            middleware: [if (planMiddleware != null) planMiddleware],
+            middleware: [
+              if (planMiddleware != null) planMiddleware,
+              if (goalMiddleware != null) goalMiddleware,
+            ],
           ),
     promptContext: pipeline.promptContext,
     resultHooks: scheduler.scopeResultHooks,

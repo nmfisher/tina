@@ -11,6 +11,7 @@ import 'package:tina/composition/intent_input.dart';
 import 'package:tina/composition/explore_project.dart';
 import 'package:tina/composition/token_status.dart';
 import 'package:tina/composition/plan_ui.dart';
+import 'package:tina/composition/goal_ui.dart';
 import 'package:tina/composition/index_status.dart';
 import 'package:tina/composition/chat_renderer.dart';
 import 'package:tina/composition/timestamp_chat.dart';
@@ -280,6 +281,7 @@ Future<void> _run(List<String> argv) async {
             pauseGate: pauseGate,
           ),
           planUiPlugin(store: PlanStore()),
+          goalUiPlugin(store: GoalStore()),
           indexProgressPlugin(),
           tokenStatusPlugin(),
           indexStatusPlugin(),
