@@ -1638,6 +1638,7 @@ class TuiCoordinator {
               screen: screen,
               store: planStore,
               conversationId: () => controller.active.id,
+              focusManager: focusManager,
               mode: terminalConfig.planOverlay,
             );
 
