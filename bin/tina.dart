@@ -13,6 +13,7 @@ import 'package:tina/composition/token_status.dart';
 import 'package:tina/composition/plan_ui.dart';
 import 'package:tina/composition/index_status.dart';
 import 'package:tina/composition/chat_renderer.dart';
+import 'package:tina/composition/timestamp_chat.dart';
 import 'package:tina/composition/models_dev_seed.dart';
 import 'package:tina/logging.dart';
 
@@ -262,6 +263,10 @@ Future<void> _run(List<String> argv) async {
           // (activation registers contributions in plugin-id order; the first
           // registered renderer that handles a ChatBlock wins).
           chatRendererPlugin(),
+          // Decorates the default look with a per-line time gutter. Id sorts
+          // before `tina.chat-renderer`, so its renderer registers first and
+          // delegates back to the built-in for the rows themselves.
+          timestampChatPlugin(),
           // PT0 self-gating: the interactivity decision travels WITH the
           // plugin as a plain parameter, and a headless launch contributes
           // nothing (the launcher no longer decides for the plugin).
