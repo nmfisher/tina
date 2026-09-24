@@ -49,6 +49,7 @@ import 'package:tina/tui/spawn_overlay.dart';
 import 'package:tina/tui/tree_order.dart';
 import 'package:tina/tui/panel_manager.dart';
 import 'package:tina/tui/transcript_cursor.dart';
+import 'package:tina/tui/coordinator_input_handlers.dart';
 import 'package:tina/tui/conversation_panel_coordinator.dart';
 import 'package:tina/tui/resize_coordinator.dart';
 import 'package:tina/tui/session_picker_overlay.dart';
@@ -1145,42 +1146,19 @@ class TuiCoordinator {
       // the launching conversation with a synthetic turn carrying the outcome
       // (auto agent turn on completion), so the agent reports and acts on it.
       handleWorkflowComplete = controller.injectWorkflowResult;
-      // Per-session draft input: a half-typed prompt survives switching to
-      // another session and back. A command being typed isn't a draft — only
-      // real prompt text is preserved.
-      controller.saveInput = () {
-        if (!editor.isEditing) return null;
-        final state = editor.editState;
-        if (state.buffer.trimLeft().startsWith('/')) {
-          return (buffer: '', cursor: 0);
-        }
-        return state;
-      };
-      controller.restoreInput = (buffer, cursor) {
-        editor.loadEditState(buffer, cursor);
-      };
-      // tin-y8kh: while a slow command dispatch runs (e.g. /compact
-      // summarizing through an LLM call), the editor's queue-mode capture
-      // takes keystrokes instead of dropping them; the controller flushes
-      // the captured lines through the normal dispatch path when the
-      // command settles.
-      controller.beginInputCapture = (onSubmit, queueCount) =>
-          editor.beginInputCaptureWindow(onSubmit, queueCount: queueCount);
-      controller.endInputCapture = editor.endInputCaptureWindow;
-      // `/permissions <mode>`: flip the shared base policy plus every live
-      // conversation's policy (they're copies). New conversations inherit from
-      // the base policy; already-built agents consult their policy per check,
-      // so the change applies immediately.
-      controller.setPermissionMode = (mode) {
-        policy.mode = mode;
-        scheduler.basePolicy?.mode = mode;
-        for (final session in sessionManager.all) {
-          for (final conv in session.conversations) {
-            conv.policy.mode = mode;
-          }
-        }
-        screen.setModeLabel('mode: ${policy.mode.label}');
-      };
+      // Draft input, slow-command input capture and the live /permissions flip
+      // (tui/coordinator_input_handlers.dart) — explicit deps, no cross-wiring
+      // captures.
+      wireInputStateHandlers(
+        controller,
+        InputStateHandlerDeps(
+          editor: editor,
+          policy: policy,
+          scheduler: scheduler,
+          sessionManager: sessionManager,
+          screen: screen,
+        ),
+      );
       // NOTE: no startup setModeLabel here. create() runs before run()'s
       // first paint (enterAltScreen → redrawFrame); painting the strip now
       // is a wasted pre-alt-screen write, and moving the paint earlier can't
