@@ -21,6 +21,22 @@ import 'package:tina_console/tina_console.dart';
 /// draws nothing for hours and is perfectly healthy, so a stall only counts
 /// when keys are arriving or the agent claims to be working.
 ///
+/// The field signature of the reported freeze (2026-09-24 log, three separate
+/// sessions):
+///
+/// ```
+/// keys are arriving but nothing has been drawn for 69s chat_prompt_open=true
+/// input_row_hidden=false focused_panel=PanelFrame frames_open=0 agent_busy=false
+/// ```
+///
+/// A *visible* chat prompt with a panel focused, nothing drawing: keys were
+/// going to a surface the user was not typing into, and no keystroke reached
+/// the editor that would have requested a repaint. It is not a backend frame
+/// leak — `frames_open=0`. The editor-side half of that fix is that a visible
+/// prompt row outranks a focused panel's key claim; this check covers the
+/// residue, where damage bookkeeping can still leave the screen stale once the
+/// keys are flowing again.
+///
 /// The lines land in the app log (`~/.tina/tina.log`) at warning level, which
 /// the default configuration records — no `--verbose` needed.
 class StuckCheck {
@@ -39,11 +55,14 @@ class StuckCheck {
 
   /// Whether a reported stall is actively healed, not just logged. When true
   /// (the default) the first warning triggers [Screen.refresh] — the same
-  /// full re-emission a terminal resize runs — because the dominant stall
-  /// cause is the backend's damage grid diverging from the real terminal,
-  /// after which every redraw computes "no change" and the screen sits stale
-  /// until the user resizes. Tests that only exercise the detection pass
-  /// `heal: false`.
+  /// full re-emission a terminal resize runs. The warning is the diagnostic;
+  /// the refresh is what ends the episode, because a stall is self-sustaining
+  /// once the damage grid's idea of the screen diverges from the real terminal:
+  /// every redraw then computes "no change" and the screen sits stale until
+  /// something forces a full re-emission (which is why resizing the terminal
+  /// always appeared to fix it). The underlying key routing is fixed at the
+  /// source; this is the belt to that pair of braces. Tests that only exercise
+  /// the detection pass `heal: false`.
   final bool heal;
 
   /// How often to look.

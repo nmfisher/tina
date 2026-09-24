@@ -279,9 +279,13 @@ class Screen {
   /// Diagnosis happens only at nesting depth zero: while a [frame] body is
   /// still running (nested frames), the backend count legitimately sits above
   /// zero. Warning there produced a storm of false alarms whenever a nested
-  /// frame flushed mid-write (2026-09-24 field log: a 2.5-second, 40ms-cadence
-  /// storm that masked the real, single leak), and the alarm is only true at
-  /// depth zero — any frame still open there is one we did not open.
+  /// frame flushed mid-write (2026-09-24 field log: 465k lines in one morning,
+  /// 40ms cadence), and the alarm is only true at depth zero — any frame still
+  /// open there is one we did not open. The storm hid no leak: not one
+  /// depth-zero warning appears in that whole log, and the stall reports that
+  /// bracket the user-visible freeze show `frames_open=0`. The freeze was an
+  /// input-ownership wedge, not a stuck backend frame — the app's StuckCheck
+  /// logs that signature.
   void _checkFrameClosed(TerminalBackend be) {
     final diag =
         be is BackendDiagnostics ? be as BackendDiagnostics : null;
