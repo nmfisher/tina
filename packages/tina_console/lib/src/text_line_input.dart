@@ -10,8 +10,9 @@
 /// [buffer]/[cursor] always hold the *real* text (code-unit indices), so
 /// submit, history, completion, and save/restore all keep working unchanged.
 /// A bracketed paste is recorded as a [_PasteSpan] over a range of the real
-/// buffer; [toDisplay]/[displayCursor] project that real text into a compact
-/// `[Pasted text : N chars]` placeholder for rendering only.
+/// buffer; [toDisplay]/[displayCursor] project that real text into its
+/// display form — verbatim (whitespace flattened) for short pastes, a
+/// compact `[Pasted text : N chars]` chip for long ones.
 ///
 /// The single-line sibling of [TextBuffer] (the multi-line model).
 class TextLineInput {
@@ -75,7 +76,8 @@ class TextLineInput {
 
   /// Insert a pasted block as an atomic token: the real text goes into
   /// [buffer] at the cursor, a span is recorded over it, and the cursor lands
-  /// at the span's right edge. The placeholder is display-only.
+  /// at the span's right edge. The display form is decided in
+  /// [_makeDisplay].
   TextLineInput addPaste(String text) {
     final start = cursor;
     // Mirrors insert(): shift any spans at/after the cursor, rebuild the
@@ -85,7 +87,7 @@ class TextLineInput {
         buffer.substring(0, start) + text + buffer.substring(start);
     final end = start + text.length;
     final spans =
-        _insertSpanInto(shifted, _PasteSpan(start, end, _makePlaceholder(text)));
+        _insertSpanInto(shifted, _PasteSpan(start, end, _makeDisplay(text)));
     return copyWith(buffer: newBuffer, cursor: end, pasteSpans: spans);
   }
 
@@ -161,7 +163,7 @@ class TextLineInput {
     final deleted = cursor;
     final kept = pasteSpans
         .where((s) => s.start >= cursor)
-        .map((s) => _PasteSpan(s.start - deleted, s.end - deleted, s.placeholder))
+        .map((s) => _PasteSpan(s.start - deleted, s.end - deleted, s.display))
         .toList();
     return copyWith(buffer: buffer.substring(cursor), cursor: 0, pasteSpans: kept);
   }
@@ -318,33 +320,28 @@ class TextLineInput {
   // -- Pure reads (no copyWith) -----------------------------------------
 
   /// Rebuild [buffer] with each paste span's real text replaced by its
-  /// placeholder, for display only. The result is a code-unit string whose
-  /// placeholder segments are ASCII (code-unit length == column width).
+  /// display form — verbatim (whitespace flattened) or the placeholder chip,
+  /// per [_makeDisplay]. The result is a code-unit string whose display
+  /// segments have the same code-unit length as the real text they cover, so
+  /// column width tracks rune count exactly as the real text would.
   String toDisplay() {
     if (pasteSpans.isEmpty) return buffer;
     final sb = StringBuffer();
     var offset = 0;
     for (final span in pasteSpans) {
       sb.write(buffer.substring(offset, span.start));
-      sb.write(span.placeholder);
+      sb.write(span.display);
       offset = span.end;
     }
     sb.write(buffer.substring(offset));
     return sb.toString();
   }
 
-  /// Map a real-text [cursor] index into display space by subtracting the
-  /// difference between each preceding span's real length and its placeholder
-  /// length.
-  int displayCursor(int cursor) {
-    var display = cursor;
-    for (final span in pasteSpans) {
-      if (span.end <= cursor) {
-        display -= (span.end - span.start) - span.placeholder.length;
-      }
-    }
-    return display;
-  }
+  /// Map a real-text [cursor] index into display space. Display segments are
+  /// the same code-unit length as the real text they cover, so the identity
+  /// map is exact — kept as a named function so the display projection has
+  /// one home.
+  int displayCursor(int cursor) => cursor;
 
   // -- Paste span plumbing (all pure: return new lists) ----------------
 
@@ -354,7 +351,7 @@ class TextLineInput {
     return [
       for (final s in spans)
         s.start >= from
-            ? _PasteSpan(s.start + delta, s.end + delta, s.placeholder)
+            ? _PasteSpan(s.start + delta, s.end + delta, s.display)
             : s,
     ];
   }
@@ -435,15 +432,52 @@ class TextLineInput {
     );
   }
 
-  String _makePlaceholder(String text) =>
-      '[Pasted text : ${text.runes.length} chars]';
+  /// The display form for a pasted [text]: verbatim (with every whitespace
+  /// code unit swapped for a space, so newlines/tabs from a multi-line paste
+  /// never reach the single-line input row) when the text is at most
+  /// [verbatimPasteLimit] code points; the `[Pasted text : N chars]` chip
+  /// beyond that. The chip's own width grows past 24 columns once N hits
+  /// three digits, so the limit deliberately compares the two candidates and
+  /// keeps whichever is narrower — a short paste is never hidden behind a
+  /// placeholder wider than itself.
+  String _makeDisplay(String text) {
+    final chip = '[Pasted text : ${text.runes.length} chars]';
+    if (text.runes.length <= verbatimPasteLimit &&
+        text.runes.length <= chip.length) {
+      return _flattenWhitespace(text);
+    }
+    return chip;
+  }
+
+  /// Longest paste, in code points, shown verbatim instead of collapsed to
+  /// the `[Pasted text : N chars]` chip. 24 == the chip's width for 1–2 digit
+  /// counts, so anything at or below this is never wider shown than hidden.
+  static const verbatimPasteLimit = 24;
+
+  /// Replace every whitespace code unit (newlines, tabs, and other control
+  /// spacing) with a plain space, preserving code-unit length exactly so the
+  /// display string stays index-aligned with the real buffer text.
+  static String _flattenWhitespace(String text) {
+    final sb = StringBuffer();
+    for (var i = 0; i < text.length; i++) {
+      final unit = text.codeUnitAt(i);
+      // ASCII whitespace + C1 control spacing: a lone surrogate half is left
+      // untouched so surrogate pairs survive intact.
+      sb.write(unit <= 0x20 || (unit >= 0x80 && unit <= 0x9F)
+          ? (unit == 0x20 ? text[i] : ' ')
+          : text[i]);
+    }
+    return sb.toString();
+  }
 }
 
-/// A range of [TextLineInput.buffer] that was pasted and is shown as a
-/// placeholder. Immutable.
+/// A range of [TextLineInput.buffer] that was pasted. The real text always
+/// lives in the buffer; [display] is what [TextLineInput.toDisplay] renders
+/// over the range (verbatim for short pastes, the chip for long ones).
+/// Immutable.
 class _PasteSpan {
   final int start;
   final int end;
-  final String placeholder;
-  const _PasteSpan(this.start, this.end, this.placeholder);
+  final String display;
+  const _PasteSpan(this.start, this.end, this.display);
 }
