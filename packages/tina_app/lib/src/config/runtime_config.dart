@@ -178,7 +178,7 @@ class RuntimeConfig {
     this.permissionMode = PermissionMode.ask,
     this.permissionClassifierModel,
     this.defaultWorkflow,
-    this.maxTurnTokens = 1000000,
+    this.maxTurnTokens = 100000000,
     this.maxSessionTokens = 10000000,
     this.maxRequestTokens = 200000,
     this.maxGlobalTokens = 50000000,

@@ -61,7 +61,7 @@ Runtime fixtures may construct values directly without parsing arguments.
 | `permissionRules`, `yolo` | CLI deny rules before allow rules; yolo defaults false; fresh mutable policies are constructed from the immutable rules |
 | `permissionMode`, `permissionClassifierModel` | CLI permission mode > file mode > ask; classifier ref from file, otherwise inherit main model |
 | `defaultWorkflow` | File default workflow; null retains default.dot discovery; `none` disables it |
-| `maxTurnTokens`, `maxSessionTokens`, `maxRequestTokens` | CLI > file limit > 1,000,000 / 10,000,000 / 200,000; zero disables cap |
+| `maxTurnTokens`, `maxSessionTokens`, `maxRequestTokens` | CLI > file limit > 100,000,000 / 10,000,000 / 200,000; zero disables cap |
 | `maxGlobalTokens`, `maxSubAgentTokens` | CLI > file limit > 50,000,000 / 2,000,000; zero disables cap |
 | `maxSubAgentDepth`, `maxSubAgentConcurrency` | CLI > file limit > 3 / 6 |
 | `requestsPerMinute` | CLI > file limit > 0 (unlimited) |

@@ -77,7 +77,7 @@ void main() {
         SpendLedger(maxGlobalTokens: 100, requestsPerMinute: 0),
       );
       update(a, turn: 7);
-      expect(b.mainBudget().perTurnLimit, 1000000);
+      expect(b.mainBudget().perTurnLimit, 100000000);
       expect(() => update(a, turn: 20, global: -1), throwsArgumentError);
       expect(a.mainBudget().perTurnLimit, 7);
       expect(a.maxGlobalTokens, 0);

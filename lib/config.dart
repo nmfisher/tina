@@ -362,7 +362,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     )
     ..addOption(
       'max-turn-tokens',
-      defaultsTo: '10000000',
+      defaultsTo: '100000000',
       help:
           'Abort a user turn if input+output exceeds this many tokens. '
           'Guard against runaway tool loops. 0 to disable.',
@@ -843,7 +843,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
       maxTurnTokens: parseLimit(
         'max-turn-tokens',
         fileLimits?.maxTurnTokens,
-        1000000,
+        100000000,
       ),
       maxSessionTokens: parseLimit(
         'max-session-tokens',

@@ -1095,7 +1095,7 @@ class _QuotaForm {
       case 'max_session_tokens':
         return f.maxSessionTokens ?? 10000000;
       case 'max_turn_tokens':
-        return f.maxTurnTokens ?? 1000000;
+        return f.maxTurnTokens ?? 100000000;
       case 'max_request_tokens':
         return f.maxRequestTokens ?? 200000;
       case 'max_global_tokens':

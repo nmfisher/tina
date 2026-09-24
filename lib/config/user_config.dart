@@ -1150,7 +1150,7 @@ api_key = "sk-ant-..."
 # [limits]
 # max_global_tokens    = 50000000   # total tokens this app session; trips a hard abort
 # max_session_tokens   = 10000000   # main agent per-session (trips the pause dialog)
-# max_turn_tokens      = 1000000    # main agent per-turn
+# max_turn_tokens      = 100000000  # main agent per-turn
 # max_request_tokens   = 200000     # main agent single-request input
 # max_sub_agent_tokens = 2000000    # per sub-agent session (they otherwise run uncapped)
 # requests_per_minute  = 0          # global RPM throttle (0 = disabled)

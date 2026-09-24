@@ -526,7 +526,7 @@ void main() {
     final initial = UserConfig(
       limits: const LimitsConfig(
         maxSessionTokens: 10000000,
-        maxTurnTokens: 1000000,
+        maxTurnTokens: 100000000,
         maxRequestTokens: 200000,
         maxGlobalTokens: 50000000,
         maxSubAgentTokens: 2000000,

@@ -219,7 +219,7 @@ void main() {
     test('without --yolo, every budget keeps its default (regression)', () {
       final c = _parse([]);
       expect(c.sandboxEnabled, isTrue);
-      expect(c.maxTurnTokens, 1000000);
+      expect(c.maxTurnTokens, 100000000);
       expect(c.maxSessionTokens, 10000000);
       expect(c.maxRequestTokens, 200000);
       expect(c.maxGlobalTokens, 50000000);

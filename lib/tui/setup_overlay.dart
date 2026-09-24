@@ -464,7 +464,7 @@ class _SetupForm {
       ]);
       final f = _initialLimits ?? const LimitsConfig();
       _limitValues['max_session_tokens'] = f.maxSessionTokens ?? 10000000;
-      _limitValues['max_turn_tokens'] = f.maxTurnTokens ?? 1000000;
+      _limitValues['max_turn_tokens'] = f.maxTurnTokens ?? 100000000;
       _limitValues['max_request_tokens'] = f.maxRequestTokens ?? 200000;
       _limitValues['max_global_tokens'] = f.maxGlobalTokens ?? 50000000;
       _limitValues['max_sub_agent_tokens'] = f.maxSubAgentTokens ?? 2000000;
