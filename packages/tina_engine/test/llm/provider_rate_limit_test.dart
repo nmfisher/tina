@@ -383,7 +383,9 @@ void main() {
       await send(); // hinted 429 → the queue now holds ~400ms (not ~100ms)
       final watch = Stopwatch()..start();
       await send();
-      expect(watch.elapsedMilliseconds, greaterThanOrEqualTo(400),
+      // -10ms of timer/settle slop, like the penalty-floor test above: the
+      // point is the 400ms hint vs the ~100ms floor, not a 1ms boundary.
+      expect(watch.elapsedMilliseconds, greaterThanOrEqualTo(390),
           reason: 'the Retry-After hint, not the floor, paced the retry');
     });
 
