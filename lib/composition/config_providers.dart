@@ -333,14 +333,16 @@ String _titleCase(String id) {
 /// `max_concurrent_requests` — are plain fields on the limiter and are always
 /// live the moment they're assigned.)
 List<String> applyRateLimitConfig(ProviderRegistry registry, UserConfig userConfig) {
-  registry.rateLimiter.minInterval = Duration(
-    milliseconds: userConfig.limits?.minRequestIntervalMs ?? 1000,
-  );
+  final globalIntervalMs = userConfig.limits?.minRequestIntervalMs;
+  registry.rateLimiter.minInterval = globalIntervalMs == null
+      ? defaultMinRequestInterval
+      : Duration(milliseconds: globalIntervalMs);
   registry.rateLimiter.maxConcurrent =
-      userConfig.limits?.maxConcurrentRequests ?? 4;
+      userConfig.limits?.maxConcurrentRequests ?? defaultMaxConcurrentRequests;
   // Per-provider request-rate ceilings from `[providers.<id>]
   // requests_per_minute` / `min_request_interval_ms`: the interval form wins
-  // over the RPM form (see ProviderRegistry._effectiveSpacing); warn when both
+  // over the RPM form (see effectiveSpacingMs in the engine's
+  // provider_rate_limit.dart); warn when both
   // are set so the config smell is visible instead of silently resolved.
   // The on-disk provider map is the source of truth: drop every in-memory
   // override FIRST (a setting DELETED from the config must not linger in the

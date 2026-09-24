@@ -389,7 +389,7 @@ void main() {
       );
     });
 
-    test('_isLocalEndpoint matches loopback/private forms only', () {
+    test('isLocalEndpoint matches loopback/private forms only', () {
       // Indirect coverage through the public seam: build a descriptor with no
       // knobs against a 172.16/12 host and confirm the exemption applies,
       // and against a lookalike public host and confirm it does not.

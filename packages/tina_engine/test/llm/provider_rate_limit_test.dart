@@ -26,6 +26,7 @@ class _RecordingProvider extends LlmProvider {
 }
 
 void main() {
+  spacingPolicyTests();
   group('ProviderRateLimiter', () {
     test('zero interval (default) never waits', () async {
       final limiter = ProviderRateLimiter();
@@ -586,3 +587,95 @@ class _GatedProvider extends LlmProvider {
     }
   }
 }
+
+void spacingPolicyTests() {
+  // The pure precedence chain, table-driven: each row is (name, inputs,
+  // expected). `null` = fall through to the registry-wide global default;
+  // `Duration.zero` = spacing explicitly off (local-endpoint exemption or a
+  // 0 override). The registry-build seam tests (registry_build_test.dart)
+  // cover the same chain end-to-end through build(); this table pins the
+  // policy itself so a precedence regression here cannot hide behind mocks.
+  final cases = <(String, ({int? uI, int? uR, int? dI, int? dR, String? ep}),
+      Duration?)>[
+    // Each source alone, hosted endpoint.
+    ('user interval wins over everything',
+        (uI: 150, uR: 30, dI: 250, dR: 40, ep: 'https://example.test'),
+        const Duration(milliseconds: 150)),
+    ('user rpm next', (uI: null, uR: 30, dI: 250, dR: 40, ep: 'https://example.test'),
+        const Duration(seconds: 2)),
+    ('descriptor interval next',
+        (uI: null, uR: null, dI: 250, dR: 40, ep: 'https://example.test'),
+        const Duration(milliseconds: 250)),
+    ('descriptor rpm last',
+        (uI: null, uR: null, dI: null, dR: 40, ep: 'https://example.test'),
+        const Duration(milliseconds: 1500)),
+    ('nothing set → global default',
+        (uI: null, uR: null, dI: null, dR: null, ep: 'https://example.test'),
+        null),
+    // Zero = explicit off.
+    ('user interval 0 disables',
+        (uI: 0, uR: 30, dI: 250, dR: 40, ep: 'https://example.test'),
+        Duration.zero),
+    ('user rpm 0 disables',
+        (uI: null, uR: 0, dI: 250, dR: 40, ep: 'https://example.test'),
+        Duration.zero),
+    ('descriptor rpm 0 disables',
+        (uI: null, uR: null, dI: null, dR: 0, ep: 'https://example.test'),
+        Duration.zero),
+    // Local-endpoint exemption: only relieves the GLOBAL default — any user
+    // or descriptor knob still wins for a local endpoint.
+    ('local endpoint, nothing set → exempt',
+        (uI: null, uR: null, dI: null, dR: null, ep: 'http://127.0.0.1:11434'),
+        Duration.zero),
+    ('local endpoint, user rpm still applies',
+        (uI: null, uR: 30, dI: null, dR: null, ep: 'http://192.168.1.5:8000'),
+        const Duration(seconds: 2)),
+    ('local endpoint, descriptor interval still applies',
+        (uI: null, uR: null, dI: 250, dR: null, ep: 'http://10.0.0.5:8000'),
+        const Duration(milliseconds: 250)),
+    ('local endpoint, descriptor rpm still applies',
+        (uI: null, uR: null, dI: null, dR: 40, ep: 'http://[::1]:8080'),
+        const Duration(milliseconds: 1500)),
+    ('hosted endpoint with endpoint param set → global default',
+        (uI: null, uR: null, dI: null, dR: null, ep: 'https://api.test'),
+        null),
+  ];
+  for (final (name, input, expected) in cases) {
+    test(name, () {
+      expect(
+        effectiveSpacingMs(
+          userIntervalMs: input.uI,
+          userRpm: input.uR,
+          descIntervalMs: input.dI,
+          descRpm: input.dR,
+          endpoint: input.ep,
+        ),
+        expected,
+      );
+    });
+  }
+
+  test('spacingFromRpm: ceil to whole ms, 0 = off', () {
+    expect(spacingFromRpm(0), Duration.zero);
+    expect(spacingFromRpm(1), const Duration(minutes: 1));
+    expect(spacingFromRpm(40), const Duration(milliseconds: 1500));
+    expect(spacingFromRpm(60000), const Duration(milliseconds: 1));
+  });
+
+  test('isLocalEndpoint: loopback + private ranges only', () {
+    for (final (url, expected) in [
+      ('http://10.0.0.5:8000', true),
+      ('http://172.16.0.1:8000', true),
+      ('http://172.31.255.255:8000', true),
+      ('http://172.32.0.1:8000', false),
+      ('http://192.168.0.1:8000', true),
+      ('http://[::1]:8080', true),
+      ('http://localhost:11434', true),
+      ('https://example.test', false),
+      ('not a url', false),
+    ]) {
+      expect(isLocalEndpoint(url), expected, reason: url);
+    }
+  });
+}
+

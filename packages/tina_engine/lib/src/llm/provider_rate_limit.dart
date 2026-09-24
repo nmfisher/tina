@@ -363,3 +363,97 @@ class RateLimitedProvider implements LlmProvider {
     return controller.stream;
   }
 }
+
+/// The default registry-wide spacing between request starts on one provider
+/// (`[limits] min_request_interval_ms`): one request per second. Conservative
+/// enough for the strictest per-key hosted ceiling seen in the wild (NVIDIA
+/// NIM 429s at 40 req/min); per-provider overrides can raise it per key.
+const Duration defaultMinRequestInterval = Duration(milliseconds: 1000);
+
+/// The default registry-wide concurrent-request cap per provider queue
+/// (`[limits] max_concurrent_requests`). Four lets a main chat, a side panel
+/// and a couple of sub-agents share one provider key without tripping the
+/// endpoint's own concurrent limit.
+const int defaultMaxConcurrentRequests = 4;
+
+/// Hosts whose endpoints are exempt from the registry-wide spacing default:
+/// loopback and private-network addresses, where a per-key hosted rate limit
+/// does not exist and the default spacing is pure added latency. An explicit
+/// user config for the provider still wins (see [effectiveSpacingMs]).
+const List<String> _localHosts = [
+  'localhost',
+  '127.0.0.1',
+  '::1',
+  '10.',
+  '192.168.',
+  '172.16.',
+  '172.17.',
+  '172.18.',
+  '172.19.',
+  '172.20.',
+  '172.21.',
+  '172.22.',
+  '172.23.',
+  '172.24.',
+  '172.25.',
+  '172.26.',
+  '172.27.',
+  '172.28.',
+  '172.29.',
+  '172.30.',
+  '172.31.',
+];
+
+/// Whether [endpoint]'s URL host is loopback or private-network — the
+/// per-key-hosted-limit exemption test behind [effectiveSpacingMs]'s
+/// [Duration.zero] outcome.
+bool isLocalEndpoint(String endpoint) {
+  final host = Uri.tryParse(endpoint)?.host.toLowerCase() ?? '';
+  if (host.isEmpty) return false;
+  for (final local in _localHosts) {
+    if (host == local || (local.endsWith('.') && host.startsWith(local))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// RPM → spacing: 0 = disabled, else 60 s / [rpm] (rounded up to whole µs).
+Duration spacingFromRpm(int rpm) {
+  if (rpm == 0) return Duration.zero;
+  return Duration(
+      microseconds: (60 * 1000 * 1000 + rpm - 1) ~/ rpm); // ceil ≡ ms
+}
+
+/// The resolved request spacing for one provider: [ProviderRegistry]'s
+/// precedence chain over user overrides and descriptor hints, extracted as a
+/// pure function (no registry state) so the composition layer can consult the
+/// same policy the registry applies.
+///
+/// [userIntervalMs] / [userRpm] are the user's per-provider overrides
+/// (`min_request_interval_ms` / `requests_per_minute`); [descIntervalMs] /
+/// [descRpm] the descriptor's own built-in hint. Precedence: user interval >
+/// user RPM > descriptor interval > descriptor RPM > null = "use the global
+/// default" — EXCEPT that a provider whose [endpoint] is loopback/private
+/// is exempt from the global default entirely ([Duration.zero]): there is no
+/// per-key hosted limit to respect, and spacing a local endpoint only adds
+/// latency. An explicit user override still wins for a local endpoint.
+Duration? effectiveSpacingMs({
+  int? userIntervalMs,
+  int? userRpm,
+  int? descIntervalMs,
+  int? descRpm,
+  String? endpoint,
+}) {
+  if (userIntervalMs != null) return Duration(milliseconds: userIntervalMs);
+  if (userRpm != null) return spacingFromRpm(userRpm);
+  if (descIntervalMs != null) return Duration(milliseconds: descIntervalMs);
+  final rpm = descRpm;
+  if (rpm == null) {
+    // No user override and no hint: the global default would apply, but a
+    // local endpoint is exempt from it.
+    if (endpoint != null && isLocalEndpoint(endpoint)) return Duration.zero;
+    return null;
+  }
+  return spacingFromRpm(rpm);
+}
