@@ -652,4 +652,149 @@ void main() {
           reason: 'only pool builds go through the injected warn sink');
     });
   });
+
+  group('applyRateLimitConfig', () {
+    final key = providerQueueKey('https://example.test', 'k');
+
+    ProviderRegistry registryWithHosted() {
+      final built = <ProviderInstance>[];
+      final registry = ProviderRegistry(env: {'TEST_KEY': 'k'});
+      registry.register(ProviderDescriptor(
+        id: 'hosted',
+        name: 'hosted',
+        // The queue key is endpoint+authKey: the descriptor must resolve the
+        // env's TEST_KEY or its queue key won't be the one the asserts read.
+        authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
+        defaultBaseUrl: 'https://example.test',
+        builder: (c) {
+          built.add(c);
+          return OpenAiCompatibleAdapter(apiKey: '', model: c.model);
+        },
+      ));
+      return registry;
+    }
+
+    test('installs the global knobs and per-provider overrides', () {
+      final registry = registryWithHosted();
+      final warnings = applyRateLimitConfig(
+        registry,
+        UserConfig(
+          limits: LimitsConfig(
+            minRequestIntervalMs: 500,
+            maxConcurrentRequests: 2,
+          ),
+          providers: {
+            'hosted': ProviderConfig(minRequestIntervalMs: 150),
+          },
+        ),
+      );
+      expect(registry.rateLimiter.minInterval,
+          const Duration(milliseconds: 500));
+      expect(registry.rateLimiter.maxConcurrent, 2);
+      expect(warnings, isEmpty);
+
+      // The apply reaches the queue a build already created (the whole point
+      // of the apply-on-save path — no restart).
+      registry.build('hosted/m');
+      expect(registry.rateLimiter.minIntervalFor(key),
+          const Duration(milliseconds: 150));
+    });
+
+    test('a later call with the field removed withdraws the override', () {
+      final registry = registryWithHosted();
+      registry.build('hosted/m');
+      applyRateLimitConfig(registry,
+          UserConfig(providers: {'hosted': ProviderConfig(minRequestIntervalMs: 150)}));
+      expect(registry.rateLimiter.minIntervalFor(key),
+          const Duration(milliseconds: 150));
+
+      // The user cleared the field and saved again: the override must go,
+      // not linger.
+      applyRateLimitConfig(registry, const UserConfig());
+      expect(
+        registry.rateLimiter.minIntervalFor(key),
+        registry.rateLimiter.minInterval,
+        reason: 'a deleted override must stop shadowing the global default',
+      );
+    });
+
+    test('warns when a provider sets both interval and RPM', () {
+      final registry = registryWithHosted();
+      final warnings = applyRateLimitConfig(
+        registry,
+        UserConfig(providers: {
+          'hosted': ProviderConfig(
+            minRequestIntervalMs: 100,
+            requestsPerMinute: 30,
+          ),
+        }),
+      );
+      expect(warnings, hasLength(1));
+      expect(warnings.single, contains('hosted'));
+      expect(warnings.single, contains('min_request_interval_ms'));
+      // And the interval still wins.
+      registry.build('hosted/m');
+      expect(registry.rateLimiter.minIntervalFor(key),
+          const Duration(milliseconds: 100));
+    });
+
+    test('deletes across providers: survivors keep their override', () {
+      final registry = registryWithHosted();
+      final built = <ProviderInstance>[];
+      registry.register(ProviderDescriptor(
+        id: 'other',
+        name: 'other',
+        authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
+        defaultBaseUrl: 'http://other.test',
+        builder: (c) {
+          built.add(c);
+          return OpenAiCompatibleAdapter(apiKey: '', model: c.model);
+        },
+      ));
+      final both = UserConfig(providers: {
+        'hosted': ProviderConfig(minRequestIntervalMs: 150),
+        'other': ProviderConfig(minRequestIntervalMs: 250),
+      });
+      applyRateLimitConfig(registry, both);
+      registry.build('hosted/m');
+      registry.build('other/m');
+      expect(registry.rateLimiter.minIntervalFor(key),
+          const Duration(milliseconds: 150));
+      final otherKey = providerQueueKey('http://other.test', 'k');
+      expect(registry.rateLimiter.minIntervalFor(otherKey),
+          const Duration(milliseconds: 250));
+
+      // hosted's field is removed; other survives.
+      applyRateLimitConfig(
+        registry,
+        const UserConfig(providers: {
+          'other': ProviderConfig(minRequestIntervalMs: 250),
+        }),
+      );
+      expect(
+        registry.rateLimiter.minIntervalFor(key),
+        registry.rateLimiter.minInterval,
+        reason: 'deleted override withdrawn',
+      );
+      expect(registry.rateLimiter.minIntervalFor(otherKey),
+          const Duration(milliseconds: 250),
+          reason: 'surviving override reinstalled');
+    });
+
+    test('is idempotent: applying the same config twice is a no-op', () {
+      final registry = registryWithHosted();
+      final config = UserConfig(
+        limits: LimitsConfig(minRequestIntervalMs: 750),
+        providers: {'hosted': ProviderConfig(requestsPerMinute: 60)},
+      );
+      applyRateLimitConfig(registry, config);
+      applyRateLimitConfig(registry, config);
+      registry.build('hosted/m');
+      expect(registry.rateLimiter.minInterval,
+          const Duration(milliseconds: 750));
+      // 60 RPM → 1s spacing; a doubled application must not stack overrides.
+      expect(registry.rateLimiter.minIntervalFor(key),
+          const Duration(seconds: 1));
+    });
+  });
 }

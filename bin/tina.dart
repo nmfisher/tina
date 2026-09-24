@@ -126,33 +126,13 @@ Future<void> _run(List<String> argv) async {
       // Defaults: 1 request/second start spacing, at most 4 requests per
       // provider on the wire at once; `[limits] min_request_interval_ms` /
       // `max_concurrent_requests` in ~/.tina/config tune them (0 disables).
-      registry.rateLimiter.minInterval = Duration(
-        milliseconds: userConfig.limits?.minRequestIntervalMs ?? 1000,
-      );
-      registry.rateLimiter.maxConcurrent =
-          userConfig.limits?.maxConcurrentRequests ?? 4;
-      // Per-provider request-rate ceilings from `[providers.<id>]
-      // requests_per_minute`: each wins over the descriptor's built-in hint
-      // (e.g. NIM's 40/min) and the global default above; 0 disables spacing
-      // for that provider's queues. Installed before any provider builds (the
-      // registry reads these when it lazily wraps each queue key), so order
-      // here vs. registration only needs to precede the first `build`.
-      for (final entry in userConfig.providers.entries) {
-        final rpm = entry.value.requestsPerMinute;
-        if (rpm != null) registry.setRequestRate(entry.key, rpm);
-        // The interval form wins over the RPM form (see
-        // ProviderRegistry._effectiveSpacing); warn when both are set so the
-        // config smell is visible instead of silently resolved.
-        final intervalMs = entry.value.minRequestIntervalMs;
-        if (intervalMs != null && rpm != null) {
-          stderr.writeln(
-              'warning: [providers.${entry.key}] sets both '
-              'min_request_interval_ms and requests_per_minute; the interval '
-              'wins.');
-        }
-        if (intervalMs != null) {
-          registry.setRequestInterval(entry.key, intervalMs);
-        }
+      // Per-provider ceilings (`[providers.<id>] requests_per_minute` /
+      // `min_request_interval_ms`) and the both-set warning live in
+      // [applyRateLimitConfig] — shared with /settings, so a saved rate-limit
+      // change applies NOW to this live registry instead of on the next
+      // launch. Warnings go to stderr here; the settings panel collects them.
+      for (final w in applyRateLimitConfig(registry, userConfig)) {
+        stderr.writeln(w);
       }
       // Wire retries live at the TOP of the provider policy stack, so a
       // re-attempt re-acquires a rate-limit slot (never a stampede past the

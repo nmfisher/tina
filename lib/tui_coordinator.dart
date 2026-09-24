@@ -1413,11 +1413,26 @@ class TuiCoordinator {
           host.showMessage('$e\n', style: HostMessageStyle.warning);
           return;
         }
+        // Rate-limit changes apply NOW: re-install the saved config's knobs
+        // into the live registry (idempotent — the same values the startup
+        // path installs, so startup and saves converge). The rate limiter
+        // reads spacing at acquire time and the global knobs are plain
+        // fields, so no restart is needed for them; theme and system-prompt
+        // overrides still apply on the next launch (the message says which
+        // is which). Config-smell warnings (interval AND rpm both set)
+        // surface here instead of only at startup.
+        var limitWarnings = const <String>[];
+        if (wrote != null) {
+          limitWarnings = applyRateLimitConfig(scheduler.registry, wrote);
+        }
         if (wrote != null || quotaSaved) {
+          final warnText =
+              limitWarnings.isEmpty ? '' : '\n${limitWarnings.join('\n')}';
           host.showMessage(
-            'Settings saved to ~/.tina/config — provider and model changes '
-            'apply now; '
-            '${quotas == null ? 'quota and theme apply on the next launch' : 'quota changes apply now; theme applies on the next launch'}.\n',
+            'Settings saved to ~/.tina/config — provider, model and rate-limit '
+            'changes apply now; '
+            '${quotas == null ? 'quota and theme apply on the next launch' : 'quota changes apply now; theme applies on the next launch'}'
+            '$warnText.\n',
             style: HostMessageStyle.success,
           );
         } else {

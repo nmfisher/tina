@@ -212,6 +212,34 @@ void main() {
         expect(limiter.minIntervalFor('anthropic'),
             equals(Duration(milliseconds: 200)));
       });
+
+      test('clearMinInterval restores the global default for that key', () async {
+        final limiter =
+            ProviderRateLimiter(minInterval: const Duration(milliseconds: 100));
+        limiter.setMinInterval('nim', const Duration(milliseconds: 50));
+        expect(
+            limiter.minIntervalFor('nim'), equals(const Duration(milliseconds: 50)));
+
+        limiter.clearMinInterval('nim');
+        expect(limiter.minIntervalFor('nim'),
+            equals(const Duration(milliseconds: 100)),
+            reason: 'the override is gone; the global default applies again');
+        // Other keys are untouched.
+        limiter.setMinInterval('anthropic', const Duration(milliseconds: 200));
+        expect(limiter.minIntervalFor('anthropic'),
+            equals(const Duration(milliseconds: 200)));
+        expect(limiter.minIntervalFor('nim'),
+            equals(const Duration(milliseconds: 100)),
+            reason: 'another key override does not leak across keys');
+      });
+
+      test('clearMinInterval on a key with no override is a no-op', () async {
+        final limiter =
+            ProviderRateLimiter(minInterval: const Duration(milliseconds: 100));
+        limiter.clearMinInterval('never-set');
+        expect(limiter.minIntervalFor('never-set'),
+            equals(const Duration(milliseconds: 100)));
+      });
     });
 
     test('maxConcurrent parks the third acquirer until release', () async {

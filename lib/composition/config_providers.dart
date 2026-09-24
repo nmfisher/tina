@@ -313,3 +313,54 @@ String _titleCase(String id) {
   if (id.isEmpty) return id;
   return id[0].toUpperCase() + id.substring(1);
 }
+
+/// Wire the user config's rate-limit knobs into [registry]'s shared limiter —
+/// the composition-root equivalent of the startup block in `bin/tina.dart`,
+/// extracted so `/settings` can re-run it after a save (apply-now) instead of
+/// telling the user to restart.
+///
+/// Idempotent: every call re-installs the same values from [userConfig], so
+/// startup and every settings write converge on the same limiter state.
+/// Returns the config-smell diagnostics the startup path used to write
+/// straight to stderr (both interval and RPM set for one provider); the caller
+/// chooses the channel — stderr at startup, an in-chat warning from
+/// `/settings`.
+///
+/// Per-provider spacing overrides reach queues that already BUILT via the
+/// closing [ProviderRegistry.reapplyRequestIntervals] — the wrap decision
+/// reads the override at acquire time, so a reinstall lands without restart.
+/// (The global knobs — `[limits] min_request_interval_ms`,
+/// `max_concurrent_requests` — are plain fields on the limiter and are always
+/// live the moment they're assigned.)
+List<String> applyRateLimitConfig(ProviderRegistry registry, UserConfig userConfig) {
+  registry.rateLimiter.minInterval = Duration(
+    milliseconds: userConfig.limits?.minRequestIntervalMs ?? 1000,
+  );
+  registry.rateLimiter.maxConcurrent =
+      userConfig.limits?.maxConcurrentRequests ?? 4;
+  // Per-provider request-rate ceilings from `[providers.<id>]
+  // requests_per_minute` / `min_request_interval_ms`: the interval form wins
+  // over the RPM form (see ProviderRegistry._effectiveSpacing); warn when both
+  // are set so the config smell is visible instead of silently resolved.
+  // The on-disk provider map is the source of truth: drop every in-memory
+  // override FIRST (a setting DELETED from the config must not linger in the
+  // registry), then reinstall the ones the config still declares, then push
+  // the recomputed values onto the live queues. Order matters — clearing
+  // after the install loop would erase exactly what it just installed.
+  registry.clearRequestOverrides();
+  final warnings = <String>[];
+  for (final entry in userConfig.providers.entries) {
+    final rpm = entry.value.requestsPerMinute;
+    final intervalMs = entry.value.minRequestIntervalMs;
+    if (intervalMs != null && rpm != null) {
+      warnings.add(
+          'warning: [providers.${entry.key}] sets both '
+          'min_request_interval_ms and requests_per_minute; the interval '
+          'wins.');
+    }
+    if (rpm != null) registry.setRequestRate(entry.key, rpm);
+    if (intervalMs != null) registry.setRequestInterval(entry.key, intervalMs);
+  }
+  registry.reapplyRequestIntervals();
+  return warnings;
+}

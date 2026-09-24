@@ -83,6 +83,16 @@ class ProviderRateLimiter {
     _minIntervalByKey[key] = interval;
   }
 
+  /// Remove [key]'s per-key spacing override: from now on [minIntervalFor]
+  /// ([key]) falls back to the registry global [minInterval]. No-op when the
+  /// key has no override. This is what makes a WITHDRAWN per-provider config
+  /// (the user cleared `min_request_interval_ms` / `requests_per_minute` in
+  /// `/settings` while running) actually take effect on the live queue — the
+  /// registry's reapply path pairs it with a fresh install.
+  void clearMinInterval(String key) {
+    _minIntervalByKey.remove(key);
+  }
+
   /// The effective [minInterval] for [key]: the per-key override when
   /// installed (including an explicit [Duration.zero] = spacing disabled),
   /// else the registry-wide [minInterval].

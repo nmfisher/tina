@@ -408,6 +408,72 @@ class ProviderRegistry implements LlmProviderFactory {
     _requestIntervals[providerId] = intervalMs;
   }
 
+  /// Queue keys that have a spacing override installed in [rateLimiter] (see
+  /// [_buildLimited], which installs at build time). [reapplyRequestIntervals]
+  /// clears exactly these before reinstalling from the current override maps,
+  /// so a WITHDRAWN override (the user cleared the setting at runtime) stops
+  /// shadowing the remaining knobs instead of lingering on the queue forever.
+  final Set<String> _spacedKeys = {};
+
+  /// Forget every per-provider rate override ([setRequestRate] /
+  /// [setRequestInterval]): the apply-on-save path pairs this with a
+  /// reinstall from the freshly-saved config, whose provider map is the
+  /// source of truth — without the clear, a setting DELETED from the config
+  /// (the field emptied in `/settings`) would keep its stale override in the
+  /// map and keep spacing the queue. No-op when nothing is overridden.
+  void clearRequestOverrides() {
+    _requestRates.clear();
+    _requestIntervals.clear();
+  }
+
+  /// Recompute the live per-key spacing overrides from the CURRENT user
+  /// overrides ([setRequestRate] / [setRequestInterval]) plus the descriptors'
+  /// own hints: clears every override installed by an earlier build
+  /// ([_spacedKeys]) and reinstalls for every known descriptor. Call after
+  /// mutating the override maps on a LIVE registry — the composition's
+  /// apply-on-save path — so a cleared or changed setting reaches queues that
+  /// already built. Startup wiring need not call this: no queue key exists
+  /// before the first build, so the lazy install in [_buildLimited] sees the
+  /// freshly-loaded config anyway (calling it is harmless — the same values
+  /// reinstall).
+  void reapplyRequestIntervals() {
+    for (final key in _spacedKeys) {
+      rateLimiter.clearMinInterval(key);
+    }
+    _spacedKeys.clear();
+    for (final desc in _providers.values) {
+      _installSpacing(desc);
+    }
+  }
+
+  /// Compute and install the spacing override for ONE descriptor's queue keys.
+  /// Split from [_buildLimited] so the lazy build-time install and the eager
+  /// [reapplyRequestIntervals] share one code path (they must never disagree
+  /// about which keys get an override). Only keys whose effective spacing is
+  /// non-null land in [_spacedKeys] — a null result means "global default
+  /// applies", which the per-key map must NOT shadow. Returns the effective
+  /// spacing (null = none) so a caller with a second queue key can install
+  /// for it too.
+  ///
+  /// [queueKeyOverride]: when a caller builds under an explicit
+  /// `apiKeyOverride`, the queue key is built from THAT key, not the
+  /// descriptor's own credential — install the same spacing for it as well,
+  /// preserving the pre-reapply behavior where the build-time install always
+  /// targeted the key actually being wrapped.
+  Duration? _installSpacing(ProviderDescriptor desc, {String? queueKeyOverride}) {
+    final endpoint = desc.defaultBaseUrl;
+    final spacing = _effectiveSpacing(desc, endpointForLocalCheck: endpoint);
+    if (spacing == null) return null;
+    final key = providerQueueKey(endpoint, authFor(desc).key);
+    rateLimiter.setMinInterval(key, spacing);
+    _spacedKeys.add(key);
+    if (queueKeyOverride != null && queueKeyOverride != key) {
+      rateLimiter.setMinInterval(queueKeyOverride, spacing);
+      _spacedKeys.add(queueKeyOverride);
+    }
+    return spacing;
+  }
+
   /// Hosts whose endpoints are exempt from the registry-wide spacing default:
   /// loopback and private-network addresses, where a per-key hosted rate
   /// limit does not exist and the 1s spacing default is pure added latency.
@@ -812,13 +878,17 @@ class ProviderRegistry implements LlmProviderFactory {
     // the same provider re-install the same value), so a pool of two NIM
     // keys spaces EACH key to NIM's ceiling (aggregate ≈ 2×) instead of one
     // shared queue. Null = no hint/override → the global default applies.
-    final spacing =
-        _effectiveSpacing(desc, endpointForLocalCheck: endpoint);
-    if (spacing != null) rateLimiter.setMinInterval(key, spacing);
-    // The wrap decision must read the EFFECTIVE interval for THIS key (the
-    // override just installed above, else the registry-wide default) — reading
-    // the global alone would leave a descriptor hint unenforced whenever the
-    // global limiter is disabled, silently spacing nothing.
+    // The install itself lives in [_installSpacing], shared with
+    // [reapplyRequestIntervals] so the build-time and apply-on-save paths can
+    // never disagree about which keys carry an override. A build under an
+    // explicit key override wraps the OVERRIDE key's queue, so the spacing is
+    // installed for that QUEUE KEY too (hash it the same way — the raw key
+    // string is not a queue key).
+    _installSpacing(
+      desc,
+      queueKeyOverride:
+          apiKeyOverride == null ? null : providerQueueKey(endpoint, apiKeyOverride),
+    );
     return rateLimiter.minIntervalFor(key) > Duration.zero ||
             rateLimiter.maxConcurrent > 0
         ? RateLimitedProvider(built, rateLimiter, key)

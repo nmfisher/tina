@@ -415,5 +415,82 @@ void main() {
             reason: '$url → ${expected ? "exempt" : "global default"}');
       }
     });
+
+    test('reapplyRequestIntervals: withdraw an override and the queue falls '
+        'back to the global default', () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..rateLimiter.minInterval = const Duration(milliseconds: 1000)
+        ..register(_desc('hosted', builder: _recording(built)))
+        ..setRequestInterval('hosted', 150);
+      r.build('hosted/m');
+      final key = providerQueueKey('https://example.test', 'k');
+      expect(r.rateLimiter.minIntervalFor(key),
+          const Duration(milliseconds: 150));
+
+      // The apply-on-save path: the override was DELETED from the config, so
+      // the registry forgets its in-memory maps and reinstalls from (now
+      // empty) overrides — the descriptor has no hint either, so the global
+      // default must take over again.
+      r.clearRequestOverrides();
+      r.reapplyRequestIntervals();
+      expect(
+        r.rateLimiter.minIntervalFor(key),
+        const Duration(milliseconds: 1000),
+        reason: 'the withdrawn override must stop shadowing the global',
+      );
+    });
+
+    test('reapplyRequestIntervals: a changed override re-lands on the '
+        'already-built queue', () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc(
+          'hinted',
+          builder: _recording(built),
+          requestsPerMinute: 40, // → 1500ms
+        ));
+      r.build('hinted/m');
+      final key = providerQueueKey('https://example.test', 'k');
+      expect(r.rateLimiter.minIntervalFor(key),
+          const Duration(milliseconds: 1500));
+
+      r.setRequestInterval('hinted', 250);
+      r.reapplyRequestIntervals();
+      expect(r.rateLimiter.minIntervalFor(key),
+          const Duration(milliseconds: 250),
+          reason: 'apply-on-save reaches queues that already built');
+    });
+
+    test('clearRequestOverrides + reapply keeps surviving overrides, drops '
+        'deleted ones', () {
+      final built = <ProviderInstance>[];
+      final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..rateLimiter.minInterval = const Duration(milliseconds: 1000)
+        ..register(_desc('a', builder: _recording(built)))
+        ..register(_desc(
+            'b', baseUrl: 'http://b.test', builder: _recording(built)))
+        ..setRequestInterval('a', 100)
+        ..setRequestInterval('b', 200);
+      r.build('a/m');
+      r.build('b/m');
+
+      // The apply-on-save sequence for "user deleted a's field, kept b's":
+      // forget every override, reinstall the ones the config still declares,
+      // then push onto the live queues.
+      r.clearRequestOverrides();
+      r.setRequestInterval('b', 200);
+      r.reapplyRequestIntervals();
+      expect(
+        r.rateLimiter.minIntervalFor(providerQueueKey('https://example.test', 'k')),
+        const Duration(milliseconds: 1000),
+        reason: "a's withdrawn override falls back to the global default",
+      );
+      expect(
+        r.rateLimiter.minIntervalFor(providerQueueKey('http://b.test', 'k')),
+        const Duration(milliseconds: 200),
+        reason: "b's surviving override is reinstalled unchanged",
+      );
+    });
   });
 }
