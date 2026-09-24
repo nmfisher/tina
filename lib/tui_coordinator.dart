@@ -37,8 +37,7 @@ import 'package:tina/tui/panel_maximize.dart';
 import 'package:tina/tui/panel_host.dart';
 import 'package:tina/tui/run_panel_host.dart';
 import 'package:tina/tui/tool_output_overlay.dart';
-import 'package:tina/tui/workflow_editor_overlay.dart';
-import 'package:tina/tui/workflow_viewer_overlay.dart';
+import 'package:tina/tui/workflow_overlay_handlers.dart';
 import 'package:tina/platform/terminal_geometry.dart';
 
 import 'package:tina/session_controller.dart';
@@ -48,7 +47,6 @@ import 'package:tina/tui/spawn_overlay.dart';
 import 'package:tina/tui/tree_order.dart';
 import 'package:tina/tui/panel_manager.dart';
 import 'package:tina/tui/transcript_cursor.dart';
-import 'package:tina/tui/transcript_fold.dart';
 import 'package:tina/tui/coordinator_input_handlers.dart';
 import 'package:tina/tui/conversation_panel_coordinator.dart';
 import 'package:tina/tui/resize_coordinator.dart';
@@ -1211,99 +1209,18 @@ class TuiCoordinator {
       controller.workflowsDir = workflowsDir;
       // Names the default workflow file for /workflow list (no per-turn routing).
       controller.defaultWorkflow = app.config.defaultWorkflow;
-      // `/workflow show` — visual graph viewer.
-      controller.openWorkflowViewer = (name) async {
-        try {
-          final source = await PipelineRunner.readWorkflow(workflowsDir, name);
-          final graph = parseDot(source);
-          await runWorkflowViewer(
-            screen: screen,
-            editor: editor,
-            graph: graph,
-            title: name,
-          );
-        } catch (e) {
-          controller.active.host.showMessage(
-            '$e\n',
-            style: HostMessageStyle.error,
-          );
-        }
-      };
-
-      // `/blocks`, `/show`, `/hide` — fold the active conversation's
-      // transcript in place. The blocks themselves are the sink's; the
-      // command semantics live in tui/transcript_fold.dart, testable without
-      // a coordinator or an editor.
-      controller.foldTranscript = (verb, argument) async {
-        final host = sessionManager.activeConversation.host;
-        if (host is! TuiConversationHost) {
-          host.showMessage(
-            'this session has no transcript to fold.\n',
-            style: HostMessageStyle.warning,
-          );
-          return;
-        }
-        await foldTranscriptCommand(host, verb: verb, argument: argument);
-      };
-      // `/workflow new` + `/workflow edit` — visual node editor.
-      controller.openWorkflowEditor = ({name, isNew = false}) async {
-        Graph graph;
-        Directory? originDir;
-        if (isNew) {
-          // Seed a minimal runnable skeleton: start → exit, ready to insert into.
-          graph = Graph(
-            name: 'workflow',
-            nodes: {
-              'start': PipelineNode(
-                id: 'start',
-                attrs: {'shape': 'Mdiamond', 'label': 'Start'},
-              ),
-              'exit': PipelineNode(
-                id: 'exit',
-                attrs: {'shape': 'Msquare', 'label': 'Done'},
-              ),
-            },
-            edges: [PipelineEdge(from: 'start', to: 'exit')],
-          );
-        } else {
-          final n = name;
-          if (n == null) return;
-          try {
-            // Workspace programs (`<repo>/.tina/programs/<name>.dot`) open
-            // first — decision 3 precedence — and save back to their origin;
-            // otherwise the global workflows dir decides.
-            final file = resolveWorkflowProgramFile(
-              name: n,
-              workspaceRoot: app.pipeline.tools.workspaceRoot,
-              globalWorkflowsDir: workflowsDir,
-            );
-            if (file != null) {
-              graph = parseDot(await file.readAsString());
-              originDir = file.parent;
-            } else {
-              graph = parseDot(
-                await PipelineRunner.readWorkflow(workflowsDir, n),
-              );
-            }
-          } catch (e) {
-            controller.active.host.showMessage(
-              '$e\n',
-              style: HostMessageStyle.error,
-            );
-            return;
-          }
-        }
-        await runWorkflowEditor(
+      // `/workflow show` + `/workflow edit` — graph viewer/editor overlays.
+      wireWorkflowOverlayHandlers(
+        controller,
+        WorkflowOverlayDeps(
           screen: screen,
           editor: editor,
-          graph: graph,
-          name: name,
-          pipeline: pipeline,
           workflowsDir: workflowsDir,
-          originDir: originDir,
-          isNew: isNew,
-        );
-      };
+          workspaceRoot: app.pipeline.tools.workspaceRoot,
+          pipeline: pipeline,
+          host: () => controller.active.host,
+        ),
+      );
       // The `[providers]` blocks the registry was last registered from —
       // seeded from disk here, refreshed by [reloadConfigProviders].
       var registeredConfig = loadUserConfig(env: app.environment.env);
