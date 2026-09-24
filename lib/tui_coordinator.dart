@@ -1247,6 +1247,7 @@ class TuiCoordinator {
       // `/workflow new` + `/workflow edit` — visual node editor.
       controller.openWorkflowEditor = ({name, isNew = false}) async {
         Graph graph;
+        Directory? originDir;
         if (isNew) {
           // Seed a minimal runnable skeleton: start → exit, ready to insert into.
           graph = Graph(
@@ -1267,9 +1268,22 @@ class TuiCoordinator {
           final n = name;
           if (n == null) return;
           try {
-            graph = parseDot(
-              await PipelineRunner.readWorkflow(workflowsDir, n),
+            // Workspace programs (`<repo>/.tina/programs/<name>.dot`) open
+            // first — decision 3 precedence — and save back to their origin;
+            // otherwise the global workflows dir decides.
+            final file = resolveWorkflowProgramFile(
+              name: n,
+              workspaceRoot: app.pipeline.tools.workspaceRoot,
+              globalWorkflowsDir: workflowsDir,
             );
+            if (file != null) {
+              graph = parseDot(await file.readAsString());
+              originDir = file.parent;
+            } else {
+              graph = parseDot(
+                await PipelineRunner.readWorkflow(workflowsDir, n),
+              );
+            }
           } catch (e) {
             controller.active.host.showMessage(
               '$e\n',
@@ -1285,6 +1299,7 @@ class TuiCoordinator {
           name: name,
           pipeline: pipeline,
           workflowsDir: workflowsDir,
+          originDir: originDir,
           isNew: isNew,
         );
       };

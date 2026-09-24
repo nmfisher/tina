@@ -287,10 +287,17 @@ void main() {
 
       await SessionCommandHandlers(f.ctx).dispatch('/classifier-review');
 
-      expect(f.host.sink.texts.join(), '### candidate one');
+      final text = f.host.sink.texts.join();
+      expect(text, '### candidate one');
       expect(f.host.sink.newlines, 1);
+      expect(
+        f.host.messages.join(),
+        contains('// Classifier program for /index'),
+        reason: 'success appends the adoptable program fragment',
+      );
+      expect(f.host.messages.join(), contains('digraph index'));
       expect(f.host.notices, ['--- classifier review: 2 messages ---\n'],
-          reason: 'start marker only — success prints nothing extra');
+          reason: 'start marker only — the fragment rides on showMessage');
       expect(f.host.activitySignals, [true, false],
           reason: 'the activity cue lifts on start and drops on every exit');
     });
@@ -308,8 +315,34 @@ void main() {
       await SessionCommandHandlers(f.ctx).dispatch('/classifier-review');
 
       expect(f.host.sink.texts.join(), 'review without deltas');
+      expect(
+        f.host.messages.join(),
+        contains('digraph index'),
+        reason: 'the fragment follows a one-event completion too',
+      );
       expect(_failures(f.host), isEmpty);
       expect(f.host.sink.newlines, 1);
+    });
+
+    test('the appended fragment echoes the focus argument', () async {
+      final provider = FakeProvider([
+        [
+          const MessageComplete(
+              content: [TextBlock('review')],
+              stopReason: 'end_turn'),
+        ],
+      ], model: 'test-model');
+      final f = _fixture(provider: provider);
+
+      await SessionCommandHandlers(f.ctx).dispatch(
+        '/classifier-review deploy gates',
+      );
+
+      expect(
+        f.host.messages.join(),
+        contains('// Review focus: deploy gates'),
+      );
+      expect(_failures(f.host), isEmpty);
     });
 
     test('a stream error surfaces as a failed review, keeping partial text',

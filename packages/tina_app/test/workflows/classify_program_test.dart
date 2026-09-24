@@ -249,4 +249,99 @@ digraph structural {
       expect(program.errorsText, isNotEmpty);
     });
   });
+
+  group('builtinIndexProgramDot', () {
+    test('parses as a valid program with reader instructions', () {
+      final dot = builtinIndexProgramDot();
+      expect(dot, startsWith('// Classifier program for /index'));
+      expect(dot, contains('/workflow edit index'));
+
+      final program = parseClassifyProgram('index', dot, origin: 'review');
+      expect(program.valid, isTrue, reason: program.errorsText);
+      expect(
+        program.graph.nodes.keys,
+        containsAll(['start', 'language', 'details', 'exit']),
+      );
+    });
+
+    test('round-trips through graphToDot unchanged (editor save cycle)', () {
+      final graph = parseDot(builtinIndexProgramDot());
+      final once = graphToDot(graph);
+      final twice = graphToDot(parseDot(once));
+      expect(twice, once, reason: 'the serializer is canonical');
+
+      // Stage routing survives the rewrite the editor performs on save.
+      final saved = parseClassifyProgram('index', once, origin: 'saved');
+      expect(saved.valid, isTrue, reason: saved.errorsText);
+      String edgeKey(Graph g) =>
+          g.edges.map((e) => '${e.from}->${e.to}:${e.condition}').join(',');
+      expect(edgeKey(saved.graph), edgeKey(graph));
+    });
+
+    test('echoes the review focus as a reader comment', () {
+      expect(
+        builtinIndexProgramDot(focus: ' deploy gates '),
+        contains('// Review focus: deploy gates'),
+      );
+      expect(builtinIndexProgramDot(), isNot(contains('Review focus')));
+    });
+  });
+
+  group('resolveWorkflowProgramFile', () {
+    late Directory root;
+    setUp(() async {
+      root = await Directory.systemTemp.createTemp('workflow-resolve-');
+      addTearDown(() => root.delete(recursive: true));
+    });
+
+    test('prefers the workspace program over the global one', () {
+      final ws = Directory('${root.path}/.tina/programs')
+        ..createSync(recursive: true);
+      File('${ws.path}/index.dot').writeAsStringSync('digraph index {}');
+      final global = Directory('${root.path}/global')
+        ..createSync(recursive: true);
+      File('${global.path}/index.dot').writeAsStringSync('digraph index {}');
+
+      final file = resolveWorkflowProgramFile(
+        name: 'index',
+        workspaceRoot: root.path,
+        globalWorkflowsDir: global,
+      );
+
+      expect(file!.path, contains(p.join('.tina', 'programs')));
+    });
+
+    test('falls back to the global workflows dir, else null', () {
+      final global = Directory('${root.path}/global')
+        ..createSync(recursive: true);
+      File('${global.path}/default.dot').writeAsStringSync(
+        'digraph default {}',
+      );
+
+      expect(
+        resolveWorkflowProgramFile(
+          name: 'default',
+          workspaceRoot: root.path,
+          globalWorkflowsDir: global,
+        )!.path,
+        contains(p.join('global', 'default.dot')),
+      );
+      expect(
+        resolveWorkflowProgramFile(
+          name: 'missing',
+          workspaceRoot: root.path,
+          globalWorkflowsDir: global,
+        ),
+        isNull,
+      );
+      expect(
+        resolveWorkflowProgramFile(
+          name: 'default',
+          workspaceRoot: root.path,
+          globalWorkflowsDir: null,
+        ),
+        isNull,
+      );
+    });
+  });
 }

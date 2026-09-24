@@ -15,7 +15,8 @@ import 'package:tina_app/tina_app.dart';
 /// full-screen, live-rendered graph with a keyboard-driven selection cursor:
 /// arrows move between nodes, and keys add/edit/connect/delete nodes + edges,
 /// re-laying-out and re-rendering after every change. Save serializes via
-/// [graphToDot] to `~/.tina/workflows/<name>.dot` after [validate].
+/// [graphToDot] to `originDir ?? ~/.tina/workflows` after [validate] — a
+/// workspace program opened from `<repo>/.tina/programs` saves back there.
 ///
 /// Returns true if the workflow was saved.
 Future<bool> runWorkflowEditor({
@@ -26,6 +27,7 @@ Future<bool> runWorkflowEditor({
   required AgentPipeline pipeline,
   required Directory workflowsDir,
   bool isNew = false,
+  Directory? originDir,
   Future<InputEvent> Function()? readEvent,
 }) {
   return _WorkflowEditor(
@@ -35,6 +37,7 @@ Future<bool> runWorkflowEditor({
     name: name,
     pipeline: pipeline,
     workflowsDir: workflowsDir,
+    originDir: originDir,
     isNew: isNew,
     readEvent: readEvent,
   ).run();
@@ -55,6 +58,11 @@ class _WorkflowEditor {
   Graph graph;
   final AgentPipeline pipeline;
   final Directory workflowsDir;
+
+  /// The directory the graph was loaded from — a workspace program from
+  /// `<repo>/.tina/programs` saves back there instead of the global
+  /// workflows dir. Null falls back to [workflowsDir].
+  final Directory? originDir;
   final bool isNew;
   final Future<InputEvent> Function()? readEvent;
 
@@ -79,6 +87,7 @@ class _WorkflowEditor {
     required String? name,
     required this.pipeline,
     required this.workflowsDir,
+    this.originDir,
     required this.isNew,
     this.readEvent,
   })  : currentName = name,
@@ -345,8 +354,9 @@ class _WorkflowEditor {
           '${errors.take(5).map((d) => '  $d').join('\n')}');
       return;
     }
-    if (!workflowsDir.existsSync()) workflowsDir.createSync(recursive: true);
-    final file = File(p.join(workflowsDir.path, '$currentName.dot'));
+    final saveDir = originDir ?? workflowsDir;
+    if (!saveDir.existsSync()) saveDir.createSync(recursive: true);
+    final file = File(p.join(saveDir.path, '$currentName.dot'));
     // Saving under a name that already holds a DIFFERENT workflow (rename,
     // or a new workflow colliding) must not silently clobber it.
     if (file.existsSync() && file.path != _loadedPath) {
@@ -363,7 +373,7 @@ class _WorkflowEditor {
   /// saving in place is not an overwrite.
   String? get _loadedPath => originalName == null
       ? null
-      : p.join(workflowsDir.path, '$originalName.dot');
+      : p.join((originDir ?? workflowsDir).path, '$originalName.dot');
 
   Future<void> _help() async => _inform(
         [_help1, _help2, _help3, _help4, _help5, _help6, _help7, _help8].join('\n'));

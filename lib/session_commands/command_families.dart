@@ -874,6 +874,13 @@ class HistoryCommands {
       if (buf.toString().trim().isEmpty) {
         s.host.notice('classifier review failed: empty response\n',
             kind: NoticeKind.error);
+      } else {
+        // The adoptable program: today's built-in rendered as editable DOT —
+        // accepting a suggestion means saving it as a program file and, if
+        // desired, opening it in the workflow editor. Comments carry the
+        // instructions; the DOT parser accepts them, so the fragment parses
+        // and round-trips through graphToDot unchanged.
+        s.host.showMessage('\n${builtinIndexProgramDot(focus: focus)}');
       }
     } catch (e) {
       s.host.notice('classifier review failed: $e\n', kind: NoticeKind.error);

@@ -207,3 +207,42 @@ File? _existingFile(String path) {
   final file = File(path);
   return file.existsSync() ? file : null;
 }
+
+/// The built-in index program as editable DOT — what `/classifier-review`
+/// offers for adoption. Leading `//` lines are instructions for the reader
+/// (the DOT parser accepts comments, and `graphToDot`'s contract keeps
+/// `parseDot(graphToDot(g))` structurally identical, so the fragment
+/// round-trips through the workflow editor's load → edit → save cycle).
+String builtinIndexProgramDot({String focus = ''}) {
+  final b = StringBuffer()
+    ..writeln('// Classifier program for /index — adopt by saving as')
+    ..writeln('//   <workspace>/.tina/programs/index.dot')
+    ..writeln('// (or ~/.tina/workflows/index.dot for a global default),')
+    ..writeln('// then edit visually: /workflow edit index');
+  final narrowed = focus.trim();
+  if (narrowed.isNotEmpty) {
+    b.writeln('// Review focus: $narrowed');
+  }
+  b.write(graphToDot(builtinIndexProgram().graph));
+  return b.toString();
+}
+
+/// The file `/workflow edit <name>` opens: the workspace program
+/// `<workspaceRoot>/.tina/programs/<name>.dot` when present (decision 3
+/// precedence — classifier programs live with the workspace), else the
+/// global `<globalWorkflowsDir>/<name>.dot`, else null. The editor saves
+/// back to the opened file's directory.
+File? resolveWorkflowProgramFile({
+  required String name,
+  required String workspaceRoot,
+  Directory? globalWorkflowsDir,
+}) {
+  final local = _existingFile(
+    p.join(workspaceRoot, '.tina', 'programs', '$name.dot'),
+  );
+  if (local != null) return local;
+  final global = globalWorkflowsDir;
+  return global == null
+      ? null
+      : _existingFile(p.join(global.path, '$name.dot'));
+}

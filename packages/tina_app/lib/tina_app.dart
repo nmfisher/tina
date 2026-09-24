@@ -34,6 +34,7 @@ export 'src/session/selection_presenter.dart';
 export 'src/session/session_manager.dart';
 export 'src/summaries/allocations_store.dart';
 export 'src/summaries/summary_index.dart';
+export 'src/workflows/classify_program.dart';
 export 'src/workflows/default_workflow.dart';
 export 'src/workflows/headless_interviewer.dart';
 export 'src/workflows/pipeline_commands.dart';
