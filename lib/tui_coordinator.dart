@@ -303,19 +303,28 @@ class TuiCoordinator {
     // `base-url` was configured when the session was created, so replaying it
     // made every later config edit invisible to the resumed session (a stale
     // experimental base 404-ed forever, no matter what the config said now).
+    String? startupBuildFailure;
     LlmProvider provider;
     try {
       provider = app.buildStartupProvider();
-    } catch (_) {
+    } catch (e) {
       // The meta ref can still fail to BUILD (auth required, no key) even when
       // its provider descriptor exists; degrade to the plain config default —
       // the same provider a fresh session would get — rather than dying.
+      // Say so: a silent fallback is indistinguishable from the resume bug
+      // where the session "came back under the default model" (tui_bug
+      // 2026-09-24). Stderr is invisible behind the alternate screen, so the
+      // note rides the active host's first message instead.
       provider = app.providers.build(
         '${config.provider}/${config.model}',
         maxTokens: config.maxTokens,
         streamIdleTimeout: config.streamIdleTimeout,
         requestTimeout: config.requestTimeout,
       );
+      startupBuildFailure =
+          'resume: the session\'s model could not be restored '
+          '($e) — using ${config.provider}/${config.model} instead. '
+          'Fix the error and /model to switch back.';
     }
     final acquired = RuntimeResources();
     var transferred = false;
@@ -369,7 +378,17 @@ class TuiCoordinator {
       // Watches for a frozen screen and records the editor's state snapshot
       // when it sees one, so a recurrence is diagnosable from the log instead
       // of from a live screen. Started below, once the screen is up.
-      final stuckCheck = StuckCheck(screen: screen, editor: editor);
+      //
+      // Detection only: `heal: false` means a reported stall is logged and left
+      // alone rather than forcing a full repaint. The stall's root cause is
+      // fixed in the editor — a visible prompt row now outranks a focused
+      // panel's key claim, so keys reach the prompt that asks for the repaint —
+      // and that fix is what production relies on. Turning the repaint back on
+      // is a one-word change here if a stall ever recurs; until then the check
+      // observes instead of mutating, so a false positive costs a log line
+      // rather than an unexplained flash on the user's screen.
+      final stuckCheck =
+          StuckCheck(screen: screen, editor: editor, heal: false);
       acquired.own(stuckCheck.stop);
       // The initial (active) session's spinner, bound to the shared status row.
       final spinner = Spinner(
@@ -762,6 +781,21 @@ class TuiCoordinator {
       transferred = true;
       acquired.own(sessionManager.closeAll);
       acquired.own(app.scheduler.dispose);
+
+      // Surface any resume model fallback IN the transcript: stderr is
+      // invisible behind the alternate screen, and a silently degraded model
+      // is exactly the "quit and resume, it's on the default model now" bug
+      // (2026-09-24). Dim — a footnote, not an error. The composition's note
+      // covers an unresolvable ref; startupBuildFailure covers a ref that
+      // resolved but failed to build (missing key, bad base URL).
+      final startupFallbackNote =
+          app.startupModelFallback ?? startupBuildFailure;
+      if (startupFallbackNote != null) {
+        initialHost.showMessage(
+          '$startupFallbackNote\n',
+          style: HostMessageStyle.dim,
+        );
+      }
 
       // Sub-agents spawned by a conversation's MAIN agent follow that
       // conversation's live model ref, so a `/model` swap mid-session carries

@@ -254,10 +254,15 @@ void main() {
       now = now.add(const Duration(seconds: 31));
       c.checkNow();
 
-      expect(messages('keys are arriving but nothing has been drawn'),
-          hasLength(1));
+      final warnings = messages('keys are arriving but nothing has been drawn');
+      expect(warnings, hasLength(1));
       expect(backend.refreshes, 0,
           reason: 'detection-only checks must leave the backend alone');
+      // ...and the line must not claim otherwise. The log is the *only* product
+      // in this mode, so a "forcing a full repaint" clause would be a false
+      // report about the one thing a reader can check.
+      expect(warnings.single, isNot(contains('forcing a full repaint')),
+          reason: 'a log-only check must not advertise a heal it will not run');
     });
   });
 }

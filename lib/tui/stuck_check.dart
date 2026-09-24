@@ -54,15 +54,20 @@ class StuckCheck {
   final LineEditor editor;
 
   /// Whether a reported stall is actively healed, not just logged. When true
-  /// (the default) the first warning triggers [Screen.refresh] — the same
-  /// full re-emission a terminal resize runs. The warning is the diagnostic;
-  /// the refresh is what ends the episode, because a stall is self-sustaining
-  /// once the damage grid's idea of the screen diverges from the real terminal:
-  /// every redraw then computes "no change" and the screen sits stale until
-  /// something forces a full re-emission (which is why resizing the terminal
-  /// always appeared to fix it). The underlying key routing is fixed at the
-  /// source; this is the belt to that pair of braces. Tests that only exercise
-  /// the detection pass `heal: false`.
+  /// the first warning triggers [Screen.refresh] — the same full re-emission a
+  /// terminal resize runs. The warning is the diagnostic; the refresh is what
+  /// ends the episode, because a stall is self-sustaining once the damage grid's
+  /// idea of the screen diverges from the real terminal: every redraw then
+  /// computes "no change" and the screen sits stale until something forces a
+  /// full re-emission (which is why resizing the terminal always appeared to
+  /// fix it). The underlying key routing is fixed at the source, so this is the
+  /// belt to that pair of braces.
+  ///
+  /// Defaults to true, but production runs it **off**: `tui_coordinator`
+  /// constructs the check with `heal: false` so a stall is observed rather than
+  /// patched, and a false positive costs a log line instead of an unexplained
+  /// repaint. Tests that exercise the detection alone also pass `heal: false`;
+  /// pass `heal: true` to exercise the repair.
   final bool heal;
 
   /// How often to look.
@@ -154,8 +159,11 @@ class StuckCheck {
     }
     if (reason == null || _warned) return;
     _warned = true;
-    InputLog.warn('$reason for ${stalled.inSeconds}s; forcing a full repaint',
-        state);
+    // The message must not claim a repaint that is not coming: with heal:false
+    // the log is the only product, and a line promising "forcing a full
+    // repaint" would send a reader looking for a recovery that never happens.
+    final suffix = heal ? '; forcing a full repaint' : '';
+    InputLog.warn('$reason for ${stalled.inSeconds}s$suffix', state);
     if (!heal) return;
     // The heal: re-emit the retained frame in full, bypassing the damage
     // tracking that is now lying about what the terminal shows. _lastPresented
