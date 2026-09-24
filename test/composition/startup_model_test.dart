@@ -182,6 +182,47 @@ void main() {
       // No exception; the unresolvable ref degrades to the config default.
       final provider = app.buildStartupProvider();
       expect(provider.model, 'claude-3-opus-20240229');
+      // The fallback reason is exposed for the TUI host to replay in the
+      // transcript — stderr is invisible behind the alternate screen, and a
+      // silent fallback is indistinguishable from "resume lost my model".
+      expect(
+        app.startupModelFallback,
+        'resume: conversation model "nosuchprovider/some-model" is no longer '
+        'resolvable — using anthropic/claude-3-opus-20240229 (pass --model '
+        '"nosuchprovider/some-model" to force it).',
+      );
+    });
+
+    test('resolving the persisted ref clears any fallback note', () {
+      final config = Config.parse(
+        const ['--backend', 'ansi'],
+        env: const {
+          'ANTHROPIC_API_KEY': 'test',
+          'ANTHROPIC_MODEL': 'claude-3-opus-20240229',
+        },
+      );
+      final manifest = SessionManifest(
+        id: 's-resume',
+        providerId: 'anthropic',
+        activeConversationId: 'c-ok',
+        conversations: [
+          ConversationMeta(
+            id: 'c-ok',
+            model: 'anthropic/claude-3-opus-20240229',
+            providerId: 'anthropic',
+            label: 'meta model',
+            kind: ConversationKind.primary,
+          ),
+        ],
+      );
+      final app = buildWith(
+        config: config.runtime,
+        manifest: manifest,
+        initialSessionId: 's-resume',
+        initialConversationId: 'c-ok',
+      );
+      expect(app.buildStartupProvider().model, 'claude-3-opus-20240229');
+      expect(app.startupModelFallback, isNull);
     });
 
     test('meta model null falls back to config default', () {

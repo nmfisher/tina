@@ -767,7 +767,8 @@ class SessionController {
     // after a resume the manifest is authoritative over stale in-memory state.
     _trackers?.hydrate(activeMeta, conversationId: s.id);
     s.host.showMessage(
-      'resumed: $id (${loaded.length} messages)\n',
+      'resumed: $id (${loaded.length} messages) — '
+      'model: ${s.provider.model} (unchanged by /resume)\n',
       style: HostMessageStyle.dim,
     );
     return true;

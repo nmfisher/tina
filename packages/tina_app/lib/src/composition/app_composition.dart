@@ -168,10 +168,13 @@ class AppComposition {
           // Not only stderr: transcript hosts surface this note from
           // [startupModelFallback] (stderr is invisible behind the alternate
           // screen). Overwrite per call — each build reflects only its own
-          // resolution, never a stale one.
+          // resolution, never a stale one. (tui_bug 2026-09-24: a resumed
+          // session came back under the config default with the only
+          // explanation written to stderr nobody could see.)
           _startupModelFallback =
               'resume: conversation model "$ref" is no longer resolvable — '
-              'falling back to ${config.provider}/${config.model}.';
+              'using ${config.provider}/${config.model} (pass '
+              '--model "$ref" to force it).';
           stderr.writeln(_startupModelFallback!);
         } else {
           // The startup key/base URL apply only to the CONFIG provider; a
