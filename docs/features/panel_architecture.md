@@ -32,6 +32,13 @@ and other keys. During Ctrl+G cycling, the focus manager owns navigation until
 Enter commits or Escape cancels. Prompts and modal overlays take priority over
 the panel; approval answer keys and character overflow cannot spill into it.
 
+The plan overlay (`[tui] plan_overlay`) joins the same ring while painted: it
+is focusable only when visible, Ctrl+G cycles highlight onto it (its chrome
+takes the cycling tint), and once focused it claims ↑/↓ for row selection and
+mirrors `/plan` on Enter/`a` (approve), `r` (reject), and space (toggle the
+selected item pending↔done) through the shared [PlanStore]. Typing, paste, and
+every other control combo — Ctrl+P included — still reach the chat editor.
+
 The shared editor is hidden when exclusive content is focused, including after
 resize. Its draft and cursor position survive a return to the conversation.
 Closing a focused panel restores focus to the primary panel.

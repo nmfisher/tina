@@ -340,9 +340,15 @@ class PlanOverlay implements Focusable {
       return true;
     }
     if (event is ControlKey) {
-      // All control combos stay with the editor/global handlers (Ctrl+P
-      // toggles this overlay, Ctrl+W kills a word, Ctrl+C interrupts…). Only
-      // plain arrows and the three verbs are ours.
+      // Enter approves (an armed prompt routes it to the focused panel before
+      // submit; the footer advertises it). Every other control combo stays
+      // with the editor/global handlers (Ctrl+P toggles this overlay, Ctrl+W
+      // kills a word, Ctrl+C interrupts…). Only plain arrows and the verbs
+      // are ours.
+      if (event.code == ControlCode.enter) {
+        (onApprove ?? _approve)();
+        return true;
+      }
       return false;
     }
     if (event is EscapeKey) return false;

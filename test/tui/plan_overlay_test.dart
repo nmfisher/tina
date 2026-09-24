@@ -253,7 +253,7 @@ void main() {
       ]);
       o.refresh();
       expect(o.regionVisible, isTrue);
-      final bounds = o.bounds!;
+      final bounds = o.bounds;
       // 24-row terminal, no menu bar: chat interior is ~20 rows; the
       // collapsed box is 5 rows (border + 1 item + footer + border + spare).
       expect(bounds.height, lessThan(10));
@@ -269,4 +269,199 @@ void main() {
       expect(o.regionVisible, isFalse);
     });
   });
+
+  group('PlanOverlay focus cycling', () {
+    late PlanStore store;
+    late FocusManager fm;
+    setUp(() {
+      store = PlanStore();
+      fm = FocusManager();
+    });
+    tearDown(() => store.dispose());
+
+    PlanOverlay overlay(Screen screen) => PlanOverlay(
+          screen: screen,
+          store: store,
+          conversationId: () => 'c1',
+          focusManager: fm,
+        );
+
+    void paintPlan(PlanOverlay o) {
+      store.update('c1', [
+        (text: 'read tests', state: PlanState.done),
+        (text: 'fix regex', state: PlanState.inProgress),
+        (text: 'release', state: PlanState.pending),
+      ]);
+      o.refresh();
+    }
+
+    test('a hidden overlay is not cyclable', () {
+      final screen = fakeScreen();
+      final o = overlay(screen)..start();
+      expect(o.canFocus, isFalse);
+      o.dispose();
+    });
+
+    test('cycling reaches a painted overlay; Enter commits focus', () {
+      final screen = fakeScreen();
+      final o = overlay(screen)..start();
+      paintPlan(o);
+      final stub = _Stub();
+      fm.register(stub);
+      fm.focusPanel(stub);
+      expect(fm.highlighted, isNull);
+      expect(o.canFocus, isTrue);
+      fm.engage();
+      fm.moveHighlightCyclic(1);
+      expect(fm.highlighted, same(o), reason: 'Tab lands on the overlay');
+      fm.commit();
+      expect(o.hasFocus, isTrue);
+      expect(fm.focused, same(o));
+      o.dispose();
+    });
+
+    test('focusing lands the selection on the first non-done item', () {
+      final screen = fakeScreen();
+      final o = overlay(screen)..start();
+      paintPlan(o);
+      fm.focusPanel(o);
+      expect(o.selectedItem?.text, 'fix regex');
+      o.dispose();
+    });
+
+    test('focused arrows move the selection; left/right fall through', () {
+      final screen = fakeScreen();
+      final o = overlay(screen)..start();
+      paintPlan(o);
+      fm.focusPanel(o);
+
+      o.handleEvent(ArrowKey(ArrowDirection.down));
+      expect(o.selectedItem?.text, 'release');
+      o.handleEvent(ArrowKey(ArrowDirection.up));
+      expect(o.selectedItem?.text, 'fix regex');
+      expect(
+        o.handleEvent(ArrowKey(ArrowDirection.left)),
+        isFalse,
+        reason: 'spatial cycling must stay with the focus ring',
+      );
+      o.dispose();
+    });
+
+    test('space toggles the selected item done<->not-done (mirrors /plan)', () {
+      final screen = fakeScreen();
+      final o = overlay(screen)..start();
+      paintPlan(o);
+      fm.focusPanel(o); // selection = 'fix regex' (inProgress)
+      o.handleEvent(CharInput(' '));
+      expect(store.read('c1').items[1].state, PlanState.done);
+      o.handleEvent(CharInput(' '));
+      // /plan has no inProgress verb, so the flip back lands on pending.
+      expect(store.read('c1').items[1].state, PlanState.pending);
+      o.dispose();
+    });
+
+    test('a/r/space act through the store; Enter approves', () {
+      final screen = fakeScreen();
+      final o = overlay(screen)..start();
+      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      o.refresh();
+      fm.focusPanel(o);
+
+      o.handleEvent(CharInput('a'));
+      expect(store.read('c1').approval, PlanApproval.approved);
+      o.handleEvent(CharInput('r'));
+      expect(store.read('c1').approval, PlanApproval.rejected);
+
+      // An edit resets approval (store semantics); Enter re-approves.
+      store.update('c1', [(text: 'b', state: PlanState.pending)]);
+      o.handleEvent(ControlKey(ControlCode.enter));
+      expect(store.read('c1').approval, PlanApproval.approved);
+      o.dispose();
+    });
+
+    test('typing falls through; hooks override the default verbs', () {
+      final screen = fakeScreen();
+      var approved = 0;
+      var spaced = 0;
+      final o = PlanOverlay(
+        screen: screen,
+        store: store,
+        conversationId: () => 'c1',
+        focusManager: fm,
+        onApprove: () => approved++,
+        onSpace: () => spaced++,
+      )..start();
+      paintPlan(o);
+      fm.focusPanel(o);
+
+      expect(o.handleEvent(CharInput('x')), isFalse,
+          reason: 'typing belongs to the chat editor');
+      o.handleEvent(CharInput('a'));
+      expect(approved, 1, reason: 'the hook replaces the default verb');
+      expect(store.read('c1').approval, PlanApproval.none);
+      expect(o.handleEvent(CharInput(' ')), isTrue);
+      expect(spaced, 1);
+      o.dispose();
+    });
+
+    test('blurring or hiding drops selection, focus, and highlight', () {
+      final screen = fakeScreen();
+      final o = overlay(screen)..start();
+      paintPlan(o);
+      fm.focusPanel(o);
+      expect(o.debugFocused, isTrue);
+      expect(o.bounds.isEmpty, isFalse);
+
+      fm.blurFocused();
+      expect(o.debugFocused, isFalse);
+      expect(o.selectedItem, isNull);
+      expect(o.bounds.isEmpty, isFalse,
+          reason: 'blur drops focus, not the painted box');
+
+      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      o.refresh(); // repainted while unfocused: selection stays reset
+      expect(o.debugFocused, isFalse);
+      expect(o.selectedItem, isNull);
+      o.dispose();
+    });
+
+    test('an overlay that hides mid-focus drops its ring claims', () {
+      final screen = fakeScreen();
+      final o = overlay(screen)..start();
+      paintPlan(o);
+      fm.focusPanel(o);
+      expect(o.debugFocused, isTrue);
+
+      store.clear('c1');
+      o.refresh();
+      expect(o.regionVisible, isFalse);
+      expect(o.debugFocused, isFalse,
+          reason: 'a hidden overlay must not keep acting on keys');
+      expect(o.canFocus, isFalse);
+      o.dispose();
+    });
+  });
+}
+
+/// A minimal focusable that accepts focus without any painting — the ring
+/// resident the overlay is cycled away from.
+class _Stub implements Focusable {
+  bool focused = false;
+
+  @override
+  bool get hasFocus => focused;
+  @override
+  bool get canFocus => true;
+  @override
+  Rect get bounds => Rect.empty;
+  @override
+  void focus() => focused = true;
+  @override
+  void blur() => focused = false;
+  @override
+  void highlight() {}
+  @override
+  void unhighlight() {}
+  @override
+  bool handleEvent(InputEvent event) => true;
 }
