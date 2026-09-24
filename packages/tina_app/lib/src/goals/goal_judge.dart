@@ -23,40 +23,43 @@ class GoalJudgeDigest {
   static const maxBlockChars = 2400;
 
   /// Renders [history] for the judge. User messages verbatim, assistant text
-  /// verbatim (capped), tool activity as compact `tool: name` markers.
+  /// verbatim (capped), tool activity as compact `tool: name` markers. Every
+  /// emitted line — prefixes included — counts against the digest budget.
   static String build(List<Message> history, {int maxMessages = maxMessages}) {
     final recent = history.length <= maxMessages
         ? history
         : history.sublist(history.length - maxMessages);
     final lines = <String>[];
     var budget = maxChars;
+
+    void emit(String prefix, String text) {
+      if (budget <= 0 || text.isEmpty) return;
+      var line = '$prefix$text';
+      final blockCap = maxBlockChars < budget ? maxBlockChars : budget;
+      if (line.length > blockCap) {
+        line = line.substring(0, blockCap - 1) + '…';
+      }
+      lines.add(line);
+      budget -= line.length + 1; // +1: the join newline
+    }
+
     for (final message in recent) {
       if (budget <= 0) break;
       switch (message.role) {
         case Role.user:
-          final text = _take(_textContent(message), budget);
-          if (text.isEmpty) continue;
-          lines.add('user: $text');
-          budget -= text.length;
+          emit('user: ', _textContent(message));
         case Role.assistant:
           for (final block in message.content) {
             if (budget <= 0) break;
             if (block is ToolUseBlock) {
-              final marker = 'tool: ${block.name}';
-              lines.add(marker);
-              budget -= marker.length;
+              emit('tool: ', block.name);
             } else if (block is TextBlock) {
-              final text = _take(block.text.trim(), budget);
-              if (text.isEmpty) continue;
-              lines.add('assistant: $text');
-              budget -= text.length;
+              emit('assistant: ', block.text.trim());
             }
           }
       }
     }
-    return lines.isEmpty
-        ? '(no transcript)'
-        : lines.join('\n');
+    return lines.isEmpty ? '(no transcript)' : lines.join('\n');
   }
 
   static String _textContent(Message message) =>
@@ -65,12 +68,6 @@ class GoalJudgeDigest {
           .map((b) => b.text.trim())
           .where((t) => t.isNotEmpty)
           .join('\n');
-
-  static String _take(String text, int budget) {
-    final cap = budget < maxBlockChars ? budget : maxBlockChars;
-    if (text.length <= cap) return text;
-    return '${text.substring(0, cap)}…';
-  }
 }
 
 /// The host-installed judge: resolves the conversation, digests its
