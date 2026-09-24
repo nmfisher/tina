@@ -112,6 +112,40 @@ moved since the conversation was written.
   command/proxy and 0.3.0 command/service components. Single maintainer,
   first release 2026-02, 0.x.
 
+### wasm.dart reviewed directly (2026-09-24)
+
+Read the repo, not just the earlier summary. Structure: a Rust workspace at
+the root (component wrapping; the hello-world demo runs via `cargo run`
+under wasmtime) and the Dart packages under `pkg/`: `wasm_tools`,
+`wasm_components`, plus `wasi`, `runtime_helpers`, and `test_runner`
+support packages (the two-package picture in the prior summary was
+incomplete). Activity is real: last commit 2026-09-06 ("Use Dart 3.13").
+
+- **Workflow**: `wasm_tools witgen` turns a `world.wit` into a Dart bridge
+  (`component.g.dart`) plus `hook/wasm_abi.json`; you implement the world in
+  Dart; a `hook/build.dart` registers the ABI so `wasm_tools compile` emits
+  a component asset (it tracks the hooks/native-assets spec's
+  `buildWasmComponent` / `WasmComponentAsset` surface). Then
+  `wasmtime --invoke ...` runs it.
+- **Hard prerequisite**: `wasm_tools` needs a **Dart 3.13 SDK with a custom
+  patch applied** (dart-review 505900) — stock SDKs cannot use it yet.
+- **Host-import progress** (the README table, read in full): ✅ strings
+  subset, string buffers, monotonic clock, random, `i64ToString`, and math
+  via Rust `libm`. 🎯 unimplemented but pure-Dart feasible: remaining
+  string ops, `double` parse/format (`f64ToString` currently a stub),
+  RegExp (plan: port the approach of Kotlin's `libraries/stdlib/
+  native-wasm` regex), `print` (stub), `jsonEncodeString` (stub). 📦 needs
+  WASI proposals: microtask-external scheduling (`scheduleOnce`/
+  `scheduleRepeated`/`clearSchedule`), `baseUri`, `isWindows`, time zone
+  names (the latter unimplemented *in wasmtime* itself). 🛑 stubs forever
+  unless Wasm GC grows the features: weak refs, expandos, finalizers,
+  debugger/inspect/timeline, and stack traces ("Impossible, stub used").
+- **Reading**: a Dart component today is hello-world grade — no working
+  timers, no double formatting, no RegExp, degraded debugging, and no
+  `Finalizer`/`WeakReference`/`Expando`. This is a faithful mirror of
+  dart2wasm `--standalone` itself; #63166's closure (dart:_wasm split) is
+  the SDK-side enabler it builds on.
+
 ### Verdict for tina
 
 - Neither project changes tin-w4sm. `wasd` is an interpreter-class pure-
@@ -140,5 +174,8 @@ moved since the conversation was written.
   (0 results), HN "9front" (Aug 2026 release thread)
 - Dart SDK issues: dart-lang/sdk#53884 (open), #56366 (open), #63166
   (closed 2026-07-29), #54394 (closed) — via GitHub API
-- https://github.com/simolus3/wasm.dart (+ raw README, embedder-import
-  table); https://pub.dev/packages/wasd (v0.5.0, published 2026-08-04)
+- https://github.com/simolus3/wasm.dart (+ raw README with embedder-import
+  table; pkg/ listing; pkg/wasm_tools and pkg/wasm_components READMEs;
+  commits — last push 2026-09-06); the patched-SDK requirement is
+  https://dart-review.googlesource.com/c/sdk/+/505900
+- https://pub.dev/packages/wasd (v0.5.0, published 2026-08-04)
