@@ -2,7 +2,8 @@ import 'package:tina_app/tina_app.dart';
 import 'package:tina_console/tina_console.dart';
 
 /// Strip renderer for the focused conversation's plan, e.g.
-/// `plan: regex fix · 2/5 done`. Pure function of the [PlanSummary] value;
+/// `plan: regex fix · 2/5 done` (or `… · needs approval` while an approval
+/// the agent requested is pending). Pure function of the [PlanSummary] value;
 /// the source declines empty plans, so this only ever sees a non-empty one.
 class PlanStatusRenderer extends Renderer<PlanSummary> {
   const PlanStatusRenderer();
@@ -13,6 +14,7 @@ class PlanStatusRenderer extends Renderer<PlanSummary> {
     final parts = [
       if (value.active != null) value.active!,
       '${value.done}/${value.total} done',
+      if (value.needsApproval) 'needs approval',
     ];
     return [
       RenderLine(

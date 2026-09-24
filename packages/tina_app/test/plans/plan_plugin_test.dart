@@ -52,7 +52,7 @@ void main() {
         ('fix renderer', PlanState.done),
         ('write tests', PlanState.inProgress),
       ]);
-      expect(plan.summary, 'write tests 1/2');
+      expect(plan.summary, 'write tests · 1/2');
     });
 
     test('an empty list clears the plan', () async {
@@ -162,7 +162,132 @@ void main() {
     });
   });
 
-  group(PlanStatusSource, () {
+  group('plan approval lifecycle', () {
+    test('request → approve → reject transitions and fires changes', () async {
+      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      var fired = 0;
+      final sub = store.changes.listen((_) => fired++);
+      store.requestApproval('c1');
+      await Future<void>.delayed(Duration.zero);
+      expect(store.read('c1').approval, PlanApproval.requested);
+      store.approve('c1');
+      await Future<void>.delayed(Duration.zero);
+      expect(store.read('c1').isApproved, isTrue);
+      store.reject('c1');
+      await Future<void>.delayed(Duration.zero);
+      expect(store.read('c1').approval, PlanApproval.rejected);
+      // The listener subscribed after the update, so it sees the three
+      // approval transitions only.
+      expect(fired, 3);
+      await sub.cancel();
+    });
+
+    test('re-approving an already-approved plan is a no-op event-wise',
+        () async {
+      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      store.approve('c1');
+      var fired = 0;
+      final sub = store.changes.listen((_) => fired++);
+      expect(store.approve('c1'), PlanApproval.approved);
+      await Future<void>.delayed(Duration.zero);
+      expect(fired, 0);
+      await sub.cancel();
+    });
+
+    test('requesting approval on an empty plan throws', () {
+      expect(() => store.requestApproval('c1'), throwsStateError);
+    });
+
+    test('a state-only update preserves approval; an edit resets it', () {
+      store.update('c1', [
+        (text: 'a', state: PlanState.pending),
+        (text: 'b', state: PlanState.pending),
+      ]);
+      store.approve('c1');
+      // Same content, states flip: approval survives progress ticks.
+      store.update('c1', [
+        (text: 'a', state: PlanState.done),
+        (text: 'b', state: PlanState.inProgress),
+      ]);
+      expect(store.read('c1').isApproved, isTrue);
+      // Any content change (add, reorder, edit) forces re-approval.
+      store.update('c1', [
+        (text: 'a', state: PlanState.pending),
+        (text: 'b', state: PlanState.pending),
+        (text: 'c', state: PlanState.pending),
+      ]);
+      expect(store.read('c1').approval, PlanApproval.none);
+    });
+
+    test('summary flags a requested approval', () {
+      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      store.requestApproval('c1');
+      expect(store.read('c1').summary, contains('needs approval'));
+    });
+
+    test('status source carries the approval to the strip view-model', () {
+      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      store.requestApproval('c1');
+      final summary = PlanStatusSource(store).read('c1') as PlanSummary;
+      expect(summary.needsApproval, isTrue);
+    });
+  });
+
+  group('PlanTool approval', () {
+    test('items + approval: requested sets the flag and reports waiting',
+        () async {
+      final r = await PlanTool(store, 'c1').execute({
+        'items': [
+          {'text': 'a', 'state': 'pending'},
+        ],
+        'approval': 'requested',
+      });
+      expect(r.isError, isFalse);
+      expect(r.content, contains('waiting for user approval'));
+      expect(store.read('c1').needsApproval, isTrue);
+    });
+
+    test('approval-only call re-requests on the unchanged plan', () async {
+      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      final r = await PlanTool(store, 'c1').execute({
+        'approval': 'requested',
+      });
+      expect(r.isError, isFalse);
+      expect(r.content, contains('approval requested'));
+      expect(store.read('c1').items.single.text, 'a');
+    });
+
+    test('approval-only call fails without a plan', () async {
+      final r = await PlanTool(store, 'c1').execute({
+        'approval': 'requested',
+      });
+      expect(r.isError, isTrue);
+      expect(r.content, contains('no plan to approve'));
+    });
+
+    test('invalid approval values and shapes are tool errors', () async {
+      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      for (final input in [
+        <String, dynamic>{'approval': 'urgent'},
+        <String, dynamic>{},
+      ]) {
+        final r = await PlanTool(store, 'c1').execute(input);
+        expect(r.isError, isTrue, reason: 'input: $input');
+      }
+      expect(store.read('c1').approval, PlanApproval.none);
+    });
+
+    test('the schema enumerates the approval values', () {
+      final schema = PlanTool(store, 'c1').schema;
+      final props = schema.inputSchema['properties'] as Map;
+      expect(
+        (props['approval'] as Map)['enum'],
+        ['requested', 'none'],
+      );
+    });
+  });
+
+  group('PlanStatusSource', () {
     test('declines empty plans and summarizes non-empty ones', () {
       final source = PlanStatusSource(store);
       expect(source.read('c1'), isNull);
@@ -267,6 +392,24 @@ void main() {
       await dispatch('/plan');
       expect(host.messages.last, isNot(contains('other')));
       expect(store.read('c2').items.single.text, 'other');
+    });
+
+    test('approve / reject / request-approval write the store and echo',
+        () async {
+      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      await dispatch('/plan request-approval');
+      expect(store.read('c1').needsApproval, isTrue);
+      await dispatch('/plan approve');
+      expect(store.read('c1').isApproved, isTrue);
+      expect(host.messages.last, contains('approval: approved'));
+      await dispatch('/plan reject');
+      expect(store.read('c1').approval, PlanApproval.rejected);
+      expect(host.messages.last, contains('approval: rejected'));
+    });
+
+    test('approve without a plan fails without mutating', () async {
+      await dispatch('/plan approve');
+      expect(host.messages.last, contains('No plan to approve'));
     });
   });
 }

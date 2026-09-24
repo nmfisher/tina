@@ -3,16 +3,42 @@ import 'dart:async';
 /// One item of a conversation's plan.
 enum PlanState { pending, inProgress, done }
 
-/// The conversation-scoped tracker state: an ordered list of items and each
-/// one's state. Immutable value; the [PlanStore] replaces plans wholesale.
+/// The user-approval dimension of a conversation's plan. The agent moves a
+/// plan to [requested] (update_plan's `approval` field) when it wants sign-off
+/// before executing; only the user moves it to [approved]/[rejected]
+/// (`/plan approve|reject`, the plan overlay). [none] is the default and also
+/// what an edited plan falls back to — see [PlanStore.update].
+enum PlanApproval { none, requested, approved, rejected }
+
+/// The conversation-scoped tracker state: an ordered list of items, each one's
+/// state, and the approval dimension. Immutable value; the [PlanStore]
+/// replaces plans wholesale.
 class Plan {
   final List<({String text, PlanState state})> items;
-  const Plan(this.items);
+
+  /// Reset to [PlanApproval.none] whenever an update changes item content
+  /// (an edited plan must be re-approved); preserved for state-only flips
+  /// (progress ticks must not invalidate an approval).
+  final PlanApproval approval;
+  const Plan(this.items, {this.approval = PlanApproval.none});
 
   bool get isEmpty => items.isEmpty;
+  bool get isApproved => approval == PlanApproval.approved;
+  bool get needsApproval => approval == PlanApproval.requested;
+
+  /// True when [other] holds the same item content — same count, same
+  /// trimmed text in the same order (states ignored). The store's
+  /// "did this update edit the plan" test for approval resets.
+  bool contentMatches(List<({String text, PlanState state})> other) {
+    if (items.length != other.length) return false;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].text != other[i].text.trim()) return false;
+    }
+    return true;
+  }
 
   /// Summary for the strip and tool results: the in-progress item (if any)
-  /// plus done/total counts.
+  /// plus done/total counts, and the approval suffix when one is wanted.
   String get summary {
     if (items.isEmpty) return '';
     final done = items.where((i) => i.state == PlanState.done).length;
@@ -21,7 +47,8 @@ class Plan {
         .map((i) => i.text)
         .join(' · ');
     final counts = '$done/${items.length}';
-    return active.isEmpty ? counts : '$active $counts';
+    return [if (active.isNotEmpty) active, counts, if (needsApproval) 'needs approval']
+        .join(' · ');
   }
 }
 
@@ -44,10 +71,15 @@ class PlanStore {
   /// Replace [conversationId]'s plan wholesale. Validates item text and the
   /// at-most-one in-progress invariant; throws [ArgumentError] on violations
   /// so a malformed model call surfaces as a tool error, not silent state.
+  ///
+  /// Approval: an update that changes item *content* (order, text, count)
+  /// resets [PlanApproval.none] — an edited plan must be re-approved. A
+  /// state-only update (progress ticks) preserves the current approval.
   void update(
     String conversationId,
-    List<({String text, PlanState state})> items,
-  ) {
+    List<({String text, PlanState state})> items, {
+    PlanApproval approval = PlanApproval.none,
+  }) {
     _ensureOpen();
     if (items.length > maxItems) {
       throw ArgumentError('plan exceeds $maxItems items');
@@ -65,10 +97,46 @@ class PlanStore {
     if (inProgress.length > 1) {
       throw ArgumentError('at most one plan item may be in progress');
     }
+    final previous = _plans[conversationId];
+    // Same content → keep the approval dimension (unless the caller sets a
+    // new one, e.g. requestApproval's re-write); edited content → none.
+    final effectiveApproval = approval != PlanApproval.none
+        ? approval
+        : (previous != null && previous.contentMatches(items)
+            ? previous.approval
+            : PlanApproval.none);
     _plans[conversationId] = Plan([
       for (final item in items) (text: item.text.trim(), state: item.state),
-    ]);
+    ], approval: effectiveApproval);
     _changes.add(null);
+  }
+
+  /// Agent asks for sign-off (update_plan's `approval: "requested"`). No-op
+  /// on an empty plan — there is nothing to approve. Returns the new value so
+  /// callers can report it.
+  PlanApproval requestApproval(String conversationId) =>
+      _setApproval(conversationId, PlanApproval.requested);
+
+  /// The user signs off (`/plan approve`, the plan overlay).
+  PlanApproval approve(String conversationId) =>
+      _setApproval(conversationId, PlanApproval.approved);
+
+  /// The user declines (`/plan reject`, the plan overlay).
+  PlanApproval reject(String conversationId) =>
+      _setApproval(conversationId, PlanApproval.rejected);
+
+  PlanApproval _setApproval(String conversationId, PlanApproval value) {
+    _ensureOpen();
+    final plan = _plans[conversationId];
+    if (plan == null || plan.isEmpty) {
+      throw StateError('no plan to approve');
+    }
+    if (plan.approval != value) {
+      _plans[conversationId] =
+          Plan(plan.items, approval: value);
+      _changes.add(null);
+    }
+    return value;
   }
 
   void clear(String conversationId) {

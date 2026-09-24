@@ -54,6 +54,18 @@ String _section(Plan plan) {
     'Keep exactly one item in_progress; move items to done only when their '
     'work is finished; call update_plan whenever the plan changes.\n',
   );
+  buffer.writeln(switch (plan.approval) {
+    PlanApproval.none =>
+      'Approval has not been requested for this plan.',
+    PlanApproval.requested =>
+      'You asked the user to approve this plan and they have not answered '
+          'yet: wait for their approval before doing the planned work.',
+    PlanApproval.approved =>
+      'The user approved this plan: proceed with the work.',
+    PlanApproval.rejected =>
+      'The user rejected this plan: revise it (update_plan replaces the '
+          'plan and clears approval), then ask again.',
+  });
   for (final item in plan.items) {
     buffer.writeln('${switch (item.state) {
       PlanState.pending => '[ ]',
@@ -81,10 +93,22 @@ class PlanTool extends LocalControlTool {
             'Replace this conversation\'s task plan. Pass the complete item '
             'list with each item\'s state (pending, in_progress, done). Keep '
             'at most one item in_progress. Use it to track multi-step work '
-            'for the user; call it again whenever the plan changes.',
+            'for the user; call it again whenever the plan changes. Pass '
+            'approval: "requested" to ask the user to approve the plan '
+            'before you execute it — they approve or reject via /plan, and '
+            'the plan you see in context tells you the outcome. You may also '
+            'call it with only approval: "requested" to (re-)request approval '
+            'for the unchanged plan.',
         inputSchema: {
           'type': 'object',
           'properties': {
+            'approval': {
+              'type': 'string',
+              'enum': ['requested', 'none'],
+              'description':
+                  '"requested" asks the user to approve this plan before '
+                  'work starts. Editing item content clears approval again.',
+            },
             'items': {
               'type': 'array',
               'maxItems': PlanStore.maxItems,
@@ -112,6 +136,28 @@ class PlanTool extends LocalControlTool {
     ToolOutputCallback? onOutput,
   }) async {
     final rawItems = input['items'];
+    final approval = switch (input['approval']) {
+      null || 'none' => PlanApproval.none,
+      'requested' => PlanApproval.requested,
+      _ => null, // invalid value → error below
+    };
+    if (approval == null) {
+      return ToolResult.error(
+          'update_plan approval must be "requested" or "none"');
+    }
+    // Approval-only call: re-request on the unchanged plan, no items needed.
+    if (rawItems == null) {
+      if (approval != PlanApproval.requested) {
+        return ToolResult.error(
+            'update_plan requires an items array (or approval: "requested")');
+      }
+      try {
+        store.requestApproval(conversationId);
+      } on StateError {
+        return ToolResult.error('no plan to approve');
+      }
+      return ToolResult('Plan unchanged; approval requested.');
+    }
     if (rawItems is! List) {
       return ToolResult.error('update_plan requires an items array');
     }
@@ -132,12 +178,19 @@ class PlanTool extends LocalControlTool {
             },
           ),
       ];
-      store.update(conversationId, items);
+      store.update(conversationId, items, approval: approval);
     } on ArgumentError catch (error) {
       return ToolResult.error(error.message?.toString() ?? 'invalid plan');
     }
     final plan = store.read(conversationId);
-    return ToolResult(plan.isEmpty ? 'Plan cleared.' : 'Plan updated.');
+    if (plan.isEmpty) return ToolResult('Plan cleared.');
+    return ToolResult(switch (plan.approval) {
+      PlanApproval.requested =>
+        'Plan updated; waiting for user approval (they will answer via '
+            '/plan or the plan overlay; the plan in your context tells you '
+            'the outcome).',
+      _ => 'Plan updated.',
+    });
   }
 }
 
@@ -152,31 +205,37 @@ class PlanStatusSource implements StatusSource {
   @override
   Object? read(String conversationId) {
     final plan = store.read(conversationId);
-    return plan.isEmpty ? null : PlanSummary(plan.items);
+    if (plan.isEmpty) return null;
+    return PlanSummary(plan.items, approval: plan.approval);
   }
 
   @override
   Stream<void> get changes => store.changes;
 }
 
-/// Strip view-model: the item list plus derived counts, kept value-shaped so
-/// the renderer stays a pure function.
+/// Strip view-model: the item list, the approval dimension, and derived
+/// counts, kept value-shaped so the renderer stays a pure function.
 class PlanSummary {
   final List<({String text, PlanState state})> items;
-  const PlanSummary(this.items);
+  final PlanApproval approval;
+  const PlanSummary(this.items, {this.approval = PlanApproval.none});
 
   int get done => items.where((i) => i.state == PlanState.done).length;
   int get total => items.length;
   String? get active =>
       items.where((i) => i.state == PlanState.inProgress).firstOrNull?.text;
+  bool get needsApproval => approval == PlanApproval.requested;
 }
 
 /// The human override. Writes the store directly; every subcommand answers in
 /// the invoking conversation.
 Command planCommand(PlanStore store) => Command(
       names: ['/plan'],
-      argsHint: '[clear | done <n> | pending <n> | add <text> | <free text>]',
-      summary: 'show or edit the conversation plan',
+      argsHint:
+          '[clear | done <n> | pending <n> | add <text> | approve | reject | '
+          'request-approval | <free text>]',
+      summary: 'show or edit the conversation plan (approve/reject when the '
+          'agent asks for sign-off)',
       helpOrder: 45,
       handler: (call) async {
         final id = call.conversationId;
@@ -188,6 +247,27 @@ Command planCommand(PlanStore store) => Command(
         if (RegExp(r'^clear$', caseSensitive: false).hasMatch(args)) {
           store.clear(id);
           call.write('Plan cleared.\n');
+          return const CmdHandled();
+        }
+        final approvalOp = RegExp(
+          r'^(approve|reject|request-approval)$',
+          caseSensitive: false,
+        ).firstMatch(args);
+        if (approvalOp != null) {
+          final plan = store.read(id);
+          if (plan.isEmpty) {
+            call.write('No plan to ${approvalOp.group(1)!}.\n');
+            return const CmdHandled(failed: true);
+          }
+          switch (approvalOp.group(1)!.toLowerCase()) {
+            case 'approve':
+              store.approve(id);
+            case 'reject':
+              store.reject(id);
+            case 'request-approval':
+              store.requestApproval(id);
+          }
+          _show(call, store.read(id));
           return const CmdHandled();
         }
         final toggle = RegExp(
@@ -245,6 +325,11 @@ void _show(CommandCall call, Plan plan) {
     return;
   }
   final buffer = StringBuffer('Plan:\n');
+  if (plan.needsApproval) buffer.writeln('  approval: REQUESTED');
+  if (plan.isApproved) buffer.writeln('  approval: approved');
+  if (plan.approval == PlanApproval.rejected) {
+    buffer.writeln('  approval: rejected');
+  }
   for (final (i, item) in plan.items.indexed) {
     buffer.writeln('  ${i + 1}. ${switch (item.state) {
       PlanState.pending => '[ ]',

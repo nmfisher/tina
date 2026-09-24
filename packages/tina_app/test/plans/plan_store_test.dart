@@ -27,7 +27,7 @@ void main() {
     final plan = store.read('c1');
     expect(plan.items.map((i) => i.text),
         ['set up tests', 'regex fix', 'ship it']);
-    expect(plan.summary, 'regex fix 1/3');
+    expect(plan.summary, 'regex fix · 1/3');
     await Future<void>.delayed(Duration.zero);
     expect(seen.length, 1);
     await sub.cancel();
