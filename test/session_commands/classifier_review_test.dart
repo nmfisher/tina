@@ -132,6 +132,11 @@ void main() {
       expect(text, contains('- configured rules: none'));
       expect(text, contains('- remembered approvals: none'));
       expect(text, contains('report TypeSafe question candidates'));
+      expect(
+        text,
+        contains('in particular tool-call prediction'),
+        reason: 'the default ask leads with the prediction task',
+      );
 
       expect(f.conv.history, hasLength(before.length),
           reason: 'the review never mutates history');
@@ -157,7 +162,9 @@ void main() {
       // Rule-vs-judgment: a deterministic rule or existing mechanism is not
       // a candidate.
       expect(p, contains('Rules are for what is certain'));
-      // The domains the review must span.
+      // The domains the review must span — prediction first.
+      expect(p, contains('predict whether a tool would be called'));
+      expect(p, contains('tool-call prediction (primary)'));
       expect(p, contains('tool approvals:'));
       expect(p, contains('repository structure:'));
       expect(p, contains('commit messages and other artifacts'));
