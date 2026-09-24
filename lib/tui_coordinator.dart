@@ -16,6 +16,7 @@ import 'package:tina/chat/chat_transcript.dart';
 import 'package:tina/completion/command_completion_provider.dart';
 import 'package:tina/session_commands/session_command_handlers.dart';
 import 'package:tina/composition/config_providers.dart';
+import 'package:tina/composition/settings_apply.dart';
 import 'package:tina/composition/typesafe.dart';
 import 'tui/input_status.dart';
 import 'package:tina/tui/index_browser.dart';
@@ -1413,34 +1414,11 @@ class TuiCoordinator {
           host.showMessage('$e\n', style: HostMessageStyle.warning);
           return;
         }
-        // Rate-limit changes apply NOW: re-install the saved config's knobs
-        // into the live registry (idempotent — the same values the startup
-        // path installs, so startup and saves converge). The rate limiter
-        // reads spacing at acquire time and the global knobs are plain
-        // fields, so no restart is needed for them; theme and system-prompt
-        // overrides still apply on the next launch (the message says which
-        // is which). Config-smell warnings (interval AND rpm both set)
-        // surface here instead of only at startup.
-        var limitWarnings = const <String>[];
-        if (wrote != null) {
-          limitWarnings = applyRateLimitConfig(scheduler.registry, wrote);
-        }
-        if (wrote != null || quotaSaved) {
-          final warnText =
-              limitWarnings.isEmpty ? '' : '\n${limitWarnings.join('\n')}';
-          host.showMessage(
-            'Settings saved to ~/.tina/config — provider, model and rate-limit '
-            'changes apply now; '
-            '${quotas == null ? 'quota and theme apply on the next launch' : 'quota changes apply now; theme applies on the next launch'}'
-            '$warnText.\n',
-            style: HostMessageStyle.success,
-          );
-        } else {
-          host.showMessage(
-            '(settings unchanged)\n',
-            style: HostMessageStyle.dim,
-          );
-        }
+        final report = applier.finish(wrote);
+        host.showMessage(
+          report.message,
+          style: report.changed ? HostMessageStyle.success : HostMessageStyle.dim,
+        );
       };
 
       // `/prompts`: open the system-prompt editor pre-filled with the current
