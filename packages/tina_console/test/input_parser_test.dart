@@ -48,11 +48,15 @@ void main() {
       expect(parser.feed(0x02), ControlKey(ControlCode.ctrlB));
     });
 
+    test('Ctrl-P produces ControlCode.ctrlP (plan overlay toggle)', () {
+      expect(parser.feed(0x10), ControlKey(ControlCode.ctrlP));
+    });
+
     test('other control chars < 0x20 are ignored', () {
-      // 0x02 used to live here: an unmapped byte is dropped silently, which is
-      // why "no one uses this key" is not the same as "this key is free".
+      // 0x02 (ctrlB) and 0x10 (ctrlP) used to live here: an unmapped byte is
+      // dropped silently, which is why "no one uses this key" is not the same
+      // as "this key is free".
       expect(parser.feed(0x06), isNull);
-      expect(parser.feed(0x10), isNull);
     });
 
     test('CSI 1;5A produces Ctrl+ArrowUp (spatial nav)', () {

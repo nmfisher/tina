@@ -727,6 +727,8 @@ InputEvent? translateNcKey({
         return ControlKey(ControlCode.ctrlO);
       case 0x12: // ctrl-r — app hook (raw-markdown viewer in tina)
         return ControlKey(ControlCode.ctrlR);
+      case 0x10: // ctrl-p — app hook (plan overlay toggle in tina)
+        return ControlKey(ControlCode.ctrlP);
       case 0x02: // ctrl-b — app hook (transcript block cursor in tina)
         return ControlKey(ControlCode.ctrlB);
       case 0x15: // ctrl-u

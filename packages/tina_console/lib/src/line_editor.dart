@@ -158,6 +158,12 @@ class LineEditor {
   /// consume the event (the viewer opened), `false` to let it fall through.
   bool Function()? onRawView;
 
+  /// Called for Ctrl+P — the plan overlay toggle. Same dispatch rank as
+  /// [onMaximizeToggle] / [onRawView] (after the modal layer, before the
+  /// focus ring), so the overlay can be toggled from any focus. Return
+  /// `true` to consume the event, `false` to let it fall through.
+  bool Function()? onPlanToggle;
+
   /// The Ctrl+B app hook (tina: the transcript block cursor). Same dispatch
   /// rank as the raw-view hook: it must work from any focus, including while an
   /// approval prompt has an armed readKey, so the cursor cannot be swallowed by
@@ -966,6 +972,7 @@ class LineEditor {
     // must work there — otherwise it would answer the prompt instead.
     if (_handleMaximizeToggle(event)) return true;
     if (_handleRawView(event)) return true;
+    if (_handlePlanToggle(event)) return true;
     if (_handleBlockCursor(event)) return true;
     final fm = _focusManager;
     if (fm == null) return false;
@@ -997,6 +1004,17 @@ class LineEditor {
     if (rawView == null) return false;
     if (event is! ControlKey || event.code != ControlCode.ctrlR) return false;
     if (!rawView()) return false;
+    _redraw();
+    return true;
+  }
+
+  /// The Ctrl+P app hook (tina: plan overlay toggle), at the same dispatch
+  /// rank as the maximize/raw-view hooks. True when the hook consumed the key.
+  bool _handlePlanToggle(InputEvent event) {
+    final planToggle = onPlanToggle;
+    if (planToggle == null) return false;
+    if (event is! ControlKey || event.code != ControlCode.ctrlP) return false;
+    if (!planToggle()) return false;
     _redraw();
     return true;
   }
@@ -1049,6 +1067,11 @@ class LineEditor {
     // Ctrl+R rides at the same rank (the app's raw-view overlay opens from
     // any focus), and Ctrl+B with it (the block cursor).
     if (_handleRawView(event)) {
+      return KeyHandledBy.appShortcut;
+    }
+    // Ctrl+P rides at the same rank (the plan overlay toggles from any
+    // focus).
+    if (_handlePlanToggle(event)) {
       return KeyHandledBy.appShortcut;
     }
     if (_handleBlockCursor(event)) {
@@ -1201,15 +1224,17 @@ class LineEditor {
           case ControlCode.ctrlS:
           case ControlCode.ctrlO:
           case ControlCode.ctrlR:
+          case ControlCode.ctrlP:
           case ControlCode.backtab:
             // Handled upstream by FocusManager when a panel exists; when no
             // panel is registered they fall through to here as a no-op.
             // ctrlS ("save") is consumed by the prompts overlay's readKey loop;
             // at the chat prompt it's a no-op. ctrlO (maximize) is consumed by
-            // the onMaximizeToggle hook and ctrlR by onRawView — a fall-through
-            // means nothing qualified, so they are no-ops too. backtab
-            // (Shift+Tab) is consumed by the onBackTab hook; a fall-through
-            // (no hook, or it declined) drops the key — backtab never types.
+            // the onMaximizeToggle hook, ctrlR by onRawView and ctrlP by
+            // onPlanToggle — a fall-through means nothing qualified, so they
+            // are no-ops too. backtab (Shift+Tab) is consumed by the onBackTab
+            // hook; a fall-through (no hook, or it declined) drops the key —
+            // backtab never types.
             break;
         }
 
@@ -1424,13 +1449,15 @@ class LineEditor {
           case ControlCode.ctrlS:
           case ControlCode.ctrlO:
           case ControlCode.ctrlR:
+          case ControlCode.ctrlP:
           case ControlCode.ctrlB:
             // The maximize toggle works in queue mode too — maximizing a
             // panel to watch a running agent is a primary use case. Same for
-            // the raw-view overlay and the block cursor: reading output while
-            // a turn runs is exactly when you want them.
+            // the raw-view overlay, the plan overlay and the block cursor:
+            // reading output while a turn runs is exactly when you want them.
             _handleMaximizeToggle(event);
             _handleRawView(event);
+            _handlePlanToggle(event);
             _handleBlockCursor(event);
             break;
           case ControlCode.backtab:

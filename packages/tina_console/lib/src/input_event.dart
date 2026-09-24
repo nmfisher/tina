@@ -188,6 +188,12 @@ enum ControlCode {
   /// viewer). Readline muscle memory says reverse-incremental-search; tina's
   /// editor has no search, so the key is free. Not a tty signal in raw mode.
   ctrlR,
+  /// Ctrl+P (DLE, 0x10). App-level hook (tina binds it to the plan overlay
+  /// toggle). Readline binds it to previous-history, but tina's editor has no
+  /// history recall from the prompt, so the key is free here. Not a tty
+  /// signal in raw mode; some shells/terminals intercept it, but far fewer
+  /// than Ctrl+W.
+  ctrlP,
   enter,
   tab,
   /// Shift+Tab (CSI Z, "backtab"). App-level hook — tina binds it to
