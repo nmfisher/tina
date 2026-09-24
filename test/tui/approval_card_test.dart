@@ -53,6 +53,43 @@ void main() {
     },
   );
 
+  test('exec preview is one line: executable then its arguments', () {
+    final prompt = PermissionPrompt('exec', const {
+      'executable': '/bin/sh',
+      'args': ['-lc', 'cargo build --release; echo done'],
+      'cwd': '/project',
+    });
+    final summary = render(ApprovalCard(prompt: prompt));
+    expect(
+      summary,
+      contains("/bin/sh -lc 'cargo build --release; echo done'"),
+    );
+    expect(summary, isNot(contains('Argument ')));
+    // Whitespace-safe argv (no metacharacters) needs no quoting at all.
+    final plain = render(
+      const ApprovalCard(
+        prompt: PermissionPrompt('exec', {
+          'executable': 'dart',
+          'args': ['test', '-r', 'expanded'],
+        }),
+      ),
+    );
+    expect(plain, contains('dart test -r expanded'));
+    expect(plain, isNot(contains("'")));
+  });
+
+  test('formatArgv quotes only the words that need it', () {
+    expect(formatArgv('ls', ['-la', '/tmp']), 'ls -la /tmp');
+    // An empty argument would vanish unquoted.
+    expect(formatArgv('touch', ['']), "touch ''");
+    // An embedded quote closes, escapes, reopens.
+    expect(formatArgv('echo', ["it's here"]), r"echo 'it'\''s here'");
+    // Whitespace would split.
+    expect(formatArgv('printf', ['a b']), "printf 'a b'");
+    // Control bytes stay literal; the renderer escapes them for display.
+    expect(formatArgv('printf', ['a\tb']), "printf 'a\tb'");
+  });
+
   test('titles distinguish a shell line from a direct program run', () {
     expect(
       const ApprovalCard(

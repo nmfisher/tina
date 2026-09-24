@@ -97,12 +97,9 @@ class ApprovalRenderer extends Renderer<ApprovalCard> {
       } else if (prompt.toolName == 'bash') {
         add('${input['command'] ?? '(no command)'}');
       } else {
-        add('Executable: ${execution?.executable ?? input['executable']}');
         final args =
             execution?.arguments ?? (input['args'] as List? ?? const []);
-        for (var i = 0; i < args.length; i++) {
-          add('Argument ${i + 1}: ${jsonEncode(args[i])}');
-        }
+        add(formatArgv('${execution?.executable ?? input['executable']}', args));
       }
       add('');
     } else if (card.preview.isEmpty) {
@@ -185,6 +182,31 @@ class ApprovalRenderer extends Renderer<ApprovalCard> {
     }
     return lines;
   }
+}
+
+/// One display line for a direct program run: executable followed by its
+/// arguments, each shell-quoted only when quoting is needed. This is what the
+/// user reads on the approval card, not a command to run — `exec` takes argv
+/// verbatim, so no character is invented or removed; operators, globs and
+/// whitespace that would bite in a shell are quoted precisely so they are
+/// visible as the literal bytes the program will receive.
+String formatArgv(String executable, List<dynamic> arguments) =>
+    [executable, ...arguments].map(_argvWord).join(' ');
+
+String _argvWord(Object? word) {
+  final text = '$word';
+  const risky = " \t\n\r\v\f'\"\\~#;&|<>()\$*?[]{}`!";
+  final riskyRunes = risky.runes.toSet();
+  final needsQuoting =
+      text.isEmpty ||
+      text.runes.any(
+        (rune) => rune < 0x20 || rune == 0x7f || riskyRunes.contains(rune),
+      );
+  if (!needsQuoting) return text;
+  // Only quotes need care inside single quotes: `'` becomes `'\''`, the
+  // classic close-escape-reopen idiom. Control bytes stay literal here —
+  // [approvalWrap] renders them as `\xNN` at paint time.
+  return "'${text.replaceAll("'", r"'\''")}'";
 }
 
 /// Preserve whitespace and count terminal cells when wrapping command text.
