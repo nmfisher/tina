@@ -120,8 +120,7 @@ void main() {
   });
 
   group('focused panel → readLine hand-off', () {
-    test('panel ownership steals keys, ctrlG cycle + refocus restores typing',
-        () async {
+    test('the armed chat prompt outranks a focused exclusive panel', () async {
       final (ed, input, screen) = _rig();
       final chat =
           PanelFrame(screen: screen, label: 'Chat', conversationId: 'chat');
@@ -134,7 +133,7 @@ void main() {
       final received = <InputEvent>[];
       side.onPanelKey = (event) {
         received.add(event);
-        return false;
+        return true; // swallow-everything read-only wiring
       };
       chat.setOuter(const Rect(row: 0, col: 0, width: 48, height: 24));
       side.setOuter(const Rect(row: 0, col: 50, width: 48, height: 24));
@@ -144,9 +143,10 @@ void main() {
         ..home = chat;
       ed.focusManager = focus;
 
-      // The wedge shape from the field: a panel (e.g. the environment agent)
-      // appears mid-session and takes exclusive focus while the prompt sits
-      // armed underneath.
+      // The field wedge (2026-09-24): the prompt is armed AND a read-only
+      // panel is still focused from an earlier overlay. Pre-fix, every
+      // character was routed to the panel and vanished — the visible `> `
+      // with a keyboard that "stopped working". The prompt must win.
       final line = ed.readLine('> ');
       await _flush();
       focus.focusPanel(side);
@@ -154,29 +154,45 @@ void main() {
 
       input.emit(CharInput('x'));
       await _flush();
-      expect(received.map((e) => e is CharInput ? e.text : ''), ['x'],
-          reason: 'the exclusive panel owns the keyboard while focused');
-      expect(ed.editState.buffer, isEmpty,
-          reason: 'stolen keys must not leak into the editor buffer');
-      expect(ed.keyCount, 1, reason: 'the stream itself is still alive');
+      expect(received, isEmpty,
+          reason: 'the panel must not swallow typing while the prompt is '
+              'armed');
+      expect(ed.editState.buffer, 'x',
+          reason: 'typed text lands in the armed prompt');
+      expect(ed.keyCount, 1);
 
-      // Recovery, as the app does it: engage the ring (ctrlG), leave cycling
-      // (Esc), and hand focus back to the chat panel.
+      // Scrolling the read-only view while the prompt waits stays useful:
+      // wheel events keep their panel route.
+      final wheel = ScrollEvent(up: true);
+      input.emit(wheel);
+      await _flush();
+      expect(received, [same(wheel)],
+          reason: 'wheel scroll is panel-owned even under an armed prompt');
+      expect(ed.editState.buffer, 'x');
+
+      input.emit(ControlKey(ControlCode.enter));
+      expect(await line, 'x',
+          reason: 'the prompt submits normally despite the panel focus');
+      expect(ed.keyCount, 3, reason: 'zero events lost');
+
+      // The documented recovery chord still works under the wedge: ctrl+G
+      // engages the focus ring even with the prompt armed.
+      final line2 = ed.readLine('> ');
+      await _flush();
       input.emit(ControlKey(ControlCode.ctrlG));
       await _flush();
-      expect(focus.isCycling, isTrue, reason: 'ctrlG engages the focus ring');
+      expect(focus.isCycling, isTrue, reason: 'ctrlG reaches the ring');
       input.emit(EscapeKey());
       await _flush();
-      expect(focus.isCycling, isFalse, reason: 'Esc left the ring');
-      focus.focusPanel(chat);
-      await _flush();
-
-      input.emit(CharInput('h'));
-      input.emit(CharInput('i'));
+      expect(focus.isCycling, isFalse);
+      input.emit(CharInput('o'));
+      input.emit(CharInput('k'));
       input.emit(ControlKey(ControlCode.enter));
-      expect(await line, 'hi',
-          reason: 'after refocusing the chat panel the editor types again');
-      expect(ed.keyCount, 6, reason: 'ownership changes, the stream never drops');
+      expect(await line2, 'ok');
+      expect(
+          received.whereType<CharInput>(),
+          isEmpty,
+          reason: 'not one typed character ever reached the panel');
       ed.close();
     });
 

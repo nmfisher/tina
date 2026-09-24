@@ -27,6 +27,7 @@ class StuckCheck {
   StuckCheck({
     required this.screen,
     required this.editor,
+    this.heal = true,
     this.interval = const Duration(seconds: 5),
     this.stallAfter = const Duration(seconds: 30),
     this.busyStallAfter = const Duration(seconds: 60),
@@ -35,6 +36,15 @@ class StuckCheck {
 
   final Screen screen;
   final LineEditor editor;
+
+  /// Whether a reported stall is actively healed, not just logged. When true
+  /// (the default) the first warning triggers [Screen.refresh] — the same
+  /// full re-emission a terminal resize runs — because the dominant stall
+  /// cause is the backend's damage grid diverging from the real terminal,
+  /// after which every redraw computes "no change" and the screen sits stale
+  /// until the user resizes. Tests that only exercise the detection pass
+  /// `heal: false`.
+  final bool heal;
 
   /// How often to look.
   final Duration interval;
@@ -125,6 +135,16 @@ class StuckCheck {
     }
     if (reason == null || _warned) return;
     _warned = true;
-    InputLog.warn('$reason for ${stalled.inSeconds}s', state);
+    InputLog.warn('$reason for ${stalled.inSeconds}s; forcing a full repaint',
+        state);
+    if (!heal) return;
+    // The heal: re-emit the retained frame in full, bypassing the damage
+    // tracking that is now lying about what the terminal shows. _lastPresented
+    // is deliberately NOT updated here: if the backend re-presented (a full
+    // re-rasterize bumps its counter), the next look sees the change and logs
+    // the usual "drawing again" recovery; if the refresh did not present
+    // (no-op or already in sync), the stall simply continues without a second
+    // warning — no false cure is claimed either way.
+    screen.refresh();
   }
 }

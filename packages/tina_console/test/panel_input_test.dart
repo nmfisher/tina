@@ -4,13 +4,17 @@ import 'package:tina_console/tina_console.dart';
 import 'stdio_fake.dart';
 
 class _Modal implements ModalSurface {
+  _Modal([this.consume = true]);
   @override
   bool isActive = true;
+
+  /// Whether handleEvent consumes (true) or only observes (false).
+  bool consume;
   final events = <InputEvent>[];
   @override
   bool handleEvent(InputEvent event) {
     events.add(event);
-    return true;
+    return consume;
   }
 }
 
@@ -21,7 +25,6 @@ void main() {
   late FocusManager focus;
   late List<InputEvent> received;
   var interrupts = 0;
-  var shortcuts = 0;
 
   setUp(() async {
     final screen = Screen(
@@ -31,24 +34,14 @@ void main() {
     editor = LineEditor(screen: screen);
     received = [];
     interrupts = 0;
-    shortcuts = 0;
     // ignore: deprecated_member_use_from_same_package
     editor.onInterrupt = () {
       interrupts++;
       return true;
     };
-    editor.onMaximizeToggle = () {
-      shortcuts++;
-      return true;
-    };
-    editor.onRawView = () {
-      shortcuts++;
-      return true;
-    };
-    editor.onBackTab = () {
-      shortcuts++;
-      return true;
-    };
+    editor.onMaximizeToggle = () => true;
+    editor.onRawView = () => true;
+    editor.onBackTab = () => true;
     chat = PanelFrame(screen: screen, label: 'Chat', conversationId: 'chat');
     panel = PanelFrame(
         screen: screen,
@@ -78,32 +71,41 @@ void main() {
     chat.dispose();
   });
 
-  test('exclusive input reaches its owner and never edits or cancels chat', () {
-    final events = <InputEvent>[
-      CharInput('ls'),
-      PasteInput('pasted\ntext'),
+  test('the armed chat prompt outranks the focused exclusive panel', () {
+    // setUp arms readLine and then focuses the exclusive panel — the exact
+    // field wedge (2026-09-24): a read-only panel focused from an earlier
+    // overlay while the prompt waits. The prompt must stand the panel down;
+    // only the wheel stays panel-owned.
+    editor.inject(CharInput('ls'));
+    expect(editor.editState.buffer, 'draftls',
+        reason: 'typed text lands in the armed prompt, not the panel');
+    expect(received, isEmpty);
+
+    final wheel = ScrollEvent(up: true);
+    editor.inject(wheel);
+    expect(received, [same(wheel)],
+        reason: 'wheel scroll is panel-owned even under an armed prompt');
+
+    // Every other key class also stays out of the panel while the prompt
+    // is armed — including ones the panel used to swallow whole.
+    for (final event in <InputEvent>[
+      PasteInput('pasted'),
       ArrowKey(ArrowDirection.up),
-      ControlKey(ControlCode.tab),
-      ControlKey(ControlCode.enter),
-      ControlKey(ControlCode.ctrlC),
-      ControlKey(ControlCode.ctrlD),
-      EscapeKey(),
-      ControlKey(ControlCode.ctrlW),
-      ControlKey(ControlCode.ctrlR),
-      ControlKey(ControlCode.ctrlO),
-      ControlKey(ControlCode.backtab),
       EditingKey(EditingAction.delete),
       AltKey(0x64),
       FunctionKey(FunctionKeyCode.f10),
       UnknownEscape([27, 91, 99]),
-    ];
-    for (final event in events) {
+    ]) {
       editor.inject(event);
     }
-    expect(received, orderedEquals(events));
-    expect(editor.editState.buffer, 'draft');
+    expect(received, [same(wheel)],
+        reason: 'not one non-wheel event reached the panel');
+
+    // The quit flow still works under the wedge: ctrl+C arms, then confirms.
+    editor.inject(ControlKey(ControlCode.ctrlC));
+    expect(interrupts, 0, reason: 'the first ctrl+c only arms the confirm');
+    editor.inject(ControlKey(ControlCode.ctrlC));
     expect(interrupts, 0);
-    expect(shortcuts, 0);
     expect(focus.focused, same(panel));
   });
 
@@ -138,16 +140,21 @@ void main() {
     expect(editor.editState.buffer, 'new instruction');
   });
 
-  test('queue and cancel monitoring do not take input from the panel', () {
+  test('queue mode queues chars; ESC reaches an overlay-stood-down panel '
+      'and is otherwise the cancel gesture', () {
     var cancelled = 0;
     final submitted = <String>[];
     editor.beginCancelMonitor(() => cancelled++, onQueueSubmit: submitted.add);
     editor.inject(CharInput('command'));
     editor.inject(ControlKey(ControlCode.enter));
     editor.inject(EscapeKey());
-    expect(received, hasLength(3));
-    expect(cancelled, 0);
-    expect(submitted, isEmpty);
+    // Pre-fix: the panel route (armed before the monitor in setUp) swallowed
+    // all three. The armed prompt now stands the panel down, so queue mode
+    // consumes the chars (submit on Enter) and ESC becomes the cancel once
+    // the queue buffer is empty.
+    expect(received, isEmpty);
+    expect(cancelled, 1, reason: 'ESC with an empty queue cancels the turn');
+    expect(submitted, ['command']);
     editor.endCancelMonitor();
   });
 
@@ -178,6 +185,26 @@ void main() {
     expect(modal.events, [same(escape)]);
     expect(received, isEmpty);
     expect(interrupts, 0);
+    editor.endCancelMonitor();
+  });
+
+  test('a declining modal shields the panel from the cancel monitor', () {
+    // Field-wedge regression: with the panel route stood down (prompt armed)
+    // an overlay's unhandled key must still stop at the overlay — it used to
+    // sail into the cancel monitor, which fired a bogus cancel and leaked the
+    // key to the focused panel on the way.
+    final modal = _Modal(false);
+    editor.registerModal(modal);
+    editor.beginCancelMonitor(() => fail('background cancellation'));
+    final escape = EscapeKey();
+    editor.inject(escape);
+    editor.inject(CharInput('typed'));
+    expect(modal.events, [same(escape), CharInput('typed')],
+        reason: 'every key is offered to the overlay while it is active');
+    expect(received, isEmpty,
+        reason: 'nothing leaks past the overlay to the focused panel');
+    expect(editor.editState.buffer, 'draft',
+        reason: 'and nothing edits the armed prompt either');
     editor.endCancelMonitor();
   });
 
@@ -220,11 +247,16 @@ void main() {
     await response;
     expect(received, isEmpty);
     await Future<void>.delayed(const Duration(milliseconds: 20));
+    // The burst window has expired by now: the overflow chars are stale
+    // (tina's stale-burst drop) and must never answer a future readKey —
+    // they are dropped, not delivered to the prompt or the panel.
     editor.inject(CharInput('new input'));
-    expect(received, [CharInput('new input')]);
+    expect(received, isEmpty,
+        reason: 'the panel is stood down; nothing may spill into it');
+    expect(editor.editState.buffer, 'draftnew input');
   });
 
-  test('a held approval paste reaches the owner only after approval resolves',
+  test('an approval-era paste goes to the prompt, never to the panel',
       () async {
     final response = editor.readKey(globalKeys: true);
     await pumpEventQueue();
@@ -233,7 +265,8 @@ void main() {
     editor.inject(CharInput('n'));
     await response;
     await pumpEventQueue();
-    expect(received, [PasteInput('pending paste')]);
-    expect(editor.editState.buffer, 'draft');
+    expect(received, isEmpty,
+        reason: 'the paste typed while the prompt is armed edits the prompt');
+    expect(editor.editState.buffer, 'draftpending paste');
   });
 }

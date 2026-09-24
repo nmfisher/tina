@@ -275,6 +275,13 @@ class Screen {
   /// from this moment on — recorded here, while the cause is still in hand,
   /// instead of leaving a mystery to diagnose from a live screen. Warns once per
   /// occurrence, and only for a backend that can report its state.
+  ///
+  /// Diagnosis happens only at nesting depth zero: while a [frame] body is
+  /// still running (nested frames), the backend count legitimately sits above
+  /// zero. Warning there produced a storm of false alarms whenever a nested
+  /// frame flushed mid-write (2026-09-24 field log: a 2.5-second, 40ms-cadence
+  /// storm that masked the real, single leak), and the alarm is only true at
+  /// depth zero — any frame still open there is one we did not open.
   void _checkFrameClosed(TerminalBackend be) {
     final diag =
         be is BackendDiagnostics ? be as BackendDiagnostics : null;
@@ -284,6 +291,7 @@ class Screen {
       _warnedStuckFrame = false;
       return;
     }
+    if (_frameDepth > 0) return;
     if (_warnedStuckFrame) return;
     _warnedStuckFrame = true;
     InputLog.warn('frame not closed - the screen cannot repaint', {

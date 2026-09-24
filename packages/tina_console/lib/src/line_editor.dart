@@ -635,13 +635,19 @@ class LineEditor {
         target.inputMode == PanelInputMode.exclusive;
   }
 
-  /// Panel-owned input bypasses chat editing, cancellation and app shortcuts.
-  /// A readKey still owns the keyboard. Registered overlays sit above panels;
-  /// even an unhandled modal key must not reach the background panel.
-  bool _routeExclusivePanelInput(InputEvent event) {
-    if (_keyCompleter != null ||
-        (_burstTimer != null && event is CharInput) ||
-        !_exclusivePanelFocused) return false;
+  /// Registered overlays sit above every consumer — exclusive panels, the
+  /// chat prompt, cancel monitoring. First active surface to consume wins.
+  /// An overlay that only declines still owns the screen against the
+  /// background panel (the event must not leak to a panel underneath an
+  /// open overlay), but keeps baseline's editor fall-through while a prompt
+  /// is armed (line_editor_test: a declining overlay lets typing through).
+  ///
+  /// This used to live inside [_routeExclusivePanelInput] only, so standing
+  /// the panel route down for an armed chat prompt starved the overlays —
+  /// keys sailed past them into the cancel monitor (which fired a bogus
+  /// cancel AND leaked the key to the focused panel on the way). The gate is
+  /// dispatched once, before any consumer that could own the event.
+  bool _offerToModals(InputEvent event) {
     var modalActive = false;
     for (final modal in _modals) {
       if (!modal.isActive) continue;
@@ -651,7 +657,34 @@ class LineEditor {
         return true;
       }
     }
-    if (modalActive) return true;
+    if (!modalActive) return false;
+    // With a panel focused the overlay owns the screen — swallow even its
+    // unhandled keys (they must not leak to the panel or, worse, into the
+    // cancel monitor as a bogus cancel). Without a panel, baseline's
+    // fall-through stands: typing reaches the armed prompt/editor (a
+    // declining overlay must not blackout the chat input).
+    return _exclusivePanelFocused;
+  }
+
+  /// Panel-owned input bypasses chat editing, cancellation and app shortcuts.
+  /// A readKey still owns the keyboard. Registered overlays are offered the
+  /// event before this route runs (see [_offerToModals]).
+  ///
+  /// The chat prompt outranks an exclusive panel's key claim — but only while
+  /// the prompt row is actually visible. That distinction is the whole bug
+  /// class: in the field wedge the `> ` row was painted and a panel left
+  /// focused from an earlier overlay swallowed every character (the visible
+  /// prompt with a dead keyboard). In the coordinator's panel-owned state the
+  /// row is deliberately hidden behind a bounds override and the panel is the
+  /// legitimate keyboard owner; standing it down there would splatter panel
+  /// keys into the hidden editor. See [_promptRowOwnsKeyboard].
+  bool _routeExclusivePanelInput(InputEvent event) {
+    if (_keyCompleter != null ||
+        _promptRowOwnsKeyboard ||
+        (_burstTimer != null && event is CharInput) ||
+        !_exclusivePanelFocused) {
+      return false;
+    }
     final fm = _focusManager!;
     _lastEsc = null;
     if (fm.isCycling ||
@@ -664,6 +697,13 @@ class LineEditor {
     }
     return true;
   }
+
+  /// Whether the chat prompt row currently owns the keyboard: a readLine is
+  /// armed AND its row is visible on screen. A hidden row (the coordinator's
+  /// panel-owned state: bounds override active) means a panel legitimately
+  /// owns input — the prompt is paused, not presented.
+  bool get _promptRowOwnsKeyboard =>
+      _completer != null && !screen.input.bounds.isEmpty;
 
   /// Hide editor-only overlays when a panel takes over the keyboard. Drafts
   /// and command history remain intact for the next conversation focus.
@@ -753,6 +793,10 @@ class LineEditor {
       }
       return KeyHandledBy.quit;
     }
+    // Registered overlays sit above every consumer below this line —
+    // exclusive panels, the quit-confirm dismissal, an armed prompt, cancel
+    // monitoring. Ctrl+C itself stays quit-gate property (see above).
+    if (_offerToModals(event)) return KeyHandledBy.modal;
     if (_routeExclusivePanelInput(event)) return KeyHandledBy.panel;
     // An armed quit-confirm yields to the key's real owner above (exclusive
     // panels, modals). Any other key dismisses it on the way to its normal
@@ -848,7 +892,13 @@ class LineEditor {
     }
     if (_cancelHandler != null) {
       if (_handleFocusRingKeys(event)) return KeyHandledBy.focusRing;
-      if (_focusManager?.focused?.handleEvent(event) ?? false) {
+      // Same stand-down as everywhere else: with the visible prompt row on
+      // the keyboard the panel is off the input path (the wheel excepted) —
+      // its keys belong to the queue/cancel machinery below.
+      final panelMayTake =
+          !_promptRowOwnsKeyboard || event is ScrollEvent;
+      if (panelMayTake &&
+          (_focusManager?.focused?.handleEvent(event) ?? false)) {
         return KeyHandledBy.panel;
       }
       // Ctrl+C never reaches here (the quit gate consumes it first); the
@@ -1043,20 +1093,12 @@ class LineEditor {
 
   KeyHandledBy _dispatchEvent(InputEvent event) {
     // Held pastes also enter here after a prompt releases input ownership.
+    // Registered overlays were offered the event once, at the top of
+    // [_onEventInner] (see [_offerToModals]) — the single dispatch point, so
+    // this path must not offer again.
     if (_routeExclusivePanelInput(event)) return KeyHandledBy.panel;
     if (debugKeys) {
       stderr.writeln('[keys] event: $event');
-    }
-    // 1. Registered modal overlays get first dibs while active — ahead of the
-    //    focus ring, menu, focused panel, and the editor. An open overlay must
-    //    intercept its own keys (e.g. arrows to scroll, Esc to close) even when
-    //    the strip or menu is focused, so it preempts them all. First active
-    //    surface to consume the event wins.
-    for (final modal in _modals) {
-      if (modal.isActive && modal.handleEvent(event)) {
-        _redraw();
-        return KeyHandledBy.modal;
-      }
     }
     // 2. Ctrl+O: the app's panel-maximize toggle. Ahead of the focus
     //    ring so it fires both while cycling (the highlighted panel) and on
@@ -1102,9 +1144,17 @@ class LineEditor {
       return KeyHandledBy.menu;
     }
     // 6. The focused panel handles the event (chat declines → editor; info
-    //    swallows). The menu is handled in step 4.
+    //    swallows) — unless the chat prompt is armed: the visible `> ` row
+    //    owns the keyboard then, exactly as in [_routeExclusivePanelInput].
+    //    Pre-fix, a panel left focused by an earlier overlay swallowed every
+    //    character under the armed prompt (the field wedge: the screen is
+    //    back after a resize but typing goes nowhere). Wheel events stay
+    //    panel-owned — scrolling a read-only view while the prompt waits is
+    //    useful and harms nothing.
     final focused = _focusManager?.focused;
-    if (focused != null && focused.handleEvent(event)) {
+    final panelMayTake =
+        !_promptRowOwnsKeyboard || event is ScrollEvent;
+    if (panelMayTake && focused != null && focused.handleEvent(event)) {
       return KeyHandledBy.panel;
     }
     // macOS Option+Arrow fallback: ESC and the letter arrive in separate

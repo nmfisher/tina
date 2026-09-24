@@ -51,7 +51,7 @@ class _Rig {
   final PanelFrame readOnly;
   final eaten = <InputEvent>[];
 
-  factory _Rig.create() {
+  static Future<_Rig> create() async {
     final io = FakeStdio();
     final screen = Screen(
       io: io,
@@ -66,11 +66,15 @@ class _Rig {
     );
     // Production always shows a prompt before a panel can steal focus, which
     // seeds the editor's remembered prompt string. Mirror that so repaints
-    // after the wedge paint '> ' instead of a blank.
+    // after the wedge paint '> ' instead of a blank. The flush between arming
+    // and submitting is not cosmetic: readLine's body runs asynchronously, so
+    // an Enter emitted synchronously lands before _completer exists — the
+    // warmup prompt would stay armed as a zombie, and the prompt stand-down
+    // (the dead-keyboard fix) would then rightly keep every panel route off.
     final warmup = editor.readLine('> ');
+    await _flush();
     input.emit(ControlKey(ControlCode.enter));
-    unawaited(warmup);
-    final chat = PanelFrame(
+    unawaited(warmup);    final chat = PanelFrame(
         screen: screen, label: 'Chat', conversationId: 'chat');
     final ro = PanelFrame(
       screen: screen,
@@ -101,7 +105,7 @@ void main() {
   group('read-only-panel wedge: hide and restore of the shared input row', () {
     test('setBoundsOverride(empty) hides the row; null + refresh restores it',
         () async {
-      final rig = _Rig.create();
+      final rig = await _Rig.create();
       final ed = rig.editor;
       final io = rig.io;
       final screen = rig.screen;
@@ -131,7 +135,7 @@ void main() {
 
     test('full wedge timeline: panel eats keys, restore hands them back',
         () async {
-      final rig = _Rig.create();
+      final rig = await _Rig.create();
       final ed = rig.editor;
       final input = rig.input;
       final io = rig.io;
@@ -155,7 +159,10 @@ void main() {
           reason: 'the read-only panel consumes text keys while focused');
       expect(ed.editState.buffer, isEmpty,
           reason: 'nothing may leak into the editor while suspended');
-      expect(ed.keyCount, 2, reason: 'the stream itself never stops ticking');
+      expect(ed.keyCount, 3,
+          reason: 'the stream never stops ticking (the warmup Enter counts '
+              'now that it is delivered for real instead of racing the '
+              'readLine pump)');
 
       // Recovery: un-hide the row, refocus the chat panel, release the
       // monitor (the app always does this before re-arming the prompt —
@@ -176,13 +183,13 @@ void main() {
       expect(await line, 'hi',
           reason: 'after the restore choreography the editor must own the '
               'keyboard again — this is the wedge recovery invariant');
-      expect(ed.keyCount, 5, reason: 'zero events lost across the wedge');
+      expect(ed.keyCount, 6, reason: 'zero events lost across the wedge');
       ed.close();
     });
 
     test('ctrlG still reaches the focus ring under the wedge (documented out)',
         () async {
-      final rig = _Rig.create();
+      final rig = await _Rig.create();
       final ed = rig.editor;
       final input = rig.input;
       final screen = rig.screen;
@@ -229,7 +236,7 @@ void main() {
 
     test('queue monitor under the wedge: queued text stays queued and '
         'readLine regains the keyboard', () async {
-      final rig = _Rig.create();
+      final rig = await _Rig.create();
       final ed = rig.editor;
       final input = rig.input;
       final io = rig.io;
