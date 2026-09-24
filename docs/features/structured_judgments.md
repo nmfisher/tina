@@ -460,3 +460,14 @@ The request is pre-flighted against the conversation's token budget
 booked by the metered provider stack. The command runs headless and needs no
 TypeSafe key — it uses the chat provider to *propose* questions, not the
 TypeSafe API to answer them.
+
+After a successful review, the command appends an adoptable **classifier
+program fragment**: the built-in `/index` program rendered as DOT, with
+reader instructions and the review's focus as `//` comments. Save it as
+`<repo>/.tina/programs/index.dot` (or `~/.tina/workflows/index.dot` as a
+global default) to adopt it, then `/workflow edit index` opens it in the
+visual editor — workspace programs resolve first and save back to their
+origin, and `graphToDot` rewrites are canonical, so load → edit → save
+round-trips without loss. See [the classifier programs
+section](INDEX_COMMAND.md#classifier-programs) for resolution precedence
+and routing rules.

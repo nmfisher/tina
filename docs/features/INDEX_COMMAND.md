@@ -1,8 +1,8 @@
 # /index
 
-`/index` classifies programming and markup languages in the project directory tree. It does
-not create summaries, propose regions, run setup, or classify frameworks, build
-systems, test systems, or target platforms.
+`/index` classifies programming and markup languages in the project directory tree, then
+framework and tooling signals per directory. It does not create summaries,
+propose regions, or run setup.
 
 1. Discover directories down to the leaves using the source's file inventory.
 2. Use the language classifier to classify each directory's direct files.
@@ -44,6 +44,31 @@ model (default `jev-latest`); set its API key in `/settings` or `TYPESAFE_API_KE
 Neither implementation uses the chat model. The default source supplies filenames only, applies Git ignores
 and collection exclusions, and requires a Git repository. Input selection and
 freshness are source policy; only the classifier decides the language labels.
+
+## Classifier programs
+
+`/index` runs its stages as a classifier program on the attractor engine
+(`type="classify"` nodes): `language` first, then `details` (framework and
+tooling in one stage). The built-in program sequences
+`start → language → details → exit`.
+
+The program is resolved per run, in order:
+
+1. `<repo>/.tina/programs/index.dot`, else the *single* `*.dot` in that
+   directory when unambiguous;
+2. `~/.tina/workflows/index.dot` (global default);
+3. the built-in program — `/index` never runs "no program".
+
+An invalid program file fails fast: the report carries the file's
+diagnostics under `program`, no store is opened and no classifier runs —
+the built-in never masks a broken file. Progress lines prefixed
+`Program <name>: stage <id>` trace the walk; a stage that fails outright
+ends the run (later stages are skipped), while per-task failures inside an
+attempted stage leave downstream stages running. Edit programs with
+`/workflow edit <name>` — workspace programs open first and save back to
+`.tina/programs/`. See
+[the proposal](../proposals/hierarchical_classifiers.md) for the routing
+rules and decisions.
 
 See [project classification](project_classification.md) for limits and storage,
 [classifier](../../packages/classifier/README.md) for the generic tree API, and
