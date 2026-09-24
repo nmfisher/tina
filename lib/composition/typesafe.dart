@@ -55,6 +55,9 @@ Future<ProjectClassificationReport> runConfiguredProjectClassification(
   if (!const ['', 'status', 'refresh'].contains(mode)) {
     throw ArgumentError(IndexOptions.usage);
   }
+  final globalWorkflowsDir = Directory(
+    '${(tinaDir ?? tinaDirFromEnv(app.environment.env)).path}/workflows',
+  );
   final service = createConfiguredTypeSafeService(
     env: app.environment.env,
     tinaDir: tinaDir,
@@ -66,6 +69,7 @@ Future<ProjectClassificationReport> runConfiguredProjectClassification(
         app,
         method: method,
         mode: mode,
+        globalWorkflowsDir: globalWorkflowsDir,
         cancelSignal: cancelSignal,
         onProgress: onProgress,
         onTaskProgress: onTaskProgress,
@@ -88,6 +92,7 @@ Future<ProjectClassificationReport> runConfiguredProjectClassification(
       },
       spendLedger: spendLedger,
       mode: mode,
+      globalWorkflowsDir: globalWorkflowsDir,
       cancelSignal: cancelSignal,
       onProgress: onProgress,
       onTaskProgress: onTaskProgress,

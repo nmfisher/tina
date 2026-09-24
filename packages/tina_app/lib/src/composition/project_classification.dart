@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:classifier/classification.dart';
 import 'package:classifier/judgments.dart';
 import 'package:tina_engine/tina_engine.dart';
@@ -10,6 +12,7 @@ import '../classification/project_classifiers.dart';
 import '../classification/repository_classification_source.dart';
 import '../classification/repository_text_source.dart';
 import '../classification/project_classification_workflow.dart';
+import '../workflows/classify_program.dart';
 import 'app_composition.dart';
 import '../exploration/metered_judgment_service.dart';
 
@@ -66,6 +69,7 @@ Future<ProjectClassificationReport> runProjectClassification(
   Object? serviceIdentity,
   SpendLedger? spendLedger,
   String mode = '',
+  required Directory? globalWorkflowsDir,
   RepositoryProjection projection = RepositoryProjection.filenames,
   Future<void>? cancelSignal,
   void Function(String)? onProgress,
@@ -88,6 +92,26 @@ Future<ProjectClassificationReport> runProjectClassification(
     );
   }
   final root = app.pipeline.tools.workspaceRoot;
+  // Program resolution (decision 3): a workspace `.tina/programs` file beats
+  // [globalWorkflowsDir]; no file anywhere means the built-in. An invalid
+  // file fails fast with its diagnostics — never masked by the fallback.
+  final program = await loadIndexProgram(
+    workspaceRoot: root,
+    globalWorkflowsDir: globalWorkflowsDir,
+  );
+  if (!program.valid) {
+    return ProjectClassificationReport(
+      const {},
+      {
+        'program': 'invalid classify program ${program.origin}:\n'
+            '${program.errorsText}',
+      },
+      0,
+      0,
+      0,
+      false,
+    );
+  }
   // Limits come from the classifier transport, never the conversation model.
   final budget = !hasJudgments
       ? ClassificationBudget()
@@ -160,6 +184,19 @@ Future<ProjectClassificationReport> runProjectClassification(
         source,
         local: local,
         cancelSignal: cancelSignal,
+        program: program,
+        onEvent: (event) {
+          final progress = onProgress;
+          if (progress == null) return;
+          if (event.kind == 'node_started') {
+            progress('Program ${program.name}: stage ${event.nodeId}');
+          } else if (event.kind == 'node_failed') {
+            progress(
+              'Program ${program.name}: stage ${event.nodeId} failed'
+              '${event.message == null ? '' : ': ${event.message}'}',
+            );
+          }
+        },
         detailsSource: hasJudgments
             ? RepositoryTextSource(
                 reader: reader,

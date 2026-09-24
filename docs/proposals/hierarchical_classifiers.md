@@ -232,17 +232,18 @@ hand-written CI job (`test/architecture/ci_owned_packages_guard_test.dart`).
    `coverage.complete=true`, `outcome.classified=true`) so stock `Condition`
    evaluates programs today. A `~=`/`in` membership clause is a later,
    additive attractor change only if publishing keys proves verbose.
-2. **Status mapping.** Stage → `StageStatus`:
-   all requested records restored/classified and no task failures ⇒
-   `success`; some task failures or incomplete-coverage records but at least
-   one classified record ⇒ `partial_success` (engine treats as ok,
-   `outcome.dart:60`, so edges without explicit conditions proceed); zero
-   classified records and any failure/incomplete record, or an orchestrator
-   error ⇒ `fail` (routes only via explicit `outcome=fail` edges).
-   Context keys published by every stage: `outcome.<classified|unknown|
-   not_applicable>=true` for the root record summary,
-   `coverage.complete=true|false`, `label.<name>=true` per distinct label
-   across records (capped at 64, the `ProjectLabels` ceiling), plus
+2. **Status mapping** *(amended 2026-09-23 with the migration suite)*.
+   Stage → `StageStatus`: no task failures ⇒ `success`; task failures inside
+   an **attempted** stage ⇒ `partial_success`, even when zero records
+   classified — the engine treats it as ok (`outcome.dart:60`) so downstream
+   stages still run, which preserves today's behavior that tooling (local)
+   classifies even when every language request failed; a stage that **could
+   not attempt** its work (details prerequisites unavailable) or an
+   orchestrator error (thrown, not a status) ⇒ `fail` — the run ends, no
+   unconditional edge is taken. Context keys published by every stage:
+   `outcome.<classified|unknown|not_applicable>=true` for the stage record
+   summary, `coverage.complete=true|false`, `label.<name>=true` per distinct
+   label across records (capped at 64, the `ProjectLabels` ceiling), plus
    `stages_ok`/`stages_failed` integer counts for diagnostics.
 3. **Program file locations.** Workspace programs:
    `<repo>/.tina/programs/*.dot`; global programs (and the built-in default

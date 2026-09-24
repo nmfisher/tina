@@ -67,6 +67,7 @@ void main() {
         requestBudget: JudgmentRequestBudget(model: 'jev-test'),
         serviceIdentity: 'test-judgments',
         mode: mode,
+        globalWorkflowsDir: null,
       );
       final first = await build('slow-chat-model');
       final status = await run(first, mode: 'status');

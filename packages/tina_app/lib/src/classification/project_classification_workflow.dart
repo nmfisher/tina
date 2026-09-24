@@ -1,4 +1,5 @@
-import 'package:attractor/attractor.dart' show StageStatus;
+import 'package:attractor/attractor.dart'
+    show PipelineEventListener, StageStatus;
 import 'package:classifier/classification.dart';
 
 import '../workflows/classify_engine.dart';
@@ -47,6 +48,7 @@ Future<ProjectClassificationReport> classifyProject(
   String? detailsError,
   ClassifyProgram? program,
   Future<void>? cancelSignal,
+  PipelineEventListener? onEvent,
 }) async {
   final failures = <String, String>{};
   final records = <String, ClassificationRecord<ProjectLabels>>{};
@@ -70,13 +72,18 @@ Future<ProjectClassificationReport> classifyProject(
     });
   }
 
-  // Stage status + context keys per decision 2 of the proposal: no failures ⇒
-  // success; failures but at least one classified record ⇒ partial_success
-  // (the engine treats it as ok and proceeds); nothing classified with any
-  // failure ⇒ fail (the run ends; no unconditional edge is taken).
+  // Stage status + context keys per decision 2 of the proposal (amended:
+  // task failures inside an attempted stage map to partial_success even when
+  // zero records classified — downstream stages may be independently valuable,
+  // e.g. tooling is local — while a stage that could not attempt its work
+  // (details prerequisites unavailable) maps to fail and ends the run).
   var stagesOk = 0;
   var stagesFailed = 0;
-  ClassifyStageResult stageResult(String stage, List<String> kinds) {
+  ClassifyStageResult stageResult(
+    String stage,
+    List<String> kinds, {
+    required bool attempted,
+  }) {
     bool isStageKey(String key) => kinds.any((k) => key.endsWith('::$k'));
     final stageFailureKeys = failures.keys.where(isStageKey).toList();
     final stageRecords = [
@@ -99,7 +106,7 @@ Future<ProjectClassificationReport> classifyProject(
     final failed = stageFailureKeys.isNotEmpty || incomplete > 0;
     final status = !failed
         ? StageStatus.success
-        : classified > 0
+        : attempted
             ? StageStatus.partialSuccess
             : StageStatus.fail;
     if (status == StageStatus.fail) {
@@ -148,7 +155,7 @@ Future<ProjectClassificationReport> classifyProject(
           );
           collect('language', result);
           keys = plan.keys(tree);
-          return stageResult('language', const ['language']);
+          return stageResult('language', const ['language'], attempted: true);
         case 'details':
           if (detailsSource != null) {
             final framework = TreePlan<TextEvidence, ProjectLabels>(
@@ -221,7 +228,11 @@ Future<ProjectClassificationReport> classifyProject(
                   .any((key) => key.startsWith('${tree.root}::'))) {
             await session.retainTasks(keys);
           }
-          return stageResult('details', const ['framework', 'tooling']);
+          return stageResult(
+            'details',
+            const ['framework', 'tooling'],
+            attempted: detailsSource != null,
+          );
         default:
           return ClassifyStageResult(
             status: StageStatus.fail,
@@ -242,6 +253,7 @@ Future<ProjectClassificationReport> classifyProject(
     program: program ?? builtinIndexProgram(),
     runStage: runStage,
     cancelSignal: cancelSignal,
+    onEvent: onEvent,
   );
 
   if (firstError != null) {
