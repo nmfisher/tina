@@ -73,7 +73,59 @@ Two directions, lopsided activity:
   browser-first with a `serve`-only Go CLI. "Browser-only" was true of the
   0.4 kernel, not of the project's whole history.
 
-## 5. Sources (accessed 2026-09-24)
+## 5. Dart ↔ WASI status (September 2026)
+
+Fact-check of a second shared AI conversation (dart2wasm/WASI summary). All
+GitHub references verified against the API on 2026-09-24; two states had
+moved since the conversation was written.
+
+### The pipeline (dart2wasm → standalone runtimes)
+
+- **Issue #53884** `[dart2wasm] Support non-JS wasm runtimes` — **open**
+  (updated 2026-08-25), the master tracker: decouple dart2wasm output from
+  JS host functions (event loop/timers, printing, double→string, RegExp,
+  stack traces) via an experimental `--standalone` mode with documented
+  host imports (`sdk/lib/_internal/wasm/standalone/embedder.dart`).
+- **Issue #56366** `[proposal] [dart2wasm] Wasm component model / WASI
+  support` — **open**, enhancement proposal, modest activity (8 comments).
+- **Issue #63166** `Split dart:_wasm to avoid dart:js_interop import` —
+  **closed 2026-07-29**; the chat's "active blocker" framing is stale, this
+  landed.
+- **Issue #54394** `[dart2wasm] Use new exception instructions` —
+  **closed**; likewise done, not a live Wasmtime compatibility blocker.
+
+### Ecosystem
+
+- **`simolus3/wasm.dart`** ("Tools to run Dart in any WebAssembly runtime"):
+  `wasm_tools` (Dart → component CLI, WIT bindings) + `wasm_components`
+  (component-model runtime for Dart). Compiles via the experimental
+  `--standalone` mode and resolves SDK host imports by linking Dart-written
+  `@pragma('wasm:export')` implementations back into the module. Self-
+  reported status: **"can't handle much more than a hello world program."**
+  Its embedder-import table is the clearest public map of the remaining
+  work: string ops and clocks ✅; scheduling requires host imports 📦;
+  weak refs / expandos / finalizers / stack traces are 🛑 (fundamentally
+  unavailable under Wasm GC today — stubs only).
+- **`wasd`** (medz/wasd, pub.dev v0.5.0, 2026-08-04): the *opposite
+  direction* — a pure-Dart WebAssembly **runtime/host** for the Dart VM:
+  WASI preview1 runner plus Dart VM execution of WASI 0.2.12
+  command/proxy and 0.3.0 command/service components. Single maintainer,
+  first release 2026-02, 0.x.
+
+### Verdict for tina
+
+- Neither project changes tin-w4sm. `wasd` is an interpreter-class pure-
+  Dart host: it cannot satisfy the Phase 0 gate (pinned maintained native
+  runtime, provenance, epoch-interruption cancellation, native FFI
+  evidence) and is younger and less exercised than the vendored Wasmtime.
+  `wasm.dart` is about *emitting* Dart as components — irrelevant to
+  executing untrusted C-compiled plugin guests.
+- Worth re-checking at Phase 4 time: if `--standalone` matures, a future
+  option is compiling *tina head tools* (or the worker) into components to
+  run under foreign runtimes — the direction our `spikes/dart_wasm_worker`
+  (workerd) probe already pointed at. Monitor #53884; do not plan on it.
+
+## 6. Sources (accessed 2026-09-24)
 
 - https://github.com/tractordev/wanix (+ cmd/wanix/main.go, raw README)
 - https://wanix.sh/ (current, 0.4-rc2 era) and
@@ -86,3 +138,7 @@ Two directions, lopsided activity:
 - https://github.com/Apothic-AI/star9, https://github.com/xphung/plan9_webasm
 - GitHub/HN/GB search queries: plan9+wasm, 9front+wasm, jetstream 9p quic
   (0 results), HN "9front" (Aug 2026 release thread)
+- Dart SDK issues: dart-lang/sdk#53884 (open), #56366 (open), #63166
+  (closed 2026-07-29), #54394 (closed) — via GitHub API
+- https://github.com/simolus3/wasm.dart (+ raw README, embedder-import
+  table); https://pub.dev/packages/wasd (v0.5.0, published 2026-08-04)
