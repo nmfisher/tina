@@ -670,13 +670,22 @@ InputEvent? translateNcKey({
   required bool hasShift,
   required bool isSynthesized,
 }) {
+  // Notcurses encodes keys with no legacy byte above the Unicode range
+  // ("preterunicode", NCKEY_SYNTHESIZED_START and up): Enter, Backspace,
+  // arrows, function keys, mouse. Such an id can never be a codepoint, so it
+  // must take the synthesized path even when the caller's flag says otherwise
+  // — the legacy poll path relies on the native keySynthesizedP() here, and
+  // when that reported false the printable/UTF-8 branches below fed the id to
+  // String.fromCharCode, which throws RangeError past 0x10FFFF (Enter,
+  // 1115121, crashed the poll path). Deriving it from the id is total.
+  final synthesized = isSynthesized || id >= nc.preterunicode(0);
   // Notcurses with extended keyboard modes delivers Ctrl+letter as
   // (id=letter, hasCtrl=true) rather than the raw C0 byte. Fold that back
   // to the C0 byte (id & 0x1F) so the switch below handles Ctrl+letter
   // uniformly whether the terminal sent raw 0x01–0x1a or the letter with
   // a modifier flag. Skip synthesized keys (arrows/functions carry hasCtrl
   // for Ctrl+Arrow etc., which is a different semantic).
-  if (hasCtrl && !isSynthesized) {
+  if (hasCtrl && !synthesized) {
     final lower = _lowerAlpha(id);
     if (lower >= 0x61 && lower <= 0x7a) {
       id = lower & 0x1F;
@@ -689,7 +698,7 @@ InputEvent? translateNcKey({
     return CharInput(String.fromCharCode(id));
   }
   // UTF-8 printable (> 0x7F and not a notcurses synthesized key).
-  if (id > 0x7F && !isSynthesized) {
+  if (id > 0x7F && !synthesized) {
     if (hasAlt) return AltKey(id);
     return CharInput(String.fromCharCode(id));
   }

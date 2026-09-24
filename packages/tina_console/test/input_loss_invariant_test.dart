@@ -158,10 +158,12 @@ void main() {
 
   group('input-loss invariant through the real backend path (pump)', () {
     // The pump path is production's path: input_pump.c → _onPumpedInput →
-    // editor. (The legacy poll path is NOT used here: it currently crashes
-    // on Enter — translateNcKey feeds NcKey.enter (1115121) to
-    // String.fromCharCode, a RangeError — which these tests surfaced; that
-    // defect is reported separately and not baked into the invariant.)
+    // editor. (The legacy poll path is NOT exercised here — production does
+    // not use it. It used to crash on Enter: translateNcKey fed NcKey.enter
+    // (1115121) to String.fromCharCode, a RangeError, whenever the native
+    // keySynthesizedP() reported false. translateNcKey now derives
+    // synthesized-ness from the id, so that path is total too; see
+    // notcurses_translate_key_test's preterunicode cases.)
 
     test('N keys at the key source → N events → keyCount +N', () async {
       final source = _FakeKeySource();

@@ -82,6 +82,36 @@ void main() {
           equals(ControlKey(ControlCode.enter)));
     });
 
+    test('preterunicode ids translate even when isSynthesized is false', () {
+      // Regression: the legacy poll path sourced isSynthesized from the native
+      // keySynthesizedP(), which could report false for Enter (1115121). The
+      // UTF-8 branch then fed that id — far above Unicode's 0x10FFFF — to
+      // String.fromCharCode, a RangeError that crashed the path on Enter.
+      // Preterunicode ids are never codepoints, so translation derives that
+      // from the id itself and stays total without the flag.
+      expect(translate(nc.NcKey.enter),
+          equals(ControlKey(ControlCode.enter)));
+      expect(translate(nc.NcKey.backspace),
+          equals(ControlKey(ControlCode.backspace)));
+      expect(translate(nc.NcKey.up), equals(ArrowKey(ArrowDirection.up)));
+      expect(translate(nc.NcKey.del),
+          equals(EditingKey(EditingAction.delete)));
+      expect(translate(nc.NcKey.f01), equals(FunctionKey(FunctionKeyCode.f1)));
+    });
+
+    test('every preterunicode id is total, never throwing', () {
+      // The whole synthesized range must translate or return null — never
+      // throw. Any throw here is a dead key on the poll path.
+      for (var w = 0; w < 300; w++) {
+        final id = nc.preterunicode(w);
+        expect(
+          () => translate(id),
+          returnsNormally,
+          reason: 'preterunicode($w) = $id must not throw',
+        );
+      }
+    });
+
     test('Tab (raw 0x09)', () {
       expect(translate(0x09), equals(ControlKey(ControlCode.tab)));
     });
