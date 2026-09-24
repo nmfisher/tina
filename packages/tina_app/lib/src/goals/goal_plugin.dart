@@ -129,21 +129,11 @@ class GoalSummary {
   }
 }
 
-/// The goal judge's trigger surface, hung on the plugin (not the store) so
-/// the store stays a plain data holder. The host layer owns the pieces a
-/// judge needs — the one-shot agent scheduler, the conversation's transcript
-/// and a transcript sink for notices — and none of them belong in tina_app's
-/// data layer, so the composition passes this closure in; `/goal check` and
-/// the turn-end wiring both call it.
-///
-/// Returns the recorded verdict (null when no judge ran — unwired, no goal,
-/// or the judge failed; failures are logged inside the hook, never thrown).
-typedef GoalJudgeHook =
-    Future<GoalVerdict?> Function(String conversationId, {bool force});
-
 /// The human override. Writes the store directly; every subcommand answers in
-/// the invoking conversation.
-Command goalCommand(GoalStore store, {GoalJudgeHook? judge}) => Command(
+/// the invoking conversation. The judge is read from [store.judgeHook] at
+/// dispatch time (late-bound: the coordinator installs it after composition,
+/// once the scheduler + conversations exist).
+Command goalCommand(GoalStore store) => Command(
       names: ['/goal'],
       argsHint: '[clear | check | status | <free text>]',
       summary:
@@ -168,6 +158,7 @@ Command goalCommand(GoalStore store, {GoalJudgeHook? judge}) => Command(
             call.write('No goal to check. Set one with `/goal <text>`.\n');
             return const CmdHandled(failed: true);
           }
+          final judge = store.judgeHook;
           if (judge == null) {
             call.write('No goal judge is wired in this session.\n');
             return const CmdHandled(failed: true);

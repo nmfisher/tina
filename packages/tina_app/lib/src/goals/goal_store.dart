@@ -43,6 +43,17 @@ class Goal {
   }
 }
 
+/// The judge's trigger surface: resolve [conversationId]'s goal + transcript,
+/// run the check, record the verdict, and return it (null when nothing ran —
+/// unwired, no goal, cancelled, or the judge failed; failures are logged
+/// inside, never thrown). [force] bypasses the turn-quality guard (a turn
+/// that aborted must not read as "not achieved"), so `/goal check` works
+/// even right after a failed turn.
+typedef GoalJudgeHook = Future<GoalVerdict?> Function(
+  String conversationId, {
+  bool force,
+});
+
 /// The single mutable state of the goal plugin: per-conversation goals with a
 /// change stream every surface (strip, request middleware, commands, the
 /// turn-end judge) derives from. Not registered as a contribution — provided
@@ -57,6 +68,14 @@ class GoalStore {
   /// request's injected context.
   static const maxTextLength = 500;
   static const maxEvidenceLength = 240;
+
+  /// The host-installed judge, invoked by `/goal check` and the turn-end
+  /// wiring. Late-bound because only the host layer owns the pieces a judge
+  /// needs — the one-shot agent scheduler, the conversation's transcript and
+  /// cancel signal, and a transcript sink for notices — none of which belong
+  /// in tina_app's data layer. Null = no judge this session (`/goal check`
+  /// reports that instead of pretending to judge).
+  GoalJudgeHook? judgeHook;
 
   Goal read(String conversationId) =>
       _goals[conversationId] ?? const Goal('');

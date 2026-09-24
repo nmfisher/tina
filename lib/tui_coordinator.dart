@@ -1011,6 +1011,41 @@ class TuiCoordinator {
       editor.focusManager = focusManager;
 
       InputStatus? inputStatus;
+      // The goal judge closure, installed on the plugin's shared GoalStore so
+      // `/goal check` (command land) and the turn-end trigger (executor land)
+      // share one implementation. Late-bound: the store service exists at
+      // composition, but the scheduler + sessions live here. Root-zone
+      // execution strips any ambient invocation — the judge fires as an
+      // unawaited continuation of a COMPLETED turn, and runStandalone must
+      // not mistake that finished invocation for its live parent.
+      Future<GoalVerdict?> judgeGoalFor(String conversationId,
+          {bool force = false}) {
+        final goalStore = app.pluginScope?.lookup(goalStoreServiceKey);
+        if (goalStore == null) return Future.value(null);
+        final conversation = sessionManager.all
+            .map((s) => s.conversationById(conversationId))
+            .whereType<Conversation>()
+            .firstOrNull;
+        return judgeGoal(
+          store: goalStore,
+          conversation: conversation,
+          force: force,
+          runCheck: ({required systemPrompt, required task, required sink}) =>
+              Zone.root.run(() => app.scheduler.runStandalone(
+                    systemPrompt: systemPrompt,
+                    task: task,
+                    sink: sink,
+                    parentReference:
+                        '${app.config.provider}/${app.config.model}',
+                    originConversationId: conversationId,
+                    toolProfile: ToolProfile.readOnly,
+                    includeDelegate: false,
+                  )),
+        );
+      }
+
+      app.pluginScope?.lookup(goalStoreServiceKey)?.judgeHook = judgeGoalFor;
+
       controller = SessionController(
         inputRoutes: app.inputRoutes,
         pluginScope: app.pluginScope,
@@ -1032,6 +1067,23 @@ class TuiCoordinator {
         autoCompactThreshold: config.autoCompactThreshold,
         environment: app.environment,
       );
+      // Turn-end goal judging: after each goal-active turn completes cleanly,
+      // run the judge as a detached continuation. `completed` is the
+      // executor's own turn-quality signal (clean finish with a real answer),
+      // so an aborted/cancelled turn never reads as "not achieved" — the
+      // judge also re-checks agent.abortedReason as a belt-and-suspenders
+      // guard. Unawaited by design: the judge must never delay the next turn
+      // or the input loop; transitions announce in the transcript when it
+      // lands.
+      controller.turns.onTurnStarted = (conversation, prompt) {
+        final id = conversation.id;
+        return (completed) {
+          if (!completed) return;
+          final goalStore = app.pluginScope?.lookup(goalStoreServiceKey);
+          if (goalStore == null || goalStore.read(id).isEmpty) return;
+          unawaited(judgeGoalFor(id));
+        };
+      };
       final interrupts = app.pluginScope?.lookup(interruptsServiceKey);
       if (interrupts != null) {
         interrupts.presenter = (prompt) async {
@@ -1364,48 +1416,28 @@ class TuiCoordinator {
 
       // `/settings`: open the index menu of independently-saved subpanels
       // (providers/models, tiers/roles, token quota, theme) pre-filled with the
-      // current config. Each panel writes its own slice on exit; the message
-      // reflects whether the last-opened panel changed anything.
+      // current config. Each panel writes its own slice on exit. The applier
+      // (lib/composition/settings_apply.dart) owns the apply semantics — the
+      // live-quota seams the quota panel needs, the post-close rate-limit
+      // apply, and the saved/unchanged message — so this handler only gathers
+      // the dependencies, runs the panel and shows the report.
       controller.openSettings = () async {
         reloadConfigProviders();
-        final envMap = app.environment.env;
         final host = sessionManager.activeConversation.host;
-        final quotas = scheduler.mountedScopeValue?.lookup(
-          liveQuotasServiceKey,
+        final applier = SettingsApplier(
+          registry: scheduler.registry,
+          quotas:
+              scheduler.mountedScopeValue?.lookup(liveQuotasServiceKey),
         );
-        var quotaSaved = false;
         UserConfig? wrote;
         try {
           wrote = await runSettingsPanel(
             screen: screen,
             editor: editor,
             registry: scheduler.registry,
-            env: envMap,
-            currentQuota: quotas == null
-                ? null
-                : (saved) => LimitsConfig(
-                    maxTurnTokens: quotas.maxTurnTokens,
-                    maxSessionTokens: quotas.maxSessionTokens,
-                    maxRequestTokens: quotas.maxRequestTokens,
-                    maxSubAgentTokens: quotas.maxSubAgentTokens,
-                    maxGlobalTokens: quotas.maxGlobalTokens,
-                    requestsPerMinute: quotas.requestsPerMinute,
-                    minRequestIntervalMs: saved.minRequestIntervalMs,
-                    maxConcurrentRequests: saved.maxConcurrentRequests,
-                  ),
-            onQuotaSaved: quotas == null
-                ? null
-                : (saved) {
-                    quotas.update(
-                      maxTurnTokens: saved.maxTurnTokens!,
-                      maxSessionTokens: saved.maxSessionTokens!,
-                      maxRequestTokens: saved.maxRequestTokens!,
-                      maxSubAgentTokens: saved.maxSubAgentTokens!,
-                      maxGlobalTokens: saved.maxGlobalTokens!,
-                      requestsPerMinute: saved.requestsPerMinute!,
-                    );
-                    quotaSaved = true;
-                  },
+            env: app.environment.env,
+            currentQuota: applier.seedQuota,
+            onQuotaSaved: applier.onQuotaSaved,
           );
         } on ConfigWriteException catch (e) {
           // Backstop: most subpanels surface write errors in-modal, but a panel

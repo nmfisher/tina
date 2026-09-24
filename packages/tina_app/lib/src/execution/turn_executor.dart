@@ -34,7 +34,10 @@ class TurnExecutor {
 
   /// Called when an admitted turn starts (after any queue wait). The returned
   /// callback observes that exact turn's completion, before the queue drains.
-  final void Function(bool completed)? Function(Conversation, String)?
+  /// Mutable: the TUI coordinator installs the goal judge after the owning
+  /// SessionController (and its late executor) exists. Late assignment races
+  /// nothing — turns are admitted only after the controller runs.
+  void Function(bool completed)? Function(Conversation, String)?
   onTurnStarted;
 
   /// A registry owned by this turn, created when queued work actually starts.

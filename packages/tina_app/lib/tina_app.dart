@@ -68,3 +68,4 @@ export 'src/execution/interrupts.dart';
 export 'src/classification/rules.dart';
 export 'src/plans/plan_plugin.dart';
 export 'src/goals/goal_plugin.dart';
+export 'src/goals/goal_judge.dart';
