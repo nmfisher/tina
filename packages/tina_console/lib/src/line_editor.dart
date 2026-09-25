@@ -170,6 +170,13 @@ class LineEditor {
   /// whatever happens to own the keyboard. True when the hook consumed the key.
   bool Function()? onBlockCursor;
 
+  /// The Ctrl+X app hook (tina: close the focused panel). Same dispatch rank
+  /// as the block-cursor hook — from any focus, and offered while a prompt or
+  /// approval owns the keyboard, because closing a panel is window management,
+  /// not text. The hook declines (false) when nothing qualifies — the focused
+  /// panel is not closable — and the key is then dropped, never typed.
+  bool Function()? onClosePanel;
+
   /// Called for an Alt+key event the editor doesn't bind internally (anything
   /// other than Alt+b/d/f word editing). Return `true` to consume the event,
   /// `false` to let it fall through and be ignored. Lets the app layer bind
@@ -1035,6 +1042,11 @@ class LineEditor {
     // (an approval prompt) yields focus-layer keys to this seam, so Ctrl+O
     // must work there — otherwise it would answer the prompt instead.
     if (_handleMaximizeToggle(event)) return true;
+    // Ctrl+X rides at the same rank: closing a panel is window management, so
+    // the gesture must work while an armed readKey (prompt/approval) owns the
+    // keyboard — the seam gates events by armed state, and this hook declines
+    // when no closable panel is focused.
+    if (_handleClosePanel(event)) return true;
     if (_handleRawView(event)) return true;
     if (_handlePlanToggle(event)) return true;
     if (_handleBlockCursor(event)) return true;
@@ -1093,6 +1105,18 @@ class LineEditor {
     return true;
   }
 
+  /// The Ctrl+X app hook (tina: close the focused panel), at the same
+  /// dispatch rank as the block-cursor hook. True when the hook consumed
+  /// the key (a closable panel was focused and closed).
+  bool _handleClosePanel(InputEvent event) {
+    final closePanel = onClosePanel;
+    if (closePanel == null) return false;
+    if (event is! ControlKey || event.code != ControlCode.ctrlX) return false;
+    if (!closePanel()) return false;
+    _redraw();
+    return true;
+  }
+
   /// The Shift+Tab app hook (tina: permission-mode cycling), at the same
   /// dispatch rank as the maximize toggle. True when the hook consumed the
   /// key.
@@ -1131,6 +1155,11 @@ class LineEditor {
       return KeyHandledBy.appShortcut;
     }
     if (_handleBlockCursor(event)) {
+      return KeyHandledBy.appShortcut;
+    }
+    // Ctrl+X rides at the same rank (the app closes the focused panel from
+    // any focus).
+    if (_handleClosePanel(event)) {
       return KeyHandledBy.appShortcut;
     }
     // Shift+Tab rides at the same rank (the app cycles permission modes from
@@ -1291,16 +1320,17 @@ class LineEditor {
           case ControlCode.ctrlO:
           case ControlCode.ctrlR:
           case ControlCode.ctrlP:
+          case ControlCode.ctrlX:
           case ControlCode.backtab:
             // Handled upstream by FocusManager when a panel exists; when no
             // panel is registered they fall through to here as a no-op.
             // ctrlS ("save") is consumed by the prompts overlay's readKey loop;
             // at the chat prompt it's a no-op. ctrlO (maximize) is consumed by
-            // the onMaximizeToggle hook, ctrlR by onRawView and ctrlP by
-            // onPlanToggle — a fall-through means nothing qualified, so they
-            // are no-ops too. backtab (Shift+Tab) is consumed by the onBackTab
-            // hook; a fall-through (no hook, or it declined) drops the key —
-            // backtab never types.
+            // the onMaximizeToggle hook, ctrlR by onRawView, ctrlP by
+            // onPlanToggle, ctrlX by onClosePanel — a fall-through means
+            // nothing qualified, so they are no-ops too. backtab (Shift+Tab)
+            // is consumed by the onBackTab hook; a fall-through (no hook, or
+            // it declined) drops the key — backtab never types.
             break;
         }
 
@@ -1526,14 +1556,18 @@ class LineEditor {
           case ControlCode.ctrlR:
           case ControlCode.ctrlP:
           case ControlCode.ctrlB:
+          case ControlCode.ctrlX:
             // The maximize toggle works in queue mode too — maximizing a
             // panel to watch a running agent is a primary use case. Same for
             // the raw-view overlay, the plan overlay and the block cursor:
             // reading output while a turn runs is exactly when you want them.
+            // Ctrl+X rides along: closing a finished sub-agent's panel while
+            // the main turn keeps streaming is the gesture's main use.
             _handleMaximizeToggle(event);
             _handleRawView(event);
             _handlePlanToggle(event);
             _handleBlockCursor(event);
+            _handleClosePanel(event);
             break;
           case ControlCode.backtab:
             // Shift+Tab's mode cycling also works mid-turn: flipping the

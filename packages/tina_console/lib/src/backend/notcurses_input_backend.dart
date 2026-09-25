@@ -740,6 +740,8 @@ InputEvent? translateNcKey({
         return ControlKey(ControlCode.ctrlP);
       case 0x02: // ctrl-b — app hook (transcript block cursor in tina)
         return ControlKey(ControlCode.ctrlB);
+      case 0x18: // ctrl-x — app hook (close focused panel in tina)
+        return ControlKey(ControlCode.ctrlX);
       case 0x15: // ctrl-u
         return EditingKey(EditingAction.killToStart);
       case 0x17: // ctrl-w

@@ -36,6 +36,7 @@ import 'package:tina/tui/input_recall.dart';
 import 'package:tina/tui/panel_maximize.dart';
 import 'package:tina/tui/panel_host.dart';
 import 'package:tina/tui/run_panel_host.dart';
+import 'package:tina/tui/spawn_panel_close.dart';
 import 'package:tina/tui/tool_output_overlay.dart';
 import 'package:tina/tui/workflow_overlay_handlers.dart';
 import 'package:tina/platform/terminal_geometry.dart';
@@ -1698,6 +1699,30 @@ class TuiCoordinator {
         supervisor.find(runId)?.onFinished = null;
         runPanels.closePanel(handle);
       }
+
+      // Ctrl+X closes the focused panel — the chord form of the run panels'
+      // `x` key, and the only way to close a spawned chat panel (sub-agent,
+      // /spawn, /branch), whose transcript must keep receiving typed text.
+      // One controller owns the teardown sequence (see
+      // [SpawnPanelCloseController]); the hook declines when the primary is
+      // focused or nothing closable has focus, and the key is then dropped.
+      final spawnPanelClose = SpawnPanelCloseController(
+        sessionManager: sessionManager,
+        panelManager: panelManager,
+        contentCoordinator: contentCoordinator,
+        refreshLayout: () {
+          final split = panelManager.hasSpawnedFrames;
+          initialHost.stayAttachedWhenInactive = split;
+          resizeCoordinator.handleResize(split: split, drawInfoFrame: !split);
+        },
+        onRunPanel: (frame) {
+          final id = frame.conversationId;
+          if (!id.startsWith('wf-run-')) return false;
+          _closeRunPanel(id.substring('wf-run-'.length));
+          return true;
+        },
+      );
+      editor.onClosePanel = spawnPanelClose.closeFocused;
 
       /// Open the run's live transcript panel. SYNCHRONOUS: it runs inside the
       /// supervisor's `onLaunch` hook, before the run's stream can start, so

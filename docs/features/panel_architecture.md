@@ -51,6 +51,20 @@ The shared editor is hidden when exclusive content is focused, including after
 resize. Its draft and cursor position survive a return to the conversation.
 Closing a focused panel restores focus to the primary panel.
 
+Ctrl+X is the universal close chord (tina_console's `onClosePanel` editor hook;
+regression-tested in `test/tui/spawn_panel_close_test.dart`): it works on
+conversation panels (`sharedEditor` mode, whose transcripts must keep receiving
+typed text — so no printable close key), on read-only workflow run panels (the
+chord form of their `x` key), and from any input state — prompt-armed, queue
+mode, and through the armed-readKey dispatch seam, because closing a panel is
+window management, not text. The hook declines on the primary panel (a session
+always keeps its conversation) or when nothing closable has focus, and the key
+is then dropped, never typed. Closing runs the teardown in one order: session
+close (conversation + deferred resource release), binding unbind (hooks nulled,
+content detached), frame removal (focus ring + homing to the primary), the
+canonical relayout (un-splitting when the last panel closes), and tree cleanup
+(sidebar/DFS/depth).
+
 ## Lifecycle and testing
 
 Opening is synchronous and does not steal focus. Duplicate IDs are rejected

@@ -148,6 +148,51 @@ void main() {
       expect((event as CharInput).text, 'y');
     });
 
+    test('Ctrl+X fires the close hook instead of answering the prompt',
+        () async {
+      final (editor, fm, chat, side) = _rig(io);
+      editor.readLine('> ');
+      await _flush();
+
+      var fired = 0;
+      editor.onClosePanel = () {
+        fired++;
+        return true;
+      };
+      final approval = editor.readKey(globalKeys: true);
+      io.feedBytes([0x18]); // Ctrl+X
+      await _flush();
+
+      var answered = false;
+      approval.then((_) => answered = true);
+      await _flush();
+      expect(fired, 1, reason: 'the close hook fires from the armed seam');
+      expect(answered, isFalse, reason: 'Ctrl+X must not answer the approval');
+
+      // The prompt's own keys still work.
+      io.feedBytes([0x79]);
+      final event = await approval.timeout(const Duration(seconds: 2));
+      expect((event as CharInput).text, 'y');
+    });
+
+    test('a declining Ctrl+X hook hands the key to the prompt as an event',
+        () async {
+      final (editor, fm, chat, side) = _rig(io);
+      editor.readLine('> ');
+      await _flush();
+
+      // Nothing closable focused → the app hook declines; the key then
+      // reaches the armed prompt like any unclaimed control key (the prompts
+      // overlay's switch lists ctrlX as inert, so it is dropped there — the
+      // contract under test is "declined ≠ typed into the buffer").
+      editor.onClosePanel = () => false;
+      final approval = editor.readKey(globalKeys: true);
+      io.feedBytes([0x18]); // Ctrl+X
+      final event = await approval.timeout(const Duration(seconds: 2));
+      expect(event, isA<ControlKey>());
+      expect((event as ControlKey).code, ControlCode.ctrlX);
+    });
+
     test("Ctrl+W engages cycling too; 'n' answers once cycling is off", () async {
       final (editor, fm, chat, side) = _rig(io);
       editor.readLine('> ');

@@ -194,6 +194,12 @@ enum ControlCode {
   /// signal in raw mode; some shells/terminals intercept it, but far fewer
   /// than Ctrl+W.
   ctrlP,
+  /// Ctrl+X (CAN, 0x18). App-level hook — tina binds it to "close this
+  /// panel" on focused read-only panels (workflow run panels use plain `x`;
+  /// spawned sub-agent chat panels use Ctrl+X because their `x` must reach
+  /// the conversation). Unbound by the editor itself. Not a tty signal in
+  /// raw mode and rarely intercepted by terminals or IDEs (unlike Ctrl+W).
+  ctrlX,
   enter,
   tab,
   /// Shift+Tab (CSI Z, "backtab"). App-level hook — tina binds it to

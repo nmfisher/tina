@@ -385,6 +385,30 @@ class ConversationPanelCoordinator {
     _extra.remove(frame)?.detach();
   }
 
+  /// Remove a spawned conversation panel's frame↔host binding. The mirror of
+  /// [bindSpawned] (and of [dispose]'s per-binding teardown): every hook the
+  /// bind set on the frame or the host is nulled, the scrollback notification
+  /// is cut first so a pending microtask can't repaint a frame that is about
+  /// to be removed, and the content is detached. The caller is responsible for
+  /// removing the frame itself ([PanelManager.removeFrame]) and for the
+  /// conversation teardown — [SessionManager.closeConversation] happens BEFORE
+  /// this so a streaming agent loses its session entry first.
+  void unbindSpawned(PanelFrame frame) {
+    final binding = _bindings.remove(frame.conversationId);
+    if (binding == null) return;
+    final host = binding.host;
+    frame.onFocus = null;
+    frame.onHighlight = null;
+    frame.inputPrompt = null;
+    frame.onInputChanged = null;
+    host.chat.onScrollbackChanged = null;
+    frame.onScroll = null;
+    frame.onWheel = null;
+    host.panel = null;
+    host.onBusyChanged = null;
+    binding.content.detach();
+  }
+
   /// Repoint the shared input onto the frame that owns the active
   /// conversation. Resolves the active frame the same way the pre-extraction
   /// `_activeFrame` did, then delegates the content-agnostic retarget to the

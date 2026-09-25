@@ -173,7 +173,7 @@ the runner, the engine, and the parallel handler are unchanged.
 | `lib/pipeline/workflow_permission_asker.dart` | **New.** `WorkflowPermissionAsker` — renders a node agent's write/edit permission prompt (tool + preview) into the run panel and reads `y/n/a/d`. Serialized with human gates through the attention queue. |
 | `lib/tui/attention_queue.dart` | **New.** `AttentionQueue` — one serialized FIFO per TUI for modals (gates, loop-budget confirms, permission asks), so concurrent dialogs never race on `editor.readKey()`; a queued modal posts a dim "waiting for your input" notice to its run's sink. |
 | `packages/attractor/…/engine.dart` | Loop bounds: per-node visit cap (`max_node_visits`, default 8), whole-run step cap (`max_steps`, default 200), and per-gate retry budgets (`max_retries`) — exceeded budgets consult `onLoopBudgetExceeded`; interactive runs pause with a human gate (continue resets the budget / abort), headless fails with a clear reason. Transient backend errors fire `Outcome.retry` so `max_retries` finally runs; a failed node with no unconditional outgoing edge dead-ends the run instead of falling back to any edge. `--yolo` lifts the whole-run step cap (via `PipelineEngine.yolo`); the per-node visit cap stays hard — it is the only defense against cyclic graphs. |
-| `lib/tui/run_panel_content.dart` | Label row now reads `s stop · x close · read-only workflow view` (the keys were always wired; the label now documents them). |
+| `lib/tui/run_panel_content.dart` | Label row now reads `s stop · x close · read-only workflow view` (the keys were always wired; the label now documents them). Ctrl+X (the app's panel-close chord) closes the focused run panel too — same `_closeRunPanel` path as `x`. |
 
 **Kept untouched:** the graph model, the codergen handler, the run store, the
 seeded `kDefaultWorkflowDotSource` graph. The supervisor, tools, and run panel
@@ -247,6 +247,12 @@ chat-style conversation of the run:
   tool), `x` closes the panel (the run continues unless stopped — the rest of
   the run buffers into the detached region and is discarded), PgUp/PgDn scroll
   the transcript (the frame badge shows lines that arrived while scrolled up).
+  Ctrl+X on the focused panel is the same close as `x` — the chord works for
+  every panel kind, including spawned chat panels, whose transcript must keep
+  receiving typed text (they close through
+  [SpawnPanelCloseController], `lib/tui/spawn_panel_close.dart`, which also
+  tears down the conversation and un-splits the layout when the last panel
+  goes).
 - **Node writes prompt per write.** A node agent's `write`/`edit` call is NOT
   auto-allowed: the prompt (tool + diff preview, `y/n/a/d` — `a` remembers
   "always" for the rest of the run) renders into the run's panel and reads

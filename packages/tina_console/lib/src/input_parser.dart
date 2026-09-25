@@ -202,6 +202,7 @@ class InputParser {
     if (b == 0x12) return ControlKey(ControlCode.ctrlR);
     if (b == 0x10) return ControlKey(ControlCode.ctrlP);
     if (b == 0x02) return ControlKey(ControlCode.ctrlB);
+    if (b == 0x18) return ControlKey(ControlCode.ctrlX);
     if (b == 0x01) return EditingKey(EditingAction.home);
     if (b == 0x05) return EditingKey(EditingAction.end);
     if (b == 0x0b) return EditingKey(EditingAction.killToEnd);
