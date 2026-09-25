@@ -14,21 +14,20 @@ do with approvals). This document does not re-propose either of them.
 
 ## Summary
 
-I reviewed every place tina asks a human to decide something — 13 points
-in total — and asked whether each one could be answered by plain text
-from a chat window, an HTTP client, or a queue, with no terminal
-attached. The engine is already clean: the core puts its questions
-through one function type (`PermissionAsker`) and already runs unattended
-in sub-agents and headless runs. The wiring is not: every asker a human
-actually answers is built inside `TuiCoordinator` against a local screen
-and keyboard, and no open question survives a restart. Two defects ship today: three
-unattended paths answer questions *for* the human, permissively
-(fail-open), and automatic denials are written to the audit trail as if
-the user had denied them. A daemon is not required to fix this, but it is the right
-end goal. I recommend six steps in order: record who denied; store open
-questions on disk; add `/approve`, `/deny` and `/answer` commands; add
-answerability to posture; make unattended questions fail closed; then
-build `tina serve`, which by then is mostly glue.
+I reviewed all 13 places tina asks a human to decide something, and asked
+whether each could be answered by plain text from a chat window, an HTTP
+client, or a queue, with no terminal attached. The engine is clean: it
+puts every question through one function type (`PermissionAsker`) and
+already runs unattended. The wiring is not: every asker a human answers
+is built inside `TuiCoordinator` against a local screen and keyboard,
+and no open question survives a restart. Two defects ship today — three
+unattended paths answer questions *for* the human, permissively, and
+automatic denials are audited as user denials. A daemon is not needed to
+fix this, but it is the right end goal. Six steps, in order: record who
+denied; store open questions on disk; add `/approve`, `/deny` and
+`/answer` commands; add answerability to posture; make unattended
+questions fail closed; then build `tina serve`, which is mostly glue by
+then.
 
 ## Terms used below
 
