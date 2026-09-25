@@ -353,6 +353,65 @@ agent loop (gate before execute).
   capped at a configurable line count — the user can rely on git or their
   editor for the full picture.
 
+#### The second approval mechanism — plan approval
+
+Everything above gates single tool calls. A second, separate mechanism gates
+a body of work: the plan tracker's approval state. The two are different in
+kind, and keeping them apart is a decision, not an accident:
+
+| | Tool approval | Plan approval |
+| --- | --- | --- |
+| Question | "may I run this?" | "do you approve this plan of work?" |
+| Lives in | engine, `lib/src/permissions/` | the `tina.plan` plugin (`lib/composition/plan_ui.dart`) |
+| Granularity | per tool call | one value per conversation, in the `PlanStore` |
+| Blocking? | yes — the executor pauses the turn for a `PermissionResponse` | no — cooperative; the state is injected into the agent's context each request and the model is told to wait while a request pends |
+| Lifetime | the call, plus optional session rules | persistent; outlives the turn |
+| Governed by | `--allow`/`--deny`/`--yolo`, modes, session rules | nothing from the permission layer — see below |
+
+The plan state machine is `PlanApproval { none, requested, approved,
+rejected }` (`packages/tina_app/lib/src/plans/plan_store.dart`). The agent
+moves a plan to `requested` via the `update_plan` tool; only the user moves
+it to `approved`/`rejected` (`/plan approve|reject`, the plan overlay). An
+update that edits plan content resets approval — an edited plan must be
+approved again.
+
+Why the permission layer cannot govern it: `update_plan` implements
+`LocalControlTool`, and the executor short-circuits exactly those tools to
+`PermissionDecision.allow` before any policy check
+(`tool_executor.dart:445-447`). That shortcut is what keeps a
+plugin-local state flip from surfacing a permission modal — and it is also
+why `--yolo` could never be the plan gate. The two mechanisms cannot be
+merged without removing that shortcut.
+
+Where each lives, and what follows: tool approval is **core**, wired by hand
+at the composition root (`lib/tui_coordinator.dart`,
+`lib/host/tui_conversation_host.dart`) with no plugin descriptor for it. Its
+posture travels to sub-agents and workflow runs through the policy copies
+(`sub_agent_scheduler.dart` spreads `allowAllByDefault`,
+`classifierGatesShell` and the static rules). Only its *surface* is
+extensible: plugins may supply a `Renderer<ApprovalCard>`
+(`lib/tui/approval_card.dart:6-7`), but "choices and their responses remain
+owned by the permission prompt" — a plugin may draw the card; it may not
+change the question, the answer, or who answers. Plan approval is a plugin —
+but not purely: `planUiPlugin` provides the store, the status source, the
+renderer and the `/plan` command, while core `buildAgent` mints the
+per-conversation `update_plan` tool and request middleware from that store
+(`agent_composition.dart:191-203`), because a shared plugin scope cannot
+tell which conversation a turn belongs to. The decided boundary: **plan
+approval stays a plugin; core owns the permission decision; a plugin must
+not re-derive policy.** The intended shape is a single narrow read-only door
+from plugins into the decision — it does not exist yet, and until it does
+the plan gate and the permission posture simply run side by side. A
+checked-but-unmerged branch (`asb/plan-approval-yolo`) moves in the opposite
+order: the plugin itself re-derives the posture, which is the drift the door
+exists to prevent.
+
+The plan mechanism itself — state machine, middleware, the
+fail-open/fail-closed polarity split, and the known gaps — is documented in
+[Plan approval](docs/features/plan_approval.md); the overlay that renders
+the plan is proposed in
+[docs/proposals/plan_overlay.md](docs/proposals/plan_overlay.md).
+
 ### `lib/persistence/` + `packages/tina_engine/lib/src/persistence/` — sessions
 
 - **`session_store.dart`** (engine) — abstract `SessionStore` (create / append /

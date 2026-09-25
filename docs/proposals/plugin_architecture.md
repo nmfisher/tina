@@ -227,9 +227,50 @@ needs anyway.
 3. **Panel host scope:** migrate only the run panel (default) or also the
    transcript/chat panels? (Default: run panel only.)
 
+## 11. Approvals — what plugins may and may not do (decided)
+
+Tina has two approval mechanisms, and they sit on opposite sides of the
+core/plugin boundary. The full contrast lives in
+[Plan approval](../features/plan_approval.md) and
+[ARCHITECTURE.md](../../ARCHITECTURE.md); this section records the rule for
+plugins and uses plan approval as the worked example.
+
+**Tool approval is core.** The permission decision (`PermissionPolicy.check`,
+the asker chain in `packages/tina_engine/lib/src/permissions/`) has no plugin
+descriptor and is wired by hand at the composition root. A plugin touches it
+only through one narrow, presentation-level seam: it may supply a
+`Renderer<ApprovalCard>` (`lib/tui/approval_card.dart:6-7`) — and the rule
+stated there binds every plugin: *"choices and their responses remain owned
+by the permission prompt."* A plugin may draw the card. It may not change the
+question, the answer, or who answers.
+
+**Plan approval is a plugin — but not purely.** `tina.plan`
+(`lib/composition/plan_ui.dart`) provides the `PlanStore` service, the status
+strip, and the `/plan` command; core `buildAgent` mints the agent-facing
+pieces (the `update_plan` tool, the request middleware) per conversation from
+the plugin's store (`agent_composition.dart:191-203`), because a shared
+scope cannot tell which conversation a turn belongs to. Note what the tool
+does *not* travel: `update_plan` implements `LocalControlTool`, so the
+executor allows it without a permission ask
+(`tool_executor.dart:445-447`). The plan gate never reaches the permission
+path at all.
+
+**The decided boundary:** plan approval stays a plugin. Core owns the
+permission decision — a plugin must never re-derive policy: no plugin
+decides who answers an approval, what the answers mean, or what happens when
+nobody can answer. The intended shape is one narrow read-only door from a
+plugin into the decision: *"may I ask? and can anyone answer?"* The plugin
+asks; core decides. **That door does not exist yet** — it is the design
+destination, not present behaviour, and nothing in the current seams
+pretends otherwise. A checked-but-unmerged branch
+(`asb/plan-approval-yolo`) is a live warning here: it answers "can anyone
+answer" by re-deriving the posture inside the plugin's own tool and
+middleware, which is exactly the plugin-side policy re-derivation this
+boundary rules out, however practical the fix.
+
 ---
 
-## 11. Survey appendix — verified anchors
+## 12. Survey appendix — verified anchors
 
 - Command dispatch switch: `lib/session_commands/session_command_handlers.dart:64`
   (context seam at `lib/session_commands/command_context.dart:44-49`).
