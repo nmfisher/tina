@@ -181,6 +181,84 @@ void main() {
     });
   });
 
+  group('checkWithRevalidate', () {
+    test('a fresh cache naming a newer release short-circuits, no network',
+        () async {
+      final cacheDir = Directory(p.join(home.path, '.tina', 'cache'))
+        ..createSync(recursive: true);
+      File(p.join(cacheDir.path, 'latest_release.json'))
+          .writeAsStringSync(jsonEncode(ReleaseInfo(
+        tag: 'v9.9.9',
+        releaseUrl: 'https://example.com/rel',
+        assetUrls: const {},
+      ).toJson()));
+
+      final client = _FakeClient({});
+      final checker = ReleaseChecker(env: env(), client: client);
+      addTearDown(checker.close);
+
+      expect((await checker.checkWithRevalidate())?.tag, 'v9.9.9');
+      expect(client.requests, isEmpty,
+          reason: 'a cached newer release needs no revalidation');
+    });
+
+    test('a cached not-newer answer revalidates and adopts the fresh release',
+        () async {
+      // The 0.8.30 silent-miss shape: the cache predates the release, which
+      // published inside the TTL window, so the cache alone never sees it.
+      final cacheDir = Directory(p.join(home.path, '.tina', 'cache'))
+        ..createSync(recursive: true);
+      final cacheFile = File(p.join(cacheDir.path, 'latest_release.json'))
+        ..writeAsStringSync(jsonEncode(ReleaseInfo(
+          tag: 'v0.0.1',
+          releaseUrl: '',
+          assetUrls: const {},
+        ).toJson()));
+
+      final client = _FakeClient({
+        '/repos/nmfisher/tina/releases/latest': (200, _releaseBody('v9.9.9')),
+      });
+      final checker = ReleaseChecker(env: env(), client: client);
+      addTearDown(checker.close);
+
+      expect((await checker.checkWithRevalidate())?.tag, 'v9.9.9');
+      final reread = ReleaseInfo.fromJson(
+          jsonDecode(cacheFile.readAsStringSync()) as Map<String, dynamic>);
+      expect(reread.tag, 'v9.9.9', reason: 'the revalidation rewrites the cache');
+    });
+
+    test('a network miss during revalidation falls back to the cache',
+        () async {
+      final cacheDir = Directory(p.join(home.path, '.tina', 'cache'))
+        ..createSync(recursive: true);
+      File(p.join(cacheDir.path, 'latest_release.json'))
+          .writeAsStringSync(jsonEncode(ReleaseInfo(
+        tag: 'v0.3.0',
+        releaseUrl: '',
+        assetUrls: const {},
+      ).toJson()));
+
+      final client = _FakeClient({
+        '/repos/nmfisher/tina/releases/latest': (500, ''),
+      });
+      final checker = ReleaseChecker(env: env(), client: client);
+      addTearDown(checker.close);
+
+      expect((await checker.checkWithRevalidate())?.tag, 'v0.3.0',
+          reason: 'the cached value stays the best-known answer');
+    });
+
+    test('neither cache nor network knows: null', () async {
+      final client = _FakeClient({
+        '/repos/nmfisher/tina/releases/latest': (500, ''),
+      });
+      final checker = ReleaseChecker(env: env(), client: client);
+      addTearDown(checker.close);
+
+      expect(await checker.checkWithRevalidate(), isNull);
+    });
+  });
+
   test('ReleaseInfo toJson/fromJson round-trips', () {
     final info = ReleaseInfo(
       tag: 'v1.2.3',

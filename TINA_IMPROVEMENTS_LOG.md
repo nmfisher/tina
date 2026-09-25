@@ -1789,3 +1789,48 @@ Lesson of the round, same shape as the A08 inventory rule: two hand-written
 lists that must agree, with no check between them, will drift — and the
 drift surfaces at the worst place, CI, after the PR looks done. The durable
 fix is one list, generated from the policy, not two synchronized copies.
+
+### Update-check revalidation + status-strip plugins (2026-09-25)
+
+Reported: after v0.8.31 was published, a running 0.8.30 binary showed no
+update notice. Root cause: `ReleaseChecker.checkCached()` is cache-first
+with a 1h TTL — a release published inside the TTL window is answered
+from `~/.tina/cache/latest_release.json` ("not newer") and stays silent;
+secondary mode, network misses (GitHub 60/hr unauth, 10s timeout) were
+swallowed at FINE. Fix: `checkWithRevalidate()` — the cache still wins
+instantly when it says "newer available"; on a cached miss it
+revalidates once against GitHub and falls back to the cached value when
+the network is unavailable, so a just-published release surfaces at the
+next startup instead of up to an hour late. The coordinator startup
+block calls it now; every exit path (up-to-date/miss/throw) clears the
+strip state, and the alert persists once shown.
+
+Two status-strip plugins rode the same investigation. `tina.version.status`
+(package source in tina_app + renderer + composition wiring) paints a
+dim animated `update check |` while checking and `update ⬆ v0.9.0 ·
+/update` when a release is available. And a session-id source
+(`lib/tui/session_id_status.dart`) paints `session <id>` pull-style off
+the active recorder — no push stream; repaints ride the existing
+sessions-changed fan-out, and it registers late via
+`registerContribution` after the SessionManager exists. Both are
+declared plugins (`provides:` is required — the runtime rejects
+undeclared bindings; the first test run proved it).
+
+Counts: release_checker 197, tui_coordinator 3005, new lib/pkg files
+90/43/28/58 (source/renderer/composition/session-id); tests +4
+self_update, new version-plugin e2e (64) and session-id suite (155).
+Full root suite green across four runs except two environment-only
+failures: one self-inflicted (TMPDIR pointed inside the repo broke
+`git_file_provider_test`'s "non-git workspace" fixture, whose systemTemp
+suddenly had a `.git` ancestor) and one pre-existing typesafe
+disk-cache timing flake (green in isolation 3×). test/tui +
+tui_coordinator_test: 367 green. Analyzer clean on bin/lib/tina_app/test.
+
+Box lesson of the round: `/mnt/hdd_2tb` (flutter SDK home — `dart` on
+PATH is its wrapper) was remounted read-only mid-session and the shared
+12G /tmp tmpfs sat at 87–93% from other tenants, so `dart test` died in
+the wrapper's cache-stamp refresh and later on kernel-temp ENOSPC before
+compiling anything. Working invocation recorded for this box: call the
+cached `dart-sdk/bin/dart` binary directly, add `--suppress-analytics`
+($HOME is read-only too), put `TMPDIR` on the repo disk, and cap
+`--concurrency=4`.

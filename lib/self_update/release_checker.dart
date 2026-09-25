@@ -103,6 +103,27 @@ class ReleaseChecker {
     return fresh;
   }
 
+  /// Cache-first with revalidation. A cached answer still wins immediately
+  /// when it already names a newer release, but a cached "not newer" is only
+  /// as fresh as the cache: a release published inside the cache's TTL window
+  /// would otherwise stay invisible for up to [cacheTtl] (0.8.31 shipped
+  /// during exactly such a window, so 0.8.30 sat silent). A cached miss
+  /// therefore falls through to one live probe; if the network also misses,
+  /// the cached value is returned — it remains the best-known answer and an
+  /// explicit `/update` always re-probes anyway. Null only when neither the
+  /// cache nor the network knows.
+  Future<ReleaseInfo?> checkWithRevalidate() async {
+    final cache = _cacheFile();
+    final cached = await _readCache(cache);
+    if (cached != null && isNewer(cached.tag)) return cached;
+    final fresh = await fetchLatest();
+    if (fresh != null) {
+      await _writeCache(cache, fresh);
+      return fresh;
+    }
+    return cached;
+  }
+
   /// Always hit the network (`/update` uses this so an explicit ask never
   /// answers from a stale cache).
   Future<ReleaseInfo?> fetchLatest() async {

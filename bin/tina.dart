@@ -16,6 +16,7 @@ import 'package:tina/composition/index_status.dart';
 import 'package:tina/composition/chat_renderer.dart';
 import 'package:tina/composition/timestamp_chat.dart';
 import 'package:tina/composition/models_dev_seed.dart';
+import 'package:tina/composition/version_status.dart';
 import 'package:tina/logging.dart';
 
 import 'package:tina/host/headless_watchdog.dart';
@@ -285,6 +286,8 @@ Future<void> _run(List<String> argv) async {
           indexProgressPlugin(),
           tokenStatusPlugin(),
           indexStatusPlugin(),
+          versionStatusPlugin(),
+          versionStatusUiPlugin(),
         ],
       );
 

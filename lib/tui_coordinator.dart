@@ -36,6 +36,7 @@ import 'package:tina/tui/input_recall.dart';
 import 'package:tina/tui/panel_maximize.dart';
 import 'package:tina/tui/panel_host.dart';
 import 'package:tina/tui/run_panel_host.dart';
+import 'package:tina/tui/session_id_status.dart';
 import 'package:tina/tui/spawn_panel_close.dart';
 import 'package:tina/tui/tool_output_overlay.dart';
 import 'package:tina/tui/workflow_overlay_handlers.dart';
@@ -779,6 +780,26 @@ class TuiCoordinator {
             ),
         sessionStore: store,
       );
+      // Strip indicator for the current session id: a pull-style source over
+      // the session manager — it reads activeId at render time, and the
+      // controller's onSessionsChanged/onActiveFocusChanged already refresh
+      // the strip on every session/conversation switch, so no push stream is
+      // needed. Registered here rather than in bin/tina.dart because the
+      // source needs the manager, which only exists once this create() body
+      // has built it; the scope stays admitting after activation, and
+      // InputStatus resyncs on the scope's change event.
+      if (app.pluginScope case final scope?) {
+        scope.registerContribution(
+          pluginId: 'tina.session-id',
+          contribution: SessionIdStatusSource(sessionManager),
+          id: 'tina.session-id.source',
+        );
+        scope.registerContribution(
+          pluginId: 'tina.session-id',
+          contribution: const SessionIdStatusRenderer(),
+          id: 'tina.session-id.renderer',
+        );
+      }
       transferred = true;
       acquired.own(sessionManager.closeAll);
       acquired.own(app.scheduler.dispose);
@@ -2353,16 +2374,25 @@ class TuiCoordinator {
         };
       }
       // Background update check (COCOON_UPDATE_CHECK=0 to disable): cache-first
-      // GitHub probe that drops a single dim notice in the chat when a newer
-      // release is out. Fire-and-forget like the catalog fetch — a network miss
-      // never surfaces. Also sweeps any `<bundle>.old` a previous update left.
+      // GitHub probe (revalidated when the cached answer isn't newer) that
+      // drops a single dim notice in the chat when a newer release is out.
+      // Fire-and-forget like the catalog fetch — a network miss never
+      // surfaces. Also sweeps any `<bundle>.old` a previous update left.
       if (app.environment.env['COCOON_UPDATE_CHECK'] != '0') {
         cleanupStaleOldBundle();
         unawaited(() async {
           final checker = ReleaseChecker(env: app.environment.env);
+          // Strip indicator: `update check |` spins while the probe runs, the
+          // alert persists once a newer release is found, and every exit path
+          // (up-to-date, network miss, throw) clears the line — a failed
+          // check must never leave a stuck spinner.
+          final versionStatus =
+              app.pluginScope?.lookup(versionStatusServiceKey);
+          versionStatus?.beginCheck();
           try {
-            final release = await checker.checkCached();
+            final release = await checker.checkWithRevalidate();
             if (release != null && isNewer(release.tag)) {
+              versionStatus?.updateAvailable(release.tag);
               // Let the screen settle first so the notice lands in a painted
               // chat before the screen is ready.
               await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -2372,6 +2402,11 @@ class TuiCoordinator {
               );
             }
           } finally {
+            // The found-update alert persists; only a check that ended
+            // without a finding (up-to-date, miss, throw) clears its spinner.
+            if (versionStatus != null && versionStatus.checking) {
+              versionStatus.upToDate();
+            }
             checker.close();
           }
         }());
