@@ -33,7 +33,8 @@ void main() {
       expect(runner.starts.single.arguments, ['-c', 'x']);
     });
 
-    test('the factory sees executable + argv, letting run/start differ', () async {
+    test('the factory sees executable + argv, letting run/start differ',
+        () async {
       MemoryRunningProcess factory(String exe, List<String> a) {
         if (a.contains('--version')) {
           return MemoryRunningProcess(
@@ -41,6 +42,7 @@ void main() {
         }
         return MemoryRunningProcess(stdoutChunks: ['a.dart:1:hit\n']);
       }
+
       final runner = MemoryProcessRunner(factory);
       final ver = await runner.run('rg', ['--version']);
       expect(ver.stdout, contains('ripgrep'));
@@ -52,8 +54,8 @@ void main() {
 
   group('MemoryRunningProcess cancellation', () {
     test('a hanging process does not complete until kill()', () async {
-      final proc = MemoryRunningProcess(
-          hangUntilKilled: true, exitCodeValue: 143);
+      final proc =
+          MemoryRunningProcess(hangUntilKilled: true, exitCodeValue: 143);
       final runner = MemoryProcessRunner.always(proc);
       final p = await runner.start('sleep', ['30']);
 

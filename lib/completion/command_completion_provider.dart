@@ -16,11 +16,10 @@ class CommandCompletionProvider implements CompletionProvider {
 
   @override
   Future<List<String>> complete(String query) {
-    final names = this.names?.call() ?? SessionCommandHandlers.registry.allNames;
+    final names =
+        this.names?.call() ?? SessionCommandHandlers.registry.allNames;
     if (query.isEmpty) return Future.value(names);
     final prefix = '/$query';
-    return Future.value(
-      names.where((c) => c.startsWith(prefix)).toList(),
-    );
+    return Future.value(names.where((c) => c.startsWith(prefix)).toList());
   }
 }

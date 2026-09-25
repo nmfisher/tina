@@ -335,9 +335,7 @@ List<StyledRun> parseStyledRuns(String text) {
   var i = 0;
   while (i < text.length) {
     final cu = text.codeUnitAt(i);
-    if (cu == 0x1b &&
-        i + 1 < text.length &&
-        text.codeUnitAt(i + 1) == 0x5b) {
+    if (cu == 0x1b && i + 1 < text.length && text.codeUnitAt(i + 1) == 0x5b) {
       raw.add(_RawRun(acc.snapshot(), buf.toString(), openCalls));
       buf.clear();
       openCalls = const [];
@@ -397,8 +395,7 @@ StyledRunSpan? diffStyledRuns(
   final minLen =
       oldRuns.length < newRuns.length ? oldRuns.length : newRuns.length;
   var i = 0;
-  while (i < minLen &&
-      _runsEqual(oldRuns[i], newRuns[i])) {
+  while (i < minLen && _runsEqual(oldRuns[i], newRuns[i])) {
     i++;
   }
   // Identical (same runs and same length) → nothing to emit.
@@ -457,11 +454,13 @@ String renderStyledRuns(List<StyledRun> runs) {
     if (bits.isNotEmpty) sb.write('\x1b[${bits.join(';')}m');
     if (style.fg != null) {
       final rgb = style.fg!;
-      sb.write('\x1b[38;2;${(rgb >> 16) & 0xff};${(rgb >> 8) & 0xff};${rgb & 0xff}m');
+      sb.write(
+          '\x1b[38;2;${(rgb >> 16) & 0xff};${(rgb >> 8) & 0xff};${rgb & 0xff}m');
     }
     if (style.bg != null) {
       final rgb = style.bg!;
-      sb.write('\x1b[48;2;${(rgb >> 16) & 0xff};${(rgb >> 8) & 0xff};${rgb & 0xff}m');
+      sb.write(
+          '\x1b[48;2;${(rgb >> 16) & 0xff};${(rgb >> 8) & 0xff};${rgb & 0xff}m');
     }
     sb.write(run.text);
   }
@@ -488,8 +487,7 @@ List<StyledRun> _collapse(List<_RawRun> raw) {
     final isTrailingEmpty = i == lastIndex && r.text.isEmpty;
     if (!isTrailingEmpty && r.style == prev.style) {
       // Same state: merge text into the previous run, drop redundant calls.
-      out[out.length - 1] =
-          _RawRun(prev.style, prev.text + r.text, prev.calls);
+      out[out.length - 1] = _RawRun(prev.style, prev.text + r.text, prev.calls);
     } else {
       out.add(r);
     }

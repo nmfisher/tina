@@ -9,7 +9,8 @@ import '../helpers/fake_provider.dart';
 void main() {
   final pipeline = defaultTestPipeline;
 
-  SubAgentScheduler sched(ProviderRegistry r) => testScheduler(r, pipeline: pipeline);
+  SubAgentScheduler sched(ProviderRegistry r) =>
+      testScheduler(r, pipeline: pipeline);
 
   AgentToolContext ctx(SubAgentScheduler scheduler) =>
       testContext(scheduler, pipeline: pipeline);

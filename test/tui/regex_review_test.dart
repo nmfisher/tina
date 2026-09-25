@@ -129,19 +129,21 @@ void main() {
     );
   }
 
-  test('the model-drafted pattern replaces the literal escape when it lands',
-      () async {
-    final review = RegexReview(
-      prompt,
-      suggester: RegexSuggester(_ScriptedProvider('git (status|diff)')),
-    );
-    expect(review.suggestionPending, isTrue);
-    await pumpEventQueue();
-    expect(review.suggestionPending, isFalse);
-    expect(review.input.buffer, 'git (status|diff)');
-    expect(review.showingSuggestion, isTrue);
-    expect(review.lines.join('\n'), contains('model-drafted'));
-  });
+  test(
+    'the model-drafted pattern replaces the literal escape when it lands',
+    () async {
+      final review = RegexReview(
+        prompt,
+        suggester: RegexSuggester(_ScriptedProvider('git (status|diff)')),
+      );
+      expect(review.suggestionPending, isTrue);
+      await pumpEventQueue();
+      expect(review.suggestionPending, isFalse);
+      expect(review.input.buffer, 'git (status|diff)');
+      expect(review.showingSuggestion, isTrue);
+      expect(review.lines.join('\n'), contains('model-drafted'));
+    },
+  );
 
   test("a late draft does not clobber the user's edit", () async {
     final review = RegexReview(
@@ -174,32 +176,34 @@ void main() {
     );
   });
 
-  test('runPermissionApproval seeds the rewrite with the model draft',
-      () async {
-    final io = FakeStdio();
-    final screen = Screen(io: io, layout: ScreenLayout.fromSize(100, 30));
-    final editor = LineEditor(screen: screen);
-    addTearDown(editor.close);
-    final pending = runPermissionApproval(
-      screen: screen,
-      editor: editor,
-      prompt: prompt,
-      write: (_) {},
-      regexSuggester: RegexSuggester(_ScriptedProvider('git (status|diff)')),
-    );
-    await pumpEventQueue();
-    editor.inject(CharInput('r'));
-    await pumpEventQueue();
-    await pumpEventQueue();
-    // The drafted pattern is on the row before any human edit.
-    expect(io.written.toString(), contains('git (status|diff)'));
-    editor.inject(ControlKey(ControlCode.enter));
-    await pumpEventQueue();
-    editor.inject(ControlKey(ControlCode.enter));
-    final response = await pending;
-    expect(response.rule!.pattern, 'git (status|diff)');
-    expect(response.rule!.matches(prompt.target), isTrue);
-  });
+  test(
+    'runPermissionApproval seeds the rewrite with the model draft',
+    () async {
+      final io = FakeStdio();
+      final screen = Screen(io: io, layout: ScreenLayout.fromSize(100, 30));
+      final editor = LineEditor(screen: screen);
+      addTearDown(editor.close);
+      final pending = runPermissionApproval(
+        screen: screen,
+        editor: editor,
+        prompt: prompt,
+        write: (_) {},
+        regexSuggester: RegexSuggester(_ScriptedProvider('git (status|diff)')),
+      );
+      await pumpEventQueue();
+      editor.inject(CharInput('r'));
+      await pumpEventQueue();
+      await pumpEventQueue();
+      // The drafted pattern is on the row before any human edit.
+      expect(io.written.toString(), contains('git (status|diff)'));
+      editor.inject(ControlKey(ControlCode.enter));
+      await pumpEventQueue();
+      editor.inject(ControlKey(ControlCode.enter));
+      final response = await pending;
+      expect(response.rule!.pattern, 'git (status|diff)');
+      expect(response.rule!.matches(prompt.target), isTrue);
+    },
+  );
 }
 
 class _ScriptedProvider extends LlmProvider {

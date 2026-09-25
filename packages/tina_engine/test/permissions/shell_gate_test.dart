@@ -29,8 +29,8 @@ void main() {
       expect(p.executionBlock('exec', {'executable': 'rm', 'arguments': []}),
           isNotNull,
           reason: 'exec has no route; argv-shaped execution stays blocked');
-      expect(p.executionBlock('write', {'path': 'x', 'content': ''}),
-          isNotNull);
+      expect(
+          p.executionBlock('write', {'path': 'x', 'content': ''}), isNotNull);
       expect(
           p.executionBlock('delegate', const {
             'delegations': [
@@ -43,8 +43,8 @@ void main() {
     test('a statically read-only command allows with no classifier round-trip',
         () {
       final p = routed();
-      expect(
-          p.check('bash', {'command': 'cat notes.md'}), PermissionDecision.allow);
+      expect(p.check('bash', {'command': 'cat notes.md'}),
+          PermissionDecision.allow);
       expect(p.check('bash', safe), PermissionDecision.allow);
       expect(p.check('bash', {'command': 'find . -name "*.dart"'}),
           PermissionDecision.allow);
@@ -106,8 +106,8 @@ void main() {
     });
 
     test('the flag is inert outside read-all', () {
-      final p =
-          PermissionPolicy(mode: PermissionMode.ask, classifierGatesShell: true);
+      final p = PermissionPolicy(
+          mode: PermissionMode.ask, classifierGatesShell: true);
       expect(p.executionBlock('bash', rm), isNull); // mode gate comes first
       expect(p.check('bash', rm), PermissionDecision.ask); // plain ask, as ever
     });
@@ -120,14 +120,15 @@ void main() {
         classifierGatesShell: parent.classifierGatesShell,
       );
       expect(child.mode, PermissionMode.readAll);
-      expect(child.check('bash', {'command': 'cat x'}),
-          PermissionDecision.allow);
+      expect(
+          child.check('bash', {'command': 'cat x'}), PermissionDecision.allow);
       expect(child.check('bash', rm), PermissionDecision.ask);
     });
   });
 
   group('read-all + gate, end to end through the asker', () {
-    test('check→ask→classifier failure denies without ever prompting', () async {
+    test('check→ask→classifier failure denies without ever prompting',
+        () async {
       // Composition order: the wrapper is built first (arming the policy's
       // route), then calls are checked.
       final policy = PermissionPolicy(mode: PermissionMode.readAll);
@@ -145,8 +146,8 @@ void main() {
 
       expect(policy.check('bash', const {'command': 'rm -rf /'}),
           PermissionDecision.ask);
-      final resp = await asker(
-          PermissionPrompt('bash', const {'command': 'rm -rf /'}));
+      final resp =
+          await asker(PermissionPrompt('bash', const {'command': 'rm -rf /'}));
       expect(resp.decision, PermissionDecision.deny);
       expect(fallbackCalls, 0,
           reason: 'read-all promised no prompts; the failure stays closed');

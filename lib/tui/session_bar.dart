@@ -41,11 +41,11 @@ class SessionBar {
       final s = sessions[i];
       final marker = s.isActive ? '●' : ' ';
       final running = s.isRunning ? ' ⚡' : '';
-      final unread =
-          s.unread > 0 ? ' (${s.unread > 9 ? "9+" : s.unread})' : '';
+      final unread = s.unread > 0 ? ' (${s.unread > 9 ? "9+" : s.unread})' : '';
       // Truncate long model labels so the narrow info column stays readable.
-      final label =
-          s.label.length > 18 ? '${s.label.substring(0, 17)}…' : s.label;
+      final label = s.label.length > 18
+          ? '${s.label.substring(0, 17)}…'
+          : s.label;
       lines.add('$marker${i + 1} $label$running$unread');
     }
     if (sessions.length > 9) {

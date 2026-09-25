@@ -60,20 +60,22 @@ class WorkflowCatalog {
   /// A catalog over [workflowsDir] with no built-in entries: purely the
   /// on-disk scan. (`PipelineRunner.listWorkflows`/`readWorkflow` are thin
   /// delegates over exactly this.)
-  WorkflowCatalog(
-      {required this.workflowsDir, Map<String, String> entries = const {}})
-      : _entries = Map.of(entries);
+  WorkflowCatalog({
+    required this.workflowsDir,
+    Map<String, String> entries = const {},
+  }) : _entries = Map.of(entries);
 
   /// The app's catalog: the on-disk scan plus the built-in seed graph
   /// registered under [defaultEntryName], with any [entries] layered on top
   /// (a same-named file still wins over every entry).
-  factory WorkflowCatalog.standard(
-      {required Directory workflowsDir,
-      Map<String, String> entries = const {}}) {
-    return WorkflowCatalog(workflowsDir: workflowsDir, entries: {
-      ...entries,
-      defaultEntryName: kDefaultWorkflowDotSource,
-    });
+  factory WorkflowCatalog.standard({
+    required Directory workflowsDir,
+    Map<String, String> entries = const {},
+  }) {
+    return WorkflowCatalog(
+      workflowsDir: workflowsDir,
+      entries: {...entries, defaultEntryName: kDefaultWorkflowDotSource},
+    );
   }
 
   /// Register a programmatic workflow entry. Registration never overrides a
@@ -108,7 +110,9 @@ class WorkflowCatalog {
   Future<String> read(String name) async {
     if (!isSafeWorkflowName(name)) {
       throw FileSystemException(
-          nameRejection, p.join(workflowsDir.path, '<name>.dot'));
+        nameRejection,
+        p.join(workflowsDir.path, '<name>.dot'),
+      );
     }
     final file = File(p.join(workflowsDir.path, '$name.dot'));
     if (await file.exists()) return file.readAsString();
@@ -129,5 +133,7 @@ class WorkflowCatalog {
   /// exists, and null otherwise — the documented override story, unchanged.
   String? defaultWorkflowName({String? configured}) =>
       resolveDefaultWorkflowName(
-          configured: configured, workflowsDir: workflowsDir);
+        configured: configured,
+        workflowsDir: workflowsDir,
+      );
 }

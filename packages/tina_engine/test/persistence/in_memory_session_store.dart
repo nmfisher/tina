@@ -106,8 +106,8 @@ class InMemorySessionStore implements SessionStore, TimestampedSessionStore {
   }
 
   @override
-  Future<void> replace(String sessionId, String conversationId,
-      List<Message> messages) async {
+  Future<void> replace(
+      String sessionId, String conversationId, List<Message> messages) async {
     final s = _require(sessionId);
     s.messages[conversationId] = List.of(messages);
     s.writes[conversationId] = _tickTime();
@@ -139,8 +139,7 @@ class InMemorySessionStore implements SessionStore, TimestampedSessionStore {
     }
     if (meta.kind != ConversationKind.primary) {
       // Mirrors the JSONL store: only primaries anchor.
-      throw StateError(
-          'cannot anchor ${meta.kind.name} conversation '
+      throw StateError('cannot anchor ${meta.kind.name} conversation '
           '$sessionId/$conversationId — only primaries anchor');
     }
     s.manifest =
@@ -163,13 +162,11 @@ class InMemorySessionStore implements SessionStore, TimestampedSessionStore {
       DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
-  Future<void> updateConversationModel(String sessionId,
-      String conversationId,
-      {required String model,
-      String? label}) async {
+  Future<void> updateConversationModel(String sessionId, String conversationId,
+      {required String model, String? label}) async {
     final s = _require(sessionId);
-    final idx = s.manifest.conversations
-        .indexWhere((c) => c.id == conversationId);
+    final idx =
+        s.manifest.conversations.indexWhere((c) => c.id == conversationId);
     if (idx < 0) {
       throw StateError('conversation not found: $sessionId/$conversationId');
     }
@@ -200,13 +197,13 @@ class InMemorySessionStore implements SessionStore, TimestampedSessionStore {
   }
 
   @override
-  Future<void> updateConversationTrackers(String sessionId,
-      String conversationId,
+  Future<void> updateConversationTrackers(
+      String sessionId, String conversationId,
       {required Map<String, dynamic>? goal,
       required Map<String, dynamic>? plan}) async {
     final s = _require(sessionId);
-    final idx = s.manifest.conversations
-        .indexWhere((c) => c.id == conversationId);
+    final idx =
+        s.manifest.conversations.indexWhere((c) => c.id == conversationId);
     if (idx < 0) {
       throw StateError('conversation not found: $sessionId/$conversationId');
     }
@@ -245,8 +242,7 @@ class InMemorySessionStore implements SessionStore, TimestampedSessionStore {
   Future<List<SessionMeta>> listSessions() async {
     final metas = <SessionMeta>[];
     for (final s in _sessions.values) {
-      final title =
-          _titleFor(s, s.manifest.activeConversationId) ?? '(empty)';
+      final title = _titleFor(s, s.manifest.activeConversationId) ?? '(empty)';
       var count = 0;
       for (final msgs in s.messages.values) {
         count += msgs.length;
@@ -321,7 +317,8 @@ class InMemorySessionStore implements SessionStore, TimestampedSessionStore {
     for (final m in s.messages[conversationId] ?? const <Message>[]) {
       if (m.role != Role.user) continue;
       for (final b in m.content) {
-        if (b is TextBlock && b.text.trim().isNotEmpty) return _summarize(b.text);
+        if (b is TextBlock && b.text.trim().isNotEmpty)
+          return _summarize(b.text);
       }
     }
     return null;
@@ -341,7 +338,8 @@ class InMemorySessionStore implements SessionStore, TimestampedSessionStore {
         final texts = m.content.whereType<TextBlock>().toList();
         if (texts.isNotEmpty) {
           final text = texts.map((b) => b.text).join(' ').trim();
-          if (text.isNotEmpty) assistantFallback = text.split('\n').first.trim();
+          if (text.isNotEmpty)
+            assistantFallback = text.split('\n').first.trim();
         }
       }
     }

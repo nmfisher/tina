@@ -110,21 +110,19 @@ void main() {
   });
 
   group('disabledModelRefsFor', () {
-    ProviderConfig p({
-      String? key,
-      Set<String>? disabled,
-    }) =>
+    ProviderConfig p({String? key, Set<String>? disabled}) =>
         ProviderConfig(apiKey: key, disabledModels: disabled);
 
     test('a never-curated provider disables every registry model', () {
-      final c = UserConfig(providers: {
-        'alpha': p(key: 'k'), // disabledModels absent
-      });
-      final refs = disabledModelRefsFor(
-        c,
-        ['alpha', 'beta'],
-        (pid) => pid == 'alpha' ? ['m1', 'm2'] : [],
+      final c = UserConfig(
+        providers: {
+          'alpha': p(key: 'k'), // disabledModels absent
+        },
       );
+      final refs = disabledModelRefsFor(c, [
+        'alpha',
+        'beta',
+      ], (pid) => pid == 'alpha' ? ['m1', 'm2'] : []);
       expect(refs, {'alpha/m1', 'alpha/m2'});
     });
 
@@ -133,23 +131,21 @@ void main() {
       // the universe is the REGISTRY, not the config keys — an env-only
       // provider must be disabled by default exactly like any other.
       final c = UserConfig.empty;
-      final refs = disabledModelRefsFor(
-        c,
-        ['alpha'],
-        (pid) => pid == 'alpha' ? ['m1', 'm2'] : [],
-      );
+      final refs = disabledModelRefsFor(c, [
+        'alpha',
+      ], (pid) => pid == 'alpha' ? ['m1', 'm2'] : []);
       expect(refs, {'alpha/m1', 'alpha/m2'});
     });
 
     test('an explicitly saved set is honored as-is', () {
-      final c = UserConfig(providers: {
-        'alpha': p(key: 'k', disabled: {'m1'}),
-      });
-      final refs = disabledModelRefsFor(
-        c,
-        ['alpha'],
-        (pid) => pid == 'alpha' ? ['m1', 'm2'] : [],
+      final c = UserConfig(
+        providers: {
+          'alpha': p(key: 'k', disabled: {'m1'}),
+        },
       );
+      final refs = disabledModelRefsFor(c, [
+        'alpha',
+      ], (pid) => pid == 'alpha' ? ['m1', 'm2'] : []);
       expect(refs, {'alpha/m1'});
     });
 
@@ -190,9 +186,9 @@ void main() {
 
       // Checking a model in /settings writes the block; the explicit set is
       // then honored as-is.
-      final curated = UserConfig(providers: {
-        'moonshotai': ProviderConfig(disabledModels: const {}),
-      });
+      final curated = UserConfig(
+        providers: {'moonshotai': ProviderConfig(disabledModels: const {})},
+      );
       expect(
         disabledModelRefsFor(curated, const ['moonshotai'], modelsFor),
         isEmpty,
@@ -200,14 +196,12 @@ void main() {
     });
 
     test('an empty set enables everything (the curated all-on state)', () {
-      final c = UserConfig(providers: {
-        'alpha': p(key: 'k', disabled: {}),
-      });
-      final refs = disabledModelRefsFor(
-        c,
-        ['alpha'],
-        (pid) => pid == 'alpha' ? ['m1', 'm2'] : [],
+      final c = UserConfig(
+        providers: {'alpha': p(key: 'k', disabled: {})},
       );
+      final refs = disabledModelRefsFor(c, [
+        'alpha',
+      ], (pid) => pid == 'alpha' ? ['m1', 'm2'] : []);
       expect(refs, isEmpty);
     });
   });
@@ -447,7 +441,9 @@ void main() {
       for (final app in [a, b, a]) {
         final provider = app.buildStartupProvider();
         try {
-          await provider.send(system: '', messages: [], tools: []).drain<void>();
+          await provider
+              .send(system: '', messages: [], tools: [])
+              .drain<void>();
         } finally {
           provider.close();
         }

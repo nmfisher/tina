@@ -46,7 +46,8 @@ void main() {
   test('auth-optional provider: no key prompt', () {
     final registry = ProviderRegistry(env: {})
       ..register(
-          fakeProviderDescriptor('local', models: ['m1'], optional: true));
+        fakeProviderDescriptor('local', models: ['m1'], optional: true),
+      );
     answers = ['1', '1', '']; // provider, model, confirm — no key asked
 
     final wrote = runSetupWizard(
@@ -89,15 +90,21 @@ void main() {
         maxSessionTokens: 5,
         maxRequestTokens: 6,
       );
-      final cfg =
-          buildSetupConfig(keys: {}, limits: limits, defaultProvider: 'a');
+      final cfg = buildSetupConfig(
+        keys: {},
+        limits: limits,
+        defaultProvider: 'a',
+      );
       expect(cfg.limits, limits);
     });
 
     test('limits default to null (omitted) — the first-run wizard path', () {
       final cfg = buildSetupConfig(keys: {});
-      expect(cfg.limits, isNull,
-          reason: 'the stdin wizard passes no limits → no [limits] section');
+      expect(
+        cfg.limits,
+        isNull,
+        reason: 'the stdin wizard passes no limits → no [limits] section',
+      );
     });
 
     test('themeVariant is threaded through to UserConfig', () {

@@ -37,8 +37,12 @@ void main() {
 
   setUp(() {
     io = FakeStdio()..columns = 120;
-    final layout = ScreenLayout.fromSize(120, 24,
-        split: true, drawInfoFrame: false);
+    final layout = ScreenLayout.fromSize(
+      120,
+      24,
+      split: true,
+      drawInfoFrame: false,
+    );
     screen = Screen(io: io, layout: layout, ansi: AnsiCapable.yes);
     focusManager = FocusManager();
     editor = LineEditor(screen: screen);
@@ -52,57 +56,71 @@ void main() {
   });
 
   PanelFrame _spawn(String id, {String parent = 'primary'}) {
-    final panel = PanelFrame(
-      screen: screen,
-      label: id,
-      conversationId: id,
-    )..setReservesInput(true);
+    final panel = PanelFrame(screen: screen, label: id, conversationId: id)
+      ..setReservesInput(true);
     tree.parentOf[id] = parent;
     tree.baseLabel[id] = id;
     return panel;
   }
 
   group('layout (geometry)', () {
-    test('sidebar keeps tree order while only the selected frame is visible', () {
-      final pm = PanelManager(
-        screen: screen, focusManager: focusManager, editor: editor,
-        primaryFrame: primary, terminalGeometry: geometry,
-        menuBarEnabled: false, tree: tree, showSidebar: true,
-      );
-      pm.applyScreenLayout(split: true, drawInfoFrame: false);
-      final sibling = _spawn('sibling');
-      final child = _spawn('child');
-      final nested = _spawn('nested', parent: 'child');
-      pm.addFrame(child);
-      pm.addFrame(sibling);
-      pm.addFrame(nested);
-      pm.layout();
-      expect(pm.sidebar!.entries.map((e) => e.id),
-          ['primary', 'child', 'nested', 'sibling']);
-      expect(pm.sidebar!.entries.map((e) => e.depth), [0, 1, 2, 1]);
-      expect(pm.allFrames.where((f) => !f.isParked), [primary]);
-      expect(pm.ensureVisible(nested), isTrue);
-      pm.layout();
-      expect(pm.allFrames.where((f) => !f.isParked), [nested]);
-      expect(nested.bounds.col, screen.layout.sidebar.width);
-      expect(nested.bounds.right, screen.layout.width - 1);
-      expect(nested.canFocus, isTrue);
-      expect(primary.canFocus, isFalse);
-      expect(pm.sidebar!.activeId, 'nested');
-      final vt = VirtualTerminal(width: 120, height: 24);
-      vt.feed(io.written.toString());
-      io.written.clear();
-      screen.resize(ScreenLayout.fromSize(60, 16, sidebarWidth: 24, split: false));
-      pm.layout();
-      vt.feed(io.written.toString());
-      final resized = screen.layout;
-      expect(resized.sidebar.width, 20);
-      expect(vt.rowText(resized.topBorderRow)[resized.chatLeftCol], '┌',
-          reason: 'shrinking the sidebar must not erase the new view border');
-      expect(nested.bounds.right, 59);
-      expect(pm.sidebar!.activeId, 'nested');
-      pm.dispose();
-    });
+    test(
+      'sidebar keeps tree order while only the selected frame is visible',
+      () {
+        final pm = PanelManager(
+          screen: screen,
+          focusManager: focusManager,
+          editor: editor,
+          primaryFrame: primary,
+          terminalGeometry: geometry,
+          menuBarEnabled: false,
+          tree: tree,
+          showSidebar: true,
+        );
+        pm.applyScreenLayout(split: true, drawInfoFrame: false);
+        final sibling = _spawn('sibling');
+        final child = _spawn('child');
+        final nested = _spawn('nested', parent: 'child');
+        pm.addFrame(child);
+        pm.addFrame(sibling);
+        pm.addFrame(nested);
+        pm.layout();
+        expect(pm.sidebar!.entries.map((e) => e.id), [
+          'primary',
+          'child',
+          'nested',
+          'sibling',
+        ]);
+        expect(pm.sidebar!.entries.map((e) => e.depth), [0, 1, 2, 1]);
+        expect(pm.allFrames.where((f) => !f.isParked), [primary]);
+        expect(pm.ensureVisible(nested), isTrue);
+        pm.layout();
+        expect(pm.allFrames.where((f) => !f.isParked), [nested]);
+        expect(nested.bounds.col, screen.layout.sidebar.width);
+        expect(nested.bounds.right, screen.layout.width - 1);
+        expect(nested.canFocus, isTrue);
+        expect(primary.canFocus, isFalse);
+        expect(pm.sidebar!.activeId, 'nested');
+        final vt = VirtualTerminal(width: 120, height: 24);
+        vt.feed(io.written.toString());
+        io.written.clear();
+        screen.resize(
+          ScreenLayout.fromSize(60, 16, sidebarWidth: 24, split: false),
+        );
+        pm.layout();
+        vt.feed(io.written.toString());
+        final resized = screen.layout;
+        expect(resized.sidebar.width, 20);
+        expect(
+          vt.rowText(resized.topBorderRow)[resized.chatLeftCol],
+          '┌',
+          reason: 'shrinking the sidebar must not erase the new view border',
+        );
+        expect(nested.bounds.right, 59);
+        expect(pm.sidebar!.activeId, 'nested');
+        pm.dispose();
+      },
+    );
 
     test('no spawned frames: primary owns the full chat width', () {
       final pm = PanelManager(
@@ -120,10 +138,14 @@ void main() {
       // box's full height.
       expect(primary.bounds.row, layout.topBorderRow);
       expect(primary.bounds.col, layout.chatLeftCol);
-      expect(primary.bounds.width,
-          layout.chatRightCol - layout.chatLeftCol + 1);
-      expect(primary.bounds.height,
-          layout.bottomBorderRow - layout.topBorderRow + 1);
+      expect(
+        primary.bounds.width,
+        layout.chatRightCol - layout.chatLeftCol + 1,
+      );
+      expect(
+        primary.bounds.height,
+        layout.bottomBorderRow - layout.topBorderRow + 1,
+      );
       pm.dispose();
     });
 
@@ -134,9 +156,15 @@ void main() {
       // own group below.
       final tallIo = FakeStdio()..columns = 120;
       final tallScreen = Screen(
-          io: tallIo,
-          layout: ScreenLayout.fromSize(120, 44, split: true, drawInfoFrame: false),
-          ansi: AnsiCapable.yes);
+        io: tallIo,
+        layout: ScreenLayout.fromSize(
+          120,
+          44,
+          split: true,
+          drawInfoFrame: false,
+        ),
+        ansi: AnsiCapable.yes,
+      );
       final tallPrimary = PanelFrame(
         screen: tallScreen,
         label: 'primary',
@@ -186,8 +214,11 @@ void main() {
       final perPanel = boxHeight ~/ ordered.length;
 
       // First panel's top aligns with the primary's top border row.
-      expect(ordered.first.bounds.row, boxTop,
-          reason: 'first panel starts at the box top');
+      expect(
+        ordered.first.bounds.row,
+        boxTop,
+        reason: 'first panel starts at the box top',
+      );
       // Every panel is perPanel tall except the last, which absorbs the
       // remainder so the column is fully covered with no gap or overlap.
       for (var i = 0; i < ordered.length; i++) {
@@ -199,14 +230,19 @@ void main() {
       }
       // Contiguity: each panel begins exactly where the previous ended.
       for (var i = 0; i < ordered.length - 1; i++) {
-        expect(ordered[i + 1].bounds.row,
-            ordered[i].bounds.row + ordered[i].bounds.height,
-            reason: 'panel $i is contiguous with the next');
+        expect(
+          ordered[i + 1].bounds.row,
+          ordered[i].bounds.row + ordered[i].bounds.height,
+          reason: 'panel $i is contiguous with the next',
+        );
       }
       // Full vertical coverage: last panel bottom reaches the box bottom.
       final last = ordered.last;
-      expect(last.bounds.row + last.bounds.height, boxTop + boxHeight,
-          reason: 'panels fill the box top-to-bottom');
+      expect(
+        last.bounds.row + last.bounds.height,
+        boxTop + boxHeight,
+        reason: 'panels fill the box top-to-bottom',
+      );
       // Flat spawns share one depth, so they share the same left col/width
       // (same indent under the info box).
       final col0 = ordered.first.bounds.col;
@@ -238,42 +274,53 @@ void main() {
       // The child (depth 2) sits 2 columns right of the parent (depth 1).
       expect(tree.depthOf('parent'), 1);
       expect(tree.depthOf('child'), 2);
-      expect(child.bounds.col, greaterThan(parent.bounds.col),
-          reason: 'child is indented right of its parent');
-      pm.dispose();
-    });
-
-    test('applyScreenLayout resizes the screen to the split/no-split layout',
-        () {
-      // Full-width (no split) initially: the info column is absent.
-      final fullWidth = ScreenLayout.fromSize(120, 24, split: false);
-      screen.resize(fullWidth);
-      expect(screen.layout.isSplit, isFalse);
-
-      final pm = PanelManager(
-        screen: screen,
-        focusManager: focusManager,
-        editor: editor,
-        primaryFrame: primary,
-        terminalGeometry: geometry,
-        menuBarEnabled: false,
-        tree: tree,
+      expect(
+        child.bounds.col,
+        greaterThan(parent.bounds.col),
+        reason: 'child is indented right of its parent',
       );
-
-      // First spawn splits the layout to make a right column.
-      pm.applyScreenLayout(split: true, drawInfoFrame: false);
-      expect(screen.layout.isSplit, isTrue,
-          reason: 'split opens the right (info) column');
-
-      // A no-split transition collapses it back.
-      pm.applyScreenLayout(split: false, drawInfoFrame: true);
-      expect(screen.layout.isSplit, isFalse,
-          reason: 'no-split drops the right column');
-
-      // Width carries through.
-      expect(screen.layout.width, 120);
       pm.dispose();
     });
+
+    test(
+      'applyScreenLayout resizes the screen to the split/no-split layout',
+      () {
+        // Full-width (no split) initially: the info column is absent.
+        final fullWidth = ScreenLayout.fromSize(120, 24, split: false);
+        screen.resize(fullWidth);
+        expect(screen.layout.isSplit, isFalse);
+
+        final pm = PanelManager(
+          screen: screen,
+          focusManager: focusManager,
+          editor: editor,
+          primaryFrame: primary,
+          terminalGeometry: geometry,
+          menuBarEnabled: false,
+          tree: tree,
+        );
+
+        // First spawn splits the layout to make a right column.
+        pm.applyScreenLayout(split: true, drawInfoFrame: false);
+        expect(
+          screen.layout.isSplit,
+          isTrue,
+          reason: 'split opens the right (info) column',
+        );
+
+        // A no-split transition collapses it back.
+        pm.applyScreenLayout(split: false, drawInfoFrame: true);
+        expect(
+          screen.layout.isSplit,
+          isFalse,
+          reason: 'no-split drops the right column',
+        );
+
+        // Width carries through.
+        expect(screen.layout.width, 120);
+        pm.dispose();
+      },
+    );
   });
 
   group('focus ring (addFrame / removeFrame)', () {
@@ -315,15 +362,21 @@ void main() {
 
       pm.removeFrame(a);
       // Closing the focused view restores the primary input target.
-      expect(focusManager.focused, same(primary),
-          reason: 'closing the focused panel restores a usable input target');
+      expect(
+        focusManager.focused,
+        same(primary),
+        reason: 'closing the focused panel restores a usable input target',
+      );
       // Focusing the removed panel is a no-op (it's not in the ring); primary
       // remains the reachable target.
       focusManager.focusPanel(primary);
       expect(focusManager.focused, primary);
       focusManager.focusPanel(a);
-      expect(focusManager.focused, isNot(a),
-          reason: 'a must not be refocusable after removal');
+      expect(
+        focusManager.focused,
+        isNot(a),
+        reason: 'a must not be refocusable after removal',
+      );
       pm.dispose();
     });
 
@@ -372,14 +425,15 @@ void main() {
       // 2 × 10 ≤ 24 → no scrolling; equal tiling at 12 each.
       for (final p in pm.spawnedFrames) {
         expect(p.bounds.isEmpty, isFalse);
-        expect(p.bounds.height,
-            greaterThanOrEqualTo(PanelManager.minPanelHeight));
+        expect(
+          p.bounds.height,
+          greaterThanOrEqualTo(PanelManager.minPanelHeight),
+        );
       }
       pm.dispose();
     });
 
-    test('excess panels scroll: only the window tiles, the rest park',
-        () {
+    test('excess panels scroll: only the window tiles, the rest park', () {
       final panels = [_spawn('a'), _spawn('b'), _spawn('c'), _spawn('d')];
       final pm = manager(panels);
       pm.layout();
@@ -387,28 +441,44 @@ void main() {
       // 24 rows − 2 indicator rows = 22 → capacity 2 at min height.
       final visible = panels.where((p) => !p.isParked).toList();
       expect(visible, hasLength(2), reason: 'only the window is tiled');
-      expect(visible, [panels[0], panels[1]],
-          reason: 'the window starts at the top of the order');
+      expect(visible, [
+        panels[0],
+        panels[1],
+      ], reason: 'the window starts at the top of the order');
       for (final p in visible) {
         expect(p.bounds.isEmpty, isFalse);
-        expect(p.bounds.height,
-            greaterThanOrEqualTo(PanelManager.minPanelHeight));
+        expect(
+          p.bounds.height,
+          greaterThanOrEqualTo(PanelManager.minPanelHeight),
+        );
       }
       // Parked panels paint nothing but keep a VIRTUAL slot with real
       // geometry, so focus cycling can navigate onto them by direction.
       for (final p in panels.skip(2)) {
         expect(p.isParked, isTrue);
-        expect(p.bounds.isEmpty, isFalse,
-            reason: 'parked panels keep virtual geometry for cycling');
-        expect(p.canFocus, isTrue,
-            reason: 'parked panels stay cyclable (the highlight scrolls them '
-                'into view)');
-        expect(p.bounds.row, greaterThan(visible.last.bounds.bottom),
-            reason: 'a panel hidden below parks below the visible stack');
+        expect(
+          p.bounds.isEmpty,
+          isFalse,
+          reason: 'parked panels keep virtual geometry for cycling',
+        );
+        expect(
+          p.canFocus,
+          isTrue,
+          reason:
+              'parked panels stay cyclable (the highlight scrolls them '
+              'into view)',
+        );
+        expect(
+          p.bounds.row,
+          greaterThan(visible.last.bounds.bottom),
+          reason: 'a panel hidden below parks below the visible stack',
+        );
       }
       // The visible window still covers the stack contiguously.
-      expect(visible[1].bounds.row,
-          visible[0].bounds.row + visible[0].bounds.height);
+      expect(
+        visible[1].bounds.row,
+        visible[0].bounds.row + visible[0].bounds.height,
+      );
       pm.dispose();
     });
 
@@ -421,14 +491,15 @@ void main() {
       expect(pm.ensureVisible(panels[3]), isTrue);
       pm.layout();
       final visible = panels.where((p) => !p.isParked).toList();
-      expect(visible, [panels[2], panels[3]],
-          reason: 'the window slid down one slot');
+      expect(visible, [
+        panels[2],
+        panels[3],
+      ], reason: 'the window slid down one slot');
       // …and the panels that scrolled off park at virtual slots.
       expect(panels[0].isParked, isTrue);
       expect(panels[1].isParked, isTrue);
       // A panel parked ABOVE the window sits above the visible stack.
-      expect(panels[0].bounds.bottom,
-          lessThan(visible.first.bounds.row));
+      expect(panels[0].bounds.bottom, lessThan(visible.first.bounds.row));
 
       // Already-visible panels don't move the window.
       expect(pm.ensureVisible(panels[2]), isFalse);
@@ -452,8 +523,11 @@ void main() {
       pm.removeFrame(panels[2]);
       pm.layout();
       for (final p in pm.spawnedFrames) {
-        expect(p.isParked, isFalse,
-            reason: 'two panels fit; nothing stays parked');
+        expect(
+          p.isParked,
+          isFalse,
+          reason: 'two panels fit; nothing stays parked',
+        );
       }
       pm.dispose();
     });
@@ -485,10 +559,16 @@ void main() {
       focusManager.moveHighlightDirection(ArrowDirection.down);
       // ↓ from the last VISIBLE panel must land on the parked panel below —
       // and the hook must have scrolled the window to show it.
-      expect(focusManager.highlighted, panels[2],
-          reason: 'arrow cycling crosses the window edge');
-      expect(panels[2].isParked, isFalse,
-          reason: 'the highlight hook scrolled it into view');
+      expect(
+        focusManager.highlighted,
+        panels[2],
+        reason: 'arrow cycling crosses the window edge',
+      );
+      expect(
+        panels[2].isParked,
+        isFalse,
+        reason: 'the highlight hook scrolled it into view',
+      );
 
       // Committing focus on it works: it is real, visible geometry now.
       focusManager.commit();
@@ -499,8 +579,11 @@ void main() {
       focusManager.engage();
       focusManager.moveHighlightCyclic(1); // → panels[3] (parked, below)
       expect(focusManager.highlighted, panels[3]);
-      expect(panels[3].isParked, isFalse,
-          reason: 'Tab onto a parked panel scrolls it into view too');
+      expect(
+        panels[3].isParked,
+        isFalse,
+        reason: 'Tab onto a parked panel scrolls it into view too',
+      );
       focusManager.cancel();
       pm.dispose();
     });
@@ -514,8 +597,12 @@ void main() {
     setUp(() {
       order = <String>[];
       final io = FakeStdio()..columns = 120;
-      final layout = ScreenLayout.fromSize(120, 24,
-          split: true, drawInfoFrame: false);
+      final layout = ScreenLayout.fromSize(
+        120,
+        24,
+        split: true,
+        drawInfoFrame: false,
+      );
       screen = _RecordingScreen(
         io: io,
         layout: layout,
@@ -580,9 +667,26 @@ void main() {
       );
 
       c.handleResize(split: true, drawInfoFrame: false);
-      expect(
-        order,
-        [
+      expect(order, [
+        'panelManager.applyScreenLayout',
+        'sessionManager.handleResize',
+        'menuBar.render',
+        'editor.handleResize',
+        'panelManager.layout',
+        'relayContent',
+        'relocateInput',
+        // The floating surface repaints after every pane has settled, so its
+        // frame rides the same flush as the rest of the sequence.
+        'overlay.relayout',
+        'screen.refresh',
+      ]);
+    });
+
+    group('canonical order', () {
+      test('runs the pinned sequence exactly once per resize', () {
+        _coordinator().handleResize(split: true, drawInfoFrame: false);
+
+        expect(order, [
           'panelManager.applyScreenLayout',
           'sessionManager.handleResize',
           'menuBar.render',
@@ -590,31 +694,8 @@ void main() {
           'panelManager.layout',
           'relayContent',
           'relocateInput',
-          // The floating surface repaints after every pane has settled, so its
-          // frame rides the same flush as the rest of the sequence.
-          'overlay.relayout',
           'screen.refresh',
-        ],
-      );
-    });
-
-    group('canonical order', () {
-      test('runs the pinned sequence exactly once per resize', () {
-        _coordinator().handleResize(split: true, drawInfoFrame: false);
-
-        expect(
-          order,
-          [
-            'panelManager.applyScreenLayout',
-            'sessionManager.handleResize',
-            'menuBar.render',
-            'editor.handleResize',
-            'panelManager.layout',
-            'relayContent',
-            'relocateInput',
-            'screen.refresh',
-          ],
-        );
+        ]);
       });
 
       test('passes split/drawInfoFrame through to applyScreenLayout', () {
@@ -716,30 +797,31 @@ class _Geometry_merged implements TerminalGeometry {
 /// Records handleResize() into the shared [order] list.
 class _RecordingSessionManager extends SessionManager {
   _RecordingSessionManager(this.order)
-      : super(
-          initialConversation: _dummyConversation,
-          initialProviderId: 'test',
-          initialApiKey: '',
-          providerFactory: (id, key, model, url) => FakeProvider.done(),
-          hostFactory: ({required String conversationId, required bool isActive}) =>
-              HeadlessHost(),
-          agentBuilder: ({
-            required String conversationId,
-            required LlmProvider provider,
-            required HostInterface host,
-            required PermissionPolicy policy,
-          }) =>
-              AgentDriverAdapter(
-                Agent(
-                  provider: provider,
-                  tools: ToolRegistry(const []),
-                  sink: host,
-                  policy: policy,
-                  asker: host.askPermission,
-                  system: 'sys',
-                ),
+    : super(
+        initialConversation: _dummyConversation,
+        initialProviderId: 'test',
+        initialApiKey: '',
+        providerFactory: (id, key, model, url) => FakeProvider.done(),
+        hostFactory:
+            ({required String conversationId, required bool isActive}) =>
+                HeadlessHost(),
+        agentBuilder:
+            ({
+              required String conversationId,
+              required LlmProvider provider,
+              required HostInterface host,
+              required PermissionPolicy policy,
+            }) => AgentDriverAdapter(
+              Agent(
+                provider: provider,
+                tools: ToolRegistry(const []),
+                sink: host,
+                policy: policy,
+                asker: host.askPermission,
+                system: 'sys',
               ),
-        );
+            ),
+      );
 
   final List<String> order;
 
@@ -773,16 +855,16 @@ class _RecordingEditor extends LineEditor {
 /// Records applyScreenLayout() args + layout() (then defers to the real manager).
 class _RecordingPanelManager extends PanelManager {
   _RecordingPanelManager(PanelManager delegate, this.order)
-      : _delegate = delegate,
-        super(
-          screen: delegate.screen,
-          focusManager: delegate.focusManager,
-          editor: delegate.editor,
-          primaryFrame: delegate.primaryFrame,
-          terminalGeometry: delegate.terminalGeometry,
-          menuBarEnabled: delegate.menuBarEnabled,
-          tree: delegate.tree,
-        );
+    : _delegate = delegate,
+      super(
+        screen: delegate.screen,
+        focusManager: delegate.focusManager,
+        editor: delegate.editor,
+        primaryFrame: delegate.primaryFrame,
+        terminalGeometry: delegate.terminalGeometry,
+        menuBarEnabled: delegate.menuBarEnabled,
+        tree: delegate.tree,
+      );
 
   final PanelManager _delegate;
   final List<String> order;

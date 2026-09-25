@@ -75,8 +75,7 @@ class PluginDescription {
   });
 
   @override
-  String toString() =>
-      'plugin(id: $id, state: ${state.name}, '
+  String toString() => 'plugin(id: $id, state: ${state.name}, '
       'provides: [${provides.join(', ')}], '
       'requires: [${requires.join(', ')}], '
       'dependsOn: [${dependsOn.join(', ')}])';
@@ -279,9 +278,13 @@ class PluginRuntime {
   /// provider selection, missing dependencies, cycles, config decoding, and
   /// the topological order — everything that must hold before any factory
   /// runs. Returns the computed data the build phase consumes.
-  (List<PluginDescriptor>, Map<String, PluginDescriptor>,
-      Map<String, List<PluginDescriptor>>, Map<String, Set<String>>,
-      List<String>) _validate() {
+  (
+    List<PluginDescriptor>,
+    Map<String, PluginDescriptor>,
+    Map<String, List<PluginDescriptor>>,
+    Map<String, Set<String>>,
+    List<String>
+  ) _validate() {
     // Sorted by id: deterministic iteration everywhere below.
     final sorted = [...plugins]..sort((a, b) => a.id.compareTo(b.id));
 

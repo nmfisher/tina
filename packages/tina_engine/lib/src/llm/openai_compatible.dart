@@ -151,7 +151,8 @@ class OpenAiCompatibleAdapter extends LlmProvider {
       resp = await sendOnce(_client, () => _buildRequest(bodyStr),
           requestTimeout: effectiveRequestTimeout);
     } catch (e) {
-      yield StreamError(humanizeException(e), transient: isTransientException(e));
+      yield StreamError(humanizeException(e),
+          transient: isTransientException(e));
       return;
     }
     if (resp.statusCode != 200) {
@@ -192,8 +193,8 @@ class OpenAiCompatibleAdapter extends LlmProvider {
         sink.close();
       },
     );
-    final events = parseSse(rawEvents,
-        onDoneMarker: () => sawDoneMarker = true);
+    final events =
+        parseSse(rawEvents, onDoneMarker: () => sawDoneMarker = true);
     try {
       await for (final payload in events) {
         final Map<String, dynamic> evt;
@@ -207,8 +208,8 @@ class OpenAiCompatibleAdapter extends LlmProvider {
           yield httpStreamError(label, resp.statusCode, payload,
               fromStream: true,
               streamUsage: promptTokens > 0 || completionTokens > 0
-                  ? TokenUsage(inputTokens: promptTokens,
-                      outputTokens: completionTokens)
+                  ? TokenUsage(
+                      inputTokens: promptTokens, outputTokens: completionTokens)
                   : null);
           return;
         }
@@ -296,7 +297,8 @@ class OpenAiCompatibleAdapter extends LlmProvider {
                     _log.fine('repaired streamed tool name "$n" '
                         '-> "${partial.name}"');
                   }
-                  yield ToolCallStart(id: partial.id ?? '', name: partial.name!);
+                  yield ToolCallStart(
+                      id: partial.id ?? '', name: partial.name!);
                 }
                 final args = fn['arguments'];
                 if (args is String) partial.args.write(args);
@@ -314,8 +316,8 @@ class OpenAiCompatibleAdapter extends LlmProvider {
         yield StreamError('$label stream ended without a completion marker',
             transient: true,
             usage: promptTokens > 0 || completionTokens > 0
-                ? TokenUsage(inputTokens: promptTokens,
-                    outputTokens: completionTokens)
+                ? TokenUsage(
+                    inputTokens: promptTokens, outputTokens: completionTokens)
                 : null);
         return;
       }
@@ -419,19 +421,16 @@ class OpenAiCompatibleAdapter extends LlmProvider {
             });
           }
         } else {
-          final text = m.content
-              .whereType<TextBlock>()
-              .map((t) => t.text)
-              .join('\n');
+          final text =
+              m.content.whereType<TextBlock>().map((t) => t.text).join('\n');
           out.add({'role': 'user', 'content': text});
         }
       } else {
         final texts = m.content.whereType<TextBlock>().toList();
         final toolUses = m.content.whereType<ToolUseBlock>().toList();
         final msg = <String, dynamic>{'role': 'assistant'};
-        msg['content'] = texts.isEmpty
-            ? null
-            : texts.map((t) => t.text).join('\n');
+        msg['content'] =
+            texts.isEmpty ? null : texts.map((t) => t.text).join('\n');
         if (toolUses.isNotEmpty) {
           msg['tool_calls'] = toolUses
               .map((u) => {

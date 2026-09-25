@@ -47,9 +47,8 @@ void main() {
       expect(vt.cursorRow, layout.input.row);
       expect(vt.cursorCol < layout.dividerCol, isTrue);
       // No 'x' leaks into right panel.
-      final right = vt
-          .rowText(layout.input.row)
-          .substring(layout.dividerCol + 1, 99);
+      final right =
+          vt.rowText(layout.input.row).substring(layout.dividerCol + 1, 99);
       expect(right.contains('x'), isFalse);
     });
 
@@ -165,8 +164,8 @@ void main() {
       final row = vt.rowText(layout.input.row);
       // The rendered substring includes the prompt + display text.
       expect(
-          row.substring(layout.input.col,
-              layout.input.col + 2 + display.length),
+          row.substring(
+              layout.input.col, layout.input.col + 2 + display.length),
           '> $display');
       expect(vt.cursorRow, layout.input.row);
       expect(vt.cursorCol, layout.input.col + 2 + cursorCol);
@@ -176,14 +175,13 @@ void main() {
       // A wide display buffer must scroll so the cursor stays on-screen and
       // nothing leaks past the input panel into the right panel.
       final display = 'x' * (layout.input.width * 2 + 5);
-      screen.input.render(
-          prompt: '> ', buffer: display, cursor: display.length);
+      screen.input
+          .render(prompt: '> ', buffer: display, cursor: display.length);
       vt.feed(io.written.toString());
       expect(vt.cursorRow, layout.input.row);
       expect(vt.cursorCol < layout.dividerCol, isTrue);
-      final right = vt
-          .rowText(layout.input.row)
-          .substring(layout.dividerCol + 1, 99);
+      final right =
+          vt.rowText(layout.input.row).substring(layout.dividerCol + 1, 99);
       expect(right.contains('x'), isFalse);
     });
 
@@ -197,8 +195,7 @@ void main() {
       // display-space buffer/cursor.
       screen.resize(ScreenLayout.fromSize(100, 24));
       vt.feed(io.written.toString());
-      expect(
-          vt.rowText(layout.input.row).contains('[Pasted text : 500 chars]'),
+      expect(vt.rowText(layout.input.row).contains('[Pasted text : 500 chars]'),
           isTrue);
     });
   });

@@ -68,8 +68,7 @@ String _section(Plan plan, PlanApprovalMode approvalMode) {
     'work is finished; call update_plan whenever the plan changes.\n',
   );
   buffer.writeln(switch (plan.approval) {
-    PlanApproval.none =>
-      'Approval has not been requested for this plan.',
+    PlanApproval.none => 'Approval has not been requested for this plan.',
     // An auto-granting run must never see "wait" — an unattended run would
     // take the instruction literally and stall (2026-09-24).
     PlanApproval.requested when approvalMode == PlanApprovalMode.autoGrant =>
@@ -85,18 +84,22 @@ String _section(Plan plan, PlanApprovalMode approvalMode) {
           'plan and clears approval), then ask again.',
   });
   for (final item in plan.items) {
-    buffer.writeln('${switch (item.state) {
-      PlanState.pending => '[ ]',
-      PlanState.inProgress => '[~]',
-      PlanState.done => '[x]',
-    }} ${item.text}');
-    // Subtasks render indented under their parent, mirroring the overlay.
-    for (final child in item.children) {
-      buffer.writeln('  ${switch (child.state) {
+    buffer.writeln(
+      '${switch (item.state) {
         PlanState.pending => '[ ]',
         PlanState.inProgress => '[~]',
         PlanState.done => '[x]',
-      }} ${child.text}');
+      }} ${item.text}',
+    );
+    // Subtasks render indented under their parent, mirroring the overlay.
+    for (final child in item.children) {
+      buffer.writeln(
+        '  ${switch (child.state) {
+          PlanState.pending => '[ ]',
+          PlanState.inProgress => '[~]',
+          PlanState.done => '[x]',
+        }} ${child.text}',
+      );
     }
   }
   buffer.writeln('</current-plan>');
@@ -152,76 +155,72 @@ class PlanTool extends LocalControlTool {
     HostInterface? host,
   ) =>
       (policy?.allowAllByDefault ?? false) ||
-              !(host?.canAnswerQuestions ?? true)
-          ? PlanApprovalMode.autoGrant
-          : PlanApprovalMode.interactive;
+          !(host?.canAnswerQuestions ?? true)
+      ? PlanApprovalMode.autoGrant
+      : PlanApprovalMode.interactive;
 
-  PlanTool(
-    this.store,
-    this.conversationId, {
-    this.policy,
-    this.host,
-  }) : approvalMode = resolveApprovalMode(policy, host);
+  PlanTool(this.store, this.conversationId, {this.policy, this.host})
+    : approvalMode = resolveApprovalMode(policy, host);
 
   @override
   ToolSchema get schema => ToolSchema(
-        name: 'update_plan',
-        description:
-            'Replace this conversation\'s task plan. Pass the complete item '
-            'list with each item\'s state (pending, in_progress, done). An '
-            'item may carry a flat `children` list of subtask items (one '
-            'nesting level; children must not have children). Keep at most '
-            'one item in_progress across the whole plan (children included). '
-            'Use it to track multi-step work for the user; call it again '
-            'whenever the plan changes. Pass approval: "requested" to ask '
-            'the user to approve the plan before you execute it — they '
-            'approve or reject via /plan, and the plan you see in context '
-            'tells you the outcome. You may also call it with only '
-            'approval: "requested" to (re-)request approval for the '
-            'unchanged plan.',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'approval': {
-              'type': 'string',
-              'enum': ['requested', 'none'],
-              'description':
-                  '"requested" asks the user to approve this plan before '
-                  'work starts. Editing item content clears approval again.',
-            },
-            'items': {
-              'type': 'array',
-              'maxItems': PlanStore.maxItems,
-              // The per-item shape; one nesting level via its own `children`.
-              'items': _itemSchema(allowChildren: true),
-            },
-          },
-          'required': ['items'],
+    name: 'update_plan',
+    description:
+        'Replace this conversation\'s task plan. Pass the complete item '
+        'list with each item\'s state (pending, in_progress, done). An '
+        'item may carry a flat `children` list of subtask items (one '
+        'nesting level; children must not have children). Keep at most '
+        'one item in_progress across the whole plan (children included). '
+        'Use it to track multi-step work for the user; call it again '
+        'whenever the plan changes. Pass approval: "requested" to ask '
+        'the user to approve the plan before you execute it — they '
+        'approve or reject via /plan, and the plan you see in context '
+        'tells you the outcome. You may also call it with only '
+        'approval: "requested" to (re-)request approval for the '
+        'unchanged plan.',
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'approval': {
+          'type': 'string',
+          'enum': ['requested', 'none'],
+          'description':
+              '"requested" asks the user to approve this plan before '
+              'work starts. Editing item content clears approval again.',
         },
-      );
+        'items': {
+          'type': 'array',
+          'maxItems': PlanStore.maxItems,
+          // The per-item shape; one nesting level via its own `children`.
+          'items': _itemSchema(allowChildren: true),
+        },
+      },
+      'required': ['items'],
+    },
+  );
 
   /// The JSON schema of one plan item. Root rows may carry [children];
   /// children must be childless (nesting is capped at one level), which the
   /// child shape enforces structurally.
   static Map<String, dynamic> _itemSchema({required bool allowChildren}) => {
-        'type': 'object',
-        'properties': {
-          'text': {'type': 'string'},
-          'state': {
-            'type': 'string',
-            'enum': ['pending', 'in_progress', 'done'],
-          },
-          if (allowChildren)
-            'children': {
-              'type': 'array',
-              'description':
-                  'Optional subtasks of this item. One nesting level: '
-                  'children must not carry children of their own.',
-              'items': _itemSchema(allowChildren: false),
-            },
+    'type': 'object',
+    'properties': {
+      'text': {'type': 'string'},
+      'state': {
+        'type': 'string',
+        'enum': ['pending', 'in_progress', 'done'],
+      },
+      if (allowChildren)
+        'children': {
+          'type': 'array',
+          'description':
+              'Optional subtasks of this item. One nesting level: '
+              'children must not carry children of their own.',
+          'items': _itemSchema(allowChildren: false),
         },
-        'required': ['text', 'state'],
-      };
+    },
+    'required': ['text', 'state'],
+  };
 
   @override
   Future<ToolResult> execute(
@@ -237,20 +236,22 @@ class PlanTool extends LocalControlTool {
     };
     if (approval == null) {
       return ToolResult.error(
-          'update_plan approval must be "requested" or "none"');
+        'update_plan approval must be "requested" or "none"',
+      );
     }
     // No human in the loop (yolo / unattended): a request must not park the
     // run — auto-grant so the work proceeds (2026-09-24 plan stall).
     final effectiveApproval =
         approval == PlanApproval.requested &&
-                approvalMode == PlanApprovalMode.autoGrant
-            ? PlanApproval.approved
-            : approval;
+            approvalMode == PlanApprovalMode.autoGrant
+        ? PlanApproval.approved
+        : approval;
     // Approval-only call: re-request on the unchanged plan, no items needed.
     if (rawItems == null) {
       if (approval != PlanApproval.requested) {
         return ToolResult.error(
-            'update_plan requires an items array (or approval: "requested")');
+          'update_plan requires an items array (or approval: "requested")',
+        );
       }
       try {
         switch (effectiveApproval) {
@@ -302,10 +303,7 @@ class PlanTool extends LocalControlTool {
   /// [allowChildren] is false (a child row) any nested `children` payload is
   /// rejected — the tool surfaces one nesting level as an error instead of
   /// silently flattening it.
-  static PlanItem _decodeItem(
-    dynamic raw, {
-    required bool allowChildren,
-  }) {
+  static PlanItem _decodeItem(dynamic raw, {required bool allowChildren}) {
     final text = switch (raw) {
       {'text': String text} => text,
       _ => throw ArgumentError('plan item requires string text'),
@@ -315,20 +313,24 @@ class PlanTool extends LocalControlTool {
       {'state': 'in_progress'} => PlanState.inProgress,
       {'state': 'done'} => PlanState.done,
       _ => throw ArgumentError(
-          'plan item state must be pending, in_progress or done'),
+        'plan item state must be pending, in_progress or done',
+      ),
     };
     final children = <PlanItem>[];
     final rawChildren = switch (raw) {
       {'children': final List rawChildren} => rawChildren,
       // Present but not a list (null included) is a tool error; absent is
       // simply no children.
-      {'children': _} =>
-        throw ArgumentError('plan item children must be an array'),
+      {'children': _} => throw ArgumentError(
+        'plan item children must be an array',
+      ),
       _ => const <dynamic>[],
     };
     if (rawChildren.isNotEmpty && !allowChildren) {
-      throw ArgumentError('plan supports one nesting level only '
-          '(children of children)');
+      throw ArgumentError(
+        'plan supports one nesting level only '
+        '(children of children)',
+      );
     }
     for (final rawChild in rawChildren) {
       children.add(_decodeItem(rawChild, allowChildren: false));
@@ -382,85 +384,87 @@ class PlanSummary {
 /// The human override. Writes the store directly; every subcommand answers in
 /// the invoking conversation.
 Command planCommand(PlanStore store) => Command(
-      names: ['/plan'],
-      argsHint:
-          '[clear | done <n> | pending <n> | add <text> | approve | reject | '
-          'request-approval | <free text>]',
-      summary: 'show or edit the conversation plan (approve/reject when the '
-          'agent asks for sign-off)',
-      helpOrder: 45,
-      handler: (call) async {
-        final id = call.conversationId;
-        final args = call.arguments.trim();
-        if (args.isEmpty) {
-          _show(call, store.read(id));
-          return const CmdHandled();
-        }
-        if (RegExp(r'^clear$', caseSensitive: false).hasMatch(args)) {
-          store.clear(id);
-          call.write('Plan cleared.\n');
-          return const CmdHandled();
-        }
-        final approvalOp = RegExp(
-          r'^(approve|reject|request-approval)$',
-          caseSensitive: false,
-        ).firstMatch(args);
-        if (approvalOp != null) {
-          final plan = store.read(id);
-          if (plan.isEmpty) {
-            call.write('No plan to ${approvalOp.group(1)!}.\n');
-            return const CmdHandled(failed: true);
-          }
-          switch (approvalOp.group(1)!.toLowerCase()) {
-            case 'approve':
-              store.approve(id);
-            case 'reject':
-              store.reject(id);
-            case 'request-approval':
-              store.requestApproval(id);
-          }
-          _show(call, store.read(id));
-          return const CmdHandled();
-        }
-        final toggle = RegExp(
-          r'^(done|pending)\s+(\d+)$',
-          caseSensitive: false,
-        ).firstMatch(args);
-        if (toggle != null) {
-          final verb = toggle.group(1)!.toLowerCase();
-          final index = int.parse(toggle.group(2)!) - 1;
-          final plan = store.read(id);
-          // Deliberately top-level only: dotted child addressing
-          // (`/plan done 2.1`) is out of scope for v1 — the overlay's
-          // space key or a model update_plan call edits children.
-          if (index < 0 || index >= plan.items.length) {
-            call.write('No plan item ${index + 1}.\n');
-            return const CmdHandled(failed: true);
-          }
-          try {
-            store.update(id, [
-              for (final (i, item) in plan.items.indexed)
-                i == index
-                    ? item.copyWith(
-                        state: verb == 'done'
-                            ? PlanState.done
-                            : PlanState.pending)
-                    : item,
-            ]);
-          } on ArgumentError catch (error) {
-            call.write('${error.message}\n', style: HostMessageStyle.warning);
-            return const CmdHandled(failed: true);
-          }
-          _show(call, store.read(id));
-          return const CmdHandled();
-        }
-        final added =
-            RegExp(r'^add\s+(.+)$', caseSensitive: false).firstMatch(args);
-        // Free text falls through as one new pending item.
-        _append(call, id, store, added?.group(1)?.trim() ?? args);
-        return const CmdHandled();
-      },
-    );
+  names: ['/plan'],
+  argsHint:
+      '[clear | done <n> | pending <n> | add <text> | approve | reject | '
+      'request-approval | <free text>]',
+  summary:
+      'show or edit the conversation plan (approve/reject when the '
+      'agent asks for sign-off)',
+  helpOrder: 45,
+  handler: (call) async {
+    final id = call.conversationId;
+    final args = call.arguments.trim();
+    if (args.isEmpty) {
+      _show(call, store.read(id));
+      return const CmdHandled();
+    }
+    if (RegExp(r'^clear$', caseSensitive: false).hasMatch(args)) {
+      store.clear(id);
+      call.write('Plan cleared.\n');
+      return const CmdHandled();
+    }
+    final approvalOp = RegExp(
+      r'^(approve|reject|request-approval)$',
+      caseSensitive: false,
+    ).firstMatch(args);
+    if (approvalOp != null) {
+      final plan = store.read(id);
+      if (plan.isEmpty) {
+        call.write('No plan to ${approvalOp.group(1)!}.\n');
+        return const CmdHandled(failed: true);
+      }
+      switch (approvalOp.group(1)!.toLowerCase()) {
+        case 'approve':
+          store.approve(id);
+        case 'reject':
+          store.reject(id);
+        case 'request-approval':
+          store.requestApproval(id);
+      }
+      _show(call, store.read(id));
+      return const CmdHandled();
+    }
+    final toggle = RegExp(
+      r'^(done|pending)\s+(\d+)$',
+      caseSensitive: false,
+    ).firstMatch(args);
+    if (toggle != null) {
+      final verb = toggle.group(1)!.toLowerCase();
+      final index = int.parse(toggle.group(2)!) - 1;
+      final plan = store.read(id);
+      // Deliberately top-level only: dotted child addressing
+      // (`/plan done 2.1`) is out of scope for v1 — the overlay's
+      // space key or a model update_plan call edits children.
+      if (index < 0 || index >= plan.items.length) {
+        call.write('No plan item ${index + 1}.\n');
+        return const CmdHandled(failed: true);
+      }
+      try {
+        store.update(id, [
+          for (final (i, item) in plan.items.indexed)
+            i == index
+                ? item.copyWith(
+                    state: verb == 'done' ? PlanState.done : PlanState.pending,
+                  )
+                : item,
+        ]);
+      } on ArgumentError catch (error) {
+        call.write('${error.message}\n', style: HostMessageStyle.warning);
+        return const CmdHandled(failed: true);
+      }
+      _show(call, store.read(id));
+      return const CmdHandled();
+    }
+    final added = RegExp(
+      r'^add\s+(.+)$',
+      caseSensitive: false,
+    ).firstMatch(args);
+    // Free text falls through as one new pending item.
+    _append(call, id, store, added?.group(1)?.trim() ?? args);
+    return const CmdHandled();
+  },
+);
 
 void _append(CommandCall call, String id, PlanStore store, String text) {
   final existing = store.read(id).items;
@@ -475,8 +479,10 @@ void _append(CommandCall call, String id, PlanStore store, String text) {
 
 void _show(CommandCall call, Plan plan) {
   if (plan.isEmpty) {
-    call.write('No plan. `/plan add <text>` starts one; the agent maintains '
-        'it with update_plan.\n');
+    call.write(
+      'No plan. `/plan add <text>` starts one; the agent maintains '
+      'it with update_plan.\n',
+    );
     return;
   }
   final buffer = StringBuffer('Plan:\n');
@@ -486,19 +492,23 @@ void _show(CommandCall call, Plan plan) {
     buffer.writeln('  approval: rejected');
   }
   for (final (i, item) in plan.items.indexed) {
-    buffer.writeln('  ${i + 1}. ${switch (item.state) {
-      PlanState.pending => '[ ]',
-      PlanState.inProgress => '[~]',
-      PlanState.done => '[x]',
-    }} ${item.text}');
-    // Subtasks show indented and unnumbered: `/plan done <n>` addresses
-    // top-level items only (dotted addressing is out of scope for v1).
-    for (final child in item.children) {
-      buffer.writeln('      ${switch (child.state) {
+    buffer.writeln(
+      '  ${i + 1}. ${switch (item.state) {
         PlanState.pending => '[ ]',
         PlanState.inProgress => '[~]',
         PlanState.done => '[x]',
-      }} ${child.text}');
+      }} ${item.text}',
+    );
+    // Subtasks show indented and unnumbered: `/plan done <n>` addresses
+    // top-level items only (dotted addressing is out of scope for v1).
+    for (final child in item.children) {
+      buffer.writeln(
+        '      ${switch (child.state) {
+          PlanState.pending => '[ ]',
+          PlanState.inProgress => '[~]',
+          PlanState.done => '[x]',
+        }} ${child.text}',
+      );
     }
   }
   call.write(buffer.toString());

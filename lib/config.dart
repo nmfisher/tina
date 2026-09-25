@@ -227,13 +227,15 @@ class Config extends RuntimeConfig implements ResumeRequest {
     ..addMultiOption(
       'allow-regex',
       splitCommas: false,
-      help: 'Allow rule: TOOL:REGEX, matched against the entire approval target. '
+      help:
+          'Allow rule: TOOL:REGEX, matched against the entire approval target. '
           'Example: --allow-regex "bash:git (status|diff)". Can be repeated.',
     )
     ..addMultiOption(
       'deny-regex',
       splitCommas: false,
-      help: 'Deny rule: same syntax as --allow-regex. '
+      help:
+          'Deny rule: same syntax as --allow-regex. '
           'Deny rules take precedence over configured allow rules.',
     )
     ..addMultiOption(
@@ -950,14 +952,16 @@ class Config extends RuntimeConfig implements ResumeRequest {
     // rides the config-parse error path (bin/tina.dart exits 64 on it).
     if (!sessionStoreProviderIds.contains(config.sessionStoreProvider)) {
       throw FormatException(
-          '[sessions] provider "${config.sessionStoreProvider}" is unknown. '
-          'Known providers: ${sessionStoreProviderIds.join(', ')}.');
+        '[sessions] provider "${config.sessionStoreProvider}" is unknown. '
+        'Known providers: ${sessionStoreProviderIds.join(', ')}.',
+      );
     }
     if (config.sessionStoreRoot != null &&
         !Directory(config.sessionStoreRoot!).existsSync()) {
       throw FormatException(
-          '[sessions.jsonl] root "${config.sessionStoreRoot}" does not exist. '
-          'Point it at an existing directory.');
+        '[sessions.jsonl] root "${config.sessionStoreRoot}" does not exist. '
+        'Point it at an existing directory.',
+      );
     }
     return config;
   }

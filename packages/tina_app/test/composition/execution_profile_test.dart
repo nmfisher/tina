@@ -53,8 +53,7 @@ List<PluginDescriptor> _defaultProfile() {
 }
 
 void main() {
-  test('the default profile lists its plugins in declared order',
-      () {
+  test('the default profile lists its plugins in declared order', () {
     final plugins = _defaultProfile();
     expect(
       [for (final plugin in plugins) plugin.id],
@@ -71,8 +70,7 @@ void main() {
     );
   });
 
-  test(
-      'the default profile activates in a bare runtime — no missing '
+  test('the default profile activates in a bare runtime — no missing '
       'dependencies', () async {
     final plugins = _defaultProfile();
     final description = PluginRuntime(
@@ -80,10 +78,9 @@ void main() {
       plugins: plugins,
     ).describe();
     // Diagnostics first: no pending missing-dependency error, nothing wired.
-    expect(
-      [for (final plugin in description.plugins) plugin.state],
-      everyElement(PluginLifecycleState.pending),
-    );
+    expect([
+      for (final plugin in description.plugins) plugin.state,
+    ], everyElement(PluginLifecycleState.pending));
     expect(description.activationOrder, isEmpty);
 
     // Then the real thing on a throwaway runtime with a throwaway project.
@@ -105,42 +102,42 @@ void main() {
     await runtime.activate();
     addTearDown(runtime.dispose);
 
-    expect(
-      runtime.scope.lookup(spendLedgerServiceKey),
-      isA<SpendLedger>(),
-    );
+    expect(runtime.scope.lookup(spendLedgerServiceKey), isA<SpendLedger>());
     expect(
       runtime.scope.lookup(providerFactoryServiceKey),
       isA<RuntimeProviderFactory>(),
     );
-    expect(
-      runtime.scope.lookup(workspaceCapabilitiesServiceKey),
-      isNotNull,
-    );
+    expect(runtime.scope.lookup(workspaceCapabilitiesServiceKey), isNotNull);
     expect(runtime.scope.lookup(workspaceToolScopeServiceKey), isNotNull);
   });
 
-  test('buildExecutionRuntime with the default profile exposes every service',
-      () async {
-    final root = await _tempProject();
-    addTearDown(() => root.delete(recursive: true));
-    final runtime = await buildExecutionRuntime(
-      config: RuntimeConfig(provider: 'test', model: 'a'),
-      registry: _registryWithUsageProvider(),
-      environment: FakeEnvironment(),
-      workspaceRoot: root.path,
-    );
-    addTearDown(runtime.dispose);
+  test(
+    'buildExecutionRuntime with the default profile exposes every service',
+    () async {
+      final root = await _tempProject();
+      addTearDown(() => root.delete(recursive: true));
+      final runtime = await buildExecutionRuntime(
+        config: RuntimeConfig(provider: 'test', model: 'a'),
+        registry: _registryWithUsageProvider(),
+        environment: FakeEnvironment(),
+        workspaceRoot: root.path,
+      );
+      addTearDown(runtime.dispose);
 
-    expect(runtime.spendLedger, isA<SpendLedger>());
-    expect(runtime.pluginScope.lookup(workspaceToolScopeServiceKey), isNotNull);
-  });
+      expect(runtime.spendLedger, isA<SpendLedger>());
+      expect(
+        runtime.pluginScope.lookup(workspaceToolScopeServiceKey),
+        isNotNull,
+      );
+    },
+  );
 
   test('a duplicate plugin id in an override fails before any provider is '
       'built', () async {
     var builderCalls = 0;
-    final registry =
-        _registryWithUsageProvider(onBuilderCalled: () => builderCalls++);
+    final registry = _registryWithUsageProvider(
+      onBuilderCalled: () => builderCalls++,
+    );
     final root = await _tempProject();
     addTearDown(() => root.delete(recursive: true));
 
@@ -174,8 +171,9 @@ void main() {
   test('an override without the tool-scope plugin fails before any provider '
       'is built', () async {
     var builderCalls = 0;
-    final registry =
-        _registryWithUsageProvider(onBuilderCalled: () => builderCalls++);
+    final registry = _registryWithUsageProvider(
+      onBuilderCalled: () => builderCalls++,
+    );
     final root = await _tempProject();
     addTearDown(() => root.delete(recursive: true));
 
@@ -244,10 +242,9 @@ void main() {
         contains('tina.engine.driver'),
         reason: 'a custom conversation plugin must survive the borrow trim',
       );
-      expect(
-        [for (final plugin in borrowed) plugin.id],
-        isNot(contains(_capabilitiesPluginId)),
-      );
+      expect([
+        for (final plugin in borrowed) plugin.id,
+      ], isNot(contains(_capabilitiesPluginId)));
     });
   });
 
@@ -255,7 +252,10 @@ void main() {
       'factory on its scheduler', () async {
     final root = await _tempProject();
     addTearDown(() => root.delete(recursive: true));
-    final borrowed = WorkspaceToolScope(workspaceRoot: root.path, env: const {});
+    final borrowed = WorkspaceToolScope(
+      workspaceRoot: root.path,
+      env: const {},
+    );
     final factory = _CountingDriverFactory();
     final extended = [
       ...defaultExecutionPlugins(
@@ -279,11 +279,18 @@ void main() {
     );
     addTearDown(runtime.dispose);
 
-    expect(runtime.scheduler.driverFactory, same(factory),
-        reason: 'the borrowed runtime mounted the extension-provided '
-            'driver factory — the old allowlist resolved null here');
-    expect(identical(runtime.pipeline.tools, borrowed), isTrue,
-        reason: 'the borrow semantics are unchanged');
+    expect(
+      runtime.scheduler.driverFactory,
+      same(factory),
+      reason:
+          'the borrowed runtime mounted the extension-provided '
+          'driver factory — the old allowlist resolved null here',
+    );
+    expect(
+      identical(runtime.pipeline.tools, borrowed),
+      isTrue,
+      reason: 'the borrow semantics are unchanged',
+    );
   });
 }
 

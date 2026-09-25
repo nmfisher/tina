@@ -26,8 +26,10 @@ digraph Simple {
       expect(g2.outgoing('run_tests').single.to, 'exit');
     });
 
-    test('preserves system_prompt/llm attrs, goal_gate, and edge condition/label/weight', () {
-      const src = '''
+    test(
+      'preserves system_prompt/llm attrs, goal_gate, and edge condition/label/weight',
+      () {
+        const src = '''
 digraph L {
   start [shape=Mdiamond]
   done [shape=Msquare]
@@ -38,18 +40,19 @@ digraph L {
   review -> plan [label="revise", weight=2]
 }
 ''';
-      final g2 = parseDot(graphToDot(parseDot(src)));
-      expect(g2.nodes['plan']!.systemPrompt, 'you plan');
-      expect(g2.nodes['plan']!.modelReference, 'anthropic/sonnet');
-      expect(g2.nodes['plan']!.goalGate, isTrue);
-      expect(g2.nodes['plan']!.maxRetries, 3);
-      final toDone = g2.outgoing('review').firstWhere((e) => e.to == 'done');
-      expect(toDone.label, 'approve');
-      expect(toDone.condition, 'outcome=success');
-      final toPlan = g2.outgoing('review').firstWhere((e) => e.to == 'plan');
-      expect(toPlan.label, 'revise');
-      expect(toPlan.weight, 2);
-    });
+        final g2 = parseDot(graphToDot(parseDot(src)));
+        expect(g2.nodes['plan']!.systemPrompt, 'you plan');
+        expect(g2.nodes['plan']!.modelReference, 'anthropic/sonnet');
+        expect(g2.nodes['plan']!.goalGate, isTrue);
+        expect(g2.nodes['plan']!.maxRetries, 3);
+        final toDone = g2.outgoing('review').firstWhere((e) => e.to == 'done');
+        expect(toDone.label, 'approve');
+        expect(toDone.condition, 'outcome=success');
+        final toPlan = g2.outgoing('review').firstWhere((e) => e.to == 'plan');
+        expect(toPlan.label, 'revise');
+        expect(toPlan.weight, 2);
+      },
+    );
 
     test('is idempotent (write(parse(write(g))) == write(g))', () {
       const src = '''
@@ -67,9 +70,14 @@ digraph I {
     });
 
     test('sanitizes a node id that is not a bare identifier', () {
-      final g = parseDot('digraph X { start [shape=Mdiamond] exit [shape=Msquare] start -> exit }');
+      final g = parseDot(
+        'digraph X { start [shape=Mdiamond] exit [shape=Msquare] start -> exit }',
+      );
       // Inject a weird id programmatically; it must be sanitized to a bare id.
-      g.nodes['weird id'] = PipelineNode(id: 'weird id', attrs: {'shape': 'box'});
+      g.nodes['weird id'] = PipelineNode(
+        id: 'weird id',
+        attrs: {'shape': 'box'},
+      );
       g.edges.add(PipelineEdge(from: 'start', to: 'weird id'));
       final out = graphToDot(g);
       expect(out, contains('weird_id'));

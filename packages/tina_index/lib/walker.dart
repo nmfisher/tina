@@ -24,9 +24,15 @@ class DartFileWalker {
       final res = await Process.run(
         'git',
         [
-          '-c', 'core.quotePath=false',
-          '-c', 'core.precomposeunicode=false',
-          'ls-files', '-z', '--cached', '--others', '--exclude-standard',
+          '-c',
+          'core.quotePath=false',
+          '-c',
+          'core.precomposeunicode=false',
+          'ls-files',
+          '-z',
+          '--cached',
+          '--others',
+          '--exclude-standard',
         ],
         workingDirectory: repoRoot,
       );

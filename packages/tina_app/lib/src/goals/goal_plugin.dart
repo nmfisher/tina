@@ -109,10 +109,10 @@ class GoalSummary {
   });
 
   factory GoalSummary.fromGoal(Goal goal) => GoalSummary(
-        text: goal.text,
-        verdict: goal.status?.verdict ?? GoalVerdict.none,
-        evidence: goal.status?.evidence ?? '',
-      );
+    text: goal.text,
+    verdict: goal.status?.verdict ?? GoalVerdict.none,
+    evidence: goal.status?.evidence ?? '',
+  );
 
   bool get isAchieved => verdict == GoalVerdict.achieved;
   bool get isUncertain => verdict == GoalVerdict.uncertain;
@@ -120,7 +120,9 @@ class GoalSummary {
   /// Summary for the strip and command echo: the verdict mark and the
   /// (possibly truncated) text.
   String get summary {
-    final text = this.text.length > 60 ? '${this.text.substring(0, 57)}…' : this.text;
+    final text = this.text.length > 60
+        ? '${this.text.substring(0, 57)}…'
+        : this.text;
     return switch (verdict) {
       GoalVerdict.achieved => '✓ $text',
       GoalVerdict.uncertain => '? $text',
@@ -134,58 +136,62 @@ class GoalSummary {
 /// dispatch time (late-bound: the coordinator installs it after composition,
 /// once the scheduler + conversations exist).
 Command goalCommand(GoalStore store) => Command(
-      names: ['/goal'],
-      argsHint: '[clear | check | status | <free text>]',
-      summary:
-          'set, show or clear the conversation goal (judged after each turn '
-          'when a judge is wired)',
-      helpOrder: 46,
-      handler: (call) async {
-        final id = call.conversationId;
-        final args = call.arguments.trim();
-        if (args.isEmpty || RegExp(r'^status$', caseSensitive: false).hasMatch(args)) {
-          _show(call, store.read(id));
-          return const CmdHandled();
-        }
-        if (RegExp(r'^clear$', caseSensitive: false).hasMatch(args)) {
-          final had = !store.read(id).isEmpty;
-          store.clear(id);
-          call.write(had ? 'Goal cleared.\n' : 'No goal set.\n');
-          return const CmdHandled();
-        }
-        if (RegExp(r'^check$', caseSensitive: false).hasMatch(args)) {
-          if (store.read(id).isEmpty) {
-            call.write('No goal to check. Set one with `/goal <text>`.\n');
-            return const CmdHandled(failed: true);
-          }
-          final judge = store.judgeHook;
-          if (judge == null) {
-            call.write('No goal judge is wired in this session.\n');
-            return const CmdHandled(failed: true);
-          }
-          call.write('Judging goal…\n', style: HostMessageStyle.dim);
-          final verdict = await judge(id, force: true);
-          if (call.isCancelled) return const CmdHandled();
-          if (verdict == null) {
-            call.write('Goal check failed (see log); previous status '
-                'unchanged.\n', style: HostMessageStyle.warning);
-            return const CmdHandled(failed: true);
-          }
-          _show(call, store.read(id));
-          return const CmdHandled();
-        }
-        // Free text falls through as the new goal. A new goal resets the
-        // judge verdict by construction (GoalStore.set).
-        try {
-          store.set(id, args);
-        } on ArgumentError catch (error) {
-          call.write('${error.message}\n', style: HostMessageStyle.warning);
-          return const CmdHandled(failed: true);
-        }
-        _show(call, store.read(id));
-        return const CmdHandled();
-      },
-    );
+  names: ['/goal'],
+  argsHint: '[clear | check | status | <free text>]',
+  summary:
+      'set, show or clear the conversation goal (judged after each turn '
+      'when a judge is wired)',
+  helpOrder: 46,
+  handler: (call) async {
+    final id = call.conversationId;
+    final args = call.arguments.trim();
+    if (args.isEmpty ||
+        RegExp(r'^status$', caseSensitive: false).hasMatch(args)) {
+      _show(call, store.read(id));
+      return const CmdHandled();
+    }
+    if (RegExp(r'^clear$', caseSensitive: false).hasMatch(args)) {
+      final had = !store.read(id).isEmpty;
+      store.clear(id);
+      call.write(had ? 'Goal cleared.\n' : 'No goal set.\n');
+      return const CmdHandled();
+    }
+    if (RegExp(r'^check$', caseSensitive: false).hasMatch(args)) {
+      if (store.read(id).isEmpty) {
+        call.write('No goal to check. Set one with `/goal <text>`.\n');
+        return const CmdHandled(failed: true);
+      }
+      final judge = store.judgeHook;
+      if (judge == null) {
+        call.write('No goal judge is wired in this session.\n');
+        return const CmdHandled(failed: true);
+      }
+      call.write('Judging goal…\n', style: HostMessageStyle.dim);
+      final verdict = await judge(id, force: true);
+      if (call.isCancelled) return const CmdHandled();
+      if (verdict == null) {
+        call.write(
+          'Goal check failed (see log); previous status '
+          'unchanged.\n',
+          style: HostMessageStyle.warning,
+        );
+        return const CmdHandled(failed: true);
+      }
+      _show(call, store.read(id));
+      return const CmdHandled();
+    }
+    // Free text falls through as the new goal. A new goal resets the
+    // judge verdict by construction (GoalStore.set).
+    try {
+      store.set(id, args);
+    } on ArgumentError catch (error) {
+      call.write('${error.message}\n', style: HostMessageStyle.warning);
+      return const CmdHandled(failed: true);
+    }
+    _show(call, store.read(id));
+    return const CmdHandled();
+  },
+);
 
 void _show(CommandCall call, Goal goal) {
   if (goal.isEmpty) {

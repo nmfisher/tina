@@ -80,8 +80,10 @@ class _LoggingBackend implements TerminalBackend {
   void writeText(String text) {
     final (r, c) = _cursor;
     if (c == 0) {
-      _say('writeText@($r,0) len=${text.length} '
-          '${text.substring(0, text.length > 24 ? 24 : text.length)}');
+      _say(
+        'writeText@($r,0) len=${text.length} '
+        '${text.substring(0, text.length > 24 ? 24 : text.length)}',
+      );
     }
     inner.writeText(text);
   }
@@ -181,8 +183,10 @@ class _LoggingSurface implements BackendSurface {
     int? clearCells,
   }) {
     final head = text.length > 32 ? text.substring(0, 32) : text;
-    _say('surface.putAt(rel=$relRow,$relCol maxCols=$maxCols '
-        'len=${text.length} esc=${text.contains('\x1b')}) "$head"');
+    _say(
+      'surface.putAt(rel=$relRow,$relCol maxCols=$maxCols '
+      'len=${text.length} esc=${text.contains('\x1b')}) "$head"',
+    );
     inner.putAt(
       relRow: relRow,
       relCol: relCol,
@@ -259,8 +263,10 @@ Future<void> main(List<String> argv) async {
   }
   final body = File(bodyPath).readAsStringSync();
   _log = File(logPath).openWrite();
-  _say('harness start cols=$cols rows=$rows body=${body.length} chars '
-      'busy=$busy stream=$stream');
+  _say(
+    'harness start cols=$cols rows=$rows body=${body.length} chars '
+    'busy=$busy stream=$stream',
+  );
 
   final io = const LiveStdio();
   final backend = _LoggingBackend(NotcursesBackend.create(io: io));
@@ -283,8 +289,9 @@ Future<void> main(List<String> argv) async {
     conversationId: 'c1',
   )..setReservesInput(true);
   frame.setOuter(Rect(row: 0, col: 0, width: chatWidth, height: rows));
-  ChatRegionPanelContent(screen.chat)
-      .fit(frame.interior, reserveInputRow: frame.reservesInput);
+  ChatRegionPanelContent(
+    screen.chat,
+  ).fit(frame.interior, reserveInputRow: frame.reservesInput);
   await Future.delayed(const Duration(milliseconds: 50));
 
   // The editor's parked cursor, as the input row would leave it.
@@ -313,18 +320,23 @@ Future<void> main(List<String> argv) async {
     }
 
     // Turn 1 — fills the buffer and starts native scrolling.
-    await agentTurn(List.generate(
-      30,
-      (i) =>
-          'EventBus.publish queues a publish made from inside a subscriber '
-          'callback, and dispatches it only after the current dispatch '
-          'finishes. Reentrant publishes therefore never interleave.\n'
-          'Source: packages/core/lib/src/event_bus.dart\n',
-    ));
+    await agentTurn(
+      List.generate(
+        30,
+        (i) =>
+            'EventBus.publish queues a publish made from inside a subscriber '
+            'callback, and dispatches it only after the current dispatch '
+            'finishes. Reentrant publishes therefore never interleave.\n'
+            'Source: packages/core/lib/src/event_bus.dart\n',
+      ),
+    );
 
     // The paste echo — user bar, whole body, one write on a full buffer.
     screen.input.render(
-        prompt: '> ', buffer: '[Pasted text : 6000 chars]', cursor: 24);
+      prompt: '> ',
+      buffer: '[Pasted text : 6000 chars]',
+      cursor: 24,
+    );
     await Future.delayed(const Duration(milliseconds: 20));
     screen.chat.writeStyledLine(body, screen.theme.chat.userBar);
     await Future.delayed(const Duration(milliseconds: 30));
@@ -332,15 +344,18 @@ Future<void> main(List<String> argv) async {
     await Future.delayed(const Duration(milliseconds: 30));
 
     // Turn 2 — streams while the paste rows scroll away.
-    await agentTurn(List.generate(
-      12,
-      (i) => 'queued $i arrives and renders after the paste body\n',
-    ));
+    await agentTurn(
+      List.generate(
+        12,
+        (i) => 'queued $i arrives and renders after the paste body\n',
+      ),
+    );
 
     // A final user line, as the next submitted message.
     screen.chat.writeStyledLine(
-        'queued one\nqueued two\nqueued three\n',
-        screen.theme.chat.userBar);
+      'queued one\nqueued two\nqueued three\n',
+      screen.theme.chat.userBar,
+    );
     await Future.delayed(const Duration(milliseconds: 200));
     await Future.delayed(const Duration(milliseconds: 800));
     _say('=== run complete; idling for pane capture ===');
@@ -357,7 +372,9 @@ Future<void> main(List<String> argv) async {
     frame.setBusy(true);
     for (var i = 0; i < body.length; i += chunk) {
       final slice = body.substring(
-          i, i + chunk > body.length ? body.length : i + chunk);
+        i,
+        i + chunk > body.length ? body.length : i + chunk,
+      );
       screen.chat.appendStyled(slice);
       frame.advanceBusyTick();
       await Future.delayed(const Duration(milliseconds: 12));

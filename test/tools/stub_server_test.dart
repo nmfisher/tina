@@ -14,8 +14,12 @@ import '../../tool/stub_server.dart';
 void main() {
   // `dart test` runs from the package root; Platform.script points at a temp
   // kernel snapshot, so resolve the scenarios dir from the cwd instead.
-  final scenariosDir =
-      p.join(Directory.current.path, 'tool', 'stub', 'scenarios');
+  final scenariosDir = p.join(
+    Directory.current.path,
+    'tool',
+    'stub',
+    'scenarios',
+  );
 
   late HttpClient client;
 
@@ -29,15 +33,18 @@ void main() {
     final server = await StubServer.bind('127.0.0.1', 0, script);
     try {
       final req = await client.postUrl(
-          Uri.parse('http://127.0.0.1:${server.port}/v1/chat/completions'));
+        Uri.parse('http://127.0.0.1:${server.port}/v1/chat/completions'),
+      );
       req.headers.contentType = ContentType.json;
-      req.write(jsonEncode({
-        'model': 'stub-1',
-        'messages': [
-          {'role': 'user', 'content': 'hello'}
-        ],
-        'stream': true,
-      }));
+      req.write(
+        jsonEncode({
+          'model': 'stub-1',
+          'messages': [
+            {'role': 'user', 'content': 'hello'},
+          ],
+          'stream': true,
+        }),
+      );
       final res = await req.close();
       final body = <int>[];
       await for (final chunk in res) {
@@ -50,21 +57,25 @@ void main() {
   }
 
   test('every committed scenario parses and has at least one step', () {
-    final names = Directory(scenariosDir)
-        .listSync()
-        .whereType<File>()
-        .map((f) => p.basenameWithoutExtension(f.path))
-        .toList()
-      ..sort();
-    expect(names, containsAll(<String>[
-      'normal',
-      'abort_midstream',
-      'long_line',
-      'emoji_cjk',
-      'rapid_tool_calls',
-      'empty',
-      'error',
-    ]));
+    final names =
+        Directory(scenariosDir)
+            .listSync()
+            .whereType<File>()
+            .map((f) => p.basenameWithoutExtension(f.path))
+            .toList()
+          ..sort();
+    expect(
+      names,
+      containsAll(<String>[
+        'normal',
+        'abort_midstream',
+        'long_line',
+        'emoji_cjk',
+        'rapid_tool_calls',
+        'empty',
+        'error',
+      ]),
+    );
     for (final n in names) {
       final script = ScenarioScript.load(p.join(scenariosDir, '$n.txt'));
       expect(script.steps, isNotEmpty, reason: n);
@@ -86,19 +97,24 @@ void main() {
       final a = await serveOnce(scenario);
       final b = await serveOnce(scenario);
       expect(b.status, a.status);
-      expect(b.body, equals(a.body),
-          reason: '$scenario must replay identical bytes');
+      expect(
+        b.body,
+        equals(a.body),
+        reason: '$scenario must replay identical bytes',
+      );
     }
   });
 
-  test('error scenario returns its canned status and body, identically',
-      () async {
-    final a = await serveOnce('error');
-    final b = await serveOnce('error');
-    expect(a.status, 400);
-    expect(utf8.decode(a.body), contains('"type":"invalid_request_error"'));
-    expect(b.body, equals(a.body));
-  });
+  test(
+    'error scenario returns its canned status and body, identically',
+    () async {
+      final a = await serveOnce('error');
+      final b = await serveOnce('error');
+      expect(a.status, 400);
+      expect(utf8.decode(a.body), contains('"type":"invalid_request_error"'));
+      expect(b.body, equals(a.body));
+    },
+  );
 
   test('abort_midstream cuts the stream before any finish frame', () async {
     // The abort destroys the socket mid-tokens: the client sees a body that
@@ -113,14 +129,17 @@ void main() {
 
   test('rapid_tool_calls streams three tool_use blocks in one turn', () async {
     final body = utf8.decode((await serveOnce('rapid_tool_calls')).body);
-    expect(RegExp(r'"index":\d+,"id":"call_stub0[123]"').allMatches(body),
-        hasLength(3));
+    expect(
+      RegExp(r'"index":\d+,"id":"call_stub0[123]"').allMatches(body),
+      hasLength(3),
+    );
     expect(body, contains('"finish_reason":"tool_calls"'));
   });
 
   test('steps advance per request and the last step repeats', () async {
-    final script =
-        ScenarioScript.load(p.join(scenariosDir, 'rapid_tool_calls.txt'));
+    final script = ScenarioScript.load(
+      p.join(scenariosDir, 'rapid_tool_calls.txt'),
+    );
     expect(script.steps, hasLength(2));
     expect(script.stepFor(0), same(script.steps[0]));
     expect(script.stepFor(1), same(script.steps[1]));

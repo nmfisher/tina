@@ -48,9 +48,11 @@ void main() {
     test('printable with Alt → AltKey, uppercase normalized to lowercase', () {
       // Matches input_parser.dart so menu shortcuts match without case.
       expect(translate(0x61, hasAlt: true), equals(AltKey(0x61))); // alt+a
-      expect(translate(0x41, hasAlt: true), equals(AltKey(0x61))); // alt+shift+a
+      expect(
+          translate(0x41, hasAlt: true), equals(AltKey(0x61))); // alt+shift+a
       expect(translate(0x46, hasAlt: true), equals(AltKey(0x66))); // alt+f
-      expect(translate(0x39, hasAlt: true), equals(AltKey(0x39))); // alt+9 unchanged
+      expect(translate(0x39, hasAlt: true),
+          equals(AltKey(0x39))); // alt+9 unchanged
     });
   });
 
@@ -89,13 +91,11 @@ void main() {
       // String.fromCharCode, a RangeError that crashed the path on Enter.
       // Preterunicode ids are never codepoints, so translation derives that
       // from the id itself and stays total without the flag.
-      expect(translate(nc.NcKey.enter),
-          equals(ControlKey(ControlCode.enter)));
+      expect(translate(nc.NcKey.enter), equals(ControlKey(ControlCode.enter)));
       expect(translate(nc.NcKey.backspace),
           equals(ControlKey(ControlCode.backspace)));
       expect(translate(nc.NcKey.up), equals(ArrowKey(ArrowDirection.up)));
-      expect(translate(nc.NcKey.del),
-          equals(EditingKey(EditingAction.delete)));
+      expect(translate(nc.NcKey.del), equals(EditingKey(EditingAction.delete)));
       expect(translate(nc.NcKey.f01), equals(FunctionKey(FunctionKeyCode.f1)));
     });
 
@@ -125,8 +125,8 @@ void main() {
     });
 
     test('plain Tab stays Tab even when other modifiers are set', () {
-      expect(translate(0x09, hasAlt: true),
-          equals(ControlKey(ControlCode.tab)));
+      expect(
+          translate(0x09, hasAlt: true), equals(ControlKey(ControlCode.tab)));
     });
 
     test('Backspace (raw 0x08)', () {
@@ -200,7 +200,8 @@ void main() {
       expect(translate(0x07), equals(ControlKey(ControlCode.ctrlG)));
       // Folded form: notcurses may deliver (letter, hasCtrl) instead of the
       // raw C0 byte — same folding path as Ctrl-W.
-      expect(translate(0x67, hasCtrl: true), // 'g' + Ctrl
+      expect(
+          translate(0x67, hasCtrl: true), // 'g' + Ctrl
           equals(ControlKey(ControlCode.ctrlG)));
     });
 
@@ -209,13 +210,17 @@ void main() {
       // Notcurses' extended keyboard modes deliver Ctrl+letter as
       // (id=letter, hasCtrl=true) rather than the raw 0x01–0x1a byte —
       // without folding, the printable branch would emit CharInput('w').
-      expect(translate(0x77, hasCtrl: true), // 'w' + Ctrl
+      expect(
+          translate(0x77, hasCtrl: true), // 'w' + Ctrl
           equals(ControlKey(ControlCode.ctrlW)));
-      expect(translate(0x57, hasCtrl: true), // 'W' + Ctrl (uppercase)
+      expect(
+          translate(0x57, hasCtrl: true), // 'W' + Ctrl (uppercase)
           equals(ControlKey(ControlCode.ctrlW)));
-      expect(translate(0x63, hasCtrl: true), // 'c' + Ctrl
+      expect(
+          translate(0x63, hasCtrl: true), // 'c' + Ctrl
           equals(ControlKey(ControlCode.ctrlC)));
-      expect(translate(0x61, hasCtrl: true), // 'a' + Ctrl
+      expect(
+          translate(0x61, hasCtrl: true), // 'a' + Ctrl
           equals(EditingKey(EditingAction.home)));
     });
 
@@ -247,11 +252,9 @@ void main() {
     });
 
     test('Ctrl+Arrow propagates hasCtrl for FocusManager spatial nav', () {
-      expect(
-          translate(nc.NcKey.up, hasCtrl: true, isSynthesized: true),
+      expect(translate(nc.NcKey.up, hasCtrl: true, isSynthesized: true),
           equals(ArrowKey(ArrowDirection.up, hasCtrl: true)));
-      expect(
-          translate(nc.NcKey.right, hasCtrl: true, isSynthesized: true),
+      expect(translate(nc.NcKey.right, hasCtrl: true, isSynthesized: true),
           equals(ArrowKey(ArrowDirection.right, hasCtrl: true)));
     });
   });

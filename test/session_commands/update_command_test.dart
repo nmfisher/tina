@@ -44,7 +44,9 @@ void main() {
   /// without touching disk, discard() is a no-op — the swap mechanics are
   /// covered in test/self_update/updater_test.dart.
   Future<UpdatePrepareOutcome> _fakePrepare(
-      ReleaseInfo release, void Function(String line) notice) async {
+    ReleaseInfo release,
+    void Function(String line) notice,
+  ) async {
     return UpdatePrepareReady(_FakePrepared(release.tag));
   }
 
@@ -57,19 +59,20 @@ void main() {
     Future<UpdatePrepareOutcome> Function(
       ReleaseInfo release,
       void Function(String line) notice,
-    )? prepare,
+    )?
+    prepare,
   }) {
     final ctx = _Ctx(
-        conv,
-        onConfirm:
-            onConfirm ?? (confirm == null ? null : (_) async => confirm));
+      conv,
+      onConfirm: onConfirm ?? (confirm == null ? null : (_) async => confirm),
+    );
     return (
-      handlers: SessionCommandHandlers(ctx,
-          releaseCheckerFactory: (env) => ReleaseChecker(
-                env: env,
-                client: _FakeGithubClient(tag),
-              ),
-          prepareUpdateOverride: prepare ?? _fakePrepare),
+      handlers: SessionCommandHandlers(
+        ctx,
+        releaseCheckerFactory: (env) =>
+            ReleaseChecker(env: env, client: _FakeGithubClient(tag)),
+        prepareUpdateOverride: prepare ?? _fakePrepare,
+      ),
       ctx: ctx,
     );
   }
@@ -82,11 +85,14 @@ void main() {
   });
 
   test('newer release + headless (no confirm) links the release', () async {
-    final (handlers: h, ctx: _) =
-        handlers(tag: 'v99.0.0'); // confirm is null → headless
+    final (handlers: h, ctx: _) = handlers(
+      tag: 'v99.0.0',
+    ); // confirm is null → headless
     await h.dispatch('/update');
     expect(
-        host.messages.any((m) => m.contains('v99.0.0 is available')), isTrue);
+      host.messages.any((m) => m.contains('v99.0.0 is available')),
+      isTrue,
+    );
     expect(host.messages.any((m) => m.contains('headless run')), isTrue);
     expect(host.messages.any((m) => m.contains('https://github.com/')), isTrue);
   });
@@ -102,7 +108,11 @@ void main() {
     );
     await h.dispatch('/update');
     expect(host.messages.any((m) => m.contains('restart tina')), isFalse);
-    expect(discarded, isTrue, reason: 'a declined confirm discards the download');
+    expect(
+      discarded,
+      isTrue,
+      reason: 'a declined confirm discards the download',
+    );
   });
 
   test('the confirm happens after the download, not before', () async {
@@ -121,8 +131,11 @@ void main() {
     );
     await h.dispatch('/update');
     expect(downloaded, isTrue);
-    expect(downloadedWhenPrompted, isTrue,
-        reason: 'download runs before the y/n prompt appears');
+    expect(
+      downloadedWhenPrompted,
+      isTrue,
+      reason: 'download runs before the y/n prompt appears',
+    );
     expect(ctx.prompts.single, contains('downloaded and verified'));
     expect(ctx.prompts.single, contains('install it now?'));
     expect(host.messages.any((m) => m.contains('restart tina')), isTrue);
@@ -131,33 +144,32 @@ void main() {
   test('interactive run does not stop at the availability notice', () async {
     // Regression: the old flow asked y/n before any download; the new one
     // must reach the prepare stage (and the prompt) on its own.
-    final (handlers: h, ctx: ctx) =
-        handlers(tag: 'v99.0.0', confirm: false);
+    final (handlers: h, ctx: ctx) = handlers(tag: 'v99.0.0', confirm: false);
     await h.dispatch('/update');
     expect(ctx.prompts.single, contains('install it now?'));
   });
 
   test('unreachable API is a warning, not an error', () async {
     final h = SessionCommandHandlers(
-        _Ctx(conv, onConfirm: (_) async => true),
-        releaseCheckerFactory: (env) => ReleaseChecker(
-              env: env,
-              client: _BrokenClient(),
-            ));
+      _Ctx(conv, onConfirm: (_) async => true),
+      releaseCheckerFactory: (env) =>
+          ReleaseChecker(env: env, client: _BrokenClient()),
+    );
     await h.dispatch('/update');
-    expect(host.messages.any((m) => m.contains('could not reach GitHub')),
-        isTrue);
+    expect(
+      host.messages.any((m) => m.contains('could not reach GitHub')),
+      isTrue,
+    );
   });
 
-  test('/update is in allCommands (completion palette source of truth)',
-      () {
+  test('/update is in allCommands (completion palette source of truth)', () {
     expect(SessionCommandHandlers.allCommands, contains('/update'));
   });
 }
 
 class _Ctx implements CommandContext {
   _Ctx(this.conversation, {Future<bool> Function(String prompt)? onConfirm})
-      : _onConfirm = onConfirm;
+    : _onConfirm = onConfirm;
 
   final Conversation conversation;
   final Future<bool> Function(String prompt)? _onConfirm;
@@ -197,7 +209,7 @@ class _FakeGithubClient extends http.BaseClient {
         {
           'name': 'tina-$tag-example.tar.gz',
           'browser_download_url': 'https://example.com/tina-$tag.tar.gz',
-        }
+        },
       ],
     });
     return http.StreamedResponse(Stream.value(utf8.encode(body)), 200);

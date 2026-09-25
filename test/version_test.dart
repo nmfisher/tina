@@ -25,15 +25,22 @@ Future<void> main() async {
     final root = p.dirname(p.dirname(generatedPath));
 
     final pubspec = File(p.join(root, 'pubspec.yaml')).readAsStringSync();
-    final pub = RegExp(r'^version:\s*(\S+)\s*$', multiLine: true)
-        .firstMatch(pubspec)
-        ?.group(1);
+    final pub = RegExp(
+      r'^version:\s*(\S+)\s*$',
+      multiLine: true,
+    ).firstMatch(pubspec)?.group(1);
     expect(pub, isNotNull, reason: 'pubspec.yaml has no version: line');
 
     final generated = File(generatedPath).readAsStringSync();
-    final gen = RegExp(r"tinaVersion = '([^']+)'").firstMatch(generated)?.group(1);
-    expect(gen, equals(pub),
-        reason: 'lib/version.g.dart is stale — run '
-            '`dart run tool/generate_version.dart` and commit the result.');
+    final gen = RegExp(
+      r"tinaVersion = '([^']+)'",
+    ).firstMatch(generated)?.group(1);
+    expect(
+      gen,
+      equals(pub),
+      reason:
+          'lib/version.g.dart is stale — run '
+          '`dart run tool/generate_version.dart` and commit the result.',
+    );
   });
 }

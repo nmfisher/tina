@@ -23,46 +23,52 @@ TypeMatcher<JudgmentException> failure(JudgmentFailure kind) =>
 
 void main() {
   final q = NoulQuestion('ready', instructions: 'Ready?');
-  final request =
-      JudgmentRequest(state: {'task': 'Unicode café'}, questions: [q]);
+  final request = JudgmentRequest(
+    state: {'task': 'Unicode café'},
+    questions: [q],
+  );
   Map<String, Object?> result() => {
-        'model': 'jev-latest',
-        'answers': {
-          'ready': {'type': 'noul', 'noul': 0.9}
-        },
-        'usage': {'input_tokens': 50, 'output_tokens': 10},
-      };
-  http.StreamedResponse response(
-          [Object? body,
-          int status = 200,
-          Map<String, String> headers = const {}]) =>
-      http.StreamedResponse(
-          Stream.value(utf8.encode(jsonEncode(body ?? result()))), status,
-          headers: headers);
+    'model': 'jev-latest',
+    'answers': {
+      'ready': {'type': 'noul', 'noul': 0.9},
+    },
+    'usage': {'input_tokens': 50, 'output_tokens': 10},
+  };
+  http.StreamedResponse response([
+    Object? body,
+    int status = 200,
+    Map<String, String> headers = const {},
+  ]) => http.StreamedResponse(
+    Stream.value(utf8.encode(jsonEncode(body ?? result()))),
+    status,
+    headers: headers,
+  );
 
   test(
-      'POST uses separate model, bearer auth and exact endpoint; closes client',
-      () async {
-    late TestClient client;
-    client = TestClient((base) async {
-      final sent = base as http.Request;
-      expect(sent.method, 'POST');
-      expect(sent.url.toString(), 'https://api.typesafe.ai/v1/systemone');
-      expect(sent.followRedirects, isFalse);
-      expect(sent.headers['Authorization'], 'Bearer test-key');
-      expect(sent.headers['Content-Type'], startsWith('application/json'));
-      expect(jsonDecode(sent.body), request.toJson(model: 'jev-pinned'));
-      return response();
-    });
-    final service = TypeSafeJudgmentService(
+    'POST uses separate model, bearer auth and exact endpoint; closes client',
+    () async {
+      late TestClient client;
+      client = TestClient((base) async {
+        final sent = base as http.Request;
+        expect(sent.method, 'POST');
+        expect(sent.url.toString(), 'https://api.typesafe.ai/v1/systemone');
+        expect(sent.followRedirects, isFalse);
+        expect(sent.headers['Authorization'], 'Bearer test-key');
+        expect(sent.headers['Content-Type'], startsWith('application/json'));
+        expect(jsonDecode(sent.body), request.toJson(model: 'jev-pinned'));
+        return response();
+      });
+      final service = TypeSafeJudgmentService(
         config: TypeSafeConfig(apiKey: 'test-key', model: 'jev-pinned'),
-        clientFactory: () => client);
-    expect((await service.evaluate(request)).answer(q).noul, 0.9);
-    expect(client.closeCount, 1);
-    service.close();
-    service.close();
-    expect(client.closeCount, 1);
-  });
+        clientFactory: () => client,
+      );
+      expect((await service.evaluate(request)).answer(q).noul, 0.9);
+      expect(client.closeCount, 1);
+      service.close();
+      service.close();
+      expect(client.closeCount, 1);
+    },
+  );
 
   final statuses = {
     401: JudgmentFailure.authentication,
@@ -76,51 +82,73 @@ void main() {
   };
   for (final entry in statuses.entries) {
     test(
-        'HTTP ${entry.key} has typed failure and no hidden retries/leaked body',
-        () async {
-      var attempts = 0;
-      final client = TestClient((_) async {
-        attempts++;
-        return response({'error': 'secret-test-key private-state'}, entry.key,
-            {'retry-after': '3'});
-      });
-      final service = TypeSafeJudgmentService(
+      'HTTP ${entry.key} has typed failure and no hidden retries/leaked body',
+      () async {
+        var attempts = 0;
+        final client = TestClient((_) async {
+          attempts++;
+          return response(
+            {'error': 'secret-test-key private-state'},
+            entry.key,
+            {'retry-after': '3'},
+          );
+        });
+        final service = TypeSafeJudgmentService(
           config: TypeSafeConfig(apiKey: 'secret-test-key'),
-          clientFactory: () => client);
-      await expectLater(
+          clientFactory: () => client,
+        );
+        await expectLater(
           service.evaluate(request),
-          throwsA(failure(entry.value)
-              .having((e) => e.statusCode, 'status', entry.key)
-              .having(
-                  (e) => e.retryAfter, 'retryAfter', const Duration(seconds: 3))
-              .having((e) => e.isRetryable, 'retryable',
-                  {429, 529, 503}.contains(entry.key))
-              .having(
+          throwsA(
+            failure(entry.value)
+                .having((e) => e.statusCode, 'status', entry.key)
+                .having(
+                  (e) => e.retryAfter,
+                  'retryAfter',
+                  const Duration(seconds: 3),
+                )
+                .having(
+                  (e) => e.isRetryable,
+                  'retryable',
+                  {429, 529, 503}.contains(entry.key),
+                )
+                .having(
                   (e) => e.toString(),
                   'redacted',
-                  allOf(isNot(contains('secret-test-key')),
-                      isNot(contains('private-state'))))));
-      expect(attempts, 1);
-      expect(client.closeCount, 1);
-    });
+                  allOf(
+                    isNot(contains('secret-test-key')),
+                    isNot(contains('private-state')),
+                  ),
+                ),
+          ),
+        );
+        expect(attempts, 1);
+        expect(client.closeCount, 1);
+      },
+    );
   }
 
   test('Retry-After dates use injected clock', () async {
     final now = DateTime.utc(2026, 9, 17);
     final service = TypeSafeJudgmentService(
-        config: TypeSafeConfig(apiKey: 'key'),
-        now: () => now,
-        clientFactory: () => TestClient((_) async => response(
-            {},
-            429,
-            {
-              'retry-after':
-                  HttpDate.format(now.add(const Duration(seconds: 12)))
-            })));
+      config: TypeSafeConfig(apiKey: 'key'),
+      now: () => now,
+      clientFactory: () => TestClient(
+        (_) async => response({}, 429, {
+          'retry-after': HttpDate.format(now.add(const Duration(seconds: 12))),
+        }),
+      ),
+    );
     await expectLater(
-        service.evaluate(request),
-        throwsA(isA<JudgmentException>().having(
-            (e) => e.retryAfter, 'retryAfter', const Duration(seconds: 12))));
+      service.evaluate(request),
+      throwsA(
+        isA<JudgmentException>().having(
+          (e) => e.retryAfter,
+          'retryAfter',
+          const Duration(seconds: 12),
+        ),
+      ),
+    );
   });
 
   test('invalid Retry-After does not hide the original HTTP failure', () async {
@@ -131,50 +159,75 @@ void main() {
             TestClient((_) async => response({}, 429, {'retry-after': header})),
       );
       await expectLater(
+        service.evaluate(request),
+        throwsA(
+          failure(
+            JudgmentFailure.rateLimited,
+          ).having((e) => e.retryAfter, 'retryAfter', isNull),
+        ),
+      );
+    }
+  });
+
+  test(
+    'malformed JSON, invalid schema and invalid UTF-8 are protocol errors',
+    () async {
+      for (final bytes in [
+        utf8.encode('not json'),
+        utf8.encode('{"answers":{}}'),
+        [255],
+      ]) {
+        final client = TestClient(
+          (_) async => http.StreamedResponse(Stream.value(bytes), 200),
+        );
+        final service = TypeSafeJudgmentService(
+          config: TypeSafeConfig(apiKey: 'key'),
+          clientFactory: () => client,
+        );
+        await expectLater(
           service.evaluate(request),
-          throwsA(failure(JudgmentFailure.rateLimited)
-              .having((e) => e.retryAfter, 'retryAfter', isNull)));
-    }
-  });
+          throwsA(failure(JudgmentFailure.invalidResponse)),
+        );
+        expect(client.closeCount, 1);
+      }
+    },
+  );
 
-  test('malformed JSON, invalid schema and invalid UTF-8 are protocol errors',
-      () async {
-    for (final bytes in [
-      utf8.encode('not json'),
-      utf8.encode('{"answers":{}}'),
-      [255]
-    ]) {
-      final client = TestClient(
-          (_) async => http.StreamedResponse(Stream.value(bytes), 200));
+  test(
+    'arbitrary body chunk boundaries, including UTF-8, are handled',
+    () async {
+      final data = result()..['metadata'] = '☃';
+      final bytes = utf8.encode(jsonEncode(data));
       final service = TypeSafeJudgmentService(
-          config: TypeSafeConfig(apiKey: 'key'), clientFactory: () => client);
-      await expectLater(service.evaluate(request),
-          throwsA(failure(JudgmentFailure.invalidResponse)));
-      expect(client.closeCount, 1);
-    }
-  });
-
-  test('arbitrary body chunk boundaries, including UTF-8, are handled',
-      () async {
-    final data = result()..['metadata'] = '☃';
-    final bytes = utf8.encode(jsonEncode(data));
-    final service = TypeSafeJudgmentService(
         config: TypeSafeConfig(apiKey: 'key'),
-        clientFactory: () => TestClient((_) async => http.StreamedResponse(
-            Stream.fromIterable(bytes.map((byte) => [byte])), 200)));
-    expect((await service.evaluate(request)).answer(q).noul, 0.9);
-  });
+        clientFactory: () => TestClient(
+          (_) async => http.StreamedResponse(
+            Stream.fromIterable(bytes.map((byte) => [byte])),
+            200,
+          ),
+        ),
+      );
+      expect((await service.evaluate(request)).answer(q).noul, 0.9);
+    },
+  );
 
   test('response size is bounded with or without Content-Length', () async {
     for (final declared in [null, 100]) {
-      final client = TestClient((_) async => http.StreamedResponse(
-          Stream.value(List.filled(100, 32)), 200,
-          contentLength: declared));
+      final client = TestClient(
+        (_) async => http.StreamedResponse(
+          Stream.value(List.filled(100, 32)),
+          200,
+          contentLength: declared,
+        ),
+      );
       final service = TypeSafeJudgmentService(
-          config: TypeSafeConfig(apiKey: 'key', maxResponseBytes: 50),
-          clientFactory: () => client);
-      await expectLater(service.evaluate(request),
-          throwsA(failure(JudgmentFailure.responseTooLarge)));
+        config: TypeSafeConfig(apiKey: 'key', maxResponseBytes: 50),
+        clientFactory: () => client,
+      );
+      await expectLater(
+        service.evaluate(request),
+        throwsA(failure(JudgmentFailure.responseTooLarge)),
+      );
       expect(client.closeCount, 1);
     }
   });
@@ -182,11 +235,17 @@ void main() {
   test('pre-cancelled request allocates no transport', () async {
     final token = JudgmentCancellation()..cancel();
     final service = TypeSafeJudgmentService(
-        config: TypeSafeConfig(apiKey: 'key'),
-        clientFactory: () => throw StateError('must not allocate'));
-    await expectLater(service.evaluate(request, cancellation: token),
-        throwsA(failure(JudgmentFailure.cancelled)
-            .having((e) => e.attempted, 'attempted', false)));
+      config: TypeSafeConfig(apiKey: 'key'),
+      clientFactory: () => throw StateError('must not allocate'),
+    );
+    await expectLater(
+      service.evaluate(request, cancellation: token),
+      throwsA(
+        failure(
+          JudgmentFailure.cancelled,
+        ).having((e) => e.attempted, 'attempted', false),
+      ),
+    );
   });
 
   test('cancelling one request leaves its sibling usable', () async {
@@ -195,12 +254,15 @@ void main() {
     final second = TestClient((_) async => response());
     var count = 0;
     final service = TypeSafeJudgmentService(
-        config: TypeSafeConfig(apiKey: 'key'),
-        clientFactory: () => count++ == 0 ? first : second);
+      config: TypeSafeConfig(apiKey: 'key'),
+      clientFactory: () => count++ == 0 ? first : second,
+    );
     final token = JudgmentCancellation();
     final cancelled = service.evaluate(request, cancellation: token);
-    final expected =
-        expectLater(cancelled, throwsA(failure(JudgmentFailure.cancelled)));
+    final expected = expectLater(
+      cancelled,
+      throwsA(failure(JudgmentFailure.cancelled)),
+    );
     final sibling = service.evaluate(request);
     token.cancel();
     token.cancel();
@@ -213,65 +275,93 @@ void main() {
     await Future<void>.delayed(Duration.zero);
   });
 
-  test('deadline bounds stalled headers and stalled body, closes transport',
-      () async {
-    final pending = Completer<http.StreamedResponse>();
-    final body = StreamController<List<int>>();
-    for (final handler
-        in <Future<http.StreamedResponse> Function(http.BaseRequest)>[
-      (_) => pending.future,
-      (_) async => http.StreamedResponse(body.stream, 200),
-    ]) {
-      final client = TestClient(handler);
-      final service = TypeSafeJudgmentService(
+  test(
+    'deadline bounds stalled headers and stalled body, closes transport',
+    () async {
+      final pending = Completer<http.StreamedResponse>();
+      final body = StreamController<List<int>>();
+      for (final handler
+          in <Future<http.StreamedResponse> Function(http.BaseRequest)>[
+            (_) => pending.future,
+            (_) async => http.StreamedResponse(body.stream, 200),
+          ]) {
+        final client = TestClient(handler);
+        final service = TypeSafeJudgmentService(
           config: TypeSafeConfig(
-              apiKey: 'key', timeout: const Duration(milliseconds: 20)),
-          clientFactory: () => client);
-      await expectLater(
-          service.evaluate(request), throwsA(failure(JudgmentFailure.timeout)));
-      expect(client.closeCount, 1);
-    }
-    pending.completeError(http.ClientException('late timeout cleanup'));
-    await body.close();
-  });
+            apiKey: 'key',
+            timeout: const Duration(milliseconds: 20),
+          ),
+          clientFactory: () => client,
+        );
+        await expectLater(
+          service.evaluate(request),
+          throwsA(failure(JudgmentFailure.timeout)),
+        );
+        expect(client.closeCount, 1);
+      }
+      pending.completeError(http.ClientException('late timeout cleanup'));
+      await body.close();
+    },
+  );
 
   test('service close settles all active calls and refuses new ones', () async {
     final pending = Completer<http.StreamedResponse>();
     final clients = <TestClient>[];
     final service = TypeSafeJudgmentService(
-        config: TypeSafeConfig(apiKey: 'key'),
-        clientFactory: () {
-          final client = TestClient((_) => pending.future);
-          clients.add(client);
-          return client;
-        });
+      config: TypeSafeConfig(apiKey: 'key'),
+      clientFactory: () {
+        final client = TestClient((_) => pending.future);
+        clients.add(client);
+        return client;
+      },
+    );
     final futures = List.generate(
-        3,
-        (_) => expectLater(service.evaluate(request),
-            throwsA(failure(JudgmentFailure.closed)
-                .having((e) => e.attempted, 'attempted', true))));
+      3,
+      (_) => expectLater(
+        service.evaluate(request),
+        throwsA(
+          failure(
+            JudgmentFailure.closed,
+          ).having((e) => e.attempted, 'attempted', true),
+        ),
+      ),
+    );
     service.close();
     service.close();
     await Future.wait(futures);
     expect(clients.every((c) => c.closeCount == 1), isTrue);
     await expectLater(
-        service.evaluate(request), throwsA(failure(JudgmentFailure.closed)
-            .having((e) => e.attempted, 'attempted', false)));
+      service.evaluate(request),
+      throwsA(
+        failure(
+          JudgmentFailure.closed,
+        ).having((e) => e.attempted, 'attempted', false),
+      ),
+    );
     expect(clients.length, 3);
     pending.completeError(http.ClientException('closed'));
   });
 
-  test('network errors are classified without exposing underlying text',
-      () async {
-    final client =
-        TestClient((_) async => throw http.ClientException('secret-key'));
-    final service = TypeSafeJudgmentService(
-        config: TypeSafeConfig(apiKey: 'key'), clientFactory: () => client);
-    await expectLater(
+  test(
+    'network errors are classified without exposing underlying text',
+    () async {
+      final client = TestClient(
+        (_) async => throw http.ClientException('secret-key'),
+      );
+      final service = TypeSafeJudgmentService(
+        config: TypeSafeConfig(apiKey: 'key'),
+        clientFactory: () => client,
+      );
+      await expectLater(
         service.evaluate(request),
-        throwsA(failure(JudgmentFailure.transport).having(
-            (e) => e.toString(), 'safe', isNot(contains('secret-key')))));
-  });
+        throwsA(
+          failure(
+            JudgmentFailure.transport,
+          ).having((e) => e.toString(), 'safe', isNot(contains('secret-key'))),
+        ),
+      );
+    },
+  );
 
   test('configuration rejects invalid credentials, endpoints and limits', () {
     for (final key in ['', ' ', 'key\r\nInjected:yes']) {
@@ -281,37 +371,50 @@ void main() {
       'http://api.typesafe.ai/v1/systemone',
       '/relative',
       'https://user:password@example.com',
-      'https://example.com/?key=secret'
+      'https://example.com/?key=secret',
     ]) {
-      expect(() => TypeSafeConfig(apiKey: 'key', endpoint: Uri.parse(endpoint)),
-          throwsArgumentError);
+      expect(
+        () => TypeSafeConfig(apiKey: 'key', endpoint: Uri.parse(endpoint)),
+        throwsArgumentError,
+      );
     }
     expect(
-        () => TypeSafeConfig(apiKey: 'key', model: ' '), throwsArgumentError);
-    expect(() => TypeSafeConfig(apiKey: 'key', timeout: Duration.zero),
-        throwsArgumentError);
-    expect(() => TypeSafeConfig(apiKey: 'key', maxResponseBytes: 0),
-        throwsArgumentError);
+      () => TypeSafeConfig(apiKey: 'key', model: ' '),
+      throwsArgumentError,
+    );
+    expect(
+      () => TypeSafeConfig(apiKey: 'key', timeout: Duration.zero),
+      throwsArgumentError,
+    );
+    expect(
+      () => TypeSafeConfig(apiKey: 'key', maxResponseBytes: 0),
+      throwsArgumentError,
+    );
   });
 
-  test('real HTTP adapter does not follow redirects or leak auth to target',
-      () async {
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    addTearDown(() => server.close(force: true));
-    var redirected = false;
-    server.listen((incoming) async {
-      if (incoming.uri.path == '/target') redirected = true;
-      incoming.response.statusCode = 302;
-      incoming.response.headers.set('location', '/target');
-      await incoming.response.close();
-    });
-    final service = TypeSafeJudgmentService(
+  test(
+    'real HTTP adapter does not follow redirects or leak auth to target',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      var redirected = false;
+      server.listen((incoming) async {
+        if (incoming.uri.path == '/target') redirected = true;
+        incoming.response.statusCode = 302;
+        incoming.response.headers.set('location', '/target');
+        await incoming.response.close();
+      });
+      final service = TypeSafeJudgmentService(
         config: TypeSafeConfig(
-            apiKey: 'key',
-            endpoint:
-                Uri.parse('http://127.0.0.1:${server.port}/v1/systemone')));
-    await expectLater(
-        service.evaluate(request), throwsA(failure(JudgmentFailure.http)));
-    expect(redirected, isFalse);
-  });
+          apiKey: 'key',
+          endpoint: Uri.parse('http://127.0.0.1:${server.port}/v1/systemone'),
+        ),
+      );
+      await expectLater(
+        service.evaluate(request),
+        throwsA(failure(JudgmentFailure.http)),
+      );
+      expect(redirected, isFalse);
+    },
+  );
 }

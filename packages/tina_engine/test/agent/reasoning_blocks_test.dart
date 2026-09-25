@@ -10,21 +10,30 @@ import '../helpers/fake_host_interface.dart';
 import '../helpers/fake_http.dart';
 import '../helpers/fake_provider.dart';
 
-const _answer = MessageComplete(content: [TextBlock('answer')], stopReason: 'stop');
+const _answer =
+    MessageComplete(content: [TextBlock('answer')], stopReason: 'stop');
 
 Agent _agent(LlmProvider provider, FakeAgentSink sink) => Agent(
-    provider: provider, tools: ToolRegistry([]), sink: sink, system: 'sys',
-    policy: PermissionPolicy(), asker: (_) async => PermissionResponse.denyOnce);
+    provider: provider,
+    tools: ToolRegistry([]),
+    sink: sink,
+    system: 'sys',
+    policy: PermissionPolicy(),
+    asker: (_) async => PermissionResponse.denyOnce);
 
 void main() {
-  test('many streamed chunks render one collapsed row and retain exact text', () async {
+  test('many streamed chunks render one collapsed row and retain exact text',
+      () async {
     final sink = FakeAgentSink();
-    final outcome = await const ProviderStreamConsumer().consume(Stream.fromIterable([
-      const ReasoningDelta('first\n', startsBlock: true),
-      const ReasoningDelta('第二步'),
-      const ReasoningEnd(),
-      const TextDelta('answer'), _answer,
-    ]), sink: sink);
+    final outcome = await const ProviderStreamConsumer().consume(
+        Stream.fromIterable([
+          const ReasoningDelta('first\n', startsBlock: true),
+          const ReasoningDelta('第二步'),
+          const ReasoningEnd(),
+          const TextDelta('answer'),
+          _answer,
+        ]),
+        sink: sink);
     // The engine now delivers the reasoning *text* to the sink rather than a
     // pre-collapsed label, so the assertion is on the payload: one block
     // opened, every chunk delivered in order, then closed as complete.
@@ -43,12 +52,16 @@ void main() {
     final agent = _agent(provider, sink);
     final history = <Message>[];
     final saved = <Message>[];
-    agent.onHistoryAppend = (message) async { saved.add(message); };
+    agent.onHistoryAppend = (message) async {
+      saved.add(message);
+    };
     final cancel = Completer<void>();
-    final run = agent.run(history: history, userInput: 'hi', cancelSignal: cancel.future);
+    final run = agent.run(
+        history: history, userInput: 'hi', cancelSignal: cancel.future);
     // HoldProvider creates its controller when send is invoked.
     await Future<void>.delayed(Duration.zero);
-    provider.controller.add(const ReasoningDelta('partial thought', startsBlock: true));
+    provider.controller
+        .add(const ReasoningDelta('partial thought', startsBlock: true));
     await Future<void>.delayed(Duration.zero);
     cancel.complete();
     await run.timeout(const Duration(seconds: 2));
@@ -59,41 +72,59 @@ void main() {
     expect(sink.texts, isEmpty);
   });
 
-  test('pool failover keeps separate partial and complete reasoning blocks', () async {
-    final a = FakeProvider([[
-      const ReasoningDelta('attempt one', startsBlock: true),
-      const StreamError('failed', transient: true),
-    ]]);
-    final b = FakeProvider([[
-      const ReasoningDelta('attempt two', startsBlock: true),
-      const ReasoningEnd(), _answer,
-    ]]);
+  test('pool failover keeps separate partial and complete reasoning blocks',
+      () async {
+    final a = FakeProvider([
+      [
+        const ReasoningDelta('attempt one', startsBlock: true),
+        const StreamError('failed', transient: true),
+      ]
+    ]);
+    final b = FakeProvider([
+      [
+        const ReasoningDelta('attempt two', startsBlock: true),
+        const ReasoningEnd(),
+        _answer,
+      ]
+    ]);
     final pool = PooledProvider([a, b], cooldown: Duration.zero);
     addTearDown(pool.close);
     final sink = FakeAgentSink();
-    final outcome = await const ProviderStreamConsumer().consume(
-        pool.send(system: '', messages: [], tools: []), sink: sink);
+    final outcome = await const ProviderStreamConsumer()
+        .consume(pool.send(system: '', messages: [], tools: []), sink: sink);
     expect(outcome.error, isNull);
-    expect(outcome.reasoning.map((b) => b.text), ['attempt one', 'attempt two']);
+    expect(
+        outcome.reasoning.map((b) => b.text), ['attempt one', 'attempt two']);
     expect(outcome.reasoning.map((b) => b.complete), [false, true]);
     // One block per attempt: two openers, and the first closed incomplete.
     expect(sink.reasoningChunks.where((c) => c.startsBlock), hasLength(2));
-    expect(sink.reasoningChunks.where((c) => c.complete == false), hasLength(1));
+    expect(
+        sink.reasoningChunks.where((c) => c.complete == false), hasLength(1));
     expect(sink.reasoningChunks.where((c) => c.complete == true), hasLength(1));
   });
 
-  test('successful next attempt without reasoning does not complete prior partial block', () async {
-    final outcome = await const ProviderStreamConsumer().consume(Stream.fromIterable([
-      const ReasoningDelta('failed attempt', startsBlock: true),
-      const StreamNotice('retry'), _answer,
-    ]), sink: FakeAgentSink());
+  test(
+      'successful next attempt without reasoning does not complete prior partial block',
+      () async {
+    final outcome = await const ProviderStreamConsumer().consume(
+        Stream.fromIterable([
+          const ReasoningDelta('failed attempt', startsBlock: true),
+          const StreamNotice('retry'),
+          _answer,
+        ]),
+        sink: FakeAgentSink());
     expect(outcome.reasoning.single.complete, isFalse);
   });
 
-  test('agent retains reasoning but excludes it from later model requests and estimates', () async {
+  test(
+      'agent retains reasoning but excludes it from later model requests and estimates',
+      () async {
     final provider = FakeProvider([
-      [const ReasoningDelta('retained only locally', startsBlock: true),
-        const ReasoningEnd(), _answer],
+      [
+        const ReasoningDelta('retained only locally', startsBlock: true),
+        const ReasoningEnd(),
+        _answer
+      ],
       [_answer],
     ]);
     final agent = _agent(provider, FakeAgentSink());
@@ -108,7 +139,9 @@ void main() {
     expect(agent.abortedReason, isNull);
   });
 
-  test('JSONL restore retains full text while replay renders only collapsed rows', () async {
+  test(
+      'JSONL restore retains full text while replay renders only collapsed rows',
+      () async {
     final dir = await Directory.systemTemp.createTemp('tina-reasoning-');
     addTearDown(() => dir.delete(recursive: true));
     final store = JsonlSessionStore(dir);
@@ -131,24 +164,33 @@ void main() {
   });
 
   for (final wire in ['openai', 'anthropic', 'gemini']) {
-    test('$wire never sends reasoning metadata or empty transcript-only messages', () async {
+    test(
+        '$wire never sends reasoning metadata or empty transcript-only messages',
+        () async {
       final capture = CapturedRequest();
       final provider = switch (wire) {
-        'openai' => OpenAiCompatibleAdapter(apiKey: '', model: 'fixture', client: capture.client),
-        'anthropic' => AnthropicProvider(apiKey: '', model: 'fixture', client: capture.client),
-        _ => GeminiProvider(apiKey: '', model: 'fixture', client: capture.client),
+        'openai' => OpenAiCompatibleAdapter(
+            apiKey: '', model: 'fixture', client: capture.client),
+        'anthropic' => AnthropicProvider(
+            apiKey: '', model: 'fixture', client: capture.client),
+        _ =>
+          GeminiProvider(apiKey: '', model: 'fixture', client: capture.client),
       };
       addTearDown(provider.close);
       await provider.send(system: '', messages: const [
         Message(role: Role.user, content: [TextBlock('hi')]),
-        Message(role: Role.assistant, content: [], reasoning: [ReasoningBlock('secret reasoning')]),
+        Message(
+            role: Role.assistant,
+            content: [],
+            reasoning: [ReasoningBlock('secret reasoning')]),
         Message(role: Role.assistant, content: [TextBlock('answer')]),
       ], tools: []).drain<void>();
       expect(capture.body, isNot(contains('secret reasoning')));
       expect(capture.body, isNot(contains('"reasoning"')));
       final body = jsonDecode(capture.body!) as Map;
-      final messages = (body[wire == 'gemini' ? 'contents' : 'messages'] as List)
-          .where((m) => m['role'] != 'system');
+      final messages =
+          (body[wire == 'gemini' ? 'contents' : 'messages'] as List)
+              .where((m) => m['role'] != 'system');
       expect(messages, hasLength(2));
     });
   }

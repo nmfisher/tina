@@ -37,10 +37,7 @@ void main() {
     List<InputEvent> events,
   ) async {
     final io = FakeStdio()..hasTerminalValue = false;
-    final screen = Screen(
-      io: io,
-      layout: ScreenLayout.fromSize(80, 24),
-    );
+    final screen = Screen(io: io, layout: ScreenLayout.fromSize(80, 24));
     final canned = CannedEvents()..events = events;
     final frames = <String>[];
     final picked = await pickStartupSessionOverlay(
@@ -80,134 +77,139 @@ void main() {
     });
 
     test('enter picks the newest session by default', () async {
-      final (picked, _, _) = await runPicker([
-        choice('a', 'Alpha', updated: now),
-        choice('b', 'Beta', updated: now.add(const Duration(minutes: 1))),
-      ], [
-        ControlKey(ControlCode.enter),
-      ]);
+      final (picked, _, _) = await runPicker(
+        [
+          choice('a', 'Alpha', updated: now),
+          choice('b', 'Beta', updated: now.add(const Duration(minutes: 1))),
+        ],
+        [ControlKey(ControlCode.enter)],
+      );
       expect(picked, isNotNull);
       expect(picked!.meta.id, 'b');
     });
 
     test('arrow navigation moves focus', () async {
-      final (picked, _, _) = await runPicker([
-        choice('a', 'Alpha', updated: now),
-        choice('b', 'Beta', updated: now.add(const Duration(minutes: 1))),
-      ], [
-        ArrowKey(ArrowDirection.down), // Beta (newest) down to Alpha
-        ControlKey(ControlCode.enter),
-      ]);
+      final (picked, _, _) = await runPicker(
+        [
+          choice('a', 'Alpha', updated: now),
+          choice('b', 'Beta', updated: now.add(const Duration(minutes: 1))),
+        ],
+        [
+          ArrowKey(ArrowDirection.down), // Beta (newest) down to Alpha
+          ControlKey(ControlCode.enter),
+        ],
+      );
       expect(picked!.meta.id, 'a');
     });
 
     test('esc cancels', () async {
-      final (picked, _, _) = await runPicker([
-        choice('a', 'Alpha'),
-      ], [
-        EscapeKey(),
-      ]);
+      final (picked, _, _) = await runPicker(
+        [choice('a', 'Alpha')],
+        [EscapeKey()],
+      );
       expect(picked, isNull);
     });
 
     test('ctrl-c cancels before later events can select', () async {
-      final (picked, _, _) = await runPicker([
-        choice('a', 'Alpha'),
-      ], [
-        ControlKey(ControlCode.ctrlC),
-        ControlKey(ControlCode.enter),
-      ]);
+      final (picked, _, _) = await runPicker(
+        [choice('a', 'Alpha')],
+        [ControlKey(ControlCode.ctrlC), ControlKey(ControlCode.enter)],
+      );
       expect(picked, isNull);
     });
 
     test('typing filters by title and enter picks the match', () async {
-      final (picked, vt, _) = await runPicker([
-        choice('a', 'Alpha session'),
-        choice('b', 'Beta thing'),
-      ], [
-        CharInput('bet'),
-        ControlKey(ControlCode.enter),
-      ]);
+      final (picked, vt, _) = await runPicker(
+        [choice('a', 'Alpha session'), choice('b', 'Beta thing')],
+        [CharInput('bet'), ControlKey(ControlCode.enter)],
+      );
       expect(picked!.meta.id, 'b');
       expect(paintedRows(vt), contains('filter: bet'));
     });
 
     test('filter is case-insensitive', () async {
-      final (picked, _, _) = await runPicker([
-        choice('a', 'Alpha session'),
-        choice('b', 'Beta thing'),
-      ], [
-        CharInput('BETA'),
-        ControlKey(ControlCode.enter),
-      ]);
+      final (picked, _, _) = await runPicker(
+        [choice('a', 'Alpha session'), choice('b', 'Beta thing')],
+        [CharInput('BETA'), ControlKey(ControlCode.enter)],
+      );
       expect(picked!.meta.id, 'b');
     });
 
     test('filter matches description and id too', () async {
-      final byDescription = await runPicker([
-        choice('a', 'Alpha', description: 'refactor the parser'),
-        choice('b', 'Beta', description: 'unrelated'),
-      ], [
-        CharInput('pars'),
-        ControlKey(ControlCode.enter),
-      ]);
+      final byDescription = await runPicker(
+        [
+          choice('a', 'Alpha', description: 'refactor the parser'),
+          choice('b', 'Beta', description: 'unrelated'),
+        ],
+        [CharInput('pars'), ControlKey(ControlCode.enter)],
+      );
       expect(byDescription.$1!.meta.id, 'a');
 
-      final byId = await runPicker([
-        choice('sess-alpha', 'Alpha'),
-        choice('sess-beta', 'Beta'),
-      ], [
-        CharInput('-beta'),
-        ControlKey(ControlCode.enter),
-      ]);
+      final byId = await runPicker(
+        [choice('sess-alpha', 'Alpha'), choice('sess-beta', 'Beta')],
+        [CharInput('-beta'), ControlKey(ControlCode.enter)],
+      );
       expect(byId.$1!.meta.id, 'sess-beta');
     });
 
     test('tab clears the filter', () async {
-      final (picked, vt, _) = await runPicker([
-        choice('a', 'Alpha', updated: now.subtract(const Duration(minutes: 1))),
-        choice('b', 'Beta'),
-      ], [
-        CharInput('zzz'),
-        ControlKey(ControlCode.tab),
-        ControlKey(ControlCode.enter),
-      ]);
+      final (picked, vt, _) = await runPicker(
+        [
+          choice(
+            'a',
+            'Alpha',
+            updated: now.subtract(const Duration(minutes: 1)),
+          ),
+          choice('b', 'Beta'),
+        ],
+        [
+          CharInput('zzz'),
+          ControlKey(ControlCode.tab),
+          ControlKey(ControlCode.enter),
+        ],
+      );
       expect(picked!.meta.id, 'b'); // cleared → newest again
       expect(paintedRows(vt), contains('type to filter'));
     });
 
     test('backspace edits the filter character by character', () async {
-      final (picked, _, _) = await runPicker([
-        choice('a', 'Alpha'),
-        choice('b', 'Beta'),
-      ], [
-        CharInput('alx'), // matches nothing
-        EditingKey(EditingAction.killToStart), // (ignored key) keep filter
-        ControlKey(ControlCode.backspace), // -> "al"
-        ControlKey(ControlCode.backspace), // -> "a" → Alpha
-        ControlKey(ControlCode.enter),
-      ]);
+      final (picked, _, _) = await runPicker(
+        [choice('a', 'Alpha'), choice('b', 'Beta')],
+        [
+          CharInput('alx'), // matches nothing
+          EditingKey(EditingAction.killToStart), // (ignored key) keep filter
+          ControlKey(ControlCode.backspace), // -> "al"
+          ControlKey(ControlCode.backspace), // -> "a" → Alpha
+          ControlKey(ControlCode.enter),
+        ],
+      );
       expect(picked!.meta.id, 'a');
     });
 
-    test('a filter with no matches paints the empty state, enter is a no-op',
-        () async {
-      final state = await runPicker([
-        choice('a', 'Alpha'),
-      ], [
-        CharInput('zzz'),
-        ControlKey(ControlCode.enter), // no match → must not return
-        ControlKey(ControlCode.tab), // clear
-        ControlKey(ControlCode.enter),
-      ]);
-      expect(state.$1!.meta.id, 'a');
-    });
+    test(
+      'a filter with no matches paints the empty state, enter is a no-op',
+      () async {
+        final state = await runPicker(
+          [choice('a', 'Alpha')],
+          [
+            CharInput('zzz'),
+            ControlKey(ControlCode.enter), // no match → must not return
+            ControlKey(ControlCode.tab), // clear
+            ControlKey(ControlCode.enter),
+          ],
+        );
+        expect(state.$1!.meta.id, 'a');
+      },
+    );
 
     test('pageDown/pageUp jump by a page', () async {
       final choices = [
         for (var i = 0; i < 30; i++)
-          choice('s${i.toString().padLeft(2, '0')}', 'Session $i',
-              updated: now.add(Duration(minutes: i))),
+          choice(
+            's${i.toString().padLeft(2, '0')}',
+            'Session $i',
+            updated: now.add(Duration(minutes: i)),
+          ),
       ];
       final (pgdn, _, _) = await runPicker(choices, [
         ArrowKey(ArrowDirection.pageDown),
@@ -227,15 +229,19 @@ void main() {
     });
 
     test('paints title, description and time for the focused row', () async {
-      final (_, vt, _) = await runPicker([
-        choice('a', 'Alpha',
+      final (_, vt, _) = await runPicker(
+        [
+          choice(
+            'a',
+            'Alpha',
             description: 'first session',
             when: '2026-09-23 12:00',
-            updated: now.add(const Duration(minutes: 1))),
-        choice('b', 'Beta', description: 'second session'),
-      ], [
-        EscapeKey(),
-      ]);
+            updated: now.add(const Duration(minutes: 1)),
+          ),
+          choice('b', 'Beta', description: 'second session'),
+        ],
+        [EscapeKey()],
+      );
       final text = paintedRows(vt);
       expect(text, contains('Beta — second session'));
       expect(text, contains('first session'));
@@ -244,24 +250,25 @@ void main() {
     });
 
     test('saved metadata cannot inject terminal escapes', () async {
-      final (_, vt, _) = await runPicker([
-        choice('a', 'bad\x1b[2Jtitle'),
-      ], [
-        EscapeKey(),
-      ]);
+      final (_, vt, _) = await runPicker(
+        [choice('a', 'bad\x1b[2Jtitle')],
+        [EscapeKey()],
+      );
       final text = paintedRows(vt);
       expect(text, isNot(contains('\x1b')));
       expect(text, contains('bad [2Jtitle'));
     });
 
-    test('SessionChoice.fromMeta strips controls and formats the time',
-        () async {
-      final c = SessionChoice.fromMeta(
-        meta('x', 't\x1b[31mitle', description: 'd\tesc'),
-      );
-      expect(c.title, 't [31mitle');
-      expect(c.description, 'd esc');
-      expect(c.when, '2026-09-23 12:00');
-    });
+    test(
+      'SessionChoice.fromMeta strips controls and formats the time',
+      () async {
+        final c = SessionChoice.fromMeta(
+          meta('x', 't\x1b[31mitle', description: 'd\tesc'),
+        );
+        expect(c.title, 't [31mitle');
+        expect(c.description, 'd esc');
+        expect(c.when, '2026-09-23 12:00');
+      },
+    );
   });
 }

@@ -75,8 +75,7 @@ PluginDescriptor workspaceCapabilitiesPlugin({
           sandboxEnabled: sandboxEnabled,
           sandboxNet: sandboxNet,
           sandboxReadOnly: sandboxReadOnly,
-          sandboxOffReason:
-              sandboxOffReason ?? kSandboxOffReasonNoSandbox,
+          sandboxOffReason: sandboxOffReason ?? kSandboxOffReasonNoSandbox,
         );
         return caps;
       }),
@@ -121,10 +120,20 @@ List<PluginDescriptor> workspaceToolPlugins(WorkspaceCapabilities caps) => [
       _toolPlugin('edit', caps, _buildEdit),
       _toolPlugin('fetch', caps, _buildFetch),
       _toolPlugin('bash', caps, _buildBash),
-      _toolPlugin('exec', caps, (c) => ExecTool(workspaceRoot: c.workspaceRoot,
-          environment: c.environment, processRunner: c.processRunner)),
-      _toolPlugin('execution_info', caps, (c) => ExecutionInfoTool(
-          workspaceRoot: c.workspaceRoot, environment: c.environment, runner: c.processRunner)),
+      _toolPlugin(
+          'exec',
+          caps,
+          (c) => ExecTool(
+              workspaceRoot: c.workspaceRoot,
+              environment: c.environment,
+              processRunner: c.processRunner)),
+      _toolPlugin(
+          'execution_info',
+          caps,
+          (c) => ExecutionInfoTool(
+              workspaceRoot: c.workspaceRoot,
+              environment: c.environment,
+              runner: c.processRunner)),
       _toolPlugin('search', caps, _buildSearch),
       _toolPlugin('grep', caps, _buildGrep),
       _toolPlugin('glob', caps, _buildGlob),
@@ -182,7 +191,9 @@ EditTool _buildEdit(WorkspaceCapabilities caps) {
 FetchTool _buildFetch(WorkspaceCapabilities caps) => FetchTool();
 
 BashTool _buildBash(WorkspaceCapabilities caps) {
-  return BashTool(workspaceRoot: caps.workspaceRoot, environment: caps.environment,
+  return BashTool(
+      workspaceRoot: caps.workspaceRoot,
+      environment: caps.environment,
       processRunner: caps.processRunner);
 }
 
@@ -228,8 +239,8 @@ StatTool _buildStat(WorkspaceCapabilities caps) {
     ..sandbox = caps.fileSystem!;
 }
 
-WhichTool _buildWhich(WorkspaceCapabilities caps) =>
-    WhichTool(environment: caps.environment, workingDirectory: caps.workspaceRoot);
+WhichTool _buildWhich(WorkspaceCapabilities caps) => WhichTool(
+    environment: caps.environment, workingDirectory: caps.workspaceRoot);
 
 GitTool _buildGit(WorkspaceCapabilities caps) => GitTool(
       processRunner: caps.processRunner,

@@ -129,7 +129,9 @@ class ScreenLayout {
   /// inside the chat box just above the bottom border, and the bottom border
   /// row.
   factory ScreenLayout.fromSize(int width, int height,
-      {bool hasMenuBar = false, bool? split, bool drawInfoFrame = true,
+      {bool hasMenuBar = false,
+      bool? split,
+      bool drawInfoFrame = true,
       int sidebarWidth = 0}) {
     final w = width < 1 ? 1 : width;
     final minH = hasMenuBar ? 8 : 6;
@@ -139,7 +141,8 @@ class ScreenLayout {
     final topBorder = menuOffset; // 3 with menu, 0 without.
     // Reserve space for a usable transcript even on small terminals.
     final sideWidth = sidebarWidth <= 0 || w < 30
-        ? 0 : sidebarWidth.clamp(10, (w ~/ 3).clamp(10, w - 20));
+        ? 0
+        : sidebarWidth.clamp(10, (w ~/ 3).clamp(10, w - 20));
     // The strip owns the LAST row in every layout, and the panel boxes stop
     // one row above it. The primary panel's input row is the bottom INTERIOR
     // row of its box (box bottom - 1); with the box ending at h-2 that input
@@ -157,7 +160,9 @@ class ScreenLayout {
 
     final available = w - sideWidth;
     final isSplit = (split ?? available >= splitThreshold) && available >= 50;
-    final chatWidth = isSplit ? (available * 0.65).round().clamp(30, available - 20) : available;
+    final chatWidth = isSplit
+        ? (available * 0.65).round().clamp(30, available - 20)
+        : available;
     final infoWidth = isSplit ? available - chatWidth : 0;
 
     final chatLeftCol = sideWidth;
@@ -207,10 +212,14 @@ class ScreenLayout {
       chat: chat,
       input: input,
       info: info,
-      sidebar: sideWidth == 0 ? Rect.empty : Rect(
-        row: topBorder, col: 0, width: sideWidth,
-        height: bottomBorder - topBorder + 1,
-      ),
+      sidebar: sideWidth == 0
+          ? Rect.empty
+          : Rect(
+              row: topBorder,
+              col: 0,
+              width: sideWidth,
+              height: bottomBorder - topBorder + 1,
+            ),
       chatLeftCol: chatLeftCol,
       chatRightCol: chatRightCol,
       infoLeftCol: infoLeftCol,

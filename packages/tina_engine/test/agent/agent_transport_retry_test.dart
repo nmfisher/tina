@@ -54,9 +54,8 @@ Agent _agent(
     provider: provider,
     tools: ToolRegistry([_echoTool()]),
     sink: sink,
-    policy: PermissionPolicy(defaults: const {
-      'echo': PermissionDecision.allow
-    }),
+    policy:
+        PermissionPolicy(defaults: const {'echo': PermissionDecision.allow}),
     asker: (_) async => PermissionResponse.denyOnce,
     maxSteps: 50,
     system: 'sys',
@@ -102,8 +101,7 @@ void main() {
       expect(provider.calls, 2);
       // The user message appears EXACTLY once in the history — the ladder
       // re-sends from the unchanged history, it does not re-append input.
-      final userMessages =
-          history.where((m) => m.role == Role.user).toList();
+      final userMessages = history.where((m) => m.role == Role.user).toList();
       expect(userMessages, hasLength(1));
       expect(
         (userMessages.single.content.single as TextBlock).text,
@@ -149,11 +147,13 @@ void main() {
       expect(provider.sentHistories, hasLength(2));
       // Byte-identical re-send: the failed step appended nothing, so the
       // second attempt's history equals the first's.
-      expect(provider.sentHistories[1].length,
-          provider.sentHistories[0].length);
+      expect(
+          provider.sentHistories[1].length, provider.sentHistories[0].length);
       for (var i = 0; i < provider.sentHistories[0].length; i++) {
-        expect(identical(provider.sentHistories[0][i],
-            provider.sentHistories[1][i]), isTrue,
+        expect(
+            identical(
+                provider.sentHistories[0][i], provider.sentHistories[1][i]),
+            isTrue,
             reason: 'message $i must be the same instance — nothing re-added');
       }
     });
@@ -196,8 +196,8 @@ void main() {
         sink.notices.map((n) => n.message),
         everyElement(isNot(contains('transport error:'))),
       );
-      expect(sink.notices.map((n) => n.message),
-          anyElement(contains('error:')));
+      expect(
+          sink.notices.map((n) => n.message), anyElement(contains('error:')));
     });
 
     test(
@@ -262,11 +262,13 @@ void main() {
       );
       final history = <Message>[];
 
-      await agent.run(history: history, userInput: 'hi', cancelSignal: cancel.future);
+      await agent.run(
+          history: history, userInput: 'hi', cancelSignal: cancel.future);
 
       // No post-cancel send: the ladder stopped, the turn exited cleanly.
       expect(provider.calls, 1);
-      expect(sink.notices.where((n) => n.message.contains('[cancelled]')), hasLength(1));
+      expect(sink.notices.where((n) => n.message.contains('[cancelled]')),
+          hasLength(1));
       expect(agent.abortedKind, AbortedKind.cancel);
       expect(agent.abortedReason, isNull);
       expect(sink.texts, isNot(contains('must never be sent')));
@@ -284,9 +286,8 @@ void main() {
         provider: provider,
         tools: ToolRegistry([_echoTool()]),
         sink: sink,
-        policy: PermissionPolicy(defaults: const {
-          'echo': PermissionDecision.allow
-        }),
+        policy: PermissionPolicy(
+            defaults: const {'echo': PermissionDecision.allow}),
         asker: (_) async => PermissionResponse.denyOnce,
         maxSteps: 50,
         system: 'sys',
@@ -398,8 +399,7 @@ void main() {
       ]);
     });
 
-    test('the ladder delay doubles 15s → 30s → 60s → 120s → 120s',
-        () async {
+    test('the ladder delay doubles 15s → 30s → 60s → 120s → 120s', () async {
       // Pure schedule check through the exported helper.
       expect(transportBackoffFor(1), const Duration(seconds: 15));
       expect(transportBackoffFor(2), const Duration(seconds: 30));

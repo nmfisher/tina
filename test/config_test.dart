@@ -14,53 +14,74 @@ import 'helpers/test_registry.dart';
 /// own env scan and the two drifting apart.
 void main() {
   for (final fromCli in [false, true]) {
-    test('custom Anthropic wire accepts effort from ${fromCli ? 'CLI' : 'file'}',
-        () {
-      final registry = builtinRegistry(env: {});
-      final user = UserConfig(
-        defaultProvider: 'zai',
-        defaultModel: 'glm-5.3-flash',
-        reasoningEffort: fromCli ? null : 'high',
-        providers: {
-          'zai': ProviderConfig(
-            baseUrl: 'https://example.test',
-            wire: 'anthropic',
-          ),
-        },
-      );
-      registerConfigProviders(registry, user);
-      final config = Config.parse(
-        fromCli ? ['--reasoning-effort', 'high'] : [],
-        env: const {},
-        registry: registry,
-        userConfig: user,
-      );
-      final factory = RuntimeProviderFactory(registry, providerDefaults: {
-        config.provider: ProviderBuildDefaults(
-          reasoningEffort: config.runtime.reasoningEffort,
-        ),
-      });
-      final provider = factory.build('zai/glm-5.3-flash');
-      addTearDown(provider.close);
-      expect(provider, isA<AnthropicProvider>());
-      expect((provider as AnthropicProvider).reasoningEffort, 'high');
-    });
+    test(
+      'custom Anthropic wire accepts effort from ${fromCli ? 'CLI' : 'file'}',
+      () {
+        final registry = builtinRegistry(env: {});
+        final user = UserConfig(
+          defaultProvider: 'zai',
+          defaultModel: 'glm-5.3-flash',
+          reasoningEffort: fromCli ? null : 'high',
+          providers: {
+            'zai': ProviderConfig(
+              baseUrl: 'https://example.test',
+              wire: 'anthropic',
+            ),
+          },
+        );
+        registerConfigProviders(registry, user);
+        final config = Config.parse(
+          fromCli ? ['--reasoning-effort', 'high'] : [],
+          env: const {},
+          registry: registry,
+          userConfig: user,
+        );
+        final factory = RuntimeProviderFactory(
+          registry,
+          providerDefaults: {
+            config.provider: ProviderBuildDefaults(
+              reasoningEffort: config.runtime.reasoningEffort,
+            ),
+          },
+        );
+        final provider = factory.build('zai/glm-5.3-flash');
+        addTearDown(provider.close);
+        expect(provider, isA<AnthropicProvider>());
+        expect((provider as AnthropicProvider).reasoningEffort, 'high');
+      },
+    );
   }
 
-  test('output-token flag supports its legacy alias with last-value precedence', () {
-    Config parse(List<String> args) => Config.parse(
-      args, env: const {}, registry: testRegistry(const {}),
-    );
-    expect(parse([]).maxTokens, ProviderRegistry.defaultMaxTokens);
-    expect(parse(['--max-output-tokens', '4096']).runtime.maxTokens, 4096);
-    expect(parse(['--max-tokens=8192']).runtime.maxTokens, 8192);
-    expect(parse(['--max-tokens', '8192', '--max-output-tokens', '4096'])
-        .maxTokens, 4096);
-    expect(parse(['--max-output-tokens', '4096', '--max-tokens', '8192'])
-        .maxTokens, 8192);
-    expect(Config.usage, contains('--max-output-tokens'));
-    expect(Config.usage, isNot(contains('--max-tokens')));
-  });
+  test(
+    'output-token flag supports its legacy alias with last-value precedence',
+    () {
+      Config parse(List<String> args) =>
+          Config.parse(args, env: const {}, registry: testRegistry(const {}));
+      expect(parse([]).maxTokens, ProviderRegistry.defaultMaxTokens);
+      expect(parse(['--max-output-tokens', '4096']).runtime.maxTokens, 4096);
+      expect(parse(['--max-tokens=8192']).runtime.maxTokens, 8192);
+      expect(
+        parse([
+          '--max-tokens',
+          '8192',
+          '--max-output-tokens',
+          '4096',
+        ]).maxTokens,
+        4096,
+      );
+      expect(
+        parse([
+          '--max-output-tokens',
+          '4096',
+          '--max-tokens',
+          '8192',
+        ]).maxTokens,
+        8192,
+      );
+      expect(Config.usage, contains('--max-output-tokens'));
+      expect(Config.usage, isNot(contains('--max-tokens')));
+    },
+  );
 
   test(
     'reasoning effort: file, CLI override, auto, runtime and persistence',
@@ -239,30 +260,32 @@ void main() {
       }
     });
 
-    test('the workflow surface is off unless a flag or the file enables it',
-        () {
-      for (final (args, file, expected) in [
-        // Off by default: the tools, the identity nudge, /workflow, and the
-        // run panels all ship disabled. Either source turns the whole surface
-        // back on; the flag always wins over the file.
-        (<String>[], null, false),
-        (['--enable-workflow'], null, true),
-        (<String>[], true, true),
-        (<String>[], false, false),
-        (['--enable-workflow'], false, true),
-      ]) {
-        final config = Config.parse(
-          args,
-          env: const {},
-          userConfig: UserConfig.fromMap({
-            'features': {if (file != null) 'workflow': file},
-          }),
-        );
-        expect(config.enableWorkflow, expected);
-        // The parsed facade and the runtime the composition reads agree.
-        expect(config.runtime.enableWorkflow, expected);
-      }
-    });
+    test(
+      'the workflow surface is off unless a flag or the file enables it',
+      () {
+        for (final (args, file, expected) in [
+          // Off by default: the tools, the identity nudge, /workflow, and the
+          // run panels all ship disabled. Either source turns the whole surface
+          // back on; the flag always wins over the file.
+          (<String>[], null, false),
+          (['--enable-workflow'], null, true),
+          (<String>[], true, true),
+          (<String>[], false, false),
+          (['--enable-workflow'], false, true),
+        ]) {
+          final config = Config.parse(
+            args,
+            env: const {},
+            userConfig: UserConfig.fromMap({
+              'features': {if (file != null) 'workflow': file},
+            }),
+          );
+          expect(config.enableWorkflow, expected);
+          // The parsed facade and the runtime the composition reads agree.
+          expect(config.runtime.enableWorkflow, expected);
+        }
+      },
+    );
 
     test(
       'index skips hidden paths by default and carries config to runtime',
@@ -331,8 +354,10 @@ void main() {
       ).planOverlayMode;
       // Absent → auto: show whenever the conversation has a plan.
       expect(resolve(const UserConfig()), PlanOverlayMode.auto);
-      expect(resolve(const UserConfig(planOverlay: 'manual')),
-          PlanOverlayMode.manual);
+      expect(
+        resolve(const UserConfig(planOverlay: 'manual')),
+        PlanOverlayMode.manual,
+      );
       expect(
         resolve(const UserConfig(planOverlay: 'off')),
         PlanOverlayMode.off,

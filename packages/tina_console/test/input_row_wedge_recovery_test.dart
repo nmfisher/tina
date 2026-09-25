@@ -74,8 +74,9 @@ class _Rig {
     final warmup = editor.readLine('> ');
     await _flush();
     input.emit(ControlKey(ControlCode.enter));
-    unawaited(warmup);    final chat = PanelFrame(
-        screen: screen, label: 'Chat', conversationId: 'chat');
+    unawaited(warmup);
+    final chat =
+        PanelFrame(screen: screen, label: 'Chat', conversationId: 'chat');
     final ro = PanelFrame(
       screen: screen,
       label: 'Environment',
@@ -97,8 +98,9 @@ class _Rig {
     return rig;
   }
 
-  _Rig._(this.io, this.screen, this.input, this.editor, this.chat,
-      this.readOnly) : focus = FocusManager();
+  _Rig._(
+      this.io, this.screen, this.input, this.editor, this.chat, this.readOnly)
+      : focus = FocusManager();
 }
 
 void main() {
@@ -236,7 +238,8 @@ void main() {
       ed.close();
     });
 
-    test('queue monitor under the wedge: queued text stays queued and '
+    test(
+        'queue monitor under the wedge: queued text stays queued and '
         'readLine regains the keyboard', () async {
       final rig = await _Rig.create();
       final ed = rig.editor;

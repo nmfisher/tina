@@ -5,11 +5,13 @@ import 'package:test/test.dart';
 
 void main() {
   group('HeadlessHost', () {
-    test('outside-sandbox retry is refused without recommending command rules', () async {
+    test('outside-sandbox retry is refused without recommending command rules',
+        () async {
       final err = StringBuffer();
       final host = HeadlessHost(writeErr: err.write);
       final response = await host.askPermission(const PermissionPrompt(
-          'bash', {'command': 'dart test'}, outsideSandbox: true));
+          'bash', {'command': 'dart test'},
+          outsideSandbox: true));
       expect(response.decision, PermissionDecision.deny);
       expect(response.remember, isFalse);
       expect(response.note, contains('interactive approval is unavailable'));

@@ -92,5 +92,6 @@ final class ApprovalTarget {
   /// A rule on it can only match the tool as a whole, which is exactly why the
   /// registry sweep requires a tool to produce a real target before it is
   /// allowed to prompt.
-  static const ApprovalTarget unknown = ApprovalTarget(label: '', remember: '*');
+  static const ApprovalTarget unknown =
+      ApprovalTarget(label: '', remember: '*');
 }

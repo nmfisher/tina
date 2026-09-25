@@ -72,7 +72,8 @@ List<PromptContributor> defaultPromptContributors({
   List<PromptContributor>? extraContributors,
 }) {
   final resolvedCwd = cwd ?? context.workspaceRoot;
-  final trusted = context.loadWorkspaceContext && (loadWorkspaceContext ?? true);
+  final trusted =
+      context.loadWorkspaceContext && (loadWorkspaceContext ?? true);
   final os = Platform.operatingSystem;
   final today = DateTime.now().toIso8601String().split('T').first;
   // The warm-load blocks, gated by the same trust flag as AGENTS.md. A

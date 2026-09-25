@@ -105,8 +105,8 @@ Future<void> runTranscriptCursor({
         final row = indexes.isEmpty || at >= indexes.length
             ? null
             : (transcript.blocks[indexes[at]].folded
-                ? transcript.rowOfBlock(indexes[at])
-                : transcript.endRowOfBlock(indexes[at]));
+                  ? transcript.rowOfBlock(indexes[at])
+                  : transcript.endRowOfBlock(indexes[at]));
         if (row != null) chat.scrollRowIntoView(row);
       }
     }

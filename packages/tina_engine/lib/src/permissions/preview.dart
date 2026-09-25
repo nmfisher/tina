@@ -100,12 +100,14 @@ List<PreviewEntry> _launchWorkflowPreview(Map<String, dynamic> input) {
   ];
 }
 
-List<PreviewEntry> _editPreview(Map<String, dynamic> input, PreparedEdit? prepared) {
+List<PreviewEntry> _editPreview(
+    Map<String, dynamic> input, PreparedEdit? prepared) {
   final request = prepared?.request;
   final path = request?.path ?? input['filePath'] as String? ?? '(no path)';
   final oldStr = request?.oldString ?? input['oldString'] as String? ?? '';
   final newStr = request?.newString ?? input['newString'] as String? ?? '';
-  final replaceAll = request?.replaceAll ?? (input['replaceAll'] as bool?) ?? false;
+  final replaceAll =
+      request?.replaceAll ?? (input['replaceAll'] as bool?) ?? false;
   final header = replaceAll ? 'edit: $path (replaceAll)' : 'edit: $path';
 
   final oldLines = const LineSplitter().convert(oldStr);

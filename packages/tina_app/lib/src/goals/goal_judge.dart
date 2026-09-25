@@ -62,12 +62,11 @@ class GoalJudgeDigest {
     return lines.isEmpty ? '(no transcript)' : lines.join('\n');
   }
 
-  static String _textContent(Message message) =>
-      message.content
-          .whereType<TextBlock>()
-          .map((b) => b.text.trim())
-          .where((t) => t.isNotEmpty)
-          .join('\n');
+  static String _textContent(Message message) => message.content
+      .whereType<TextBlock>()
+      .map((b) => b.text.trim())
+      .where((t) => t.isNotEmpty)
+      .join('\n');
 }
 
 /// The host-installed judge: resolves the conversation, digests its
@@ -110,7 +109,8 @@ Future<GoalVerdict?> judgeGoal({
         'yes = the transcript shows the goal was fully met. no = the '
         'transcript shows it was not yet met (or the work visibly continues). '
         'unclear = the digest does not contain enough evidence either way.';
-    final task = 'GOAL: ${goal.text}\n\n'
+    final task =
+        'GOAL: ${goal.text}\n\n'
         'RECENT TRANSCRIPT:\n$digest';
 
     final result = await runCheck(

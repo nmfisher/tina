@@ -52,8 +52,9 @@ String? _build(String workspaceRoot) {
   // the abbreviated ref so the line still says something useful.
   var branch = _git(workspaceRoot, ['branch', '--show-current'])?.trim() ?? '';
   if (branch.isEmpty) {
-    branch = _git(workspaceRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])?.trim() ??
-        '(unknown)';
+    branch =
+        _git(workspaceRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])?.trim() ??
+            '(unknown)';
   }
   final head = _git(workspaceRoot, ['rev-parse', '--short', 'HEAD'])?.trim();
   if (head == null || head.isEmpty) {
@@ -72,8 +73,8 @@ String? _build(String workspaceRoot) {
     if (statusCounts != null) {
       buf.writeln('status: $statusCounts');
     }
-    final log = _git(workspaceRoot,
-        ['log', '-$_recentCommits', '--pretty=format:%h %s']);
+    final log = _git(
+        workspaceRoot, ['log', '-$_recentCommits', '--pretty=format:%h %s']);
     if (log != null && log.trim().isNotEmpty) {
       buf
         ..writeln('recent:')

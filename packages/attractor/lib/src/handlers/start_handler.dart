@@ -10,6 +10,5 @@ class StartHandler implements NodeHandler {
     required RunStore runStore,
     Future<void>? cancelSignal,
     PipelineEventListener? onEvent,
-  }) async =>
-      const Outcome.success(notes: 'pipeline start');
+  }) async => const Outcome.success(notes: 'pipeline start');
 }

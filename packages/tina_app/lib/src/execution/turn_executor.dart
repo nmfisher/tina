@@ -37,8 +37,7 @@ class TurnExecutor {
   /// Mutable: the TUI coordinator installs the goal judge after the owning
   /// SessionController (and its late executor) exists. Late assignment races
   /// nothing — turns are admitted only after the controller runs.
-  void Function(bool completed)? Function(Conversation, String)?
-  onTurnStarted;
+  void Function(bool completed)? Function(Conversation, String)? onTurnStarted;
 
   /// A registry owned by this turn, created when queued work actually starts.
   final ToolRegistry? Function(Conversation, String)? toolsForTurn;

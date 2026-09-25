@@ -153,8 +153,8 @@ class _StructuralEdgeVisitor extends RecursiveAstVisitor<void> {
   }
 
   String? _qualifiedId(String localName) {
-    final matches = _symbols.lookupByName(localName).where(
-        (s) => s.filePath == _filePath);
+    final matches =
+        _symbols.lookupByName(localName).where((s) => s.filePath == _filePath);
     if (matches.isEmpty) return null;
     return _computeQualifiedName(matches.first, _repoRoot);
   }

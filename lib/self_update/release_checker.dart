@@ -15,7 +15,11 @@ final _log = Logger('tina.self_update');
 /// [assetUrls] maps asset name (`tina-v0.1.4-macos-arm64.tar.gz`) →
 /// browser_download_url.
 class ReleaseInfo {
-  ReleaseInfo({required this.tag, required this.releaseUrl, required this.assetUrls});
+  ReleaseInfo({
+    required this.tag,
+    required this.releaseUrl,
+    required this.assetUrls,
+  });
 
   final String tag;
   final String releaseUrl;
@@ -25,16 +29,16 @@ class ReleaseInfo {
   String get version => tag.startsWith('v') ? tag.substring(1) : tag;
 
   Map<String, dynamic> toJson() => {
-        'tag': tag,
-        'release_url': releaseUrl,
-        'assets': assetUrls,
-      };
+    'tag': tag,
+    'release_url': releaseUrl,
+    'assets': assetUrls,
+  };
 
   static ReleaseInfo fromJson(Map<String, dynamic> json) => ReleaseInfo(
-        tag: json['tag'] as String,
-        releaseUrl: json['release_url'] as String? ?? '',
-        assetUrls: (json['assets'] as Map?)?.cast<String, String>() ?? const {},
-      );
+    tag: json['tag'] as String,
+    releaseUrl: json['release_url'] as String? ?? '',
+    assetUrls: (json['assets'] as Map?)?.cast<String, String>() ?? const {},
+  );
 }
 
 /// Whether [tag] names a strictly newer release than the running [tinaVersion]
@@ -72,17 +76,17 @@ List<int>? _parseSemver(String v) {
 /// "check failed" to read as "up to date".
 class ReleaseMiss {
   const ReleaseMiss.http(this.status, {this.retryAt})
-      : kind = MissKind.http,
-        detail = 'HTTP $status';
+    : kind = MissKind.http,
+      detail = 'HTTP $status';
   const ReleaseMiss.network(this.detail)
-      : kind = MissKind.network,
-        status = null,
-        retryAt = null;
+    : kind = MissKind.network,
+      status = null,
+      retryAt = null;
   const ReleaseMiss.badPayload()
-      : kind = MissKind.badPayload,
-        status = null,
-        detail = 'unparsable release payload',
-        retryAt = null;
+    : kind = MissKind.badPayload,
+      status = null,
+      detail = 'unparsable release payload',
+      retryAt = null;
 
   final MissKind kind;
 
@@ -120,11 +124,12 @@ class ReleaseChecker {
     this.fetchTimeout = const Duration(seconds: 10),
     this.deferWhile = defaultDeferWhile,
     this.respectServerRetryAt = true,
-  })  : _env = env,
-        _client = client ?? http.Client();
+  }) : _env = env,
+       _client = client ?? http.Client();
 
   static const defaultApiBase = 'https://api.github.com/repos/nmfisher/tina';
-  static const releasesPageUrl = 'https://github.com/nmfisher/tina/releases/latest';
+  static const releasesPageUrl =
+      'https://github.com/nmfisher/tina/releases/latest';
 
   /// Background probes defer while a recorded defer window is open. The
   /// window comes from the server when it says one (`retry-after`,
@@ -221,21 +226,25 @@ class ReleaseChecker {
           .timeout(fetchTimeout);
       final status = resp.statusCode;
       if (status != 200) {
-        final retryAt =
-            respectServerRetryAt ? _retryAt(resp.headers) : null;
+        final retryAt = respectServerRetryAt ? _retryAt(resp.headers) : null;
         _lastMiss = ReleaseMiss.http(status, retryAt: retryAt);
         await _setBackoff(
-            DateTime.now().add(_deferWindow(status, retryAt)),
-            _lastMiss!.detail);
-        _log.info('release check missed: $_lastMiss'
-            '${status == 403 ? ' (likely rate-limited)' : ''}; '
-            'background probes deferred');
+          DateTime.now().add(_deferWindow(status, retryAt)),
+          _lastMiss!.detail,
+        );
+        _log.info(
+          'release check missed: $_lastMiss'
+          '${status == 403 ? ' (likely rate-limited)' : ''}; '
+          'background probes deferred',
+        );
         return null;
       }
       final parsed = _parse(resp.body);
       if (parsed == null) {
-        await _setBackoff(DateTime.now().add(defaultHttpBackoff),
-            _lastMiss!.detail);
+        await _setBackoff(
+          DateTime.now().add(defaultHttpBackoff),
+          _lastMiss!.detail,
+        );
       } else {
         await _setBackoff(null, null);
       }
@@ -243,7 +252,9 @@ class ReleaseChecker {
     } catch (e) {
       _lastMiss = ReleaseMiss.network('$e'.isEmpty ? 'network error' : '$e');
       await _setBackoff(
-          DateTime.now().add(defaultNetworkBackoff), _lastMiss!.detail);
+        DateTime.now().add(defaultNetworkBackoff),
+        _lastMiss!.detail,
+      );
       _log.info('release check missed: $_lastMiss; background probes deferred');
       return null;
     }
@@ -257,8 +268,9 @@ class ReleaseChecker {
     if (retryAfter != null && retryAfter.isNotEmpty) {
       final seconds = int.tryParse(retryAfter);
       if (seconds != null) {
-        return DateTime.now()
-            .add(Duration(seconds: seconds.clamp(0, maxBackoff.inSeconds)));
+        return DateTime.now().add(
+          Duration(seconds: seconds.clamp(0, maxBackoff.inSeconds)),
+        );
       }
       try {
         return HttpDate.parse(retryAfter);
@@ -333,7 +345,9 @@ class ReleaseChecker {
         await f.parent.create(recursive: true);
         await f.writeAsString(until.millisecondsSinceEpoch.toString());
         if (reason != null) {
-          _log.info('background release checks deferred until $until ($reason)');
+          _log.info(
+            'background release checks deferred until $until ($reason)',
+          );
         }
       }
     } catch (e) {
@@ -373,14 +387,17 @@ class ReleaseChecker {
     }
   }
 
-  File _cacheFile() => File(p.join(tinaDirFromEnv(_env).path, 'cache', 'latest_release.json'));
+  File _cacheFile() =>
+      File(p.join(tinaDirFromEnv(_env).path, 'cache', 'latest_release.json'));
 
   Future<ReleaseInfo?> _readCache(File f) async {
     try {
       if (!f.existsSync()) return null;
       final age = DateTime.now().difference(f.statSync().modified);
       if (age >= cacheTtl) return null;
-      return ReleaseInfo.fromJson(jsonDecode(await f.readAsString()) as Map<String, dynamic>);
+      return ReleaseInfo.fromJson(
+        jsonDecode(await f.readAsString()) as Map<String, dynamic>,
+      );
     } catch (e) {
       _log.fine('release cache read failed; will refetch', e);
       return null;

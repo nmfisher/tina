@@ -181,22 +181,19 @@ void main() {
 
     test(
         'the funnel survives an ephemeral metering close() '
-        '(recorders belong to each provider)',
-        () async {
+        '(recorders belong to each provider)', () async {
       final ledger = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
       // Two meters over one shared session ledger — the ephemeral-runner
       // shape. The FIRST one closing must not kill the funnel.
       final ephemeral = MeteringProvider(
           _FailFirstProvider(0,
               errorFactory: () => StreamError('never'),
-              successUsage:
-                  const TokenUsage(inputTokens: 1, outputTokens: 1)),
+              successUsage: const TokenUsage(inputTokens: 1, outputTokens: 1)),
           ledger);
       final session = MeteringProvider(
           _FailFirstProvider(0,
               errorFactory: () => StreamError('never'),
-              successUsage:
-                  const TokenUsage(inputTokens: 7, outputTokens: 3)),
+              successUsage: const TokenUsage(inputTokens: 7, outputTokens: 3)),
           ledger);
 
       ephemeral.close();
@@ -228,18 +225,18 @@ void main() {
 
       // Below the absolute floor (1,000 retried tokens): silent, even though
       // the ratio would already be ~5%.
-      ledger.recordRetried(
-          const TokenUsage(inputTokens: 500, outputTokens: 0), estimated: true);
+      ledger.recordRetried(const TokenUsage(inputTokens: 500, outputTokens: 0),
+          estimated: true);
       expect(notices, isEmpty);
 
       // Crosses the floor but still under 10%: silent.
-      ledger.recordRetried(
-          const TokenUsage(inputTokens: 600, outputTokens: 0), estimated: true);
+      ledger.recordRetried(const TokenUsage(inputTokens: 600, outputTokens: 0),
+          estimated: true);
       expect(notices, isEmpty);
 
       // ~11.5% of the grand total: fires ONCE.
-      ledger.recordRetried(
-          const TokenUsage(inputTokens: 200, outputTokens: 0), estimated: true);
+      ledger.recordRetried(const TokenUsage(inputTokens: 200, outputTokens: 0),
+          estimated: true);
       expect(notices, hasLength(1));
       expect(notices.single, contains('[retries]'));
       expect(notices.single, contains('1300 tokens'));
@@ -249,28 +246,28 @@ void main() {
 
       // More retried spend inside the same band, and plain success spend
       // diluting the ratio: still silent (once per band, not per attempt).
-      ledger.recordRetried(
-          const TokenUsage(inputTokens: 50, outputTokens: 0), estimated: true);
+      ledger.recordRetried(const TokenUsage(inputTokens: 50, outputTokens: 0),
+          estimated: true);
       ledger.record(const TokenUsage(inputTokens: 1000, outputTokens: 0));
       expect(notices, hasLength(1));
 
       // Crossing the NEXT band (~23%): fires again.
-      ledger.recordRetried(
-          const TokenUsage(inputTokens: 2000, outputTokens: 0), estimated: true);
+      ledger.recordRetried(const TokenUsage(inputTokens: 2000, outputTokens: 0),
+          estimated: true);
       expect(notices, hasLength(2));
       expect(notices.last, contains('3350 tokens'));
     });
 
     test('no sink installed: bookkeeping still works, nothing throws', () {
       final ledger = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
-      ledger.recordRetried(
-          const TokenUsage(inputTokens: 5000, outputTokens: 0),
+      ledger.recordRetried(const TokenUsage(inputTokens: 5000, outputTokens: 0),
           estimated: true);
       expect(ledger.retriedTokens, 5000);
       expect(ledger.totalEstimatedTokens, 5000);
     });
 
-    test('retried tallies accumulate through the metering funnel '
+    test(
+        'retried tallies accumulate through the metering funnel '
         '(measured and estimated)', () async {
       final ledger = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
       // One attempt fails with a 429 carrying usage; the retry succeeds.

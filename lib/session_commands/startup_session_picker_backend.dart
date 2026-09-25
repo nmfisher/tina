@@ -18,9 +18,7 @@ import 'startup_session_picker_overlay.dart';
 /// ([LiveStdio]) so the TUI's later backend can subscribe afterwards without
 /// an "already listened" fight.
 Future<String?> pickStartupSessionId(List<SessionMeta> sessions) async {
-  final choices = [
-    for (final m in sessions) SessionChoice.fromMeta(m),
-  ];
+  final choices = [for (final m in sessions) SessionChoice.fromMeta(m)];
   try {
     stdin.echoMode = false;
     stdin.lineMode = false;

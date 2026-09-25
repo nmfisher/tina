@@ -55,23 +55,34 @@ class ParallelHandler implements NodeHandler {
     }
 
     if (branches.isEmpty) {
-      return _recordFail(runStore, node,
-          'parallel fan-out "${node.id}" has no branches');
+      return _recordFail(
+        runStore,
+        node,
+        'parallel fan-out "${node.id}" has no branches',
+      );
     }
     if (convergence == null) {
-      return _recordFail(runStore, node, 'parallel fan-out "${node.id}" has no '
-          'fan-in (tripleoctagon) successor to merge into');
+      return _recordFail(
+        runStore,
+        node,
+        'parallel fan-out "${node.id}" has no '
+        'fan-in (tripleoctagon) successor to merge into',
+      );
     }
 
     // Run every branch against its own cloned context, concurrently.
-    final results = await Future.wait(branches.map((e) => _runBranch(
+    final results = await Future.wait(
+      branches.map(
+        (e) => _runBranch(
           edge: e,
           graph: graph,
           baseContext: context,
           runStore: runStore,
           cancelSignal: cancelSignal,
           onEvent: onEvent,
-        )));
+        ),
+      ),
+    );
 
     // Stage each branch's output under an internal, fan-out-namespaced key so
     // the preamble skips it; record the ordered branch list for the fan-in.
@@ -85,16 +96,17 @@ class ParallelHandler implements NodeHandler {
       // failure reason instead. A cancellation is NOT a failure — the run
       // was stopped, the branch didn't do anything wrong — so it's labeled
       // and counted separately.
-      final cancelled = r.outcome.status == StageStatus.fail &&
+      final cancelled =
+          r.outcome.status == StageStatus.fail &&
           r.outcome.failureReason == 'cancelled';
       final raw = r.outcome.contextUpdates[r.nodeId] ?? '';
       final out = raw.isNotEmpty
           ? raw
           : cancelled
-              ? '(branch "${r.nodeId}" cancelled)'
-              : (r.outcome.status == StageStatus.fail
-                  ? '(branch "${r.nodeId}" failed: ${r.outcome.failureReason})'
-                  : '(branch "${r.nodeId}" produced no output)');
+          ? '(branch "${r.nodeId}" cancelled)'
+          : (r.outcome.status == StageStatus.fail
+                ? '(branch "${r.nodeId}" failed: ${r.outcome.failureReason})'
+                : '(branch "${r.nodeId}" produced no output)');
       if (cancelled) {
         cancels++;
       } else if (r.outcome.status == StageStatus.fail) {
@@ -109,21 +121,24 @@ class ParallelHandler implements NodeHandler {
       if (failures > 0) '$failures failed',
       if (cancels > 0) '$cancels cancelled',
     ].join(', ');
-    updates['last_response'] = 'fanned out to ${branches.length} branch(es)'
+    updates['last_response'] =
+        'fanned out to ${branches.length} branch(es)'
         '${tally.isEmpty ? '' : ' ($tally)'}';
 
     final outcome = Outcome.success(
       suggestedNextIds: [convergence.to],
       contextUpdates: updates,
-      notes: 'fanned out to ${branches.length} branch(es) '
+      notes:
+          'fanned out to ${branches.length} branch(es) '
           '(${tally.isEmpty ? 'all ok' : tally}); '
           'merging at "${convergence.to}"',
     );
     await runStore.writeNode(
-        nodeId: node.id,
-        outcome: outcome,
-        prompt: 'fan-out to ${branches.length} branches',
-        response: '');
+      nodeId: node.id,
+      outcome: outcome,
+      prompt: 'fan-out to ${branches.length} branches',
+      response: '',
+    );
     return outcome;
   }
 
@@ -141,7 +156,9 @@ class ParallelHandler implements NodeHandler {
     // handler emits their lifecycle itself (a single attempt — no retries).
     onEvent?.call(PipelineEvent('node_started', nodeId: branchNode.id));
     try {
-      final outcome = await registry.resolve(branchNode).execute(
+      final outcome = await registry
+          .resolve(branchNode)
+          .execute(
             node: branchNode,
             graph: graph,
             context: branchCtx,
@@ -150,21 +167,36 @@ class ParallelHandler implements NodeHandler {
             onEvent: onEvent,
           );
       if (outcome.status.isOk) {
-        onEvent?.call(PipelineEvent('node_completed',
-            nodeId: branchNode.id, outcome: outcome));
-      } else {
-        onEvent?.call(PipelineEvent('node_failed',
+        onEvent?.call(
+          PipelineEvent(
+            'node_completed',
             nodeId: branchNode.id,
             outcome: outcome,
-            message: outcome.failureReason));
+          ),
+        );
+      } else {
+        onEvent?.call(
+          PipelineEvent(
+            'node_failed',
+            nodeId: branchNode.id,
+            outcome: outcome,
+            message: outcome.failureReason,
+          ),
+        );
       }
       return _BranchResult(branchNode.id, outcome);
     } catch (e) {
       // One bad branch must not take down the fan-out; surface it as a failed
       // branch and let the merge/reviewer handle it.
       final fail = Outcome.fail('branch error: $e');
-      onEvent?.call(PipelineEvent('node_failed',
-          nodeId: branchNode.id, outcome: fail, message: fail.failureReason));
+      onEvent?.call(
+        PipelineEvent(
+          'node_failed',
+          nodeId: branchNode.id,
+          outcome: fail,
+          message: fail.failureReason,
+        ),
+      );
       return _BranchResult(branchNode.id, fail);
     }
   }
@@ -196,12 +228,12 @@ class ParallelFanInHandler implements NodeHandler {
     final fanoutId = _fanOutPredecessor(node, graph);
     final outputs = <String, String>{};
     if (fanoutId != null) {
-      final list =
-          context.getString('internal.parallel.$fanoutId.branches');
+      final list = context.getString('internal.parallel.$fanoutId.branches');
       for (final id in list.split(',')) {
         if (id.isEmpty) continue;
-        outputs[id] =
-            context.getString('internal.parallel.$fanoutId.branch.$id');
+        outputs[id] = context.getString(
+          'internal.parallel.$fanoutId.branch.$id',
+        );
       }
     }
 
@@ -211,7 +243,11 @@ class ParallelFanInHandler implements NodeHandler {
         notes: 'fan-in "${node.id}": no branches to merge',
       );
       await runStore.writeNode(
-          nodeId: node.id, outcome: outcome, prompt: '', response: '');
+        nodeId: node.id,
+        outcome: outcome,
+        prompt: '',
+        response: '',
+      );
       return outcome;
     }
 
@@ -231,7 +267,11 @@ class ParallelFanInHandler implements NodeHandler {
       notes: 'merged ${outputs.length} branch(es) at "${node.id}"',
     );
     await runStore.writeNode(
-        nodeId: node.id, outcome: outcome, prompt: '', response: merged);
+      nodeId: node.id,
+      outcome: outcome,
+      prompt: '',
+      response: merged,
+    );
     return outcome;
   }
 
@@ -246,12 +286,20 @@ class ParallelFanInHandler implements NodeHandler {
   }
 }
 
-Future<Outcome> _recordFail(RunStore runStore, PipelineNode node, String reason) async {
+Future<Outcome> _recordFail(
+  RunStore runStore,
+  PipelineNode node,
+  String reason,
+) async {
   // Errors are recorded before returning so the audit trail still has an entry
   // for the fan-out node; the engine wraps this in its retry/event handling.
   final outcome = Outcome.fail(reason);
   await runStore.writeNode(
-      nodeId: node.id, outcome: outcome, prompt: '', response: '');
+    nodeId: node.id,
+    outcome: outcome,
+    prompt: '',
+    response: '',
+  );
   return outcome;
 }
 

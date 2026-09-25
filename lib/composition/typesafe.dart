@@ -180,8 +180,7 @@ ExplorationLease? openConfiguredExplorationLease({
         limits: JudgmentBatchLimits(
           concurrency: 4,
           maxRequests: 5000,
-          maxChargedTokens:
-              settings.typeSafe?.explorationTokenBudget ?? 120000,
+          maxChargedTokens: settings.typeSafe?.explorationTokenBudget ?? 120000,
           timeout: timeout,
           outputTokenAllowance: outputTokenAllowance,
         ),

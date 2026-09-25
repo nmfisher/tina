@@ -63,14 +63,19 @@ void main() {
     expect(stale.toRegenerate, contains('lib'));
     // The summary file exists with the summarizer's content + a stamped header.
     final file = File('${sidecarRoot.path}/summaries/lib.md');
-    expect(file.existsSync(), isTrue,
-        reason: 'summarizer should have written lib.md');
+    expect(
+      file.existsSync(),
+      isTrue,
+      reason: 'summarizer should have written lib.md',
+    );
     final text = file.readAsStringSync();
     expect(text, startsWith('<!-- tina-summary dir="lib"'));
     expect(text, contains('lib does X'));
     // The sidecar recorded a git commit.
-    final log =
-        git(Directory('${sidecarRoot.path}/summaries'), ['log', '--oneline']);
+    final log = git(Directory('${sidecarRoot.path}/summaries'), [
+      'log',
+      '--oneline',
+    ]);
     expect(log, contains('summaries @'));
     // The manifest now tracks lib with a tree hash.
     final manifest = SidecarSummaryRepo(
@@ -81,28 +86,34 @@ void main() {
     expect(manifest.dirs['lib']!.file, 'lib.md');
   });
 
-  test('run() never changes the registry decorator, including during sends',
-      () async {
-    late ProviderRegistry registry;
-    final observed = <ProviderDecorator?>[];
-    final sentinel = (LlmProvider p) => p;
-    provider = ScriptedFleetProvider(
-        onSend: () => observed.add(registry.decorator));
-    registry = anthropicRegistry(provider)..decorator = sentinel;
-    final runner = buildSummaryRun(
-      config: testFleetConfig(),
-      registry: registry,
-      environment: const PlatformEnvironment(),
-      workspaceRoot: project.path,
-    );
+  test(
+    'run() never changes the registry decorator, including during sends',
+    () async {
+      late ProviderRegistry registry;
+      final observed = <ProviderDecorator?>[];
+      final sentinel = (LlmProvider p) => p;
+      provider = ScriptedFleetProvider(
+        onSend: () => observed.add(registry.decorator),
+      );
+      registry = anthropicRegistry(provider)..decorator = sentinel;
+      final runner = buildSummaryRun(
+        config: testFleetConfig(),
+        registry: registry,
+        environment: const PlatformEnvironment(),
+        workspaceRoot: project.path,
+      );
 
-    await runner.run().timeout(const Duration(seconds: 30));
+      await runner.run().timeout(const Duration(seconds: 30));
 
-    expect(registry.decorator, same(sentinel),
-        reason: 'the caller\'s registry.decorator must remain unchanged');
-    expect(observed, isNotEmpty);
-    expect(observed, everyElement(same(sentinel)));
-  });
+      expect(
+        registry.decorator,
+        same(sentinel),
+        reason: 'the caller\'s registry.decorator must remain unchanged',
+      );
+      expect(observed, isNotEmpty);
+      expect(observed, everyElement(same(sentinel)));
+    },
+  );
 
   test('dry-run reports stale dirs without calling the model', () async {
     final registry = anthropicRegistry(provider);

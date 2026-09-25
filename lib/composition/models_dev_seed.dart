@@ -60,22 +60,24 @@ int registerModelsDevProviders({
     if (_collides(registry, info, baseUrl, seeded)) continue;
 
     final prefix = info.key.toUpperCase();
-    registry.register(ProviderDescriptor(
-      id: info.key,
-      name: info.name,
-      authSources: [
-        for (final v in info.envVars) AuthSource(v, AuthScheme.bearerToken),
-        // A config block for this id exports <ID>_API_KEY regardless of how
-        // models.dev names the credential, so honour it last.
-        AuthSource('${prefix}_API_KEY', AuthScheme.bearerToken),
-      ],
-      defaultBaseUrl: baseUrl,
-      builder: openAiCompatibleBuilder(info.name),
-      models: info.models,
-      // The live /v1/models list is authoritative once a key works; the
-      // models.dev map above is the fallback while it loads or if it 401s.
-      listsRemoteModels: true,
-    ));
+    registry.register(
+      ProviderDescriptor(
+        id: info.key,
+        name: info.name,
+        authSources: [
+          for (final v in info.envVars) AuthSource(v, AuthScheme.bearerToken),
+          // A config block for this id exports <ID>_API_KEY regardless of how
+          // models.dev names the credential, so honour it last.
+          AuthSource('${prefix}_API_KEY', AuthScheme.bearerToken),
+        ],
+        defaultBaseUrl: baseUrl,
+        builder: openAiCompatibleBuilder(info.name),
+        models: info.models,
+        // The live /v1/models list is authoritative once a key works; the
+        // models.dev map above is the fallback while it loads or if it 401s.
+        listsRemoteModels: true,
+      ),
+    );
     seeded.add(info.key);
     added++;
   }

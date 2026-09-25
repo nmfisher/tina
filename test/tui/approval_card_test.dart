@@ -60,10 +60,7 @@ void main() {
       'cwd': '/project',
     });
     final summary = render(ApprovalCard(prompt: prompt));
-    expect(
-      summary,
-      contains("/bin/sh -lc 'cargo build --release; echo done'"),
-    );
+    expect(summary, contains("/bin/sh -lc 'cargo build --release; echo done'"));
     expect(summary, isNot(contains('Argument ')));
     // Whitespace-safe argv (no metacharacters) needs no quoting at all.
     final plain = render(
@@ -238,10 +235,7 @@ void main() {
     // The record is the decision only — the call itself is the tool row's
     // job, and a row that does not exist yet (this runs before the tool
     // starts) is why the record is handed over rather than written.
-    expect(
-      settled.toString(),
-      '  Run shell command · allow once\n',
-    );
+    expect(settled.toString(), '  Run shell command · allow once\n');
     expect(history.isEmpty, isTrue);
   });
 

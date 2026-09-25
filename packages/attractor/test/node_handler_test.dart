@@ -21,31 +21,33 @@ void main() {
     test('explicit type beats the shape mapping', () {
       final r = registry();
       // shape=diamond would map to `conditional`; the explicit type wins.
-      final node = PipelineNode(id: 'n', attrs: {
-        'shape': 'diamond',
-        'type': 'codergen',
-      });
+      final node = PipelineNode(
+        id: 'n',
+        attrs: {'shape': 'diamond', 'type': 'codergen'},
+      );
       expect((r.resolve(node) as _TagHandler).tag, 'codergen');
     });
 
     test('shape-to-type when no explicit type', () {
       final r = registry();
       expect(
-          (r.resolve(PipelineNode(id: 'g', attrs: {'shape': 'hexagon'}))
-                  as _TagHandler)
-              .tag,
-          'wait.human');
+        (r.resolve(PipelineNode(id: 'g', attrs: {'shape': 'hexagon'}))
+                as _TagHandler)
+            .tag,
+        'wait.human',
+      );
       expect(
-          (r.resolve(PipelineNode(id: 'd', attrs: {'shape': 'diamond'}))
-                  as _TagHandler)
-              .tag,
-          'conditional');
+        (r.resolve(PipelineNode(id: 'd', attrs: {'shape': 'diamond'}))
+                as _TagHandler)
+            .tag,
+        'conditional',
+      );
       expect(
-          (r.resolve(
-                  PipelineNode(id: 's', attrs: {'shape': 'Mdiamond'}))
-              as _TagHandler)
-          .tag,
-          'start');
+        (r.resolve(PipelineNode(id: 's', attrs: {'shape': 'Mdiamond'}))
+                as _TagHandler)
+            .tag,
+        'start',
+      );
     });
 
     test('unrecognized shape falls back to codergen (the default type)', () {
@@ -59,49 +61,62 @@ void main() {
       final r = registry();
       final node = PipelineNode(id: 'n', attrs: {'type': 'wait.human'});
       final resolved = r.resolve(node);
-      expect(identical(resolved, r.resolve(node)), isTrue,
-          reason: 'handlers are stateless beyond constructor deps; resolve '
-              'must hand back the registered instance');
-    });
-
-    test('an unknown type resolves to the built-in default fail handler',
-        () async {
-      final r = registry(); // no handler registered for "mystery"
-      final node = PipelineNode(id: 'm', attrs: {'type': 'mystery'});
-      final handler = r.resolve(node);
-      expect(handler, isNot(isA<_TagHandler>()));
-
-      final g = parseDot('digraph T { m [type=mystery] }');
-      final outcome = await handler.execute(
-        node: node,
-        graph: g,
-        context: Context(),
-        runStore: MemoryRunStore(),
-        cancelSignal: null,
+      expect(
+        identical(resolved, r.resolve(node)),
+        isTrue,
+        reason:
+            'handlers are stateless beyond constructor deps; resolve '
+            'must hand back the registered instance',
       );
-      expect(outcome.status, StageStatus.fail);
-      expect(outcome.failureReason, 'no handler registered for type "mystery"');
     });
 
-    test('an installed defaultHandler answers unknown types (engine wiring)',
-        () async {
-      // Mirrors the host installer (PipelineRunner): defaultHandler is the
-      // same codergen handler registered under 'codergen'.
-      final r = registry();
-      final codergen = r.resolve(PipelineNode(id: 'x'));
-      r.defaultHandler = codergen;
+    test(
+      'an unknown type resolves to the built-in default fail handler',
+      () async {
+        final r = registry(); // no handler registered for "mystery"
+        final node = PipelineNode(id: 'm', attrs: {'type': 'mystery'});
+        final handler = r.resolve(node);
+        expect(handler, isNot(isA<_TagHandler>()));
 
-      final resolved =
-          r.resolve(PipelineNode(id: 'n', attrs: {'type': 'future_kind'}));
-      expect(identical(resolved, codergen), isTrue);
-    });
+        final g = parseDot('digraph T { m [type=mystery] }');
+        final outcome = await handler.execute(
+          node: node,
+          graph: g,
+          context: Context(),
+          runStore: MemoryRunStore(),
+          cancelSignal: null,
+        );
+        expect(outcome.status, StageStatus.fail);
+        expect(
+          outcome.failureReason,
+          'no handler registered for type "mystery"',
+        );
+      },
+    );
 
-    test('re-registering a type routes to the new handler (uniform route)',
-        () {
+    test(
+      'an installed defaultHandler answers unknown types (engine wiring)',
+      () async {
+        // Mirrors the host installer (PipelineRunner): defaultHandler is the
+        // same codergen handler registered under 'codergen'.
+        final r = registry();
+        final codergen = r.resolve(PipelineNode(id: 'x'));
+        r.defaultHandler = codergen;
+
+        final resolved = r.resolve(
+          PipelineNode(id: 'n', attrs: {'type': 'future_kind'}),
+        );
+        expect(identical(resolved, codergen), isTrue);
+      },
+    );
+
+    test('re-registering a type routes to the new handler (uniform route)', () {
       final r = registry();
       r.register('codergen', _TagHandler('replacement'));
       expect(
-          (r.resolve(PipelineNode(id: 'n')) as _TagHandler).tag, 'replacement');
+        (r.resolve(PipelineNode(id: 'n')) as _TagHandler).tag,
+        'replacement',
+      );
     });
   });
 }
@@ -119,6 +134,5 @@ class _TagHandler implements NodeHandler {
     required RunStore runStore,
     Future<void>? cancelSignal,
     PipelineEventListener? onEvent,
-  }) async =>
-      Outcome.success(notes: tag);
+  }) async => Outcome.success(notes: tag);
 }

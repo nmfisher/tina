@@ -282,10 +282,12 @@ Future<AppComposition> buildAppComposition({
       pauseGate: pauseGate,
       plugins: [
         if (store == null && !providesSessionStore)
-          sessionStorePluginFor(config.sessionStoreProvider,
-              root: config.sessionStoreRoot == null
-                  ? null
-                  : Directory(config.sessionStoreRoot!)),
+          sessionStorePluginFor(
+            config.sessionStoreProvider,
+            root: config.sessionStoreRoot == null
+                ? null
+                : Directory(config.sessionStoreRoot!),
+          ),
         ...plugins,
       ],
     );
@@ -500,13 +502,18 @@ Future<ResolvedSession?> _loadBestConversation(
   // never candidates (a legacy anchor naming a panel is skipped like an
   // unreadable one — a primary is resumed instead).
   final byId = {for (final c in manifest.conversations) c.id: c};
-  final ids = <String>{
-    if (anchor.isNotEmpty) anchor,
-    ...manifest.conversations.map((c) => c.id),
-  }.where((cid) =>
-      byId[cid]?.kind == ConversationKind.primary ||
-      (cid == anchor && byId[cid] == null) // corrupt manifest: try, then skip
-  ).toList();
+  final ids =
+      <String>{
+            if (anchor.isNotEmpty) anchor,
+            ...manifest.conversations.map((c) => c.id),
+          }
+          .where(
+            (cid) =>
+                byId[cid]?.kind == ConversationKind.primary ||
+                (cid == anchor &&
+                    byId[cid] == null), // corrupt manifest: try, then skip
+          )
+          .toList();
 
   // Which candidates actually read? Transcript files are project-local and
   // can vanish (fresh clone / git clean) while the manifest survives.
@@ -540,8 +547,9 @@ Future<ResolvedSession?> _loadBestConversation(
             : epoch;
       }
 
-      final pointerIsNewest = readable.every((id) =>
-          id == anchor || !written(id).isAfter(pointerAt));
+      final pointerIsNewest = readable.every(
+        (id) => id == anchor || !written(id).isAfter(pointerAt),
+      );
       if (!pointerIsNewest) {
         bool isPrimary(String id) {
           for (final c in manifest.conversations) {
@@ -551,10 +559,12 @@ Future<ResolvedSession?> _loadBestConversation(
         }
 
         final newerPrimaries = readable
-            .where((id) =>
-                id != anchor &&
-                written(id).isAfter(pointerAt) &&
-                isPrimary(id))
+            .where(
+              (id) =>
+                  id != anchor &&
+                  written(id).isAfter(pointerAt) &&
+                  isPrimary(id),
+            )
             .toList();
         if (newerPrimaries.isNotEmpty) {
           // Newest write wins; the anchor wins a tie so a re-pointed
@@ -583,9 +593,9 @@ Future<ResolvedSession?> _loadBestConversation(
     // primary was written after the last deliberate switch (staleness).
     final note = whyPicked.isEmpty
         ? '$why: active conversation $anchor is unreadable — falling back '
-            'to $picked'
+              'to $picked'
         : '$why: primary conversation $picked $whyPicked ($anchor was left '
-            'behind)';
+              'behind)';
     stderr.writeln(note);
     // Heal the pointer so the next resume skips this dance.
     try {

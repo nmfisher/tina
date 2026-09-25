@@ -33,7 +33,8 @@ class RenderLine {
   /// Request another render with an advanced animation frame in status hosts.
   final bool animated;
 
-  const RenderLine({this.bar, this.align, this.runs = const [], this.animated = false});
+  const RenderLine(
+      {this.bar, this.align, this.runs = const [], this.animated = false});
   const RenderLine.blank()
       : bar = null,
         align = null,

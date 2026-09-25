@@ -17,7 +17,8 @@ void main() {
 
   setUp(() {
     io = FakeStdio()..columns = 100;
-    final layout = ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: false);
+    final layout =
+        ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: false);
     screen = Screen(io: io, layout: layout, ansi: AnsiCapable.yes);
     vt = VirtualTerminal(width: 100, height: 24);
     screen.redrawFrame();
@@ -140,7 +141,8 @@ void main() {
           reason: 'first message survives a focus cycle');
     });
 
-    test('a content write on an interior row does not clobber the comet head', () {
+    test('a content write on an interior row does not clobber the comet head',
+        () {
       final (frame, _, chat) = _panelWithChat('m', panelRect);
       addTearDown(frame.dispose);
       frame.setBusy(true);
@@ -162,8 +164,10 @@ void main() {
       // usable interior row (row 8). The comet heads on the top/bottom rails
       // (rows 5/10) are untouched — the write is clipped to the interior.
       expect(headCol(5), isNotNull, reason: 'top-rail head survives the write');
-      expect(headCol(10), isNotNull, reason: 'bottom-rail head survives the write');
-      expect(vt.rowText(8).contains('X'), isTrue, reason: 'write lands in interior');
+      expect(headCol(10), isNotNull,
+          reason: 'bottom-rail head survives the write');
+      expect(vt.rowText(8).contains('X'), isTrue,
+          reason: 'write lands in interior');
       // Row 9's interior (between the side borders) stays clear for the input
       // line — only the side-border cells ('│') of the chrome remain.
       expect(vt.rowText(9).substring(69, 94).trim(), isEmpty,
@@ -207,7 +211,8 @@ void main() {
 
       expectContained('z', panelRect);
       // The side borders on every interior row are intact.
-      for (var r = panelRect.row + 1; r < panelRect.row + panelRect.height - 1;
+      for (var r = panelRect.row + 1;
+          r < panelRect.row + panelRect.height - 1;
           r++) {
         expect(vt.charAt(r, panelRect.col), '│',
             reason: 'left border survives a long write on row $r');
@@ -216,7 +221,8 @@ void main() {
       }
     });
 
-    test('more lines than the interior height scroll inside, never past the bottom',
+    test(
+        'more lines than the interior height scroll inside, never past the bottom',
         () {
       final (_, _, chat) = _panelWithChat('m', panelRect);
       vt.feed(io.written.toString());
@@ -235,7 +241,8 @@ void main() {
       expect(vt.charAt(bottom, panelRect.col + panelRect.width - 1), '┘');
     });
 
-    test('after the panel is narrowed, new writes clip inside the narrower rect',
+    test(
+        'after the panel is narrowed, new writes clip inside the narrower rect',
         () {
       // Start wide (the right column interior), as spawned chats are born.
       const wide = Rect(row: 5, col: 68, width: 28, height: 6);
@@ -303,8 +310,8 @@ void main() {
   group('frame-owns-canvas seam', () {
     test('the region borrows the frame surface and bounds derive from it', () {
       const rect = Rect(row: 5, col: 68, width: 28, height: 6);
-      final chat =
-          ScrollingTextRegion(screen, bounds: screen.layout.info)..detach();
+      final chat = ScrollingTextRegion(screen, bounds: screen.layout.info)
+        ..detach();
       final content = ChatRegionPanelContent(chat);
       final frame = PanelFrame(
         screen: screen,
@@ -349,7 +356,8 @@ void main() {
       }
     });
 
-    test('with the input row reserved, content fills the padded surface above it',
+    test(
+        'with the input row reserved, content fills the padded surface above it',
         () {
       // The realistic spawned-panel case: reservesInput true. The frame sizes
       // the surface to contentInterior — the interior minus one padding cell
@@ -358,8 +366,8 @@ void main() {
       // false, so the region leaves _bottomInset at 0 (the inset is
       // structural) and content uses the whole surface.
       const rect = Rect(row: 5, col: 68, width: 28, height: 8);
-      final chat =
-          ScrollingTextRegion(screen, bounds: screen.layout.info)..detach();
+      final chat = ScrollingTextRegion(screen, bounds: screen.layout.info)
+        ..detach();
       final content = ChatRegionPanelContent(chat);
       final frame = PanelFrame(
         screen: screen,
@@ -416,8 +424,7 @@ void main() {
       final pages = <int>[];
       frame.onScroll = pages.add;
       expect(frame.handleEvent(ArrowKey(ArrowDirection.pageUp)), isTrue);
-      expect(
-          frame.handleEvent(ArrowKey(ArrowDirection.pageDown)), isTrue);
+      expect(frame.handleEvent(ArrowKey(ArrowDirection.pageDown)), isTrue);
       expect(pages, [-1, 1]);
     });
 

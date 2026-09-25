@@ -69,24 +69,21 @@ void main() {
   Future<ProjectClassificationReport> run(
     AppComposition app, {
     void Function(String)? onProgress,
-  }) =>
-      runProjectClassification(
-        app,
-        method: LanguageMethod.jev,
-        judgments: service,
-        requestBudget: JudgmentRequestBudget(model: 'jev-test'),
-        serviceIdentity: 'test-judgments',
-        globalWorkflowsDir: null,
-        onProgress: onProgress,
-      );
+  }) => runProjectClassification(
+    app,
+    method: LanguageMethod.jev,
+    judgments: service,
+    requestBudget: JudgmentRequestBudget(model: 'jev-test'),
+    serviceIdentity: 'test-judgments',
+    globalWorkflowsDir: null,
+    onProgress: onProgress,
+  );
 
   test(
     'a workspace program replaces the built-in: details never runs',
     () async {
       final project = await workspace();
-      await Directory('${project.path}/.tina/programs').create(
-        recursive: true,
-      );
+      await Directory('${project.path}/.tina/programs').create(recursive: true);
       await File('${project.path}/.tina/programs/index.dot').writeAsString('''
 digraph index {
   graph [goal="Classify the workspace index"];
@@ -125,27 +122,22 @@ digraph index {
     },
   );
 
-  test(
-    'an invalid program file fails fast with its diagnostics',
-    () async {
-      final project = await workspace();
-      await Directory('${project.path}/.tina/programs').create(
-        recursive: true,
-      );
-      await File('${project.path}/.tina/programs/index.dot').writeAsString(
-        'certainly not a digraph {',
-      );
-      final app = await build(project);
-      addTearDown(app.dispose);
-      final callsBefore = service.calls;
+  test('an invalid program file fails fast with its diagnostics', () async {
+    final project = await workspace();
+    await Directory('${project.path}/.tina/programs').create(recursive: true);
+    await File(
+      '${project.path}/.tina/programs/index.dot',
+    ).writeAsString('certainly not a digraph {');
+    final app = await build(project);
+    addTearDown(app.dispose);
+    final callsBefore = service.calls;
 
-      final report = await run(app);
+    final report = await run(app);
 
-      expect(report.records, isEmpty);
-      expect(report.executed, 0);
-      expect(service.calls, callsBefore, reason: 'no classifier ran');
-      expect(report.failures['program'], contains('invalid classify program'));
-      expect(report.failures['program'], contains('index.dot'));
-    },
-  );
+    expect(report.records, isEmpty);
+    expect(report.executed, 0);
+    expect(service.calls, callsBefore, reason: 'no classifier ran');
+    expect(report.failures['program'], contains('invalid classify program'));
+    expect(report.failures['program'], contains('index.dot'));
+  });
 }

@@ -55,12 +55,19 @@ ProviderRegistry setupRegistry() => ProviderRegistry(env: {})
 
 /// Registry used by the spawn overlay: alpha, beta, gamma.
 ProviderRegistry spawnRegistry() => ProviderRegistry(env: {})
-  ..register(fakeProviderDescriptor('alpha',
-      models: ['a1', 'a2'], authRequired: false))
   ..register(
-      fakeProviderDescriptor('beta', models: ['b1'], authRequired: false))
-  ..register(fakeProviderDescriptor('gamma',
-      models: ['g1', 'g2', 'g3'], authRequired: false));
+    fakeProviderDescriptor('alpha', models: ['a1', 'a2'], authRequired: false),
+  )
+  ..register(
+    fakeProviderDescriptor('beta', models: ['b1'], authRequired: false),
+  )
+  ..register(
+    fakeProviderDescriptor(
+      'gamma',
+      models: ['g1', 'g2', 'g3'],
+      authRequired: false,
+    ),
+  );
 
 /// Canned event pump. Tests populate [events], then [readEvent] yields them
 /// in order.

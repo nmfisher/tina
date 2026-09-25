@@ -65,21 +65,34 @@ void main() {
         'git',
         'read',
       ]) {
-        expect(policy.check(tool, const {}), PermissionDecision.allow,
-            reason: '$tool must not regress to ask under --yolo');
+        expect(
+          policy.check(tool, const {}),
+          PermissionDecision.allow,
+          reason: '$tool must not regress to ask under --yolo',
+        );
       }
       // …tools the table gates must be widened…
-      expect(policy.check('fetch', const {'url': 'https://example.com'}),
-          PermissionDecision.allow);
-      expect(policy.check('web_search', const {'query': 'x'}),
-          PermissionDecision.allow);
-      expect(policy.check('write', const {'filePath': '/x'}),
-          PermissionDecision.allow);
-      expect(policy.check('bash', const {'command': 'git status'}),
-          PermissionDecision.allow);
+      expect(
+        policy.check('fetch', const {'url': 'https://example.com'}),
+        PermissionDecision.allow,
+      );
+      expect(
+        policy.check('web_search', const {'query': 'x'}),
+        PermissionDecision.allow,
+      );
+      expect(
+        policy.check('write', const {'filePath': '/x'}),
+        PermissionDecision.allow,
+      );
+      expect(
+        policy.check('bash', const {'command': 'git status'}),
+        PermissionDecision.allow,
+      );
       // …and the unmapped fallback must widen too.
-      expect(policy.check('tool_added_after_this_release', const {}),
-          PermissionDecision.allow);
+      expect(
+        policy.check('tool_added_after_this_release', const {}),
+        PermissionDecision.allow,
+      );
     });
 
     test('an explicit --deny still denies under --yolo', () {
@@ -93,18 +106,24 @@ void main() {
           ),
         ],
       ).buildPolicy();
-      expect(policy.check('bash', const {'command': 'rm -rf /tmp/x'}),
-          PermissionDecision.deny);
-      expect(policy.check('bash', const {'command': 'git status'}),
-          PermissionDecision.allow);
+      expect(
+        policy.check('bash', const {'command': 'rm -rf /tmp/x'}),
+        PermissionDecision.deny,
+      );
+      expect(
+        policy.check('bash', const {'command': 'git status'}),
+        PermissionDecision.allow,
+      );
     });
 
     test('without --yolo the built-in defaults apply unchanged', () {
       final policy = RuntimeConfig().buildPolicy();
       expect(policy.allowAllByDefault, isFalse);
       expect(policy.check('glob', const {}), PermissionDecision.allow);
-      expect(policy.check('write', const {'filePath': '/x'}),
-          PermissionDecision.ask);
+      expect(
+        policy.check('write', const {'filePath': '/x'}),
+        PermissionDecision.ask,
+      );
       expect(policy.check('fetch', const {}), PermissionDecision.ask);
       expect(policy.check('made_up_tool', const {}), PermissionDecision.ask);
     });
@@ -115,11 +134,14 @@ void main() {
         permissionMode: PermissionMode.readAll,
       ).buildPolicy();
       expect(
-          policy.check('bash', const {'command': 'git status'}),
-          PermissionDecision.deny,
-          reason: 'read-all is a hard boundary; --yolo cannot open it');
-      expect(policy.check('write', const {'filePath': '/x'}),
-          PermissionDecision.deny);
+        policy.check('bash', const {'command': 'git status'}),
+        PermissionDecision.deny,
+        reason: 'read-all is a hard boundary; --yolo cannot open it',
+      );
+      expect(
+        policy.check('write', const {'filePath': '/x'}),
+        PermissionDecision.deny,
+      );
       expect(policy.check('glob', const {}), PermissionDecision.allow);
       expect(policy.check('fetch', const {}), PermissionDecision.allow);
     });
@@ -129,16 +151,21 @@ void main() {
         permissionMode: PermissionMode.allowEdits,
       ).buildPolicy();
       expect(policy.allowAllByDefault, isFalse);
-      expect(policy.check('write', const {'filePath': '/x'}),
-          PermissionDecision.allow);
-      expect(policy.check('edit', const {'filePath': '/x'}),
-          PermissionDecision.allow);
-      expect(policy.check('bash', const {'command': 'ls'}),
-          PermissionDecision.ask);
+      expect(
+        policy.check('write', const {'filePath': '/x'}),
+        PermissionDecision.allow,
+      );
+      expect(
+        policy.check('edit', const {'filePath': '/x'}),
+        PermissionDecision.allow,
+      );
+      expect(
+        policy.check('bash', const {'command': 'ls'}),
+        PermissionDecision.ask,
+      );
     });
 
-    test('safe-mode still strips the dangerous tools before the policy',
-        () {
+    test('safe-mode still strips the dangerous tools before the policy', () {
       // safe-mode's guard is tool removal (stripForSafeMode), not the policy
       // table — a permissive policy alone must not resurrect a stripped tool
       // (lib/config.dart: safe-mode "silently dominates --yolo").
@@ -149,8 +176,11 @@ void main() {
         _NamedTool('bash'),
         _NamedTool('read'),
       ]);
-      expect(survivors.map((t) => t.schema.name), ['read'],
-          reason: 'no stripped tool may survive safe-mode under --yolo');
+      expect(
+        survivors.map((t) => t.schema.name),
+        ['read'],
+        reason: 'no stripped tool may survive safe-mode under --yolo',
+      );
       // The permissive posture is confined to the policy, which never
       // re-adds a removed tool.
       expect(policy.allowAllByDefault, isTrue);
@@ -164,10 +194,10 @@ class _NamedTool implements Tool {
 
   @override
   ToolSchema get schema => ToolSchema(
-        name: name,
-        description: 'fake $name',
-        inputSchema: const {'type': 'object'},
-      );
+    name: name,
+    description: 'fake $name',
+    inputSchema: const {'type': 'object'},
+  );
 
   @override
   Future<ToolResult> execute(

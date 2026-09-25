@@ -117,7 +117,10 @@ void main() {
           scheduler.seenPolicy!.check('bash', {}),
           PermissionDecision.deny,
         );
-        expect(scheduler.seenPolicy!.check('exec', {}), PermissionDecision.deny);
+        expect(
+          scheduler.seenPolicy!.check('exec', {}),
+          PermissionDecision.deny,
+        );
         basePolicy.mode = PermissionMode.ask;
         expect(scheduler.seenPolicy!.check('bash', {}), PermissionDecision.ask);
         expect(scheduler.seenPolicy!.check('exec', {}), PermissionDecision.ask);

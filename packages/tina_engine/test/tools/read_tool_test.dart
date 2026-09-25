@@ -69,13 +69,14 @@ void main() {
   test('limit: 0 selects no lines but still notes the remaining count',
       () async {
     final fs = MemoryFileSystem({'a.txt': 'one\ntwo\nthree'});
-    final res = await ReadTool(fs: fs)
-        .execute({'filePath': 'a.txt', 'limit': 0});
+    final res =
+        await ReadTool(fs: fs).execute({'filePath': 'a.txt', 'limit': 0});
     expect(res.content, isNot(contains('one')));
     expect(res.content, contains('2 more lines'));
   });
 
-  test('line numbers are right-aligned to the width of the last line', () async {
+  test('line numbers are right-aligned to the width of the last line',
+      () async {
     final text = List.generate(12, (i) => 'line ${i + 1}').join('\n');
     final fs = MemoryFileSystem({'a.txt': text});
     final res = await ReadTool(fs: fs).execute({'filePath': 'a.txt'});

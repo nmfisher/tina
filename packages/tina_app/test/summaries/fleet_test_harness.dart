@@ -17,7 +17,7 @@ import 'package:tina_engine/tina_engine.dart';
 /// A committed temp project with one directory to summarize (`lib`).
 /// Returns the project dir + its sidecar root (`<project>/.tina`).
 ({Directory project, Directory sidecarRoot, Directory tempRoot})
-    buildTempProject() {
+buildTempProject() {
   final tempRoot = Directory.systemTemp.createTempSync('tina-summary-');
   final project = Directory('${tempRoot.path}/project')..createSync();
   final sidecarRoot = Directory('${project.path}/.tina');
@@ -38,29 +38,41 @@ import 'package:tina_engine/tina_engine.dart';
 /// `anthropic` provider serves every turn. The API key resolves via the
 /// registry's authFor against TEST_KEY.
 RuntimeConfig testFleetConfig() => RuntimeConfig(
-      provider: 'anthropic',
-      apiKey: 'k',
-      model: 'claude-sonnet-4-6',
-      baseUrl: 'https://api.anthropic.com',
-    );
+  provider: 'anthropic',
+  apiKey: 'k',
+  model: 'claude-sonnet-4-6',
+  baseUrl: 'https://api.anthropic.com',
+);
 
 ProviderRegistry anthropicRegistry(LlmProvider provider) {
-  final r = ProviderRegistry(env: const {'TEST_KEY': 'k', 'ANTHROPIC_API_KEY': 'k'});
-  r.register(ProviderDescriptor(
-    id: 'anthropic',
-    name: 'Anthropic',
-    authSources: const [
-      AuthSource('ANTHROPIC_API_KEY', AuthScheme.apiKeyHeader),
-    ],
-    defaultBaseUrl: 'https://api.anthropic.com',
-    builder: (_) => provider,
-    models: const {
-      'claude-sonnet-4-6':
-          ModelInfo(id: 'claude-sonnet-4-6', name: 'm', contextWindow: 1, maxOutput: 1),
-      'claude-haiku-4-5':
-          ModelInfo(id: 'claude-haiku-4-5', name: 'm', contextWindow: 1, maxOutput: 1),
-    },
-  ));
+  final r = ProviderRegistry(
+    env: const {'TEST_KEY': 'k', 'ANTHROPIC_API_KEY': 'k'},
+  );
+  r.register(
+    ProviderDescriptor(
+      id: 'anthropic',
+      name: 'Anthropic',
+      authSources: const [
+        AuthSource('ANTHROPIC_API_KEY', AuthScheme.apiKeyHeader),
+      ],
+      defaultBaseUrl: 'https://api.anthropic.com',
+      builder: (_) => provider,
+      models: const {
+        'claude-sonnet-4-6': ModelInfo(
+          id: 'claude-sonnet-4-6',
+          name: 'm',
+          contextWindow: 1,
+          maxOutput: 1,
+        ),
+        'claude-haiku-4-5': ModelInfo(
+          id: 'claude-haiku-4-5',
+          name: 'm',
+          contextWindow: 1,
+          maxOutput: 1,
+        ),
+      },
+    ),
+  );
   return r;
 }
 
@@ -119,10 +131,7 @@ class ScriptedFleetProvider extends LlmProvider {
             ToolUseBlock(
               id: 'w1',
               name: 'write_summary',
-              input: {
-                'dir': 'lib',
-                'content': '# lib\n\nlib does X',
-              },
+              input: {'dir': 'lib', 'content': '# lib\n\nlib does X'},
             ),
           ],
           stopReason: 'tool_use',
@@ -160,8 +169,10 @@ String git(Directory dir, List<String> args) {
     runInShell: false,
   );
   if (result.exitCode != 0) {
-    throw StateError('git ${args.join(" ")} failed in ${dir.path}: '
-        '${result.stderr}');
+    throw StateError(
+      'git ${args.join(" ")} failed in ${dir.path}: '
+      '${result.stderr}',
+    );
   }
   return (result.stdout as String).trim();
 }

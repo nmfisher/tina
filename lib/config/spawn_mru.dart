@@ -54,7 +54,10 @@ void recordSpawnMru(
   try {
     final dir = _dir(env, tinaDir);
     if (!dir.existsSync()) dir.createSync(recursive: true);
-    final updated = [ref, ...loadSpawnMru(env: env, tinaDir: dir).where((r) => r != ref)];
+    final updated = [
+      ref,
+      ...loadSpawnMru(env: env, tinaDir: dir).where((r) => r != ref),
+    ];
     final capped = updated.length > _kSpawnMruCap
         ? updated.sublist(0, _kSpawnMruCap)
         : updated;

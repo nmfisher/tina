@@ -18,12 +18,12 @@ final ServiceKey<SessionStore> sessionStoreServiceKey =
 /// [defaultExecutionPlugins]-style profiles, which also serve compositions
 /// that own no sessions (summary runs): those would get an unused store.
 /// Session-less compositions simply leave the key unbound.
-PluginDescriptor jsonlSessionStorePlugin({Directory? root}) =>
-    PluginDescriptor(
+PluginDescriptor jsonlSessionStorePlugin({Directory? root}) => PluginDescriptor(
       id: 'tina.engine.session-store-jsonl',
       provides: [sessionStoreServiceKey],
       factory: FnPluginFactory((context) {
-        final store = JsonlSessionStore(root ?? JsonlSessionStore.defaultSessionRoot());
+        final store =
+            JsonlSessionStore(root ?? JsonlSessionStore.defaultSessionRoot());
         context.own(store.close);
         return store;
       }),
@@ -41,8 +41,7 @@ const List<String> sessionStoreProviderIds = ['jsonl'];
 /// `on FormatException` path.
 PluginDescriptor sessionStorePluginFor(String provider, {Directory? root}) {
   if (!sessionStoreProviderIds.contains(provider)) {
-    throw FormatException(
-        'Unknown [sessions] provider "$provider". '
+    throw FormatException('Unknown [sessions] provider "$provider". '
         'Known providers: ${sessionStoreProviderIds.join(', ')}.');
   }
   return switch (provider) {

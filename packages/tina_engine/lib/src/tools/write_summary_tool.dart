@@ -131,15 +131,12 @@ class WriteSummaryTool implements Tool {
 /// [_GitFailure] on a non-zero exit (with the trimmed stderr) and lets
 /// [ProcessException] propagate (git not found / not a repo at all).
 String _git(String? workingDir, List<String> args) {
-  final gitArgs = workingDir == null
-      ? args
-      : ['-C', workingDir, ...args];
+  final gitArgs = workingDir == null ? args : ['-C', workingDir, ...args];
   final result = Process.runSync('git', gitArgs, runInShell: false);
   if (result.exitCode != 0) {
-    throw _GitFailure(
-        (result.stderr as String).trim().isEmpty
-            ? 'git ${args.join(" ")} exited ${result.exitCode}'
-            : (result.stderr as String).trim());
+    throw _GitFailure((result.stderr as String).trim().isEmpty
+        ? 'git ${args.join(" ")} exited ${result.exitCode}'
+        : (result.stderr as String).trim());
   }
   return (result.stdout as String).trim();
 }

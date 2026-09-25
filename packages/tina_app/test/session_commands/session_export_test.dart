@@ -4,43 +4,52 @@ import 'package:test/test.dart';
 
 void main() {
   group('renderSessionTranscript', () {
-    ConversationMeta conv(String id,
-        {String label = '',
-        ConversationKind kind = ConversationKind.primary,
-        String? parent}) =>
-        ConversationMeta(
-            id: id, label: label, kind: kind, parentConversationId: parent);
+    ConversationMeta conv(
+      String id, {
+      String label = '',
+      ConversationKind kind = ConversationKind.primary,
+      String? parent,
+    }) => ConversationMeta(
+      id: id,
+      label: label,
+      kind: kind,
+      parentConversationId: parent,
+    );
 
-    SessionManifest manifest(List<ConversationMeta> conversations,
-        {String active = 'c1', String? baseUrl}) =>
-        SessionManifest(
-          id: 'sess-1',
-          providerId: 'anthropic',
-          baseUrl: baseUrl,
-          activeConversationId: active,
-          conversations: conversations,
-        );
+    SessionManifest manifest(
+      List<ConversationMeta> conversations, {
+      String active = 'c1',
+      String? baseUrl,
+    }) => SessionManifest(
+      id: 'sess-1',
+      providerId: 'anthropic',
+      baseUrl: baseUrl,
+      activeConversationId: active,
+      conversations: conversations,
+    );
 
-    test('renders header, one section per conversation, and a trailing newline',
-        () {
-      final m = manifest([conv('c1', label: 'test-model')]);
-      final out = renderSessionTranscript(m, {
-        'c1': [
-          Message(role: Role.user, content: [TextBlock('hello world')]),
-          Message(role: Role.assistant, content: [TextBlock('hi there')]),
-        ],
-      });
+    test(
+      'renders header, one section per conversation, and a trailing newline',
+      () {
+        final m = manifest([conv('c1', label: 'test-model')]);
+        final out = renderSessionTranscript(m, {
+          'c1': [
+            Message(role: Role.user, content: [TextBlock('hello world')]),
+            Message(role: Role.assistant, content: [TextBlock('hi there')]),
+          ],
+        });
 
-      expect(out, startsWith('# Session transcript — sess-1\n'));
-      expect(out, contains('> hello world\n'));
-      expect(out, contains('- provider: anthropic\n'));
-      expect(out, contains('- conversations: 1, messages: 2\n'));
-      expect(out, contains('- active conversation: c1\n'));
-      expect(out, contains('## test-model — primary\n'));
-      expect(out, contains('### user\n\nhello world\n'));
-      expect(out, contains('### assistant\n\nhi there\n'));
-      expect(out, endsWith('\n'));
-    });
+        expect(out, startsWith('# Session transcript — sess-1\n'));
+        expect(out, contains('> hello world\n'));
+        expect(out, contains('- provider: anthropic\n'));
+        expect(out, contains('- conversations: 1, messages: 2\n'));
+        expect(out, contains('- active conversation: c1\n'));
+        expect(out, contains('## test-model — primary\n'));
+        expect(out, contains('### user\n\nhello world\n'));
+        expect(out, contains('### assistant\n\nhi there\n'));
+        expect(out, endsWith('\n'));
+      },
+    );
 
     test('is deterministic across calls', () {
       final m = manifest([conv('c1')]);
@@ -48,18 +57,29 @@ void main() {
         Message(role: Role.user, content: [TextBlock('a')]),
         Message(role: Role.assistant, content: [TextBlock('b')]),
       ];
-      expect(renderSessionTranscript(m, {'c1': messages}),
-          renderSessionTranscript(m, {'c1': messages}));
+      expect(
+        renderSessionTranscript(m, {'c1': messages}),
+        renderSessionTranscript(m, {'c1': messages}),
+      );
     });
 
     test('lists conversations in manifest order with kind and parent', () {
       final m = manifest([
         conv('c1', label: 'main'),
-        conv('c2', label: 'helper', kind: ConversationKind.subAgent, parent: 'c1'),
+        conv(
+          'c2',
+          label: 'helper',
+          kind: ConversationKind.subAgent,
+          parent: 'c1',
+        ),
       ]);
       final out = renderSessionTranscript(m, {
-        'c1': [Message(role: Role.user, content: [TextBlock('x')])],
-        'c2': [Message(role: Role.user, content: [TextBlock('y')])],
+        'c1': [
+          Message(role: Role.user, content: [TextBlock('x')]),
+        ],
+        'c2': [
+          Message(role: Role.user, content: [TextBlock('y')]),
+        ],
       });
       expect(out, contains('## main — primary\n'));
       expect(out, contains('## helper — subAgent, parent: c1\n'));
@@ -70,7 +90,9 @@ void main() {
     test('unlabeled conversations fall back to their id', () {
       final m = manifest([conv('c7')]);
       final out = renderSessionTranscript(m, {
-        'c7': [Message(role: Role.user, content: [TextBlock('x')])],
+        'c7': [
+          Message(role: Role.user, content: [TextBlock('x')]),
+        ],
       });
       expect(out, contains('## c7 — primary\n'));
     });
@@ -78,7 +100,9 @@ void main() {
     test('marks an empty conversation and counts it as zero messages', () {
       final m = manifest([conv('c1'), conv('c2')]);
       final out = renderSessionTranscript(m, {
-        'c1': [Message(role: Role.user, content: [TextBlock('x')])],
+        'c1': [
+          Message(role: Role.user, content: [TextBlock('x')]),
+        ],
         'c2': [],
       });
       expect(out, contains('_(no messages)_\n'));
@@ -90,18 +114,22 @@ void main() {
       final out = renderSessionTranscript(m, {
         'c1': [
           Message(
-              role: Role.assistant,
-              content: [
-                ToolUseBlock(
-                    id: 'tu1',
-                    name: 'bash',
-                    input: {'command': 'ls -la', 'extra': 'ignored'}),
-                ToolUseBlock(id: 'tu2', name: 'grep', input: {'pattern': 'foo'}),
-                ToolUseBlock(id: 'tu3', name: 'read', input: {
-                  'filePath': '/etc/hosts'
-                }),
-                ToolUseBlock(id: 'tu4', name: 'custom', input: {}),
-              ]),
+            role: Role.assistant,
+            content: [
+              ToolUseBlock(
+                id: 'tu1',
+                name: 'bash',
+                input: {'command': 'ls -la', 'extra': 'ignored'},
+              ),
+              ToolUseBlock(id: 'tu2', name: 'grep', input: {'pattern': 'foo'}),
+              ToolUseBlock(
+                id: 'tu3',
+                name: 'read',
+                input: {'filePath': '/etc/hosts'},
+              ),
+              ToolUseBlock(id: 'tu4', name: 'custom', input: {}),
+            ],
+          ),
         ],
       });
       expect(out, contains('→ tool: bash — ls -la\n'));
@@ -115,14 +143,16 @@ void main() {
       final out = renderSessionTranscript(m, {
         'c1': [
           Message(
-              role: Role.assistant,
-              content: [
-                ToolUseBlock(
-                    id: 'tu1',
-                    name: 'bash',
-                    input: {},
-                    argumentsParseError: 'bad json'),
-              ]),
+            role: Role.assistant,
+            content: [
+              ToolUseBlock(
+                id: 'tu1',
+                name: 'bash',
+                input: {},
+                argumentsParseError: 'bad json',
+              ),
+            ],
+          ),
         ],
       });
       expect(out, contains('→ tool: bash — argument parse error\n'));
@@ -134,12 +164,12 @@ void main() {
       final out = renderSessionTranscript(m, {
         'c1': [
           Message(
-              role: Role.user,
-              content: [
-                ToolResultBlock(toolUseId: 'tu1', content: body),
-                ToolResultBlock(
-                    toolUseId: 'tu2', content: 'boom', isError: true),
-              ]),
+            role: Role.user,
+            content: [
+              ToolResultBlock(toolUseId: 'tu1', content: body),
+              ToolResultBlock(toolUseId: 'tu2', content: 'boom', isError: true),
+            ],
+          ),
         ],
       });
       expect(out, contains('```\ntool result:\n$body\n```\n'));
@@ -153,8 +183,10 @@ void main() {
       final m = manifest([conv('c1')]);
       final out = renderSessionTranscript(m, {
         'c1': [
-          Message(role: Role.user,
-              content: [ToolResultBlock(toolUseId: 'tu1', content: body)]),
+          Message(
+            role: Role.user,
+            content: [ToolResultBlock(toolUseId: 'tu1', content: body)],
+          ),
         ],
       });
       expect(out, contains('````\ntool result:\n$body\n````\n'));
@@ -165,9 +197,14 @@ void main() {
     test('includes the base URL in the header when present', () {
       final m = manifest([conv('c1')], baseUrl: 'https://api.example.com');
       final out = renderSessionTranscript(m, {
-        'c1': [Message(role: Role.user, content: [TextBlock('x')])],
+        'c1': [
+          Message(role: Role.user, content: [TextBlock('x')]),
+        ],
       });
-      expect(out, contains('- provider: anthropic (`https://api.example.com`)\n'));
+      expect(
+        out,
+        contains('- provider: anthropic (`https://api.example.com`)\n'),
+      );
     });
 
     test('derives the title from the first user text and truncates it', () {
@@ -182,24 +219,33 @@ void main() {
       // Title = first USER text (the assistant's earlier reply is skipped),
       // truncated to 80 chars with an ellipsis.
       expect(out, contains('> ${'x' * 80}…\n'));
-      expect(out, isNot(contains('> earlier reply\n')),
-          reason: 'an assistant reply must not become the title');
+      expect(
+        out,
+        isNot(contains('> earlier reply\n')),
+        reason: 'an assistant reply must not become the title',
+      );
 
       // No user text at all → no title line.
       final out2 = renderSessionTranscript(m, {
-        'c1': [Message(role: Role.assistant, content: [TextBlock('solo')])],
+        'c1': [
+          Message(role: Role.assistant, content: [TextBlock('solo')]),
+        ],
       });
       expect(out2, isNot(contains('> solo')));
     });
 
-    test('conversation ids absent from the map render as empty, not missing',
-        () {
-      final m = manifest([conv('c1'), conv('c2')]);
-      // Only c1 was loaded; c2 has no entry (e.g. unreadable file).
-      final out = renderSessionTranscript(m, {
-        'c1': [Message(role: Role.user, content: [TextBlock('x')])],
-      });
-      expect(out, contains('## c2 — primary\n\n_(no messages)_\n'));
-    });
+    test(
+      'conversation ids absent from the map render as empty, not missing',
+      () {
+        final m = manifest([conv('c1'), conv('c2')]);
+        // Only c1 was loaded; c2 has no entry (e.g. unreadable file).
+        final out = renderSessionTranscript(m, {
+          'c1': [
+            Message(role: Role.user, content: [TextBlock('x')]),
+          ],
+        });
+        expect(out, contains('## c2 — primary\n\n_(no messages)_\n'));
+      },
+    );
   });
 }

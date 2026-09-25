@@ -46,8 +46,7 @@ class ClassifierOutcome {
 
   const ClassifierOutcome.deny() : this._(false, null);
 
-  const ClassifierOutcome.failed(ClassifierFailure this.failure)
-      : allow = null;
+  const ClassifierOutcome.failed(ClassifierFailure this.failure) : allow = null;
 
   bool get decided => allow != null;
 }
@@ -118,12 +117,12 @@ class PermissionClassifier {
         },
       };
       final stream = provider.send(
-        system: directive == null
-            ? _systemPrompt
-            : '$_systemPrompt\n$directive',
+        system:
+            directive == null ? _systemPrompt : '$_systemPrompt\n$directive',
         messages: [
           Message(role: Role.user, content: [
-            TextBlock('Tool: ${prompt.toolName}\nInput:\n${jsonEncode(prompt.input)}'
+            TextBlock(
+                'Tool: ${prompt.toolName}\nInput:\n${jsonEncode(prompt.input)}'
                 '\nExecution context:\n${jsonEncode(context)}'),
           ]),
         ],

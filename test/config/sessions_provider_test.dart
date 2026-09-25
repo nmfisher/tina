@@ -89,8 +89,7 @@ void main() {
     );
   });
 
-  test(
-      'index and composition agree: resolveSessionIndex accepts every id the '
+  test('index and composition agree: resolveSessionIndex accepts every id the '
       'composition can mount', () {
     for (final id in sessionStoreProviderIds) {
       final root = tempDir();
@@ -101,8 +100,7 @@ void main() {
     }
   });
 
-  test('resolveSessionIndex rejects an id outside sessionStoreProviderIds',
-      () {
+  test('resolveSessionIndex rejects an id outside sessionStoreProviderIds', () {
     expect(
       () => resolveSessionIndex(provider: 'sqlite'),
       throwsA(

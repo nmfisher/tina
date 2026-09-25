@@ -42,10 +42,8 @@ class _RecSink implements StyledStyleSink {
 }
 
 String _quote(String s) {
-  final escaped = s
-      .replaceAll('\\', '\\\\')
-      .replaceAll("'", "\\'")
-      .replaceAll('\n', '\\n');
+  final escaped =
+      s.replaceAll('\\', '\\\\').replaceAll("'", "\\'").replaceAll('\n', '\\n');
   return "'$escaped'";
 }
 
@@ -185,8 +183,7 @@ void main() {
       expect(runs[1].style.fg, 0x00cd00);
     });
 
-    test('a styled emit ending in \\x1b[0m lands at the default baseline',
-        () {
+    test('a styled emit ending in \\x1b[0m lands at the default baseline', () {
       // Phase 4 boundary invariant: a styled string that ends with the ANSI
       // reset (\x1b[0m) must leave the sink at the default fg/bg/style
       // baseline — collapse must never drop the trailing empty-text reset run,
@@ -211,8 +208,7 @@ void main() {
       }
     });
 
-    test('plain text carries no inline styling of its own (cache bypass)',
-        () {
+    test('plain text carries no inline styling of its own (cache bypass)', () {
       // A plain string (no ESC) bypasses the parse cache and emits no style
       // setters — only a putStr. Whatever baseline the prior emit left the
       // sink at is established by that prior emit's own trailing reset or by
@@ -315,7 +311,8 @@ void main() {
       expect(span.runs.first.style.fg, 0x00cdcd);
     });
 
-    test('wide-char prefix → offset counts terminal cells, not units '
+    test(
+        'wide-char prefix → offset counts terminal cells, not units '
         '(tin-q4vz)', () {
       // The unchanged prefix ends in wide glyphs. An offset computed in
       // code units (3 for 漢字テ) lands LEFT of where the prefix actually
@@ -396,7 +393,8 @@ void main() {
     });
 
     test('truecolor fg/bg round-trips through RGB', () {
-      final runs = parseStyledRuns('\x1b[38;2;255;128;64mF\x1b[48;2;1;2;3mB\x1b[0m');
+      final runs =
+          parseStyledRuns('\x1b[38;2;255;128;64mF\x1b[48;2;1;2;3mB\x1b[0m');
       final s = renderStyledRuns(runs);
       expect(s, contains('\x1b[38;2;255;128;64mF'));
       expect(s, contains('\x1b[48;2;1;2;3mB'));
@@ -417,7 +415,8 @@ void main() {
       expect(tail, isNull);
       // Build the tail span manually as the emitter would: from run index 1.
       final tailRuns = full.sublist(1); // [green "SUFFIX", default ""]
-      expect(renderStyledRuns(tailRuns), '\x1b[0m\x1b[38;2;0;205;0mSUFFIX\x1b[0m');
+      expect(
+          renderStyledRuns(tailRuns), '\x1b[0m\x1b[38;2;0;205;0mSUFFIX\x1b[0m');
     });
   });
 }

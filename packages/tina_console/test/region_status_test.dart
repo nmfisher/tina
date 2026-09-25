@@ -25,7 +25,8 @@ void main() {
       screen.status.writeAt(2, 'working');
       vt.feed(io.written.toString());
       final row = vt.rowText(layout.status.row + 2);
-      expect(row.substring(layout.status.col, layout.status.col + 7), 'working');
+      expect(
+          row.substring(layout.status.col, layout.status.col + 7), 'working');
     });
 
     test('clears a row and restores borders', () {

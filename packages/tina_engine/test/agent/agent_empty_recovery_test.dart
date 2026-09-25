@@ -170,8 +170,12 @@ void main() {
         expect(agent.abortedReason, contains('--max-output-tokens'));
         expect(
             sink.notices.any((n) => n.message.contains('retry 1/')), isFalse);
-        expect(history.where((m) => m.role == Role.assistant && !m.isReasoningOnly), isEmpty);
-        final reasoning = history.singleWhere((m) => m.isReasoningOnly).reasoning.single;
+        expect(
+            history
+                .where((m) => m.role == Role.assistant && !m.isReasoningOnly),
+            isEmpty);
+        final reasoning =
+            history.singleWhere((m) => m.isReasoningOnly).reasoning.single;
         expect(reasoning.text, 'reasoning without a final answer');
         expect(reasoning.complete, finishReason == 'stop');
       });

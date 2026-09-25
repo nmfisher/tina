@@ -12,7 +12,6 @@ import 'stdio_fake.dart';
 /// frame-batching contract (deferred flush) the same way
 /// `screen_backend_lifecycle_test.dart`'s RecordingBackend does.
 class _CountingBackend implements TerminalBackend {
-
   // No retained damage model in this fake; refresh is a no-op.
   @override
   void refresh() {}
@@ -238,7 +237,8 @@ void main() {
     // Five writes coalesced into one logical frame → exactly one flush
     // resolution at endFrame, never five.
     expect(delta, 1,
-        reason: 'flushes inside a frame are deferred to endFrame, one per frame');
+        reason:
+            'flushes inside a frame are deferred to endFrame, one per frame');
   });
 
   test('borderRepairs counter shows no repeated repair per row/frame', () {

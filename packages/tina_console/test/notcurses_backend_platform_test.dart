@@ -357,8 +357,10 @@ void main() {
         plat.calls.clear();
         overlay.update(bounds: bounds, lines: ['one', 'two']);
         expect(plat.calls.where((c) => c == 'render'), hasLength(1));
-        expect(plat.calls.indexOf('render'),
-            greaterThan(plat.calls.lastIndexWhere((c) => c.startsWith('putStrYX'))),
+        expect(
+            plat.calls.indexOf('render'),
+            greaterThan(
+                plat.calls.lastIndexWhere((c) => c.startsWith('putStrYX'))),
             reason: 'all row writes and repairs must precede presentation');
       }
       plat.calls.clear();
@@ -382,30 +384,33 @@ void main() {
           reason: 'leading edge renders the first idle mutation without delay');
     });
 
-    test('sustained writes coalesce: 20 writes yield one leading + one trailing render',
+    test(
+        'sustained writes coalesce: 20 writes yield one leading + one trailing render',
         () {
       fakeAsync((async) {
-      final screen = Screen.withBackend(
-        backend: backend,
-        io: io,
-        layout: ScreenLayout.fromSize(80, 24),
-        clock: () => async.elapsed.inMicroseconds * 1000,
-      );
-      plat.calls.clear();
+        final screen = Screen.withBackend(
+          backend: backend,
+          io: io,
+          layout: ScreenLayout.fromSize(80, 24),
+          clock: () => async.elapsed.inMicroseconds * 1000,
+        );
+        plat.calls.clear();
 
-      // 20 rapid writes: the first is idle and renders immediately (leading
-      // edge); the other 19 accumulate inside the window and coalesce into a
-      // single trailing render — not one render per write.
-      for (var i = 0; i < 20; i++) {
-        screen.chat.write('chunk-$i ');
-      }
-      expect(plat.calls.where((c) => c == 'render'), hasLength(1),
-          reason: 'only the leading-edge first write renders during the window');
+        // 20 rapid writes: the first is idle and renders immediately (leading
+        // edge); the other 19 accumulate inside the window and coalesce into a
+        // single trailing render — not one render per write.
+        for (var i = 0; i < 20; i++) {
+          screen.chat.write('chunk-$i ');
+        }
+        expect(plat.calls.where((c) => c == 'render'), hasLength(1),
+            reason:
+                'only the leading-edge first write renders during the window');
 
-      async.elapse(const Duration(milliseconds: 30));
+        async.elapse(const Duration(milliseconds: 30));
 
-      expect(plat.calls.where((c) => c == 'render'), hasLength(2),
-          reason: 'one trailing render presents the 19 accumulated writes once');
+        expect(plat.calls.where((c) => c == 'render'), hasLength(2),
+            reason:
+                'one trailing render presents the 19 accumulated writes once');
       });
     });
 
@@ -484,7 +489,8 @@ void main() {
   });
 
   group('NotcursesBackend lifecycle / stop guard', () {
-    test('shutdown destroys live child surfaces before stopping the context', () {
+    test('shutdown destroys live child surfaces before stopping the context',
+        () {
       final planes = <_LifecyclePlane>[];
       plat.surfaceFactory = (bounds) {
         final plane = _LifecyclePlane(plat);
@@ -524,13 +530,14 @@ void main() {
       expect(planes.map((p) => p.destroyCount), everyElement(1));
     });
 
-    test('failed child cleanup still invalidates handles and stops context', () {
+    test('failed child cleanup still invalidates handles and stops context',
+        () {
       final plane = _LifecyclePlane(plat)..throwOnDestroy = true;
-      plat.surfaceFactory = (bounds) =>
-          NotcursesBackendSurface(plane, plat, bounds);
+      plat.surfaceFactory =
+          (bounds) => NotcursesBackendSurface(plane, plat, bounds);
       backend.enterAltScreen();
-      final surface = backend.createSurface(
-          const Rect(row: 5, col: 5, width: 20, height: 3));
+      final surface = backend
+          .createSurface(const Rect(row: 5, col: 5, width: 20, height: 3));
       expect(backend.leaveAltScreen, returnsNormally);
       expect(plat.calls.last, 'stop');
       plat.calls.clear();
@@ -807,8 +814,7 @@ void main() {
       ]);
     });
 
-    test('adjacent identical styles collapse into one setter + one putStr',
-        () {
+    test('adjacent identical styles collapse into one setter + one putStr', () {
       backend.moveCursor(0, 0);
       // \x1b[32m ... \x1b[32m is a redundant mid-string re-set of the same
       // green. parseStyledRuns collapses those two runs, so the emitter

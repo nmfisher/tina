@@ -10,7 +10,8 @@ import '../helpers/memory_process_runner.dart';
 
 void main() {
   group('ToolExecutor', () {
-    test('malformed arguments return an error result without executing the tool',
+    test(
+        'malformed arguments return an error result without executing the tool',
         () async {
       final sink = FakeAgentSink();
       var executed = false;
@@ -74,7 +75,8 @@ void main() {
       expect(sink.toolStarts, isEmpty);
     });
 
-    test('repeated denials attach the circuit-breaker note on the threshold '
+    test(
+        'repeated denials attach the circuit-breaker note on the threshold '
         'denial', () async {
       final sink = FakeAgentSink();
       final executor = ToolExecutor(
@@ -148,7 +150,8 @@ void main() {
       expect(fourth.result.content, isNot(contains('consecutive')));
     });
 
-    test('verifier verdict is appended on success; a throwing verifier never '
+    test(
+        'verifier verdict is appended on success; a throwing verifier never '
         'breaks the result', () async {
       final sink = FakeAgentSink();
       final verifier = (tool, input) async =>
@@ -211,7 +214,8 @@ void main() {
       expect(flaky.result.content, 'ok');
     });
 
-    test('an extra guard denies a call before the sandbox access request '
+    test(
+        'an extra guard denies a call before the sandbox access request '
         'runs (no ask prompt, no execute)', () async {
       final sink = FakeAgentSink();
       var prompts = 0;
@@ -245,7 +249,9 @@ void main() {
         sink: sink,
         state: ToolCallState(),
         cancelSignal: Completer<void>().future,
-        executionGuards: [_DenyBashGuard('no shell while the operator is away')],
+        executionGuards: [
+          _DenyBashGuard('no shell while the operator is away')
+        ],
       );
       final outcome = await executor.execute(
         use: ToolUseBlock(id: 'u1', name: 'bash', input: {
@@ -265,7 +271,8 @@ void main() {
       expect(sink.toolStarts, isEmpty);
     });
 
-    test('approved arguments are sealed: mutating the live input during the '
+    test(
+        'approved arguments are sealed: mutating the live input during the '
         'approval wait cannot change what executes', () async {
       final sink = FakeAgentSink();
       final seen = <String>[];
@@ -314,7 +321,8 @@ void main() {
       );
       expect(outcome.result.isError, isFalse,
           reason: 'the approval itself must still stand');
-      expect(seen.where((s) => s.startsWith('asked:')), ['asked: echo approved'],
+      expect(
+          seen.where((s) => s.startsWith('asked:')), ['asked: echo approved'],
           reason: 'exactly one ask, prompted with the sealed arguments');
       expect(seen, contains('executed: -c echo approved'),
           reason: 'the snapshot taken BEFORE the ask is what runs — the '

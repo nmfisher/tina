@@ -144,33 +144,44 @@ StreamError httpStreamError(String provider, int status, String body,
     action = switch (code) {
       '1113' => 'Check API balance/resource packages and whether the API key '
           'and base URL match your plan.',
-      '1309' || '1314' => 'Renew the expired plan or check with your account administrator.',
+      '1309' ||
+      '1314' =>
+        'Renew the expired plan or check with your account administrator.',
       '1311' => 'Select a model included in your plan.',
       '1313' => 'Check the account restriction in the provider console.',
       '1315' => 'Check that the API key and endpoint match your subscription.',
-      '1308' || '1310' || '1316' || '1317' || '1318' || '1319' || '1320' || '1321' =>
+      '1308' ||
+      '1310' ||
+      '1316' ||
+      '1317' ||
+      '1318' ||
+      '1319' ||
+      '1320' ||
+      '1321' =>
         'Wait for the quota reset or check the account usage limit and plan.',
       _ => null,
     };
     // Older responses may omit the business code. Keep this fallback narrow
     // and provider-specific; never classify arbitrary "quota" prose as final.
-    if (code == null &&
-        (message ?? body).contains('余额不足或无可用资源包')) {
+    if (code == null && (message ?? body).contains('余额不足或无可用资源包')) {
       action = 'Check API balance/resource packages and whether the API key '
           'and base URL match your plan.';
     }
   }
   final httpDescription = humanizeHttpError(provider, status, body);
   final description = fromStream
-      ? httpDescription.replaceFirst('$provider $status', '$provider stream error')
+      ? httpDescription.replaceFirst(
+          '$provider $status', '$provider stream error')
       : httpDescription;
   return StreamError(
-    action == null ? description : '$description '
-        '${code == null ? '' : '(provider code: $code) '}'
-        'Action required: $action Automatic retries stopped.',
+    action == null
+        ? description
+        : '$description '
+            '${code == null ? '' : '(provider code: $code) '}'
+            'Action required: $action Automatic retries stopped.',
     statusCode: fromStream ? streamStatus : status,
-    transient: fromStream && provider == 'GLM' &&
-        (code == '1302' || code == '1305'),
+    transient:
+        fromStream && provider == 'GLM' && (code == '1302' || code == '1305'),
     retryAfter: retryAfter,
     providerCode: code,
     providerType: type,
@@ -223,8 +234,7 @@ Duration wireLadderWorstCase({
 }) {
   final perAttempt = scaledRequestTimeout(bodyBytes);
   final poolPass = perAttempt * members + cooldown;
-  final backoff = retryDelays.fold(
-      Duration.zero, (total, d) => total + d);
+  final backoff = retryDelays.fold(Duration.zero, (total, d) => total + d);
   final parks = maxRetryAfter * maxRetries;
   return poolPass * (maxRetries + 1) + (parks > backoff ? parks : backoff);
 }
@@ -242,10 +252,13 @@ Duration wireLadderWorstCase({
   Duration cooldown = const Duration(seconds: 5),
 }) {
   final floor = wireLadderWorstCase(
-          bodyBytes: bodyBytes, members: members,
-          maxRetries: maxRetries, cooldown: cooldown)
+          bodyBytes: bodyBytes,
+          members: members,
+          maxRetries: maxRetries,
+          cooldown: cooldown)
       .inSeconds;
-  if (watchdogSeconds >= floor) return (raised: false, seconds: watchdogSeconds);
+  if (watchdogSeconds >= floor)
+    return (raised: false, seconds: watchdogSeconds);
   return (raised: true, seconds: floor);
 }
 
@@ -261,9 +274,7 @@ Future<http.StreamedResponse> sendOnce(
 }) {
   // WHY (#23 / #24): a request-timeout must name its knob — one string for
   // two different timeouts sent the operator raising the WRONG flag.
-  return client
-      .send(build())
-      .timeout(
+  return client.send(build()).timeout(
         requestTimeout,
         onTimeout: () => throw TimeoutException(
           'request exceeded ${requestTimeout.inSeconds}s without response '
@@ -291,18 +302,18 @@ Future<http.StreamedResponse> sendWithRetry(
       // Same named-knob message as [sendOnce] (#23): the error must say which
       // timeout tripped, or the operator raises the wrong flag.
       final resp = await client.send(build()).timeout(
-        requestTimeout,
-        onTimeout: () => throw TimeoutException(
-          'request exceeded ${requestTimeout.inSeconds}s without response '
-          'headers — raise with --request-timeout',
-          requestTimeout,
-        ),
-      );
-      if (isRetryableStatus(resp.statusCode) &&
-          attempt < retryDelays.length) {
+            requestTimeout,
+            onTimeout: () => throw TimeoutException(
+              'request exceeded ${requestTimeout.inSeconds}s without response '
+              'headers — raise with --request-timeout',
+              requestTimeout,
+            ),
+          );
+      if (isRetryableStatus(resp.statusCode) && attempt < retryDelays.length) {
         await resp.stream.drain();
         final hinted = parseRetryAfter(resp.headers['retry-after']);
-        await Future<void>.delayed(hinted ?? applyBackoffJitter(retryDelays[attempt]));
+        await Future<void>.delayed(
+            hinted ?? applyBackoffJitter(retryDelays[attempt]));
         continue;
       }
       return resp;
@@ -369,7 +380,9 @@ TokenUsage? parseErrorUsage(String body) {
     final candidates = <dynamic>[j['usage'], j['usageMetadata']];
     final err = j['error'];
     if (err is Map) {
-      candidates..add(err['usage'])..add(err['usageMetadata']);
+      candidates
+        ..add(err['usage'])
+        ..add(err['usageMetadata']);
     }
     for (final c in candidates) {
       if (c is! Map) continue;
@@ -381,8 +394,7 @@ TokenUsage? parseErrorUsage(String body) {
         return null;
       }
 
-      final input = pick(
-          ['prompt_tokens', 'input_tokens', 'promptTokenCount']);
+      final input = pick(['prompt_tokens', 'input_tokens', 'promptTokenCount']);
       final output =
           pick(['completion_tokens', 'output_tokens', 'candidatesTokenCount']);
       final cacheWrite =
@@ -417,9 +429,7 @@ String humanizeException(Object e) {
     // A message set at the raise site (sendOnce / sendWithRetry / stream
     // timeout) carries the knob name; anonymous TimeoutExceptions from
     // elsewhere fall back to the legacy phrase.
-    return (e.message ?? '').isNotEmpty
-        ? e.message!
-        : 'Request timed out';
+    return (e.message ?? '').isNotEmpty ? e.message! : 'Request timed out';
   }
   return e.toString();
 }

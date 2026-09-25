@@ -176,15 +176,13 @@ void main() {
 
     test('returns null (no backup) for a file that does not exist', () async {
       final fs = MemoryFileSystem();
-      final backups =
-          BackupStore(fs: fs, storeDir: Directory('/tina/backups'));
+      final backups = BackupStore(fs: fs, storeDir: Directory('/tina/backups'));
       expect(await backups.backup('missing.txt'), isNull);
     });
 
     test('skips backup for a file over the per-file size cap', () async {
       final fs = MemoryFileSystem({'big.txt': 'x' * (kMaxBackupFileBytes + 1)});
-      final backups =
-          BackupStore(fs: fs, storeDir: Directory('/tina/backups'));
+      final backups = BackupStore(fs: fs, storeDir: Directory('/tina/backups'));
       expect(await backups.backup('big.txt'), isNull);
     });
 
@@ -230,8 +228,7 @@ void main() {
     test('write backs up the previous version and reports its location',
         () async {
       final fs = MemoryFileSystem({'a.txt': 'v1'});
-      final backups =
-          BackupStore(fs: fs, storeDir: Directory('/tina/backups'));
+      final backups = BackupStore(fs: fs, storeDir: Directory('/tina/backups'));
       final res = await WriteTool(fs: fs, backupStore: backups)
           .execute({'filePath': 'a.txt', 'content': 'v2'});
       expect(res.isError, isFalse);
@@ -242,8 +239,7 @@ void main() {
 
     test('edit backs up the pre-edit version', () async {
       final fs = MemoryFileSystem({'a.txt': 'alpha beta'});
-      final backups =
-          BackupStore(fs: fs, storeDir: Directory('/tina/backups'));
+      final backups = BackupStore(fs: fs, storeDir: Directory('/tina/backups'));
       final res = await EditTool(fs: fs, backupStore: backups).execute({
         'filePath': 'a.txt',
         'oldString': 'beta',
@@ -482,7 +478,8 @@ void main() {
         sink: sink,
         policy: PermissionPolicy(defaults: {'loop': PermissionDecision.allow}),
         asker: (_) async => PermissionResponse.denyOnce,
-        maxSteps: kMaxToolCallsPerRun + 1000, // high so the action cap, not steps, is what trips
+        maxSteps: kMaxToolCallsPerRun +
+            1000, // high so the action cap, not steps, is what trips
         system: 'sys',
       );
       await agent.run(history: [], userInput: 'go');
@@ -555,7 +552,6 @@ class _RecordingProcessRunner implements ProcessRunner {
     started = true;
     return const RunResult(exitCode: 0, stdout: '', stderr: '');
   }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -594,9 +590,8 @@ typedef _ArgvProbe = Future<({List<String>? argv, bool refused})> Function(
 final Map<String, _ArgvProbe> _argvDrivers = {
   'grep': (parameter, hostile) async {
     final runner = MemoryProcessRunner((exe, args) => MemoryRunningProcess(
-        stdoutChunks: args.contains('--version')
-            ? <String>['rg 14\n']
-            : <String>[]));
+        stdoutChunks:
+            args.contains('--version') ? <String>['rg 14\n'] : <String>[]));
     final tool = GrepTool(
       processRunner: runner,
       fileEnumerator: MemoryFileEnumerator({}),

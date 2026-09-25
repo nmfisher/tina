@@ -17,14 +17,16 @@ void main() {
 
   test('renders the bare measured total when unbounded', () {
     expect(
-      text(const TokenUsageSummary(
-        totalTokens: 12345,
-        estimatedTokens: 0,
-        seededTokens: 0,
-        cap: null,
-        tripped: false,
-        rpm: 0,
-      )),
+      text(
+        const TokenUsageSummary(
+          totalTokens: 12345,
+          estimatedTokens: 0,
+          seededTokens: 0,
+          cap: null,
+          tripped: false,
+          rpm: 0,
+        ),
+      ),
       'Σ 12,345',
     );
   });
@@ -47,32 +49,40 @@ void main() {
 
   test('yellows the cap share from 75% and reds it from 90%', () {
     TokenUsageSummary at(int total) => TokenUsageSummary(
-          totalTokens: total,
-          estimatedTokens: 0,
-          seededTokens: 0,
-          cap: 1000,
-          tripped: false,
-          rpm: 0,
-        );
+      totalTokens: total,
+      estimatedTokens: 0,
+      seededTokens: 0,
+      cap: 1000,
+      tripped: false,
+      rpm: 0,
+    );
     final theme = Theme.defaults().chat;
-    expect(renderer.render(at(700), context).expand((l) => l.runs).last.code,
-        theme.dim);
-    expect(renderer.render(at(760), context).expand((l) => l.runs).last.code,
-        theme.yellow);
-    expect(renderer.render(at(920), context).expand((l) => l.runs).last.code,
-        theme.red);
+    expect(
+      renderer.render(at(700), context).expand((l) => l.runs).last.code,
+      theme.dim,
+    );
+    expect(
+      renderer.render(at(760), context).expand((l) => l.runs).last.code,
+      theme.yellow,
+    );
+    expect(
+      renderer.render(at(920), context).expand((l) => l.runs).last.code,
+      theme.red,
+    );
   });
 
   test('estimated failed-attempt spend is shown distinctly', () {
     expect(
-      text(const TokenUsageSummary(
-        totalTokens: 12345,
-        estimatedTokens: 2100,
-        seededTokens: 0,
-        cap: null,
-        tripped: false,
-        rpm: 0,
-      )),
+      text(
+        const TokenUsageSummary(
+          totalTokens: 12345,
+          estimatedTokens: 2100,
+          seededTokens: 0,
+          cap: null,
+          tripped: false,
+          rpm: 0,
+        ),
+      ),
       'Σ 12,345 +~2,100 est',
     );
   });

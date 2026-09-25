@@ -183,7 +183,8 @@ Future<ExecutionRuntime> buildExecutionRuntime({
   // the composition threw, and nothing disposed what was acquired.)
   if (toolScope == null &&
       !mounted.any(
-        (plugin) => plugin.provides.any((k) => k == workspaceToolScopeServiceKey),
+        (plugin) =>
+            plugin.provides.any((k) => k == workspaceToolScopeServiceKey),
       )) {
     throw PluginCompositionError(
       'the execution profile provides no project tool scope '
@@ -240,7 +241,8 @@ Future<ExecutionRuntime> buildExecutionRuntime({
     // the tool-scope stage fails before activation now, but a plugin that
     // DECLARED workspaceToolScopeServiceKey without binding it still surfaces
     // here as a composition error.
-    final tools = toolScope ?? runtime.scope.lookup(workspaceToolScopeServiceKey);
+    final tools =
+        toolScope ?? runtime.scope.lookup(workspaceToolScopeServiceKey);
     if (tools == null) {
       throw PluginCompositionError(
         'the execution profile provides no project tool scope',

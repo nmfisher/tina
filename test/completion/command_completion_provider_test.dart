@@ -18,10 +18,12 @@ void main() {
       expect(results.every((c) => c.startsWith('/s')), isTrue);
     });
 
-    test('results keep their leading slash (the picker does not re-add it)',
-        () async {
-      expect(await provider.complete('help'), ['/help']);
-    });
+    test(
+      'results keep their leading slash (the picker does not re-add it)',
+      () async {
+        expect(await provider.complete('help'), ['/help']);
+      },
+    );
 
     test('a query narrowing to one command returns just it', () async {
       expect(await provider.complete('setti'), ['/settings']);

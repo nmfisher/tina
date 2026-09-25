@@ -37,13 +37,13 @@ class TokenUsageSummary {
 
   /// Capture the ledger's current state.
   factory TokenUsageSummary.of(SpendLedger ledger) => TokenUsageSummary(
-        totalTokens: ledger.totalTokens,
-        estimatedTokens: ledger.totalEstimatedTokens,
-        seededTokens: ledger.seededTokens,
-        cap: ledger.cap,
-        tripped: ledger.tripped,
-        rpm: ledger.rpm,
-      );
+    totalTokens: ledger.totalTokens,
+    estimatedTokens: ledger.totalEstimatedTokens,
+    seededTokens: ledger.seededTokens,
+    cap: ledger.cap,
+    tripped: ledger.tripped,
+    rpm: ledger.rpm,
+  );
 
   /// The combined total the trip arithmetic reads.
   int get grandTotal => totalTokens + estimatedTokens;

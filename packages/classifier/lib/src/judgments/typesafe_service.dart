@@ -27,9 +27,8 @@ class TypeSafeConfig {
     this.timeout = const Duration(seconds: 30),
     this.maxResponseBytes = 8 * 1024 * 1024,
     JudgmentRequestBudget? requestBudget,
-  })  : endpoint =
-            endpoint ?? Uri.parse('https://api.typesafe.ai/v1/systemone'),
-        requestBudget = requestBudget ?? JudgmentRequestBudget(model: model) {
+  }) : endpoint = endpoint ?? Uri.parse('https://api.typesafe.ai/v1/systemone'),
+       requestBudget = requestBudget ?? JudgmentRequestBudget(model: model) {
     if (this.requestBudget.model != model) {
       throw ArgumentError('Request budget must target the configured model');
     }
@@ -47,11 +46,13 @@ class TypeSafeConfig {
         uri.hasFragment ||
         (uri.scheme != 'https' && !(uri.scheme == 'http' && local))) {
       throw ArgumentError(
-          'TypeSafe endpoint must use HTTPS (or loopback HTTP)');
+        'TypeSafe endpoint must use HTTPS (or loopback HTTP)',
+      );
     }
     if (timeout <= Duration.zero || maxResponseBytes <= 0) {
       throw ArgumentError(
-          'TypeSafe timeout and response limit must be positive');
+        'TypeSafe timeout and response limit must be positive',
+      );
     }
   }
 }
@@ -70,8 +71,8 @@ class TypeSafeJudgmentService implements JudgmentService {
     required this.config,
     http.Client Function()? clientFactory,
     DateTime Function()? now,
-  })  : _clientFactory = clientFactory ?? http.Client.new,
-        _now = now ?? DateTime.now;
+  }) : _clientFactory = clientFactory ?? http.Client.new,
+       _now = now ?? DateTime.now;
 
   @override
   Future<JudgmentResult> evaluate(
@@ -82,7 +83,10 @@ class TypeSafeJudgmentService implements JudgmentService {
       throw const JudgmentException(JudgmentFailure.closed, attempted: false);
     }
     if (cancellation?.isCancelled ?? false) {
-      throw const JudgmentException(JudgmentFailure.cancelled, attempted: false);
+      throw const JudgmentException(
+        JudgmentFailure.cancelled,
+        attempted: false,
+      );
     }
     config.requestBudget.check(request);
     final body = jsonEncode(request.toJson(model: config.model));
@@ -95,14 +99,12 @@ class TypeSafeJudgmentService implements JudgmentService {
 
     void closeRequest() => stop(JudgmentFailure.closed);
     _active.add(closeRequest);
-    final unsubscribe =
-        cancellation?.listen(() => stop(JudgmentFailure.cancelled));
+    final unsubscribe = cancellation?.listen(
+      () => stop(JudgmentFailure.cancelled),
+    );
     final timer = Timer(config.timeout, () => stop(JudgmentFailure.timeout));
     try {
-      return await Future.any([
-        _send(client, body, request),
-        stopped.future,
-      ]);
+      return await Future.any([_send(client, body, request), stopped.future]);
     } on JudgmentException {
       rethrow;
     } on FormatException {
@@ -122,7 +124,10 @@ class TypeSafeJudgmentService implements JudgmentService {
   }
 
   Future<JudgmentResult> _send(
-      http.Client client, String body, JudgmentRequest request) async {
+    http.Client client,
+    String body,
+    JudgmentRequest request,
+  ) async {
     final message = http.Request('POST', config.endpoint)
       ..followRedirects = false
       ..headers.addAll({
@@ -152,8 +157,10 @@ class TypeSafeJudgmentService implements JudgmentService {
       }
       bytes.add(chunk);
     }
-    return JudgmentResult.fromJson(jsonDecode(utf8.decode(bytes.takeBytes())),
-        request: request);
+    return JudgmentResult.fromJson(
+      jsonDecode(utf8.decode(bytes.takeBytes())),
+      request: request,
+    );
   }
 
   Duration? _retryAfter(String? value) {
@@ -182,10 +189,10 @@ class TypeSafeJudgmentService implements JudgmentService {
 }
 
 JudgmentFailure _httpFailure(int status) => switch (status) {
-      401 => JudgmentFailure.authentication,
-      403 => JudgmentFailure.permission,
-      400 || 422 => JudgmentFailure.invalidRequest,
-      429 => JudgmentFailure.rateLimited,
-      >= 500 && <= 599 => JudgmentFailure.unavailable,
-      _ => JudgmentFailure.http,
-    };
+  401 => JudgmentFailure.authentication,
+  403 => JudgmentFailure.permission,
+  400 || 422 => JudgmentFailure.invalidRequest,
+  429 => JudgmentFailure.rateLimited,
+  >= 500 && <= 599 => JudgmentFailure.unavailable,
+  _ => JudgmentFailure.http,
+};

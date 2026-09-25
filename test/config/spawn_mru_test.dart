@@ -22,8 +22,11 @@ void main() {
     recordSpawnMru('alpha/a1', env: {}, tinaDir: tmp);
     recordSpawnMru('beta/b1', env: {}, tinaDir: tmp);
     recordSpawnMru('alpha/a2', env: {}, tinaDir: tmp);
-    expect(loadSpawnMru(env: {}, tinaDir: tmp),
-        ['alpha/a2', 'beta/b1', 'alpha/a1']);
+    expect(loadSpawnMru(env: {}, tinaDir: tmp), [
+      'alpha/a2',
+      'beta/b1',
+      'alpha/a1',
+    ]);
   });
 
   test('re-recording a ref moves it to the front (dedup)', () {
@@ -43,8 +46,9 @@ void main() {
   });
 
   test('a corrupt MRU file yields an empty list (no throw)', () {
-    File(p.join(tmp.path, 'spawn_mru.json'))
-        .writeAsStringSync('not json at all');
+    File(
+      p.join(tmp.path, 'spawn_mru.json'),
+    ).writeAsStringSync('not json at all');
     expect(loadSpawnMru(env: {}, tinaDir: tmp), isEmpty);
   });
 }

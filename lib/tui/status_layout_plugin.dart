@@ -20,7 +20,9 @@ class PriorityStatusLayout implements StatusLayout {
   @override
   List<RenderLine> arrange(StatusContent content, int width) {
     if (width <= 0) return const [];
-    final right = content.lines.where((l) => l.align == StatusAlign.right).toList();
+    final right = content.lines
+        .where((l) => l.align == StatusAlign.right)
+        .toList();
     final left = <RenderLine>[
       if (content.modeLabel != null && content.modeLabel!.isNotEmpty)
         RenderLine(runs: [RenderRun(content.modeLabel!, '2')]),

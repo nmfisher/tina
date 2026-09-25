@@ -181,11 +181,12 @@ void _git(Directory dir, List<String> args) {
     ..['GIT_AUTHOR_EMAIL'] = 'test@example.com'
     ..['GIT_COMMITTER_NAME'] = 'Test'
     ..['GIT_COMMITTER_EMAIL'] = 'test@example.com';
-  final result = Process.runSync('git', [
-    '-C',
-    dir.path,
-    ...args,
-  ], environment: env, runInShell: false);
+  final result = Process.runSync(
+    'git',
+    ['-C', dir.path, ...args],
+    environment: env,
+    runInShell: false,
+  );
   if (result.exitCode != 0) {
     throw ProcessException('git', args, (result.stderr as String).trim());
   }

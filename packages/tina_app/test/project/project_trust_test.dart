@@ -19,66 +19,89 @@ void main() {
     }
   });
 
-  test('ProjectTrustStore round-trips and recovers from a corrupt file',
-      () async {
-    final tmp = await Directory.systemTemp.createTemp('tina_trust_store_');
-    try {
-      final store = ProjectTrustStore.forTinaDir(tmp);
-      expect(store.isTrusted(tmp.path), isFalse);
-      store.setTrusted(tmp.path, true);
-      expect(store.isTrusted(tmp.path), isTrue);
-      store.setTrusted(tmp.path, false);
-      expect(store.isTrusted(tmp.path), isFalse);
-      // A corrupt store file must not throw or block — it reads as empty.
-      File(p.join(tmp.path, 'trusted_projects.json'))
-          .writeAsStringSync('{not valid json');
-      expect(store.isTrusted(tmp.path), isFalse);
-    } finally {
-      await tmp.delete(recursive: true);
-    }
-  });
+  test(
+    'ProjectTrustStore round-trips and recovers from a corrupt file',
+    () async {
+      final tmp = await Directory.systemTemp.createTemp('tina_trust_store_');
+      try {
+        final store = ProjectTrustStore.forTinaDir(tmp);
+        expect(store.isTrusted(tmp.path), isFalse);
+        store.setTrusted(tmp.path, true);
+        expect(store.isTrusted(tmp.path), isTrue);
+        store.setTrusted(tmp.path, false);
+        expect(store.isTrusted(tmp.path), isFalse);
+        // A corrupt store file must not throw or block — it reads as empty.
+        File(
+          p.join(tmp.path, 'trusted_projects.json'),
+        ).writeAsStringSync('{not valid json');
+        expect(store.isTrusted(tmp.path), isFalse);
+      } finally {
+        await tmp.delete(recursive: true);
+      }
+    },
+  );
 
   test('resolveProjectTrust: override wins; branches; ask persists', () async {
     // A project dir WITH an AGENTS.md (so the gate has something to withhold).
-    final project =
-        await Directory.systemTemp.createTemp('tina_trust_resolve_');
-    final storeDir =
-        await Directory.systemTemp.createTemp('tina_trust_storeb_');
+    final project = await Directory.systemTemp.createTemp(
+      'tina_trust_resolve_',
+    );
+    final storeDir = await Directory.systemTemp.createTemp(
+      'tina_trust_storeb_',
+    );
     try {
       File(p.join(project.path, 'AGENTS.md')).writeAsStringSync('# inject me');
       final store = ProjectTrustStore.forTinaDir(storeDir);
 
       // Explicit override wins either way.
       expect(
-          await resolveProjectTrust(
-              cwd: project.path, store: store, hasUi: true, override: true),
-          isTrue);
+        await resolveProjectTrust(
+          cwd: project.path,
+          store: store,
+          hasUi: true,
+          override: true,
+        ),
+        isTrue,
+      );
       expect(
-          await resolveProjectTrust(
-              cwd: project.path, store: store, hasUi: true, override: false),
-          isFalse);
+        await resolveProjectTrust(
+          cwd: project.path,
+          store: store,
+          hasUi: true,
+          override: false,
+        ),
+        isFalse,
+      );
 
       // Headless + untrusted + AGENTS.md → skip (false), no ask.
       expect(
-          await resolveProjectTrust(
-              cwd: project.path, store: store, hasUi: false),
-          isFalse);
+        await resolveProjectTrust(
+          cwd: project.path,
+          store: store,
+          hasUi: false,
+        ),
+        isFalse,
+      );
 
       // defaultMode always / never short-circuit.
       expect(
-          await resolveProjectTrust(
-              cwd: project.path,
-              store: store,
-              hasUi: false,
-              defaultMode: TrustDefault.always),
-          isTrue);
+        await resolveProjectTrust(
+          cwd: project.path,
+          store: store,
+          hasUi: false,
+          defaultMode: TrustDefault.always,
+        ),
+        isTrue,
+      );
       expect(
-          await resolveProjectTrust(
-              cwd: project.path,
-              store: store,
-              hasUi: true,
-              defaultMode: TrustDefault.never),
-          isFalse);
+        await resolveProjectTrust(
+          cwd: project.path,
+          store: store,
+          hasUi: true,
+          defaultMode: TrustDefault.never,
+        ),
+        isFalse,
+      );
 
       // ask → yes persists, so a follow-up resolves without asking.
       var asked = 0;

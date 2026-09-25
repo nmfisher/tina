@@ -180,9 +180,9 @@ AgentDriver buildAgent({
   // per-process, so one shared tool instance serves every conversation of the
   // session; sub-agents are unchanged (they read [pipeline.tools], which is
   // the mounted tool scope, and the orchestrator role re-reads the key below).
-  final exploreProject = scheduler.mountedScopeValue
-      ?.lookup(exploreProjectToolServiceKey)
-      as ExploreProjectTool?;
+  final exploreProject =
+      scheduler.mountedScopeValue?.lookup(exploreProjectToolServiceKey)
+          as ExploreProjectTool?;
   var tools = [
     ...pipeline.tools.buildTools(safeMode: config.safeMode).all,
     if (exploreProject != null) exploreProject,
@@ -193,8 +193,9 @@ AgentDriver buildAgent({
   // context. Per-conversation by construction: a shared scope cannot know
   // which conversation a turn belongs to, so these are minted here, keyed by
   // [conversationId].
-  final planStore =
-      scheduler.mountedScopeValue?.lookup(plans.planStoreServiceKey);
+  final planStore = scheduler.mountedScopeValue?.lookup(
+    plans.planStoreServiceKey,
+  );
   AgentMiddleware? planMiddleware;
   if (planStore != null) {
     // The plan-approval gate is a human gate, so both per-conversation
@@ -203,12 +204,9 @@ AgentDriver buildAgent({
     // has an answerable human (headless --prompt/--workflow has neither a
     // /plan nor an overlay). Under either, a `requested` ask auto-grants
     // instead of parking the run — the 2026-09-24 unattended stall.
-    tools.add(plans.PlanTool(
-      planStore,
-      conversationId,
-      policy: policy,
-      host: host,
-    ));
+    tools.add(
+      plans.PlanTool(planStore, conversationId, policy: policy, host: host),
+    );
     planMiddleware = plans.PlanMiddleware(
       planStore,
       conversationId,
@@ -221,8 +219,9 @@ AgentDriver buildAgent({
   // has no agent write surface (the user owns it via /goal) and the judge
   // runs outside the agent build (host turn wiring). Per-conversation by the
   // same construction as the plan store above.
-  final goalStore =
-      scheduler.mountedScopeValue?.lookup(goals.goalStoreServiceKey);
+  final goalStore = scheduler.mountedScopeValue?.lookup(
+    goals.goalStoreServiceKey,
+  );
   AgentMiddleware? goalMiddleware;
   if (goalStore != null) {
     goalMiddleware = goals.GoalMiddleware(goalStore, conversationId);
@@ -412,7 +411,8 @@ AgentDriver buildAgent({
     ],
     executionHooks: scheduler.scopeExecutionHooks,
     toolChecks: scheduler.scopeToolChecks,
-    middleware: scheduler.mountedScopeValue == null &&
+    middleware:
+        scheduler.mountedScopeValue == null &&
             planMiddleware == null &&
             goalMiddleware == null
         ? null

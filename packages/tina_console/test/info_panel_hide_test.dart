@@ -26,8 +26,9 @@ void main() {
   });
 
   PanelFrame _spawnedPanel() {
-    final frame = PanelFrame(screen: screen, label: 'scout', conversationId: 'c1')
-      ..setReservesInput(true);
+    final frame =
+        PanelFrame(screen: screen, label: 'scout', conversationId: 'c1')
+          ..setReservesInput(true);
     frame.setOuter(Rect(
       row: screen.layout.topBorderRow,
       col: screen.layout.infoLeftCol,

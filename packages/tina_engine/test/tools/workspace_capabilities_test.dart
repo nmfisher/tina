@@ -35,7 +35,8 @@ void main() {
   });
 
   group('WorkspaceCapabilities.build', () {
-    test('confined build wires a SandboxedProcessRunner, sandboxed fs and a '
+    test(
+        'confined build wires a SandboxedProcessRunner, sandboxed fs and a '
         'backup store', () {
       final caps = WorkspaceCapabilities.build(
         workspaceRoot: tempDir.path,
@@ -52,7 +53,8 @@ void main() {
       expect(caps.mutationLock, isA<FileMutationLock>());
     });
 
-    test('confined build shares one BackupStore (and fs) across the store and '
+    test(
+        'confined build shares one BackupStore (and fs) across the store and '
         'the sandbox', () {
       final caps = WorkspaceCapabilities.build(
         workspaceRoot: tempDir.path,
@@ -92,7 +94,8 @@ void main() {
           throwsUnsupportedError);
     });
 
-    test('two builds for the same root produce INDEPENDENT mutation locks and '
+    test(
+        'two builds for the same root produce INDEPENDENT mutation locks and '
         'sandboxes', () {
       final a = WorkspaceCapabilities.build(
         workspaceRoot: tempDir.path,
@@ -167,8 +170,8 @@ void main() {
           same(caps.processRunner));
       expect((byName['grep']! as GrepTool).processRunner,
           same(caps.processRunner));
-      expect((byName['git']! as GitTool).processRunner,
-          same(caps.processRunner));
+      expect(
+          (byName['git']! as GitTool).processRunner, same(caps.processRunner));
     });
 
     group('declared capabilities are enforced against the gate', () {
@@ -227,15 +230,16 @@ void main() {
           if (tool == null) continue; // mounted by the app, not this wiring
           if (_spawnsWithoutRunner.contains(entry.key)) continue;
           expect(tool, isA<SpawnsProcess>(), reason: entry.key);
-          expect((tool as SpawnsProcess).processRunner,
-              same(m.caps.processRunner),
+          expect(
+              (tool as SpawnsProcess).processRunner, same(m.caps.processRunner),
               reason: '${entry.key} spawns a process, so it must take the '
                   'shared runner rather than choosing its own');
         }
       });
     });
 
-    test('built catalog names and order are exactly the frozen catalog, plus '
+    test(
+        'built catalog names and order are exactly the frozen catalog, plus '
         'web_search only when a key is present', () {
       final caps = WorkspaceCapabilities.build(
         workspaceRoot: tempDir.path,
@@ -279,7 +283,8 @@ void main() {
           sandboxEnabled: false,
         )),
       )..activateSync();
-      final names = toolRegistryFromScope(withKey.scope).all
+      final names = toolRegistryFromScope(withKey.scope)
+          .all
           .map((t) => t.schema.name)
           .toList();
       expect(names.last, 'web_search',
@@ -326,7 +331,8 @@ void main() {
           reason: 'a configured Tavily key supersedes Brave');
     });
 
-    test('safeMode strips write/edit/bash (and write_summary is not in the '
+    test(
+        'safeMode strips write/edit/bash (and write_summary is not in the '
         'base registry)', () {
       final caps = WorkspaceCapabilities.build(
         workspaceRoot: tempDir.path,
@@ -343,11 +349,14 @@ void main() {
       expect(names, isNot(contains('write')));
       expect(names, isNot(contains('edit')));
       expect(names, isNot(contains('bash')));
-      expect(names.length, 10, reason: '14 catalog tools minus write/edit/bash/exec');
-      expect(names, everyElement(isNot(anyOf('write', 'edit', 'bash', 'exec'))));
+      expect(names.length, 10,
+          reason: '14 catalog tools minus write/edit/bash/exec');
+      expect(
+          names, everyElement(isNot(anyOf('write', 'edit', 'bash', 'exec'))));
     });
 
-    test('two scopes from two capabilities objects have independent tool '
+    test(
+        'two scopes from two capabilities objects have independent tool '
         'instances; two scopes from ONE capabilities object share the lock',
         () {
       final caps = WorkspaceCapabilities.build(
@@ -384,11 +393,9 @@ void main() {
       final editC = toolRegistryFromScope(runtimeC.scope)['edit']!;
       expect(identical((writeC as WriteTool).mutationLock, caps.mutationLock),
           isTrue);
-      expect(
-          identical((editC as EditTool).mutationLock, caps.mutationLock),
+      expect(identical((editC as EditTool).mutationLock, caps.mutationLock),
           isTrue,
-          reason:
-              'write and edit share the capabilities-level lock within one '
+          reason: 'write and edit share the capabilities-level lock within one '
               'runtime');
     });
 
@@ -400,7 +407,8 @@ void main() {
       );
 
       expect(
-        scope.toolSetFor(ToolProfile.readOnly)
+        scope
+            .toolSetFor(ToolProfile.readOnly)
             .map((t) => t.schema.name)
             .toList(),
         [

@@ -31,9 +31,11 @@ class PanelManager {
       primaryFrame.cycleWhenParked = false;
       focusManager.register(side);
       side.onSelect = (id) => onSelectFrame?.call(
-          allFrames.firstWhere((frame) => frame.conversationId == id));
+        allFrames.firstWhere((frame) => frame.conversationId == id),
+      );
       side.onEnter = (id) => focusManager.focusPanel(
-          allFrames.firstWhere((frame) => frame.conversationId == id));
+        allFrames.firstWhere((frame) => frame.conversationId == id),
+      );
     }
   }
 
@@ -53,8 +55,11 @@ class PanelManager {
     sidebar?.update([
       (id: primaryFrame.conversationId, label: primaryFrame.label, depth: 0),
       for (final frame in tree.ordered(spawnedFrames))
-        (id: frame.conversationId, label: frame.label,
-          depth: tree.depthOf(frame.conversationId)),
+        (
+          id: frame.conversationId,
+          label: frame.label,
+          depth: tree.depthOf(frame.conversationId),
+        ),
     ], activeId: selectedFrame.conversationId);
   }
 
@@ -111,14 +116,16 @@ class PanelManager {
   /// frame policy — the first step of every resize. Pure geometry: only touches
   /// [Screen.layout]; the frames laid out against that layout is [layout]'s job.
   void applyScreenLayout({required bool split, required bool drawInfoFrame}) {
-    screen.resize(ScreenLayout.fromSize(
-      terminalGeometry.columns,
-      terminalGeometry.lines,
-      hasMenuBar: menuBarEnabled,
-      split: sidebar == null && split,
-      drawInfoFrame: sidebar == null && drawInfoFrame,
-      sidebarWidth: sidebar == null ? 0 : 24,
-    ));
+    screen.resize(
+      ScreenLayout.fromSize(
+        terminalGeometry.columns,
+        terminalGeometry.lines,
+        hasMenuBar: menuBarEnabled,
+        split: sidebar == null && split,
+        drawInfoFrame: sidebar == null && drawInfoFrame,
+        sidebarWidth: sidebar == null ? 0 : 24,
+      ),
+    );
   }
 
   /// Lay out every panel: the primary (left column, or full width) plus the
@@ -130,7 +137,8 @@ class PanelManager {
     if (sidebar != null) {
       screen.frame(() {
         final rect = Rect(
-          row: layout.topBorderRow, col: layout.chatLeftCol,
+          row: layout.topBorderRow,
+          col: layout.chatLeftCol,
           width: layout.chatRightCol - layout.chatLeftCol + 1,
           height: layout.bottomBorderRow - layout.topBorderRow + 1,
         );
@@ -147,12 +155,14 @@ class PanelManager {
     }
     // The primary panel owns the chat box (border-inclusive): the full width
     // when not split, or the left column up to the divider when split.
-    primaryFrame.setOuter(Rect(
-      row: layout.topBorderRow,
-      col: layout.chatLeftCol,
-      width: layout.chatRightCol - layout.chatLeftCol + 1,
-      height: layout.bottomBorderRow - layout.topBorderRow + 1,
-    ));
+    primaryFrame.setOuter(
+      Rect(
+        row: layout.topBorderRow,
+        col: layout.chatLeftCol,
+        width: layout.chatRightCol - layout.chatLeftCol + 1,
+        height: layout.bottomBorderRow - layout.topBorderRow + 1,
+      ),
+    );
 
     final info = layout.info;
     if (info.isEmpty) return; // no right column
@@ -210,7 +220,8 @@ class PanelManager {
       final row = slot < visibleCount
           ? stackTop + slot * perPanel
           : stackTop + stackHeight + (slot - visibleCount) * perPanel;
-      final inWindow = !scrolling ||
+      final inWindow =
+          !scrolling ||
           (i >= _scrollOffset && i < _scrollOffset + visibleCount);
       if (!inWindow) {
         // Virtual slot: negative rows above the stack, rows past the screen
@@ -227,27 +238,37 @@ class PanelManager {
         );
         continue;
       }
-      final h = slot < visibleCount - 1 ? perPanel : stackTop + stackHeight - row;
-      frame.setOuter(Rect(
-        row: row,
-        col: info.col + indent,
-        width: info.width - indent,
-        height: h.clamp(3, boxHeight),
-      ));
+      final h = slot < visibleCount - 1
+          ? perPanel
+          : stackTop + stackHeight - row;
+      frame.setOuter(
+        Rect(
+          row: row,
+          col: info.col + indent,
+          width: info.width - indent,
+          height: h.clamp(3, boxHeight),
+        ),
+      );
       tree.relabelPanel(
-          frame, tree.baseLabel[frame.conversationId] ?? frame.label);
+        frame,
+        tree.baseLabel[frame.conversationId] ?? frame.label,
+      );
     }
     if (scrolling) {
       final hiddenAbove = _scrollOffset;
       final hiddenBelow = ordered.length - (_scrollOffset + visibleCount);
       _drawScrollIndicator(
-          row: stackTop - 1,
-          text: hiddenAbove > 0 ? '↑ $hiddenAbove panel${hiddenAbove == 1 ? '' : 's'} above' : '');
+        row: stackTop - 1,
+        text: hiddenAbove > 0
+            ? '↑ $hiddenAbove panel${hiddenAbove == 1 ? '' : 's'} above'
+            : '',
+      );
       _drawScrollIndicator(
-          row: stackTop + stackHeight,
-          text: hiddenBelow > 0
-              ? '↓ $hiddenBelow panel${hiddenBelow == 1 ? '' : 's'} below (Ctrl+W to cycle)'
-              : '');
+        row: stackTop + stackHeight,
+        text: hiddenBelow > 0
+            ? '↓ $hiddenBelow panel${hiddenBelow == 1 ? '' : 's'} below (Ctrl+W to cycle)'
+            : '',
+      );
     }
   }
 
@@ -278,8 +299,10 @@ class PanelManager {
     final layout = screen.layout;
     final boxHeight = layout.bottomBorderRow - layout.topBorderRow + 1;
     if (ordered.length * minPanelHeight <= boxHeight) return false;
-    final visibleCount =
-        _visibleCapacity(boxHeight - 2, ordered.length); // −2: indicators
+    final visibleCount = _visibleCapacity(
+      boxHeight - 2,
+      ordered.length,
+    ); // −2: indicators
     var offset = _scrollOffset;
     if (idx < offset) offset = idx;
     if (idx >= offset + visibleCount) offset = idx - visibleCount + 1;

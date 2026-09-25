@@ -59,11 +59,16 @@ class JudgmentBatchRunner {
   final JudgmentBatchLimits limits;
   bool _running = false;
 
-  JudgmentBatchRunner(
-      {required this.service, required this.budget, required this.limits});
+  JudgmentBatchRunner({
+    required this.service,
+    required this.budget,
+    required this.limits,
+  });
 
-  Future<JudgmentBatchResult> run(List<JudgmentRequest> requests,
-      {JudgmentCancellation? cancellation}) async {
+  Future<JudgmentBatchResult> run(
+    List<JudgmentRequest> requests, {
+    JudgmentCancellation? cancellation,
+  }) async {
     if (_running) throw StateError('Judgment batch already running');
     if (requests.length > limits.maxRequests) {
       throw const JudgmentException(JudgmentFailure.budgetExceeded);
@@ -72,7 +77,7 @@ class JudgmentBatchRunner {
     // Validate ALL inputs before spending anything.
     final reservations = [
       for (final request in work)
-        budget.check(request) + limits.outputTokenAllowance
+        budget.check(request) + limits.outputTokenAllowance,
     ];
     _running = true;
     final stop = JudgmentCancellation();
@@ -82,8 +87,9 @@ class JudgmentBatchRunner {
       stop.cancel();
     }
 
-    final unsubscribe =
-        cancellation?.listen(() => halt(JudgmentFailure.cancelled));
+    final unsubscribe = cancellation?.listen(
+      () => halt(JudgmentFailure.cancelled),
+    );
     final timer = Timer(limits.timeout, () => halt(JudgmentFailure.timeout));
     final items = List<JudgmentBatchItem?>.filled(work.length, null);
     var next = 0;
@@ -108,7 +114,10 @@ class JudgmentBatchRunner {
         next++;
         if (charged + reserved > limits.maxChargedTokens) {
           items[index] = const JudgmentBatchItem._(
-              null, JudgmentFailure.budgetExceeded, false);
+            null,
+            JudgmentFailure.budgetExceeded,
+            false,
+          );
           continue;
         }
         charged += reserved;
@@ -124,15 +133,19 @@ class JudgmentBatchRunner {
 
         final detach = stop.listen(() => interrupt(stoppedReason!));
         final callTimer = Timer(
-            limits.requestTimeout, () => interrupt(JudgmentFailure.timeout));
+          limits.requestTimeout,
+          () => interrupt(JudgmentFailure.timeout),
+        );
         try {
           final result = await Future.any([
             Future.sync(
-                () => service.evaluate(work[index], cancellation: local)),
+              () => service.evaluate(work[index], cancellation: local),
+            ),
             interrupted.future,
           ]);
           final usage = result.usage;
-          final observed = (usage.inputTokens ?? budget.estimate(work[index])) +
+          final observed =
+              (usage.inputTokens ?? budget.estimate(work[index])) +
               (usage.outputTokens ?? limits.outputTokenAllowance);
           if (usage.inputTokens != null && usage.outputTokens != null) {
             charged += observed - reserved;
@@ -163,10 +176,13 @@ class JudgmentBatchRunner {
 
     try {
       await Future.wait([
-        for (var i = 0; i < limits.concurrency && i < work.length; i++) worker()
+        for (var i = 0; i < limits.concurrency && i < work.length; i++)
+          worker(),
       ]);
       return JudgmentBatchResult._(
-          List.unmodifiable(items.cast<JudgmentBatchItem>()), charged);
+        List.unmodifiable(items.cast<JudgmentBatchItem>()),
+        charged,
+      );
     } finally {
       timer.cancel();
       unsubscribe?.call();

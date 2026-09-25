@@ -30,12 +30,18 @@ void main() {
   group('Intent classifier', () {
     for (final sample in [
       (
-        scores: <String, double>{'projectQuestion': .96, 'agentInstruction': .3},
+        scores: <String, double>{
+          'projectQuestion': .96,
+          'agentInstruction': .3,
+        },
         type: IntentType.projectQuestion,
         confidence: .96,
       ),
       (
-        scores: <String, double>{'projectQuestion': .2, 'agentInstruction': .94},
+        scores: <String, double>{
+          'projectQuestion': .2,
+          'agentInstruction': .94,
+        },
         type: IntentType.agentInstruction,
         confidence: .94,
       ),
@@ -74,7 +80,10 @@ void main() {
       ),
       // Tie at or above threshold → instruction wins.
       (
-        scores: <String, double>{'projectQuestion': .86, 'agentInstruction': .86},
+        scores: <String, double>{
+          'projectQuestion': .86,
+          'agentInstruction': .86,
+        },
         type: IntentType.agentInstruction,
         confidence: .86,
       ),
@@ -207,10 +216,7 @@ void main() {
             cancel ? IntentPhase.cancelled : IntentPhase.ready,
           );
           if (!cancel) {
-            expect(
-              plugin.read('a')!.result!.type,
-              IntentType.projectQuestion,
-            );
+            expect(plugin.read('a')!.result!.type, IntentType.projectQuestion);
           }
         },
       );

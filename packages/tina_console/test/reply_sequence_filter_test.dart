@@ -24,7 +24,8 @@ void main() {
       // for where each one comes from. All arrive as ESC + printable bytes.
       final shapes = <String, List<int>>{
         'OSC 4 palette entry': ids('\x1b]4;1;rgb:8000/0000/0000\x1b\\'),
-        'OSC 4 palette entry (BEL terminator)': ids('\x1b]4;16;rgb:0000/5f5f/0000\x07'),
+        'OSC 4 palette entry (BEL terminator)':
+            ids('\x1b]4;16;rgb:0000/5f5f/0000\x07'),
         'OSC 10 foreground': ids('\x1b]10;rgb:ffff/ffff/ffff\x1b\\'),
         'OSC 11 background': ids('\x1b]11;rgb:0000/0000/0000\x1b\\'),
         'DA1': ids('\x1b[?62;c'),
@@ -35,7 +36,8 @@ void main() {
         'XTMODKEYS': ids('\x1b[?1;3;256S'),
         'kitty keyboard flags': ids('\x1b[?1u'),
         'kitty graphics (APC)': ids('\x1b_Gi=1;OK\x1b\\'),
-        'XTGETTCAP (DCS)': ids('\x1bP1+r544e;787465726d2d323536636f6c6f72\x1b\\'),
+        'XTGETTCAP (DCS)':
+            ids('\x1bP1+r544e;787465726d2d323536636f6c6f72\x1b\\'),
         'XTWINOPS 18': ids('\x1b[8;40;120t'),
       };
       for (final e in shapes.entries) {
@@ -77,7 +79,18 @@ void main() {
       final filter = ReplySequenceFilter();
       // 'a', 'b', 'c', '4', ';' all occur inside OSC 4 replies; typed with
       // human gaps (60 ms) they must not be filtered.
-      final typed = [0x61, 0x62, 0x63, 0x34, 0x3b, 0x3a, 0x2f, 0x72, 0x67, 0x62];
+      final typed = [
+        0x61,
+        0x62,
+        0x63,
+        0x34,
+        0x3b,
+        0x3a,
+        0x2f,
+        0x72,
+        0x67,
+        0x62
+      ];
       final out = <int>[];
       var t = 0;
       for (final k in typed) {
@@ -89,10 +102,12 @@ void main() {
 
     test('delivers a lone ESC (cancel) once the introducer window passes', () {
       final filter = ReplySequenceFilter();
-      expect(filter.add(0x1b, 0), isEmpty, reason: 'held pending an introducer');
+      expect(filter.add(0x1b, 0), isEmpty,
+          reason: 'held pending an introducer');
       // Next key arrives 200 ms later — far past introducerWindow.
       final out = filter.add(0x71, 200000);
-      expect(out, [0x1b, 0x71], reason: 'ESC was a real cancel, then a typed q');
+      expect(out, [0x1b, 0x71],
+          reason: 'ESC was a real cancel, then a typed q');
     });
 
     test('releases a held ESC on flush', () {

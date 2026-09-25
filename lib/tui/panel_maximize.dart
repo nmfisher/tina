@@ -55,15 +55,17 @@ Future<void> runMaximizedPanelOverlay({
     final footer = lines.isEmpty
         ? '(empty)'
         : '↑↓/PgUp-PgDn scroll · ctrl+o or esc close  '
-            '[row ${(panRow + 1).clamp(1, lines.length)}/${lines.length}]';
-    popup.show(boxLines(
-      width: w,
-      height: h,
-      title: title,
-      body: body,
-      footer: footer,
-      paint: paint,
-    ));
+              '[row ${(panRow + 1).clamp(1, lines.length)}/${lines.length}]';
+    popup.show(
+      boxLines(
+        width: w,
+        height: h,
+        title: title,
+        body: body,
+        footer: footer,
+        paint: paint,
+      ),
+    );
   }
 
   scrim.show([

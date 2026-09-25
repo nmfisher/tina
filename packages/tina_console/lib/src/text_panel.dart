@@ -15,7 +15,8 @@ class TextPanel extends Panel {
   final String title;
   List<String> _content = const [];
 
-  TextPanel(Screen screen, Rect bounds, {this.title = ''}) : super(screen, bounds);
+  TextPanel(Screen screen, Rect bounds, {this.title = ''})
+      : super(screen, bounds);
 
   /// Replace the displayed content lines and repaint.
   void setContent(List<String> lines) {
@@ -131,7 +132,8 @@ class TextPanel extends Panel {
         return true;
       case ControlKey(:final code):
         // Let quit/cancel keys fall through to the editor/host.
-        if (code == ControlCode.ctrlC || code == ControlCode.ctrlD) return false;
+        if (code == ControlCode.ctrlC || code == ControlCode.ctrlD)
+          return false;
         return true;
       default:
         return false;

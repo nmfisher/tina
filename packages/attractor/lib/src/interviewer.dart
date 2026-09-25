@@ -71,17 +71,17 @@ class Answer {
 
   /// The user dismissed the question without answering.
   const Answer.cancelled()
-      : value = null,
-        selectedOption = null,
-        kind = AnswerValue.skipped,
-        text = null;
+    : value = null,
+      selectedOption = null,
+      kind = AnswerValue.skipped,
+      text = null;
 
-  bool get isCancelled => kind == AnswerValue.skipped || kind == AnswerValue.timeout;
+  bool get isCancelled =>
+      kind == AnswerValue.skipped || kind == AnswerValue.timeout;
 
   /// The label to route on: the selected option's label, the value, or the
   /// freeform text — whatever is present.
-  String? get routeLabel =>
-      selectedOption?.label ?? value ?? text;
+  String? get routeLabel => selectedOption?.label ?? value ?? text;
 }
 
 /// The seam a host application implements to present human-gate questions. The

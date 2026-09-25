@@ -36,11 +36,15 @@ void main() {
       expect(l.rankOf['plan']!, lessThan(l.rankOf['review']!));
       expect(l.rankOf['review']!, lessThan(l.rankOf['execute']!));
       // The revise edge goes back to plan.
-      expect(l.backEdges.any((k) => k.contains('review') && k.endsWith('plan')),
-          isTrue);
+      expect(
+        l.backEdges.any((k) => k.contains('review') && k.endsWith('plan')),
+        isTrue,
+      );
       // The forward edge is not a back-edge.
-      expect(l.backEdges.any((k) => k.contains('review') && k.endsWith('execute')),
-          isFalse);
+      expect(
+        l.backEdges.any((k) => k.contains('review') && k.endsWith('execute')),
+        isFalse,
+      );
     });
 
     test('places unreachable nodes in trailing layers', () {

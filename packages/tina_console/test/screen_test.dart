@@ -12,7 +12,8 @@ void main() {
       final io = FakeStdio();
       // Split (>=100) with a drawn info frame: the info box is the only frame
       // the Screen paints now (the chat area's border is panel-drawn).
-      final layout = ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true);
+      final layout =
+          ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true);
       final screen = Screen(io: io, layout: layout, ansi: AnsiCapable.yes);
       final vt = VirtualTerminal(width: 100, height: 24);
 
@@ -31,7 +32,8 @@ void main() {
       expect(r[layout.infoRightCol], '│');
     });
 
-    test('redrawFrame paints no box border when there is no info/menu frame', () {
+    test('redrawFrame paints no box border when there is no info/menu frame',
+        () {
       // Non-split: no info box; menu disabled. The Screen paints no box border
       // at all (the chat border is panel-drawn) — only cursor bookkeeping.
       final io = FakeStdio();
@@ -47,7 +49,8 @@ void main() {
 
     test('a focused info box is cyan', () {
       final io = FakeStdio();
-      final layout = ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true);
+      final layout =
+          ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true);
       final screen = Screen(io: io, layout: layout, ansi: AnsiCapable.yes);
       screen.redrawFrame();
       io.written.clear();
@@ -57,7 +60,8 @@ void main() {
 
     test('a highlighted info box is yellow, not cyan', () {
       final io = FakeStdio();
-      final layout = ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true);
+      final layout =
+          ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true);
       final screen = Screen(io: io, layout: layout, ansi: AnsiCapable.yes);
       screen.redrawFrame();
       io.written.clear();
@@ -69,8 +73,8 @@ void main() {
 
     test('one box focused (cyan) while another is highlighted (yellow)', () {
       final io = FakeStdio();
-      final layout = ScreenLayout.fromSize(100, 24, hasMenuBar: true,
-          split: true, drawInfoFrame: true);
+      final layout = ScreenLayout.fromSize(100, 24,
+          hasMenuBar: true, split: true, drawInfoFrame: true);
       final screen = Screen(io: io, layout: layout, ansi: AnsiCapable.yes);
       screen.redrawFrame();
       screen.focusFrame(FrameBox.info);
@@ -110,7 +114,8 @@ void main() {
       final io = FakeStdio();
       final screen = Screen(
         io: io,
-        layout: ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true),
+        layout:
+            ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true),
         ansi: AnsiCapable.yes,
       );
       final vt = VirtualTerminal(width: 100, height: 24);
@@ -118,7 +123,8 @@ void main() {
       io.written.clear();
 
       // 2x2 rgba placeholder buffer (content is irrelevant to the ANSI path).
-      final rgba = Uint32List.fromList([0xff0000ff, 0x00ff00ff, 0x0000ffff, 0xffffffff]);
+      final rgba =
+          Uint32List.fromList([0xff0000ff, 0x00ff00ff, 0x0000ffff, 0xffffffff]);
       screen.renderImageAbsolute(
         row: 5,
         col: 10,
@@ -168,7 +174,8 @@ void main() {
       final io = FakeStdio();
       final screen = Screen(
         io: io,
-        layout: ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true),
+        layout:
+            ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true),
         ansi: AnsiCapable.yes,
       );
       final vt = VirtualTerminal(width: 100, height: 24);
@@ -191,7 +198,8 @@ void main() {
 
     test('repaints info borders after a write on that row', () {
       final io = FakeStdio();
-      final layout = ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true);
+      final layout =
+          ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true);
       final screen = Screen(io: io, layout: layout, ansi: AnsiCapable.yes);
       final vt = VirtualTerminal(width: 100, height: 24);
       screen.redrawFrame();
@@ -217,7 +225,8 @@ void main() {
       final io = FakeStdio();
       final screen = Screen(
         io: io,
-        layout: ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true),
+        layout:
+            ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true),
         ansi: AnsiCapable.yes,
       );
       final vt = VirtualTerminal(width: 100, height: 24);
@@ -245,7 +254,8 @@ void main() {
       final io = FakeStdio();
       final screen = Screen(
         io: io,
-        layout: ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true),
+        layout:
+            ScreenLayout.fromSize(100, 24, split: true, drawInfoFrame: true),
         ansi: AnsiCapable.yes,
       );
       final vt = VirtualTerminal(width: 100, height: 24);

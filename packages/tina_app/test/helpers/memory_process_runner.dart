@@ -90,10 +90,8 @@ class MemoryRunningProcess implements RunningProcess {
 /// Builds the [RunningProcess] a [MemoryProcessRunner] hands back for a given
 /// executable + argv. Tests inspect [arguments] to route (e.g. `rg --version`
 /// vs `rg <search>`).
-typedef MemoryProcessFactory = MemoryRunningProcess Function(
-  String executable,
-  List<String> arguments,
-);
+typedef MemoryProcessFactory =
+    MemoryRunningProcess Function(String executable, List<String> arguments);
 
 /// A [ProcessRunner] that builds each process via [factory] and records every
 /// [start]/[run] invocation. Both methods consult the same factory so a test

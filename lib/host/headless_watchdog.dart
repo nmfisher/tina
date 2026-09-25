@@ -81,7 +81,8 @@ class HeadlessWatchdog {
     _timer = null;
     final last = _lastEventTime;
     final ago = last != null ? nowProvider().difference(last) : timeout;
-    final block = '[watchdog] no agent activity for '
+    final block =
+        '[watchdog] no agent activity for '
         '${timeout.inSeconds}s — aborting (last event: $_lastEventName '
         'at +${ago.inSeconds}s, total events: $_eventCount). '
         'Likely cause: an internal await that never resolves '

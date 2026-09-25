@@ -22,13 +22,18 @@ const int kHistoryMaxChars = 60000;
 /// newest kept (older messages are dropped first once the cap is hit). Tool
 /// blocks are skipped. The newest message is always included; if it alone
 /// exceeds [maxChars], its head is kept.
-String formatChatHistory(List<Message> history,
-    {int maxChars = kHistoryMaxChars}) {
+String formatChatHistory(
+  List<Message> history, {
+  int maxChars = kHistoryMaxChars,
+}) {
   // Newest first, text blocks only.
   final blocks = <String>[];
   for (final m in history.reversed) {
-    final text =
-        m.content.whereType<TextBlock>().map((b) => b.text).join('\n').trim();
+    final text = m.content
+        .whereType<TextBlock>()
+        .map((b) => b.text)
+        .join('\n')
+        .trim();
     if (text.isEmpty) continue;
     final label = m.role == Role.user ? 'user' : 'assistant';
     blocks.add('$label: $text');
@@ -45,9 +50,11 @@ String formatChatHistory(List<Message> history,
     used += cost;
   }
   if (kept.isEmpty) {
-    kept.add(blocks.first.length <= maxChars
-        ? blocks.first
-        : '${blocks.first.substring(0, maxChars)}…');
+    kept.add(
+      blocks.first.length <= maxChars
+          ? blocks.first
+          : '${blocks.first.substring(0, maxChars)}…',
+    );
   }
   return kept.reversed.join('\n\n');
 }
@@ -66,8 +73,9 @@ String? resolveDefaultWorkflowName({
 }) {
   if (workflowsDir == null || !workflowsDir.existsSync()) return null;
   if (configured == 'none') return null;
-  final name =
-      (configured == null || configured.isEmpty) ? 'default' : configured;
+  final name = (configured == null || configured.isEmpty)
+      ? 'default'
+      : configured;
   if (!File(p.join(workflowsDir.path, '$name.dot')).existsSync()) return null;
   return name;
 }
@@ -86,7 +94,9 @@ class DefaultWorkflowUnusable implements Exception {
 /// validated. (Unknown roles are only warnings — they fail at runtime with a
 /// clear message instead.)
 Future<void> ensureDefaultWorkflowUsable(
-    Directory workflowsDir, String name) async {
+  Directory workflowsDir,
+  String name,
+) async {
   final file = File(p.join(workflowsDir.path, '$name.dot'));
   final String source;
   try {
@@ -102,11 +112,11 @@ Future<void> ensureDefaultWorkflowUsable(
     throw DefaultWorkflowUnusable('workflow "$name" is not valid DOT: $e');
   }
 
-  final errors =
-      validate(graph).where((d) => d.severity == Severity.error);
+  final errors = validate(graph).where((d) => d.severity == Severity.error);
   if (errors.isNotEmpty) {
     throw DefaultWorkflowUnusable(
-        'workflow "$name" is invalid: ${errors.map((d) => '$d').join('; ')}');
+      'workflow "$name" is invalid: ${errors.map((d) => '$d').join('; ')}',
+    );
   }
 }
 

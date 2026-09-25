@@ -70,8 +70,8 @@ class _PromptsForm {
 
   /// The editable identity: just the entry agent (the catalog is gone).
   List<_Identity> get _roles => [
-        _Identity('main', 'the entry coding agent', _pipeline.mainIdentity),
-      ];
+    _Identity('main', 'the entry coding agent', _pipeline.mainIdentity),
+  ];
 
   late final OverlayRegion _overlay;
   late final Rect _rect;
@@ -306,8 +306,7 @@ class _PromptsForm {
 
   ({UserConfig? config, String? error}) _closeResult() {
     if (_overrides.length == _initial.prompts.length &&
-        _overrides.entries.every(
-            (e) => _initial.prompts[e.key] == e.value)) {
+        _overrides.entries.every((e) => _initial.prompts[e.key] == e.value)) {
       return (config: null, error: null); // no net change
     }
     final cfg = UserConfig(
@@ -358,13 +357,15 @@ class _PromptsForm {
 
   String _editorTitle() {
     final role = _editingRole;
-    final dirty = role != null &&
+    final dirty =
+        role != null &&
         _buffer != null &&
         _buffer!.text != (_overrides[role.name] ?? role.promptIdentity);
     return 'Editing ${role?.name ?? ""}${dirty ? " (unsaved)" : ""}';
   }
 
-  String _editorFooter() => 'ctrl-s save · esc cancel · ↑↓←→ move · enter newline';
+  String _editorFooter() =>
+      'ctrl-s save · esc cancel · ↑↓←→ move · enter newline';
 
   /// The editor viewport: [_editorRows] rows of text, scrolled so the cursor
   /// line stays visible. The cursor line is horizontally scrolled (mirroring
@@ -436,8 +437,9 @@ class _PromptsForm {
     }
 
     final titleSeg = ' $title ';
-    final titleFit =
-        titleSeg.length > w - 2 ? titleSeg.substring(0, w - 2) : titleSeg;
+    final titleFit = titleSeg.length > w - 2
+        ? titleSeg.substring(0, w - 2)
+        : titleSeg;
     final lines = <String>[
       '┌$titleFit${'─' * (w - 2 - titleFit.length)}┐',
       ...body.map(wrap),

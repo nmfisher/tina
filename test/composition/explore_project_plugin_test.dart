@@ -25,21 +25,23 @@ void main() {
     return runtime.scope;
   }
 
-  test('git/intent input plugins self-gate: headless contributes nothing',
-      () async {
-    final scope = await activate([
-      configuredGitInputPlugin(const {}, interactive: false),
-      configuredIntentInputPlugin(const {}, interactive: false),
-    ]);
-    expect(
-      scope.contributions.where((c) => c.contribution is GitInput),
-      isEmpty,
-    );
-    expect(
-      scope.contributions.where((c) => c.contribution is IntentInput),
-      isEmpty,
-    );
-  });
+  test(
+    'git/intent input plugins self-gate: headless contributes nothing',
+    () async {
+      final scope = await activate([
+        configuredGitInputPlugin(const {}, interactive: false),
+        configuredIntentInputPlugin(const {}, interactive: false),
+      ]);
+      expect(
+        scope.contributions.where((c) => c.contribution is GitInput),
+        isEmpty,
+      );
+      expect(
+        scope.contributions.where((c) => c.contribution is IntentInput),
+        isEmpty,
+      );
+    },
+  );
 
   test('git/intent input plugins mount interactive surfaces', () async {
     final scope = await activate([
@@ -64,19 +66,21 @@ void main() {
     expect(tool, isA<ExploreProjectTool>());
   });
 
-  test('explore_project plugin requires the ledger (ordering contract)',
-      () async {
-    // Without a ledger provider the composition must fail fast — the
-    // activation order pins the tool after metering exists.
-    final runtime = PluginRuntime(
-      name: 'pt0-test-ledgerless',
-      plugins: [
-        configuredExploreProjectPlugin(env: const {}, pauseGate: PauseGate()),
-      ],
-    );
-    await expectLater(
-      runtime.activate(),
-      throwsA(isA<PluginCompositionError>()),
-    );
-  });
+  test(
+    'explore_project plugin requires the ledger (ordering contract)',
+    () async {
+      // Without a ledger provider the composition must fail fast — the
+      // activation order pins the tool after metering exists.
+      final runtime = PluginRuntime(
+        name: 'pt0-test-ledgerless',
+        plugins: [
+          configuredExploreProjectPlugin(env: const {}, pauseGate: PauseGate()),
+        ],
+      );
+      await expectLater(
+        runtime.activate(),
+        throwsA(isA<PluginCompositionError>()),
+      );
+    },
+  );
 }

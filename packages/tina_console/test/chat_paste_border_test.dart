@@ -66,8 +66,7 @@ void main() {
     io.written.clear();
   }
 
-  test('every interior row keeps its left border after a scrolling paste',
-      () {
+  test('every interior row keeps its left border after a scrolling paste', () {
     final rect = const Rect(row: 2, col: 4, width: 60, height: 18);
     final (frame, _, chat) = _panelWithChat(rect);
     drain(); // border draw
@@ -126,8 +125,7 @@ void main() {
     }
   });
 
-  test('a full-width panel survives wide rows reaching the terminal edge',
-      () {
+  test('a full-width panel survives wide rows reaching the terminal edge', () {
     // The live-app geometry: the chat interior extends to the terminal's
     // right edge, so an over-budget wide row doesn't just paint past the
     // panel — the TERMINAL autowraps it onto the next screen row, eating

@@ -115,10 +115,8 @@ class GraphStore {
     };
   }
 
-  static CodeGraph _deserialize(
-      Map<String, dynamic> json, String repoRoot) {
-    final symbolsList =
-        (json['symbols'] as List).cast<Map<String, dynamic>>();
+  static CodeGraph _deserialize(Map<String, dynamic> json, String repoRoot) {
+    final symbolsList = (json['symbols'] as List).cast<Map<String, dynamic>>();
     final byId = <String, Symbol>{};
     for (final entry in symbolsList) {
       final id = entry['id'] as String;

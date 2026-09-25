@@ -22,8 +22,7 @@ void main() {
     void commit(String name, String message) {
       File('${repo.path}/$name').writeAsStringSync('content of $name');
       Process.runSync('git', ['-C', repo.path, 'add', '.']);
-      Process.runSync(
-          'git', ['-C', repo.path, 'commit', '-m', message]);
+      Process.runSync('git', ['-C', repo.path, 'commit', '-m', message]);
     }
 
     test('null for a non-repo directory', () {
@@ -81,7 +80,8 @@ void main() {
 
     test('marks package directories', () {
       Directory('${repo.path}/packages/thing').createSync(recursive: true);
-      File('${repo.path}/packages/thing/pubspec.yaml').writeAsStringSync('name: thing');
+      File('${repo.path}/packages/thing/pubspec.yaml')
+          .writeAsStringSync('name: thing');
       commit('a.txt', 'init');
       final block = repoSummaryBlock(repo.path)!;
       // The pubspec.yaml itself is the directory's one direct file.

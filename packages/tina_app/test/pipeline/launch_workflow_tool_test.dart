@@ -41,8 +41,10 @@ class _ScriptedRunner {
       if (cancelSignal == null) return done.future;
       return Future.any<PipelineRunResult>([
         done.future,
-        cancelSignal.then((_) =>
-            PipelineRunResult(outcome: Outcome.fail('cancelled'), runDir: '')),
+        cancelSignal.then(
+          (_) =>
+              PipelineRunResult(outcome: Outcome.fail('cancelled'), runDir: ''),
+        ),
       ]);
     };
   }
@@ -55,11 +57,15 @@ void main() {
       final runner = _ScriptedRunner();
       final supervisor = WorkflowSupervisor(run: runner.build());
       final tool = LaunchWorkflowTool(
-          supervisor: supervisor,
-          conversationId: 'conv-1',
-          sink: FakeAgentSink());
+        supervisor: supervisor,
+        conversationId: 'conv-1',
+        sink: FakeAgentSink(),
+      );
 
-      final res = await tool.execute({'input': 'fix the bug', 'workflow': 'lint'});
+      final res = await tool.execute({
+        'input': 'fix the bug',
+        'workflow': 'lint',
+      });
 
       // The tool returned even though the run is still in flight.
       expect(res.isError, isFalse);
@@ -75,7 +81,8 @@ void main() {
 
       // Let the run finish so the test tears down cleanly.
       runner.controls.single.complete(
-          const PipelineRunResult(outcome: Outcome.success(), runDir: ''));
+        const PipelineRunResult(outcome: Outcome.success(), runDir: ''),
+      );
       await _pumpUntil(() => supervisor.active.isEmpty);
     });
 
@@ -83,9 +90,10 @@ void main() {
       final runner = _ScriptedRunner();
       final supervisor = WorkflowSupervisor(run: runner.build());
       final tool = LaunchWorkflowTool(
-          supervisor: supervisor,
-          conversationId: 'conv-1',
-          sink: FakeAgentSink());
+        supervisor: supervisor,
+        conversationId: 'conv-1',
+        sink: FakeAgentSink(),
+      );
 
       await tool.execute({'input': 'do the thing'});
       expect(runner.calls.single.name, 'default');
@@ -93,8 +101,11 @@ void main() {
       await tool.execute({'input': 'do the thing', 'workflow': '   '});
       expect(runner.calls.last.name, 'default');
 
-      runner.controls.forEach((c) => c.complete(
-          const PipelineRunResult(outcome: Outcome.success(), runDir: '')));
+      runner.controls.forEach(
+        (c) => c.complete(
+          const PipelineRunResult(outcome: Outcome.success(), runDir: ''),
+        ),
+      );
       await _pumpUntil(() => supervisor.active.isEmpty);
     });
 
@@ -102,9 +113,10 @@ void main() {
       final runner = _ScriptedRunner();
       final supervisor = WorkflowSupervisor(run: runner.build());
       final tool = LaunchWorkflowTool(
-          supervisor: supervisor,
-          conversationId: 'conv-1',
-          sink: FakeAgentSink());
+        supervisor: supervisor,
+        conversationId: 'conv-1',
+        sink: FakeAgentSink(),
+      );
 
       final res = await tool.execute({'input': '   '});
 
@@ -124,8 +136,11 @@ void main() {
       final sink = FakeAgentSink();
 
       supervisor.launch(name: 'a', conversationId: 'conv-1', sink: sink);
-      final b =
-          supervisor.launch(name: 'b', conversationId: 'conv-1', sink: sink);
+      final b = supervisor.launch(
+        name: 'b',
+        conversationId: 'conv-1',
+        sink: sink,
+      );
 
       final res = await tool.execute({});
 
@@ -146,8 +161,11 @@ void main() {
       final tool = StopWorkflowTool(supervisor: supervisor);
       final sink = FakeAgentSink();
 
-      final a =
-          supervisor.launch(name: 'a', conversationId: 'conv-1', sink: sink);
+      final a = supervisor.launch(
+        name: 'a',
+        conversationId: 'conv-1',
+        sink: sink,
+      );
       supervisor.launch(name: 'b', conversationId: 'conv-1', sink: sink);
 
       final res = await tool.execute({'run_id': a.id});
@@ -171,16 +189,18 @@ void main() {
       expect(res.content, contains('No running workflow to stop.'));
     });
 
-    test('stop_workflow with an unknown run_id reports it is not running',
-        () async {
-      final supervisor = WorkflowSupervisor(run: _ScriptedRunner().build());
-      final tool = StopWorkflowTool(supervisor: supervisor);
+    test(
+      'stop_workflow with an unknown run_id reports it is not running',
+      () async {
+        final supervisor = WorkflowSupervisor(run: _ScriptedRunner().build());
+        final tool = StopWorkflowTool(supervisor: supervisor);
 
-      final res = await tool.execute({'run_id': 'ghost'});
+        final res = await tool.execute({'run_id': 'ghost'});
 
-      expect(res.isError, isFalse);
-      expect(res.content, contains('ghost'));
-      expect(res.content, contains('not running'));
-    });
+        expect(res.isError, isFalse);
+        expect(res.content, contains('ghost'));
+        expect(res.content, contains('not running'));
+      },
+    );
   });
 }

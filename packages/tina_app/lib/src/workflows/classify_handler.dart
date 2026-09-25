@@ -30,10 +30,11 @@ class ClassifyStageResult {
 /// callbacks of one `/index` invocation); the handler itself stays free of
 /// classification imports. Throws to signal infrastructure failure — the
 /// engine records it and retries per the node's `max_retries`.
-typedef ClassifyStageRunner = Future<ClassifyStageResult> Function({
-  required String stage,
-  Future<void>? cancelSignal,
-});
+typedef ClassifyStageRunner =
+    Future<ClassifyStageResult> Function({
+      required String stage,
+      Future<void>? cancelSignal,
+    });
 
 /// Handler for `type="classify"` program nodes: resolves the stage name
 /// (node's `stage` attribute, else the node id), runs it via the injected

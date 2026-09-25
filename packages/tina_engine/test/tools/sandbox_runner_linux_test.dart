@@ -17,13 +17,17 @@ void main() {
     test('macOS picks sandbox-exec only when the binary is present', () {
       expect(
         resolveSandboxBackendFor(
-            isMacOS: true, isLinux: false, osName: 'macos',
+            isMacOS: true,
+            isLinux: false,
+            osName: 'macos',
             sandboxExecPresent: true),
         SandboxBackend.sandboxExec,
       );
       expect(
         resolveSandboxBackendFor(
-            isMacOS: true, isLinux: false, osName: 'macos',
+            isMacOS: true,
+            isLinux: false,
+            osName: 'macos',
             sandboxExecPresent: false),
         SandboxBackend.passThrough,
       );
@@ -32,20 +36,29 @@ void main() {
     test('linux picks bwrap only with the binary AND user namespaces', () {
       expect(
         resolveSandboxBackendFor(
-            isMacOS: false, isLinux: true, osName: 'linux',
-            bwrapPresent: true, userNsEnabled: true),
+            isMacOS: false,
+            isLinux: true,
+            osName: 'linux',
+            bwrapPresent: true,
+            userNsEnabled: true),
         SandboxBackend.bwrap,
       );
       expect(
         resolveSandboxBackendFor(
-            isMacOS: false, isLinux: true, osName: 'linux',
-            bwrapPresent: false, userNsEnabled: true),
+            isMacOS: false,
+            isLinux: true,
+            osName: 'linux',
+            bwrapPresent: false,
+            userNsEnabled: true),
         SandboxBackend.passThrough,
       );
       expect(
         resolveSandboxBackendFor(
-            isMacOS: false, isLinux: true, osName: 'linux',
-            bwrapPresent: true, userNsEnabled: false),
+            isMacOS: false,
+            isLinux: true,
+            osName: 'linux',
+            bwrapPresent: true,
+            userNsEnabled: false),
         SandboxBackend.passThrough,
       );
     });
@@ -53,14 +66,20 @@ void main() {
     test('--no-sandbox and unknown platforms pass through', () {
       expect(
         resolveSandboxBackendFor(
-            isMacOS: true, isLinux: false, osName: 'macos',
-            sandboxEnabled: false, sandboxExecPresent: true),
+            isMacOS: true,
+            isLinux: false,
+            osName: 'macos',
+            sandboxEnabled: false,
+            sandboxExecPresent: true),
         SandboxBackend.passThrough,
       );
       expect(
         resolveSandboxBackendFor(
-            isMacOS: false, isLinux: true, osName: 'linux',
-            sandboxEnabled: false, bwrapPresent: true),
+            isMacOS: false,
+            isLinux: true,
+            osName: 'linux',
+            sandboxEnabled: false,
+            bwrapPresent: true),
         SandboxBackend.passThrough,
       );
       expect(
@@ -75,7 +94,9 @@ void main() {
     test('names the reason for each degradation, null when active', () {
       expect(
         sandboxPassThroughReasonFor(
-            isMacOS: true, isLinux: false, osName: 'macos',
+            isMacOS: true,
+            isLinux: false,
+            osName: 'macos',
             sandboxExecPresent: true),
         isNull,
       );
@@ -91,8 +112,11 @@ void main() {
       );
       expect(
         sandboxPassThroughReasonFor(
-            isMacOS: false, isLinux: true, osName: 'linux',
-            bwrapPresent: true, userNsEnabled: false),
+            isMacOS: false,
+            isLinux: true,
+            osName: 'linux',
+            bwrapPresent: true,
+            userNsEnabled: false),
         'unprivileged user namespaces are disabled',
       );
       expect(
@@ -102,8 +126,11 @@ void main() {
       );
       expect(
         sandboxPassThroughReasonFor(
-            isMacOS: true, isLinux: false, osName: 'macos',
-            sandboxEnabled: false, sandboxExecPresent: true),
+            isMacOS: true,
+            isLinux: false,
+            osName: 'macos',
+            sandboxEnabled: false,
+            sandboxExecPresent: true),
         contains('--no-sandbox'),
       );
     });
@@ -112,14 +139,18 @@ void main() {
       // Default off-reason stays the historical --no-sandbox wording.
       expect(
         sandboxPassThroughReasonFor(
-            isMacOS: true, isLinux: false, osName: 'macos',
+            isMacOS: true,
+            isLinux: false,
+            osName: 'macos',
             sandboxEnabled: false),
         kSandboxOffReasonNoSandbox,
       );
       // --yolo passes its own wording through unchanged.
       expect(
         sandboxPassThroughReasonFor(
-            isMacOS: false, isLinux: true, osName: 'linux',
+            isMacOS: false,
+            isLinux: true,
+            osName: 'linux',
             sandboxEnabled: false,
             explicitOffReason: kSandboxOffReasonYolo),
         kSandboxOffReasonYolo,
@@ -128,7 +159,9 @@ void main() {
       // yolo turning it off must not mask (or be masked by) a missing bwrap.
       expect(
         sandboxPassThroughReasonFor(
-            isMacOS: false, isLinux: true, osName: 'linux',
+            isMacOS: false,
+            isLinux: true,
+            osName: 'linux',
             explicitOffReason: kSandboxOffReasonYolo),
         'bwrap not found on PATH',
       );
@@ -245,8 +278,7 @@ void main() {
       expect(tmpIdx, lessThan(rootIdx));
     });
 
-    test('missing read-only dirs are skipped, unresolvable extras logged',
-        () {
+    test('missing read-only dirs are skipped, unresolvable extras logged', () {
       final args = buildBwrapArgs(
         workspaceRoot: '/nonexistent-project',
         readOnlyBinds: ['/definitely/not/here', '/etc'],
@@ -262,8 +294,8 @@ void main() {
   group('SandboxedProcessRunner dispatch (pinned backend)', () {
     test('linux backend rewrites argv to `bwrap <args> -- <exec> <args>`',
         () async {
-      final inner = MemoryProcessRunner.always(
-          MemoryRunningProcess(exitCodeValue: 0));
+      final inner =
+          MemoryProcessRunner.always(MemoryRunningProcess(exitCodeValue: 0));
       final project = Directory.systemTemp.createTempSync('tina-bwrap-argv-');
       addTearDown(() {
         try {
@@ -287,14 +319,12 @@ void main() {
       // The original command follows the separator verbatim.
       expect(args.sublist(sep + 1), ['/bin/sh', '-c', 'echo hi']);
       // The project bind is present before the separator.
-      expect(args.take(sep),
-          contains(project.resolveSymbolicLinksSync()));
+      expect(args.take(sep), contains(project.resolveSymbolicLinksSync()));
     });
 
-    test('pass-through leaves argv untouched and warns exactly once',
-        () async {
-      final inner = MemoryProcessRunner.always(
-          MemoryRunningProcess(exitCodeValue: 0));
+    test('pass-through leaves argv untouched and warns exactly once', () async {
+      final inner =
+          MemoryProcessRunner.always(MemoryRunningProcess(exitCodeValue: 0));
       final warnings = <String>[];
       final runner = SandboxedProcessRunner(
         inner: inner,
@@ -317,8 +347,8 @@ void main() {
     });
 
     test('a deliberate --no-sandbox disable does not warn', () async {
-      final inner = MemoryProcessRunner.always(
-          MemoryRunningProcess(exitCodeValue: 0));
+      final inner =
+          MemoryProcessRunner.always(MemoryRunningProcess(exitCodeValue: 0));
       final warnings = <String>[];
       final runner = SandboxedProcessRunner(
         inner: inner,
@@ -364,8 +394,8 @@ void main() {
     test('a write under the project root succeeds', () async {
       final runner = SandboxedProcessRunner(workspaceRoot: project.path);
       final target = '${project.path}/inside.txt';
-      final proc = await runner.start(
-          '/bin/sh', ['-c', 'echo x > "$target" && cat "$target"']);
+      final proc = await runner
+          .start('/bin/sh', ['-c', 'echo x > "$target" && cat "$target"']);
       final code = await proc.exitCode;
       expect(code, 0, reason: 'the project bind is writable');
       expect(File(target).existsSync(), isTrue);
@@ -400,7 +430,13 @@ void main() {
       // Use a live endpoint: curl exit 7 also means connection refused on a
       // closed port, so probing port 1 cannot distinguish network namespaces.
       final args = [
-        '--noproxy', '*', '-sS', '-m', '5', '-o', '/dev/null',
+        '--noproxy',
+        '*',
+        '-sS',
+        '-m',
+        '5',
+        '-o',
+        '/dev/null',
         'http://127.0.0.1:${server.port}/',
       ];
       final shared = await SandboxedProcessRunner(workspaceRoot: project.path)

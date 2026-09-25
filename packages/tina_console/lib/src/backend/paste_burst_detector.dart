@@ -29,6 +29,7 @@ class PasteBurstDetector {
   /// dispose flushes. Pure strings; the backend wires it to PasteAudit so the
   /// pure class stays I/O-free and unit-testable.
   final void Function(String line)? onAudit;
+
   /// Two consecutive events closer than this in time are considered part of
   /// the same burst. Must sit above the paste-event cluster (~0.1ms) and below
   /// the smallest typing gap (~50ms). The spike measured paste gaps ≤0.13ms
@@ -57,8 +58,7 @@ class PasteBurstDetector {
   /// Default-constructed detector with the tin-w8dl audit sink attached when
   /// `TINA_PASTE_AUDIT_LOG` names a file. Kept here (not at the call site) so
   /// the backend's two construction paths can't drift.
-  static PasteBurstDetector audited(
-          {void Function(String line)? onAudit}) =>
+  static PasteBurstDetector audited({void Function(String line)? onAudit}) =>
       PasteBurstDetector(onAudit: onAudit);
 
   /// Feed one translated event with a monotonic timestamp (microseconds since

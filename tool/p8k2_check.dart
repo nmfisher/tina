@@ -54,12 +54,15 @@ void main(List<String> argv) {
       bad++;
       final row = vt.rowText(r);
       stdout.writeln(
-          'row ${r.toString().padLeft(2)}: left=${left == '' ? '(cont)' : left} '
-          'right=$right :: ${row.substring(0, cols > 60 ? 60 : cols)}');
+        'row ${r.toString().padLeft(2)}: left=${left == '' ? '(cont)' : left} '
+        'right=$right :: ${row.substring(0, cols > 60 ? 60 : cols)}',
+      );
     }
   }
-  stdout.writeln(bad == 0
-      ? 'p8k2: all ${rows - 2} content rows keep both borders'
-      : 'p8k2: $bad borderless row(s)');
+  stdout.writeln(
+    bad == 0
+        ? 'p8k2: all ${rows - 2} content rows keep both borders'
+        : 'p8k2: $bad borderless row(s)',
+  );
   exit(bad == 0 ? 0 : 1);
 }

@@ -154,7 +154,10 @@ void main() {
     // The partial span is written at the offset column (border col 1 + run
     // offset 2 = col 3), not at the row origin — proving only the changed tail
     // was re-emitted, not the whole row.
-    expect(be.calls.where((c) => c.startsWith('move(${screen.layout.chat.bottom},3)')), isNotEmpty,
+    expect(
+        be.calls
+            .where((c) => c.startsWith('move(${screen.layout.chat.bottom},3)')),
+        isNotEmpty,
         reason: 'partial patch writes at the tail offset column, not col 0');
     // The changed tail is the blue run "\x1b[36mCD" — renderStyledRuns emits it
     // from a clean baseline (per reset + truecolor fg + text) as a single span
@@ -270,7 +273,8 @@ void main() {
     for (final line in lines) {
       screen.chat.writeln(line);
     }
-    final vt = VirtualTerminal(width: 100, height: 24)..feed(io.written.toString());
+    final vt = VirtualTerminal(width: 100, height: 24)
+      ..feed(io.written.toString());
 
     for (var r = 0; r < 24; r++) {
       expect(vt.rowText(r), refVt.rowText(r),
@@ -347,7 +351,8 @@ void main() {
         ]);
         // Cursor parked at the span origin before the write (moveCursor called
         // twice: once pre-reset, once post-erase).
-        expect(fake.moves.where((m) => m.row == 5 && m.col == 12), hasLength(2));
+        expect(
+            fake.moves.where((m) => m.row == 5 && m.col == 12), hasLength(2));
       });
 
       test('clearCells clips to remaining row width', () {
@@ -377,7 +382,6 @@ void main() {
 /// much work a paint did (full rewrite vs patch vs skip). Mirrors the
 /// RecordingBackend / _CountingBackend pattern in the existing suite.
 class _CountingBackend implements TerminalBackend {
-
   // No retained damage model in this fake; refresh is a no-op.
   @override
   void refresh() {}
@@ -385,8 +389,7 @@ class _CountingBackend implements TerminalBackend {
   int _frameDepth = 0;
   bool _flushPending = false;
 
-  int get gridWriteCount =>
-      calls.where((c) => c.startsWith('write(')).length;
+  int get gridWriteCount => calls.where((c) => c.startsWith('write(')).length;
   int get erasedTotal {
     var n = 0;
     for (final c in calls) {
@@ -475,10 +478,6 @@ class _CountingBackend implements TerminalBackend {
 // moveCursor/eraseCells/writeText sequence so we can assert it independently of
 // the VT cell model (which is fragile for embedded SGR).
 
-
-
-
-
 class _Move {
   final int row, col;
   _Move(this.row, this.col);
@@ -506,7 +505,6 @@ class _Erase {
 /// Minimal recording fake: captures moves, erases, and the concatenated text
 /// written. Renders nothing — tests assert on the call sequence.
 class _RecBackend implements TerminalBackend {
-
   // No retained damage model in this fake; refresh is a no-op.
   @override
   void refresh() {}

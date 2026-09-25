@@ -66,7 +66,8 @@ class AnthropicProvider extends LlmProvider {
   }) async* {
     if (reasoningEffort != null && !_warnedReasoningEffort) {
       _warnedReasoningEffort = true;
-      yield StreamNotice('Tina cannot apply --reasoning-effort $reasoningEffort '
+      yield StreamNotice(
+          'Tina cannot apply --reasoning-effort $reasoningEffort '
           'on the Anthropic wire; using the provider default for $model.');
     }
     // Three cache_control markers:
@@ -119,7 +120,8 @@ class AnthropicProvider extends LlmProvider {
       resp = await sendOnce(_client, () => _buildRequest(bodyStr),
           requestTimeout: effectiveRequestTimeout);
     } catch (e) {
-      yield StreamError(humanizeException(e), transient: isTransientException(e));
+      yield StreamError(humanizeException(e),
+          transient: isTransientException(e));
       return;
     }
     if (resp.statusCode != 200) {
@@ -257,8 +259,7 @@ class AnthropicProvider extends LlmProvider {
           case 'error':
             final err = evt['error'];
             if (err is Map && err['message'] is String) {
-              final type =
-                  err['type'] is String ? '${err['type']}: ' : '';
+              final type = err['type'] is String ? '${err['type']}: ' : '';
               yield StreamError('Anthropic: $type${err['message']}');
             } else {
               yield StreamError('Anthropic: $err');
@@ -271,7 +272,8 @@ class AnthropicProvider extends LlmProvider {
     }
   }
 
-  Map<String, dynamic> _encodeMessage(Message m, {bool cacheLastBlock = false}) {
+  Map<String, dynamic> _encodeMessage(Message m,
+      {bool cacheLastBlock = false}) {
     final role = m.role == Role.user ? 'user' : 'assistant';
     final content = m.content.map<Map<String, dynamic>>((b) {
       if (b is TextBlock) return {'type': 'text', 'text': b.text};

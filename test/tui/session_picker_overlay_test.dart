@@ -10,9 +10,7 @@ void main() {
   /// which carries a description (the first substantive prompt).
   Future<SessionPickerEntry?> runPicker(
     List<InputEvent> events, {
-    List<
-      ({String id, String title, String description, int messageCount})
-    >?
+    List<({String id, String title, String description, int messageCount})>?
     disk,
   }) {
     final screen = fakeScreen(columns: 80, lines: 24);

@@ -182,7 +182,8 @@ void main() {
       var resolved = false;
       fut.then((_) => resolved = true);
       await _flush();
-      expect(resolved, isFalse, reason: 'the first press only arms the confirm');
+      expect(resolved, isFalse,
+          reason: 'the first press only arms the confirm');
       input.emit(ControlKey(ControlCode.ctrlC)); // confirm quit
       final got = await fut;
       expect(got, isA<ControlKey>());
@@ -266,8 +267,7 @@ void main() {
       input.emit(ControlKey(ControlCode.enter));
       await _flush();
       expect(submitted, ['Xab'],
-          reason:
-              'Left+Home moved the cursor before X landed — with the old '
+          reason: 'Left+Home moved the cursor before X landed — with the old '
               'drop-through it would be "abX"');
       expect(cancelled, isFalse);
       ed.endCancelMonitor();
@@ -423,7 +423,8 @@ void main() {
         input.emit(CharInput('z'));
         input.emit(ControlKey(ControlCode.enter));
         await _flush();
-        expect(submitted, ['z'], reason: 'capture must survive a nested readKey');
+        expect(submitted, ['z'],
+            reason: 'capture must survive a nested readKey');
         ed.endInputCaptureWindow();
         ed.close();
       });

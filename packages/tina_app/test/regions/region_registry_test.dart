@@ -50,13 +50,16 @@ void main() {
   /// is not stale).
   void seedSummary(String dir, {String content = '# lib\n\nlib does X'}) {
     Directory('${sidecarRoot.path}/summaries').createSync(recursive: true);
-    File('${sidecarRoot.path}/summaries/${summarySlug(dir)}.md')
-        .writeAsStringSync(content);
-    repo.saveManifest(repo.record(
-      manifest: repo.loadManifest(),
-      regenerated: [dir],
-      deleted: const [],
-    ));
+    File(
+      '${sidecarRoot.path}/summaries/${summarySlug(dir)}.md',
+    ).writeAsStringSync(content);
+    repo.saveManifest(
+      repo.record(
+        manifest: repo.loadManifest(),
+        regenerated: [dir],
+        deleted: const [],
+      ),
+    );
   }
 
   void commit(String dir, String file, String content) {
@@ -65,8 +68,7 @@ void main() {
     git(project, ['commit', '-m', 'change $dir']);
   }
 
-  test('list returns the default-partition regions with their summaries',
-      () {
+  test('list returns the default-partition regions with their summaries', () {
     seedSummary('lib');
     final regions = registry().list();
 
@@ -82,14 +84,15 @@ void main() {
   /// region list reads the manifest once, not once per region (finding I).
   test('region summary reads reuse one manifest load (no O(n²) re-read)', () {
     seedSummary('lib');
-    final counting = _CountingRepo(
-        root: sidecarRoot, workspaceRoot: project);
+    final counting = _CountingRepo(root: sidecarRoot, workspaceRoot: project);
     final manifest = counting.loadManifest();
     expect(counting.loadManifestCalls, 1);
     // The manifest-aware read resolves against the passed manifest — no
     // extra load.
-    expect(counting.readSummaryWithManifest('lib', manifest),
-        contains('lib does X'));
+    expect(
+      counting.readSummaryWithManifest('lib', manifest),
+      contains('lib does X'),
+    );
     expect(counting.loadManifestCalls, 1);
     // The legacy readSummary reloads each call (the O(n²) we removed).
     counting.readSummary('lib');
@@ -104,26 +107,28 @@ void main() {
     expect(lib.stale, isTrue);
   });
 
-  test('the allocated layout IS the partition and persists across instances',
-      () {
-    Directory('${project.path}/lib/src').createSync();
-    commit('lib/src', 's.dart', 'int s = 1;\n');
+  test(
+    'the allocated layout IS the partition and persists across instances',
+    () {
+      Directory('${project.path}/lib/src').createSync();
+      commit('lib/src', 's.dart', 'int s = 1;\n');
 
-    final r1 = registry();
-    expect(r1.allocate('lib/src', model: 'deepseek/deepseek-chat'), isTrue);
+      final r1 = registry();
+      expect(r1.allocate('lib/src', model: 'deepseek/deepseek-chat'), isTrue);
 
-    // A fresh instance reads the persisted allocation.
-    final r2 = registry();
-    final region = r2.find('lib/src')!;
-    expect(region.dir, 'lib/src');
-    expect(region.model, 'deepseek/deepseek-chat');
-    // Allocated but never summarized → no summary, stale.
-    expect(region.summarized, isFalse);
-    expect(region.stale, isTrue);
-    // Once any allocation exists, the layout IS the partition: the default
-    // top-level dirs no longer appear.
-    expect([for (final r in r2.list()) r.dir], ['lib/src']);
-  });
+      // A fresh instance reads the persisted allocation.
+      final r2 = registry();
+      final region = r2.find('lib/src')!;
+      expect(region.dir, 'lib/src');
+      expect(region.model, 'deepseek/deepseek-chat');
+      // Allocated but never summarized → no summary, stale.
+      expect(region.summarized, isFalse);
+      expect(region.stale, isTrue);
+      // Once any allocation exists, the layout IS the partition: the default
+      // top-level dirs no longer appear.
+      expect([for (final r in r2.list()) r.dir], ['lib/src']);
+    },
+  );
 
   test('allocate refuses a missing directory', () {
     expect(registry().allocate('nope'), isFalse);
@@ -137,7 +142,9 @@ void main() {
     r.forget('lib/src');
 
     expect(registry().find('lib/src'), isNull);
-    expect([for (final x in registry().list()) x.dir], isNot(contains('lib/src')));
+    expect([
+      for (final x in registry().list()) x.dir,
+    ], isNot(contains('lib/src')));
   });
 
   test('readSummary is null until the sidecar has one', () {
@@ -151,7 +158,9 @@ void main() {
     final r1 = registry();
     expect(r1.modelFor('lib'), isNull);
     final r2 = RegionRegistry(
-        workspaceRoot: project.path, defaultModel: 'deepseek/deepseek-chat');
+      workspaceRoot: project.path,
+      defaultModel: 'deepseek/deepseek-chat',
+    );
     expect(r2.modelFor('lib'), 'deepseek/deepseek-chat');
     r2.allocate('lib', model: 'fast/fast-model');
     expect(registry().modelFor('lib'), 'fast/fast-model');

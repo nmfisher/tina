@@ -51,11 +51,18 @@ void main() {
       test('auto mode classifies outside-sandbox retry: $answer', () async {
         final provider = _ScriptedProvider(answer);
         final request = PermissionPrompt('bash', const {'command': 'dart test'},
-            outsideSandbox: true, sandboxNetworkIsolated: true,
+            outsideSandbox: true,
+            sandboxNetworkIsolated: true,
             retryExplanation: 'SDK cache is read-only',
-            execution: ExecutionRequest(executable: '/bin/sh', arguments: ['-c', 'dart test'],
-              workingDirectory: '/project', environment: {'SECRET': 'ambient-secret'},
-              environmentOverrides: {}, writablePaths: [], timeoutSeconds: 60, shell: true));
+            execution: ExecutionRequest(
+                executable: '/bin/sh',
+                arguments: ['-c', 'dart test'],
+                workingDirectory: '/project',
+                environment: {'SECRET': 'ambient-secret'},
+                environmentOverrides: {},
+                writablePaths: [],
+                timeoutSeconds: 60,
+                shell: true));
         var fallbackCalls = 0;
         final notices = <String>[];
         final asker = modeAwareAsker(
@@ -65,11 +72,15 @@ void main() {
             expect(p, same(request));
             fallbackCalls++;
             return PermissionResponse.denyOnce;
-          }, notice: notices.add,
+          },
+          notice: notices.add,
         );
         final response = await asker(request);
-        expect(response.decision,
-            answer == 'ALLOW' ? PermissionDecision.allow : PermissionDecision.deny);
+        expect(
+            response.decision,
+            answer == 'ALLOW'
+                ? PermissionDecision.allow
+                : PermissionDecision.deny);
         expect(fallbackCalls, answer == 'ALLOW' ? 0 : 1,
             reason: answer == 'DENY'
                 ? 'a classifier DENY is a recommendation — the user decides'
@@ -96,25 +107,38 @@ void main() {
       });
     }
 
-    test('cancelling a classifier request cannot open a late approval dialog', () async {
+    test('cancelling a classifier request cannot open a late approval dialog',
+        () async {
       final cancel = Completer<void>();
       final provider = _ScriptedProvider('ALLOW', onRequest: cancel.complete);
-      final asker = modeAwareAsker(policy: PermissionPolicy(mode: PermissionMode.auto),
-        classifier: PermissionClassifier(provider),
-        fallback: (_) async => fail('cancelled request must not open a dialog'));
-      final response = await asker(PermissionPrompt('bash', const {'command': 'dart test'},
-        outsideSandbox: true, cancelSignal: cancel.future));
+      final asker = modeAwareAsker(
+          policy: PermissionPolicy(mode: PermissionMode.auto),
+          classifier: PermissionClassifier(provider),
+          fallback: (_) async =>
+              fail('cancelled request must not open a dialog'));
+      final response = await asker(PermissionPrompt(
+          'bash', const {'command': 'dart test'},
+          outsideSandbox: true, cancelSignal: cancel.future));
       expect(response.decision, PermissionDecision.deny);
       expect(response.remember, isFalse);
     });
 
-    test('leaving auto mode during classification requires the human answer', () async {
+    test('leaving auto mode during classification requires the human answer',
+        () async {
       final policy = PermissionPolicy(mode: PermissionMode.auto);
-      final provider = _ScriptedProvider('ALLOW', onRequest: () => policy.mode = PermissionMode.ask);
+      final provider = _ScriptedProvider('ALLOW',
+          onRequest: () => policy.mode = PermissionMode.ask);
       var asked = false;
-      final asker = modeAwareAsker(policy: policy, classifier: PermissionClassifier(provider),
-        fallback: (_) async { asked = true; return PermissionResponse.denyOnce; });
-      final response = await asker(PermissionPrompt('bash', const {'command': 'dart test'}, outsideSandbox: true));
+      final asker = modeAwareAsker(
+          policy: policy,
+          classifier: PermissionClassifier(provider),
+          fallback: (_) async {
+            asked = true;
+            return PermissionResponse.denyOnce;
+          });
+      final response = await asker(PermissionPrompt(
+          'bash', const {'command': 'dart test'},
+          outsideSandbox: true));
       expect(asked, isTrue);
       expect(response.decision, PermissionDecision.deny);
     });
@@ -169,8 +193,7 @@ void main() {
       expect(notices.single, contains('asking you'));
     });
 
-    test('auto + classifier deny + user allow lets the call through',
-        () async {
+    test('auto + classifier deny + user allow lets the call through', () async {
       final policy = PermissionPolicy(mode: PermissionMode.auto);
       final classifier = PermissionClassifier(_ScriptedProvider('DENY'));
       final asker = modeAwareAsker(
@@ -206,8 +229,7 @@ void main() {
       expect(notices.single, contains('bash classifier'));
     });
 
-    test('a classifier timeout is announced before the fallback ask',
-        () async {
+    test('a classifier timeout is announced before the fallback ask', () async {
       final policy = PermissionPolicy(mode: PermissionMode.auto);
       final classifier = PermissionClassifier(
         _NeverCompletingProvider(),
@@ -299,7 +321,8 @@ void main() {
       expect(notices.single, contains('denied by classifier'));
     });
 
-    test('an undecidable classifier DENIES without prompting — auto would '
+    test(
+        'an undecidable classifier DENIES without prompting — auto would '
         'have asked instead', () async {
       var fallbackCalls = 0;
       final notices = <String>[];
@@ -366,8 +389,8 @@ void main() {
         fallback: (_) async => fail('verdict expected'),
       );
       await asker(prompt);
-      expect(provider.calls.single['system'],
-          isNot(contains('READ-ONLY mode')));
+      expect(
+          provider.calls.single['system'], isNot(contains('READ-ONLY mode')));
     });
 
     test('outside-sandbox access cannot be granted in read-all', () async {
@@ -415,7 +438,6 @@ void main() {
       expect(resp.decision, PermissionDecision.deny);
     });
   });
-
 }
 
 class _ScriptedProvider extends LlmProvider {
@@ -425,7 +447,8 @@ class _ScriptedProvider extends LlmProvider {
 
   /// [calls] defaults to a fresh growable list so the double still records
   /// when the test doesn't need to read it.
-  _ScriptedProvider(this._answer, {List<Map<String, dynamic>>? calls, this.onRequest})
+  _ScriptedProvider(this._answer,
+      {List<Map<String, dynamic>>? calls, this.onRequest})
       : calls = calls ?? [],
         super('scripted');
 

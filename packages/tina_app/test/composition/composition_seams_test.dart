@@ -24,7 +24,6 @@ ProviderRegistry _registryWithUsageProvider() {
 /// just enough [AgentDriver] to prove the composition hands THIS driver (not
 /// the built-in agent loop) to the scheduler.
 class _ScriptedDriver implements AgentDriver {
-
   @override
   PermissionPolicy get policy => PermissionPolicy();
   final AgentDriverRequest request;
@@ -95,7 +94,8 @@ class _ScriptedPersistence {
 
   _ScriptedPersistence(this.store);
 
-  SubAgentPersistenceFactory get factory => (
+  SubAgentPersistenceFactory get factory =>
+      (
         SubAgentJob job, {
         required ConversationMetaInput meta,
         required String parentConversationId,
@@ -104,8 +104,13 @@ class _ScriptedPersistence {
         calls.add((conversationId, parentConversationId, meta.label));
         return (
           conversationId,
-          SessionRecorder(store, 'scripted-session', conversationId,
-              providerId: 'test', meta: meta),
+          SessionRecorder(
+            store,
+            'scripted-session',
+            conversationId,
+            providerId: 'test',
+            meta: meta,
+          ),
         );
       };
 }
@@ -113,38 +118,41 @@ class _ScriptedPersistence {
 Future<AppComposition> _build({
   AgentDriverFactory? driverFactory,
   SubAgentPersistenceFactory? persistence,
-}) =>
-    buildAppComposition(
-      config: RuntimeConfig(provider: 'test', model: 'a'),
-      registry: _registryWithUsageProvider(),
-      store: MemorySessionStore(),
-      environment: FakeEnvironment(),
-      driverFactory: driverFactory,
-      persistence: persistence,
-    );
+}) => buildAppComposition(
+  config: RuntimeConfig(provider: 'test', model: 'a'),
+  registry: _registryWithUsageProvider(),
+  store: MemorySessionStore(),
+  environment: FakeEnvironment(),
+  driverFactory: driverFactory,
+  persistence: persistence,
+);
 
 void main() {
   test(
-      'buildAppComposition mounts a scripted driver factory on the composition '
-      'AND the scheduler (one object throughout)', () async {
-    final factory = _ScriptedDriverFactory();
-    final comp = await _build(driverFactory: factory);
-    addTearDown(comp.dispose);
+    'buildAppComposition mounts a scripted driver factory on the composition '
+    'AND the scheduler (one object throughout)',
+    () async {
+      final factory = _ScriptedDriverFactory();
+      final comp = await _build(driverFactory: factory);
+      addTearDown(comp.dispose);
 
-    // Stored on the composition…
-    expect(comp.driverFactory, same(factory));
-    // …and mounted on the scheduler it built — the identical object, so one
-    // choice at the composition root governs every scheduler-built agent.
-    expect(comp.scheduler.driverFactory, same(factory));
-    expect(identical(comp.driverFactory, comp.scheduler.driverFactory), isTrue);
+      // Stored on the composition…
+      expect(comp.driverFactory, same(factory));
+      // …and mounted on the scheduler it built — the identical object, so one
+      // choice at the composition root governs every scheduler-built agent.
+      expect(comp.scheduler.driverFactory, same(factory));
+      expect(
+        identical(comp.driverFactory, comp.scheduler.driverFactory),
+        isTrue,
+      );
 
-    // The factory is consulted per spawned agent, not at build time: nothing
-    // was created while composing the app.
-    expect(factory.created, isEmpty);
-  });
+      // The factory is consulted per spawned agent, not at build time: nothing
+      // was created while composing the app.
+      expect(factory.created, isEmpty);
+    },
+  );
 
-  test(
-      'buildAppComposition mounts a persistence factory on the composition '
+  test('buildAppComposition mounts a persistence factory on the composition '
       'AND the scheduler (one object throughout)', () async {
     final store = MemorySessionStore();
     final persistence = _ScriptedPersistence(store);
@@ -166,15 +174,13 @@ void main() {
     // choice at the composition root governs every session-recording
     // sub-agent.
     expect(comp.scheduler.persistence, same(persistenceFactory));
-    expect(
-        identical(comp.persistence, comp.scheduler.persistence), isTrue);
+    expect(identical(comp.persistence, comp.scheduler.persistence), isTrue);
 
     // Wiring only: the factory is invoked when a job spawns, never at build.
     expect(persistence.calls, isEmpty);
   });
 
-  test(
-      'defaults: without the params both seams stay null and the built-in '
+  test('defaults: without the params both seams stay null and the built-in '
       'behavior is intact', () async {
     final comp = await _build();
     addTearDown(comp.dispose);
@@ -198,165 +204,167 @@ void main() {
   });
   group('orchestrator tool set', () {
     for (final delegates in [false, true]) {
-      test('composition restricts orchestrator withSubAgents=$delegates', () async {
-        final factory = ProbeFactory();
-        final provider = Provider();
-        final registry = ProviderRegistry(env: const {})
-          ..register(
-            ProviderDescriptor(
-              id: 'test',
-              name: 'Test',
-              authSources: const [],
-              defaultBaseUrl: 'https://example.test',
-              builder: (_) => provider,
-            ),
+      test(
+        'composition restricts orchestrator withSubAgents=$delegates',
+        () async {
+          final factory = ProbeFactory();
+          final provider = Provider();
+          final registry = ProviderRegistry(env: const {})
+            ..register(
+              ProviderDescriptor(
+                id: 'test',
+                name: 'Test',
+                authSources: const [],
+                defaultBaseUrl: 'https://example.test',
+                builder: (_) => provider,
+              ),
+            );
+          final comp = await buildAppComposition(
+            config: RuntimeConfig(provider: 'test', model: 'test'),
+            registry: registry,
+            store: MemorySessionStore(),
+            environment: FakeEnvironment(),
+            driverFactory: factory,
           );
-        final comp = await buildAppComposition(
-          config: RuntimeConfig(provider: 'test', model: 'test'),
-          registry: registry,
-          store: MemorySessionStore(),
-          environment: FakeEnvironment(),
-          driverFactory: factory,
-        );
-        addTearDown(comp.dispose);
-        final host = FakeHostInterface();
-        addTearDown(host.dispose);
-        var approvals = 0;
-        final driver = buildAgent(
-          pipeline: comp.pipeline,
-          scheduler: comp.scheduler,
-          conversationId: comp.initialConversationId,
-          provider: provider,
-          host: host,
-          policy: comp.policy,
-          config: comp.config,
-          withSubAgents: delegates,
-          toolAccess: AgentToolAccess.orchestrator,
-          asker: (_) async {
-            approvals++;
-            return PermissionResponse.allowOnce;
-          },
-        );
-        expect(driver.tools.schemas.map((s) => s.name), ['ask_user']);
-        for (final name in [
-          'bash',
-          'exec',
-          'read',
-          'grep',
-          'list_files',
-          'delegate',
-          'launch_workflow',
-          'read_summary',
-          'environment_stage',
-          'plugin_fs_alias',
-        ]) {
+          addTearDown(comp.dispose);
+          final host = FakeHostInterface();
+          addTearDown(host.dispose);
+          var approvals = 0;
+          final driver = buildAgent(
+            pipeline: comp.pipeline,
+            scheduler: comp.scheduler,
+            conversationId: comp.initialConversationId,
+            provider: provider,
+            host: host,
+            policy: comp.policy,
+            config: comp.config,
+            withSubAgents: delegates,
+            toolAccess: AgentToolAccess.orchestrator,
+            asker: (_) async {
+              approvals++;
+              return PermissionResponse.allowOnce;
+            },
+          );
+          expect(driver.tools.schemas.map((s) => s.name), ['ask_user']);
+          for (final name in [
+            'bash',
+            'exec',
+            'read',
+            'grep',
+            'list_files',
+            'delegate',
+            'launch_workflow',
+            'read_summary',
+            'environment_stage',
+            'plugin_fs_alias',
+          ]) {
+            expect(
+              combineGuardBlocks(factory.request.executionGuards, name, {}),
+              isNotNull,
+            );
+            expect(driver.tools.executionBlock(name, {}), isNotNull);
+          }
+          // A per-turn catalog replacement cannot bypass the execution restriction.
+          final probe = ProbeTool();
+          final history = <Message>[];
+          comp.policy.mode = PermissionMode.allowEdits;
+          await driver.run(
+            history: history,
+            userInput: 'inspect',
+            turnTools: ToolRegistry([probe]),
+          );
+          expect(probe.calls, 0);
+          expect(approvals, 0);
+          final denied = history
+              .expand((m) => m.content)
+              .whereType<ToolResultBlock>()
+              .single;
+          expect(denied.isError, isTrue);
+          expect(denied.content, contains('This orchestrator cannot access'));
+          // Building a sibling in the same scheduler does not inherit this role.
+          final sibling = buildAgent(
+            pipeline: comp.pipeline,
+            scheduler: comp.scheduler,
+            conversationId: 'sibling',
+            provider: Provider(),
+            host: host,
+            policy: comp.policy,
+            config: comp.config,
+            withSubAgents: false,
+          );
+          expect(sibling.tools['read'], isNotNull);
           expect(
-            combineGuardBlocks(factory.request.executionGuards, name, {}),
-            isNotNull,
+            factory.request.executionGuards.whereType<OrchestratorToolGuard>(),
+            isEmpty,
           );
-          expect(driver.tools.executionBlock(name, {}), isNotNull);
-        }
-        // A per-turn catalog replacement cannot bypass the execution restriction.
-        final probe = ProbeTool();
-        final history = <Message>[];
-        comp.policy.mode = PermissionMode.allowEdits;
-        await driver.run(
-          history: history,
-          userInput: 'inspect',
-          turnTools: ToolRegistry([probe]),
-        );
-        expect(probe.calls, 0);
-        expect(approvals, 0);
-        final denied = history
-            .expand((m) => m.content)
-            .whereType<ToolResultBlock>()
-            .single;
-        expect(denied.isError, isTrue);
-        expect(denied.content, contains('This orchestrator cannot access'));
-        // Building a sibling in the same scheduler does not inherit this role.
-        final sibling = buildAgent(
-          pipeline: comp.pipeline,
-          scheduler: comp.scheduler,
-          conversationId: 'sibling',
-          provider: Provider(),
-          host: host,
-          policy: comp.policy,
-          config: comp.config,
-          withSubAgents: false,
-        );
-        expect(sibling.tools['read'], isNotNull);
-        expect(
-          factory.request.executionGuards.whereType<OrchestratorToolGuard>(),
-          isEmpty,
-        );
-      });
+        },
+      );
     }
   });
   group('driver seam, live', () {
-    test(
-      'the composed driver runs the turn; the built-in agent never does '
-      '(driver-only conversation)',
-      () async {
-        _RecordingProvider.reset();
-        final factory = _ScriptedDriverFactory_merged();
-        final comp = await _build_merged(factory);
-        addTearDown(comp.dispose);
+    test('the composed driver runs the turn; the built-in agent never does '
+        '(driver-only conversation)', () async {
+      _RecordingProvider.reset();
+      final factory = _ScriptedDriverFactory_merged();
+      final comp = await _build_merged(factory);
+      addTearDown(comp.dispose);
 
-        final host = FakeHostInterface();
-        addTearDown(host.dispose);
+      final host = FakeHostInterface();
+      addTearDown(host.dispose);
 
-        // The real composition build — the same call the TUI and the headless
-        // runner make for their main conversation. The provider comes from the
-        // composition (it may be wrapped, e.g. metering); the scripted driver
-        // receives it verbatim.
-        final provider = comp.buildStartupProvider();
-        final driver = buildAgent(
-          pipeline: comp.pipeline,
-          scheduler: comp.scheduler,
-          conversationId: comp.initialConversationId,
-          provider: provider,
-          host: host,
-          policy: comp.policy,
-          config: comp.config,
-          withSubAgents: false,
-        ) as _ScriptedDriver_merged;
+      // The real composition build — the same call the TUI and the headless
+      // runner make for their main conversation. The provider comes from the
+      // composition (it may be wrapped, e.g. metering); the scripted driver
+      // receives it verbatim.
+      final provider = comp.buildStartupProvider();
+      final driver =
+          buildAgent(
+                pipeline: comp.pipeline,
+                scheduler: comp.scheduler,
+                conversationId: comp.initialConversationId,
+                provider: provider,
+                host: host,
+                policy: comp.policy,
+                config: comp.config,
+                withSubAgents: false,
+              )
+              as _ScriptedDriver_merged;
 
-        // The composition consulted the wired factory: what came back is the
-        // scripted driver itself, not an agent built behind its back.
-        expect(factory.created, hasLength(1));
-        expect(driver, same(factory.created.single));
+      // The composition consulted the wired factory: what came back is the
+      // scripted driver itself, not an agent built behind its back.
+      expect(factory.created, hasLength(1));
+      expect(driver, same(factory.created.single));
 
-        // Driver-only conversation: no Agent behind the driver at all.
-        final conversation = Conversation(
-          id: comp.initialConversationId,
-          label: 'scripted',
-          driver: driver,
-          provider: provider,
-          host: host,
-          policy: comp.policy,
-        );
-        expect(conversation.hasAgent, isFalse);
+      // Driver-only conversation: no Agent behind the driver at all.
+      final conversation = Conversation(
+        id: comp.initialConversationId,
+        label: 'scripted',
+        driver: driver,
+        provider: provider,
+        host: host,
+        policy: comp.policy,
+      );
+      expect(conversation.hasAgent, isFalse);
 
-        final executor = TurnExecutor(
-          findConversation: (id) => id == conversation.id ? conversation : null,
-        );
-        addTearDown(executor.shutdown);
-        executor.submit(conversation.id, 'hello');
-        await executor.whenIdle(conversation.id);
+      final executor = TurnExecutor(
+        findConversation: (id) => id == conversation.id ? conversation : null,
+      );
+      addTearDown(executor.shutdown);
+      executor.submit(conversation.id, 'hello');
+      await executor.whenIdle(conversation.id);
 
-        // The scripted driver's run() executed — non-zero custom-driver runs.
-        expect(driver.runCount, 1);
-        expect(driver.inputs, ['hello']);
-        // The canned assistant reply landed in the conversation history.
-        expect(
-          conversation.history.last.content.whereType<TextBlock>().single.text,
-          'canned reply',
-        );
-        // The built-in agent loop never sent a request — on any provider
-        // instance the composition created.
-        expect(_RecordingProvider.totalSends, 0);
-      },
-    );
+      // The scripted driver's run() executed — non-zero custom-driver runs.
+      expect(driver.runCount, 1);
+      expect(driver.inputs, ['hello']);
+      // The canned assistant reply landed in the conversation history.
+      expect(
+        conversation.history.last.content.whereType<TextBlock>().single.text,
+        'canned reply',
+      );
+      // The built-in agent loop never sent a request — on any provider
+      // instance the composition created.
+      expect(_RecordingProvider.totalSends, 0);
+    });
 
     test(
       'SessionManager keeps the composed driver: a created conversation runs '
@@ -440,8 +448,7 @@ void main() {
     );
   });
 
-  test(
-      'every tool the interactive main mounts declares what it does, and none '
+  test('every tool the interactive main mounts declares what it does, and none '
       'that reaches past the sandbox is auto-approved', () async {
     final comp = await _build();
     addTearDown(comp.dispose);
@@ -475,23 +482,28 @@ void main() {
       for (final name in mounted)
         if (!kToolCapabilities.containsKey(name) &&
             !notYetDeclared.contains(name))
-          name
+          name,
     ];
-    expect(undeclared, isEmpty,
-        reason: 'declare what these do before mounting them');
+    expect(
+      undeclared,
+      isEmpty,
+      reason: 'declare what these do before mounting them',
+    );
 
     for (final entry in kToolCapabilities.entries) {
       final caps = entry.value;
       if (!caps.escapesTheSandbox || caps.justification != null) continue;
-      expect(driver.policy.check(entry.key, const {}),
-          isNot(PermissionDecision.allow),
-          reason: '${entry.key} reaches past the project sandbox '
-              '(reads=${caps.reads.name}, writes=${caps.writes.name}, '
-              'spawns=${caps.spawns.name}, network=${caps.network.name}) and '
-              'the application auto-approves it');
+      expect(
+        driver.policy.check(entry.key, const {}),
+        isNot(PermissionDecision.allow),
+        reason:
+            '${entry.key} reaches past the project sandbox '
+            '(reads=${caps.reads.name}, writes=${caps.writes.name}, '
+            'spawns=${caps.spawns.name}, network=${caps.network.name}) and '
+            'the application auto-approves it',
+      );
     }
   });
-
 }
 
 /// Minimal usage-reporting provider so the runtime (and its classifier probe)
@@ -597,8 +609,7 @@ class _RecordingProvider extends LlmProvider {
   /// Every instance the test registry's builder minted.
   static final List<_RecordingProvider> created = [];
 
-  static int get totalSends =>
-      created.fold(0, (sum, p) => sum + p.sendCount);
+  static int get totalSends => created.fold(0, (sum, p) => sum + p.sendCount);
 
   static void reset() => created.clear();
 
@@ -620,7 +631,6 @@ class _RecordingProvider extends LlmProvider {
 /// anything reaches past the driver for an agent it fails loudly instead of
 /// silently running the built-in loop.
 class _ScriptedDriver_merged implements AgentDriver {
-
   @override
   PermissionPolicy get policy => PermissionPolicy();
   _ScriptedDriver_merged(this.provider);

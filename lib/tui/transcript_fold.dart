@@ -48,7 +48,7 @@ Future<void> foldTranscriptCommand(
       changed == 0
           ? 'nothing to ${verb == 'hide' ? 'fold' : 'unfold'}.\n'
           : '$changed block${changed == 1 ? '' : 's'} '
-              '${verb == 'hide' ? 'folded' : 'revealed'}.\n',
+                '${verb == 'hide' ? 'folded' : 'revealed'}.\n',
     );
     return;
   }

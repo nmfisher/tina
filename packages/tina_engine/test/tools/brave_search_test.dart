@@ -110,8 +110,8 @@ void main() {
     });
 
     test('other non-200 statuses map to a SearchError', () async {
-      final client =
-          RecordingClient(body: '{"error": {"message": "rate limited"}}', status: 429);
+      final client = RecordingClient(
+          body: '{"error": {"message": "rate limited"}}', status: 429);
       final provider = BraveSearchProvider('k', client: client);
 
       expect(

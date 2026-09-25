@@ -33,8 +33,7 @@ void main() {
 
     test('reports a symlink and its target', () async {
       final target = File('${tmp.path}/target.txt')..writeAsStringSync('x');
-      final link = Link('${tmp.path}/link.txt')
-        ..createSync(target.path);
+      final link = Link('${tmp.path}/link.txt')..createSync(target.path);
       final res = await StatTool().execute({'path': link.path});
       expect(res.isError, isFalse);
       expect(res.content, contains('type: symlink'));
@@ -53,8 +52,8 @@ void main() {
     });
 
     test('errors on a non-existent path', () async {
-      final res = await StatTool()
-          .execute({'path': '${tmp.path}/no-such-file'});
+      final res =
+          await StatTool().execute({'path': '${tmp.path}/no-such-file'});
       expect(res.isError, isTrue);
       expect(res.content, contains('path does not exist'));
     });

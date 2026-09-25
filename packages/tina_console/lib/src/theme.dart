@@ -241,7 +241,8 @@ class BorderTheme {
   const BorderTheme.dark()
       : focus = '96',
         selection = '93',
-        busy = const BusyBorderTheme(); // default comet colours — visible on both
+        busy =
+            const BusyBorderTheme(); // default comet colours — visible on both
 
   bool get isDefault =>
       focus == _default.focus &&
@@ -339,13 +340,16 @@ class MenuTheme {
     return MenuTheme(
       barHighlight: _sgr(cast['bar_highlight'], _default.barHighlight),
       barDim: _sgr(cast['bar_dim'], _default.barDim),
-      dropdownSelected: _sgr(cast['dropdown_selected'], _default.dropdownSelected),
-      dropdownDisabled: _sgr(cast['dropdown_disabled'], _default.dropdownDisabled),
+      dropdownSelected:
+          _sgr(cast['dropdown_selected'], _default.dropdownSelected),
+      dropdownDisabled:
+          _sgr(cast['dropdown_disabled'], _default.dropdownDisabled),
     );
   }
 
   Map<String, dynamic> toMap() => {
-        if (barHighlight != _default.barHighlight) 'bar_highlight': barHighlight,
+        if (barHighlight != _default.barHighlight)
+          'bar_highlight': barHighlight,
         if (barDim != _default.barDim) 'bar_dim': barDim,
         if (dropdownSelected != _default.dropdownSelected)
           'dropdown_selected': dropdownSelected,

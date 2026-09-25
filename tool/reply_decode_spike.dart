@@ -33,10 +33,12 @@ Future<void> main(List<String> args) async {
   final seconds = args.length > 1 ? int.parse(args[1]) : 25;
   final log = File(path).openSync(mode: FileMode.write);
   void rec(String s) => log.writeStringSync('$s\n');
-  final ncv = nc.NotCurses(nc.CursesOptions(
-    loglevel: nc.LogLevel.silent,
-    flags: nc.OptionFlags.suppressBanners,
-  ));
+  final ncv = nc.NotCurses(
+    nc.CursesOptions(
+      loglevel: nc.LogLevel.silent,
+      flags: nc.OptionFlags.suppressBanners,
+    ),
+  );
   if (ncv.notInitialized) {
     stderr.writeln('notcurses init failed');
     exit(1);

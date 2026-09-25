@@ -62,23 +62,22 @@ void main() {
     List<Message> _softMessages(List<Message> history) => history
         .where((m) =>
             m.role == Role.user &&
-            m.content.any((b) =>
-                b is TextBlock && b.text.contains('turn spend at')))
+            m.content
+                .any((b) => b is TextBlock && b.text.contains('turn spend at')))
         .toList();
 
     /// Wire payload of [callIndex]-th provider call carrying the soft text —
     /// proof the message actually reached the model, not just the history.
     bool _wireContains(FakeProvider provider, int callIndex, String needle) =>
-        provider.calls[callIndex].messages
-            .any((m) =>
-                m.content.any((b) => b is TextBlock && b.text.contains(needle)));
+        provider.calls[callIndex].messages.any((m) =>
+            m.content.any((b) => b is TextBlock && b.text.contains(needle)));
 
     Agent _softAgent(FakeProvider provider) => Agent(
           provider: provider,
           tools: ToolRegistry([FakeTool.noOp('fake')]),
           sink: FakeAgentSink(),
-          policy:
-              PermissionPolicy(defaults: const {'fake': PermissionDecision.allow}),
+          policy: PermissionPolicy(
+              defaults: const {'fake': PermissionDecision.allow}),
           asker: (_) async => PermissionResponse.allowOnce,
           budget: const TokenBudget(perTurnLimit: 30),
           system: 'sys',
@@ -166,15 +165,15 @@ void main() {
       expect(agent.abortedReason, contains('per-turn'));
       // Ordering: the nudge precedes the final (aborted) assistant message.
       final softIndex = history.indexOf(soft.single);
-      final lastAssistantIndex = history.lastIndexWhere(
-          (m) => m.role == Role.assistant && m.content.any((b) => b is ToolUseBlock));
+      final lastAssistantIndex = history.lastIndexWhere((m) =>
+          m.role == Role.assistant && m.content.any((b) => b is ToolUseBlock));
       expect(softIndex, greaterThanOrEqualTo(0));
       expect(softIndex, lessThan(lastAssistantIndex),
           reason: 'model saw the nudge before the turn was aborted');
       // Transcript ordering: the warning nudge precedes the error abort.
       final notices = (agent.sink as FakeAgentSink).notices;
-      final softNotice = notices.indexWhere(
-          (n) => n.message.contains('turn spend at'));
+      final softNotice =
+          notices.indexWhere((n) => n.message.contains('turn spend at'));
       final abortNotice = notices.indexWhere(
           (n) => n.message.contains('per-turn token budget exceeded'));
       expect(softNotice, greaterThanOrEqualTo(0));

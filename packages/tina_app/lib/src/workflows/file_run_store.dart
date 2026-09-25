@@ -51,8 +51,10 @@ class FileRunStore implements RunStore {
     await nodeDir.create(recursive: true);
     await File(p.join(nodeDir.path, 'prompt.md')).writeAsString(prompt);
     await File(p.join(nodeDir.path, 'response.md')).writeAsString(response);
-    await _writeJson(File(p.join(nodeDir.path, 'status.json')),
-        {'node': nodeId, ...outcome.toJson()});
+    await _writeJson(File(p.join(nodeDir.path, 'status.json')), {
+      'node': nodeId,
+      ...outcome.toJson(),
+    });
   }
 
   @override
@@ -69,7 +71,10 @@ class FileRunStore implements RunStore {
   }
 
   @override
-  Future<void> finalize({required StageStatus status, String? failureReason}) async {
+  Future<void> finalize({
+    required StageStatus status,
+    String? failureReason,
+  }) async {
     // Rewrite the manifest with the final status, atomically.
     final tmp = File('${_manifest.path}.tmp');
     var existing = <String, dynamic>{};
@@ -82,7 +87,9 @@ class FileRunStore implements RunStore {
     existing['status'] = status.wire;
     existing['finished_at'] = DateTime.now().toUtc().toIso8601String();
     if (failureReason != null) existing['failure_reason'] = failureReason;
-    await tmp.writeAsString(const JsonEncoder.withIndent('  ').convert(existing));
+    await tmp.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(existing),
+    );
     await tmp.rename(_manifest.path);
   }
 

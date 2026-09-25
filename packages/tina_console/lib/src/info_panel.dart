@@ -96,7 +96,8 @@ class InfoPanel implements Focusable {
         return true;
       case ControlKey(:final code):
         // Quit/cancel keys still fall through to the host.
-        if (code == ControlCode.ctrlC || code == ControlCode.ctrlD) return false;
+        if (code == ControlCode.ctrlC || code == ControlCode.ctrlD)
+          return false;
         return true;
       default:
         return false;
@@ -115,7 +116,8 @@ class InfoPanel implements Focusable {
       _clearInterior();
       return;
     }
-    final accent = screen.theme.infoPanel.dim; // dim — the box border carries the focus cue
+    final accent = screen
+        .theme.infoPanel.dim; // dim — the box border carries the focus cue
     _painted = true;
     var row = b.row;
     if (title.isNotEmpty && b.height > 0) {

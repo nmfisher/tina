@@ -26,6 +26,7 @@ MemoryProcessRunner _rgRunner({
       exitCodeValue: searchExitCode,
     );
   }
+
   return MemoryProcessRunner(factory);
 }
 
@@ -128,7 +129,8 @@ void main() {
       // The full emitted match line (sans trailing newline) fits the cap + suffix.
       final matchLine =
           res.content.split('\n').firstWhere((l) => l.startsWith('x.dart:'));
-      expect(matchLine.length, lessThanOrEqualTo(1000 + '… [line truncated]'.length));
+      expect(matchLine.length,
+          lessThanOrEqualTo(1000 + '… [line truncated]'.length));
       expect(matchLine.startsWith('x.dart:1:'), isTrue); // prefix intact
     });
 
@@ -176,7 +178,8 @@ void main() {
         '/repo': ['a.dart', 'b.txt', 'sub/c.dart'],
       });
       final fs = MemoryFileSystem({
-        '/repo/a.dart': 'class Foo {}\nfinal x = 1;\nclass Bar extends Foo {}\n',
+        '/repo/a.dart':
+            'class Foo {}\nfinal x = 1;\nclass Bar extends Foo {}\n',
         '/repo/b.txt': 'foo\nFoo\nbar\n',
         '/repo/sub/c.dart': 'class Baz {}\n',
       })
@@ -191,11 +194,14 @@ void main() {
     });
 
     test('glob filter restricts which files are searched', () async {
-      final fe = MemoryFileEnumerator({'/repo': ['a.dart', 'b.txt']});
+      final fe = MemoryFileEnumerator({
+        '/repo': ['a.dart', 'b.txt']
+      });
       final fs = MemoryFileSystem({
         '/repo/a.dart': 'foo\n',
         '/repo/b.txt': 'foo\n',
-      })..directories.add('/repo');
+      })
+        ..directories.add('/repo');
       final res = await fallbackTool(fileEnumerator: fe, fs: fs).execute({
         'pattern': 'foo',
         'path': '/repo',
@@ -206,7 +212,9 @@ void main() {
     });
 
     test('caseInsensitive controls matching', () async {
-      final fe = MemoryFileEnumerator({'/repo': ['b.txt']});
+      final fe = MemoryFileEnumerator({
+        '/repo': ['b.txt']
+      });
       final fs = MemoryFileSystem({'/repo/b.txt': 'foo\nFoo\nbar\n'})
         ..directories.add('/repo');
       final res = await fallbackTool(fileEnumerator: fe, fs: fs).execute({
@@ -220,7 +228,9 @@ void main() {
     });
 
     test('maxResults caps output with a marker', () async {
-      final fe = MemoryFileEnumerator({'/repo': ['a.txt']});
+      final fe = MemoryFileEnumerator({
+        '/repo': ['a.txt']
+      });
       final content = List.generate(5, (i) => 'match$i').join('\n');
       final fs = MemoryFileSystem({'/repo/a.txt': content})
         ..directories.add('/repo');
@@ -243,7 +253,8 @@ void main() {
       final fs = MemoryFileSystem({
         '/repo/a.txt': 'match\n',
         '/repo/b.txt': 'match\n',
-      })..directories.add('/repo');
+      })
+        ..directories.add('/repo');
 
       final cancel = Completer<void>();
       final future = fallbackTool(fileEnumerator: fe, fs: fs).execute(
@@ -258,17 +269,21 @@ void main() {
     });
 
     test('truncates an over-long match line', () async {
-      final fe = MemoryFileEnumerator({'/repo': ['a.txt']});
+      final fe = MemoryFileEnumerator({
+        '/repo': ['a.txt']
+      });
       final fs = MemoryFileSystem({
         '/repo/a.txt': '${'a' * 5000}\n',
-      })..directories.add('/repo');
+      })
+        ..directories.add('/repo');
       final res = await fallbackTool(fileEnumerator: fe, fs: fs)
           .execute({'pattern': 'a', 'path': '/repo'});
       expect(res.isError, isFalse);
       expect(res.content, contains('[line truncated]'));
       final matchLine =
           res.content.split('\n').firstWhere((l) => l.startsWith('a.txt:'));
-      expect(matchLine.length, lessThanOrEqualTo(1000 + '… [line truncated]'.length));
+      expect(matchLine.length,
+          lessThanOrEqualTo(1000 + '… [line truncated]'.length));
       expect(matchLine.startsWith('a.txt:1:'), isTrue); // prefix intact
     });
 
@@ -282,7 +297,9 @@ void main() {
     });
 
     test('skips a binary file (NUL byte) but reports text matches', () async {
-      final fe = MemoryFileEnumerator({'/repo': ['a.txt', 'blob.bin']});
+      final fe = MemoryFileEnumerator({
+        '/repo': ['a.txt', 'blob.bin']
+      });
       final fs = MemoryFileSystem({'/repo/a.txt': 'needle in text\n'})
         ..directories.add('/repo')
         // A file whose raw bytes contain a NUL → detected as binary.
@@ -300,11 +317,14 @@ void main() {
     test('omits the skip line when no binary files are present', () async {
       // Regression: a pure-text dir must produce byte-for-byte the same
       // output as before the binary-skip feature landed (no skip marker).
-      final fe = MemoryFileEnumerator({'/repo': ['a.txt', 'b.txt']});
+      final fe = MemoryFileEnumerator({
+        '/repo': ['a.txt', 'b.txt']
+      });
       final fs = MemoryFileSystem({
         '/repo/a.txt': 'foo\n',
         '/repo/b.txt': 'foo\n',
-      })..directories.add('/repo');
+      })
+        ..directories.add('/repo');
       final res = await fallbackTool(fileEnumerator: fe, fs: fs)
           .execute({'pattern': 'foo', 'path': '/repo'});
       expect(res.isError, isFalse);
@@ -313,7 +333,8 @@ void main() {
       expect(res.content, isNot(contains('skipped')));
     });
 
-    test('file root through Dart fallback returns basename-shaped matches', () async {
+    test('file root through Dart fallback returns basename-shaped matches',
+        () async {
       // When the enumerator sees a file root (c4618b3) it returns the basename.
       // The Dart fallback must read from the actual file root (not the phantom
       // `path/basename` join) and emit `basename:line:content`.
@@ -334,7 +355,9 @@ void main() {
 
     test('reports (no matches) plus skip line when all files are binary',
         () async {
-      final fe = MemoryFileEnumerator({'/repo': ['a.bin', 'b.bin']});
+      final fe = MemoryFileEnumerator({
+        '/repo': ['a.bin', 'b.bin']
+      });
       final fs = MemoryFileSystem()
         ..directories.add('/repo')
         ..addBinaryFile('/repo/a.bin', [0xff, 0x00, 0x10])

@@ -10,13 +10,11 @@ Matcher plainRun(String text) => styledRun(text, null);
 
 /// Matches a [MarkdownRun] with exactly [text] and the given inline SGR
 /// [code] (null = base style).
-Matcher styledRun(String text, String? code) =>
-    _RunMatcher(text, code);
+Matcher styledRun(String text, String? code) => _RunMatcher(text, code);
 
 /// Matches a list of [MarkdownLine]s against the expected per-line run
 /// shapes. Blank lines must be listed explicitly as an empty run list.
-Matcher hasRuns(List<List<Matcher>> expected) =>
-    _LinesMatcher(expected);
+Matcher hasRuns(List<List<Matcher>> expected) => _LinesMatcher(expected);
 
 class _RunMatcher extends Matcher {
   final String text;
@@ -63,7 +61,9 @@ class _LinesMatcher extends Matcher {
   Description describe(Description desc) {
     desc = desc.add('lines with runs [');
     for (final line in expected) {
-      desc = desc.add('${line.map((m) => m.describe(StringDescription())).join(', ')}; ');
+      desc = desc.add(
+        '${line.map((m) => m.describe(StringDescription())).join(', ')}; ',
+      );
     }
     return desc.add(']');
   }

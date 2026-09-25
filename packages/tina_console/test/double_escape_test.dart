@@ -62,7 +62,9 @@ void main() {
     expect(await next, CharInput('y'));
   });
 
-  test('typing after cancellation survives command capture returning to readLine', () async {
+  test(
+      'typing after cancellation survives command capture returning to readLine',
+      () async {
     editor.beginInputCaptureWindow((_) {});
     final key = editor.readKey();
     editor.inject(EscapeKey());

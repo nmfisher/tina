@@ -28,18 +28,17 @@ void main() {
   });
 
   test('the line is animated so the spinner advances', () {
-    final line = renderer.render(
-      const IndexProgress(done: 1, total: 9),
-      context,
-    ).single;
+    final line = renderer
+        .render(const IndexProgress(done: 1, total: 9), context)
+        .single;
     expect(line.animated, isTrue);
   });
 
   test('the label run is dim and the counts are unstyled', () {
-    final runs = renderer.render(
-      const IndexProgress(done: 1, total: 9),
-      context,
-    ).expand((l) => l.runs).toList();
+    final runs = renderer
+        .render(const IndexProgress(done: 1, total: 9), context)
+        .expand((l) => l.runs)
+        .toList();
     expect(runs.first.text, startsWith('indexing '));
     expect(runs.first.code, Theme.defaults().chat.dim);
     expect(runs.last.text, ' · 1/9');

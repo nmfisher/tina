@@ -32,7 +32,8 @@ class SymbolTable {
     final parent = _byId[qualifiedName];
     if (parent == null) return const [];
     return _byId.values
-        .where((s) => s.filePath == parent.filePath && s.parentName == parent.name)
+        .where(
+            (s) => s.filePath == parent.filePath && s.parentName == parent.name)
         .toList();
   }
 

@@ -77,7 +77,8 @@ class GeminiProvider extends LlmProvider {
   }) async* {
     if (reasoningEffort != null && !_warnedReasoningEffort) {
       _warnedReasoningEffort = true;
-      yield StreamNotice('Tina cannot apply --reasoning-effort $reasoningEffort '
+      yield StreamNotice(
+          'Tina cannot apply --reasoning-effort $reasoningEffort '
           'on the Gemini wire; using the provider default for $model.');
     }
     final idToName = _collectToolNames(messages);
@@ -113,7 +114,8 @@ class GeminiProvider extends LlmProvider {
       resp = await sendOnce(_client, () => _buildRequest(bodyStr),
           requestTimeout: effectiveRequestTimeout);
     } catch (e) {
-      yield StreamError(humanizeException(e), transient: isTransientException(e));
+      yield StreamError(humanizeException(e),
+          transient: isTransientException(e));
       return;
     }
     if (resp.statusCode != 200) {

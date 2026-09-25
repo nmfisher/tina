@@ -6,7 +6,10 @@ import 'package:tina_app/src/summaries/sidecar_repo.dart';
 /// The partition: the allocated regions when any exist — the main agent's
 /// proposed layout IS the index — else the deterministic default partition
 /// (the headless `--prompt /index` fallback, where no main agent proposes).
-List<String> partitionFor(SidecarSummaryRepo repo, AllocationsStore? allocations) {
+List<String> partitionFor(
+  SidecarSummaryRepo repo,
+  AllocationsStore? allocations,
+) {
   final allocated = allocations?.dirs ?? const <String>[];
   if (allocated.isNotEmpty) return allocated;
   return repo.defaultPartition();
@@ -38,8 +41,9 @@ class AllocationsStore {
 
   /// The store for [workspaceRoot]'s sidecar
   /// (`<workspaceRoot>/.tina/summaries/allocations.json`).
-  factory AllocationsStore.forProject(String workspaceRoot) =>
-      AllocationsStore(sidecarRoot: Directory('$workspaceRoot/.tina/summaries'));
+  factory AllocationsStore.forProject(String workspaceRoot) => AllocationsStore(
+    sidecarRoot: Directory('$workspaceRoot/.tina/summaries'),
+  );
 
   /// The sidecar git repo root: `<workspaceRoot>/.tina/summaries`.
   final Directory sidecarRoot;
@@ -55,7 +59,10 @@ class AllocationsStore {
       final regions = json['regions'] as Map<String, dynamic>? ?? const {};
       return [
         for (final entry in regions.entries)
-          Allocation.fromJson(entry.key, entry.value as Map<String, dynamic>? ?? const {}),
+          Allocation.fromJson(
+            entry.key,
+            entry.value as Map<String, dynamic>? ?? const {},
+          ),
       ];
     } on FormatException {
       // Corrupt store: start fresh rather than blocking the session.

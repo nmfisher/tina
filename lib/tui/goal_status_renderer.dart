@@ -17,10 +17,7 @@ class GoalStatusRenderer extends Renderer<GoalSummary> {
     ];
     return [
       RenderLine(
-        runs: [
-          RenderRun('goal: ', dim),
-          RenderRun(parts.join(' · '), null),
-        ],
+        runs: [RenderRun('goal: ', dim), RenderRun(parts.join(' · '), null)],
       ),
     ];
   }

@@ -58,23 +58,29 @@ class JudgmentException implements Exception {
   final JudgmentFailure failure;
   final int? statusCode;
   final Duration? retryAfter;
+
   /// False only when the service knows it rejected work before dispatch.
   /// Defaults to true so an interrupted/unknown attempt is accounted for
   /// conservatively. This is not confirmation of provider billing.
   final bool attempted;
 
-  const JudgmentException(this.failure,
-      {this.statusCode, this.retryAfter, this.attempted = true});
+  const JudgmentException(
+    this.failure, {
+    this.statusCode,
+    this.retryAfter,
+    this.attempted = true,
+  });
 
   /// A hint for a caller's bounded retry policy, not an automatic retry.
   bool get isRetryable => const {
-        JudgmentFailure.rateLimited,
-        JudgmentFailure.unavailable,
-        JudgmentFailure.transport,
-        JudgmentFailure.timeout,
-      }.contains(failure);
+    JudgmentFailure.rateLimited,
+    JudgmentFailure.unavailable,
+    JudgmentFailure.transport,
+    JudgmentFailure.timeout,
+  }.contains(failure);
 
   @override
-  String toString() => 'JudgmentException: ${failure.name}'
+  String toString() =>
+      'JudgmentException: ${failure.name}'
       '${statusCode == null ? '' : ' (HTTP $statusCode)'}';
 }

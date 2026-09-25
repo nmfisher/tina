@@ -47,8 +47,7 @@ void main() {
       expect(res.content, contains('not found: no-such-binary'));
     });
 
-    test('checks a candidate containing a path separator directly',
-        () async {
+    test('checks a candidate containing a path separator directly', () async {
       final bin = Directory('${tmp.path}/bin')..createSync();
       final exe = File('${bin.path}/direct-tool')..writeAsStringSync('');
       Process.runSync('chmod', ['755', exe.path]);

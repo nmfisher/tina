@@ -48,12 +48,14 @@ void main() {
       // Every model there shares a 131,072-token context window and a
       // 40,960-token completion cap.
       final models = r.modelsFor('cerebras');
-      expect(models.map((m) => m.id), unorderedEquals(<String>[
-        'qwen3.8-27b',
-        'gpt-oss-120b',
-        'gemma-4-31b',
-        'zai-glm-4.7',
-      ]));
+      expect(
+          models.map((m) => m.id),
+          unorderedEquals(<String>[
+            'qwen3.8-27b',
+            'gpt-oss-120b',
+            'gemma-4-31b',
+            'zai-glm-4.7',
+          ]));
       for (final m in models) {
         expect(m.contextWindow, 131072, reason: m.id);
         expect(m.maxOutput, 40960, reason: m.id);
@@ -103,8 +105,9 @@ void main() {
     test('a dot in a model id survives reference parsing', () {
       // `cerebras/zai-glm-4.7`: the dot must not be read as a version suffix.
       expect(r.resolve('cerebras/zai-glm-4.7').modelId, 'zai-glm-4.7');
-      expect(adapterOf(r.build('cerebras/zai-glm-4.7', apiKeyOverride: 'k'))
-          .model, 'zai-glm-4.7');
+      expect(
+          adapterOf(r.build('cerebras/zai-glm-4.7', apiKeyOverride: 'k')).model,
+          'zai-glm-4.7');
     });
   });
 
@@ -117,13 +120,13 @@ void main() {
     test('auth is HETZNER_API_KEY as a Bearer token', () {
       final d = r.descriptor('hetzner')!;
       expect(d.authSources.map((s) => s.envVar).toList(), ['HETZNER_API_KEY']);
-      expect(
-          d.authSources.every((s) => s.scheme == AuthScheme.bearerToken),
+      expect(d.authSources.every((s) => s.scheme == AuthScheme.bearerToken),
           isTrue,
           reason: 'OpenAI-compatible — needs Authorization: Bearer');
     });
 
-    test('default base URL omits the trailing /v1 so the adapter and live '
+    test(
+        'default base URL omits the trailing /v1 so the adapter and live '
         'catalog both hit /api/v1/...', () {
       // chatEndpoint appends /v1/chat/completions when the base does not end
       // in /v<digits>; LiveModelsCatalog appends /v1/models unconditionally.
@@ -134,16 +137,17 @@ void main() {
       expect(base, 'https://inference.hetzner.com/api');
       expect(OpenAiCompatibleAdapter.chatEndpoint(base),
           'https://inference.hetzner.com/api/v1/chat/completions');
-      expect('$base/v1/models',
-          'https://inference.hetzner.com/api/v1/models');
+      expect('$base/v1/models', 'https://inference.hetzner.com/api/v1/models');
     });
 
     test('catalog matches Hetzner docs (2 vision models, 256K each)', () {
       final models = r.modelsFor('hetzner');
-      expect(models.map((m) => m.id), unorderedEquals(<String>[
-        'Qwen3.8-27B',
-        'Qwen/Qwen3.6-35B-A3B-FP8',
-      ]));
+      expect(
+          models.map((m) => m.id),
+          unorderedEquals(<String>[
+            'Qwen3.8-27B',
+            'Qwen/Qwen3.6-35B-A3B-FP8',
+          ]));
       final byId = {for (final m in models) m.id: m};
       // maxOutput comes from models.dev's `limit.output` for each model, not a
       // blanket default — the two differ (32768 vs 65536).
@@ -173,8 +177,7 @@ void main() {
       // The 35B id itself contains a slash (Hugging Face org prefix), so a
       // bare reference would parse as provider "Qwen" — the prefixed form is
       // the only way to name it.
-      expect(
-          r.resolve('hetzner/Qwen/Qwen3.6-35B-A3B-FP8').descriptor.id,
+      expect(r.resolve('hetzner/Qwen/Qwen3.6-35B-A3B-FP8').descriptor.id,
           'hetzner');
     });
   });
@@ -182,8 +185,7 @@ void main() {
   group('qwencloud descriptor', () {
     test('auth is QWENCLOUD_API_KEY first, DASHSCOPE_API_KEY fallback', () {
       final d = r.descriptor('qwencloud')!;
-      expect(
-          d.authSources.map((s) => s.envVar).toList(),
+      expect(d.authSources.map((s) => s.envVar).toList(),
           ['QWENCLOUD_API_KEY', 'DASHSCOPE_API_KEY']);
       // Both sources are bearer — the endpoint is OpenAI-compatible.
       expect(d.authSources.every((s) => s.scheme == AuthScheme.bearerToken),
@@ -208,8 +210,8 @@ void main() {
       // default region is ap-southeast-1 (per qwencloud-ai's qwencloud_lib.py).
       expect(r.descriptor('qwencloud')!.defaultBaseUrl,
           'https://dashscope-intl.aliyuncs.com/compatible-mode/v1');
-      expect(r.descriptor('qwen')!.defaultBaseUrl, isNot(equals(
-          r.descriptor('qwencloud')!.defaultBaseUrl)));
+      expect(r.descriptor('qwen')!.defaultBaseUrl,
+          isNot(equals(r.descriptor('qwencloud')!.defaultBaseUrl)));
     });
 
     test('catalog is the curated chat list with live-page specs', () {
@@ -218,20 +220,22 @@ void main() {
       // calling. Image/video/TTS/embedding models are deliberately omitted —
       // the chat adapter cannot serve them.
       final models = r.modelsFor('qwencloud');
-      expect(models.map((m) => m.id), unorderedEquals(<String>[
-        'qwen3.8-max',
-        'qwen3.7-plus',
-        'qwen3.6-plus',
-        'qwen3.5-plus',
-        'qwen3-max',
-        'qwen-plus',
-        'qwen-flash',
-        'qwen-turbo',
-        'qwq-plus',
-        'qwen3-coder-plus',
-        'qwen3-coder-next',
-        'qwen3-vl-plus',
-      ]));
+      expect(
+          models.map((m) => m.id),
+          unorderedEquals(<String>[
+            'qwen3.8-max',
+            'qwen3.7-plus',
+            'qwen3.6-plus',
+            'qwen3.5-plus',
+            'qwen3-max',
+            'qwen-plus',
+            'qwen-flash',
+            'qwen-turbo',
+            'qwq-plus',
+            'qwen3-coder-plus',
+            'qwen3-coder-next',
+            'qwen3-vl-plus',
+          ]));
       for (final m in models) {
         // The platform advertises 1M (1,048,576) for all of these.
         expect(m.contextWindow, 1048576, reason: m.id);
@@ -245,8 +249,12 @@ void main() {
 
     test('vision is enabled only for the multimodal models', () {
       final d = r.descriptor('qwencloud')!;
-      const visionIds = ['qwen3.7-plus', 'qwen3.6-plus', 'qwen3.5-plus',
-        'qwen3-vl-plus'];
+      const visionIds = [
+        'qwen3.7-plus',
+        'qwen3.6-plus',
+        'qwen3.5-plus',
+        'qwen3-vl-plus'
+      ];
       for (final entry in d.models.entries) {
         expect(entry.value.supportsVision, visionIds.contains(entry.key),
             reason: entry.key);

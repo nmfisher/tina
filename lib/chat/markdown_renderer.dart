@@ -25,6 +25,7 @@ class MarkdownStyle {
   final String base;
 
   final String header;
+
   /// Inline code span style (italic).
   final String inlineCode;
 
@@ -44,13 +45,13 @@ class MarkdownStyle {
   });
 
   factory MarkdownStyle.fromChatTheme(ChatTheme chat) => MarkdownStyle(
-        base: chat.agentText,
-        header: chat.header,
-        inlineCode: chat.inlineCode,
-        codeBlock: chat.codeBlock,
-        link: chat.link,
-        dim: chat.dim,
-      );
+    base: chat.agentText,
+    header: chat.header,
+    inlineCode: chat.inlineCode,
+    codeBlock: chat.codeBlock,
+    link: chat.link,
+    dim: chat.dim,
+  );
 }
 
 /// Compatibility names for the shared UI rendering types.
@@ -62,7 +63,9 @@ typedef MarkdownLine = RenderLine;
 /// fall back to their text content.
 List<MarkdownLine> renderMarkdown(String source, MarkdownStyle style) {
   // Enable GitHub Flavored Markdown to support tables.
-  final nodes = md.Document(extensionSet: md.ExtensionSet.gitHubFlavored).parse(source);
+  final nodes = md.Document(
+    extensionSet: md.ExtensionSet.gitHubFlavored,
+  ).parse(source);
   final out = <MarkdownLine>[];
   for (final node in nodes) {
     if (out.isNotEmpty) out.add(const MarkdownLine.blank());
@@ -76,8 +79,11 @@ List<MarkdownLine> renderMarkdown(String source, MarkdownStyle style) {
   return out;
 }
 
-List<MarkdownLine> _renderNode(md.Node node, MarkdownStyle style,
-    {required String indent}) {
+List<MarkdownLine> _renderNode(
+  md.Node node,
+  MarkdownStyle style, {
+  required String indent,
+}) {
   if (node is md.Text) {
     // Bare text at block level (rare): treat as a paragraph.
     return _linesFromRuns([MarkdownRun(node.text, null)], indent: indent);
@@ -87,8 +93,7 @@ List<MarkdownLine> _renderNode(md.Node node, MarkdownStyle style,
   }
   switch (node.tag) {
     case 'p':
-      return _linesFromRuns(_inlineRuns(node.children, style),
-          indent: indent);
+      return _linesFromRuns(_inlineRuns(node.children, style), indent: indent);
     case 'h1':
     case 'h2':
     case 'h3':
@@ -97,7 +102,8 @@ List<MarkdownLine> _renderNode(md.Node node, MarkdownStyle style,
     case 'h6':
       return [
         MarkdownLine(
-            runs: [MarkdownRun(indent + node.textContent, style.header)]),
+          runs: [MarkdownRun(indent + node.textContent, style.header)],
+        ),
       ];
     case 'blockquote':
       final out = <MarkdownLine>[];
@@ -128,8 +134,9 @@ List<MarkdownLine> _renderNode(md.Node node, MarkdownStyle style,
         out.addAll(_renderNode(child, style, indent: indent));
       }
       if (out.isEmpty && node.textContent.isNotEmpty) {
-        out.addAll(_linesFromRuns(
-            [MarkdownRun(node.textContent, null)], indent: indent));
+        out.addAll(
+          _linesFromRuns([MarkdownRun(node.textContent, null)], indent: indent),
+        );
       }
       return out;
   }
@@ -137,23 +144,27 @@ List<MarkdownLine> _renderNode(md.Node node, MarkdownStyle style,
 
 /// Paragraph/list-item body: inline runs split at hard/soft breaks into
 /// visual lines, each prefixed with [indent] when set.
-List<MarkdownLine> _linesFromRuns(List<MarkdownRun> runs,
-    {required String indent}) {
+List<MarkdownLine> _linesFromRuns(
+  List<MarkdownRun> runs, {
+  required String indent,
+}) {
   final lines = _splitRunsAtBreaks(runs);
   if (lines.isEmpty) return const [];
   return [
     for (final lineRuns in lines)
-      MarkdownLine(runs: [
-        if (indent.isNotEmpty) MarkdownRun(indent, null),
-        ...lineRuns,
-      ]),
+      MarkdownLine(
+        runs: [if (indent.isNotEmpty) MarkdownRun(indent, null), ...lineRuns],
+      ),
   ];
 }
 
 /// Walk inline nodes, mapping emphasis/code/links to styled runs. [bits]
 /// accumulates bold/italic across nesting (`***x***`).
-List<MarkdownRun> _inlineRuns(List<md.Node>? nodes, MarkdownStyle style,
-    {int bits = 0}) {
+List<MarkdownRun> _inlineRuns(
+  List<md.Node>? nodes,
+  MarkdownStyle style, {
+  int bits = 0,
+}) {
   if (nodes == null) return const [];
   final out = <MarkdownRun>[];
   for (final node in nodes) {
@@ -170,7 +181,9 @@ List<MarkdownRun> _inlineRuns(List<md.Node>? nodes, MarkdownStyle style,
       case 'code':
         // The parser entity-encodes code-span content once (it targets HTML
         // output); a single decode restores the source text exactly.
-        out.add(MarkdownRun(_decodeEntities(node.textContent), style.inlineCode));
+        out.add(
+          MarkdownRun(_decodeEntities(node.textContent), style.inlineCode),
+        );
       case 'a':
         final href = node.attributes['href'] ?? '';
         final label = node.textContent;
@@ -238,8 +251,10 @@ String _decodeEntities(String text) {
     final body = m.group(1)!;
     if (body.startsWith('#')) {
       final radix = body.startsWith('#x') || body.startsWith('#X') ? 16 : 10;
-      final code =
-          int.tryParse(body.substring(radix == 16 ? 2 : 1), radix: radix);
+      final code = int.tryParse(
+        body.substring(radix == 16 ? 2 : 1),
+        radix: radix,
+      );
       if (code == null || code == 0 || code > 0x10FFFF) return m.group(0)!;
       try {
         return String.fromCharCode(code);
@@ -253,10 +268,7 @@ String _decodeEntities(String text) {
 
 String? _bitsCode(int bits) {
   if (bits == 0) return null;
-  return [
-    if (bits & 1 != 0) '1',
-    if (bits & 2 != 0) '3',
-  ].join(';');
+  return [if (bits & 1 != 0) '1', if (bits & 2 != 0) '3'].join(';');
 }
 
 /// Split runs at '\n' boundaries into per-line run lists, dropping the
@@ -279,14 +291,16 @@ List<List<MarkdownRun>> _splitRunsAtBreaks(List<MarkdownRun> runs) {
   return out;
 }
 
-MarkdownLine _prefixLine(MarkdownLine line, MarkdownRun prefix) =>
-    MarkdownLine(
-      bar: line.bar,
-      runs: line.runs.isEmpty ? [prefix] : [prefix, ...line.runs],
-    );
+MarkdownLine _prefixLine(MarkdownLine line, MarkdownRun prefix) => MarkdownLine(
+  bar: line.bar,
+  runs: line.runs.isEmpty ? [prefix] : [prefix, ...line.runs],
+);
 
-List<MarkdownLine> _renderList(md.Element list, MarkdownStyle style,
-    {required String indent}) {
+List<MarkdownLine> _renderList(
+  md.Element list,
+  MarkdownStyle style, {
+  required String indent,
+}) {
   final out = <MarkdownLine>[];
   final ordered = list.tag == 'ol';
   final start = int.tryParse(list.attributes['start'] ?? '') ?? 1;
@@ -315,19 +329,22 @@ List<MarkdownLine> _renderList(md.Element list, MarkdownStyle style,
         inlineNodes.add(child);
       }
     }
-    final itemLines =
-        _splitRunsAtBreaks(_inlineRuns(inlineNodes, style));
+    final itemLines = _splitRunsAtBreaks(_inlineRuns(inlineNodes, style));
     if (itemLines.isEmpty) {
       out.add(MarkdownLine(runs: [markerRun]));
     }
     for (var i = 0; i < itemLines.length; i++) {
-      out.add(MarkdownLine(runs: [
-        if (i == 0)
-          markerRun
-        else
-          MarkdownRun(' ' * markerRun.text.length, null),
-        ...itemLines[i],
-      ]));
+      out.add(
+        MarkdownLine(
+          runs: [
+            if (i == 0)
+              markerRun
+            else
+              MarkdownRun(' ' * markerRun.text.length, null),
+            ...itemLines[i],
+          ],
+        ),
+      );
     }
     if (subList != null) {
       out.addAll(_renderList(subList, style, indent: '$indent  '));
@@ -337,8 +354,11 @@ List<MarkdownLine> _renderList(md.Element list, MarkdownStyle style,
 }
 
 /// Render a markdown table as ASCII box-drawn grid.
-List<MarkdownLine> _renderTable(md.Element table, MarkdownStyle style,
-    {required String indent}) {
+List<MarkdownLine> _renderTable(
+  md.Element table,
+  MarkdownStyle style, {
+  required String indent,
+}) {
   // Extract all rows from thead and tbody.
   final rows = <List<String>>[];
   for (final child in table.children ?? const <md.Node>[]) {
@@ -348,7 +368,8 @@ List<MarkdownLine> _renderTable(md.Element table, MarkdownStyle style,
       if (row is! md.Element || row.tag != 'tr') continue;
       final cells = <String>[];
       for (final cell in row.children ?? const <md.Node>[]) {
-        if (cell is! md.Element || (cell.tag != 'td' && cell.tag != 'th')) continue;
+        if (cell is! md.Element || (cell.tag != 'td' && cell.tag != 'th'))
+          continue;
         cells.add(_normalizeCellText(cell.textContent));
       }
       rows.add(cells);
@@ -407,32 +428,38 @@ List<MarkdownLine> _renderTable(md.Element table, MarkdownStyle style,
 
   final out = <MarkdownLine>[];
   // Header row.
-  out.add(MarkdownLine(
-    runs: [MarkdownRun(indent + rowLine(rows.first, true), style.dim)],
-  ));
+  out.add(
+    MarkdownLine(
+      runs: [MarkdownRun(indent + rowLine(rows.first, true), style.dim)],
+    ),
+  );
   // Separator after header.
-  out.add(MarkdownLine(
-    runs: [MarkdownRun(indent + separatorLine(true), style.dim)],
-  ));
+  out.add(
+    MarkdownLine(runs: [MarkdownRun(indent + separatorLine(true), style.dim)]),
+  );
   // Data rows.
   if (rows.length > 1) {
     for (var i = 1; i < rows.length; i++) {
-      out.add(MarkdownLine(
-        runs: [MarkdownRun(indent + dataRow(rows[i]), null)],
-      ));
+      out.add(
+        MarkdownLine(runs: [MarkdownRun(indent + dataRow(rows[i]), null)]),
+      );
       // Separator between data rows (except last).
       if (i < rows.length - 1) {
-        out.add(MarkdownLine(
-          runs: [MarkdownRun(indent + separatorLine(false), style.dim)],
-        ));
+        out.add(
+          MarkdownLine(
+            runs: [MarkdownRun(indent + separatorLine(false), style.dim)],
+          ),
+        );
       }
     }
   }
   // Footer border.
   final totalWidth = colWidths.reduce((a, b) => a + b + 1);
-  out.add(MarkdownLine(
-    runs: [MarkdownRun(indent + '└' + ('─' * totalWidth) + '┘', style.dim)],
-  ));
+  out.add(
+    MarkdownLine(
+      runs: [MarkdownRun(indent + '└' + ('─' * totalWidth) + '┘', style.dim)],
+    ),
+  );
 
   return out;
 }
@@ -476,8 +503,11 @@ class SerializedLine {
 /// Turn a rendered line into what the sink writes. With [styled] off (no
 /// color / passthrough surfaces) the line degrades to its plain text —
 /// block structure survives, inline styles vanish.
-SerializedLine serializeLine(MarkdownLine line, MarkdownStyle style,
-    {required bool styled}) {
+SerializedLine serializeLine(
+  MarkdownLine line,
+  MarkdownStyle style, {
+  required bool styled,
+}) {
   if (!styled) {
     return SerializedLine(line.runs.map((r) => r.text).join(), line.bar);
   }

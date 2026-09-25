@@ -70,13 +70,11 @@ void main() {
       final provider = TavilySearchProvider('k', client: client);
 
       await provider.search('q', count: 0);
-      var sent = jsonDecode(
-          (client.requests.last as http.Request).body);
+      var sent = jsonDecode((client.requests.last as http.Request).body);
       expect(sent['max_results'], 1);
 
       await provider.search('q', count: 99);
-      sent = jsonDecode(
-          (client.requests.last as http.Request).body);
+      sent = jsonDecode((client.requests.last as http.Request).body);
       expect(sent['max_results'], 20);
     });
 
@@ -93,8 +91,7 @@ void main() {
   });
 
   group('TavilySearchProvider parsing', () {
-    test('parses title/url/content and ignores the top-level answer',
-        () async {
+    test('parses title/url/content and ignores the top-level answer', () async {
       final client = RecordingClient(body: _sampleResponse);
       final provider = TavilySearchProvider('k', client: client);
 

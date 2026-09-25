@@ -46,7 +46,8 @@ void main() {
           reason: 'past the cap the abort path owns the turn');
     });
 
-    test('no per-turn limit: falls back to the absolute threshold baseline '
+    test(
+        'no per-turn limit: falls back to the absolute threshold baseline '
         '(tin-cmpt)', () {
       // The old code returned false whenever the cap was missing, which let
       // `--max-turn-tokens 0` remove the spend trigger and the hard abort at
@@ -56,8 +57,7 @@ void main() {
           .record(const TokenUsage(inputTokens: 100000, outputTokens: 0));
       expect(b.turnSpendCompactTrigger(autoCompactThreshold: 560), isTrue,
           reason: '100000 ≥ ceil(560 × 0.5) = 280');
-      expect(
-          b.turnSpendCompactTrigger(autoCompactThreshold: 300000), isFalse,
+      expect(b.turnSpendCompactTrigger(autoCompactThreshold: 300000), isFalse,
           reason: '100000 < ceil(300000 × 0.5) = 150000');
       expect(b.turnSpendCompactTrigger(autoCompactThreshold: 0), isFalse,
           reason: 'threshold 0 disables compaction entirely, as before');
@@ -98,16 +98,19 @@ void main() {
         ];
 
     bool isCompactCall(
-            ({String system, List<Message> messages, List<ToolSchema> tools})
-                call) =>
+            ({
+              String system,
+              List<Message> messages,
+              List<ToolSchema> tools
+            }) call) =>
         call.messages.any((m) => m.content.any((b) =>
             b is TextBlock &&
             b.text.contains('Summarize the conversation above')));
 
     bool wireHasSoftNudge(List<Message> messages) => messages.any((m) =>
         m.role == Role.user &&
-        m.content.any((b) =>
-            b is TextBlock && b.text.contains('turn spend at')));
+        m.content
+            .any((b) => b is TextBlock && b.text.contains('turn spend at')));
 
     Agent spendAgent(FakeProvider provider, {FakeAgentSink? sink}) {
       final agent = Agent(
@@ -116,8 +119,7 @@ void main() {
           FakeTool('big', (_) => ToolResult(medium)),
         ]),
         sink: sink ?? FakeAgentSink(),
-        policy:
-            PermissionPolicy(defaults: {'big': PermissionDecision.allow}),
+        policy: PermissionPolicy(defaults: {'big': PermissionDecision.allow}),
         asker: (_) async => PermissionResponse.allowOnce,
         maxSteps: 20,
         system: 'sys',
@@ -175,7 +177,8 @@ void main() {
       // The compaction notice names the spend reason.
       final notices = (agent.sink as FakeAgentSink).notices;
       expect(
-        notices.any((n) => n.message.contains('[compact]') &&
+        notices.any((n) =>
+            n.message.contains('[compact]') &&
             n.message.contains('crossed 50%')),
         isTrue,
         reason: 'the spend-triggered compaction announces itself',
@@ -185,8 +188,7 @@ void main() {
       // rewritten IN PLACE.
       expect(
         provider.calls[4].messages.any((m) => m.content.any((b) =>
-            b is TextBlock &&
-            b.text.contains('Prior conversation summary'))),
+            b is TextBlock && b.text.contains('Prior conversation summary'))),
         isTrue,
         reason: 'the model must see the summarized history afterwards',
       );
@@ -216,7 +218,8 @@ void main() {
             't1', const TokenUsage(inputTokens: 25, outputTokens: 20)),
         toolUseWithUsage(
             't2', const TokenUsage(inputTokens: 25, outputTokens: 20)),
-        textWithUsage('done', const TokenUsage(inputTokens: 0, outputTokens: 0)),
+        textWithUsage(
+            'done', const TokenUsage(inputTokens: 0, outputTokens: 0)),
       ]);
       final agent = spendAgent(provider);
 
@@ -230,7 +233,8 @@ void main() {
     });
   });
 
-  group('Agent.run turn-spend compaction WITHOUT a per-turn cap (tin-cmpt)', () {
+  group('Agent.run turn-spend compaction WITHOUT a per-turn cap (tin-cmpt)',
+      () {
     // Sizing discipline. Three ladder marks, all from one threshold T:
     //   uncapped spend rung  = T/2   (measured+estimated spend)
     //   spend size floor     = T/2   (single-request estimate; BOTH the rung
@@ -270,8 +274,11 @@ void main() {
         ];
 
     bool isCompactCall(
-            ({String system, List<Message> messages, List<ToolSchema> tools})
-                call) =>
+            ({
+              String system,
+              List<Message> messages,
+              List<ToolSchema> tools
+            }) call) =>
         call.messages.any((m) => m.content.any((b) =>
             b is TextBlock &&
             b.text.contains('Summarize the conversation above')));
@@ -283,8 +290,7 @@ void main() {
           FakeTool('big', (_) => ToolResult(medium)),
         ]),
         sink: sink ?? FakeAgentSink(),
-        policy:
-            PermissionPolicy(defaults: {'big': PermissionDecision.allow}),
+        policy: PermissionPolicy(defaults: {'big': PermissionDecision.allow}),
         asker: (_) async => PermissionResponse.allowOnce,
         maxSteps: 30,
         system: 'sys',
@@ -308,14 +314,17 @@ void main() {
       //                  turn normally — no cap, no hard abort. The request
       //                  estimate is parked near ~14400 the whole time —
       //                  above the T/2 floor, below the T size trigger.
-      final rounds = List.generate(11, (i) => toolUseWithUsage('t${i + 1}',
-          const TokenUsage(inputTokens: 500, outputTokens: 500)));
+      final rounds = List.generate(
+          11,
+          (i) => toolUseWithUsage('t${i + 1}',
+              const TokenUsage(inputTokens: 500, outputTokens: 500)));
       final provider = FakeProvider([
         ...rounds,
         summary(), // consumed by the uncapped spend compaction
         toolUseWithUsage(
             't12', const TokenUsage(inputTokens: 500, outputTokens: 500)),
-        textWithUsage('done', const TokenUsage(inputTokens: 0, outputTokens: 0)),
+        textWithUsage(
+            'done', const TokenUsage(inputTokens: 0, outputTokens: 0)),
       ]);
       final sink = FakeAgentSink();
       final agent = uncappedAgent(provider, sink: sink);
@@ -339,8 +348,8 @@ void main() {
       final compactCall = provider.calls.where(isCompactCall).single;
       final afterIdx = provider.calls.indexOf(compactCall);
       expect(
-        provider.calls[afterIdx + 1].messages.any((m) => m.content.any((b) =>
-            b is TextBlock && b.text.contains('progress summary'))),
+        provider.calls[afterIdx + 1].messages.any((m) => m.content
+            .any((b) => b is TextBlock && b.text.contains('progress summary'))),
         isTrue,
         reason: 'the model must see the summarized history afterwards',
       );
@@ -357,12 +366,15 @@ void main() {
       // the 20000 size threshold. If the latch failed, the spend trigger
       // would re-fire and compact again; exactly one compaction call is in
       // the script.
-      final rounds = List.generate(16, (i) => toolUseWithUsage('t${i + 1}',
-          const TokenUsage(inputTokens: 500, outputTokens: 500)));
+      final rounds = List.generate(
+          16,
+          (i) => toolUseWithUsage('t${i + 1}',
+              const TokenUsage(inputTokens: 500, outputTokens: 500)));
       final provider = FakeProvider([
         ...rounds,
         summary(), // the single compaction
-        textWithUsage('done', const TokenUsage(inputTokens: 0, outputTokens: 0)),
+        textWithUsage(
+            'done', const TokenUsage(inputTokens: 0, outputTokens: 0)),
       ]);
       final agent = uncappedAgent(provider);
 
@@ -382,7 +394,8 @@ void main() {
             't1', const TokenUsage(inputTokens: 500, outputTokens: 500)),
         toolUseWithUsage(
             't2', const TokenUsage(inputTokens: 500, outputTokens: 500)),
-        textWithUsage('done', const TokenUsage(inputTokens: 0, outputTokens: 0)),
+        textWithUsage(
+            'done', const TokenUsage(inputTokens: 0, outputTokens: 0)),
       ]);
       final agent = uncappedAgent(provider);
 
@@ -419,8 +432,11 @@ void main() {
         ];
 
     bool wireHasAdvisory(
-            ({String system, List<Message> messages, List<ToolSchema> tools})
-                call) =>
+            ({
+              String system,
+              List<Message> messages,
+              List<ToolSchema> tools
+            }) call) =>
         call.messages.any((m) => m.content.any((b) =>
             b is TextBlock &&
             b.text.contains('[checkpoint] this turn has run long')));
@@ -450,8 +466,7 @@ void main() {
           FakeTool(tool, (_) => ToolResult(tiny)),
         ]),
         sink: sink,
-        policy:
-            PermissionPolicy(defaults: {tool: PermissionDecision.allow}),
+        policy: PermissionPolicy(defaults: {tool: PermissionDecision.allow}),
         asker: (_) async => PermissionResponse.allowOnce,
         maxSteps: 20,
         system: 'sys',
@@ -517,11 +532,14 @@ void main() {
     test(
         'a turn that touches a mutable tool never gets the advisory — and '
         'the latch stays unset', () async {
-      final rounds = List.generate(6, (i) => toolUse('t${i + 1}', 'write',
-          const TokenUsage(inputTokens: 50000, outputTokens: 50000)));
+      final rounds = List.generate(
+          6,
+          (i) => toolUse('t${i + 1}', 'write',
+              const TokenUsage(inputTokens: 50000, outputTokens: 50000)));
       final provider = FakeProvider([
         ...rounds,
-        textWithUsage('done', const TokenUsage(inputTokens: 0, outputTokens: 0)),
+        textWithUsage(
+            'done', const TokenUsage(inputTokens: 0, outputTokens: 0)),
       ]);
       final sink = FakeAgentSink();
       final agent = advisoryAgent(provider, sink, tool: 'write');
@@ -534,8 +552,8 @@ void main() {
           reason: 'a touched checkpoint suppresses the advisory');
       expect(provider.calls.any(wireHasAdvisory), isFalse,
           reason: 'nothing in-band: the model was never told to checkpoint');
-      expect(sink.notices.any((n) => n.message.contains('[checkpoint]')),
-          isFalse);
+      expect(
+          sink.notices.any((n) => n.message.contains('[checkpoint]')), isFalse);
       expect(agent.abortedKind, AbortedKind.none);
     });
   });

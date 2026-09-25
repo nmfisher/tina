@@ -60,8 +60,10 @@ ProviderBuilder anthropicCompatibleBuilder() => (c) {
 /// tests can observe WHEN it fires; production keeps the default
 /// `stderr.writeln`.
 void registerConfigProviders(
-    ProviderRegistry registry, UserConfig userConfig,
-    {void Function(String line)? warn}) {
+  ProviderRegistry registry,
+  UserConfig userConfig, {
+  void Function(String line)? warn,
+}) {
   // Explicit type: stderr.writeln's tear-off takes Object?, and without the
   // annotation the ??-inferred type is bare `Function`.
   final void Function(String) warnOut = warn ?? stderr.writeln;
@@ -90,19 +92,21 @@ void registerConfigProviders(
     if (pc.wire == null) {
       if (existing != null) {
         if ((pc.models?.isNotEmpty ?? false) || pc.maxOutput != null) {
-          registry.register(ProviderDescriptor(
-            id: existing.id,
-            name: existing.name,
-            authSources: existing.authSources,
-            defaultBaseUrl: existing.defaultBaseUrl,
-            builder: existing.builder,
-            models: _configModels(id, pc, existing.models),
-            listsRemoteModels: existing.listsRemoteModels,
-            requestsPerMinute: existing.requestsPerMinute,
-            minRequestIntervalMs:
-                pc.minRequestIntervalMs ?? existing.minRequestIntervalMs,
-            maxOutputOverride: pc.maxOutput ?? existing.maxOutputOverride,
-          ));
+          registry.register(
+            ProviderDescriptor(
+              id: existing.id,
+              name: existing.name,
+              authSources: existing.authSources,
+              defaultBaseUrl: existing.defaultBaseUrl,
+              builder: existing.builder,
+              models: _configModels(id, pc, existing.models),
+              listsRemoteModels: existing.listsRemoteModels,
+              requestsPerMinute: existing.requestsPerMinute,
+              minRequestIntervalMs:
+                  pc.minRequestIntervalMs ?? existing.minRequestIntervalMs,
+              maxOutputOverride: pc.maxOutput ?? existing.maxOutputOverride,
+            ),
+          );
         }
         continue;
       }
@@ -112,9 +116,11 @@ void registerConfigProviders(
         // models.dev (that seed runs before this pass), and no base_url to
         // build a custom provider from. The list is inert — warn plainly
         // instead of the misleading no-base_url line the old path printed.
-        warnOut('warning: [providers.$id] curates models but no provider '
-            'serves "$id" yet (no base_url, not a built-in); the list '
-            'applies once the provider is registered.');
+        warnOut(
+          'warning: [providers.$id] curates models but no provider '
+          'serves "$id" yet (no base_url, not a built-in); the list '
+          'applies once the provider is registered.',
+        );
         continue;
       }
       // else: a dangling custom provider (no wire, no base_url, nothing
@@ -122,8 +128,10 @@ void registerConfigProviders(
     }
 
     if (noBaseUrl) {
-      stderr.writeln('warning: [providers.$id] defines a custom provider but has '
-          'no base_url; skipping.');
+      stderr.writeln(
+        'warning: [providers.$id] defines a custom provider but has '
+        'no base_url; skipping.',
+      );
       continue;
     }
     final catalog = _configModels(id, pc, existing?.models ?? const {});
@@ -149,7 +157,10 @@ void registerConfigProviders(
 /// the same shape [LiveModelsCatalog] synthesizes for ids it discovers from
 /// a remote `GET /v1/models`.
 Map<String, ModelInfo> _configModels(
-    String id, ProviderConfig pc, Map<String, ModelInfo> base) {
+  String id,
+  ProviderConfig pc,
+  Map<String, ModelInfo> base,
+) {
   final catalog = Map<String, ModelInfo>.of(base);
   for (final spec in (pc.models ?? const <ProviderModelSpec>[])) {
     final previous = base[spec.id];
@@ -187,29 +198,41 @@ Map<String, ModelInfo> _configModels(
 /// each ≈ 120 RPM aggregate) while `[limits] requests_per_minute` remains the
 /// session-wide ceiling — it must be raised to the sum (or 0) or it
 /// bottlenecks the pool at one member's cap.
-void _registerPool(ProviderRegistry registry, String id, ProviderConfig pc,
-    UserConfig config, void Function(String line) warnOut) {
+void _registerPool(
+  ProviderRegistry registry,
+  String id,
+  ProviderConfig pc,
+  UserConfig config,
+  void Function(String line) warnOut,
+) {
   final entries = pc.members!;
   // The provider id of a full reference is the text before the first slash
   // (model ids themselves may contain slashes: `meta/muse-glimmer-30b`).
   final memberProviderIds = [
-    for (final entry in entries) ModelReference.parse(entry).providerId ?? entry
+    for (final entry in entries)
+      ModelReference.parse(entry).providerId ?? entry,
   ];
   if (memberProviderIds.contains(id)) {
-    stderr.writeln('warning: [providers.$id] lists itself as a pool member; '
-        'skipping.');
+    stderr.writeln(
+      'warning: [providers.$id] lists itself as a pool member; '
+      'skipping.',
+    );
     return;
   }
   for (final memberId in memberProviderIds) {
     if (registry.descriptor(memberId) == null) {
-      stderr.writeln('warning: [providers.$id] pools unknown provider '
-          '"$memberId"; skipping the pool.');
+      stderr.writeln(
+        'warning: [providers.$id] pools unknown provider '
+        '"$memberId"; skipping the pool.',
+      );
       return;
     }
     final memberConfig = config.providers[memberId];
     if (memberConfig?.members != null && memberConfig!.members!.isNotEmpty) {
-      stderr.writeln('warning: [providers.$id] pools "$memberId", which is '
-          'itself a pool (nesting is not supported); skipping.');
+      stderr.writeln(
+        'warning: [providers.$id] pools "$memberId", which is '
+        'itself a pool (nesting is not supported); skipping.',
+      );
       return;
     }
   }
@@ -234,55 +257,64 @@ void _registerPool(ProviderRegistry registry, String id, ProviderConfig pc,
   }
   // Warn-once flag, captured by the builder below.
   var warned = false;
-  registry.registerPool(ProviderDescriptor(
-    id: id,
-    name: pc.name ?? _titleCase(id),
-    authSources: const [],
-    defaultBaseUrl: '',
-    // The instance's model id is the part after `<pool>/`. Bare members are
-    // resolved as `<member>/<that model>`; full references are pinned and
-    // ignore it.
-    builder: (c) {
-      // Warn on FIRST BUILD, not at attach (#28): a run that never touches the
-      // pool (e.g. an explicit `--model` elsewhere) must not print a member
-      // list that reads as "the pool is active".
-      if (!warned) {
-        warned = true;
-        warnOut('tina: pool "$id" rotates over: ${entries.join(', ')} '
+  registry.registerPool(
+    ProviderDescriptor(
+      id: id,
+      name: pc.name ?? _titleCase(id),
+      authSources: const [],
+      defaultBaseUrl: '',
+      // The instance's model id is the part after `<pool>/`. Bare members are
+      // resolved as `<member>/<that model>`; full references are pinned and
+      // ignore it.
+      builder: (c) {
+        // Warn on FIRST BUILD, not at attach (#28): a run that never touches the
+        // pool (e.g. an explicit `--model` elsewhere) must not print a member
+        // list that reads as "the pool is active".
+        if (!warned) {
+          warned = true;
+          warnOut(
+            'tina: pool "$id" rotates over: ${entries.join(', ')} '
             '(per-member spacing via [limits] min_request_interval_ms or '
             '[providers.<id>] requests_per_minute; raise the limits to the '
-            'sum or the session cap bottlenecks the pool)');
-      }
-      return registry.buildPooled(
-        [
-          for (final entry in entries)
-            ModelReference.parse(entry).providerId == null
-                ? '$entry/${c.model}'
-                : entry
-        ],
-        maxTokens: c.maxTokens,
-        reasoningEffort: c.reasoningEffort,
-        streamIdleTimeout: c.streamIdleTimeout,
-        requestTimeout: c.requestTimeout,
-      );
-    },
-    models: catalog,
-    maxOutputOverride: pc.maxOutput,
-  ));
+            'sum or the session cap bottlenecks the pool)',
+          );
+        }
+        return registry.buildPooled(
+          [
+            for (final entry in entries)
+              ModelReference.parse(entry).providerId == null
+                  ? '$entry/${c.model}'
+                  : entry,
+          ],
+          maxTokens: c.maxTokens,
+          reasoningEffort: c.reasoningEffort,
+          streamIdleTimeout: c.streamIdleTimeout,
+          requestTimeout: c.requestTimeout,
+        );
+      },
+      models: catalog,
+      maxOutputOverride: pc.maxOutput,
+    ),
+  );
 }
 
 /// Resolves the effective wire format for a config block, or null when the block
 /// should be ignored (a built-in id with no explicit `wire`).
 String? _normalizeWire(
-    String id, String? declared, ProviderDescriptor? existing) {
+  String id,
+  String? declared,
+  ProviderDescriptor? existing,
+) {
   if (declared == null) {
     // No wire declared: a new id defaults to OpenAI-compatible; a built-in is
     // left to the env-overlay path.
     return existing == null ? 'openai' : null;
   }
   if (declared != 'anthropic' && declared != 'openai') {
-    stderr.writeln('warning: [providers.$id] wire="$declared" (expected '
-        '"anthropic" or "openai"); defaulting to "openai".');
+    stderr.writeln(
+      'warning: [providers.$id] wire="$declared" (expected '
+      '"anthropic" or "openai"); defaulting to "openai".',
+    );
     return 'openai';
   }
   return declared;
@@ -320,15 +352,17 @@ void _registerCustom(
     builder = openAiCompatibleBuilder(displayName);
   }
 
-  registry.register(ProviderDescriptor(
-    id: id,
-    name: displayName,
-    authSources: authSources,
-    defaultBaseUrl: baseUrl ?? existing?.defaultBaseUrl ?? '',
-    builder: builder,
-    models: catalog,
-    maxOutputOverride: pc.maxOutput,
-  ));
+  registry.register(
+    ProviderDescriptor(
+      id: id,
+      name: displayName,
+      authSources: authSources,
+      defaultBaseUrl: baseUrl ?? existing?.defaultBaseUrl ?? '',
+      builder: builder,
+      models: catalog,
+      maxOutputOverride: pc.maxOutput,
+    ),
+  );
 }
 
 String _titleCase(String id) {
@@ -354,7 +388,10 @@ String _titleCase(String id) {
 /// (The global knobs — `[limits] min_request_interval_ms`,
 /// `max_concurrent_requests` — are plain fields on the limiter and are always
 /// live the moment they're assigned.)
-List<String> applyRateLimitConfig(ProviderRegistry registry, UserConfig userConfig) {
+List<String> applyRateLimitConfig(
+  ProviderRegistry registry,
+  UserConfig userConfig,
+) {
   final globalIntervalMs = userConfig.limits?.minRequestIntervalMs;
   registry.rateLimiter.minInterval = globalIntervalMs == null
       ? defaultMinRequestInterval
@@ -378,9 +415,10 @@ List<String> applyRateLimitConfig(ProviderRegistry registry, UserConfig userConf
     final intervalMs = entry.value.minRequestIntervalMs;
     if (intervalMs != null && rpm != null) {
       warnings.add(
-          'warning: [providers.${entry.key}] sets both '
-          'min_request_interval_ms and requests_per_minute; the interval '
-          'wins.');
+        'warning: [providers.${entry.key}] sets both '
+        'min_request_interval_ms and requests_per_minute; the interval '
+        'wins.',
+      );
     }
     if (rpm != null) registry.setRequestRate(entry.key, rpm);
     if (intervalMs != null) registry.setRequestInterval(entry.key, intervalMs);

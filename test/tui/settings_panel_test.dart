@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'dart:io';
 
@@ -20,8 +19,9 @@ class RecordingFocusable implements Focusable {
   final List<String> calls = [];
   bool _hasFocus = false;
   final Rect bounds;
-  RecordingFocusable(
-      [this.bounds = const Rect(row: 0, col: 0, width: 5, height: 3)]) {}
+  RecordingFocusable([
+    this.bounds = const Rect(row: 0, col: 0, width: 5, height: 3),
+  ]) {}
   @override
   bool get hasFocus => _hasFocus;
   @override
@@ -78,10 +78,13 @@ void main() {
   });
   tearDown(tmp.tearDown);
 
-  Future<UserConfig?> runIndex(Screen screen,
-      {UserConfig? initial, ProviderRegistry? reg,
-        LimitsConfig Function(LimitsConfig)? currentQuota,
-        void Function(LimitsConfig)? onQuotaSaved}) {
+  Future<UserConfig?> runIndex(
+    Screen screen, {
+    UserConfig? initial,
+    ProviderRegistry? reg,
+    LimitsConfig Function(LimitsConfig)? currentQuota,
+    void Function(LimitsConfig)? onQuotaSaved,
+  }) {
     // The index reloads each subpanel's baseline from disk, so pre-existing
     // config must be on disk for the panels to see + preserve it.
     if (initial != null) {
@@ -101,20 +104,28 @@ void main() {
 
   // -- index menu -----------------------------------------------------------
 
-  test('double-Esc leaves nested settings without reopening the index', () async {
-    final screen = fakeScreen();
-    final editor = LineEditor(screen: screen);
-    addTearDown(editor.close);
-    final pending = runSettingsPanel(screen: screen, editor: editor,
-        registry: spawnRegistry(), env: const {}, tinaDir: tmp.dir);
-    await pumpEventQueue();
-    editor.inject(ControlKey(ControlCode.enter));
-    await pumpEventQueue();
-    editor.inject(EscapeKey());
-    editor.inject(EscapeKey());
-    expect(await pending.timeout(overlayTimeout), isNull);
-    expect(editor.isReadingKey, isFalse);
-  });
+  test(
+    'double-Esc leaves nested settings without reopening the index',
+    () async {
+      final screen = fakeScreen();
+      final editor = LineEditor(screen: screen);
+      addTearDown(editor.close);
+      final pending = runSettingsPanel(
+        screen: screen,
+        editor: editor,
+        registry: spawnRegistry(),
+        env: const {},
+        tinaDir: tmp.dir,
+      );
+      await pumpEventQueue();
+      editor.inject(ControlKey(ControlCode.enter));
+      await pumpEventQueue();
+      editor.inject(EscapeKey());
+      editor.inject(EscapeKey());
+      expect(await pending.timeout(overlayTimeout), isNull);
+      expect(editor.isReadingKey, isFalse);
+    },
+  );
 
   test('Esc at the index closes settings, writing nothing', () async {
     final screen = fakeScreen();
@@ -124,27 +135,28 @@ void main() {
     expect(userConfigFile(const {}, tinaDir: tmp.dir).existsSync(), isFalse);
   });
 
-  test('index: open providers, check a provider, save, return to index, close',
-      () async {
-    final screen = fakeScreen();
-    // Index → "Providers & models" (index 0, Enter). In the providers panel:
-    // check alpha (space), expand (→), focus key row (↓), type "ka", Enter to
-    // save. Back at index, Esc to close.
-    canned.events = [
-      ControlKey(ControlCode.enter), // index → providers
-      CharInput(' '), // check alpha
-      ArrowKey(ArrowDirection.right), // expand alpha
-      ArrowKey(ArrowDirection.down), // alpha/key
-      CharInput('k'), CharInput('a'), // type "ka"
-      ControlKey(ControlCode.enter), // providers → save
-      EscapeKey(), // index → close
-    ];
-    final wrote = await runIndex(screen).timeout(overlayTimeout);
-    expect(wrote, isNotNull);
-    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
-    expect(loaded.providers['alpha']?.apiKey, 'ka');
-  });
-
+  test(
+    'index: open providers, check a provider, save, return to index, close',
+    () async {
+      final screen = fakeScreen();
+      // Index → "Providers & models" (index 0, Enter). In the providers panel:
+      // check alpha (space), expand (→), focus key row (↓), type "ka", Enter to
+      // save. Back at index, Esc to close.
+      canned.events = [
+        ControlKey(ControlCode.enter), // index → providers
+        CharInput(' '), // check alpha
+        ArrowKey(ArrowDirection.right), // expand alpha
+        ArrowKey(ArrowDirection.down), // alpha/key
+        CharInput('k'), CharInput('a'), // type "ka"
+        ControlKey(ControlCode.enter), // providers → save
+        EscapeKey(), // index → close
+      ];
+      final wrote = await runIndex(screen).timeout(overlayTimeout);
+      expect(wrote, isNotNull);
+      final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+      expect(loaded.providers['alpha']?.apiKey, 'ka');
+    },
+  );
 
   test('providers: the search field filters providers live', () async {
     final screen = fakeScreen();
@@ -164,10 +176,16 @@ void main() {
     final wrote = await runIndex(screen).timeout(overlayTimeout);
     expect(wrote, isNotNull);
     final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
-    expect(loaded.providers['beta']?.apiKey, isNull,
-        reason: 'checked with no key typed — block carries curation only');
-    expect(loaded.providers.containsKey('alpha'), isFalse,
-        reason: 'alpha was filtered out and never checked');
+    expect(
+      loaded.providers['beta']?.apiKey,
+      isNull,
+      reason: 'checked with no key typed — block carries curation only',
+    );
+    expect(
+      loaded.providers.containsKey('alpha'),
+      isFalse,
+      reason: 'alpha was filtered out and never checked',
+    );
   });
 
   test('providers: typing a key auto-selects the provider', () async {
@@ -189,56 +207,69 @@ void main() {
     expect(loaded.providers['alpha']?.apiKey, 'ka');
   });
 
-  test('providers: backspace/delete dismisses the empty-key env placeholder',
-      () async {
-    // The `(or env ALPHA_KEY)` hint sits in an empty API-key field. Pressing
-    // Backspace (or Delete) there must make it go away — previously both were
-    // silently ignored on an empty field, so the placeholder read as text that
-    // could not be removed.
-    for (final dismiss in [
-      ControlKey(ControlCode.backspace),
-      EditingKey(EditingAction.delete),
-    ]) {
-      final io = FakeStdio()..hasTerminalValue = false;
-      final screen = Screen(
-          io: io, layout: ScreenLayout.fromSize(80, 24, hasMenuBar: false));
-      // Snapshot the painted output before each event is handled, so we can
-      // compare the frame before and after the dismissal.
-      final frames = <String>[];
-      var i = 0;
-      final events = [
-        ControlKey(ControlCode.enter), // index → providers
-        ArrowKey(ArrowDirection.right), // expand alpha
-        ArrowKey(ArrowDirection.down), // alpha/key row
-        dismiss,
-        EscapeKey(), // providers → cancel
-        EscapeKey(), // index → close
-      ];
-      Future<InputEvent> pump() async {
-        frames.add(io.written.toString());
-        return events[i++];
+  test(
+    'providers: backspace/delete dismisses the empty-key env placeholder',
+    () async {
+      // The `(or env ALPHA_KEY)` hint sits in an empty API-key field. Pressing
+      // Backspace (or Delete) there must make it go away — previously both were
+      // silently ignored on an empty field, so the placeholder read as text that
+      // could not be removed.
+      for (final dismiss in [
+        ControlKey(ControlCode.backspace),
+        EditingKey(EditingAction.delete),
+      ]) {
+        final io = FakeStdio()..hasTerminalValue = false;
+        final screen = Screen(
+          io: io,
+          layout: ScreenLayout.fromSize(80, 24, hasMenuBar: false),
+        );
+        // Snapshot the painted output before each event is handled, so we can
+        // compare the frame before and after the dismissal.
+        final frames = <String>[];
+        var i = 0;
+        final events = [
+          ControlKey(ControlCode.enter), // index → providers
+          ArrowKey(ArrowDirection.right), // expand alpha
+          ArrowKey(ArrowDirection.down), // alpha/key row
+          dismiss,
+          EscapeKey(), // providers → cancel
+          EscapeKey(), // index → close
+        ];
+        Future<InputEvent> pump() async {
+          frames.add(io.written.toString());
+          return events[i++];
+        }
+
+        await runSettingsPanel(
+          screen: screen,
+          editor: LineEditor(screen: screen),
+          registry: setupRegistry(),
+          env: const {},
+          tinaDir: tmp.dir,
+          readEvent: pump,
+        ).timeout(overlayTimeout);
+
+        expect(
+          frames[3],
+          contains('(or env ALPHA_KEY)'),
+          reason: 'the hint shows while the field is empty and untouched',
+        );
+        // The frame painted BY the dismissal event is the tail written after the
+        // previous snapshot (the buffer accumulates every frame).
+        final repaint = frames[4].substring(frames[3].length);
+        expect(
+          repaint,
+          isNot(contains('(or env ALPHA_KEY)')),
+          reason: '$dismiss should clear the placeholder',
+        );
+        expect(
+          repaint,
+          contains('API key: _'),
+          reason: 'the field itself stays, cursor and all',
+        );
       }
-
-      await runSettingsPanel(
-        screen: screen,
-        editor: LineEditor(screen: screen),
-        registry: setupRegistry(),
-        env: const {},
-        tinaDir: tmp.dir,
-        readEvent: pump,
-      ).timeout(overlayTimeout);
-
-      expect(frames[3], contains('(or env ALPHA_KEY)'),
-          reason: 'the hint shows while the field is empty and untouched');
-      // The frame painted BY the dismissal event is the tail written after the
-      // previous snapshot (the buffer accumulates every frame).
-      final repaint = frames[4].substring(frames[3].length);
-      expect(repaint, isNot(contains('(or env ALPHA_KEY)')),
-          reason: '$dismiss should clear the placeholder');
-      expect(repaint, contains('API key: _'),
-          reason: 'the field itself stays, cursor and all');
-    }
-  });
+    },
+  );
 
   // -- providers panel ------------------------------------------------------
 
@@ -276,38 +307,49 @@ void main() {
     expect(loaded.limits?.maxGlobalTokens, 12345);
   });
 
-  test('providers: a never-curated provider saves models explicitly disabled',
-      () async {
-    final screen = fakeScreen();
-    // Initial config has alpha with a key but NO disabled_models: under the
-    // disable-by-default flip, both models start unchecked, and saving
-    // without touching them writes the explicit all-disabled state.
-    final initial = UserConfig(providers: {
-      'alpha': ProviderConfig(apiKey: 'ka', maxOutput: 131072),
-    });
-    canned.events = [
-      ControlKey(ControlCode.enter), // index → providers
-      ControlKey(ControlCode.enter), // providers → save
-      EscapeKey(), // index → close
-    ];
-    final wrote =
-        await runIndex(screen, initial: initial).timeout(overlayTimeout);
-    expect(wrote, isNotNull);
-    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
-    final disabled = loaded.providers['alpha']?.disabledModels;
-    expect(disabled, isNotNull, reason: 'the save must be explicit, not null');
-    expect(disabled, {'a1', 'a2'});
-    expect(loaded.providers['alpha']?.maxOutput, 131072,
-        reason: 'curating models must preserve the endpoint ceiling');
-  });
+  test(
+    'providers: a never-curated provider saves models explicitly disabled',
+    () async {
+      final screen = fakeScreen();
+      // Initial config has alpha with a key but NO disabled_models: under the
+      // disable-by-default flip, both models start unchecked, and saving
+      // without touching them writes the explicit all-disabled state.
+      final initial = UserConfig(
+        providers: {'alpha': ProviderConfig(apiKey: 'ka', maxOutput: 131072)},
+      );
+      canned.events = [
+        ControlKey(ControlCode.enter), // index → providers
+        ControlKey(ControlCode.enter), // providers → save
+        EscapeKey(), // index → close
+      ];
+      final wrote = await runIndex(
+        screen,
+        initial: initial,
+      ).timeout(overlayTimeout);
+      expect(wrote, isNotNull);
+      final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+      final disabled = loaded.providers['alpha']?.disabledModels;
+      expect(
+        disabled,
+        isNotNull,
+        reason: 'the save must be explicit, not null',
+      );
+      expect(disabled, {'a1', 'a2'});
+      expect(
+        loaded.providers['alpha']?.maxOutput,
+        131072,
+        reason: 'curating models must preserve the endpoint ceiling',
+      );
+    },
+  );
 
   test('providers: checking one model enables exactly that model', () async {
     final screen = fakeScreen();
     // alpha/key → alpha/url → separator → alpha/a1; space checks a1; save.
     // The written set is the complement: only a2 stays disabled.
-    final initial = UserConfig(providers: {
-      'alpha': ProviderConfig(apiKey: 'ka'),
-    });
+    final initial = UserConfig(
+      providers: {'alpha': ProviderConfig(apiKey: 'ka')},
+    );
     canned.events = [
       ControlKey(ControlCode.enter), // index → providers
       ArrowKey(ArrowDirection.right), // expand alpha
@@ -319,8 +361,10 @@ void main() {
       ControlKey(ControlCode.enter), // providers → save
       EscapeKey(), // index → close
     ];
-    final wrote =
-        await runIndex(screen, initial: initial).timeout(overlayTimeout);
+    final wrote = await runIndex(
+      screen,
+      initial: initial,
+    ).timeout(overlayTimeout);
     expect(wrote, isNotNull);
     final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
     expect(loaded.providers['alpha']?.disabledModels, {'a2'});
@@ -332,9 +376,9 @@ void main() {
     // down to ＋add model, Enter, paste "glm-5.2|GLM 5.2", Enter commits.
     // Rows grew by one, so focus now sits on the new model row; ↑ then Enter
     // saves from a model row.
-    final initial = UserConfig(providers: {
-      'alpha': ProviderConfig(apiKey: 'ka'),
-    });
+    final initial = UserConfig(
+      providers: {'alpha': ProviderConfig(apiKey: 'ka')},
+    );
     canned.events = [
       ControlKey(ControlCode.enter), // index → providers
       ArrowKey(ArrowDirection.right), // expand alpha
@@ -351,8 +395,10 @@ void main() {
       ControlKey(ControlCode.enter), // providers → save
       EscapeKey(), // index → close
     ];
-    final wrote =
-        await runIndex(screen, initial: initial).timeout(overlayTimeout);
+    final wrote = await runIndex(
+      screen,
+      initial: initial,
+    ).timeout(overlayTimeout);
     expect(wrote, isNotNull);
     final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
     final alpha = loaded.providers['alpha'];
@@ -364,36 +410,43 @@ void main() {
     expect(alpha?.disabledModels, {'a1', 'a2'});
   });
 
-  test('providers: a provider absent from config starts all-models-disabled',
-      () async {
-    final screen = fakeScreen();
-    // Registry provider `alpha` has NO config block at all (env-credentialed
-    // style). Its model rows must start ☐ disabled: checking a1 and saving
-    // writes the block with exactly a2 left disabled. The regression this
-    // pins: absent providers used to render all-enabled, so a space toggled
-    // a1 OFF and the write came out inverted.
-    canned.events = [
-      ControlKey(ControlCode.enter), // index → providers
-      CharInput(' '), // check alpha (was unchecked: not in config)
-      ArrowKey(ArrowDirection.right), // expand alpha
-      ArrowKey(ArrowDirection.down), // alpha/key
-      ArrowKey(ArrowDirection.down), // alpha/url
-      ArrowKey(ArrowDirection.down), // separator
-      ArrowKey(ArrowDirection.down), // alpha/a1
-      CharInput(' '), // enable a1 (it started disabled)
-      ControlKey(ControlCode.enter), // providers → save
-      EscapeKey(), // index → close
-    ];
-    final wrote = await runIndex(screen).timeout(overlayTimeout);
-    expect(wrote, isNotNull);
-    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
-    final alpha = loaded.providers['alpha'];
-    expect(alpha?.apiKey, isNull,
-        reason: 'the provider had no key; only curation is written');
-    expect(alpha?.disabledModels, {'a2'},
-        reason: 'a1 was explicitly enabled; a2 stays disabled');
-  });
-
+  test(
+    'providers: a provider absent from config starts all-models-disabled',
+    () async {
+      final screen = fakeScreen();
+      // Registry provider `alpha` has NO config block at all (env-credentialed
+      // style). Its model rows must start ☐ disabled: checking a1 and saving
+      // writes the block with exactly a2 left disabled. The regression this
+      // pins: absent providers used to render all-enabled, so a space toggled
+      // a1 OFF and the write came out inverted.
+      canned.events = [
+        ControlKey(ControlCode.enter), // index → providers
+        CharInput(' '), // check alpha (was unchecked: not in config)
+        ArrowKey(ArrowDirection.right), // expand alpha
+        ArrowKey(ArrowDirection.down), // alpha/key
+        ArrowKey(ArrowDirection.down), // alpha/url
+        ArrowKey(ArrowDirection.down), // separator
+        ArrowKey(ArrowDirection.down), // alpha/a1
+        CharInput(' '), // enable a1 (it started disabled)
+        ControlKey(ControlCode.enter), // providers → save
+        EscapeKey(), // index → close
+      ];
+      final wrote = await runIndex(screen).timeout(overlayTimeout);
+      expect(wrote, isNotNull);
+      final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+      final alpha = loaded.providers['alpha'];
+      expect(
+        alpha?.apiKey,
+        isNull,
+        reason: 'the provider had no key; only curation is written',
+      );
+      expect(
+        alpha?.disabledModels,
+        {'a2'},
+        reason: 'a1 was explicitly enabled; a2 stays disabled',
+      );
+    },
+  );
 
   // -- quota panel ----------------------------------------------------------
 
@@ -517,65 +570,71 @@ void main() {
 
   // -- unchanged detection --------------------------------------------------
 
-  test('quota: opening and saving with no edit returns null (unchanged)',
-      () async {
-    final screen = fakeScreen();
-    // Seed the exact defaults the quota panel displays, so saving with no edit
-    // is a no-op. (An all-null LimitsConfig would bake in those defaults and
-    // register as a change.)
-    final initial = UserConfig(
-      limits: const LimitsConfig(
-        maxSessionTokens: 10000000,
-        maxTurnTokens: 100000000,
-        maxRequestTokens: 200000,
-        maxGlobalTokens: 50000000,
-        maxSubAgentTokens: 2000000,
-        requestsPerMinute: 0,
-      ),
-    );
-    canned.events = [
-      ArrowKey(ArrowDirection.down), // index 1 (quota)
-      ControlKey(ControlCode.enter), // open quota
-      ControlKey(ControlCode.enter), // save (no edit)
-      EscapeKey(), // close index
-    ];
-    final wrote =
-        await runIndex(screen, initial: initial).timeout(overlayTimeout);
-    expect(wrote, isNull);
-  });
+  test(
+    'quota: opening and saving with no edit returns null (unchanged)',
+    () async {
+      final screen = fakeScreen();
+      // Seed the exact defaults the quota panel displays, so saving with no edit
+      // is a no-op. (An all-null LimitsConfig would bake in those defaults and
+      // register as a change.)
+      final initial = UserConfig(
+        limits: const LimitsConfig(
+          maxSessionTokens: 10000000,
+          maxTurnTokens: 100000000,
+          maxRequestTokens: 200000,
+          maxGlobalTokens: 50000000,
+          maxSubAgentTokens: 2000000,
+          requestsPerMinute: 0,
+        ),
+      );
+      canned.events = [
+        ArrowKey(ArrowDirection.down), // index 1 (quota)
+        ControlKey(ControlCode.enter), // open quota
+        ControlKey(ControlCode.enter), // save (no edit)
+        EscapeKey(), // close index
+      ];
+      final wrote = await runIndex(
+        screen,
+        initial: initial,
+      ).timeout(overlayTimeout);
+      expect(wrote, isNull);
+    },
+  );
 
   // -- hop between panels ---------------------------------------------------
 
-  test('hop: edit quota then edit theme — both persist independently',
-      () async {
-    final screen = fakeScreen();
-    canned.events = [
-      // Open quota (index 1).
-      ArrowKey(ArrowDirection.down),
-      ControlKey(ControlCode.enter),
-      // Edit requests_per_minute → "7".
-      ArrowKey(ArrowDirection.down),
-      ArrowKey(ArrowDirection.down),
-      ArrowKey(ArrowDirection.down),
-      ArrowKey(ArrowDirection.down),
-      ArrowKey(ArrowDirection.down),
-      CharInput('7'),
-      ControlKey(ControlCode.enter), // save quota
-      // Back at index (focus reset to 0): open theme (index 2).
-      ArrowKey(ArrowDirection.down), // 0 → 1
-      ArrowKey(ArrowDirection.down), // 1 → 2 (theme)
-      ControlKey(ControlCode.enter),
-      // Pick Light (down, down, enter).
-      ArrowKey(ArrowDirection.down),
-      ArrowKey(ArrowDirection.down),
-      ControlKey(ControlCode.enter),
-      EscapeKey(), // close index
-    ];
-    await runIndex(screen).timeout(overlayTimeout);
-    final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
-    expect(loaded.limits?.requestsPerMinute, 7);
-    expect(loaded.themeVariant, 'light');
-  });
+  test(
+    'hop: edit quota then edit theme — both persist independently',
+    () async {
+      final screen = fakeScreen();
+      canned.events = [
+        // Open quota (index 1).
+        ArrowKey(ArrowDirection.down),
+        ControlKey(ControlCode.enter),
+        // Edit requests_per_minute → "7".
+        ArrowKey(ArrowDirection.down),
+        ArrowKey(ArrowDirection.down),
+        ArrowKey(ArrowDirection.down),
+        ArrowKey(ArrowDirection.down),
+        ArrowKey(ArrowDirection.down),
+        CharInput('7'),
+        ControlKey(ControlCode.enter), // save quota
+        // Back at index (focus reset to 0): open theme (index 2).
+        ArrowKey(ArrowDirection.down), // 0 → 1
+        ArrowKey(ArrowDirection.down), // 1 → 2 (theme)
+        ControlKey(ControlCode.enter),
+        // Pick Light (down, down, enter).
+        ArrowKey(ArrowDirection.down),
+        ArrowKey(ArrowDirection.down),
+        ControlKey(ControlCode.enter),
+        EscapeKey(), // close index
+      ];
+      await runIndex(screen).timeout(overlayTimeout);
+      final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+      expect(loaded.limits?.requestsPerMinute, 7);
+      expect(loaded.themeVariant, 'light');
+    },
+  );
 
   // -- active-surface blue highlight ------------------------------------------
 
@@ -604,34 +663,40 @@ void main() {
       expect(wrote, isNull);
       final output = io.written.toString();
       // The title corners carry the focus SGR (cyan) while the modal is shown.
-      expect(output.contains('\x1b[36m┌'), isTrue,
-          reason: 'modal frame should be cyan while active');
+      expect(
+        output.contains('\x1b[36m┌'),
+        isTrue,
+        reason: 'modal frame should be cyan while active',
+      );
     });
 
     test(
-        'the focused chat panel blurs while the modal is open, refocuses on close',
-        () async {
-      final screen = coloredScreen(FakeStdio()..hasTerminalValue = false);
-      final setup = focusedEditor(screen);
-      // Precondition: a panel is focused (cyan) before settings opens.
-      expect(setup.panel.hasFocus, isTrue);
-      setup.panel.calls.clear(); // only watch the modal's hand-off, not setup
-      canned.events = [EscapeKey()];
-      await runSettingsPanel(
-        screen: screen,
-        editor: setup.editor,
-        registry: setupRegistry(),
-        env: const {},
-        tinaDir: tmp.dir,
-        readEvent: canned.readEvent,
-      ).timeout(overlayTimeout);
-      // The modal blurred the chat panel on open and refocused it on close.
-      expect(setup.panel.calls, containsAll(['blur', 'focus']));
-      // blur precedes focus: exactly one blue panel at a time.
-      expect(setup.panel.calls.indexOf('blur'),
-          lessThan(setup.panel.calls.indexOf('focus')));
-      expect(setup.panel.hasFocus, isTrue);
-    });
+      'the focused chat panel blurs while the modal is open, refocuses on close',
+      () async {
+        final screen = coloredScreen(FakeStdio()..hasTerminalValue = false);
+        final setup = focusedEditor(screen);
+        // Precondition: a panel is focused (cyan) before settings opens.
+        expect(setup.panel.hasFocus, isTrue);
+        setup.panel.calls.clear(); // only watch the modal's hand-off, not setup
+        canned.events = [EscapeKey()];
+        await runSettingsPanel(
+          screen: screen,
+          editor: setup.editor,
+          registry: setupRegistry(),
+          env: const {},
+          tinaDir: tmp.dir,
+          readEvent: canned.readEvent,
+        ).timeout(overlayTimeout);
+        // The modal blurred the chat panel on open and refocused it on close.
+        expect(setup.panel.calls, containsAll(['blur', 'focus']));
+        // blur precedes focus: exactly one blue panel at a time.
+        expect(
+          setup.panel.calls.indexOf('blur'),
+          lessThan(setup.panel.calls.indexOf('focus')),
+        );
+        expect(setup.panel.hasFocus, isTrue);
+      },
+    );
   });
 
   // -- writeUserConfigPatch: the `/model` "global default" write -------------
@@ -753,7 +818,10 @@ void main() {
     (Screen, FakeStdio) screenWithIo() {
       final io = FakeStdio()..hasTerminalValue = false;
       return (
-        Screen(io: io, layout: ScreenLayout.fromSize(80, 24, hasMenuBar: false)),
+        Screen(
+          io: io,
+          layout: ScreenLayout.fromSize(80, 24, hasMenuBar: false),
+        ),
         io,
       );
     }
@@ -779,34 +847,42 @@ void main() {
       return catalog;
     }
 
-    test('a seeded provider renders and curating a model writes its block',
-        () async {
-      final (screen, io) = screenWithIo();
-      canned.events = [
-        ControlKey(ControlCode.enter), // index → providers
-        CharInput(' '), // check moonshotai (was unchecked: no config block)
-        ArrowKey(ArrowDirection.right), // expand
-        ArrowKey(ArrowDirection.down), // key row
-        ArrowKey(ArrowDirection.down), // base URL row
-        ArrowKey(ArrowDirection.down), // models separator
-        ArrowKey(ArrowDirection.down), // kimi-k2 (disabled by default)
-        CharInput(' '), // enable kimi-k2
-        ControlKey(ControlCode.enter), // providers → save
-        EscapeKey(), // index → close
-      ];
-      final wrote =
-          await runIndex(screen, reg: seededRegistry()).timeout(overlayTimeout);
-      expect(wrote, isNotNull);
-      expect(io.written.toString(), contains('Moonshot AI'),
-          reason: 'the discovered provider gets a settings row');
+    test(
+      'a seeded provider renders and curating a model writes its block',
+      () async {
+        final (screen, io) = screenWithIo();
+        canned.events = [
+          ControlKey(ControlCode.enter), // index → providers
+          CharInput(' '), // check moonshotai (was unchecked: no config block)
+          ArrowKey(ArrowDirection.right), // expand
+          ArrowKey(ArrowDirection.down), // key row
+          ArrowKey(ArrowDirection.down), // base URL row
+          ArrowKey(ArrowDirection.down), // models separator
+          ArrowKey(ArrowDirection.down), // kimi-k2 (disabled by default)
+          CharInput(' '), // enable kimi-k2
+          ControlKey(ControlCode.enter), // providers → save
+          EscapeKey(), // index → close
+        ];
+        final wrote = await runIndex(
+          screen,
+          reg: seededRegistry(),
+        ).timeout(overlayTimeout);
+        expect(wrote, isNotNull);
+        expect(
+          io.written.toString(),
+          contains('Moonshot AI'),
+          reason: 'the discovered provider gets a settings row',
+        );
 
-      final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
-      final md = loaded.providers['moonshotai'];
-      expect(md, isNotNull, reason: 'curating writes the config block');
-      expect(md?.apiKey, isNull, reason: 'the key came from the environment');
-      expect(md?.disabledModels, {'kimi-k1'},
-          reason: 'kimi-k2 enabled, kimi-k1 left disabled');
-    });
+        final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
+        final md = loaded.providers['moonshotai'];
+        expect(md, isNotNull, reason: 'curating writes the config block');
+        expect(md?.apiKey, isNull, reason: 'the key came from the environment');
+        expect(md?.disabledModels, {
+          'kimi-k1',
+        }, reason: 'kimi-k2 enabled, kimi-k1 left disabled');
+      },
+    );
 
     test('the freshness row reports the cache age', () async {
       final (screen, io) = screenWithIo();
@@ -828,8 +904,10 @@ void main() {
     test('a failed refresh is reported and pending', () async {
       final (screen, io) = screenWithIo();
       final reg = seededRegistry()
-        ..providerCatalog =
-            await catalogWithCache(const Duration(hours: 2), failRefresh: true);
+        ..providerCatalog = await catalogWithCache(
+          const Duration(hours: 2),
+          failRefresh: true,
+        );
       canned.events = [
         ControlKey(ControlCode.enter), // index → providers
         EscapeKey(), // providers → cancel
@@ -838,7 +916,10 @@ void main() {
       await runIndex(screen, reg: reg).timeout(overlayTimeout);
 
       final out = io.written.toString();
-      expect(out, contains('models.dev providers: cached 2h ago — refresh failed'));
+      expect(
+        out,
+        contains('models.dev providers: cached 2h ago — refresh failed'),
+      );
       expect(out, contains('⚠ models.dev provider list unavailable'));
     });
 

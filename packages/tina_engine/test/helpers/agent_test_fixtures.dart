@@ -37,7 +37,8 @@ ProviderRegistry scriptedRegistry(
 }
 
 /// A minimal pipeline (entry identity only — there is no sub-agent catalog).
-final AgentPipeline defaultTestPipeline = AgentPipeline(mainIdentity: 'main-id');
+final AgentPipeline defaultTestPipeline =
+    AgentPipeline(mainIdentity: 'main-id');
 
 /// The parent identity threaded into a test [AgentToolContext], so tests can
 /// assert a sub-agent inherited it.

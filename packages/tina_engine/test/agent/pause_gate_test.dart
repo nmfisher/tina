@@ -69,7 +69,8 @@ void main() {
       await gate.dispose();
     });
 
-    test('cancelSignal returns false promptly and removes the waiter', () async {
+    test('cancelSignal returns false promptly and removes the waiter',
+        () async {
       final gate = PauseGate()..requestPause('over');
       final cancelSignal = Completer<void>()..complete();
       final sw = Stopwatch()..start();

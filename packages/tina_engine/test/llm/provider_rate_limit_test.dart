@@ -214,12 +214,13 @@ void main() {
             equals(Duration(milliseconds: 200)));
       });
 
-      test('clearMinInterval restores the global default for that key', () async {
+      test('clearMinInterval restores the global default for that key',
+          () async {
         final limiter =
             ProviderRateLimiter(minInterval: const Duration(milliseconds: 100));
         limiter.setMinInterval('nim', const Duration(milliseconds: 50));
-        expect(
-            limiter.minIntervalFor('nim'), equals(const Duration(milliseconds: 50)));
+        expect(limiter.minIntervalFor('nim'),
+            equals(const Duration(milliseconds: 50)));
 
         limiter.clearMinInterval('nim');
         expect(limiter.minIntervalFor('nim'),
@@ -595,50 +596,77 @@ void spacingPolicyTests() {
   // 0 override). The registry-build seam tests (registry_build_test.dart)
   // cover the same chain end-to-end through build(); this table pins the
   // policy itself so a precedence regression here cannot hide behind mocks.
-  final cases = <(String, ({int? uI, int? uR, int? dI, int? dR, String? ep}),
-      Duration?)>[
+  final cases =
+      <(String, ({int? uI, int? uR, int? dI, int? dR, String? ep}), Duration?)>[
     // Each source alone, hosted endpoint.
-    ('user interval wins over everything',
-        (uI: 150, uR: 30, dI: 250, dR: 40, ep: 'https://example.test'),
-        const Duration(milliseconds: 150)),
-    ('user rpm next', (uI: null, uR: 30, dI: 250, dR: 40, ep: 'https://example.test'),
-        const Duration(seconds: 2)),
-    ('descriptor interval next',
-        (uI: null, uR: null, dI: 250, dR: 40, ep: 'https://example.test'),
-        const Duration(milliseconds: 250)),
-    ('descriptor rpm last',
-        (uI: null, uR: null, dI: null, dR: 40, ep: 'https://example.test'),
-        const Duration(milliseconds: 1500)),
-    ('nothing set → global default',
-        (uI: null, uR: null, dI: null, dR: null, ep: 'https://example.test'),
-        null),
+    (
+      'user interval wins over everything',
+      (uI: 150, uR: 30, dI: 250, dR: 40, ep: 'https://example.test'),
+      const Duration(milliseconds: 150)
+    ),
+    (
+      'user rpm next',
+      (uI: null, uR: 30, dI: 250, dR: 40, ep: 'https://example.test'),
+      const Duration(seconds: 2)
+    ),
+    (
+      'descriptor interval next',
+      (uI: null, uR: null, dI: 250, dR: 40, ep: 'https://example.test'),
+      const Duration(milliseconds: 250)
+    ),
+    (
+      'descriptor rpm last',
+      (uI: null, uR: null, dI: null, dR: 40, ep: 'https://example.test'),
+      const Duration(milliseconds: 1500)
+    ),
+    (
+      'nothing set → global default',
+      (uI: null, uR: null, dI: null, dR: null, ep: 'https://example.test'),
+      null
+    ),
     // Zero = explicit off.
-    ('user interval 0 disables',
-        (uI: 0, uR: 30, dI: 250, dR: 40, ep: 'https://example.test'),
-        Duration.zero),
-    ('user rpm 0 disables',
-        (uI: null, uR: 0, dI: 250, dR: 40, ep: 'https://example.test'),
-        Duration.zero),
-    ('descriptor rpm 0 disables',
-        (uI: null, uR: null, dI: null, dR: 0, ep: 'https://example.test'),
-        Duration.zero),
+    (
+      'user interval 0 disables',
+      (uI: 0, uR: 30, dI: 250, dR: 40, ep: 'https://example.test'),
+      Duration.zero
+    ),
+    (
+      'user rpm 0 disables',
+      (uI: null, uR: 0, dI: 250, dR: 40, ep: 'https://example.test'),
+      Duration.zero
+    ),
+    (
+      'descriptor rpm 0 disables',
+      (uI: null, uR: null, dI: null, dR: 0, ep: 'https://example.test'),
+      Duration.zero
+    ),
     // Local-endpoint exemption: only relieves the GLOBAL default — any user
     // or descriptor knob still wins for a local endpoint.
-    ('local endpoint, nothing set → exempt',
-        (uI: null, uR: null, dI: null, dR: null, ep: 'http://127.0.0.1:11434'),
-        Duration.zero),
-    ('local endpoint, user rpm still applies',
-        (uI: null, uR: 30, dI: null, dR: null, ep: 'http://192.168.1.5:8000'),
-        const Duration(seconds: 2)),
-    ('local endpoint, descriptor interval still applies',
-        (uI: null, uR: null, dI: 250, dR: null, ep: 'http://10.0.0.5:8000'),
-        const Duration(milliseconds: 250)),
-    ('local endpoint, descriptor rpm still applies',
-        (uI: null, uR: null, dI: null, dR: 40, ep: 'http://[::1]:8080'),
-        const Duration(milliseconds: 1500)),
-    ('hosted endpoint with endpoint param set → global default',
-        (uI: null, uR: null, dI: null, dR: null, ep: 'https://api.test'),
-        null),
+    (
+      'local endpoint, nothing set → exempt',
+      (uI: null, uR: null, dI: null, dR: null, ep: 'http://127.0.0.1:11434'),
+      Duration.zero
+    ),
+    (
+      'local endpoint, user rpm still applies',
+      (uI: null, uR: 30, dI: null, dR: null, ep: 'http://192.168.1.5:8000'),
+      const Duration(seconds: 2)
+    ),
+    (
+      'local endpoint, descriptor interval still applies',
+      (uI: null, uR: null, dI: 250, dR: null, ep: 'http://10.0.0.5:8000'),
+      const Duration(milliseconds: 250)
+    ),
+    (
+      'local endpoint, descriptor rpm still applies',
+      (uI: null, uR: null, dI: null, dR: 40, ep: 'http://[::1]:8080'),
+      const Duration(milliseconds: 1500)
+    ),
+    (
+      'hosted endpoint with endpoint param set → global default',
+      (uI: null, uR: null, dI: null, dR: null, ep: 'https://api.test'),
+      null
+    ),
   ];
   for (final (name, input, expected) in cases) {
     test(name, () {
@@ -678,4 +706,3 @@ void spacingPolicyTests() {
     }
   });
 }
-

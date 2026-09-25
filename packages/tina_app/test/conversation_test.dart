@@ -56,23 +56,28 @@ void main() {
 
       // Mutating the source list after construction must not leak in — the
       // conversation owns its own copy.
-      seed.add(const Message(role: Role.assistant, content: [TextBlock('late')]));
+      seed.add(
+        const Message(role: Role.assistant, content: [TextBlock('late')]),
+      );
       expect(c.history, hasLength(1));
     });
 
-    test('isRunning remains busy until cancellation cleanup clears the completer', () {
-      final c = _conversation();
+    test(
+      'isRunning remains busy until cancellation cleanup clears the completer',
+      () {
+        final c = _conversation();
 
-      expect(c.isRunning, isFalse); // no cancelCompleter set
+        expect(c.isRunning, isFalse); // no cancelCompleter set
 
-      c.cancelCompleter = Completer<void>();
-      expect(c.isRunning, isTrue); // set and uncompleted
+        c.cancelCompleter = Completer<void>();
+        expect(c.isRunning, isTrue); // set and uncompleted
 
-      c.cancelCompleter!.complete();
-      expect(c.isRunning, isTrue); // requested, not yet acknowledged
-      c.cancelCompleter = null;
-      expect(c.isRunning, isFalse);
-    });
+        c.cancelCompleter!.complete();
+        expect(c.isRunning, isTrue); // requested, not yet acknowledged
+        c.cancelCompleter = null;
+        expect(c.isRunning, isFalse);
+      },
+    );
 
     test('messageQueue is a working queue on the instance', () {
       final c = _conversation();

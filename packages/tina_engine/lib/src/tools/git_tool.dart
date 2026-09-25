@@ -23,7 +23,12 @@ const Set<String> _readOnlySubcommands = {
 
 /// Subcommands that mutate under some forms, allowed here only in their
 /// listing shapes. Each has a dedicated guard below.
-const Set<String> _restrictedSubcommands = {'branch', 'tag', 'remote', 'reflog'};
+const Set<String> _restrictedSubcommands = {
+  'branch',
+  'tag',
+  'remote',
+  'reflog'
+};
 
 /// Flags this auto-allowed tool accepts under no subcommand. Two ways a
 /// "read-only" git command reaches outside its lane: `--output` writes a file,
@@ -87,11 +92,8 @@ class GitTool implements Tool, SpawnsProcess {
     } on ToolValidationException catch (e) {
       return ToolResult.error(e.message);
     }
-    final parts = args
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((a) => a.isNotEmpty)
-        .toList();
+    final parts =
+        args.trim().split(RegExp(r'\s+')).where((a) => a.isNotEmpty).toList();
     if (parts.isEmpty) {
       return ToolResult.error('args is required');
     }
@@ -139,14 +141,35 @@ class GitTool implements Tool, SpawnsProcess {
           '$_allowlistHelp. Mutating operations need bash.';
     }
     return switch (sub) {
-      'branch' => _guard(rest, subcommand: 'branch', flags: {
-          '-d', '-D', '-m', '-M', '-t', '-u', '--edit-description',
-          '--set-upstream-to', '--unset-upstream',
-        }, operandsRequireList: true),
-      'tag' => _guard(rest, subcommand: 'tag', flags: {
-          '-d', '-f', '-s', '-a', '-m', '-u', '--delete', '--annotate',
-          '--force', '--sign',
-        }, operandsRequireList: true),
+      'branch' => _guard(rest,
+          subcommand: 'branch',
+          flags: {
+            '-d',
+            '-D',
+            '-m',
+            '-M',
+            '-t',
+            '-u',
+            '--edit-description',
+            '--set-upstream-to',
+            '--unset-upstream',
+          },
+          operandsRequireList: true),
+      'tag' => _guard(rest,
+          subcommand: 'tag',
+          flags: {
+            '-d',
+            '-f',
+            '-s',
+            '-a',
+            '-m',
+            '-u',
+            '--delete',
+            '--annotate',
+            '--force',
+            '--sign',
+          },
+          operandsRequireList: true),
       'remote' => _guardRemote(rest),
       'reflog' => _guardReflog(rest),
       _ => 'git $sub is not allowed here',
@@ -184,8 +207,8 @@ class GitTool implements Tool, SpawnsProcess {
         // Match a flag's `=value` form too: `--set-upstream-to=origin/main` is
         // the same mutation as the bare flag, and it needs no operand — which
         // is exactly the shape the operand rule below cannot catch.
-        final mutating = flags.any(
-            (flag) => arg == flag || arg.startsWith('$flag='));
+        final mutating =
+            flags.any((flag) => arg == flag || arg.startsWith('$flag='));
         if (mutating) {
           return 'git $subcommand $arg mutates the repo — not allowed here. '
               'Only listing forms of $subcommand are available ($_allowlistHelp).';
@@ -204,8 +227,16 @@ class GitTool implements Tool, SpawnsProcess {
   /// `remote` guard: bare / -v / get-url <name> only. `remote add` etc. are
   /// sub-subcommands, i.e. the first operand decides.
   String? _guardRemote(List<String> rest) {
-    const mutating = {'add', 'remove', 'rm', 'rename', 'set-url', 'set-head',
-        'prune', 'update'};
+    const mutating = {
+      'add',
+      'remove',
+      'rm',
+      'rename',
+      'set-url',
+      'set-head',
+      'prune',
+      'update'
+    };
     if (rest.isEmpty) return null;
     final first = rest.first;
     if (mutating.contains(first)) {

@@ -12,8 +12,10 @@ void main(List<String> argv) {
     stderr.writeln('error: ${pubspec.path} not found');
     exit(1);
   }
-  final match =
-      RegExp(r'^version:\s*(\S+)\s*$', multiLine: true).firstMatch(pubspec.readAsStringSync());
+  final match = RegExp(
+    r'^version:\s*(\S+)\s*$',
+    multiLine: true,
+  ).firstMatch(pubspec.readAsStringSync());
   if (match == null) {
     stderr.writeln('error: no `version:` line found in ${pubspec.path}');
     exit(1);

@@ -21,7 +21,10 @@ Future<void> runWorkflowViewer({
   final layoutRect = screen.layout;
   final w = layoutRect.width;
   final h = layoutRect.height;
-  final overlay = OverlayRegion(screen, Rect(row: 0, col: 0, width: w, height: h));
+  final overlay = OverlayRegion(
+    screen,
+    Rect(row: 0, col: 0, width: w, height: h),
+  );
 
   final contentRows = h - 2; // title + footer
   final maxLine = lines.fold<int>(0, _longer);
@@ -74,7 +77,10 @@ Future<void> runWorkflowViewer({
         handled = false;
       }
       if (handled) {
-        panRow = panRow.clamp(0, (lines.length - contentRows).clamp(0, 1 << 30));
+        panRow = panRow.clamp(
+          0,
+          (lines.length - contentRows).clamp(0, 1 << 30),
+        );
         panCol = panCol.clamp(0, (maxLine - w).clamp(0, 1 << 30));
         paint();
       }
@@ -103,9 +109,17 @@ String _title(String t, int w) {
   return '┌ $label ${'─' * pad}┐';
 }
 
-String _footer(int w, int panRow, int panCol, int total, int maxLine,
-    int contentRows, int width) {
-  final right = '←→↑↓/PgUp-PgDn pan · esc close'
+String _footer(
+  int w,
+  int panRow,
+  int panCol,
+  int total,
+  int maxLine,
+  int contentRows,
+  int width,
+) {
+  final right =
+      '←→↑↓/PgUp-PgDn pan · esc close'
       '  [${panCol + 1}-…/${maxLine + 1} wide, row ${panRow + 1}/${total}]';
   final left = '';
   final inner = w - 2;

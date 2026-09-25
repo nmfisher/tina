@@ -12,7 +12,6 @@ import 'stdio_fake.dart';
 /// which translates to `nc.render()` after `nc.stop()` on the real notcurses
 /// backend).
 class RecordingBackend implements TerminalBackend {
-
   // No retained damage model in this fake; refresh is a no-op.
   @override
   void refresh() {}

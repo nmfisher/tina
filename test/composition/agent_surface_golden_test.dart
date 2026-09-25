@@ -28,20 +28,32 @@ void main() {
       Config.parse(const ['--backend', 'ansi', '--enable-workflow']);
 
   RunWorkflow noopRun() =>
-      ({required workflowName, required sink, required conversationId, input,
-          history, cancelSignal, onEvent}) async =>
+      ({
+        required workflowName,
+        required sink,
+        required conversationId,
+        input,
+        history,
+        cancelSignal,
+        onEvent,
+      }) async =>
           PipelineRunResult(outcome: const Outcome.success(), runDir: '');
 
   /// One representative input per tool name, so a decision can be resolved
   /// for every gate (mirrors the approval-identity sweep's sample calls).
+  /// The workflow tools are unmounted (the agent surface has them disabled),
+  /// so they carry no gate here.
   const sampleCalls = <String, Map<String, dynamic>>{
     'bash': {'command': 'git status --short'},
-    'exec': {'executable': 'dart', 'args': ['test'], 'cwd': '/p'},
+    'exec': {
+      'executable': 'dart',
+      'args': ['test'],
+      'cwd': '/p',
+    },
     'write': {'filePath': '/p/lib/a.dart', 'content': 'x'},
     'edit': {'filePath': '/p/lib/a.dart', 'oldString': 'a', 'newString': 'b'},
     'fetch': {'url': 'https://example.com/page'},
     'web_search': {'query': 'dart glob semantics'},
-    'launch_workflow': {'workflow': 'lint', 'input': 'run the linter'},
     'broadcast_region': {'task': 'what does this region do?'},
     'forget_region': {'dir': 'lib/tui'},
     'allocate_region': {'dir': 'lib/tui'},
@@ -63,7 +75,6 @@ void main() {
     'search': {'query': 'approval'},
     'send': {'channel': 'team', 'message': 'hi'},
     'stat': {'filePath': '/p/lib/a.dart'},
-    'stop_workflow': <String, dynamic>{},
     'which': {'command': 'dart'},
     'write_summary': {'filePath': '/p/lib/a.dart'},
   };
@@ -71,18 +82,16 @@ void main() {
   /// The serialized golden for one build: ordered tool names, then the
   /// resolved decision for every mounted tool and every named default gate.
   String golden(AgentDriver driver) {
-    final policy =
-        driver is AgentDriverAdapter ? driver.agent.policy : driver.policy;
+    final policy = driver is AgentDriverAdapter
+        ? driver.agent.policy
+        : driver.policy;
     final mounted = [for (final t in driver.tools.all) t.schema.name];
     final gates = {...mounted, ...policy.defaults.keys};
     final decisions = [
       for (final name in gates)
         '$name=${policy.check(name, sampleCalls[name] ?? const {}).name}',
     ]..sort();
-    return jsonEncode({
-      'tools': mounted,
-      'decisions': decisions,
-    });
+    return jsonEncode({'tools': mounted, 'decisions': decisions});
   }
 
   AgentDriver buildShape(
@@ -134,14 +143,16 @@ void main() {
   test('interactive main (maximal wiring: workflow, regions, asker)', () {
     final tmp = Directory.systemTemp.createTempSync('tina-golden-');
     try {
-      final g = golden(buildShape(
-        workflowConfig(),
-        interactive: true,
-        supervisor: WorkflowSupervisor(run: noopRun()),
-        regions: RegionRegistry(workspaceRoot: tmp.path),
-        summaryIndex: buildSummaryInspection(workspaceRoot: tmp.path),
-        askUser: (questions) async => const [],
-      ));
+      final g = golden(
+        buildShape(
+          workflowConfig(),
+          interactive: true,
+          supervisor: WorkflowSupervisor(run: noopRun()),
+          regions: RegionRegistry(workspaceRoot: tmp.path),
+          summaryIndex: buildSummaryInspection(workspaceRoot: tmp.path),
+          askUser: (questions) async => const [],
+        ),
+      );
       expect(g, _interactiveMaximal, reason: _reason);
     } finally {
       tmp.deleteSync(recursive: true);
@@ -184,10 +195,13 @@ const _reason =
     'these pins are the baseline the plugin migration must reproduce.';
 
 const _interactiveMinimal =
-    '{"tools":["read","write","edit","fetch","bash","exec","execution_info","search","grep","glob","ls","stat","which","git","render_image","delegate","send","receive","close"],"decisions":["allocate_region=allow","ask_user=allow","bash=ask","close=allow","delegate=allow","edit=ask","exec=ask","execution_info=allow","fetch=ask","git=allow","glob=allow","grep=allow","list_regions=allow","ls=allow","query_region=allow","read=allow","read_summary=allow","receive=allow","render_image=allow","repo_structure=allow","search=allow","send=allow","stat=allow","stop_workflow=allow","web_search=ask","which=allow","write=ask","write_summary=allow"]}';
+    '{"tools":["read","write","edit","fetch","bash","exec","execution_info","search","grep","glob","ls","stat","which","git","render_image","delegate","send","receive","close"],"decisions":["allocate_region=allow","ask_user=allow","bash=ask","close=allow","delegate=allow","edit=ask","exec=ask","execution_info=allow","fetch=ask","git=allow","glob=allow","grep=allow","list_regions=allow","ls=allow","query_region=allow","read=allow","read_summary=allow","receive=allow","render_image=allow","repo_structure=allow","search=allow","send=allow","stat=allow","web_search=ask","which=allow","write=ask","write_summary=allow"]}';
 
+// The workflow tools are unmounted for agents (spawning_constraints Change 1):
+// neither shape carries launch_workflow/stop_workflow, and the main policy
+// carries no stop_workflow default.
 const _interactiveMaximal =
-    '{"tools":["read","write","edit","fetch","bash","exec","execution_info","search","grep","glob","ls","stat","which","git","launch_workflow","stop_workflow","repo_structure","list_regions","read_summary","query_region","broadcast_region","allocate_region","forget_region","ask_user","render_image","delegate","send","receive","close"],"decisions":["allocate_region=allow","ask_user=allow","bash=ask","broadcast_region=ask","close=allow","delegate=allow","edit=ask","exec=ask","execution_info=allow","fetch=ask","forget_region=ask","git=allow","glob=allow","grep=allow","launch_workflow=ask","list_regions=allow","ls=allow","query_region=allow","read=allow","read_summary=allow","receive=allow","render_image=allow","repo_structure=allow","search=allow","send=allow","stat=allow","stop_workflow=allow","web_search=ask","which=allow","write=ask","write_summary=allow"]}';
+    '{"tools":["read","write","edit","fetch","bash","exec","execution_info","search","grep","glob","ls","stat","which","git","repo_structure","list_regions","read_summary","query_region","broadcast_region","allocate_region","forget_region","ask_user","render_image","delegate","send","receive","close"],"decisions":["allocate_region=allow","ask_user=allow","bash=ask","broadcast_region=ask","close=allow","delegate=allow","edit=ask","exec=ask","execution_info=allow","fetch=ask","forget_region=ask","git=allow","glob=allow","grep=allow","list_regions=allow","ls=allow","query_region=allow","read=allow","read_summary=allow","receive=allow","render_image=allow","repo_structure=allow","search=allow","send=allow","stat=allow","web_search=ask","which=allow","write=ask","write_summary=allow"]}';
 
 const _headless =
     '{"tools":["read","write","edit","fetch","bash","exec","execution_info","search","grep","glob","ls","stat","which","git"],"decisions":["allocate_region=ask","bash=ask","edit=ask","exec=ask","execution_info=allow","fetch=ask","git=allow","glob=allow","grep=allow","list_regions=allow","ls=allow","query_region=allow","read=allow","read_summary=allow","render_image=allow","repo_structure=allow","search=allow","stat=allow","web_search=ask","which=allow","write=ask","write_summary=allow"]}';

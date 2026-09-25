@@ -92,11 +92,12 @@ class ConversationOperations {
   final LlmProviderFactory providers;
   final SessionStore store;
   final PauseGate? pauseGate;
+
   /// Builds the host for a new side conversation. [role] is the name the
   /// conversation runs as — the same string the panel border is titled with —
   /// so its transcript's gutter names the speaker.
   final HostInterface Function(String conversationId, {String role})
-      hostFactory;
+  hostFactory;
 
   ConversationOperations({
     required this.sessions,

@@ -25,7 +25,6 @@ import 'stdio_fake.dart';
 /// Counting retained-mode backend. Surface mutations mark the grid dirty; the
 /// frame machinery flushes at most one render per coalesced frame.
 class CountingBackend implements TerminalBackend {
-
   // No retained damage model in this fake; refresh is a no-op.
   @override
   void refresh() {}
@@ -237,8 +236,7 @@ void main() {
 
         chat.write('b'); // within window → coalesce
         chat.write('c');
-        expect(be.renders, 1,
-            reason: 'no render fires inside the open window');
+        expect(be.renders, 1, reason: 'no render fires inside the open window');
         // Cross the boundary: the single trailing timer fires once.
         async.elapse(const Duration(milliseconds: 10));
         expect(be.renders, 2,
@@ -246,8 +244,7 @@ void main() {
       });
     });
 
-    test('multiple windows each render at most twice (leading + trailing)',
-        () {
+    test('multiple windows each render at most twice (leading + trailing)', () {
       fakeAsync((async) {
         final s = _makeScreen(async);
         final chat = s.chat;
@@ -316,7 +313,8 @@ void main() {
         chat.write('pending');
         chat.detach();
         async.elapse(const Duration(milliseconds: 20));
-        expect(be.renders, 1, reason: 'detach drops the pending trailing paint');
+        expect(be.renders, 1,
+            reason: 'detach drops the pending trailing paint');
       });
     });
   });
@@ -338,7 +336,8 @@ void main() {
         // second render fires on the later elapse.
         s.input.render(prompt: '> ', buffer: 'ab', cursor: 2);
         expect(be.renders, 2,
-            reason: 'input frame absorbed the pending chat into its own render');
+            reason:
+                'input frame absorbed the pending chat into its own render');
 
         async.elapse(const Duration(milliseconds: 20));
         expect(be.renders, 2,
@@ -363,7 +362,8 @@ void main() {
         async.elapse(const Duration(milliseconds: 50));
         expect(ticked, greaterThanOrEqualTo(1), reason: 'animation tick fired');
         expect(be.renders, 2,
-            reason: 'animation frame absorbed the pending chat into its render');
+            reason:
+                'animation frame absorbed the pending chat into its render');
       });
     });
 

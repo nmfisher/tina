@@ -15,8 +15,9 @@ sealed class JudgmentQuestion<A extends JudgmentAnswer> {
   final JudgmentContent? instructions;
 
   JudgmentQuestion(this.id, {required Object? instructions})
-      : instructions =
-            instructions == null ? null : JudgmentContent(instructions) {
+    : instructions = instructions == null
+          ? null
+          : JudgmentContent(instructions) {
     _nonEmpty(id, 'question id');
   }
 
@@ -32,8 +33,12 @@ final class ChoiceQuestion extends JudgmentQuestion<ChoiceAnswer> {
     super.id, {
     required super.instructions,
     required Map<String, Object?> criteria,
-  }) : criteria = Map.unmodifiable(criteria.map((key, value) =>
-            MapEntry(key, value == null ? null : _content(value)))) {
+  }) : criteria = Map.unmodifiable(
+         criteria.map(
+           (key, value) =>
+               MapEntry(key, value == null ? null : _content(value)),
+         ),
+       ) {
     if (criteria.isEmpty || criteria.length > 255) {
       throw ArgumentError('Choice requires 1 to 255 options');
     }
@@ -46,10 +51,10 @@ final class ChoiceQuestion extends JudgmentQuestion<ChoiceAnswer> {
   String get type => 'choice';
   @override
   Map<String, Object?> toJson() => {
-        'type': type,
-        'instructions': instructions?.value,
-        'criteria': criteria,
-      };
+    'type': type,
+    'instructions': instructions?.value,
+    'criteria': criteria,
+  };
 
   @override
   ChoiceAnswer _decode(Map<String, Object?> json) {
@@ -57,7 +62,10 @@ final class ChoiceQuestion extends JudgmentQuestion<ChoiceAnswer> {
     final choice = _string(json['choice']);
     if (!criteria.containsKey(choice)) _invalid('Unknown choice');
     return ChoiceAnswer._(
-        choice, probabilities, _probability(json['confidence']));
+      choice,
+      probabilities,
+      _probability(json['confidence']),
+    );
   }
 }
 
@@ -69,7 +77,8 @@ final class ScoreQuestion extends JudgmentQuestion<ScoreAnswer> {
     required super.instructions,
     required List<Object?> criteria,
   }) : criteria = List.unmodifiable(
-            criteria.map((value) => value == null ? null : _content(value))) {
+         criteria.map((value) => value == null ? null : _content(value)),
+       ) {
     if (criteria.length < 2 || criteria.length > 10) {
       throw ArgumentError('Score requires 2 to 10 levels');
     }
@@ -79,10 +88,10 @@ final class ScoreQuestion extends JudgmentQuestion<ScoreAnswer> {
   String get type => 'score';
   @override
   Map<String, Object?> toJson() => {
-        'type': type,
-        'instructions': instructions?.value,
-        'criteria': criteria,
-      };
+    'type': type,
+    'instructions': instructions?.value,
+    'criteria': criteria,
+  };
 
   @override
   ScoreAnswer _decode(Map<String, Object?> json) {
@@ -119,21 +128,21 @@ final class NoulQuestion extends JudgmentQuestion<NoulAnswer> {
     required super.instructions,
     Object? whenTrue,
     Object? whenFalse,
-  })  : whenTrue = whenTrue == null ? null : JudgmentContent(whenTrue),
-        whenFalse = whenFalse == null ? null : JudgmentContent(whenFalse);
+  }) : whenTrue = whenTrue == null ? null : JudgmentContent(whenTrue),
+       whenFalse = whenFalse == null ? null : JudgmentContent(whenFalse);
 
   @override
   String get type => 'noul';
   @override
   Map<String, Object?> toJson() => {
-        'type': type,
-        'instructions': instructions?.value,
-        if (whenTrue != null || whenFalse != null)
-          'criteria': {
-            if (whenTrue != null) 'true': whenTrue!.value,
-            if (whenFalse != null) 'false': whenFalse!.value,
-          },
-      };
+    'type': type,
+    'instructions': instructions?.value,
+    if (whenTrue != null || whenFalse != null)
+      'criteria': {
+        if (whenTrue != null) 'true': whenTrue!.value,
+        if (whenFalse != null) 'false': whenFalse!.value,
+      },
+  };
 
   @override
   NoulAnswer _decode(Map<String, Object?> json) =>
@@ -144,18 +153,20 @@ class JudgmentRequest {
   final JudgmentContent state;
   final Map<String, JudgmentQuestion> questions;
 
-  JudgmentRequest(
-      {required Object state, required Iterable<JudgmentQuestion> questions})
-      : state = JudgmentContent(state),
-        questions = _questions(questions);
+  JudgmentRequest({
+    required Object state,
+    required Iterable<JudgmentQuestion> questions,
+  }) : state = JudgmentContent(state),
+       questions = _questions(questions);
 
   Map<String, Object?> toJson({required String model}) {
     _nonEmpty(model, 'model');
     return {
       'state': state.value,
       'model': model,
-      'questions':
-          questions.map((id, question) => MapEntry(id, question.toJson())),
+      'questions': questions.map(
+        (id, question) => MapEntry(id, question.toJson()),
+      ),
     };
   }
 }
@@ -177,7 +188,11 @@ final class ScoreAnswer extends JudgmentAnswer {
   final Map<int, double> probabilities;
   final double confidence;
   const ScoreAnswer._(
-      this.score, this.legend, this.probabilities, this.confidence);
+    this.score,
+    this.legend,
+    this.probabilities,
+    this.confidence,
+  );
 
   double get normalized => score / (legend.length - 1);
 }
@@ -205,8 +220,10 @@ class JudgmentResult {
 
   /// Validate the entire batch before exposing any answer to action policy.
   /// Unknown metadata fields are tolerated; missing/extra answers are not.
-  factory JudgmentResult.fromJson(Object? value,
-      {required JudgmentRequest request}) {
+  factory JudgmentResult.fromJson(
+    Object? value, {
+    required JudgmentRequest request,
+  }) {
     final json = _map(value);
     final model = _string(json['model']);
     final raw = _map(json['answers']);
@@ -219,13 +236,14 @@ class JudgmentResult {
     }
     final usage = _map(json['usage']);
     return JudgmentResult._(
-        model,
-        Map.unmodifiable(answers),
-        JudgmentUsage(
-          inputTokens: _tokens(usage['input_tokens']),
-          outputTokens: _tokens(usage['output_tokens']),
-        ),
-        request.questions);
+      model,
+      Map.unmodifiable(answers),
+      JudgmentUsage(
+        inputTokens: _tokens(usage['input_tokens']),
+        outputTokens: _tokens(usage['output_tokens']),
+      ),
+      request.questions,
+    );
   }
 
   /// The question acts as a typed key; a same-ID question from another batch
@@ -270,7 +288,8 @@ Object? _freeze(Object? value, Set<Object> ancestors, int depth) {
   try {
     if (value is List) {
       return List<Object?>.unmodifiable(
-          value.map((v) => _freeze(v, ancestors, depth + 1)));
+        value.map((v) => _freeze(v, ancestors, depth + 1)),
+      );
     }
     final result = <String, Object?>{};
     for (final entry in (value as Map).entries) {

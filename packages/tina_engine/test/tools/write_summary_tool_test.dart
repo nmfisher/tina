@@ -50,8 +50,10 @@ void main() {
     final text = file.readAsStringSync();
     final head = _git(project, ['rev-parse', 'HEAD']);
     final tree = _git(project, ['rev-parse', 'HEAD:lib']);
-    expect(text, startsWith('<!-- tina-summary dir="lib" commit="$head" '
-        'tree="$tree" generated="'));
+    expect(
+        text,
+        startsWith('<!-- tina-summary dir="lib" commit="$head" '
+            'tree="$tree" generated="'));
     expect(text, contains('# lib\n\nThis is the lib directory.'));
   });
 
@@ -70,8 +72,8 @@ void main() {
     });
     expect(res.isError, isFalse, reason: res.content);
 
-    expect(File('${sidecar.path}/packages%2Ftina_index%2Flib.md')
-        .existsSync(), isTrue);
+    expect(File('${sidecar.path}/packages%2Ftina_index%2Flib.md').existsSync(),
+        isTrue);
     // A directory literally named with `__` can never collide with a path.
     expect(summarySlug('a/b'), isNot(summarySlug('a__b')));
     expect(summarySlug('100%'), '100%25');
@@ -97,8 +99,7 @@ void main() {
 
   test('errors when no sidecar root is configured', () async {
     final unconfigured = WriteSummaryTool();
-    final res = await unconfigured
-        .execute({'dir': 'lib', 'content': 'x'});
+    final res = await unconfigured.execute({'dir': 'lib', 'content': 'x'});
     expect(res.isError, isTrue);
     expect(res.content, contains('not configured'));
   });

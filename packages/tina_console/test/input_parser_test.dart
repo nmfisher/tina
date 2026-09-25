@@ -115,7 +115,8 @@ void main() {
       parser.feed(0x1b);
       expect(parser.feed(0x1b), isNull);
       expect(parser.feed(0x5b), isNull); // '['
-      expect(parser.feed(0x44), // 'D'
+      expect(
+          parser.feed(0x44), // 'D'
           equals(ArrowKey(ArrowDirection.left, hasAlt: true)));
     });
 
@@ -149,13 +150,16 @@ void main() {
       expect(parser.feed(0x44), equals(ArrowKey(ArrowDirection.left)));
     });
 
-    test('ESC ESC [ A produces plain ArrowUp (Alt stamp only matters for editor word-motion)', () {
+    test(
+        'ESC ESC [ A produces plain ArrowUp (Alt stamp only matters for editor word-motion)',
+        () {
       // The parser stamps hasAlt on any ESC-prefixed arrow; consumers that
       // don't care about Alt (spatial nav, pickers) ignore it.
       parser.feed(0x1b);
       parser.feed(0x1b);
       parser.feed(0x5b);
-      expect(parser.feed(0x41), equals(ArrowKey(ArrowDirection.up, hasAlt: true)));
+      expect(
+          parser.feed(0x41), equals(ArrowKey(ArrowDirection.up, hasAlt: true)));
     });
 
     test('ESC [ A produces ArrowUp', () {
@@ -206,16 +210,14 @@ void main() {
       parser.feed(0x1b);
       parser.feed(0x5b);
       parser.feed(0x35); // '5'
-      expect(parser.feed(0x7e),
-          ArrowKey(ArrowDirection.pageUp)); // '~'
+      expect(parser.feed(0x7e), ArrowKey(ArrowDirection.pageUp)); // '~'
     });
 
     test('ESC [ 6 ~ produces ArrowKey(ArrowDirection.pageDown)', () {
       parser.feed(0x1b);
       parser.feed(0x5b);
       parser.feed(0x36); // '6'
-      expect(parser.feed(0x7e),
-          ArrowKey(ArrowDirection.pageDown)); // '~'
+      expect(parser.feed(0x7e), ArrowKey(ArrowDirection.pageDown)); // '~'
     });
 
     test('ESC O H (SS3 Home) produces EditingAction.home', () {
@@ -338,8 +340,9 @@ void main() {
       InputEvent? ev;
       for (final b in bytes) {
         ev = parser.feed(b);
-        expect(ev, isNull, reason: 'OSC payload byte 0x${b.toRadixString(16)} '
-            'must not produce an event');
+        expect(ev, isNull,
+            reason: 'OSC payload byte 0x${b.toRadixString(16)} '
+                'must not produce an event');
       }
       expect(parser.isMidSequence, isFalse,
           reason: 'OSC ended by BEL — parser must be idle');
@@ -359,8 +362,9 @@ void main() {
       InputEvent? ev;
       for (final b in bytes) {
         ev = parser.feed(b);
-        expect(ev, isNull, reason: 'ST-terminated OSC byte 0x${b.toRadixString(16)} '
-            'must not produce an event');
+        expect(ev, isNull,
+            reason: 'ST-terminated OSC byte 0x${b.toRadixString(16)} '
+                'must not produce an event');
       }
       expect(parser.isMidSequence, isFalse);
       expect(parser.feed(0x42), CharInput('B'));
@@ -393,19 +397,22 @@ void main() {
       for (final b in bytes) {
         expect(parser.feed(b), isNull);
       }
-      expect(parser.isMidSequence, isTrue, reason: 'unterminated OSC is pending');
+      expect(parser.isMidSequence, isTrue,
+          reason: 'unterminated OSC is pending');
       parser.reset();
       expect(parser.isMidSequence, isFalse);
       expect(parser.feed(0x44), CharInput('D'));
     });
 
-    test('OSC 11 reply interleaved with typing produces only the typed chars', () {
+    test('OSC 11 reply interleaved with typing produces only the typed chars',
+        () {
       // Type 'hi', then a late OSC 11 reply arrives, then type 'bye' — only
       // h,i,b,y,e should surface; the OSC payload is discarded entirely.
       expect(parser.feed(0x68), CharInput('h'));
       expect(parser.feed(0x69), CharInput('i'));
       final osc = <int>[
-        0x1b, 0x5d,
+        0x1b,
+        0x5d,
         ...'11;rgb:ffff/ffff/ffff'.codeUnits,
         0x07,
       ];
@@ -430,13 +437,15 @@ void main() {
       expect(parser.feed(0x41), isNull); // 'A' buffered, not a CharInput
     });
 
-    test('bracketed paste end \\e[201~ without a start is consumed silently', () {
+    test('bracketed paste end \\e[201~ without a start is consumed silently',
+        () {
       // A stray end marker (no matching start) is harmlessly consumed and does
       // not leave the parser in a weird state.
       for (final b in [0x1b, 0x5b, 0x32, 0x30, 0x31, 0x7e]) {
         expect(parser.feed(b), isNull);
       }
-      expect(parser.feed(0x42), isA<CharInput>()); // 'B' — normal typing resumes
+      expect(
+          parser.feed(0x42), isA<CharInput>()); // 'B' — normal typing resumes
     });
 
     test('full bracketed paste emits a single PasteInput', () {
@@ -609,8 +618,7 @@ void main() {
       expect(p.isMidSequence, isTrue); // ESC still pending
     });
 
-    test('rapid ESC ESC (one window) emits TWO EscapeKeys, not one',
-        () async {
+    test('rapid ESC ESC (one window) emits TWO EscapeKeys, not one', () async {
       // The owner's double-Esc cancel bug: both bytes land inside a single
       // 150ms escape window, so the pair takes the `ESC ESC` Alt-prefix path
       // and the timeout used to emit ONE EscapeKey for TWO keypresses — the
@@ -643,8 +651,7 @@ void main() {
       expect(events.whereType<EscapeKey>(), hasLength(3));
     });
 
-    test('presses straddling two windows still emit two EscapeKeys',
-        () async {
+    test('presses straddling two windows still emit two EscapeKeys', () async {
       // Slow-ish double press: the first ESC resolves on its own timeout,
       // the second starts a fresh window. Two events either way.
       final events = <InputEvent>[];

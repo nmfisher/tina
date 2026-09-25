@@ -40,18 +40,20 @@ void main() {
         Menu(label: 'File', shortcut: 0x66, items: [
           MenuEntry(label: 'New', onActivate: () => activations.add('new')),
           MenuSeparator(),
-          MenuEntry(label: 'Exit', shortcutHint: 'Ctrl+C',
+          MenuEntry(
+              label: 'Exit',
+              shortcutHint: 'Ctrl+C',
               onActivate: () => activations.add('exit')),
         ]),
         Menu(label: 'Edit', shortcut: 0x65, items: [
-          MenuEntry(label: 'Undo',
-              onActivate: () => activations.add('undo')),
-          MenuEntry(label: 'Redo', enabled: false,
+          MenuEntry(label: 'Undo', onActivate: () => activations.add('undo')),
+          MenuEntry(
+              label: 'Redo',
+              enabled: false,
               onActivate: () => activations.add('redo')),
         ]),
         Menu(label: 'Help', shortcut: 0x68, items: [
-          MenuEntry(label: 'About',
-              onActivate: () => activations.add('about')),
+          MenuEntry(label: 'About', onActivate: () => activations.add('about')),
         ]),
       ];
     }
@@ -459,9 +461,13 @@ void main() {
       for (var r = 0; r < H; r++) {
         final row = vt.rowText(r);
         final idx = row.indexOf('New');
-        if (idx >= 0) { newCol = idx; break; }
+        if (idx >= 0) {
+          newCol = idx;
+          break;
+        }
       }
-      expect(newCol, greaterThanOrEqualTo(0), reason: '"New" not found in dropdown');
+      expect(newCol, greaterThanOrEqualTo(0),
+          reason: '"New" not found in dropdown');
 
       // The first character of the dropdown item must align with the first
       // character of the menu label.
@@ -474,7 +480,10 @@ void main() {
       for (var r = 0; r < H; r++) {
         final row = vt.rowText(r);
         final idx = row.indexOf('Exit');
-        if (idx >= 0) { exitCol = idx; break; }
+        if (idx >= 0) {
+          exitCol = idx;
+          break;
+        }
       }
       expect(exitCol, fCol,
           reason: '"Exit" should start at the same column as "File"');

@@ -9,14 +9,13 @@ import 'package:test/test.dart';
 /// to assert.
 void main() {
   // Encode a raw SSE frame string into the byte stream parseSse consumes.
-  Stream<List<int>> sse(String raw) =>
-      Stream.fromIterable([utf8.encode(raw)]);
+  Stream<List<int>> sse(String raw) => Stream.fromIterable([utf8.encode(raw)]);
 
   group('parseSse', () {
     test('reports an explicit done marker, never plain EOF', () async {
       var markers = 0;
-      await parseSse(sse('data: one\n'),
-          onDoneMarker: () => markers++).toList();
+      await parseSse(sse('data: one\n'), onDoneMarker: () => markers++)
+          .toList();
       expect(markers, 0);
       await parseSse(sse('data: [DONE]\ndata: [DONE]\n'),
           onDoneMarker: () => markers++).toList();
@@ -28,7 +27,8 @@ void main() {
         'data: two',
         'data: three',
         '',
-      ].join('\n'))).toList();
+      ].join('\n')))
+          .toList();
       expect(out, ['one', 'two', 'three']);
     });
 
@@ -42,7 +42,8 @@ void main() {
         'retry: 5000',
         'data: also-kept',
         '',
-      ].join('\n'))).toList();
+      ].join('\n')))
+          .toList();
       expect(out, ['kept', 'also-kept']);
     });
 
@@ -52,7 +53,8 @@ void main() {
         'data: [DONE]',
         'data: after',
         '',
-      ].join('\n'))).toList();
+      ].join('\n')))
+          .toList();
       expect(out, ['before']); // stops at [DONE]; 'after' never read
     });
 
@@ -79,7 +81,8 @@ void main() {
         'notdata: x',
         'data: y',
         '',
-      ].join('\n'))).toList();
+      ].join('\n')))
+          .toList();
       expect(out, ['y']);
     });
   });

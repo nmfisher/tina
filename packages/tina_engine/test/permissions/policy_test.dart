@@ -33,8 +33,7 @@ void main() {
     });
 
     test('starMatchesSlash crosses slashes (bash mode)', () {
-      expect(globMatch('rm *', 'rm -rf /tmp', starMatchesSlash: true),
-          isTrue);
+      expect(globMatch('rm *', 'rm -rf /tmp', starMatchesSlash: true), isTrue);
       expect(globMatch('rm *', 'rm -rf /tmp'), isFalse);
     });
   });
@@ -107,11 +106,9 @@ void main() {
     });
 
     test('falls back to *', () {
-      expect(
-          PermissionPolicy.defaultAlwaysPatternFor('bash', {'command': ''}),
+      expect(PermissionPolicy.defaultAlwaysPatternFor('bash', {'command': ''}),
           '*');
-      expect(
-          PermissionPolicy.defaultAlwaysPatternFor('read', {'filePath': ''}),
+      expect(PermissionPolicy.defaultAlwaysPatternFor('read', {'filePath': ''}),
           '*');
     });
   });
@@ -120,10 +117,14 @@ void main() {
     test('launch_workflow keys on the workflow name (defaulted)', () {
       expect(PermissionPolicy.keyFor('launch_workflow', {'input': 'x'}),
           'default');
-      expect(PermissionPolicy.keyFor(
-          'launch_workflow', {'input': 'x', 'workflow': 'lint'}), 'lint');
-      expect(PermissionPolicy.keyFor(
-          'launch_workflow', {'input': 'x', 'workflow': '   '}), 'default');
+      expect(
+          PermissionPolicy.keyFor(
+              'launch_workflow', {'input': 'x', 'workflow': 'lint'}),
+          'lint');
+      expect(
+          PermissionPolicy.keyFor(
+              'launch_workflow', {'input': 'x', 'workflow': '   '}),
+          'default');
     });
 
     test('bash and file tools keep their keys', () {
@@ -150,9 +151,7 @@ void main() {
       ]);
       p.remember('bash', 'dart *', PermissionDecision.allow);
 
-      expect(
-          p.allowedPatterns('bash'),
-          ['bash:git *', 'bash:dart *'],
+      expect(p.allowedPatterns('bash'), ['bash:git *', 'bash:dart *'],
           reason: 'deny rules and other tools are excluded');
       expect(p.allowedPatterns('write'), ['write:/tmp/*']);
     });
@@ -220,8 +219,7 @@ void main() {
         PermissionRule(
             toolName: 'exec', pattern: '*', decision: PermissionDecision.deny),
       ]);
-      expect(
-          p.check('exec', {'executable': 'dart', 'cwd': '/home/x/p'}),
+      expect(p.check('exec', {'executable': 'dart', 'cwd': '/home/x/p'}),
           PermissionDecision.deny);
     });
 
@@ -308,9 +306,10 @@ void main() {
       // The model allowed a command the operator's rule was written to stop.
       p.remember('bash', 'rm *', PermissionDecision.allow,
           source: GrantSource.classifier);
-      expect(p.check('bash', {'command': 'rm -rf /tmp'}),
-          PermissionDecision.deny,
-          reason: 'the classifier answers in place of the user, not above them');
+      expect(
+          p.check('bash', {'command': 'rm -rf /tmp'}), PermissionDecision.deny,
+          reason:
+              'the classifier answers in place of the user, not above them');
     });
 
     test('a human grant still overrides a configured rule', () {
@@ -321,16 +320,16 @@ void main() {
             decision: PermissionDecision.deny),
       ]);
       p.remember('bash', 'git status', PermissionDecision.allow);
-      expect(p.check('bash', {'command': 'git status'}),
-          PermissionDecision.allow);
+      expect(
+          p.check('bash', {'command': 'git status'}), PermissionDecision.allow);
     });
 
     test('a classifier grant applies where nothing is configured', () {
       final p = PermissionPolicy();
       p.remember('bash', 'git status', PermissionDecision.allow,
           source: GrantSource.classifier);
-      expect(p.check('bash', {'command': 'git status'}),
-          PermissionDecision.allow);
+      expect(
+          p.check('bash', {'command': 'git status'}), PermissionDecision.allow);
     });
   });
 
@@ -367,7 +366,8 @@ void main() {
             decision: PermissionDecision.deny),
       ]);
       expect(
-          p.inertRules(['bash', 'read']).map((r) => '${r.toolName}:${r.pattern}'),
+          p.inertRules(['bash', 'read']).map(
+              (r) => '${r.toolName}:${r.pattern}'),
           ['bashh:rm *'],
           reason: 'a typo would otherwise deny nothing, silently');
     });
@@ -375,9 +375,13 @@ void main() {
     test('a mounted tool and a wildcard rule are never reported', () {
       final p = PermissionPolicy(rules: const [
         PermissionRule(
-            toolName: 'bash', pattern: 'rm *', decision: PermissionDecision.deny),
+            toolName: 'bash',
+            pattern: 'rm *',
+            decision: PermissionDecision.deny),
         PermissionRule(
-            toolName: '*', pattern: '/secrets/**', decision: PermissionDecision.deny),
+            toolName: '*',
+            pattern: '/secrets/**',
+            decision: PermissionDecision.deny),
       ]);
       expect(p.inertRules(['bash', 'read']), isEmpty);
     });
@@ -417,8 +421,8 @@ void main() {
             pattern: 'git *',
             decision: PermissionDecision.allow),
       ]);
-      expect(p.check('bash', {'command': 'git status'}),
-          PermissionDecision.allow);
+      expect(
+          p.check('bash', {'command': 'git status'}), PermissionDecision.allow);
       expect(p.check('bash', {'command': 'rm -rf'}), PermissionDecision.ask);
     });
 
@@ -430,14 +434,11 @@ void main() {
             pattern: 'rm *',
             decision: PermissionDecision.deny),
         PermissionRule(
-            toolName: 'bash',
-            pattern: '*',
-            decision: PermissionDecision.allow),
+            toolName: 'bash', pattern: '*', decision: PermissionDecision.allow),
       ]);
-      expect(p.check('bash', {'command': 'rm -rf /tmp'}),
-          PermissionDecision.deny);
       expect(
-          p.check('bash', {'command': 'echo hi'}), PermissionDecision.allow);
+          p.check('bash', {'command': 'rm -rf /tmp'}), PermissionDecision.deny);
+      expect(p.check('bash', {'command': 'echo hi'}), PermissionDecision.allow);
     });
 
     test('session memory overrides static rules', () {
@@ -447,11 +448,11 @@ void main() {
             pattern: 'git *',
             decision: PermissionDecision.deny),
       ]);
-      expect(p.check('bash', {'command': 'git status'}),
-          PermissionDecision.deny);
+      expect(
+          p.check('bash', {'command': 'git status'}), PermissionDecision.deny);
       p.remember('bash', 'git *', PermissionDecision.allow);
-      expect(p.check('bash', {'command': 'git status'}),
-          PermissionDecision.allow);
+      expect(
+          p.check('bash', {'command': 'git status'}), PermissionDecision.allow);
     });
 
     test('latest session entry wins', () {
@@ -488,7 +489,7 @@ void main() {
       expect(deriveToolDecision(const ToolCapabilities()),
           PermissionDecision.allow);
       // A fixed program the tool assembles and fences is still a read: rg and
-          // git are read-only queries, and their spawn is contained.
+      // git are read-only queries, and their spawn is contained.
       expect(
           deriveToolDecision(const ToolCapabilities(spawns: SpawnScope.fixed)),
           PermissionDecision.allow);
@@ -496,8 +497,8 @@ void main() {
 
     test('each independent axis can withhold the allow on its own', () {
       const cases = <String, ToolCapabilities>{
-        'a model-chosen program': ToolCapabilities(
-            spawns: SpawnScope.modelArgv),
+        'a model-chosen program':
+            ToolCapabilities(spawns: SpawnScope.modelArgv),
         'egress': ToolCapabilities(network: NetworkScope.egress),
         'a host read': ToolCapabilities(reads: ReadScope.host),
         'a project write': ToolCapabilities(writes: WriteScope.project),

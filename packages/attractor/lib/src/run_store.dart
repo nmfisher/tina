@@ -34,10 +34,7 @@ abstract class RunStore {
   });
 
   /// Called when the run ends. Record final status in the manifest.
-  Future<void> finalize({
-    required StageStatus status,
-    String? failureReason,
-  });
+  Future<void> finalize({required StageStatus status, String? failureReason});
 }
 
 /// An in-memory [RunStore] for tests. Captures every write for assertions.
@@ -45,29 +42,57 @@ class MemoryRunStore implements RunStore {
   String? runId;
   String? workflowName;
   final List<({String nodeId, Outcome outcome, String prompt, String response})>
-      nodes = [];
-  final List<({String currentNode, List<String> completed, Map<String, String> context})>
-      checkpoints = [];
+  nodes = [];
+  final List<
+    ({String currentNode, List<String> completed, Map<String, String> context})
+  >
+  checkpoints = [];
   StageStatus? finalStatus;
 
   @override
-  Future<void> init({required String runId, required String workflowName, String? goal, String? input}) async {
+  Future<void> init({
+    required String runId,
+    required String workflowName,
+    String? goal,
+    String? input,
+  }) async {
     this.runId = runId;
     this.workflowName = workflowName;
   }
 
   @override
-  Future<void> writeNode({required String nodeId, required Outcome outcome, required String prompt, required String response}) async {
-    nodes.add((nodeId: nodeId, outcome: outcome, prompt: prompt, response: response));
+  Future<void> writeNode({
+    required String nodeId,
+    required Outcome outcome,
+    required String prompt,
+    required String response,
+  }) async {
+    nodes.add((
+      nodeId: nodeId,
+      outcome: outcome,
+      prompt: prompt,
+      response: response,
+    ));
   }
 
   @override
-  Future<void> writeCheckpoint({required String currentNode, required Iterable<String> completedNodes, required Context context}) async {
-    checkpoints.add((currentNode: currentNode, completed: completedNodes.toList(), context: context.snapshot()));
+  Future<void> writeCheckpoint({
+    required String currentNode,
+    required Iterable<String> completedNodes,
+    required Context context,
+  }) async {
+    checkpoints.add((
+      currentNode: currentNode,
+      completed: completedNodes.toList(),
+      context: context.snapshot(),
+    ));
   }
 
   @override
-  Future<void> finalize({required StageStatus status, String? failureReason}) async {
+  Future<void> finalize({
+    required StageStatus status,
+    String? failureReason,
+  }) async {
     finalStatus = status;
   }
 }

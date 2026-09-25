@@ -27,7 +27,8 @@ void main() {
     test('astral code points are 2 (emoji-wide; narrow ones err high)', () {
       expect(runeWidth(0x1f3f3), 2); // 🏳
       expect(runeWidth(0x1f308), 2); // 🌈
-      expect(runeWidth(0x1d54f), 2); // 𝕏 — genuinely narrow; errs high by design
+      expect(
+          runeWidth(0x1d54f), 2); // 𝕏 — genuinely narrow; errs high by design
     });
 
     test('VS16 advances a cell so pictographic+VS16 errs high', () {

@@ -155,8 +155,9 @@ void main() {
     expect(tree.parentOf['a'], 'primary');
     expect(tree.baseLabel.containsKey('b'), isFalse);
     // The surviving panel's chat is still attached (relaid into its slot).
-    final hostA = sessionManager.active.conversationById('a')!.host
-        as TuiConversationHost;
+    final hostA =
+        sessionManager.active.conversationById('a')!.host
+            as TuiConversationHost;
     expect(hostA.chat.isDetached, isFalse);
   });
 
@@ -216,17 +217,18 @@ class _RecordingSessionManager extends SessionManager {
 
   final TuiConversationHost initialHost;
 
-  final List<({String sessionId, String conversationId})>
-  closedConversations = [];
+  final List<({String sessionId, String conversationId})> closedConversations =
+      [];
 
   /// Register a background conversation so focus→active switching can reach it.
   void register(Conversation c) => active.addConversation(c);
 
   @override
   void closeConversation(String sessionId, String conversationId) {
-    closedConversations.add(
-      (sessionId: sessionId, conversationId: conversationId),
-    );
+    closedConversations.add((
+      sessionId: sessionId,
+      conversationId: conversationId,
+    ));
     // The real closeConversation _deferReleases provider/host/turn futures —
     // heavyweight for a unit test. Reproduce only the in-memory removal the
     // controller's teardown depends on (removeConversation re-anchors the
@@ -240,15 +242,11 @@ HostInterface _hostFactory({
   required bool isActive,
 }) => TuiConversationHost(
   conversationId: conversationId,
-  chat: ScrollingTextRegion(Screen(
-    io: FakeStdio(),
-    layout: ScreenLayout.fromSize(80, 24),
-  ))..detach(),
+  chat: ScrollingTextRegion(
+    Screen(io: FakeStdio(), layout: ScreenLayout.fromSize(80, 24)),
+  )..detach(),
   spinner: Spinner(enabled: false),
-  screen: Screen(
-    io: FakeStdio(),
-    layout: ScreenLayout.fromSize(80, 24),
-  ),
+  screen: Screen(io: FakeStdio(), layout: ScreenLayout.fromSize(80, 24)),
   active: isActive,
 );
 
@@ -271,15 +269,11 @@ AgentDriver _agentBuilder({
 Conversation _dummyConversation(String id, {bool detached = true}) {
   final host = TuiConversationHost(
     conversationId: id,
-    chat: ScrollingTextRegion(Screen(
-      io: FakeStdio(),
-      layout: ScreenLayout.fromSize(80, 24),
-    ))..detach(),
+    chat: ScrollingTextRegion(
+      Screen(io: FakeStdio(), layout: ScreenLayout.fromSize(80, 24)),
+    )..detach(),
     spinner: Spinner(enabled: false),
-    screen: Screen(
-      io: FakeStdio(),
-      layout: ScreenLayout.fromSize(80, 24),
-    ),
+    screen: Screen(io: FakeStdio(), layout: ScreenLayout.fromSize(80, 24)),
     primary: false,
   );
   final conv = Conversation(

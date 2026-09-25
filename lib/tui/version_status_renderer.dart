@@ -19,59 +19,64 @@ class VersionStatusRenderer extends Renderer<VersionSnapshot> {
   List<RenderLine> render(VersionSnapshot value, RenderContext context) {
     return switch (value.phase) {
       VersionPhase.checking => [
-          RenderLine(
-            animated: true,
-            runs: [
-              RenderRun(
-                'update check ${_frames[context.animationFrame % _frames.length]}',
-                context.theme.chat.dim,
-              ),
-            ],
-          ),
-        ],
+        RenderLine(
+          animated: true,
+          runs: [
+            RenderRun(
+              'update check ${_frames[context.animationFrame % _frames.length]}',
+              context.theme.chat.dim,
+            ),
+          ],
+        ),
+      ],
       // Left-aligned by default: the strip's single right-aligned group
       // belongs to the token counter, so this never competes for the tail.
       VersionPhase.updateAvailable => [
-          RenderLine(
-            runs: [
-              RenderRun('update ', context.theme.chat.dim),
-              RenderRun('⬆ ${value.tag!} · /update', context.theme.chat.yellow),
-            ],
-          ),
-        ],
+        RenderLine(
+          runs: [
+            RenderRun('update ', context.theme.chat.dim),
+            RenderRun('⬆ ${value.tag!} · /update', context.theme.chat.yellow),
+          ],
+        ),
+      ],
       // A failed check is visible but never alarm-colored: dim, one line, a
       // short reason (plus the last known tag when one is cached, so the
       // reader can gauge how stale "no news" is). `/update` remains the path
       // to a definitive answer.
       VersionPhase.miss => [
-          RenderLine(
-            runs: [
-              RenderRun('update check failed — ', context.theme.chat.dim),
-              RenderRun(value.why ?? 'unknown reason', context.theme.chat.dim),
-              if (value.previousTag != null)
-                RenderRun(' · last known ${value.previousTag}',
-                    context.theme.chat.dim),
-            ],
-          ),
-        ],
+        RenderLine(
+          runs: [
+            RenderRun('update check failed — ', context.theme.chat.dim),
+            RenderRun(value.why ?? 'unknown reason', context.theme.chat.dim),
+            if (value.previousTag != null)
+              RenderRun(
+                ' · last known ${value.previousTag}',
+                context.theme.chat.dim,
+              ),
+          ],
+        ),
+      ],
       // A skipped probe is the quietest state: dim, no alarm, no nag — the
       // miss announced itself the session it happened. The strip line keeps
       // the fact visible (deadline + last known tag) without repainting it
       // into the chat transcript every launch.
       VersionPhase.deferred => [
-          RenderLine(
-            runs: [
-              RenderRun('update check deferred', context.theme.chat.dim),
-              if (value.until != null)
-                RenderRun(
-                    ' · retry ${_shortTime(value.until!)}',
-                    context.theme.chat.dim),
-              if (value.previousTag != null)
-                RenderRun(' · last known ${value.previousTag}',
-                    context.theme.chat.dim),
-            ],
-          ),
-        ],
+        RenderLine(
+          runs: [
+            RenderRun('update check deferred', context.theme.chat.dim),
+            if (value.until != null)
+              RenderRun(
+                ' · retry ${_shortTime(value.until!)}',
+                context.theme.chat.dim,
+              ),
+            if (value.previousTag != null)
+              RenderRun(
+                ' · last known ${value.previousTag}',
+                context.theme.chat.dim,
+              ),
+          ],
+        ),
+      ],
     };
   }
 

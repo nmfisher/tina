@@ -66,15 +66,17 @@ void main() {
       await executor.execute(
         use: const ToolUseBlock(id: 'u1', name: 'fake', input: {}),
         stepTools: ToolRegistry([
-          FakeTool('fake', (_) async => const ToolResult('ran',
-              elapsed: Duration(milliseconds: 41))),
+          FakeTool(
+              'fake',
+              (_) async =>
+                  const ToolResult('ran', elapsed: Duration(milliseconds: 41))),
         ]).forStep(),
         step: 0,
         isCancelled: () => false,
       );
 
-      expect(sink.toolCompletes.single.elapsed,
-          const Duration(milliseconds: 41));
+      expect(
+          sink.toolCompletes.single.elapsed, const Duration(milliseconds: 41));
     });
 
     test('a tool that did not measure itself reports no duration', () async {
@@ -136,7 +138,8 @@ void main() {
       expect(seen!.isCancelled(), isFalse);
     });
 
-    test('returning WITHOUT delegating fails closed: error result, the tool '
+    test(
+        'returning WITHOUT delegating fails closed: error result, the tool '
         'never ran', () async {
       var executed = false;
       final sink = FakeAgentSink();
@@ -157,12 +160,12 @@ void main() {
 
       expect(executed, isFalse);
       expect(outcome.result.isError, isTrue);
-      expect(
-          outcome.result.content, contains('did not execute the tool'));
+      expect(outcome.result.content, contains('did not execute the tool'));
       expect(sink.toolCompletes.single.isError, isTrue);
     });
 
-    test('delegating TWICE fails closed: error result even when the hook '
+    test(
+        'delegating TWICE fails closed: error result even when the hook '
         'swallows the throw', () async {
       var executions = 0;
       final sink = FakeAgentSink();
@@ -195,7 +198,8 @@ void main() {
       expect(sink.toolCompletes.single.isError, isTrue);
     });
 
-    test('a throwing around hook becomes an error tool result carrying the '
+    test(
+        'a throwing around hook becomes an error tool result carrying the '
         'error', () async {
       final sink = FakeAgentSink();
       final executor = makeExecutor(sink, executionHooks: [
@@ -212,7 +216,8 @@ void main() {
       expect(sink.toolCompletes.single.result, contains('hook exploded'));
     });
 
-    test('a swallowed double-delegation rejection still JOINS the first '
+    test(
+        'a swallowed double-delegation rejection still JOINS the first '
         'execution before the failure is reported', () async {
       final sink = FakeAgentSink();
       var settled = false;
@@ -239,7 +244,8 @@ void main() {
               'no work may keep running behind the reported failure');
     });
 
-    test('a hook that throws after awaiting its delegate does NOT turn a '
+    test(
+        'a hook that throws after awaiting its delegate does NOT turn a '
         'successful tool call into success — the failure ships', () async {
       final sink = FakeAgentSink();
       final executor = makeExecutor(sink, executionHooks: [
@@ -253,11 +259,12 @@ void main() {
       expect(outcome.result.isError, isTrue,
           reason: 'the hook failed after delegating; success must not '
               'leak out of a failed hook invocation');
-      expect(outcome.result.content, contains(
-          'hook blew up after the tool ran'));
+      expect(
+          outcome.result.content, contains('hook blew up after the tool ran'));
     });
 
-    test('a hook that transforms the tool result ships the TRANSFORMED '
+    test(
+        'a hook that transforms the tool result ships the TRANSFORMED '
         'result', () async {
       final sink = FakeAgentSink();
       final executor = makeExecutor(sink, executionHooks: [
@@ -275,7 +282,8 @@ void main() {
       expect(sink.toolCompletes.single.result, 'transformed: redacted');
     });
 
-    test('a tool exception behind a delegating hook keeps the thrown-tool '
+    test(
+        'a tool exception behind a delegating hook keeps the thrown-tool '
         'path (never rebranded as a hook failure)', () async {
       final sink = FakeAgentSink();
       final executor = makeExecutor(sink, executionHooks: [
@@ -362,7 +370,8 @@ void main() {
       expect(outcome.result.content, 'ran:{}\nFIRST');
     });
 
-    test('a null verdict lets the next hook speak; hooks run in declared '
+    test(
+        'a null verdict lets the next hook speak; hooks run in declared '
         'order', () async {
       final order = <String>[];
       final sink = FakeAgentSink();
@@ -404,7 +413,8 @@ void main() {
   });
 
   group('ToolObserver', () {
-    test('observers see start and complete with the same payloads the sink '
+    test(
+        'observers see start and complete with the same payloads the sink '
         'gets; sink traffic is unchanged', () async {
       final starts = <ToolStartEvent>[];
       final completes = <ToolCompleteEvent>[];
@@ -482,7 +492,8 @@ void main() {
   });
 
   group('verifier + result hooks', () {
-    test('the existing verifier still appends first, before the declared '
+    test(
+        'the existing verifier still appends first, before the declared '
         'result hooks (first verdict wins)', () async {
       final order = <String>[];
       final sink = FakeAgentSink();
@@ -506,7 +517,8 @@ void main() {
       // declared hook is skipped entirely (first non-null verdict wins).
     });
 
-    test('a throwing verifier still ships the tool content unchanged and the '
+    test(
+        'a throwing verifier still ships the tool content unchanged and the '
         'next hook still runs (old crash semantics via the hook stage)',
         () async {
       var hookRan = false;
@@ -532,8 +544,7 @@ void main() {
 /// A [ToolExecutionHook] driven by a test closure.
 class _ScriptedExecutionHook implements ToolExecutionHook {
   final Future<ToolResult> Function(
-          ToolCallContext context, Future<ToolResult> Function() delegate)
-      body;
+      ToolCallContext context, Future<ToolResult> Function() delegate) body;
 
   _ScriptedExecutionHook(this.body);
 
@@ -546,8 +557,7 @@ class _ScriptedExecutionHook implements ToolExecutionHook {
 /// A [ToolResultHook] driven by a test closure.
 class _ScriptedResultHook implements ToolResultHook {
   final Future<String?> Function(
-          String toolName, Map<String, dynamic> input, ToolResult result)
-      body;
+      String toolName, Map<String, dynamic> input, ToolResult result) body;
 
   _ScriptedResultHook(this.body);
 

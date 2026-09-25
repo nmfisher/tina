@@ -77,8 +77,7 @@ void main() {
     expect(fired, 0, reason: '0x09 Tab and CSI Z backtab are distinct keys');
   });
 
-  test('shift+tab fires the hook in queue mode (agent turn running)',
-      () async {
+  test('shift+tab fires the hook in queue mode (agent turn running)', () async {
     var fired = 0;
     editor.onBackTab = () {
       fired++;

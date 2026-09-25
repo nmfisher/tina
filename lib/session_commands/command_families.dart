@@ -74,9 +74,9 @@ class UpdateCommands {
   final Future<UpdatePrepareOutcome> Function(
     ReleaseInfo release,
     void Function(String line) notice,
-  )? prepareOverride;
-  UpdateCommands(this.ctx,
-      {this.releaseCheckerFactory, this.prepareOverride});
+  )?
+  prepareOverride;
+  UpdateCommands(this.ctx, {this.releaseCheckerFactory, this.prepareOverride});
 
   /// `/update` — check GitHub for a newer release, download + verify it,
   /// then ask y/n before swapping the bundle in place (restart finishes it).
@@ -123,8 +123,9 @@ class UpdateCommands {
       void notice(String line) =>
           host.showMessage('$line\n', style: HostMessageStyle.dim);
       // Download + verify + extract first; swap only after the user says so.
-      final prepared = await (prepareOverride?.call(release, notice) ??
-          prepareUpdate(release, notice: notice));
+      final prepared =
+          await (prepareOverride?.call(release, notice) ??
+              prepareUpdate(release, notice: notice));
       switch (prepared) {
         case UpdatePrepareUnsupported():
           host.showMessage(
@@ -786,31 +787,46 @@ class HistoryCommands {
     }
     final messages = <Message>[
       ...s.history.where((m) => !m.isReasoningOnly),
-      Message(role: Role.user, content: [
-        TextBlock(buildClassifierReviewQuestion(
-          modelReference:
-              s.modelReference.isEmpty ? s.provider.model : s.modelReference,
-          policy: s.policy,
-          messageCount: s.history.length,
-          focus: focus,
-        )),
-      ]),
+      Message(
+        role: Role.user,
+        content: [
+          TextBlock(
+            buildClassifierReviewQuestion(
+              modelReference: s.modelReference.isEmpty
+                  ? s.provider.model
+                  : s.modelReference,
+              policy: s.policy,
+              messageCount: s.history.length,
+              focus: focus,
+            ),
+          ),
+        ],
+      ),
     ];
     final system = kClassifierReviewSystemPrompt;
-    final reject = s.agent.budget
-        ?.checkRequestInput(system, messages, const <ToolSchema>[]);
+    final reject = s.agent.budget?.checkRequestInput(
+      system,
+      messages,
+      const <ToolSchema>[],
+    );
     if (reject != null) {
-      s.host.notice('classifier review failed: $reject\n',
-          kind: NoticeKind.error);
+      s.host.notice(
+        'classifier review failed: $reject\n',
+        kind: NoticeKind.error,
+      );
       return;
     }
 
     final activity = RunActivity(s.host);
     try {
-      s.host
-          .notice('--- classifier review: ${s.history.length} messages ---\n');
+      s.host.notice(
+        '--- classifier review: ${s.history.length} messages ---\n',
+      );
       final stream = s.provider.send(
-          system: system, messages: messages, tools: const <ToolSchema>[]);
+        system: system,
+        messages: messages,
+        tools: const <ToolSchema>[],
+      );
       final buf = StringBuffer();
       final done = Completer<void>();
       Object? err;
@@ -875,13 +891,17 @@ class HistoryCommands {
         await subscription.cancel();
       }
       if (err != null) {
-        s.host.notice('classifier review failed: $err\n',
-            kind: NoticeKind.error);
+        s.host.notice(
+          'classifier review failed: $err\n',
+          kind: NoticeKind.error,
+        );
         return;
       }
       if (buf.toString().trim().isEmpty) {
-        s.host.notice('classifier review failed: empty response\n',
-            kind: NoticeKind.error);
+        s.host.notice(
+          'classifier review failed: empty response\n',
+          kind: NoticeKind.error,
+        );
       } else {
         // The adoptable program: today's built-in rendered as editable DOT —
         // accepting a suggestion means saving it as a program file and, if
@@ -1031,7 +1051,10 @@ class IndexCommands {
     }
     final conversation = ctx.active;
     // Classification uses the same session spending limit as other agent work.
-    if (options.method == LanguageMethod.jev && options.mode != 'status' && options.mode != 'view' && ctx.spendLedger?.tripped == true) {
+    if (options.method == LanguageMethod.jev &&
+        options.mode != 'status' &&
+        options.mode != 'view' &&
+        ctx.spendLedger?.tripped == true) {
       conversation.host.showMessage(
         'Token spend ceiling already tripped — /index skipped. '
         'Raise the cap (or /spend to review) first.\n',

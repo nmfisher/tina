@@ -56,8 +56,9 @@ void main() {
 
     setUp(() {
       tmp = Directory.systemTemp.createTempSync('tina_wf_names_');
-      File('${tmp.path}${Platform.pathSeparator}default.dot')
-          .writeAsStringSync('digraph default {}');
+      File(
+        '${tmp.path}${Platform.pathSeparator}default.dot',
+      ).writeAsStringSync('digraph default {}');
     });
     tearDown(() => tmp.deleteSync(recursive: true));
 
@@ -67,17 +68,31 @@ void main() {
     });
 
     test('a missing workflow reports not-found', () {
-      expect(() => PipelineRunner.readWorkflow(tmp, 'nope'),
-          throwsA(isA<FileSystemException>()
-              .having((e) => e.message, 'message', contains('not found'))));
+      expect(
+        () => PipelineRunner.readWorkflow(tmp, 'nope'),
+        throwsA(
+          isA<FileSystemException>().having(
+            (e) => e.message,
+            'message',
+            contains('not found'),
+          ),
+        ),
+      );
     });
 
     test('an escaping name is rejected before touching the filesystem', () {
       for (final evil in ['../default', 'sub/default', r'..\default', '..']) {
-        expect(() => PipelineRunner.readWorkflow(tmp, evil),
-            throwsA(isA<FileSystemException>().having(
-                (e) => e.message, 'message', contains('workflow names'))),
-            reason: evil);
+        expect(
+          () => PipelineRunner.readWorkflow(tmp, evil),
+          throwsA(
+            isA<FileSystemException>().having(
+              (e) => e.message,
+              'message',
+              contains('workflow names'),
+            ),
+          ),
+          reason: evil,
+        );
       }
     });
   });

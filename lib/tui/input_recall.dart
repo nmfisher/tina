@@ -14,10 +14,10 @@ import 'package:tina_engine/tina_engine.dart';
 /// batch, say) are passed through as empty strings: [restoreHistory]'s
 /// `addHistory` already ignores blank lines, keeping this a pure projection.
 List<String> recallHistoryLines(Iterable<Message> history) => [
-      for (final message in history)
-        if (message.role == Role.user && !message.isSynthetic)
-          message.content
-              .whereType<TextBlock>()
-              .map((block) => block.text)
-              .join('\n'),
-    ];
+  for (final message in history)
+    if (message.role == Role.user && !message.isSynthetic)
+      message.content
+          .whereType<TextBlock>()
+          .map((block) => block.text)
+          .join('\n'),
+];

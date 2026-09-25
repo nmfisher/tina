@@ -4,7 +4,8 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
 
-import 'package:tina_app/src/summaries/sidecar_repo.dart' show kDefaultPartitionSkip;
+import 'package:tina_app/src/summaries/sidecar_repo.dart'
+    show kDefaultPartitionSkip;
 import 'package:tina_app/src/regions/region_registry.dart';
 
 /// The region surface for the main agent: discover regions (`list_regions`),
@@ -58,7 +59,10 @@ class _SilentSink implements AgentSink {
 String? _modelOverride(Map<String, dynamic> input) {
   final provider = (input['llm_provider'] as String?)?.trim();
   final model = (input['llm_model'] as String?)?.trim();
-  return (provider != null && provider.isNotEmpty && model != null && model.isNotEmpty)
+  return (provider != null &&
+          provider.isNotEmpty &&
+          model != null &&
+          model.isNotEmpty)
       ? '$provider/$model'
       : null;
 }
@@ -69,8 +73,8 @@ String _regionSystemPrompt(Region r) {
   final summary = r.summary;
   final staleNote = r.stale
       ? 'STALE: the code has changed since this summary was written (last '
-          'summarized at commit ${r.commit ?? 'unknown'}). Verify anything '
-          'material against the actual code.'
+            'summarized at commit ${r.commit ?? 'unknown'}). Verify anything '
+            'material against the actual code.'
       : 'The summary is current.';
   return '''
 You are the region agent for "${r.dir}" in this repository — you know this area of the codebase and you answer the main agent's questions about it. You work read-only and only within ${r.dir}; you never modify anything.
@@ -102,17 +106,18 @@ class RepoStructureTool implements Tool {
 
   @override
   ToolSchema get schema => const ToolSchema(
-        name: 'repo_structure',
-        description: 'Review the repository\'s folder structure: an indented '
-            'tree of directories (up to 3 levels deep) with file counts, a '
-            '[package] marker where a pubspec.yaml lives, and the total. Use '
-            'this to decide where region agents belong (skip trivial folders, '
-            'merge related ones, split large ones) before calling '
-            'allocate_region.',
-        // Providers require a JSON-Schema object; an empty map would be
-        // rejected on the wire.
-        inputSchema: {'type': 'object', 'properties': {}},
-      );
+    name: 'repo_structure',
+    description:
+        'Review the repository\'s folder structure: an indented '
+        'tree of directories (up to 3 levels deep) with file counts, a '
+        '[package] marker where a pubspec.yaml lives, and the total. Use '
+        'this to decide where region agents belong (skip trivial folders, '
+        'merge related ones, split large ones) before calling '
+        'allocate_region.',
+    // Providers require a JSON-Schema object; an empty map would be
+    // rejected on the wire.
+    inputSchema: {'type': 'object', 'properties': {}},
+  );
 
   @override
   Future<ToolResult> execute(
@@ -144,14 +149,15 @@ class RepoStructureTool implements Tool {
           files++;
           if (f.path.endsWith('.dart')) dart++;
         }
-        final hasPackage =
-            File(p.join(dir.path, 'pubspec.yaml')).existsSync();
+        final hasPackage = File(p.join(dir.path, 'pubspec.yaml')).existsSync();
         totalFiles += files;
         totalDart += dart;
-        buf.writeln('${'  ' * (depth - 1)}$subRel/  '
-            '($files file${files == 1 ? '' : 's'}'
-            '${dart > 0 ? ', $dart dart' : ''})'
-            '${hasPackage ? ' [package]' : ''}');
+        buf.writeln(
+          '${'  ' * (depth - 1)}$subRel/  '
+          '($files file${files == 1 ? '' : 's'}'
+          '${dart > 0 ? ', $dart dart' : ''})'
+          '${hasPackage ? ' [package]' : ''}',
+        );
         walk(subRel, depth + 1);
       }
     }
@@ -160,8 +166,10 @@ class RepoStructureTool implements Tool {
     if (buf.isEmpty) {
       return ToolResult('The repository has no subdirectories to review.');
     }
-    return ToolResult('Repository structure (${totalFiles} files, '
-        '$totalDart dart):\n${buf.toString().trimRight()}');
+    return ToolResult(
+      'Repository structure (${totalFiles} files, '
+      '$totalDart dart):\n${buf.toString().trimRight()}',
+    );
   }
 }
 
@@ -174,20 +182,21 @@ class ListRegionsTool implements Tool {
 
   @override
   ToolSchema get schema => const ToolSchema(
-        name: 'list_regions',
-        description: 'List the region agents of this repository — one per '
-            'summarized directory: the dirs you allocated with '
-            'allocate_region (if any), otherwise the top-level dirs and '
-            'packages/*/lib. Each entry shows '
-            'the directory, whether its summary is stale, its model, and a '
-            'digest of what it covers. Call this first to discover which '
-            'region (if any) owns an area; then query_region for details, or '
-            'broadcast_region when you are not sure which region owns a '
-            'feature. No regions yet? Run /index or allocate_region.',
-        // Providers require a JSON-Schema object; an empty map would be
-        // rejected on the wire.
-        inputSchema: {'type': 'object', 'properties': {}},
-      );
+    name: 'list_regions',
+    description:
+        'List the region agents of this repository — one per '
+        'summarized directory: the dirs you allocated with '
+        'allocate_region (if any), otherwise the top-level dirs and '
+        'packages/*/lib. Each entry shows '
+        'the directory, whether its summary is stale, its model, and a '
+        'digest of what it covers. Call this first to discover which '
+        'region (if any) owns an area; then query_region for details, or '
+        'broadcast_region when you are not sure which region owns a '
+        'feature. No regions yet? Run /index or allocate_region.',
+    // Providers require a JSON-Schema object; an empty map would be
+    // rejected on the wire.
+    inputSchema: {'type': 'object', 'properties': {}},
+  );
 
   @override
   Future<ToolResult> execute(
@@ -197,20 +206,25 @@ class ListRegionsTool implements Tool {
   }) async {
     final regions = _regions.list();
     if (regions.isEmpty) {
-      return ToolResult('No regions in this repository yet. Run `/index` to '
-          'summarize the default directories, or allocate_region to add a '
-          'directory.');
+      return ToolResult(
+        'No regions in this repository yet. Run `/index` to '
+        'summarize the default directories, or allocate_region to add a '
+        'directory.',
+      );
     }
-    final lines = StringBuffer()
-      ..writeln('${regions.length} region(s):');
+    final lines = StringBuffer()..writeln('${regions.length} region(s):');
     for (final r in regions) {
       final digest = r.summarized
           ? r.summary!.replaceAll(RegExp(r'\s+'), ' ').trim()
           : '(no summary yet — run /index)';
-      final clipped = digest.length <= 160 ? digest : '${digest.substring(0, 160)}…';
-      lines.writeln('- ${r.dir}'
-          '${r.stale ? ' [STALE]' : ''}'
-          '${r.model == null ? '' : ' (${r.model})'}');
+      final clipped = digest.length <= 160
+          ? digest
+          : '${digest.substring(0, 160)}…';
+      lines.writeln(
+        '- ${r.dir}'
+        '${r.stale ? ' [STALE]' : ''}'
+        '${r.model == null ? '' : ' (${r.model})'}',
+      );
       lines.writeln('    $clipped');
     }
     return ToolResult(lines.toString());
@@ -225,23 +239,24 @@ class ReadSummaryTool implements Tool {
 
   @override
   ToolSchema get schema => const ToolSchema(
-        name: 'read_summary',
-        description: 'Read the full summary of one region — what exists and '
-            'what is implemented in its directory. Pass the region directory '
-            'as `region` (from list_regions). Use before query_region when you '
-            'need the region\'s current knowledge without dispatching an '
-            'agent.',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'region': {
-              'type': 'string',
-              'description': 'The region directory (e.g. "lib").',
-            },
-          },
-          'required': ['region'],
+    name: 'read_summary',
+    description:
+        'Read the full summary of one region — what exists and '
+        'what is implemented in its directory. Pass the region directory '
+        'as `region` (from list_regions). Use before query_region when you '
+        'need the region\'s current knowledge without dispatching an '
+        'agent.',
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'region': {
+          'type': 'string',
+          'description': 'The region directory (e.g. "lib").',
         },
-      );
+      },
+      'required': ['region'],
+    },
+  );
 
   @override
   Future<ToolResult> execute(
@@ -252,25 +267,35 @@ class ReadSummaryTool implements Tool {
     final dir = (input['region'] as String?)?.trim() ?? '';
     final region = _regions.find(dir);
     if (region == null) {
-      return ToolResult.error('No region "$dir". Available: '
-          '${_regions.list().map((r) => r.dir).join(', ')}.');
+      return ToolResult.error(
+        'No region "$dir". Available: '
+        '${_regions.list().map((r) => r.dir).join(', ')}.',
+      );
     }
     if (!region.summarized) {
-      return ToolResult('Region "$dir" has no summary yet — run `/index` or '
-          'query_region to have the agent explore it.');
+      return ToolResult(
+        'Region "$dir" has no summary yet — run `/index` or '
+        'query_region to have the agent explore it.',
+      );
     }
-    return ToolResult('--- summary of $dir ---\n'
-        '${region.summary}\n'
-        '---\n'
-        '${region.stale ? 'STALE — the code changed since commit ${region.commit ?? '?'}.' : 'Current as of ${region.commit ?? '?'}.'}');
+    return ToolResult(
+      '--- summary of $dir ---\n'
+      '${region.summary}\n'
+      '---\n'
+      '${region.stale ? 'STALE — the code changed since commit ${region.commit ?? '?'}.' : 'Current as of ${region.commit ?? '?'}.'}',
+    );
   }
 }
 
 /// `query_region` — dispatch one fast, read-only agent to a region and get
 /// its report.
 class QueryRegionTool implements Tool {
-  QueryRegionTool(this._regions, this._scheduler,
-      {required this.parentReference, this.originConversationId = ''});
+  QueryRegionTool(
+    this._regions,
+    this._scheduler, {
+    required this.parentReference,
+    this.originConversationId = '',
+  });
 
   final RegionRegistry _regions;
   final SubAgentScheduler _scheduler;
@@ -286,31 +311,32 @@ class QueryRegionTool implements Tool {
 
   @override
   ToolSchema get schema => const ToolSchema(
-        name: 'query_region',
-        description: 'Ask one region agent a question about its directory. '
-            'The agent is fast, read-only, scoped to its region, and primed '
-            'with the region\'s summary. Pass the region directory as '
-            '`region` (from list_regions) and the question as `task`. Use '
-            'this instead of blanket searches when the question is about one '
-            'area. Optionally pass llm_provider + llm_model to override the '
-            'model for this query.',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'region': {
-              'type': 'string',
-              'description': 'The region directory (e.g. "lib").',
-            },
-            'task': {
-              'type': 'string',
-              'description': 'The question or task for the region agent.',
-            },
-            'llm_provider': {'type': 'string'},
-            'llm_model': {'type': 'string'},
-          },
-          'required': ['region', 'task'],
+    name: 'query_region',
+    description:
+        'Ask one region agent a question about its directory. '
+        'The agent is fast, read-only, scoped to its region, and primed '
+        'with the region\'s summary. Pass the region directory as '
+        '`region` (from list_regions) and the question as `task`. Use '
+        'this instead of blanket searches when the question is about one '
+        'area. Optionally pass llm_provider + llm_model to override the '
+        'model for this query.',
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'region': {
+          'type': 'string',
+          'description': 'The region directory (e.g. "lib").',
         },
-      );
+        'task': {
+          'type': 'string',
+          'description': 'The question or task for the region agent.',
+        },
+        'llm_provider': {'type': 'string'},
+        'llm_model': {'type': 'string'},
+      },
+      'required': ['region', 'task'],
+    },
+  );
 
   @override
   Future<ToolResult> execute(
@@ -323,8 +349,10 @@ class QueryRegionTool implements Tool {
     if (task.isEmpty) return ToolResult.error('query_region needs a `task`.');
     final region = _regions.find(dir);
     if (region == null) {
-      return ToolResult.error('No region "$dir". Available: '
-          '${_regions.list().map((r) => r.dir).join(', ')}.');
+      return ToolResult.error(
+        'No region "$dir". Available: '
+        '${_regions.list().map((r) => r.dir).join(', ')}.',
+      );
     }
     return _runRegionQuery(region, task, cancelSignal, input);
   }
@@ -348,8 +376,10 @@ class QueryRegionTool implements Tool {
       includeDelegate: false,
     );
     if (result.isError) {
-      return ToolResult.error('region agent for ${region.dir} failed: '
-          '${result.text}');
+      return ToolResult.error(
+        'region agent for ${region.dir} failed: '
+        '${result.text}',
+      );
     }
     return ToolResult(result.text);
   }
@@ -358,8 +388,12 @@ class QueryRegionTool implements Tool {
 /// `broadcast_region` — the "which of you owns this?" fan-out: every region
 /// agent answers, the main agent synthesizes.
 class BroadcastRegionTool implements Tool {
-  BroadcastRegionTool(this._regions, this._scheduler,
-      {required this.parentReference, this.originConversationId = ''});
+  BroadcastRegionTool(
+    this._regions,
+    this._scheduler, {
+    required this.parentReference,
+    this.originConversationId = '',
+  });
 
   final RegionRegistry _regions;
   final SubAgentScheduler _scheduler;
@@ -373,26 +407,27 @@ class BroadcastRegionTool implements Tool {
 
   @override
   ToolSchema get schema => const ToolSchema(
-        name: 'broadcast_region',
-        description: 'Ask EVERY region agent the same question (the "which of '
-            'you owns this feature?" fan-out). Use when you are not sure which '
-            'region covers an area, or when a feature spans several. Each '
-            'region answers briefly; you synthesize. Cost: one fast agent run '
-            'per region. Optionally pass llm_provider + llm_model to override '
-            'the model for this broadcast.',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'task': {
-              'type': 'string',
-              'description': 'The question to ask every region agent.',
-            },
-            'llm_provider': {'type': 'string'},
-            'llm_model': {'type': 'string'},
-          },
-          'required': ['task'],
+    name: 'broadcast_region',
+    description:
+        'Ask EVERY region agent the same question (the "which of '
+        'you owns this feature?" fan-out). Use when you are not sure which '
+        'region covers an area, or when a feature spans several. Each '
+        'region answers briefly; you synthesize. Cost: one fast agent run '
+        'per region. Optionally pass llm_provider + llm_model to override '
+        'the model for this broadcast.',
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'task': {
+          'type': 'string',
+          'description': 'The question to ask every region agent.',
         },
-      );
+        'llm_provider': {'type': 'string'},
+        'llm_model': {'type': 'string'},
+      },
+      'required': ['task'],
+    },
+  );
 
   @override
   Future<ToolResult> execute(
@@ -401,32 +436,38 @@ class BroadcastRegionTool implements Tool {
     ToolOutputCallback? onOutput,
   }) async {
     final task = (input['task'] as String?)?.trim() ?? '';
-    if (task.isEmpty) return ToolResult.error('broadcast_region needs a `task`.');
+    if (task.isEmpty)
+      return ToolResult.error('broadcast_region needs a `task`.');
     final regions = _regions.list();
     if (regions.isEmpty) {
-      return ToolResult('No regions in this repository yet. Run `/index` or '
-          'allocate_region first.');
+      return ToolResult(
+        'No regions in this repository yet. Run `/index` or '
+        'allocate_region first.',
+      );
     }
     if (regions.length > kMaxRegions) {
-      return ToolResult.error('Too many regions (${regions.length}); '
-          'broadcast_region supports at most $kMaxRegions. Query them '
-          'individually.');
-    }
-    final results = await Future.wait(regions.map((r) async {
-      final out = await _scheduler.runStandalone(
-        systemPrompt: _regionSystemPrompt(r),
-        task: task,
-        parentReference: parentReference,
-        originConversationId: originConversationId,
-        modelReference:
-            _modelOverride(input) ?? _regions.modelFor(r.dir),
-        cancelSignal: cancelSignal,
-        sink: _SilentSink(),
-        toolProfile: ToolProfile.readOnly,
-        includeDelegate: false,
+      return ToolResult.error(
+        'Too many regions (${regions.length}); '
+        'broadcast_region supports at most $kMaxRegions. Query them '
+        'individually.',
       );
-      return (dir: r.dir, out: out);
-    }));
+    }
+    final results = await Future.wait(
+      regions.map((r) async {
+        final out = await _scheduler.runStandalone(
+          systemPrompt: _regionSystemPrompt(r),
+          task: task,
+          parentReference: parentReference,
+          originConversationId: originConversationId,
+          modelReference: _modelOverride(input) ?? _regions.modelFor(r.dir),
+          cancelSignal: cancelSignal,
+          sink: _SilentSink(),
+          toolProfile: ToolProfile.readOnly,
+          includeDelegate: false,
+        );
+        return (dir: r.dir, out: out);
+      }),
+    );
     final buf = StringBuffer();
     for (final r in results) {
       buf.writeln('### ${r.dir}');
@@ -447,28 +488,29 @@ class AllocateRegionTool implements Tool {
 
   @override
   ToolSchema get schema => const ToolSchema(
-        name: 'allocate_region',
-        description: 'Give a directory its own region agent: it gets a '
-            'persistent summary and can be queried with query_region. Pass '
-            'the repo-relative directory as `dir` (any nesting is fine). '
-            'Optionally pass llm_provider + llm_model to give this region a '
-            'dedicated fast model; otherwise it inherits the [regions] config '
-            'default, then the main model. The summary is generated when '
-            '`/index` runs — allocate several regions to design a layout, '
-            'then run /index to approve and summarize.',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'dir': {
-              'type': 'string',
-              'description': 'Repo-relative directory, e.g. "packages/foo/lib".',
-            },
-            'llm_provider': {'type': 'string'},
-            'llm_model': {'type': 'string'},
-          },
-          'required': ['dir'],
+    name: 'allocate_region',
+    description:
+        'Give a directory its own region agent: it gets a '
+        'persistent summary and can be queried with query_region. Pass '
+        'the repo-relative directory as `dir` (any nesting is fine). '
+        'Optionally pass llm_provider + llm_model to give this region a '
+        'dedicated fast model; otherwise it inherits the [regions] config '
+        'default, then the main model. The summary is generated when '
+        '`/index` runs — allocate several regions to design a layout, '
+        'then run /index to approve and summarize.',
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'dir': {
+          'type': 'string',
+          'description': 'Repo-relative directory, e.g. "packages/foo/lib".',
         },
-      );
+        'llm_provider': {'type': 'string'},
+        'llm_model': {'type': 'string'},
+      },
+      'required': ['dir'],
+    },
+  );
 
   @override
   Future<ToolResult> execute(
@@ -481,11 +523,13 @@ class AllocateRegionTool implements Tool {
     if (!_regions.allocate(dir, model: _modelOverride(input))) {
       return ToolResult.error('No such directory in this repo: "$dir".');
     }
-    return ToolResult('Allocated a region agent for "$dir"'
-        '${_modelOverride(input) == null ? '' : ' (${_modelOverride(input)})'}. '
-        'Its summary is generated when `/index` runs (which approves the '
-        'layout); you can also read_summary or query_region it right away — '
-        'it will explore on its own.');
+    return ToolResult(
+      'Allocated a region agent for "$dir"'
+      '${_modelOverride(input) == null ? '' : ' (${_modelOverride(input)})'}. '
+      'Its summary is generated when `/index` runs (which approves the '
+      'layout); you can also read_summary or query_region it right away — '
+      'it will explore on its own.',
+    );
   }
 }
 
@@ -498,21 +542,22 @@ class ForgetRegionTool implements Tool {
 
   @override
   ToolSchema get schema => const ToolSchema(
-        name: 'forget_region',
-        description: 'Remove a region agent for a directory. The directory '
-            'stops being summarized (its summary file is cleaned up on the '
-            'next /index run). Pass the region directory as `dir`.',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'dir': {
-              'type': 'string',
-              'description': 'The region directory (e.g. "lib").',
-            },
-          },
-          'required': ['dir'],
+    name: 'forget_region',
+    description:
+        'Remove a region agent for a directory. The directory '
+        'stops being summarized (its summary file is cleaned up on the '
+        'next /index run). Pass the region directory as `dir`.',
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'dir': {
+          'type': 'string',
+          'description': 'The region directory (e.g. "lib").',
         },
-      );
+      },
+      'required': ['dir'],
+    },
+  );
 
   @override
   Future<ToolResult> execute(
@@ -523,11 +568,15 @@ class ForgetRegionTool implements Tool {
     final dir = (input['dir'] as String?)?.trim() ?? '';
     final region = _regions.find(dir);
     if (region == null) {
-      return ToolResult.error('No region "$dir". Available: '
-          '${_regions.list().map((r) => r.dir).join(', ')}.');
+      return ToolResult.error(
+        'No region "$dir". Available: '
+        '${_regions.list().map((r) => r.dir).join(', ')}.',
+      );
     }
     _regions.forget(dir);
-    return ToolResult('Forgot region "$dir". Its summary will be cleaned up '
-        'on the next `/index` run.');
+    return ToolResult(
+      'Forgot region "$dir". Its summary will be cleaned up '
+      'on the next `/index` run.',
+    );
   }
 }

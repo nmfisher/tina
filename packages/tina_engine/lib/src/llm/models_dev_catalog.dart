@@ -61,8 +61,9 @@ class ModelsDevCatalog implements ModelCatalog {
   bool get isLoaded => _loaded;
 
   @override
-  String? get loadWarning =>
-      _loaded && _loadError != null ? 'Model catalog unavailable ($_loadError)' : null;
+  String? get loadWarning => _loaded && _loadError != null
+      ? 'Model catalog unavailable ($_loadError)'
+      : null;
 
   /// Fetch + parse + cache. Idempotent: a re-call after success is a
   /// no-op. Failures (network, parse, IO) are logged at FINE and the
@@ -81,8 +82,7 @@ class ModelsDevCatalog implements ModelCatalog {
   }
 
   File _cacheFile() {
-    final dir = Directory(
-        p.join(tinaDirFromEnv(_env).path, 'cache'));
+    final dir = Directory(p.join(tinaDirFromEnv(_env).path, 'cache'));
     return File(p.join(dir.path, 'models.dev.json'));
   }
 
@@ -109,9 +109,8 @@ class ModelsDevCatalog implements ModelCatalog {
 
   Future<Map<String, dynamic>?> _fetch() async {
     try {
-      final resp = await _client
-          .get(Uri.parse(_endpoint))
-          .timeout(_fetchTimeout);
+      final resp =
+          await _client.get(Uri.parse(_endpoint)).timeout(_fetchTimeout);
       if (resp.statusCode != 200) {
         _loadError = 'HTTP ${resp.statusCode}';
         _log.fine('models.dev fetch returned ${resp.statusCode}');
@@ -120,8 +119,8 @@ class ModelsDevCatalog implements ModelCatalog {
       return jsonDecode(resp.body) as Map<String, dynamic>;
     } catch (e) {
       _loadError = '$e';
-      _log.fine('models.dev fetch failed; compiled maps remain authoritative',
-          e);
+      _log.fine(
+          'models.dev fetch failed; compiled maps remain authoritative', e);
       return null;
     }
   }

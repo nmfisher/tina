@@ -99,7 +99,8 @@ Future<int> main(List<String> argv) async {
   final out = args['out'] as String?;
 
   if (!_workloads.contains(workload)) {
-    stderr.writeln('Unknown workload: $workload. Choose: ${_workloads.join(', ')}');
+    stderr.writeln(
+        'Unknown workload: $workload. Choose: ${_workloads.join(', ')}');
     return 2;
   }
 
@@ -232,7 +233,8 @@ Future<void> _feedPaste(_RecordingStdio io, LineEditor editor, int n) async {
   await _flush();
 }
 
-Future<void> _feedWrapNoScroll(_RecordingStdio io, LineEditor editor, int n) async {
+Future<void> _feedWrapNoScroll(
+    _RecordingStdio io, LineEditor editor, int n) async {
   // Type enough chars to wrap a line but not fill the height (no scroll).
   editor.readLine('> ');
   for (var i = 0; i < n; i++) {
@@ -361,7 +363,8 @@ Future<void> _feedStyledProgress(
   }
 }
 
-Future<void> _feedFocusCycle(_RecordingStdio io, LineEditor editor, int n) async {
+Future<void> _feedFocusCycle(
+    _RecordingStdio io, LineEditor editor, int n) async {
   editor.readLine('> ');
   for (var i = 0; i < n; i++) {
     io.feedBytes([0x1b, 0x5b, 0x44]); // ESC [ D  (left arrow)

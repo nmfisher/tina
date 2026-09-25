@@ -1,4 +1,3 @@
-
 import 'dart:io';
 
 import 'package:test/test.dart';
@@ -32,74 +31,78 @@ ProviderRegistry _registryWithUsageProvider() {
 
 /// A plugin descriptor with NO provides and NO requires — the minimal
 /// stand-in for an incomplete profile.
-PluginDescriptor _barePlugin(String id) => PluginDescriptor(
-      id: id,
-      factory: FnPluginFactory((context) => Object()),
-    );
+PluginDescriptor _barePlugin(String id) =>
+    PluginDescriptor(id: id, factory: FnPluginFactory((context) => Object()));
 
 void main() {
-  test('provider factory plugin activates after the spend ledger plugin',
-      () async {
-    final runtime = PluginRuntime(
-      name: 'execution-test',
-      plugins: [
-        spendLedgerPlugin(RuntimeConfig()),
-        providerFactoryPlugin(
-          RuntimeConfig(),
-          ProviderRegistry(env: const {}),
-          PauseGate(),
-        ),
-      ],
-    );
-    await runtime.activate();
-    addTearDown(runtime.dispose);
+  test(
+    'provider factory plugin activates after the spend ledger plugin',
+    () async {
+      final runtime = PluginRuntime(
+        name: 'execution-test',
+        plugins: [
+          spendLedgerPlugin(RuntimeConfig()),
+          providerFactoryPlugin(
+            RuntimeConfig(),
+            ProviderRegistry(env: const {}),
+            PauseGate(),
+          ),
+        ],
+      );
+      await runtime.activate();
+      addTearDown(runtime.dispose);
 
-    expect(runtime.activationOrder, [_ledgerPluginId, _factoryPluginId]);
-    expect(runtime.scope.lookup(spendLedgerServiceKey), isA<SpendLedger>());
-    expect(
-      runtime.scope.lookup(providerFactoryServiceKey),
-      isA<RuntimeProviderFactory>(),
-    );
-  });
+      expect(runtime.activationOrder, [_ledgerPluginId, _factoryPluginId]);
+      expect(runtime.scope.lookup(spendLedgerServiceKey), isA<SpendLedger>());
+      expect(
+        runtime.scope.lookup(providerFactoryServiceKey),
+        isA<RuntimeProviderFactory>(),
+      );
+    },
+  );
 
-  test('a provider built from the runtime factory is metered into the ledger',
-      () async {
-    final registry = _registryWithUsageProvider();
-    final runtime = await buildExecutionRuntime(
-      config: RuntimeConfig(provider: 'test', model: 'a'),
-      registry: registry,
-      environment: FakeEnvironment(),
-    );
-    addTearDown(runtime.dispose);
+  test(
+    'a provider built from the runtime factory is metered into the ledger',
+    () async {
+      final registry = _registryWithUsageProvider();
+      final runtime = await buildExecutionRuntime(
+        config: RuntimeConfig(provider: 'test', model: 'a'),
+        registry: registry,
+        environment: FakeEnvironment(),
+      );
+      addTearDown(runtime.dispose);
 
-    final provider = runtime.buildStartupProvider();
-    try {
-      await provider.send(system: '', messages: [], tools: []).drain<void>();
-    } finally {
-      provider.close();
-    }
-    // 7 input + 3 output tokens from the fake MessageComplete.
-    expect(runtime.spendLedger.totalTokens, 10);
-  });
+      final provider = runtime.buildStartupProvider();
+      try {
+        await provider.send(system: '', messages: [], tools: []).drain<void>();
+      } finally {
+        provider.close();
+      }
+      // 7 input + 3 output tokens from the fake MessageComplete.
+      expect(runtime.spendLedger.totalTokens, 10);
+    },
+  );
 
-  test('the default runtime mounts no provider decorator contributions',
-      () async {
-    final registry = _registryWithUsageProvider();
-    final runtime = await buildExecutionRuntime(
-      config: RuntimeConfig(provider: 'test', model: 'a'),
-      registry: registry,
-      environment: FakeEnvironment(),
-    );
-    addTearDown(runtime.dispose);
+  test(
+    'the default runtime mounts no provider decorator contributions',
+    () async {
+      final registry = _registryWithUsageProvider();
+      final runtime = await buildExecutionRuntime(
+        config: RuntimeConfig(provider: 'test', model: 'a'),
+        registry: registry,
+        environment: FakeEnvironment(),
+      );
+      addTearDown(runtime.dispose);
 
-    // No decorator plugin mounted (the default): the scope carries no
-    // decorator contributions, so the factory's policy stack is metering
-    // only — the pre-plugin composition.
-    expect(providerDecoratorsFromScope(runtime.pluginScope), isEmpty);
-    final skills = runtime.pluginScope.lookup(skillsServiceKey);
-    expect(skills, isNotNull);
-    expect((await skills!.list()).skills, isEmpty);
-  });
+      // No decorator plugin mounted (the default): the scope carries no
+      // decorator contributions, so the factory's policy stack is metering
+      // only — the pre-plugin composition.
+      expect(providerDecoratorsFromScope(runtime.pluginScope), isEmpty);
+      final skills = runtime.pluginScope.lookup(skillsServiceKey);
+      expect(skills, isNotNull);
+      expect((await skills!.list()).skills, isEmpty);
+    },
+  );
 
   test('a decorator contribution runs around the metered provider and '
       'metering still records every send', () async {
@@ -172,9 +175,9 @@ void main() {
     await runtime.activate();
     addTearDown(runtime.dispose);
 
-    final provider = runtime.scope.lookup(providerFactoryServiceKey)!.build(
-          'test/a',
-        );
+    final provider = runtime.scope
+        .lookup(providerFactoryServiceKey)!
+        .build('test/a');
     provider.close();
 
     expect(wrapped, hasLength(2));
@@ -197,10 +200,7 @@ void main() {
     );
 
     await runtime.dispose();
-    expect(
-      () => runtime.buildStartupProvider(),
-      throwsA(isA<StateError>()),
-    );
+    expect(() => runtime.buildStartupProvider(), throwsA(isA<StateError>()));
     // Second dispose returns the memoized teardown future — no throw.
     await runtime.dispose();
   });
@@ -231,47 +231,47 @@ void main() {
     expect(runtime.spendLedger, isA<SpendLedger>());
   });
 
-  test('runtimes for different project roots own independent tool scopes',
-      () async {
-    final rootA = await Directory.systemTemp.createTemp('tina_rt_a_');
-    final rootB = await Directory.systemTemp.createTemp('tina_rt_b_');
-    addTearDown(() async {
-      await rootA.delete(recursive: true);
-      await rootB.delete(recursive: true);
-    });
-    final registry = _registryWithUsageProvider();
-    final runtimeA = await buildExecutionRuntime(
-      config: RuntimeConfig(provider: 'test', model: 'a'),
-      registry: registry,
-      environment: FakeEnvironment(),
-      workspaceRoot: rootA.path,
-    );
-    addTearDown(runtimeA.dispose);
-    final runtimeB = await buildExecutionRuntime(
-      config: RuntimeConfig(provider: 'test', model: 'a'),
-      registry: registry,
-      environment: FakeEnvironment(),
-      workspaceRoot: rootB.path,
-    );
-    addTearDown(runtimeB.dispose);
+  test(
+    'runtimes for different project roots own independent tool scopes',
+    () async {
+      final rootA = await Directory.systemTemp.createTemp('tina_rt_a_');
+      final rootB = await Directory.systemTemp.createTemp('tina_rt_b_');
+      addTearDown(() async {
+        await rootA.delete(recursive: true);
+        await rootB.delete(recursive: true);
+      });
+      final registry = _registryWithUsageProvider();
+      final runtimeA = await buildExecutionRuntime(
+        config: RuntimeConfig(provider: 'test', model: 'a'),
+        registry: registry,
+        environment: FakeEnvironment(),
+        workspaceRoot: rootA.path,
+      );
+      addTearDown(runtimeA.dispose);
+      final runtimeB = await buildExecutionRuntime(
+        config: RuntimeConfig(provider: 'test', model: 'a'),
+        registry: registry,
+        environment: FakeEnvironment(),
+        workspaceRoot: rootB.path,
+      );
+      addTearDown(runtimeB.dispose);
 
-    final scopeA = runtimeA.pipeline.tools;
-    final scopeB = runtimeB.pipeline.tools;
-    // Each runtime's plugins built their own scope — different roots, so the
-    // write locks (and every tool instance) must be independent objects.
-    expect(scopeA.workspaceRoot, rootA.path);
-    expect(scopeB.workspaceRoot, rootB.path);
-    expect(identical(scopeA, scopeB), isFalse);
-    expect(identical(scopeA.mutationLock, scopeB.mutationLock), isFalse);
-    Tool bashA(ToolRegistry r) => r.all.firstWhere((t) => t.schema.name == 'bash');
-    expect(
-      identical(
-        bashA(scopeA.buildTools()),
-        bashA(scopeB.buildTools()),
-      ),
-      isFalse,
-    );
-  });
+      final scopeA = runtimeA.pipeline.tools;
+      final scopeB = runtimeB.pipeline.tools;
+      // Each runtime's plugins built their own scope — different roots, so the
+      // write locks (and every tool instance) must be independent objects.
+      expect(scopeA.workspaceRoot, rootA.path);
+      expect(scopeB.workspaceRoot, rootB.path);
+      expect(identical(scopeA, scopeB), isFalse);
+      expect(identical(scopeA.mutationLock, scopeB.mutationLock), isFalse);
+      Tool bashA(ToolRegistry r) =>
+          r.all.firstWhere((t) => t.schema.name == 'bash');
+      expect(
+        identical(bashA(scopeA.buildTools()), bashA(scopeB.buildTools())),
+        isFalse,
+      );
+    },
+  );
 
   test('an explicitly borrowed toolScope is exposed as-is, with no own '
       'capabilities built', () async {
@@ -297,118 +297,134 @@ void main() {
     // The borrowed tool scope resolves through the borrowed parent scope —
     // still the lender's object, exposed to this runtime's plugins but never
     // rebuilt or owned here.
-    expect(runtime.pluginScope.lookup(workspaceToolScopeServiceKey),
-        same(borrowed));
-  });
-
-  test('the tool catalog includes execution and diagnostics (search tools need keys)',
-      () async {
-    final root = await Directory.systemTemp.createTemp('tina_rt_catalog_');
-    addTearDown(() async => await root.delete(recursive: true));
-    final registry = _registryWithUsageProvider();
-    final runtime = await buildExecutionRuntime(
-      config: RuntimeConfig(provider: 'test', model: 'a'),
-      registry: registry,
-      environment: FakeEnvironment(),
-      workspaceRoot: root.path,
-    );
-    addTearDown(runtime.dispose);
-
     expect(
-      runtime.pipeline.tools.buildTools().all.map((t) => t.schema.name),
-      [
-        'read',
-        'write',
-        'edit',
-        'fetch',
-        'bash',
-        'exec',
-        'execution_info',
-        'search',
-        'grep',
-        'glob',
-        'ls',
-        'stat',
-        'which',
-        'git',
-      ],
-    );
-  });
-
-  test('a borrowed tool scope satisfies an extension that requires '
-      'workspaceToolScopeServiceKey, without being disposed by the borrower',
-      () async {
-    final root = await Directory.systemTemp.createTemp('tina_rt_borrow_req_');
-    addTearDown(() async => await root.delete(recursive: true));
-    var borrowedDisposals = 0;
-    final borrowed = WorkspaceToolScope(
-      workspaceRoot: root.path,
-      env: const {},
-    );
-    // The borrowed scope's runtime owns the tool-scope service: validation
-    // resolves the extension's requires edge through it, and nothing here
-    // ever disposes the borrowed runtime.
-    final ownerScope = borrowed.runtime.scope;
-    // A resource the LENDER registered on its own scope. The borrower must
-    // never release it: if it did, the lender's later teardown would dispose
-    // the same resource twice.
-    ownerScope.resources.own(() => borrowedDisposals++);
-
-    final runtime = await buildExecutionRuntime(
-      config: RuntimeConfig(provider: 'test', model: 'a'),
-      registry: _registryWithUsageProvider(),
-      environment: FakeEnvironment(),
-      toolScope: borrowed,
-      executionPlugins: [
-        ...borrowedScopePlugins(
-          defaultExecutionPlugins(
-            config: RuntimeConfig(provider: 'test', model: 'a'),
-            registry: _registryWithUsageProvider(),
-            providerDecorators: const [],
-            workspaceRoot: root.path,
-            environment: FakeEnvironment(),
-            sandboxEnabled: false,
-            sandboxNet: false,
-            sandboxReadOnly: false,
-          ),
-        ),
-        // A conversation extension that needs the borrowed tool scope.
-        PluginDescriptor(
-          id: 'extension.needs-tool-scope',
-          requires: {workspaceToolScopeServiceKey},
-          provides: [_extensionToolScopeWitnessServiceKey],
-          factory: FnPluginFactory((context) {
-            final tools = context.require(workspaceToolScopeServiceKey);
-            expect(identical(tools, borrowed), isTrue);
-            return tools;
-          }),
-        ),
-      ],
-    );
-    addTearDown(runtime.dispose);
-
-    // Dependency validation succeeded (activation reached the extension and
-    // the built runtime resolves the borrowed scope through the parent).
-    expect(
-      runtime.pluginScope.lookup(_extensionToolScopeWitnessServiceKey),
+      runtime.pluginScope.lookup(workspaceToolScopeServiceKey),
       same(borrowed),
     );
-    expect(identical(runtime.pipeline.tools, borrowed), isTrue);
-
-    // Borrowing must not transfer ownership: the borrowed resource stays
-    // open while the borrower runs, and disposing the borrowing runtime
-    // releases nothing of the lender's.
-    expect(ownerScope.resources.isClosing, isFalse);
-    await runtime.dispose();
-
-    expect(ownerScope.state, ScopeLifecycleState.active,
-        reason: 'the borrowed scope is never stopped by the borrower');
-    expect(ownerScope.resources.isClosing, isFalse,
-        reason: 'borrowing must not take over the resource');
-    expect(borrowedDisposals, 0,
-        reason: 'the borrowed resource must not be disposed a second time '
-            'when the borrowing scope ends');
   });
+
+  test(
+    'the tool catalog includes execution and diagnostics (search tools need keys)',
+    () async {
+      final root = await Directory.systemTemp.createTemp('tina_rt_catalog_');
+      addTearDown(() async => await root.delete(recursive: true));
+      final registry = _registryWithUsageProvider();
+      final runtime = await buildExecutionRuntime(
+        config: RuntimeConfig(provider: 'test', model: 'a'),
+        registry: registry,
+        environment: FakeEnvironment(),
+        workspaceRoot: root.path,
+      );
+      addTearDown(runtime.dispose);
+
+      expect(
+        runtime.pipeline.tools.buildTools().all.map((t) => t.schema.name),
+        [
+          'read',
+          'write',
+          'edit',
+          'fetch',
+          'bash',
+          'exec',
+          'execution_info',
+          'search',
+          'grep',
+          'glob',
+          'ls',
+          'stat',
+          'which',
+          'git',
+        ],
+      );
+    },
+  );
+
+  test(
+    'a borrowed tool scope satisfies an extension that requires '
+    'workspaceToolScopeServiceKey, without being disposed by the borrower',
+    () async {
+      final root = await Directory.systemTemp.createTemp('tina_rt_borrow_req_');
+      addTearDown(() async => await root.delete(recursive: true));
+      var borrowedDisposals = 0;
+      final borrowed = WorkspaceToolScope(
+        workspaceRoot: root.path,
+        env: const {},
+      );
+      // The borrowed scope's runtime owns the tool-scope service: validation
+      // resolves the extension's requires edge through it, and nothing here
+      // ever disposes the borrowed runtime.
+      final ownerScope = borrowed.runtime.scope;
+      // A resource the LENDER registered on its own scope. The borrower must
+      // never release it: if it did, the lender's later teardown would dispose
+      // the same resource twice.
+      ownerScope.resources.own(() => borrowedDisposals++);
+
+      final runtime = await buildExecutionRuntime(
+        config: RuntimeConfig(provider: 'test', model: 'a'),
+        registry: _registryWithUsageProvider(),
+        environment: FakeEnvironment(),
+        toolScope: borrowed,
+        executionPlugins: [
+          ...borrowedScopePlugins(
+            defaultExecutionPlugins(
+              config: RuntimeConfig(provider: 'test', model: 'a'),
+              registry: _registryWithUsageProvider(),
+              providerDecorators: const [],
+              workspaceRoot: root.path,
+              environment: FakeEnvironment(),
+              sandboxEnabled: false,
+              sandboxNet: false,
+              sandboxReadOnly: false,
+            ),
+          ),
+          // A conversation extension that needs the borrowed tool scope.
+          PluginDescriptor(
+            id: 'extension.needs-tool-scope',
+            requires: {workspaceToolScopeServiceKey},
+            provides: [_extensionToolScopeWitnessServiceKey],
+            factory: FnPluginFactory((context) {
+              final tools = context.require(workspaceToolScopeServiceKey);
+              expect(identical(tools, borrowed), isTrue);
+              return tools;
+            }),
+          ),
+        ],
+      );
+      addTearDown(runtime.dispose);
+
+      // Dependency validation succeeded (activation reached the extension and
+      // the built runtime resolves the borrowed scope through the parent).
+      expect(
+        runtime.pluginScope.lookup(_extensionToolScopeWitnessServiceKey),
+        same(borrowed),
+      );
+      expect(identical(runtime.pipeline.tools, borrowed), isTrue);
+
+      // Borrowing must not transfer ownership: the borrowed resource stays
+      // open while the borrower runs, and disposing the borrowing runtime
+      // releases nothing of the lender's.
+      expect(ownerScope.resources.isClosing, isFalse);
+      await runtime.dispose();
+
+      expect(
+        ownerScope.state,
+        ScopeLifecycleState.active,
+        reason: 'the borrowed scope is never stopped by the borrower',
+      );
+      expect(
+        ownerScope.resources.isClosing,
+        isFalse,
+        reason: 'borrowing must not take over the resource',
+      );
+      expect(
+        borrowedDisposals,
+        0,
+        reason:
+            'the borrowed resource must not be disposed a second time '
+            'when the borrowing scope ends',
+      );
+    },
+  );
 
   test('an incomplete profile fails BEFORE any factory runs, with a '
       'composition error naming the missing service', () async {
@@ -447,9 +463,13 @@ void main() {
       contains('tina.app.spend-ledger'),
       reason: 'the error names the missing required service',
     );
-    expect(factoriesRan, 0,
-        reason: 'validation happens before activation — no factory side '
-            'effects precede the composition error');
+    expect(
+      factoriesRan,
+      0,
+      reason:
+          'validation happens before activation — no factory side '
+          'effects precede the composition error',
+    );
   });
 
   test('a profile missing the tool-scope plugin leaves no acquired resource '
@@ -496,8 +516,11 @@ void main() {
       failure = error;
     }
 
-    expect(failure, isA<PluginCompositionError>(),
-        reason: 'the missing tool scope is a composition error');
+    expect(
+      failure,
+      isA<PluginCompositionError>(),
+      reason: 'the missing tool scope is a composition error',
+    );
     expect(
       failure.toString(),
       contains('project tool scope'),
@@ -507,12 +530,20 @@ void main() {
     // runs BEFORE activation, so the acquirer never even runs (and if any
     // stage were ever to acquire before this validation, the teardown armed
     // up front would still release it).
-    expect(resourcesAcquired - disposals, 0,
-        reason: 'every acquired resource must be released when composition '
-            'fails — zero may remain acquired');
-    expect(disposals, 0,
-        reason: 'with the fix the composition fails before activation, so '
-            'the witness acquirer is never reached at all');
+    expect(
+      resourcesAcquired - disposals,
+      0,
+      reason:
+          'every acquired resource must be released when composition '
+          'fails — zero may remain acquired',
+    );
+    expect(
+      disposals,
+      0,
+      reason:
+          'with the fix the composition fails before activation, so '
+          'the witness acquirer is never reached at all',
+    );
   });
 }
 

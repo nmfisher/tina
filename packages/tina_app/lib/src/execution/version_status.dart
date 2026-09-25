@@ -33,31 +33,31 @@ class VersionSnapshot {
   final String? previousTag;
 
   const VersionSnapshot.checking()
-      : phase = VersionPhase.checking,
-        tag = null,
-        why = null,
-        previousTag = null,
-        until = null;
+    : phase = VersionPhase.checking,
+      tag = null,
+      why = null,
+      previousTag = null,
+      until = null;
   const VersionSnapshot.updateAvailable(this.tag)
-      : phase = VersionPhase.updateAvailable,
-        why = null,
-        previousTag = null,
-        until = null,
-        assert(tag != null);
+    : phase = VersionPhase.updateAvailable,
+      why = null,
+      previousTag = null,
+      until = null,
+      assert(tag != null);
 
   /// [why] is a short human phrase, e.g. `HTTP 403 (likely rate-limited)` or
   /// `Connection refused`.
   const VersionSnapshot.miss(this.why, {this.previousTag})
-      : phase = VersionPhase.miss,
-        tag = null,
-        until = null;
+    : phase = VersionPhase.miss,
+      tag = null,
+      until = null;
 
   /// [until] is the defer deadline; [previousTag] the last known release tag
   /// when one is cached.
   const VersionSnapshot.deferred({this.until, this.previousTag})
-      : phase = VersionPhase.deferred,
-        tag = null,
-        why = null;
+    : phase = VersionPhase.deferred,
+      tag = null,
+      why = null;
 
   /// Defer deadline ([VersionPhase.deferred] only).
   final DateTime? until;
@@ -105,8 +105,7 @@ class VersionStatus implements StatusSource {
   /// burning the shared API budget. Strip-only state — no chat notice; the
   /// failure already announced itself the session it happened.
   void deferred(DateTime? until, {String? release}) {
-    _snapshot =
-        VersionSnapshot.deferred(until: until, previousTag: release);
+    _snapshot = VersionSnapshot.deferred(until: until, previousTag: release);
     _changes.add(null);
   }
 
@@ -133,11 +132,11 @@ class VersionStatus implements StatusSource {
 /// that never check (headless, or COCOON_UPDATE_CHECK=0) mount it harmlessly:
 /// the service just stays idle and the strip shows nothing.
 PluginDescriptor versionStatusPlugin() => PluginDescriptor(
-      id: 'tina.version-status-service',
-      provides: [versionStatusServiceKey],
-      factory: FnPluginFactory((context) {
-        final status = VersionStatus();
-        context.own(status.close);
-        return status;
-      }),
-    );
+  id: 'tina.version-status-service',
+  provides: [versionStatusServiceKey],
+  factory: FnPluginFactory((context) {
+    final status = VersionStatus();
+    context.own(status.close);
+    return status;
+  }),
+);

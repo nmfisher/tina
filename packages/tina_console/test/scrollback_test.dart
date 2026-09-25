@@ -19,7 +19,8 @@ void main() {
 
   setUp(() {
     io = FakeStdio()..columns = 40;
-    final layout = ScreenLayout.fromSize(40, 12, split: false, drawInfoFrame: false);
+    final layout =
+        ScreenLayout.fromSize(40, 12, split: false, drawInfoFrame: false);
     screen = Screen(io: io, layout: layout, ansi: AnsiCapable.yes);
     vt = VirtualTerminal(width: 40, height: 12);
     screen.redrawFrame();
@@ -29,7 +30,8 @@ void main() {
 
   // A 4-row region at the top-left. usableHeight == 4 (no bottom inset).
   ScrollingTextRegion _region() {
-    final r = ScrollingTextRegion(screen, bounds: const Rect(row: 0, col: 0, width: 10, height: 4));
+    final r = ScrollingTextRegion(screen,
+        bounds: const Rect(row: 0, col: 0, width: 10, height: 4));
     r.attach();
     vt.feed(io.written.toString());
     io.written.clear();
@@ -42,7 +44,8 @@ void main() {
   }
 
   group('retention + scrollBy', () {
-    test('overflowing content evicts older rows to history, not to oblivion', () {
+    test('overflowing content evicts older rows to history, not to oblivion',
+        () {
       final chat = _region();
       for (var i = 0; i < 6; i++) {
         chat.write('L$i\n');
@@ -108,7 +111,8 @@ void main() {
       expect(chat.isTailPinned, isFalse);
     });
 
-    test('paging back to the tail clears the counter and shows the new lines', () {
+    test('paging back to the tail clears the counter and shows the new lines',
+        () {
       final chat = _region();
       for (var i = 0; i < 6; i++) {
         chat.write('L$i\n');
@@ -215,7 +219,8 @@ void main() {
       return frame;
     }
 
-    test('setScrollBadge renders "↓ N new" right-aligned on the bottom rail', () {
+    test('setScrollBadge renders "↓ N new" right-aligned on the bottom rail',
+        () {
       final frame = _frame();
       frame.setScrollBadge(3);
       vt.feed(io.written.toString());
@@ -256,7 +261,8 @@ void main() {
 
     test('regular arrows are not claimed even with onScroll set', () {
       final frame = _frame();
-      frame.onScroll = (delta) => fail('onScroll must not fire for regular arrows');
+      frame.onScroll =
+          (delta) => fail('onScroll must not fire for regular arrows');
       expect(frame.handleEvent(ArrowKey(ArrowDirection.up)), isFalse);
       expect(frame.handleEvent(ArrowKey(ArrowDirection.left)), isFalse);
     });

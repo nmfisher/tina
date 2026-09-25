@@ -165,11 +165,13 @@ class TextLineInput {
         .where((s) => s.start >= cursor)
         .map((s) => _PasteSpan(s.start - deleted, s.end - deleted, s.display))
         .toList();
-    return copyWith(buffer: buffer.substring(cursor), cursor: 0, pasteSpans: kept);
+    return copyWith(
+        buffer: buffer.substring(cursor), cursor: 0, pasteSpans: kept);
   }
 
   /// Clear the entire buffer, cursor, and paste spans. History is preserved.
-  TextLineInput clear() => copyWith(buffer: '', cursor: 0, pasteSpans: const []);
+  TextLineInput clear() =>
+      copyWith(buffer: '', cursor: 0, pasteSpans: const []);
 
   /// Drop all paste spans without touching the real buffer. Used when the
   /// host restores a panel's edit state (which carries only real text).
@@ -306,16 +308,14 @@ class TextLineInput {
   /// Add a line to history (deduped against the last entry). Returns `this`
   /// unchanged when the line is blank/whitespace or a repeat of the last.
   TextLineInput addHistory(String line) {
-    if (line.trim().isNotEmpty &&
-        (history.isEmpty || history.last != line)) {
+    if (line.trim().isNotEmpty && (history.isEmpty || history.last != line)) {
       return copyWith(history: [...history, line]);
     }
     return this;
   }
 
   /// Reset history navigation state (for a new readLine session).
-  TextLineInput resetNavigation() =>
-      copyWith(historyIndex: -1, savedDraft: '');
+  TextLineInput resetNavigation() => copyWith(historyIndex: -1, savedDraft: '');
 
   // -- Pure reads (no copyWith) -----------------------------------------
 

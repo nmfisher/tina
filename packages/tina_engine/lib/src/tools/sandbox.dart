@@ -55,14 +55,14 @@ class SandboxedFileSystem implements FileSystem {
         _tinaDir = tinaDir.path;
 
   /// Real, symlink-resolved project root. Resolved lazily and cached.
-  Future<String> get _realRoot => _rootFuture ??= resolveCanonical(_projectRoot);
+  Future<String> get _realRoot =>
+      _rootFuture ??= resolveCanonical(_projectRoot);
 
   /// Real, symlink-resolved Tina data dir. Resolved lazily and cached; if the
   /// dir doesn't exist yet, the walk-up resolves its existing ancestor (home)
   /// and re-joins the `/.tina` tail, so the tree is denied before it's ever
   /// created.
-  Future<String> get _realTina =>
-      _tinaFuture ??= resolveCanonical(_tinaDir);
+  Future<String> get _realTina => _tinaFuture ??= resolveCanonical(_tinaDir);
 
   @override
   Future<bool> fileExists(String path) => _inner.fileExists(path);
@@ -158,8 +158,7 @@ bool _isUnder(String child, String parent) {
   return c == par || c.startsWith(par);
 }
 
-String _withTrailing(String path) =>
-    path.endsWith('/') ? path : '$path/';
+String _withTrailing(String path) => path.endsWith('/') ? path : '$path/';
 
 /// Resolve [path] to its real, absolute form with every symlink expanded — the
 /// canonical path used for containment checks. Relative paths resolve against

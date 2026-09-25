@@ -225,7 +225,8 @@ void main() {
       expect(fakeBash.calls.length, 1);
     });
 
-    test('--yolo widens every tool: allow-by-default tools never ask', () async {
+    test('--yolo widens every tool: allow-by-default tools never ask',
+        () async {
       // The reported regression: under `tina --yolo`, glob/ls/grep/git were
       // refused headless because the four-entry defaults map replaced the
       // policy's table and let them fall through to ask. The flag must widen
@@ -375,8 +376,7 @@ void main() {
       expect(text, contains('git status'));
     });
 
-    test('a denied verdict routes to the user instead of the agent',
-        () async {
+    test('a denied verdict routes to the user instead of the agent', () async {
       final llmCalls = <Map<String, dynamic>>[];
       final policy = PermissionPolicy(mode: PermissionMode.auto);
       final classifier =
@@ -410,8 +410,8 @@ void main() {
       expect(llmCalls.length, 2,
           reason: 'a deny-once remembers nothing, so the next call '
               're-classifies; only the user deny-always short-circuits');
-      expect(await decide(policy, asker, 'bash', input),
-          PermissionDecision.deny);
+      expect(
+          await decide(policy, asker, 'bash', input), PermissionDecision.deny);
       expect(user.prompts.length, 2,
           reason: 'the remembered deny ends the prompts');
       expect(llmCalls.length, 2,

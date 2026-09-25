@@ -61,8 +61,8 @@ void main() {
           system: 'base',
           budget: budget,
           maxSteps: 5,
-          promptContext:
-              PromptContext(workspaceRoot: dir.path, loadWorkspaceContext: trusted),
+          promptContext: PromptContext(
+              workspaceRoot: dir.path, loadWorkspaceContext: trusted),
           middleware:
               AgentMiddlewarePipeline(scope: scope, middleware: middleware));
 

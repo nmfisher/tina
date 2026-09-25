@@ -147,15 +147,16 @@ void main() {
 
     test('no previous attempt, success, and null metadata never fire', () {
       // First attempt: nothing to compare an error against yet.
-      expect(
-          Agent.isAnomalousResult(const ToolResult('boom', isError: true)),
+      expect(Agent.isAnomalousResult(const ToolResult('boom', isError: true)),
           isFalse);
       // Identical content is only suspicious when the tool ERRORED.
-      expect(Agent.isAnomalousResult(const ToolResult('boom'),
-          previousContent: 'boom'), isFalse);
+      expect(
+          Agent.isAnomalousResult(const ToolResult('boom'),
+              previousContent: 'boom'),
+          isFalse);
       // A metadata-less tool reports neither timeout nor emptiness.
-      expect(Agent.isAnomalousResult(const ToolResult(''),
-          previousContent: ''), isFalse);
+      expect(Agent.isAnomalousResult(const ToolResult(''), previousContent: ''),
+          isFalse);
       // Explicit false is as good as null.
       expect(
           Agent.isAnomalousResult(
@@ -165,7 +166,8 @@ void main() {
   });
 
   group('Agent.run command retry guard (#29)', () {
-    test('3 consecutive timeout anomalies trip the note once; the 4th '
+    test(
+        '3 consecutive timeout anomalies trip the note once; the 4th '
         're-appends it without a second notice', () async {
       final sink = FakeAgentSink();
       final input = {'path': 'big.log'};
@@ -211,7 +213,8 @@ void main() {
       expect(guardrailNotices(sink), 1);
     });
 
-    test('a byte-identical error (class c) trips on the FOURTH attempt — the '
+    test(
+        'a byte-identical error (class c) trips on the FOURTH attempt — the '
         'first one only baselines the comparison', () async {
       final sink = FakeAgentSink();
       final input = {'path': 'x'};
@@ -233,7 +236,8 @@ void main() {
       expect(guardrailNotices(sink), 1);
     });
 
-    test('an error whose CONTENT CHANGED between attempts never trips — the '
+    test(
+        'an error whose CONTENT CHANGED between attempts never trips — the '
         'retry is doing something', () async {
       final sink = FakeAgentSink();
       final input = {'path': 'x'};
@@ -284,7 +288,8 @@ void main() {
       expect(guardrailNotices(sink), 1);
     });
 
-    test('streaks are per-signature: an anomaly of another command does not '
+    test(
+        'streaks are per-signature: an anomaly of another command does not '
         'break the first command\u2019s count', () async {
       final sink = FakeAgentSink();
       final a = {'path': 'a.txt'};
@@ -307,7 +312,8 @@ void main() {
       expect(guardrailNotices(sink), 1);
     });
 
-    test('a null-metadata tool never trips on plain output — only the '
+    test(
+        'a null-metadata tool never trips on plain output — only the '
         'identical-error class can catch it', () async {
       // Identical SUCCESS results (metadata all null): never an anomaly.
       final okSink = FakeAgentSink();

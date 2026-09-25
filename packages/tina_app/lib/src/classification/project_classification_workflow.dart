@@ -107,8 +107,8 @@ Future<ProjectClassificationReport> classifyProject(
     final status = !failed
         ? StageStatus.success
         : attempted
-            ? StageStatus.partialSuccess
-            : StageStatus.fail;
+        ? StageStatus.partialSuccess
+        : StageStatus.fail;
     if (status == StageStatus.fail) {
       stagesFailed++;
     } else {
@@ -132,8 +132,8 @@ Future<ProjectClassificationReport> classifyProject(
       failureReason: status != StageStatus.fail
           ? ''
           : stageFailureKeys.isNotEmpty
-              ? stageFailureKeys.map((k) => failures[k] ?? '').join(' ')
-              : '$stage produced no classifications',
+          ? stageFailureKeys.map((k) => failures[k] ?? '').join(' ')
+          : '$stage produced no classifications',
     );
   }
 
@@ -224,15 +224,13 @@ Future<ProjectClassificationReport> classifyProject(
           // must not remove previous framework/tooling checkpoints.
           if (!session.cancellation.isCancelled &&
               detailsError == null &&
-              !failures.keys
-                  .any((key) => key.startsWith('${tree.root}::'))) {
+              !failures.keys.any((key) => key.startsWith('${tree.root}::'))) {
             await session.retainTasks(keys);
           }
-          return stageResult(
-            'details',
-            const ['framework', 'tooling'],
-            attempted: detailsSource != null,
-          );
+          return stageResult('details', const [
+            'framework',
+            'tooling',
+          ], attempted: detailsSource != null);
         default:
           return ClassifyStageResult(
             status: StageStatus.fail,

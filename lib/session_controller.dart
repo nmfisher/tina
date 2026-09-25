@@ -283,14 +283,12 @@ class SessionController {
     final plans = pluginScope?.lookup(planStoreServiceKey);
     final store = sessionStore;
     if (goals != null && plans != null && store != null) {
-      _trackers = TrackerPersistence(
-        goalStore: goals,
-        planStore: plans,
-        store: store,
-      )..install(
-          sessionIdFor: _sessionIdOf,
-          ensureRegisteredFor: _ensureConversationRegistered,
-        );
+      _trackers =
+          TrackerPersistence(goalStore: goals, planStore: plans, store: store)
+            ..install(
+              sessionIdFor: _sessionIdOf,
+              ensureRegisteredFor: _ensureConversationRegistered,
+            );
     }
   }
 
@@ -764,13 +762,18 @@ class SessionController {
       // are never candidates (a legacy anchor naming a panel is skipped
       // like an unreadable one — a primary is resumed instead).
       final byId = {for (final c in manifest.conversations) c.id: c};
-      final candidates = <String>{
-        if (anchor.isNotEmpty) anchor,
-        ...manifest.conversations.map((c) => c.id),
-      }.where((cid) =>
-          byId[cid]?.kind == ConversationKind.primary ||
-          (cid == anchor && byId[cid] == null) // corrupt manifest: try, then skip
-      ).toList();
+      final candidates =
+          <String>{
+                if (anchor.isNotEmpty) anchor,
+                ...manifest.conversations.map((c) => c.id),
+              }
+              .where(
+                (cid) =>
+                    byId[cid]?.kind == ConversationKind.primary ||
+                    (cid == anchor &&
+                        byId[cid] == null), // corrupt manifest: try, then skip
+              )
+              .toList();
       String? cid;
       List<Message>? history;
       for (final candidate in candidates) {

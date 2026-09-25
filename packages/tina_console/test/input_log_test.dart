@@ -73,10 +73,8 @@ void main() {
   List<String> trailLines() =>
       trail.existsSync() ? trail.readAsLinesSync() : const [];
 
-  List<String> messagesMatching(String needle) => records
-      .map((r) => r.message)
-      .where((m) => m.contains(needle))
-      .toList();
+  List<String> messagesMatching(String needle) =>
+      records.map((r) => r.message).where((m) => m.contains(needle)).toList();
 
   group('the state line', () {
     test('omits empty fields and joins the rest with spaces', () {
@@ -91,7 +89,8 @@ void main() {
 
     test('names a character key without quoting it into the line', () {
       expect(InputLog.describeKey(CharInput('a')), 'char(a)');
-      expect(InputLog.describeKey(ControlKey(ControlCode.enter)), 'ctrl(enter)');
+      expect(
+          InputLog.describeKey(ControlKey(ControlCode.enter)), 'ctrl(enter)');
       expect(InputLog.describeKey(EscapeKey()), 'esc');
     });
 

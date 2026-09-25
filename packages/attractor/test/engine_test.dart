@@ -47,7 +47,10 @@ class _FakeInterviewer implements Interviewer {
   Future<void> inform(String message, {String? stage}) async {}
 }
 
-NodeHandlerRegistry _registry(CodergenBackend backend, Interviewer interviewer) {
+NodeHandlerRegistry _registry(
+  CodergenBackend backend,
+  Interviewer interviewer,
+) {
   final r = NodeHandlerRegistry();
   r.register('start', StartHandler());
   r.register('exit', ExitHandler());
@@ -77,8 +80,7 @@ Future<(Outcome, MemoryRunStore)> _run(
     onEvent: onEvent,
     onLoopBudgetExceeded: onLoopBudgetExceeded,
   );
-  final outcome =
-      await engine.run(input: input, seedContext: seedContext);
+  final outcome = await engine.run(input: input, seedContext: seedContext);
   return (outcome, store);
 }
 
@@ -105,15 +107,17 @@ void main() {
       expect(backend.calls.first.prompt, 'plan: do the thing');
       // plan's response was stored under context.plan and carried into build's
       // preamble — but only because build declared context="plan".
-      final buildPreamble =
-          backend.calls.firstWhere((c) => c.nodeId == 'build').preamble;
+      final buildPreamble = backend.calls
+          .firstWhere((c) => c.nodeId == 'build')
+          .preamble;
       expect(buildPreamble, contains('--- plan ---'));
       expect(buildPreamble, contains('response for plan'));
     });
 
-    test('a node without a context attr gets an empty preamble (strict)',
-        () async {
-      final g = parseDot('''
+    test(
+      'a node without a context attr gets an empty preamble (strict)',
+      () async {
+        final g = parseDot('''
         digraph Strict {
           start [shape=Mdiamond]
           plan [shape=box]
@@ -122,19 +126,23 @@ void main() {
           start -> plan -> build -> exit
         }
       ''');
-      final backend = _FakeBackend({});
-      final (outcome, _) = await _run(g, backend: backend);
+        final backend = _FakeBackend({});
+        final (outcome, _) = await _run(g, backend: backend);
 
-      expect(outcome.status, StageStatus.success);
-      // plan ran and wrote context.plan, but build declared no context — it
-      // sees nothing: nothing accumulates by default.
-      expect(
-          backend.calls.firstWhere((c) => c.nodeId == 'build').preamble, '');
-    });
+        expect(outcome.status, StageStatus.success);
+        // plan ran and wrote context.plan, but build declared no context — it
+        // sees nothing: nothing accumulates by default.
+        expect(
+          backend.calls.firstWhere((c) => c.nodeId == 'build').preamble,
+          '',
+        );
+      },
+    );
 
-    test('context keys render in declared order; missing keys render nothing',
-        () async {
-      final g = parseDot('''
+    test(
+      'context keys render in declared order; missing keys render nothing',
+      () async {
+        final g = parseDot('''
         digraph Ordered {
           start [shape=Mdiamond]
           a [shape=box]
@@ -144,18 +152,23 @@ void main() {
           start -> a -> b -> c -> exit
         }
       ''');
-      final backend = _FakeBackend({});
-      final (outcome, _) = await _run(g, backend: backend);
+        final backend = _FakeBackend({});
+        final (outcome, _) = await _run(g, backend: backend);
 
-      expect(outcome.status, StageStatus.success);
-      final preamble =
-          backend.calls.firstWhere((c) => c.nodeId == 'c').preamble;
-      // Declared order (b before a — the reverse of insertion order), and the
-      // unknown key renders nothing.
-      expect(preamble.indexOf('--- b ---'), lessThan(preamble.indexOf('--- a ---')));
-      expect(preamble, isNot(contains('ghost')));
-      expect(preamble, contains('response for a'));
-    });
+        expect(outcome.status, StageStatus.success);
+        final preamble = backend.calls
+            .firstWhere((c) => c.nodeId == 'c')
+            .preamble;
+        // Declared order (b before a — the reverse of insertion order), and the
+        // unknown key renders nothing.
+        expect(
+          preamble.indexOf('--- b ---'),
+          lessThan(preamble.indexOf('--- a ---')),
+        );
+        expect(preamble, isNot(contains('ghost')));
+        expect(preamble, contains('response for a'));
+      },
+    );
 
     test('writes re-publishes the output: readers of the shared key always '
         'see the latest revision', () async {
@@ -173,14 +186,17 @@ void main() {
         }
       ''');
       final reviewTexts = <String>[];
-      final scripted = _FakeBackend({})..scriptedOverride = (id) {
+      final scripted = _FakeBackend({})
+        ..scriptedOverride = (id) {
           if (id == 'review') {
             reviewTexts.add('revised plan v${reviewTexts.length + 1}');
             final v = reviewTexts.length;
-            return CodergenResult('revised plan v$v',
-                outcome: v < 3
-                    ? const Outcome.success(preferredLabel: 'revise')
-                    : const Outcome.success(preferredLabel: 'approve'));
+            return CodergenResult(
+              'revised plan v$v',
+              outcome: v < 3
+                  ? const Outcome.success(preferredLabel: 'revise')
+                  : const Outcome.success(preferredLabel: 'approve'),
+            );
           }
           return CodergenResult('output of $id');
         };
@@ -198,8 +214,9 @@ void main() {
       expect(calls[1].preamble, isNot(contains('output of plan')));
       expect(calls[2].preamble, contains('revised plan v2'));
       // The executor reads the final approved plan from the same key.
-      final execPreamble =
-          scripted.calls.firstWhere((c) => c.nodeId == 'execute').preamble;
+      final execPreamble = scripted.calls
+          .firstWhere((c) => c.nodeId == 'execute')
+          .preamble;
       expect(execPreamble, contains('revised plan v3'));
     });
 
@@ -215,15 +232,19 @@ void main() {
         }
       ''');
       final backend = _FakeBackend({});
-      final (outcome, _) = await _run(g,
-          backend: backend,
-          input: 'user message',
-          seedContext: {'history': 'user: hi\\nassistant: hello'});
+      final (outcome, _) = await _run(
+        g,
+        backend: backend,
+        input: 'user message',
+        seedContext: {'history': 'user: hi\\nassistant: hello'},
+      );
       expect(outcome.status, StageStatus.success);
       // $goal aliases the graph goal; $input/$history come from the context;
       // unknown tokens stay verbatim.
-      expect(backend.calls.first.prompt,
-          'plan: the goal | user message | user: hi\\nassistant: hello | \$missing');
+      expect(
+        backend.calls.first.prompt,
+        'plan: the goal | user message | user: hi\\nassistant: hello | \$missing',
+      );
     });
 
     test('a trailing period after \$<key> is not part of the token', () async {
@@ -260,15 +281,20 @@ void main() {
       ''');
       // Script per-node behavior via a custom backend.
       var reviewCalls = 0;
-      final scripted = _FakeBackend({})..scriptedOverride = (id) {
+      final scripted = _FakeBackend({})
+        ..scriptedOverride = (id) {
           if (id == 'review') {
             reviewCalls++;
             if (reviewCalls <= 2) {
-              return CodergenResult('revise it',
-                  outcome: const Outcome.success(preferredLabel: 'revise'));
+              return CodergenResult(
+                'revise it',
+                outcome: const Outcome.success(preferredLabel: 'revise'),
+              );
             }
-            return CodergenResult('looks good',
-                outcome: const Outcome.success(preferredLabel: 'approve'));
+            return CodergenResult(
+              'looks good',
+              outcome: const Outcome.success(preferredLabel: 'approve'),
+            );
           }
           return CodergenResult('output of $id');
         };
@@ -295,10 +321,14 @@ void main() {
         }
       ''');
       var attempts = 0;
-      final backend = _FakeBackend({})..scriptedOverride = (id) {
+      final backend = _FakeBackend({})
+        ..scriptedOverride = (id) {
           attempts++;
           if (attempts < 3) {
-            return CodergenResult('not yet', outcome: Outcome.retry('transient'));
+            return CodergenResult(
+              'not yet',
+              outcome: Outcome.retry('transient'),
+            );
           }
           return CodergenResult('done');
         };
@@ -317,8 +347,7 @@ void main() {
         }
       ''');
       final backend = _FakeBackend({
-        'critical':
-            CodergenResult('broke', outcome: Outcome.fail('nope')),
+        'critical': CodergenResult('broke', outcome: Outcome.fail('nope')),
       });
       final (outcome, _) = await _run(g, backend: backend);
       expect(outcome.status, StageStatus.fail);
@@ -340,20 +369,28 @@ void main() {
         }
       ''');
       // Approve -> Option key 'A' matches the first edge.
-      final interviewer =
-          _FakeInterviewer([Answer(value: 'A', selectedOption: Option(key: 'A', label: '[A] Approve'))]);
+      final interviewer = _FakeInterviewer([
+        Answer(
+          value: 'A',
+          selectedOption: Option(key: 'A', label: '[A] Approve'),
+        ),
+      ]);
       final backend = _FakeBackend({});
-      final (outcome, store) =
-          await _run(g, backend: backend, interviewer: interviewer);
+      final (outcome, store) = await _run(
+        g,
+        backend: backend,
+        interviewer: interviewer,
+      );
       expect(outcome.status, StageStatus.success);
       // 'ship' ran (approved), 'fix' did not.
       expect(store.nodes.any((n) => n.nodeId == 'ship'), isTrue);
       expect(store.nodes.any((n) => n.nodeId == 'fix'), isFalse);
     });
 
-    test('edge selection: condition match wins over higher-weight unconditional',
-        () async {
-      final g = parseDot('''
+    test(
+      'edge selection: condition match wins over higher-weight unconditional',
+      () async {
+        final g = parseDot('''
         digraph Sel {
           start [shape=Mdiamond]
           gate [shape=diamond, label="g"]
@@ -367,12 +404,13 @@ void main() {
           right -> exit
         }
       ''');
-      final (outcome, store) = await _run(g, backend: _FakeBackend({}));
-      expect(outcome.status, StageStatus.success);
-      // 'left' is chosen because its condition matched.
-      expect(store.nodes.any((n) => n.nodeId == 'left'), isTrue);
-      expect(store.nodes.any((n) => n.nodeId == 'right'), isFalse);
-    });
+        final (outcome, store) = await _run(g, backend: _FakeBackend({}));
+        expect(outcome.status, StageStatus.success);
+        // 'left' is chosen because its condition matched.
+        expect(store.nodes.any((n) => n.nodeId == 'left'), isTrue);
+        expect(store.nodes.any((n) => n.nodeId == 'right'), isFalse);
+      },
+    );
 
     test('cancellation terminates the run at the current node', () async {
       // The first working node cancels the run on its way out; the engine
@@ -387,7 +425,8 @@ void main() {
         }
       ''');
       final cancel = Completer<void>();
-      final backend = _FakeBackend({})..scriptedOverride = (id) {
+      final backend = _FakeBackend({})
+        ..scriptedOverride = (id) {
           if (id == 'a') {
             if (!cancel.isCompleted) cancel.complete();
             return CodergenResult('done a');
@@ -417,10 +456,11 @@ void main() {
       expect(events.where((e) => e.kind == 'node_failed'), isEmpty);
     });
 
-    test('visit cap aborts an unbounded revise self-loop (no hook = abort)',
-        () async {
-      // The reviewer never approves; without the cap this loops forever.
-      final g = parseDot('''
+    test(
+      'visit cap aborts an unbounded revise self-loop (no hook = abort)',
+      () async {
+        // The reviewer never approves; without the cap this loops forever.
+        final g = parseDot('''
         digraph Spin {
           start [shape=Mdiamond]
           review [shape=box]
@@ -430,19 +470,21 @@ void main() {
           review -> exit [label="approve"]
         }
       ''');
-      final backend = _FakeBackend({})..scriptedOverride = (id) =>
-          CodergenResult('again',
-              outcome: const Outcome.success(preferredLabel: 'revise'));
+        final backend = _FakeBackend({})
+          ..scriptedOverride = (id) => CodergenResult(
+            'again',
+            outcome: const Outcome.success(preferredLabel: 'revise'),
+          );
 
-      final (outcome, store) = await _run(g, backend: backend);
+        final (outcome, store) = await _run(g, backend: backend);
 
-      expect(outcome.status, StageStatus.fail);
-      expect(outcome.failureReason, contains('exceeded 8 visits'));
-      // The default cap: 8 visits, no more.
-      final visits =
-          store.nodes.where((n) => n.nodeId == 'review').length;
-      expect(visits, 8);
-    });
+        expect(outcome.status, StageStatus.fail);
+        expect(outcome.failureReason, contains('exceeded 8 visits'));
+        // The default cap: 8 visits, no more.
+        final visits = store.nodes.where((n) => n.nodeId == 'review').length;
+        expect(visits, 8);
+      },
+    );
 
     test('visit-cap budget hook: continue resets the counter', () async {
       final g = parseDot('''
@@ -457,20 +499,26 @@ void main() {
       ''');
       var visits = 0;
       var hookCalls = 0;
-      final backend = _FakeBackend({})..scriptedOverride = (id) {
+      final backend = _FakeBackend({})
+        ..scriptedOverride = (id) {
           visits++;
           // Loop forever the first budget window; approve after the hook
           // once let it continue.
           final verdict = visits <= 8 ? 'revise' : 'approve';
-          return CodergenResult(verdict,
-              outcome: Outcome.success(preferredLabel: verdict));
+          return CodergenResult(
+            verdict,
+            outcome: Outcome.success(preferredLabel: verdict),
+          );
         };
 
-      final (outcome, _) = await _run(g, backend: backend,
-          onLoopBudgetExceeded: (reason) async {
-        hookCalls++;
-        return true; // continue
-      });
+      final (outcome, _) = await _run(
+        g,
+        backend: backend,
+        onLoopBudgetExceeded: (reason) async {
+          hookCalls++;
+          return true; // continue
+        },
+      );
 
       expect(outcome.status, StageStatus.success);
       expect(hookCalls, 1);
@@ -490,9 +538,11 @@ void main() {
           review -> exit [label="approve"]
         }
       ''');
-      final backend = _FakeBackend({})..scriptedOverride = (id) =>
-          CodergenResult('again',
-              outcome: const Outcome.success(preferredLabel: 'revise'));
+      final backend = _FakeBackend({})
+        ..scriptedOverride = (id) => CodergenResult(
+          'again',
+          outcome: const Outcome.success(preferredLabel: 'revise'),
+        );
 
       final (outcome, store) = await _run(g, backend: backend);
 
@@ -561,12 +611,13 @@ void main() {
       });
     }
 
-    test('goal-gate retry jumps are bounded; budget exhausted fails clearly',
-        () async {
-      // critical is a goal gate that fails; retry_target loops back to it,
-      // and it keeps failing — previously this jumped forever (stale
-      // nodeOutcomes entry at the terminal check).
-      final g = parseDot('''
+    test(
+      'goal-gate retry jumps are bounded; budget exhausted fails clearly',
+      () async {
+        // critical is a goal gate that fails; retry_target loops back to it,
+        // and it keeps failing — previously this jumped forever (stale
+        // nodeOutcomes entry at the terminal check).
+        final g = parseDot('''
         digraph Gate {
           graph [retry_target="critical"]
           start [shape=Mdiamond]
@@ -576,18 +627,21 @@ void main() {
           critical -> exit [condition="outcome=fail"]
         }
       ''');
-      final backend = _FakeBackend({
-        'critical': CodergenResult('broke', outcome: Outcome.fail('nope')),
-      });
+        final backend = _FakeBackend({
+          'critical': CodergenResult('broke', outcome: Outcome.fail('nope')),
+        });
 
-      final (outcome, store) = await _run(g, backend: backend);
+        final (outcome, store) = await _run(g, backend: backend);
 
-      expect(outcome.status, StageStatus.fail);
-      expect(outcome.failureReason,
-          contains('goal gate "critical" retry budget exhausted'));
-      // default budget 2: initial visit + 2 retry jumps.
-      expect(store.nodes.where((n) => n.nodeId == 'critical').length, 3);
-    });
+        expect(outcome.status, StageStatus.fail);
+        expect(
+          outcome.failureReason,
+          contains('goal gate "critical" retry budget exhausted'),
+        );
+        // default budget 2: initial visit + 2 retry jumps.
+        expect(store.nodes.where((n) => n.nodeId == 'critical').length, 3);
+      },
+    );
 
     test('total-step cap (max_steps) guards the whole run', () async {
       final g = parseDot('''
@@ -612,12 +666,13 @@ void main() {
       expect(store.nodes.map((n) => n.nodeId), ['a', 'b', 'c']);
     });
 
-    test('a transient backend error retries and does not clobber writes keys',
-        () async {
-      // flaky publishes to the shared `plan` key (writes) and fails
-      // transiently once; the retry must not record '' under `plan`, and the
-      // executor must see the eventual real output.
-      final g = parseDot('''
+    test(
+      'a transient backend error retries and does not clobber writes keys',
+      () async {
+        // flaky publishes to the shared `plan` key (writes) and fails
+        // transiently once; the retry must not record '' under `plan`, and the
+        // executor must see the eventual real output.
+        final g = parseDot('''
         digraph Transient {
           start [shape=Mdiamond]
           flaky [shape=box, max_retries=1, writes="plan"]
@@ -626,25 +681,28 @@ void main() {
           start -> flaky -> exec -> exit
         }
       ''');
-      var flakyAttempts = 0;
-      final backend = _FakeBackend({})..scriptedOverride = (id) {
-          if (id != 'flaky') return CodergenResult('output of $id');
-          flakyAttempts++;
-          if (flakyAttempts == 1) {
-            return CodergenResult.error('provider hiccup', transient: true);
-          }
-          return CodergenResult('the real output');
-        };
+        var flakyAttempts = 0;
+        final backend = _FakeBackend({})
+          ..scriptedOverride = (id) {
+            if (id != 'flaky') return CodergenResult('output of $id');
+            flakyAttempts++;
+            if (flakyAttempts == 1) {
+              return CodergenResult.error('provider hiccup', transient: true);
+            }
+            return CodergenResult('the real output');
+          };
 
-      final (outcome, _) = await _run(g, backend: backend);
+        final (outcome, _) = await _run(g, backend: backend);
 
-      expect(outcome.status, StageStatus.success);
-      expect(flakyAttempts, 2);
-      final execPreamble =
-          backend.calls.firstWhere((c) => c.nodeId == 'exec').preamble;
-      expect(execPreamble, contains('the real output'));
-      expect(execPreamble, isNot(contains('--- plan ---\n\n')));
-    });
+        expect(outcome.status, StageStatus.success);
+        expect(flakyAttempts, 2);
+        final execPreamble = backend.calls
+            .firstWhere((c) => c.nodeId == 'exec')
+            .preamble;
+        expect(execPreamble, contains('the real output'));
+        expect(execPreamble, isNot(contains('--- plan ---\n\n')));
+      },
+    );
 
     test('a permanent backend error fails the node without retry', () async {
       // goal_gate keeps the failed node from routing on to exit, so the run
@@ -659,7 +717,8 @@ void main() {
         }
       ''');
       var attempts = 0;
-      final backend = _FakeBackend({})..scriptedOverride = (id) {
+      final backend = _FakeBackend({})
+        ..scriptedOverride = (id) {
           attempts++;
           return CodergenResult.error('max steps reached');
         };
@@ -670,11 +729,12 @@ void main() {
       expect(attempts, 1); // permanent — no retry attempts spent
     });
 
-    test('a failed node with only unmatched conditional edges fails the run',
-        () async {
-      // Before the honesty fix, the any-edge fallback routed a failed node
-      // onward as if it had succeeded, and the run reported success.
-      final g = parseDot('''
+    test(
+      'a failed node with only unmatched conditional edges fails the run',
+      () async {
+        // Before the honesty fix, the any-edge fallback routed a failed node
+        // onward as if it had succeeded, and the run reported success.
+        final g = parseDot('''
         digraph DeadEnd {
           start [shape=Mdiamond]
           work [shape=box]
@@ -683,17 +743,18 @@ void main() {
           work -> exit [condition="outcome=success"]
         }
       ''');
-      final backend = _FakeBackend({
-        'work': CodergenResult('broke', outcome: Outcome.fail('exploded')),
-      });
+        final backend = _FakeBackend({
+          'work': CodergenResult('broke', outcome: Outcome.fail('exploded')),
+        });
 
-      final (outcome, store) = await _run(g, backend: backend);
+        final (outcome, store) = await _run(g, backend: backend);
 
-      expect(outcome.status, StageStatus.fail);
-      expect(outcome.failureReason, 'exploded');
-      // exit never ran.
-      expect(store.nodes.map((n) => n.nodeId), ['work']);
-    });
+        expect(outcome.status, StageStatus.fail);
+        expect(outcome.failureReason, 'exploded');
+        // exit never ran.
+        expect(store.nodes.map((n) => n.nodeId), ['work']);
+      },
+    );
 
     test('a thrown handler error is recorded in the run store', () async {
       // Only a conditional edge out (on success) so the failed node can't
@@ -729,9 +790,10 @@ void main() {
       expect(store.nodes.any((n) => n.nodeId == 'boom'), isTrue);
     });
 
-    test('terminal success carries the last node\'s response as text',
-        () async {
-      final g = parseDot('''
+    test(
+      'terminal success carries the last node\'s response as text',
+      () async {
+        final g = parseDot('''
         digraph Text {
           start [shape=Mdiamond]
           a [shape=box]
@@ -740,16 +802,17 @@ void main() {
           start -> a -> b -> exit
         }
       ''');
-      final backend = _FakeBackend({
-        'a': CodergenResult('output of a'),
-        'b': CodergenResult('the final summary'),
-      });
+        final backend = _FakeBackend({
+          'a': CodergenResult('output of a'),
+          'b': CodergenResult('the final summary'),
+        });
 
-      final (outcome, _) = await _run(g, backend: backend);
+        final (outcome, _) = await _run(g, backend: backend);
 
-      expect(outcome.status, StageStatus.success);
-      expect(outcome.text, 'the final summary');
-    });
+        expect(outcome.status, StageStatus.success);
+        expect(outcome.text, 'the final summary');
+      },
+    );
 
     test('a gate with a prompt attr shows the expanded text (VERDICT lines '
         'stripped) as its question', () async {
@@ -769,19 +832,25 @@ void main() {
         'review': CodergenResult('the plan text\nVERDICT: clarify'),
       });
       final interviewer = _RecordingInterviewer();
-      final (outcome, _) =
-          await _run(g, backend: backend, interviewer: interviewer);
+      final (outcome, _) = await _run(
+        g,
+        backend: backend,
+        interviewer: interviewer,
+      );
 
       expect(outcome.status, StageStatus.success);
-      expect(interviewer.questions.single.text,
-          'the plan text\n\nThe reviewer needs a decision. Pick:');
+      expect(
+        interviewer.questions.single.text,
+        'the plan text\n\nThe reviewer needs a decision. Pick:',
+      );
     });
 
-    test('threads onEvent into handlers so a handler can emit progress',
-        () async {
-      // A handler that receives the engine's listener and emits its own
-      // progress event through it — the seam parallel branches use.
-      final g = parseDot('''
+    test(
+      'threads onEvent into handlers so a handler can emit progress',
+      () async {
+        // A handler that receives the engine's listener and emits its own
+        // progress event through it — the seam parallel branches use.
+        final g = parseDot('''
         digraph T {
           start [shape=Mdiamond]
           step [shape=box, type="spy"]
@@ -789,31 +858,34 @@ void main() {
           start -> step -> exit
         }
       ''');
-      final backend = _FakeBackend({});
-      final store = MemoryRunStore();
-      final registry = _registry(backend, _FakeInterviewer([]));
-      final spy = _SpyEmitHandler();
-      registry.register('spy', spy);
+        final backend = _FakeBackend({});
+        final store = MemoryRunStore();
+        final registry = _registry(backend, _FakeInterviewer([]));
+        final spy = _SpyEmitHandler();
+        registry.register('spy', spy);
 
-      final events = <PipelineEvent>[];
-      final engine = PipelineEngine(
-        graph: g,
-        registry: registry,
-        runStore: store,
-        runId: 'r1',
-        workflowName: g.name,
-        backoffFor: (_) => Duration.zero,
-        onEvent: events.add,
-      );
-      final outcome = await engine.run();
+        final events = <PipelineEvent>[];
+        final engine = PipelineEngine(
+          graph: g,
+          registry: registry,
+          runStore: store,
+          runId: 'r1',
+          workflowName: g.name,
+          backoffFor: (_) => Duration.zero,
+          onEvent: events.add,
+        );
+        final outcome = await engine.run();
 
-      expect(outcome.status, StageStatus.success);
-      // The handler saw the engine's listener…
-      expect(spy.seenListener, isNotNull);
-      // …and an event emitted from inside the handler surfaced at the engine.
-      expect(events.any((e) => e.kind == 'node_started' && e.nodeId == 'step'),
-          isTrue);
-    });
+        expect(outcome.status, StageStatus.success);
+        // The handler saw the engine's listener…
+        expect(spy.seenListener, isNotNull);
+        // …and an event emitted from inside the handler surfaced at the engine.
+        expect(
+          events.any((e) => e.kind == 'node_started' && e.nodeId == 'step'),
+          isTrue,
+        );
+      },
+    );
   });
 }
 

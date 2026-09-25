@@ -86,34 +86,51 @@ const smallTools = [
 final fullTools = [
   ...smallTools,
   _fn('read', 'Read a file from the project.', {'path': 'string'}),
-  _fn('write', 'Write a file, creating or replacing it.',
-      {'path': 'string', 'content': 'string'}),
-  _fn('edit', 'Replace a span of text in an existing file.',
-      {'path': 'string', 'oldText': 'string', 'newText': 'string'}),
+  _fn('write', 'Write a file, creating or replacing it.', {
+    'path': 'string',
+    'content': 'string',
+  }),
+  _fn('edit', 'Replace a span of text in an existing file.', {
+    'path': 'string',
+    'oldText': 'string',
+    'newText': 'string',
+  }),
   _fn('fetch', 'Fetch a URL and return the page as text.', {'url': 'string'}),
   _fn('search', 'Semantic search over the project.', {'query': 'string'}),
-  _fn('grep', 'Regex search over file contents.',
-      {'pattern': 'string', 'path': 'string'}),
-  _fn('glob', 'List files matching a glob pattern.',
-      {'pattern': 'string', 'path': 'string'}),
-  _fn('stat', 'Stat a file or directory: size, times, type.',
-      {'path': 'string'}),
+  _fn('grep', 'Regex search over file contents.', {
+    'pattern': 'string',
+    'path': 'string',
+  }),
+  _fn('glob', 'List files matching a glob pattern.', {
+    'pattern': 'string',
+    'path': 'string',
+  }),
+  _fn('stat', 'Stat a file or directory: size, times, type.', {
+    'path': 'string',
+  }),
   _fn('which', 'Resolve an executable on PATH.', {'name': 'string'}),
-  _fn('git', 'Read-only git queries: log, status, diff, show.',
-      {'args': 'string'}),
-  _fn('delegate', 'Delegate a focused sub-task to a sub-agent.',
-      {'task': 'string', 'tools': 'string'}),
-  _fn('render_image', 'Render a local image file into the panel.',
-      {'path': 'string'}),
-  _fn('ask_user', 'Pose a multiple-choice question to the user.',
-      {'questions': 'string'}),
-  _fn('launch_workflow', 'Launch a DOT workflow in the background.',
-      {'input': 'string'}),
+  _fn('git', 'Read-only git queries: log, status, diff, show.', {
+    'args': 'string',
+  }),
+  _fn('delegate', 'Delegate a focused sub-task to a sub-agent.', {
+    'task': 'string',
+    'tools': 'string',
+  }),
+  _fn('render_image', 'Render a local image file into the panel.', {
+    'path': 'string',
+  }),
+  _fn('ask_user', 'Pose a multiple-choice question to the user.', {
+    'questions': 'string',
+  }),
+  _fn('launch_workflow', 'Launch a DOT workflow in the background.', {
+    'input': 'string',
+  }),
   _fn('stop_workflow', 'Stop a running workflow.', {'runId': 'string'}),
   _fn('web_search', 'Search the web.', {'query': 'string'}),
 ];
 
-Map<String, Object> _fn(String name, String desc, Map<String, String> props) => {
+Map<String, Object> _fn(String name, String desc, Map<String, String> props) =>
+    {
       'type': 'function',
       'function': {
         'name': name,
@@ -131,7 +148,8 @@ Map<String, Object> _fn(String name, String desc, Map<String, String> props) => 
 
 // Shaped like the environment agent's identity (lib/environment/
 // environment_runner.dart) — the run where the mangling showed up.
-const systemPrompt = 'You are the environment agent for this repository. '
+const systemPrompt =
+    'You are the environment agent for this repository. '
     'Your job is to establish the environment: dependencies installed, '
     'toolchain present, build and test commands known and working. '
     'You are a doing worker — you run commands, you do not just describe '
@@ -168,17 +186,16 @@ String realTaskPrompt(String project) =>
 // names, full-length descriptions, the real input shapes. Encoded the same
 // way OpenAiCompatibleAdapter._encodeTool does.
 List<Map<String, Object>> realTools() => [
-      for (final t in buildTools().all)
-        {
-          'type': 'function',
-          'function': {
-            'name': t.schema.name,
-            'description': t.schema.description,
-            'parameters': t.schema.inputSchema,
-          },
-        },
-    ];
-
+  for (final t in buildTools().all)
+    {
+      'type': 'function',
+      'function': {
+        'name': t.schema.name,
+        'description': t.schema.description,
+        'parameters': t.schema.inputSchema,
+      },
+    },
+];
 
 const userPrompt =
     'Inspect the current directory and report what kind of project it is. '
@@ -216,8 +233,8 @@ Future<void> main(List<String> args) async {
   final tools = useRealTools
       ? realTools()
       : fullTools_
-          ? fullTools
-          : smallTools;
+      ? fullTools
+      : smallTools;
   final system = useRealPrompts ? realIdentity : systemPrompt;
   final task = useRealPrompts
       ? realTaskPrompt(Directory.current.path)
@@ -225,8 +242,10 @@ Future<void> main(List<String> args) async {
 
   final key = _resolveApiKey();
   if (key == null || key.isEmpty) {
-    stderr.writeln('no API key: set NVIDIA_API_KEY or put api_key under '
-        '[providers.nim] in ~/.tina/config');
+    stderr.writeln(
+      'no API key: set NVIDIA_API_KEY or put api_key under '
+      '[providers.nim] in ~/.tina/config',
+    );
     exitCode = 1;
     return;
   }
@@ -235,9 +254,9 @@ Future<void> main(List<String> args) async {
     ..writeln('model  : $model')
     ..writeln('turns  : $turns')
     ..writeln('real   : $real')
-    ..writeln('tools  : ${[
-      for (final t in tools) (t['function'] as Map)['name'],
-    ].join(', ')}');
+    ..writeln(
+      'tools  : ${[for (final t in tools) (t['function'] as Map)['name']].join(', ')}',
+    );
 
   final messages = <Map<String, Object>>[
     {'role': 'system', 'content': system},
@@ -248,8 +267,14 @@ Future<void> main(List<String> args) async {
   var mangled = 0;
   try {
     for (var turn = 1; turn <= turns; turn++) {
-      final result = await _request(client, key, model, tools, messages,
-          raw: raw && turn == 1);
+      final result = await _request(
+        client,
+        key,
+        model,
+        tools,
+        messages,
+        raw: raw && turn == 1,
+      );
       stdout.writeln('--- turn $turn ---');
       stdout.writeln('  finish_reason : ${result.finishReason}');
       if (result.text.isNotEmpty) {
@@ -278,10 +303,12 @@ Future<void> main(List<String> args) async {
         final clean = _trimName(pc.name);
         final bad = clean != (pc.name ?? '');
         if (bad) mangled++;
-        stdout.writeln('  tool_call     : raw name = '
-            '${_visible(pc.name ?? '(null)')}'
-            '${bad ? '  <-- MANGLED (would be `unknown tool` in tina; '
-                'intended: $clean)' : ''}');
+        stdout.writeln(
+          '  tool_call     : raw name = '
+          '${_visible(pc.name ?? '(null)')}'
+          '${bad ? '  <-- MANGLED (would be `unknown tool` in tina; '
+                    'intended: $clean)' : ''}',
+        );
         stdout.writeln('    arguments   : ${pc.args}');
         messages.add({
           'role': 'tool',
@@ -294,27 +321,36 @@ Future<void> main(List<String> args) async {
       }
     }
     stdout.writeln('---');
-    stdout.writeln(mangled == 0
-        ? 'no mangled names observed this run'
-        : '$mangled mangled tool name(s) observed — reproduce of the '
-            '`unknown tool:` failures in tina');
+    stdout.writeln(
+      mangled == 0
+          ? 'no mangled names observed this run'
+          : '$mangled mangled tool name(s) observed — reproduce of the '
+                '`unknown tool:` failures in tina',
+    );
   } finally {
     client.close(force: true);
   }
 }
 
-Future<_TurnResult> _request(HttpClient client, String key, String model,
-    List<Map<String, Object>> tools, List<Map<String, Object>> messages,
-    {required bool raw}) async {
+Future<_TurnResult> _request(
+  HttpClient client,
+  String key,
+  String model,
+  List<Map<String, Object>> tools,
+  List<Map<String, Object>> messages, {
+  required bool raw,
+}) async {
   final req = await client.postUrl(Uri.parse('$baseUrl/v1/chat/completions'))
     ..headers.set('Authorization', 'Bearer $key')
     ..headers.contentType = ContentType.json;
-  req.write(jsonEncode({
-    'model': model,
-    'stream': true,
-    'messages': messages,
-    'tools': tools,
-  }));
+  req.write(
+    jsonEncode({
+      'model': model,
+      'stream': true,
+      'messages': messages,
+      'tools': tools,
+    }),
+  );
   final resp = await req.close();
   if (resp.statusCode != 200) {
     stderr.writeln('HTTP ${resp.statusCode}:');
@@ -328,8 +364,7 @@ Future<_TurnResult> _request(HttpClient client, String key, String model,
   final toolCalls = <int, _PartialCall>{};
   final text = StringBuffer();
   var finishReason = 'stop';
-  final lines =
-      resp.transform(utf8.decoder).transform(const LineSplitter());
+  final lines = resp.transform(utf8.decoder).transform(const LineSplitter());
   await for (final line in lines) {
     if (line.isEmpty || !line.startsWith('data:')) continue;
     if (raw) stdout.writeln('RAW $line');
@@ -370,8 +405,9 @@ Future<_TurnResult> _request(HttpClient client, String key, String model,
     if (fr is String) finishReason = fr;
   }
   final indices = toolCalls.keys.toList()..sort();
-  return _TurnResult(
-      finishReason, text.toString(), [for (final i in indices) toolCalls[i]!]);
+  return _TurnResult(finishReason, text.toString(), [
+    for (final i in indices) toolCalls[i]!,
+  ]);
 }
 
 /// The known mangling modes, applied the way a defensive registry lookup
@@ -432,7 +468,8 @@ String? _resolveApiKey() {
   final env = Platform.environment['NVIDIA_API_KEY'];
   if (env != null && env.isNotEmpty) return env;
   final file = File(
-      Uri.parse('${Platform.environment['HOME']}/.tina/config').toFilePath());
+    Uri.parse('${Platform.environment['HOME']}/.tina/config').toFilePath(),
+  );
   if (!file.existsSync()) return null;
   var inNim = false;
   for (final line in file.readAsLinesSync()) {
@@ -442,8 +479,7 @@ String? _resolveApiKey() {
       continue;
     }
     if (inNim) {
-      final m =
-          RegExp(r"""^api_key\s*=\s*['"]?([^'"\s#]+)""").firstMatch(t);
+      final m = RegExp(r"""^api_key\s*=\s*['"]?([^'"\s#]+)""").firstMatch(t);
       if (m != null) return m.group(1);
     }
   }

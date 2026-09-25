@@ -92,7 +92,8 @@ class ProgressCounter {
     final r = region;
     if (r == null) return;
     if (message != null) {
-      r.writeAt(rowOffset, r.screen.colorize(r.screen.theme.spinner.dim, message));
+      r.writeAt(
+          rowOffset, r.screen.colorize(r.screen.theme.spinner.dim, message));
     } else {
       r.clearAt(rowOffset);
     }
@@ -102,7 +103,7 @@ class ProgressCounter {
     final r = region;
     if (r == null) return;
     final count = _total != null ? '$current/$_total' : '$current items';
-    r.writeAt(
-        rowOffset, r.screen.colorize(r.screen.theme.spinner.dim, '⠿ $_label $count'));
+    r.writeAt(rowOffset,
+        r.screen.colorize(r.screen.theme.spinner.dim, '⠿ $_label $count'));
   }
 }

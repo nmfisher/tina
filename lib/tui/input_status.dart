@@ -84,7 +84,11 @@ class InputStatus {
     // renderers, nearest scope first, selection within each scope in
     // registration order, first one wins; none installed restores the default.
     StatusLayout layout = const DefaultStatusLayout();
-    for (PluginScope? current = scope; current != null; current = current.parent) {
+    for (
+      PluginScope? current = scope;
+      current != null;
+      current = current.parent
+    ) {
       if (!current.isAdmitting) continue;
       var found = false;
       for (final contribution in current.contributions) {

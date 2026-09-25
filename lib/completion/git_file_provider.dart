@@ -33,8 +33,8 @@ class GitFileCompletionProvider implements CompletionProvider {
     this.maxResults = 50,
     this.onError,
     DateTime Function()? clock,
-  })  : clock = clock ?? DateTime.now,
-        workingDir = workingDir ?? Directory.current.path;
+  }) : clock = clock ?? DateTime.now,
+       workingDir = workingDir ?? Directory.current.path;
 
   bool get _cacheFresh {
     final cachedAt = _cachedAt;
@@ -48,9 +48,7 @@ class GitFileCompletionProvider implements CompletionProvider {
     final files = await _files();
     if (query.isEmpty) return _pageFiles(files);
     final ranked = rankFuzzy(query, files);
-    return ranked.length <= maxResults
-        ? ranked
-        : ranked.sublist(0, maxResults);
+    return ranked.length <= maxResults ? ranked : ranked.sublist(0, maxResults);
   }
 
   /// The unfiltered bare-`@` listing. A raw slice of the enumeration would
@@ -144,11 +142,12 @@ class GitFileCompletionProvider implements CompletionProvider {
 
   Future<List<String>?> _runGitLs() async {
     try {
-      final res = await Process.run(
-        'git',
-        ['ls-files', '--cached', '--others', '--exclude-standard'],
-        workingDirectory: workingDir,
-      );
+      final res = await Process.run('git', [
+        'ls-files',
+        '--cached',
+        '--others',
+        '--exclude-standard',
+      ], workingDirectory: workingDir);
       if (res.exitCode != 0) return null;
       return (res.stdout as String)
           .split('\n')
@@ -204,11 +203,12 @@ class GitFileCompletionProvider implements CompletionProvider {
   }) async {
     Process? proc;
     try {
-      proc = await Process.start(
-        'git',
-        ['ls-files', '--cached', '--others', '--exclude-standard'],
-        workingDirectory: workingDir,
-      );
+      proc = await Process.start('git', [
+        'ls-files',
+        '--cached',
+        '--others',
+        '--exclude-standard',
+      ], workingDirectory: workingDir);
     } catch (e, st) {
       if (onError != null) onError!(e, st);
       return false;

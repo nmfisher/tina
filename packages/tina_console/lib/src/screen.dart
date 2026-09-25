@@ -140,7 +140,8 @@ class Screen {
         // leading-edge idle check advances with async.elapse. For chat timing
         // precision the Stopwatch granularity is more than enough.
         _nanos = clock ?? _monotonicNanos,
-        _chatWindowNanos = const Duration(milliseconds: 8).inMicroseconds * 1000 {
+        _chatWindowNanos =
+            const Duration(milliseconds: 8).inMicroseconds * 1000 {
     _activeChat = ScrollingTextRegion(this);
     _status = StatusRegion(this);
     _input = InputRegion(this);
@@ -287,8 +288,7 @@ class Screen {
   /// input-ownership wedge, not a stuck backend frame — the app's StuckCheck
   /// logs that signature.
   void _checkFrameClosed(TerminalBackend be) {
-    final diag =
-        be is BackendDiagnostics ? be as BackendDiagnostics : null;
+    final diag = be is BackendDiagnostics ? be as BackendDiagnostics : null;
     if (diag == null) return;
     final open = diag.openFrames;
     if (open == 0) {
@@ -580,13 +580,10 @@ class Screen {
         .where((l) => !l.isBlank)
         .map((line) {
           final text = line.runs.map((run) {
-            final text =
-                run.text.replaceAll(RegExp(r'[\x00-\x1f\x7f]'), ' ');
+            final text = run.text.replaceAll(RegExp(r'[\x00-\x1f\x7f]'), ' ');
             return run.code == null ? text : colorize(run.code!, text);
           }).join();
-          return line.bar == null
-              ? text
-              : colorize(line.bar!, text);
+          return line.bar == null ? text : colorize(line.bar!, text);
         })
         .where((text) => text.isNotEmpty)
         .join('  │  ');

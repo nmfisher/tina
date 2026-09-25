@@ -151,8 +151,7 @@ void main() {
       Process.runSync('git', ['-C', repo.path, 'config', 'user.name', 'T']);
       File('${repo.path}/a.txt').writeAsStringSync('hello');
       Process.runSync('git', ['-C', repo.path, 'add', '.']);
-      Process.runSync(
-          'git', ['-C', repo.path, 'commit', '-m', 'first commit']);
+      Process.runSync('git', ['-C', repo.path, 'commit', '-m', 'first commit']);
     });
 
     tearDown(() {

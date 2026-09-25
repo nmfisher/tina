@@ -32,17 +32,23 @@ void main() {
     final tmp = Directory.systemTemp.createTempSync('tina-output-limit-');
     addTearDown(() => tmp.deleteSync(recursive: true));
     final config = UserConfig.fromMap({
-      'providers': {'zai': {'max_output': 131072}},
+      'providers': {
+        'zai': {'max_output': 131072},
+      },
     });
     expect(config.providers['zai']!.maxOutput, 131072);
     writeUserConfig(config, env: const {}, tinaDir: tmp);
     final loaded = loadUserConfig(env: const {}, tinaDir: tmp);
     expect(loaded.providers['zai'], config.providers['zai']);
-    expect(const ProviderConfig(maxOutput: 131072),
-        isNot(const ProviderConfig(maxOutput: 8192)));
+    expect(
+      const ProviderConfig(maxOutput: 131072),
+      isNot(const ProviderConfig(maxOutput: 8192)),
+    );
     for (final invalid in [0, -1, 1.5, '131072', true]) {
-      expect(() => ProviderConfig.fromMap({'max_output': invalid}),
-          throwsFormatException);
+      expect(
+        () => ProviderConfig.fromMap({'max_output': invalid}),
+        throwsFormatException,
+      );
     }
   });
 
@@ -580,8 +586,7 @@ models = ["stub-1", "stub-2|Stub Two"]
       );
     });
 
-    test(
-        '[providers.<id>] min_request_interval_ms round-trips beside '
+    test('[providers.<id>] min_request_interval_ms round-trips beside '
         'requests_per_minute (interval wins at the engine)', () {
       writeUserConfig(
         const UserConfig(
@@ -623,8 +628,11 @@ models = ["stub-1", "stub-2|Stub Two"]
         tinaDir: tmp,
       );
       final reloaded = loadUserConfig(env: {}, tinaDir: tmp);
-      expect(reloaded.providers['local-llama']?.minRequestIntervalMs, 0,
-          reason: 'the nim write must not clobber sibling providers');
+      expect(
+        reloaded.providers['local-llama']?.minRequestIntervalMs,
+        0,
+        reason: 'the nim write must not clobber sibling providers',
+      );
     });
 
     test(
@@ -689,7 +697,11 @@ models = ["stub-1", "stub-2|Stub Two"]
     });
 
     test('[tui] plan_overlay round-trips and survives a copyWith patch', () {
-      writeUserConfig(const UserConfig(planOverlay: 'manual'), env: {}, tinaDir: tmp);
+      writeUserConfig(
+        const UserConfig(planOverlay: 'manual'),
+        env: {},
+        tinaDir: tmp,
+      );
       final loaded = loadUserConfig(env: {}, tinaDir: tmp);
       expect(loaded.planOverlay, 'manual');
       // Absent → null (the caller resolves null → auto).

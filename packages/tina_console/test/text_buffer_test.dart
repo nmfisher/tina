@@ -64,8 +64,12 @@ void main() {
       });
 
       test('inserting a single newline is the same as splitLine', () {
-        final a = TextBuffer(initial: 'abc')..col = 1..insert('\n');
-        final b = TextBuffer(initial: 'abc')..col = 1..splitLine();
+        final a = TextBuffer(initial: 'abc')
+          ..col = 1
+          ..insert('\n');
+        final b = TextBuffer(initial: 'abc')
+          ..col = 1
+          ..splitLine();
         expect(a.text, b.text);
         expect(a.line, b.line);
         expect(a.col, b.col);

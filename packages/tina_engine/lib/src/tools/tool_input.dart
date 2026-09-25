@@ -67,7 +67,8 @@ dynamic _unmodifiableValue(Object? value) {
     });
   }
   if (value is List) {
-    return List.unmodifiable([for (final item in value) _unmodifiableValue(item)]);
+    return List.unmodifiable(
+        [for (final item in value) _unmodifiableValue(item)]);
   }
   return value;
 }

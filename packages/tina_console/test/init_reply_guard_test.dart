@@ -138,15 +138,17 @@ void main() {
       expect(guard.armed, isTrue);
       // The probe runs with echo off, and the mode comes back before the
       // detour is installed.
-      expect(os.calls, containsAllInOrder(<String>[
-        'isatty(0)',
-        'isatty(1)',
-        'raw(0)',
-        'write(1,${TerminalReplyGuard.probeQuery.length})', // OSC 10 + OSC 11
-        'poll(0,${TerminalReplyGuard.probeTimeoutMs})',
-        'unraw(0,saved)',
-        'detour(${TerminalReplyGuard.fallbackReply.length})',
-      ]));
+      expect(
+          os.calls,
+          containsAllInOrder(<String>[
+            'isatty(0)',
+            'isatty(1)',
+            'raw(0)',
+            'write(1,${TerminalReplyGuard.probeQuery.length})', // OSC 10 + OSC 11
+            'poll(0,${TerminalReplyGuard.probeTimeoutMs})',
+            'unraw(0,saved)',
+            'detour(${TerminalReplyGuard.fallbackReply.length})',
+          ]));
       // The reply handed to the pty must be a DA1 — that is the only reply
       // notcurses' init wait will accept (see inputlayer_get_responses).
       expect(os.detourReply, startsWith('\x1b[?'));
@@ -163,8 +165,15 @@ void main() {
 
       expect(guard.prepare(), isFalse);
       expect(guard.armed, isFalse);
-      expect(os.calls, containsAllInOrder(
-          ['raw(0)', 'write(1,${TerminalReplyGuard.probeQuery.length})', 'poll(0,${TerminalReplyGuard.probeTimeoutMs})', 'drain(0,4096)', 'unraw(0,saved)']));
+      expect(
+          os.calls,
+          containsAllInOrder([
+            'raw(0)',
+            'write(1,${TerminalReplyGuard.probeQuery.length})',
+            'poll(0,${TerminalReplyGuard.probeTimeoutMs})',
+            'drain(0,4096)',
+            'unraw(0,saved)'
+          ]));
       // Nothing may touch fd 0's identity on the normal path.
       expect(os.calls.any((c) => c.startsWith('detour')), isFalse);
       expect(os.calls.any((c) => c == 'beginBridgedSession()'), isFalse);
@@ -249,8 +258,8 @@ void main() {
     });
 
     test('short write: remainder is buffered and retried next tick', () {
-      final os = _BridgeFakeOs(
-          stdinQueue: [utf8Bytes('hello')], writeBudget: 3);
+      final os =
+          _BridgeFakeOs(stdinQueue: [utf8Bytes('hello')], writeBudget: 3);
       final bridge = StdinBridge(os);
 
       bridge.tick();
@@ -292,19 +301,16 @@ void main() {
       // Budget covers the whole survivor tail so the flush drains it all.
       os.writeBudget = StdinBridge.pendingDropLimit;
       bridge.tick();
-      final delivered = os.writtenToMaster
-          .expand<int>((b) => b.codeUnits)
-          .toList();
+      final delivered =
+          os.writtenToMaster.expand<int>((b) => b.codeUnits).toList();
       expect(delivered.length, StdinBridge.pendingDropLimit);
-      expect(
-          delivered,
-          big.sublist(
-              big.length - StdinBridge.pendingDropLimit));
+      expect(delivered, big.sublist(big.length - StdinBridge.pendingDropLimit));
     });
 
     test('tick caps work per wake-up (firehose cannot starve the loop)', () {
       final os = _BridgeFakeOs(
-          stdinQueue: List.generate(50, (_) => Uint8List(_BridgeFakeOs.chunkSize)),
+          stdinQueue:
+              List.generate(50, (_) => Uint8List(_BridgeFakeOs.chunkSize)),
           writeBudget: 99);
       final bridge = StdinBridge(os);
 
@@ -392,8 +398,7 @@ void main() {
   });
 
   group('TerminalReplyGuard bridge lifecycle (tin-DEAD-KEYBOARD)', () {
-    test('mute path: finishInit() starts the bridge, shutdown() ends it',
-        () {
+    test('mute path: finishInit() starts the bridge, shutdown() ends it', () {
       final os = FakeReplyGuardOs(replyArrives: false);
       final guard = TerminalReplyGuard(os: os)..prepare();
       addTearDown(guard.shutdown);
@@ -435,8 +440,7 @@ void main() {
     test('mute path with no master: finishInit() starts no bridge', () {
       // masterOnDetour=false models a detour that left no master behind:
       // the guard must not arm a copy loop with nowhere to send bytes.
-      final os = FakeReplyGuardOs(
-          replyArrives: false, masterOnDetour: false);
+      final os = FakeReplyGuardOs(replyArrives: false, masterOnDetour: false);
       final guard = TerminalReplyGuard(os: os)..prepare();
       guard.finishInit();
       expect(guard.bridgeRunning, isFalse);

@@ -33,21 +33,17 @@ class ClassifyProgram {
   bool get valid => !diagnostics.any((d) => d.severity == Severity.error);
 
   /// All error diagnostics, newline-joined (empty when [valid]).
-  String get errorsText =>
-      diagnostics
-          .where((d) => d.severity == Severity.error)
-          .map((d) => '  $d')
-          .join('\n');
+  String get errorsText => diagnostics
+      .where((d) => d.severity == Severity.error)
+      .map((d) => '  $d')
+      .join('\n');
 }
 
 /// Structural validation (attractor) plus program rules: every
 /// `type="classify"` node must resolve to a stage in [stages], and a `stage`
 /// attribute must be a string (a non-string silently falls back to the node
 /// id at run time, which is never what the author meant).
-List<Diagnostic> validateClassifyProgram(
-  Graph graph,
-  Set<String> stages,
-) {
+List<Diagnostic> validateClassifyProgram(Graph graph, Set<String> stages) {
   final diags = <Diagnostic>[];
   for (final node in graph.nodes.values) {
     if (node.type != 'classify') continue;
@@ -58,7 +54,8 @@ List<Diagnostic> validateClassifyProgram(
           rule: 'classify_stage_attr',
           severity: Severity.warning,
           nodeId: node.id,
-          message: 'classify node "${node.id}" has a non-string stage '
+          message:
+              'classify node "${node.id}" has a non-string stage '
               'attribute (${raw.runtimeType}); the node id is used instead',
         ),
       );
@@ -70,7 +67,8 @@ List<Diagnostic> validateClassifyProgram(
           rule: 'classify_stage_known',
           severity: Severity.error,
           nodeId: node.id,
-          message: 'classify node "${node.id}" names unknown stage '
+          message:
+              'classify node "${node.id}" names unknown stage '
               '"$stage" (known: ${stages.join(', ')})',
         ),
       );
@@ -109,7 +107,10 @@ ClassifyProgram parseClassifyProgram(
     name: name,
     origin: origin,
     graph: graph,
-    diagnostics: [...validate(graph), ...validateClassifyProgram(graph, stages)],
+    diagnostics: [
+      ...validate(graph),
+      ...validateClassifyProgram(graph, stages),
+    ],
   );
 }
 
@@ -151,7 +152,10 @@ ClassifyProgram builtinIndexProgram({
     name: 'index',
     origin: 'builtin',
     graph: graph,
-    diagnostics: [...validate(graph), ...validateClassifyProgram(graph, stages)],
+    diagnostics: [
+      ...validate(graph),
+      ...validateClassifyProgram(graph, stages),
+    ],
   );
 }
 
@@ -170,8 +174,11 @@ Future<ClassifyProgram> loadIndexProgram({
   Directory? globalWorkflowsDir,
   Set<String> stages = kClassifyProgramStages,
 }) async {
-  final file = _pickProgramFile(Directory(p.join(workspaceRoot, '.tina', 'programs')));
-  final global = file ??
+  final file = _pickProgramFile(
+    Directory(p.join(workspaceRoot, '.tina', 'programs')),
+  );
+  final global =
+      file ??
       (globalWorkflowsDir == null
           ? null
           : _existingFile(p.join(globalWorkflowsDir.path, 'index.dot')));

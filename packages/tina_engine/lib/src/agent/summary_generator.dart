@@ -146,11 +146,9 @@ class SummaryGenerator {
     return _filesWithStaleSymbolsStatic(graph, repoRoot);
   }
 
-  Future<int> _summarizeFileHierarchy(
-      CodeGraph graph, String relPath) async {
+  Future<int> _summarizeFileHierarchy(CodeGraph graph, String relPath) async {
     final fileEntries = graph.symbols.entries.entries
-        .where(
-            (e) => p.relative(e.value.filePath, from: repoRoot) == relPath)
+        .where((e) => p.relative(e.value.filePath, from: repoRoot) == relPath)
         .toList();
 
     var count = 0;
@@ -207,8 +205,8 @@ class SummaryGenerator {
         if (members.isNotEmpty) {
           summary = await _summarizeFromMembers(parentName, members);
         } else {
-          summary = await _summarize(
-              source.substring(0, _maxClassSource), 'class');
+          summary =
+              await _summarize(source.substring(0, _maxClassSource), 'class');
         }
       }
       if (summary != null) {
@@ -227,8 +225,7 @@ class SummaryGenerator {
 
     final topLevel = fileEntries
         .where((e) =>
-            e.value.parentName == null &&
-            graph.manifest.containsKey(e.key))
+            e.value.parentName == null && graph.manifest.containsKey(e.key))
         .map((e) {
       final symSummary = graph.summaryFor(e.key);
       return '- ${e.value.name} (${e.value.kind.name}): $symSummary';
@@ -238,8 +235,7 @@ class SummaryGenerator {
     if (topLevel.isNotEmpty) {
       fileSummary = await _summarizeFileFromSymbols(topLevel);
     } else {
-      final content =
-          File(p.join(repoRoot, relPath)).readAsStringSync();
+      final content = File(p.join(repoRoot, relPath)).readAsStringSync();
       if (content.trim().isNotEmpty && content.length <= _maxClassSource) {
         fileSummary = await _summarize(content, 'file');
       }

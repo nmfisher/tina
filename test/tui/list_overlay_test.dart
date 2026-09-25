@@ -125,20 +125,14 @@ void main() {
 
     test('typing narrows and enter picks the match', () async {
       expect(
-        await runFiltered([
-          CharInput('bet'),
-          ControlKey(ControlCode.enter),
-        ]),
+        await runFiltered([CharInput('bet'), ControlKey(ControlCode.enter)]),
         'b',
       );
     });
 
     test('filter matches case-insensitively', () async {
       expect(
-        await runFiltered([
-          CharInput('BETA'),
-          ControlKey(ControlCode.enter),
-        ]),
+        await runFiltered([CharInput('BETA'), ControlKey(ControlCode.enter)]),
         'b',
       );
     });
@@ -166,27 +160,30 @@ void main() {
       );
     });
 
-    test('without filterable, typing is inert (picker still selects)', () async {
-      final screen = fakeScreen(columns: 80, lines: 24);
-      final events = CannedEvents()
-        ..events = [
-          CharInput('bet'), // must be ignored, not filtered
-          ControlKey(ControlCode.enter),
-        ];
-      expect(
-        await runListOverlay<String>(
-          screen: screen,
-          editor: LineEditor(screen: screen),
-          entries: [
-            (display: 'alpha session', value: 'a'),
-            (display: 'beta thing', value: 'b'),
-          ],
-          title: 'Pick',
-          footer: 'enter select',
-          readEvent: events.readEvent,
-        ).timeout(overlayTimeout),
-        'a', // focus never moved — typing did nothing
-      );
-    });
+    test(
+      'without filterable, typing is inert (picker still selects)',
+      () async {
+        final screen = fakeScreen(columns: 80, lines: 24);
+        final events = CannedEvents()
+          ..events = [
+            CharInput('bet'), // must be ignored, not filtered
+            ControlKey(ControlCode.enter),
+          ];
+        expect(
+          await runListOverlay<String>(
+            screen: screen,
+            editor: LineEditor(screen: screen),
+            entries: [
+              (display: 'alpha session', value: 'a'),
+              (display: 'beta thing', value: 'b'),
+            ],
+            title: 'Pick',
+            footer: 'enter select',
+            readEvent: events.readEvent,
+          ).timeout(overlayTimeout),
+          'a', // focus never moved — typing did nothing
+        );
+      },
+    );
   });
 }

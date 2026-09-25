@@ -48,8 +48,7 @@ class GraphTraversal {
       final s = graph.symbols[seed];
       if (s != null && s.isAbstract) {
         for (final e in graph.edgesTo(seed)) {
-          if (e.kind == EdgeKind.extends_ ||
-              e.kind == EdgeKind.implements_) {
+          if (e.kind == EdgeKind.extends_ || e.kind == EdgeKind.implements_) {
             final impl = graph.symbols[e.fromId];
             if (impl != null &&
                 !resultNodes.containsKey(e.fromId) &&
@@ -72,13 +71,15 @@ class GraphTraversal {
         // Follow edges from this node (symbol or file).
         for (final e in graph.edgesFrom(id)) {
           resultEdges.add(e);
-          _expandInto(e.toId, graph, resultNodes, nextFrontier, visited, maxNodes);
+          _expandInto(
+              e.toId, graph, resultNodes, nextFrontier, visited, maxNodes);
         }
 
         // Follow edges to this node.
         for (final e in graph.edgesTo(id)) {
           resultEdges.add(e);
-          _expandInto(e.fromId, graph, resultNodes, nextFrontier, visited, maxNodes);
+          _expandInto(
+              e.fromId, graph, resultNodes, nextFrontier, visited, maxNodes);
         }
 
         // Bridge: if id is a symbol, also follow edges from its file path.
@@ -90,9 +91,11 @@ class GraphTraversal {
               resultEdges.add(e);
               // For import edges, expand into symbols in the target file immediately.
               if (e.kind == EdgeKind.imports || e.kind == EdgeKind.exports) {
-                _expandFileSymbols(e.toId, graph, resultNodes, visited, root, maxNodes);
+                _expandFileSymbols(
+                    e.toId, graph, resultNodes, visited, root, maxNodes);
               } else {
-                _expandInto(e.toId, graph, resultNodes, nextFrontier, visited, maxNodes);
+                _expandInto(e.toId, graph, resultNodes, nextFrontier, visited,
+                    maxNodes);
               }
             }
           }
@@ -114,10 +117,9 @@ class GraphTraversal {
         // pull in all symbols that extend/implement it.
         if (sym != null && sym.isAbstract) {
           for (final e in graph.edgesTo(id)) {
-            if (e.kind == EdgeKind.extends_ ||
-                e.kind == EdgeKind.implements_) {
-              _expandInto(
-                  e.fromId, graph, resultNodes, nextFrontier, visited, maxNodes);
+            if (e.kind == EdgeKind.extends_ || e.kind == EdgeKind.implements_) {
+              _expandInto(e.fromId, graph, resultNodes, nextFrontier, visited,
+                  maxNodes);
               if (!resultEdges.contains(e)) resultEdges.add(e);
             }
           }

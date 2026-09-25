@@ -124,8 +124,8 @@ class _PlainStore implements SessionStore {
       {required String model, String? label}) async {}
 
   @override
-  Future<void> updateConversationTrackers(String sessionId,
-      String conversationId,
+  Future<void> updateConversationTrackers(
+      String sessionId, String conversationId,
       {required Map<String, dynamic>? goal,
       required Map<String, dynamic>? plan}) async {}
 

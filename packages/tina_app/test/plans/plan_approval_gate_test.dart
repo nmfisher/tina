@@ -30,15 +30,15 @@ void main() {
 
   /// A plan middleware over [store] with an optional yolo policy + host,
   /// mirroring how buildAgent wires it.
-  PlanMiddleware middleware({
-    bool yolo = false,
-    HostInterface? host,
-  }) =>
+  PlanMiddleware middleware({bool yolo = false, HostInterface? host}) =>
       PlanMiddleware(
         store,
         'c1',
         policy: yolo
-            ? PermissionPolicy(mode: PermissionMode.ask, allowAllByDefault: true)
+            ? PermissionPolicy(
+                mode: PermissionMode.ask,
+                allowAllByDefault: true,
+              )
             : null,
         host: host,
       );
@@ -60,13 +60,14 @@ void main() {
   }
 
   group('PlanTool approval gate', () {
-    test('--yolo (allowAllByDefault) auto-grants instead of parking',
-        () async {
+    test('--yolo (allowAllByDefault) auto-grants instead of parking', () async {
       final tool = PlanTool(
         store,
         'c1',
-        policy:
-            PermissionPolicy(mode: PermissionMode.ask, allowAllByDefault: true),
+        policy: PermissionPolicy(
+          mode: PermissionMode.ask,
+          allowAllByDefault: true,
+        ),
       );
       final r = await tool.execute({
         'items': [
@@ -79,8 +80,11 @@ void main() {
       // The tool must NOT report "waiting for user approval".
       expect(r.content, isNot(contains('waiting for user approval')));
       final plan = store.read('c1');
-      expect(plan.approval, PlanApproval.approved,
-          reason: 'yolo grants the plan so the run keeps moving');
+      expect(
+        plan.approval,
+        PlanApproval.approved,
+        reason: 'yolo grants the plan so the run keeps moving',
+      );
     });
 
     test('--yolo auto-grants an approval-only re-request too', () async {
@@ -88,8 +92,10 @@ void main() {
       final tool = PlanTool(
         store,
         'c1',
-        policy:
-            PermissionPolicy(mode: PermissionMode.ask, allowAllByDefault: true),
+        policy: PermissionPolicy(
+          mode: PermissionMode.ask,
+          allowAllByDefault: true,
+        ),
       );
       final r = await tool.execute({'approval': 'requested'});
       expect(r.isError, isFalse);
@@ -106,64 +112,73 @@ void main() {
         'approval': 'requested',
       });
       expect(r.isError, isFalse);
-      expect(store.read('c1').approval, PlanApproval.approved,
-          reason: 'nobody can answer; parking would stall forever');
-    });
-
-    test('interactive default keeps the gate: requested parks, not approves',
-        () async {
-      final tool = PlanTool(store, 'c1', host: FakeAnsweringHost());
-      final r = await tool.execute({
-        'items': [
-          {'text': 'step one', 'state': 'pending'},
-        ],
-        'approval': 'requested',
-      });
-      expect(r.isError, isFalse);
-      expect(r.content, contains('waiting for user approval'));
-      final plan = store.read('c1');
-      expect(plan.approval, PlanApproval.requested);
-      expect(plan.needsApproval, isTrue);
-    });
-
-    test('interactive + explicit ask policy still parks (mode stays readable)',
-        () async {
-      final tool = PlanTool(store, 'c1', host: FakeAnsweringHost());
-      final r = await tool.execute({
-        'items': [
-          {'text': 'step one', 'state': 'pending'},
-        ],
-        'approval': 'requested',
-      });
-      expect(store.read('c1').approval, PlanApproval.requested);
-      expect(r.content, contains('waiting for user approval'));
-    });
-
-    test('items without approval under --yolo just update (no gate touched)',
-        () async {
-      final tool = PlanTool(
-        store,
-        'c1',
-        policy:
-            PermissionPolicy(mode: PermissionMode.ask, allowAllByDefault: true),
+      expect(
+        store.read('c1').approval,
+        PlanApproval.approved,
+        reason: 'nobody can answer; parking would stall forever',
       );
-      final r = await tool.execute({
-        'items': [
-          {'text': 'step one', 'state': 'pending'},
-        ],
-      });
-      expect(r.isError, isFalse);
-      expect(store.read('c1').approval, PlanApproval.none);
     });
+
+    test(
+      'interactive default keeps the gate: requested parks, not approves',
+      () async {
+        final tool = PlanTool(store, 'c1', host: FakeAnsweringHost());
+        final r = await tool.execute({
+          'items': [
+            {'text': 'step one', 'state': 'pending'},
+          ],
+          'approval': 'requested',
+        });
+        expect(r.isError, isFalse);
+        expect(r.content, contains('waiting for user approval'));
+        final plan = store.read('c1');
+        expect(plan.approval, PlanApproval.requested);
+        expect(plan.needsApproval, isTrue);
+      },
+    );
+
+    test(
+      'interactive + explicit ask policy still parks (mode stays readable)',
+      () async {
+        final tool = PlanTool(store, 'c1', host: FakeAnsweringHost());
+        final r = await tool.execute({
+          'items': [
+            {'text': 'step one', 'state': 'pending'},
+          ],
+          'approval': 'requested',
+        });
+        expect(store.read('c1').approval, PlanApproval.requested);
+        expect(r.content, contains('waiting for user approval'));
+      },
+    );
+
+    test(
+      'items without approval under --yolo just update (no gate touched)',
+      () async {
+        final tool = PlanTool(
+          store,
+          'c1',
+          policy: PermissionPolicy(
+            mode: PermissionMode.ask,
+            allowAllByDefault: true,
+          ),
+        );
+        final r = await tool.execute({
+          'items': [
+            {'text': 'step one', 'state': 'pending'},
+          ],
+        });
+        expect(r.isError, isFalse);
+        expect(store.read('c1').approval, PlanApproval.none);
+      },
+    );
   });
 
   group('PlanMiddleware approval guidance', () {
     test('--yolo never tells the agent to wait', () async {
-      store.update(
-        'c1',
-        [PlanItem('step one', state: PlanState.inProgress)],
-        approval: PlanApproval.approved,
-      );
+      store.update('c1', [
+        PlanItem('step one', state: PlanState.inProgress),
+      ], approval: PlanApproval.approved);
       final system = await section(middleware(yolo: true));
       expect(system, contains('<current-plan>'));
       expect(system, contains('approved'));
@@ -171,25 +186,23 @@ void main() {
     });
 
     test('headless host never tells the agent to wait', () async {
-      store.update(
-        'c1',
-        [PlanItem('step one', state: PlanState.inProgress)],
-        approval: PlanApproval.approved,
-      );
+      store.update('c1', [
+        PlanItem('step one', state: PlanState.inProgress),
+      ], approval: PlanApproval.approved);
       final system = await section(middleware(host: FakeHeadlessHost()));
       expect(system, isNot(contains('wait for')));
     });
 
-    test('interactive keeps the wait instruction on a requested plan',
-        () async {
-      store.update(
-        'c1',
-        [PlanItem('step one', state: PlanState.inProgress)],
-        approval: PlanApproval.requested,
-      );
-      final system = await section(middleware());
-      expect(system, contains('wait for their approval'));
-    });
+    test(
+      'interactive keeps the wait instruction on a requested plan',
+      () async {
+        store.update('c1', [
+          PlanItem('step one', state: PlanState.inProgress),
+        ], approval: PlanApproval.requested);
+        final system = await section(middleware());
+        expect(system, contains('wait for their approval'));
+      },
+    );
   });
 }
 

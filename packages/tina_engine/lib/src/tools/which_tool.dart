@@ -35,7 +35,7 @@ class WhichTool implements Tool {
               'type': 'string',
               'description':
                   'Executable name, or a comma-separated list of candidates '
-                  'to probe in one call, e.g. "rg, grep".',
+                      'to probe in one call, e.g. "rg, grep".',
             },
           },
           'required': ['name'],
@@ -76,7 +76,9 @@ class WhichTool implements Tool {
   /// each PATH directory in order. PATH entries are ':'-separated on POSIX
   /// and ';' on Windows — NOT `Platform.pathSeparator`.
   String? _resolve(String candidate) {
-    if (!Platform.isWindows) return resolveExecutionExecutable(candidate, environment, workingDirectory);
+    if (!Platform.isWindows)
+      return resolveExecutionExecutable(
+          candidate, environment, workingDirectory);
     if (candidate.contains('/') || candidate.contains('\\')) {
       return _executableAt(candidate) ? _absolute(candidate) : null;
     }

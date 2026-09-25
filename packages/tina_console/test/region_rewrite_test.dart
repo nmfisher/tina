@@ -60,8 +60,7 @@ void main() {
   /// The painted non-blank rows, in order. Order is what the transcript-level
   /// tests care about; a stale row left behind by a rebuild shows up here as an
   /// extra entry, which is exactly the defect under test.
-  List<String> content() =>
-      visible().where((row) => row.isNotEmpty).toList();
+  List<String> content() => visible().where((row) => row.isNotEmpty).toList();
 
   /// A region pre-filled with one content row per [rows] entry.
   ScrollingTextRegion filled(List<String> rows) {

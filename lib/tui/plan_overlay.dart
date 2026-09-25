@@ -69,21 +69,13 @@ class _Row {
 /// children — except under roots listed in [collapsedRoots], whose subtrees
 /// are skipped entirely (they occupy no slot, hence no selection stop).
 List<_Row> _visibleRows(Plan plan, {Set<int> collapsedRoots = const {}}) => [
-      for (final (ri, item) in plan.items.indexed) ...[
-        _Row(
-            item: item,
-            rootIndex: ri,
-            childIndex: null,
-            depth: 0),
-        if (!collapsedRoots.contains(ri))
-          for (final (ci, child) in item.children.indexed)
-            _Row(
-                item: child,
-                rootIndex: ri,
-                childIndex: ci,
-                depth: 1),
-      ],
-    ];
+  for (final (ri, item) in plan.items.indexed) ...[
+    _Row(item: item, rootIndex: ri, childIndex: null, depth: 0),
+    if (!collapsedRoots.contains(ri))
+      for (final (ci, child) in item.children.indexed)
+        _Row(item: child, rootIndex: ri, childIndex: ci, depth: 1),
+  ],
+];
 
 /// Renders the plan overlay box as a list of paintable lines (borders
 /// included). Pure: same inputs → byte-identical lines. The host owns
@@ -119,11 +111,12 @@ List<String> renderPlanOverlayLines({
   final footer = ui.focused
       ? '↑↓ select · ↵ approve/expand · r reject · ␣ toggle item'
       : ui.collapsed
-          ? 'ctrl+p expand'
-          : 'ctrl+p collapse';
+      ? 'ctrl+p expand'
+      : 'ctrl+p collapse';
 
-  final rows =
-      ui.collapsed ? const <_Row>[] : _visibleRows(plan, collapsedRoots: ui.collapsedRoots);
+  final rows = ui.collapsed
+      ? const <_Row>[]
+      : _visibleRows(plan, collapsedRoots: ui.collapsedRoots);
   final interior = ui.collapsed
       ? <(String, String?)>[
           // Collapsed: only the in-progress row.
@@ -137,9 +130,11 @@ List<String> renderPlanOverlayLines({
           // folded; children indent two spaces per depth.
           for (final (vi, row) in rows.indexed)
             (
-              _rowText(row,
-                  selected: vi == ui.selectedIndex,
-                  collapsedRoots: ui.collapsedRoots),
+              _rowText(
+                row,
+                selected: vi == ui.selectedIndex,
+                collapsedRoots: ui.collapsedRoots,
+              ),
               switch (row.item.state) {
                 PlanState.pending => null,
                 PlanState.inProgress => 'accent',
@@ -209,12 +204,12 @@ String _rowText(
   final marker = selected
       ? '❯'
       : row.hasChildren
-          ? (folded ? '▸' : '▾')
-          : switch (row.item.state) {
-              PlanState.pending => '·',
-              PlanState.inProgress => '▸',
-              PlanState.done => '✓',
-            };
+      ? (folded ? '▸' : '▾')
+      : switch (row.item.state) {
+          PlanState.pending => '·',
+          PlanState.inProgress => '▸',
+          PlanState.done => '✓',
+        };
   final hint = folded ? ' (+${row.item.children.length})' : '';
   return '$indent$marker ${row.item.text}$hint';
 }
@@ -277,8 +272,7 @@ int planOverlayContentHeight(
   Set<int> collapsedRoots = const {},
 }) {
   if (collapsed) {
-    final hasActive =
-        plan.allItems.any((i) => i.state == PlanState.inProgress);
+    final hasActive = plan.allItems.any((i) => i.state == PlanState.inProgress);
     return 1 + (hasActive ? 1 : 0) + 1; // active row? + footer
   }
   return _visibleRows(plan, collapsedRoots: collapsedRoots).length + 1;
@@ -534,13 +528,16 @@ class PlanOverlay implements Focusable {
       updated = parent.copyWith(
         children: [
           for (final (ci, child) in parent.children.indexed)
-            ci == row.childIndex ? child.copyWith(state: flip(child.state)) : child,
+            ci == row.childIndex
+                ? child.copyWith(state: flip(child.state))
+                : child,
         ],
       );
     }
     try {
       store.update(id, [
-        for (final (i, it) in plan.items.indexed) i == row.rootIndex ? updated : it,
+        for (final (i, it) in plan.items.indexed)
+          i == row.rootIndex ? updated : it,
       ]);
     } on ArgumentError {
       return; // mirror /plan: a rejected update just keeps the old plan
@@ -549,8 +546,10 @@ class PlanOverlay implements Focusable {
 
   /// The rows the overlay would paint right now (expanded geometry — the
   /// selection only exists in expanded mode; collapsed overlays hide it).
-  List<_Row> get _rows =>
-      _visibleRows(store.read(conversationId()), collapsedRoots: _collapsedRoots);
+  List<_Row> get _rows => _visibleRows(
+    store.read(conversationId()),
+    collapsedRoots: _collapsedRoots,
+  );
 
   /// The row under the selection, or null when nothing is selected
   /// (collapsed geometry, hidden, blurred, out of range, or parked on the
@@ -613,8 +612,10 @@ class PlanOverlay implements Focusable {
     if (_started) return;
     _started = true;
     focusManager?.register(this);
-    _sub = store.changes.listen((_) => refresh(),
-        onError: (Object _) => refresh());
+    _sub = store.changes.listen(
+      (_) => refresh(),
+      onError: (Object _) => refresh(),
+    );
     refresh();
   }
 
@@ -644,14 +645,21 @@ class PlanOverlay implements Focusable {
     final width = _maxWidth < chat.width ? _maxWidth : chat.width;
     // Collapsed when the full list cannot fit between the borders; an
     // already-collapsed box that still does not fit hides entirely.
-    var collapsed = planOverlayContentHeight(plan,
-            collapsed: false, collapsedRoots: _collapsedRoots) +
+    var collapsed =
+        planOverlayContentHeight(
+              plan,
+              collapsed: false,
+              collapsedRoots: _collapsedRoots,
+            ) +
             2 >
         chat.height;
     if (collapsed &&
-        planOverlayContentHeight(plan,
-                collapsed: true, collapsedRoots: _collapsedRoots) +
-            2 >
+        planOverlayContentHeight(
+                  plan,
+                  collapsed: true,
+                  collapsedRoots: _collapsedRoots,
+                ) +
+                2 >
             chat.height) {
       _hide();
       return;
@@ -663,10 +671,14 @@ class PlanOverlay implements Focusable {
       highlighted: _highlighted,
       focused: _focused,
     );
-    final height = (planOverlayContentHeight(plan,
-                collapsed: collapsed, collapsedRoots: _collapsedRoots) +
-            2)
-        .clamp(3, chat.height);
+    final height =
+        (planOverlayContentHeight(
+                  plan,
+                  collapsed: collapsed,
+                  collapsedRoots: _collapsedRoots,
+                ) +
+                2)
+            .clamp(3, chat.height);
     final bounds = Rect(
       row: layout.topBorderRow + 1,
       col: chat.col + chat.width - width,

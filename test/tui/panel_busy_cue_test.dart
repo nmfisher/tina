@@ -149,8 +149,7 @@ void main() {
 
   // Pump [pred] until it holds; turns run fire-and-forget so tests pump until
   // the observable they care about has landed.
-  Future<void> pumpUntil(bool Function() pred,
-      {int iterations = 300}) async {
+  Future<void> pumpUntil(bool Function() pred, {int iterations = 300}) async {
     for (var i = 0; i < iterations; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 10));
       if (pred()) return;
@@ -161,50 +160,58 @@ void main() {
   /// A finished (completed) workflow run handed to [injectWorkflowResult] for
   /// [conversationId] — the production path that wakes ANY conversation (not
   /// just the focused one) with a synthetic turn.
-  WorkflowRun finishedRun(String conversationId) => WorkflowRun(
-        id: '1',
-        workflowName: 'default',
-        conversationId: conversationId,
-        goal: null,
-        input: 'task',
-        cancel: Completer<void>(),
-      )
-    ..status = WorkflowRunStatus.completed
-    ..outcome = const Outcome.success(text: 'all green');
+  WorkflowRun finishedRun(String conversationId) =>
+      WorkflowRun(
+          id: '1',
+          workflowName: 'default',
+          conversationId: conversationId,
+          goal: null,
+          input: 'task',
+          cancel: Completer<void>(),
+        )
+        ..status = WorkflowRunStatus.completed
+        ..outcome = const Outcome.success(text: 'all green');
 
   test(
-      'a turn that ends while its panel is unfocused still clears the busy cue',
-      () async {
-    rl.enqueue('go');
-    final runFuture = controller.run();
-    await pumpUntil(() => mainConv.isRunning);
-    expect(mainCue, contains(true),
-        reason: 'a focused running turn raises its own panel cue');
+    'a turn that ends while its panel is unfocused still clears the busy cue',
+    () async {
+      rl.enqueue('go');
+      final runFuture = controller.run();
+      await pumpUntil(() => mainConv.isRunning);
+      expect(
+        mainCue,
+        contains(true),
+        reason: 'a focused running turn raises its own panel cue',
+      );
 
-    // Cycle focus to the side panel — the real Ctrl+G path. The main turn
-    // keeps running in the background (its panel stays visible).
-    final cueAfterStart = mainCue.length;
-    coordinator.onFrameFocused(sideFrame);
-    await pumpUntil(() => sessionManager.activeConversationId == 'side');
+      // Cycle focus to the side panel — the real Ctrl+G path. The main turn
+      // keeps running in the background (its panel stays visible).
+      final cueAfterStart = mainCue.length;
+      coordinator.onFrameFocused(sideFrame);
+      await pumpUntil(() => sessionManager.activeConversationId == 'side');
 
-    // Complete the main turn while it is unfocused.
-    mainGate.release();
-    await pumpUntil(() => !mainConv.isRunning);
+      // Complete the main turn while it is unfocused.
+      mainGate.release();
+      await pumpUntil(() => !mainConv.isRunning);
 
-    // Two producers may clear (Agent.run's finally, then the session
-    // controller's turn-level clear) — hosts treat repeats as idempotent, so
-    // what's pinned is the settled state: nothing re-raised, and the cue
-    // cleared on every path.
-    expect(mainCue.skip(cueAfterStart), isNotEmpty);
-    expect(mainCue.skip(cueAfterStart), everyElement(isFalse),
-        reason: 'the turn ended unfocused: the busy cue must clear (and stay '
-            'cleared) so an idle panel shows a static border (tin-y4qn)');
-    rl.close();
-    await runFuture;
-  });
+      // Two producers may clear (Agent.run's finally, then the session
+      // controller's turn-level clear) — hosts treat repeats as idempotent, so
+      // what's pinned is the settled state: nothing re-raised, and the cue
+      // cleared on every path.
+      expect(mainCue.skip(cueAfterStart), isNotEmpty);
+      expect(
+        mainCue.skip(cueAfterStart),
+        everyElement(isFalse),
+        reason:
+            'the turn ended unfocused: the busy cue must clear (and stay '
+            'cleared) so an idle panel shows a static border (tin-y4qn)',
+      );
+      rl.close();
+      await runFuture;
+    },
+  );
 
-  test(
-      'a turn that starts while its panel is unfocused still raises (and '
+  test('a turn that starts while its panel is unfocused still raises (and '
       'clears) the busy cue', () async {
     // The side conversation is never focused here — active stays 'main'.
     controller.injectWorkflowResult(finishedRun('side'));
@@ -247,8 +254,7 @@ void main() {
     );
   });
 
-  test(
-      'an unfocused conversation keeps progressing: streams, completes, and '
+  test('an unfocused conversation keeps progressing: streams, completes, and '
       'drains its queue without focus', () async {
     controller.injectWorkflowResult(finishedRun('side'));
     await pumpUntil(() => sideConv.isRunning);
@@ -262,21 +268,33 @@ void main() {
     await pumpUntil(() => sideGate.callCount >= 2);
     sideGate.release();
     // Both exchanges complete; the conversation settles idle.
-    await pumpUntil(() =>
-        sideConv.history
-            .where((m) =>
-                m.role == Role.assistant &&
-                m.content.any((b) => b is TextBlock && b.text == 'done'))
-            .length >=
-        2);
+    await pumpUntil(
+      () =>
+          sideConv.history
+              .where(
+                (m) =>
+                    m.role == Role.assistant &&
+                    m.content.any((b) => b is TextBlock && b.text == 'done'),
+              )
+              .length >=
+          2,
+    );
     await pumpUntil(() => !sideConv.isRunning);
 
-    expect(sideConv.history.any((m) =>
-        m.role == Role.assistant &&
-        m.content.any((b) => b is TextBlock && b.text == 'done')), isTrue,
-        reason: 'the unfocused turn completed');
-    expect(sessionManager.activeConversationId, 'main',
-        reason: 'all of this happened while another panel held focus');
+    expect(
+      sideConv.history.any(
+        (m) =>
+            m.role == Role.assistant &&
+            m.content.any((b) => b is TextBlock && b.text == 'done'),
+      ),
+      isTrue,
+      reason: 'the unfocused turn completed',
+    );
+    expect(
+      sessionManager.activeConversationId,
+      'main',
+      reason: 'all of this happened while another panel held focus',
+    );
   });
 
   test('an idle panel shows a static border (no comet cells)', () async {
@@ -284,10 +302,16 @@ void main() {
     // repaint and assert the rails carry no comet head.
     final before = io.written.length;
     panelManager.primaryFrame.render();
-    expect(io.written.toString().substring(before).contains('━'), isFalse,
-        reason: 'an idle panel waiting for input must not animate');
-    expect(mainCue, isEmpty,
-        reason: 'no turn has run: no busy signal may ever have been raised');
+    expect(
+      io.written.toString().substring(before).contains('━'),
+      isFalse,
+      reason: 'an idle panel waiting for input must not animate',
+    );
+    expect(
+      mainCue,
+      isEmpty,
+      reason: 'no turn has run: no busy signal may ever have been raised',
+    );
   });
 }
 
@@ -300,7 +324,10 @@ HostInterface _unusedHostFactory({
     throw StateError('unexpected hostFactory call in panel busy cue harness');
 
 Conversation _conversation(
-    String id, LlmProvider provider, TuiConversationHost host) {
+  String id,
+  LlmProvider provider,
+  TuiConversationHost host,
+) {
   final policy = PermissionPolicy();
   return Conversation(
     id: id,
@@ -322,17 +349,16 @@ AgentDriver _agentBuilder({
   required LlmProvider provider,
   required HostInterface host,
   required PermissionPolicy policy,
-}) =>
-    AgentDriverAdapter(
-      Agent(
-        provider: provider,
-        tools: ToolRegistry(const []),
-        sink: host,
-        policy: policy,
-        asker: host.askPermission,
-        system: 'sys',
-      ),
-    );
+}) => AgentDriverAdapter(
+  Agent(
+    provider: provider,
+    tools: ToolRegistry(const []),
+    sink: host,
+    policy: policy,
+    asker: host.askPermission,
+    system: 'sys',
+  ),
+);
 
 /// A provider whose streams stay open until the test releases them, so a turn
 /// can be held mid-flight and completed deterministically.
@@ -364,7 +390,9 @@ class _GateProvider extends LlmProvider {
     yield const TextDelta('working\n\n');
     await gate.future;
     yield const MessageComplete(
-        content: [TextBlock('done')], stopReason: 'end_turn');
+      content: [TextBlock('done')],
+      stopReason: 'end_turn',
+    );
   }
 }
 

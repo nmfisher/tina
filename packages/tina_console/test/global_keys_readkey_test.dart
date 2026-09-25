@@ -68,7 +68,8 @@ Future<void> _flush() async {
     screen: screen,
     escapeTimeout: Duration.zero,
   );
-  final chat = _Panel('chat', const Rect(row: 0, col: 0, width: 40, height: 20));
+  final chat =
+      _Panel('chat', const Rect(row: 0, col: 0, width: 40, height: 20));
   final side =
       _Panel('side', const Rect(row: 0, col: 40, width: 40, height: 20));
   final fm = FocusManager()
@@ -193,7 +194,8 @@ void main() {
       expect((event as ControlKey).code, ControlCode.ctrlX);
     });
 
-    test("Ctrl+W engages cycling too; 'n' answers once cycling is off", () async {
+    test("Ctrl+W engages cycling too; 'n' answers once cycling is off",
+        () async {
       final (editor, fm, chat, side) = _rig(io);
       editor.readLine('> ');
       await _flush();
@@ -245,7 +247,8 @@ void main() {
     late FakeStdio io;
     setUp(() => io = FakeStdio());
 
-    test('still delivers Ctrl+G to the caller (screen-owning overlays)', () async {
+    test('still delivers Ctrl+G to the caller (screen-owning overlays)',
+        () async {
       final (editor, fm, chat, side) = _rig(io);
       editor.readLine('> ');
       await _flush();

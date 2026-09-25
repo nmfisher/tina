@@ -20,28 +20,36 @@ import '../helpers/fake_tool.dart';
 /// silently (no notice — the UI showed the content live on arrival).
 void main() {
   Message use(String id) => Message(
-      role: Role.assistant, content: [ToolUseBlock(id: id, name: 'big', input: const {})]);
+      role: Role.assistant,
+      content: [ToolUseBlock(id: id, name: 'big', input: const {})]);
   Message result(String id, String body) => Message(
       role: Role.user,
       content: [ToolResultBlock(toolUseId: id, content: body)]);
 
   /// History of [n] use/result batches; batch [i]'s body comes from [bodyFor].
   List<Message> batches(int n, String Function(int i) bodyFor) {
-    final history = <Message>[Message(role: Role.user, content: [TextBlock('go')])];
+    final history = <Message>[
+      Message(role: Role.user, content: [TextBlock('go')])
+    ];
     for (var i = 1; i <= n; i++) {
-      history..add(use('t$i'))..add(result('t$i', bodyFor(i)));
+      history
+        ..add(use('t$i'))
+        ..add(result('t$i', bodyFor(i)));
     }
     return history;
   }
 
   group('stubAgedToolResults (#44 unit)', () {
-    test('an old LARGE result is stubbed: size shrinks, id and pairing survive', () {
+    test('an old LARGE result is stubbed: size shrinks, id and pairing survive',
+        () {
       final history = batches(12, (i) => i == 1 ? 'y' * 5000 : 'ok');
       final stubbed = stubAgedToolResults(history, currentStep: 12);
 
       expect(stubbed, 1, reason: 'only batch 1 is both old (age 11) and large');
-      final block = history[2].content.single as ToolResultBlock; // batch 1's result
-      expect(block.toolUseId, 't1', reason: 'the id is preserved — pairing intact');
+      final block =
+          history[2].content.single as ToolResultBlock; // batch 1's result
+      expect(block.toolUseId, 't1',
+          reason: 'the id is preserved — pairing intact');
       expect(block.content,
           '[elided after 11 steps: big result, 5000 bytes — re-run to recover]');
       expect(block.content.length, lessThan(100));
@@ -62,15 +70,19 @@ void main() {
       expect(useIds, resultIds);
     });
 
-    test('a RECENT large result is untouched (inside the retention window)', () {
+    test('a RECENT large result is untouched (inside the retention window)',
+        () {
       final history = batches(12, (i) => i == 12 ? 'y' * 5000 : 'ok');
       expect(stubAgedToolResults(history, currentStep: 12), 0);
       // Batch 12's result message sits at index 2×12 = 24 (index 0 is 'go').
-      expect((history[24].content.single as ToolResultBlock).content.length, 5000,
+      expect(
+          (history[24].content.single as ToolResultBlock).content.length, 5000,
           reason: 'batch 12 is age 0 — the current step is never touched');
     });
 
-    test('the age boundary: age exactly kToolResultRetentionSteps stays, age +1 stubs', () {
+    test(
+        'the age boundary: age exactly kToolResultRetentionSteps stays, age +1 stubs',
+        () {
       // Batch 4 of a 12-step turn: age 12 - 4 = 8 = the window — kept.
       var history = batches(12, (i) => i == 4 ? 'y' * 5000 : 'ok');
       expect(stubAgedToolResults(history, currentStep: 12), 0,
@@ -80,11 +92,14 @@ void main() {
       expect(stubAgedToolResults(history, currentStep: 12), 1);
     });
 
-    test('the size boundary: exactly the threshold stays, one byte over stubs', () {
-      var history = batches(12, (i) => i == 1 ? 'y' * kToolResultStubThreshold : 'ok');
+    test('the size boundary: exactly the threshold stays, one byte over stubs',
+        () {
+      var history =
+          batches(12, (i) => i == 1 ? 'y' * kToolResultStubThreshold : 'ok');
       expect(stubAgedToolResults(history, currentStep: 12), 0,
           reason: 'threshold is a minimum EXCEEDED, not met');
-      history = batches(12, (i) => i == 1 ? 'y' * (kToolResultStubThreshold + 1) : 'ok');
+      history = batches(
+          12, (i) => i == 1 ? 'y' * (kToolResultStubThreshold + 1) : 'ok');
       expect(stubAgedToolResults(history, currentStep: 12), 1);
       final bytes = (history[2].content.single as ToolResultBlock).content;
       expect(bytes, contains('${kToolResultStubThreshold + 1} bytes'));
@@ -98,9 +113,9 @@ void main() {
 
     test('isError results keep their error flag through the stub', () {
       final history = batches(12, (i) => i == 1 ? 'y' * 5000 : 'ok');
-      history[2] = Message(
-          role: Role.user,
-          content: [ToolResultBlock(toolUseId: 't1', isError: true, content: 'y' * 5000)]);
+      history[2] = Message(role: Role.user, content: [
+        ToolResultBlock(toolUseId: 't1', isError: true, content: 'y' * 5000)
+      ]);
       stubAgedToolResults(history, currentStep: 12);
       expect((history[2].content.single as ToolResultBlock).isError, isTrue);
     });
@@ -130,7 +145,8 @@ void main() {
     // autoCompactThreshold = 0 isolates stubbing from compaction: the stub
     // pass runs before and OUTSIDE the compaction gate, so the wire below
     // shows pure stubbing with no summarizer request ever sent.
-    test('stubs reach the wire silently, pairing intact, recent results full', () async {
+    test('stubs reach the wire silently, pairing intact, recent results full',
+        () async {
       List<StreamEvent> round(String id) => [
             MessageComplete(
               content: [ToolUseBlock(id: id, name: 'big', input: const {})],

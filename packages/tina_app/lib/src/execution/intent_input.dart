@@ -56,16 +56,19 @@ class IntentInput implements Component, InputProcessor, StatusSource {
     final invocation = input.invocation;
     void publish(IntentPhase phase, [IntentResult? result]) {
       void deliver() {
-        if (_closed || !identical(_latest[input.conversationId], cancel)) return;
+        if (_closed || !identical(_latest[input.conversationId], cancel))
+          return;
         _values[input.conversationId] = IntentStatus(input.id, phase, result);
         _changes.add(null);
       }
+
       if (invocation == null || phase == IntentPhase.cancelled) {
         deliver();
       } else {
         invocation.output(deliver);
       }
     }
+
     publish(IntentPhase.checking);
     var finished = false;
     input.cancelSignal.then((_) {
@@ -87,15 +90,17 @@ class IntentInput implements Component, InputProcessor, StatusSource {
           input.isCancelled
               ? IntentPhase.cancelled
               : result == null
-                  ? IntentPhase.unavailable
-                  : IntentPhase.ready,
+              ? IntentPhase.unavailable
+              : IntentPhase.ready,
           result,
         );
         return InputDecision.pass(
           data: result == null ? const {} : {'intent': result.toJson()},
         );
       } catch (_) {
-        publish(input.isCancelled ? IntentPhase.cancelled : IntentPhase.unavailable);
+        publish(
+          input.isCancelled ? IntentPhase.cancelled : IntentPhase.unavailable,
+        );
         return const InputDecision.pass();
       } finally {
         finished = true;
@@ -104,6 +109,7 @@ class IntentInput implements Component, InputProcessor, StatusSource {
         _running.remove(cancel);
       }
     }
+
     final pending = work();
     if (!background) return pending;
     input.background(pending.then((_) {}));
@@ -127,10 +133,10 @@ PluginDescriptor intentInputPlugin({
   required IntentCheck classify,
   bool background = true,
 }) => PluginDescriptor(
-      id: 'tina.intent-input',
-      factory: FnPluginFactory((context) {
-        final plugin = IntentInput(classify, background: background);
-        context.register(plugin, dispose: plugin.dispose);
-        return plugin;
-      }),
-    );
+  id: 'tina.intent-input',
+  factory: FnPluginFactory((context) {
+    final plugin = IntentInput(classify, background: background);
+    context.register(plugin, dispose: plugin.dispose);
+    return plugin;
+  }),
+);

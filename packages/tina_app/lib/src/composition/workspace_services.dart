@@ -13,8 +13,9 @@ import 'package:tina_app/src/composition/execution_runtime.dart';
 SummaryInspection buildSummaryInspection({
   required String workspaceRoot,
   AllocationsStore? allocations,
-}) =>
-    SummaryInspection(repository: _summaryRepository(workspaceRoot, allocations));
+}) => SummaryInspection(
+  repository: _summaryRepository(workspaceRoot, allocations),
+);
 
 GitSummaryRepository _summaryRepository(
   String project,

@@ -32,9 +32,10 @@ class TmuxSupport {
     required this.env,
     ProcessRunner? processRunner,
     Directory? tinaDir,
-  })  : processRunner = processRunner ?? const IoProcessRunner(),
-        tinaDir = tinaDir ??
-            Directory(p.join(env['HOME'] ?? env['USERPROFILE'] ?? '.', '.tina'));
+  }) : processRunner = processRunner ?? const IoProcessRunner(),
+       tinaDir =
+           tinaDir ??
+           Directory(p.join(env['HOME'] ?? env['USERPROFILE'] ?? '.', '.tina'));
 
   /// Whether we're running inside a tmux server — the `$TMUX` socket path is
   /// set by tmux for every client it spawns.
@@ -77,9 +78,12 @@ class TmuxSupport {
     try {
       final result = await processRunner.run('tmux', ['detach-client']);
       if (result.exitCode == 0) return (ok: true, error: null);
-      return (ok: false, error: result.stderr.trim().isEmpty
-          ? 'tmux detach-client exited ${result.exitCode}'
-          : result.stderr.trim());
+      return (
+        ok: false,
+        error: result.stderr.trim().isEmpty
+            ? 'tmux detach-client exited ${result.exitCode}'
+            : result.stderr.trim(),
+      );
     } on ProcessException catch (e) {
       return (ok: false, error: e.message);
     } on FileSystemException catch (e) {

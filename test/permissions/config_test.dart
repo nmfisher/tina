@@ -162,47 +162,51 @@ void main() {
       expect(_parse(['--no-sandbox']).sandboxEnabled, isFalse);
     });
 
-    test('sandbox precedence: explicit flag > --yolo > defaults (tin-y9k2)',
-        () {
-      // Default: sandbox on, no off-reason.
-      final plain = _parse([]);
-      expect(plain.sandboxEnabled, isTrue);
-      expect(plain.sandboxOffReason, isNull);
+    test(
+      'sandbox precedence: explicit flag > --yolo > defaults (tin-y9k2)',
+      () {
+        // Default: sandbox on, no off-reason.
+        final plain = _parse([]);
+        expect(plain.sandboxEnabled, isTrue);
+        expect(plain.sandboxOffReason, isNull);
 
-      // --yolo alone turns the sandbox OFF and says why.
-      final yolo = _parse(['--yolo']);
-      expect(yolo.sandboxEnabled, isFalse);
-      expect(yolo.sandboxOffReason, contains('--yolo'));
+        // --yolo alone turns the sandbox OFF and says why.
+        final yolo = _parse(['--yolo']);
+        expect(yolo.sandboxEnabled, isFalse);
+        expect(yolo.sandboxOffReason, contains('--yolo'));
 
-      // --yolo --sandbox: explicit flag beats yolo — sandbox stays ON.
-      final yoloSandbox = _parse(['--yolo', '--sandbox']);
-      expect(yoloSandbox.sandboxEnabled, isTrue);
-      expect(yoloSandbox.sandboxOffReason, isNull);
+        // --yolo --sandbox: explicit flag beats yolo — sandbox stays ON.
+        final yoloSandbox = _parse(['--yolo', '--sandbox']);
+        expect(yoloSandbox.sandboxEnabled, isTrue);
+        expect(yoloSandbox.sandboxOffReason, isNull);
 
-      // --no-sandbox keeps the explicit wording; yolo does not rewrite it.
-      final explicitOff = _parse(['--no-sandbox']);
-      expect(explicitOff.sandboxEnabled, isFalse);
-      expect(explicitOff.sandboxOffReason, contains('--no-sandbox'));
-      final bothOff = _parse(['--yolo', '--no-sandbox']);
-      expect(bothOff.sandboxEnabled, isFalse);
-      expect(bothOff.sandboxOffReason, contains('--no-sandbox'));
-    });
+        // --no-sandbox keeps the explicit wording; yolo does not rewrite it.
+        final explicitOff = _parse(['--no-sandbox']);
+        expect(explicitOff.sandboxEnabled, isFalse);
+        expect(explicitOff.sandboxOffReason, contains('--no-sandbox'));
+        final bothOff = _parse(['--yolo', '--no-sandbox']);
+        expect(bothOff.sandboxEnabled, isFalse);
+        expect(bothOff.sandboxOffReason, contains('--no-sandbox'));
+      },
+    );
 
-    test('--sandbox-net / --sandbox-readonly default off, flags turn them on',
-        () {
-      expect(_parse([]).sandboxNet, isFalse);
-      expect(_parse([]).sandboxReadOnly, isFalse);
-      expect(_parse(['--sandbox-net']).sandboxNet, isTrue);
-      expect(_parse(['--sandbox-readonly']).sandboxReadOnly, isTrue);
-      // They compose with each other and with --no-sandbox (which wins for
-      // the runner: disabled is disabled).
-      final both = _parse(['--sandbox-net', '--sandbox-readonly']);
-      expect(both.sandboxNet, isTrue);
-      expect(both.sandboxReadOnly, isTrue);
-      final off = _parse(['--no-sandbox', '--sandbox-net']);
-      expect(off.sandboxEnabled, isFalse);
-      expect(off.sandboxNet, isTrue);
-    });
+    test(
+      '--sandbox-net / --sandbox-readonly default off, flags turn them on',
+      () {
+        expect(_parse([]).sandboxNet, isFalse);
+        expect(_parse([]).sandboxReadOnly, isFalse);
+        expect(_parse(['--sandbox-net']).sandboxNet, isTrue);
+        expect(_parse(['--sandbox-readonly']).sandboxReadOnly, isTrue);
+        // They compose with each other and with --no-sandbox (which wins for
+        // the runner: disabled is disabled).
+        final both = _parse(['--sandbox-net', '--sandbox-readonly']);
+        expect(both.sandboxNet, isTrue);
+        expect(both.sandboxReadOnly, isTrue);
+        final off = _parse(['--no-sandbox', '--sandbox-net']);
+        expect(off.sandboxEnabled, isFalse);
+        expect(off.sandboxNet, isTrue);
+      },
+    );
 
     test('--max-steps defaults to 500 and accepts overrides', () {
       expect(_parse([]).maxSteps, 500);
@@ -230,46 +234,48 @@ void main() {
       expect(c.maxSteps, 500);
     });
 
-    test('--yolo lifts every budget; an explicit flag still wins (tin-y9k2)',
-        () {
-      final c = _parse(['--yolo']);
-      expect(c.sandboxEnabled, isFalse);
-      expect(c.maxTurnTokens, 0);
-      expect(c.maxSessionTokens, 0);
-      expect(c.maxRequestTokens, 0);
-      expect(c.maxGlobalTokens, 0);
-      expect(c.maxSubAgentTokens, 0);
-      expect(c.maxSubAgentDepth, 0);
-      expect(c.maxSubAgentConcurrency, 0);
-      expect(c.maxSteps, 0);
+    test(
+      '--yolo lifts every budget; an explicit flag still wins (tin-y9k2)',
+      () {
+        final c = _parse(['--yolo']);
+        expect(c.sandboxEnabled, isFalse);
+        expect(c.maxTurnTokens, 0);
+        expect(c.maxSessionTokens, 0);
+        expect(c.maxRequestTokens, 0);
+        expect(c.maxGlobalTokens, 0);
+        expect(c.maxSubAgentTokens, 0);
+        expect(c.maxSubAgentDepth, 0);
+        expect(c.maxSubAgentConcurrency, 0);
+        expect(c.maxSteps, 0);
 
-      // Explicit flag > --yolo: a bounded yolo run stays bounded.
-      final bounded = _parse(['--yolo', '--max-steps', '50']);
-      expect(bounded.maxSteps, 50);
-      expect(
-        _parse(['--yolo', '--max-turn-tokens', '500000']).maxTurnTokens,
-        500000,
-      );
+        // Explicit flag > --yolo: a bounded yolo run stays bounded.
+        final bounded = _parse(['--yolo', '--max-steps', '50']);
+        expect(bounded.maxSteps, 50);
+        expect(
+          _parse(['--yolo', '--max-turn-tokens', '500000']).maxTurnTokens,
+          500000,
+        );
 
-      // Config-file values are ignored under --yolo (file < yolo)...
-      final withFile = Config.parse(
-        const ['--yolo'],
-        env: const {'ANTHROPIC_API_KEY': 'test'},
-        userConfig: const UserConfig(
-          limits: LimitsConfig(maxTurnTokens: 250000),
-        ),
-      );
-      expect(withFile.maxTurnTokens, 0);
-      // ...and still honored without it (file < default? no: file > default).
-      final noYoloFile = Config.parse(
-        const [],
-        env: const {'ANTHROPIC_API_KEY': 'test'},
-        userConfig: const UserConfig(
-          limits: LimitsConfig(maxTurnTokens: 250000),
-        ),
-      );
-      expect(noYoloFile.maxTurnTokens, 250000);
-    });
+        // Config-file values are ignored under --yolo (file < yolo)...
+        final withFile = Config.parse(
+          const ['--yolo'],
+          env: const {'ANTHROPIC_API_KEY': 'test'},
+          userConfig: const UserConfig(
+            limits: LimitsConfig(maxTurnTokens: 250000),
+          ),
+        );
+        expect(withFile.maxTurnTokens, 0);
+        // ...and still honored without it (file < default? no: file > default).
+        final noYoloFile = Config.parse(
+          const [],
+          env: const {'ANTHROPIC_API_KEY': 'test'},
+          userConfig: const UserConfig(
+            limits: LimitsConfig(maxTurnTokens: 250000),
+          ),
+        );
+        expect(noYoloFile.maxTurnTokens, 250000);
+      },
+    );
 
     test('--watchdog-seconds defaults to 300; overrides and 0 kept', () {
       expect(_parse([]).watchdogSeconds, 300);
@@ -401,11 +407,15 @@ void main() {
     });
 
     test('accepts overrides and keeps 0 as the explicit off', () {
-      expect(_parse(['--transport-retry-attempts', '3'])
-          .transportRetryAttempts, 3);
-      expect(_parse(['--transport-retry-attempts', '0'])
-          .transportRetryAttempts, 0,
-          reason: '0 disables the ladder — abort on first mid-stream error');
+      expect(
+        _parse(['--transport-retry-attempts', '3']).transportRetryAttempts,
+        3,
+      );
+      expect(
+        _parse(['--transport-retry-attempts', '0']).transportRetryAttempts,
+        0,
+        reason: '0 disables the ladder — abort on first mid-stream error',
+      );
     });
 
     test('rejects negative and non-integer', () {

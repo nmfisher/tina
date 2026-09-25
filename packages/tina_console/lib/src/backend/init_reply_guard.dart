@@ -281,9 +281,8 @@ class StdinBridge {
     if (_os.bridgeMasterFd < 0 || bytes.isEmpty) return;
     var written = 0;
     while (written < bytes.length) {
-      final n =
-          _os.writeBytes(_os.bridgeMasterFd, Uint8List.sublistView(
-              bytes, written));
+      final n = _os.writeBytes(
+          _os.bridgeMasterFd, Uint8List.sublistView(bytes, written));
       if (n <= 0) {
         _buffer(Uint8List.sublistView(bytes, written));
         return;
@@ -324,8 +323,8 @@ class StdinBridge {
         chunks++;
         var written = 0;
         while (written < chunk.length) {
-          final n = _os.writeBytes(_os.bridgeMasterFd,
-              Uint8List.sublistView(chunk, written));
+          final n = _os.writeBytes(
+              _os.bridgeMasterFd, Uint8List.sublistView(chunk, written));
           if (n <= 0) {
             _buffer(Uint8List.sublistView(chunk, written));
             written = chunk.length;
@@ -357,8 +356,7 @@ class StdinBridge {
       if (n >= _pending.length) {
         _pending = Uint8List(0);
       } else {
-        _pending = Uint8List.fromList(
-            Uint8List.sublistView(_pending, n));
+        _pending = Uint8List.fromList(Uint8List.sublistView(_pending, n));
       }
     }
   }
@@ -779,19 +777,18 @@ class PosixReplyGuardOs implements ReplyGuardOs {
   }
 
   static int Function(
-          ffi.Pointer<ffi.Int32>,
-          ffi.Pointer<ffi.Int32>,
-          ffi.Pointer<ffi.Uint8>,
-          ffi.Pointer<ffi.Void>,
-          ffi.Pointer<ffi.Void>)?
-      _openptyFn;
+      ffi.Pointer<ffi.Int32>,
+      ffi.Pointer<ffi.Int32>,
+      ffi.Pointer<ffi.Uint8>,
+      ffi.Pointer<ffi.Void>,
+      ffi.Pointer<ffi.Void>)? _openptyFn;
 
   static int Function(
-          ffi.Pointer<ffi.Int32>,
-          ffi.Pointer<ffi.Int32>,
-          ffi.Pointer<ffi.Uint8>,
-          ffi.Pointer<ffi.Void>,
-          ffi.Pointer<ffi.Void>)? get _openpty {
+      ffi.Pointer<ffi.Int32>,
+      ffi.Pointer<ffi.Int32>,
+      ffi.Pointer<ffi.Uint8>,
+      ffi.Pointer<ffi.Void>,
+      ffi.Pointer<ffi.Void>)? get _openpty {
     final lib = _openptyLib;
     if (lib == null) return null;
     return _openptyFn ??= lib.lookupFunction<
@@ -824,9 +821,9 @@ class PosixReplyGuardOs implements ReplyGuardOs {
       ffi.Void Function(ffi.Pointer<ffi.Void>),
       void Function(ffi.Pointer<ffi.Void>)>('free');
 
-  static final _isatty = _libc.lookupFunction<
-      ffi.Int32 Function(ffi.Int32),
-      int Function(int)>('isatty');
+  static final _isatty =
+      _libc.lookupFunction<ffi.Int32 Function(ffi.Int32), int Function(int)>(
+          'isatty');
 
   static final _write = _libc.lookupFunction<
       ffi.Int64 Function(ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Int64),
@@ -839,19 +836,17 @@ class PosixReplyGuardOs implements ReplyGuardOs {
       ffi.Int32 Function(ffi.Pointer<ffi.Uint8>, ffi.Uint64, ffi.Int32),
       int Function(ffi.Pointer<ffi.Uint8>, int, int)>('poll');
 
-  static final _dup = _libc.lookupFunction<
-      ffi.Int32 Function(ffi.Int32),
-      int Function(int)>('dup');
+  static final _dup = _libc
+      .lookupFunction<ffi.Int32 Function(ffi.Int32), int Function(int)>('dup');
   static final _dup2 = _libc.lookupFunction<
-      ffi.Int32 Function(ffi.Int32, ffi.Int32),
-      int Function(int, int)>('dup2');
-  static final _close = _libc.lookupFunction<
-      ffi.Int32 Function(ffi.Int32),
-      int Function(int)>('close');
+      ffi.Int32 Function(ffi.Int32, ffi.Int32), int Function(int, int)>('dup2');
+  static final _close =
+      _libc.lookupFunction<ffi.Int32 Function(ffi.Int32), int Function(int)>(
+          'close');
 
   static final _memcpy = _libc.lookupFunction<
-      ffi.Pointer<ffi.Uint8> Function(ffi.Pointer<ffi.Uint8>,
-          ffi.Pointer<ffi.Uint8>, ffi.Uint64),
+      ffi.Pointer<ffi.Uint8> Function(
+          ffi.Pointer<ffi.Uint8>, ffi.Pointer<ffi.Uint8>, ffi.Uint64),
       ffi.Pointer<ffi.Uint8> Function(
           ffi.Pointer<ffi.Uint8>, ffi.Pointer<ffi.Uint8>, int)>('memcpy');
 
@@ -872,8 +867,8 @@ class PosixReplyGuardOs implements ReplyGuardOs {
       int Function(int, int, int)>('fcntl');
 
   static final _ioctl = _libc.lookupFunction<
-      ffi.Int32 Function(ffi.Int32, ffi.UnsignedLong,
-          ffi.VarArgs<(ffi.Pointer<ffi.Void>,)>),
+      ffi.Int32 Function(
+          ffi.Int32, ffi.UnsignedLong, ffi.VarArgs<(ffi.Pointer<ffi.Void>,)>),
       int Function(int, int, ffi.Pointer<ffi.Void>)>('ioctl');
 }
 

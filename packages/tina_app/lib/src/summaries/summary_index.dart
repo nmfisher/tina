@@ -2,7 +2,8 @@ import 'package:tina_engine/tina_engine.dart';
 import 'package:tina_app/src/execution/workspace_execution.dart';
 import 'package:tina_app/src/summaries/summary_repository.dart';
 import 'package:tina_app/src/summaries/summary_models.dart';
-export 'package:tina_app/src/summaries/summary_models.dart' show SummaryIndexStatus, SummaryIndexResult;
+export 'package:tina_app/src/summaries/summary_models.dart'
+    show SummaryIndexStatus, SummaryIndexResult;
 
 abstract interface class SummaryFleet {
   /// Owns execution resources until settled. Throws before recording on failure.
@@ -48,7 +49,10 @@ class SummaryIndex extends SummaryInspection {
       final usage = await fleet.run(
         plan,
         RunInteraction(
-            host: host, cancelSignal: cancelSignal, modelRef: modelRef),
+          host: host,
+          cancelSignal: cancelSignal,
+          modelRef: modelRef,
+        ),
       );
       landed = repository.record(plan);
       // Preserve accounting: summary spend merges only after recording/commit.

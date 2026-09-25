@@ -100,9 +100,10 @@ class ChatBlock {
   }) : folded = folded ?? kind.startsFolded;
 
   /// A message from the user.
-  factory ChatBlock.user(String text,
-          {ChatSpeaker speaker = ChatSpeaker.you}) =>
-      ChatBlock(speaker: speaker, kind: ChatBlockKind.user, subject: text);
+  factory ChatBlock.user(
+    String text, {
+    ChatSpeaker speaker = ChatSpeaker.you,
+  }) => ChatBlock(speaker: speaker, kind: ChatBlockKind.user, subject: text);
 
   /// A paragraph of the agent's answer, already rendered from markdown.
   factory ChatBlock.prose(ChatSpeaker speaker, List<MarkdownLine> lines) =>
@@ -115,14 +116,13 @@ class ChatBlock {
     ChatSpeaker speaker,
     String text, {
     bool complete = true,
-  }) =>
-      ChatBlock(
-        speaker: speaker,
-        kind: ChatBlockKind.reasoning,
-        body: plainLines(text),
-        subject: complete ? 'reasoning' : 'reasoning (partial)',
-        status: '${text.length} chars',
-      );
+  }) => ChatBlock(
+    speaker: speaker,
+    kind: ChatBlockKind.reasoning,
+    body: plainLines(text),
+    subject: complete ? 'reasoning' : 'reasoning (partial)',
+    status: '${text.length} chars',
+  );
 
   /// A tool call. [subject] is the one-line description (`bash · grep -rn …`),
   /// [status] its outcome (`ok · 41ms`, `failed · 1.4s`); [body] is the output,
@@ -132,14 +132,13 @@ class ChatBlock {
     required String subject,
     String? status,
     List<MarkdownLine> body = const [],
-  }) =>
-      ChatBlock(
-        speaker: speaker,
-        kind: ChatBlockKind.toolCall,
-        subject: subject,
-        status: status,
-        body: body,
-      );
+  }) => ChatBlock(
+    speaker: speaker,
+    kind: ChatBlockKind.toolCall,
+    subject: subject,
+    status: status,
+    body: body,
+  );
 
   /// A notice — a status line rather than conversation. Never folds.
   ///
@@ -147,13 +146,16 @@ class ChatBlock {
   /// glyph: the severity glyphs worth having (⚠ ✓ ✗) are East Asian Ambiguous,
   /// which tina's width table counts as one cell while some terminals lay them
   /// out as two — the drift behind tin-q4vz. A word is unambiguous everywhere.
-  factory ChatBlock.notice(ChatSpeaker speaker, String text, {String? notice}) =>
-      ChatBlock(
-        speaker: speaker,
-        kind: ChatBlockKind.notice,
-        subject: text,
-        notice: notice,
-      );
+  factory ChatBlock.notice(
+    ChatSpeaker speaker,
+    String text, {
+    String? notice,
+  }) => ChatBlock(
+    speaker: speaker,
+    kind: ChatBlockKind.notice,
+    subject: text,
+    notice: notice,
+  );
 
   final ChatSpeaker speaker;
   final ChatBlockKind kind;
@@ -225,9 +227,7 @@ List<MarkdownLine> renderTranscript(
   if (width <= kMargin.length) {
     // Too narrow for even the margin: degrade to plain content rather than
     // emit lines the region would wrap into misaligned soup.
-    return [
-      for (final block in blocks) ..._bodyLines(block),
-    ];
+    return [for (final block in blocks) ..._bodyLines(block)];
   }
 
   final contentWidth = width - kMargin.length;
@@ -268,11 +268,7 @@ List<MarkdownLine> _renderBlock(ChatBlock block, int width) {
   final nestedWidth = width - (kNestedPrefix.length - kMargin.length);
   return [
     ..._prefixAll(header(), kMargin, kMargin),
-    ..._prefixAll(
-      _wrap(block.body, nestedWidth),
-      kNestedPrefix,
-      kNestedPrefix,
-    ),
+    ..._prefixAll(_wrap(block.body, nestedWidth), kNestedPrefix, kNestedPrefix),
   ];
 }
 
@@ -299,12 +295,11 @@ MarkdownLine? _oneLine(ChatBlock block, int width) {
 /// The kind's leading marker. Reasoning's triangle also reports its fold
 /// state, so the state is legible without colour.
 String _glyph(ChatBlock block) => switch (block.kind) {
-      ChatBlockKind.reasoning => block.folded ? '▸ ' : '▾ ',
-      ChatBlockKind.toolCall => '→ ',
-      ChatBlockKind.notice =>
-        block.notice == null ? '' : '${block.notice} · ',
-      ChatBlockKind.user || ChatBlockKind.prose => '',
-    };
+  ChatBlockKind.reasoning => block.folded ? '▸ ' : '▾ ',
+  ChatBlockKind.toolCall => '→ ',
+  ChatBlockKind.notice => block.notice == null ? '' : '${block.notice} · ',
+  ChatBlockKind.user || ChatBlockKind.prose => '',
+};
 
 /// [text] shortened to [max] columns, keeping its head and its tail: `head…tail`
 /// totals at most [max]. Used for one-line subjects, whose tail carries meaning
@@ -387,13 +382,12 @@ List<MarkdownLine> _prefixAll(
       freshBlock = true;
       continue;
     }
-    out.add(MarkdownLine(
-      bar: line.bar,
-      runs: [
-        MarkdownRun(freshBlock ? first : rest, null),
-        ...line.runs,
-      ],
-    ));
+    out.add(
+      MarkdownLine(
+        bar: line.bar,
+        runs: [MarkdownRun(freshBlock ? first : rest, null), ...line.runs],
+      ),
+    );
     freshBlock = false;
   }
   return out;
@@ -427,7 +421,9 @@ List<MarkdownLine> _wrap(List<MarkdownLine> lines, int width) {
       var text = token.text;
       while (plainWidth(text) > width) {
         final head = _takeWidth(text, width);
-        out.add(MarkdownLine(bar: line.bar, runs: [MarkdownRun(head, token.code)]));
+        out.add(
+          MarkdownLine(bar: line.bar, runs: [MarkdownRun(head, token.code)]),
+        );
         text = text.substring(head.length);
       }
       if (text.isEmpty) continue;
@@ -504,14 +500,16 @@ String _takeWidth(String text, int width) {
 
 /// Plain content lines from [text] — one visual line per source line.
 List<MarkdownLine> plainLines(String text) => [
-      for (final line in text.split('\n'))
-        line.isEmpty
-            ? const MarkdownLine.blank()
-            : MarkdownLine(runs: [MarkdownRun(line, null)]),
-    ];
+  for (final line in text.split('\n'))
+    line.isEmpty
+        ? const MarkdownLine.blank()
+        : MarkdownLine(runs: [MarkdownRun(line, null)]),
+];
 
 /// The body lines of a block, for the too-narrow fallback where there is no
 /// room even for the margin.
 List<MarkdownLine> _bodyLines(ChatBlock block) => block.body.isEmpty
-    ? [MarkdownLine(runs: [MarkdownRun(block.subject, null)])]
+    ? [
+        MarkdownLine(runs: [MarkdownRun(block.subject, null)]),
+      ]
     : block.body;

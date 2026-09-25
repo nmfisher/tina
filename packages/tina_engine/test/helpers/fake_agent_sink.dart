@@ -35,12 +35,12 @@ class FakeAgentSink implements AgentSink {
 
   /// Streamed reasoning, as delivered: one entry per chunk, plus a closing entry
   /// with [complete] set ('' text) when a block ends.
-  final List<({String text, bool startsBlock, bool? complete})> reasoningChunks =
-      [];
+  final List<({String text, bool startsBlock, bool? complete})>
+      reasoningChunks = [];
 
   @override
-  void reasoning(String text, {bool startsBlock = false}) =>
-      reasoningChunks.add((text: text, startsBlock: startsBlock, complete: null));
+  void reasoning(String text, {bool startsBlock = false}) => reasoningChunks
+      .add((text: text, startsBlock: startsBlock, complete: null));
 
   @override
   void reasoningEnd({required bool complete}) =>

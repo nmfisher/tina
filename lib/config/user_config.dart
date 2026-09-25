@@ -111,15 +111,14 @@ class SessionsConfig {
   const SessionsConfig({this.provider, this.jsonlRoot});
 
   factory SessionsConfig.fromMap(Map<String, dynamic> m) => SessionsConfig(
-        provider: m['provider'] as String?,
-        jsonlRoot: (m['jsonl'] as Map?)?['root'] as String?,
-      );
+    provider: m['provider'] as String?,
+    jsonlRoot: (m['jsonl'] as Map?)?['root'] as String?,
+  );
 
   Map<String, dynamic> toMap() => {
-        if (provider != null) 'provider': provider,
-        if (jsonlRoot != null)
-          'jsonl': {'root': jsonlRoot},
-      };
+    if (provider != null) 'provider': provider,
+    if (jsonlRoot != null) 'jsonl': {'root': jsonlRoot},
+  };
 
   bool get isEmpty => provider == null && jsonlRoot == null;
 }
@@ -736,7 +735,9 @@ class UserConfig {
       featuresWorkflow: featuresWorkflow,
       indexSkipHidden: (m['index'] as Map?)?['skip_hidden'] as bool?,
       regions: regionsRaw == null ? null : RegionsConfig.fromMap(regionsRaw),
-      sessions: sessionsRaw == null ? null : SessionsConfig.fromMap(sessionsRaw),
+      sessions: sessionsRaw == null
+          ? null
+          : SessionsConfig.fromMap(sessionsRaw),
       permissions: permissionsRaw == null
           ? null
           : PermissionsConfig.fromMap(permissionsRaw),

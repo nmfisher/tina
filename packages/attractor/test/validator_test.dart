@@ -7,16 +7,19 @@ void main() {
       final g = parseDot('digraph X { exit [shape=Msquare] }');
       final d = validate(g);
       expect(
-          d.any((e) => e.rule == 'start_node' && e.severity == Severity.error),
-          isTrue);
+        d.any((e) => e.rule == 'start_node' && e.severity == Severity.error),
+        isTrue,
+      );
     });
 
     test('flags a missing exit node', () {
       final g = parseDot('digraph X { start [shape=Mdiamond] }');
       expect(
-          validate(g).any(
-              (e) => e.rule == 'terminal_node' && e.severity == Severity.error),
-          isTrue);
+        validate(
+          g,
+        ).any((e) => e.rule == 'terminal_node' && e.severity == Severity.error),
+        isTrue,
+      );
     });
 
     test('flags an unreachable (orphan) node', () {
@@ -29,9 +32,11 @@ void main() {
         }
       ''');
       expect(
-          validate(g).any((e) =>
-              e.rule == 'reachability' && e.severity == Severity.error),
-          isTrue);
+        validate(
+          g,
+        ).any((e) => e.rule == 'reachability' && e.severity == Severity.error),
+        isTrue,
+      );
     });
 
     test('a valid graph produces no errors', () {
@@ -58,11 +63,14 @@ void main() {
       ''');
       final d = validate(g);
       expect(
-          d.any((e) =>
+        d.any(
+          (e) =>
               e.rule == 'context_key_unknown' &&
               e.severity == Severity.warning &&
-              e.nodeId == 'b'),
-          isTrue);
+              e.nodeId == 'b',
+        ),
+        isTrue,
+      );
     });
 
     test('context keys naming graph nodes or engine seeds pass clean', () {
@@ -75,9 +83,9 @@ void main() {
         }
       ''');
       expect(
-          validate(g)
-              .where((e) => e.rule == 'context_key_unknown'),
-          isEmpty);
+        validate(g).where((e) => e.rule == 'context_key_unknown'),
+        isEmpty,
+      );
     });
 
     test('validateOrRaise throws on errors', () {

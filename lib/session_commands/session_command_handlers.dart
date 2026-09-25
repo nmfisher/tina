@@ -46,7 +46,8 @@ class SessionCommandHandlers {
     Future<UpdatePrepareOutcome> Function(
       ReleaseInfo release,
       void Function(String line) notice,
-    )? prepareUpdateOverride,
+    )?
+    prepareUpdateOverride,
     PluginScope? pluginScope,
     Set<String>? hiddenFeatures,
   }) : this.withCapabilities(
@@ -81,7 +82,8 @@ class SessionCommandHandlers {
     Future<UpdatePrepareOutcome> Function(
       ReleaseInfo release,
       void Function(String line) notice,
-    )? prepareUpdateOverride,
+    )?
+    prepareUpdateOverride,
   }) : ctx = dispatch,
        usage = UsageCommands(usage),
        update = UpdateCommands(

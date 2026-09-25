@@ -20,9 +20,11 @@ void main() {
       final root = Directory(p.join(tmp.path, 'repo'))..createSync();
       // Minimal initialized repo: git init always writes .git/HEAD.
       final git = Directory(p.join(root.path, '.git'))..createSync();
-      File(p.join(git.path, 'HEAD')).writeAsStringSync('ref: refs/heads/main\n');
-      final nested =
-          Directory(p.join(root.path, 'a', 'b'))..createSync(recursive: true);
+      File(
+        p.join(git.path, 'HEAD'),
+      ).writeAsStringSync('ref: refs/heads/main\n');
+      final nested = Directory(p.join(root.path, 'a', 'b'))
+        ..createSync(recursive: true);
       expect(gitRepoRootFor(nested.path), root.path);
     });
 
@@ -30,20 +32,23 @@ void main() {
       expect(gitRepoRootFor(tmp.path), isNull);
     });
 
-    test('ignores an empty .git directory (interrupted init / debris)',
-        () async {
-      // Stray empty .git dirs in ancestors must not register as repos —
-      // git's own discovery rejects them (no HEAD), and so must we.
-      Directory(p.join(tmp.path, '.git')).createSync();
-      final nested =
-          Directory(p.join(tmp.path, 'sub'))..createSync(recursive: true);
-      expect(gitRepoRootFor(nested.path), isNull);
-    });
+    test(
+      'ignores an empty .git directory (interrupted init / debris)',
+      () async {
+        // Stray empty .git dirs in ancestors must not register as repos —
+        // git's own discovery rejects them (no HEAD), and so must we.
+        Directory(p.join(tmp.path, '.git')).createSync();
+        final nested = Directory(p.join(tmp.path, 'sub'))
+          ..createSync(recursive: true);
+        expect(gitRepoRootFor(nested.path), isNull);
+      },
+    );
 
     test('treats a .git file (worktree) as a repo root', () async {
       final root = Directory(p.join(tmp.path, 'worktree'))..createSync();
-      File(p.join(root.path, '.git')).writeAsStringSync(
-          'gitdir: /elsewhere/.git/worktrees/wt');
+      File(
+        p.join(root.path, '.git'),
+      ).writeAsStringSync('gitdir: /elsewhere/.git/worktrees/wt');
       expect(gitRepoRootFor(root.path), root.path);
     });
   });
@@ -63,8 +68,10 @@ void main() {
     });
 
     test('ignores comments, blanks, negations, and other paths', () {
-      expect(gitignoreCoversTina(['# .tina', '', '!.tina', 'build/', 'tina']),
-          isFalse);
+      expect(
+        gitignoreCoversTina(['# .tina', '', '!.tina', 'build/', 'tina']),
+        isFalse,
+      );
     });
 
     test('does not match lookalikes', () {
@@ -102,7 +109,8 @@ void main() {
     });
 
     test('inserts a newline when the file lacks a trailing one', () {
-      final f = File(p.join(tmp.path, '.gitignore'))..writeAsStringSync('build/');
+      final f = File(p.join(tmp.path, '.gitignore'))
+        ..writeAsStringSync('build/');
       addTinaToGitignore(f);
       expect(f.readAsStringSync(), 'build/\n.tina/\n');
     });
@@ -112,7 +120,8 @@ void main() {
     test('round-trips declined repo roots', () {
       final root = Directory(p.join(tmp.path, 'repo'))..createSync();
       final store = GitignoreAskStore(
-          File(p.join(tmp.path, 'gitignore_declined.json')));
+        File(p.join(tmp.path, 'gitignore_declined.json')),
+      );
       expect(store.isDeclined(root.path), isFalse);
       store.setDeclined(root.path, true);
       expect(store.isDeclined(root.path), isTrue);

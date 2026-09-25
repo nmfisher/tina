@@ -11,37 +11,59 @@ void main() {
   group('renderMarkdown — blocks', () {
     test('ATX headers drop the hashes and take the header style', () {
       final lines = renderMarkdown('## Done', style);
-      expect(lines, hasRuns([
-        [styledRun('Done', style.header)],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [styledRun('Done', style.header)],
+        ]),
+      );
     });
 
     test('header levels 1–6 all render', () {
-      for (final hashes in ['# ', '## ', '### ', '#### ', '##### ', '###### ']) {
+      for (final hashes in [
+        '# ',
+        '## ',
+        '### ',
+        '#### ',
+        '##### ',
+        '###### ',
+      ]) {
         final lines = renderMarkdown('${hashes}Title', style);
-        expect(lines.single.runs.single.code, style.header,
-            reason: 'header "$hashes" must carry the header style');
+        expect(
+          lines.single.runs.single.code,
+          style.header,
+          reason: 'header "$hashes" must carry the header style',
+        );
         expect(lines.single.runs.single.text, 'Title');
       }
     });
 
     test('paragraph renders as base-styled runs', () {
       final lines = renderMarkdown('just words', style);
-      expect(lines, hasRuns([
-        [plainRun('just words')],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [plainRun('just words')],
+        ]),
+      );
     });
 
     test('soft line breaks split a paragraph into visual lines', () {
       final lines = renderMarkdown('one\ntwo', style);
-      expect(lines, hasRuns([
-        [plainRun('one')],
-        [plainRun('two')],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [plainRun('one')],
+          [plainRun('two')],
+        ]),
+      );
     });
 
     test('fenced code block renders as bar lines, verbatim', () {
-      final lines = renderMarkdown('```\nint x = 1;\n  keep  spacing\n```', style);
+      final lines = renderMarkdown(
+        '```\nint x = 1;\n  keep  spacing\n```',
+        style,
+      );
       expect(lines.length, 2);
       for (final line in lines) {
         expect(line.bar, style.codeBlock);
@@ -64,19 +86,25 @@ void main() {
 
     test('bullet lists get markers and nesting indents', () {
       final lines = renderMarkdown('- a\n- b\n  - b1', style);
-      expect(lines, hasRuns([
-        [plainRun('• '), plainRun('a')],
-        [plainRun('• '), plainRun('b')],
-        [plainRun('  • '), plainRun('b1')],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [plainRun('• '), plainRun('a')],
+          [plainRun('• '), plainRun('b')],
+          [plainRun('  • '), plainRun('b1')],
+        ]),
+      );
     });
 
     test('ordered lists number from 1 (or the start attribute)', () {
       final lines = renderMarkdown('1. a\n2. b', style);
-      expect(lines, hasRuns([
-        [plainRun('1. '), plainRun('a')],
-        [plainRun('2. '), plainRun('b')],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [plainRun('1. '), plainRun('a')],
+          [plainRun('2. '), plainRun('b')],
+        ]),
+      );
     });
 
     test('loose list items (p-wrapped) still render on marker lines', () {
@@ -88,16 +116,20 @@ void main() {
 
     test('blockquote prefixes each line with a dim rail', () {
       final lines = renderMarkdown('> quoted\n> more', style);
-      expect(lines, hasRuns([
-        [styledRun('│ ', style.dim), plainRun('quoted')],
-        [styledRun('│ ', style.dim), plainRun('more')],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [styledRun('│ ', style.dim), plainRun('quoted')],
+          [styledRun('│ ', style.dim), plainRun('more')],
+        ]),
+      );
     });
 
     test('thematic break renders as a dim rule', () {
       final lines = renderMarkdown('a\n\n---\n\nb', style);
       final rule = lines.firstWhere(
-          (l) => l.runs.isNotEmpty && l.runs.first.text == '───');
+        (l) => l.runs.isNotEmpty && l.runs.first.text == '───',
+      );
       expect(rule.runs.single.code, style.dim);
     });
 
@@ -113,80 +145,117 @@ void main() {
   group('renderMarkdown — inlines', () {
     test('bold', () {
       final lines = renderMarkdown('a **b** c', style);
-      expect(lines, hasRuns([
-        [plainRun('a '), styledRun('b', '1'), plainRun(' c')],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [plainRun('a '), styledRun('b', '1'), plainRun(' c')],
+        ]),
+      );
     });
 
     test('italic', () {
       final lines = renderMarkdown('a *b* c', style);
-      expect(lines, hasRuns([
-        [plainRun('a '), styledRun('b', '3'), plainRun(' c')],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [plainRun('a '), styledRun('b', '3'), plainRun(' c')],
+        ]),
+      );
     });
 
     test('bold+italic composes to 1;3', () {
       final lines = renderMarkdown('***x***', style);
-      expect(lines, hasRuns([
-        [styledRun('x', '1;3')],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [styledRun('x', '1;3')],
+        ]),
+      );
     });
 
     test('nested emphasis keeps outer bits', () {
       final lines = renderMarkdown('**a *b* c**', style);
-      expect(lines, hasRuns([
-        [styledRun('a ', '1'), styledRun('b', '1;3'), styledRun(' c', '1')],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [styledRun('a ', '1'), styledRun('b', '1;3'), styledRun(' c', '1')],
+        ]),
+      );
     });
 
     test('underscore emphasis matches asterisk', () {
       final lines = renderMarkdown('__b__ _i_', style);
-      expect(lines, hasRuns([
-        [styledRun('b', '1'), plainRun(' '), styledRun('i', '3')],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [styledRun('b', '1'), plainRun(' '), styledRun('i', '3')],
+        ]),
+      );
     });
 
     test('inline code drops backticks and takes the inlineCode pill', () {
       final lines = renderMarkdown('run `dart test` now', style);
-      expect(lines, hasRuns([
-        [plainRun('run '), styledRun('dart test', style.inlineCode), plainRun(' now')],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [
+            plainRun('run '),
+            styledRun('dart test', style.inlineCode),
+            plainRun(' now'),
+          ],
+        ]),
+      );
     });
 
     test('link renders label styled with a dim url tail', () {
       final lines = renderMarkdown('see [docs](https://tina.dev) ok', style);
-      expect(lines, hasRuns([
-        [
-          plainRun('see '),
-          styledRun('docs', style.link),
-          styledRun(' (https://tina.dev)', style.dim),
-          plainRun(' ok'),
-        ],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [
+            plainRun('see '),
+            styledRun('docs', style.link),
+            styledRun(' (https://tina.dev)', style.dim),
+            plainRun(' ok'),
+          ],
+        ]),
+      );
     });
 
     test('autolink with empty gap between label and url renders once', () {
       final lines = renderMarkdown('<https://tina.dev>', style);
-      expect(lines, hasRuns([
-        [styledRun('https://tina.dev', style.link)],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [styledRun('https://tina.dev', style.link)],
+        ]),
+      );
     });
 
     test('entities and escapes decode in rendered text', () {
       final lines = renderMarkdown('a &amp; b \\* not em &#65;&#x42;', style);
-      expect(lines, hasRuns([
-        [plainRun('a & b * not em AB')],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [plainRun('a & b * not em AB')],
+        ]),
+      );
     });
 
-    test('code spans keep their source entities (one decode of the parser escape)', () {
-      // The parser entity-encodes code content once for HTML output; the
-      // renderer decodes exactly that layer, so the source round-trips.
-      final lines = renderMarkdown('`a &amp; b`', style);
-      expect(lines, hasRuns([
-        [styledRun('a &amp; b', style.inlineCode)],
-      ]));
-    });
+    test(
+      'code spans keep their source entities (one decode of the parser escape)',
+      () {
+        // The parser entity-encodes code content once for HTML output; the
+        // renderer decodes exactly that layer, so the source round-trips.
+        final lines = renderMarkdown('`a &amp; b`', style);
+        expect(
+          lines,
+          hasRuns([
+            [styledRun('a &amp; b', style.inlineCode)],
+          ]),
+        );
+      },
+    );
 
     test('code blocks keep their source entities', () {
       final lines = renderMarkdown('```\na &amp; b\n```', style);
@@ -195,9 +264,12 @@ void main() {
 
     test('emphasis inside a list item works', () {
       final lines = renderMarkdown('- **big** point', style);
-      expect(lines, hasRuns([
-        [plainRun('• '), styledRun('big', '1'), plainRun(' point')],
-      ]));
+      expect(
+        lines,
+        hasRuns([
+          [plainRun('• '), styledRun('big', '1'), plainRun(' point')],
+        ]),
+      );
     });
 
     test('raw html falls back to text content, nothing dropped', () {
@@ -209,20 +281,21 @@ void main() {
 
   group('serializeLine', () {
     test('styled mode embeds open/close SGR and restores the base', () {
-      const line = MarkdownLine(runs: [
-        MarkdownRun('a ', null),
-        MarkdownRun('b', '1'),
-        MarkdownRun(' c', null),
-      ]);
+      const line = MarkdownLine(
+        runs: [
+          MarkdownRun('a ', null),
+          MarkdownRun('b', '1'),
+          MarkdownRun(' c', null),
+        ],
+      );
       final out = serializeLine(line, style, styled: true).text;
       expect(out, 'a \x1b[1mb\x1b[0m\x1b[${style.base}m c');
     });
 
     test('plain mode emits text only', () {
-      const line = MarkdownLine(runs: [
-        MarkdownRun('a ', null),
-        MarkdownRun('b', '1'),
-      ]);
+      const line = MarkdownLine(
+        runs: [MarkdownRun('a ', null), MarkdownRun('b', '1')],
+      );
       final out = serializeLine(line, style, styled: false).text;
       expect(out, 'a b');
     });
@@ -270,8 +343,10 @@ void main() {
 
     test('paragraph before a fence flushes with the fence as one block', () {
       final s = MarkdownStreamSplitter();
-      expect(s.push('intro\n```\ncode\n```\nafter\n\n'),
-          ['intro\n```\ncode\n```\n', 'after\n']);
+      expect(s.push('intro\n```\ncode\n```\nafter\n\n'), [
+        'intro\n```\ncode\n```\n',
+        'after\n',
+      ]);
       expect(s.flush(), '');
     });
 
@@ -282,7 +357,9 @@ void main() {
 
     test('a mismatched closing fence is interior content', () {
       final s = MarkdownStreamSplitter();
-      expect(s.push('```\ncode\n~~~\nstill\n```\n'), ['```\ncode\n~~~\nstill\n```\n']);
+      expect(s.push('```\ncode\n~~~\nstill\n```\n'), [
+        '```\ncode\n~~~\nstill\n```\n',
+      ]);
     });
 
     test('unclosed fence flushes as the remainder', () {

@@ -59,8 +59,7 @@ void main() {
           reason: 'the first conversation becomes active under its real id');
       await store.append(
           sid, pre, const Message(role: Role.user, content: [TextBlock('hi')]));
-      expect(
-          (await store.loadConversation(sid, pre)).single.content.single,
+      expect((await store.loadConversation(sid, pre)).single.content.single,
           isA<TextBlock>().having((t) => t.text, 'text', 'hi'));
     });
 
@@ -74,8 +73,7 @@ void main() {
           conversationId: 'taken');
       expect(second, isNot('taken'),
           reason: 'creation must never fail on a collision');
-      final ids =
-          (await store.loadSession(sid)).conversations.map((c) => c.id);
+      final ids = (await store.loadSession(sid)).conversations.map((c) => c.id);
       expect(ids, containsAll([first, second]));
     });
 
@@ -176,15 +174,15 @@ void main() {
             sid,
             cid,
             const Message(
-                role: Role.user, content: [TextBlock('fix the resume picker')]));
+                role: Role.user,
+                content: [TextBlock('fix the resume picker')]));
         final meta = await singleMeta();
         expect(meta.description, 'fix the resume picker');
         // Title skips injected content too when a real prompt exists later.
         expect(meta.title, 'fix the resume picker');
       });
 
-      test('skips tool-result batches before the first typed prompt',
-          () async {
+      test('skips tool-result batches before the first typed prompt', () async {
         final (sid, cid) = await newConversation();
         await store.append(
             sid,
@@ -728,8 +726,8 @@ void main() {
     });
 
     Future<(String, String)> newLocalConversation() async {
-      final sid = await store.createSession(
-          providerId: 'anthropic', cwd: project.path);
+      final sid =
+          await store.createSession(providerId: 'anthropic', cwd: project.path);
       final cid = await store.createConversation(sid);
       return (sid, cid);
     }
@@ -738,13 +736,13 @@ void main() {
         Directory(p.join(project.path, '.tina', 'sessions', sid));
 
     test('createSession marks the manifest transcriptsLocal', () async {
-      final sid = await store.createSession(
-          providerId: 'anthropic', cwd: project.path);
+      final sid =
+          await store.createSession(providerId: 'anthropic', cwd: project.path);
       final manifest = await store.loadSession(sid);
       expect(manifest.transcriptsLocal, isTrue);
       // ...and the raw on-disk manifest carries the flag.
       final raw = jsonDecode(
-          await File(p.join(tmp.path, sid, 'session.json')).readAsString())
+              await File(p.join(tmp.path, sid, 'session.json')).readAsString())
           as Map<String, dynamic>;
       expect(raw['transcriptsLocal'], isTrue);
     });
@@ -774,8 +772,8 @@ void main() {
       // Nothing transcript-shaped under the global session dir.
       expect(await File(p.join(tmp.path, sid, '$cid.jsonl')).exists(), isFalse);
       // The manifest stays global.
-      expect(await File(p.join(tmp.path, sid, 'session.json')).exists(),
-          isTrue);
+      expect(
+          await File(p.join(tmp.path, sid, 'session.json')).exists(), isTrue);
     });
 
     test('loadConversation reads from the project-local sidecar', () async {
@@ -809,8 +807,8 @@ void main() {
 
     test('read falls back to global when the project-local file is missing',
         () async {
-      final sid = await store.createSession(
-          providerId: 'anthropic', cwd: project.path);
+      final sid =
+          await store.createSession(providerId: 'anthropic', cwd: project.path);
       final cid = await store.createConversation(sid);
       // Simulate the project-local copy vanishing (e.g. not synced): the
       // transcript lives globally only.
@@ -826,8 +824,8 @@ void main() {
 
     test('write falls back to global when the recorded cwd was deleted',
         () async {
-      final sid = await store.createSession(
-          providerId: 'anthropic', cwd: project.path);
+      final sid =
+          await store.createSession(providerId: 'anthropic', cwd: project.path);
       final cid = await store.createConversation(sid);
       await project.delete(recursive: true);
       await store.append(
@@ -869,8 +867,8 @@ void main() {
     });
 
     test('transcriptsLocal survives manifest rewrites', () async {
-      final sid = await store.createSession(
-          providerId: 'anthropic', cwd: project.path);
+      final sid =
+          await store.createSession(providerId: 'anthropic', cwd: project.path);
       await store.createConversation(sid);
       await store.updateSessionUsage(sid, 42);
       final manifest = await store.loadSession(sid);
@@ -893,8 +891,8 @@ void main() {
       final cid = manifest.activeConversationId;
       await store.append(legacyId, cid,
           const Message(role: Role.user, content: [TextBlock('more')]));
-      expect(
-          await File(p.join(tmp.path, legacyId, '$cid.jsonl')).exists(), isTrue);
+      expect(await File(p.join(tmp.path, legacyId, '$cid.jsonl')).exists(),
+          isTrue);
     });
   });
 
@@ -933,12 +931,12 @@ void main() {
         () async {
       final sid = await store.createSession(providerId: 'anthropic');
       final c1 = await store.createConversation(sid);
-      await store.append(sid, c1,
-          const Message(role: Role.user, content: [TextBlock('one')]));
+      await store.append(
+          sid, c1, const Message(role: Role.user, content: [TextBlock('one')]));
       await Future<void>.delayed(const Duration(milliseconds: 20));
       final c2 = await store.createConversation(sid);
-      await store.append(sid, c2,
-          const Message(role: Role.user, content: [TextBlock('two')]));
+      await store.append(
+          sid, c2, const Message(role: Role.user, content: [TextBlock('two')]));
 
       final stamps = await store.conversationTimestamps(sid);
       final manifest = await store.loadSession(sid);
@@ -946,16 +944,16 @@ void main() {
       final i1 = manifest.conversations.indexWhere((c) => c.id == c1);
       final i2 = manifest.conversations.indexWhere((c) => c.id == c2);
       expect(
-          stamps.conversationUpdatedAt[i2].isAfter(
-              stamps.conversationUpdatedAt[i1]),
+          stamps.conversationUpdatedAt[i2]
+              .isAfter(stamps.conversationUpdatedAt[i1]),
           isTrue,
           reason: 'c2 was written after c1');
     });
 
     test('deleted transcript reports epoch, not an error', () async {
       final (sid, cid) = await newConversation();
-      await store.append(sid, cid,
-          const Message(role: Role.user, content: [TextBlock('x')]));
+      await store.append(
+          sid, cid, const Message(role: Role.user, content: [TextBlock('x')]));
       final f = File(p.join(tmp.path, sid, '$cid.jsonl'));
       await f.delete();
 
@@ -966,7 +964,8 @@ void main() {
               'loadConversation\u2019s StateError for fallback purposes');
     });
 
-    test('activePointerUpdatedAt tracks deliberate re-points, not transcript '
+    test(
+        'activePointerUpdatedAt tracks deliberate re-points, not transcript '
         'writes', () async {
       final sid = await store.createSession(providerId: 'anthropic');
       final c1 = await store.createConversation(sid);

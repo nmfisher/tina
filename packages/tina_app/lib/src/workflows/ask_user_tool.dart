@@ -16,35 +16,36 @@ class AskUserTool implements Tool {
 
   @override
   ToolSchema get schema => const ToolSchema(
-        name: 'ask_user',
-        description: 'Pose multiple-choice questions to the user and get '
-            'their answers. Use only when a decision is genuinely the user\'s '
-            '(choosing between approaches, approving a plan detail) — never '
-            'for work you can decide yourself. Pass `questions` as a list of '
-            '{"text": <question>, "options": [<choices>]}; keep options '
-            'concise. The user navigates with ↑/↓ and ←/→ and confirms with '
-            'Enter; your result lists the chosen option for each question.',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'questions': {
-              'type': 'array',
-              'items': {
-                'type': 'object',
-                'properties': {
-                  'text': {'type': 'string'},
-                  'options': {
-                    'type': 'array',
-                    'items': {'type': 'string'},
-                  },
-                },
-                'required': ['text', 'options'],
+    name: 'ask_user',
+    description:
+        'Pose multiple-choice questions to the user and get '
+        'their answers. Use only when a decision is genuinely the user\'s '
+        '(choosing between approaches, approving a plan detail) — never '
+        'for work you can decide yourself. Pass `questions` as a list of '
+        '{"text": <question>, "options": [<choices>]}; keep options '
+        'concise. The user navigates with ↑/↓ and ←/→ and confirms with '
+        'Enter; your result lists the chosen option for each question.',
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'questions': {
+          'type': 'array',
+          'items': {
+            'type': 'object',
+            'properties': {
+              'text': {'type': 'string'},
+              'options': {
+                'type': 'array',
+                'items': {'type': 'string'},
               },
             },
+            'required': ['text', 'options'],
           },
-          'required': ['questions'],
         },
-      );
+      },
+      'required': ['questions'],
+    },
+  );
 
   @override
   Future<ToolResult> execute(
@@ -63,17 +64,21 @@ class AskUserTool implements Tool {
       final text = (r['text'] as String?)?.trim() ?? '';
       final opts = (r['options'] as List?)?.cast<String>() ?? const <String>[];
       if (text.isEmpty || opts.isEmpty) {
-        return ToolResult.error('each question needs `text` and at least one '
-            '`options` entry.');
+        return ToolResult.error(
+          'each question needs `text` and at least one '
+          '`options` entry.',
+        );
       }
-      questions.add(Question(
-        text: text,
-        type: QuestionType.multipleChoice,
-        options: [
-          for (var i = 0; i < opts.length; i++)
-            Option(key: '${i + 1}', label: opts[i]),
-        ],
-      ));
+      questions.add(
+        Question(
+          text: text,
+          type: QuestionType.multipleChoice,
+          options: [
+            for (var i = 0; i < opts.length; i++)
+              Option(key: '${i + 1}', label: opts[i]),
+          ],
+        ),
+      );
     }
 
     final ask = _ask;

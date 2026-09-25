@@ -30,7 +30,8 @@ void main() {
   // inherits the parent agent's system prompt and runs the task.
   final pipeline = defaultTestPipeline;
 
-  SubAgentScheduler sched(ProviderRegistry r) => testScheduler(r, pipeline: pipeline);
+  SubAgentScheduler sched(ProviderRegistry r) =>
+      testScheduler(r, pipeline: pipeline);
 
   AgentToolContext ctx(SubAgentScheduler scheduler,
           {String parentSystemPrompt = 'PARENT-IDENTITY'}) =>
@@ -130,15 +131,15 @@ void main() {
           name: 'a',
           authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
           defaultBaseUrl: 'https://a.test',
-          builder: (_) =>
-              _SystemCapturingProvider(seen, answerEvents('done')),
+          builder: (_) => _SystemCapturingProvider(seen, answerEvents('done')),
           models: const {
-            'a-model':
-                ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+            'a-model': ModelInfo(
+                id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
           },
         ));
       final scheduler = sched(r);
-      final tool = DelegateTool(ctx(scheduler, parentSystemPrompt: 'PARENT-ID'));
+      final tool =
+          DelegateTool(ctx(scheduler, parentSystemPrompt: 'PARENT-ID'));
 
       final res = await tool.execute({
         'delegations': [
@@ -180,8 +181,8 @@ void main() {
           defaultBaseUrl: 'https://a.test',
           builder: (c) => FakeProvider(bashThenDone, model: c.model),
           models: const {
-            'a-model':
-                ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+            'a-model': ModelInfo(
+                id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
           },
         ));
       final scheduler = sched(r);
@@ -222,7 +223,8 @@ void main() {
           const ToolCallStart(id: 'c1', name: 'bash'),
           const MessageComplete(
             content: [
-              ToolUseBlock(id: 'c1', name: 'bash', input: {'command': 'echo hi'})
+              ToolUseBlock(
+                  id: 'c1', name: 'bash', input: {'command': 'echo hi'})
             ],
             stopReason: 'tool_use',
           ),
@@ -241,8 +243,8 @@ void main() {
           defaultBaseUrl: 'https://a.test',
           builder: (c) => FakeProvider(bashThenDone, model: c.model),
           models: const {
-            'a-model':
-                ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+            'a-model': ModelInfo(
+                id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
           },
         ));
       final scheduler = sched(r);
@@ -282,7 +284,8 @@ void main() {
           const ToolCallStart(id: 'c1', name: 'bash'),
           const MessageComplete(
             content: [
-              ToolUseBlock(id: 'c1', name: 'bash', input: {'command': 'echo hi'})
+              ToolUseBlock(
+                  id: 'c1', name: 'bash', input: {'command': 'echo hi'})
             ],
             stopReason: 'tool_use',
           ),
@@ -301,8 +304,8 @@ void main() {
           defaultBaseUrl: 'https://a.test',
           builder: (c) => FakeProvider(bashThenDone, model: c.model),
           models: const {
-            'a-model':
-                ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+            'a-model': ModelInfo(
+                id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
           },
         ));
       final scheduler = sched(r);
@@ -416,8 +419,8 @@ void main() {
         defaultBaseUrl: 'https://a.test',
         builder: (c) => HoldProvider(gate: gate.future),
         models: const {
-          'a-model':
-              ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+          'a-model': ModelInfo(
+              id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
         },
       ));
     final scheduler = sched(r);

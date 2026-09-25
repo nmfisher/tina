@@ -17,8 +17,11 @@ FakeHostInterface hostOf(Conversation c) => c.host as FakeHostInterface;
 
 void main() {
   group('SessionManager', () {
-    Conversation makeConversation(String id, LlmProvider provider,
-        {bool active = true}) {
+    Conversation makeConversation(
+      String id,
+      LlmProvider provider, {
+      bool active = true,
+    }) {
       final policy = PermissionPolicy();
       final host = FakeHostInterface()..setActive(active);
       final agent = Agent(
@@ -40,14 +43,15 @@ void main() {
     }
 
     SessionManager build({HostFactory? hostFactory}) {
-      final initial =
-          makeConversation('s1', FakeProvider.always(model: 'model-a'));
+      final initial = makeConversation(
+        's1',
+        FakeProvider.always(model: 'model-a'),
+      );
 
       HostInterface defaultHostFactory({
         required String conversationId,
         required bool isActive,
-      }) =>
-          FakeHostInterface()..setActive(isActive);
+      }) => FakeHostInterface()..setActive(isActive);
 
       final sm = SessionManager(
         initialConversation: initial,
@@ -56,42 +60,46 @@ void main() {
         providerFactory: (kind, key, model, baseUrl) =>
             FakeProvider.always(model: model),
         hostFactory: hostFactory ?? defaultHostFactory,
-        agentBuilder: ({
-          required String conversationId,
-          required LlmProvider provider,
-          required HostInterface host,
-          required PermissionPolicy policy,
-        }) =>
-            AgentDriverAdapter(
-          Agent(
-          provider: provider,
-          tools: ToolRegistry(const []),
-          sink: FakeAgentSink(),
-          policy: policy,
-          asker: host.askPermission,
-          system: 'sys',
-        )),
+        agentBuilder:
+            ({
+              required String conversationId,
+              required LlmProvider provider,
+              required HostInterface host,
+              required PermissionPolicy policy,
+            }) => AgentDriverAdapter(
+              Agent(
+                provider: provider,
+                tools: ToolRegistry(const []),
+                sink: FakeAgentSink(),
+                policy: policy,
+                asker: host.askPermission,
+                system: 'sys',
+              ),
+            ),
       );
       // Idle spinner animation timers are started on switch; clean them up.
       addTearDown(sm.closeAll);
       return sm;
     }
 
-    test('closeAll waits for turn acknowledgement before host disposal', () async {
-      final sm = build();
-      final conversation = sm.activeConversation;
-      final host = hostOf(conversation);
-      final acknowledged = Completer<void>();
-      conversation.cancelCompleter = Completer<void>();
-      conversation.turnCompletion = acknowledged.future;
-      final closed = sm.closeAll();
-      expect(conversation.isClosed, isTrue);
-      expect(conversation.cancelCompleter!.isCompleted, isTrue);
-      expect(host.disposeCalls, 0);
-      acknowledged.complete();
-      await closed;
-      expect(host.disposeCalls, 1);
-    });
+    test(
+      'closeAll waits for turn acknowledgement before host disposal',
+      () async {
+        final sm = build();
+        final conversation = sm.activeConversation;
+        final host = hostOf(conversation);
+        final acknowledged = Completer<void>();
+        conversation.cancelCompleter = Completer<void>();
+        conversation.turnCompletion = acknowledged.future;
+        final closed = sm.closeAll();
+        expect(conversation.isClosed, isTrue);
+        expect(conversation.cancelCompleter!.isCompleted, isTrue);
+        expect(host.disposeCalls, 0);
+        acknowledged.complete();
+        await closed;
+        expect(host.disposeCalls, 1);
+      },
+    );
 
     test('starts with the initial conversation active', () {
       final sm = build();
@@ -109,48 +117,66 @@ void main() {
       // call running it a second time is harmless.
     });
 
-    test('createSession adds a detached background session without switching',
-        () async {
-      final sm = build();
-      final s2 = await sm.createSession(model: 'model-b');
-      expect(sm.count, 2);
-      expect(sm.activeConversation.id, 's1',
-          reason: 'createSession must not switch');
-      expect(hostOf(s2.activeConversation).isDetached, isTrue);
-      expect(s2.activeConversation.provider.model, 'model-b');
-    });
+    test(
+      'createSession adds a detached background session without switching',
+      () async {
+        final sm = build();
+        final s2 = await sm.createSession(model: 'model-b');
+        expect(sm.count, 2);
+        expect(
+          sm.activeConversation.id,
+          's1',
+          reason: 'createSession must not switch',
+        );
+        expect(hostOf(s2.activeConversation).isDetached, isTrue);
+        expect(s2.activeConversation.provider.model, 'model-b');
+      },
+    );
 
     test(
-        'createSession gives the new conversation an independent permission policy',
-        () async {
-      final sm = build();
-      // Pollute the active conversation's policy with a remembered rule.
-      sm.activeConversation.policy
-          .remember('bash', 'rm *', PermissionDecision.deny);
-      expect(sm.activeConversation.policy.sessionRules, isNotEmpty,
-          reason: 'sanity: the active conversation has a remembered rule');
+      'createSession gives the new conversation an independent permission policy',
+      () async {
+        final sm = build();
+        // Pollute the active conversation's policy with a remembered rule.
+        sm.activeConversation.policy.remember(
+          'bash',
+          'rm *',
+          PermissionDecision.deny,
+        );
+        expect(
+          sm.activeConversation.policy.sessionRules,
+          isNotEmpty,
+          reason: 'sanity: the active conversation has a remembered rule',
+        );
 
-      final s2 = await sm.createSession(model: 'model-b');
-      expect(s2.activeConversation.policy,
-          isNot(same(sm.activeConversation.policy)));
-      expect(s2.activeConversation.policy.sessionRules, isEmpty);
-      expect(s2.activeConversation.policy.defaults,
-          equals(sm.activeConversation.policy.defaults));
-    });
+        final s2 = await sm.createSession(model: 'model-b');
+        expect(
+          s2.activeConversation.policy,
+          isNot(same(sm.activeConversation.policy)),
+        );
+        expect(s2.activeConversation.policy.sessionRules, isEmpty);
+        expect(
+          s2.activeConversation.policy.defaults,
+          equals(sm.activeConversation.policy.defaults),
+        );
+      },
+    );
 
-    test('switchSession repoints the active host and detaches the old',
-        () async {
-      final sm = build();
-      final s1Id = sm.activeId;
-      final s2 = await sm.createSession(model: 'model-b');
-      sm.switchSession(s2.id);
+    test(
+      'switchSession repoints the active host and detaches the old',
+      () async {
+        final sm = build();
+        final s1Id = sm.activeId;
+        final s2 = await sm.createSession(model: 'model-b');
+        sm.switchSession(s2.id);
 
-      expect(sm.activeId, s2.id);
-      expect(hostOf(sm.activeConversation).isActive, isTrue);
-      final s1 = sm.all.firstWhere((x) => x.id == s1Id);
-      expect(hostOf(s1.activeConversation).isDetached, isTrue);
-      expect(hostOf(s2.activeConversation).isDetached, isFalse);
-    });
+        expect(sm.activeId, s2.id);
+        expect(hostOf(sm.activeConversation).isActive, isTrue);
+        final s1 = sm.all.firstWhere((x) => x.id == s1Id);
+        expect(hostOf(s1.activeConversation).isDetached, isTrue);
+        expect(hostOf(s2.activeConversation).isDetached, isFalse);
+      },
+    );
 
     test('cannot close the active session', () {
       final sm = build();
@@ -166,26 +192,30 @@ void main() {
       expect(sm.all.map((s) => s.id), isNot(contains(s2.id)));
     });
 
-    test('createSession invokes the host factory for the new conversation',
-        () async {
-      final built = <String>[];
-      final sm = build(hostFactory: ({
-        required String conversationId,
-        required bool isActive,
-      }) {
-        built.add(conversationId);
-        return FakeHostInterface()..setActive(isActive);
-      });
-      final s2 = await sm.createSession();
-      expect(built, contains(s2.activeConversation.id));
-    });
+    test(
+      'createSession invokes the host factory for the new conversation',
+      () async {
+        final built = <String>[];
+        final sm = build(
+          hostFactory:
+              ({required String conversationId, required bool isActive}) {
+                built.add(conversationId);
+                return FakeHostInterface()..setActive(isActive);
+              },
+        );
+        final s2 = await sm.createSession();
+        expect(built, contains(s2.activeConversation.id));
+      },
+    );
 
-    test('handleResize reconciles every conversation without throwing',
-        () async {
-      final sm = build();
-      await sm.createSession();
-      expect(sm.handleResize, returnsNormally);
-    });
+    test(
+      'handleResize reconciles every conversation without throwing',
+      () async {
+        final sm = build();
+        await sm.createSession();
+        expect(sm.handleResize, returnsNormally);
+      },
+    );
 
     test('listSessions reports exactly one active session', () async {
       final sm = build();
@@ -195,8 +225,7 @@ void main() {
       expect(list.where((s) => s.isActive).length, 1);
     });
 
-    test(
-        'createConversation adds a conversation to the active session '
+    test('createConversation adds a conversation to the active session '
         'without switching', () async {
       final sm = build();
       final c2 = await sm.createConversation(model: 'model-c');
@@ -206,18 +235,20 @@ void main() {
       expect(c2.provider.model, 'model-c');
     });
 
-    test('switchConversation routes the new conversation to the active host',
-        () async {
-      final sm = build();
-      final c1 = sm.activeConversation;
-      final c2 = await sm.createConversation(model: 'model-c');
-      await sm.switchConversation(c2.id);
+    test(
+      'switchConversation routes the new conversation to the active host',
+      () async {
+        final sm = build();
+        final c1 = sm.activeConversation;
+        final c2 = await sm.createConversation(model: 'model-c');
+        await sm.switchConversation(c2.id);
 
-      expect(sm.activeConversation.id, c2.id);
-      expect(hostOf(c2).isActive, isTrue);
-      expect(hostOf(c1).isDetached, isTrue);
-      expect(hostOf(c2).isDetached, isFalse);
-    });
+        expect(sm.activeConversation.id, c2.id);
+        expect(hostOf(c2).isActive, isTrue);
+        expect(hostOf(c1).isDetached, isTrue);
+        expect(hostOf(c2).isDetached, isFalse);
+      },
+    );
 
     test('switchConversation persists the active conversation', () async {
       final tmp = await Directory.systemTemp.createTemp('tina_sm_test_');
@@ -226,8 +257,10 @@ void main() {
       try {
         final sid = await store.createSession(providerId: 'anthropic');
         final cid = await store.createConversation(sid);
-        final initial =
-            makeConversation(cid, FakeProvider.always(model: 'model-a'));
+        final initial = makeConversation(
+          cid,
+          FakeProvider.always(model: 'model-a'),
+        );
         sm = SessionManager(
           initialConversation: initial,
           initialSessionId: sid,
@@ -235,33 +268,33 @@ void main() {
           initialApiKey: 'key',
           providerFactory: (kind, key, model, baseUrl) =>
               FakeProvider.always(model: model),
-          hostFactory: ({
-            required String conversationId,
-            required bool isActive,
-          }) =>
-              FakeHostInterface()..setActive(isActive),
-          agentBuilder: ({
-            required String conversationId,
-            required LlmProvider provider,
-            required HostInterface host,
-            required PermissionPolicy policy,
-          }) =>
-              AgentDriverAdapter(
-            Agent(
-            provider: provider,
-            tools: ToolRegistry(const []),
-            sink: FakeAgentSink(),
-            policy: policy,
-            asker: host.askPermission,
-            system: 'sys',
-          )),
+          hostFactory:
+              ({required String conversationId, required bool isActive}) =>
+                  FakeHostInterface()..setActive(isActive),
+          agentBuilder:
+              ({
+                required String conversationId,
+                required LlmProvider provider,
+                required HostInterface host,
+                required PermissionPolicy policy,
+              }) => AgentDriverAdapter(
+                Agent(
+                  provider: provider,
+                  tools: ToolRegistry(const []),
+                  sink: FakeAgentSink(),
+                  policy: policy,
+                  asker: host.askPermission,
+                  system: 'sys',
+                ),
+              ),
           sessionStore: store,
         );
 
         final c2 = await sm.createConversation(model: 'model-c');
         // Write through c2's recorder to trigger lazy init, then switch.
         await c2.recorder!.append(
-            const Message(role: Role.user, content: [TextBlock('hello')]));
+          const Message(role: Role.user, content: [TextBlock('hello')]),
+        );
         await sm.switchConversation(c2.id);
 
         final manifest = await store.loadSession(sid);

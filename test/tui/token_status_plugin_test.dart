@@ -16,10 +16,9 @@ void main() {
     final runtime = PluginRuntime(
       name: 'token-status-e2e',
       plugins: [
-        spendLedgerPlugin(RuntimeConfig(
-          maxGlobalTokens: 30000,
-          requestsPerMinute: 0,
-        )),
+        spendLedgerPlugin(
+          RuntimeConfig(maxGlobalTokens: 30000, requestsPerMinute: 0),
+        ),
         tokenStatusPlugin(),
       ],
     )..activateSync();

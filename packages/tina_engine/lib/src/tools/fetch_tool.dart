@@ -271,7 +271,7 @@ class FetchTool implements Tool {
               'type': 'integer',
               'description':
                   'Maximum characters to return (truncates when exceeded). '
-                  'Defaults to $defaultMaxChars.',
+                      'Defaults to $defaultMaxChars.',
             },
           },
           'required': ['url'],
@@ -301,7 +301,8 @@ class FetchTool implements Tool {
     http.Request build() {
       final r = http.Request('GET', uri);
       r.headers.addAll({
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept':
+            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'User-Agent': 'tina/1.0',
       });
       return r;

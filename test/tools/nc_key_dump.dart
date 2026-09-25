@@ -4,16 +4,20 @@ import 'dart:io';
 import 'package:dart_notcurses/dart_notcurses.dart' as nc;
 
 void main() {
-  final ncc = nc.NotCurses(nc.CursesOptions(
-    loglevel: nc.LogLevel.silent,
-    flags: nc.OptionFlags.suppressBanners,
-  ));
+  final ncc = nc.NotCurses(
+    nc.CursesOptions(
+      loglevel: nc.LogLevel.silent,
+      flags: nc.OptionFlags.suppressBanners,
+    ),
+  );
   if (ncc.notInitialized) {
     stderr.writeln('notcurses init failed');
     exit(1);
   }
 
-  stderr.writeln('nc_key_dump: Press Option+Left, Option+Right, plain b, plain f, Ctrl+C');
+  stderr.writeln(
+    'nc_key_dump: Press Option+Left, Option+Right, plain b, plain f, Ctrl+C',
+  );
   final plane = ncc.stdplane();
   var line = 0;
 
@@ -25,7 +29,8 @@ void main() {
     }
     final key = result.value!;
 
-    final msg = 'id=0x${key.id.toRadixString(16).padLeft(4, '0')}'
+    final msg =
+        'id=0x${key.id.toRadixString(16).padLeft(4, '0')}'
         ' (${key.id}) alt=${key.hasAlt()} ctrl=${key.hasCtrl()}'
         ' syn=${key.keySynthesizedP()} mod=0x${key.modifiers.toRadixString(16)}'
         ' str="${key.keyStr}"';

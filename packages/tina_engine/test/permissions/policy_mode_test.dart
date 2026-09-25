@@ -6,7 +6,8 @@ void main() {
     test('ask keeps the built-in defaults', () {
       final p = PermissionPolicy(mode: PermissionMode.ask);
       expect(p.check('read', const {}), PermissionDecision.allow);
-      expect(p.check('write', const {'filePath': '/x'}), PermissionDecision.ask);
+      expect(
+          p.check('write', const {'filePath': '/x'}), PermissionDecision.ask);
       expect(p.check('bash', const {'command': 'ls'}), PermissionDecision.ask);
       expect(p.check('fetch', const {}), PermissionDecision.ask);
     });
@@ -15,20 +16,24 @@ void main() {
       final p = PermissionPolicy(mode: PermissionMode.readAll);
       expect(p.check('fetch', const {}), PermissionDecision.allow);
       expect(p.check('web_search', const {}), PermissionDecision.allow);
-      expect(p.check('write', const {'filePath': '/x'}), PermissionDecision.deny);
+      expect(
+          p.check('write', const {'filePath': '/x'}), PermissionDecision.deny);
       expect(p.check('bash', const {'command': 'ls'}), PermissionDecision.deny);
     });
 
     test('allowEdits widens write/edit but bash still asks', () {
       final p = PermissionPolicy(mode: PermissionMode.allowEdits);
-      expect(p.check('write', const {'filePath': '/x'}), PermissionDecision.allow);
-      expect(p.check('edit', const {'filePath': '/x'}), PermissionDecision.allow);
+      expect(
+          p.check('write', const {'filePath': '/x'}), PermissionDecision.allow);
+      expect(
+          p.check('edit', const {'filePath': '/x'}), PermissionDecision.allow);
       expect(p.check('bash', const {'command': 'ls'}), PermissionDecision.ask);
     });
 
     test('auto gates identically to ask (the asker differs, not the map)', () {
       final p = PermissionPolicy(mode: PermissionMode.auto);
-      expect(p.check('write', const {'filePath': '/x'}), PermissionDecision.ask);
+      expect(
+          p.check('write', const {'filePath': '/x'}), PermissionDecision.ask);
       expect(p.check('read', const {}), PermissionDecision.allow);
     });
 
@@ -42,8 +47,7 @@ void main() {
               decision: PermissionDecision.deny),
         ],
       );
-      expect(
-          p.check('write', const {'filePath': '/etc/passwd'}),
+      expect(p.check('write', const {'filePath': '/etc/passwd'}),
           PermissionDecision.deny,
           reason: 'an explicit --deny must hold in every mode');
       p.remember('write', '/tmp/x', PermissionDecision.deny);
@@ -55,7 +59,8 @@ void main() {
       final p = PermissionPolicy();
       expect(p.check('edit', const {'filePath': '/x'}), PermissionDecision.ask);
       p.mode = PermissionMode.allowEdits;
-      expect(p.check('edit', const {'filePath': '/x'}), PermissionDecision.allow);
+      expect(
+          p.check('edit', const {'filePath': '/x'}), PermissionDecision.allow);
     });
 
     test('mode round-trips through toJson/fromJson; absent -> ask', () {
@@ -99,8 +104,8 @@ void main() {
       expect(PermissionMode.values.map((m) => m.label).toSet(),
           hasLength(PermissionMode.values.length));
       expect(PermissionMode.readAll.label, isNot(PermissionMode.readAll.name));
-      expect(
-          PermissionMode.allowEdits.label, isNot(PermissionMode.allowEdits.name));
+      expect(PermissionMode.allowEdits.label,
+          isNot(PermissionMode.allowEdits.name));
     });
 
     // The read-only boundary is now DERIVED from declarations
@@ -114,10 +119,27 @@ void main() {
       final p = PermissionPolicy(mode: PermissionMode.readAll);
 
       const permitted = [
-        'read', 'grep', 'glob', 'ls', 'stat', 'which', 'git', 'search',
-        'fetch', 'web_search', 'execution_info', 'render_image',
-        'repo_structure', 'list_regions', 'read_summary', 'query_region',
-        'broadcast_region', 'ask_user', 'receive', 'close', 'stop_workflow',
+        'read',
+        'grep',
+        'glob',
+        'ls',
+        'stat',
+        'which',
+        'git',
+        'search',
+        'fetch',
+        'web_search',
+        'execution_info',
+        'render_image',
+        'repo_structure',
+        'list_regions',
+        'read_summary',
+        'query_region',
+        'broadcast_region',
+        'ask_user',
+        'receive',
+        'close',
+        'stop_workflow',
         'explore_project',
       ];
       for (final tool in permitted) {
@@ -125,8 +147,14 @@ void main() {
       }
 
       const blocked = [
-        'write', 'edit', 'bash', 'exec', 'write_summary', 'allocate_region',
-        'send', 'launch_workflow',
+        'write',
+        'edit',
+        'bash',
+        'exec',
+        'write_summary',
+        'allocate_region',
+        'send',
+        'launch_workflow',
       ];
       for (final tool in blocked) {
         expect(p.executionBlock(tool, const {}), isNotNull, reason: tool);

@@ -192,8 +192,9 @@ void main() {
   group('backend surface bounds', () {
     for (final native in [false, true]) {
       group(
-          native ? 'NotcursesBackendSurface bounds' : 'AnsiBackendSurface bounds',
-          () {
+          native
+              ? 'NotcursesBackendSurface bounds'
+              : 'AnsiBackendSurface bounds', () {
         late BackendSurface surface;
         late FakeStdio io;
         late _Plane plane;

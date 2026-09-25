@@ -40,18 +40,15 @@ import 'helpers/fake_provider.dart';
     initialApiKey: '',
     providerFactory: (kind, key, model, baseUrl) =>
         FakeProvider.always(model: model),
-    hostFactory: ({
-      required String conversationId,
-      required bool isActive,
-    }) =>
+    hostFactory: ({required String conversationId, required bool isActive}) =>
         FakeHostInterface()..setActive(isActive),
-    agentBuilder: ({
-      required String conversationId,
-      required LlmProvider provider,
-      required HostInterface host,
-      required PermissionPolicy policy,
-    }) =>
-        AgentDriverAdapter(
+    agentBuilder:
+        ({
+          required String conversationId,
+          required LlmProvider provider,
+          required HostInterface host,
+          required PermissionPolicy policy,
+        }) => AgentDriverAdapter(
           Agent(
             provider: provider,
             tools: tools,
@@ -72,31 +69,37 @@ import 'helpers/fake_provider.dart';
 
 void main() {
   group('background-activity badge', () {
-    test('markBackgroundActivity bumps a background session unread once per burst',
-        () async {
-      final (sm, _) = await _build2Sessions();
-      final active = sm.activeId;
-      final bgId = sm.listSessions().firstWhere((s) => !s.isActive).id;
-      final bgConv = sm.all.firstWhere((s) => s.id == bgId).activeConversationId;
+    test(
+      'markBackgroundActivity bumps a background session unread once per burst',
+      () async {
+        final (sm, _) = await _build2Sessions();
+        final active = sm.activeId;
+        final bgId = sm.listSessions().firstWhere((s) => !s.isActive).id;
+        final bgConv = sm.all
+            .firstWhere((s) => s.id == bgId)
+            .activeConversationId;
 
-      // First background chunk → signals the session (0→1 transition).
-      expect(sm.markBackgroundActivity(bgConv), bgId);
-      // Further chunks during the same burst → no signal (avoids per-chunk
-      // refresh thrash), though the unread count keeps climbing.
-      expect(sm.markBackgroundActivity(bgConv), isNull);
-      expect(sm.markBackgroundActivity(bgConv), isNull);
-      expect(sm.unreadOf(bgId), greaterThanOrEqualTo(3));
+        // First background chunk → signals the session (0→1 transition).
+        expect(sm.markBackgroundActivity(bgConv), bgId);
+        // Further chunks during the same burst → no signal (avoids per-chunk
+        // refresh thrash), though the unread count keeps climbing.
+        expect(sm.markBackgroundActivity(bgConv), isNull);
+        expect(sm.markBackgroundActivity(bgConv), isNull);
+        expect(sm.unreadOf(bgId), greaterThanOrEqualTo(3));
 
-      // The active session is never badged.
-      final activeConv = sm.active.activeConversationId;
-      expect(sm.markBackgroundActivity(activeConv), isNull);
-      expect(sm.unreadOf(active), 0);
-    });
+        // The active session is never badged.
+        final activeConv = sm.active.activeConversationId;
+        expect(sm.markBackgroundActivity(activeConv), isNull);
+        expect(sm.unreadOf(active), 0);
+      },
+    );
 
     test('switching to a session clears its unread badge', () async {
       final (sm, _) = await _build2Sessions();
       final bgId = sm.listSessions().firstWhere((s) => !s.isActive).id;
-      final bgConv = sm.all.firstWhere((s) => s.id == bgId).activeConversationId;
+      final bgConv = sm.all
+          .firstWhere((s) => s.id == bgId)
+          .activeConversationId;
       sm.markBackgroundActivity(bgConv);
       expect(sm.unreadOf(bgId), greaterThan(0));
 
@@ -107,7 +110,9 @@ void main() {
     test('listSessions surfaces the unread count', () async {
       final (sm, _) = await _build2Sessions();
       final bgId = sm.listSessions().firstWhere((s) => !s.isActive).id;
-      final bgConv = sm.all.firstWhere((s) => s.id == bgId).activeConversationId;
+      final bgConv = sm.all
+          .firstWhere((s) => s.id == bgId)
+          .activeConversationId;
       sm.markBackgroundActivity(bgConv);
       final entry = sm.listSessions().firstWhere((s) => s.id == bgId);
       expect(entry.unread, greaterThan(0));
@@ -125,8 +130,8 @@ void main() {
       var current = (buffer: '', cursor: 0);
       final restored = <(String, String, int)>[]; // (toId, buffer, cursor)
       controller.saveInput = () => current;
-      controller.restoreInput =
-          (buffer, cursor) => restored.add((sm.activeId, buffer, cursor));
+      controller.restoreInput = (buffer, cursor) =>
+          restored.add((sm.activeId, buffer, cursor));
 
       // A had a draft; switch to B (which is empty).
       current = (buffer: 'hello a', cursor: 7);
@@ -136,28 +141,27 @@ void main() {
       controller.switchSession(aId);
 
       // B was restored empty; A was restored with its saved draft.
-      expect(restored, [
-        (bId, '', 0),
-        (aId, 'hello a', 7),
-      ]);
+      expect(restored, [(bId, '', 0), (aId, 'hello a', 7)]);
     });
 
-    test('newSession preserves the outgoing draft and clears the new one',
-        () async {
-      final (sm, controller) = await _build2Sessions();
-      final aId = sm.activeId;
-      var current = (buffer: 'draft', cursor: 5);
-      final restored = <(String, int)>[];
-      controller.saveInput = () => current;
-      controller.restoreInput =
-          (buffer, cursor) => restored.add((buffer, cursor));
+    test(
+      'newSession preserves the outgoing draft and clears the new one',
+      () async {
+        final (sm, controller) = await _build2Sessions();
+        final aId = sm.activeId;
+        var current = (buffer: 'draft', cursor: 5);
+        final restored = <(String, int)>[];
+        controller.saveInput = () => current;
+        controller.restoreInput = (buffer, cursor) =>
+            restored.add((buffer, cursor));
 
-      await controller.newSession();
-      final newId = sm.activeId;
-      expect(newId, isNot(aId));
-      // The brand-new session starts with an empty draft.
-      expect(restored.last, ('', 0));
-    });
+        await controller.newSession();
+        final newId = sm.activeId;
+        expect(newId, isNot(aId));
+        // The brand-new session starts with an empty draft.
+        expect(restored.last, ('', 0));
+      },
+    );
   });
 
   group('/session rename', () {
@@ -182,6 +186,5 @@ Future<(SessionManager, SessionController)> _build2Sessions() async {
 
 /// Extension to read a session's unread count without exposing internals.
 extension on SessionManager {
-  int unreadOf(String id) =>
-      all.firstWhere((s) => s.id == id).unread;
+  int unreadOf(String id) => all.firstWhere((s) => s.id == id).unread;
 }

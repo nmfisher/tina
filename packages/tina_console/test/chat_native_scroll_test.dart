@@ -51,13 +51,15 @@ void main() {
         async.elapse(const Duration(milliseconds: 10));
 
         expect(surf.scrollRowsArgs.length, scrollsBefore + 1,
-            reason: 'a single scroll must coalesce into exactly one scrollRows');
+            reason:
+                'a single scroll must coalesce into exactly one scrollRows');
         expect(surf.scrollRowsArgs.last, 1,
             reason: 'a single newline scrolls exactly one row');
 
         final wrote = surf.putAtCount - writesBefore;
         expect(wrote, lessThan(usable),
-            reason: 'fast path writes only a few rows ($wrote), not all $usable');
+            reason:
+                'fast path writes only a few rows ($wrote), not all $usable');
         expect(wrote, greaterThan(0),
             reason: 'the new bottom row must still be written');
         // The freshly-written content 'B' is the last thing on the bottom row.
@@ -192,10 +194,12 @@ void main() {
         expect(patchCalls, hasLength(1),
             reason: 'changed-tail repaint emits exactly one span putAt');
         expect(patchCalls.single.relCol, 2,
-            reason: 'partial patch writes at the tail offset column (head width)');
+            reason:
+                'partial patch writes at the tail offset column (head width)');
         // The partial span covers only the remaining width, not the full row.
         expect(patchCalls.single.maxCols, lessThan(width),
-            reason: 'partial patch maxCols is the tail span, not the full width');
+            reason:
+                'partial patch maxCols is the tail span, not the full width');
 
         // Final cells: head "AB" + tail "CDEF" all present on the surface row.
         final row = surf.putAtCalls.last.relRow;
@@ -218,7 +222,8 @@ void main() {
   // scroll shifted the buffer, so each aimed one row below its content. The
   // scrolled-in row never rendered until an unrelated full repaint.
   group('scrolled window off the fast path (tin-b4n7)', () {
-    test("'\n'-terminated write after a trailing blank renders the new row", () {
+    test("'\n'-terminated write after a trailing blank renders the new row",
+        () {
       fakeAsync((async) {
         final p = _FakeNotcursesPlatform();
         final s = _makeScreen(p, width: 120, height: 30);
@@ -436,7 +441,8 @@ String _stripAnsi(String s) {
     final u = s.codeUnitAt(i);
     if (u == 0x1b && i + 1 < s.length && s.codeUnitAt(i + 1) == 0x5b) {
       i += 2;
-      while (i < s.length && !(s.codeUnitAt(i) >= 0x40 && s.codeUnitAt(i) <= 0x7e)) {
+      while (i < s.length &&
+          !(s.codeUnitAt(i) >= 0x40 && s.codeUnitAt(i) <= 0x7e)) {
         i++;
       }
       if (i < s.length) i++;
@@ -526,7 +532,8 @@ class _RecordingSurface implements BackendSurface {
   factory _RecordingSurface.forBounds(Rect b) {
     final w = b.width < 1 ? 1 : b.width;
     final h = b.height < 1 ? 0 : b.height;
-    return _RecordingSurface._(Rect(row: b.row, col: b.col, width: w, height: h), w);
+    return _RecordingSurface._(
+        Rect(row: b.row, col: b.col, width: w, height: h), w);
   }
 
   void _put(int relRow, int col, String ch) {
@@ -545,15 +552,21 @@ class _RecordingSurface implements BackendSurface {
     int? clearCells,
   }) {
     putAtCount++;
-    putAtCalls.add(
-        (relRow: relRow, relCol: relCol, maxCols: maxCols, clearCells: clearCells));
+    putAtCalls.add((
+      relRow: relRow,
+      relCol: relCol,
+      maxCols: maxCols,
+      clearCells: clearCells
+    ));
     if (OpCounters.enabled) OpCounters.instance.gridWrites++;
     var col = relCol;
     var visible = 0;
     var i = 0;
     while (i < text.length && visible < maxCols) {
       final unit = text.codeUnitAt(i);
-      if (unit == 0x1b && i + 1 < text.length && text.codeUnitAt(i + 1) == 0x5b) {
+      if (unit == 0x1b &&
+          i + 1 < text.length &&
+          text.codeUnitAt(i + 1) == 0x5b) {
         // Skip a CSI sequence; it occupies no columns.
         i += 2;
         while (i < text.length &&
@@ -604,12 +617,14 @@ class _RecordingSurface implements BackendSurface {
 
   @override
   void moveTo(int row, int col) {
-    bounds = Rect(row: row, col: col, width: bounds.width, height: bounds.height);
+    bounds =
+        Rect(row: row, col: col, width: bounds.width, height: bounds.height);
   }
 
   @override
   void resize(int width, int height) {
-    bounds = Rect(row: bounds.row, col: bounds.col, width: width, height: height);
+    bounds =
+        Rect(row: bounds.row, col: bounds.col, width: width, height: height);
     cells.clear();
   }
 

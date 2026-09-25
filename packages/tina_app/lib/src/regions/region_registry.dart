@@ -49,11 +49,11 @@ class RegionRegistry {
     required this.workspaceRoot,
     this.defaultModel,
     AllocationsStore? allocations,
-  })  : _allocations = allocations ?? AllocationsStore.forProject(workspaceRoot),
-        _repo = SidecarSummaryRepo(
-          root: Directory('$workspaceRoot/.tina'),
-          workspaceRoot: Directory(workspaceRoot),
-        );
+  }) : _allocations = allocations ?? AllocationsStore.forProject(workspaceRoot),
+       _repo = SidecarSummaryRepo(
+         root: Directory('$workspaceRoot/.tina'),
+         workspaceRoot: Directory(workspaceRoot),
+       );
 
   /// The main repo root being served.
   final String workspaceRoot;
@@ -87,8 +87,7 @@ class RegionRegistry {
 
   /// The resolved model for [dir]: the allocation's override, else the
   /// registry default, else null (inherit the main agent's model).
-  String? modelFor(String dir) =>
-      _allocations.modelFor(dir) ?? defaultModel;
+  String? modelFor(String dir) => _allocations.modelFor(dir) ?? defaultModel;
 
   /// Allocate [dir] as a region, optionally with a dedicated fast model.
   /// Returns false when the dir does not exist under [workspaceRoot] (a nested
@@ -103,7 +102,10 @@ class RegionRegistry {
   void forget(String dir) => _allocations.remove(dir);
 
   Region _regionFor(
-      String dir, SummaryManifest manifest, Set<String> staleSet) {
+    String dir,
+    SummaryManifest manifest,
+    Set<String> staleSet,
+  ) {
     final recorded = manifest.dirs[dir];
     return Region(
       dir: dir,

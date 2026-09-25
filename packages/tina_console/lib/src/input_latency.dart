@@ -30,8 +30,11 @@ enum LatencyStage {
 /// character-latency percentiles that the optimization targets care about.
 enum InputKind { character, paste, navigation }
 
-InputKind _kindOf(InputEvent e) =>
-    e is CharInput ? InputKind.character : e is PasteInput ? InputKind.paste : InputKind.navigation;
+InputKind _kindOf(InputEvent e) => e is CharInput
+    ? InputKind.character
+    : e is PasteInput
+        ? InputKind.paste
+        : InputKind.navigation;
 
 /// One event's progress through the [LatencyStage]s. Stamps are recorded in
 /// monotonic-nanosecond units; null means the stage was never reached.
@@ -280,7 +283,8 @@ abstract final class InputLatency {
       }
       kinds[kind.name] = seriesOut;
     }
-    return InputLatencyReport(kinds: kinds, counters: OpCounters.instance.snapshot());
+    return InputLatencyReport(
+        kinds: kinds, counters: OpCounters.instance.snapshot());
   }
 
   static String _seriesName(int i) => const [

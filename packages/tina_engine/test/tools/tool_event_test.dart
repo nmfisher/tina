@@ -49,8 +49,7 @@ void main() {
   test('the lifecycle events share toolName/toolId for one call', () {
     const start = ToolStartEvent('grep', 'g1', {});
     const out = ToolOutputEvent('grep', 'g1', 'x');
-    const done =
-        ToolCompleteEvent('grep', 'g1', isError: false, result: 'r');
+    const done = ToolCompleteEvent('grep', 'g1', isError: false, result: 'r');
     for (final e in [start, out, done]) {
       expect(e.toolName, 'grep');
       expect(e.toolId, 'g1');

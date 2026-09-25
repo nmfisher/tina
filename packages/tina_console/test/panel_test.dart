@@ -31,7 +31,8 @@ void main() {
       vt.feed(io.written.toString());
 
       expect(vt.charAt(5, 5), '┌', reason: 'top-left corner at origin');
-      expect(vt.rowText(5).contains('Files'), isTrue, reason: 'title in border');
+      expect(vt.rowText(5).contains('Files'), isTrue,
+          reason: 'title in border');
       expect(vt.rowText(6).contains('alpha'), isTrue);
       expect(vt.rowText(7).contains('beta'), isTrue);
       expect(vt.charAt(10, 5), '└', reason: 'bottom-left corner');
@@ -71,7 +72,8 @@ void main() {
 
       panel.show();
       vt.feed(io.written.toString());
-      expect(vt.rowText(6).contains('alpha'), isTrue, reason: 'content restored');
+      expect(vt.rowText(6).contains('alpha'), isTrue,
+          reason: 'content restored');
       expect(panel.isVisible, isTrue);
       panel.unmount();
     });
@@ -106,7 +108,8 @@ void main() {
       )..mount();
       panel.setContent(['x']);
       final unfocused = io.written.toString();
-      expect(unfocused, contains('┌'), reason: 'thin corner regardless of focus');
+      expect(unfocused, contains('┌'),
+          reason: 'thin corner regardless of focus');
       expect(unfocused, contains('\x1b[2m'), reason: 'unfocused is dim');
       expect(unfocused, isNot(contains('┏')),
           reason: 'no heavy characters ever — the weight swap was removed');
@@ -131,12 +134,14 @@ void main() {
         layout: ScreenLayout.fromSize(80, 24),
         ansi: AnsiCapable.no,
       );
-      final p1 = TextPanel(screen, const Rect(row: 0, col: 0, width: 10, height: 4))
-        ..mount()
-        ..setContent(['one']);
-      final p2 = TextPanel(screen, const Rect(row: 0, col: 12, width: 10, height: 4))
-        ..mount()
-        ..setContent(['two']);
+      final p1 =
+          TextPanel(screen, const Rect(row: 0, col: 0, width: 10, height: 4))
+            ..mount()
+            ..setContent(['one']);
+      final p2 =
+          TextPanel(screen, const Rect(row: 0, col: 12, width: 10, height: 4))
+            ..mount()
+            ..setContent(['two']);
 
       // `home` establishes the initial focus (p1), exactly as the app sets
       // `focusManager.home = chat` (lib/tui_coordinator.dart). Without it

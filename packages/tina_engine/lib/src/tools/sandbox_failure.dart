@@ -119,10 +119,7 @@ class SandboxOwnershipFailure extends SandboxFailure {
   static final List<({RegExp pattern, int? uidGroup})> _complaints = [
     // OpenSSH, before it connects to anything. It names no id, so the path's
     // readability is what has to carry the argument.
-    (
-      pattern: RegExp(r'[Bb]ad owner or permissions on (/\S+)'),
-      uidGroup: null
-    ),
+    (pattern: RegExp(r'[Bb]ad owner or permissions on (/\S+)'), uidGroup: null),
     // sudo names both the uid it found and the one it wanted.
     (
       pattern: RegExp(r'(\S+) is owned by uid (\d+), should be \d+'),

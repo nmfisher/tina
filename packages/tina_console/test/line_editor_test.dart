@@ -143,10 +143,8 @@ void main() {
       io.feedBytes([0x0d]); // Enter
       expect(await f, '/compact');
       vt.feed(io.written.toString());
-      final after = vt
-          .rowText(row)
-          .substring(col + 2, screen.layout.dividerCol)
-          .trim();
+      final after =
+          vt.rowText(row).substring(col + 2, screen.layout.dividerCol).trim();
       expect(after, isEmpty,
           reason: 'stale /compact must not sit in the input row while a slow '
               'command dispatch (LLM summarization) is awaited; the bare '
@@ -372,7 +370,8 @@ void main() {
       expect(await f, 'axb');
     });
 
-    test('restored history supports Up and preserves the current draft', () async {
+    test('restored history supports Up and preserves the current draft',
+        () async {
       final ed = _editor(io);
       ed.restoreHistory(['first prompt', '', 'last prompt', 'last prompt']);
       final line = ed.readLine('> ');
@@ -670,7 +669,8 @@ void main() {
       ed.beginCancelMonitor(() {}, onQueueSubmit: submitted.add);
       io.feedBytes('hello world'.codeUnits);
       await _flush();
-      io.feedBytes([0x1b, 0x5b, 0x31, 0x3b, 0x35, 0x44]); // CSI 1;5D — Ctrl+Left
+      io.feedBytes(
+          [0x1b, 0x5b, 0x31, 0x3b, 0x35, 0x44]); // CSI 1;5D — Ctrl+Left
       await _flush();
       io.feedBytes([0x58, 0x0d]); // X, ⏎
       await _flush();
@@ -724,7 +724,8 @@ void main() {
       io.feedBytes([0x58, 0x0d]); // X, ⏎
       await _flush();
       expect(submitted, ['abX'],
-          reason: 'queue mode keeps no history; Up/Down must not eat the draft');
+          reason:
+              'queue mode keeps no history; Up/Down must not eat the draft');
     });
 
     test('queue mode Home/End/Delete edit the draft', () async {

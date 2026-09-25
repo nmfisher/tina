@@ -55,7 +55,8 @@ class TextBuffer {
     }
     _lines[line] = prefix + parts.first;
     for (var i = 1; i < parts.length; i++) {
-      _lines.insert(line + i, i == parts.length - 1 ? parts[i] + suffix : parts[i]);
+      _lines.insert(
+          line + i, i == parts.length - 1 ? parts[i] + suffix : parts[i]);
     }
     line += parts.length - 1;
     col = parts.last.length;

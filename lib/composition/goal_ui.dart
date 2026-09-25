@@ -12,26 +12,17 @@ import '../tui/goal_status_renderer.dart';
 /// conversation from the store it finds under [goalStoreServiceKey], and the
 /// host layer wires the judge hook when it constructs the turn executor.
 PluginDescriptor goalUiPlugin({required GoalStore store}) => PluginDescriptor(
-      id: 'tina.goal',
-      provides: [goalStoreServiceKey],
-      factory: FnPluginFactory((context) {
-        // The store instance is the plugin's root object; the runtime binds
-        // `provides` keys itself AFTER the factory returns. Do NOT also
-        // scope.provide(goalStoreServiceKey) here — the second bind throws
-        // "already provided in scope execution" at activation (the same trap
-        // the plan plugin's comment documents).
-        context.register(
-          GoalStatusSource(store),
-          id: 'tina.goal.status',
-        );
-        context.register(
-          const GoalStatusRenderer(),
-          id: 'tina.goal.renderer',
-        );
-        context.register(
-          goalCommand(store),
-          id: 'tina.goal.command',
-        );
-        return store;
-      }),
-    );
+  id: 'tina.goal',
+  provides: [goalStoreServiceKey],
+  factory: FnPluginFactory((context) {
+    // The store instance is the plugin's root object; the runtime binds
+    // `provides` keys itself AFTER the factory returns. Do NOT also
+    // scope.provide(goalStoreServiceKey) here — the second bind throws
+    // "already provided in scope execution" at activation (the same trap
+    // the plan plugin's comment documents).
+    context.register(GoalStatusSource(store), id: 'tina.goal.status');
+    context.register(const GoalStatusRenderer(), id: 'tina.goal.renderer');
+    context.register(goalCommand(store), id: 'tina.goal.command');
+    return store;
+  }),
+);

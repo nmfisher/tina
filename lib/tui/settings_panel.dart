@@ -4,7 +4,8 @@ import 'package:classifier/typesafe_classifier.dart';
 import 'package:tina/config/provider_selection.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_engine/tina_engine.dart' show ProviderRegistry, ModelsDevProviderCatalog;
+import 'package:tina_engine/tina_engine.dart'
+    show ProviderRegistry, ModelsDevProviderCatalog;
 
 import 'spawn_overlay.dart';
 
@@ -46,8 +47,17 @@ Future<UserConfig?> runSettingsPanel({
   // the whole session.
   final grabbed = modalTakeFocus(editor);
   try {
-    await _runSettingsSession(screen, editor, registry, env, tinaDir,
-        readEvent, (w) => lastWritten = w, currentQuota, onQuotaSaved);
+    await _runSettingsSession(
+      screen,
+      editor,
+      registry,
+      env,
+      tinaDir,
+      readEvent,
+      (w) => lastWritten = w,
+      currentQuota,
+      onQuotaSaved,
+    );
     return lastWritten;
   } finally {
     modalRestoreFocus(editor, grabbed);
@@ -120,7 +130,8 @@ Future<void> _runSettingsSession(
           initial: currentQuota == null
               ? initial
               : initial.copyWith(
-                  limits: currentQuota(initial.limits ?? const LimitsConfig())),
+                  limits: currentQuota(initial.limits ?? const LimitsConfig()),
+                ),
           readEvent: readEvent,
           onSaved: onQuotaSaved,
         );
@@ -227,10 +238,14 @@ bool _mapsEqual<K, V>(Map<K, V> a, Map<K, V> b) {
 /// When [accent] is non-null, the frame glyphs and title are colorized with it
 /// (the active-focus border color), so the modal reads as the single blue panel.
 List<String> _box(
-    String title, List<String> body, String footer, Rect rect, Screen screen,
-    {String? accent}) {
-  String paint(String s) =>
-      accent == null ? s : screen.colorize(accent, s);
+  String title,
+  List<String> body,
+  String footer,
+  Rect rect,
+  Screen screen, {
+  String? accent,
+}) {
+  String paint(String s) => accent == null ? s : screen.colorize(accent, s);
   final w = rect.width;
   final innerW = w - 4;
   String wrap(String s) {
@@ -239,8 +254,9 @@ List<String> _box(
   }
 
   final titleSeg = ' $title ';
-  final titleFit =
-      titleSeg.length > w - 2 ? titleSeg.substring(0, w - 2) : titleSeg;
+  final titleFit = titleSeg.length > w - 2
+      ? titleSeg.substring(0, w - 2)
+      : titleSeg;
   final lines = <String>[
     '${paint('┌')}${paint(titleFit)}${paint('─' * (w - 2 - titleFit.length))}${paint('┐')}',
     ...body.map(wrap),
@@ -403,8 +419,14 @@ Future<UserConfig?> runProvidersPanel({
   required UserConfig initial,
   Future<InputEvent> Function()? readEvent,
 }) {
-  return _ProvidersForm(screen, registry, env, tinaDir,
-      readEvent ?? editor.captureKeyReader(), initial).run();
+  return _ProvidersForm(
+    screen,
+    registry,
+    env,
+    tinaDir,
+    readEvent ?? editor.captureKeyReader(),
+    initial,
+  ).run();
 }
 
 enum _ProvidersResult { changed, wrote, cancelled }
@@ -416,8 +438,12 @@ class _Row {
   final int providerIndex;
   final int? modelIndex;
   final bool emptyModels;
-  const _Row(this.type, this.providerIndex, this.modelIndex,
-      {this.emptyModels = false});
+  const _Row(
+    this.type,
+    this.providerIndex,
+    this.modelIndex, {
+    this.emptyModels = false,
+  });
 }
 
 class _ProvidersForm {
@@ -442,11 +468,13 @@ class _ProvidersForm {
     // with the pickers: every registry provider without an explicitly saved
     // set — including providers with no config block at all — starts with
     // every model disabled.
-    _disabledModels.addAll(disabledModelRefsFor(
-      initial ?? UserConfig.empty,
-      _providerIds,
-      (pid) => [for (final m in _registry.modelsFor(pid)) m.id],
-    ));
+    _disabledModels.addAll(
+      disabledModelRefsFor(
+        initial ?? UserConfig.empty,
+        _providerIds,
+        (pid) => [for (final m in _registry.modelsFor(pid)) m.id],
+      ),
+    );
   }
 
   final Screen _screen;
@@ -518,10 +546,9 @@ class _ProvidersForm {
           final spec = ProviderModelSpec.parse(_addBuf);
           final id = _addingFor!;
           if (spec != null) {
-            _addedModels
-                .putIfAbsent(id, () => [])
-                ..removeWhere((s0) => s0.id == spec.id)
-                ..add(spec);
+            _addedModels.putIfAbsent(id, () => [])
+              ..removeWhere((s0) => s0.id == spec.id)
+              ..add(spec);
             // Declaring a model is an explicit act: enable it immediately,
             // regardless of the provider's curation state.
             _disabledModels.remove('$id/${spec.id}');
@@ -878,8 +905,7 @@ class _ProvidersForm {
           // re-save: drop them and a settings write silently widens the
           // provider's spacing back to the global default.
           requestsPerMinute: _existingProviders[id]?.requestsPerMinute,
-          minRequestIntervalMs:
-              _existingProviders[id]?.minRequestIntervalMs,
+          minRequestIntervalMs: _existingProviders[id]?.minRequestIntervalMs,
           // Explicit, never null: an empty set is the curated
           // "every model enabled" state, distinct from an absent key (=
           // never curated = all disabled). The config round-trip preserves
@@ -895,8 +921,15 @@ class _ProvidersForm {
   }
 
   void _render() => _overlay.show(
-      _box('Providers & models', _body(), _footer(), _rect, _screen,
-          accent: activeAccent(_screen)));
+    _box(
+      'Providers & models',
+      _body(),
+      _footer(),
+      _rect,
+      _screen,
+      accent: activeAccent(_screen),
+    ),
+  );
 
   List<String> _body() {
     final rows = _computeRows();
@@ -929,8 +962,7 @@ class _ProvidersForm {
           final hint = k.isEmpty && !_hintDismissed.contains(id)
               ? _unsetKeyHint(id)
               : '';
-          lines.add(_row(
-              focused, '  API key: ${'*' * k.length}$hint$cursor'));
+          lines.add(_row(focused, '  API key: ${'*' * k.length}$hint$cursor'));
         case _RowType.url:
           final id = _providerIds[r.providerIndex];
           final u = _baseUrls[id] ?? '';
@@ -1037,7 +1069,6 @@ String _ageLabel(Duration d) {
   return '${d.inSeconds}s';
 }
 
-
 // =============================================================================
 // Subpanel: Token quota
 // =============================================================================
@@ -1057,8 +1088,13 @@ Future<UserConfig?> runQuotaPanel({
   void Function(LimitsConfig)? onSaved,
 }) {
   return _QuotaForm(
-          screen, env, tinaDir, readEvent ?? editor.captureKeyReader(), initial, onSaved)
-      .run();
+    screen,
+    env,
+    tinaDir,
+    readEvent ?? editor.captureKeyReader(),
+    initial,
+    onSaved,
+  ).run();
 }
 
 enum _QuotaResult { changed, wrote, cancelled }
@@ -1119,17 +1155,17 @@ class _QuotaForm {
   // doesn't edit (minRequestIntervalMs, maxConcurrentRequests) carry through
   // from the initial config so a save here can't silently drop them.
   LimitsConfig _toConfig() => LimitsConfig(
-        maxSessionTokens: _limitValues['max_session_tokens'],
-        maxTurnTokens: _limitValues['max_turn_tokens'],
-        maxRequestTokens: _limitValues['max_request_tokens'],
-        maxGlobalTokens: _limitValues['max_global_tokens'],
-        maxSubAgentTokens: _limitValues['max_sub_agent_tokens'],
-        requestsPerMinute: _limitValues['requests_per_minute'],
-        minRequestIntervalMs:
-            (_initial.limits ?? const LimitsConfig()).minRequestIntervalMs,
-        maxConcurrentRequests:
-            (_initial.limits ?? const LimitsConfig()).maxConcurrentRequests,
-      );
+    maxSessionTokens: _limitValues['max_session_tokens'],
+    maxTurnTokens: _limitValues['max_turn_tokens'],
+    maxRequestTokens: _limitValues['max_request_tokens'],
+    maxGlobalTokens: _limitValues['max_global_tokens'],
+    maxSubAgentTokens: _limitValues['max_sub_agent_tokens'],
+    requestsPerMinute: _limitValues['requests_per_minute'],
+    minRequestIntervalMs:
+        (_initial.limits ?? const LimitsConfig()).minRequestIntervalMs,
+    maxConcurrentRequests:
+        (_initial.limits ?? const LimitsConfig()).maxConcurrentRequests,
+  );
 
   final Screen _screen;
   final Map<String, String> _env;
@@ -1239,22 +1275,26 @@ class _QuotaForm {
     return _QuotaResult.changed;
   }
 
-  UserConfig? _write() => writeUserConfigPatch(
-        env: _env,
-        tinaDir: _tinaDir,
-        limits: _toConfig(),
-      );
+  UserConfig? _write() =>
+      writeUserConfigPatch(env: _env, tinaDir: _tinaDir, limits: _toConfig());
 
   void _render() => _overlay.show(
-      _box('Token quota', _body(), _footer(), _rect, _screen,
-          accent: activeAccent(_screen)));
+    _box(
+      'Token quota',
+      _body(),
+      _footer(),
+      _rect,
+      _screen,
+      accent: activeAccent(_screen),
+    ),
+  );
 
   List<String> _body() => [
-        'Token limits (enter saves, esc cancels):',
-        for (var i = 0; i < _limitIds.length; i++)
-          _row(i == _focus, '${_limitLabels[i]}: ${_limitValues[_limitIds[i]]}'),
-        if (_writeError != null) _row(false, '⚠ $_writeError'),
-      ];
+    'Token limits (enter saves, esc cancels):',
+    for (var i = 0; i < _limitIds.length; i++)
+      _row(i == _focus, '${_limitLabels[i]}: ${_limitValues[_limitIds[i]]}'),
+    if (_writeError != null) _row(false, '⚠ $_writeError'),
+  ];
 
   String _footer() => '↑↓ move · digits edit · backspace del · enter save';
 }

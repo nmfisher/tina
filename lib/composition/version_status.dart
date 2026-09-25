@@ -14,15 +14,15 @@ import '../tui/version_status_renderer.dart';
 ///   so it never competes with the right-aligned token counter for the
 ///   strip's single right group.
 PluginDescriptor versionStatusUiPlugin() => PluginDescriptor(
-      id: 'tina.version-status',
-      requires: {versionStatusServiceKey},
-      factory: FnPluginFactory((context) {
-        final status = context.require(versionStatusServiceKey);
-        context.register(status, id: 'tina.version-status.source');
-        context.register(
-          const VersionStatusRenderer(),
-          id: 'tina.version-status.renderer',
-        );
-        return Object();
-      }),
+  id: 'tina.version-status',
+  requires: {versionStatusServiceKey},
+  factory: FnPluginFactory((context) {
+    final status = context.require(versionStatusServiceKey);
+    context.register(status, id: 'tina.version-status.source');
+    context.register(
+      const VersionStatusRenderer(),
+      id: 'tina.version-status.renderer',
     );
+    return Object();
+  }),
+);

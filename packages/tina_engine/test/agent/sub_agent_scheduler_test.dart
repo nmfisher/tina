@@ -13,7 +13,6 @@ import '../helpers/fake_provider.dart';
 /// A driver that scripts a single turn — the seam replacement whose
 /// execution proves the panelized path went through [AgentDriverFactory].
 class _ScriptedSessionDriver implements AgentDriver {
-
   @override
   PermissionPolicy get policy => PermissionPolicy();
   int runs = 0;
@@ -189,14 +188,13 @@ class _FakeStore implements SessionStore {
   Future<void> setActiveConversation(
       String sessionId, String conversationId) async {}
   @override
-  Future<void> updateConversationModel(String sessionId,
-          String conversationId,
-          {required String model, String? label}) async {}
+  Future<void> updateConversationModel(String sessionId, String conversationId,
+      {required String model, String? label}) async {}
   @override
-  Future<void> updateConversationTrackers(String sessionId,
-          String conversationId,
-          {required Map<String, dynamic>? goal,
-          required Map<String, dynamic>? plan}) async {}
+  Future<void> updateConversationTrackers(
+      String sessionId, String conversationId,
+      {required Map<String, dynamic>? goal,
+      required Map<String, dynamic>? plan}) async {}
   @override
   Future<void> updateSessionUsage(String sessionId, int tokens) async {}
   @override
@@ -256,7 +254,8 @@ void main() {
 
     // -- the live-ref resolver (a `/model` swap mid-session) ----------------
 
-    test('a --yolo parent policy widens a gated write without an explicit '
+    test(
+        'a --yolo parent policy widens a gated write without an explicit '
         'default', () async {
       // The reported regression shape: a policy whose defaults table does not
       // mention the tool, relying on the allow-all posture instead. The
@@ -395,11 +394,10 @@ void main() {
           name: 'a',
           authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
           defaultBaseUrl: 'https://a.test',
-          builder: (_) =>
-              _SystemCapturingProvider(seen, answerEvents('ok')),
+          builder: (_) => _SystemCapturingProvider(seen, answerEvents('ok')),
           models: const {
-            'a-model':
-                ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+            'a-model': ModelInfo(
+                id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
           },
         ));
       final scheduler = testScheduler(r, pipeline: pipeline);
@@ -506,8 +504,8 @@ void main() {
         pipeline: pipeline,
       );
       scheduler.driverFactory = scriptedFactory;
-      scheduler.persistence = (job,
-          {required meta, required parentConversationId}) async {
+      scheduler.persistence =
+          (job, {required meta, required parentConversationId}) async {
         final conv = await store.createConversationWithMeta('s', meta);
         job.panelSink = FakeAgentSink();
         job.panelHost = panelHost;
@@ -573,8 +571,7 @@ void main() {
       expect(result.isError, isFalse, reason: result.content);
       // The panel host's asker survives onto the build: a tool call on the
       // focused panel consults the host (here: its canned deny comes back).
-      expect(
-          await builtAsker!(const PermissionPrompt('bash', const {})),
+      expect(await builtAsker!(const PermissionPrompt('bash', const {})),
           panelHost.permissionResponse);
       expect(scriptedFactory.requests, 1,
           reason: 'the panel build consults the seam once');
@@ -601,8 +598,8 @@ void main() {
           defaultBaseUrl: 'https://a.test',
           builder: (_) => gated,
           models: const {
-            'a-model':
-                ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+            'a-model': ModelInfo(
+                id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
           },
         ));
       final store = _FakeStore();
@@ -625,9 +622,7 @@ void main() {
         originConversationId: 'conv1',
       );
       // Hold the turn mid-flight: the cue must be up while the job runs.
-      for (var i = 0;
-          i < 300 && host.activitySignals.isEmpty;
-          i++) {
+      for (var i = 0; i < 300 && host.activitySignals.isEmpty; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
       expect(host.activitySignals, [true],
@@ -646,7 +641,9 @@ void main() {
       final host = FakeHostInterface();
       final store = _FakeStore();
       final scheduler = testScheduler(
-        scriptedRegistry({'a': [const StreamError('no funds')]}),
+        scriptedRegistry({
+          'a': [const StreamError('no funds')]
+        }),
         pipeline: pipeline,
       );
       scheduler.persistence =
@@ -848,8 +845,8 @@ void main() {
         defaultBaseUrl: 'https://a.test',
         builder: (_) => _LoopingToolProvider(),
         models: const {
-          'a-model':
-              ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+          'a-model': ModelInfo(
+              id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
         },
       ));
     final scheduler = testScheduler(
@@ -875,66 +872,73 @@ void main() {
 
   for (final toolName in ['bash', 'exec']) {
     for (final profile in ToolProfile.values) {
-  test('$profile sub-agent does not auto-approve $toolName', () async {
-    // Script: first call asks for bash; second call answers after the denial.
-    final bashThenDone = <List<StreamEvent>>[
-      [
-        ToolCallStart(id: 'c1', name: toolName),
-        MessageComplete(
-          content: [
-            ToolUseBlock(id: 'c1', name: toolName, input: toolName == 'bash' ? {'command': 'true'} : {'executable': '/bin/sh', 'args': ['-c', 'true']})
+      test('$profile sub-agent does not auto-approve $toolName', () async {
+        // Script: first call asks for bash; second call answers after the denial.
+        final bashThenDone = <List<StreamEvent>>[
+          [
+            ToolCallStart(id: 'c1', name: toolName),
+            MessageComplete(
+              content: [
+                ToolUseBlock(
+                    id: 'c1',
+                    name: toolName,
+                    input: toolName == 'bash'
+                        ? {'command': 'true'}
+                        : {
+                            'executable': '/bin/sh',
+                            'args': ['-c', 'true']
+                          })
+              ],
+              stopReason: 'tool_use',
+            ),
           ],
-          stopReason: 'tool_use',
-        ),
-      ],
-      [
-        const TextDelta('done'),
-        MessageComplete(
-            content: [TextBlock('done')], stopReason: 'end_turn'),
-      ],
-    ];
-    final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
-      ..register(ProviderDescriptor(
-        id: 'a',
-        name: 'a',
-        authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
-        defaultBaseUrl: 'https://a.test',
-        builder: (c) => FakeProvider(bashThenDone, model: c.model),
-        models: const {
-          'a-model':
-              ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
-        },
-      ));
-    final scheduler = testScheduler(r, pipeline: pipeline);
+          [
+            const TextDelta('done'),
+            MessageComplete(
+                content: [TextBlock('done')], stopReason: 'end_turn'),
+          ],
+        ];
+        final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
+          ..register(ProviderDescriptor(
+            id: 'a',
+            name: 'a',
+            authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
+            defaultBaseUrl: 'https://a.test',
+            builder: (c) => FakeProvider(bashThenDone, model: c.model),
+            models: const {
+              'a-model': ModelInfo(
+                  id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+            },
+          ));
+        final scheduler = testScheduler(r, pipeline: pipeline);
 
-    final seen = <AgentEvent>[];
-    final sub = scheduler.events.listen(seen.add);
+        final seen = <AgentEvent>[];
+        final sub = scheduler.events.listen(seen.add);
 
-    // Read-only omits execution tools; full retains the parent's ask default.
-    // Neither path may start a command without approval.
-    final job = scheduler.spawn(
-      task: 'run ls',
-      toolProfile: profile,
-      parentSystemPrompt: 'P',
-      parentReference: 'a/a-model',
-      parentPolicy: PermissionPolicy(),
-      originConversationId: 'conv1',
-    );
-    final result = await job.result;
-    await Future<void>.delayed(Duration.zero);
-    sub.cancel();
+        // Read-only omits execution tools; full retains the parent's ask default.
+        // Neither path may start a command without approval.
+        final job = scheduler.spawn(
+          task: 'run ls',
+          toolProfile: profile,
+          parentSystemPrompt: 'P',
+          parentReference: 'a/a-model',
+          parentPolicy: PermissionPolicy(),
+          originConversationId: 'conv1',
+        );
+        final result = await job.result;
+        await Future<void>.delayed(Duration.zero);
+        sub.cancel();
 
-    expect(result.content, 'done');
-    final bashStarts = seen.whereType<JobAgentEvent>().where((e) {
-      final inner = e.event;
-      return inner is ToolAgentEvent &&
-          inner.event is ToolStartEvent &&
-          (inner.event as ToolStartEvent).toolName == toolName;
-    });
-    expect(bashStarts, isEmpty);
-    await scheduler.dispose();
-  });
-
+        expect(result.content, 'done');
+        final bashStarts = seen.whereType<JobAgentEvent>().where((e) {
+          final inner = e.event;
+          return inner is ToolAgentEvent &&
+              inner.event is ToolStartEvent &&
+              (inner.event as ToolStartEvent).toolName == toolName;
+        });
+        expect(bashStarts, isEmpty);
+        await scheduler.dispose();
+      });
     }
   }
 
@@ -957,8 +961,8 @@ void main() {
           ],
         ),
         models: const {
-          'a-model':
-              ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+          'a-model': ModelInfo(
+              id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
         },
       ));
     final scheduler = testScheduler(r, pipeline: pipeline, maxConcurrent: 1);
@@ -1028,8 +1032,8 @@ void main() {
           ],
         ),
         models: const {
-          'a-model':
-              ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+          'a-model': ModelInfo(
+              id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
         },
       ));
     final quota = AgentQuota(maxLive: 2);
@@ -1078,8 +1082,8 @@ void main() {
           ],
         ),
         models: const {
-          'a-model':
-              ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+          'a-model': ModelInfo(
+              id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
         },
       ));
     final scheduler = testScheduler(r, pipeline: pipeline);
@@ -1119,8 +1123,8 @@ void main() {
           ],
         ),
         models: const {
-          'a-model':
-              ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+          'a-model': ModelInfo(
+              id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
         },
       ));
     final scheduler = testScheduler(r, pipeline: pipeline);
@@ -1214,8 +1218,7 @@ void main() {
           ..register(ProviderDescriptor(
             id: 'a',
             name: 'a',
-            authSources:
-                const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
+            authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
             defaultBaseUrl: 'https://a.test',
             builder: (c) => HoldProvider(
               gate: gate.future,
@@ -1228,8 +1231,8 @@ void main() {
               ],
             ),
             models: const {
-              'a-model':
-                  ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+              'a-model': ModelInfo(
+                  id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
             },
           )),
         pipeline: pipeline,
@@ -1259,13 +1262,12 @@ void main() {
           ..register(ProviderDescriptor(
             id: 'a',
             name: 'a',
-            authSources:
-                const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
+            authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
             defaultBaseUrl: 'https://a.test',
             builder: (c) => CaptureProvider(captured, const ['final']),
             models: const {
-              'a-model':
-                  ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+              'a-model': ModelInfo(
+                  id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
             },
           )),
         pipeline: pipeline,
@@ -1335,8 +1337,8 @@ void main() {
           defaultBaseUrl: 'https://a.test',
           builder: (c) => FakeProvider(bashThenDone, model: c.model),
           models: const {
-            'a-model':
-                ModelInfo(id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
+            'a-model': ModelInfo(
+                id: 'a-model', name: 'm', contextWindow: 1, maxOutput: 1)
           },
         ));
       final scheduler = testScheduler(r, pipeline: pipeline, safeMode: true);
@@ -1371,7 +1373,8 @@ void main() {
   });
 
   group('runStandalone (attractor seam)', () {
-    test('runs a node agent from its system prompt and returns the answer', () async {
+    test('runs a node agent from its system prompt and returns the answer',
+        () async {
       final scheduler = testScheduler(
         scriptedRegistry({'a': answerEvents('hello from the node')}),
         pipeline: pipeline,
@@ -1410,7 +1413,8 @@ void main() {
       await scheduler.dispose();
     });
 
-    test('inherits the conversation model when no modelReference is set', () async {
+    test('inherits the conversation model when no modelReference is set',
+        () async {
       final scheduler = testScheduler(
         scriptedRegistry({'a': answerEvents('from-a')}),
         pipeline: pipeline,
@@ -1852,8 +1856,8 @@ ProviderRegistry _writeOnceRegistry(List<String> paths) {
       defaultBaseUrl: 'https://w.test',
       builder: (_) => _WriteThenAnswerProvider(remaining.removeAt(0)),
       models: {
-        'w-model': ModelInfo(
-            id: 'w-model', name: 'm', contextWindow: 1, maxOutput: 1)
+        'w-model':
+            ModelInfo(id: 'w-model', name: 'm', contextWindow: 1, maxOutput: 1)
       },
     ));
   return r;
@@ -1897,6 +1901,7 @@ class _LifecycleProvider extends LlmProvider {
       },
     ).stream;
   }
+
   @override
   void close() {
     closes++;

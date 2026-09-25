@@ -138,7 +138,8 @@ void main() {
     // content row, but the buffer index for the first content row is 0).
     final segCount = wideScreen.chat.debugSegmentCount(0);
     expect(segCount, lessThanOrEqualTo(64),
-        reason: 'segment count must stay bounded under compaction; got $segCount');
+        reason:
+            'segment count must stay bounded under compaction; got $segCount');
     // And the row still reconstructs to a non-empty run.
     expect(segCount, greaterThan(0));
   });
@@ -156,7 +157,8 @@ void main() {
     expect(vt.charAt(bottomRow, layout.chat.col + 1), 'i');
     // The row above the single content row is still blank (bottom-aligned).
     expect(vt.charAt(aboveRow, layout.chat.col), ' ',
-        reason: 'a single short write bottom-aligns, leaving the row above blank');
+        reason:
+            'a single short write bottom-aligns, leaving the row above blank');
   });
 
   test('scrollback contents unchanged after compaction', () {

@@ -151,7 +151,8 @@ void main() {
       ed.close();
     });
 
-    test('endCancelMonitor leaves the prompt row painted (queue mode)', () async {
+    test('endCancelMonitor leaves the prompt row painted (queue mode)',
+        () async {
       final (ed, input, _, io, _) = _rig();
       final submitted = <String>[];
       ed.beginCancelMonitor(() {}, onQueueSubmit: submitted.add);
@@ -174,8 +175,7 @@ void main() {
       ed.close();
     });
 
-    test('vertical arrows are inert in queue mode and lose nothing',
-        () async {
+    test('vertical arrows are inert in queue mode and lose nothing', () async {
       final (ed, input, _, io, _) = _rig();
       final submitted = <String>[];
       ed.beginCancelMonitor(() {}, onQueueSubmit: submitted.add);

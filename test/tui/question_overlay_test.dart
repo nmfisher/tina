@@ -30,75 +30,86 @@ void main() {
   Future<List<String>?> run(
     Screen screen,
     List<({String text, List<String> options})> questions,
-  ) =>
-      runQuestionOverlay(
-        screen: screen,
-        editor: LineEditor(screen: screen),
-        questions: questions,
-        readEvent: canned.readEvent,
-      );
+  ) => runQuestionOverlay(
+    screen: screen,
+    editor: LineEditor(screen: screen),
+    questions: questions,
+    readEvent: canned.readEvent,
+  );
 
   const questions = [
     (text: 'Which approach?', options: ['A: refactor', 'B: rewrite']),
     (text: 'How far?', options: ['C: minimal', 'D: full']),
   ];
 
-  test('Enter on the FIRST question selects and advances — it does not submit',
-      () async {
-    final screen = fakeScreen();
-    // A hand-gated event source: the second Enter is only delivered when we
-    // complete it, so "the future is still pending" is PROOF the form waited
-    // for the second answer rather than submitting on the first Enter.
-    final pending = <Completer<InputEvent>>[];
-    Future<InputEvent> readEvent() {
-      final c = Completer<InputEvent>();
-      pending.add(c);
-      return c.future;
-    }
-    final future = runQuestionOverlay(
-      screen: screen,
-      editor: LineEditor(screen: screen),
-      questions: questions,
-      readEvent: readEvent,
-    );
-    await Future<void>.delayed(Duration.zero);
-    pending.removeAt(0).complete(ControlKey(ControlCode.enter));
-    await Future<void>.delayed(const Duration(milliseconds: 20));
-    var done = false;
-    future.then((_) => done = true);
-    await Future<void>.delayed(const Duration(milliseconds: 20));
-    expect(done, isFalse,
-        reason: 'one Enter answers one question; the form must stay open '
-            'waiting for the second answer');
-    pending.removeAt(0).complete(ControlKey(ControlCode.enter));
-    final result = await future.timeout(overlayTimeout);
-    expect(result, ['A: refactor', 'C: minimal']);
-  });
+  test(
+    'Enter on the FIRST question selects and advances — it does not submit',
+    () async {
+      final screen = fakeScreen();
+      // A hand-gated event source: the second Enter is only delivered when we
+      // complete it, so "the future is still pending" is PROOF the form waited
+      // for the second answer rather than submitting on the first Enter.
+      final pending = <Completer<InputEvent>>[];
+      Future<InputEvent> readEvent() {
+        final c = Completer<InputEvent>();
+        pending.add(c);
+        return c.future;
+      }
 
-  test('Enter selects the FOCUSED option, not the first, before advancing',
-      () async {
-    final screen = fakeScreen();
-    canned.events = [
-      ArrowKey(ArrowDirection.down), // Q1 → B
-      ControlKey(ControlCode.enter), // select B, advance to Q2
-      ArrowKey(ArrowDirection.down), // Q2 → D
-      ControlKey(ControlCode.enter), // select D, last question → submit
-    ];
-    final result = await run(screen, questions).timeout(overlayTimeout);
-    expect(result, ['B: rewrite', 'D: full']);
-  });
+      final future = runQuestionOverlay(
+        screen: screen,
+        editor: LineEditor(screen: screen),
+        questions: questions,
+        readEvent: readEvent,
+      );
+      await Future<void>.delayed(Duration.zero);
+      pending.removeAt(0).complete(ControlKey(ControlCode.enter));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      var done = false;
+      future.then((_) => done = true);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        done,
+        isFalse,
+        reason:
+            'one Enter answers one question; the form must stay open '
+            'waiting for the second answer',
+      );
+      pending.removeAt(0).complete(ControlKey(ControlCode.enter));
+      final result = await future.timeout(overlayTimeout);
+      expect(result, ['A: refactor', 'C: minimal']);
+    },
+  );
 
-  test('a single question submits on Enter (selecting IS submitting)', () async {
-    final screen = fakeScreen();
-    canned.events = [
-      ArrowKey(ArrowDirection.down),
-      ControlKey(ControlCode.enter),
-    ];
-    final result = await run(screen, const [
-      (text: 'Proceed?', options: ['yes', 'no']),
-    ]).timeout(overlayTimeout);
-    expect(result, ['no']);
-  });
+  test(
+    'Enter selects the FOCUSED option, not the first, before advancing',
+    () async {
+      final screen = fakeScreen();
+      canned.events = [
+        ArrowKey(ArrowDirection.down), // Q1 → B
+        ControlKey(ControlCode.enter), // select B, advance to Q2
+        ArrowKey(ArrowDirection.down), // Q2 → D
+        ControlKey(ControlCode.enter), // select D, last question → submit
+      ];
+      final result = await run(screen, questions).timeout(overlayTimeout);
+      expect(result, ['B: rewrite', 'D: full']);
+    },
+  );
+
+  test(
+    'a single question submits on Enter (selecting IS submitting)',
+    () async {
+      final screen = fakeScreen();
+      canned.events = [
+        ArrowKey(ArrowDirection.down),
+        ControlKey(ControlCode.enter),
+      ];
+      final result = await run(screen, const [
+        (text: 'Proceed?', options: ['yes', 'no']),
+      ]).timeout(overlayTimeout);
+      expect(result, ['no']);
+    },
+  );
 
   test('up/down move the option within the focused question', () async {
     final screen = fakeScreen();
@@ -111,31 +122,38 @@ void main() {
     expect(result, ['B: rewrite', 'C: minimal']);
   });
 
-  test('left/right move between questions, each keeps its own option focus',
-      () async {
-    final screen = fakeScreen();
-    canned.events = [
-      ArrowKey(ArrowDirection.right), // → Q2 without committing Q1
-      ArrowKey(ArrowDirection.down), // Q2 → D
-      ArrowKey(ArrowDirection.left), // ← Q1 (focus still A)
-      ControlKey(ControlCode.enter), // select A, advance to Q2
-      ControlKey(ControlCode.enter), // select D (focus kept), submit
-    ];
-    final result = await run(screen, questions).timeout(overlayTimeout);
-    expect(result, ['A: refactor', 'D: full']);
-  });
+  test(
+    'left/right move between questions, each keeps its own option focus',
+    () async {
+      final screen = fakeScreen();
+      canned.events = [
+        ArrowKey(ArrowDirection.right), // → Q2 without committing Q1
+        ArrowKey(ArrowDirection.down), // Q2 → D
+        ArrowKey(ArrowDirection.left), // ← Q1 (focus still A)
+        ControlKey(ControlCode.enter), // select A, advance to Q2
+        ControlKey(ControlCode.enter), // select D (focus kept), submit
+      ];
+      final result = await run(screen, questions).timeout(overlayTimeout);
+      expect(result, ['A: refactor', 'D: full']);
+    },
+  );
 
-  test('a question reached by navigation falls back to its focused option',
-      () async {
-    final screen = fakeScreen();
-    canned.events = [
-      ArrowKey(ArrowDirection.right), // skip Q1 entirely
-      ControlKey(ControlCode.enter), // select C on the last question → submit
-    ];
-    final result = await run(screen, questions).timeout(overlayTimeout);
-    expect(result, ['A: refactor', 'C: minimal'],
-        reason: 'Q1 was never Enter-confirmed; its focused option answers it');
-  });
+  test(
+    'a question reached by navigation falls back to its focused option',
+    () async {
+      final screen = fakeScreen();
+      canned.events = [
+        ArrowKey(ArrowDirection.right), // skip Q1 entirely
+        ControlKey(ControlCode.enter), // select C on the last question → submit
+      ];
+      final result = await run(screen, questions).timeout(overlayTimeout);
+      expect(
+        result,
+        ['A: refactor', 'C: minimal'],
+        reason: 'Q1 was never Enter-confirmed; its focused option answers it',
+      );
+    },
+  );
 
   test('left/right at the edges stay put', () async {
     final screen = fakeScreen();
@@ -164,10 +182,7 @@ void main() {
   test('many options scroll without losing the return value', () async {
     final screen = fakeScreen();
     final many = [
-      (
-        text: 'Pick one',
-        options: [for (var i = 0; i < 20; i++) 'option $i'],
-      ),
+      (text: 'Pick one', options: [for (var i = 0; i < 20; i++) 'option $i']),
     ];
     canned.events = [
       for (var i = 0; i < 19; i++) ArrowKey(ArrowDirection.down),
@@ -185,41 +200,43 @@ void main() {
   });
 
   group('inline rendering (no panel popover)', () {
-    test('renders at the input field: no box borders, no centered title',
-        () async {
-      final (io, screen) = rig();
-      canned.events = [
-        ControlKey(ControlCode.enter),
-        ControlKey(ControlCode.enter),
-      ];
-      await run(screen, questions).timeout(overlayTimeout);
-      final out = io.written.toString();
-      // The old popover was a bordered, centered box titled 'Questions'.
-      expect(out, isNot(contains('┌')), reason: 'no box-drawing border');
-      expect(out, isNot(contains('└')));
-      expect(out, isNot(contains('┐')));
-      expect(out, isNot(contains('┘')));
-      expect(out, isNot(contains('─')), reason: 'no horizontal rule');
-      // Answer options carry NO arrow indicator (owner follow-up: ▸ read as
-      // an expandable-collapsed chevron). Focus is color alone.
-      expect(out, isNot(contains('▸')), reason: 'no arrow on answer options');
-      // The content itself is there: questions, options, and the key hint.
-      expect(out, contains('Which approach?'));
-      expect(out, contains('A: refactor'));
-      expect(out, contains('enter select'));
-    });
+    test(
+      'renders at the input field: no box borders, no centered title',
+      () async {
+        final (io, screen) = rig();
+        canned.events = [
+          ControlKey(ControlCode.enter),
+          ControlKey(ControlCode.enter),
+        ];
+        await run(screen, questions).timeout(overlayTimeout);
+        final out = io.written.toString();
+        // The old popover was a bordered, centered box titled 'Questions'.
+        expect(out, isNot(contains('┌')), reason: 'no box-drawing border');
+        expect(out, isNot(contains('└')));
+        expect(out, isNot(contains('┐')));
+        expect(out, isNot(contains('┘')));
+        expect(out, isNot(contains('─')), reason: 'no horizontal rule');
+        // Answer options carry NO arrow indicator (owner follow-up: ▸ read as
+        // an expandable-collapsed chevron). Focus is color alone.
+        expect(out, isNot(contains('▸')), reason: 'no arrow on answer options');
+        // The content itself is there: questions, options, and the key hint.
+        expect(out, contains('Which approach?'));
+        expect(out, contains('A: refactor'));
+        expect(out, contains('enter select'));
+      },
+    );
 
     test('the focused question renders IN the input row', () async {
       final (io, screen) = rig();
       // Enter selects Q1 and advances; the input row must then carry Q2.
-      canned.events = [
-        ControlKey(ControlCode.enter),
-        EscapeKey(),
-      ];
+      canned.events = [ControlKey(ControlCode.enter), EscapeKey()];
       await run(screen, questions).timeout(overlayTimeout);
       final out = io.written.toString();
-      expect(out, contains('How far?'),
-          reason: 'the second question reached the screen');
+      expect(
+        out,
+        contains('How far?'),
+        reason: 'the second question reached the screen',
+      );
     });
 
     test('the input row is released when the form completes', () async {

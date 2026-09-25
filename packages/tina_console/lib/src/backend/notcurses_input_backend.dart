@@ -563,7 +563,8 @@ class NotcursesInputBackend implements InputBackend {
     // gap check, so a timer armed at exactly joinWindow could fire with the gap
     // == joinWindow (== is not >) and fail to flush.
     if (detector.hasPending) {
-      _armBurstFlushTimer(detector.joinWindow + const Duration(milliseconds: 1));
+      _armBurstFlushTimer(
+          detector.joinWindow + const Duration(milliseconds: 1));
     }
   }
 

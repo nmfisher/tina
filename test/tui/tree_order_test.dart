@@ -9,11 +9,11 @@ class _Node {
 }
 
 List<_Node> order(List<_Node> items, String rootId) => orderByTree(
-      items: items,
-      rootId: rootId,
-      idOf: (n) => n.id,
-      parentOf: (n) => n.parent,
-    );
+  items: items,
+  rootId: rootId,
+  idOf: (n) => n.id,
+  parentOf: (n) => n.parent,
+);
 
 void main() {
   group('orderByTree', () {

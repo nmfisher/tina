@@ -17,24 +17,34 @@ import '../helpers/fake_environment.dart';
 /// small enough for tests; the builder answers a fixed text turn.
 ProviderRegistry _multiProviderRegistry() {
   ProviderRegistry register(ProviderRegistry r, String id) {
-    r.register(ProviderDescriptor(
-      id: id,
-      name: id,
-      authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
-      defaultBaseUrl: 'https://$id.test',
-      builder: (c) => FakeProvider(const [
-        [
-          TextDelta('ok'),
-          MessageComplete(content: [TextBlock('ok')], stopReason: 'end_turn')
-        ]
-      ], model: c.model),
-      models: {
-        '$id-small': ModelInfo(
-            id: '$id-small', name: 'Small', contextWindow: 1, maxOutput: 1),
-        '$id-large': ModelInfo(
-            id: '$id-large', name: 'Large', contextWindow: 1, maxOutput: 1),
-      },
-    ));
+    r.register(
+      ProviderDescriptor(
+        id: id,
+        name: id,
+        authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
+        defaultBaseUrl: 'https://$id.test',
+        builder: (c) => FakeProvider(const [
+          [
+            TextDelta('ok'),
+            MessageComplete(content: [TextBlock('ok')], stopReason: 'end_turn'),
+          ],
+        ], model: c.model),
+        models: {
+          '$id-small': ModelInfo(
+            id: '$id-small',
+            name: 'Small',
+            contextWindow: 1,
+            maxOutput: 1,
+          ),
+          '$id-large': ModelInfo(
+            id: '$id-large',
+            name: 'Large',
+            contextWindow: 1,
+            maxOutput: 1,
+          ),
+        },
+      ),
+    );
     return r;
   }
 
@@ -51,48 +61,50 @@ final _pipeline = AgentPipeline(mainIdentity: 'You are the main agent.');
 
 void main() {
   group('ConversationMeta serialization', () {
-    test('ConversationMetaInput.branch captures a forked conversation identity',
-        () {
-      final policy = PermissionPolicy();
-      final meta = ConversationMetaInput.branch(
-        providerId: 'openai',
-        providerModel: 'openai-large',
-        baseUrl: 'https://example.com/v1',
-        policy: policy,
-        systemPrompt: 'You implement.',
-        targetName: 'implementer',
-        parentConversationId: 'parent-1',
-      );
-      final cm = ConversationMeta(
-        id: 'branch-1',
-        model: meta.model,
-        baseUrl: meta.baseUrl,
-        providerId: meta.providerId,
-        label: meta.label,
-        kind: meta.kind,
-        targetName: meta.targetName,
-        promptOverride: meta.promptOverride,
-        policy: meta.policy,
-        parentConversationId: meta.parentConversationId,
-      );
+    test(
+      'ConversationMetaInput.branch captures a forked conversation identity',
+      () {
+        final policy = PermissionPolicy();
+        final meta = ConversationMetaInput.branch(
+          providerId: 'openai',
+          providerModel: 'openai-large',
+          baseUrl: 'https://example.com/v1',
+          policy: policy,
+          systemPrompt: 'You implement.',
+          targetName: 'implementer',
+          parentConversationId: 'parent-1',
+        );
+        final cm = ConversationMeta(
+          id: 'branch-1',
+          model: meta.model,
+          baseUrl: meta.baseUrl,
+          providerId: meta.providerId,
+          label: meta.label,
+          kind: meta.kind,
+          targetName: meta.targetName,
+          promptOverride: meta.promptOverride,
+          policy: meta.policy,
+          parentConversationId: meta.parentConversationId,
+        );
 
-      // A branch is its own kind — distinct from spawn/subAgent — and carries
-      // the parent link + target role so the manifest's fork lineage is
-      // inspectable and the panel rebuilds on resume.
-      expect(cm.kind, ConversationKind.branch);
-      expect(cm.kind, isNot(ConversationKind.spawn));
-      expect(cm.targetName, 'implementer');
-      expect(cm.parentConversationId, 'parent-1');
-      expect(cm.model, 'openai/openai-large');
+        // A branch is its own kind — distinct from spawn/subAgent — and carries
+        // the parent link + target role so the manifest's fork lineage is
+        // inspectable and the panel rebuilds on resume.
+        expect(cm.kind, ConversationKind.branch);
+        expect(cm.kind, isNot(ConversationKind.spawn));
+        expect(cm.targetName, 'implementer');
+        expect(cm.parentConversationId, 'parent-1');
+        expect(cm.model, 'openai/openai-large');
 
-      // Round-trips cleanly, stable twice.
-      final json = cm.toJson();
-      expect(json['kind'], 'branch');
-      final restored = ConversationMeta.fromJson(json);
-      expect(restored.kind, ConversationKind.branch);
-      expect(restored.parentConversationId, 'parent-1');
-      expect(ConversationMeta.fromJson(restored.toJson()).toJson(), json);
-    });
+        // Round-trips cleanly, stable twice.
+        final json = cm.toJson();
+        expect(json['kind'], 'branch');
+        final restored = ConversationMeta.fromJson(json);
+        expect(restored.kind, ConversationKind.branch);
+        expect(restored.parentConversationId, 'parent-1');
+        expect(ConversationMeta.fromJson(restored.toJson()).toJson(), json);
+      },
+    );
 
     test('unknown kind name falls back to spawn (read-resilient)', () {
       // A kind a newer/older client wrote that this build doesn't know must not
@@ -105,8 +117,10 @@ void main() {
       });
       expect(parsed.kind, ConversationKind.spawn);
       // And the documented null/absent → primary fallback is unchanged.
-      expect(ConversationMeta.fromJson({'id': 'y', 'model': 'm'}).kind,
-          ConversationKind.primary);
+      expect(
+        ConversationMeta.fromJson({'id': 'y', 'model': 'm'}).kind,
+        ConversationKind.primary,
+      );
     });
 
     test('round-trips every field', () {
@@ -143,24 +157,26 @@ void main() {
       expect(twice.toJson(), restored.toJson());
     });
 
-    test('a ConversationMeta equals itself after a toJson/fromJson round-trip',
-        () {
-      // Packed PermissionPolicy equality: build a policy with a non-default
-      // default + a static rule, serialize the meta, and assert structural
-      // equality of the restored meta round-trips cleanly.
-      final meta = ConversationMeta(
-        id: 'c2',
-        model: 'openai/gpt-4o',
-        kind: ConversationKind.subAgent,
-        targetName: 'scout',
-        parentConversationId: 'c1',
-      );
-      final restored = ConversationMeta.fromJson(meta.toJson());
-      expect(restored.targetName, 'scout');
-      expect(restored.parentConversationId, 'c1');
-      expect(restored.label, '');
-      expect(restored.baseUrl, isNull);
-    });
+    test(
+      'a ConversationMeta equals itself after a toJson/fromJson round-trip',
+      () {
+        // Packed PermissionPolicy equality: build a policy with a non-default
+        // default + a static rule, serialize the meta, and assert structural
+        // equality of the restored meta round-trips cleanly.
+        final meta = ConversationMeta(
+          id: 'c2',
+          model: 'openai/gpt-4o',
+          kind: ConversationKind.subAgent,
+          targetName: 'scout',
+          parentConversationId: 'c1',
+        );
+        final restored = ConversationMeta.fromJson(meta.toJson());
+        expect(restored.targetName, 'scout');
+        expect(restored.parentConversationId, 'c1');
+        expect(restored.label, '');
+        expect(restored.baseUrl, isNull);
+      },
+    );
 
     test('an old {id, model:null} manifest parses with defaults (compat)', () {
       // Sessions written before the enrichment stored only `{id, model}` and
@@ -206,16 +222,20 @@ void main() {
 
   group('PermissionPolicy serialization', () {
     test('round-trips defaults + static rules; drops session rules', () {
-      final policy = PermissionPolicy(rules: const [
-        PermissionRule(
+      final policy = PermissionPolicy(
+        rules: const [
+          PermissionRule(
             toolName: 'bash',
             pattern: 'git *',
-            decision: PermissionDecision.allow),
-        PermissionRule(
+            decision: PermissionDecision.allow,
+          ),
+          PermissionRule(
             toolName: '*',
             pattern: '/secrets/**',
-            decision: PermissionDecision.deny),
-      ]);
+            decision: PermissionDecision.deny,
+          ),
+        ],
+      );
       // A runtime "remember this" session rule — must NOT be persisted.
       policy.remember('write', '/tmp/*', PermissionDecision.allow);
       expect(policy.sessionRules, hasLength(1));
@@ -233,17 +253,24 @@ void main() {
     });
 
     test('a round-tripped policy preserves decision behavior', () {
-      final policy = PermissionPolicy(rules: const [
-        PermissionRule(
+      final policy = PermissionPolicy(
+        rules: const [
+          PermissionRule(
             toolName: 'bash',
             pattern: 'git *',
-            decision: PermissionDecision.allow),
-      ]);
+            decision: PermissionDecision.allow,
+          ),
+        ],
+      );
       final restored = PermissionPolicy.fromJson(policy.toJson());
-      expect(restored.check('bash', {'command': 'git status'}),
-          PermissionDecision.allow);
-      expect(restored.check('bash', {'command': 'rm -rf'}),
-          PermissionDecision.ask);
+      expect(
+        restored.check('bash', {'command': 'git status'}),
+        PermissionDecision.allow,
+      );
+      expect(
+        restored.check('bash', {'command': 'rm -rf'}),
+        PermissionDecision.ask,
+      );
     });
   });
 
@@ -339,132 +366,165 @@ void main() {
   });
 
   group('sub-agent persistence via factory', () {
-    test('a scheduler with a persistence factory writes a subAgent transcript',
-        () async {
-      final store = MemorySessionStore();
-      final registry = _multiProviderRegistry();
-      final sessionId = await store.createSession(providerId: 'anthropic');
+    test(
+      'a scheduler with a persistence factory writes a subAgent transcript',
+      () async {
+        final store = MemorySessionStore();
+        final registry = _multiProviderRegistry();
+        final sessionId = await store.createSession(providerId: 'anthropic');
 
-      // Capture the conversation the factory mints so the test can read it
-      // back independently of the scheduler's own handle.
-      String? mintedId;
-      final scheduler = createScheduler(
-        config: RuntimeConfig(),
-        registry: registry,
-        pipeline: _pipeline,
-      );
-      scheduler.persistence =
-          (job, {required meta, required parentConversationId}) async {
-        final id = await store.createConversationWithMeta(sessionId, meta);
-        final providerId = meta.providerId ??
-            (meta.model?.contains('/') == true
-                ? meta.model!.split('/').first
-                : 'anthropic');
-        final recorder =
-            SessionRecorder(store, sessionId, id, providerId: providerId);
-        recorder.attach(sessionId, id);
-        mintedId = id;
-        return (id, recorder);
-      };
+        // Capture the conversation the factory mints so the test can read it
+        // back independently of the scheduler's own handle.
+        String? mintedId;
+        final scheduler = createScheduler(
+          config: RuntimeConfig(),
+          registry: registry,
+          pipeline: _pipeline,
+        );
+        scheduler.persistence =
+            (job, {required meta, required parentConversationId}) async {
+              final id = await store.createConversationWithMeta(
+                sessionId,
+                meta,
+              );
+              final providerId =
+                  meta.providerId ??
+                  (meta.model?.contains('/') == true
+                      ? meta.model!.split('/').first
+                      : 'anthropic');
+              final recorder = SessionRecorder(
+                store,
+                sessionId,
+                id,
+                providerId: providerId,
+              );
+              recorder.attach(sessionId, id);
+              mintedId = id;
+              return (id, recorder);
+            };
 
-      final history = <Message>[
-        const Message(role: Role.user, content: [TextBlock('hello')]),
-        const Message(role: Role.assistant, content: [TextBlock('hi')]),
-      ];
-      await store.append(sessionId, 'placeholder', history.first);
-      await store.replace(sessionId, 'placeholder', history);
+        final history = <Message>[
+          const Message(role: Role.user, content: [TextBlock('hello')]),
+          const Message(role: Role.assistant, content: [TextBlock('hi')]),
+        ];
+        await store.append(sessionId, 'placeholder', history.first);
+        await store.replace(sessionId, 'placeholder', history);
 
-      // Spawn a real delegate job; the factory mints a `subAgent` conversation
-      // and the job's completion persists its full transcript there.
-      final job = scheduler.spawn(
-        task: 'investigate',
-        toolProfile: ToolProfile.readOnly,
-        parentSystemPrompt: 'You research.',
-        parentReference: 'anthropic/anthropic-small',
-        parentPolicy: PermissionPolicy(),
-        originConversationId: 'placeholder',
-        label: 'scout',
-      );
-      final result = await job.result;
-      expect(result.isError, isFalse);
+        // Spawn a real delegate job; the factory mints a `subAgent` conversation
+        // and the job's completion persists its full transcript there.
+        final job = scheduler.spawn(
+          task: 'investigate',
+          toolProfile: ToolProfile.readOnly,
+          parentSystemPrompt: 'You research.',
+          parentReference: 'anthropic/anthropic-small',
+          parentPolicy: PermissionPolicy(),
+          originConversationId: 'placeholder',
+          label: 'scout',
+        );
+        final result = await job.result;
+        expect(result.isError, isFalse);
 
-      // The job carried a minted conversation id (factory ran at spawn).
-      expect(job.conversationId, isNotNull);
-      expect(mintedId, job.conversationId);
+        // The job carried a minted conversation id (factory ran at spawn).
+        expect(job.conversationId, isNotNull);
+        expect(mintedId, job.conversationId);
 
-      final id = mintedId!;
-      // The full transcript was persisted to the minted conversation.
-      final persisted = await store.loadConversation(sessionId, id);
-      expect(persisted, isNotEmpty);
-      expect((persisted.last.content.last as TextBlock).text, 'ok');
+        final id = mintedId!;
+        // The full transcript was persisted to the minted conversation.
+        final persisted = await store.loadConversation(sessionId, id);
+        expect(persisted, isNotEmpty);
+        expect((persisted.last.content.last as TextBlock).text, 'ok');
 
-      // The manifest carries a `subAgent` meta linked to its parent.
-      final meta = store.metaFor(sessionId, id);
-      expect(meta, isNotNull);
-      expect(meta!.kind, ConversationKind.subAgent);
-      expect(meta.parentConversationId, 'placeholder');
-      expect(meta.targetName, 'scout');
+        // The manifest carries a `subAgent` meta linked to its parent.
+        final meta = store.metaFor(sessionId, id);
+        expect(meta, isNotNull);
+        expect(meta!.kind, ConversationKind.subAgent);
+        expect(meta.parentConversationId, 'placeholder');
+        expect(meta.targetName, 'scout');
 
-      await scheduler.dispose();
-    });
+        await scheduler.dispose();
+      },
+    );
 
     // Regression: a /spawn panel must land in the session manifest so it is
     // rebuilt on resume. The primary session already exists when a spawn is
     // created, so relying on the recorder's `meta:` + _lazyInit is NOT enough —
     // _lazyInit only registers meta when it creates the session itself. The
     // coordinator must call createConversationWithMeta explicitly, then attach.
-    test('a spawn records its meta in the manifest (not via _lazyInit)',
-        () async {
-      final store = MemorySessionStore();
-      final sessionId = await store.createSession(providerId: 'anthropic');
-      // A primary already exists, so the session is materialized before the
-      // spawn — this is what made the old `meta:`-only path drop the spawn.
-      final primaryId = await store.createConversationWithMeta(
+    test(
+      'a spawn records its meta in the manifest (not via _lazyInit)',
+      () async {
+        final store = MemorySessionStore();
+        final sessionId = await store.createSession(providerId: 'anthropic');
+        // A primary already exists, so the session is materialized before the
+        // spawn — this is what made the old `meta:`-only path drop the spawn.
+        final primaryId = await store.createConversationWithMeta(
           sessionId,
           ConversationMetaInput.primary(
             providerId: 'anthropic',
             provider: FakeProvider(const [], model: 'anthropic-small'),
             policy: PermissionPolicy(),
             systemPrompt: 'primary system',
-          ));
+          ),
+        );
 
-      // Mirror the live openSpawn recorder wiring: explicit meta registration
-      // (mints the conversation id) followed by an attach.
-      final spawnMeta = ConversationMetaInput.spawn(
-        providerId: 'anthropic',
-        providerModel: 'anthropic-small',
-        policy: PermissionPolicy(),
-        systemPrompt: 'spawn system',
-        targetName: 'scout',
-        parentConversationId: primaryId,
-      );
-      final spawnId =
-          await store.createConversationWithMeta(sessionId, spawnMeta);
-      final recorder =
-          SessionRecorder(store, sessionId, spawnId, providerId: 'anthropic');
-      recorder.attach(sessionId, spawnId);
-      await recorder.append(
-          const Message(role: Role.user, content: [TextBlock('spawn q')]));
+        // Mirror the live openSpawn recorder wiring: explicit meta registration
+        // (mints the conversation id) followed by an attach.
+        final spawnMeta = ConversationMetaInput.spawn(
+          providerId: 'anthropic',
+          providerModel: 'anthropic-small',
+          policy: PermissionPolicy(),
+          systemPrompt: 'spawn system',
+          targetName: 'scout',
+          parentConversationId: primaryId,
+        );
+        final spawnId = await store.createConversationWithMeta(
+          sessionId,
+          spawnMeta,
+        );
+        final recorder = SessionRecorder(
+          store,
+          sessionId,
+          spawnId,
+          providerId: 'anthropic',
+        );
+        recorder.attach(sessionId, spawnId);
+        await recorder.append(
+          const Message(role: Role.user, content: [TextBlock('spawn q')]),
+        );
 
-      // The manifest must carry the spawn meta, linked to its parent.
-      final meta = store.metaFor(sessionId, spawnId);
-      expect(meta, isNotNull,
+        // The manifest must carry the spawn meta, linked to its parent.
+        final meta = store.metaFor(sessionId, spawnId);
+        expect(
+          meta,
+          isNotNull,
           reason:
-              'spawn must be in the manifest to rebuild its panel on resume');
-      expect(meta!.kind, ConversationKind.spawn);
-      expect(meta.parentConversationId, primaryId);
-      expect(meta.targetName, 'scout');
+              'spawn must be in the manifest to rebuild its panel on resume',
+        );
+        expect(meta!.kind, ConversationKind.spawn);
+        expect(meta.parentConversationId, primaryId);
+        expect(meta.targetName, 'scout');
 
-      // And the negative guard: a recorder constructed with `meta:` for an
-      // existing session must NOT register it via append's _lazyInit.
-      final orphan = SessionRecorder(store, sessionId, 'orphan',
-          providerId: 'anthropic', meta: spawnMeta);
-      await orphan
-          .append(const Message(role: Role.user, content: [TextBlock('x')]));
-      expect(store.metaFor(sessionId, 'orphan'), isNull,
-          reason: '_lazyInit only registers meta for a brand-new session; the '
-              'primary session already exists, so the meta would be dropped');
-    });
+        // And the negative guard: a recorder constructed with `meta:` for an
+        // existing session must NOT register it via append's _lazyInit.
+        final orphan = SessionRecorder(
+          store,
+          sessionId,
+          'orphan',
+          providerId: 'anthropic',
+          meta: spawnMeta,
+        );
+        await orphan.append(
+          const Message(role: Role.user, content: [TextBlock('x')]),
+        );
+        expect(
+          store.metaFor(sessionId, 'orphan'),
+          isNull,
+          reason:
+              '_lazyInit only registers meta for a brand-new session; the '
+              'primary session already exists, so the meta would be dropped',
+        );
+      },
+    );
 
     // Regression (real on-disk store): before the fix, /spawn called
     // store.createConversationWithMeta directly, which runs _ensureMaterialized
@@ -473,10 +533,10 @@ void main() {
     // write — meaning spawn-as-first-action (or spawn right after sending,
     // before the async persist resolves) crashed the app. The fix routes the
     // spawn through the primary recorder's ensureRegistered() first.
-    test('a spawn does not throw when the session is not yet materialized',
-        () async {
+    test('a spawn does not throw when the session is not yet materialized', () async {
       final store = JsonlSessionStore(
-          Directory.systemTemp.createTempSync('tina_spawn_'));
+        Directory.systemTemp.createTempSync('tina_spawn_'),
+      );
       addTearDown(() {
         if (store.root.existsSync()) store.root.deleteSync(recursive: true);
       });
@@ -484,14 +544,18 @@ void main() {
       // A fresh in-memory session id (placeholder). NOT created on disk yet —
       // exactly the state a brand-new session is in before its first write.
       const placeholder = 'placeholder-not-on-disk';
-      final primary = SessionRecorder(store, placeholder, 'primary-conv',
+      final primary = SessionRecorder(
+        store,
+        placeholder,
+        'primary-conv',
+        providerId: 'anthropic',
+        meta: ConversationMetaInput.primary(
           providerId: 'anthropic',
-          meta: ConversationMetaInput.primary(
-            providerId: 'anthropic',
-            provider: FakeProvider(const [], model: 'anthropic-small'),
-            policy: PermissionPolicy(),
-            systemPrompt: 'primary system',
-          ));
+          provider: FakeProvider(const [], model: 'anthropic-small'),
+          policy: PermissionPolicy(),
+          systemPrompt: 'primary system',
+        ),
+      );
 
       // Materialize the primary session the way openSpawn now does. Must not
       // throw, even though nothing has been written yet.
@@ -501,8 +565,11 @@ void main() {
       // which is now the placeholder itself (createSession honors a
       // caller-supplied id), so the id the app already printed as the resume
       // hint stays valid.
-      expect(primary.sessionId, placeholder,
-          reason: 'store honors the pre-allocated id at materialization');
+      expect(
+        primary.sessionId,
+        placeholder,
+        reason: 'store honors the pre-allocated id at materialization',
+      );
 
       // Now register the spawn under that real id. Pre-fix this threw
       // StateError('Session not found') because the (placeholder) dir was absent.
@@ -523,8 +590,10 @@ void main() {
       // so the manifest carries primary.conversationId and the returned spawnId —
       // this is precisely why the coordinator reads ids back from the store.
       final manifest = await store.loadSession(primary.sessionId);
-      expect(manifest.conversations.map((c) => c.id),
-          containsAll(<String>[primary.conversationId, spawnId]));
+      expect(
+        manifest.conversations.map((c) => c.id),
+        containsAll(<String>[primary.conversationId, spawnId]),
+      );
 
       await store.close();
     });
@@ -538,8 +607,8 @@ void main() {
       );
       scheduler.persistence =
           (job, {required meta, required parentConversationId}) async {
-        throw StateError('disk full');
-      };
+            throw StateError('disk full');
+          };
 
       final job = scheduler.spawn(
         task: 'investigate',
@@ -572,55 +641,71 @@ void main() {
       // Two primary conversations (the active one + a /clear'd one) and a
       // sub-agent + a spawn, each with a transcript and a full meta.
       primaryId = await store.createConversationWithMeta(
-          sessionId,
-          ConversationMetaInput.primary(
-            providerId: 'anthropic',
-            provider: FakeProvider(const [], model: 'anthropic-small'),
-            policy: PermissionPolicy(),
-            systemPrompt: 'You are the main agent.',
-          ));
+        sessionId,
+        ConversationMetaInput.primary(
+          providerId: 'anthropic',
+          provider: FakeProvider(const [], model: 'anthropic-small'),
+          policy: PermissionPolicy(),
+          systemPrompt: 'You are the main agent.',
+        ),
+      );
       scoutId = await store.createConversationWithMeta(
-          sessionId,
-          ConversationMetaInput.subAgent(
-            model: 'anthropic/anthropic-large',
-            providerId: 'anthropic',
-            policy: PermissionPolicy(defaults: const {
+        sessionId,
+        ConversationMetaInput.subAgent(
+          model: 'anthropic/anthropic-large',
+          providerId: 'anthropic',
+          policy: PermissionPolicy(
+            defaults: const {
               'read': PermissionDecision.allow,
               'search': PermissionDecision.allow,
               'grep': PermissionDecision.allow,
               'glob': PermissionDecision.allow,
-            }),
-            systemPrompt: 'You research.',
-            targetName: 'scout',
-            parentConversationId: primaryId,
-          ));
+            },
+          ),
+          systemPrompt: 'You research.',
+          targetName: 'scout',
+          parentConversationId: primaryId,
+        ),
+      );
       implementerId = await store.createConversationWithMeta(
-          sessionId,
-          ConversationMetaInput.spawn(
-            providerId: 'openai',
-            providerModel: 'openai-large',
-            policy: PermissionPolicy(defaults: const {
+        sessionId,
+        ConversationMetaInput.spawn(
+          providerId: 'openai',
+          providerModel: 'openai-large',
+          policy: PermissionPolicy(
+            defaults: const {
               'read': PermissionDecision.allow,
               'write': PermissionDecision.allow,
               'edit': PermissionDecision.allow,
               'bash': PermissionDecision.allow,
-            }),
-            systemPrompt: 'You implement.',
-            targetName: 'implementer',
-            parentConversationId: primaryId,
-          ));
+            },
+          ),
+          systemPrompt: 'You implement.',
+          targetName: 'implementer',
+          parentConversationId: primaryId,
+        ),
+      );
       await store.setActiveConversation(sessionId, primaryId);
 
       for (final cid in [primaryId, scoutId, implementerId]) {
-        await store.append(sessionId, cid,
-            const Message(role: Role.user, content: [TextBlock('q')]));
-        await store.append(sessionId, cid,
-            const Message(role: Role.assistant, content: [TextBlock('a')]));
+        await store.append(
+          sessionId,
+          cid,
+          const Message(role: Role.user, content: [TextBlock('q')]),
+        );
+        await store.append(
+          sessionId,
+          cid,
+          const Message(role: Role.assistant, content: [TextBlock('a')]),
+        );
       }
     });
 
-    RestoreContext _ctx(String activeConversationId,
-        {RuntimeConfig? config, List<FakeHostInterface>? hosts}) {
+    RestoreContext _ctx(
+      String activeConversationId, {
+      RuntimeConfig? config,
+      List<FakeHostInterface>? hosts,
+    }) {
       final registry = _multiProviderRegistry();
       config ??= RuntimeConfig();
       return RestoreContext(
@@ -629,7 +714,10 @@ void main() {
         config: config,
         store: store,
         scheduler: createScheduler(
-            config: config, registry: registry, pipeline: _pipeline),
+          config: config,
+          registry: registry,
+          pipeline: _pipeline,
+        ),
         hostFactory: ({required conversationId, required isActive}) {
           // Captured when the caller wants to read what a restore printed.
           final host = FakeHostInterface();
@@ -675,142 +763,196 @@ void main() {
       expect(conv.history, hasLength(2));
       // The spawn's tools come from its stored policy's allow-list; no nested
       // delegate for spawns.
-      expect(conv.agent.tools.all.map((t) => t.schema.name),
-          containsAll(['read', 'edit']));
+      expect(
+        conv.agent.tools.all.map((t) => t.schema.name),
+        containsAll(['read', 'edit']),
+      );
 
       await conv.host.dispose();
     });
 
-    test('falls back to the account provider when the meta has no model',
-        () async {
-      // Simulate an old-session primary that stored no model ref.
-      final legacyId = await store.createConversationWithMeta(
-          sessionId, ConversationMetaInput(kind: ConversationKind.primary));
-      await store.append(sessionId, legacyId,
-          const Message(role: Role.user, content: [TextBlock('old')]));
-      final meta = store.metaFor(sessionId, legacyId)!;
-      expect(meta.model, isNull);
+    test(
+      'falls back to the account provider when the meta has no model',
+      () async {
+        // Simulate an old-session primary that stored no model ref.
+        final legacyId = await store.createConversationWithMeta(
+          sessionId,
+          ConversationMetaInput(kind: ConversationKind.primary),
+        );
+        await store.append(
+          sessionId,
+          legacyId,
+          const Message(role: Role.user, content: [TextBlock('old')]),
+        );
+        final meta = store.metaFor(sessionId, legacyId)!;
+        expect(meta.model, isNull);
 
-      final conv = await restoreConversation(meta, _ctx(primaryId));
-      expect(conv.id, legacyId);
-      // No model ref → rebuilt under the account provider (anthropic-small).
-      expect(conv.provider.model, 'anthropic-small');
-      expect(conv.history, hasLength(1));
+        final conv = await restoreConversation(meta, _ctx(primaryId));
+        expect(conv.id, legacyId);
+        // No model ref → rebuilt under the account provider (anthropic-small).
+        expect(conv.provider.model, 'anthropic-small');
+        expect(conv.history, hasLength(1));
 
-      await conv.host.dispose();
-    });
+        await conv.host.dispose();
+      },
+    );
 
-    test('permissions come from this run, not from the saved session',
-        () async {
+    test('permissions come from this run, not from the saved session', () async {
       // A session created under --yolo must not resume under --yolo unless the
       // flag is passed again: the posture is an argument to the run, not a
       // property of the session.
       final yoloId = await store.createConversationWithMeta(
-          sessionId,
-          ConversationMetaInput.primary(
-            providerId: 'anthropic',
-            provider: FakeProvider(const [], model: 'anthropic-small'),
-            policy: PermissionPolicy(allowAllByDefault: true),
-            systemPrompt: 'main',
-            label: 'main',
-          ));
-      await store.append(sessionId, yoloId,
-          const Message(role: Role.user, content: [TextBlock('hi')]));
-      await store.append(sessionId, yoloId,
-          const Message(role: Role.assistant, content: [TextBlock('hello')]));
+        sessionId,
+        ConversationMetaInput.primary(
+          providerId: 'anthropic',
+          provider: FakeProvider(const [], model: 'anthropic-small'),
+          policy: PermissionPolicy(allowAllByDefault: true),
+          systemPrompt: 'main',
+          label: 'main',
+        ),
+      );
+      await store.append(
+        sessionId,
+        yoloId,
+        const Message(role: Role.user, content: [TextBlock('hi')]),
+      );
+      await store.append(
+        sessionId,
+        yoloId,
+        const Message(role: Role.assistant, content: [TextBlock('hello')]),
+      );
 
       final hosts = <FakeHostInterface>[];
       final conv = await restoreConversation(
-          store.metaFor(sessionId, yoloId)!, _ctx(yoloId, hosts: hosts));
+        store.metaFor(sessionId, yoloId)!,
+        _ctx(yoloId, hosts: hosts),
+      );
 
-      expect(conv.policy.allowAllByDefault, isFalse,
-          reason: 'the stored --yolo must not survive the resume');
-      expect(conv.policy.check('bash', const {'command': 'rm -rf /tmp/x'}),
-          PermissionDecision.ask,
-          reason: 'a shell command asks again, rather than running unasked');
+      expect(
+        conv.policy.allowAllByDefault,
+        isFalse,
+        reason: 'the stored --yolo must not survive the resume',
+      );
+      expect(
+        conv.policy.check('bash', const {'command': 'rm -rf /tmp/x'}),
+        PermissionDecision.ask,
+        reason: 'a shell command asks again, rather than running unasked',
+      );
       // And the change is stated, not silent.
-      expect(hosts.single.messages.join(), contains('--yolo'),
-          reason: 'the notice names the posture the session was created with');
+      expect(
+        hosts.single.messages.join(),
+        contains('--yolo'),
+        reason: 'the notice names the posture the session was created with',
+      );
 
       await conv.host.dispose();
     });
 
     test('passing the flag again keeps it', () async {
       final yoloId = await store.createConversationWithMeta(
-          sessionId,
-          ConversationMetaInput.primary(
-            providerId: 'anthropic',
-            provider: FakeProvider(const [], model: 'anthropic-small'),
-            policy: PermissionPolicy(allowAllByDefault: true),
-            systemPrompt: 'main',
-            label: 'main',
-          ));
-      await store.append(sessionId, yoloId,
-          const Message(role: Role.user, content: [TextBlock('hi')]));
-      await store.append(sessionId, yoloId,
-          const Message(role: Role.assistant, content: [TextBlock('hello')]));
+        sessionId,
+        ConversationMetaInput.primary(
+          providerId: 'anthropic',
+          provider: FakeProvider(const [], model: 'anthropic-small'),
+          policy: PermissionPolicy(allowAllByDefault: true),
+          systemPrompt: 'main',
+          label: 'main',
+        ),
+      );
+      await store.append(
+        sessionId,
+        yoloId,
+        const Message(role: Role.user, content: [TextBlock('hi')]),
+      );
+      await store.append(
+        sessionId,
+        yoloId,
+        const Message(role: Role.assistant, content: [TextBlock('hello')]),
+      );
 
       final hosts = <FakeHostInterface>[];
       final conv = await restoreConversation(
-          store.metaFor(sessionId, yoloId)!,
-          _ctx(yoloId, config: RuntimeConfig(yolo: true), hosts: hosts));
+        store.metaFor(sessionId, yoloId)!,
+        _ctx(yoloId, config: RuntimeConfig(yolo: true), hosts: hosts),
+      );
 
       expect(conv.policy.allowAllByDefault, isTrue);
-      expect(hosts.single.messages.join(), isNot(contains('--yolo')),
-          reason: 'nothing changed, so there is nothing to report');
+      expect(
+        hosts.single.messages.join(),
+        isNot(contains('--yolo')),
+        reason: 'nothing changed, so there is nothing to report',
+      );
 
       await conv.host.dispose();
     });
 
-    test('a spawn keeps the tool set it was created with, and gates afresh',
-        () async {
-      // The stored policy stays the record of a spawn's TOOL SET; gating is this
-      // run's. Both halves matter: the spawn must not silently regain tools, and
-      // resuming without --yolo must not run them unchecked.
-      final spawnId = await store.createConversationWithMeta(
+    test(
+      'a spawn keeps the tool set it was created with, and gates afresh',
+      () async {
+        // The stored policy stays the record of a spawn's TOOL SET; gating is this
+        // run's. Both halves matter: the spawn must not silently regain tools, and
+        // resuming without --yolo must not run them unchecked.
+        final spawnId = await store.createConversationWithMeta(
           sessionId,
           ConversationMetaInput.spawn(
             providerId: 'anthropic',
             providerModel: 'anthropic-small',
-            policy: PermissionPolicy(defaults: const {
-              'read': PermissionDecision.allow,
-            }),
+            policy: PermissionPolicy(
+              defaults: const {'read': PermissionDecision.allow},
+            ),
             systemPrompt: 'read-only scout',
             targetName: 'scout',
             parentConversationId: primaryId,
-          ));
-      await store.append(sessionId, spawnId,
-          const Message(role: Role.user, content: [TextBlock('look')]));
-      await store.append(sessionId, spawnId,
-          const Message(role: Role.assistant, content: [TextBlock('seen')]));
+          ),
+        );
+        await store.append(
+          sessionId,
+          spawnId,
+          const Message(role: Role.user, content: [TextBlock('look')]),
+        );
+        await store.append(
+          sessionId,
+          spawnId,
+          const Message(role: Role.assistant, content: [TextBlock('seen')]),
+        );
 
-      final conv = await restoreConversation(
-          store.metaFor(sessionId, spawnId)!, _ctx(primaryId));
+        final conv = await restoreConversation(
+          store.metaFor(sessionId, spawnId)!,
+          _ctx(primaryId),
+        );
 
-      final tools = {for (final t in conv.agent.tools.all) t.schema.name};
-      expect(tools, contains('read'));
-      expect(tools, isNot(contains('write')),
-          reason: 'the stored allow-list decided the tool set, and still does');
-      expect(tools, isNot(contains('bash')));
-      expect(conv.policy.allowAllByDefault, isFalse,
-          reason: 'but the posture is this run\'s');
+        final tools = {for (final t in conv.agent.tools.all) t.schema.name};
+        expect(tools, contains('read'));
+        expect(
+          tools,
+          isNot(contains('write')),
+          reason: 'the stored allow-list decided the tool set, and still does',
+        );
+        expect(tools, isNot(contains('bash')));
+        expect(
+          conv.policy.allowAllByDefault,
+          isFalse,
+          reason: 'but the posture is this run\'s',
+        );
 
-      await conv.host.dispose();
-    });
+        await conv.host.dispose();
+      },
+    );
 
     test('a spawn with an empty policy restores with no tools', () async {
       // A spawn whose stored policy allows nothing (e.g. a legacy or stripped
       // meta) reconstructs an empty tool set — still rehydrated and replayable.
       final orphanId = await store.createConversationWithMeta(
-          sessionId,
-          ConversationMetaInput.spawn(
-            providerId: 'anthropic',
-            providerModel: 'anthropic-small',
-            policy: PermissionPolicy(defaults: const {}),
-            systemPrompt: 'ghost',
-            targetName: 'no-tools',
-            parentConversationId: primaryId,
-          ));
+        sessionId,
+        ConversationMetaInput.spawn(
+          providerId: 'anthropic',
+          providerModel: 'anthropic-small',
+          policy: PermissionPolicy(defaults: const {}),
+          systemPrompt: 'ghost',
+          targetName: 'no-tools',
+          parentConversationId: primaryId,
+        ),
+      );
       final meta = store.metaFor(sessionId, orphanId)!;
 
       final conv = await restoreConversation(meta, _ctx(primaryId));
@@ -823,31 +965,33 @@ void main() {
       await conv.host.dispose();
     });
 
-    test('restoring every non-active conversation rehydrates them all',
-        () async {
-      // Mirrors the coordinator's resume loop: rehydrate each meta that is
-      // not the active conversation.
-      final manifest = await store.loadSession(sessionId);
-      final restored = <String, Conversation>{};
-      for (final meta in manifest.conversations) {
-        if (meta.id == primaryId) continue; // active, already built
-        restored[meta.id] = await restoreConversation(meta, _ctx(primaryId));
-      }
+    test(
+      'restoring every non-active conversation rehydrates them all',
+      () async {
+        // Mirrors the coordinator's resume loop: rehydrate each meta that is
+        // not the active conversation.
+        final manifest = await store.loadSession(sessionId);
+        final restored = <String, Conversation>{};
+        for (final meta in manifest.conversations) {
+          if (meta.id == primaryId) continue; // active, already built
+          restored[meta.id] = await restoreConversation(meta, _ctx(primaryId));
+        }
 
-      expect(restored.keys, containsAll([scoutId, implementerId]));
-      // The active conversation was not re-restored.
-      expect(restored.containsKey(primaryId), isFalse);
-      // Each restored conversation replayed its transcript.
-      for (final conv in restored.values) {
-        expect(conv.history, hasLength(2));
-        await conv.host.dispose();
-      }
+        expect(restored.keys, containsAll([scoutId, implementerId]));
+        // The active conversation was not re-restored.
+        expect(restored.containsKey(primaryId), isFalse);
+        // Each restored conversation replayed its transcript.
+        for (final conv in restored.values) {
+          expect(conv.history, hasLength(2));
+          await conv.host.dispose();
+        }
 
-      // The on-disk session is untouched: restore never recreated the
-      // conversations (recorders attached, not created).
-      final after = await store.loadSession(sessionId);
-      expect(after.conversations, hasLength(manifest.conversations.length));
-    });
+        // The on-disk session is untouched: restore never recreated the
+        // conversations (recorders attached, not created).
+        final after = await store.loadSession(sessionId);
+        expect(after.conversations, hasLength(manifest.conversations.length));
+      },
+    );
   });
 
   // Regression (owner bug, 2026-08-24): _restoreProvider used to replay the
@@ -863,21 +1007,29 @@ void main() {
     /// with, so tests can assert which base a restored provider actually got.
     ProviderRegistry _recordingRegistry(List<String> bases) {
       ProviderDescriptor desc(String id) => ProviderDescriptor(
-            id: id,
-            name: id,
-            authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
-            defaultBaseUrl: 'https://$id.test',
-            builder: (c) {
-              bases.add(c.baseUrl);
-              return FakeProvider(const [], model: c.model);
-            },
-            models: {
-              '$id-small': ModelInfo(
-                  id: '$id-small', name: 'Small', contextWindow: 1, maxOutput: 1),
-              '$id-large': ModelInfo(
-                  id: '$id-large', name: 'Large', contextWindow: 1, maxOutput: 1),
-            },
-          );
+        id: id,
+        name: id,
+        authSources: const [AuthSource('TEST_KEY', AuthScheme.bearerToken)],
+        defaultBaseUrl: 'https://$id.test',
+        builder: (c) {
+          bases.add(c.baseUrl);
+          return FakeProvider(const [], model: c.model);
+        },
+        models: {
+          '$id-small': ModelInfo(
+            id: '$id-small',
+            name: 'Small',
+            contextWindow: 1,
+            maxOutput: 1,
+          ),
+          '$id-large': ModelInfo(
+            id: '$id-large',
+            name: 'Large',
+            contextWindow: 1,
+            maxOutput: 1,
+          ),
+        },
+      );
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
         ..register(desc('anthropic'))
         ..register(desc('openai'));
@@ -894,148 +1046,214 @@ void main() {
       final sessionId = await store.createSession(providerId: 'anthropic');
       final refProvider = model.split('/').first;
       final cid = await store.createConversationWithMeta(
-          sessionId,
-          ConversationMetaInput.primary(
-            providerId: refProvider,
-            provider: FakeProvider(const [], model: model.split('/').skip(1).join('/')),
-            baseUrl: staleBase,
-            policy: PermissionPolicy(),
-          ));
-      await store.append(sessionId, cid,
-          const Message(role: Role.user, content: [TextBlock('q')]));
+        sessionId,
+        ConversationMetaInput.primary(
+          providerId: refProvider,
+          provider: FakeProvider(
+            const [],
+            model: model.split('/').skip(1).join('/'),
+          ),
+          baseUrl: staleBase,
+          policy: PermissionPolicy(),
+        ),
+      );
+      await store.append(
+        sessionId,
+        cid,
+        const Message(role: Role.user, content: [TextBlock('q')]),
+      );
       return (store, sessionId, store.metaFor(sessionId, cid)!);
     }
 
-    RestoreContext _freshCtx(ProviderRegistry registry, RuntimeConfig config,
-            MemorySessionStore store, String sessionId) =>
-        RestoreContext(
-          registry: registry,
-          pipeline: _pipeline,
-          config: config,
-          store: store,
-          scheduler: createScheduler(config: config, registry: registry, pipeline: _pipeline),
-          hostFactory: ({required conversationId, required isActive}) =>
-              FakeHostInterface(),
-          sessionId: sessionId,
-          activeConversationId: 'c-active',
-          accountProvider: () => FakeProvider(const [], model: 'anthropic-small'),
+    RestoreContext _freshCtx(
+      ProviderRegistry registry,
+      RuntimeConfig config,
+      MemorySessionStore store,
+      String sessionId,
+    ) => RestoreContext(
+      registry: registry,
+      pipeline: _pipeline,
+      config: config,
+      store: store,
+      scheduler: createScheduler(
+        config: config,
+        registry: registry,
+        pipeline: _pipeline,
+      ),
+      hostFactory: ({required conversationId, required isActive}) =>
+          FakeHostInterface(),
+      sessionId: sessionId,
+      activeConversationId: 'c-active',
+      accountProvider: () => FakeProvider(const [], model: 'anthropic-small'),
+    );
+
+    test(
+      'same-provider ref: the CURRENT --base-url wins, not the captured one',
+      () async {
+        final bases = <String>[];
+        final registry = _recordingRegistry(bases);
+        final (store, sessionId, meta) = await _sessionWith(
+          model: 'anthropic/anthropic-large',
+          staleBase: 'https://stale.example/v1',
+        );
+        final config = RuntimeConfig(
+          apiKey: 'k',
+          baseUrl: 'https://fresh.example',
+        );
+        final conv = await restoreConversation(
+          meta,
+          _freshCtx(registry, config, store, sessionId),
         );
 
-    test('same-provider ref: the CURRENT --base-url wins, not the captured one',
-        () async {
-      final bases = <String>[];
-      final registry = _recordingRegistry(bases);
-      final (store, sessionId, meta) = await _sessionWith(
+        expect(conv.provider.model, 'anthropic-large');
+        expect(
+          bases,
+          isNot(contains('https://stale.example/v1')),
+          reason: 'the base captured at creation must never reach a provider',
+        );
+        expect(
+          bases.last,
+          'https://fresh.example',
+          reason: 'the config base applies — under the ref\'s provider — today',
+        );
+        await conv.host.dispose();
+      },
+    );
+
+    test(
+      'cross-provider ref: neither the captured base nor the config base applies',
+      () async {
+        final bases = <String>[];
+        final registry = _recordingRegistry(bases);
+        // A spawn that ran under openai, captured while an anthropic base-url
+        // (now stale) was configured. The config base belongs to anthropic only.
+        final (store, sessionId, meta) = await _sessionWith(
+          model: 'openai/openai-large',
+          staleBase: 'https://stale.example/v1',
+        );
+        final config = RuntimeConfig(
+          apiKey: 'k',
+          baseUrl: 'https://fresh.example',
+        );
+        final conv = await restoreConversation(
+          meta,
+          _freshCtx(registry, config, store, sessionId),
+        );
+
+        expect(conv.provider.model, 'openai-large');
+        expect(
+          bases.last,
+          'https://openai.test',
+          reason: 'the ref resolves afresh from its own descriptor default',
+        );
+        expect(bases, isNot(contains('https://stale.example/v1')));
+        expect(bases, isNot(contains('https://fresh.example')));
+        await conv.host.dispose();
+      },
+    );
+
+    test(
+      'no config override: the ref builds under its descriptor default',
+      () async {
+        final bases = <String>[];
+        final registry = _recordingRegistry(bases);
+        final (store, sessionId, meta) = await _sessionWith(
           model: 'anthropic/anthropic-large',
-          staleBase: 'https://stale.example/v1');
-      final config = RuntimeConfig(apiKey: 'k', baseUrl: 'https://fresh.example');
-      final conv = await restoreConversation(
-          meta, _freshCtx(registry, config, store, sessionId));
+          staleBase: 'https://stale.example/v1',
+        );
+        final config = RuntimeConfig(
+          apiKey: 'k',
+          baseUrl: 'https://anthropic.test',
+        );
+        final conv = await restoreConversation(
+          meta,
+          _freshCtx(registry, config, store, sessionId),
+        );
 
-      expect(conv.provider.model, 'anthropic-large');
-      expect(bases, isNot(contains('https://stale.example/v1')),
-          reason: 'the base captured at creation must never reach a provider');
-      expect(bases.last, 'https://fresh.example',
-          reason: 'the config base applies — under the ref\'s provider — today');
-      await conv.host.dispose();
-    });
-
-    test('cross-provider ref: neither the captured base nor the config base applies',
-        () async {
-      final bases = <String>[];
-      final registry = _recordingRegistry(bases);
-      // A spawn that ran under openai, captured while an anthropic base-url
-      // (now stale) was configured. The config base belongs to anthropic only.
-      final (store, sessionId, meta) = await _sessionWith(
-          model: 'openai/openai-large', staleBase: 'https://stale.example/v1');
-      final config = RuntimeConfig(apiKey: 'k', baseUrl: 'https://fresh.example');
-      final conv = await restoreConversation(
-          meta, _freshCtx(registry, config, store, sessionId));
-
-      expect(conv.provider.model, 'openai-large');
-      expect(bases.last, 'https://openai.test',
-          reason: 'the ref resolves afresh from its own descriptor default');
-      expect(bases, isNot(contains('https://stale.example/v1')));
-      expect(bases, isNot(contains('https://fresh.example')));
-      await conv.host.dispose();
-    });
-
-    test('no config override: the ref builds under its descriptor default',
-        () async {
-      final bases = <String>[];
-      final registry = _recordingRegistry(bases);
-      final (store, sessionId, meta) = await _sessionWith(
-          model: 'anthropic/anthropic-large',
-          staleBase: 'https://stale.example/v1');
-      final config = RuntimeConfig(apiKey: 'k', baseUrl: 'https://anthropic.test');
-      final conv = await restoreConversation(
-          meta, _freshCtx(registry, config, store, sessionId));
-
-      expect(bases.last, 'https://anthropic.test',
-          reason: 'config.baseUrl resolves to the descriptor default when no '
-              'override exists — a resumed session heals to the default');
-      await conv.host.dispose();
-    });
+        expect(
+          bases.last,
+          'https://anthropic.test',
+          reason:
+              'config.baseUrl resolves to the descriptor default when no '
+              'override exists — a resumed session heals to the default',
+        );
+        await conv.host.dispose();
+      },
+    );
   });
 
   // Uses the REAL on-disk store: the in-memory store couples meta + messages,
   // so its loadConversation never throws for a listed conversation. Only the
   // file-backed store reproduces a manifest entry whose message file is gone.
   group('restoreConversation throws hard when the message file is missing', () {
-    test('a listed conversation with no message file fails with a clear error',
-        () async {
-      final dir =
-          await Directory.systemTemp.createTemp('tina_restore_missing_');
-      addTearDown(() async {
-        if (await dir.exists()) await dir.delete(recursive: true);
-      });
-      final store = JsonlSessionStore(dir);
-      addTearDown(() async => await store.close());
+    test(
+      'a listed conversation with no message file fails with a clear error',
+      () async {
+        final dir = await Directory.systemTemp.createTemp(
+          'tina_restore_missing_',
+        );
+        addTearDown(() async {
+          if (await dir.exists()) await dir.delete(recursive: true);
+        });
+        final store = JsonlSessionStore(dir);
+        addTearDown(() async => await store.close());
 
-      final sessionId = await store.createSession(providerId: 'anthropic');
-      final cid = await store.createConversationWithMeta(
+        final sessionId = await store.createSession(providerId: 'anthropic');
+        final cid = await store.createConversationWithMeta(
           sessionId,
           ConversationMetaInput.primary(
             providerId: 'anthropic',
             provider: FakeProvider(const [], model: 'anthropic-small'),
             policy: PermissionPolicy(),
             systemPrompt: 'You are the main agent.',
-          ));
-      final meta = (await store.loadSession(sessionId))
-          .conversations
-          .singleWhere((c) => c.id == cid);
+          ),
+        );
+        final meta = (await store.loadSession(
+          sessionId,
+        )).conversations.singleWhere((c) => c.id == cid);
 
-      // Simulate the corruption the change guards against: the manifest lists
-      // the conversation, but its message file is gone. A naive attach-then-load
-      // ordering would half-attach the recorder before failing; the new ordering
-      // fails NOW, before attaching, with a message that names the conversation.
-      final convFile = File(p.join(dir.path, sessionId, '$cid.jsonl'));
-      expect(await convFile.exists(), isTrue,
-          reason: 'sanity: file exists pre-delete');
-      await convFile.delete();
+        // Simulate the corruption the change guards against: the manifest lists
+        // the conversation, but its message file is gone. A naive attach-then-load
+        // ordering would half-attach the recorder before failing; the new ordering
+        // fails NOW, before attaching, with a message that names the conversation.
+        final convFile = File(p.join(dir.path, sessionId, '$cid.jsonl'));
+        expect(
+          await convFile.exists(),
+          isTrue,
+          reason: 'sanity: file exists pre-delete',
+        );
+        await convFile.delete();
 
-      final ctx = RestoreContext(
-        registry: _multiProviderRegistry(),
-        pipeline: _pipeline,
-        config: RuntimeConfig(),
-        store: store,
-        scheduler: createScheduler(
+        final ctx = RestoreContext(
+          registry: _multiProviderRegistry(),
+          pipeline: _pipeline,
+          config: RuntimeConfig(),
+          store: store,
+          scheduler: createScheduler(
             config: RuntimeConfig(),
             registry: _multiProviderRegistry(),
-            pipeline: _pipeline),
-        hostFactory: ({required conversationId, required isActive}) =>
-            FakeHostInterface(),
-        sessionId: sessionId,
-        activeConversationId: cid,
-        accountProvider: () =>
-            FakeProvider(const [], model: 'anthropic-small'),
-      );
+            pipeline: _pipeline,
+          ),
+          hostFactory: ({required conversationId, required isActive}) =>
+              FakeHostInterface(),
+          sessionId: sessionId,
+          activeConversationId: cid,
+          accountProvider: () =>
+              FakeProvider(const [], model: 'anthropic-small'),
+        );
 
-      await expectLater(
+        await expectLater(
           restoreConversation(meta, ctx),
-          throwsA(isA<StateError>().having((e) => e.message,
-              'message names the conversation', contains(cid))));
-    });
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message names the conversation',
+              contains(cid),
+            ),
+          ),
+        );
+      },
+    );
   });
 
   group('resumeCwdFor', () {
@@ -1044,33 +1262,36 @@ void main() {
     // round-tripping through session.json — the value the launcher chdirs to
     // before rebuilding project context (trust, AGENTS.md, repo summary,
     // tool sandbox, env agent).
-    test('returns the recorded cwd for a resumable session (jsonl store)',
-        () async {
-      final root = Directory.systemTemp.createTempSync('tina_resume_cwd_');
-      addTearDown(() {
-        if (root.existsSync()) root.deleteSync(recursive: true);
-      });
-      final store = JsonlSessionStore(root);
-      final projectDir =
-          Directory.systemTemp.createTempSync('tina_project_');
-      addTearDown(() {
-        if (projectDir.existsSync()) projectDir.deleteSync(recursive: true);
-      });
-      final sid = await store.createSession(
-          providerId: 'anthropic', cwd: projectDir.path);
-      expect(await resumeCwdFor(store, sid), projectDir.path);
-      await store.close();
-    });
+    test(
+      'returns the recorded cwd for a resumable session (jsonl store)',
+      () async {
+        final root = Directory.systemTemp.createTempSync('tina_resume_cwd_');
+        addTearDown(() {
+          if (root.existsSync()) root.deleteSync(recursive: true);
+        });
+        final store = JsonlSessionStore(root);
+        final projectDir = Directory.systemTemp.createTempSync('tina_project_');
+        addTearDown(() {
+          if (projectDir.existsSync()) projectDir.deleteSync(recursive: true);
+        });
+        final sid = await store.createSession(
+          providerId: 'anthropic',
+          cwd: projectDir.path,
+        );
+        expect(await resumeCwdFor(store, sid), projectDir.path);
+        await store.close();
+      },
+    );
 
     test('returns null for a legacy session (no recorded cwd)', () async {
-      final root =
-          Directory.systemTemp.createTempSync('tina_resume_legacy_');
+      final root = Directory.systemTemp.createTempSync('tina_resume_legacy_');
       addTearDown(() {
         if (root.existsSync()) root.deleteSync(recursive: true);
       });
       final store = JsonlSessionStore(root);
-      final sid =
-          await store.createSession(providerId: 'anthropic'); // cwd null
+      final sid = await store.createSession(
+        providerId: 'anthropic',
+      ); // cwd null
       expect(await resumeCwdFor(store, sid), isNull);
       await store.close();
     });
@@ -1164,7 +1385,6 @@ void main() {
 }
 
 class _ScriptedDriver implements AgentDriver {
-
   @override
   PermissionPolicy get policy => PermissionPolicy();
   _ScriptedDriver(this.request) : provider = request.provider;

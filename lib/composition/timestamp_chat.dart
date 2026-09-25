@@ -79,12 +79,14 @@ class TimestampChatRenderer extends Renderer<ChatBlock> {
         out.add(line);
       } else {
         stamped = true;
-        out.add(RenderLine(
-          bar: line.bar,
-          align: line.align,
-          animated: line.animated,
-          runs: [RenderRun(stamp, context.theme.chat.dim), ...line.runs],
-        ));
+        out.add(
+          RenderLine(
+            bar: line.bar,
+            align: line.align,
+            animated: line.animated,
+            runs: [RenderRun(stamp, context.theme.chat.dim), ...line.runs],
+          ),
+        );
       }
     }
     return out;

@@ -22,7 +22,10 @@ class CodergenResult {
   /// its own) the handler returns `StageStatus.retry` instead, so the engine's
   /// retry loop (with backoff) gets a chance to re-run the node.
   factory CodergenResult.error(String reason, {bool transient = false}) =>
-      CodergenResult('', outcome: transient ? Outcome.retry(reason) : Outcome.fail(reason));
+      CodergenResult(
+        '',
+        outcome: transient ? Outcome.retry(reason) : Outcome.fail(reason),
+      );
 }
 
 /// The seam a host application implements to turn a `box`/LLM node into a

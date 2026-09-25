@@ -230,12 +230,13 @@ void main() {
           reason: 'the retry is visible, not silent');
     });
 
-    test('four consecutive empty completions exhaust the bounded retries', () async {
+    test('four consecutive empty completions exhaust the bounded retries',
+        () async {
       final provider = FakeProvider([
         for (var i = 0; i < 4; i++)
-        [
-          const MessageComplete(content: [], stopReason: 'end_turn'),
-        ],
+          [
+            const MessageComplete(content: [], stopReason: 'end_turn'),
+          ],
       ]);
       final sink = FakeAgentSink();
       final agent = _agent(
@@ -252,23 +253,44 @@ void main() {
       expect(history.where((m) => m.role == Role.assistant), isEmpty);
     });
 
-    test('repeated empty responses recover without rerunning tools or consuming steps', () async {
+    test(
+        'repeated empty responses recover without rerunning tools or consuming steps',
+        () async {
       var executions = 0;
       final delays = <Duration>[];
       final provider = FakeProvider([
-        [const MessageComplete(content: [ToolUseBlock(id: 't', name: 'write', input: {})], stopReason: 'tool_use')],
+        [
+          const MessageComplete(
+              content: [ToolUseBlock(id: 't', name: 'write', input: {})],
+              stopReason: 'tool_use')
+        ],
         [const MessageComplete(content: [], stopReason: 'end_turn')],
-        [const MessageComplete(content: [TextBlock('  ')], stopReason: 'end_turn')],
-        [const MessageComplete(content: [TextBlock('recovered')], stopReason: 'end_turn')],
+        [
+          const MessageComplete(
+              content: [TextBlock('  ')], stopReason: 'end_turn')
+        ],
+        [
+          const MessageComplete(
+              content: [TextBlock('recovered')], stopReason: 'end_turn')
+        ],
       ]);
       final history = <Message>[];
-      final agent = _agent(provider: provider, sink: FakeAgentSink(), maxSteps: 2,
-        tools: ToolRegistry([FakeTool('write', (_) { executions++; return const ToolResult('done'); })]),
-        policy: PermissionPolicy(defaults: {'write': PermissionDecision.allow}),
-        emptyCompletionBackoffDelay: (delay) async {
-          delays.add(delay);
-          expect(history, hasLength(3)); // prompt, tool call, tool result
-        });
+      final agent = _agent(
+          provider: provider,
+          sink: FakeAgentSink(),
+          maxSteps: 2,
+          tools: ToolRegistry([
+            FakeTool('write', (_) {
+              executions++;
+              return const ToolResult('done');
+            })
+          ]),
+          policy:
+              PermissionPolicy(defaults: {'write': PermissionDecision.allow}),
+          emptyCompletionBackoffDelay: (delay) async {
+            delays.add(delay);
+            expect(history, hasLength(3)); // prompt, tool call, tool result
+          });
       await agent.run(history: history, userInput: 'go');
       expect(agent.abortedReason, isNull);
       expect(executions, 1);
@@ -281,19 +303,31 @@ void main() {
       final cancel = Completer<void>();
       final waiting = Completer<void>();
       final gate = Completer<void>();
-      final provider = FakeProvider([[const MessageComplete(content: [], stopReason: 'end_turn')]]);
+      final provider = FakeProvider([
+        [const MessageComplete(content: [], stopReason: 'end_turn')]
+      ]);
       final sink = FakeAgentSink();
-      final agent = _agent(provider: provider, sink: sink, tools: ToolRegistry([]),
-        emptyCompletionBackoffDelay: (_) { waiting.complete(); return gate.future; });
-      final run = agent.run(history: [], userInput: 'go', cancelSignal: cancel.future);
+      final agent = _agent(
+          provider: provider,
+          sink: sink,
+          tools: ToolRegistry([]),
+          emptyCompletionBackoffDelay: (_) {
+            waiting.complete();
+            return gate.future;
+          });
+      final run =
+          agent.run(history: [], userInput: 'go', cancelSignal: cancel.future);
       await waiting.future;
       cancel.complete();
       try {
         await run.timeout(const Duration(seconds: 1));
         expect(agent.abortedKind, AbortedKind.cancel);
         expect(provider.calls, hasLength(1));
-        expect(sink.notices.where((n) => n.message.contains('[cancelled]')), hasLength(1));
-      } finally { gate.complete(); }
+        expect(sink.notices.where((n) => n.message.contains('[cancelled]')),
+            hasLength(1));
+      } finally {
+        gate.complete();
+      }
     });
   });
 
@@ -690,38 +724,60 @@ void main() {
         cancelSignal: cancel.future,
       );
 
-      expect(sink.notices.where((n) => n.message.contains('[cancelled]')), hasLength(1));
+      expect(sink.notices.where((n) => n.message.contains('[cancelled]')),
+          hasLength(1));
       expect(agent.abortedKind, AbortedKind.cancel);
       expect(sink.toolStarts, isEmpty); // no tool ran
     });
 
-    test('six completed requests followed by cancellation emit one notice', () async {
+    test('six completed requests followed by cancellation emit one notice',
+        () async {
       final cancel = Completer<void>();
       final provider = _MultiStepCancelProvider(cancel);
       final sink = FakeAgentSink();
-      final agent = _agent(provider: provider, sink: sink,
-          tools: ToolRegistry([FakeTool('read', (_) => const ToolResult('ok'))]),
-          policy: PermissionPolicy(defaults: {'read': PermissionDecision.allow}));
-      await agent.run(history: [], userInput: 'go', cancelSignal: cancel.future);
+      final agent = _agent(
+          provider: provider,
+          sink: sink,
+          tools:
+              ToolRegistry([FakeTool('read', (_) => const ToolResult('ok'))]),
+          policy:
+              PermissionPolicy(defaults: {'read': PermissionDecision.allow}));
+      await agent
+          .run(history: [], userInput: 'go', cancelSignal: cancel.future);
       expect(provider.calls, 7);
       expect(sink.toolCompletes, hasLength(6));
-      expect(sink.notices.where((n) => n.message.contains('[cancelled]')), hasLength(1));
+      expect(sink.notices.where((n) => n.message.contains('[cancelled]')),
+          hasLength(1));
       expect(agent.abortedKind, AbortedKind.cancel);
     });
 
-    test('cancellation in the final tool step does not report max steps', () async {
+    test('cancellation in the final tool step does not report max steps',
+        () async {
       final cancel = Completer<void>();
       final sink = FakeAgentSink();
-      final provider = FakeProvider([[const MessageComplete(content: [
-        ToolUseBlock(id: 'read-1', name: 'read', input: {})], stopReason: 'tool_use')]]);
-      final agent = _agent(provider: provider, sink: sink, maxSteps: 1,
-          tools: ToolRegistry([FakeTool('read', (_) {
-            cancel.complete();
-            return const ToolResult('stopped');
-          })]),
-          policy: PermissionPolicy(defaults: {'read': PermissionDecision.allow}));
-      await agent.run(history: [], userInput: 'go', cancelSignal: cancel.future);
-      expect(sink.notices.where((n) => n.message.contains('[cancelled]')), hasLength(1));
+      final provider = FakeProvider([
+        [
+          const MessageComplete(
+              content: [ToolUseBlock(id: 'read-1', name: 'read', input: {})],
+              stopReason: 'tool_use')
+        ]
+      ]);
+      final agent = _agent(
+          provider: provider,
+          sink: sink,
+          maxSteps: 1,
+          tools: ToolRegistry([
+            FakeTool('read', (_) {
+              cancel.complete();
+              return const ToolResult('stopped');
+            })
+          ]),
+          policy:
+              PermissionPolicy(defaults: {'read': PermissionDecision.allow}));
+      await agent
+          .run(history: [], userInput: 'go', cancelSignal: cancel.future);
+      expect(sink.notices.where((n) => n.message.contains('[cancelled]')),
+          hasLength(1));
       expect(sink.notices.any((n) => n.message.contains('max steps')), isFalse);
       expect(agent.abortedKind, AbortedKind.cancel);
     });
@@ -1957,8 +2013,10 @@ class _MultiStepCancelProvider extends LlmProvider {
   int calls = 0;
 
   @override
-  Stream<StreamEvent> send({required String system,
-      required List<Message> messages, required List<ToolSchema> tools}) {
+  Stream<StreamEvent> send(
+      {required String system,
+      required List<Message> messages,
+      required List<ToolSchema> tools}) {
     calls++;
     if (calls <= 6) {
       return Stream.value(MessageComplete(content: [

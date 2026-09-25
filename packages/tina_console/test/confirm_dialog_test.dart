@@ -57,8 +57,8 @@ void main() {
       }
       expect(leftover, isFalse);
       // Info-box frame intact.
-      vt.assertBorders(5, layout.infoLeftCol, layout.infoRightCol,
-          layout.infoRightCol);
+      vt.assertBorders(
+          5, layout.infoLeftCol, layout.infoRightCol, layout.infoRightCol);
     });
 
     test('reset clears trigger and hides', () {

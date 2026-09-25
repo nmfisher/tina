@@ -14,8 +14,7 @@ class CharInput extends InputEvent {
       'CharInput(${text.length == 1 ? '0x${text.codeUnitAt(0).toRadixString(16)}' : '"$text"'})';
 
   @override
-  bool operator ==(Object other) =>
-      other is CharInput && text == other.text;
+  bool operator ==(Object other) => other is CharInput && text == other.text;
 
   @override
   int get hashCode => text.hashCode;
@@ -27,8 +26,7 @@ class ControlKey extends InputEvent {
   ControlKey(this.code);
 
   @override
-  bool operator ==(Object other) =>
-      other is ControlKey && code == other.code;
+  bool operator ==(Object other) => other is ControlKey && code == other.code;
 
   @override
   int get hashCode => code.hashCode;
@@ -46,8 +44,7 @@ class ScrollEvent extends InputEvent {
   String toString() => 'ScrollEvent(${up ? 'up' : 'down'})';
 
   @override
-  bool operator ==(Object other) =>
-      other is ScrollEvent && other.up == up;
+  bool operator ==(Object other) => other is ScrollEvent && other.up == up;
 
   @override
   int get hashCode => up.hashCode;
@@ -105,8 +102,7 @@ class AltKey extends InputEvent {
       'AltKey(0x${letter.toRadixString(16)}/${String.fromCharCode(letter)})';
 
   @override
-  bool operator ==(Object other) =>
-      other is AltKey && letter == other.letter;
+  bool operator ==(Object other) => other is AltKey && letter == other.letter;
   @override
   int get hashCode => letter.hashCode;
 }
@@ -117,8 +113,7 @@ class FunctionKey extends InputEvent {
   FunctionKey(this.code);
 
   @override
-  bool operator ==(Object other) =>
-      other is FunctionKey && code == other.code;
+  bool operator ==(Object other) => other is FunctionKey && code == other.code;
   @override
   int get hashCode => code.hashCode;
 }
@@ -144,8 +139,7 @@ class PasteInput extends InputEvent {
   PasteInput(this.text);
 
   @override
-  bool operator ==(Object other) =>
-      other is PasteInput && text == other.text;
+  bool operator ==(Object other) => other is PasteInput && text == other.text;
 
   @override
   int get hashCode => text.hashCode;
@@ -157,6 +151,7 @@ class PasteInput extends InputEvent {
 /// Control key codes.
 enum ControlCode {
   ctrlC,
+
   /// Ctrl+B (STX, 0x02). App-level hook (tina binds it to the transcript block
   /// cursor). Not a tty signal in raw mode and not bound by the editor, so the
   /// byte reaches the process — but it has to be *mapped* below, or the parser
@@ -164,36 +159,43 @@ enum ControlCode {
   ctrlB,
   ctrlD,
   ctrlL,
+
   /// Ctrl+W (ETB, 0x17). Used as the FocusManager's enter/exit toggle.
   /// Portable at the byte level, but two known collisions the caller
   /// should be aware of: readline binds it to delete-word-backward
   /// (users' muscle memory), and VSCode / JetBrains integrated terminals
   /// intercept it before the process sees the byte.
   ctrlW,
+
   /// Ctrl+G (BEL, 0x07). A second FocusManager enter/exit key, for
   /// environments that swallow Ctrl+W before the process sees it. Ctrl+G is
   /// rarely bound by terminals or IDEs and isn't a tty signal in raw mode,
   /// so it reliably reaches the process. Functionally identical to Ctrl+W.
   ctrlG,
+
   /// Ctrl+S (DC3, 0x13). Used by the prompts overlay as "save". Raw mode
   /// disables XON/XOFF flow control so the byte reaches the process; a few
   /// terminals still intercept it before the process does.
   ctrlS,
+
   /// Ctrl+O (SI, 0x0F). The panel-maximize toggle. Not a tty signal in raw
   /// mode, but macOS' line discipline still eats it as the VDISCARD toggle
   /// (IEXTEN) — DiscardUnbinder unbinds that char right after notcurses
   /// init, and Linux has no VDISCARD, so the byte reaches the process.
   ctrlO,
+
   /// Ctrl+R (DC2, 0x12). App-level hook (tina binds it to the raw-markdown
   /// viewer). Readline muscle memory says reverse-incremental-search; tina's
   /// editor has no search, so the key is free. Not a tty signal in raw mode.
   ctrlR,
+
   /// Ctrl+P (DLE, 0x10). App-level hook (tina binds it to the plan overlay
   /// toggle). Readline binds it to previous-history, but tina's editor has no
   /// history recall from the prompt, so the key is free here. Not a tty
   /// signal in raw mode; some shells/terminals intercept it, but far fewer
   /// than Ctrl+W.
   ctrlP,
+
   /// Ctrl+X (CAN, 0x18). App-level hook — tina binds it to "close this
   /// panel" on focused read-only panels (workflow run panels use plain `x`;
   /// spawned sub-agent chat panels use Ctrl+X because their `x` must reach
@@ -202,6 +204,7 @@ enum ControlCode {
   ctrlX,
   enter,
   tab,
+
   /// Shift+Tab (CSI Z, "backtab"). App-level hook — tina binds it to
   /// permission-mode cycling via the editor's `onBackTab`. The editor binds
   /// nothing internally: plain Tab completes from a picker, but backtab has

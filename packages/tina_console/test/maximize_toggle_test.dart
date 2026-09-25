@@ -23,8 +23,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
   }
 
-  test('ctrl+o fires the hook and is consumed when it returns true',
-      () async {
+  test('ctrl+o fires the hook and is consumed when it returns true', () async {
     var fired = 0;
     editor.onMaximizeToggle = () {
       fired++;

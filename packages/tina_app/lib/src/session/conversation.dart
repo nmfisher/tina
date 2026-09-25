@@ -119,10 +119,12 @@ class Conversation {
     /// agent-facing surface see the real thing; any other driver gets the
     /// agent-less sentinel — the driver is the unit of execution.
     AgentDriver? driver,
-  })  : agent = agent ?? (driver is AgentDriverAdapter ? driver.agent : null) ??
-            _agentless,
-        _provider = provider,
-        driver = driver ?? AgentDriverAdapter(agent ?? _agentless) {
+  }) : agent =
+           agent ??
+           (driver is AgentDriverAdapter ? driver.agent : null) ??
+           _agentless,
+       _provider = provider,
+       driver = driver ?? AgentDriverAdapter(agent ?? _agentless) {
     history.addAll(initialHistory);
   }
 
@@ -138,14 +140,14 @@ class Conversation {
 /// Marker agent for driver-only [Conversation]s; never executed.
 final class _NoAgentSentinel extends Agent {
   _NoAgentSentinel()
-      : super(
-          provider: _NullProvider(),
-          tools: ToolRegistry(const []),
-          sink: _NullHost(),
-          policy: PermissionPolicy(modeSource: null),
-          asker: _denyAsker,
-          system: '',
-        );
+    : super(
+        provider: _NullProvider(),
+        tools: ToolRegistry(const []),
+        sink: _NullHost(),
+        policy: PermissionPolicy(modeSource: null),
+        asker: _denyAsker,
+        system: '',
+      );
 }
 
 final class _NullProvider implements LlmProvider {

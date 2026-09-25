@@ -20,6 +20,7 @@ abstract class TerminalBackend {
   /// Begin a logical frame. Flush requests made before the matching
   /// [endFrame] are coalesced into one presentation.
   void beginFrame() {}
+
   /// End a logical frame and present accumulated mutations once.
   void endFrame() => flush();
 
@@ -119,7 +120,6 @@ abstract class TerminalBackend {
   /// screen. A full re-emission re-syncs the two. No-op on backends without
   /// damage tracking (ANSI repaints from the retained model anyway).
   void refresh() {}
-
 
   /// Whether chat writes coalesce into delayed, timer-bounded presents (true
   /// for retained-mode backends like notcurses; false for the synchronous ANSI

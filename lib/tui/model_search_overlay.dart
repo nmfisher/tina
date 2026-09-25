@@ -27,16 +27,15 @@ Future<String?> runModelSearchOverlay({
   List<String> recentRefs = const [],
   Future<InputEvent> Function()? readEvent,
   String? accent,
-}) =>
-    _ModelSearchForm(
-      screen,
-      modelRefs,
-      providerNames,
-      title,
-      recentRefs,
-      readEvent ?? editor.captureKeyReader(),
-      accent,
-    ).run();
+}) => _ModelSearchForm(
+  screen,
+  modelRefs,
+  providerNames,
+  title,
+  recentRefs,
+  readEvent ?? editor.captureKeyReader(),
+  accent,
+).run();
 
 /// One provider group in the unfiltered list.
 class _Group {
@@ -238,21 +237,23 @@ class _ModelSearchForm {
 
   // -- Render -----------------------------------------------------------------
 
-  void _render() => _overlay.show(boxLines(
-        width: _rect.width,
-        height: _rect.height,
-        // While filtering, the title carries the live match count so the
-        // search field itself can stay a clean one-liner.
-        title: _query.isEmpty
-            ? _title
-            : '$_title — ${_filtered.length} match'
+  void _render() => _overlay.show(
+    boxLines(
+      width: _rect.width,
+      height: _rect.height,
+      // While filtering, the title carries the live match count so the
+      // search field itself can stay a clean one-liner.
+      title: _query.isEmpty
+          ? _title
+          : '$_title — ${_filtered.length} match'
                 '${_filtered.length == 1 ? '' : 'es'}',
-        body: _body(),
-        footer: _filtered.isEmpty
-            ? 'type to filter · esc cancel'
-            : 'type to filter · ↑↓ move · enter select · esc cancel',
-        paint: _paint,
-      ));
+      body: _body(),
+      footer: _filtered.isEmpty
+          ? 'type to filter · esc cancel'
+          : 'type to filter · ↑↓ move · enter select · esc cancel',
+      paint: _paint,
+    ),
+  );
 
   /// Colorize [s] with the active (focus) border color — when an [accent] is
   /// set, the whole frame is tinted so the modal reads as the single blue
@@ -286,10 +287,7 @@ class _ModelSearchForm {
     final text = _query.isEmpty
         ? '${_dim('filter models…')}${_screen.colorize(_accentColor, '▌')}'
         : '$q${_screen.colorize(_accentColor, '▌')}';
-    return [
-      '$prompt$text',
-      _dim('  ${'─' * (innerW - 4).clamp(0, 1 << 30)}'),
-    ];
+    return ['$prompt$text', _dim('  ${'─' * (innerW - 4).clamp(0, 1 << 30)}')];
   }
 
   List<String> _body() {
@@ -300,10 +298,7 @@ class _ModelSearchForm {
     final contentRows = _rect.height - 4;
 
     if (_filtered.isEmpty) {
-      return [
-        ..._searchField(innerW),
-        '  ${_dim('(no models match)')}',
-      ];
+      return [..._searchField(innerW), '  ${_dim('(no models match)')}'];
     }
     if (_focus >= _filtered.length) _focus = _filtered.length - 1;
     if (_focus < 0) _focus = 0;
@@ -341,16 +336,19 @@ class _ModelSearchForm {
         } else {
           final n = _groupCount(key);
           rows.add(
-              '  ${_screen.colorize(_headerColor, _displayName(key))}${_dim(' ($n)')}');
+            '  ${_screen.colorize(_headerColor, _displayName(key))}${_dim(' ($n)')}',
+          );
         }
         lastKey = key;
       }
       if (rows.length + 1 > cap) break;
       final slash = ref.indexOf('/');
       final modelId = slash <= 0 ? ref : ref.substring(slash + 1);
-      rows.add(i == _focus
-          ? '  $_focusMark ${_screen.colorize(_accentColor, modelId)}'
-          : '    $modelId');
+      rows.add(
+        i == _focus
+            ? '  $_focusMark ${_screen.colorize(_accentColor, modelId)}'
+            : '    $modelId',
+      );
     }
     if (i < _filtered.length && rows.isNotEmpty) {
       rows[rows.length - 1] = _dim('  ↓ ${_filtered.length - i} more');

@@ -428,8 +428,11 @@ void main() {
         expect(reached.contains(node), reports, reason: 'node $node');
       }
       // A vacuous pass would agree trivially.
-      expect(reporting, greaterThan(0),
-          reason: 'the fixture must contain a node that reports');
+      expect(
+        reporting,
+        greaterThan(0),
+        reason: 'the fixture must contain a node that reports',
+      );
     }
 
     DependencyGraph build() {
@@ -441,7 +444,10 @@ void main() {
       f.write('lib/chain.dart', "import 'middle.dart';");
       f.write('lib/uses_io.dart', "import 'dart:io';");
       f.write('lib/chain_io.dart', "import 'uses_io.dart';");
-      f.write('lib/application/service.dart', "import '../composition/app.dart';");
+      f.write(
+        'lib/application/service.dart',
+        "import '../composition/app.dart';",
+      );
       return f.graph();
     }
 

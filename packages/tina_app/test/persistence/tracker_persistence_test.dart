@@ -28,19 +28,17 @@ void main() {
       goals = GoalStore();
       plans = PlanStore();
       order = <String>[];
-      binder = TrackerPersistence(
-        goalStore: goals,
-        planStore: plans,
-        store: store,
-      )..install(
-          sessionIdFor: (id) {
-            order.add('sid');
-            return sid;
-          },
-          ensureRegisteredFor: (id) async {
-            order.add('ensure');
-          },
-        );
+      binder =
+          TrackerPersistence(goalStore: goals, planStore: plans, store: store)
+            ..install(
+              sessionIdFor: (id) {
+                order.add('sid');
+                return sid;
+              },
+              ensureRegisteredFor: (id) async {
+                order.add('ensure');
+              },
+            );
       order.clear();
     });
 
@@ -49,16 +47,20 @@ void main() {
       plans.dispose();
     });
 
-    test('a goal mutation persists BOTH blobs, ensureRegistered first',
-        () async {
-      goals.set(cid, 'ship it');
-      await binder.flush();
-      final meta = store.metaFor(sid, cid)!;
-      expect(meta.goal!['text'], 'ship it');
-      expect(meta.plan, isNull, reason: 'both fields always written');
-      expect(order, ['ensure', 'sid'],
-          reason: 'registered on disk before the session id is resolved');
-    });
+    test(
+      'a goal mutation persists BOTH blobs, ensureRegistered first',
+      () async {
+        goals.set(cid, 'ship it');
+        await binder.flush();
+        final meta = store.metaFor(sid, cid)!;
+        expect(meta.goal!['text'], 'ship it');
+        expect(meta.plan, isNull, reason: 'both fields always written');
+        expect(order, [
+          'ensure',
+          'sid',
+        ], reason: 'registered on disk before the session id is resolved');
+      },
+    );
 
     test('a later plan mutation keeps the goal (paired write)', () async {
       goals.set(cid, 'ship it');
@@ -92,22 +94,27 @@ void main() {
     });
 
     test('hydration fills the stores without an echo write', () async {
-      binder.hydrate(ConversationMeta(
-        id: cid,
-        goal: {'text': 'restored'},
-        plan: {
-          'items': [
-            {'text': 'a', 'state': 'pending'}
-          ],
-          'approval': 'approved',
-        },
-      ));
+      binder.hydrate(
+        ConversationMeta(
+          id: cid,
+          goal: {'text': 'restored'},
+          plan: {
+            'items': [
+              {'text': 'a', 'state': 'pending'},
+            ],
+            'approval': 'approved',
+          },
+        ),
+      );
       expect(goals.read(cid).text, 'restored');
       expect(plans.read(cid).items.single.text, 'a');
       expect(plans.read(cid).approval, PlanApproval.approved);
       await binder.flush();
-      expect(store.metaFor(sid, cid)!.goal, isNull,
-          reason: 'reading the manifest must not write it straight back');
+      expect(
+        store.metaFor(sid, cid)!.goal,
+        isNull,
+        reason: 'reading the manifest must not write it straight back',
+      );
       expect(store.metaFor(sid, cid)!.plan, isNull);
       expect(order, isEmpty);
     });
@@ -125,12 +132,13 @@ void main() {
       binder.hydrateAll([
         ConversationMeta(id: cid, goal: {'text': 'one'}),
         ConversationMeta(
-            id: other,
-            plan: {
-              'items': [
-                {'text': 'two', 'state': 'pending'}
-              ],
-            }),
+          id: other,
+          plan: {
+            'items': [
+              {'text': 'two', 'state': 'pending'},
+            ],
+          },
+        ),
       ]);
       expect(goals.read(cid).text, 'one');
       expect(goals.read(other).isEmpty, isTrue);
@@ -138,20 +146,20 @@ void main() {
       expect(plans.read(cid).isEmpty, isTrue);
     });
 
-    test('a persist failure is swallowed and never breaks the chain',
-        () async {
+    test('a persist failure is swallowed and never breaks the chain', () async {
       final doomedGoals = GoalStore();
       addTearDown(doomedGoals.dispose);
       final doomedPlans = PlanStore();
       addTearDown(doomedPlans.dispose);
-      final bad = TrackerPersistence(
-        goalStore: doomedGoals,
-        planStore: doomedPlans,
-        store: store,
-      )..install(
-          sessionIdFor: (_) => 'no-such-session',
-          ensureRegisteredFor: (_) async {},
-        );
+      final bad =
+          TrackerPersistence(
+            goalStore: doomedGoals,
+            planStore: doomedPlans,
+            store: store,
+          )..install(
+            sessionIdFor: (_) => 'no-such-session',
+            ensureRegisteredFor: (_) async {},
+          );
       doomedGoals.set(cid, 'doomed');
       await bad.flush(); // resolves despite the StateError inside
       expect(store.metaFor(sid, cid)!.goal, isNull);
@@ -165,60 +173,71 @@ void main() {
       final ghostPlans = PlanStore();
       addTearDown(ghostPlans.dispose);
       var ensured = false;
-      final ghost = TrackerPersistence(
-        goalStore: ghostGoals,
-        planStore: ghostPlans,
-        store: store,
-      )..install(
-          sessionIdFor: (_) => null,
-          ensureRegisteredFor: (_) async {
-            ensured = true;
-          },
-        );
+      final ghost =
+          TrackerPersistence(
+            goalStore: ghostGoals,
+            planStore: ghostPlans,
+            store: store,
+          )..install(
+            sessionIdFor: (_) => null,
+            ensureRegisteredFor: (_) async {
+              ensured = true;
+            },
+          );
       ghostGoals.set('ghost', 'x');
       await ghost.flush();
       expect(store.metaFor(sid, cid)!.goal, isNull);
-      expect(ensured, isTrue,
-          reason: 'registration is keyed by conversation, runs before the '
-              'session lookup, and is harmless without a write');
+      expect(
+        ensured,
+        isTrue,
+        reason:
+            'registration is keyed by conversation, runs before the '
+            'session lookup, and is harmless without a write',
+      );
     });
 
-    test('persistIfPresent skips empty trackers and writes present ones',
-        () async {
-      // Empty → skip: no ensure/session lookup, no store traffic.
-      binder.persistIfPresent(cid);
-      await binder.flush();
-      expect(order, isEmpty, reason: 'nothing to persist → no store traffic');
-      expect(store.metaFor(sid, cid)!.goal, isNull);
+    test(
+      'persistIfPresent skips empty trackers and writes present ones',
+      () async {
+        // Empty → skip: no ensure/session lookup, no store traffic.
+        binder.persistIfPresent(cid);
+        await binder.flush();
+        expect(order, isEmpty, reason: 'nothing to persist → no store traffic');
+        expect(store.metaFor(sid, cid)!.goal, isNull);
 
-      // Mutate a store BEFORE any binder hooks it (the headless dispatch
-      // window), then a fresh binder catches up via persistIfPresent.
-      final lateGoals = GoalStore();
-      addTearDown(lateGoals.dispose);
-      final latePlans = PlanStore();
-      addTearDown(latePlans.dispose);
-      lateGoals.set(cid, 'headless');
-      expect(store.metaFor(sid, cid)!.goal, isNull,
-          reason: 'no hook existed at mutation time');
-      final lateOrder = <String>[];
-      final catchUp = TrackerPersistence(
-        goalStore: lateGoals,
-        planStore: latePlans,
-        store: store,
-      )..install(
-          sessionIdFor: (id) {
-            lateOrder.add('sid');
-            return sid;
-          },
-          ensureRegisteredFor: (id) async {
-            lateOrder.add('ensure');
-          },
+        // Mutate a store BEFORE any binder hooks it (the headless dispatch
+        // window), then a fresh binder catches up via persistIfPresent.
+        final lateGoals = GoalStore();
+        addTearDown(lateGoals.dispose);
+        final latePlans = PlanStore();
+        addTearDown(latePlans.dispose);
+        lateGoals.set(cid, 'headless');
+        expect(
+          store.metaFor(sid, cid)!.goal,
+          isNull,
+          reason: 'no hook existed at mutation time',
         );
-      catchUp.persistIfPresent(cid);
-      await catchUp.flush();
-      expect(store.metaFor(sid, cid)!.goal!['text'], 'headless');
-      expect(lateOrder, ['ensure', 'sid']);
-    });
+        final lateOrder = <String>[];
+        final catchUp =
+            TrackerPersistence(
+              goalStore: lateGoals,
+              planStore: latePlans,
+              store: store,
+            )..install(
+              sessionIdFor: (id) {
+                lateOrder.add('sid');
+                return sid;
+              },
+              ensureRegisteredFor: (id) async {
+                lateOrder.add('ensure');
+              },
+            );
+        catchUp.persistIfPresent(cid);
+        await catchUp.flush();
+        expect(store.metaFor(sid, cid)!.goal!['text'], 'headless');
+        expect(lateOrder, ['ensure', 'sid']);
+      },
+    );
 
     test('uninstall detaches the hooks', () async {
       binder.uninstall();

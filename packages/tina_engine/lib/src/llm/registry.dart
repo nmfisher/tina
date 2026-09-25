@@ -125,15 +125,15 @@ class ProviderDecoratorStage {
 
 /// Scope key under which a plugin binds the [ProviderDecoratorStage] marker.
 final ServiceKey<ProviderDecoratorStage> providerDecoratorStageServiceKey =
-    ServiceKey<ProviderDecoratorStage>(
-        'tina.engine.provider_decorator_stage');
+    ServiceKey<ProviderDecoratorStage>('tina.engine.provider_decorator_stage');
 
 /// The [ProviderDecorator] CONTRIBUTIONS registered in [scope], in declared
 /// registration order. Non-decorator contributions are ignored, mirroring
 /// [promptContributorsFromScope] for prompt contributors.
 List<ProviderDecorator> providerDecoratorsFromScope(PluginScope scope) => [
       for (final c in scope.contributions)
-        if (c.contribution is ProviderDecorator) c.contribution as ProviderDecorator,
+        if (c.contribution is ProviderDecorator)
+          c.contribution as ProviderDecorator,
     ];
 
 /// Metadata about a provider family — pure data, no wire-format logic.
@@ -312,7 +312,8 @@ class RuntimeProviderFactory implements LlmProviderFactory {
     if (_closed) throw StateError('Runtime provider factory is closed');
     // Bare model names retain registry resolution. An explicit different
     // provider must never receive the startup provider's key or endpoint.
-    final defaults = providerDefaults[ModelReference.parse(reference).providerId];
+    final defaults =
+        providerDefaults[ModelReference.parse(reference).providerId];
     return _registry._buildWithPolicy(
       reference,
       decorator: decorator,
@@ -460,7 +461,8 @@ class ProviderRegistry implements LlmProviderFactory {
   /// descriptor's own credential — install the same spacing for it as well,
   /// preserving the pre-reapply behavior where the build-time install always
   /// targeted the key actually being wrapped.
-  Duration? _installSpacing(ProviderDescriptor desc, {String? queueKeyOverride}) {
+  Duration? _installSpacing(ProviderDescriptor desc,
+      {String? queueKeyOverride}) {
     final endpoint = desc.defaultBaseUrl;
     final spacing = effectiveSpacingMs(
       userIntervalMs: _requestIntervals[desc.id],
@@ -766,15 +768,14 @@ class ProviderRegistry implements LlmProviderFactory {
     // models) never goes out and an under-cap default never cripples a
     // model that could output more (Anthropic's 64k). Unknown models pass
     // through unclamped — never clamp on a guess.
-    final catalogModel =
-        catalog?.findModel(desc, resolved.modelId) ?? desc.models[resolved.modelId];
+    final catalogModel = catalog?.findModel(desc, resolved.modelId) ??
+        desc.models[resolved.modelId];
     final configuredMax = maxTokens ?? defaultMaxTokens;
     final outputLimit = desc.maxOutputOverride ??
         catalogModel?.maxOutput ??
         desc.models[resolved.modelId]?.maxOutput;
-    final effectiveMaxTokens = outputLimit == null
-        ? configuredMax
-        : min(configuredMax, outputLimit);
+    final effectiveMaxTokens =
+        outputLimit == null ? configuredMax : min(configuredMax, outputLimit);
     final endpoint = baseUrlOverride ?? desc.defaultBaseUrl;
     final built = desc.builder(ProviderInstance(
       apiKey: apiKey,
@@ -821,8 +822,9 @@ class ProviderRegistry implements LlmProviderFactory {
     // string is not a queue key).
     _installSpacing(
       desc,
-      queueKeyOverride:
-          apiKeyOverride == null ? null : providerQueueKey(endpoint, apiKeyOverride),
+      queueKeyOverride: apiKeyOverride == null
+          ? null
+          : providerQueueKey(endpoint, apiKeyOverride),
     );
     return rateLimiter.minIntervalFor(key) > Duration.zero ||
             rateLimiter.maxConcurrent > 0

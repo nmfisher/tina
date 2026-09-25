@@ -10,23 +10,23 @@ ModelsDevProviderInfo info({
   String npm = '@ai-sdk/openai-compatible',
   String? apiBase,
   Map<String, ModelInfo>? models,
-}) =>
-    ModelsDevProviderInfo(
-      key: key,
-      name: name ?? key,
-      envVars: envVars,
-      npm: npm,
-      apiBase: apiBase,
-      models: models ??
-          const {
-            'm-1': ModelInfo(
-              id: 'm-1',
-              name: 'M1',
-              contextWindow: 8192,
-              maxOutput: 1024,
-            ),
-          },
-    );
+}) => ModelsDevProviderInfo(
+  key: key,
+  name: name ?? key,
+  envVars: envVars,
+  npm: npm,
+  apiBase: apiBase,
+  models:
+      models ??
+      const {
+        'm-1': ModelInfo(
+          id: 'm-1',
+          name: 'M1',
+          contextWindow: 8192,
+          maxOutput: 1024,
+        ),
+      },
+);
 
 void main() {
   group('registerModelsDevProviders', () {
@@ -48,8 +48,11 @@ void main() {
       final d = registry.descriptor('moonshotai')!;
       expect(d.name, 'Moonshot AI');
       expect(d.defaultBaseUrl, 'https://api.moonshot.ai/v1');
-      expect(d.listsRemoteModels, isTrue,
-          reason: 'the live /v1/models list refines the models.dev fallback');
+      expect(
+        d.listsRemoteModels,
+        isTrue,
+        reason: 'the live /v1/models list refines the models.dev fallback',
+      );
       final envVars = d.authSources.map((s) => s.envVar);
       expect(envVars, contains('MOONSHOT_API_KEY'));
       // A `[providers.moonshotai] api_key` block exports this name even though
@@ -146,8 +149,11 @@ void main() {
       expect(added, 0);
       expect(registry.descriptor('nvidia'), isNull);
       expect(registry.descriptor('nim'), isNotNull);
-      expect(registry.modelsFor('nim').length, compiledNimModels,
-          reason: 'the compiled list stays authoritative');
+      expect(
+        registry.modelsFor('nim').length,
+        compiledNimModels,
+        reason: 'the compiled list stays authoritative',
+      );
     });
 
     test('skips a credential already claimed by another descriptor', () {
@@ -184,7 +190,10 @@ void main() {
       );
 
       expect(added, 0);
-      expect(registry.descriptor('mistral')!.name, isNot('Mistral (models.dev)'));
+      expect(
+        registry.descriptor('mistral')!.name,
+        isNot('Mistral (models.dev)'),
+      );
     });
 
     test('registers regional twins that share one credential', () {
@@ -209,10 +218,14 @@ void main() {
       );
 
       expect(added, 2);
-      expect(registry.descriptor('moonshotai-cn')!.defaultBaseUrl,
-          'https://api.moonshot.cn/v1');
-      expect(registry.descriptor('moonshotai')!.defaultBaseUrl,
-          'https://api.moonshot.ai/v1');
+      expect(
+        registry.descriptor('moonshotai-cn')!.defaultBaseUrl,
+        'https://api.moonshot.cn/v1',
+      );
+      expect(
+        registry.descriptor('moonshotai')!.defaultBaseUrl,
+        'https://api.moonshot.ai/v1',
+      );
     });
 
     test('a second pass after a refresh registers only the new providers', () {
@@ -254,8 +267,11 @@ void main() {
 
       expect(added, 1, reason: 'only the newly discovered provider registers');
       expect(registry.descriptor('inception'), isNotNull);
-      expect(registry.descriptor('moonshotai'), same(before),
-          reason: 'an already-seeded id is left exactly as it was');
+      expect(
+        registry.descriptor('moonshotai'),
+        same(before),
+        reason: 'an already-seeded id is left exactly as it was',
+      );
     });
 
     test('registers every eligible provider and counts them', () {

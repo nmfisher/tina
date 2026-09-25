@@ -34,20 +34,25 @@ void main() {
 
   test('counts span children', () {
     final summary = PlanSummary([
-      PlanItem('parent', state: PlanState.inProgress, children: [
-        PlanItem('sub', state: PlanState.done),
-        PlanItem('open'),
-      ]),
+      PlanItem(
+        'parent',
+        state: PlanState.inProgress,
+        children: [
+          PlanItem('sub', state: PlanState.done),
+          PlanItem('open'),
+        ],
+      ),
       PlanItem('done root', state: PlanState.done),
     ]);
-    expect(text(summary), 'plan: parent · 2/4 done',
-        reason: 'subtasks are plan work: done/total covers them');
+    expect(
+      text(summary),
+      'plan: parent · 2/4 done',
+      reason: 'subtasks are plan work: done/total covers them',
+    );
   });
 
   test('the label run is dim and the body unstyled', () {
-    final summary = PlanSummary([
-      PlanItem('a', state: PlanState.inProgress),
-    ]);
+    final summary = PlanSummary([PlanItem('a', state: PlanState.inProgress)]);
     final runs = renderer.render(summary, context).expand((l) => l.runs);
     expect(runs.first.text, 'plan: ');
     expect(runs.first.code, Theme.defaults().chat.dim);

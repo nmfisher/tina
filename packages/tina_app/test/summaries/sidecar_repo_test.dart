@@ -25,10 +25,12 @@ void main() {
     File('${project.path}/lib/a.dart').writeAsStringSync('int x = 1;\n');
     Directory('${project.path}/test')..createSync();
     File('${project.path}/test/t.dart').writeAsStringSync('// t\n');
-    Directory('${project.path}/packages/tina_index/lib')
-        .createSync(recursive: true);
-    File('${project.path}/packages/tina_index/lib/i.dart')
-        .writeAsStringSync('// i\n');
+    Directory(
+      '${project.path}/packages/tina_index/lib',
+    ).createSync(recursive: true);
+    File(
+      '${project.path}/packages/tina_index/lib/i.dart',
+    ).writeAsStringSync('// i\n');
     _git(project, ['init']);
     _git(project, ['add', '-A']);
     _git(project, ['commit', '-m', 'init']);
@@ -52,9 +54,9 @@ void main() {
   });
 
   test('manifest round-trips through json', () {
-    final manifest = SummaryManifest(dirs: {
-      'lib': DirSummary(commit: 'abc', tree: 'def', file: 'lib.md'),
-    });
+    final manifest = SummaryManifest(
+      dirs: {'lib': DirSummary(commit: 'abc', tree: 'def', file: 'lib.md')},
+    );
     repo.saveManifest(manifest);
     final loaded = repo.loadManifest();
     expect(loaded.dirs.keys, contains('lib'));
@@ -79,8 +81,14 @@ void main() {
 
   test('staleness: every dir is stale on the first run', () {
     repo.init();
-    final stale = repo.staleDirs(repo.defaultPartition(), SummaryManifest.empty());
-    expect(stale.toRegenerate, containsAll(['lib', 'test', 'packages/tina_index/lib']));
+    final stale = repo.staleDirs(
+      repo.defaultPartition(),
+      SummaryManifest.empty(),
+    );
+    expect(
+      stale.toRegenerate,
+      containsAll(['lib', 'test', 'packages/tina_index/lib']),
+    );
     expect(stale.deleted, isEmpty);
   });
 
@@ -89,8 +97,9 @@ void main() {
   // the dirs through.
   void seedSummaries(List<String> dirs) {
     for (final dir in dirs) {
-      File(p.join(sidecarRoot.path, 'summaries', '${summarySlug(dir)}.md'))
-          .writeAsStringSync('# $dir\n');
+      File(
+        p.join(sidecarRoot.path, 'summaries', '${summarySlug(dir)}.md'),
+      ).writeAsStringSync('# $dir\n');
     }
   }
 
@@ -152,7 +161,10 @@ void main() {
     File('${project.path}/docs/README.md').writeAsStringSync('# docs\n');
     _git(project, ['add', '-A']);
     _git(project, ['commit', '-m', 'add docs']);
-    final stale = repo.staleDirs(repo.defaultPartition(), SummaryManifest.empty());
+    final stale = repo.staleDirs(
+      repo.defaultPartition(),
+      SummaryManifest.empty(),
+    );
     expect(stale.toRegenerate, contains('docs'));
   });
 
@@ -168,8 +180,9 @@ void main() {
   test('defaultPartition skips build/dist (top-level and in packages)', () {
     Directory('${project.path}/build').createSync();
     Directory('${project.path}/dist').createSync();
-    Directory('${project.path}/packages/tina_index/build')
-        .createSync(recursive: true);
+    Directory(
+      '${project.path}/packages/tina_index/build',
+    ).createSync(recursive: true);
     final partition = repo.defaultPartition();
     expect(partition, isNot(contains('build')));
     expect(partition, isNot(contains('dist')));
@@ -178,7 +191,8 @@ void main() {
 
   test('record skips dirs whose summary file was not written (finding C)', () {
     repo.init();
-    final partition = repo.defaultPartition(); // lib, test, packages/tina_index/lib
+    final partition = repo
+        .defaultPartition(); // lib, test, packages/tina_index/lib
     // Only the first dir's summary file actually landed.
     seedSummaries(partition.take(1).toList());
     final recorded = repo.record(
@@ -210,21 +224,25 @@ void main() {
     expect(stale.toRegenerate, isNot(contains('test')));
   });
 
-  test('staleness: a dir summarized while dirty is not stale until it changes',
-      () {
-    repo.init();
-    final partition = repo.defaultPartition();
-    File('${project.path}/lib/a.dart').writeAsStringSync('int x = 9;\n'); // dirty v1
-    seedSummaries(partition);
-    final recorded = repo.record(
-      manifest: SummaryManifest.empty(),
-      regenerated: partition,
-      deleted: const [],
-    );
-    // Re-probe while still dirty → digest matches the recorded one → not stale.
-    final stale = repo.staleDirs(partition, recorded);
-    expect(stale.toRegenerate, isEmpty);
-  });
+  test(
+    'staleness: a dir summarized while dirty is not stale until it changes',
+    () {
+      repo.init();
+      final partition = repo.defaultPartition();
+      File(
+        '${project.path}/lib/a.dart',
+      ).writeAsStringSync('int x = 9;\n'); // dirty v1
+      seedSummaries(partition);
+      final recorded = repo.record(
+        manifest: SummaryManifest.empty(),
+        regenerated: partition,
+        deleted: const [],
+      );
+      // Re-probe while still dirty → digest matches the recorded one → not stale.
+      final stale = repo.staleDirs(partition, recorded);
+      expect(stale.toRegenerate, isEmpty);
+    },
+  );
 
   test('staleness: a newly-dirtied file in the dir makes it stale again', () {
     repo.init();
@@ -243,41 +261,52 @@ void main() {
     expect(stale.toRegenerate, isNot(contains('test')));
   });
 
-  test('staleness: a dirty dir becomes stale once committed (tree changed)', () {
-    repo.init();
-    final partition = repo.defaultPartition();
-    File('${project.path}/lib/a.dart').writeAsStringSync('int x = 9;\n'); // dirty
-    seedSummaries(partition);
-    final recorded = repo.record(
-      manifest: SummaryManifest.empty(),
-      regenerated: partition,
-      deleted: const [],
-    );
-    // Commit → HEAD tree hash now non-null, differing from the recorded null.
-    _git(project, ['add', '-A']);
-    _git(project, ['commit', '-m', 'commit dirty lib']);
-    final stale = repo.staleDirs(partition, recorded);
-    expect(stale.toRegenerate, contains('lib'));
-  });
+  test(
+    'staleness: a dirty dir becomes stale once committed (tree changed)',
+    () {
+      repo.init();
+      final partition = repo.defaultPartition();
+      File(
+        '${project.path}/lib/a.dart',
+      ).writeAsStringSync('int x = 9;\n'); // dirty
+      seedSummaries(partition);
+      final recorded = repo.record(
+        manifest: SummaryManifest.empty(),
+        regenerated: partition,
+        deleted: const [],
+      );
+      // Commit → HEAD tree hash now non-null, differing from the recorded null.
+      _git(project, ['add', '-A']);
+      _git(project, ['commit', '-m', 'commit dirty lib']);
+      final stale = repo.staleDirs(partition, recorded);
+      expect(stale.toRegenerate, contains('lib'));
+    },
+  );
 
-  test('commit writes a git commit to the sidecar with a descriptive message',
-      () {
-    repo.init();
-    // Stage a summary file directly.
-    File('${sidecarRoot.path}/summaries/lib.md')
-        .writeAsStringSync('# lib\n');
-    repo.commit(regenerated: const ['lib'], deleted: const [], commitSha: _head(project));
-    final log = _git(Directory('${sidecarRoot.path}/summaries'), ['log', '--oneline']);
-    expect(log, contains('summaries @'));
-    expect(log, contains('1 regenerated'));
-  });
+  test(
+    'commit writes a git commit to the sidecar with a descriptive message',
+    () {
+      repo.init();
+      // Stage a summary file directly.
+      File('${sidecarRoot.path}/summaries/lib.md').writeAsStringSync('# lib\n');
+      repo.commit(
+        regenerated: const ['lib'],
+        deleted: const [],
+        commitSha: _head(project),
+      );
+      final log = _git(Directory('${sidecarRoot.path}/summaries'), [
+        'log',
+        '--oneline',
+      ]);
+      expect(log, contains('summaries @'));
+      expect(log, contains('1 regenerated'));
+    },
+  );
 
   test('commit removes deleted summary files before committing', () {
     repo.init();
-    File('${sidecarRoot.path}/summaries/lib.md')
-        .writeAsStringSync('# lib\n');
-    File('${sidecarRoot.path}/summaries/test.md')
-        .writeAsStringSync('# test\n');
+    File('${sidecarRoot.path}/summaries/lib.md').writeAsStringSync('# lib\n');
+    File('${sidecarRoot.path}/summaries/test.md').writeAsStringSync('# test\n');
     _git(Directory('${sidecarRoot.path}/summaries'), ['add', '-A']);
     _git(Directory('${sidecarRoot.path}/summaries'), ['commit', '-m', 'seed']);
     repo.commit(
@@ -292,17 +321,33 @@ void main() {
   test('commit stages summaries + manifest only, never allocations.json', () {
     repo.init();
     // A stray runtime file in the sidecar must NOT enter sidecar history.
-    File('${sidecarRoot.path}/summaries/allocations.json')
-        .writeAsStringSync('{"regions":{}}');
+    File(
+      '${sidecarRoot.path}/summaries/allocations.json',
+    ).writeAsStringSync('{"regions":{}}');
     File('${sidecarRoot.path}/summaries/lib.md').writeAsStringSync('# lib\n');
-    repo.saveManifest(SummaryManifest(dirs: {
-      'lib': DirSummary(
-          commit: _head(project), tree: null, file: 'lib.md', dirtyDigest: ''),
-    }));
+    repo.saveManifest(
+      SummaryManifest(
+        dirs: {
+          'lib': DirSummary(
+            commit: _head(project),
+            tree: null,
+            file: 'lib.md',
+            dirtyDigest: '',
+          ),
+        },
+      ),
+    );
     repo.commit(
-        regenerated: const ['lib'], deleted: const [], commitSha: _head(project));
-    final tracked = _git(Directory('${sidecarRoot.path}/summaries'),
-        ['ls-tree', '-r', '--name-only', 'HEAD']);
+      regenerated: const ['lib'],
+      deleted: const [],
+      commitSha: _head(project),
+    );
+    final tracked = _git(Directory('${sidecarRoot.path}/summaries'), [
+      'ls-tree',
+      '-r',
+      '--name-only',
+      'HEAD',
+    ]);
     expect(tracked, contains('lib.md'));
     expect(tracked, contains('manifest.json'));
     expect(tracked, isNot(contains('allocations.json')));
@@ -313,14 +358,22 @@ void main() {
     // A freshly-init'd sidecar with no staged changes: commit() must not mint
     // a commit. Assert via the ref resolution (HEAD has no commit) rather than
     // `log`, which fails on a commit-less repo.
-    repo.commit(regenerated: const [], deleted: const [], commitSha: _head(project));
-    final rev = Process.runSync(
-      'git',
-      ['-C', '${sidecarRoot.path}/summaries', 'rev-parse', 'HEAD'],
-      runInShell: false,
+    repo.commit(
+      regenerated: const [],
+      deleted: const [],
+      commitSha: _head(project),
     );
-    expect(rev.exitCode, isNot(0),
-        reason: 'a no-op commit must not create a commit object');
+    final rev = Process.runSync('git', [
+      '-C',
+      '${sidecarRoot.path}/summaries',
+      'rev-parse',
+      'HEAD',
+    ], runInShell: false);
+    expect(
+      rev.exitCode,
+      isNot(0),
+      reason: 'a no-op commit must not create a commit object',
+    );
   });
 }
 
@@ -339,17 +392,20 @@ String _git(Directory dir, List<String> args) {
     runInShell: false,
   );
   if (result.exitCode != 0) {
-    throw StateError('git ${args.join(" ")} failed in ${dir.path}: '
-        '${result.stderr}');
+    throw StateError(
+      'git ${args.join(" ")} failed in ${dir.path}: '
+      '${result.stderr}',
+    );
   }
   return (result.stdout as String).trim();
 }
 
 bool _isGitRepo(String path) {
-  final result = Process.runSync(
-    'git',
-    ['-C', path, 'rev-parse', '--is-inside-work-tree'],
-    runInShell: false,
-  );
+  final result = Process.runSync('git', [
+    '-C',
+    path,
+    'rev-parse',
+    '--is-inside-work-tree',
+  ], runInShell: false);
   return result.exitCode == 0;
 }

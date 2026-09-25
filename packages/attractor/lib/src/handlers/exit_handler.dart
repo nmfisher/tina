@@ -12,6 +12,5 @@ class ExitHandler implements NodeHandler {
     required RunStore runStore,
     Future<void>? cancelSignal,
     PipelineEventListener? onEvent,
-  }) async =>
-      const Outcome.success(notes: 'pipeline exit');
+  }) async => const Outcome.success(notes: 'pipeline exit');
 }

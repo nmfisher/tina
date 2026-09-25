@@ -57,10 +57,12 @@ void main() {
   }
 
   void assertNoLeakIntoRightPanel(VirtualTerminal vt, ScreenLayout layout) {
-    for (var r = layout.chat.row; r < layout.chat.row + layout.chat.height; r++) {
+    for (var r = layout.chat.row;
+        r < layout.chat.row + layout.chat.height;
+        r++) {
       // Info interior sits between infoLeftCol+1 and infoRightCol-1.
-      final right = vt.rowText(r).substring(
-          layout.infoLeftCol + 1, layout.infoRightCol);
+      final right =
+          vt.rowText(r).substring(layout.infoLeftCol + 1, layout.infoRightCol);
       // Info interior may contain the info panel's own content; here we
       // test cases where nothing has been written into info.
       expect(right.trim(), isEmpty,
@@ -143,7 +145,8 @@ void main() {
       expect(wideVt.rowText(0).substring(newLayout.infoLeftCol), infoTop);
       // Bottom border on the row above the strip (tin-q9w2).
       expect(
-          wideVt.rowText(newLayout.bottomBorderRow)
+          wideVt
+              .rowText(newLayout.bottomBorderRow)
               .substring(newLayout.infoLeftCol),
           '└${'─' * (infoW - 2)}┘');
     });
@@ -180,8 +183,7 @@ void main() {
 
       // No 'a' leaks into right panel.
       for (var r = layout.chat.row; r <= layout.input.row; r++) {
-        final right =
-            vt.rowText(r).substring(layout.dividerCol + 1, W - 1);
+        final right = vt.rowText(r).substring(layout.dividerCol + 1, W - 1);
         expect(right.contains('a'), isFalse, reason: 'row $r right leak');
       }
       assertFrameIntact(vt, layout);

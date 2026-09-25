@@ -16,7 +16,7 @@ class PipelineNode {
   final Map<String, AttrValue> attrs;
 
   PipelineNode({required this.id, Map<String, AttrValue>? attrs})
-      : attrs = attrs ?? {};
+    : attrs = attrs ?? {};
 
   /// Display name. Falls back to the node id when unset (DOT default).
   String get label => (attrs['label'] as String?) ?? id;
@@ -88,9 +88,8 @@ class PipelineNode {
 
   /// The handler type this node resolves to: explicit [type], else the
   /// shape-to-type mapping, else `codergen` (the default).
-  String get handlerType => type.isNotEmpty
-      ? type
-      : shapeToHandlerType(shape) ?? 'codergen';
+  String get handlerType =>
+      type.isNotEmpty ? type : shapeToHandlerType(shape) ?? 'codergen';
 
   bool _bool(Object? v, bool d) => v is bool ? v : d;
 
@@ -146,7 +145,8 @@ class PipelineEdge {
   bool get hasLabel => label.isNotEmpty;
 
   @override
-  String toString() => '$from -> $to'
+  String toString() =>
+      '$from -> $to'
       '${label.isNotEmpty ? ' [label="$label"]' : ''}';
 }
 
@@ -171,9 +171,9 @@ class Graph {
     Map<String, AttrValue>? attrs,
     Map<String, PipelineNode>? nodes,
     List<PipelineEdge>? edges,
-  })  : attrs = attrs ?? {},
-        nodes = nodes ?? {},
-        edges = edges ?? [];
+  }) : attrs = attrs ?? {},
+       nodes = nodes ?? {},
+       edges = edges ?? [];
 
   PipelineNode? node(String id) => nodes[id];
 
@@ -199,8 +199,7 @@ class Graph {
   /// The start node: the single `Mdiamond` node (else one whose id is
   /// `start` / `Start`). null if none.
   PipelineNode? findStartNode() {
-    final diamond =
-        nodes.values.where((n) => n.shape == 'Mdiamond').toList();
+    final diamond = nodes.values.where((n) => n.shape == 'Mdiamond').toList();
     if (diamond.length == 1) return diamond.first;
     for (final alt in const ['start', 'Start']) {
       final n = nodes[alt];
@@ -212,9 +211,7 @@ class Graph {
   /// Whether a node is the pipeline exit (shape `Msquare` or id
   /// `exit`/`end`).
   bool isTerminal(PipelineNode n) =>
-      n.shape == 'Msquare' ||
-      n.id == 'exit' ||
-      n.id == 'end';
+      n.shape == 'Msquare' || n.id == 'exit' || n.id == 'end';
 
   /// Terminal nodes (shape Msquare).
   List<PipelineNode> get terminalNodes =>

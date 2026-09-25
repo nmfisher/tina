@@ -36,7 +36,6 @@ void main() {
     expect(await pending.timeout(const Duration(seconds: 1)), isTrue);
   });
 
-
   group('SpendLedger.record / ceiling', () {
     test('accumulates input+output and does not trip under the cap', () {
       final l = SpendLedger(maxGlobalTokens: 1000, requestsPerMinute: 0);
@@ -119,8 +118,8 @@ void main() {
     });
 
     test('waits for a refill when drained (real clock)', () async {
-      final l = SpendLedger(maxGlobalTokens: 0,
-          requestsPerMinute: 600); // 10 tokens/sec
+      final l = SpendLedger(
+          maxGlobalTokens: 0, requestsPerMinute: 600); // 10 tokens/sec
       for (var i = 0; i < 600; i++) {
         await l.acquireRequestSlot();
       }
@@ -133,14 +132,16 @@ void main() {
       expect(sw.elapsedMilliseconds, lessThan(500));
     });
 
-    test('cancel returns false promptly without a token (real clock)', () async {
+    test('cancel returns false promptly without a token (real clock)',
+        () async {
       // Very low RPM so a natural grant would take ~60s; cancel must return in
       // well under that, proving the wait is cancel-bound, not refill-bound.
       final l = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 1);
       await l.acquireRequestSlot(); // drain the single-token capacity
       final sw = Stopwatch()..start();
       final cancelSignal = Completer<void>()..complete();
-      final granted = await l.acquireRequestSlot(cancelSignal: cancelSignal.future);
+      final granted =
+          await l.acquireRequestSlot(cancelSignal: cancelSignal.future);
       sw.stop();
       expect(granted, isFalse, reason: 'cancel must abort without consuming');
       expect(sw.elapsedMilliseconds, lessThan(300));
@@ -236,7 +237,8 @@ void main() {
       await sub.cancel();
     });
 
-    test('an estimated usage routed through record still notifies once', () async {
+    test('an estimated usage routed through record still notifies once',
+        () async {
       final l = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
       var events = 0;
       final sub = l.changes.listen((_) => events++);

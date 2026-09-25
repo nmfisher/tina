@@ -38,8 +38,7 @@ class NodeLayout {
   int get rankCount => ranks.length;
 
   /// Total slots across the widest layer.
-  int get maxWidth =>
-      ranks.fold(0, (m, r) => r.length > m ? r.length : m);
+  int get maxWidth => ranks.fold(0, (m, r) => r.length > m ? r.length : m);
 }
 
 /// Compute a layered layout: longest-path layering from the start node (so the
@@ -105,7 +104,10 @@ NodeLayout computeLayout(Graph graph, {Direction direction = Direction.lr}) {
     }
   }
 
-  var maxRank = reachable.fold<int>(0, (m, id) => rank[id]! > m ? rank[id]! : m);
+  var maxRank = reachable.fold<int>(
+    0,
+    (m, id) => rank[id]! > m ? rank[id]! : m,
+  );
 
   // 4. Unreachable nodes: stack them after the reachable layers.
   final unreachable = nodeIds.where((id) => !reachable.contains(id)).toList();
@@ -163,10 +165,19 @@ void _refreshIndices(List<List<String>> layers, Map<String, int> out) {
 
 /// Median position of [node]'s predecessors (ranking edges only). Nodes with
 /// no ranking predecessor keep their current slot (declaration order).
-double _barycenter(Graph g, String node, Map<String, int> indexInRank,
-    Set<String> backEdges) {
-  final preds = g.incoming(node).where((e) =>
-      !backEdges.contains(_edgeKey(e.from, e.to)) && indexInRank.containsKey(e.from));
+double _barycenter(
+  Graph g,
+  String node,
+  Map<String, int> indexInRank,
+  Set<String> backEdges,
+) {
+  final preds = g
+      .incoming(node)
+      .where(
+        (e) =>
+            !backEdges.contains(_edgeKey(e.from, e.to)) &&
+            indexInRank.containsKey(e.from),
+      );
   final positions = preds.map((e) => indexInRank[e.from]!.toDouble()).toList();
   if (positions.isEmpty) return double.infinity; // preserve declaration order
   positions.sort();

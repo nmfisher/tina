@@ -47,7 +47,9 @@ void main() {
     });
 
     test('(no matches) when nothing matches the pattern', () async {
-      final fs = MemoryFileEnumerator({tmp.path: ['a.txt']});
+      final fs = MemoryFileEnumerator({
+        tmp.path: ['a.txt']
+      });
       final res = await GlobTool(fileEnumerator: fs)
           .execute({'pattern': '*.dart', 'path': tmp.path});
       expect(res.content, equals('(no matches)'));

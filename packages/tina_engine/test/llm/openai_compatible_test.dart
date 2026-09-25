@@ -41,10 +41,13 @@ void main() {
       );
     });
 
-    test('GLM /api/paas/v4 is treated as already versioned (the motivating case)', () {
+    test(
+        'GLM /api/paas/v4 is treated as already versioned (the motivating case)',
+        () {
       // A naive "append /v1" rule would yield .../paas/v4/v1/chat/completions.
       expect(
-        OpenAiCompatibleAdapter.chatEndpoint('https://open.bigmodel.cn/api/paas/v4'),
+        OpenAiCompatibleAdapter.chatEndpoint(
+            'https://open.bigmodel.cn/api/paas/v4'),
         'https://open.bigmodel.cn/api/paas/v4/chat/completions',
       );
     });
@@ -78,17 +81,15 @@ void main() {
   group('request encoding', () {
     test('injects system as a leading system message', () async {
       final cap = CapturedRequest();
-      final provider = OpenAiCompatibleAdapter(
-          apiKey: 'k', model: 'm', client: cap.client);
-      await provider
-          .send(
-            system: 'you are tina',
-            messages: const [
-              Message(role: Role.user, content: [TextBlock('hi')])
-            ],
-            tools: const [],
-          )
-          .toList();
+      final provider =
+          OpenAiCompatibleAdapter(apiKey: 'k', model: 'm', client: cap.client);
+      await provider.send(
+        system: 'you are tina',
+        messages: const [
+          Message(role: Role.user, content: [TextBlock('hi')])
+        ],
+        tools: const [],
+      ).toList();
 
       final messages = (jsonDecode(cap.body!) as Map)['messages'] as List;
       expect((messages.first as Map)['role'], 'system');
@@ -98,22 +99,20 @@ void main() {
 
     test('encodes a tool_result as role: tool with tool_call_id', () async {
       final cap = CapturedRequest();
-      final provider = OpenAiCompatibleAdapter(
-          apiKey: 'k', model: 'm', client: cap.client);
-      await provider
-          .send(
-            system: '',
-            messages: const [
-              Message(role: Role.assistant, content: [
-                ToolUseBlock(id: 'call_1', name: 'bash', input: {'command': 'ls'}),
-              ]),
-              Message(role: Role.user, content: [
-                ToolResultBlock(toolUseId: 'call_1', content: 'file.txt'),
-              ]),
-            ],
-            tools: const [],
-          )
-          .toList();
+      final provider =
+          OpenAiCompatibleAdapter(apiKey: 'k', model: 'm', client: cap.client);
+      await provider.send(
+        system: '',
+        messages: const [
+          Message(role: Role.assistant, content: [
+            ToolUseBlock(id: 'call_1', name: 'bash', input: {'command': 'ls'}),
+          ]),
+          Message(role: Role.user, content: [
+            ToolResultBlock(toolUseId: 'call_1', content: 'file.txt'),
+          ]),
+        ],
+        tools: const [],
+      ).toList();
 
       final messages = (jsonDecode(cap.body!) as Map)['messages'] as List;
       // messages = [system, assistant(tool_use), tool(result)]
@@ -125,20 +124,18 @@ void main() {
 
     test('encodes assistant text + tool_use as content + tool_calls', () async {
       final cap = CapturedRequest();
-      final provider = OpenAiCompatibleAdapter(
-          apiKey: 'k', model: 'm', client: cap.client);
-      await provider
-          .send(
-            system: '',
-            messages: const [
-              Message(role: Role.assistant, content: [
-                TextBlock('running it'),
-                ToolUseBlock(id: 'call_1', name: 'bash', input: {'command': 'ls'}),
-              ]),
-            ],
-            tools: const [],
-          )
-          .toList();
+      final provider =
+          OpenAiCompatibleAdapter(apiKey: 'k', model: 'm', client: cap.client);
+      await provider.send(
+        system: '',
+        messages: const [
+          Message(role: Role.assistant, content: [
+            TextBlock('running it'),
+            ToolUseBlock(id: 'call_1', name: 'bash', input: {'command': 'ls'}),
+          ]),
+        ],
+        tools: const [],
+      ).toList();
 
       final messages = (jsonDecode(cap.body!) as Map)['messages'] as List;
       final asst = messages[1] as Map;
@@ -154,15 +151,15 @@ void main() {
 
     test('omits the authorization header when the key is empty', () async {
       final empty = CapturedRequest();
-      await OpenAiCompatibleAdapter(apiKey: '', model: 'm', client: empty.client)
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+      await OpenAiCompatibleAdapter(
+              apiKey: '', model: 'm', client: empty.client)
+          .send(system: '', messages: const [], tools: const []).toList();
       expect(empty.headers.containsKey('authorization'), isFalse);
 
       final keyed = CapturedRequest();
-      await OpenAiCompatibleAdapter(apiKey: 'sekret', model: 'm', client: keyed.client)
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+      await OpenAiCompatibleAdapter(
+              apiKey: 'sekret', model: 'm', client: keyed.client)
+          .send(system: '', messages: const [], tools: const []).toList();
       expect(keyed.headers['authorization'], 'Bearer sekret');
     });
 
@@ -172,12 +169,13 @@ void main() {
         apiKey: 'k',
         model: 'google/gemma-4-31b-it',
         // Mirrors how a model would enable NIM thinking via chat_template_kwargs.
-        extraBody: {'chat_template_kwargs': {'enable_thinking': true}},
+        extraBody: {
+          'chat_template_kwargs': {'enable_thinking': true}
+        },
         client: cap.client,
       );
       await provider
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+          .send(system: '', messages: const [], tools: const []).toList();
       final body = jsonDecode(cap.body!) as Map<String, dynamic>;
       expect(body['model'], 'google/gemma-4-31b-it');
       expect(body['chat_template_kwargs'], {'enable_thinking': true});
@@ -189,8 +187,7 @@ void main() {
     test('an empty extraBody leaves the default body untouched', () async {
       final cap = CapturedRequest();
       await OpenAiCompatibleAdapter(apiKey: 'k', model: 'm', client: cap.client)
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+          .send(system: '', messages: const [], tools: const []).toList();
       final body = jsonDecode(cap.body!) as Map<String, dynamic>;
       expect(body.keys.toSet(),
           {'model', 'max_tokens', 'messages', 'stream', 'stream_options'});
@@ -203,12 +200,18 @@ void main() {
       final sse = [
         'data: ${jsonEncode({
               "choices": [
-                {"index": 0, "delta": {"content": "Hel"}}
+                {
+                  "index": 0,
+                  "delta": {"content": "Hel"}
+                }
               ]
             })}',
         'data: ${jsonEncode({
               "choices": [
-                {"index": 0, "delta": {"content": "lo"}}
+                {
+                  "index": 0,
+                  "delta": {"content": "lo"}
+                }
               ]
             })}',
         'data: ${jsonEncode({
@@ -226,8 +229,7 @@ void main() {
       final provider = OpenAiCompatibleAdapter(
           apiKey: 'k', model: 'm', client: ScriptedSseClient(sse));
       final events = await provider
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+          .send(system: '', messages: const [], tools: const []).toList();
 
       expect(events.whereType<TextDelta>().map((e) => e.text).toList(),
           ['Hel', 'lo']);
@@ -238,7 +240,8 @@ void main() {
       expect(complete.usage!.outputTokens, 2);
     });
 
-    test('assembles streamed tool_calls argument fragments and maps stop reason',
+    test(
+        'assembles streamed tool_calls argument fragments and maps stop reason',
         () async {
       // The arguments JSON is split across two deltas: '{"comm' + 'and":"ls"}'.
       final sse = [
@@ -285,8 +288,7 @@ void main() {
       final provider = OpenAiCompatibleAdapter(
           apiKey: 'k', model: 'm', client: ScriptedSseClient(sse));
       final events = await provider
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+          .send(system: '', messages: const [], tools: const []).toList();
 
       expect(events.whereType<ToolCallStart>().single.name, 'bash');
       final complete = events.whereType<MessageComplete>().single;
@@ -313,10 +315,7 @@ void main() {
                       {
                         "index": 0,
                         "id": "call_1",
-                        "function": {
-                          "name": 'ls<|message|>',
-                          "arguments": '{}'
-                        }
+                        "function": {"name": 'ls<|message|>', "arguments": '{}'}
                       }
                     ]
                   }
@@ -354,8 +353,7 @@ void main() {
       final provider = OpenAiCompatibleAdapter(
           apiKey: 'k', model: 'm', client: ScriptedSseClient(sse));
       final events = await provider
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+          .send(system: '', messages: const [], tools: const []).toList();
 
       // The progress event names the tool the agent will actually run.
       final starts = events.whereType<ToolCallStart>().toList();
@@ -402,14 +400,16 @@ void main() {
         model: 'm',
         label: 'OpenAI',
         client: ScriptedSseClient(
-          jsonEncode({'error': {'message': 'bad request'}}),
+          jsonEncode({
+            'error': {'message': 'bad request'}
+          }),
           status: 400,
         ),
       );
       final events = await provider
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
-      expect(events.whereType<StreamError>().single.error, 'OpenAI 400: bad request');
+          .send(system: '', messages: const [], tools: const []).toList();
+      expect(events.whereType<StreamError>().single.error,
+          'OpenAI 400: bad request');
       // The status rides along so the rate-limit adapter can react to 429s
       // without string-matching the humanized text.
       expect(events.whereType<StreamError>().single.statusCode, 400);
@@ -463,14 +463,14 @@ void main() {
       final provider = OpenAiCompatibleAdapter(
           apiKey: 'k', model: 'm', client: ScriptedSseClient(sse));
       final events = await provider
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+          .send(system: '', messages: const [], tools: const []).toList();
 
       expect(events.whereType<StreamError>(), isEmpty,
           reason: 'a malformed call must not kill the streamed response');
       final complete = events.whereType<MessageComplete>().single;
       // Text that already streamed survives.
-      expect((complete.content[0] as TextBlock).text, 'Counting the tests first.');
+      expect(
+          (complete.content[0] as TextBlock).text, 'Counting the tests first.');
       final use = complete.content.whereType<ToolUseBlock>().single;
       expect(use.id, 'call_1');
       expect(use.name, 'bash');
@@ -517,8 +517,7 @@ void main() {
       final provider = OpenAiCompatibleAdapter(
           apiKey: 'k', model: 'm', client: ScriptedSseClient(sse));
       final events = await provider
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+          .send(system: '', messages: const [], tools: const []).toList();
 
       final use = events
           .whereType<MessageComplete>()
@@ -542,8 +541,7 @@ void main() {
         client: SilentSseClient(),
       );
       final events = await provider
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+          .send(system: '', messages: const [], tools: const []).toList();
       final err = events.whereType<StreamError>().single;
       expect(err.error, contains('no stream events for'));
       expect(err.error, contains('--stream-idle-timeout'));

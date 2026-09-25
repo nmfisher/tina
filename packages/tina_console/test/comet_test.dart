@@ -12,7 +12,8 @@ void main() {
   }
 
   group('cometCellFor', () {
-    test('the head is a bold bright-cyan heavy glyph; ahead/behind-far is rail', () {
+    test('the head is a bold bright-cyan heavy glyph; ahead/behind-far is rail',
+        () {
       const theme = Theme();
       final head = cometCellFor(theme, 0);
       expect(head.glyph, '━');
@@ -27,7 +28,8 @@ void main() {
       expect(far.code, isNull);
     });
 
-    test('the tail fades truecolor toward the rail and ends in a rail cell', () {
+    test('the tail fades truecolor toward the rail and ends in a rail cell',
+        () {
       const theme = Theme();
       // Tail cells are light `─` with their own truecolor code, fading from the
       // head's bright cyan toward the rail RGB [30,110,130].
@@ -37,7 +39,8 @@ void main() {
       expect(near.code, startsWith('38;2;'));
 
       final rgbNear = rgbOf(near.code!);
-      expect(rgbNear[0], greaterThan(30), reason: 'near-tail R brighter than rail');
+      expect(rgbNear[0], greaterThan(30),
+          reason: 'near-tail R brighter than rail');
 
       // Once past the tail length the cell is plain rail again.
       expect(cometCellFor(theme, 8).code, isNull);

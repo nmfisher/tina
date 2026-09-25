@@ -75,8 +75,8 @@ Future<int> main() async {
         if (data == null) {
           out.add(_CellSnapshot(row, c, '<null>', 0, 0));
         } else {
-          out.add(_CellSnapshot(
-              row, c, data.egc, data.stylemask, data.channels));
+          out.add(
+              _CellSnapshot(row, c, data.egc, data.stylemask, data.channels));
         }
       }
       return out;
@@ -89,8 +89,8 @@ Future<int> main() async {
     // --- A: plain text ---
     plane.putStrYX(2, 0, 'A: plain text "hello"');
     final aRc = plane.putStrYX(3, 2, _plainText);
-    results.add(_TestResult('A: plain text', _plainText, aRc,
-        readCells(3, 2, _plainText.length)));
+    results.add(_TestResult(
+        'A: plain text', _plainText, aRc, readCells(3, 2, _plainText.length)));
 
     // --- B: text with embedded SGR ---
     plane.putStrYX(5, 0, 'B: "\\x1b[31mhello\\x1b[0m" via putStrYX');
@@ -152,8 +152,7 @@ void _printReport(List<_TestResult> results) {
   // Heuristic verdict — based on test B's results.
   stdout.writeln('Verdict:');
   final b = results.firstWhere((r) => r.label.startsWith('B'));
-  final hasEscapeCell =
-      b.cells.any((c) => c.egc.codeUnits.contains(0x1b));
+  final hasEscapeCell = b.cells.any((c) => c.egc.codeUnits.contains(0x1b));
   final firstFiveAreHello = b.cells.length >= 5 &&
       b.cells.take(5).map((c) => c.egc).join() == 'hello';
   final firstFiveAreRed = b.cells.take(5).every((c) => c.fgRgb == _redRgb);

@@ -13,54 +13,57 @@ import '../helpers/fake_stdio.dart';
 /// a found update paints a persistent alert, settling up-to-date clears the
 /// line, and a miss paints a dim failure line that a later finding replaces.
 void main() {
-  test('the plugin paints the release check and update alert on the strip', () async {
-    final runtime = PluginRuntime(
-      name: 'version-status-e2e',
-      plugins: [versionStatusPlugin(), versionStatusUiPlugin()],
-    )..activateSync();
-    addTearDown(runtime.dispose);
-    final status =
-        runtime.scope.lookup(versionStatusServiceKey) as VersionStatus;
+  test(
+    'the plugin paints the release check and update alert on the strip',
+    () async {
+      final runtime = PluginRuntime(
+        name: 'version-status-e2e',
+        plugins: [versionStatusPlugin(), versionStatusUiPlugin()],
+      )..activateSync();
+      addTearDown(runtime.dispose);
+      final status =
+          runtime.scope.lookup(versionStatusServiceKey) as VersionStatus;
 
-    final io = FakeStdio();
-    final screen = Screen(
-      io: io,
-      layout: ScreenLayout.fromSize(100, 24),
-      ansi: AnsiCapable.yes,
-    );
-    final strip = InputStatus(
-      screen: screen,
-      scope: runtime.scope,
-      conversationId: () => 'c1',
-    )..start();
-    addTearDown(strip.dispose);
+      final io = FakeStdio();
+      final screen = Screen(
+        io: io,
+        layout: ScreenLayout.fromSize(100, 24),
+        ansi: AnsiCapable.yes,
+      );
+      final strip = InputStatus(
+        screen: screen,
+        scope: runtime.scope,
+        conversationId: () => 'c1',
+      )..start();
+      addTearDown(strip.dispose);
 
-    await Future<void>.delayed(Duration.zero);
-    expect(io.written.toString(), isNot(contains('update check')));
+      await Future<void>.delayed(Duration.zero);
+      expect(io.written.toString(), isNot(contains('update check')));
 
-    status.beginCheck();
-    await Future<void>.delayed(Duration.zero);
-    expect(io.written.toString(), contains('update check'));
+      status.beginCheck();
+      await Future<void>.delayed(Duration.zero);
+      expect(io.written.toString(), contains('update check'));
 
-    io.written.clear();
-    status.updateAvailable('v0.9.0');
-    await Future<void>.delayed(Duration.zero);
-    final painted = io.written.toString();
-    expect(painted, contains('v0.9.0'));
-    expect(painted, contains('/update'));
-    // The alert persists: a settling tick must not drop it.
-    expect(status.read('c1'), isNotNull);
+      io.written.clear();
+      status.updateAvailable('v0.9.0');
+      await Future<void>.delayed(Duration.zero);
+      final painted = io.written.toString();
+      expect(painted, contains('v0.9.0'));
+      expect(painted, contains('/update'));
+      // The alert persists: a settling tick must not drop it.
+      expect(status.read('c1'), isNotNull);
 
-    io.written.clear();
-    status.upToDate();
-    await Future<void>.delayed(Duration.zero);
-    expect(
-      io.written.toString(),
-      isNot(contains('/update')),
-      reason: 'the line leaves the strip once the check settles idle',
-    );
-    expect(status.read('c1'), isNull);
-  });
+      io.written.clear();
+      status.upToDate();
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        io.written.toString(),
+        isNot(contains('/update')),
+        reason: 'the line leaves the strip once the check settles idle',
+      );
+      expect(status.read('c1'), isNull);
+    },
+  );
 
   test('a missed check paints a dim failure line, not silence', () async {
     final runtime = PluginRuntime(
@@ -126,8 +129,10 @@ void main() {
     )..start();
     addTearDown(strip.dispose);
 
-    status.deferred(DateTime.now().add(const Duration(minutes: 42)),
-        release: 'v0.8.32');
+    status.deferred(
+      DateTime.now().add(const Duration(minutes: 42)),
+      release: 'v0.8.32',
+    );
     await Future<void>.delayed(Duration.zero);
     final painted = io.written.toString();
     expect(painted, contains('update check deferred'));

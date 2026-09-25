@@ -367,9 +367,8 @@ void main() {
     });
 
     test('multi-record batch: one batch, N records', () async {
-      final batch = 'hello'.codeUnits
-          .map((id) => nc.PumpedInput(id, 0, 0))
-          .toList();
+      final batch =
+          'hello'.codeUnits.map((id) => nc.PumpedInput(id, 0, 0)).toList();
       backend.pumpedBatchForTest(batch);
       await pumpMicrotasks();
       expect(emitted, hasLength(5));
@@ -603,7 +602,8 @@ void main() {
       expect(emitted, isEmpty);
     });
 
-    test('an OSC reply split across the drain boundary leaves no fragment (tin-k7tr)',
+    test(
+        'an OSC reply split across the drain boundary leaves no fragment (tin-k7tr)',
         () async {
       // The --resume shape: the drain window closes between two records of
       // one reply. The head (ESC + introducer + payload start) is drained;
@@ -627,7 +627,9 @@ void main() {
 
       // Head of the OSC 4 palette reply, inside the drain window.
       backend.pumpedBatchForTest(
-        [for (final ch in '\x1b]4;154;rgb:'.codeUnits) nc.PumpedInput(ch, 0, 0)],
+        [
+          for (final ch in '\x1b]4;154;rgb:'.codeUnits) nc.PumpedInput(ch, 0, 0)
+        ],
       );
       await pumpMicrotasks();
       expect(emitted, isEmpty, reason: 'the drain owns the head');
@@ -637,14 +639,18 @@ void main() {
       // would join into a paste if the filter let it through.
       await Future<void>.delayed(const Duration(milliseconds: 200));
       backend.pumpedBatchForTest(
-        [for (final ch in 'afff/ffff/ff00\x1b\\'.codeUnits) nc.PumpedInput(ch, 0, 0)],
+        [
+          for (final ch in 'afff/ffff/ff00\x1b\\'.codeUnits)
+            nc.PumpedInput(ch, 0, 0)
+        ],
       );
       await Future<void>.delayed(const Duration(milliseconds: 60));
       expect(emitted, isEmpty,
           reason: 'a boundary-split reply tail must not reach the editor');
     });
 
-    test('a CSI reply split across the drain boundary leaves no fragment (tin-k7tr)',
+    test(
+        'a CSI reply split across the drain boundary leaves no fragment (tin-k7tr)',
         () async {
       backend = NotcursesInputBackend(
         _FakeKeySource(),
@@ -732,7 +738,8 @@ void main() {
       );
       await Future<void>.delayed(const Duration(milliseconds: 40));
       expect(emitted, [PasteInput(paste * 10)],
-          reason: 'a paste (no ESC events) must pass the reply filter verbatim');
+          reason:
+              'a paste (no ESC events) must pass the reply filter verbatim');
     });
 
     test('a lone ESC is released without a following keystroke', () async {
@@ -798,8 +805,7 @@ void main() {
       expect(emitted, isNotEmpty,
           reason: 'without the filter the reply bytes reach the app (old bug)');
       expect(emitted.whereType<PasteInput>(), isEmpty);
-      expect(
-          emitted.whereType<CharInput>(), isNotEmpty,
+      expect(emitted.whereType<CharInput>(), isNotEmpty,
           reason: 'the old failure mode was reply chars decoded as typing');
     });
   });

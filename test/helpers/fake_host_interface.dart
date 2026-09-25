@@ -78,8 +78,10 @@ class FakeHostInterface with HostLifecycleAdapter implements HostInterface {
   void showPreview(List<PreviewEntry> preview) => previews.add(preview);
 
   @override
-  void showMessage(String message,
-      {HostMessageStyle style = HostMessageStyle.normal}) {
+  void showMessage(
+    String message, {
+    HostMessageStyle style = HostMessageStyle.normal,
+  }) {
     messages.add(message);
     styledMessages.add((message: message, style: style));
   }

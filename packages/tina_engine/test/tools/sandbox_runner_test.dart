@@ -65,10 +65,8 @@ void main() {
         sandboxReadOnly: true,
       );
       // The project is no longer writable…
-      expect(
-          profile,
-          isNot(contains(
-              '(allow file-write* (subpath "$resolved"))')));
+      expect(profile,
+          isNot(contains('(allow file-write* (subpath "$resolved"))')));
       // …but reads under the user's home are denied and the project is
       // re-granted read-only, so a read/analyze run still works inside it.
       // Which directory that is depends on the host's $HOME; the exact path is
@@ -83,8 +81,8 @@ void main() {
   group('SandboxedProcessRunner argv rewrite', () {
     test('wraps the command in `sandbox-exec -p <profile> <exec> <args>`',
         () async {
-      final inner = MemoryProcessRunner.always(
-          MemoryRunningProcess(exitCodeValue: 0));
+      final inner =
+          MemoryProcessRunner.always(MemoryRunningProcess(exitCodeValue: 0));
       final temp = Directory.systemTemp.createTempSync('tina-sb-argv-');
       addTearDown(() {
         try {
@@ -112,8 +110,8 @@ void main() {
     });
 
     test('passes the command through unchanged when disabled', () async {
-      final inner = MemoryProcessRunner.always(
-          MemoryRunningProcess(exitCodeValue: 0));
+      final inner =
+          MemoryProcessRunner.always(MemoryRunningProcess(exitCodeValue: 0));
       final runner = SandboxedProcessRunner(
         inner: inner,
         workspaceRoot: '/whatever',

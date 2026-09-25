@@ -19,7 +19,7 @@ class FakeProvider extends LlmProvider {
 
   /// One record per [send] call, in call order.
   final List<({String system, List<Message> messages, List<ToolSchema> tools})>
-      calls = [];
+  calls = [];
 
   int _index = 0;
 
@@ -29,14 +29,11 @@ class FakeProvider extends LlmProvider {
   ///
   /// Replaces the copy-pasted `_FakeProvider` class.
   FakeProvider.always({String model = 'fake-model'})
-      : this(const [
-          [
-            MessageComplete(
-              content: [TextBlock('ok')],
-              stopReason: 'end_turn',
-            ),
-          ],
-        ], model: model);
+    : this(const [
+        [
+          MessageComplete(content: [TextBlock('ok')], stopReason: 'end_turn'),
+        ],
+      ], model: model);
 
   /// A provider that immediately returns a single `ok` completion.
   ///

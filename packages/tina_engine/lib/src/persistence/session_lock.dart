@@ -30,7 +30,8 @@ class SessionLock {
   /// The session directory this lock guards.
   final Directory sessionDir;
 
-  late final File lockFile = File('${sessionDir.path}${Platform.pathSeparator}.lock');
+  late final File lockFile =
+      File('${sessionDir.path}${Platform.pathSeparator}.lock');
 
   bool _held = false;
 
@@ -175,9 +176,8 @@ class LockConflict {
   /// A user-facing message explaining the conflict and how to override.
   String toMessage() {
     final when = startedAt != null ? ' (started $startedAt)' : '';
-    final where = (hostname != null && hostname!.isNotEmpty)
-        ? ' on $hostname'
-        : '';
+    final where =
+        (hostname != null && hostname!.isNotEmpty) ? ' on $hostname' : '';
     final which = (sessionId != null && sessionId!.isNotEmpty)
         ? ' session $sessionId'
         : '';

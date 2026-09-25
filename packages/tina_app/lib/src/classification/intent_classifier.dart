@@ -19,7 +19,10 @@ class IntentResult {
   final IntentType? type;
   final double confidence;
   const IntentResult({required this.type, required this.confidence});
-  Map<String, Object?> toJson() => {'type': type?.name, 'confidence': confidence};
+  Map<String, Object?> toJson() => {
+    'type': type?.name,
+    'confidence': confidence,
+  };
 }
 
 final intentResultContract = DataContract<IntentResult>(

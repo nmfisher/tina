@@ -13,10 +13,7 @@ final ProviderDescriptor glmDescriptor = ProviderDescriptor(
   listsRemoteModels: true,
   models: const {
     'glm-4.6': ModelInfo(
-        id: 'glm-4.6',
-        name: 'GLM-4.6',
-        contextWindow: 131072,
-        maxOutput: 8192),
+        id: 'glm-4.6', name: 'GLM-4.6', contextWindow: 131072, maxOutput: 8192),
     'glm-4.6v': ModelInfo(
         id: 'glm-4.6v',
         name: 'GLM-4.6V (vision)',
@@ -28,10 +25,15 @@ final ProviderDescriptor glmDescriptor = ProviderDescriptor(
     // https://docs.z.ai/guides/llm/glm-5.3
     // https://docs.z.ai/guides/llm/glm-5.3-flash (verified 2026-09-15).
     'glm-5.3': ModelInfo(
-        id: 'glm-5.3', name: 'GLM-5.3', contextWindow: 1000000,
+        id: 'glm-5.3',
+        name: 'GLM-5.3',
+        contextWindow: 1000000,
         maxOutput: 131072),
     'glm-5.3-flash': ModelInfo(
-        id: 'glm-5.3-flash', name: 'GLM-5.3-Flash', contextWindow: 1000000,
-        maxOutput: 131072, supportsVision: true),
+        id: 'glm-5.3-flash',
+        name: 'GLM-5.3-Flash',
+        contextWindow: 1000000,
+        maxOutput: 131072,
+        supportsVision: true),
   },
 );

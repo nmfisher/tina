@@ -44,7 +44,10 @@ PluginDescriptor configuredIntentInputPlugin(
       id: 'tina.intent-input.status',
       dispose: plugin.dispose,
     );
-    context.register(const IntentStatusRenderer(), id: 'tina.intent-input.renderer');
+    context.register(
+      const IntentStatusRenderer(),
+      id: 'tina.intent-input.renderer',
+    );
     return plugin;
   }),
 );

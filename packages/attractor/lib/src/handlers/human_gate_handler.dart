@@ -28,9 +28,15 @@ class HumanGateHandler implements NodeHandler {
   }) async {
     final edges = graph.outgoing(node.id);
     if (edges.isEmpty) {
-      final fail = Outcome.fail('no outgoing edges for human gate "${node.id}"');
+      final fail = Outcome.fail(
+        'no outgoing edges for human gate "${node.id}"',
+      );
       await runStore.writeNode(
-          nodeId: node.id, outcome: fail, prompt: '', response: '');
+        nodeId: node.id,
+        outcome: fail,
+        prompt: '',
+        response: '',
+      );
       return fail;
     }
 
@@ -38,14 +44,13 @@ class HumanGateHandler implements NodeHandler {
     final choices = <_Choice>[];
     for (final e in edges) {
       final label = e.hasLabel ? e.label : e.to;
-      choices.add(_Choice(
-        key: parseAccelerator(label),
-        label: label,
-        to: e.to,
-      ));
+      choices.add(
+        _Choice(key: parseAccelerator(label), label: label, to: e.to),
+      );
     }
-    final options =
-        choices.map((c) => Option(key: c.key, label: c.label)).toList();
+    final options = choices
+        .map((c) => Option(key: c.key, label: c.label))
+        .toList();
 
     final question = Question(
       text: node.prompt.isEmpty
@@ -112,8 +117,10 @@ final _verdictLine = RegExp(r'^\s*VERDICT:\s*\S+', caseSensitive: false);
 /// expanded `$last_stage` value typically ends with one, and the prompt's own
 /// question text follows it.
 String _stripVerdictLines(String text) {
-  final kept =
-      text.split('\n').where((l) => !_verdictLine.hasMatch(l)).join('\n');
+  final kept = text
+      .split('\n')
+      .where((l) => !_verdictLine.hasMatch(l))
+      .join('\n');
   return kept.trim();
 }
 

@@ -185,7 +185,9 @@ PermissionPolicy? _storedPolicy(ConversationMeta meta) {
 /// passed again: the posture is an argument to the run, not a property of the
 /// session that was saved.
 String? _permissionChangeNote(
-    PermissionPolicy? stored, PermissionPolicy fresh) {
+  PermissionPolicy? stored,
+  PermissionPolicy fresh,
+) {
   if (stored == null) return null;
   final differences = <String>[
     if (stored.allowAllByDefault && !fresh.allowAllByDefault) '--yolo',

@@ -135,8 +135,7 @@ void main() {
       });
     });
 
-    test('ESC followed by a non-introducer key releases both immediately',
-        () {
+    test('ESC followed by a non-introducer key releases both immediately', () {
       fakeAsync((async) {
         final source = _FakeKeySource();
         final backend = _backend(source);
@@ -205,8 +204,7 @@ void main() {
         backend.pumpedInputForTest('b'.codeUnitAt(0));
         backend.pumpedInputForTest('c'.codeUnitAt(0));
         async.flushMicrotasks();
-        final chars =
-            emitted.whereType<CharInput>().map((e) => e.text).join();
+        final chars = emitted.whereType<CharInput>().map((e) => e.text).join();
         expect(chars, 'c',
             reason: 'the hatch swallows exactly maxReplyLength bytes, then '
                 'releases the next one as ordinary typing; without the '

@@ -32,7 +32,8 @@ void main() {
   });
 
   group('SessionLock', () {
-    test('acquire on a free directory succeeds and writes the lockfile', () async {
+    test('acquire on a free directory succeeds and writes the lockfile',
+        () async {
       final lock = SessionLock(tmp);
       final conflict = await lock.acquire();
       expect(conflict, isNull);

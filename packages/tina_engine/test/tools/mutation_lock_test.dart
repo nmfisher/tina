@@ -55,7 +55,8 @@ void main() {
 
   test('returns the action result and propagates its value', () async {
     final lock = FileMutationLock();
-    final res = await lock.withFileLock<String>('/tina-fake/v', () async => 'done');
+    final res =
+        await lock.withFileLock<String>('/tina-fake/v', () async => 'done');
     expect(res, 'done');
   });
 }

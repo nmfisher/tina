@@ -144,7 +144,8 @@ void main() {
       expect(ids, ['mimo-v2.5-pro']);
     });
 
-    test('a descriptor model the feed lags on stays visible '
+    test(
+        'a descriptor model the feed lags on stays visible '
         '(regression: xiaomi/mimo-v2.6-flash)', () async {
       final c = feed({
         // Feed knows only the older generation…
@@ -189,8 +190,8 @@ void main() {
       expect(byId['mimo-v2.5-pro']!.name, 'MiMo V2.5 Pro');
       expect(byId['mimo-v2.5-pro']!.contextWindow, 1048576);
       // The union must not duplicate the shared id.
-      expect(c.modelsFor(d).where((m) => m.id == 'mimo-v2.5-pro'),
-          hasLength(1));
+      expect(
+          c.modelsFor(d).where((m) => m.id == 'mimo-v2.5-pro'), hasLength(1));
     });
 
     test('a provider the feed does not know keeps its own map', () async {
@@ -205,7 +206,8 @@ void main() {
         defaultBaseUrl: 'http://localhost:11434/v1',
         builder: (_) => throw UnimplementedError(),
         models: const {
-          'llama3': ModelInfo(id: 'llama3', name: 'Llama 3', contextWindow: 8192),
+          'llama3':
+              ModelInfo(id: 'llama3', name: 'Llama 3', contextWindow: 8192),
         },
       );
       expect(c.modelsFor(local).map((m) => m.id), ['llama3']);

@@ -7,23 +7,24 @@ import '../helpers/fake_http.dart';
 
 void main() {
   group('GeminiProvider request encoding', () {
-    test('systemInstruction, user/model roles, tools, generationConfig', () async {
+    test('systemInstruction, user/model roles, tools, generationConfig',
+        () async {
       final cap = CapturedRequest();
       final provider = GeminiProvider(
           apiKey: 'key', model: 'gemini-2.5-pro', client: cap.client);
-      await provider
-          .send(
-            system: 'you are tina',
-            messages: const [
-              Message(role: Role.user, content: [TextBlock('hi')]),
-              Message(role: Role.assistant, content: [TextBlock('hello')]),
-            ],
-            tools: const [
-              ToolSchema(
-                  name: 'bash', description: 'run', inputSchema: {'type': 'object'}),
-            ],
-          )
-          .toList();
+      await provider.send(
+        system: 'you are tina',
+        messages: const [
+          Message(role: Role.user, content: [TextBlock('hi')]),
+          Message(role: Role.assistant, content: [TextBlock('hello')]),
+        ],
+        tools: const [
+          ToolSchema(
+              name: 'bash',
+              description: 'run',
+              inputSchema: {'type': 'object'}),
+        ],
+      ).toList();
 
       expect(
           cap.url,
@@ -48,14 +49,17 @@ void main() {
           apiKey: 'key', model: 'gemini-2.5-pro', client: cap.client);
       await provider.send(
         system: '',
-        messages: const [Message(role: Role.user, content: [TextBlock('hi')])],
+        messages: const [
+          Message(role: Role.user, content: [TextBlock('hi')])
+        ],
         tools: const [],
       ).toList();
       final body = jsonDecode(cap.body!) as Map<String, dynamic>;
       expect(body.containsKey('systemInstruction'), isFalse);
     });
 
-    test('encodes tool_use as functionCall and result as functionResponse '
+    test(
+        'encodes tool_use as functionCall and result as functionResponse '
         'with the name resolved from the call id', () async {
       final cap = CapturedRequest();
       final provider = GeminiProvider(
@@ -137,7 +141,10 @@ void main() {
                     "role": "model",
                     "parts": [
                       {
-                        "functionCall": {"name": "bash", "args": {"command": "ls"}}
+                        "functionCall": {
+                          "name": "bash",
+                          "args": {"command": "ls"}
+                        }
                       }
                     ]
                   }
@@ -164,7 +171,12 @@ void main() {
         'data: ${jsonEncode({
               "candidates": [
                 {
-                  "content": {"role": "model", "parts": [{"text": "cut"}]},
+                  "content": {
+                    "role": "model",
+                    "parts": [
+                      {"text": "cut"}
+                    ]
+                  },
                   "finishReason": "MAX_TOKENS"
                 }
               ]
@@ -175,7 +187,8 @@ void main() {
           apiKey: 'k', model: 'gemini-2.5-pro', client: ScriptedSseClient(sse));
       final events = await provider
           .send(system: '', messages: const [], tools: const []).toList();
-      expect(events.whereType<MessageComplete>().single.stopReason, 'max_tokens');
+      expect(
+          events.whereType<MessageComplete>().single.stopReason, 'max_tokens');
     });
   });
 
@@ -185,13 +198,14 @@ void main() {
         apiKey: 'k',
         model: 'gemini-2.5-pro',
         client: ScriptedSseClient(
-          jsonEncode({'error': {'message': 'bad request'}}),
+          jsonEncode({
+            'error': {'message': 'bad request'}
+          }),
           status: 400,
         ),
       );
       final events = await provider
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+          .send(system: '', messages: const [], tools: const []).toList();
       expect(events.whereType<StreamError>().single.error,
           'Gemini 400: bad request');
     });
@@ -203,8 +217,7 @@ void main() {
         client: ScriptedSseClient(''),
       );
       final events = await provider
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+          .send(system: '', messages: const [], tools: const []).toList();
       final complete = events.whereType<MessageComplete>().single;
       expect(complete.content, isEmpty);
       expect(complete.stopReason, 'end_turn');
@@ -220,8 +233,7 @@ void main() {
         client: SilentSseClient(),
       );
       final events = await provider
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+          .send(system: '', messages: const [], tools: const []).toList();
       final err = events.whereType<StreamError>().single;
       expect(err.error, contains('--stream-idle-timeout'));
     });

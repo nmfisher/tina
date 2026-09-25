@@ -49,8 +49,7 @@ void main() {
     Wire.onWireEvent = (s) => events.add(s.event);
     // Pool wrapping retry wrapping the silent fake: every layer reports
     // through the same seam despite the layering.
-    final p = PooledProvider(
-        [RetryingProvider(_SilentFlaky(), maxRetries: 1)],
+    final p = PooledProvider([RetryingProvider(_SilentFlaky(), maxRetries: 1)],
         cooldown: Duration.zero);
     await p.send(system: 's', messages: [], tools: []).drain();
     expect(events, containsAll(['pool_rotate', 'attempt_start']));
@@ -88,7 +87,8 @@ void main() {
     expect(ok.seconds, 100000);
   });
 
-  test('the MINIMUM ladder (1 member, empty body) still exceeds the 300s '
+  test(
+      'the MINIMUM ladder (1 member, empty body) still exceeds the 300s '
       'default watchdog — the invariant binds out of the box', () {
     final floor = wireLadderWorstCase(bodyBytes: 0, members: 1).inSeconds;
     expect(floor, greaterThan(300),

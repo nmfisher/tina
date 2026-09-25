@@ -14,7 +14,7 @@ import 'package:tina_console/tina_console.dart';
 /// delegates the rest.
 class RunPanelContent implements PanelContent {
   RunPanelContent({required this.screen, required this.chat})
-      : _transcript = ChatRegionPanelContent(chat);
+    : _transcript = ChatRegionPanelContent(chat);
 
   final Screen screen;
   final ScrollingTextRegion chat;

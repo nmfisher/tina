@@ -50,7 +50,8 @@ void main() {
       input.emit(CharInput('1'));
       input.emit(ControlKey(ControlCode.enter));
       await _flush();
-      expect(submitted, ['q1'], reason: 'queue mode must capture mid-turn text');
+      expect(submitted, ['q1'],
+          reason: 'queue mode must capture mid-turn text');
       expect(ed.keyCount, 3);
 
       // Agent finishes → monitor released → prompt re-armed. This is the
@@ -189,9 +190,7 @@ void main() {
       input.emit(CharInput('k'));
       input.emit(ControlKey(ControlCode.enter));
       expect(await line2, 'ok');
-      expect(
-          received.whereType<CharInput>(),
-          isEmpty,
+      expect(received.whereType<CharInput>(), isEmpty,
           reason: 'not one typed character ever reached the panel');
       ed.close();
     });
@@ -247,8 +246,7 @@ void main() {
 
       input.emit(CharInput('o'));
       input.emit(ControlKey(ControlCode.enter));
-      expect(await line, 'o',
-          reason: 'the prompt still submits normally');
+      expect(await line, 'o', reason: 'the prompt still submits normally');
       ed.close();
     });
 

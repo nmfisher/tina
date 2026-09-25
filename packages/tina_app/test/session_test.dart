@@ -33,13 +33,13 @@ void main() {
   }
 
   Session makeSession(Conversation initial) => Session(
-        id: 'sess',
-        label: 'session',
-        providerId: 'anthropic',
-        apiKey: 'key',
-        baseUrl: null,
-        initialConversation: initial,
-      );
+    id: 'sess',
+    label: 'session',
+    providerId: 'anthropic',
+    apiKey: 'key',
+    baseUrl: null,
+    initialConversation: initial,
+  );
 
   group('Session', () {
     test('initial conversation is active', () {
@@ -76,17 +76,19 @@ void main() {
       expect(() => s.setActiveConversation('ghost'), throwsArgumentError);
     });
 
-    test('removeConversation falls back to another member when removing active',
-        () {
-      final c1 = makeConversation('c1');
-      final s = makeSession(c1);
-      final c2 = makeConversation('c2');
-      s.addConversation(c2);
-      s.setActiveConversation('c1');
-      s.removeConversation('c1');
-      expect(s.conversationCount, 1);
-      expect(s.activeConversation, same(c2));
-    });
+    test(
+      'removeConversation falls back to another member when removing active',
+      () {
+        final c1 = makeConversation('c1');
+        final s = makeSession(c1);
+        final c2 = makeConversation('c2');
+        s.addConversation(c2);
+        s.setActiveConversation('c1');
+        s.removeConversation('c1');
+        expect(s.conversationCount, 1);
+        expect(s.activeConversation, same(c2));
+      },
+    );
 
     test('isRunning tracks the active conversation only', () {
       final c1 = makeConversation('c1');

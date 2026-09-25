@@ -9,8 +9,9 @@ import '../helpers/fake_stdio.dart';
 /// writes to so assertions can inspect the exact bytes. [ansi] defaults to
 /// [AnsiCapable.no] so writes are verbatim; pass [AnsiCapable.yes] to assert
 /// on color routing.
-({ChatAgentSink sink, String Function() written}) _sink(
-    {AnsiCapable ansi = AnsiCapable.no}) {
+({ChatAgentSink sink, String Function() written}) _sink({
+  AnsiCapable ansi = AnsiCapable.no,
+}) {
   final io = FakeStdio();
   final screen = Screen.passthrough(io, ansi: ansi);
   return (
@@ -21,17 +22,24 @@ import '../helpers/fake_stdio.dart';
 
 /// Build a [ChatAgentSink] over a real (non-passthrough) screen so the
 /// markdown path runs. Bytes are captured after the initial frame paint.
-({ChatAgentSink sink, String Function() written}) _tuiSink(
-    {AnsiCapable ansi = AnsiCapable.yes,
-    void Function(String text)? onRawText}) {
+({ChatAgentSink sink, String Function() written}) _tuiSink({
+  AnsiCapable ansi = AnsiCapable.yes,
+  void Function(String text)? onRawText,
+}) {
   final io = FakeStdio()..columns = 100;
-  final screen =
-      Screen(io: io, layout: ScreenLayout.fromSize(100, 24), ansi: ansi);
+  final screen = Screen(
+    io: io,
+    layout: ScreenLayout.fromSize(100, 24),
+    ansi: ansi,
+  );
   screen.redrawFrame();
   io.written.clear();
   return (
-    sink: ChatAgentSink(screen.chat, Spinner(enabled: false),
-        onRawText: onRawText),
+    sink: ChatAgentSink(
+      screen.chat,
+      Spinner(enabled: false),
+      onRawText: onRawText,
+    ),
     written: () => io.written.toString(),
   );
 }
@@ -55,10 +63,16 @@ void main() {
       final out = w.written();
       // The whole row carries the agent style, margin and all — the margin is
       // part of the transcript's own furniture, not a separate surface.
-      expect(out, contains('\x1b[39m hello\x1b[0m'),
-          reason: 'agent prose must render as default-fg styled text');
-      expect(out, isNot(contains('\x1b[30;47m')),
-          reason: 'agent prose must not get a background bar');
+      expect(
+        out,
+        contains('\x1b[39m hello\x1b[0m'),
+        reason: 'agent prose must render as default-fg styled text',
+      );
+      expect(
+        out,
+        isNot(contains('\x1b[30;47m')),
+        reason: 'agent prose must not get a background bar',
+      );
     });
 
     test('newline', () {
@@ -69,8 +83,9 @@ void main() {
 
     test('toolStart renders the arrow + described bash command', () {
       final w = _sink();
-      w.sink
-          .toolStart(const ToolStartEvent('bash', 'u1', {'command': 'ls -la'}));
+      w.sink.toolStart(
+        const ToolStartEvent('bash', 'u1', {'command': 'ls -la'}),
+      );
       expect(w.written(), '→ bash: ls -la\n');
     });
 
@@ -83,7 +98,8 @@ void main() {
     test('toolStart shows the glob pattern and path when given', () {
       final w = _sink();
       w.sink.toolStart(
-          const ToolStartEvent('glob', 'u2', {'pattern': '*.dart', 'path': '/a'}));
+        const ToolStartEvent('glob', 'u2', {'pattern': '*.dart', 'path': '/a'}),
+      );
       expect(w.written(), '→ glob: *.dart in /a\n');
     });
 
@@ -96,21 +112,24 @@ void main() {
     test('toolStart shows the grep pattern and path when given', () {
       final w = _sink();
       w.sink.toolStart(
-          const ToolStartEvent('grep', 'g2', {'pattern': 'TODO', 'path': '/b'}));
+        const ToolStartEvent('grep', 'g2', {'pattern': 'TODO', 'path': '/b'}),
+      );
       expect(w.written(), '→ grep: TODO in /b\n');
     });
 
     test('toolStart shows the search symbol', () {
       final w = _sink();
-      w.sink
-          .toolStart(const ToolStartEvent('search', 's1', {'symbol': 'Agent'}));
+      w.sink.toolStart(
+        const ToolStartEvent('search', 's1', {'symbol': 'Agent'}),
+      );
       expect(w.written(), '→ search: Agent\n');
     });
 
     test('toolStart summarizes unknown tool input as key=value pairs', () {
       final w = _sink();
-      w.sink.toolStart(const ToolStartEvent(
-          'collect', 'c1', {'scope': 'docs', 'depth': 3}));
+      w.sink.toolStart(
+        const ToolStartEvent('collect', 'c1', {'scope': 'docs', 'depth': 3}),
+      );
       expect(w.written(), '→ collect: scope=docs depth=3\n');
     });
 
@@ -139,30 +158,34 @@ void main() {
     test('toolComplete success', () {
       final w = _sink();
       w.sink.toolComplete(
-          const ToolCompleteEvent('bash', 'u1', isError: false, result: 'r'));
+        const ToolCompleteEvent('bash', 'u1', isError: false, result: 'r'),
+      );
       expect(w.written(), '  ok\n');
     });
 
     test('toolComplete error truncates the result at 200 chars', () {
       final w = _sink();
-      w.sink.toolComplete(ToolCompleteEvent(
-          'bash', 'u1', isError: true, result: 'x' * 300));
+      w.sink.toolComplete(
+        ToolCompleteEvent('bash', 'u1', isError: true, result: 'x' * 300),
+      );
       // #50: a result past the 200-char render gains a dim /output pointer
       // line after the truncated failed line.
-      expect(w.written(),
-          '  failed: ${'x' * 200}…\n  … (/output for the full error)\n');
+      expect(
+        w.written(),
+        '  failed: ${'x' * 200}…\n  … (/output for the full error)\n',
+      );
     });
 
     test('toolComplete error retains the full result', () {
-        final io = FakeStdio();
+      final io = FakeStdio();
       final screen = Screen.passthrough(io, ansi: AnsiCapable.no);
-      final sink =
-          ChatAgentSink(screen.chat, Spinner(enabled: false));
+      final sink = ChatAgentSink(screen.chat, Spinner(enabled: false));
       final result = 'E' * 250 + 'TAIL';
 
       sink.toolStart(const ToolStartEvent('bash', 'u1', {'command': 'go'}));
-      sink.toolComplete(ToolCompleteEvent('bash', 'u1',
-          isError: true, result: result));
+      sink.toolComplete(
+        ToolCompleteEvent('bash', 'u1', isError: true, result: result),
+      );
       // The failure's reason is on the header; the output itself is the body a
       // fold reveals.
 
@@ -171,13 +194,13 @@ void main() {
     });
 
     test('toolComplete error keeps a short result verbatim', () {
-        final io = FakeStdio();
+      final io = FakeStdio();
       final screen = Screen.passthrough(io, ansi: AnsiCapable.no);
-      final sink =
-          ChatAgentSink(screen.chat, Spinner(enabled: false));
+      final sink = ChatAgentSink(screen.chat, Spinner(enabled: false));
 
-      sink.toolComplete(const ToolCompleteEvent('bash', 'u1',
-          isError: true, result: 'boom'));
+      sink.toolComplete(
+        const ToolCompleteEvent('bash', 'u1', isError: true, result: 'boom'),
+      );
 
       expect(io.written.toString(), '  failed: boom\n');
     });
@@ -186,7 +209,8 @@ void main() {
       final w = _sink(ansi: AnsiCapable.yes);
       w.sink.toolOutput(const ToolOutputEvent('bash', 'u1', 'out'));
       w.sink.toolOutput(
-          const ToolOutputEvent('bash', 'u1', 'err', stderr: true));
+        const ToolOutputEvent('bash', 'u1', 'err', stderr: true),
+      );
       expect(w.written(), '\x1b[2mout\x1b[0m\x1b[31merr\x1b[0m');
     });
 
@@ -195,7 +219,10 @@ void main() {
       w.sink.notice('info');
       w.sink.notice('warn', kind: NoticeKind.warning);
       w.sink.notice('boom', kind: NoticeKind.error);
-      expect(w.written(), '\x1b[2minfo\x1b[0m\x1b[33mwarn\x1b[0m\x1b[31mboom\x1b[0m');
+      expect(
+        w.written(),
+        '\x1b[2minfo\x1b[0m\x1b[33mwarn\x1b[0m\x1b[31mboom\x1b[0m',
+      );
     });
 
     test('activity start/stop are inert (spinner is a no-op)', () {
@@ -218,8 +245,11 @@ void main() {
       final w = _tuiSink();
       w.sink.text('hel');
       w.sink.text('lo\n'); // complete line, but no blank line: still open
-      expect(w.written(), '',
-          reason: 'an unterminated block must not render piecemeal');
+      expect(
+        w.written(),
+        '',
+        reason: 'an unterminated block must not render piecemeal',
+      );
       w.sink.newline();
       expect(w.written(), contains('hello'));
     });
@@ -235,8 +265,11 @@ void main() {
       w.sink.text('```\nint x = 1;\n```\n');
       final out = w.written();
       expect(out, contains('int x = 1;'));
-      expect(out, contains('\x1b[100m'),
-          reason: 'code lines carry the theme codeBlock bar (grey bg)');
+      expect(
+        out,
+        contains('\x1b[100m'),
+        reason: 'code lines carry the theme codeBlock bar (grey bg)',
+      );
     });
 
     test('inline markers render as SGR, not literal', () {
@@ -255,8 +288,11 @@ void main() {
       final out = w.written().substring(first);
       // One blank row between the blocks, then the second block's text.
       expect(out, contains('two'));
-      expect(out, isNot(contains('two\n\n\ntwo')),
-          reason: 'no double blank between streamed blocks');
+      expect(
+        out,
+        isNot(contains('two\n\n\ntwo')),
+        reason: 'no double blank between streamed blocks',
+      );
     });
 
     test('no-color surfaces render structure without SGR styling', () {
@@ -289,8 +325,10 @@ void main() {
       final w = _tuiSink(onRawText: raw.add);
       w.sink.text('**a**\n\n');
       w.sink.text('b\n\n');
-      expect(raw, ['**a**\n\n', '**a**\n\nb\n\n'],
-          reason: 'each closed segment re-fires with the whole turn so far');
+      expect(raw, [
+        '**a**\n\n',
+        '**a**\n\nb\n\n',
+      ], reason: 'each closed segment re-fires with the whole turn so far');
       w.sink.beginAssistantTurn();
       w.sink.text('c\n\n');
       expect(raw.last, 'c\n\n', reason: 'a new turn drops the old raw');
@@ -303,8 +341,11 @@ void main() {
       w.sink.text('fresh\n\n');
       final out = w.written();
       expect(out, contains('fresh'));
-      expect(out, isNot(contains('canceled')),
-          reason: 'the abandoned block must not leak into the new turn');
+      expect(
+        out,
+        isNot(contains('canceled')),
+        reason: 'the abandoned block must not leak into the new turn',
+      );
     });
   });
 }

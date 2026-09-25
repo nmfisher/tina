@@ -14,22 +14,22 @@ class _ShoutRenderer extends Renderer<ChatBlock> {
 
   @override
   List<RenderLine> render(ChatBlock block, RenderContext context) => [
-        RenderLine(runs: [RenderRun('SHOUT', null)]),
-      ];
+    RenderLine(runs: [RenderRun('SHOUT', null)]),
+  ];
 }
 
 PluginDescriptor _shoutPlugin() => PluginDescriptor(
-      id: 'test.shout',
-      factory: FnPluginFactory((context) {
-        context.register(const _ShoutRenderer(), id: 'test.shout.renderer');
-        return Object();
-      }),
-    );
+  id: 'test.shout',
+  factory: FnPluginFactory((context) {
+    context.register(const _ShoutRenderer(), id: 'test.shout.renderer');
+    return Object();
+  }),
+);
 
-ChatBlock _prose() => ChatBlock.prose(
-      const ChatSpeaker(id: 'c1', label: 'main'),
-      [MarkdownLine(runs: [MarkdownRun('hello', null)])],
-    );
+ChatBlock _prose() =>
+    ChatBlock.prose(const ChatSpeaker(id: 'c1', label: 'main'), [
+      MarkdownLine(runs: [MarkdownRun('hello', null)]),
+    ]);
 
 void main() {
   test('the built-in plugin contributes the default chat renderer', () {
@@ -46,8 +46,11 @@ void main() {
     );
     final painted = lines.first.runs.map((r) => r.text).join();
     expect(painted, contains('hello'));
-    expect(painted, isNot(contains('SHOUT')),
-        reason: 'the built-in must be in the scope, not the fallback path');
+    expect(
+      painted,
+      isNot(contains('SHOUT')),
+      reason: 'the built-in must be in the scope, not the fallback path',
+    );
   });
 
   test('a plugin registered earlier overrides the built-in look', () {
@@ -63,8 +66,11 @@ void main() {
       fallback: const ChatRenderer(),
     );
     final painted = lines.first.runs.map((r) => r.text).join();
-    expect(painted, 'SHOUT',
-        reason: 'first registered renderer that handles the block wins');
+    expect(
+      painted,
+      'SHOUT',
+      reason: 'first registered renderer that handles the block wins',
+    );
   });
 
   test('an override whose id sorts after the built-in does NOT win', () {
@@ -128,9 +134,9 @@ void main() {
 }
 
 PluginDescriptor _plugin(String id, String rendererId) => PluginDescriptor(
-      id: id,
-      factory: FnPluginFactory((context) {
-        context.register(const _ShoutRenderer(), id: rendererId);
-        return Object();
-      }),
-    );
+  id: id,
+  factory: FnPluginFactory((context) {
+    context.register(const _ShoutRenderer(), id: rendererId);
+    return Object();
+  }),
+);

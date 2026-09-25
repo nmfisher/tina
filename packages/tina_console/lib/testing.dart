@@ -248,9 +248,7 @@ class VirtualTerminal {
       case 0x48: // H — cursor position
         _pendingWrap = false;
         _cursorRow = (paramList.isEmpty ? 1 : int.parse(paramList[0])) - 1;
-        _cursorCol = paramList.length > 1
-            ? int.parse(paramList[1]) - 1
-            : 0;
+        _cursorCol = paramList.length > 1 ? int.parse(paramList[1]) - 1 : 0;
       case 0x4a: // J — erase in display
         final n = paramList.isEmpty ? '0' : paramList[0];
         if (n == '0') {

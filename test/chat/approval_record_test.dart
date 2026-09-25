@@ -11,8 +11,9 @@ import '../helpers/fake_stdio.dart';
 /// repaint the call's completion triggers.
 void main() {
   Screen screen({int width = 400}) => Screen(
-      io: FakeStdio()..columns = width,
-      layout: ScreenLayout.fromSize(width, 24));
+    io: FakeStdio()..columns = width,
+    layout: ScreenLayout.fromSize(width, 24),
+  );
 
   /// The region's painted rows, joined — what the user would see in the chat.
   String paintedOf(ScrollingTextRegion chat) {
@@ -58,7 +59,8 @@ void main() {
     expect(
       RegExp('allow once').allMatches(painted),
       hasLength(1),
-      reason: 'and the approval itself prints once, after the completion '
+      reason:
+          'and the approval itself prints once, after the completion '
           'repaint has had its say',
     );
   });
@@ -100,18 +102,20 @@ void main() {
     expect(painted, isNot(contains('→ bash')));
   });
 
-  test('a record for a call that never started prints before the next prose',
-      () {
-    final chat = ScrollingTextRegion(screen());
-    final sink = ChatAgentSink(chat, Spinner(enabled: false));
+  test(
+    'a record for a call that never started prints before the next prose',
+    () {
+      final chat = ScrollingTextRegion(screen());
+      final sink = ChatAgentSink(chat, Spinner(enabled: false));
 
-    sink.queueApproval('  bash: git status · cancelled\n');
-    sink.text('Next answer.\n');
-    sink.newline();
+      sink.queueApproval('  bash: git status · cancelled\n');
+      sink.text('Next answer.\n');
+      sink.newline();
 
-    final painted = paintedOf(chat);
-    final record = painted.indexOf('bash: git status · cancelled');
-    expect(record, greaterThanOrEqualTo(0));
-    expect(painted.indexOf('Next answer'), greaterThan(record));
-  });
+      final painted = paintedOf(chat);
+      final record = painted.indexOf('bash: git status · cancelled');
+      expect(record, greaterThanOrEqualTo(0));
+      expect(painted.indexOf('Next answer'), greaterThan(record));
+    },
+  );
 }

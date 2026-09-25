@@ -34,83 +34,117 @@ void main() {
   void writeWorkflow(String name, String source) =>
       File(p.join(tmp.path, '$name.dot')).writeAsStringSync(source);
 
-  group('list (on-disk scan — identical to the pre-refactor listWorkflows)', () {
-    test('missing dir -> empty, even with entries registered', () {
-      final catalog = standardCatalog();
-      expect(catalog.list(), isEmpty);
-    });
+  group(
+    'list (on-disk scan — identical to the pre-refactor listWorkflows)',
+    () {
+      test('missing dir -> empty, even with entries registered', () {
+        final catalog = standardCatalog();
+        expect(catalog.list(), isEmpty);
+      });
 
-    test('lists *.dot files sorted, extensionless, no dirs or non-dot files',
+      test(
+        'lists *.dot files sorted, extensionless, no dirs or non-dot files',
         () {
-      writeWorkflow('zeta', 'digraph Z {}');
-      writeWorkflow('alpha', 'digraph A {}');
-      writeWorkflow('mid', 'digraph M {}');
-      File(p.join(tmp.path, 'notes.txt')).writeAsStringSync('not a workflow');
-      Directory(p.join(tmp.path, 'sub.dot')).createSync(); // a dir, not a file
+          writeWorkflow('zeta', 'digraph Z {}');
+          writeWorkflow('alpha', 'digraph A {}');
+          writeWorkflow('mid', 'digraph M {}');
+          File(
+            p.join(tmp.path, 'notes.txt'),
+          ).writeAsStringSync('not a workflow');
+          Directory(
+            p.join(tmp.path, 'sub.dot'),
+          ).createSync(); // a dir, not a file
 
-      expect(standardCatalog().list(), ['alpha', 'mid', 'zeta']);
-    });
+          expect(standardCatalog().list(), ['alpha', 'mid', 'zeta']);
+        },
+      );
 
-    test('seed file present: exactly the on-disk set (no built-in ghost)',
+      test(
+        'seed file present: exactly the on-disk set (no built-in ghost)',
         () async {
-      final seeded = await seedDefaultWorkflow(tmp);
-      expect(seeded, isTrue);
-      writeWorkflow('custom', 'digraph C {}');
+          final seeded = await seedDefaultWorkflow(tmp);
+          expect(seeded, isTrue);
+          writeWorkflow('custom', 'digraph C {}');
 
-      expect(standardCatalog().list(), ['custom', 'default']);
-    });
+          expect(standardCatalog().list(), ['custom', 'default']);
+        },
+      );
 
-    test('seed file deleted: empty list (the built-in entry is not listed)',
+      test(
+        'seed file deleted: empty list (the built-in entry is not listed)',
         () async {
-      expect(await seedDefaultWorkflow(tmp), isTrue);
-      File(p.join(tmp.path, 'default.dot')).deleteSync();
+          expect(await seedDefaultWorkflow(tmp), isTrue);
+          File(p.join(tmp.path, 'default.dot')).deleteSync();
 
-      // Deleting the file returns to today's empty-list state — the seed
-      // message tells users deleting default.dot removes the default
-      // workflow, so listing the built-in entry here would be a visible
-      // change.
-      expect(standardCatalog().list(), isEmpty);
-    });
+          // Deleting the file returns to today's empty-list state — the seed
+          // message tells users deleting default.dot removes the default
+          // workflow, so listing the built-in entry here would be a visible
+          // change.
+          expect(standardCatalog().list(), isEmpty);
+        },
+      );
 
-    test('entry-less catalog (PipelineRunner.listWorkflows) matches exactly',
+      test(
+        'entry-less catalog (PipelineRunner.listWorkflows) matches exactly',
         () {
-      writeWorkflow('b', 'digraph B {}');
-      writeWorkflow('a', 'digraph A {}');
+          writeWorkflow('b', 'digraph B {}');
+          writeWorkflow('a', 'digraph A {}');
 
-      expect(PipelineRunner.listWorkflows(tmp),
-          WorkflowCatalog(workflowsDir: tmp).list());
-      expect(PipelineRunner.listWorkflows(tmp), ['a', 'b']);
-    });
-  });
+          expect(
+            PipelineRunner.listWorkflows(tmp),
+            WorkflowCatalog(workflowsDir: tmp).list(),
+          );
+          expect(PipelineRunner.listWorkflows(tmp), ['a', 'b']);
+        },
+      );
+    },
+  );
 
   group('read (file wins over entries; rejections unchanged)', () {
     test('missing dir + registered entry: not found (today\'s behavior)', () {
       final catalog = WorkflowCatalog.standard(
-          workflowsDir: Directory(p.join(tmp.path, 'nope')));
-      expect(() => catalog.read('default'),
-          throwsA(isA<FileSystemException>().having(
-              (e) => e.message, 'message', contains('workflow not found'))));
+        workflowsDir: Directory(p.join(tmp.path, 'nope')),
+      );
+      expect(
+        () => catalog.read('default'),
+        throwsA(
+          isA<FileSystemException>().having(
+            (e) => e.message,
+            'message',
+            contains('workflow not found'),
+          ),
+        ),
+      );
     });
 
     test('unsafe names are rejected before touching the filesystem', () async {
       final catalog = standardCatalog();
       for (final evil in ['../default', 'sub/default', r'..\default', '..']) {
-        await expectLater(catalog.read(evil),
-            throwsA(isA<FileSystemException>().having(
-                (e) => e.message, 'message', contains(nameRejection))),
-            reason: evil);
+        await expectLater(
+          catalog.read(evil),
+          throwsA(
+            isA<FileSystemException>().having(
+              (e) => e.message,
+              'message',
+              contains(nameRejection),
+            ),
+          ),
+          reason: evil,
+        );
       }
       // Identical wording to the pre-refactor read seam.
       expect(nameRejection, contains('workflow names'));
     });
 
-    test('a file shadows a same-named entry (default.dot overrides the seed)',
-        () async {
-      writeWorkflow('default', 'digraph USER { user_edit [shape=box] }');
-      final source = await standardCatalog().read('default');
-      expect(source, contains('USER'));
-      expect(source, isNot(contains('review')));
-    });
+    test(
+      'a file shadows a same-named entry (default.dot overrides the seed)',
+      () async {
+        writeWorkflow('default', 'digraph USER { user_edit [shape=box] }');
+        final source = await standardCatalog().read('default');
+        expect(source, contains('USER'));
+        expect(source, isNot(contains('review')));
+      },
+    );
 
     test('the built-in seed entry resolves when its file is absent', () async {
       expect(await seedDefaultWorkflow(tmp), isTrue);
@@ -127,33 +161,47 @@ void main() {
 
     test('unknown name: same not-found error as before', () {
       expect(
-          () => standardCatalog().read('nope'),
-          throwsA(isA<FileSystemException>()
-              .having((e) => e.message, 'message', contains('not found'))));
+        () => standardCatalog().read('nope'),
+        throwsA(
+          isA<FileSystemException>().having(
+            (e) => e.message,
+            'message',
+            contains('not found'),
+          ),
+        ),
+      );
     });
 
     test('custom entries layered over the standard catalog resolve too', () {
       final catalog = WorkflowCatalog.standard(
-          workflowsDir: tmp, entries: {'extra': 'digraph EXTRA {}'});
+        workflowsDir: tmp,
+        entries: {'extra': 'digraph EXTRA {}'},
+      );
       catalog.register('late', 'digraph LATE {}');
       expect(catalog.read('extra'), completion(contains('EXTRA')));
       expect(catalog.read('late'), completion(contains('LATE')));
     });
 
-    test('the entry-less static readWorkflow keeps its exact semantics',
-        () async {
-      writeWorkflow('default', 'digraph D {}');
-      expect(await PipelineRunner.readWorkflow(tmp, 'default'),
-          'digraph D {}');
-    });
+    test(
+      'the entry-less static readWorkflow keeps its exact semantics',
+      () async {
+        writeWorkflow('default', 'digraph D {}');
+        expect(
+          await PipelineRunner.readWorkflow(tmp, 'default'),
+          'digraph D {}',
+        );
+      },
+    );
   });
 
   group('default-graph selection (file-based only — unchanged contract)', () {
-    test('default.dot present -> "default" (file wins over the seed entry)',
-        () async {
-      expect(await seedDefaultWorkflow(tmp), isTrue);
-      expect(standardCatalog().defaultWorkflowName(), 'default');
-    });
+    test(
+      'default.dot present -> "default" (file wins over the seed entry)',
+      () async {
+        expect(await seedDefaultWorkflow(tmp), isTrue);
+        expect(standardCatalog().defaultWorkflowName(), 'default');
+      },
+    );
 
     test('no default.dot file -> null, even though the seed entry exists', () {
       // The built-in entry must never become the default name: the default
@@ -163,17 +211,23 @@ void main() {
 
     test('configured name honored when its file exists', () async {
       writeWorkflow('review-loop', 'digraph R {}');
-      expect(standardCatalog().defaultWorkflowName(configured: 'review-loop'),
-          'review-loop');
+      expect(
+        standardCatalog().defaultWorkflowName(configured: 'review-loop'),
+        'review-loop',
+      );
     });
 
-    test('configured name without a file -> null (not the seed entry)',
-        () async {
-      expect(await seedDefaultWorkflow(tmp), isTrue);
-      File(p.join(tmp.path, 'default.dot')).deleteSync();
-      expect(standardCatalog().defaultWorkflowName(configured: 'review-loop'),
-          isNull);
-    });
+    test(
+      'configured name without a file -> null (not the seed entry)',
+      () async {
+        expect(await seedDefaultWorkflow(tmp), isTrue);
+        File(p.join(tmp.path, 'default.dot')).deleteSync();
+        expect(
+          standardCatalog().defaultWorkflowName(configured: 'review-loop'),
+          isNull,
+        );
+      },
+    );
 
     test('configured "none" disables even when default.dot exists', () async {
       expect(await seedDefaultWorkflow(tmp), isTrue);
@@ -182,7 +236,8 @@ void main() {
 
     test('missing workflows dir -> null', () {
       final catalog = WorkflowCatalog.standard(
-          workflowsDir: Directory(p.join(tmp.path, 'nope')));
+        workflowsDir: Directory(p.join(tmp.path, 'nope')),
+      );
       expect(catalog.defaultWorkflowName(), isNull);
     });
 
@@ -192,14 +247,14 @@ void main() {
       expect(standardCatalog().defaultWorkflowName(configured: 'none'), isNull);
       expect(await seedDefaultWorkflow(tmp), isTrue);
       expect(
-          standardCatalog().defaultWorkflowName(),
-          resolveDefaultWorkflowName(
-              configured: null, workflowsDir: tmp));
+        standardCatalog().defaultWorkflowName(),
+        resolveDefaultWorkflowName(configured: null, workflowsDir: tmp),
+      );
       File(p.join(tmp.path, 'default.dot')).deleteSync();
       expect(
-          standardCatalog().defaultWorkflowName(),
-          resolveDefaultWorkflowName(
-              configured: null, workflowsDir: tmp));
+        standardCatalog().defaultWorkflowName(),
+        resolveDefaultWorkflowName(configured: null, workflowsDir: tmp),
+      );
     });
   });
 }

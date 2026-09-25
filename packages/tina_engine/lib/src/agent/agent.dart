@@ -673,13 +673,10 @@ class Agent {
         // Append only: neither the system prompt nor the existing history or
         // tool schemas change when the user switches mode.
         final mode = policy.mode;
-        final notice = Message(
-            role: Role.user,
-            isSynthetic: true,
-            content: [
-              TextBlock('Runtime permission mode: ${mode.label}. '
-                  '${mode == PermissionMode.readAll ? 'Read-only: shell, writes, and full-access delegation are disabled. Use dedicated inspection tools.' : 'Actions follow the current permission policy.'}')
-            ]);
+        final notice = Message(role: Role.user, isSynthetic: true, content: [
+          TextBlock('Runtime permission mode: ${mode.label}. '
+              '${mode == PermissionMode.readAll ? 'Read-only: shell, writes, and full-access delegation are disabled. Use dedicated inspection tools.' : 'Actions follow the current permission policy.'}')
+        ]);
         history.add(notice);
         final pending = _notifyAppend(notice);
         if (pending != null) await pending;
@@ -970,9 +967,7 @@ class Agent {
           if (soft != null) {
             _softMarginFired = true;
             final softMessage = Message(
-                role: Role.user,
-                isSynthetic: true,
-                content: [TextBlock(soft)]);
+                role: Role.user, isSynthetic: true, content: [TextBlock(soft)]);
             history.add(softMessage);
             final pendingSoft = _notifyAppend(softMessage);
             if (pendingSoft != null) await pendingSoft;

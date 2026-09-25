@@ -47,14 +47,19 @@ void main() {
     final history = <Message>[];
     await Agent(
       provider: _Provider(steps, toolName: toolName),
-      tools: ToolRegistry([bash, ExecTool(workspaceRoot: temp.path, processRunner: runner)]),
+      tools: ToolRegistry(
+          [bash, ExecTool(workspaceRoot: temp.path, processRunner: runner)]),
       sink: sink ?? FakeAgentSink(),
       system: 'test',
       asker: asker,
-      policy: permissions ?? PermissionPolicy(mode: mode, rules: [
-        if (allowCommand) PermissionRule(
-            toolName: toolName, pattern: '*', decision: PermissionDecision.allow)
-      ]),
+      policy: permissions ??
+          PermissionPolicy(mode: mode, rules: [
+            if (allowCommand)
+              PermissionRule(
+                  toolName: toolName,
+                  pattern: '*',
+                  decision: PermissionDecision.allow)
+          ]),
     ).run(history: history, userInput: 'test', cancelSignal: cancelSignal);
     return history;
   }
@@ -85,7 +90,8 @@ void main() {
     const wrapped = 'cd /mnt/sdd_1tb/tina/packages/tina_engine && '
         'dart test test/llm/registry_build_test.dart > /tmp/tina_test_out.txt 2>&1; '
         'echo "exit=\$?"; tail -4 /tmp/tina_test_out.txt';
-    final result = await bash.execute({'command': wrapped}) as ProcessToolResult;
+    final result =
+        await bash.execute({'command': wrapped}) as ProcessToolResult;
     expect(result.isError, isFalse, reason: 'the final tail returned 0');
     expect(result.content, contains('exit: 0'));
     expect(result.content, contains('exit=1'));
@@ -179,7 +185,8 @@ void main() {
             MemoryRunningProcess(stderrChunks: ['Read-only file system\n'])),
         backend: SandboxBackend.bwrap,
         accessPolicy: SandboxAccessPolicy());
-    final result = await bash.execute({'command': 'build'}) as ProcessToolResult;
+    final result =
+        await bash.execute({'command': 'build'}) as ProcessToolResult;
     expect(result.sandboxWarning, isNotNull);
     expect(result.sandboxFailure, isNull);
     expect(result.isError, isFalse);
@@ -199,41 +206,67 @@ void main() {
 
   for (final toolName in ['bash', 'exec']) {
     for (final answer in ['ALLOW', 'DENY']) {
-      test('auto $answer controls the real $toolName outside-sandbox retry', () async {
-        final policy = PermissionPolicy(mode: PermissionMode.auto, allowAllByDefault: true);
+      test('auto $answer controls the real $toolName outside-sandbox retry',
+          () async {
+        final policy = PermissionPolicy(
+            mode: PermissionMode.auto, allowAllByDefault: true);
         final judge = _ApprovalProvider(answer);
-        final asker = modeAwareAsker(policy: policy, classifier: PermissionClassifier(judge),
-          fallback: (_) async => fail('classifier supplied a verdict'));
-        final input = toolName == 'bash' ? <String, dynamic>{'command': command}
-            : <String, dynamic>{'executable': '/bin/sh', 'args': ['-c', command]};
-        final history = await run([[input]], asker, permissions: policy, toolName: toolName);
+        final asker = modeAwareAsker(
+            policy: policy,
+            classifier: PermissionClassifier(judge),
+            fallback: (_) async => fail('classifier supplied a verdict'));
+        final input = toolName == 'bash'
+            ? <String, dynamic>{'command': command}
+            : <String, dynamic>{
+                'executable': '/bin/sh',
+                'args': ['-c', command]
+              };
+        final history = await run([
+          [input]
+        ], asker, permissions: policy, toolName: toolName);
         expect(judge.calls, 1);
         expect(inner.starts.first.executable, contains('bwrap'));
         expect(inner.starts, hasLength(answer == 'ALLOW' ? 2 : 1));
         expect(results(history).single.isError, answer != 'ALLOW');
         if (answer == 'ALLOW') {
           expect(inner.starts.last.executable, '/bin/sh');
-          await run([[input]], asker, permissions: policy, toolName: toolName);
+          await run([
+            [input]
+          ], asker, permissions: policy, toolName: toolName);
           expect(judge.calls, 1, reason: 'exact session approval is reused');
           expect(inner.starts, hasLength(3));
           expect(inner.starts.last.executable, '/bin/sh');
-          policy.remember(toolName, PermissionPolicy.keyFor(toolName, input), PermissionDecision.deny);
-          await run([[input]], asker, permissions: policy, toolName: toolName);
-          expect(inner.starts, hasLength(3), reason: 'an explicit deny still blocks the remembered grant');
+          policy.remember(toolName, PermissionPolicy.keyFor(toolName, input),
+              PermissionDecision.deny);
+          await run([
+            [input]
+          ], asker, permissions: policy, toolName: toolName);
+          expect(inner.starts, hasLength(3),
+              reason: 'an explicit deny still blocks the remembered grant');
         }
       });
     }
   }
 
   for (final toolName in ['bash', 'exec']) {
-    test('$toolName failure immediately asks separately and retries outside sandbox', () async {
+    test(
+        '$toolName failure immediately asks separately and retries outside sandbox',
+        () async {
       final prompts = <PermissionPrompt>[];
       final history = await run([
-        [toolName == 'bash' ? {'command': command} : {'executable': '/bin/sh', 'args': ['-c', command]}],
+        [
+          toolName == 'bash'
+              ? {'command': command}
+              : {
+                  'executable': '/bin/sh',
+                  'args': ['-c', command]
+                }
+        ],
       ], (prompt) async {
         prompts.add(prompt);
         if (!prompt.outsideSandbox) return PermissionResponse.allowAlways;
-        expect(inner.starts, hasLength(1), reason: 'sandboxed attempt must fail first');
+        expect(inner.starts, hasLength(1),
+            reason: 'sandboxed attempt must fail first');
         expect(prompt.sandboxAccess, isNull);
         expect(prompt.accessDescription, contains('Are you definitely OK'));
         expect(prompt.accessDescription, contains('partial changes'));
@@ -257,67 +290,110 @@ void main() {
   }
 
   for (final toolName in ['bash', 'exec']) {
-    test('$toolName session grant survives turns, matches exactly and is not persisted', () async {
+    test(
+        '$toolName session grant survives turns, matches exactly and is not persisted',
+        () async {
       final policy = PermissionPolicy(allowAllByDefault: true);
       final input = toolName == 'bash'
           ? <String, dynamic>{'command': command}
-          : <String, dynamic>{'executable': '/bin/sh', 'args': ['-c', command]};
+          : <String, dynamic>{
+              'executable': '/bin/sh',
+              'args': ['-c', command]
+            };
       var asks = 0;
       Future<PermissionResponse> approve(PermissionPrompt prompt) async {
         asks++;
         expect(prompt.outsideSandbox, isTrue);
         return PermissionResponse.allowAlways;
       }
-      await run([[input]], approve, permissions: policy, toolName: toolName);
+
+      await run([
+        [input]
+      ], approve, permissions: policy, toolName: toolName);
       expect(asks, 1);
       expect(inner.starts, hasLength(2));
-      await run([[input]], approve, permissions: policy, toolName: toolName);
+      await run([
+        [input]
+      ], approve, permissions: policy, toolName: toolName);
       expect(asks, 1);
       expect(inner.starts.last.executable, '/bin/sh');
       expect(inner.starts, hasLength(3), reason: 'no doomed sandbox attempt');
-      final derived = PermissionPolicy(modeSource: policy, allowAllByDefault: true);
-      await run([[input]], approve, permissions: derived, toolName: toolName);
+      final derived =
+          PermissionPolicy(modeSource: policy, allowAllByDefault: true);
+      await run([
+        [input]
+      ], approve, permissions: derived, toolName: toolName);
       expect(inner.starts.last.executable, '/bin/sh');
       final cwd = Directory('${temp.path}/other')..createSync();
       for (final changed in [
         {...input, 'cwd': cwd.path},
-        {...input, 'environment': {'TINA_TEST_VALUE': 'different'}},
+        {
+          ...input,
+          'environment': {'TINA_TEST_VALUE': 'different'}
+        },
         toolName == 'bash'
             ? <String, dynamic>{'command': '$command --offline'}
-            : <String, dynamic>{'executable': '/bin/sh', 'args': ['-c', '$command --offline']},
+            : <String, dynamic>{
+                'executable': '/bin/sh',
+                'args': ['-c', '$command --offline']
+              },
       ]) {
-        await run([[changed]], approve, permissions: policy, toolName: toolName);
+        await run([
+          [changed]
+        ], approve, permissions: policy, toolName: toolName);
         expect(inner.starts.last.executable, contains('bwrap'));
       }
       final restored = PermissionPolicy.fromJson(policy.toJson());
-      await run([[input]], approve, permissions: restored, toolName: toolName);
+      await run([
+        [input]
+      ], approve, permissions: restored, toolName: toolName);
       expect(inner.starts.last.executable, contains('bwrap'));
       expect(asks, 1);
       final starts = inner.starts.length;
       policy.mode = PermissionMode.readAll;
-      await run([[input]], approve, permissions: policy, toolName: toolName);
+      await run([
+        [input]
+      ], approve, permissions: policy, toolName: toolName);
       expect(inner.starts, hasLength(starts));
       policy.mode = PermissionMode.ask;
-      policy.remember(toolName, PermissionPolicy.keyFor(toolName, input), PermissionDecision.deny);
-      await run([[input]], approve, permissions: policy, toolName: toolName);
+      policy.remember(toolName, PermissionPolicy.keyFor(toolName, input),
+          PermissionDecision.deny);
+      await run([
+        [input]
+      ], approve, permissions: policy, toolName: toolName);
       expect(inner.starts, hasLength(starts));
     });
   }
 
   test('once approval leaves the next identical command sandboxed', () async {
     final policy = PermissionPolicy(allowAllByDefault: true);
-    await run([[{'command': command}]], (_) async => PermissionResponse.allowOnce,
-        permissions: policy);
-    await run([[{'command': command}]], (_) async => fail('already allowed ordinary command'),
+    await run([
+      [
+        {'command': command}
+      ]
+    ], (_) async => PermissionResponse.allowOnce, permissions: policy);
+    await run([
+      [
+        {'command': command}
+      ]
+    ], (_) async => fail('already allowed ordinary command'),
         permissions: policy);
     expect(inner.starts, hasLength(3));
     expect(inner.starts.last.executable, contains('bwrap'));
   });
 
-  test('switching to read-all during outside approval prevents retry', () async {
-    final policy = PermissionPolicy(mode: PermissionMode.allowEdits,
-        rules: const [PermissionRule(toolName: 'bash', pattern: '*', decision: PermissionDecision.allow)]);
-    await run([[{'command': command}]], (_) async {
+  test('switching to read-all during outside approval prevents retry',
+      () async {
+    final policy =
+        PermissionPolicy(mode: PermissionMode.allowEdits, rules: const [
+      PermissionRule(
+          toolName: 'bash', pattern: '*', decision: PermissionDecision.allow)
+    ]);
+    await run([
+      [
+        {'command': command}
+      ]
+    ], (_) async {
       policy.mode = PermissionMode.readAll;
       return PermissionResponse.allowOnce;
     }, permissions: policy);
@@ -325,13 +401,20 @@ void main() {
   });
 
   for (final yolo in [false, true]) {
-    test('auto/yolo ($yolo) still requires explicit outside approval', () async {
+    test('auto/yolo ($yolo) still requires explicit outside approval',
+        () async {
       var asks = 0;
-      await run([[{'command': command}]], (prompt) async {
+      await run([
+        [
+          {'command': command}
+        ]
+      ], (prompt) async {
         if (!prompt.outsideSandbox) return PermissionResponse.allowOnce;
         asks++;
         return PermissionResponse.denyOnce;
-      }, permissions: PermissionPolicy(mode: PermissionMode.auto, allowAllByDefault: yolo),
+      },
+          permissions: PermissionPolicy(
+              mode: PermissionMode.auto, allowAllByDefault: yolo),
           allowCommand: false);
       expect(asks, 1);
       expect(inner.starts, hasLength(1));
@@ -341,8 +424,12 @@ void main() {
   test('denial blocks replay without asking again', () async {
     var asks = 0;
     final history = await run([
-      [{'command': command}],
-      [{'command': command}],
+      [
+        {'command': command}
+      ],
+      [
+        {'command': command}
+      ],
     ], (prompt) async {
       asks++;
       expect(prompt.outsideSandbox, isTrue);
@@ -351,23 +438,41 @@ void main() {
     expect(asks, 1);
     expect(inner.starts, hasLength(1));
     expect(results(history).first.content, contains('retry was not executed'));
-    expect(results(history).last.content, contains('user denied this sandbox retry'));
+    expect(results(history).last.content,
+        contains('user denied this sandbox retry'));
   });
 
   test('denial blocks a directory-grant workaround', () async {
     var asks = 0;
     final history = await run([
-      [{'command': command}],
-      [{ 'command': '/sdk/bin/dart test', 'writablePaths': [cache.path], 'accessReason': 'Retry' }],
-    ], (_) async { asks++; return PermissionResponse.denyOnce; });
+      [
+        {'command': command}
+      ],
+      [
+        {
+          'command': '/sdk/bin/dart test',
+          'writablePaths': [cache.path],
+          'accessReason': 'Retry'
+        }
+      ],
+    ], (_) async {
+      asks++;
+      return PermissionResponse.denyOnce;
+    });
     expect(asks, 1);
     expect(inner.starts, hasLength(1));
-    expect(results(history).last.content, contains('Do not request it again under another command'));
+    expect(results(history).last.content,
+        contains('Do not request it again under another command'));
   });
 
-  test('cancellation during outside approval prevents replay and grants', () async {
+  test('cancellation during outside approval prevents replay and grants',
+      () async {
     final cancel = Completer<void>();
-    await run([[{'command': command}]], (_) async {
+    await run([
+      [
+        {'command': command}
+      ]
+    ], (_) async {
       cancel.complete();
       await Future<void>.delayed(Duration.zero);
       return PermissionResponse.allowAlways;
@@ -378,25 +483,40 @@ void main() {
 
   test('a failed outside retry does not start an approval loop', () async {
     inner = MemoryProcessRunner((_, __) => MemoryRunningProcess(
-        exitCodeValue: 1, stderrChunks: ['${cache.path}/stamp: Read-only file system\n']));
+        exitCodeValue: 1,
+        stderrChunks: ['${cache.path}/stamp: Read-only file system\n']));
     bash.processRunner = SandboxedProcessRunner(
-        workspaceRoot: temp.path, inner: inner, backend: SandboxBackend.bwrap,
+        workspaceRoot: temp.path,
+        inner: inner,
+        backend: SandboxBackend.bwrap,
         accessPolicy: SandboxAccessPolicy());
     var asks = 0;
     final history = await run([
-      [{'command': command}],
-      [{'command': command}],
-    ], (_) async { asks++; return PermissionResponse.allowOnce; });
+      [
+        {'command': command}
+      ],
+      [
+        {'command': command}
+      ],
+    ], (_) async {
+      asks++;
+      return PermissionResponse.allowOnce;
+    });
     expect(inner.starts, hasLength(2));
     expect(inner.starts.last.executable, '/bin/sh');
     expect(asks, 1);
-    expect(results(history).last.content, contains('approved sandbox retry also failed'));
+    expect(results(history).last.content,
+        contains('approved sandbox retry also failed'));
   });
 
   test('later commands remain sandboxed after outside approval', () async {
     await run([
-      [{'command': command}],
-      [{'command': 'echo later'}],
+      [
+        {'command': command}
+      ],
+      [
+        {'command': 'echo later'}
+      ],
     ], (_) async => PermissionResponse.allowOnce);
     expect(inner.starts, hasLength(3));
     expect(inner.starts[1].executable, '/bin/sh');
@@ -455,18 +575,20 @@ void main() {
       expect(failure.recoveryInstructions, contains('outside the sandbox'));
     });
 
-    test('a file we cannot read here is a permission problem, not evidence', () {
+    test('a file we cannot read here is a permission problem, not evidence',
+        () {
       // Nothing about a genuine ownership error becomes a sandbox claim: if the
       // file is not readable, the retry would fail the same way.
-      expect(SandboxOwnershipFailure.detect(sshOutput,
-          isReadable: (_) => false), isNull);
+      expect(
+          SandboxOwnershipFailure.detect(sshOutput, isReadable: (_) => false),
+          isNull);
     });
 
     test('an id that is not the unmapped root is somebody\'s real file', () {
       expect(
           SandboxOwnershipFailure.detect(
-              '/etc/sudo.conf is owned by uid 65534, should be 0',
-              isReadable: (_) => true)!
+                  '/etc/sudo.conf is owned by uid 65534, should be 0',
+                  isReadable: (_) => true)!
               .refusedPaths,
           ['/etc/sudo.conf']);
       expect(
@@ -517,8 +639,7 @@ void main() {
           isNull);
     });
 
-    test('write failures and EROFS output do not claim the agent branch',
-        () {
+    test('write failures and EROFS output do not claim the agent branch', () {
       const output = 'cp: cannot create \'/opt/x/y\': Read-only file system\n';
       expect(
           SandboxAgentSocketFailure.detect(output,
@@ -527,7 +648,8 @@ void main() {
     });
   });
 
-  group('a command that refuses a file it thinks somebody else owns (linux)', () {
+  group('a command that refuses a file it thinks somebody else owns (linux)',
+      () {
     test('a sandboxed ssh failure asks to retry outside the sandbox', () async {
       final config = File('${temp.path}/ssh_config')..writeAsStringSync('');
       var calls = 0;
@@ -569,8 +691,8 @@ void main() {
   });
 
   test('real Linux logging wrapper masks the exit but still warns', () async {
-    bash.processRunner =
-        SandboxedProcessRunner(workspaceRoot: cache.path, sandboxReadOnly: true);
+    bash.processRunner = SandboxedProcessRunner(
+        workspaceRoot: cache.path, sandboxReadOnly: true);
     final log = '${temp.path}/output.log';
     final actual = '''/bin/sh -c 'echo written > "${cache.path}/probe"' '''
         '> "$log" 2>&1; echo "exit=\$?"; tail -4 "$log"';
@@ -583,11 +705,10 @@ void main() {
     expect(File('${cache.path}/probe').existsSync(), isFalse);
   }, skip: !bwrapAvailable ? 'requires Linux bwrap' : false);
 
-  test(
-      'real Linux first failure retries outside only after explicit approval',
+  test('real Linux first failure retries outside only after explicit approval',
       () async {
-    bash.processRunner =
-        SandboxedProcessRunner(workspaceRoot: cache.path, sandboxReadOnly: true);
+    bash.processRunner = SandboxedProcessRunner(
+        workspaceRoot: cache.path, sandboxReadOnly: true);
     // Cache is read-only even though its parent is in writable /tmp.
     final actual = 'echo written > "${cache.path}/probe"';
     var asks = 0;
@@ -634,7 +755,9 @@ class _ApprovalProvider extends LlmProvider {
   int calls = 0;
   _ApprovalProvider(this.answer) : super('test-judge');
   @override
-  Stream<StreamEvent> send({required String system, required List<Message> messages,
+  Stream<StreamEvent> send(
+      {required String system,
+      required List<Message> messages,
       required List<ToolSchema> tools}) async* {
     calls++;
     yield TextDelta(answer);

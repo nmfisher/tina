@@ -19,22 +19,22 @@ import '../tui/status_layout_plugin.dart';
 /// right-aligned line rendered wins the row's tail. With this plugin mounted,
 /// the token counter owns that slot.
 PluginDescriptor tokenStatusPlugin() => PluginDescriptor(
-      id: 'tina.token-status',
-      requires: {spendLedgerServiceKey},
-      factory: FnPluginFactory((context) {
-        final ledger = context.require(spendLedgerServiceKey);
-        context.register(
-          LedgerTokenStatusSource(ledger),
-          id: 'tina.token-status.source',
-        );
-        context.register(
-          const TokenUsageRenderer(),
-          id: 'tina.token-status.renderer',
-        );
-        context.register(
-          const PriorityStatusLayout(),
-          id: 'tina.status-layout.priority',
-        );
-        return Object();
-      }),
+  id: 'tina.token-status',
+  requires: {spendLedgerServiceKey},
+  factory: FnPluginFactory((context) {
+    final ledger = context.require(spendLedgerServiceKey);
+    context.register(
+      LedgerTokenStatusSource(ledger),
+      id: 'tina.token-status.source',
     );
+    context.register(
+      const TokenUsageRenderer(),
+      id: 'tina.token-status.renderer',
+    );
+    context.register(
+      const PriorityStatusLayout(),
+      id: 'tina.status-layout.priority',
+    );
+    return Object();
+  }),
+);

@@ -59,8 +59,9 @@ class TinaCodergenBackend implements CodergenBackend {
     required Context context,
     Future<void>? cancelSignal,
   }) async {
-    final identity =
-        node.systemPrompt.isNotEmpty ? node.systemPrompt : _defaultNodeIdentity;
+    final identity = node.systemPrompt.isNotEmpty
+        ? node.systemPrompt
+        : _defaultNodeIdentity;
     final task = preamble.isEmpty ? prompt : '$preamble\n\n$prompt';
     onNodeStart?.call(node.id, task);
     final nodeModel = node.modelReference;
@@ -101,8 +102,10 @@ class TinaCodergenBackend implements CodergenBackend {
       lines.removeLast();
     }
     if (lines.isEmpty) return null;
-    final m = RegExp(r'VERDICT:\s*([A-Za-z0-9_\-]+)', caseSensitive: false)
-        .firstMatch(lines.last);
+    final m = RegExp(
+      r'VERDICT:\s*([A-Za-z0-9_\-]+)',
+      caseSensitive: false,
+    ).firstMatch(lines.last);
     return m?.group(1)?.toLowerCase();
   }
 }

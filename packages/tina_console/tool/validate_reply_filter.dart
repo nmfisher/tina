@@ -32,5 +32,6 @@ void main(List<String> args) {
   print('input events : $n');
   print('passed events: ${out.length}');
   print('any ESC passed: ${out.contains(0x1b)}');
-  print('passed text  : "${text.length > 200 ? '${text.substring(0, 200)}...' : text}"');
+  print(
+      'passed text  : "${text.length > 200 ? '${text.substring(0, 200)}...' : text}"');
 }

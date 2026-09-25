@@ -9,50 +9,59 @@ void main() {
   late NoulQuestion blocked;
   late JudgmentRequest request;
 
-  Map<String, dynamic> response() => jsonDecode(jsonEncode({
-        'model': 'jev-resolved-version',
-        'answers': {
-          'route': {
-            'type': 'choice',
-            'choice': 'tests',
-            'confidence': 0.8,
-            'probabilities': {'code': 0.1, 'tests': 0.9}
-          },
-          'priority': {
-            'type': 'score',
-            'score': 0.75,
-            'confidence': 0.4,
-            'legend': {
-              '0': 'Routine',
-              '1': {'description': 'Urgent'}
-            },
-            'probabilities': {'0': 0.25, '1': 0.75}
-          },
-          'blocked': {'type': 'noul', 'noul': 0.2},
+  Map<String, dynamic> response() => jsonDecode(
+    jsonEncode({
+      'model': 'jev-resolved-version',
+      'answers': {
+        'route': {
+          'type': 'choice',
+          'choice': 'tests',
+          'confidence': 0.8,
+          'probabilities': {'code': 0.1, 'tests': 0.9},
         },
-        'usage': {'input_tokens': 128, 'output_tokens': 30},
-      }));
+        'priority': {
+          'type': 'score',
+          'score': 0.75,
+          'confidence': 0.4,
+          'legend': {
+            '0': 'Routine',
+            '1': {'description': 'Urgent'},
+          },
+          'probabilities': {'0': 0.25, '1': 0.75},
+        },
+        'blocked': {'type': 'noul', 'noul': 0.2},
+      },
+      'usage': {'input_tokens': 128, 'output_tokens': 30},
+    }),
+  );
 
   setUp(() {
-    route = ChoiceQuestion('route',
-        instructions: 'Which worker can do this?',
-        criteria: {
-          'code': null,
-          'tests': ['Testing and validation']
-        });
-    priority = ScoreQuestion('priority', instructions: {
-      'question': 'Urgency?'
-    }, criteria: [
-      'Routine',
-      {'description': 'Urgent'}
-    ]);
-    blocked = NoulQuestion('blocked',
-        instructions: 'Is user input required?',
-        whenTrue: {'condition': 'Missing required information'},
-        whenFalse: 'Can proceed');
+    route = ChoiceQuestion(
+      'route',
+      instructions: 'Which worker can do this?',
+      criteria: {
+        'code': null,
+        'tests': ['Testing and validation'],
+      },
+    );
+    priority = ScoreQuestion(
+      'priority',
+      instructions: {'question': 'Urgency?'},
+      criteria: [
+        'Routine',
+        {'description': 'Urgent'},
+      ],
+    );
+    blocked = NoulQuestion(
+      'blocked',
+      instructions: 'Is user input required?',
+      whenTrue: {'condition': 'Missing required information'},
+      whenFalse: 'Can proceed',
+    );
     request = JudgmentRequest(
-        state: {'task': 'Test the patch'},
-        questions: [route, priority, blocked]);
+      state: {'task': 'Test the patch'},
+      questions: [route, priority, blocked],
+    );
   });
 
   test('mixed batch has documented wire shape and no chat fields', () {
@@ -65,24 +74,24 @@ void main() {
           'instructions': 'Which worker can do this?',
           'criteria': {
             'code': null,
-            'tests': ['Testing and validation']
-          }
+            'tests': ['Testing and validation'],
+          },
         },
         'priority': {
           'type': 'score',
           'instructions': {'question': 'Urgency?'},
           'criteria': [
             'Routine',
-            {'description': 'Urgent'}
-          ]
+            {'description': 'Urgent'},
+          ],
         },
         'blocked': {
           'type': 'noul',
           'instructions': 'Is user input required?',
           'criteria': {
             'true': {'condition': 'Missing required information'},
-            'false': 'Can proceed'
-          }
+            'false': 'Can proceed',
+          },
         },
       },
     });
@@ -110,38 +119,48 @@ void main() {
   test('answer correlation does not depend on response insertion order', () {
     final json = response();
     json['answers'] = Map.fromEntries(
-        (json['answers'] as Map<String, dynamic>).entries.toList().reversed);
-    expect(JudgmentResult.fromJson(json, request: request).answer(blocked).noul,
-        0.2);
+      (json['answers'] as Map<String, dynamic>).entries.toList().reversed,
+    );
+    expect(
+      JudgmentResult.fromJson(json, request: request).answer(blocked).noul,
+      0.2,
+    );
   });
 
   test('same ID with different schema cannot retrieve answer', () {
     final result = JudgmentResult.fromJson(response(), request: request);
-    expect(() => result.answer(NoulQuestion('route', instructions: 'Other?')),
-        throwsArgumentError);
+    expect(
+      () => result.answer(NoulQuestion('route', instructions: 'Other?')),
+      throwsArgumentError,
+    );
   });
 
   test('deep snapshot prevents caller mutation after construction', () {
     final source = <String, Object?>{
-      'nested': <Object?>['original']
+      'nested': <Object?>['original'],
     };
     final options = <String, Object?>{'a': source, 'b': null};
-    final question =
-        ChoiceQuestion('q', instructions: source, criteria: options);
+    final question = ChoiceQuestion(
+      'q',
+      instructions: source,
+      criteria: options,
+    );
     final batch = JudgmentRequest(state: source, questions: [question]);
     (source['nested'] as List).add('changed');
     options.clear();
     expect(batch.state.value, {
-      'nested': ['original']
+      'nested': ['original'],
     });
     expect(question.instructions!.value, {
-      'nested': ['original']
+      'nested': ['original'],
     });
     expect(question.criteria['a'], {
-      'nested': ['original']
+      'nested': ['original'],
     });
-    expect(() => ((batch.state.value as Map)['nested'] as List).add('x'),
-        throwsUnsupportedError);
+    expect(
+      () => ((batch.state.value as Map)['nested'] as List).add('x'),
+      throwsUnsupportedError,
+    );
   });
 
   test('advanced nullable instructions and levels are preserved', () {
@@ -157,25 +176,29 @@ void main() {
           'score': 1,
           'confidence': 1,
           'legend': {'0': null, '1': 'yes'},
-          'probabilities': {'0': 0, '1': 1}
-        }
+          'probabilities': {'0': 0, '1': 1},
+        },
       },
     }, request: batch);
     expect(result.answer(q).legend[0], isNull);
   });
 
-  test('optional noul criteria omitted and missing counters remain unknown',
-      () {
-    expect(
-        NoulQuestion('q', instructions: 'Ready?')
-            .toJson()
-            .containsKey('criteria'),
-        isFalse);
-    final json = response()..['usage'] = <String, Object?>{};
-    final usage = JudgmentResult.fromJson(json, request: request).usage;
-    expect(usage.inputTokens, isNull);
-    expect(usage.outputTokens, isNull);
-  });
+  test(
+    'optional noul criteria omitted and missing counters remain unknown',
+    () {
+      expect(
+        NoulQuestion(
+          'q',
+          instructions: 'Ready?',
+        ).toJson().containsKey('criteria'),
+        isFalse,
+      );
+      final json = response()..['usage'] = <String, Object?>{};
+      final usage = JudgmentResult.fromJson(json, request: request).usage;
+      expect(usage.inputTokens, isNull);
+      expect(usage.outputTokens, isNull);
+    },
+  );
 
   test('reject invalid input before transport', () {
     final cyclic = <Object?>[];
@@ -187,29 +210,43 @@ void main() {
       {'nan': double.nan},
       {1: 'bad key'},
       cyclic,
-      {'object': Object()}
+      {'object': Object()},
     ]) {
-      expect(() => JudgmentRequest(state: state, questions: [blocked]),
-          throwsArgumentError);
+      expect(
+        () => JudgmentRequest(state: state, questions: [blocked]),
+        throwsArgumentError,
+      );
     }
     expect(
-        () => JudgmentRequest(state: '', questions: []), throwsArgumentError);
-    expect(() => JudgmentRequest(state: '', questions: [blocked, blocked]),
-        throwsArgumentError);
+      () => JudgmentRequest(state: '', questions: []),
+      throwsArgumentError,
+    );
+    expect(
+      () => JudgmentRequest(state: '', questions: [blocked, blocked]),
+      throwsArgumentError,
+    );
     expect(() => NoulQuestion(' ', instructions: '?'), throwsArgumentError);
-    expect(() => ChoiceQuestion('q', instructions: '?', criteria: {}),
-        throwsArgumentError);
-    expect(() => ScoreQuestion('q', instructions: '?', criteria: ['one']),
-        throwsArgumentError);
     expect(
-        () => ScoreQuestion('q',
-            instructions: '?', criteria: List.filled(11, 'x')),
-        throwsArgumentError);
+      () => ChoiceQuestion('q', instructions: '?', criteria: {}),
+      throwsArgumentError,
+    );
     expect(
-        () => ChoiceQuestion('q',
-            instructions: '?',
-            criteria: {for (var i = 0; i < 256; i++) '$i': null}),
-        throwsArgumentError);
+      () => ScoreQuestion('q', instructions: '?', criteria: ['one']),
+      throwsArgumentError,
+    );
+    expect(
+      () =>
+          ScoreQuestion('q', instructions: '?', criteria: List.filled(11, 'x')),
+      throwsArgumentError,
+    );
+    expect(
+      () => ChoiceQuestion(
+        'q',
+        instructions: '?',
+        criteria: {for (var i = 0; i < 256; i++) '$i': null},
+      ),
+      throwsArgumentError,
+    );
   });
 
   final corruptions = <String, void Function(Map<String, dynamic>)>{
@@ -244,15 +281,19 @@ void main() {
     test('rejects ${entry.key} atomically', () {
       final json = response();
       entry.value(json);
-      expect(() => JudgmentResult.fromJson(json, request: request),
-          throwsFormatException);
+      expect(
+        () => JudgmentResult.fromJson(json, request: request),
+        throwsFormatException,
+      );
     });
   }
 
   test('extra metadata is tolerated without treating it as an answer', () {
     final json = response()..['future_metadata'] = {'key': true};
     json['answers']['blocked']['future_field'] = 'extra';
-    expect(JudgmentResult.fromJson(json, request: request).answer(blocked).noul,
-        0.2);
+    expect(
+      JudgmentResult.fromJson(json, request: request).answer(blocked).noul,
+      0.2,
+    );
   });
 }

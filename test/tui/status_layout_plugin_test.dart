@@ -15,10 +15,13 @@ void main() {
 
   test('passes content through unchanged when everything fits', () {
     final arranged = layout.arrange(
-      StatusContent(modeLabel: 'mode: auto', lines: [
-        _line('Last input: git push'),
-        _line('Σ 12,345 / 30,000 · 41%', align: StatusAlign.right),
-      ]),
+      StatusContent(
+        modeLabel: 'mode: auto',
+        lines: [
+          _line('Last input: git push'),
+          _line('Σ 12,345 / 30,000 · 41%', align: StatusAlign.right),
+        ],
+      ),
       98,
     );
     expect(_texts(arranged), [
@@ -31,11 +34,14 @@ void main() {
 
   test('keeps the right group and drops left lines end-backward', () {
     final arranged = layout.arrange(
-      StatusContent(modeLabel: 'mode: auto', lines: [
-        _line('checking intent'),
-        _line('Last input: git push'),
-        _line('Σ 12,345', align: StatusAlign.right),
-      ]),
+      StatusContent(
+        modeLabel: 'mode: auto',
+        lines: [
+          _line('checking intent'),
+          _line('Last input: git push'),
+          _line('Σ 12,345', align: StatusAlign.right),
+        ],
+      ),
       30, // 'mode: auto' + gap + 'Σ 12,345' = 21; no room for line 2.
     );
     expect(_texts(arranged), ['mode: auto', 'Σ 12,345']);
@@ -51,25 +57,34 @@ void main() {
 
   test('the mode label survives until it alone cannot fit', () {
     final arranged = layout.arrange(
-      StatusContent(modeLabel: 'mode: auto', lines: [
-        _line('Last input: git push'),
-        _line('Σ 12,345', align: StatusAlign.right),
-      ]),
+      StatusContent(
+        modeLabel: 'mode: auto',
+        lines: [
+          _line('Last input: git push'),
+          _line('Σ 12,345', align: StatusAlign.right),
+        ],
+      ),
       13, // right(8) + gap(2) + label(10) > 13 — label loses.
     );
     expect(_texts(arranged), ['Σ 12,345']);
   });
 
-  test('a right group wider than the strip still comes back (painter clips)', () {
-    final arranged = layout.arrange(
-      StatusContent(modeLabel: 'mode: auto', lines: [
-        _line('Last input: git push'),
-        _line('Σ 12,345 / 300,000 · 4%', align: StatusAlign.right),
-      ]),
-      10,
-    );
-    expect(_texts(arranged), ['Σ 12,345 / 300,000 · 4%']);
-  });
+  test(
+    'a right group wider than the strip still comes back (painter clips)',
+    () {
+      final arranged = layout.arrange(
+        StatusContent(
+          modeLabel: 'mode: auto',
+          lines: [
+            _line('Last input: git push'),
+            _line('Σ 12,345 / 300,000 · 4%', align: StatusAlign.right),
+          ],
+        ),
+        10,
+      );
+      expect(_texts(arranged), ['Σ 12,345 / 300,000 · 4%']);
+    },
+  );
 
   test('zero width arranges nothing', () {
     expect(

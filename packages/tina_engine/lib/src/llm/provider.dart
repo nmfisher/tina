@@ -39,8 +39,7 @@ class TokenUsage {
         outputTokens: outputTokens + other.outputTokens,
         cacheCreationInputTokens:
             cacheCreationInputTokens + other.cacheCreationInputTokens,
-        cacheReadInputTokens:
-            cacheReadInputTokens + other.cacheReadInputTokens,
+        cacheReadInputTokens: cacheReadInputTokens + other.cacheReadInputTokens,
       );
 
   bool get isEmpty =>
@@ -187,7 +186,8 @@ class StreamError extends StreamEvent {
       this.usage,
       this.providerCode,
       this.providerType,
-      bool requiresUserAction = false}) : _requiresUserAction = requiresUserAction;
+      bool requiresUserAction = false})
+      : _requiresUserAction = requiresUserAction;
 }
 
 abstract class LlmProvider {

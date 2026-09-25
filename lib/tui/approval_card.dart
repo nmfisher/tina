@@ -99,7 +99,9 @@ class ApprovalRenderer extends Renderer<ApprovalCard> {
       } else {
         final args =
             execution?.arguments ?? (input['args'] as List? ?? const []);
-        add(formatArgv('${execution?.executable ?? input['executable']}', args));
+        add(
+          formatArgv('${execution?.executable ?? input['executable']}', args),
+        );
       }
       add('');
     } else if (card.preview.isEmpty) {

@@ -70,7 +70,8 @@ void main() {
       }
     });
 
-    test('non-split layout has no Screen-painted borders (chat is panel-drawn)', () {
+    test('non-split layout has no Screen-painted borders (chat is panel-drawn)',
+        () {
       final l = ScreenLayout.fromSize(80, 24);
       // No info panel, and the chat border is panel-drawn — borderCharFor is
       // null at the screen edges.

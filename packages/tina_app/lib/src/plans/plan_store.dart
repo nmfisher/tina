@@ -33,10 +33,15 @@ class PlanItem {
   @override
   int get hashCode => Object.hash(text, state, Object.hashAll(children));
 
-  PlanItem copyWith(
-          {String? text, PlanState? state, List<PlanItem>? children}) =>
-      PlanItem(text ?? this.text,
-          state: state ?? this.state, children: children ?? this.children);
+  PlanItem copyWith({
+    String? text,
+    PlanState? state,
+    List<PlanItem>? children,
+  }) => PlanItem(
+    text ?? this.text,
+    state: state ?? this.state,
+    children: children ?? this.children,
+  );
 
   /// True when [other] holds the same content — same trimmed text and the
   /// same child texts in the same order (states ignored). The store's
@@ -51,13 +56,12 @@ class PlanItem {
   }
 
   Map<String, dynamic> toJson() => {
-        'text': text,
-        'state': state.name,
-        // The key is omitted for childless rows so plans without subtasks
-        // persist byte-identically to pre-nesting blobs.
-        if (children.isNotEmpty)
-          'children': [for (final c in children) c.toJson()],
-      };
+    'text': text,
+    'state': state.name,
+    // The key is omitted for childless rows so plans without subtasks
+    // persist byte-identically to pre-nesting blobs.
+    if (children.isNotEmpty) 'children': [for (final c in children) c.toJson()],
+  };
 
   /// Lenient parse of one persisted item. Blank/junk entries are skipped
   /// (returns null); unknown states fall back to pending; overlong text is
@@ -75,8 +79,7 @@ class PlanItem {
     if (text.length > PlanStore.maxTextLength) {
       text = text.substring(0, PlanStore.maxTextLength);
     }
-    var state =
-        PlanState.values.asNameMap()[raw['state']] ?? PlanState.pending;
+    var state = PlanState.values.asNameMap()[raw['state']] ?? PlanState.pending;
     if (state == PlanState.inProgress) {
       if (seenInProgress.value) state = PlanState.pending;
       seenInProgress.value = true;
@@ -86,8 +89,11 @@ class PlanItem {
     if (allowChildren && rawChildren is List) {
       for (final rawChild in rawChildren) {
         if (rawChild is! Map<String, dynamic>) continue;
-        final child = PlanItem.fromJson(rawChild,
-            allowChildren: false, seenInProgress: seenInProgress);
+        final child = PlanItem.fromJson(
+          rawChild,
+          allowChildren: false,
+          seenInProgress: seenInProgress,
+        );
         if (child != null) children.add(child);
       }
     }
@@ -144,9 +150,9 @@ class Plan {
   }
 
   Map<String, dynamic> toJson() => {
-        'items': [for (final item in items) item.toJson()],
-        'approval': approval.name,
-      };
+    'items': [for (final item in items) item.toJson()],
+    'approval': approval.name,
+  };
 
   /// Lenient parse of a persisted plan blob (the session manifest's opaque
   /// `plan` entry). Never throws and always yields a valid plan: non-map
@@ -164,8 +170,11 @@ class Plan {
       for (final raw in rawItems) {
         if (items.length >= PlanStore.maxItems) break;
         if (raw is! Map<String, dynamic>) continue;
-        final item = PlanItem.fromJson(raw,
-            allowChildren: true, seenInProgress: seenInProgress);
+        final item = PlanItem.fromJson(
+          raw,
+          allowChildren: true,
+          seenInProgress: seenInProgress,
+        );
         if (item != null) items.add(item);
       }
     }
@@ -194,8 +203,11 @@ class Plan {
         .map((i) => i.text)
         .join(' · ');
     final counts = '$done/${allItems.length}';
-    return [if (active.isNotEmpty) active, counts, if (needsApproval) 'needs approval']
-        .join(' · ');
+    return [
+      if (active.isNotEmpty) active,
+      counts,
+      if (needsApproval) 'needs approval',
+    ].join(' · ');
   }
 }
 
@@ -252,8 +264,10 @@ class PlanStore {
         throw ArgumentError('plan item text exceeds $maxTextLength chars');
       }
       if (isChild && item.children.isNotEmpty) {
-        throw ArgumentError('plan supports one nesting level only '
-            '(children of children)');
+        throw ArgumentError(
+          'plan supports one nesting level only '
+          '(children of children)',
+        );
       }
       for (final child in item.children) {
         validate(child, isChild: true);
@@ -275,11 +289,13 @@ class PlanStore {
     final effectiveApproval = approval != PlanApproval.none
         ? approval
         : (previous != null && previous.contentMatches(items)
-            ? previous.approval
-            : PlanApproval.none);
-    PlanItem normalize(PlanItem item) => PlanItem(item.text.trim(),
-        state: item.state,
-        children: [for (final c in item.children) normalize(c)]);
+              ? previous.approval
+              : PlanApproval.none);
+    PlanItem normalize(PlanItem item) => PlanItem(
+      item.text.trim(),
+      state: item.state,
+      children: [for (final c in item.children) normalize(c)],
+    );
     _plans[conversationId] = Plan([
       for (final item in items) normalize(item),
     ], approval: effectiveApproval);
@@ -308,8 +324,7 @@ class PlanStore {
       throw StateError('no plan to approve');
     }
     if (plan.approval != value) {
-      _plans[conversationId] =
-          Plan(plan.items, approval: value);
+      _plans[conversationId] = Plan(plan.items, approval: value);
       _changes.add(null);
       persistHook?.call(conversationId);
     }

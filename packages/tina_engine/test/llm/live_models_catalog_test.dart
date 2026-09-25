@@ -51,7 +51,8 @@ void main() {
         inner: inner,
       );
 
-  test('live ids become the catalog; known ids keep metadata, new ids get '
+  test(
+      'live ids become the catalog; known ids keep metadata, new ids get '
       'defaults', () async {
     const compiled = ModelInfo(
       id: 'meta/llama-3.3-70b-instruct',
@@ -76,10 +77,13 @@ void main() {
     await c.load([d]);
 
     final models = c.modelsFor(d);
-    expect(models.map((m) => m.id), [
-      'brand/new-model',
-      'meta/llama-3.3-70b-instruct',
-    ], reason: 'endpoint order, non-chat ids filtered');
+    expect(
+        models.map((m) => m.id),
+        [
+          'brand/new-model',
+          'meta/llama-3.3-70b-instruct',
+        ],
+        reason: 'endpoint order, non-chat ids filtered');
     // A compiled id keeps its real metadata.
     final known = models.singleWhere((m) => m.id == compiled.id);
     expect(known.name, 'Llama 3.3 70B');
@@ -108,7 +112,9 @@ void main() {
     final d = ProviderDescriptor(
       id: 'anthropic',
       name: 'Anthropic',
-      authSources: const [AuthSource('ANTHROPIC_API_KEY', AuthScheme.apiKeyHeader)],
+      authSources: const [
+        AuthSource('ANTHROPIC_API_KEY', AuthScheme.apiKeyHeader)
+      ],
       defaultBaseUrl: 'https://example.test',
       builder: (_) => throw UnimplementedError(),
     );
@@ -147,8 +153,7 @@ void main() {
     );
     await c.load([d]);
 
-    expect(http.requests.single.url.toString(),
-        'https://proxy.test/v1/models');
+    expect(http.requests.single.url.toString(), 'https://proxy.test/v1/models');
   });
 
   test('a versioned base gets only /models appended', () async {
@@ -206,7 +211,8 @@ void main() {
 
     // The foreign cache must not satisfy the load: refetch against the
     // descriptor's current endpoint.
-    expect(http.requests.single.url.toString(), 'https://example.test/v1/models');
+    expect(
+        http.requests.single.url.toString(), 'https://example.test/v1/models');
     expect(c.modelsFor(d).map((m) => m.id), ['fresh/model']);
   });
 
@@ -241,7 +247,9 @@ void main() {
       contextWindow: 200000,
       maxOutput: 16000,
     );
-    final inner = _StaticCatalog({'nim': [fromDev]});
+    final inner = _StaticCatalog({
+      'nim': [fromDev]
+    });
     final c = catalog(
       env: {'NVIDIA_API_KEY': 'k'},
       httpClient: client(jsonEncode({

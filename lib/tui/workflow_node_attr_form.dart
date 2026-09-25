@@ -98,7 +98,10 @@ Future<bool> runNodeAttrEditor({
       if (text.length > innerW) {
         start = (buf.col - innerW + 1).clamp(0, text.length - innerW);
       }
-      screen.parkCursorAt(rect.row + 1 + displayLine, rect.col + 2 + (buf.col - start));
+      screen.parkCursorAt(
+        rect.row + 1 + displayLine,
+        rect.col + 2 + (buf.col - start),
+      );
     }
   }
 
@@ -108,7 +111,8 @@ Future<bool> runNodeAttrEditor({
     paint();
     while (true) {
       final ev = await read();
-      if (ev is EscapeKey || (ev is ControlKey && ev.code == ControlCode.ctrlC)) {
+      if (ev is EscapeKey ||
+          (ev is ControlKey && ev.code == ControlCode.ctrlC)) {
         return false;
       }
       if (ev is ControlKey && ev.code == ControlCode.ctrlS) {
@@ -285,5 +289,7 @@ String _escapeInline(String s) =>
     s.replaceAll(r'\', r'\\').replaceAll('\n', r'\n').replaceAll('"', r'\"');
 
 /// Reverse of [_escapeInline].
-String _unescapeInline(String s) =>
-    s.replaceAllMapped(RegExp(r'\\(.)'), (m) => m.group(1) == 'n' ? '\n' : m.group(1)!);
+String _unescapeInline(String s) => s.replaceAllMapped(
+  RegExp(r'\\(.)'),
+  (m) => m.group(1) == 'n' ? '\n' : m.group(1)!,
+);

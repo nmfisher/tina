@@ -13,23 +13,24 @@ import 'package:test/test.dart';
 void main() {
   group('SettingsApplier quota seams', () {
     LiveQuotas quotas() => LiveQuotas(
-          RuntimeConfig(
-            maxTurnTokens: 1000,
-            maxSessionTokens: 2000,
-            maxRequestTokens: 3000,
-            maxSubAgentTokens: 4000,
-          ),
-          SpendLedger(maxGlobalTokens: 5000, requestsPerMinute: 6),
-        );
+      RuntimeConfig(
+        maxTurnTokens: 1000,
+        maxSessionTokens: 2000,
+        maxRequestTokens: 3000,
+        maxSubAgentTokens: 4000,
+      ),
+      SpendLedger(maxGlobalTokens: 5000, requestsPerMinute: 6),
+    );
 
     test('seedQuota merges live caps over the disk slice, keeping disk '
         'rate-limit knobs', () {
-      final applier =
-          SettingsApplier(registry: ProviderRegistry(), quotas: quotas());
-      final seeded = applier.seedQuota!(const LimitsConfig(
-        minRequestIntervalMs: 750,
-        maxConcurrentRequests: 2,
-      ));
+      final applier = SettingsApplier(
+        registry: ProviderRegistry(),
+        quotas: quotas(),
+      );
+      final seeded = applier.seedQuota!(
+        const LimitsConfig(minRequestIntervalMs: 750, maxConcurrentRequests: 2),
+      );
       expect(seeded.maxTurnTokens, 1000);
       expect(seeded.maxSessionTokens, 2000);
       expect(seeded.maxRequestTokens, 3000);
@@ -44,14 +45,16 @@ void main() {
     test('onQuotaSaved pushes saved caps into the live runtime', () {
       final q = quotas();
       final applier = SettingsApplier(registry: ProviderRegistry(), quotas: q);
-      applier.onQuotaSaved!(const LimitsConfig(
-        maxTurnTokens: 222,
-        maxSessionTokens: 333,
-        maxRequestTokens: 444,
-        maxSubAgentTokens: 555,
-        maxGlobalTokens: 666,
-        requestsPerMinute: 7,
-      ));
+      applier.onQuotaSaved!(
+        const LimitsConfig(
+          maxTurnTokens: 222,
+          maxSessionTokens: 333,
+          maxRequestTokens: 444,
+          maxSubAgentTokens: 555,
+          maxGlobalTokens: 666,
+          requestsPerMinute: 7,
+        ),
+      );
       expect(q.maxTurnTokens, 222);
       expect(q.maxSessionTokens, 333);
       expect(q.maxRequestTokens, 444);
@@ -78,14 +81,16 @@ void main() {
       // The panel round-trips the seeded config, so a real save always
       // carries all six caps (0 = unlimited) — matching the coordinator's
       // pre-refactor `!` assumptions.
-      applier.onQuotaSaved!(const LimitsConfig(
-        maxTurnTokens: 9,
-        maxSessionTokens: 0,
-        maxRequestTokens: 0,
-        maxSubAgentTokens: 0,
-        maxGlobalTokens: 0,
-        requestsPerMinute: 0,
-      ));
+      applier.onQuotaSaved!(
+        const LimitsConfig(
+          maxTurnTokens: 9,
+          maxSessionTokens: 0,
+          maxRequestTokens: 0,
+          maxSubAgentTokens: 0,
+          maxGlobalTokens: 0,
+          requestsPerMinute: 0,
+        ),
+      );
       expect(q.maxTurnTokens, 9);
       final report = applier.finish(null);
       expect(report.wroteConfig, isFalse);
@@ -112,17 +117,23 @@ void main() {
       final registry = ProviderRegistry()
         ..rateLimiter.minInterval = const Duration(milliseconds: 1000);
       final applier = SettingsApplier(registry: registry);
-      final report = applier
-          .finish(const UserConfig(limits: LimitsConfig(minRequestIntervalMs: 750)));
+      final report = applier.finish(
+        const UserConfig(limits: LimitsConfig(minRequestIntervalMs: 750)),
+      );
       expect(report.wroteConfig, isTrue);
       expect(report.quotaAppliedLive, isFalse);
       expect(report.quotaLiveApplies, isFalse);
       // The rate-limit knob from the written config landed on the live
       // registry — the apply-now promise in the message is real.
-      expect(registry.rateLimiter.minInterval,
-          const Duration(milliseconds: 750));
+      expect(
+        registry.rateLimiter.minInterval,
+        const Duration(milliseconds: 750),
+      );
       expect(report.message, contains('rate-limit changes apply now'));
-      expect(report.message, contains('quota and theme apply on the next launch'));
+      expect(
+        report.message,
+        contains('quota and theme apply on the next launch'),
+      );
     });
 
     test('live quotas present → quota-now wording', () {
@@ -141,9 +152,16 @@ void main() {
 
     test('rate-limit config warnings surface in the message', () {
       final applier = SettingsApplier(registry: ProviderRegistry());
-      final report = applier.finish(const UserConfig(providers: {
-        'glm': ProviderConfig(minRequestIntervalMs: 150, requestsPerMinute: 60),
-      }));
+      final report = applier.finish(
+        const UserConfig(
+          providers: {
+            'glm': ProviderConfig(
+              minRequestIntervalMs: 150,
+              requestsPerMinute: 60,
+            ),
+          },
+        ),
+      );
       expect(report.warnings, hasLength(1));
       expect(report.message, contains(report.warnings.single));
     });

@@ -71,7 +71,8 @@ void main() {
 
     test('surfaces provider SearchError as an error result', () async {
       final provider = FakeSearchProvider(
-        error: const SearchError('Brave rejected the API key (check BRAVE_API_KEY).',
+        error: const SearchError(
+            'Brave rejected the API key (check BRAVE_API_KEY).',
             statusCode: 401),
       );
       final tool = WebSearchTool(provider);

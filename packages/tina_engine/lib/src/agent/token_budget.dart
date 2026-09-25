@@ -116,9 +116,9 @@ class TokenBudget {
     this.sessionTotal = 0,
     this.turnEstimated = 0,
     this.sessionEstimated = 0,
-  }) : _perTurnLimit = perTurnLimit,
-       _perSessionLimit = perSessionLimit,
-       _perRequestInputLimit = perRequestInputLimit;
+  })  : _perTurnLimit = perTurnLimit,
+        _perSessionLimit = perSessionLimit,
+        _perRequestInputLimit = perRequestInputLimit;
 
   /// Copy with the given totals replaced. Preserve the caps or live cap source.
   TokenBudget _copyWith(
@@ -139,8 +139,7 @@ class TokenBudget {
 
   /// Zero the per-turn totals, keeping the session total. Called at the start
   /// of each `Agent.run`.
-  TokenBudget resetTurn() =>
-      _copyWith(turnTotal: 0, turnEstimated: 0);
+  TokenBudget resetTurn() => _copyWith(turnTotal: 0, turnEstimated: 0);
 
   /// Zero all totals. Called by `/clear` and after a per-session pause is
   /// resolved (Continue or Abort both reset, so the next turn starts clean).

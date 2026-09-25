@@ -79,8 +79,8 @@ void main() {
 
   Map<String, String> env() => {'HOME': home.path};
 
-  File cacheFile() => File(p.join(
-      home.path, '.tina', 'cache', 'models.dev.providers.json'));
+  File cacheFile() =>
+      File(p.join(home.path, '.tina', 'cache', 'models.dev.providers.json'));
 
   group('ModelsDevProviderCatalog.refresh', () {
     test('parses providers, credentials, base URLs and per-model metadata',
@@ -218,7 +218,8 @@ void main() {
       await catalog.loadFromCache();
 
       expect(catalog.providers, isEmpty);
-      expect(catalog.loadWarning, isNull, reason: 'parse failure is not a load failure');
+      expect(catalog.loadWarning, isNull,
+          reason: 'parse failure is not a load failure');
     });
   });
 }

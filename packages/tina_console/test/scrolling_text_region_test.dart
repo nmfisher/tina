@@ -27,7 +27,8 @@ void main() {
       // Bottom-aligned: first content lands on the last row of the region.
       final bottomRow = layout.chat.row + layout.chat.height - 1;
       final row = vt.rowText(bottomRow);
-      expect(row.substring(layout.chat.col, layout.chat.col + 11), 'hello world');
+      expect(
+          row.substring(layout.chat.col, layout.chat.col + 11), 'hello world');
     });
 
     test('newline advances to the next row', () {
@@ -49,15 +50,17 @@ void main() {
       final row1Screen = layout.chat.row + layout.chat.height - 1;
       // First row full of x.
       final row0 = vt.rowText(row0Screen);
-      expect(row0.substring(layout.chat.col, layout.chat.col + layout.chat.width),
+      expect(
+          row0.substring(layout.chat.col, layout.chat.col + layout.chat.width),
           'x' * layout.chat.width);
       // Five x's on the next row.
       final row1 = vt.rowText(row1Screen);
       expect(row1.substring(layout.chat.col, layout.chat.col + 5), 'x' * 5);
       // Right panel must be empty on both rows.
       for (final r in [row0Screen, row1Screen]) {
-        final right =
-            vt.rowText(r).substring(layout.infoLeftCol + 1, layout.infoRightCol);
+        final right = vt
+            .rowText(r)
+            .substring(layout.infoLeftCol + 1, layout.infoRightCol);
         expect(right.trim(), isEmpty);
       }
     });
@@ -66,8 +69,12 @@ void main() {
       // Write way more than width to ensure clipping is doing its job.
       screen.chat.write('z' * 5000);
       vt.feed(io.written.toString());
-      for (var r = layout.chat.row; r < layout.chat.row + layout.chat.height; r++) {
-        final right = vt.rowText(r).substring(layout.infoLeftCol + 1, layout.infoRightCol);
+      for (var r = layout.chat.row;
+          r < layout.chat.row + layout.chat.height;
+          r++) {
+        final right = vt
+            .rowText(r)
+            .substring(layout.infoLeftCol + 1, layout.infoRightCol);
         expect(right.trim(), isEmpty,
             reason: 'row $r: text leaked into right panel');
       }
@@ -93,13 +100,17 @@ void main() {
       for (var r = layout.chat.row;
           r < layout.chat.row + layout.chat.height;
           r++) {
-        final t = vt.rowText(r).substring(layout.chat.col, layout.dividerCol).trim();
+        final t =
+            vt.rowText(r).substring(layout.chat.col, layout.dividerCol).trim();
         if (t.isNotEmpty) found.add(t);
       }
       expect(found, contains(expectedText));
       // The last finished line sits exactly where bottom-alignment puts it.
       expect(
-        vt.rowText(lastLineRow).substring(layout.chat.col, layout.dividerCol).trim(),
+        vt
+            .rowText(lastLineRow)
+            .substring(layout.chat.col, layout.dividerCol)
+            .trim(),
         expectedText,
       );
       // First few lines must have scrolled out.
@@ -128,22 +139,26 @@ void main() {
       for (var r = small.chat.row;
           r < small.chat.row + small.chat.height;
           r++) {
-        final t = vt.rowText(r).substring(small.chat.col, small.chat.col + small.chat.width).trim();
+        final t = vt
+            .rowText(r)
+            .substring(small.chat.col, small.chat.col + small.chat.width)
+            .trim();
         if (t.isNotEmpty) seen.add(t);
       }
       // The most recent streamed lines survive the shrink.
       expect(seen, contains('streamed line 5'));
       expect(seen, contains('streamed line 4'));
       // Content is bottom-aligned: the tail sits on the last region row.
-      final lastRow =
-          small.chat.row + small.chat.height - 1;
+      final lastRow = small.chat.row + small.chat.height - 1;
       expect(
         vt.rowText(lastRow).substring(small.chat.col, small.chat.col + 15),
         'streamed line 5',
       );
     });
 
-    test('shrink mid-stream with a full buffer never merges two rows (tin-m2vq)', () {
+    test(
+        'shrink mid-stream with a full buffer never merges two rows (tin-m2vq)',
+        () {
       // Regression for the resize-storm merge: once the buffer is FULL (the
       // streaming steady state — lines have been scrolling), a height shrink
       // left the write cursor pointing at a row that already held content, so
@@ -180,7 +195,8 @@ void main() {
       }
       // No row may carry text from two streamed lines.
       for (final t in seen) {
-        final merges = RegExp(r'streamed line \d+streamed line \d+').allMatches(t);
+        final merges =
+            RegExp(r'streamed line \d+streamed line \d+').allMatches(t);
         expect(merges, isEmpty,
             reason: 'two streamed lines rendered on one row: "$t"');
       }
@@ -212,7 +228,8 @@ void main() {
         for (var r = layout.chat.row;
             r < layout.chat.row + layout.chat.height;
             r++) {
-          final t = vt.rowText(r)
+          final t = vt
+              .rowText(r)
               .substring(layout.chat.col, layout.dividerCol)
               .trim();
           if (t.isNotEmpty) seen.add(t);
@@ -265,7 +282,8 @@ void main() {
       expect(chatRowText(barRelRow).length, layout.chat.width);
     });
 
-    test('writeStyledLine bar survives a leaked reset from a prior colorized line',
+    test(
+        'writeStyledLine bar survives a leaked reset from a prior colorized line',
         () {
       // dim('banner\n') wraps as \x1b[2mbanner\n\x1b[0m: the closing reset
       // lands on the NEXT row (after the newline). The user message then
@@ -281,7 +299,8 @@ void main() {
           reason: 'no bare reset between the bar SGR and the text');
     });
 
-    test('beginStyle+appendStyled renders default-fg text with no background bar',
+    test(
+        'beginStyle+appendStyled renders default-fg text with no background bar',
         () {
       screen.chat.beginStyle('39');
       screen.chat.appendStyled('hello\n');
@@ -312,7 +331,8 @@ void main() {
       expect(chatRowText(contentRow).substring(7).trim(), isEmpty);
     });
 
-    test('a wrapped beginStyle message colors every wrapped row default-fg', () {
+    test('a wrapped beginStyle message colors every wrapped row default-fg',
+        () {
       final long = 'x' * (layout.chat.width + 5);
       screen.chat.beginStyle('39');
       screen.chat.appendStyled('$long\n');
@@ -323,7 +343,8 @@ void main() {
       expect(out, contains('\x1b[39m'));
       final row0 = layout.chat.height - 2;
       final row1 = layout.chat.height - 1;
-      expect(chatRowText(row0).substring(0, layout.chat.width), 'x' * layout.chat.width);
+      expect(chatRowText(row0).substring(0, layout.chat.width),
+          'x' * layout.chat.width);
       expect(chatRowText(row1).substring(0, 5), 'x' * 5);
       expect(chatRowText(row1).substring(5).trim(), isEmpty);
     });
@@ -385,7 +406,8 @@ void main() {
             screen.chat.appendStyled('Hi there!\n');
           }),
           'agent');
-      expect(styleOf('bye', () => screen.chat.writeStyledLine('bye', '7')), 'user',
+      expect(
+          styleOf('bye', () => screen.chat.writeStyledLine('bye', '7')), 'user',
           reason: 'a user message after an agent turn must be a user bar');
       expect(
           styleOf('See you!', () {
@@ -482,7 +504,9 @@ void main() {
       // Both the original row and the buffered content should be visible.
       var foundVisible = false;
       var foundBuffered = false;
-      for (var r = layout.chat.row; r < layout.chat.row + layout.chat.height; r++) {
+      for (var r = layout.chat.row;
+          r < layout.chat.row + layout.chat.height;
+          r++) {
         final row = vt.rowText(r);
         if (row.contains('visible')) foundVisible = true;
         if (row.contains('buffered')) foundBuffered = true;
@@ -505,7 +529,9 @@ void main() {
 
       var foundFirst = false;
       var foundSecond = false;
-      for (var r = layout.chat.row; r < layout.chat.row + layout.chat.height; r++) {
+      for (var r = layout.chat.row;
+          r < layout.chat.row + layout.chat.height;
+          r++) {
         final row = vt.rowText(r);
         if (row.contains('first')) foundFirst = true;
         if (row.contains('second')) foundSecond = true;
@@ -525,7 +551,9 @@ void main() {
       vt.feed(io.written.toString());
 
       // Chat area should be empty (no 'buffered stuff').
-      for (var r = layout.chat.row; r < layout.chat.row + layout.chat.height; r++) {
+      for (var r = layout.chat.row;
+          r < layout.chat.row + layout.chat.height;
+          r++) {
         final row = vt.rowText(r).substring(layout.chat.col, layout.dividerCol);
         expect(row.trim(), isEmpty);
       }
@@ -546,7 +574,8 @@ void main() {
       expect(screen.chat.isDetached, isTrue);
     });
 
-    test('writing after grow-while-detached + attach does not overflow rows', () {
+    test('writing after grow-while-detached + attach does not overflow rows',
+        () {
       // Fill past the chat height so the row buffer is full and the cursor
       // sits on the last row.
       for (var i = 0; i < layout.chat.height + 2; i++) {
@@ -573,7 +602,9 @@ void main() {
       final bigVt = VirtualTerminal(width: 100, height: 48);
       bigVt.feed(io.written.toString());
       var found = false;
-      for (var r = bigger.chat.row; r < bigger.chat.row + bigger.chat.height; r++) {
+      for (var r = bigger.chat.row;
+          r < bigger.chat.row + bigger.chat.height;
+          r++) {
         if (bigVt.rowText(r).contains('post 9')) found = true;
       }
       expect(found, isTrue);
@@ -616,7 +647,8 @@ void main() {
       vt.feed(io.written.toString());
       io.written.clear();
 
-      final region = ScrollingTextRegion(screen, bounds: const Rect(row: 2, col: 50, width: 10, height: 3));
+      final region = ScrollingTextRegion(screen,
+          bounds: const Rect(row: 2, col: 50, width: 10, height: 3));
       region.write('first\n');
       region.setBounds(const Rect(row: 10, col: 70, width: 12, height: 4));
       region.write('second');

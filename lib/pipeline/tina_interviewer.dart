@@ -35,8 +35,11 @@ class TinaInterviewer implements Interviewer {
     if (!_interactive) return const HeadlessInterviewer().ask(question);
     final queue = attentionQueue;
     if (queue == null) return _ask(question);
-    return queue.run(() => _ask(question),
-        onCancel: () => const Answer.cancelled(), onQueued: _notifyQueued);
+    return queue.run(
+      () => _ask(question),
+      onCancel: () => const Answer.cancelled(),
+      onQueued: _notifyQueued,
+    );
   }
 
   Future<Answer> _ask(Question question) async {
@@ -103,7 +106,11 @@ class TinaInterviewer implements Interviewer {
   }
 
   Future<Answer> _freeform(Question q) async {
-    final text = await runTextInputOverlay(screen: screen!, editor: editor!, prompt: q.text);
+    final text = await runTextInputOverlay(
+      screen: screen!,
+      editor: editor!,
+      prompt: q.text,
+    );
     if (text == null) return const Answer.cancelled();
     return Answer(text: text, value: text);
   }

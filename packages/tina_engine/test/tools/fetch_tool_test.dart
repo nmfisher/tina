@@ -46,8 +46,7 @@ void main() {
       expect(req.headers['accept'], contains('text/html'));
     });
 
-    test('non-html content-type is returned as-is, not converted',
-        () async {
+    test('non-html content-type is returned as-is, not converted', () async {
       final client = RecordingClient(
         body: '{"k": "v"}',
         contentType: 'application/json',
@@ -86,8 +85,8 @@ void main() {
         body: '<p>${'lorem ipsum ' * 500}</p>',
       );
       final tool = FetchTool(client: client);
-      final r = await tool.execute(
-          {'url': 'https://example.com/big', 'max_chars': 100});
+      final r = await tool
+          .execute({'url': 'https://example.com/big', 'max_chars': 100});
       expect(r.isError, isFalse);
       expect(r.content, contains('truncated'));
       expect(r.content.length, lessThanOrEqualTo(200));

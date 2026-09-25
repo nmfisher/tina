@@ -23,8 +23,7 @@ class _ClosableProvider extends LlmProvider {
   int calls = 0;
   bool closed = false;
 
-  _ClosableProvider(this.responses, {String model = 'member'})
-      : super(model);
+  _ClosableProvider(this.responses, {String model = 'member'}) : super(model);
 
   @override
   Stream<StreamEvent> send({
@@ -64,7 +63,8 @@ void main() {
       expect(c.calls, 2, reason: 'member c served sends 2 and 5');
     });
 
-    test('a before-content failure fails over; the member cools down', () async {
+    test('a before-content failure fails over; the member cools down',
+        () async {
       final a = _ClosableProvider([
         [const StreamError('NIM 429: Too Many Requests', statusCode: 429)],
         _ok, // recovered — consumed once the cooldown elapses
@@ -87,23 +87,19 @@ void main() {
       expect(b.calls, 1, reason: 'b picked up the failed send');
 
       // Send 2: rotation continues at c.
-      await _drain(
-          pool.send(system: 's', messages: const [], tools: const []));
+      await _drain(pool.send(system: 's', messages: const [], tools: const []));
       expect(c.calls, 1);
 
       // Send 3: rotation reaches a — still cooling, so b serves again.
-      await _drain(
-          pool.send(system: 's', messages: const [], tools: const []));
+      await _drain(pool.send(system: 's', messages: const [], tools: const []));
       expect(a.calls, 1, reason: 'a is skipped while cooling');
       expect(b.calls, 2);
 
       // Cooldown elapses; the rotation reaches a again and it serves.
       await Future<void>.delayed(const Duration(milliseconds: 60));
-      await _drain(
-          pool.send(system: 's', messages: const [], tools: const []));
+      await _drain(pool.send(system: 's', messages: const [], tools: const []));
       expect(c.calls, 2);
-      await _drain(
-          pool.send(system: 's', messages: const [], tools: const []));
+      await _drain(pool.send(system: 's', messages: const [], tools: const []));
       expect(a.calls, 2, reason: 'a serves again once its cooldown lapses');
     });
 
@@ -149,7 +145,10 @@ void main() {
 
     test('a member notice does not prevent before-content failover', () async {
       final a = _ClosableProvider([
-        [const StreamNotice('connecting'), const StreamError('unavailable', transient: true)],
+        [
+          const StreamNotice('connecting'),
+          const StreamError('unavailable', transient: true)
+        ],
       ]);
       final b = _ClosableProvider([_ok]);
       final events = await PooledProvider([a, b])
@@ -162,17 +161,24 @@ void main() {
 
     test('whitespace-only completions also trigger pool failover', () async {
       final a = _ClosableProvider([
-        [const MessageComplete(content: [TextBlock(' \n')], stopReason: 'stop')],
+        [
+          const MessageComplete(content: [TextBlock(' \n')], stopReason: 'stop')
+        ],
       ]);
       final b = _ClosableProvider([_ok]);
       final events = await PooledProvider([a, b])
           .send(system: 's', messages: [], tools: []).toList();
       expect(b.calls, 1);
       expect(events.whereType<StreamError>(), isEmpty);
-      expect((events.whereType<MessageComplete>().single.content.single as TextBlock).text, 'served');
+      expect(
+          (events.whereType<MessageComplete>().single.content.single
+                  as TextBlock)
+              .text,
+          'served');
     });
 
-    test('every member returning an empty completion surfaces an error', () async {
+    test('every member returning an empty completion surfaces an error',
+        () async {
       final a = _ClosableProvider([
         [const MessageComplete(content: [], stopReason: 'end_turn')],
       ]);
@@ -194,7 +200,10 @@ void main() {
 
     test('a failure after content started surfaces — no failover', () async {
       final a = _ClosableProvider([
-        [const TextDelta('partial'), const StreamError('cut off', statusCode: 429)],
+        [
+          const TextDelta('partial'),
+          const StreamError('cut off', statusCode: 429)
+        ],
       ]);
       final b = _ClosableProvider([_ok]);
       final pool = PooledProvider([a, b]);
@@ -203,7 +212,8 @@ void main() {
           pool.send(system: 's', messages: const [], tools: const []));
 
       expect(b.calls, 0,
-          reason: 'no member is touched — failing over would duplicate the partial content');
+          reason:
+              'no member is touched — failing over would duplicate the partial content');
       expect(events.whereType<TextDelta>().single.text, 'partial');
       expect(events.whereType<StreamError>().single.statusCode, 429);
     });
@@ -267,9 +277,8 @@ void main() {
       );
       final pool = PooledProvider([hold]);
 
-      final sub = pool
-          .send(system: 's', messages: const [], tools: const [])
-          .listen((_) {});
+      final sub = pool.send(
+          system: 's', messages: const [], tools: const []).listen((_) {});
       await Future<void>.delayed(const Duration(milliseconds: 20));
       await sub.cancel();
       await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -289,8 +298,7 @@ void main() {
       expect(b.closed, isTrue);
     });
 
-    test('a model swap reaches every member (the pool stays equivalent)',
-        () {
+    test('a model swap reaches every member (the pool stays equivalent)', () {
       final a = _ClosableProvider([_ok], model: 'm1');
       final b = _ClosableProvider([_ok], model: 'm1');
       final pool = PooledProvider([a, b]);
@@ -311,8 +319,7 @@ void main() {
       Wire.onWireEvent = (s) => events.add(s.event);
       final pool = PooledProvider([_HangingMember(), _HangingMember()]);
       final sub = pool
-          .send(system: 's', messages: const [], tools: const [])
-          .listen(null);
+          .send(system: 's', messages: const [], tools: const []).listen(null);
       await Future<void>.delayed(const Duration(milliseconds: 10));
       await sub.cancel();
       await Future<void>.delayed(const Duration(milliseconds: 30));

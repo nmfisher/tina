@@ -37,6 +37,7 @@ Future<UserConfig?> runSetupOverlay({
 // -- Step & constants -------------------------------------------------------
 
 enum _Step { providers, heavy, limits, theme, confirm }
+
 enum _Result { changed, wrote, cancelled }
 
 const _checkOff = '☐';
@@ -58,8 +59,12 @@ class _Row {
   /// [emptyModels] is a sentinel — true only for the placeholder row that
   /// replaces the separator when a provider has no known models.
   final bool emptyModels;
-  const _Row(this.type, this.providerIndex, this.modelIndex,
-      {this.emptyModels = false});
+  const _Row(
+    this.type,
+    this.providerIndex,
+    this.modelIndex, {
+    this.emptyModels = false,
+  });
 }
 
 // -- Form class -------------------------------------------------------------
@@ -110,7 +115,8 @@ class _SetupForm {
   final _baseUrls = <String, String>{};
   final Map<String, ProviderConfig>? _initialProviders;
   final _expanded = <String>{}; // provider ids whose sub-items are visible
-  final _disabledModels = <String>{}; // "provider/model" refs the user unchecked
+  final _disabledModels =
+      <String>{}; // "provider/model" refs the user unchecked
   int _focus = 0;
   int _scrollOffset = 0; // first visible row index in the providers tree
 
@@ -369,10 +375,10 @@ class _SetupForm {
 
   /// All `"provider/model"` refs from checked providers, in registry order.
   List<String> _candidates() => [
-        for (final id in _providerIds)
-          if (_checked.contains(id))
-            for (final m in _registry.modelsFor(id)) '$id/${m.id}',
-      ];
+    for (final id in _providerIds)
+      if (_checked.contains(id))
+        for (final m in _registry.modelsFor(id)) '$id/${m.id}',
+  ];
 
   void _enterHeavyStep() {
     _modelOptions = _candidates();
@@ -630,8 +636,8 @@ class _SetupForm {
             // Not edited here; carry through so the write can't drop it.
             minRequestIntervalMs:
                 (_initialLimits ?? const LimitsConfig()).minRequestIntervalMs,
-            maxConcurrentRequests: (_initialLimits ?? const LimitsConfig())
-                .maxConcurrentRequests,
+            maxConcurrentRequests:
+                (_initialLimits ?? const LimitsConfig()).maxConcurrentRequests,
           )
         : null;
     final filteredKeys = <String, String>{
@@ -708,8 +714,10 @@ class _SetupForm {
         return [
           'Token limits (0 = unlimited):',
           for (var i = 0; i < _limitIds.length; i++)
-            _row(i == _limitFocus,
-                '${_limitLabels[i]}: ${_limitValues[_limitIds[i]]}'),
+            _row(
+              i == _limitFocus,
+              '${_limitLabels[i]}: ${_limitValues[_limitIds[i]]}',
+            ),
         ];
       case _Step.confirm:
         return _confirmBody();
@@ -733,8 +741,11 @@ class _SetupForm {
       _row(false, 'default:  ${_heavy ?? "(none)"}'),
       _row(false, 'theme:    $_themeLabel'),
       for (final id in _checked)
-        _row(false, '$id: ${_keys.containsKey(id) ? "key set" : "no key"}'
-            '${_baseUrls.containsKey(id) ? " + custom base URL" : ""}'),
+        _row(
+          false,
+          '$id: ${_keys.containsKey(id) ? "key set" : "no key"}'
+          '${_baseUrls.containsKey(id) ? " + custom base URL" : ""}',
+        ),
       if (_showLimits && _limitIds.isNotEmpty)
         for (var i = 0; i < _limitIds.length; i++)
           _row(false, '${_limitLabels[i]}: ${_limitValues[_limitIds[i]]}'),
@@ -771,8 +782,9 @@ class _SetupForm {
           final id = _providerIds[r.providerIndex];
           final k = _keys[id] ?? '';
           final cursor = focused ? '_' : ' ';
-          lines.add(_row(focused,
-              '${_indent}API key: ${'*' * k.length}$cursor'));
+          lines.add(
+            _row(focused, '${_indent}API key: ${'*' * k.length}$cursor'),
+          );
         case _RowType.url:
           final id = _providerIds[r.providerIndex];
           final u = _baseUrls[id] ?? '';
@@ -790,8 +802,9 @@ class _SetupForm {
           if (r.modelIndex! < models.length) {
             final ref = '$id/${models[r.modelIndex!].id}';
             final check = _disabledModels.contains(ref) ? _checkOff : _checkOn;
-            lines.add(_row(focused,
-                '${_indent}$check ${models[r.modelIndex!].name}'));
+            lines.add(
+              _row(focused, '${_indent}$check ${models[r.modelIndex!].name}'),
+            );
           }
       }
     }
@@ -850,8 +863,9 @@ class _SetupForm {
     }
 
     final titleSeg = ' $title ';
-    final titleFit =
-        titleSeg.length > w - 2 ? titleSeg.substring(0, w - 2) : titleSeg;
+    final titleFit = titleSeg.length > w - 2
+        ? titleSeg.substring(0, w - 2)
+        : titleSeg;
     final lines = <String>[
       '┌$titleFit${'─' * (w - 2 - titleFit.length)}┐',
       ...body.map(wrap),

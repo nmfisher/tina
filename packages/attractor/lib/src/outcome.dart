@@ -57,7 +57,8 @@ enum StageStatus {
   }
 
   /// Whether this counts as "succeeded" for goal-gate and routing purposes.
-  bool get isOk => this == StageStatus.success || this == StageStatus.partialSuccess;
+  bool get isOk =>
+      this == StageStatus.success || this == StageStatus.partialSuccess;
 }
 
 /// The result of executing a node handler. The engine applies
@@ -107,50 +108,49 @@ class Outcome {
     String notes = '',
     String text = '',
   }) : this(
-          status: StageStatus.success,
-          preferredLabel: preferredLabel,
-          suggestedNextIds: suggestedNextIds,
-          contextUpdates: contextUpdates,
-          notes: notes,
-          text: text,
-        );
+         status: StageStatus.success,
+         preferredLabel: preferredLabel,
+         suggestedNextIds: suggestedNextIds,
+         contextUpdates: contextUpdates,
+         notes: notes,
+         text: text,
+       );
 
   const Outcome.fail(String this.failureReason, {String notes = ''})
-      : status = StageStatus.fail,
-        preferredLabel = null,
-        suggestedNextIds = const [],
-        contextUpdates = const {},
-        this.notes = notes,
-        text = '';
+    : status = StageStatus.fail,
+      preferredLabel = null,
+      suggestedNextIds = const [],
+      contextUpdates = const {},
+      this.notes = notes,
+      text = '';
 
   const Outcome.retry(String reason)
-      : status = StageStatus.retry,
-        failureReason = reason,
-        preferredLabel = null,
-        suggestedNextIds = const [],
-        contextUpdates = const {},
-        notes = '',
-        text = '';
+    : status = StageStatus.retry,
+      failureReason = reason,
+      preferredLabel = null,
+      suggestedNextIds = const [],
+      contextUpdates = const {},
+      notes = '',
+      text = '';
 
   Outcome copyWith({StageStatus? status, String? preferredLabel}) => Outcome(
-        status: status ?? this.status,
-        preferredLabel: preferredLabel ?? this.preferredLabel,
-        suggestedNextIds: suggestedNextIds,
-        contextUpdates: contextUpdates,
-        notes: notes,
-        failureReason: failureReason,
-        text: text,
-      );
+    status: status ?? this.status,
+    preferredLabel: preferredLabel ?? this.preferredLabel,
+    suggestedNextIds: suggestedNextIds,
+    contextUpdates: contextUpdates,
+    notes: notes,
+    failureReason: failureReason,
+    text: text,
+  );
 
   Map<String, dynamic> toJson() => {
-        'outcome': status.wire,
-        if (preferredLabel != null && preferredLabel!.isNotEmpty)
-          'preferred_label': preferredLabel,
-        if (suggestedNextIds.isNotEmpty)
-          'suggested_next_ids': suggestedNextIds,
-        if (contextUpdates.isNotEmpty) 'context_updates': contextUpdates,
-        if (notes.isNotEmpty) 'notes': notes,
-        if (failureReason.isNotEmpty) 'failure_reason': failureReason,
-        if (text.isNotEmpty) 'text': text,
-      };
+    'outcome': status.wire,
+    if (preferredLabel != null && preferredLabel!.isNotEmpty)
+      'preferred_label': preferredLabel,
+    if (suggestedNextIds.isNotEmpty) 'suggested_next_ids': suggestedNextIds,
+    if (contextUpdates.isNotEmpty) 'context_updates': contextUpdates,
+    if (notes.isNotEmpty) 'notes': notes,
+    if (failureReason.isNotEmpty) 'failure_reason': failureReason,
+    if (text.isNotEmpty) 'text': text,
+  };
 }

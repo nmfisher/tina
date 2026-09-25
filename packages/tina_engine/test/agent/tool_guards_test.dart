@@ -10,8 +10,8 @@ void main() {
     test('runs guards in order and the FIRST non-null block wins', () {
       final first = _ScriptedGuard({'bash': 'first says no'});
       final second = _ScriptedGuard({'bash': 'second says no'});
-      final block = combineGuardBlocks(
-          [first, second], 'bash', const {'command': 'ls'});
+      final block =
+          combineGuardBlocks([first, second], 'bash', const {'command': 'ls'});
       expect(block, 'first says no');
       // The first guard's denial short-circuits: later guards are not even
       // consulted.
@@ -21,8 +21,8 @@ void main() {
     test('a later guard runs (and can deny) when earlier guards allow', () {
       final first = _ScriptedGuard(const {});
       final second = _ScriptedGuard({'bash': 'second says no'});
-      final block = combineGuardBlocks(
-          [first, second], 'bash', const {'command': 'ls'});
+      final block =
+          combineGuardBlocks([first, second], 'bash', const {'command': 'ls'});
       expect(block, 'second says no');
       expect(first.calls, ['bash']);
     });
@@ -73,8 +73,7 @@ void main() {
         ]),
         sink: FakeAgentSink(),
         system: 'sys',
-        policy: PermissionPolicy(
-            defaults: {'bash': PermissionDecision.allow}),
+        policy: PermissionPolicy(defaults: {'bash': PermissionDecision.allow}),
         asker: (prompt) async {
           asked.add(prompt);
           return PermissionResponse.denyOnce;
@@ -151,9 +150,11 @@ void main() {
       // FIRST non-null block wins: the policy guard runs before the extra
       // guard, so its denial text (not the guard's) becomes the result — and
       // the extra guard is never consulted.
-      expect(result.content, policy.executionBlock('bash', const {
-        'command': 'ls',
-      }));
+      expect(
+          result.content,
+          policy.executionBlock('bash', const {
+            'command': 'ls',
+          }));
       expect(guard.calls, isEmpty);
       expect(asked, isEmpty, reason: 'a static deny never reaches the asker');
     });
@@ -186,8 +187,7 @@ void main() {
         ]),
         sink: FakeAgentSink(),
         system: 'sys',
-        policy: PermissionPolicy(
-            defaults: {'bash': PermissionDecision.allow}),
+        policy: PermissionPolicy(defaults: {'bash': PermissionDecision.allow}),
         asker: (prompt) async {
           asked.add(prompt);
           return PermissionResponse.denyOnce;

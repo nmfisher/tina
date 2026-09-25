@@ -67,7 +67,8 @@ class HeadlessHost with HostLifecycleAdapter implements HostInterface {
       _writeErr('${p.toolName}: ${p.key}\n${p.accessDescription}  refused\n');
       return const PermissionResponse(PermissionDecision.deny,
           decidedBy: 'headless',
-          note: '$note Outside-sandbox execution was not approved automatically, '
+          note:
+              '$note Outside-sandbox execution was not approved automatically, '
               'and interactive approval is unavailable.');
     }
     if (p.sandboxAccess != null) {

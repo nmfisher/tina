@@ -26,10 +26,12 @@ Future<void> main(List<String> args) async {
   final guard = TerminalReplyGuard()..prepare();
   nc.NotCurses ncs;
   try {
-    ncs = nc.NotCurses(nc.CursesOptions(
-      loglevel: nc.LogLevel.error,
-      flags: nc.OptionFlags.suppressBanners,
-    ));
+    ncs = nc.NotCurses(
+      nc.CursesOptions(
+        loglevel: nc.LogLevel.error,
+        flags: nc.OptionFlags.suppressBanners,
+      ),
+    );
   } finally {
     guard.finishInit();
   }
@@ -70,8 +72,10 @@ Future<void> main(List<String> args) async {
     } else {
       name = 'id';
     }
-    logLine('pump: $name id=0x${id.toRadixString(16)} '
-        'mods=$mods${alt ? ' ALT' : ''}${ctrl ? ' CTRL' : ''}${shift ? ' SHIFT' : ''}');
+    logLine(
+      'pump: $name id=0x${id.toRadixString(16)} '
+      'mods=$mods${alt ? ' ALT' : ''}${ctrl ? ' CTRL' : ''}${shift ? ' SHIFT' : ''}',
+    );
 
     if (id == 0x71 && mods == 0) done = true; // plain 'q'
     if (id == 0x03) done = true; // Ctrl-C

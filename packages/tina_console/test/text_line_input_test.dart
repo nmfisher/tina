@@ -233,8 +233,7 @@ void main() {
       expect(edit.toDisplay(), '[Pasted text : 25 chars]');
     });
 
-    test('short multi-line paste flattens whitespace for the single line',
-        () {
+    test('short multi-line paste flattens whitespace for the single line', () {
       edit = edit.addPaste('line1\nline2\t!');
       final display = edit.toDisplay();
       expect(display, 'line1 line2 !',

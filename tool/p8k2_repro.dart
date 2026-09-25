@@ -59,9 +59,11 @@ class _LoggingSurface implements BackendSurface {
     required bool moveCursor,
     int? clearCells,
   }) {
-    _s('putAt(rel=$relRow,$relCol maxCols=$maxCols len=${text.length} '
-        'clear=$clearCells zwj=${text.contains('‍')} '
-        'esc=${text.contains('\x1b')})');
+    _s(
+      'putAt(rel=$relRow,$relCol maxCols=$maxCols len=${text.length} '
+      'clear=$clearCells zwj=${text.contains('‍')} '
+      'esc=${text.contains('\x1b')})',
+    );
     inner.putAt(
       relRow: relRow,
       relCol: relCol,
@@ -217,8 +219,7 @@ Future<void> main(List<String> argv) async {
   InputLatency.forceEnable();
   final trace = File('/tmp/p8k2_surface.log').openWrite();
   final io = const LiveStdio();
-  final backend =
-      _LoggingBackend(NotcursesBackend.create(io: io), trace);
+  final backend = _LoggingBackend(NotcursesBackend.create(io: io), trace);
   final layout = ScreenLayout.fromSize(cols, rows, split: cols >= 100);
   final screen = Screen.withBackend(
     backend: backend,
@@ -238,8 +239,9 @@ Future<void> main(List<String> argv) async {
     conversationId: 'c1',
   )..setReservesInput(true);
   frame.setOuter(Rect(row: 0, col: 0, width: chatWidth, height: rows));
-  ChatRegionPanelContent(screen.chat)
-      .fit(frame.interior, reserveInputRow: frame.reservesInput);
+  ChatRegionPanelContent(
+    screen.chat,
+  ).fit(frame.interior, reserveInputRow: frame.reservesInput);
   await Future.delayed(const Duration(milliseconds: 50));
 
   screen.input.render(prompt: '> ', buffer: '', cursor: 0);

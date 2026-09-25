@@ -78,15 +78,15 @@ class SettingsApplier {
       quotas == null ? null : (saved) => _seed(saved);
 
   LimitsConfig _seed(LimitsConfig saved) => LimitsConfig(
-        maxTurnTokens: quotas!.maxTurnTokens,
-        maxSessionTokens: quotas!.maxSessionTokens,
-        maxRequestTokens: quotas!.maxRequestTokens,
-        maxSubAgentTokens: quotas!.maxSubAgentTokens,
-        maxGlobalTokens: quotas!.maxGlobalTokens,
-        requestsPerMinute: quotas!.requestsPerMinute,
-        minRequestIntervalMs: saved.minRequestIntervalMs,
-        maxConcurrentRequests: saved.maxConcurrentRequests,
-      );
+    maxTurnTokens: quotas!.maxTurnTokens,
+    maxSessionTokens: quotas!.maxSessionTokens,
+    maxRequestTokens: quotas!.maxRequestTokens,
+    maxSubAgentTokens: quotas!.maxSubAgentTokens,
+    maxGlobalTokens: quotas!.maxGlobalTokens,
+    requestsPerMinute: quotas!.requestsPerMinute,
+    minRequestIntervalMs: saved.minRequestIntervalMs,
+    maxConcurrentRequests: saved.maxConcurrentRequests,
+  );
 
   /// Panel output seam (`onQuotaSaved`): push the saved caps into the live
   /// runtime so they govern existing and newly created agents without a
@@ -115,8 +115,9 @@ class SettingsApplier {
   /// still wait for the next launch (the report's message says which is
   /// which).
   SettingsSaveReport finish(UserConfig? written) {
-    final warnings =
-        written == null ? const <String>[] : applyRateLimitConfig(registry, written);
+    final warnings = written == null
+        ? const <String>[]
+        : applyRateLimitConfig(registry, written);
     return SettingsSaveReport(
       wroteConfig: written != null,
       quotaAppliedLive: _quotaSaved,

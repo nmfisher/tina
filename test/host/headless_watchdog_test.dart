@@ -17,27 +17,26 @@ Future<void> _pump() => Future<void>.delayed(Duration.zero);
 
 void main() {
   group('HeadlessWatchdog', () {
-    test('fires exactly once when the timeout expires, with the diagnostic',
-        () async {
-      final fired = <String>[];
-      final w = HeadlessWatchdog(
-        timeout: Duration.zero,
-        onFire: fired.add,
-      );
-      w.start();
-      await _pump();
-      await _pump();
-      expect(fired, hasLength(1));
-      expect(fired.single, startsWith('[watchdog] no agent activity for 0s'));
-      expect(fired.single, contains('last event: none'));
-      expect(fired.single, contains('never resolves'));
-      // Fire-once: later pumps (or records) never fire it again.
-      w.record('ToolAgentEvent');
-      await _pump();
-      await _pump();
-      expect(fired, hasLength(1));
-      expect(w.fired, isTrue);
-    });
+    test(
+      'fires exactly once when the timeout expires, with the diagnostic',
+      () async {
+        final fired = <String>[];
+        final w = HeadlessWatchdog(timeout: Duration.zero, onFire: fired.add);
+        w.start();
+        await _pump();
+        await _pump();
+        expect(fired, hasLength(1));
+        expect(fired.single, startsWith('[watchdog] no agent activity for 0s'));
+        expect(fired.single, contains('last event: none'));
+        expect(fired.single, contains('never resolves'));
+        // Fire-once: later pumps (or records) never fire it again.
+        w.record('ToolAgentEvent');
+        await _pump();
+        await _pump();
+        expect(fired, hasLength(1));
+        expect(w.fired, isTrue);
+      },
+    );
 
     test('record() resets the idle clock so checkIdle does not expire', () {
       final clock = _Clock();
@@ -59,28 +58,24 @@ void main() {
       w.dispose();
     });
 
-    test('the diagnostic names the last event, its age, and the event count',
-        () async {
-      final fired = <String>[];
-      final w = HeadlessWatchdog(
-        timeout: Duration.zero,
-        onFire: fired.add,
-      );
-      w.record('AssistantAgentEvent');
-      w.record('ToolAgentEvent');
-      await _pump();
-      expect(fired, hasLength(1));
-      expect(fired.single, contains('last event: ToolAgentEvent'));
-      expect(fired.single, contains('total events: 2'));
-      expect(fired.single, contains('at +0s'));
-    });
+    test(
+      'the diagnostic names the last event, its age, and the event count',
+      () async {
+        final fired = <String>[];
+        final w = HeadlessWatchdog(timeout: Duration.zero, onFire: fired.add);
+        w.record('AssistantAgentEvent');
+        w.record('ToolAgentEvent');
+        await _pump();
+        expect(fired, hasLength(1));
+        expect(fired.single, contains('last event: ToolAgentEvent'));
+        expect(fired.single, contains('total events: 2'));
+        expect(fired.single, contains('at +0s'));
+      },
+    );
 
     test('dispose() cancels a pending timer', () async {
       final fired = <String>[];
-      final w = HeadlessWatchdog(
-        timeout: Duration.zero,
-        onFire: fired.add,
-      );
+      final w = HeadlessWatchdog(timeout: Duration.zero, onFire: fired.add);
       w.start();
       w.dispose();
       await _pump();

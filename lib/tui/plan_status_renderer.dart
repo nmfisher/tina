@@ -18,10 +18,7 @@ class PlanStatusRenderer extends Renderer<PlanSummary> {
     ];
     return [
       RenderLine(
-        runs: [
-          RenderRun('plan: ', dim),
-          RenderRun(parts.join(' · '), null),
-        ],
+        runs: [RenderRun('plan: ', dim), RenderRun(parts.join(' · '), null)],
       ),
     ];
   }

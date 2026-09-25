@@ -27,8 +27,11 @@ void main() {
   void expectSelectionMoved(String before, String after, String title) {
     final beforeBox = lastFrame(before, title).indexOf('╔');
     final afterBox = lastFrame(after, title).indexOf('╔');
-    expect(afterBox, isNot(beforeBox),
-        reason: 'selection highlight did not move on screen');
+    expect(
+      afterBox,
+      isNot(beforeBox),
+      reason: 'selection highlight did not move on screen',
+    );
   }
 
   test('arrows cycle selection via canned events', () async {
@@ -58,32 +61,38 @@ void main() {
     expect(saved, isFalse);
   });
 
-  test('arrows cycle selection on the seeded default workflow (back-edge)',
-      () async {
-    final screen = fakeScreen(columns: 100, lines: 30);
-    final graph = parseDot(kDefaultWorkflowDotSource);
-    final editor = LineEditor(screen: screen);
-    final future = runWorkflowEditor(
-      screen: screen,
-      editor: editor,
-      graph: graph,
-      name: 'default',
-      pipeline: defaultPipeline,
-      workflowsDir: Directory.systemTemp,
-    ).timeout(overlayTimeout);
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    final before = (screen.io as dynamic).written.toString();
-    for (var i = 0; i < 4; i++) {
-      editor.inject(ArrowKey(ArrowDirection.right));
-      await Future<void>.delayed(const Duration(milliseconds: 150));
-    }
-    final after = (screen.io as dynamic).written.toString();
-    editor.inject(EscapeKey());
-    final saved = await future;
-    expect(saved, isFalse);
-    expect(after, isNot(before), reason: 'arrow keys did not move the selection');
-    expectSelectionMoved(before, after, 'default');
-  });
+  test(
+    'arrows cycle selection on the seeded default workflow (back-edge)',
+    () async {
+      final screen = fakeScreen(columns: 100, lines: 30);
+      final graph = parseDot(kDefaultWorkflowDotSource);
+      final editor = LineEditor(screen: screen);
+      final future = runWorkflowEditor(
+        screen: screen,
+        editor: editor,
+        graph: graph,
+        name: 'default',
+        pipeline: defaultPipeline,
+        workflowsDir: Directory.systemTemp,
+      ).timeout(overlayTimeout);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      final before = (screen.io as dynamic).written.toString();
+      for (var i = 0; i < 4; i++) {
+        editor.inject(ArrowKey(ArrowDirection.right));
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+      }
+      final after = (screen.io as dynamic).written.toString();
+      editor.inject(EscapeKey());
+      final saved = await future;
+      expect(saved, isFalse);
+      expect(
+        after,
+        isNot(before),
+        reason: 'arrow keys did not move the selection',
+      );
+      expectSelectionMoved(before, after, 'default');
+    },
+  );
 
   test('arrows cycle selection via the real editor.readKey path', () async {
     final screen = fakeScreen(columns: 100, lines: 30);
@@ -112,7 +121,11 @@ void main() {
     editor.inject(EscapeKey());
     final saved = await future;
     expect(saved, isFalse);
-    expect(after, isNot(before), reason: 'arrow key did not move the selection');
+    expect(
+      after,
+      isNot(before),
+      reason: 'arrow key did not move the selection',
+    );
     expectSelectionMoved(before, after, 'e');
   });
 
@@ -144,8 +157,11 @@ void main() {
     editor.inject(EscapeKey());
     final saved = await future;
     expect(saved, isFalse);
-    expect(after, isNot(before),
-        reason: 'raw arrow bytes did not move the selection');
+    expect(
+      after,
+      isNot(before),
+      reason: 'raw arrow bytes did not move the selection',
+    );
     expectSelectionMoved(before, after, 'e');
   });
 }

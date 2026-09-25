@@ -617,13 +617,11 @@ class NotcursesBackend implements TerminalBackend, BackendDiagnostics {
     if (_stopped || width <= 0 || height <= 0) return;
     // Parent the image onto the target chat plane when supplied (so the picture
     // stacks above that panel's chat surface), else onto the standard plane.
-    final chatSurface = targetSurface is NotcursesBackendSurface
-        ? targetSurface
-        : null;
+    final chatSurface =
+        targetSurface is NotcursesBackendSurface ? targetSurface : null;
     final plane = chatSurface?._plane ?? _platform.plane;
     final notc = chatSurface?._platform.notc ?? _platform.notc;
-    if (plane == null || notc == null)
-      return; // recording fake / no pixel path
+    if (plane == null || notc == null) return; // recording fake / no pixel path
     // Reinterpret the 32-bit RGBA pixels as a byte buffer for ncvisual_from_rgba.
     final bytes = rgba.buffer.asUint8List(0, width * height * 4);
     final visual = nc.Visual.fromRGBA(bytes, height, width * 4, width);

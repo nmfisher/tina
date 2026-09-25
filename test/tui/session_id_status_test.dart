@@ -20,27 +20,28 @@ void main() {
     FakeHostInterface hostFactory({
       required String conversationId,
       required bool isActive,
-    }) =>
-        FakeHostInterface()..setActive(isActive);
+    }) => FakeHostInterface()..setActive(isActive);
     FakeProvider providerFactory(
-            String kind, String key, String model, String? baseUrl) =>
-        FakeProvider.done();
+      String kind,
+      String key,
+      String model,
+      String? baseUrl,
+    ) => FakeProvider.done();
     AgentDriver agentBuilder({
       required String conversationId,
       required LlmProvider provider,
       required HostInterface host,
       required PermissionPolicy policy,
-    }) =>
-        AgentDriverAdapter(
-          Agent(
-            provider: provider,
-            tools: ToolRegistry(const []),
-            sink: host,
-            policy: policy,
-            asker: host.askPermission,
-            system: 'sys',
-          ),
-        );
+    }) => AgentDriverAdapter(
+      Agent(
+        provider: provider,
+        tools: ToolRegistry(const []),
+        sink: host,
+        policy: policy,
+        asker: host.askPermission,
+        system: 'sys',
+      ),
+    );
     final conv = Conversation(
       id: 'c1',
       label: 'main',
@@ -74,8 +75,10 @@ void main() {
   test('read snapshots the active session id; switching flips it', () async {
     final source = SessionIdStatusSource(sm);
     expect(source.read('c1'), isA<SessionIdSnapshot>());
-    expect((source.read('c1') as SessionIdSnapshot).sessionId,
-        '20260925-120000-ab12');
+    expect(
+      (source.read('c1') as SessionIdSnapshot).sessionId,
+      '20260925-120000-ab12',
+    );
 
     // Switch: a fresh session (built in the background) becomes active; the
     // pull source now reports the new active session's id without any push
@@ -114,15 +117,15 @@ void main() {
       initialProviderId: 'fake',
       initialApiKey: '',
       providerFactory: (kind, key, model, baseUrl) => FakeProvider.done(),
-      hostFactory: (
-              {required String conversationId, required bool isActive}) =>
+      hostFactory: ({required String conversationId, required bool isActive}) =>
           FakeHostInterface()..setActive(isActive),
-      agentBuilder: (
-              {required String conversationId,
-              required LlmProvider provider,
-              required HostInterface host,
-              required PermissionPolicy policy}) =>
-          AgentDriverAdapter(
+      agentBuilder:
+          ({
+            required String conversationId,
+            required LlmProvider provider,
+            required HostInterface host,
+            required PermissionPolicy policy,
+          }) => AgentDriverAdapter(
             Agent(
               provider: provider,
               tools: ToolRegistry(const []),
@@ -144,12 +147,17 @@ void main() {
       const RenderContext(width: 100, theme: Theme.defaults()),
     );
     expect(lines, hasLength(1));
-    expect(lines.first.runs.map((r) => r.text).join(), 'session 20260925-120000-ab12');
+    expect(
+      lines.first.runs.map((r) => r.text).join(),
+      'session 20260925-120000-ab12',
+    );
   });
 
-  test('changes is an empty stream (pull-style; refresh comes from the strip host)',
-      () {
-    final source = SessionIdStatusSource(sm);
-    expect(source.changes, emitsDone);
-  });
+  test(
+    'changes is an empty stream (pull-style; refresh comes from the strip host)',
+    () {
+      final source = SessionIdStatusSource(sm);
+      expect(source.changes, emitsDone);
+    },
+  );
 }

@@ -44,7 +44,8 @@ void main() {
     });
 
     test('a gap larger than the window flushes the previous burst', () {
-      final d = PasteBurstDetector(minPasteChars: 8, joinWindow: const Duration(milliseconds: 30));
+      final d = PasteBurstDetector(
+          minPasteChars: 8, joinWindow: const Duration(milliseconds: 30));
       // Build a burst of 10 chars at 20µs spacing.
       var t = 1000;
       for (var i = 0; i < 10; i++) {
@@ -64,7 +65,8 @@ void main() {
     test('expire flushes a burst that stopped forming', () {
       // The core correctness property: a paste's last event arrives, then no
       // more input. Without expire(), the paste would sit buffered forever.
-      final d = PasteBurstDetector(minPasteChars: 8, joinWindow: const Duration(milliseconds: 30));
+      final d = PasteBurstDetector(
+          minPasteChars: 8, joinWindow: const Duration(milliseconds: 30));
       var t = 1000;
       for (var i = 0; i < 12; i++) {
         d.add(CharInput('z'), t);
@@ -80,7 +82,8 @@ void main() {
       expect(d.expire(t + 100000), isEmpty);
     });
 
-    test('a pasted Enter is folded into the PasteInput as newline, not submit', () {
+    test('a pasted Enter is folded into the PasteInput as newline, not submit',
+        () {
       // The spike showed a paste's trailing newline arrives as NCKEY_ENTER at
       // a 19µs gap — indistinguishable from paste chars. It MUST become \n in
       // the joined paste, not a ControlKey(enter) that submits mid-paste.
@@ -130,7 +133,8 @@ void main() {
 
     test('typing (slow gaps) never forms a paste', () {
       // 10 chars but 100ms apart — clearly typing, not a paste.
-      final d = PasteBurstDetector(minPasteChars: 8, joinWindow: const Duration(milliseconds: 30));
+      final d = PasteBurstDetector(
+          minPasteChars: 8, joinWindow: const Duration(milliseconds: 30));
       var t = 1000;
       final emitted = <InputEvent>[];
       for (var i = 0; i < 10; i++) {
@@ -166,7 +170,8 @@ void main() {
     });
 
     test('two separate pastes with a typing gap between them', () {
-      final d = PasteBurstDetector(minPasteChars: 8, joinWindow: const Duration(milliseconds: 30));
+      final d = PasteBurstDetector(
+          minPasteChars: 8, joinWindow: const Duration(milliseconds: 30));
       final emitted = <InputEvent>[];
       // Paste 1: 10 chars, 20µs apart.
       var t = 1000;

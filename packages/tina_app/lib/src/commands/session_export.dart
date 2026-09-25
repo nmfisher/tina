@@ -19,11 +19,13 @@ String renderSessionTranscript(
     buf.writeln();
   }
   buf.writeln(
-      '- provider: ${manifest.providerId}'
-      '${manifest.baseUrl != null ? ' (`${manifest.baseUrl}`)' : ''}');
+    '- provider: ${manifest.providerId}'
+    '${manifest.baseUrl != null ? ' (`${manifest.baseUrl}`)' : ''}',
+  );
   buf.writeln(
-      '- conversations: ${manifest.conversations.length}, messages: '
-      '${conversations.values.fold<int>(0, (n, m) => n + m.length)}');
+    '- conversations: ${manifest.conversations.length}, messages: '
+    '${conversations.values.fold<int>(0, (n, m) => n + m.length)}',
+  );
   if (manifest.activeConversationId.isNotEmpty) {
     buf.writeln('- active conversation: ${manifest.activeConversationId}');
   }
@@ -31,9 +33,11 @@ String renderSessionTranscript(
 
   for (final conv in manifest.conversations) {
     final messages = conversations[conv.id] ?? const <Message>[];
-    buf.writeln('## ${conv.label.isEmpty ? conv.id : conv.label}'
-        ' — ${conv.kind.name}'
-        '${conv.parentConversationId != null ? ', parent: ${conv.parentConversationId}' : ''}');
+    buf.writeln(
+      '## ${conv.label.isEmpty ? conv.id : conv.label}'
+      ' — ${conv.kind.name}'
+      '${conv.parentConversationId != null ? ', parent: ${conv.parentConversationId}' : ''}',
+    );
     buf.writeln();
     if (messages.isEmpty) {
       buf.writeln('_(no messages)_');
@@ -57,8 +61,10 @@ void _renderBlock(StringBuffer buf, ContentBlock block) {
     buf.writeln();
   } else if (block is ToolUseBlock) {
     final summary = _toolUseSummary(block);
-    buf.writeln('→ tool: ${block.name}'
-        '${summary.isNotEmpty ? ' — $summary' : ''}');
+    buf.writeln(
+      '→ tool: ${block.name}'
+      '${summary.isNotEmpty ? ' — $summary' : ''}',
+    );
     buf.writeln();
   } else if (block is ToolResultBlock) {
     final prefix = 'tool result${block.isError ? ' (error)' : ''}:';
@@ -93,7 +99,7 @@ String _toolUseSummary(ToolUseBlock block) {
     'name',
     'url',
     'args',
-    'content'
+    'content',
   ]) {
     final value = block.input[key];
     if (value is String && value.isNotEmpty) return value;

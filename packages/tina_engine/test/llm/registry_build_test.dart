@@ -14,8 +14,7 @@ ProviderBuilder _recording(List<ProviderInstance> into) =>
 
 /// A [ProviderBuilder] that records the attempt and always throws — the
 /// "builder itself failed" case (bad endpoint config, constructor crash).
-ProviderBuilder _throwing(List<ProviderInstance> into) =>
-    (ProviderInstance c) {
+ProviderBuilder _throwing(List<ProviderInstance> into) => (ProviderInstance c) {
       into.add(c);
       throw StateError('builder exploded');
     };
@@ -69,8 +68,7 @@ void main() {
       _tagDecorator(r, 'wrap', wraps);
 
       expect(() => r.build('p/m'), throwsStateError);
-      expect(wraps, isEmpty,
-          reason: 'there is no inner provider to decorate');
+      expect(wraps, isEmpty, reason: 'there is no inner provider to decorate');
     });
 
     test('unknown provider via build → ProviderRegistryException', () {
@@ -78,8 +76,8 @@ void main() {
       final r = ProviderRegistry(env: {});
       _tagDecorator(r, 'wrap', wraps);
 
-      expect(() => r.build('nosuch/m'),
-          throwsA(isA<ProviderRegistryException>()));
+      expect(
+          () => r.build('nosuch/m'), throwsA(isA<ProviderRegistryException>()));
       expect(wraps, isEmpty,
           reason: 'resolution fails before anything is built or wrapped');
     });
@@ -137,7 +135,8 @@ void main() {
           reason: 'the clamp is a ceiling, never a floor');
     });
 
-    test('an unknown model id passes through unclamped (never clamp on a guess)',
+    test(
+        'an unknown model id passes through unclamped (never clamp on a guess)',
         () {
       final built = <ProviderInstance>[];
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
@@ -170,8 +169,7 @@ void main() {
   });
 
   group('pooled build failure propagation', () {
-    test('a throwing member builder propagates unwrapped from buildPooled',
-        () {
+    test('a throwing member builder propagates unwrapped from buildPooled', () {
       final built = <ProviderInstance>[];
       final ok = <ProviderInstance>[];
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
@@ -240,12 +238,10 @@ void main() {
     test('a configured cap above the catalog ceiling clamps to maxOutput', () {
       final built = <ProviderInstance>[];
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
-        ..register(_desc('p',
-            builder: _recording(built),
-            models: const {
-              'm': ModelInfo(
-                  id: 'm', name: 'm', contextWindow: 8192, maxOutput: 4096),
-            }));
+        ..register(_desc('p', builder: _recording(built), models: const {
+          'm': ModelInfo(
+              id: 'm', name: 'm', contextWindow: 8192, maxOutput: 4096),
+        }));
 
       r.build('p/m', maxTokens: 32768);
       expect(built.single.maxTokens, 4096,
@@ -255,12 +251,10 @@ void main() {
     test('a configured cap below the ceiling passes through unchanged', () {
       final built = <ProviderInstance>[];
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
-        ..register(_desc('p',
-            builder: _recording(built),
-            models: const {
-              'm': ModelInfo(
-                  id: 'm', name: 'm', contextWindow: 200000, maxOutput: 64000),
-            }));
+        ..register(_desc('p', builder: _recording(built), models: const {
+          'm': ModelInfo(
+              id: 'm', name: 'm', contextWindow: 200000, maxOutput: 64000),
+        }));
 
       r.build('p/m', maxTokens: 8192);
       expect(built.single.maxTokens, 8192,
@@ -291,7 +285,8 @@ void main() {
     test('user min_request_interval_ms beats user requests_per_minute', () {
       final built = <ProviderInstance>[];
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
-        ..register(_desc('p', builder: _recording(built), requestsPerMinute: 60))
+        ..register(
+            _desc('p', builder: _recording(built), requestsPerMinute: 60))
         ..setRequestRate('p', 30) // 60s/30 = 2s spacing
         ..setRequestInterval('p', 250); // must win over the RPM override
       r.build('p/m');
@@ -302,7 +297,8 @@ void main() {
       );
     });
 
-    test('user interval beats the descriptor interval; descriptor interval '
+    test(
+        'user interval beats the descriptor interval; descriptor interval '
         'beats the descriptor RPM hint', () {
       final built = <ProviderInstance>[];
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
@@ -409,14 +405,14 @@ void main() {
           ..rateLimiter.minInterval = const Duration(milliseconds: 1000)
           ..register(_desc('probe', baseUrl: url, builder: _recording(built)));
         r.build('probe/m');
-        final got = r.rateLimiter
-            .minIntervalFor(providerQueueKey(url, 'k'));
+        final got = r.rateLimiter.minIntervalFor(providerQueueKey(url, 'k'));
         expect(got == Duration.zero, expected,
             reason: '$url → ${expected ? "exempt" : "global default"}');
       }
     });
 
-    test('reapplyRequestIntervals: withdraw an override and the queue falls '
+    test(
+        'reapplyRequestIntervals: withdraw an override and the queue falls '
         'back to the global default', () {
       final built = <ProviderInstance>[];
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
@@ -425,8 +421,8 @@ void main() {
         ..setRequestInterval('hosted', 150);
       r.build('hosted/m');
       final key = providerQueueKey('https://example.test', 'k');
-      expect(r.rateLimiter.minIntervalFor(key),
-          const Duration(milliseconds: 150));
+      expect(
+          r.rateLimiter.minIntervalFor(key), const Duration(milliseconds: 150));
 
       // The apply-on-save path: the override was DELETED from the config, so
       // the registry forgets its in-memory maps and reinstalls from (now
@@ -441,7 +437,8 @@ void main() {
       );
     });
 
-    test('reapplyRequestIntervals: a changed override re-lands on the '
+    test(
+        'reapplyRequestIntervals: a changed override re-lands on the '
         'already-built queue', () {
       final built = <ProviderInstance>[];
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
@@ -457,19 +454,20 @@ void main() {
 
       r.setRequestInterval('hinted', 250);
       r.reapplyRequestIntervals();
-      expect(r.rateLimiter.minIntervalFor(key),
-          const Duration(milliseconds: 250),
+      expect(
+          r.rateLimiter.minIntervalFor(key), const Duration(milliseconds: 250),
           reason: 'apply-on-save reaches queues that already built');
     });
 
-    test('clearRequestOverrides + reapply keeps surviving overrides, drops '
+    test(
+        'clearRequestOverrides + reapply keeps surviving overrides, drops '
         'deleted ones', () {
       final built = <ProviderInstance>[];
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
         ..rateLimiter.minInterval = const Duration(milliseconds: 1000)
         ..register(_desc('a', builder: _recording(built)))
-        ..register(_desc(
-            'b', baseUrl: 'http://b.test', builder: _recording(built)))
+        ..register(
+            _desc('b', baseUrl: 'http://b.test', builder: _recording(built)))
         ..setRequestInterval('a', 100)
         ..setRequestInterval('b', 200);
       r.build('a/m');
@@ -482,7 +480,8 @@ void main() {
       r.setRequestInterval('b', 200);
       r.reapplyRequestIntervals();
       expect(
-        r.rateLimiter.minIntervalFor(providerQueueKey('https://example.test', 'k')),
+        r.rateLimiter
+            .minIntervalFor(providerQueueKey('https://example.test', 'k')),
         const Duration(milliseconds: 1000),
         reason: "a's withdrawn override falls back to the global default",
       );

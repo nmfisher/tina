@@ -27,59 +27,80 @@ void main() {
       final ok = const Outcome.success();
       expect(evaluateCondition('outcome==success', ok, Context()), isTrue);
       expect(
-          evaluateCondition('outcome==success', Outcome.fail('x'), Context()),
-          isFalse);
+        evaluateCondition('outcome==success', Outcome.fail('x'), Context()),
+        isFalse,
+      );
     });
 
     test('outcome=success treats partial_success as good enough', () {
       final partial = const Outcome(status: StageStatus.partialSuccess);
-      expect(
-          evaluateCondition('outcome=success', partial, Context()), isTrue);
+      expect(evaluateCondition('outcome=success', partial, Context()), isTrue);
       // Strict matching is still available the other way around…
       expect(
-          evaluateCondition('outcome=partial_success',
-              const Outcome.success(), Context()),
-          isFalse);
+        evaluateCondition(
+          'outcome=partial_success',
+          const Outcome.success(),
+          Context(),
+        ),
+        isFalse,
+      );
       // …and != excludes partial_success from the success branch.
       expect(
-          evaluateCondition('outcome!=success', partial, Context()), isFalse);
+        evaluateCondition('outcome!=success', partial, Context()),
+        isFalse,
+      );
     });
 
     test('preferred_label match', () {
       final o = const Outcome.success(preferredLabel: 'approve');
-      expect(evaluateCondition('preferred_label=approve', o, Context()), isTrue);
+      expect(
+        evaluateCondition('preferred_label=approve', o, Context()),
+        isTrue,
+      );
     });
 
     test('context.* lookup with and without prefix', () {
       final c = ctx([('tests_passed', 'true'), ('plan', 'v1')]);
       expect(
-          evaluateCondition(
-              'outcome=success && context.tests_passed=true',
-              const Outcome.success(),
-              c),
-          isTrue);
+        evaluateCondition(
+          'outcome=success && context.tests_passed=true',
+          const Outcome.success(),
+          c,
+        ),
+        isTrue,
+      );
       // Missing key compares as empty -> never equals "true".
       expect(
-          evaluateCondition('context.missing=foo', const Outcome.success(), c),
-          isFalse);
+        evaluateCondition('context.missing=foo', const Outcome.success(), c),
+        isFalse,
+      );
       expect(
-          evaluateCondition('context.missing!=foo', const Outcome.success(), c),
-          isTrue);
+        evaluateCondition('context.missing!=foo', const Outcome.success(), c),
+        isTrue,
+      );
     });
 
     test('quoted literals are unquoted', () {
       final c = ctx([('verdict', 'needs work')]);
       expect(
-          evaluateCondition('context.verdict="needs work"',
-              const Outcome.success(), c),
-          isTrue);
+        evaluateCondition(
+          'context.verdict="needs work"',
+          const Outcome.success(),
+          c,
+        ),
+        isTrue,
+      );
     });
 
     test('malformed expression does not match', () {
       expect(
-          evaluateCondition('this is not valid', const Outcome.success(),
-              Context()),
-          isFalse);
+        evaluateCondition(
+          'this is not valid',
+          const Outcome.success(),
+          Context(),
+        ),
+        isFalse,
+      );
     });
   });
 }

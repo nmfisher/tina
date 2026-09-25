@@ -32,7 +32,8 @@ external set _fetchHandler(JSFunction f);
 
 /// The real handler: async Dart, awaited LLM/tool calls would live here.
 Future<Response> _handler(Request request, JSObject env, JSObject ctx) async {
-  final body = 'Hello from Dart (dart2wasm) inside Cloudflare Workers!\n'
+  final body =
+      'Hello from Dart (dart2wasm) inside Cloudflare Workers!\n'
       'method: ${request.method}\n'
       'url:    ${request.url}\n';
   return Response(body.toJS);

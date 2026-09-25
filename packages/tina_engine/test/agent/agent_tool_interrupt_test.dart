@@ -94,16 +94,16 @@ Agent agentWith({
       provider: provider,
       tools: ToolRegistry(tools),
       sink: sink,
-      policy: PermissionPolicy(
-          defaults: {
-            for (final t in tools) t.schema.name: PermissionDecision.allow
-          }),
+      policy: PermissionPolicy(defaults: {
+        for (final t in tools) t.schema.name: PermissionDecision.allow
+      }),
       asker: (_) async => PermissionResponse.denyOnce,
       system: 'sys',
     );
 
 void main() {
-  test('normal cancellation reaches a tool with a pending interrupt signal', () async {
+  test('normal cancellation reaches a tool with a pending interrupt signal',
+      () async {
     final cancel = Completer<void>();
     final interrupt = Completer<void>();
     final gate = Completer<void>();
@@ -111,12 +111,21 @@ void main() {
     final sink = FakeAgentSink();
     final agent = agentWith(
       provider: FakeProvider([
-        [const MessageComplete(content: [ToolUseBlock(id: 'c1', name: 'slow', input: {})], stopReason: 'tool_use')],
+        [
+          const MessageComplete(
+              content: [ToolUseBlock(id: 'c1', name: 'slow', input: {})],
+              stopReason: 'tool_use')
+        ],
         answerEvents('must not run'),
-      ]), tools: [tool], sink: sink,
+      ]),
+      tools: [tool],
+      sink: sink,
     );
-    final run = agent.run(history: [], userInput: 'go', cancelSignal: cancel.future,
-      toolInterruptSignal: interrupt.future);
+    final run = agent.run(
+        history: [],
+        userInput: 'go',
+        cancelSignal: cancel.future,
+        toolInterruptSignal: interrupt.future);
     await waitFor(() => tool.calls == 1, 'tool started');
     cancel.complete();
     gate.complete();
@@ -125,7 +134,8 @@ void main() {
     expect(interrupt.isCompleted, isFalse);
   });
 
-  test('mid-batch interrupt: batch completes whole, in-flight result '
+  test(
+      'mid-batch interrupt: batch completes whole, in-flight result '
       'prefixed, rest stubbed, turn ends cleanly', () async {
     final interrupt = Completer<void>();
     final gates = [Completer<void>(), Completer<void>(), Completer<void>()];
@@ -202,7 +212,8 @@ void main() {
         reason: 'the operator sees the interrupt notice, exactly once');
   });
 
-  test('provider stream phases are NOT interruptible: a fired signal with '
+  test(
+      'provider stream phases are NOT interruptible: a fired signal with '
       'no tools in flight changes nothing', () async {
     final interrupt = Completer<void>()..complete(); // already fired
     final provider = FakeProvider([
@@ -218,24 +229,26 @@ void main() {
     final agent = agentWith(provider: provider, tools: const [], sink: sink);
     final history = <Message>[];
 
-    await agent.run(
-      history: history,
-      userInput: 'go',
-      toolInterruptSignal: interrupt.future,
-    ).timeout(const Duration(seconds: 5));
+    await agent
+        .run(
+          history: history,
+          userInput: 'go',
+          toolInterruptSignal: interrupt.future,
+        )
+        .timeout(const Duration(seconds: 5));
 
     expect(sink.texts.join(), contains('the whole answer'),
         reason: 'the stream ran to completion — never torn down');
     expect(provider.calls, hasLength(1));
     expect(agent.abortedKind, AbortedKind.none);
-    expect(
-        sink.notices.map((n) => n.message).join('\n'),
+    expect(sink.notices.map((n) => n.message).join('\n'),
         isNot(contains(kOperatorInterruptedLine)),
         reason: 'no tool batch ever started — the interrupt had nothing '
             'to interrupt');
   });
 
-  test('pre-batch fire: the next batch begins already-interrupted — first '
+  test(
+      'pre-batch fire: the next batch begins already-interrupted — first '
       'call still executes and is prefixed, the rest stub', () async {
     final interrupt = Completer<void>()..complete(); // fired before any batch
     final gate = Completer<void>();
@@ -283,12 +296,12 @@ void main() {
     expect(resultOf(batch, 1).isError, isTrue);
     expect(provider.calls, hasLength(1));
     expect(agent.abortedKind, AbortedKind.none);
-    expect(
-        sink.notices.map((n) => n.message).join('\n'),
+    expect(sink.notices.map((n) => n.message).join('\n'),
         isNot(contains('[cancelled]')));
   });
 
-  test('the signal is per-run: a stale completed future interrupts the next '
+  test(
+      'the signal is per-run: a stale completed future interrupts the next '
       "run's first batch — callers must hand each run a fresh one", () async {
     final interrupt = Completer<void>();
     final gate = Completer<void>();

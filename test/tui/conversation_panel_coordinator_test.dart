@@ -146,7 +146,9 @@ void main() {
       sessionManager.initialHost.setActivity(true);
       for (var i = 0; i < 3; i++) primaryFrame.advanceBusyTick();
       final replacement = scope.registerContribution(
-        pluginId: 'test', id: 'prompt', contribution: _Prompt(),
+        pluginId: 'test',
+        id: 'prompt',
+        contribution: _Prompt(),
       );
       await pumpEventQueue();
       expect(screen.input.prompt, 'Review rule: ');
@@ -514,93 +516,107 @@ void main() {
     });
   });
   group('a live-panelized delegated session runs through the driver seam', () {
-    test('a live-panelized delegated session runs through the driver seam',
-        () async {
-      // The main provider answers with one delegate call, then ends the turn.
-      final provider = FakeProvider([
-        [
-          MessageComplete(
-            content: [
-              ToolUseBlock(
-                id: 'delegate-panel',
-                name: 'delegate',
-                input: {
-                  'delegations': [
-                    {'task': 'probe the seam'},
-                  ],
-                },
-              ),
-            ],
-            stopReason: 'tool_use',
-          ),
-        ],
-        [
-          MessageComplete(
-            content: [TextBlock('delegation finished')],
-            stopReason: 'end_turn',
-          ),
-        ],
-      ], model: 'main-model');
+    test(
+      'a live-panelized delegated session runs through the driver seam',
+      () async {
+        // The main provider answers with one delegate call, then ends the turn.
+        final provider = FakeProvider([
+          [
+            MessageComplete(
+              content: [
+                ToolUseBlock(
+                  id: 'delegate-panel',
+                  name: 'delegate',
+                  input: {
+                    'delegations': [
+                      {'task': 'probe the seam'},
+                    ],
+                  },
+                ),
+              ],
+              stopReason: 'tool_use',
+            ),
+          ],
+          [
+            MessageComplete(
+              content: [TextBlock('delegation finished')],
+              stopReason: 'end_turn',
+            ),
+          ],
+        ], model: 'main-model');
 
-      final registry = ProviderRegistry(env: const {})
-        ..register(ProviderDescriptor(
-          id: 'test',
-          name: 'Test',
-          authSources: const [],
-          defaultBaseUrl: 'https://example.test',
-          builder: (options) => FakeProvider.done(model: options.model),
-        ));
+        final registry = ProviderRegistry(env: const {})
+          ..register(
+            ProviderDescriptor(
+              id: 'test',
+              name: 'Test',
+              authSources: const [],
+              defaultBaseUrl: 'https://example.test',
+              builder: (options) => FakeProvider.done(model: options.model),
+            ),
+          );
 
-      final factory = _PanelCountingFactory();
-      final config = RuntimeConfig(provider: 'test', model: 'main-model');
-      final app = await buildAppComposition(
-        config: config,
-        registry: registry,
-        provider: provider,
-        store: MemorySessionStore(),
-        environment: FakeEnvironment(),
-        driverFactory: factory,
-      );
-      addTearDown(app.dispose);
+        final factory = _PanelCountingFactory();
+        final config = RuntimeConfig(provider: 'test', model: 'main-model');
+        final app = await buildAppComposition(
+          config: config,
+          registry: registry,
+          provider: provider,
+          store: MemorySessionStore(),
+          environment: FakeEnvironment(),
+          driverFactory: factory,
+        );
+        addTearDown(app.dispose);
 
-      final coordinator = await TuiCoordinator.create(
-        app: app,
-        io: FakeStdio()..hasTerminalValue = false,
-        terminalGeometry:
-            const FakeTerminalGeometry(columns: 120, lines: 40),
-        terminal: const TerminalConfig(backend: BackendChoice.ansi),
-      );
-      addTearDown(coordinator.controller.shutdown);
+        final coordinator = await TuiCoordinator.create(
+          app: app,
+          io: FakeStdio()..hasTerminalValue = false,
+          terminalGeometry: const FakeTerminalGeometry(columns: 120, lines: 40),
+          terminal: const TerminalConfig(backend: BackendChoice.ansi),
+        );
+        addTearDown(coordinator.controller.shutdown);
 
-      final main = coordinator.sessionManager.activeConversation;
-      coordinator.controller.turns.submit(main.id, 'Delegate a scoped inspection.');
-      await coordinator.controller.turns.whenIdle(main.id);
+        final main = coordinator.sessionManager.activeConversation;
+        coordinator.controller.turns.submit(
+          main.id,
+          'Delegate a scoped inspection.',
+        );
+        await coordinator.controller.turns.whenIdle(main.id);
 
-      // One delegated child became a live panel — a first-class session.
-      expect(coordinator.spawnedPanels, hasLength(1));
-      expect(coordinator.sessionManager.active.conversationCount, 2);
+        // One delegated child became a live panel — a first-class session.
+        expect(coordinator.spawnedPanels, hasLength(1));
+        expect(coordinator.sessionManager.active.conversationCount, 2);
 
-      // The panel conversation exists and its driver is the scripted one.
-      final conversations =
-          coordinator.sessionManager.active.conversations;
-      final panel = conversations.firstWhere((c) => c.id != main.id);
-      expect(panel.driver, isA<_PanelScriptedDriver>(),
-          reason: 'the panel session runs the replacement driver');
-      expect(factory.created, hasLength(1),
-          reason: 'the delegated panel build consulted the seam');
-      expect(factory.requests, 2,
-          reason: 'main agent build + delegated panel build');
+        // The panel conversation exists and its driver is the scripted one.
+        final conversations = coordinator.sessionManager.active.conversations;
+        final panel = conversations.firstWhere((c) => c.id != main.id);
+        expect(
+          panel.driver,
+          isA<_PanelScriptedDriver>(),
+          reason: 'the panel session runs the replacement driver',
+        );
+        expect(
+          factory.created,
+          hasLength(1),
+          reason: 'the delegated panel build consulted the seam',
+        );
+        expect(
+          factory.requests,
+          2,
+          reason: 'main agent build + delegated panel build',
+        );
 
-      // The scripted driver actually owned the delegated turn.
-      final scripted = panel.driver as _PanelScriptedDriver;
-      expect(scripted.runInputs, contains('probe the seam'));
+        // The scripted driver actually owned the delegated turn.
+        final scripted = panel.driver as _PanelScriptedDriver;
+        expect(scripted.runInputs, contains('probe the seam'));
 
-      // Focus wiring still works: the spawned panel can become the active
-      // conversation (the bindSpawned contract).
-      final frame = coordinator.spawnedPanels.single;
-      coordinator.focusManager.focusPanel(frame);
-      expect(coordinator.sessionManager.activeConversation, same(panel));
-    });
+        // Focus wiring still works: the spawned panel can become the active
+        // conversation (the bindSpawned contract).
+        final frame = coordinator.spawnedPanels.single;
+        coordinator.focusManager.focusPanel(frame);
+        expect(coordinator.sessionManager.activeConversation, same(panel));
+      },
+    );
   });
 }
 
@@ -835,8 +851,12 @@ class _PanelScriptedDriver implements AgentDriver {
     HistoryReplaceObserver? onHistoryReplace,
   }) async {
     runInputs.add(userInput);
-    history.add(const Message(
-        role: Role.assistant, content: [TextBlock('scripted reply')]));
+    history.add(
+      const Message(
+        role: Role.assistant,
+        content: [TextBlock('scripted reply')],
+      ),
+    );
   }
 
   @override
@@ -857,6 +877,5 @@ class _PanelScriptedDriver implements AgentDriver {
     int preserveRecent = 0,
     int preserveRecentMessages = 0,
     Future<void>? cancelSignal,
-  }) async =>
-      false;
+  }) async => false;
 }

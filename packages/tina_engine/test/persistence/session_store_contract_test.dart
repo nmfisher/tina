@@ -15,8 +15,7 @@ void main() {
   sessionStoreContractSuite(
     'JsonlSessionStore',
     createStore: () async {
-      final tmp =
-          await Directory.systemTemp.createTemp('tina_contract_jsonl_');
+      final tmp = await Directory.systemTemp.createTemp('tina_contract_jsonl_');
       addTearDown(() async {
         if (await tmp.exists()) await tmp.delete(recursive: true);
       });
@@ -55,8 +54,8 @@ void sessionStoreContractSuite(
 
     test('createSession honors a caller-supplied id', () async {
       const pre = '20260820-025935-1462';
-      final sid = await store.createSession(
-          providerId: 'anthropic', sessionId: pre);
+      final sid =
+          await store.createSession(providerId: 'anthropic', sessionId: pre);
       expect(sid, pre);
       final cid = await store.createConversation(sid);
       await store.append(
@@ -155,8 +154,8 @@ void sessionStoreContractSuite(
         final spawned = await store.createConversationWithMeta(sid, panel);
 
         await store.setActiveConversation(sid, primary);
-        expect(() => store.setActiveConversation(sid, spawned),
-            throwsStateError,
+        expect(
+            () => store.setActiveConversation(sid, spawned), throwsStateError,
             reason: 'panels are not resume targets');
         expect((await store.loadSession(sid)).activeConversationId, primary,
             reason: 'the rejected repoint leaves the anchor alone');
@@ -178,7 +177,8 @@ void sessionStoreContractSuite(
             reason: 'the first PRIMARY takes the anchor');
       });
 
-      test('deleting the anchored conversation heals to a primary, '
+      test(
+          'deleting the anchored conversation heals to a primary, '
           'never a panel', () async {
         final sid = await store.createSession(providerId: 'anthropic');
         final c1 = await store.createConversation(sid);
@@ -201,14 +201,15 @@ void sessionStoreContractSuite(
       test('persists the new model ref + label and keeps the rest of the meta',
           () async {
         final sid = await store.createSession(providerId: 'anthropic');
-        final cid = await store.createConversationWithMeta(sid,
+        final cid = await store.createConversationWithMeta(
+            sid,
             const ConversationMetaInput(
-          model: 'anthropic/claude-sonnet-4-6',
-          providerId: 'anthropic',
-          label: 'claude-sonnet-4-6',
-          kind: ConversationKind.primary,
-          promptOverride: 'persisted system',
-        ));
+              model: 'anthropic/claude-sonnet-4-6',
+              providerId: 'anthropic',
+              label: 'claude-sonnet-4-6',
+              kind: ConversationKind.primary,
+              promptOverride: 'persisted system',
+            ));
 
         await store.updateConversationModel(sid, cid,
             model: 'deepseek/deepseek-chat', label: 'deepseek-chat');
@@ -227,7 +228,8 @@ void sessionStoreContractSuite(
 
       test('label omitted keeps the stored label', () async {
         final sid = await store.createSession(providerId: 'anthropic');
-        final cid = await store.createConversationWithMeta(sid,
+        final cid = await store.createConversationWithMeta(
+            sid,
             const ConversationMetaInput(
                 model: 'anthropic/claude-sonnet-4-6', label: 'kept'));
         await store.updateConversationModel(sid, cid, model: 'glm/glm-5');
@@ -255,13 +257,14 @@ void sessionStoreContractSuite(
         final cid = await store.createConversationWithMeta(sid,
             const ConversationMetaInput(model: 'anthropic/claude-sonnet-4-6'));
 
-        await store.updateConversationTrackers(sid, cid,
-            goal: {'text': 'ship it', 'verdict': 'inProgress'},
-            plan: {
-              'items': [
-                {'text': 'a', 'state': 'pending'}
-              ],
-            });
+        await store.updateConversationTrackers(sid, cid, goal: {
+          'text': 'ship it',
+          'verdict': 'inProgress'
+        }, plan: {
+          'items': [
+            {'text': 'a', 'state': 'pending'}
+          ],
+        });
 
         var meta = (await store.loadSession(sid))
             .conversations
@@ -478,8 +481,7 @@ void sessionStoreContractSuite(
       expect(list.single.title, 'actual title');
     });
 
-    test('list normalizes whitespace and skips empty text for title',
-        () async {
+    test('list normalizes whitespace and skips empty text for title', () async {
       final (sid, cid) = await newConversation();
       await store.append(
           sid,

@@ -93,7 +93,8 @@ void main() {
       final soft = history
           .where((m) =>
               m.role == Role.user &&
-              m.content.any((b) => b is TextBlock && b.text.contains('turn spend at')))
+              m.content.any(
+                  (b) => b is TextBlock && b.text.contains('turn spend at')))
           .toList();
       expect(soft, hasLength(1), reason: 'exactly one nudge, as before');
       expect(soft.single.isSynthetic, isTrue,

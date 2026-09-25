@@ -91,8 +91,7 @@ void main() {
     });
 
     test('cwd does not affect read-only-ness', () {
-      expect(
-          isReadOnlyShellInput(const {'command': 'cat x', 'cwd': '/tmp'}),
+      expect(isReadOnlyShellInput(const {'command': 'cat x', 'cwd': '/tmp'}),
           isTrue);
     });
   });

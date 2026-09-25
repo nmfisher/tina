@@ -19,10 +19,10 @@ class GoalStatus {
   bool get isUncertain => verdict == GoalVerdict.uncertain;
 
   Map<String, dynamic> toJson() => {
-        'verdict': verdict.name,
-        'evidence': evidence,
-        'at': at.toIso8601String(),
-      };
+    'verdict': verdict.name,
+    'evidence': evidence,
+    'at': at.toIso8601String(),
+  };
 
   /// Lenient parse of a persisted status blob: an unknown verdict name, a
   /// missing/garbage `at`, or a non-map value all degrade (verdict → none →
@@ -40,7 +40,8 @@ class GoalStatus {
     return GoalStatus(
       verdict,
       evidence: evidence,
-      at: DateTime.tryParse('${raw['at']}') ??
+      at:
+          DateTime.tryParse('${raw['at']}') ??
           DateTime.fromMillisecondsSinceEpoch(0),
     );
   }
@@ -57,9 +58,9 @@ class Goal {
   bool get hasVerdict => status != null && status!.verdict != GoalVerdict.none;
 
   Map<String, dynamic> toJson() => {
-        'text': text,
-        if (status != null) 'status': status!.toJson(),
-      };
+    'text': text,
+    if (status != null) 'status': status!.toJson(),
+  };
 
   /// Lenient parse of a persisted goal blob (the session manifest's opaque
   /// `goal` entry). Never throws: a non-string text degrades to empty (→
@@ -79,7 +80,9 @@ class Goal {
   /// the verdict mark when one exists.
   String get summary {
     if (isEmpty) return '';
-    final text = this.text.length > 60 ? '${this.text.substring(0, 57)}…' : this.text;
+    final text = this.text.length > 60
+        ? '${this.text.substring(0, 57)}…'
+        : this.text;
     return switch (status?.verdict ?? GoalVerdict.none) {
       GoalVerdict.achieved => '✓ $text',
       GoalVerdict.uncertain => '? $text',
@@ -95,10 +98,8 @@ class Goal {
 /// inside, never thrown). [force] bypasses the turn-quality guard (a turn
 /// that aborted must not read as "not achieved"), so `/goal check` works
 /// even right after a failed turn.
-typedef GoalJudgeHook = Future<GoalVerdict?> Function(
-  String conversationId, {
-  bool force,
-});
+typedef GoalJudgeHook =
+    Future<GoalVerdict?> Function(String conversationId, {bool force});
 
 /// The single mutable state of the goal plugin: per-conversation goals with a
 /// change stream every surface (strip, request middleware, commands, the
@@ -132,8 +133,7 @@ class GoalStore {
   /// not write straight back.
   void Function(String conversationId)? persistHook;
 
-  Goal read(String conversationId) =>
-      _goals[conversationId] ?? const Goal('');
+  Goal read(String conversationId) => _goals[conversationId] ?? const Goal('');
 
   /// Set [conversationId]'s goal. Replaces any previous objective and resets
   /// the judge verdict — a new goal is not yet judged. Throws [ArgumentError]
@@ -180,7 +180,11 @@ class GoalStore {
     if (trimmedEvidence.length > maxEvidenceLength) {
       trimmedEvidence = trimmedEvidence.substring(0, maxEvidenceLength);
     }
-    final next = GoalStatus(verdict, evidence: trimmedEvidence, at: DateTime.now());
+    final next = GoalStatus(
+      verdict,
+      evidence: trimmedEvidence,
+      at: DateTime.now(),
+    );
     final previous = goal.status;
     if (previous != null &&
         previous.verdict == verdict &&

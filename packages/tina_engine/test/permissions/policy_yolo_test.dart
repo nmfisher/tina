@@ -26,10 +26,10 @@ void main() {
 
     test('tools gated by the built-in table are widened to allow', () {
       final p = PermissionPolicy(allowAllByDefault: true);
-      expect(p.check('write', const {'filePath': '/x'}),
-          PermissionDecision.allow);
-      expect(p.check('edit', const {'filePath': '/x'}),
-          PermissionDecision.allow);
+      expect(
+          p.check('write', const {'filePath': '/x'}), PermissionDecision.allow);
+      expect(
+          p.check('edit', const {'filePath': '/x'}), PermissionDecision.allow);
       expect(p.check('bash', const {'command': 'git status'}),
           PermissionDecision.allow);
     });
@@ -44,10 +44,9 @@ void main() {
 
     test('an unknown tool name is widened to allow, not ask', () {
       final p = PermissionPolicy(allowAllByDefault: true);
-      expect(p.check('totally_unknown_tool', const {}),
-          PermissionDecision.allow,
-          reason:
-              'the flag widens the fallback, so a tool added later cannot '
+      expect(
+          p.check('totally_unknown_tool', const {}), PermissionDecision.allow,
+          reason: 'the flag widens the fallback, so a tool added later cannot '
               'silently regress to ask');
     });
 
@@ -96,13 +95,12 @@ void main() {
         allowAllByDefault: true,
         mode: PermissionMode.readAll,
       );
-      expect(
-          p.check('bash', const {'command': 'git status'}),
+      expect(p.check('bash', const {'command': 'git status'}),
           PermissionDecision.deny,
           reason: 'executionBlock is a hard boundary: it never opens a '
               'prompt and yolo cannot lift it');
-      expect(p.check('write', const {'filePath': '/x'}),
-          PermissionDecision.deny);
+      expect(
+          p.check('write', const {'filePath': '/x'}), PermissionDecision.deny);
       expect(p.check('fetch', const {'url': 'https://example.com'}),
           PermissionDecision.allow);
     });
@@ -112,15 +110,12 @@ void main() {
         allowAllByDefault: true,
         mode: PermissionMode.allowEdits,
       );
-      expect(p.check('write', const {'filePath': '/x'}),
-          PermissionDecision.allow);
-      expect(p.check('edit', const {'filePath': '/x'}),
-          PermissionDecision.allow);
       expect(
-          p.check('bash', const {'command': 'ls'}),
-          PermissionDecision.allow,
-          reason:
-              'allowEdits leaves bash at its default, which yolo widened — '
+          p.check('write', const {'filePath': '/x'}), PermissionDecision.allow);
+      expect(
+          p.check('edit', const {'filePath': '/x'}), PermissionDecision.allow);
+      expect(p.check('bash', const {'command': 'ls'}), PermissionDecision.allow,
+          reason: 'allowEdits leaves bash at its default, which yolo widened — '
               'yolo is the wider grant, allowEdits only narrows nothing');
     });
 
@@ -157,8 +152,8 @@ void main() {
       final restored = PermissionPolicy.fromJson(p.toJson());
       expect(restored.allowAllByDefault, isTrue);
       expect(restored.check('fetch', const {}), PermissionDecision.allow);
-      expect(restored.check('no_such_tool', const {}),
-          PermissionDecision.allow);
+      expect(
+          restored.check('no_such_tool', const {}), PermissionDecision.allow);
       expect(restored.check('bash', const {'command': 'rm -rf /'}),
           PermissionDecision.deny);
     });

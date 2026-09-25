@@ -64,8 +64,10 @@ void main() {
 
     test('stale cache re-runs the listing (moved files show up)', () async {
       var now = DateTime(2026, 1, 1, 12);
-      final provider =
-          GitFileCompletionProvider(workingDir: repo, clock: () => now);
+      final provider = GitFileCompletionProvider(
+        workingDir: repo,
+        clock: () => now,
+      );
       final first = await provider.complete('');
       expect(first, contains('README.md'));
 
@@ -86,63 +88,72 @@ void main() {
       expect(fresh, contains('moved/util.dart'));
     });
 
+    test(
+      'non-git workspace: walk fallback lists files and TTL refreshes it',
+      () async {
+        // A plain directory with no .git — git ls-files fails, the provider
+        // falls back to a filesystem walk.
+        final dir = Directory.systemTemp.createTempSync('git_file_nogit_');
+        try {
+          File('${dir.path}/notes.txt').writeAsStringSync('x');
+          Directory('${dir.path}/docs').createSync();
+          File('${dir.path}/docs/readme.md').writeAsStringSync('x');
 
-    test('non-git workspace: walk fallback lists files and TTL refreshes it',
-        () async {
-      // A plain directory with no .git — git ls-files fails, the provider
-      // falls back to a filesystem walk.
-      final dir = Directory.systemTemp.createTempSync('git_file_nogit_');
-      try {
-        File('${dir.path}/notes.txt').writeAsStringSync('x');
-        Directory('${dir.path}/docs').createSync();
-        File('${dir.path}/docs/readme.md').writeAsStringSync('x');
+          var now = DateTime(2026, 1, 1, 12);
+          final provider = GitFileCompletionProvider(
+            workingDir: dir.path,
+            clock: () => now,
+          );
+          final first = await provider.complete('');
+          expect(first, containsAll(['notes.txt', 'docs/readme.md']));
 
-        var now = DateTime(2026, 1, 1, 12);
-        final provider =
-            GitFileCompletionProvider(workingDir: dir.path, clock: () => now);
-        final first = await provider.complete('');
-        expect(first, containsAll(['notes.txt', 'docs/readme.md']));
+          // Move something; within TTL nothing changes.
+          File(
+            '${dir.path}/notes.txt',
+          ).renameSync('${dir.path}/docs/notes.txt');
+          now = now.add(const Duration(seconds: 1));
+          final cached = await provider.complete('');
+          expect(cached, contains('notes.txt'));
 
-        // Move something; within TTL nothing changes.
-        File('${dir.path}/notes.txt').renameSync('${dir.path}/docs/notes.txt');
-        now = now.add(const Duration(seconds: 1));
-        final cached = await provider.complete('');
-        expect(cached, contains('notes.txt'));
+          // Past TTL the walk re-runs and sees the move.
+          now = now.add(const Duration(seconds: 4));
+          final fresh = await provider.complete('');
+          expect(fresh, isNot(contains('notes.txt')));
+          expect(fresh, contains('docs/notes.txt'));
+        } finally {
+          dir.deleteSync(recursive: true);
+        }
+      },
+    );
 
-        // Past TTL the walk re-runs and sees the move.
-        now = now.add(const Duration(seconds: 4));
-        final fresh = await provider.complete('');
-        expect(fresh, isNot(contains('notes.txt')));
-        expect(fresh, contains('docs/notes.txt'));
-      } finally {
-        dir.deleteSync(recursive: true);
-      }
-    });
+    test(
+      'non-git workspace: walk skips well-known build directories',
+      () async {
+        final dir = Directory.systemTemp.createTempSync('git_file_nogit_');
+        try {
+          File('${dir.path}/app.dart').writeAsStringSync('x');
+          Directory('${dir.path}/node_modules').createSync();
+          File('${dir.path}/node_modules/pkg.js').writeAsStringSync('x');
+          Directory('${dir.path}/build').createSync();
+          File('${dir.path}/build/out.js').writeAsStringSync('x');
 
-    test('non-git workspace: walk skips well-known build directories',
-        () async {
-      final dir = Directory.systemTemp.createTempSync('git_file_nogit_');
-      try {
-        File('${dir.path}/app.dart').writeAsStringSync('x');
-        Directory('${dir.path}/node_modules').createSync();
-        File('${dir.path}/node_modules/pkg.js').writeAsStringSync('x');
-        Directory('${dir.path}/build').createSync();
-        File('${dir.path}/build/out.js').writeAsStringSync('x');
-
-        final provider = GitFileCompletionProvider(workingDir: dir.path);
-        final files = await provider.complete('');
-        expect(files, contains('app.dart'));
-        expect(files, isNot(contains('node_modules/pkg.js')));
-        expect(files, isNot(contains('build/out.js')));
-      } finally {
-        dir.deleteSync(recursive: true);
-      }
-    });
+          final provider = GitFileCompletionProvider(workingDir: dir.path);
+          final files = await provider.complete('');
+          expect(files, contains('app.dart'));
+          expect(files, isNot(contains('node_modules/pkg.js')));
+          expect(files, isNot(contains('build/out.js')));
+        } finally {
+          dir.deleteSync(recursive: true);
+        }
+      },
+    );
 
     test('concurrent queries share one re-enumeration', () async {
       var now = DateTime(2026, 1, 1, 12);
-      final provider =
-          GitFileCompletionProvider(workingDir: repo, clock: () => now);
+      final provider = GitFileCompletionProvider(
+        workingDir: repo,
+        clock: () => now,
+      );
       await provider.complete('');
 
       // Two keystrokes firing while a re-enumeration is in flight both get
@@ -188,8 +199,10 @@ void main() {
         // after every seeded source file (docs, lib, packages in alpha order).
         final libPos = page.indexOf('lib/file.dart');
         expect(libPos, inInclusiveRange(0, 2));
-        expect(page.indexWhere((f) => f.startsWith('.tickets/')),
-            greaterThan(libPos));
+        expect(
+          page.indexWhere((f) => f.startsWith('.tickets/')),
+          greaterThan(libPos),
+        );
       } finally {
         dir.deleteSync(recursive: true);
       }

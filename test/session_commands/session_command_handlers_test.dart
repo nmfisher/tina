@@ -7,7 +7,6 @@ import 'package:tina_app/tina_app.dart';
 
 import 'package:tina/session_commands/session_command_handlers.dart';
 
-
 import 'package:tina/tmux/tmux_support.dart';
 import 'package:test/test.dart';
 
@@ -17,13 +16,13 @@ import '../helpers/memory_session_store.dart';
 
 /// Minimal [Agent] for command-handler tests — never actually runs a turn.
 Agent _fakeAgent(LlmProvider provider, FakeHostInterface host) => Agent(
-      provider: provider,
-      tools: ToolRegistry(const []),
-      sink: host,
-      policy: PermissionPolicy(),
-      asker: (_) async => PermissionResponse.denyOnce,
-      system: '',
-    );
+  provider: provider,
+  tools: ToolRegistry(const []),
+  sink: host,
+  policy: PermissionPolicy(),
+  asker: (_) async => PermissionResponse.denyOnce,
+  system: '',
+);
 
 /// A [CommandContext] fake that only implements the members `/model` reaches.
 class _FakeCtx implements CommandContext {
@@ -51,7 +50,8 @@ class _FakeCtx implements CommandContext {
   SummaryIndex? get summaryIndex => null;
 
   @override
-  Future<void> Function(Conversation, IndexOptions)? get runClassification => null;
+  Future<void> Function(Conversation, IndexOptions)? get runClassification =>
+      null;
 
   @override
   Future<bool> Function(String prompt)? get confirm => null;
@@ -150,10 +150,12 @@ Future<void> main() async {
 
     test('/image calls openImage with the path when available', () async {
       String? received;
-      final handlers = SessionCommandHandlers(_FakeCtx(
-        conversation: conv,
-        openImage: (path) async => received = path,
-      ));
+      final handlers = SessionCommandHandlers(
+        _FakeCtx(
+          conversation: conv,
+          openImage: (path) async => received = path,
+        ),
+      );
       await handlers.dispatch('/image ./pics/cat.png');
       expect(received, './pics/cat.png');
     });
@@ -188,14 +190,20 @@ Future<void> main() async {
 
     test('/sessions opens the picker when the TUI wired one', () async {
       var opened = false;
-      final handlers = SessionCommandHandlers(_FakeCtx(
-        conversation: conv,
-        openSessionPicker: () async => opened = true,
-      ));
+      final handlers = SessionCommandHandlers(
+        _FakeCtx(
+          conversation: conv,
+          openSessionPicker: () async => opened = true,
+        ),
+      );
       await handlers.dispatch('/sessions');
-      expect(opened, isTrue,
-          reason: 'the TUI /sessions is the picker (same overlay as Alt+S), '
-              'not a printed list');
+      expect(
+        opened,
+        isTrue,
+        reason:
+            'the TUI /sessions is the picker (same overlay as Alt+S), '
+            'not a printed list',
+      );
     });
 
     test('headless (no picker): still lists the saved sessions', () async {
@@ -203,9 +211,13 @@ Future<void> main() async {
       final sid = await store.createSession(providerId: 'anthropic');
       final cid = await store.createConversation(sid);
       await store.append(
-          sid, cid, Message(role: Role.user, content: [TextBlock('hi')]));
+        sid,
+        cid,
+        Message(role: Role.user, content: [TextBlock('hi')]),
+      );
       final handlers = SessionCommandHandlers(
-          _FakeCtx(conversation: conv, store: store));
+        _FakeCtx(conversation: conv, store: store),
+      );
       await handlers.dispatch('/sessions');
       expect(
         host.styledMessages.map((m) => m.message),
@@ -233,16 +245,16 @@ Future<void> main() async {
       );
     });
 
-    _FakeCtx _ctx({Future<void> Function()? openModelPicker}) => _FakeCtx(
-          conversation: conv,
-          openModelPicker: openModelPicker,
-        );
+    _FakeCtx _ctx({Future<void> Function()? openModelPicker}) =>
+        _FakeCtx(conversation: conv, openModelPicker: openModelPicker);
 
     test('bare /model calls openModelPicker when available', () async {
       var called = false;
-      final ctx = _ctx(openModelPicker: () async {
-        called = true;
-      });
+      final ctx = _ctx(
+        openModelPicker: () async {
+          called = true;
+        },
+      );
       final handlers = SessionCommandHandlers(ctx);
 
       await handlers.dispatch('/model');
@@ -250,38 +262,44 @@ Future<void> main() async {
       expect(called, isTrue);
     });
 
-    test('/model with extra args shows usage and does not open picker',
-        () async {
-      var called = false;
-      final ctx = _ctx(openModelPicker: () async {
-        called = true;
-      });
-      final handlers = SessionCommandHandlers(ctx);
+    test(
+      '/model with extra args shows usage and does not open picker',
+      () async {
+        var called = false;
+        final ctx = _ctx(
+          openModelPicker: () async {
+            called = true;
+          },
+        );
+        final handlers = SessionCommandHandlers(ctx);
 
-      await handlers.dispatch('/model extra arg');
+        await handlers.dispatch('/model extra arg');
 
-      expect(called, isFalse);
-      expect(
-        host.styledMessages.map((m) => m.message),
-        contains('usage: /model  (opens the picker)\n'),
-      );
-    });
+        expect(called, isFalse);
+        expect(
+          host.styledMessages.map((m) => m.message),
+          contains('usage: /model  (opens the picker)\n'),
+        );
+      },
+    );
 
-    test('/model prints current model name when openModelPicker is null',
-        () async {
-      final ctx = _FakeCtx(conversation: conv); // openModelPicker defaults null
-      final handlers = SessionCommandHandlers(ctx);
+    test(
+      '/model prints current model name when openModelPicker is null',
+      () async {
+        final ctx = _FakeCtx(
+          conversation: conv,
+        ); // openModelPicker defaults null
+        final handlers = SessionCommandHandlers(ctx);
 
-      await handlers.dispatch('/model');
+        await handlers.dispatch('/model');
 
-      // Should print the current model from the provider
-      expect(
-        host.styledMessages.any(
-          (m) => m.message.contains('test-model'),
-        ),
-        isTrue,
-      );
-    });
+        // Should print the current model from the provider
+        expect(
+          host.styledMessages.any((m) => m.message.contains('test-model')),
+          isTrue,
+        );
+      },
+    );
   });
 
   group('SessionCommandHandlers /branch', () {
@@ -302,13 +320,10 @@ Future<void> main() async {
       );
     });
 
-    _FakeCtx _ctx({Future<void> Function()? openBranch}) => _FakeCtx(
-          conversation: conv,
-          openBranch: openBranch,
-        );
+    _FakeCtx _ctx({Future<void> Function()? openBranch}) =>
+        _FakeCtx(conversation: conv, openBranch: openBranch);
 
-    test('/branch is a recognized command (handled, not notCommand)',
-        () async {
+    test('/branch is a recognized command (handled, not notCommand)', () async {
       final handlers = SessionCommandHandlers(_ctx());
       final result = await handlers.dispatch('/branch');
       expect(result, const CmdHandled());
@@ -316,9 +331,13 @@ Future<void> main() async {
 
     test('/branch invokes the wired openBranch callback', () async {
       var called = false;
-      final handlers = SessionCommandHandlers(_ctx(openBranch: () async {
-        called = true;
-      }));
+      final handlers = SessionCommandHandlers(
+        _ctx(
+          openBranch: () async {
+            called = true;
+          },
+        ),
+      );
       await handlers.dispatch('/branch');
       expect(called, isTrue);
     });
@@ -352,10 +371,14 @@ Future<void> main() async {
     });
 
     test('prints the session total, the cap, and the throttle', () async {
-      final ledger = SpendLedger(maxGlobalTokens: 50000000, requestsPerMinute: 30);
+      final ledger = SpendLedger(
+        maxGlobalTokens: 50000000,
+        requestsPerMinute: 30,
+      );
       ledger.record(const TokenUsage(inputTokens: 1000, outputTokens: 2000));
       final handlers = SessionCommandHandlers(
-          _FakeCtx(conversation: conv, spendLedger: ledger));
+        _FakeCtx(conversation: conv, spendLedger: ledger),
+      );
       await handlers.dispatch('/spend');
 
       final joined = host.styledMessages.map((m) => m.message).join();
@@ -370,7 +393,8 @@ Future<void> main() async {
       ledger.seed(500);
       ledger.record(const TokenUsage(inputTokens: 600, outputTokens: 0));
       final handlers = SessionCommandHandlers(
-          _FakeCtx(conversation: conv, spendLedger: ledger));
+        _FakeCtx(conversation: conv, spendLedger: ledger),
+      );
       await handlers.dispatch('/spend');
 
       final joined = host.styledMessages.map((m) => m.message).join();
@@ -417,33 +441,41 @@ Future<void> main() async {
 
     test('a valid mode invokes the wired switcher', () async {
       final switched = <PermissionMode>[];
-      final handlers = SessionCommandHandlers(_FakeCtx(
-        conversation: conv,
-        setPermissionMode: switched.add,
-      ));
+      final handlers = SessionCommandHandlers(
+        _FakeCtx(conversation: conv, setPermissionMode: switched.add),
+      );
       await handlers.dispatch('/permissions allow-edits');
       expect(switched, [PermissionMode.allowEdits]);
-      expect(host.styledMessages.map((m) => m.message).join(),
-          contains('permission mode: allow-edits'));
+      expect(
+        host.styledMessages.map((m) => m.message).join(),
+        contains('permission mode: allow-edits'),
+      );
     });
 
-    test('no arg lists remembered approvals with scope and who answered',
-        () async {
-      conv.policy.remember('bash', 'git status', PermissionDecision.allow);
-      conv.policy.remember('fetch', 'https://example.com/x',
+    test(
+      'no arg lists remembered approvals with scope and who answered',
+      () async {
+        conv.policy.remember('bash', 'git status', PermissionDecision.allow);
+        conv.policy.remember(
+          'fetch',
+          'https://example.com/x',
           PermissionDecision.allow,
-          source: GrantSource.classifier);
-      final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
-      await handlers.dispatch('/permissions');
-      final joined = host.styledMessages.map((m) => m.message).join();
-      expect(joined, contains('remembered approvals'));
-      expect(joined, contains('bash:git status'));
-      expect(joined, contains('this conversation, until tina exits'));
-      expect(joined, contains('you'),
-          reason: 'a grant you gave says so');
-      expect(joined, contains('classifier'),
-          reason: 'a grant the model made is not mistaken for yours');
-    });
+          source: GrantSource.classifier,
+        );
+        final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
+        await handlers.dispatch('/permissions');
+        final joined = host.styledMessages.map((m) => m.message).join();
+        expect(joined, contains('remembered approvals'));
+        expect(joined, contains('bash:git status'));
+        expect(joined, contains('this conversation, until tina exits'));
+        expect(joined, contains('you'), reason: 'a grant you gave says so');
+        expect(
+          joined,
+          contains('classifier'),
+          reason: 'a grant the model made is not mistaken for yours',
+        );
+      },
+    );
 
     test('revoke takes back one answer without touching the others', () async {
       conv.policy.remember('bash', 'git status', PermissionDecision.allow);
@@ -451,8 +483,10 @@ Future<void> main() async {
       final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
       await handlers.dispatch('/permissions revoke bash:git status');
 
-      expect(host.styledMessages.map((m) => m.message).join(),
-          contains('revoked 1 remembered approval'));
+      expect(
+        host.styledMessages.map((m) => m.message).join(),
+        contains('revoked 1 remembered approval'),
+      );
       expect(conv.policy.sessionGrants.single.rule.pattern, 'ls -la');
     });
 
@@ -462,23 +496,26 @@ Future<void> main() async {
       final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
       await handlers.dispatch('/permissions revoke all');
       expect(conv.policy.sessionGrants, isEmpty);
-      expect(host.styledMessages.map((m) => m.message).join(),
-          contains('revoked 2 remembered approvals'));
+      expect(
+        host.styledMessages.map((m) => m.message).join(),
+        contains('revoked 2 remembered approvals'),
+      );
     });
 
     test('revoking something that was never remembered says so', () async {
       final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
       await handlers.dispatch('/permissions revoke bash');
-      expect(host.styledMessages.map((m) => m.message).join(),
-          contains('nothing remembered'));
+      expect(
+        host.styledMessages.map((m) => m.message).join(),
+        contains('nothing remembered'),
+      );
     });
 
     test('unknown mode errors without switching', () async {
       var switched = false;
-      final handlers = SessionCommandHandlers(_FakeCtx(
-        conversation: conv,
-        setPermissionMode: (_) => switched = true,
-      ));
+      final handlers = SessionCommandHandlers(
+        _FakeCtx(conversation: conv, setPermissionMode: (_) => switched = true),
+      );
       await handlers.dispatch('/permissions fast');
       expect(switched, isFalse);
       expect(
@@ -520,36 +557,49 @@ Future<void> main() async {
 
     /// A conversation with a live recorder over [store], session `s1`.
     Conversation recorded(Conversation c, SessionStore store) => Conversation(
-          id: c.id,
-          label: c.label,
-          agent: c.agent,
-          provider: c.provider,
-          host: c.host,
-          policy: c.policy,
-          recorder:
-              SessionRecorder(store, 's1', 'c-live', providerId: 'anthropic'),
-        );
+      id: c.id,
+      label: c.label,
+      agent: c.agent,
+      provider: c.provider,
+      host: c.host,
+      policy: c.policy,
+      recorder: SessionRecorder(store, 's1', 'c-live', providerId: 'anthropic'),
+    );
 
-    test(
-        'writes a markdown transcript of every conversation and prints the '
+    test('writes a markdown transcript of every conversation and prints the '
         'absolute path', () async {
       final store = MemorySessionStore();
       await store.createSession(providerId: 'anthropic', sessionId: 's1');
       final cA = await store.createConversationWithMeta(
-          's1', const ConversationMetaInput(label: 'main'));
+        's1',
+        const ConversationMetaInput(label: 'main'),
+      );
       await store.append(
-          's1', cA, Message(role: Role.user, content: [TextBlock('hello')]));
-      await store.append('s1', cA,
-          Message(role: Role.assistant, content: [TextBlock('world')]));
+        's1',
+        cA,
+        Message(role: Role.user, content: [TextBlock('hello')]),
+      );
+      await store.append(
+        's1',
+        cA,
+        Message(role: Role.assistant, content: [TextBlock('world')]),
+      );
       final cB = await store.createConversationWithMeta(
-          's1',
-          const ConversationMetaInput(
-              label: 'helper', kind: ConversationKind.subAgent));
+        's1',
+        const ConversationMetaInput(
+          label: 'helper',
+          kind: ConversationKind.subAgent,
+        ),
+      );
       await store.append(
-          's1', cB, Message(role: Role.user, content: [TextBlock('sub job')]));
+        's1',
+        cB,
+        Message(role: Role.user, content: [TextBlock('sub job')]),
+      );
 
-      final handlers =
-          SessionCommandHandlers(_FakeCtx(conversation: recorded(conv, store)));
+      final handlers = SessionCommandHandlers(
+        _FakeCtx(conversation: recorded(conv, store)),
+      );
       final target = p.join(dir.path, 'out.md');
       final res = await handlers.dispatch('/save $target');
 
@@ -573,22 +623,32 @@ Future<void> main() async {
       await store.createSession(providerId: 'anthropic', sessionId: 's1');
       final cid = await store.createConversation('s1');
       await store.append(
-          's1', cid, Message(role: Role.user, content: [TextBlock('rel')]));
-      final handlers =
-          SessionCommandHandlers(_FakeCtx(conversation: recorded(conv, store)));
+        's1',
+        cid,
+        Message(role: Role.user, content: [TextBlock('rel')]),
+      );
+      final handlers = SessionCommandHandlers(
+        _FakeCtx(conversation: recorded(conv, store)),
+      );
       final name = 'tina_save_rel_${DateTime.now().microsecondsSinceEpoch}.md';
       await handlers.dispatch('/save $name');
       final expected = File(p.join(Directory.current.path, name));
-      expect(expected.existsSync(), isTrue,
-          reason: 'relative paths land in the process cwd');
-      expect(host.styledMessages.map((m) => m.message).join(),
-          contains(expected.path));
+      expect(
+        expected.existsSync(),
+        isTrue,
+        reason: 'relative paths land in the process cwd',
+      );
+      expect(
+        host.styledMessages.map((m) => m.message).join(),
+        contains(expected.path),
+      );
       expected.deleteSync();
     });
 
     test('no argument prints usage', () async {
-      final handlers =
-          SessionCommandHandlers(_FakeCtx(conversation: recorded(conv, MemorySessionStore())));
+      final handlers = SessionCommandHandlers(
+        _FakeCtx(conversation: recorded(conv, MemorySessionStore())),
+      );
       await handlers.dispatch('/save');
       expect(
         host.styledMessages.map((m) => m.message).join(),
@@ -597,8 +657,9 @@ Future<void> main() async {
     });
 
     test('extra arguments print usage too', () async {
-      final handlers =
-          SessionCommandHandlers(_FakeCtx(conversation: recorded(conv, MemorySessionStore())));
+      final handlers = SessionCommandHandlers(
+        _FakeCtx(conversation: recorded(conv, MemorySessionStore())),
+      );
       await handlers.dispatch('/save a b');
       expect(
         host.styledMessages.map((m) => m.message).join(),
@@ -614,37 +675,48 @@ Future<void> main() async {
         host.styledMessages.map((m) => m.message).join(),
         contains('session persistence is disabled'),
       );
-      expect(host.styledMessages.map((m) => m.style),
-          contains(HostMessageStyle.error));
+      expect(
+        host.styledMessages.map((m) => m.style),
+        contains(HostMessageStyle.error),
+      );
     });
 
     test('missing parent directory errors without creating it', () async {
       final store = MemorySessionStore();
       await store.createSession(providerId: 'anthropic', sessionId: 's1');
       await store.createConversation('s1');
-      final handlers =
-          SessionCommandHandlers(_FakeCtx(conversation: recorded(conv, store)));
+      final handlers = SessionCommandHandlers(
+        _FakeCtx(conversation: recorded(conv, store)),
+      );
       final target = p.join(dir.path, 'nope', 'out.md');
       await handlers.dispatch('/save $target');
-      expect(Directory(p.join(dir.path, 'nope')).existsSync(), isFalse,
-          reason: '/save must not mkdir');
+      expect(
+        Directory(p.join(dir.path, 'nope')).existsSync(),
+        isFalse,
+        reason: '/save must not mkdir',
+      );
       expect(File(target).existsSync(), isFalse);
-      expect(host.styledMessages.map((m) => m.message).join(),
-          contains('directory does not exist'));
+      expect(
+        host.styledMessages.map((m) => m.message).join(),
+        contains('directory does not exist'),
+      );
     });
 
     test('an existing file is never overwritten', () async {
       final store = MemorySessionStore();
       await store.createSession(providerId: 'anthropic', sessionId: 's1');
       await store.createConversation('s1');
-      final handlers =
-          SessionCommandHandlers(_FakeCtx(conversation: recorded(conv, store)));
+      final handlers = SessionCommandHandlers(
+        _FakeCtx(conversation: recorded(conv, store)),
+      );
       final target = p.join(dir.path, 'existing.md');
       File(target).writeAsStringSync('keep me');
       await handlers.dispatch('/save $target');
       expect(File(target).readAsStringSync(), 'keep me');
-      expect(host.styledMessages.map((m) => m.message).join(),
-          contains('refusing to overwrite'));
+      expect(
+        host.styledMessages.map((m) => m.message).join(),
+        contains('refusing to overwrite'),
+      );
     });
 
     test('/help lists /save', () async {
@@ -657,8 +729,10 @@ Future<void> main() async {
       final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
       final res = await handlers.dispatch('/savee nope');
       expect(res, isA<CmdHandled>());
-      expect(host.styledMessages.map((m) => m.message).join(),
-          contains('unknown command'));
+      expect(
+        host.styledMessages.map((m) => m.message).join(),
+        contains('unknown command'),
+      );
     });
   });
 
@@ -680,41 +754,52 @@ Future<void> main() async {
       );
     });
 
-    test('/clear repoints the manifest active pointer at the new conversation',
-        () async {
-      final store = MemorySessionStore();
-      await store.createSession(providerId: 'anthropic', sessionId: 's1');
-      final recorder = SessionRecorder(
-        store,
-        's1',
-        'c-live',
-        providerId: 'anthropic',
-      );
-      // Materialize the first conversation and give it history, as if the
-      // user had chatted before clearing.
-      await recorder.ensureRegistered();
-      await recorder.append(
-          Message(role: Role.user, content: [const TextBlock('before')]));
-      final recorded = Conversation(
-        id: conv.id,
-        label: conv.label,
-        agent: conv.agent,
-        provider: conv.provider,
-        host: conv.host,
-        policy: conv.policy,
-        recorder: recorder,
-      );
+    test(
+      '/clear repoints the manifest active pointer at the new conversation',
+      () async {
+        final store = MemorySessionStore();
+        await store.createSession(providerId: 'anthropic', sessionId: 's1');
+        final recorder = SessionRecorder(
+          store,
+          's1',
+          'c-live',
+          providerId: 'anthropic',
+        );
+        // Materialize the first conversation and give it history, as if the
+        // user had chatted before clearing.
+        await recorder.ensureRegistered();
+        await recorder.append(
+          Message(role: Role.user, content: [const TextBlock('before')]),
+        );
+        final recorded = Conversation(
+          id: conv.id,
+          label: conv.label,
+          agent: conv.agent,
+          provider: conv.provider,
+          host: conv.host,
+          policy: conv.policy,
+          recorder: recorder,
+        );
 
-      await SessionCommandHandlers(_FakeCtx(conversation: recorded))
-          .dispatch('/clear');
+        await SessionCommandHandlers(
+          _FakeCtx(conversation: recorded),
+        ).dispatch('/clear');
 
-      expect(recorder.conversationId, isNot('c-live'),
-          reason: 'startFresh minted a fresh conversation');
-      final manifest = await store.loadSession('s1');
-      expect(manifest.activeConversationId, recorder.conversationId,
-          reason: '--resume must reopen the live conversation, not the '
-              'cleared one');
-    });
+        expect(
+          recorder.conversationId,
+          isNot('c-live'),
+          reason: 'startFresh minted a fresh conversation',
+        );
+        final manifest = await store.loadSession('s1');
+        expect(
+          manifest.activeConversationId,
+          recorder.conversationId,
+          reason:
+              '--resume must reopen the live conversation, not the '
+              'cleared one',
+        );
+      },
+    );
   });
 
   group('SessionCommandHandlers /detach (tin-f5xt)', () {
@@ -735,26 +820,31 @@ Future<void> main() async {
       );
     });
 
-    test('wired seam is called and the coordinator owns the messaging',
-        () async {
-      var seamCalls = 0;
-      final handlers = SessionCommandHandlers(_FakeCtx(
-        conversation: conv,
-        detachTmux: () async => seamCalls++,
-      ));
-      final res = await handlers.dispatch('/detach');
-      expect(seamCalls, 1,
-          reason: 'the command delegates to the coordinator-owned closure');
-      expect(res, isA<CmdHandled>());
-      // The hint is the HEADLESS path's job — with the seam wired the handler
-      // itself prints nothing about tmux.
-      expect(
+    test(
+      'wired seam is called and the coordinator owns the messaging',
+      () async {
+        var seamCalls = 0;
+        final handlers = SessionCommandHandlers(
+          _FakeCtx(conversation: conv, detachTmux: () async => seamCalls++),
+        );
+        final res = await handlers.dispatch('/detach');
+        expect(
+          seamCalls,
+          1,
+          reason: 'the command delegates to the coordinator-owned closure',
+        );
+        expect(res, isA<CmdHandled>());
+        // The hint is the HEADLESS path's job — with the seam wired the handler
+        // itself prints nothing about tmux.
+        expect(
           host.styledMessages
               .map((m) => m.message)
               .where((m) => m.contains('tmux')),
           isEmpty,
-          reason: 'the wired closure owns every user-facing line');
-    });
+          reason: 'the wired closure owns every user-facing line',
+        );
+      },
+    );
 
     test('headless (null seam) prints exactly the one-line hint', () async {
       final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
@@ -765,8 +855,11 @@ Future<void> main() async {
           .where((m) => m.contains('tmux'))
           .toList();
       expect(tmuxLines, hasLength(1), reason: 'one line, not a paragraph');
-      expect(tmuxLines.single, '${TmuxSupport.notInTmuxHint}\n',
-          reason: 'the exact hint string, with its newline');
+      expect(
+        tmuxLines.single,
+        '${TmuxSupport.notInTmuxHint}\n',
+        reason: 'the exact hint string, with its newline',
+      );
       expect(
         host.styledMessages
             .firstWhere((m) => m.message == '${TmuxSupport.notInTmuxHint}\n')
@@ -788,8 +881,10 @@ Future<void> main() async {
       final handlers = SessionCommandHandlers(_FakeCtx(conversation: conv));
       final res = await handlers.dispatch('/detach');
       expect(res, isA<CmdHandled>());
-      expect(host.styledMessages.map((m) => m.message).join(),
-          isNot(contains('unknown command')));
+      expect(
+        host.styledMessages.map((m) => m.message).join(),
+        isNot(contains('unknown command')),
+      );
     });
   });
   group('the /explore command', () {

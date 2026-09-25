@@ -12,23 +12,25 @@ import '../summaries/fleet_test_harness.dart';
 /// running an agent (mirrors test/pipeline_test.dart's _RecordingScheduler).
 class _RecordingScheduler extends SubAgentScheduler {
   final List<
-      ({
-        String systemPrompt,
-        String task,
-        String? modelReference,
-        String originConversationId,
-        ToolProfile toolProfile,
-        bool includeDelegate,
-      })> calls = [];
+    ({
+      String systemPrompt,
+      String task,
+      String? modelReference,
+      String originConversationId,
+      ToolProfile toolProfile,
+      bool includeDelegate,
+    })
+  >
+  calls = [];
 
   _RecordingScheduler()
-      : super(
-          registry: ProviderRegistry(env: const {}),
-          pipeline: defaultPipeline,
-          maxTokens: 1000,
-          streamIdleTimeout: const Duration(seconds: 10),
-          requestTimeout: const Duration(seconds: 10),
-        );
+    : super(
+        registry: ProviderRegistry(env: const {}),
+        pipeline: defaultPipeline,
+        maxTokens: 1000,
+        streamIdleTimeout: const Duration(seconds: 10),
+        requestTimeout: const Duration(seconds: 10),
+      );
 
   @override
   Future<RunAgentResult> runStandalone({
@@ -89,13 +91,16 @@ void main() {
     regions.allocate('lib/src', model: 'fast/fast-model');
     // Seed a current summary for lib.
     Directory('${sidecarRoot.path}/summaries').createSync(recursive: true);
-    File('${sidecarRoot.path}/summaries/lib.md')
-        .writeAsStringSync('# lib\n\nlib does X');
-    repo.saveManifest(repo.record(
-      manifest: repo.loadManifest(),
-      regenerated: ['lib'],
-      deleted: const [],
-    ));
+    File(
+      '${sidecarRoot.path}/summaries/lib.md',
+    ).writeAsStringSync('# lib\n\nlib does X');
+    repo.saveManifest(
+      repo.record(
+        manifest: repo.loadManifest(),
+        regenerated: ['lib'],
+        deleted: const [],
+      ),
+    );
   });
 
   tearDown(() {
@@ -109,11 +114,11 @@ void main() {
     test('lists regions with a summary digest', () async {
       final r = await ListRegionsTool(regions).execute({});
       expect(r.isError, isFalse);
-      expect(r.content,contains('2 region(s)'));
-      expect(r.content,contains('lib'));
-      expect(r.content,contains('lib/src'));
-      expect(r.content,contains('lib does X'));
-      expect(r.content,contains('fast/fast-model'));
+      expect(r.content, contains('2 region(s)'));
+      expect(r.content, contains('lib'));
+      expect(r.content, contains('lib/src'));
+      expect(r.content, contains('lib does X'));
+      expect(r.content, contains('fast/fast-model'));
     });
 
     test('no regions when the sidecar is empty', () async {
@@ -132,42 +137,48 @@ void main() {
     test('returns the full summary with freshness', () async {
       final r = await ReadSummaryTool(regions).execute({'region': 'lib'});
       expect(r.isError, isFalse);
-      expect(r.content,contains('# lib'));
-      expect(r.content,contains('lib does X'));
-      expect(r.content,contains('Current as of'));
+      expect(r.content, contains('# lib'));
+      expect(r.content, contains('lib does X'));
+      expect(r.content, contains('Current as of'));
     });
 
     test('unknown region errors with the available list', () async {
       final r = await ReadSummaryTool(regions).execute({'region': 'nope'});
       expect(r.isError, isTrue);
       expect(r.content, contains('No region "nope"'));
-      expect(r.content,contains('lib'));
+      expect(r.content, contains('lib'));
     });
   });
 
   group('query_region', () {
-    QueryRegionTool tool() => QueryRegionTool(regions, scheduler,
-        parentReference: 'main/main-model', originConversationId: 'conv1');
+    QueryRegionTool tool() => QueryRegionTool(
+      regions,
+      scheduler,
+      parentReference: 'main/main-model',
+      originConversationId: 'conv1',
+    );
 
-    test('dispatches one read-only agent primed with the region summary',
-        () async {
-      final r = await tool().execute({'region': 'lib', 'task': 'what is X?'});
-      expect(r.isError, isFalse);
-      expect(r.content,'report for what is X?');
+    test(
+      'dispatches one read-only agent primed with the region summary',
+      () async {
+        final r = await tool().execute({'region': 'lib', 'task': 'what is X?'});
+        expect(r.isError, isFalse);
+        expect(r.content, 'report for what is X?');
 
-      final call = scheduler.calls.single;
-      expect(call.systemPrompt, contains('region agent for "lib"'));
-      expect(call.systemPrompt, contains('lib does X'));
-      expect(call.task, 'what is X?');
-      expect(call.toolProfile, ToolProfile.readOnly);
-      expect(call.includeDelegate, isFalse);
-      // No allocation model on lib, no input override → inherit the main model.
-      expect(call.modelReference, isNull);
-      // The owning conversation travels with the query, so the scheduler can
-      // resolve its LIVE ref (a `/model` swap mid-session) instead of the
-      // build-time parentReference.
-      expect(call.originConversationId, 'conv1');
-    });
+        final call = scheduler.calls.single;
+        expect(call.systemPrompt, contains('region agent for "lib"'));
+        expect(call.systemPrompt, contains('lib does X'));
+        expect(call.task, 'what is X?');
+        expect(call.toolProfile, ToolProfile.readOnly);
+        expect(call.includeDelegate, isFalse);
+        // No allocation model on lib, no input override → inherit the main model.
+        expect(call.modelReference, isNull);
+        // The owning conversation travels with the query, so the scheduler can
+        // resolve its LIVE ref (a `/model` swap mid-session) instead of the
+        // build-time parentReference.
+        expect(call.originConversationId, 'conv1');
+      },
+    );
 
     test('an input model override wins over the region allocation', () async {
       final r = await tool().execute({
@@ -195,20 +206,21 @@ void main() {
 
   group('broadcast_region', () {
     test('fans out to every region and merges the reports', () async {
-      final r = await BroadcastRegionTool(regions, scheduler,
-              parentReference: 'main/main-model')
-          .execute({'task': 'who owns feature X?'});
+      final r = await BroadcastRegionTool(
+        regions,
+        scheduler,
+        parentReference: 'main/main-model',
+      ).execute({'task': 'who owns feature X?'});
       expect(r.isError, isFalse);
-      expect(r.content,contains('### lib'));
-      expect(r.content,contains('### lib/src'));
-      expect(r.content,contains('report for who owns feature X?'));
+      expect(r.content, contains('### lib'));
+      expect(r.content, contains('### lib/src'));
+      expect(r.content, contains('report for who owns feature X?'));
       expect(scheduler.calls.length, 2);
     });
   });
 
   group('repo_structure', () {
-    test('walks the tree with counts, packages, and hidden-dir skip',
-        () async {
+    test('walks the tree with counts, packages, and hidden-dir skip', () async {
       final r = await RepoStructureTool(regions).execute({});
       expect(r.isError, isFalse);
       expect(r.content, contains('Repository structure'));
@@ -220,8 +232,7 @@ void main() {
       expect(r.content, isNot(contains('.git')));
     });
 
-    test('the schema is a JSON-Schema object (no-input tools need type)',
-        () {
+    test('the schema is a JSON-Schema object (no-input tools need type)', () {
       // Providers reject a schema without `"type": "object"` (seen live:
       // DeepSeek 400 "Invalid schema for function ... got 'type': null").
       final schema = RepoStructureTool(regions).schema;
@@ -231,8 +242,7 @@ void main() {
   });
 
   group('allocate_region / forget_region', () {
-    test('allocate writes the allocation; the fleet runs at /index',
-        () async {
+    test('allocate writes the allocation; the fleet runs at /index', () async {
       final r = await AllocateRegionTool(regions).execute({'dir': 'lib/src'});
       expect(r.isError, isFalse);
       expect(r.content, contains('Allocated'));

@@ -38,8 +38,7 @@ class Session {
   }
 
   /// The conversation currently routed to the screen for this session.
-  Conversation get activeConversation =>
-      _conversations[_activeConversationId]!;
+  Conversation get activeConversation => _conversations[_activeConversationId]!;
 
   /// The id of [activeConversation].
   String get activeConversationId => _activeConversationId;

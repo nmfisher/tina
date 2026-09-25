@@ -80,37 +80,39 @@ void main() {
   });
 
   group('outcome transport', () {
-    test('passes status, context updates, notes and failure reason through',
-        () async {
-      final handler = handlerWith(({required stage, cancelSignal}) async {
-        return const ClassifyStageResult(
-          status: StageStatus.partialSuccess,
-          contextUpdates: {
-            'label.dart': 'true',
-            'coverage.complete': 'true',
-            'outcome.classified': 'true',
-          },
-          notes: '2 classified, 1 incomplete',
-          failureReason: 'dir "vendor" has incomplete coverage',
+    test(
+      'passes status, context updates, notes and failure reason through',
+      () async {
+        final handler = handlerWith(({required stage, cancelSignal}) async {
+          return const ClassifyStageResult(
+            status: StageStatus.partialSuccess,
+            contextUpdates: {
+              'label.dart': 'true',
+              'coverage.complete': 'true',
+              'outcome.classified': 'true',
+            },
+            notes: '2 classified, 1 incomplete',
+            failureReason: 'dir "vendor" has incomplete coverage',
+          );
+        });
+
+        final outcome = await handler.execute(
+          node: node(const {'type': 'classify'}),
+          graph: _graph,
+          context: Context(),
+          runStore: store(),
         );
-      });
 
-      final outcome = await handler.execute(
-        node: node(const {'type': 'classify'}),
-        graph: _graph,
-        context: Context(),
-        runStore: store(),
-      );
-
-      expect(outcome.status, StageStatus.partialSuccess);
-      expect(outcome.contextUpdates, {
-        'label.dart': 'true',
-        'coverage.complete': 'true',
-        'outcome.classified': 'true',
-      });
-      expect(outcome.notes, '2 classified, 1 incomplete');
-      expect(outcome.failureReason, 'dir "vendor" has incomplete coverage');
-    });
+        expect(outcome.status, StageStatus.partialSuccess);
+        expect(outcome.contextUpdates, {
+          'label.dart': 'true',
+          'coverage.complete': 'true',
+          'outcome.classified': 'true',
+        });
+        expect(outcome.notes, '2 classified, 1 incomplete');
+        expect(outcome.failureReason, 'dir "vendor" has incomplete coverage');
+      },
+    );
 
     test('forwards a fail status with its reason', () async {
       final handler = handlerWith(({required stage, cancelSignal}) async {
@@ -131,8 +133,7 @@ void main() {
       expect(outcome.failureReason, 'no classification records');
     });
 
-    test('forwards a retry status so the engine can re-run the node',
-        () async {
+    test('forwards a retry status so the engine can re-run the node', () async {
       final handler = handlerWith(({required stage, cancelSignal}) async {
         return const ClassifyStageResult(status: StageStatus.retry);
       });
@@ -200,22 +201,24 @@ void main() {
   });
 
   group('exceptions', () {
-    test('propagates runner failures for the engine to record and retry',
-        () async {
-      final handler = handlerWith(({required stage, cancelSignal}) async {
-        throw StateError('store unavailable');
-      });
+    test(
+      'propagates runner failures for the engine to record and retry',
+      () async {
+        final handler = handlerWith(({required stage, cancelSignal}) async {
+          throw StateError('store unavailable');
+        });
 
-      expect(
-        handler.execute(
-          node: node(const {'type': 'classify'}),
-          graph: _graph,
-          context: Context(),
-          runStore: store(),
-        ),
-        throwsA(isStateError),
-      );
-    });
+        expect(
+          handler.execute(
+            node: node(const {'type': 'classify'}),
+            graph: _graph,
+            context: Context(),
+            runStore: store(),
+          ),
+          throwsA(isStateError),
+        );
+      },
+    );
   });
 
   group('audit trail', () {

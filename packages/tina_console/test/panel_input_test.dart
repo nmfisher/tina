@@ -140,7 +140,8 @@ void main() {
     expect(editor.editState.buffer, 'new instruction');
   });
 
-  test('queue mode queues chars; ESC reaches an overlay-stood-down panel '
+  test(
+      'queue mode queues chars; ESC reaches an overlay-stood-down panel '
       'and is otherwise the cancel gesture', () {
     var cancelled = 0;
     final submitted = <String>[];
@@ -231,8 +232,7 @@ void main() {
     var answered = false;
     response.then((_) => answered = true);
     await pumpEventQueue();
-    expect(answered, isFalse,
-        reason: 'ctrl+c is the quit flow, not a deny');
+    expect(answered, isFalse, reason: 'ctrl+c is the quit flow, not a deny');
     expect(interrupts, 0);
     editor.inject(ControlKey(ControlCode.ctrlC)); // confirm quit
     expect(await response, ControlKey(ControlCode.ctrlC));

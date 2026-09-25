@@ -46,7 +46,8 @@ void main() {
     late FakeStdio io;
     setUp(() => io = FakeStdio());
 
-    test('text fields receive fresh paste and preserve paste held before entry', () async {
+    test('text fields receive fresh paste and preserve paste held before entry',
+        () async {
       final (editor, _) = _rig(io);
       addTearDown(editor.close);
       final line = editor.readLine('> ');
@@ -171,7 +172,8 @@ void main() {
       editor.close();
     });
 
-    test('a paste after the prompt resolves lands directly (no hold)', () async {
+    test('a paste after the prompt resolves lands directly (no hold)',
+        () async {
       final (editor, _) = _rig(io);
       editor.readLine('> ');
       await _flush();

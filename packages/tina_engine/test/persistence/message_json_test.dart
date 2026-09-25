@@ -23,8 +23,8 @@ void main() {
       expect(j['type'], 'tool_use');
       expect(j['id'], 'u1');
       expect(j['name'], 'read');
-      final r = ContentBlock.fromJson(jsonDecode(jsonEncode(j))
-          as Map<String, dynamic>) as ToolUseBlock;
+      final r = ContentBlock.fromJson(
+          jsonDecode(jsonEncode(j)) as Map<String, dynamic>) as ToolUseBlock;
       expect(r.id, b.id);
       expect(r.name, b.name);
       expect(r.input['filePath'], '/tmp/x');
@@ -35,17 +35,15 @@ void main() {
     test('ToolResultBlock round-trips; is_error omitted when false', () {
       const ok = ToolResultBlock(toolUseId: 'u1', content: 'done');
       expect(ok.toJson().containsKey('is_error'), isFalse);
-      final rOk =
-          ContentBlock.fromJson(ok.toJson()) as ToolResultBlock;
+      final rOk = ContentBlock.fromJson(ok.toJson()) as ToolResultBlock;
       expect(rOk.isError, isFalse);
       expect(rOk.toolUseId, 'u1');
       expect(rOk.content, 'done');
 
-      const bad = ToolResultBlock(
-          toolUseId: 'u2', content: 'boom', isError: true);
+      const bad =
+          ToolResultBlock(toolUseId: 'u2', content: 'boom', isError: true);
       expect(bad.toJson()['is_error'], isTrue);
-      final rBad =
-          ContentBlock.fromJson(bad.toJson()) as ToolResultBlock;
+      final rBad = ContentBlock.fromJson(bad.toJson()) as ToolResultBlock;
       expect(rBad.isError, isTrue);
     });
 
@@ -66,15 +64,15 @@ void main() {
         }),
       ]);
       final encoded = jsonEncode(m.toJson());
-      final decoded = Message.fromJson(
-          jsonDecode(encoded) as Map<String, dynamic>);
+      final decoded =
+          Message.fromJson(jsonDecode(encoded) as Map<String, dynamic>);
       expect(decoded.role, Role.assistant);
       expect(decoded.content, hasLength(2));
       expect(decoded.content[0], isA<TextBlock>());
       expect((decoded.content[0] as TextBlock).text, 'I will read it.');
       expect(decoded.content[1], isA<ToolUseBlock>());
-      expect((decoded.content[1] as ToolUseBlock).input['filePath'],
-          '/tmp/x.txt');
+      expect(
+          (decoded.content[1] as ToolUseBlock).input['filePath'], '/tmp/x.txt');
     });
 
     test('user message with tool_result round-trips', () {

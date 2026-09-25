@@ -42,23 +42,24 @@ void main() {
   group('RetryingProvider', () {
     test('retries a retryable failure that precedes any content', () async {
       final inner = _ScriptedAttemptsProvider([
-        [const StreamError('NIM 429: Too Many Requests',
-            statusCode: 429, retryAfter: Duration(milliseconds: 30))],
+        [
+          const StreamError('NIM 429: Too Many Requests',
+              statusCode: 429, retryAfter: Duration(milliseconds: 30))
+        ],
         _ok,
       ]);
       final provider = RetryingProvider(inner);
-      final events = await _drain(provider.send(
-          system: 's', messages: const [], tools: const []));
+      final events = await _drain(
+          provider.send(system: 's', messages: const [], tools: const []));
 
       expect(inner.calls, 2, reason: 'exactly one re-attempt');
       expect(events.whereType<StreamError>(), isEmpty,
           reason: 'the failed attempt is invisible — nothing duplicated');
-      expect(events.whereType<StreamNotice>().single.text,
-          contains('retry 1/3'),
+      expect(
+          events.whereType<StreamNotice>().single.text, contains('retry 1/3'),
           reason: 'a pending retry must be visible in the UI, not a silent '
               'stall with a loading border');
-      expect(
-          events.whereType<MessageComplete>().single.content.single,
+      expect(events.whereType<MessageComplete>().single.content.single,
           isA<TextBlock>(),
           reason: 'the retry\'s answer is the send\'s answer');
       // Retry-After honored: the second start waits out the hint.
@@ -97,7 +98,10 @@ void main() {
       // the mid-stream error surfaces instead (the transport-retry semantics
       // this layer inherited).
       final inner = _ScriptedAttemptsProvider([
-        [const TextDelta('partial'), const StreamError('cut off', statusCode: 429)],
+        [
+          const TextDelta('partial'),
+          const StreamError('cut off', statusCode: 429)
+        ],
       ]);
       final events = await _drain(RetryingProvider(inner)
           .send(system: 's', messages: const [], tools: const []));
@@ -145,8 +149,10 @@ void main() {
     test('exhausts the retry budget, then surfaces the failure', () async {
       final inner = _ScriptedAttemptsProvider([
         for (var i = 0; i < 5; i++)
-          [const StreamError('down', statusCode: 503,
-              retryAfter: Duration(milliseconds: 10))],
+          [
+            const StreamError('down',
+                statusCode: 503, retryAfter: Duration(milliseconds: 10))
+          ],
       ]);
       final events = await _drain(RetryingProvider(inner, maxRetries: 2)
           .send(system: 's', messages: const [], tools: const []));
@@ -157,23 +163,22 @@ void main() {
     test('cancelling during the backoff never launches the next attempt',
         () async {
       final inner = _ScriptedAttemptsProvider([
-        [const StreamError('429', statusCode: 429,
-            retryAfter: Duration(seconds: 5))],
+        [
+          const StreamError('429',
+              statusCode: 429, retryAfter: Duration(seconds: 5))
+        ],
         _ok,
       ]);
       final provider = RetryingProvider(inner);
       final sub = provider
-          .send(system: 's', messages: const [], tools: const [])
-          .listen(null);
+          .send(system: 's', messages: const [], tools: const []).listen(null);
       await sub.cancel();
       // Give the parked retry a scheduling beat: it must never fire.
       await Future<void>.delayed(const Duration(milliseconds: 30));
-      expect(inner.calls, 1,
-          reason: 'the cancelled send forfeited its retry');
+      expect(inner.calls, 1, reason: 'the cancelled send forfeited its retry');
     });
 
-    test('cancel during a hung in-flight attempt unwinds the ladder',
-        () async {
+    test('cancel during a hung in-flight attempt unwinds the ladder', () async {
       // The per-attempt done gate completed only via the inner stream's
       // onDone — which a CANCELLED subscription never delivers — so run()
       // stayed parked on `await _runAttempt` after a downstream cancel: the
@@ -182,8 +187,7 @@ void main() {
       Wire.onWireEvent = (s) => events.add(s.event);
       final provider = RetryingProvider(_HangingProvider(), maxRetries: 3);
       final sub = provider
-          .send(system: 's', messages: const [], tools: const [])
-          .listen(null);
+          .send(system: 's', messages: const [], tools: const []).listen(null);
       await Future<void>.delayed(const Duration(milliseconds: 10));
       await sub.cancel();
       await Future<void>.delayed(const Duration(milliseconds: 30));

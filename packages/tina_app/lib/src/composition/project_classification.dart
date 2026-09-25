@@ -103,7 +103,8 @@ Future<ProjectClassificationReport> runProjectClassification(
     return ProjectClassificationReport(
       const {},
       {
-        'program': 'invalid classify program ${program.origin}:\n'
+        'program':
+            'invalid classify program ${program.origin}:\n'
             '${program.errorsText}',
       },
       0,

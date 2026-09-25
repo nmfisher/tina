@@ -104,7 +104,8 @@ void main() {
     scope.complete();
     expect(sink.signals.where((b) => !b), hasLength(1));
   });
-  test('inner completion while an outer scope stays active never re-raises '
+  test(
+      'inner completion while an outer scope stays active never re-raises '
       'the cue (tin-y4qn)', () {
     final sink = _Sink();
     final outer = RunActivity(sink);

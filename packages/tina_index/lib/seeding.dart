@@ -25,7 +25,8 @@ List<String> seedQuery(
       score = 500;
     }
     // Query is a camelCase fragment.
-    else if (_camelParts(sym.name).any((p) => p.toLowerCase().startsWith(lower))) {
+    else if (_camelParts(sym.name)
+        .any((p) => p.toLowerCase().startsWith(lower))) {
       score = 300;
     }
     // Query is contained in name.
@@ -61,9 +62,8 @@ List<String> seedQuery(
   final sorted = scored.entries.toList()
     ..sort((a, b) => b.value.compareTo(a.value));
   final seenNames = <String>{};
-  final unique = sorted
-      .where((e) => seenNames.add(e.key.split('.').last))
-      .toList();
+  final unique =
+      sorted.where((e) => seenNames.add(e.key.split('.').last)).toList();
 
   return unique.take(maxResults).map((e) => e.key).toList();
 }

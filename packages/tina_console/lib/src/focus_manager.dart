@@ -245,27 +245,31 @@ class FocusManager {
         case ArrowDirection.right:
           if (rect.col <= currentRect.right) continue;
           primaryDist = rect.col - currentRect.right;
-          perpOverlap =
-              _rangeOverlap(rect.row, rect.bottom, currentRect.row, currentRect.bottom);
-          perpGap = _rangeGap(rect.row, rect.bottom, currentRect.row, currentRect.bottom);
+          perpOverlap = _rangeOverlap(
+              rect.row, rect.bottom, currentRect.row, currentRect.bottom);
+          perpGap = _rangeGap(
+              rect.row, rect.bottom, currentRect.row, currentRect.bottom);
         case ArrowDirection.left:
           if (rect.right >= currentRect.col) continue;
           primaryDist = currentRect.col - rect.right;
-          perpOverlap =
-              _rangeOverlap(rect.row, rect.bottom, currentRect.row, currentRect.bottom);
-          perpGap = _rangeGap(rect.row, rect.bottom, currentRect.row, currentRect.bottom);
+          perpOverlap = _rangeOverlap(
+              rect.row, rect.bottom, currentRect.row, currentRect.bottom);
+          perpGap = _rangeGap(
+              rect.row, rect.bottom, currentRect.row, currentRect.bottom);
         case ArrowDirection.down:
           if (rect.row <= currentRect.bottom) continue;
           primaryDist = rect.row - currentRect.bottom;
-          perpOverlap =
-              _rangeOverlap(rect.col, rect.right, currentRect.col, currentRect.right);
-          perpGap = _rangeGap(rect.col, rect.right, currentRect.col, currentRect.right);
+          perpOverlap = _rangeOverlap(
+              rect.col, rect.right, currentRect.col, currentRect.right);
+          perpGap = _rangeGap(
+              rect.col, rect.right, currentRect.col, currentRect.right);
         case ArrowDirection.up:
           if (rect.bottom >= currentRect.row) continue;
           primaryDist = currentRect.row - rect.bottom;
-          perpOverlap =
-              _rangeOverlap(rect.col, rect.right, currentRect.col, currentRect.right);
-          perpGap = _rangeGap(rect.col, rect.right, currentRect.col, currentRect.right);
+          perpOverlap = _rangeOverlap(
+              rect.col, rect.right, currentRect.col, currentRect.right);
+          perpGap = _rangeGap(
+              rect.col, rect.right, currentRect.col, currentRect.right);
         case ArrowDirection.pageUp:
         case ArrowDirection.pageDown:
           continue;

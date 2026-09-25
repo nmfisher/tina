@@ -40,8 +40,7 @@ void main() {
           role: Role.assistant,
           content: [
             const TextBlock('On it — reading the file.'),
-            ToolUseBlock(
-                id: 't1', name: 'read', input: {'path': 'a.dart'}),
+            ToolUseBlock(id: 't1', name: 'read', input: {'path': 'a.dart'}),
           ],
         ),
         const Message(role: Role.assistant, content: [TextBlock('Fixed.')]),
@@ -55,10 +54,7 @@ void main() {
     test('caps the digest size on a huge transcript', () {
       final history = List<Message>.generate(
         200,
-        (i) => Message(
-          role: Role.assistant,
-          content: [TextBlock('x' * 5000)],
-        ),
+        (i) => Message(role: Role.assistant, content: [TextBlock('x' * 5000)]),
       );
       final digest = GoalJudgeDigest.build(history);
       expect(digest.length, lessThanOrEqualTo(GoalJudgeDigest.maxChars));
@@ -70,56 +66,70 @@ void main() {
   });
 
   group('judgeGoal', () {
-    test('parses a yes verdict, records it, and announces the transition',
-        () async {
-      final store = GoalStore()..set('c1', 'fix the bug');
-      final conversation = _conversation(history: [
-        const Message(role: Role.user, content: [TextBlock('fix the bug')]),
-        const Message(
-            role: Role.assistant, content: [TextBlock('Done — tests pass.')]),
-      ]);
-      final seen = <String>[];
-      final verdict = await judgeGoal(
-        store: store,
-        conversation: conversation,
-        runCheck: ({required systemPrompt, required task, required sink}) {
-          seen.add(task);
-          return Future.value(_result(
-              'VERDICT: yes — the transcript shows the failing test now '
-              'passes.'));
-        },
-      );
-      expect(verdict, GoalVerdict.achieved);
-      expect(store.read('c1').status!.verdict, GoalVerdict.achieved);
-      expect(store.read('c1').status!.evidence, contains('test'));
-      // The judge task carried the goal and the transcript digest.
-      expect(seen.single, contains('GOAL: fix the bug'));
-      expect(seen.single, contains('RECENT TRANSCRIPT:'));
-      // The host heard the achieved notice.
-      expect((conversation.host as FakeHostInterface).notices,
-          anyElement(contains('goal achieved')));
-      store.dispose();
-    });
+    test(
+      'parses a yes verdict, records it, and announces the transition',
+      () async {
+        final store = GoalStore()..set('c1', 'fix the bug');
+        final conversation = _conversation(
+          history: [
+            const Message(role: Role.user, content: [TextBlock('fix the bug')]),
+            const Message(
+              role: Role.assistant,
+              content: [TextBlock('Done — tests pass.')],
+            ),
+          ],
+        );
+        final seen = <String>[];
+        final verdict = await judgeGoal(
+          store: store,
+          conversation: conversation,
+          runCheck: ({required systemPrompt, required task, required sink}) {
+            seen.add(task);
+            return Future.value(
+              _result(
+                'VERDICT: yes — the transcript shows the failing test now '
+                'passes.',
+              ),
+            );
+          },
+        );
+        expect(verdict, GoalVerdict.achieved);
+        expect(store.read('c1').status!.verdict, GoalVerdict.achieved);
+        expect(store.read('c1').status!.evidence, contains('test'));
+        // The judge task carried the goal and the transcript digest.
+        expect(seen.single, contains('GOAL: fix the bug'));
+        expect(seen.single, contains('RECENT TRANSCRIPT:'));
+        // The host heard the achieved notice.
+        expect(
+          (conversation.host as FakeHostInterface).notices,
+          anyElement(contains('goal achieved')),
+        );
+        store.dispose();
+      },
+    );
 
-    test('a repeat verdict stays silent; a transition re-announces',
-        () async {
+    test('a repeat verdict stays silent; a transition re-announces', () async {
       final store = GoalStore()..set('c1', 'fix the bug');
       final conversation = _conversation();
       Future<GoalVerdict?> judge(String answer) => judgeGoal(
-            store: store,
-            conversation: conversation,
-            runCheck: ({required systemPrompt, required task, required sink}) =>
-                Future.value(_result(answer)),
-          );
+        store: store,
+        conversation: conversation,
+        runCheck: ({required systemPrompt, required task, required sink}) =>
+            Future.value(_result(answer)),
+      );
       await judge('VERDICT: yes — done.');
       final noticesAfterFirst =
           (conversation.host as FakeHostInterface).notices.length;
       await judge('VERDICT: yes — still done.');
-      expect((conversation.host as FakeHostInterface).notices.length,
-          noticesAfterFirst);
+      expect(
+        (conversation.host as FakeHostInterface).notices.length,
+        noticesAfterFirst,
+      );
       await judge('VERDICT: unclear — the digest is thin.');
-      expect((conversation.host as FakeHostInterface).notices.length,
-          greaterThan(noticesAfterFirst));
+      expect(
+        (conversation.host as FakeHostInterface).notices.length,
+        greaterThan(noticesAfterFirst),
+      );
       store.dispose();
     });
 
@@ -143,10 +153,11 @@ void main() {
       final conversation = _conversation();
       conversation.agent.abortedReason = 'rate limited';
       var calls = 0;
-      Future<RunAgentResult> check(
-          {required String systemPrompt,
-          required String task,
-          required AgentSink sink}) async {
+      Future<RunAgentResult> check({
+        required String systemPrompt,
+        required String task,
+        required AgentSink sink,
+      }) async {
         calls++;
         return _result('VERDICT: no — nothing.');
       }
@@ -173,21 +184,22 @@ void main() {
       store.dispose();
     });
 
-    test('a judge call failure returns null and leaves the goal untouched',
-        () async {
-      final store = GoalStore()..set('c1', 'fix the bug');
-      final conversation = _conversation();
-      final verdict = await judgeGoal(
-        store: store,
-        conversation: conversation,
-        runCheck: ({required systemPrompt, required task, required sink}) =>
-            Future.value(
-                RunAgentResult('provider exploded', isError: true)),
-      );
-      expect(verdict, isNull);
-      expect(store.read('c1').hasVerdict, isFalse);
-      store.dispose();
-    });
+    test(
+      'a judge call failure returns null and leaves the goal untouched',
+      () async {
+        final store = GoalStore()..set('c1', 'fix the bug');
+        final conversation = _conversation();
+        final verdict = await judgeGoal(
+          store: store,
+          conversation: conversation,
+          runCheck: ({required systemPrompt, required task, required sink}) =>
+              Future.value(RunAgentResult('provider exploded', isError: true)),
+        );
+        expect(verdict, isNull);
+        expect(store.read('c1').hasVerdict, isFalse);
+        store.dispose();
+      },
+    );
 
     test('an unparseable answer returns null (fail closed)', () async {
       final store = GoalStore()..set('c1', 'fix the bug');
@@ -206,10 +218,11 @@ void main() {
     test('no goal or no conversation short-circuits to null', () async {
       final store = GoalStore();
       var called = false;
-      Future<RunAgentResult> check(
-          {required String systemPrompt,
-          required String task,
-          required AgentSink sink}) async {
+      Future<RunAgentResult> check({
+        required String systemPrompt,
+        required String task,
+        required AgentSink sink,
+      }) async {
         called = true;
         return _result('VERDICT: yes — x');
       }

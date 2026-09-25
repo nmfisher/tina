@@ -61,9 +61,7 @@ digraph custom {
       expect(
         graph.edges.any(
           (e) =>
-              e.from == 'language' &&
-              e.to == 'details' &&
-              e.condition.isEmpty,
+              e.from == 'language' && e.to == 'details' && e.condition.isEmpty,
         ),
         isTrue,
       );
@@ -83,9 +81,7 @@ digraph custom {
 
   group('stage validation', () {
     test('accepts classify nodes naming a known stage', () {
-      final program = parseClassifyProgram(
-        'ok',
-        '''
+      final program = parseClassifyProgram('ok', '''
 digraph ok {
   start [shape=Mdiamond];
   language [type="classify", stage="details"];
@@ -93,17 +89,13 @@ digraph ok {
   start -> language;
   language -> exit;
 }
-''',
-        origin: 'test',
-      );
+''', origin: 'test');
 
       expect(program.valid, isTrue, reason: program.errorsText);
     });
 
     test('rejects an unknown stage name with an error diagnostic', () {
-      final program = parseClassifyProgram(
-        'bad_stage',
-        '''
+      final program = parseClassifyProgram('bad_stage', '''
 digraph bad {
   start [shape=Mdiamond];
   lang [type="classify", stage="langauge"];
@@ -111,22 +103,19 @@ digraph bad {
   start -> lang;
   lang -> exit;
 }
-''',
-        origin: 'test',
-      );
+''', origin: 'test');
 
       expect(program.valid, isFalse);
-      final diag = program.diagnostics
-          .singleWhere((d) => d.rule == 'classify_stage_known');
+      final diag = program.diagnostics.singleWhere(
+        (d) => d.rule == 'classify_stage_known',
+      );
       expect(diag.severity, Severity.error);
       expect(diag.message, contains('langauge'));
       expect(diag.message, contains('language, details'));
     });
 
     test('warns on a non-string stage attribute', () {
-      final program = parseClassifyProgram(
-        'stage_int',
-        '''
+      final program = parseClassifyProgram('stage_int', '''
 digraph stage_int {
   start [shape=Mdiamond];
   language [type="classify", stage=7];
@@ -134,12 +123,11 @@ digraph stage_int {
   start -> language;
   language -> exit;
 }
-''',
-        origin: 'test',
-      );
+''', origin: 'test');
 
-      final diag = program.diagnostics
-          .singleWhere((d) => d.rule == 'classify_stage_attr');
+      final diag = program.diagnostics.singleWhere(
+        (d) => d.rule == 'classify_stage_attr',
+      );
       expect(diag.severity, Severity.warning);
       // Still valid: the node id is used, and `language` is a known stage.
       expect(program.valid, isTrue, reason: program.errorsText);
@@ -148,21 +136,19 @@ digraph stage_int {
 
   group('parse + structural validation', () {
     test('a parse failure becomes a dot_parse error diagnostic', () {
-      final program = parseClassifyProgram('broken', 'not a dot graph {',
-          origin: 'test');
+      final program = parseClassifyProgram(
+        'broken',
+        'not a dot graph {',
+        origin: 'test',
+      );
 
       expect(program.valid, isFalse);
-      expect(
-        program.diagnostics.any((d) => d.rule == 'dot_parse'),
-        isTrue,
-      );
+      expect(program.diagnostics.any((d) => d.rule == 'dot_parse'), isTrue);
       expect(program.errorsText, contains('broken'));
     });
 
     test('merges attractor structural diagnostics', () {
-      final program = parseClassifyProgram(
-        'structural',
-        '''
+      final program = parseClassifyProgram('structural', '''
 digraph structural {
   start [shape=Mdiamond];
   language [type="classify"];
@@ -171,14 +157,13 @@ digraph structural {
   start -> language;
   language -> exit;
 }
-''',
-        origin: 'test',
-      );
+''', origin: 'test');
 
       expect(program.valid, isFalse);
       // The declared-but-disconnected node is unreachable from the start.
-      final diag = program.diagnostics
-          .singleWhere((d) => d.rule == 'reachability');
+      final diag = program.diagnostics.singleWhere(
+        (d) => d.rule == 'reachability',
+      );
       expect(diag.nodeId, 'orphan');
     });
   });
@@ -199,7 +184,10 @@ digraph structural {
 
       final program = await loadIndexProgram(workspaceRoot: tmp.path);
 
-      expect(program.origin, endsWith(p.join('.tina', 'programs', 'flutter_index.dot')));
+      expect(
+        program.origin,
+        endsWith(p.join('.tina', 'programs', 'flutter_index.dot')),
+      );
       expect(program.name, 'flutter_index');
       expect(program.valid, isTrue, reason: program.errorsText);
     });
@@ -213,39 +201,47 @@ digraph structural {
       expect(program.name, 'index');
     });
 
-    test('falls back to the global index.dot when the workspace has none',
-        () async {
-      final global = Directory(p.join(tmp.path, 'workflows'))
-        ..createSync(recursive: true);
-      File(p.join(global.path, 'index.dot')).writeAsStringSync(minimalProgram);
+    test(
+      'falls back to the global index.dot when the workspace has none',
+      () async {
+        final global = Directory(p.join(tmp.path, 'workflows'))
+          ..createSync(recursive: true);
+        File(
+          p.join(global.path, 'index.dot'),
+        ).writeAsStringSync(minimalProgram);
 
-      final program = await loadIndexProgram(
-        workspaceRoot: tmp.path,
-        globalWorkflowsDir: global,
-      );
+        final program = await loadIndexProgram(
+          workspaceRoot: tmp.path,
+          globalWorkflowsDir: global,
+        );
 
-      expect(program.origin, endsWith(p.join('workflows', 'index.dot')));
-      expect(program.name, 'index');
-    });
+        expect(program.origin, endsWith(p.join('workflows', 'index.dot')));
+        expect(program.name, 'index');
+      },
+    );
 
-    test('ambiguous workspace (several programs, no index) uses the built-in',
-        () async {
-      writeProgram('a.dot', minimalProgram);
-      writeProgram('b.dot', minimalProgram);
+    test(
+      'ambiguous workspace (several programs, no index) uses the built-in',
+      () async {
+        writeProgram('a.dot', minimalProgram);
+        writeProgram('b.dot', minimalProgram);
 
-      final program = await loadIndexProgram(workspaceRoot: tmp.path);
+        final program = await loadIndexProgram(workspaceRoot: tmp.path);
 
-      expect(program.origin, 'builtin');
-    });
+        expect(program.origin, 'builtin');
+      },
+    );
 
-    test('returns an invalid file program as-is, never the fallback',
-        () async {
+    test('returns an invalid file program as-is, never the fallback', () async {
       writeProgram('index.dot', 'broken {');
 
       final program = await loadIndexProgram(workspaceRoot: tmp.path);
 
       expect(program.valid, isFalse);
-      expect(program.origin, endsWith(p.join('.tina', 'programs', 'index.dot')));
+      expect(
+        program.origin,
+        endsWith(p.join('.tina', 'programs', 'index.dot')),
+      );
       expect(program.errorsText, isNotEmpty);
     });
   });
@@ -314,9 +310,9 @@ digraph structural {
     test('falls back to the global workflows dir, else null', () {
       final global = Directory('${root.path}/global')
         ..createSync(recursive: true);
-      File('${global.path}/default.dot').writeAsStringSync(
-        'digraph default {}',
-      );
+      File(
+        '${global.path}/default.dot',
+      ).writeAsStringSync('digraph default {}');
 
       expect(
         resolveWorkflowProgramFile(

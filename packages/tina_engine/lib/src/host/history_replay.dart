@@ -25,8 +25,7 @@ void replayHistory(HostInterface host, List<Message> history) {
               // same spacing a live turn gets in _runTurn.
               if (drew) host.showSeparator();
               drew = true;
-              host.showMessage('${block.text}\n',
-                  style: HostMessageStyle.user);
+              host.showMessage('${block.text}\n', style: HostMessageStyle.user);
               host.showSeparator();
             case ToolResultBlock():
               // Skip tool results — they're often large and the preceding
@@ -56,10 +55,9 @@ void replayHistory(HostInterface host, List<Message> history) {
               }
             case ToolUseBlock():
               drew = true;
-              host.toolStart(
-                  ToolStartEvent(block.name, block.id, block.input));
-              host.toolComplete(ToolCompleteEvent(
-                  block.name, block.id, isError: false, result: ''));
+              host.toolStart(ToolStartEvent(block.name, block.id, block.input));
+              host.toolComplete(ToolCompleteEvent(block.name, block.id,
+                  isError: false, result: ''));
             default:
               break;
           }

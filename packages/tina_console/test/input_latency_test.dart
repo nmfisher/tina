@@ -113,8 +113,8 @@ void main() {
     final e = CharInput('a');
     // nativeDequeued is set to a value far in the past (microsecond epoch
     // is ~1.7e15 ns); the end-to-end delta is then a real positive number.
-    final nativeNanos =
-        DateTime.now().subtract(const Duration(milliseconds: 5))
+    final nativeNanos = DateTime.now()
+            .subtract(const Duration(milliseconds: 5))
             .microsecondsSinceEpoch *
         1000;
     InputLatency.begin(e, nativeNanos);
@@ -153,7 +153,9 @@ void main() {
     await Future<void>.delayed(Duration.zero);
   }
 
-  test('counters: typing one char increments gridWrites, logicalFrames, renderCalls', () async {
+  test(
+      'counters: typing one char increments gridWrites, logicalFrames, renderCalls',
+      () async {
     final io = FakeStdio();
     final ed = _editor(io);
     ed.readLine('> ');
@@ -185,8 +187,22 @@ void main() {
     final ed = _editor(io);
     ed.readLine('> ');
     // Bracketed paste of "ab".
-    io.feedBytes([0x1b, 0x5b, 0x32, 0x30, 0x30, 0x7e, 0x61, 0x62,
-        0x1b, 0x5b, 0x32, 0x30, 0x31, 0x7e]);
+    io.feedBytes([
+      0x1b,
+      0x5b,
+      0x32,
+      0x30,
+      0x30,
+      0x7e,
+      0x61,
+      0x62,
+      0x1b,
+      0x5b,
+      0x32,
+      0x30,
+      0x31,
+      0x7e
+    ]);
     await _flush();
     io.feedBytes([0x0d]); // Enter
     await _flush();
@@ -196,7 +212,8 @@ void main() {
     ed.close();
   });
 
-  test('counters: scroll increments gridWrites proportionally to height', () async {
+  test('counters: scroll increments gridWrites proportionally to height',
+      () async {
     final io = FakeStdio();
     final ed = _editor(io);
     // Append enough lines to force scrolling at height 24.

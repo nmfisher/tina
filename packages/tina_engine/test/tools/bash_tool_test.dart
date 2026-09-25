@@ -27,9 +27,10 @@ void main() {
     });
 
     test('non-zero exit is surfaced as isError', () async {
-      final runner = MemoryProcessRunner.always(
-          MemoryRunningProcess(exitCodeValue: 7));
-      final r = await BashTool(processRunner: runner).execute({'command': 'exit 7'});
+      final runner =
+          MemoryProcessRunner.always(MemoryRunningProcess(exitCodeValue: 7));
+      final r =
+          await BashTool(processRunner: runner).execute({'command': 'exit 7'});
       expect(r.isError, isTrue);
       expect(r.content, contains('exit: 7'));
     });
@@ -105,8 +106,7 @@ void main() {
         processRunner: runner,
       );
       final r = await t
-          .execute({'command': 'sleep 5'})
-          .timeout(const Duration(seconds: 3));
+          .execute({'command': 'sleep 5'}).timeout(const Duration(seconds: 3));
       expect(r.isError, isTrue);
       expect(r.content, contains('exit:'));
     });
@@ -121,8 +121,7 @@ void main() {
         processRunner: runner,
       );
       final r = await t
-          .execute({'command': 'sleep 5'})
-          .timeout(const Duration(seconds: 3));
+          .execute({'command': 'sleep 5'}).timeout(const Duration(seconds: 3));
       expect(r.isError, isTrue);
       expect(r.content, contains('command timed out after 1s (exit: 143)'));
       expect(r.content, isNot(contains('cancelled by user')));
@@ -147,9 +146,8 @@ void main() {
       final r = await BashTool(
         processRunner: runner,
         timeout: Duration.zero,
-      )
-          .execute({'command': 'sleep 5', 'timeoutSeconds': 0})
-          .timeout(const Duration(seconds: 5));
+      ).execute({'command': 'sleep 5', 'timeoutSeconds': 0}).timeout(
+          const Duration(seconds: 5));
       expect(r.content, contains('command timed out after 1s'));
     });
 
@@ -173,7 +171,8 @@ void main() {
       expect(r2.elapsed, isNotNull);
     });
 
-    test('process that survives the kill: grace unblocks with an honest '
+    test(
+        'process that survives the kill: grace unblocks with an honest '
         'incomplete-output note', () async {
       final runner = MemoryProcessRunner.always(MemoryRunningProcess(
         stdoutChunks: ['partial\n'],
@@ -185,9 +184,8 @@ void main() {
         postKillGrace: const Duration(milliseconds: 100),
         processRunner: runner,
       );
-      final r = await t
-          .execute({'command': 'stuck-after-signal'})
-          .timeout(const Duration(seconds: 5));
+      final r = await t.execute({'command': 'stuck-after-signal'}).timeout(
+          const Duration(seconds: 5));
       expect(runner.processes.single.killed, isTrue);
       expect(runner.processes.single.forceKilled, isTrue);
       expect(r.content, contains('command timed out after 1s'));

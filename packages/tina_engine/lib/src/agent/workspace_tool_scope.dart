@@ -52,7 +52,8 @@ class WorkspaceToolScope {
 
   /// Standalone tool assembly for engine consumers without application setup.
   /// Production composition uses the confined constructor above.
-  WorkspaceToolScope.unconfined({String? workspaceRoot, Map<String, String>? env})
+  WorkspaceToolScope.unconfined(
+      {String? workspaceRoot, Map<String, String>? env})
       : this._(
           capabilities: WorkspaceCapabilities.build(
             workspaceRoot: workspaceRoot ?? Directory.current.path,

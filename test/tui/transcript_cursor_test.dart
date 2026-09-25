@@ -20,9 +20,10 @@ void main() {
   setUp(() {
     io = FakeStdio()..columns = 200;
     screen = Screen(
-        io: io,
-        layout: ScreenLayout.fromSize(200, 24),
-        ansi: AnsiCapable.yes);
+      io: io,
+      layout: ScreenLayout.fromSize(200, 24),
+      ansi: AnsiCapable.yes,
+    );
     chat = ScrollingTextRegion(screen);
     sink = ChatAgentSink(chat, Spinner(enabled: false));
     editor = LineEditor(screen: screen);
@@ -44,7 +45,8 @@ void main() {
       sink.toolStart(ToolStartEvent('bash', 't$i', {'command': 'cmd$i'}));
       sink.toolOutput(ToolOutputEvent('bash', 't$i', 'body-$i\n'));
       sink.toolComplete(
-          ToolCompleteEvent('bash', 't$i', isError: false, result: ''));
+        ToolCompleteEvent('bash', 't$i', isError: false, result: ''),
+      );
     }
   }
 
@@ -83,30 +85,35 @@ void main() {
     // Nothing asserted mid-loop, so just confirm entering and leaving is clean.
     await drive([]);
     expect(calls().every((b) => b.folded), isTrue);
-    expect(painted(), isNot(contains('\x1b[33m')),
-        reason: 'the mark is cleared on the way out');
+    expect(
+      painted(),
+      isNot(contains('\x1b[33m')),
+      reason: 'the mark is cleared on the way out',
+    );
   });
 
-  test('enter reveals the focused block, and space collapses it again',
-      () async {
-    threeCalls();
-    // The cursor starts on the newest (block 2); step up once to block 1.
-    await drive([
-      ArrowKey(ArrowDirection.up),
-      ControlKey(ControlCode.enter),
-    ]);
-    expect(calls()[1].folded, isFalse,
-        reason: 'enter opened the block the cursor was on');
-    expect(painted(), contains('body-1'));
+  test(
+    'enter reveals the focused block, and space collapses it again',
+    () async {
+      threeCalls();
+      // The cursor starts on the newest (block 2); step up once to block 1.
+      await drive([ArrowKey(ArrowDirection.up), ControlKey(ControlCode.enter)]);
+      expect(
+        calls()[1].folded,
+        isFalse,
+        reason: 'enter opened the block the cursor was on',
+      );
+      expect(painted(), contains('body-1'));
 
-    await drive([
-      ArrowKey(ArrowDirection.up),
-      CharInput(' '),
-    ]);
-    expect(calls()[1].folded, isTrue,
-        reason: 'space closed it again (the cursor starts on 2, up to 1)');
-    expect(painted(), isNot(contains('body-1')));
-  });
+      await drive([ArrowKey(ArrowDirection.up), CharInput(' ')]);
+      expect(
+        calls()[1].folded,
+        isTrue,
+        reason: 'space closed it again (the cursor starts on 2, up to 1)',
+      );
+      expect(painted(), isNot(contains('body-1')));
+    },
+  );
 
   test('arrows stop at the ends instead of wrapping', () async {
     threeCalls();
@@ -117,8 +124,7 @@ void main() {
       ArrowKey(ArrowDirection.up),
       ControlKey(ControlCode.enter),
     ]);
-    expect(calls()[0].folded, isFalse,
-        reason: 'clamped at the oldest block');
+    expect(calls()[0].folded, isFalse, reason: 'clamped at the oldest block');
     expect(calls()[1].folded, isTrue);
     expect(calls()[2].folded, isTrue);
   });
@@ -150,10 +156,16 @@ void main() {
       sink.notice('filler $i\n');
     }
     sink.toolStart(const ToolStartEvent('bash', 't', {'command': 'long'}));
-    sink.toolOutput(ToolOutputEvent(
-        'bash', 't', [for (var i = 0; i < 20; i++) 'xxxx-line-$i'].join('\n')));
+    sink.toolOutput(
+      ToolOutputEvent(
+        'bash',
+        't',
+        [for (var i = 0; i < 20; i++) 'xxxx-line-$i'].join('\n'),
+      ),
+    );
     sink.toolComplete(
-        const ToolCompleteEvent('bash', 't', isError: false, result: ''));
+      const ToolCompleteEvent('bash', 't', isError: false, result: ''),
+    );
 
     await drive([ControlKey(ControlCode.enter)]);
     expect(calls().last.folded, isFalse);
@@ -163,8 +175,9 @@ void main() {
     // Inspect the actual viewport rather than assuming those snapshots exist.
     final terminal = VirtualTerminal(width: 200, height: 24)
       ..feed(io.written.toString());
-    expect([
-      for (var row = 0; row < 24; row++) terminal.rowText(row),
-    ].join('\n'), contains('xxxx-line-19'));
+    expect(
+      [for (var row = 0; row < 24; row++) terminal.rowText(row)].join('\n'),
+      contains('xxxx-line-19'),
+    );
   });
 }

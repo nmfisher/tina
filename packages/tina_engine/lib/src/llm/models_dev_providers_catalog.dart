@@ -98,8 +98,9 @@ class ModelsDevProviderCatalog {
   bool get refreshPending => _refreshing || _loadError != null;
 
   /// Non-null when a refresh failed. Rendered by the settings panel.
-  String? get loadWarning =>
-      _loadError == null ? null : 'models.dev provider list unavailable '
+  String? get loadWarning => _loadError == null
+      ? null
+      : 'models.dev provider list unavailable '
           '($_loadError)';
 
   /// Seed from the on-disk cache. Idempotent; a missing or unreadable cache
@@ -153,8 +154,7 @@ class ModelsDevProviderCatalog {
       return jsonDecode(resp.body) as Map<String, dynamic>;
     } catch (e) {
       _loadError = '$e';
-      _log.fine('models.dev api.json fetch failed; seeded providers remain',
-          e);
+      _log.fine('models.dev api.json fetch failed; seeded providers remain', e);
       return null;
     }
   }
@@ -181,7 +181,8 @@ class ModelsDevProviderCatalog {
         for (final m in rawModels.entries) {
           final mv = m.value;
           if (mv is! Map) continue;
-          final info = modelsDevModelInfo('${m.key}', mv.cast<String, dynamic>());
+          final info =
+              modelsDevModelInfo('${m.key}', mv.cast<String, dynamic>());
           if (info != null) models[info.id] = info;
         }
       }

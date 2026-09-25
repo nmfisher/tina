@@ -27,5 +27,6 @@ String? normalizeWorkflowName(String input) {
 }
 
 /// A human explanation for why [normalizeWorkflowName] rejected a name.
-const String nameRejection = 'workflow names must be non-empty and may not '
+const String nameRejection =
+    'workflow names must be non-empty and may not '
     'contain "/", "\\", "..", or a typed ".dot" suffix';

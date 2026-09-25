@@ -45,8 +45,11 @@ void main() {
 
   group('ChatTheme markdown styles (tin-g7rk)', () {
     test('all three variants ship the four markdown fields', () {
-      for (final theme
-          in const [Theme.defaults(), Theme.light(), Theme.dark()]) {
+      for (final theme in const [
+        Theme.defaults(),
+        Theme.light(),
+        Theme.dark()
+      ]) {
         expect(theme.chat.header, isNotEmpty);
         expect(theme.chat.inlineCode, isNotEmpty);
         expect(theme.chat.codeBlock, isNotEmpty);
@@ -94,8 +97,11 @@ void main() {
         return false;
       }
 
-      for (final theme
-          in const [Theme.defaults(), Theme.light(), Theme.dark()]) {
+      for (final theme in const [
+        Theme.defaults(),
+        Theme.light(),
+        Theme.dark()
+      ]) {
         expect(hasBackground(theme.chat.codeBlock), isTrue,
             reason: 'codeBlock must set a background colour');
       }
@@ -124,7 +130,8 @@ void main() {
   });
 
   group('Theme.fromMap', () {
-    test('overrides only supplied keys; missing keys fall back to defaults', () {
+    test('overrides only supplied keys; missing keys fall back to defaults',
+        () {
       final theme = Theme.fromMap({
         'chat': {'user_bar': '92;100'},
         'border': {'focus': '35'},

@@ -56,8 +56,7 @@ class PipelineEngine {
   /// manifest and available as `context.input`; [seedContext] values are
   /// pre-seeded into the run context (e.g. `history` for a chat turn) and are
   /// expandable in prompts as `$<key>`.
-  Future<Outcome> run(
-      {String? input, Map<String, String>? seedContext}) async {
+  Future<Outcome> run({String? input, Map<String, String>? seedContext}) async {
     final context = Context();
     context.set('graph.goal', graph.goal);
     if (input != null && input.isNotEmpty) context.set('input', input);
@@ -127,7 +126,8 @@ class PipelineEngine {
 
       // Per-node visit cap — catches revise/clarify self-loops.
       if ((visits[current.id] ?? 0) + 1 > maxNodeVisits) {
-        final reason = '"${current.id}" exceeded $maxNodeVisits visits '
+        final reason =
+            '"${current.id}" exceeded $maxNodeVisits visits '
             '(possible loop)';
         if (await _continuePastBudget(reason)) {
           visits[current.id] = 0;
@@ -148,7 +148,8 @@ class PipelineEngine {
           final budget = _gateJumpBudget(failedGate);
           final jumps = (gateJumps[failedGate.id] ?? 0) + 1;
           if (jumps > budget) {
-            final reason = 'goal gate "${failedGate.id}" retry budget '
+            final reason =
+                'goal gate "${failedGate.id}" retry budget '
                 'exhausted ($budget jump${budget == 1 ? '' : 's'} without '
                 'satisfying the gate)';
             if (await _continuePastBudget(reason)) {
@@ -158,15 +159,16 @@ class PipelineEngine {
             }
           }
           gateJumps[failedGate.id] = jumps;
-          final target = _retryTargetFor(failedGate) ??
-              _graphRetryTarget();
+          final target = _retryTargetFor(failedGate) ?? _graphRetryTarget();
           if (target != null && graph.node(target) != null) {
             current = graph.node(target)!;
             continue;
           }
           return _finish(
-            Outcome.fail('goal gate "${failedGate.id}" unsatisfied '
-                'and no retry target'),
+            Outcome.fail(
+              'goal gate "${failedGate.id}" unsatisfied '
+              'and no retry target',
+            ),
             context,
             completed,
           );
@@ -260,9 +262,19 @@ class PipelineEngine {
         // captured").
         final fail = Outcome.fail('handler error in "${node.id}": $e');
         await runStore.writeNode(
-            nodeId: node.id, outcome: fail, prompt: '', response: '');
-        onEvent?.call(PipelineEvent('node_failed',
-            nodeId: node.id, outcome: fail, message: fail.failureReason));
+          nodeId: node.id,
+          outcome: fail,
+          prompt: '',
+          response: '',
+        );
+        onEvent?.call(
+          PipelineEvent(
+            'node_failed',
+            nodeId: node.id,
+            outcome: fail,
+            message: fail.failureReason,
+          ),
+        );
         if (attempt < maxAttempts) {
           if (isCancelled()) return Outcome.fail('cancelled');
           await Future.delayed(backoffFor(attempt));
@@ -274,14 +286,19 @@ class PipelineEngine {
       if (outcome.status.isOk) {
         retries.remove(node.id);
         onEvent?.call(
-            PipelineEvent('node_completed', nodeId: node.id, outcome: outcome));
+          PipelineEvent('node_completed', nodeId: node.id, outcome: outcome),
+        );
         return outcome;
       }
       if (outcome.status == StageStatus.retry) {
-        onEvent?.call(PipelineEvent('node_retrying',
+        onEvent?.call(
+          PipelineEvent(
+            'node_retrying',
             nodeId: node.id,
             outcome: outcome,
-            message: outcome.failureReason));
+            message: outcome.failureReason,
+          ),
+        );
         if (attempt < maxAttempts) {
           if (isCancelled()) return Outcome.fail('cancelled');
           retries[node.id] = (retries[node.id] ?? 0) + 1;
@@ -291,20 +308,32 @@ class PipelineEngine {
         if (node.allowPartial) {
           return outcome.copyWith(status: StageStatus.partialSuccess);
         }
-        final exhausted =
-            outcome.copyWith(status: StageStatus.fail);
-        onEvent?.call(PipelineEvent('node_failed',
-            nodeId: node.id, outcome: exhausted, message: 'max retries exceeded'));
+        final exhausted = outcome.copyWith(status: StageStatus.fail);
+        onEvent?.call(
+          PipelineEvent(
+            'node_failed',
+            nodeId: node.id,
+            outcome: exhausted,
+            message: 'max retries exceeded',
+          ),
+        );
         return exhausted;
       }
       if (outcome.status == StageStatus.fail) {
-        onEvent?.call(PipelineEvent('node_failed',
-            nodeId: node.id, outcome: outcome, message: outcome.failureReason));
+        onEvent?.call(
+          PipelineEvent(
+            'node_failed',
+            nodeId: node.id,
+            outcome: outcome,
+            message: outcome.failureReason,
+          ),
+        );
         return outcome;
       }
       // skipped — return as-is.
       onEvent?.call(
-          PipelineEvent('node_completed', nodeId: node.id, outcome: outcome));
+        PipelineEvent('node_completed', nodeId: node.id, outcome: outcome),
+      );
       return outcome;
     }
     return Outcome.fail('max retries exceeded for "${node.id}"');
@@ -313,7 +342,10 @@ class PipelineEngine {
   // -- Edge selection (spec §3.3) ------------------------------------------
 
   PipelineEdge? _selectEdge(
-      PipelineNode node, Outcome outcome, Context context) {
+    PipelineNode node,
+    Outcome outcome,
+    Context context,
+  ) {
     final edges = graph.outgoing(node.id);
     if (edges.isEmpty) return null;
 
@@ -355,7 +387,8 @@ class PipelineEngine {
     }
 
     // Steps 4 & 5: weight then lexical among unconditional edges.
-    if (unconditional.isNotEmpty) return _bestByWeightThenLexical(unconditional);
+    if (unconditional.isNotEmpty)
+      return _bestByWeightThenLexical(unconditional);
 
     // Only conditional edges remain and none matched. Preserve the any-edge
     // fallback for non-failed outcomes.
@@ -430,18 +463,28 @@ class PipelineEngine {
   // -- Finalize -------------------------------------------------------------
 
   Future<Outcome> _finish(
-      Outcome outcome, Context context, List<String> completed) async {
+    Outcome outcome,
+    Context context,
+    List<String> completed,
+  ) async {
     await runStore.writeCheckpoint(
       currentNode: completed.isNotEmpty ? completed.last : '',
       completedNodes: completed,
       context: context,
     );
-    await runStore.finalize(status: outcome.status, failureReason: outcome.failureReason.isEmpty ? null : outcome.failureReason);
-    onEvent?.call(PipelineEvent(
-      outcome.status.isOk ? 'completed' : 'failed',
-      outcome: outcome,
-      message: outcome.status.isOk ? outcome.notes : outcome.failureReason,
-    ));
+    await runStore.finalize(
+      status: outcome.status,
+      failureReason: outcome.failureReason.isEmpty
+          ? null
+          : outcome.failureReason,
+    );
+    onEvent?.call(
+      PipelineEvent(
+        outcome.status.isOk ? 'completed' : 'failed',
+        outcome: outcome,
+        message: outcome.status.isOk ? outcome.notes : outcome.failureReason,
+      ),
+    );
     return outcome;
   }
 }

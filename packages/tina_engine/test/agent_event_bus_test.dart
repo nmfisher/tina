@@ -127,7 +127,8 @@ void main() {
     });
   });
   group('SubAgentSink — a sub-agent reaches the bus, tagged', () {
-    test('forwards payload calls onto the bus as tagged JobAgentEvents', () async {
+    test('forwards payload calls onto the bus as tagged JobAgentEvents',
+        () async {
       final bus = AgentEventBus();
       final sink = SubAgentSink(jobId: 'j1', label: 'research', bus: bus);
 

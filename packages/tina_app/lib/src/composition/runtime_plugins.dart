@@ -38,18 +38,17 @@ PluginDescriptor spendLedgerPlugin(RuntimeConfig config) => PluginDescriptor(
 /// this plugin: all decorator contributions are registered before the factory
 /// builds the provider policy stack, in the same way the ledger's key forces
 /// ledger-before-factory.
-PluginDescriptor providerDecoratorsPlugin(
-  List<ProviderDecorator> decorators,
-) => PluginDescriptor(
-  id: 'tina.app.provider-decorators',
-  provides: [providerDecoratorStageServiceKey],
-  factory: FnPluginFactory((context) {
-    for (var i = 0; i < decorators.length; i++) {
-      context.register(decorators[i], id: 'tina.decorator.$i');
-    }
-    return const ProviderDecoratorStage();
-  }),
-);
+PluginDescriptor providerDecoratorsPlugin(List<ProviderDecorator> decorators) =>
+    PluginDescriptor(
+      id: 'tina.app.provider-decorators',
+      provides: [providerDecoratorStageServiceKey],
+      factory: FnPluginFactory((context) {
+        for (var i = 0; i < decorators.length; i++) {
+          context.register(decorators[i], id: 'tina.decorator.$i');
+        }
+        return const ProviderDecoratorStage();
+      }),
+    );
 
 /// Built-in plugin that provides the conversation-owned [LlmProviderFactory]
 /// under [providerFactoryServiceKey]. Every provider built from it is wrapped
@@ -95,6 +94,7 @@ PluginDescriptor providerFactoryPlugin(
       }
       return p;
     }
+
     final factory = RuntimeProviderFactory(
       registry,
       decorator: decorate,

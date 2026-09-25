@@ -41,11 +41,11 @@ void main() {
   });
 
   SummaryIndex _index(ProviderRegistry registry) => buildSummaryIndex(
-        config: testFleetConfig(),
-        registry: registry,
-        environment: const PlatformEnvironment(),
-        workspaceRoot: project.path,
-      );
+    config: testFleetConfig(),
+    registry: registry,
+    environment: const PlatformEnvironment(),
+    workspaceRoot: project.path,
+  );
 
   SidecarSummaryRepo _repo() =>
       SidecarSummaryRepo(root: sidecarRoot, workspaceRoot: project);
@@ -53,48 +53,52 @@ void main() {
   /// Allocations over the default partition (the main agent's proposed layout
   /// — it REPLACES the default), seeded via the real store.
   AllocationsStore _allocations(List<String> dirs) {
-    final store =
-        AllocationsStore(sidecarRoot: Directory('${project.path}/.tina/summaries'));
+    final store = AllocationsStore(
+      sidecarRoot: Directory('${project.path}/.tina/summaries'),
+    );
     for (final d in dirs) store.set(dir: d);
     return store;
   }
 
-  test('refresh runs the fleet, writes the sidecar, preserves the decorator',
-      () async {
-    final registry = anthropicRegistry(provider);
-    // A background runtime uses its own factory and leaves the legacy
-    // registry construction policy untouched.
-    final sentinel = (LlmProvider p) => p;
-    registry.decorator = sentinel;
-    final idx = _index(registry);
+  test(
+    'refresh runs the fleet, writes the sidecar, preserves the decorator',
+    () async {
+      final registry = anthropicRegistry(provider);
+      // A background runtime uses its own factory and leaves the legacy
+      // registry construction policy untouched.
+      final sentinel = (LlmProvider p) => p;
+      registry.decorator = sentinel;
+      final idx = _index(registry);
 
-    final before = await idx.status();
-    expect(before.firstRun, isTrue);
-    expect(before.allStale, isTrue);
+      final before = await idx.status();
+      expect(before.firstRun, isTrue);
+      expect(before.allStale, isTrue);
 
-    final r = await idx.refresh().timeout(const Duration(seconds: 30));
-    expect(r.regenerated, greaterThan(0));
-    expect(r.regeneratedDirs, contains('lib'));
+      final r = await idx.refresh().timeout(const Duration(seconds: 30));
+      expect(r.regenerated, greaterThan(0));
+      expect(r.regeneratedDirs, contains('lib'));
 
-    // Sidecar file with the summarizer's content + a stamped header.
-    final file = File('${sidecarRoot.path}/summaries/lib.md');
-    expect(file.existsSync(), isTrue);
-    expect(file.readAsStringSync(), contains('lib does X'));
-    // Manifest tracks lib.
-    expect(_repo().loadManifest().dirs['lib'], isNotNull);
-    // A sidecar commit was recorded.
-    expect(
+      // Sidecar file with the summarizer's content + a stamped header.
+      final file = File('${sidecarRoot.path}/summaries/lib.md');
+      expect(file.existsSync(), isTrue);
+      expect(file.readAsStringSync(), contains('lib does X'));
+      // Manifest tracks lib.
+      expect(_repo().loadManifest().dirs['lib'], isNotNull);
+      // A sidecar commit was recorded.
+      expect(
         git(Directory('${sidecarRoot.path}/summaries'), ['log', '--oneline']),
-        contains('summaries @'));
+        contains('summaries @'),
+      );
 
-    // The caller's decorator survived the in-process fleet run.
-    expect(registry.decorator, same(sentinel));
+      // The caller's decorator survived the in-process fleet run.
+      expect(registry.decorator, same(sentinel));
 
-    // Post-run status is up to date.
-    final after = await idx.status();
-    expect(after.firstRun, isFalse);
-    expect(after.staleCount, 0);
-  });
+      // Post-run status is up to date.
+      final after = await idx.status();
+      expect(after.firstRun, isFalse);
+      expect(after.staleCount, 0);
+    },
+  );
 
   test('refresh(repartition: true) regenerates even when up to date', () async {
     final registry = anthropicRegistry(provider);
@@ -106,26 +110,31 @@ void main() {
     seed.init();
     final partition = seed.defaultPartition();
     for (final dir in partition) {
-      File('${sidecarRoot.path}/summaries/${summarySlug(dir)}.md')
-          .writeAsStringSync('# $dir\n');
+      File(
+        '${sidecarRoot.path}/summaries/${summarySlug(dir)}.md',
+      ).writeAsStringSync('# $dir\n');
     }
-    seed.saveManifest(seed.record(
-      manifest: seed.loadManifest(),
-      regenerated: partition,
-      deleted: const [],
-    ));
+    seed.saveManifest(
+      seed.record(
+        manifest: seed.loadManifest(),
+        regenerated: partition,
+        deleted: const [],
+      ),
+    );
     expect((await idx.status()).staleCount, 0);
 
     // repartition clears the manifest → all stale → the fleet runs anyway.
-    final r =
-        await idx.refresh(repartition: true).timeout(const Duration(seconds: 30));
+    final r = await idx
+        .refresh(repartition: true)
+        .timeout(const Duration(seconds: 30));
     expect(r.regenerated, partition.length);
     expect(r.regeneratedDirs, contains('lib'));
     // The file was (re)written.
     expect(File('${sidecarRoot.path}/summaries/lib.md').existsSync(), isTrue);
     expect(
-        git(Directory('${sidecarRoot.path}/summaries'), ['log', '--oneline']),
-        contains('summaries @'));
+      git(Directory('${sidecarRoot.path}/summaries'), ['log', '--oneline']),
+      contains('summaries @'),
+    );
   });
 
   test('refresh(dirs:) regenerates only the requested dirs', () async {
@@ -144,8 +153,9 @@ void main() {
     final before = await idx.status();
     expect(before.staleDirs, containsAll(['lib', 'packages/foo/lib']));
 
-    final r =
-        await idx.refresh(dirs: ['lib']).timeout(const Duration(seconds: 30));
+    final r = await idx
+        .refresh(dirs: ['lib'])
+        .timeout(const Duration(seconds: 30));
     expect(r.regenerated, 1);
     expect(r.regeneratedDirs, ['lib']);
 
@@ -156,30 +166,34 @@ void main() {
     expect(after.staleDirs, contains('packages/foo/lib'));
     expect(File('${sidecarRoot.path}/summaries/lib.md').existsSync(), isTrue);
     expect(
-        File('${sidecarRoot.path}/summaries/packages%2Ffoo%2Flib.md')
-            .existsSync(),
-        isFalse);
-  });
-
-  test('an in-process refresh merges the fleet spend into the live ledger',
-      () async {
-    final registry = anthropicRegistry(provider);
-    final live = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
-    final idx = buildSummaryIndex(
-      config: testFleetConfig(),
-      registry: registry,
-      environment: const PlatformEnvironment(),
-      workspaceRoot: project.path,
-      spendLedger: live,
+      File(
+        '${sidecarRoot.path}/summaries/packages%2Ffoo%2Flib.md',
+      ).existsSync(),
+      isFalse,
     );
-
-    final r = await idx.refresh().timeout(const Duration(seconds: 30));
-    expect(r.regenerated, greaterThan(0));
-
-    // The scripted fleet makes 4 provider sends × 150 tokens each; all of it
-    // landed in the live session ledger, not a throwaway.
-    expect(live.totalTokens, 600);
   });
+
+  test(
+    'an in-process refresh merges the fleet spend into the live ledger',
+    () async {
+      final registry = anthropicRegistry(provider);
+      final live = SpendLedger(maxGlobalTokens: 0, requestsPerMinute: 0);
+      final idx = buildSummaryIndex(
+        config: testFleetConfig(),
+        registry: registry,
+        environment: const PlatformEnvironment(),
+        workspaceRoot: project.path,
+        spendLedger: live,
+      );
+
+      final r = await idx.refresh().timeout(const Duration(seconds: 30));
+      expect(r.regenerated, greaterThan(0));
+
+      // The scripted fleet makes 4 provider sends × 150 tokens each; all of it
+      // landed in the live session ledger, not a throwaway.
+      expect(live.totalTokens, 600);
+    },
+  );
 
   test('refresh respects the allocated partition only (finding A)', () async {
     final registry = anthropicRegistry(provider);
@@ -207,31 +221,39 @@ void main() {
     expect(after.allStale, isFalse);
   });
 
-  test('refresh routes fleet output to the injected host, not stdout',
-      () async {
-    final registry = anthropicRegistry(provider);
-    final idx = _index(registry);
-    final host = FakeHostInterface();
-    await idx.refresh(host: host).timeout(const Duration(seconds: 30));
-    // The fleet streamed its tool activity into the injected host's sink, not
-    // the HeadlessHost that writes raw stdout over the TUI.
-    expect(host.sink.toolStarts, isNotEmpty);
-  });
+  test(
+    'refresh routes fleet output to the injected host, not stdout',
+    () async {
+      final registry = anthropicRegistry(provider);
+      final idx = _index(registry);
+      final host = FakeHostInterface();
+      await idx.refresh(host: host).timeout(const Duration(seconds: 30));
+      // The fleet streamed its tool activity into the injected host's sink, not
+      // the HeadlessHost that writes raw stdout over the TUI.
+      expect(host.sink.toolStarts, isNotEmpty);
+    },
+  );
 
-  test('refresh cancels mid-fleet via cancelSignal and records nothing',
-      () async {
-    final registry = anthropicRegistry(provider);
-    final idx = _index(registry);
-    // A pre-completed cancel signal → the orchestrator aborts before any
-    // delegate runs, so no summary file is written and record() records
-    // nothing. Whether the run throws or returns, the sidecar stays empty.
-    final cancel = Completer<void>()..complete();
-    try {
-      await idx.refresh(cancelSignal: cancel.future)
-          .timeout(const Duration(seconds: 30));
-    } catch (_) {
-      // Cancellation may surface as an error — either outcome is fine here.
-    }
-    expect(File('${sidecarRoot.path}/summaries/lib.md').existsSync(), isFalse);
-  });
+  test(
+    'refresh cancels mid-fleet via cancelSignal and records nothing',
+    () async {
+      final registry = anthropicRegistry(provider);
+      final idx = _index(registry);
+      // A pre-completed cancel signal → the orchestrator aborts before any
+      // delegate runs, so no summary file is written and record() records
+      // nothing. Whether the run throws or returns, the sidecar stays empty.
+      final cancel = Completer<void>()..complete();
+      try {
+        await idx
+            .refresh(cancelSignal: cancel.future)
+            .timeout(const Duration(seconds: 30));
+      } catch (_) {
+        // Cancellation may surface as an error — either outcome is fine here.
+      }
+      expect(
+        File('${sidecarRoot.path}/summaries/lib.md').existsSync(),
+        isFalse,
+      );
+    },
+  );
 }

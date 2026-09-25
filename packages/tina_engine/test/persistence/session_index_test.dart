@@ -36,8 +36,8 @@ void main() {
       addTearDown(() {
         if (project.existsSync()) project.deleteSync(recursive: true);
       });
-      final sid = await store.createSession(
-          providerId: 'anthropic', cwd: project.path);
+      final sid =
+          await store.createSession(providerId: 'anthropic', cwd: project.path);
       expect(await (store as SessionIndex).cwdFor(sid), project.path);
     });
 
@@ -137,8 +137,8 @@ class _FakeStore implements SessionStore {
   }
 
   @override
-  Future<void> append(String sessionId, String conversationId,
-          Message message) =>
+  Future<void> append(
+          String sessionId, String conversationId, Message message) =>
       throw UnimplementedError();
 
   @override
@@ -157,25 +157,22 @@ class _FakeStore implements SessionStore {
       throw UnimplementedError();
 
   @override
-  Future<void> replace(String sessionId, String conversationId,
-          List<Message> messages) =>
+  Future<void> replace(
+          String sessionId, String conversationId, List<Message> messages) =>
       throw UnimplementedError();
 
   @override
-  Future<void> setActiveConversation(
-          String sessionId, String conversationId) =>
+  Future<void> setActiveConversation(String sessionId, String conversationId) =>
       throw UnimplementedError();
 
   @override
-  Future<void> updateConversationModel(String sessionId,
-          String conversationId,
-          {required String model,
-          String? label}) =>
+  Future<void> updateConversationModel(String sessionId, String conversationId,
+          {required String model, String? label}) =>
       throw UnimplementedError();
 
   @override
-  Future<void> updateConversationTrackers(String sessionId,
-          String conversationId,
+  Future<void> updateConversationTrackers(
+          String sessionId, String conversationId,
           {required Map<String, dynamic>? goal,
           required Map<String, dynamic>? plan}) =>
       throw UnimplementedError();
@@ -185,8 +182,7 @@ class _FakeStore implements SessionStore {
       throw UnimplementedError();
 
   @override
-  Future<void> deleteSession(String sessionId) =>
-      throw UnimplementedError();
+  Future<void> deleteSession(String sessionId) => throw UnimplementedError();
 
   @override
   Future<void> deleteConversation(String sessionId, String conversationId) =>

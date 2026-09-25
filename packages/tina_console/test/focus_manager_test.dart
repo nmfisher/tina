@@ -8,8 +8,7 @@ import 'stdio_fake.dart';
 /// driving the [FocusManager] state machine without a real terminal.
 class _Fake implements Focusable {
   final String name;
-  _Fake(this.name, {Rect? bounds})
-      : boundsRect = bounds ?? Rect.empty;
+  _Fake(this.name, {Rect? bounds}) : boundsRect = bounds ?? Rect.empty;
 
   final bool canFocusFlag = true;
   final Rect boundsRect;
@@ -65,9 +64,12 @@ void main() {
   late FocusManager fm;
 
   setUp(() {
-    chat = _Fake('chat', bounds: const Rect(row: 3, col: 0, width: 60, height: 18));
-    menu = _Fake('menu', bounds: const Rect(row: 0, col: 0, width: 100, height: 3));
-    info = _Fake('info', bounds: const Rect(row: 3, col: 65, width: 33, height: 18));
+    chat = _Fake('chat',
+        bounds: const Rect(row: 3, col: 0, width: 60, height: 18));
+    menu = _Fake('menu',
+        bounds: const Rect(row: 0, col: 0, width: 100, height: 3));
+    info = _Fake('info',
+        bounds: const Rect(row: 3, col: 65, width: 33, height: 18));
     fm = FocusManager()
       ..register(chat)
       ..register(menu)
@@ -109,7 +111,9 @@ void main() {
       expect(fm.highlighted, same(menu));
     });
 
-    test('a highlighted panel can also be the focus (one color via suppression)', () {
+    test(
+        'a highlighted panel can also be the focus (one color via suppression)',
+        () {
       fm.engage(); // chat is highlighted AND focused
       expect(fm.highlighted, same(chat));
       expect(fm.focused, same(chat));
@@ -128,7 +132,9 @@ void main() {
       expect(chat.isFocused, isFalse);
     });
 
-    test('commit focuses the highlighted panel with no intermediate unhighlight', () {
+    test(
+        'commit focuses the highlighted panel with no intermediate unhighlight',
+        () {
       // Regression: commit used to unhighlight the target before focusing it,
       // painting a plain (unfocused) frame between the yellow highlight and the
       // cyan focus — visible as a yellow -> black -> cyan flash. focus() clears
@@ -141,7 +147,8 @@ void main() {
           reason: 'commit must not unhighlight the target before focusing it');
       expect(menu.focusCount, 1);
       expect(menu.isFocused, isTrue);
-      expect(menu.isHighlighted, isFalse, reason: 'focus() clears the highlight');
+      expect(menu.isHighlighted, isFalse,
+          reason: 'focus() clears the highlight');
     });
 
     test('cancel clears the highlight; focus unchanged', () {
@@ -273,7 +280,6 @@ void main() {
 /// this: it keeps only the last frame, so a transient in-between repaint (the
 /// bug we're guarding against) is overwritten and invisible.
 class _RecordBackend implements TerminalBackend {
-
   // No retained damage model in this fake; refresh is a no-op.
   @override
   void refresh() {}

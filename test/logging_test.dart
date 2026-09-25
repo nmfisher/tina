@@ -20,16 +20,18 @@ void main() {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
 
-  test('initLogging is idempotent — a second call does not double records',
-      () async {
-    initLogging(level: Level.ALL, logFile: logFile, mirrorToStderr: false);
-    initLogging(level: Level.ALL, logFile: logFile, mirrorToStderr: false);
-    Logger('tina.test').info('hello');
-    await _drain();
-    await closeLogging();
-    final lines = await logFile.readAsLines();
-    expect(lines.where((l) => l.contains('hello')), hasLength(1));
-  });
+  test(
+    'initLogging is idempotent — a second call does not double records',
+    () async {
+      initLogging(level: Level.ALL, logFile: logFile, mirrorToStderr: false);
+      initLogging(level: Level.ALL, logFile: logFile, mirrorToStderr: false);
+      Logger('tina.test').info('hello');
+      await _drain();
+      await closeLogging();
+      final lines = await logFile.readAsLines();
+      expect(lines.where((l) => l.contains('hello')), hasLength(1));
+    },
+  );
 
   test('records are written to the log file with level and error', () async {
     initLogging(level: Level.INFO, logFile: logFile, mirrorToStderr: false);

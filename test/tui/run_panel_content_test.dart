@@ -16,8 +16,12 @@ void main() {
 
   setUp(() {
     io = FakeStdio()..columns = 120;
-    final layout =
-        ScreenLayout.fromSize(120, 24, split: true, drawInfoFrame: false);
+    final layout = ScreenLayout.fromSize(
+      120,
+      24,
+      split: true,
+      drawInfoFrame: false,
+    );
     screen = Screen(io: io, layout: layout, ansi: AnsiCapable.yes);
   });
 
@@ -29,42 +33,52 @@ void main() {
     return RunPanelContent(screen: screen, chat: chat);
   }
 
-  test('the transcript renders streamed text above the disabled-input label',
-      () {
-    final c = content();
-    // Stream like a node agent would: a progress notice + streamed prose.
-    final sink = ChatAgentSink(c.chat, Spinner(enabled: false));
-    sink.notice('▶ intake');
-    sink.text('working on it');
-    sink.newline();
-    c.fit(const Rect(row: 3, col: 78, width: 40, height: 12),
-        reserveInputRow: false);
-    c.attach();
+  test(
+    'the transcript renders streamed text above the disabled-input label',
+    () {
+      final c = content();
+      // Stream like a node agent would: a progress notice + streamed prose.
+      final sink = ChatAgentSink(c.chat, Spinner(enabled: false));
+      sink.notice('▶ intake');
+      sink.text('working on it');
+      sink.newline();
+      c.fit(
+        const Rect(row: 3, col: 78, width: 40, height: 12),
+        reserveInputRow: false,
+      );
+      c.attach();
 
-    final out = io.written.toString();
-    expect(out, contains('▶ intake'));
-    expect(out, contains('working on it'));
-    // The bottom row carries the read-only notice (input is disabled); in a
-    // 40-col panel the label is clipped, so assert on its head.
-    expect(out, contains('s stop · x close'));
-  });
+      final out = io.written.toString();
+      expect(out, contains('▶ intake'));
+      expect(out, contains('working on it'));
+      // The bottom row carries the read-only notice (input is disabled); in a
+      // 40-col panel the label is clipped, so assert on its head.
+      expect(out, contains('s stop · x close'));
+    },
+  );
 
   test('fit/attach/detach paint without crashing', () {
     final c = content();
-    c.fit(const Rect(row: 3, col: 78, width: 40, height: 18),
-        reserveInputRow: false);
+    c.fit(
+      const Rect(row: 3, col: 78, width: 40, height: 18),
+      reserveInputRow: false,
+    );
     c.attach();
     c.detach();
-    c.fit(const Rect(row: 3, col: 78, width: 38, height: 16),
-        reserveInputRow: false);
+    c.fit(
+      const Rect(row: 3, col: 78, width: 38, height: 16),
+      reserveInputRow: false,
+    );
     c.attach();
     c.detach();
   });
 
   test('a degenerate 1-row interior still paints the label', () {
     final c = content();
-    c.fit(const Rect(row: 3, col: 78, width: 40, height: 1),
-        reserveInputRow: false);
+    c.fit(
+      const Rect(row: 3, col: 78, width: 40, height: 1),
+      reserveInputRow: false,
+    );
     c.attach();
     expect(io.written.toString(), contains('s stop · x close'));
   });

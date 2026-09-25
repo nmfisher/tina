@@ -10,8 +10,7 @@ import '../helpers/overlay_fixtures.dart';
 /// behavior is region visibility and the painted bounds.
 void main() {
   group('renderPlanOverlayLines', () {
-    test('expanded: bordered box with per-state icon rows and a footer',
-        () {
+    test('expanded: bordered box with per-state icon rows and a footer', () {
       final plan = Plan([
         PlanItem('read tests', state: PlanState.done),
         PlanItem('fix regex', state: PlanState.inProgress),
@@ -35,10 +34,7 @@ void main() {
     });
 
     test('approval badge appears in the header', () {
-      final plan = Plan(
-        [PlanItem('a')],
-        approval: PlanApproval.requested,
-      );
+      final plan = Plan([PlanItem('a')], approval: PlanApproval.requested);
       final lines = renderPlanOverlayLines(
         plan: plan,
         ui: const PlanOverlayUi(),
@@ -63,8 +59,7 @@ void main() {
       expect(header(PlanApproval.rejected), contains('rejected'));
     });
 
-    test('collapsed: only the active row is shown, footer says expand',
-        () {
+    test('collapsed: only the active row is shown, footer says expand', () {
       final plan = Plan([
         PlanItem('read tests', state: PlanState.done),
         PlanItem('fix regex', state: PlanState.inProgress),
@@ -95,9 +90,7 @@ void main() {
     });
 
     test('long item text is ellipsized to the box width', () {
-      final plan = Plan([
-        PlanItem('x' * 200),
-      ]);
+      final plan = Plan([PlanItem('x' * 200)]);
       final lines = renderPlanOverlayLines(
         plan: plan,
         ui: const PlanOverlayUi(),
@@ -125,12 +118,16 @@ void main() {
 
   group('renderPlanOverlayLines children', () {
     Plan nestedPlan() => Plan([
-          PlanItem('parent', state: PlanState.inProgress, children: [
-            PlanItem('sub one', state: PlanState.done),
-            PlanItem('sub two'),
-          ]),
-          PlanItem('solo'),
-        ]);
+      PlanItem(
+        'parent',
+        state: PlanState.inProgress,
+        children: [
+          PlanItem('sub one', state: PlanState.done),
+          PlanItem('sub two'),
+        ],
+      ),
+      PlanItem('solo'),
+    ]);
 
     test('children render indented under an expanded-fold parent', () {
       final joined = renderPlanOverlayLines(
@@ -139,14 +136,26 @@ void main() {
         width: 30,
         paint: (t, code) => code == null ? t : '@$t@',
       ).join('\n');
-      expect(joined, contains('@▾ parent@'),
-          reason: 'an unfolded parent wears the ▾ fold glyph');
-      expect(joined, contains('@  ✓ sub one@'),
-          reason: 'children indent two spaces and keep state styling');
-      expect(joined, contains('  · sub two'),
-          reason: 'pending children render plain, indented');
-      expect(joined, contains('· solo'),
-          reason: 'childless roots stay at depth 0');
+      expect(
+        joined,
+        contains('@▾ parent@'),
+        reason: 'an unfolded parent wears the ▾ fold glyph',
+      );
+      expect(
+        joined,
+        contains('@  ✓ sub one@'),
+        reason: 'children indent two spaces and keep state styling',
+      );
+      expect(
+        joined,
+        contains('  · sub two'),
+        reason: 'pending children render plain, indented',
+      );
+      expect(
+        joined,
+        contains('· solo'),
+        reason: 'childless roots stay at depth 0',
+      );
     });
 
     test('a folded subtree hides its rows and shows a dim (+n) count', () {
@@ -159,8 +168,11 @@ void main() {
       // top border + 2 visible rows (parent + solo) + footer + bottom
       expect(lines, hasLength(5));
       final joined = lines.join('\n');
-      expect(joined, contains('▸ parent (+2)'),
-          reason: 'the fold caret wins over the in-progress marker');
+      expect(
+        joined,
+        contains('▸ parent (+2)'),
+        reason: 'the fold caret wins over the in-progress marker',
+      );
       expect(joined, isNot(contains('sub one')));
       expect(joined, isNot(contains('sub two')));
       expect(joined, contains('· solo'));
@@ -175,8 +187,11 @@ void main() {
       ).join('\n');
       expect(joined, contains('❯ sub one'));
       expect(joined, isNot(contains('✓ sub one')));
-      expect(joined, contains('▾ parent'),
-          reason: 'unselected rows keep their glyphs');
+      expect(
+        joined,
+        contains('▾ parent'),
+        reason: 'unselected rows keep their glyphs',
+      );
     });
 
     test('the header counts span children', () {
@@ -208,17 +223,23 @@ void main() {
 
     test('children add rows; a folded subtree adds none', () {
       final plan = Plan([
-        PlanItem('parent', children: [
-          PlanItem('sub one'),
-          PlanItem('sub two'),
-        ]),
+        PlanItem(
+          'parent',
+          children: [PlanItem('sub one'), PlanItem('sub two')],
+        ),
         PlanItem('solo'),
       ]);
-      expect(planOverlayContentHeight(plan, collapsed: false), 5,
-          reason: '2 roots + 2 children + footer');
       expect(
-        planOverlayContentHeight(plan,
-            collapsed: false, collapsedRoots: const {0}),
+        planOverlayContentHeight(plan, collapsed: false),
+        5,
+        reason: '2 roots + 2 children + footer',
+      );
+      expect(
+        planOverlayContentHeight(
+          plan,
+          collapsed: false,
+          collapsedRoots: const {0},
+        ),
         3,
         reason: 'folded children occupy no slot',
       );
@@ -230,14 +251,15 @@ void main() {
     setUp(() => store = PlanStore());
     tearDown(() => store.dispose());
 
-    PlanOverlay overlay(Screen screen,
-            {PlanOverlayMode mode = PlanOverlayMode.auto}) =>
-        PlanOverlay(
-          screen: screen,
-          store: store,
-          conversationId: () => 'c1',
-          mode: mode,
-        );
+    PlanOverlay overlay(
+      Screen screen, {
+      PlanOverlayMode mode = PlanOverlayMode.auto,
+    }) => PlanOverlay(
+      screen: screen,
+      store: store,
+      conversationId: () => 'c1',
+      mode: mode,
+    );
 
     test('auto mode paints when a plan exists; hides when cleared', () {
       final screen = fakeScreen();
@@ -328,9 +350,7 @@ void main() {
     test('a plan taller than the chat area renders collapsed', () {
       final screen = fakeScreen(columns: 80, lines: 24);
       final o = overlay(screen)..start();
-      store.update('c1', [
-        for (var i = 0; i < 40; i++) PlanItem('item $i'),
-      ]);
+      store.update('c1', [for (var i = 0; i < 40; i++) PlanItem('item $i')]);
       o.refresh();
       expect(o.regionVisible, isTrue);
       final bounds = o.bounds;
@@ -360,11 +380,11 @@ void main() {
     tearDown(() => store.dispose());
 
     PlanOverlay overlay(Screen screen) => PlanOverlay(
-          screen: screen,
-          store: store,
-          conversationId: () => 'c1',
-          focusManager: fm,
-        );
+      screen: screen,
+      store: store,
+      conversationId: () => 'c1',
+      focusManager: fm,
+    );
 
     void paintPlan(PlanOverlay o) {
       store.update('c1', [
@@ -431,9 +451,11 @@ void main() {
       final screen = fakeScreen();
       final o = overlay(screen)..start();
       store.update('c1', [
-        PlanItem('parent', state: PlanState.inProgress, children: [
-          PlanItem('sub'),
-        ]),
+        PlanItem(
+          'parent',
+          state: PlanState.inProgress,
+          children: [PlanItem('sub')],
+        ),
         PlanItem('solo'),
       ]);
       o.refresh();
@@ -448,59 +470,71 @@ void main() {
       o.dispose();
     });
 
-    test('Enter toggles a selected parent subtree; arrows skip folded rows',
-        () {
-      final screen = fakeScreen();
-      final o = overlay(screen)..start();
-      store.update('c1', [
-        PlanItem('parent', state: PlanState.inProgress, children: [
-          PlanItem('sub one'),
-          PlanItem('sub two'),
-        ]),
-        PlanItem('solo'),
-      ]);
-      o.refresh();
-      fm.focusPanel(o); // selection = 'parent'
+    test(
+      'Enter toggles a selected parent subtree; arrows skip folded rows',
+      () {
+        final screen = fakeScreen();
+        final o = overlay(screen)..start();
+        store.update('c1', [
+          PlanItem(
+            'parent',
+            state: PlanState.inProgress,
+            children: [PlanItem('sub one'), PlanItem('sub two')],
+          ),
+          PlanItem('solo'),
+        ]);
+        o.refresh();
+        fm.focusPanel(o); // selection = 'parent'
 
-      o.handleEvent(ControlKey(ControlCode.enter)); // fold
-      // After folding, the visible rows are parent + solo; the selection
-      // clamps to row 0.
-      expect(o.selectedItem?.text, 'parent');
-      o.handleEvent(ArrowKey(ArrowDirection.down));
-      expect(o.selectedItem?.text, 'solo',
-          reason: 'one ↓ hop walks past the folded subtree');
-      o.handleEvent(ArrowKey(ArrowDirection.up));
-      o.handleEvent(ControlKey(ControlCode.enter)); // unfold
-      o.handleEvent(ArrowKey(ArrowDirection.down));
-      expect(o.selectedItem?.text, 'sub one',
-          reason: 'unfolded children are traversal stops again');
-      o.dispose();
-    });
+        o.handleEvent(ControlKey(ControlCode.enter)); // fold
+        // After folding, the visible rows are parent + solo; the selection
+        // clamps to row 0.
+        expect(o.selectedItem?.text, 'parent');
+        o.handleEvent(ArrowKey(ArrowDirection.down));
+        expect(
+          o.selectedItem?.text,
+          'solo',
+          reason: 'one ↓ hop walks past the folded subtree',
+        );
+        o.handleEvent(ArrowKey(ArrowDirection.up));
+        o.handleEvent(ControlKey(ControlCode.enter)); // unfold
+        o.handleEvent(ArrowKey(ArrowDirection.down));
+        expect(
+          o.selectedItem?.text,
+          'sub one',
+          reason: 'unfolded children are traversal stops again',
+        );
+        o.dispose();
+      },
+    );
 
-    test('Enter on a childless row approves; the footer is the approve stop',
-        () {
-      final screen = fakeScreen();
-      final o = overlay(screen)..start();
-      store.update('c1', [
-        PlanItem('parent', state: PlanState.inProgress, children: [
-          PlanItem('sub'),
-        ]),
-      ]);
-      o.refresh();
-      fm.focusPanel(o); // selection = 'parent'
+    test(
+      'Enter on a childless row approves; the footer is the approve stop',
+      () {
+        final screen = fakeScreen();
+        final o = overlay(screen)..start();
+        store.update('c1', [
+          PlanItem(
+            'parent',
+            state: PlanState.inProgress,
+            children: [PlanItem('sub')],
+          ),
+        ]);
+        o.refresh();
+        fm.focusPanel(o); // selection = 'parent'
 
-      // ↓ to the child, then ↓ past the last row parks on the footer.
-      o.handleEvent(ArrowKey(ArrowDirection.down));
-      expect(o.selectedItem?.text, 'sub');
-      o.handleEvent(ArrowKey(ArrowDirection.down)); // footer stop
-      expect(o.selectedItem, isNull);
-      expect(o.handleEvent(ControlKey(ControlCode.enter)), isTrue);
-      expect(store.read('c1').approval, PlanApproval.approved);
-      o.dispose();
-    });
+        // ↓ to the child, then ↓ past the last row parks on the footer.
+        o.handleEvent(ArrowKey(ArrowDirection.down));
+        expect(o.selectedItem?.text, 'sub');
+        o.handleEvent(ArrowKey(ArrowDirection.down)); // footer stop
+        expect(o.selectedItem, isNull);
+        expect(o.handleEvent(ControlKey(ControlCode.enter)), isTrue);
+        expect(store.read('c1').approval, PlanApproval.approved);
+        o.dispose();
+      },
+    );
 
-    test('Enter on a plain plan approves from the last row (old behavior)',
-        () {
+    test('Enter on a plain plan approves from the last row (old behavior)', () {
       final screen = fakeScreen();
       final o = overlay(screen)..start();
       store.update('c1', [PlanItem('a')]);
@@ -515,8 +549,7 @@ void main() {
       o.dispose();
     });
 
-    test('space toggles the selected item done<->not-done (mirrors /plan)',
-        () {
+    test('space toggles the selected item done<->not-done (mirrors /plan)', () {
       final screen = fakeScreen();
       final o = overlay(screen)..start();
       paintPlan(o);
@@ -533,9 +566,11 @@ void main() {
       final screen = fakeScreen();
       final o = overlay(screen)..start();
       store.update('c1', [
-        PlanItem('parent', state: PlanState.inProgress, children: [
-          PlanItem('sub'),
-        ]),
+        PlanItem(
+          'parent',
+          state: PlanState.inProgress,
+          children: [PlanItem('sub')],
+        ),
       ]);
       o.refresh();
       fm.focusPanel(o); // selection = 'parent'
@@ -544,8 +579,11 @@ void main() {
 
       final plan = store.read('c1');
       expect(plan.items.single.children.single.state, PlanState.done);
-      expect(plan.items.single.state, PlanState.inProgress,
-          reason: 'parents and children tick independently (no auto-done)');
+      expect(
+        plan.items.single.state,
+        PlanState.inProgress,
+        reason: 'parents and children tick independently (no auto-done)',
+      );
       o.dispose();
     });
 
@@ -583,8 +621,11 @@ void main() {
       paintPlan(o);
       fm.focusPanel(o);
 
-      expect(o.handleEvent(CharInput('x')), isFalse,
-          reason: 'typing belongs to the chat editor');
+      expect(
+        o.handleEvent(CharInput('x')),
+        isFalse,
+        reason: 'typing belongs to the chat editor',
+      );
       o.handleEvent(CharInput('a'));
       expect(approved, 1, reason: 'the hook replaces the default verb');
       expect(store.read('c1').approval, PlanApproval.none);
@@ -604,8 +645,11 @@ void main() {
       fm.blurFocused();
       expect(o.debugFocused, isFalse);
       expect(o.selectedItem, isNull);
-      expect(o.bounds.isEmpty, isFalse,
-          reason: 'blur drops focus, not the painted box');
+      expect(
+        o.bounds.isEmpty,
+        isFalse,
+        reason: 'blur drops focus, not the painted box',
+      );
 
       store.update('c1', [PlanItem('a')]);
       o.refresh(); // repainted while unfocused: selection stays reset
@@ -624,8 +668,11 @@ void main() {
       store.clear('c1');
       o.refresh();
       expect(o.regionVisible, isFalse);
-      expect(o.debugFocused, isFalse,
-          reason: 'a hidden overlay must not keep acting on keys');
+      expect(
+        o.debugFocused,
+        isFalse,
+        reason: 'a hidden overlay must not keep acting on keys',
+      );
       expect(o.canFocus, isFalse);
       o.dispose();
     });

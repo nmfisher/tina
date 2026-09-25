@@ -112,8 +112,7 @@ String buildClassifierReviewQuestion({
 }) {
   final b = StringBuffer()
     ..writeln('Session context:')
-    ..writeln(
-        '- model: ${modelReference.isEmpty ? 'unknown' : modelReference}')
+    ..writeln('- model: ${modelReference.isEmpty ? 'unknown' : modelReference}')
     ..writeln('- messages: $messageCount')
     ..writeln('- permission mode: ${policy.mode.label}');
 
@@ -141,10 +140,10 @@ String buildClassifierReviewQuestion({
   b.write(
     focus.isEmpty
         ? 'Review the conversation above per the system instructions and '
-            'report TypeSafe question candidates, in particular tool-call '
-            'prediction tasks from the user input and its preceding context.'
+              'report TypeSafe question candidates, in particular tool-call '
+              'prediction tasks from the user input and its preceding context.'
         : 'Review the conversation above per the system instructions and '
-            'report TypeSafe question candidates, focusing on: $focus.',
+              'report TypeSafe question candidates, focusing on: $focus.',
   );
   return b.toString();
 }

@@ -37,8 +37,9 @@ class ArchitecturePolicy {
     final reachesComposition = graph.reachingAnyWhere(
       (f) => values('finalComposition').contains(graph.label(f)),
     );
-    final reachesRoot =
-        graph.reachingAnyWhere((f) => graph.owner(f)?.name == 'tina');
+    final reachesRoot = graph.reachingAnyWhere(
+      (f) => graph.owner(f)?.name == 'tina',
+    );
 
     for (final file in graph.ownedFiles.toList()..sort()) {
       final owner = graph.owner(file)!;

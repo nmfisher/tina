@@ -241,8 +241,7 @@ String buildSandboxProfile({
   // a non-standard `$HOME` is covered; `/Users` is only the fallback when HOME
   // is unusable.
   final homeEnv = homeOverride ?? Platform.environment['HOME'];
-  final home =
-      (homeEnv == null || homeEnv.isEmpty) ? null : _resolve(homeEnv);
+  final home = (homeEnv == null || homeEnv.isEmpty) ? null : _resolve(homeEnv);
   if (sandboxReadOnly && home == null) {
     _log.warning('sandbox: cannot resolve \$HOME; hiding /Users from reads');
   }
@@ -280,11 +279,13 @@ List<String> buildBwrapArgs({
       if (_resolve(path) case final String resolved) resolved,
   };
   return buildLinuxSandboxArguments(
-    host: SandboxHostLayout.inspect(readOnlyDirectories: readOnlyBinds,
-        temporaryDirectories: temps),
+    host: SandboxHostLayout.inspect(
+        readOnlyDirectories: readOnlyBinds, temporaryDirectories: temps),
     workspaceRoot: _resolve(workspaceRoot),
-    writablePaths: [for (final path in extraAllowPaths)
-      if (_resolve(path) case final String resolved) resolved],
+    writablePaths: [
+      for (final path in extraAllowPaths)
+        if (_resolve(path) case final String resolved) resolved
+    ],
     readOnlyProject: sandboxReadOnly,
     isolateNetwork: sandboxNet,
   );
@@ -306,7 +307,6 @@ String? _resolve(String path) {
   }
 }
 
-
 /// A [ProcessRunner] decorator that runs every command under an OS-level write
 /// confinement: `sandbox-exec` on macOS, `bwrap` on Linux (see
 /// [buildSandboxProfile] / [buildBwrapArgs]). On platforms with no backend —
@@ -324,7 +324,8 @@ class SandboxedProcessRunner implements ProcessRunner {
   /// Does not alter this runner or its session directory grants.
   ProcessRunner get outsideSandbox => _inner;
   final Map<String, String> environment;
-  bool get networkIsolated => _sandboxNet && _backend != SandboxBackend.passThrough;
+  bool get networkIsolated =>
+      _sandboxNet && _backend != SandboxBackend.passThrough;
   final String _projectRoot;
   final SandboxAccessPolicy accessPolicy;
   final bool _enabled;
@@ -433,10 +434,12 @@ class SandboxedProcessRunner implements ProcessRunner {
     final wrapped = _wrap(executable, arguments);
     if (wrapped == null) {
       return _inner.start(executable, arguments,
-          workingDirectory: workingDirectory, environment: environment ?? this.environment);
+          workingDirectory: workingDirectory,
+          environment: environment ?? this.environment);
     }
     return _inner.start(wrapped.$1, wrapped.$2,
-        workingDirectory: workingDirectory, environment: environment ?? this.environment);
+        workingDirectory: workingDirectory,
+        environment: environment ?? this.environment);
   }
 
   @override
@@ -449,10 +452,12 @@ class SandboxedProcessRunner implements ProcessRunner {
     final wrapped = _wrap(executable, arguments);
     if (wrapped == null) {
       return _inner.run(executable, arguments,
-          workingDirectory: workingDirectory, environment: environment ?? this.environment);
+          workingDirectory: workingDirectory,
+          environment: environment ?? this.environment);
     }
     return _inner.run(wrapped.$1, wrapped.$2,
-        workingDirectory: workingDirectory, environment: environment ?? this.environment);
+        workingDirectory: workingDirectory,
+        environment: environment ?? this.environment);
   }
 
   /// The (executable, argv) to actually spawn, or null for pass-through.

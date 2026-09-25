@@ -111,7 +111,8 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
       baseUrl: manifest.baseUrl,
       cwd: manifest.cwd,
       // The first PRIMARY conversation auto-anchors; panels never do.
-      activeConversationId: manifest.activeConversationId.isEmpty &&
+      activeConversationId:
+          manifest.activeConversationId.isEmpty &&
               input.kind == ConversationKind.primary
           ? id
           : manifest.activeConversationId,
@@ -390,10 +391,10 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
     // when none remains — the next primary creation anchors.
     final active = manifest.activeConversationId == conversationId
         ? remaining
-                .where((c) => c.kind == ConversationKind.primary)
-                .map((c) => c.id)
-                .firstOrNull ??
-            ''
+                  .where((c) => c.kind == ConversationKind.primary)
+                  .map((c) => c.id)
+                  .firstOrNull ??
+              ''
         : manifest.activeConversationId;
     _manifests[sessionId] = SessionManifest(
       id: manifest.id,

@@ -79,7 +79,8 @@ void main() {
 
   group('integer-division floor behavior', () {
     test('1-byte body adds 0s for both helpers', () {
-      expect(scaledRequestTimeout(1).inSeconds, defaultRequestTimeout.inSeconds);
+      expect(
+          scaledRequestTimeout(1).inSeconds, defaultRequestTimeout.inSeconds);
       expect(scaledStreamIdleTimeout(1).inSeconds,
           defaultStreamIdleTimeout.inSeconds);
     });

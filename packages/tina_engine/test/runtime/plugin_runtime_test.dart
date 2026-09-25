@@ -756,14 +756,12 @@ void main() {
   });
 
   group('failed activation awaits rollback', () {
-    test('activate() rejects only after rollback drained the scope',
-        () async {
+    test('activate() rejects only after rollback drained the scope', () async {
       final rec = Recorder();
       final rt = PluginRuntime(name: 'rt', plugins: [
-        rec.plugin('db', provides: [ServiceKey<Object>('db')],
-            ownsCleanup: true),
-        rec.plugin('broken', requires: {ServiceKey<Object>('db')},
-            fails: true),
+        rec.plugin('db',
+            provides: [ServiceKey<Object>('db')], ownsCleanup: true),
+        rec.plugin('broken', requires: {ServiceKey<Object>('db')}, fails: true),
       ]);
 
       await expectLater(rt.activate(), throwsA(isA<PluginCompositionError>()));
@@ -782,10 +780,9 @@ void main() {
         () async {
       final rec = Recorder();
       final rt = PluginRuntime(name: 'rt', plugins: [
-        rec.plugin('db', provides: [ServiceKey<Object>('db')],
-            ownsCleanup: true),
-        rec.plugin('broken', requires: {ServiceKey<Object>('db')},
-            fails: true),
+        rec.plugin('db',
+            provides: [ServiceKey<Object>('db')], ownsCleanup: true),
+        rec.plugin('broken', requires: {ServiceKey<Object>('db')}, fails: true),
       ]);
       await expectLater(rt.activate(), throwsA(anything));
       final rollbackCleanups = List<String>.from(rec.cleanups);
@@ -804,7 +801,9 @@ void main() {
         final failure = StateError('cleanup failed');
         var cleanupCalls = 0;
         final old = scope.registerContribution(
-          pluginId: 'old', contribution: 'old', id: 'tool',
+          pluginId: 'old',
+          contribution: 'old',
+          id: 'tool',
           dispose: () {
             cleanupCalls++;
             if (asyncFailure) return Future<void>.error(failure);
@@ -819,8 +818,12 @@ void main() {
 
         var replacementCleaned = false;
         final fresh = scope.registerContribution(
-          pluginId: 'new', contribution: 'new', id: 'tool',
-          dispose: () { replacementCleaned = true; },
+          pluginId: 'new',
+          contribution: 'new',
+          id: 'tool',
+          dispose: () {
+            replacementCleaned = true;
+          },
         );
         await expectLater(old.dispose(), throwsA(same(failure)));
         expect(scope.contributions.single.contribution, 'new');
@@ -892,7 +895,8 @@ void main() {
       expect(scope.contributions.single.contribution, 'new');
     });
 
-    test('the old cleanup revokes by identity: a completed-disposal reuse '
+    test(
+        'the old cleanup revokes by identity: a completed-disposal reuse '
         'keeps the new registration live', () async {
       final scope = PluginScope('identity');
       final old = scope.registerContribution(

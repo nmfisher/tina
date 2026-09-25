@@ -14,13 +14,20 @@ class _ThrowingRunner implements ProcessRunner {
   int attempts = 0;
 
   @override
-  Future<RunningProcess> start(String executable, List<String> arguments,
-          {String? workingDirectory, Map<String, String>? environment}) async =>
-      throw StateError('start is not used by TmuxSupport');
+  Future<RunningProcess> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+  }) async => throw StateError('start is not used by TmuxSupport');
 
   @override
-  Future<RunResult> run(String executable, List<String> arguments,
-      {String? workingDirectory, Map<String, String>? environment}) async {
+  Future<RunResult> run(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+  }) async {
     attempts++;
     throw StateError('spawn failed');
   }
@@ -30,23 +37,34 @@ class _ThrowingRunner implements ProcessRunner {
 /// missing `tmux` binary produces — the shape `detach` must catch and report.
 class _ProcessExceptionRunner implements ProcessRunner {
   @override
-  Future<RunningProcess> start(String executable, List<String> arguments,
-          {String? workingDirectory, Map<String, String>? environment}) async =>
-      throw StateError('start is not used by TmuxSupport');
+  Future<RunningProcess> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+  }) async => throw StateError('start is not used by TmuxSupport');
 
   @override
-  Future<RunResult> run(String executable, List<String> arguments,
-      {String? workingDirectory, Map<String, String>? environment}) async =>
-      throw const ProcessException(
-          'tmux', ['detach-client'], 'No such file', 127);
+  Future<RunResult> run(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+  }) async => throw const ProcessException(
+    'tmux',
+    ['detach-client'],
+    'No such file',
+    127,
+  );
 }
 
 void main() {
   group('TmuxSupport — inTmux', () {
     test('true when \$TMUX is set', () {
       expect(
-          TmuxSupport(env: {'TMUX': '/tmp/tmux-1000/default,12345,0'}).inTmux,
-          isTrue);
+        TmuxSupport(env: {'TMUX': '/tmp/tmux-1000/default,12345,0'}).inTmux,
+        isTrue,
+      );
     });
 
     test('false when \$TMUX is unset', () {
@@ -101,11 +119,13 @@ void main() {
       String stderr = '',
       int exit = 0,
     }) {
-      return MemoryProcessRunner.always(MemoryRunningProcess(
-        stdoutChunks: stdout.isEmpty ? const [] : [stdout],
-        stderrChunks: stderr.isEmpty ? const [] : [stderr],
-        exitCodeValue: exit,
-      ));
+      return MemoryProcessRunner.always(
+        MemoryRunningProcess(
+          stdoutChunks: stdout.isEmpty ? const [] : [stdout],
+          stderrChunks: stderr.isEmpty ? const [] : [stderr],
+          exitCodeValue: exit,
+        ),
+      );
     }
 
     test('spawns tmux detach-client with no arguments', () async {
@@ -124,7 +144,9 @@ void main() {
 
     test('nonzero exit surfaces the stderr as the error', () async {
       final runner = scripted(
-          stderr: 'no server running on /tmp/tmux-1000/default', exit: 1);
+        stderr: 'no server running on /tmp/tmux-1000/default',
+        exit: 1,
+      );
       final t = TmuxSupport(
         env: {'TMUX': '/tmp/tmux-1000/default,1,0'},
         processRunner: runner,
@@ -145,19 +167,21 @@ void main() {
       expect(r.error, 'tmux detach-client exited 2');
     });
 
-    test('missing binary (ProcessException) is reported, never thrown',
-        () async {
-      // MemoryProcessRunner can only return a scripted process, so the
-      // missing-binary shape — a thrown ProcessException — gets its own
-      // one-method runner.
-      final t = TmuxSupport(
-        env: {'TMUX': '/tmp/tmux-1000/default,1,0'},
-        processRunner: _ProcessExceptionRunner(),
-      );
-      final r = await t.detach();
-      expect(r.ok, isFalse);
-      expect(r.error, contains('No such file'));
-    });
+    test(
+      'missing binary (ProcessException) is reported, never thrown',
+      () async {
+        // MemoryProcessRunner can only return a scripted process, so the
+        // missing-binary shape — a thrown ProcessException — gets its own
+        // one-method runner.
+        final t = TmuxSupport(
+          env: {'TMUX': '/tmp/tmux-1000/default,1,0'},
+          processRunner: _ProcessExceptionRunner(),
+        );
+        final r = await t.detach();
+        expect(r.ok, isFalse);
+        expect(r.error, contains('No such file'));
+      },
+    );
 
     test('a runner that throws otherwise is swallowed the same way', () async {
       final runner = _ThrowingRunner();
@@ -184,9 +208,9 @@ void main() {
   group('TmuxSupport — notInTmuxHint', () {
     test('is the ticket string', () {
       expect(
-          TmuxSupport.notInTmuxHint,
-          startsWith(
-              'not running in tmux — start tina with: tmux new -s tina'));
+        TmuxSupport.notInTmuxHint,
+        startsWith('not running in tmux — start tina with: tmux new -s tina'),
+      );
     });
   });
 
@@ -202,9 +226,9 @@ void main() {
     });
 
     TmuxSupport support() => TmuxSupport(
-          env: {'TMUX': '/tmp/tmux-1000/default,1,0'},
-          tinaDir: tinaDir,
-        );
+      env: {'TMUX': '/tmp/tmux-1000/default,1,0'},
+      tinaDir: tinaDir,
+    );
 
     test('shown on first run in tmux on the notcurses backend', () {
       final t = support();
@@ -239,8 +263,7 @@ void main() {
     test('marking writes the marker under the tina dir', () {
       final t = support();
       t.markTmuxNoticeShown();
-      expect(t.markerFile.path,
-          p.join(tinaDir.path, '.tmux_notice_shown'));
+      expect(t.markerFile.path, p.join(tinaDir.path, '.tmux_notice_shown'));
       expect(t.markerFile.existsSync(), isTrue);
       expect(t.markerFile.readAsStringSync(), isNotEmpty);
     });

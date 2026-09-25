@@ -32,10 +32,12 @@ const _rowGap = 2; // vertical gap between stacked nodes
 /// and the two never co-occur in practice). Direction comes from
 /// [layout.direction]; LR is the primary, fully-supported path (TB is rendered
 /// as LR for now — a rotated TB path is a follow-up).
-RenderResult renderGraph(Graph g,
-    {NodeLayout? layout,
-    String? selectedId,
-    Map<String, NodeRunStatus>? status}) {
+RenderResult renderGraph(
+  Graph g, {
+  NodeLayout? layout,
+  String? selectedId,
+  Map<String, NodeRunStatus>? status,
+}) {
   final lo = layout ?? computeLayout(g);
   final cols = lo.ranks;
 
@@ -47,7 +49,8 @@ RenderResult renderGraph(Graph g,
       final n = g.node(id)!;
       var innerNeeded = _displayWidth(n.label) + 2;
       final sub = _subLine(n);
-      if (sub != null) innerNeeded = math.max(innerNeeded, _displayWidth(sub) + 2);
+      if (sub != null)
+        innerNeeded = math.max(innerNeeded, _displayWidth(sub) + 2);
       if (innerNeeded > w) w = innerNeeded;
     }
     colW[c] = w > _boxMaxW ? _boxMaxW : w;
@@ -72,20 +75,29 @@ RenderResult renderGraph(Graph g,
     }
   }
 
-  final width = cols.isEmpty
-      ? 0
-      : colX.last + colW.last + _colGap;
+  final width = cols.isEmpty ? 0 : colX.last + colW.last + _colGap;
   final mainHeight = cols.isEmpty
       ? 0
-      : cols.fold<int>(0, (m, c) => c.length * (_boxH + _rowGap) > m ? c.length * (_boxH + _rowGap) : m);
+      : cols.fold<int>(
+          0,
+          (m, c) => c.length * (_boxH + _rowGap) > m
+              ? c.length * (_boxH + _rowGap)
+              : m,
+        );
 
   final grid = _Grid(width, mainHeight);
 
   // Stamp node boxes.
   for (var c = 0; c < cols.length; c++) {
     for (final id in cols[c]) {
-      _stampBox(grid, g.node(id)!, topLeft[id]!, colW[c],
-          selected: id == selectedId, status: status?[id]);
+      _stampBox(
+        grid,
+        g.node(id)!,
+        topLeft[id]!,
+        colW[c],
+        selected: id == selectedId,
+        status: status?[id],
+      );
     }
   }
 
@@ -112,8 +124,10 @@ RenderResult renderGraph(Graph g,
     lines.add('loops:');
     for (final e in back) {
       final arrow = e.label.isNotEmpty ? '◀── ${e.label} ──' : '◀──';
-      lines.add('  ${g.node(e.from)?.label ?? e.from}  $arrow  '
-          '${g.node(e.to)?.label ?? e.to}');
+      lines.add(
+        '  ${g.node(e.from)?.label ?? e.from}  $arrow  '
+        '${g.node(e.to)?.label ?? e.to}',
+      );
     }
   }
 
@@ -126,8 +140,14 @@ String? _subLine(PipelineNode n) {
   return null;
 }
 
-void _stampBox(_Grid grid, PipelineNode n, ({int row, int col}) tl, int w,
-    {required bool selected, NodeRunStatus? status}) {
+void _stampBox(
+  _Grid grid,
+  PipelineNode n,
+  ({int row, int col}) tl,
+  int w, {
+  required bool selected,
+  NodeRunStatus? status,
+}) {
   final inner = w - 2;
   final markAt = n.goalGate ? inner ~/ 2 : -1;
   String topBottom(String left, String right) {
@@ -160,9 +180,14 @@ void _stampBox(_Grid grid, PipelineNode n, ({int row, int col}) tl, int w,
   grid.write(tl.row + 3, tl.col, topBottom(bl_c, br_c));
 }
 
-void _routeForward(_Grid grid, Graph g, PipelineEdge e,
-    Map<String, ({int row, int col})> tl, List<int> colW,
-    Map<String, NodeCenter> centers) {
+void _routeForward(
+  _Grid grid,
+  Graph g,
+  PipelineEdge e,
+  Map<String, ({int row, int col})> tl,
+  List<int> colW,
+  Map<String, NodeCenter> centers,
+) {
   final u = centers[e.from]!;
   final v = centers[e.to]!;
   final uRight = tl[e.from]!.col + colW[_colOf(tl, e.from, colW)] - 1;
@@ -226,10 +251,11 @@ class _Grid {
   final int width;
   int height;
   _Grid(this.width, int minRows)
-      : _cells = [
-          for (var r = 0; r < math.max(minRows, 1); r++) _blank(math.max(width, 1))
-        ],
-        height = math.max(minRows, 1);
+    : _cells = [
+        for (var r = 0; r < math.max(minRows, 1); r++)
+          _blank(math.max(width, 1)),
+      ],
+      height = math.max(minRows, 1);
 
   static List<String> _blank(int w) => [for (var i = 0; i < w; i++) ' '];
 

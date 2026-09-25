@@ -55,7 +55,6 @@ void main() {
         );
       }
     });
-
   });
 
   group('Screen with NotcursesBackend (when available)', () {
@@ -125,4 +124,3 @@ void main() {
     });
   });
 }
-

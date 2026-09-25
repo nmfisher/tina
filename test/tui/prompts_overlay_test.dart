@@ -43,8 +43,7 @@ void main() {
     expect(cfg, isNotNull);
     expect(cfg!.prompts.containsKey('main'), isTrue);
     expect(cfg.prompts['main']!, contains('MINE'));
-    expect(cfg.prompts['main']!,
-        isNot(equals(defaultPipeline.mainIdentity)));
+    expect(cfg.prompts['main']!, isNot(equals(defaultPipeline.mainIdentity)));
     // Round-trips through the file.
     final loaded = loadUserConfig(env: const {}, tinaDir: tmp.dir);
     expect(loaded.prompts['main'], cfg.prompts['main']);
@@ -62,10 +61,7 @@ void main() {
     final screen = fakeScreen(columns: 90, lines: 28);
     final initial = const UserConfig(prompts: {'main': 'custom main'});
     // main is the only entry (focused at index 0): 'r' resets it, then Esc.
-    canned.events = [
-      CharInput('r'),
-      EscapeKey(),
-    ];
+    canned.events = [CharInput('r'), EscapeKey()];
     final cfg = await run(screen, initial: initial).timeout(overlayTimeout);
     expect(cfg, isNotNull);
     expect(cfg!.prompts.containsKey('main'), isFalse);

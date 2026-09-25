@@ -27,8 +27,11 @@ Future<void> main(List<String> args) async {
   var scenario = 'normal';
   var host = '127.0.0.1';
   var port = 8787;
-  var scenariosDir =
-      p.join(p.dirname(p.fromUri(Platform.script)), 'stub', 'scenarios');
+  var scenariosDir = p.join(
+    p.dirname(p.fromUri(Platform.script)),
+    'stub',
+    'scenarios',
+  );
 
   for (var i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -41,8 +44,10 @@ Future<void> main(List<String> args) async {
       case '--dir':
         scenariosDir = args[++i];
       case '--help' || '-h':
-        stdout.writeln('usage: dart run tool/stub_server.dart '
-            '--scenario <name> [--host 127.0.0.1] [--port 8787] [--dir <scenarios-dir>]');
+        stdout.writeln(
+          'usage: dart run tool/stub_server.dart '
+          '--scenario <name> [--host 127.0.0.1] [--port 8787] [--dir <scenarios-dir>]',
+        );
         exit(0);
       default:
         stderr.writeln('unknown argument: ${args[i]} (see --help)');
@@ -51,9 +56,16 @@ Future<void> main(List<String> args) async {
   }
 
   final script = ScenarioScript.load('$scenariosDir/$scenario.txt');
-  final server = await StubServer.bind(host, port, script, scenarioName: scenario);
-  stdout.writeln('[stub] scenario=$scenario steps=${script.steps.length} '
-      'listening on http://$host:$port/v1/chat/completions');
+  final server = await StubServer.bind(
+    host,
+    port,
+    script,
+    scenarioName: scenario,
+  );
+  stdout.writeln(
+    '[stub] scenario=$scenario steps=${script.steps.length} '
+    'listening on http://$host:$port/v1/chat/completions',
+  );
 
   ProcessSignal.sigint.watch().listen((_) async {
     stdout.writeln('[stub] shutting down');
@@ -133,10 +145,14 @@ class ScenarioScript {
       } else if (line.startsWith('!status ')) {
         status = int.parse(line.substring(8).trim());
       } else if (line.startsWith('!delay ')) {
-        actions.add(Wait(Duration(milliseconds: int.parse(line.substring(7).trim()))));
+        actions.add(
+          Wait(Duration(milliseconds: int.parse(line.substring(7).trim()))),
+        );
       } else if (line == '!abort') {
         actions.add(Abort());
-      } else if (line == '!status' || line == '!delay' || line.startsWith('!')) {
+      } else if (line == '!status' ||
+          line == '!delay' ||
+          line.startsWith('!')) {
         throw FormatException('unknown directive: $line');
       } else {
         actions.add(WriteLine(line));
@@ -171,12 +187,18 @@ class StubServer {
 
   StubServer._(this._server, this._script, this._scenarioName);
 
-  static Future<StubServer> bind(String host, int port, ScenarioScript script,
-      {String scenarioName = ''}) async {
+  static Future<StubServer> bind(
+    String host,
+    int port,
+    ScenarioScript script, {
+    String scenarioName = '',
+  }) async {
     final server = await ServerSocket.bind(host, port);
     final stub = StubServer._(server, script, scenarioName);
-    server.listen(stub._onConnection,
-        onError: (Object e) => stderr.writeln('[stub] server error: $e'));
+    server.listen(
+      stub._onConnection,
+      onError: (Object e) => stderr.writeln('[stub] server error: $e'),
+    );
     return stub;
   }
 
@@ -186,18 +208,20 @@ class StubServer {
   int get port => _server.port;
 
   void _onConnection(Socket socket) {
-    _readRequest(socket).then((req) async {
-      if (req == null) return;
-      try {
-        await _serve(socket, req);
-      } catch (e) {
-        stderr.writeln('[stub] error serving ${req.path}: $e');
-        socket.destroy();
-      }
-    }).catchError((Object e) {
-      // The client hung up or sent garbage; nothing to replay to.
-      socket.destroy();
-    });
+    _readRequest(socket)
+        .then((req) async {
+          if (req == null) return;
+          try {
+            await _serve(socket, req);
+          } catch (e) {
+            stderr.writeln('[stub] error serving ${req.path}: $e');
+            socket.destroy();
+          }
+        })
+        .catchError((Object e) {
+          // The client hung up or sent garbage; nothing to replay to.
+          socket.destroy();
+        });
   }
 
   /// Reads one request (request line + headers + Content-Length body) off the
@@ -218,8 +242,7 @@ class StubServer {
       if (headerEnd < 0) {
         headerEnd = _indexOf(buf, '\r\n\r\n');
         if (headerEnd < 0) return;
-        final lines =
-            utf8.decode(buf.sublist(0, headerEnd)).split('\r\n');
+        final lines = utf8.decode(buf.sublist(0, headerEnd)).split('\r\n');
         final parts = lines.first.split(' ');
         if (parts.length < 2) {
           sub.cancel();
@@ -239,21 +262,30 @@ class StubServer {
       }
       if (buf.length - bodyStart >= contentLength) {
         sub.cancel();
-        completer.complete(_RawRequest(method, path,
-            List<int>.unmodifiable(buf.sublist(bodyStart, bodyStart + contentLength))));
+        completer.complete(
+          _RawRequest(
+            method,
+            path,
+            List<int>.unmodifiable(
+              buf.sublist(bodyStart, bodyStart + contentLength),
+            ),
+          ),
+        );
       }
     }
 
-    sub = socket.listen((chunk) {
-      buf.addAll(chunk);
-      if (!completer.isCompleted) tryFinish();
-    },
-        onDone: () {
-          if (!completer.isCompleted) completer.complete(null);
-        },
-        onError: (Object e) {
-          if (!completer.isCompleted) completer.complete(null);
-        });
+    sub = socket.listen(
+      (chunk) {
+        buf.addAll(chunk);
+        if (!completer.isCompleted) tryFinish();
+      },
+      onDone: () {
+        if (!completer.isCompleted) completer.complete(null);
+      },
+      onError: (Object e) {
+        if (!completer.isCompleted) completer.complete(null);
+      },
+    );
     return completer.future;
   }
 
@@ -265,30 +297,34 @@ class StubServer {
     if (req.method == 'POST' && req.path == '/__reset') {
       _requestCount = 0;
       stdout.writeln('[stub] step counter reset');
-      _respond(
-          socket, 200, 'text/plain', [utf8.encode('reset')]);
+      _respond(socket, 200, 'text/plain', [utf8.encode('reset')]);
       return;
     }
     if (req.method != 'POST') {
-      _respond(socket, 404, 'text/plain',
-          [utf8.encode('not found')]);
+      _respond(socket, 404, 'text/plain', [utf8.encode('not found')]);
       return;
     }
 
     final turn = _requestCount++;
     final step = _script.stepFor(turn);
-    stdout.writeln('[stub] $_scenarioName '
-        'turn=${turn + 1} step=${_script.steps.indexOf(step) + 1} '
-        '${req.method} ${req.path} -> ${step.status} '
-        '(${req.body.length} bytes in, '
-        '${step.actions.whereType<WriteLine>().length} lines out'
-        '${step.actions.any((a) => a is Abort) ? ', abort' : ''})');
+    stdout.writeln(
+      '[stub] $_scenarioName '
+      'turn=${turn + 1} step=${_script.steps.indexOf(step) + 1} '
+      '${req.method} ${req.path} -> ${step.status} '
+      '(${req.body.length} bytes in, '
+      '${step.actions.whereType<WriteLine>().length} lines out'
+      '${step.actions.any((a) => a is Abort) ? ', abort' : ''})',
+    );
 
-    socket.add(utf8.encode('HTTP/1.1 ${step.status} ${_reason(step.status)}\r\n'
+    socket.add(
+      utf8.encode(
+        'HTTP/1.1 ${step.status} ${_reason(step.status)}\r\n'
         'content-type: ${step.status == 200 ? 'text/event-stream' : 'application/json'}\r\n'
         'cache-control: no-cache\r\n'
         'connection: close\r\n'
-        '\r\n'));
+        '\r\n',
+      ),
+    );
     await socket.flush();
     for (final action in step.actions) {
       switch (action) {
@@ -309,12 +345,21 @@ class StubServer {
     await socket.close();
   }
 
-  void _respond(Socket socket, int status, String contentType, List<List<int>> body) {
-    socket.add(utf8.encode('HTTP/1.1 $status ${_reason(status)}\r\n'
+  void _respond(
+    Socket socket,
+    int status,
+    String contentType,
+    List<List<int>> body,
+  ) {
+    socket.add(
+      utf8.encode(
+        'HTTP/1.1 $status ${_reason(status)}\r\n'
         'content-type: $contentType\r\n'
         'content-length: ${body.fold<int>(0, (n, c) => n + c.length)}\r\n'
         'connection: close\r\n'
-        '\r\n'));
+        '\r\n',
+      ),
+    );
     for (final chunk in body) {
       socket.add(chunk);
     }
@@ -322,15 +367,15 @@ class StubServer {
   }
 
   static String _reason(int status) => switch (status) {
-        200 => 'OK',
-        400 => 'Bad Request',
-        401 => 'Unauthorized',
-        404 => 'Not Found',
-        429 => 'Too Many Requests',
-        500 => 'Internal Server Error',
-        503 => 'Service Unavailable',
-        _ => 'Status',
-      };
+    200 => 'OK',
+    400 => 'Bad Request',
+    401 => 'Unauthorized',
+    404 => 'Not Found',
+    429 => 'Too Many Requests',
+    500 => 'Internal Server Error',
+    503 => 'Service Unavailable',
+    _ => 'Status',
+  };
 
   static int _indexOf(List<int> haystack, String needle) {
     final n = utf8.encode(needle);

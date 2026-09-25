@@ -34,12 +34,9 @@ ProviderDescriptor _desc(
 
 /// Send one minimal request through [p] and run it to completion — the
 /// observable side of "did the launch-slot queue space these starts?".
-Future<void> _drain(LlmProvider p) => p
-    .send(
-        system: 's',
-        messages: const [Message(role: Role.user, content: [TextBlock('hi')])],
-        tools: const [])
-    .drain<void>();
+Future<void> _drain(LlmProvider p) => p.send(system: 's', messages: const [
+      Message(role: Role.user, content: [TextBlock('hi')])
+    ], tools: const []).drain<void>();
 
 void main() {
   group('ModelReference.parse', () {
@@ -83,12 +80,13 @@ void main() {
 
     test('modelsFor lists a provider catalog, empty for unknown', () {
       final r = ProviderRegistry(env: {})
-        ..register(_desc('openai',
-            builder: _recording([]),
-            models: {
-              'gpt-4o': const ModelInfo(
-                  id: 'gpt-4o', name: 'GPT-4o', contextWindow: 128000, maxOutput: 16384),
-            }));
+        ..register(_desc('openai', builder: _recording([]), models: {
+          'gpt-4o': const ModelInfo(
+              id: 'gpt-4o',
+              name: 'GPT-4o',
+              contextWindow: 128000,
+              maxOutput: 16384),
+        }));
       expect(r.modelsFor('openai').single.id, 'gpt-4o');
       expect(r.modelsFor('nope'), isEmpty);
     });
@@ -97,28 +95,32 @@ void main() {
   group('findModel', () {
     test('prefixed lookup hits the named provider', () {
       final r = ProviderRegistry(env: {})
-        ..register(_desc('openai',
-            builder: _recording([]),
-            models: {'gpt-4o': const ModelInfo(id: 'gpt-4o', name: '', contextWindow: 1, maxOutput: 1)}));
+        ..register(_desc('openai', builder: _recording([]), models: {
+          'gpt-4o': const ModelInfo(
+              id: 'gpt-4o', name: '', contextWindow: 1, maxOutput: 1)
+        }));
       expect(r.findModel('openai/gpt-4o')?.id, 'gpt-4o');
       expect(r.findModel('openai/missing'), isNull);
     });
 
     test('bare unique model resolves; ambiguous and missing return null', () {
       final r = ProviderRegistry(env: {})
-        ..register(_desc('a',
-            builder: _recording([]),
-            models: {'shared': const ModelInfo(id: 'shared', name: '', contextWindow: 1, maxOutput: 1)}))
-        ..register(_desc('b',
-            builder: _recording([]),
-            models: {'shared': const ModelInfo(id: 'shared', name: '', contextWindow: 1, maxOutput: 1)}));
+        ..register(_desc('a', builder: _recording([]), models: {
+          'shared': const ModelInfo(
+              id: 'shared', name: '', contextWindow: 1, maxOutput: 1)
+        }))
+        ..register(_desc('b', builder: _recording([]), models: {
+          'shared': const ModelInfo(
+              id: 'shared', name: '', contextWindow: 1, maxOutput: 1)
+        }));
       expect(r.findModel('shared'), isNull); // ambiguous
       expect(r.findModel('nope'), isNull); // missing
     });
   });
 
   group('resolve', () {
-    test('prefixed known provider trusts the prefix (model need not catalog)', () {
+    test('prefixed known provider trusts the prefix (model need not catalog)',
+        () {
       final r = ProviderRegistry(env: {})
         ..register(_desc('openai', builder: _recording([])));
       final resolved = r.resolve('openai/any-model-id');
@@ -138,18 +140,21 @@ void main() {
 
     test('bare unique model resolves; ambiguous and missing throw', () {
       final r = ProviderRegistry(env: {})
-        ..register(_desc('a',
-            builder: _recording([]),
-            models: {'m': const ModelInfo(id: 'm', name: '', contextWindow: 1, maxOutput: 1)}));
+        ..register(_desc('a', builder: _recording([]), models: {
+          'm':
+              const ModelInfo(id: 'm', name: '', contextWindow: 1, maxOutput: 1)
+        }));
       expect(r.resolve('m').descriptor.id, 'a');
 
       final r2 = ProviderRegistry(env: {})
-        ..register(_desc('a',
-            builder: _recording([]),
-            models: {'m': const ModelInfo(id: 'm', name: '', contextWindow: 1, maxOutput: 1)}))
-        ..register(_desc('b',
-            builder: _recording([]),
-            models: {'m': const ModelInfo(id: 'm', name: '', contextWindow: 1, maxOutput: 1)}));
+        ..register(_desc('a', builder: _recording([]), models: {
+          'm':
+              const ModelInfo(id: 'm', name: '', contextWindow: 1, maxOutput: 1)
+        }))
+        ..register(_desc('b', builder: _recording([]), models: {
+          'm':
+              const ModelInfo(id: 'm', name: '', contextWindow: 1, maxOutput: 1)
+        }));
       expect(() => r2.resolve('m'), throwsA(isA<ProviderRegistryException>()));
 
       final r3 = ProviderRegistry(env: {});
@@ -162,8 +167,7 @@ void main() {
       final captured = <ProviderInstance>[];
       final r = ProviderRegistry(env: {'TEST_KEY': 'from-env'})
         ..register(_desc('p',
-            baseUrl: 'https://default.test',
-            builder: _recording(captured)));
+            baseUrl: 'https://default.test', builder: _recording(captured)));
       r.build('p/model', apiKeyOverride: 'explicit');
       expect(captured.single.apiKey, 'explicit');
       expect(captured.single.baseUrl, 'https://default.test');
@@ -196,7 +200,9 @@ void main() {
       expect(captured.single.apiKey, 'pri');
     });
 
-    test('a missing key no longer throws — build returns a provider with an empty key', () {
+    test(
+        'a missing key no longer throws — build returns a provider with an empty key',
+        () {
       // The first-run setup path boots before any key is configured, so build
       // tolerates an empty key (providers don't validate it). A missing key
       // surfaces later, as a send-time auth error, if a turn is attempted.
@@ -257,13 +263,16 @@ void main() {
               name: 'M',
               contextWindow: 8192,
               maxOutput: 1024,
-              extraBody: {'chat_template_kwargs': {'enable_thinking': true}},
+              extraBody: {
+                'chat_template_kwargs': {'enable_thinking': true}
+              },
             ),
           },
         ));
       r.build('p/m');
-      expect(captured.single.extraBody,
-          {'chat_template_kwargs': {'enable_thinking': true}});
+      expect(captured.single.extraBody, {
+        'chat_template_kwargs': {'enable_thinking': true}
+      });
     });
 
     test('extraBody is empty when the model declares none', () {
@@ -308,18 +317,17 @@ void main() {
   group('buildPooled', () {
     test('members get their own launch slots with distinct queue keys', () {
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
-        ..register(_desc('a',
-            baseUrl: 'https://a.test', builder: _recording([])))
-        ..register(_desc('b',
-            baseUrl: 'https://b.test', builder: _recording([])));
+        ..register(
+            _desc('a', baseUrl: 'https://a.test', builder: _recording([])))
+        ..register(
+            _desc('b', baseUrl: 'https://b.test', builder: _recording([])));
       r.rateLimiter.minInterval = const Duration(milliseconds: 10);
 
       final pool = r.buildPooled(['a/m', 'b/m']) as PooledProvider;
 
       expect(pool.members, hasLength(2));
       final keys = [
-        for (final m in pool.members)
-          (m as RateLimitedProvider).limitKey
+        for (final m in pool.members) (m as RateLimitedProvider).limitKey
       ];
       expect(keys[0], isNot(keys[1]),
           reason: 'distinct endpoints space against THEMSELVES, not each '
@@ -328,7 +336,8 @@ void main() {
           reason: 'retry policy belongs to the pool as a whole');
     });
 
-    test('build() over a pool descriptor applies the policy stack exactly once', () {
+    test('build() over a pool descriptor applies the policy stack exactly once',
+        () {
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
         ..register(
             _desc('a', baseUrl: 'https://a.test', builder: _recording([])));
@@ -350,11 +359,13 @@ void main() {
     test('a pool over a pool throws', () {
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
         ..register(_desc('a', builder: _recording([])));
-      r.registerPool(_desc('p', builder: (c) => r.buildPooled(['a/${c.model}'])));
+      r.registerPool(
+          _desc('p', builder: (c) => r.buildPooled(['a/${c.model}'])));
 
-      expect(() => r.buildPooled(['p/m']),
-          throwsA(isA<ProviderRegistryException>().having(
-              (e) => e.message, 'message', contains('nested pool'))));
+      expect(
+          () => r.buildPooled(['p/m']),
+          throwsA(isA<ProviderRegistryException>()
+              .having((e) => e.message, 'message', contains('nested pool'))));
     });
 
     test('an empty member list throws', () {
@@ -367,8 +378,7 @@ void main() {
   group('setRequestRate (per-provider RPM)', () {
     test('rpm < 0 throws', () {
       final r = ProviderRegistry(env: {});
-      expect(
-          () => r.setRequestRate('nim', -1), throwsA(isA<ArgumentError>()));
+      expect(() => r.setRequestRate('nim', -1), throwsA(isA<ArgumentError>()));
     });
 
     test('a descriptor hint alone spaces the queue (global limiter off)',
@@ -378,8 +388,7 @@ void main() {
       // descriptor's own hint — this is the case where the hint must engage
       // the launch-slot wrapper on its own.
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
-        ..register(_desc('p',
-            builder: _recording([]), requestsPerMinute: 600));
+        ..register(_desc('p', builder: _recording([]), requestsPerMinute: 600));
 
       final provider = r.build('p/m');
       expect(provider, isA<RateLimitedProvider>(),
@@ -388,8 +397,8 @@ void main() {
       final key = (provider as RateLimitedProvider).limitKey;
       expect(key, providerQueueKey('https://example.test', 'k'),
           reason: 'the queue is keyed by endpoint+API key, not descriptor id');
-      expect(r.rateLimiter.minIntervalFor(key),
-          const Duration(milliseconds: 100),
+      expect(
+          r.rateLimiter.minIntervalFor(key), const Duration(milliseconds: 100),
           reason: '60 s / 600 rpm, rounded up to whole ms');
 
       final watch = Stopwatch()..start();
@@ -403,8 +412,7 @@ void main() {
       // Hint says 100 ms, the global default says 100 ms — the user's 0 must
       // beat both: two sends on the key launch together.
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
-        ..register(_desc('p',
-            builder: _recording([]), requestsPerMinute: 600));
+        ..register(_desc('p', builder: _recording([]), requestsPerMinute: 600));
       r.setRequestRate('p', 0);
       r.rateLimiter.minInterval = const Duration(milliseconds: 100);
 
@@ -426,14 +434,13 @@ void main() {
       // Hint: 600 rpm → 100 ms. Override: 6000 rpm → 10 ms. The override
       // wins, or these two sends would be a full 100 ms apart.
       final r = ProviderRegistry(env: {'TEST_KEY': 'k'})
-        ..register(_desc('p',
-            builder: _recording([]), requestsPerMinute: 600));
+        ..register(_desc('p', builder: _recording([]), requestsPerMinute: 600));
       r.setRequestRate('p', 6000);
 
       final provider = r.build('p/m');
       final key = (provider as RateLimitedProvider).limitKey;
-      expect(r.rateLimiter.minIntervalFor(key),
-          const Duration(milliseconds: 10));
+      expect(
+          r.rateLimiter.minIntervalFor(key), const Duration(milliseconds: 10));
 
       final watch = Stopwatch()..start();
       await Future.wait([_drain(provider), _drain(provider)]);

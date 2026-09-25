@@ -62,10 +62,25 @@ String graphToDot(Graph g) {
 String _attrs(Map<String, AttrValue> attrs) {
   // Stable, readable order: the well-known keys first, then the rest sorted.
   const order = [
-    'shape', 'label', 'system_prompt', 'instructions', 'llm_model',
-    'llm_provider', 'prompt', 'context', 'writes', 'goal_gate',
-    'max_retries', 'retry_target', 'allow_partial', 'auto_status', 'type',
-    'condition', 'weight', 'rankdir', 'goal',
+    'shape',
+    'label',
+    'system_prompt',
+    'instructions',
+    'llm_model',
+    'llm_provider',
+    'prompt',
+    'context',
+    'writes',
+    'goal_gate',
+    'max_retries',
+    'retry_target',
+    'allow_partial',
+    'auto_status',
+    'type',
+    'condition',
+    'weight',
+    'rankdir',
+    'goal',
   ];
   final keys = <String>[
     ...order.where(attrs.containsKey),

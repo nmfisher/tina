@@ -233,8 +233,7 @@ class LiveModelsCatalog implements ModelCatalog {
       return ids;
     } catch (e) {
       _noteError('${desc.id}: $e');
-      _log.fine('${desc.id} /v1/models fetch failed; keeping compiled list',
-          e);
+      _log.fine('${desc.id} /v1/models fetch failed; keeping compiled list', e);
       return null;
     }
   }

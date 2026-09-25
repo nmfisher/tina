@@ -293,7 +293,8 @@ class SpendLedger {
     if (requestsPerMinute <= 0) return true;
     while (true) {
       if (requestsPerMinute <= 0 || _tryConsume(_now())) return true;
-      final tick = Future<bool>.delayed(_tick, () => false); // false = keep waiting
+      final tick =
+          Future<bool>.delayed(_tick, () => false); // false = keep waiting
       if (cancelSignal == null) {
         await tick;
         continue;
@@ -301,7 +302,8 @@ class SpendLedger {
       // Race the tick against cancel; if cancel wins, abort without consuming.
       // (Both futures return bools, not voids, so the winner is identifiable by
       // value — Future.any returns the *result*, not the future itself.)
-      final cancelled = await Future.any<bool>([tick, cancelSignal.then((_) => true)]);
+      final cancelled =
+          await Future.any<bool>([tick, cancelSignal.then((_) => true)]);
       if (cancelled) return false;
     }
   }
@@ -322,8 +324,7 @@ class SpendLedger {
     _lastRefill = now;
     if (elapsed <= Duration.zero) return;
     final added = elapsed.inMicroseconds / 1e6 * (requestsPerMinute / 60.0);
-    _tokens =
-        (_tokens + added).clamp(0.0, requestsPerMinute.toDouble());
+    _tokens = (_tokens + added).clamp(0.0, requestsPerMinute.toDouble());
   }
 
   /// Seed the running total from a persisted session record (resume/session

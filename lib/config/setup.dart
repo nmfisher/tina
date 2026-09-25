@@ -85,8 +85,10 @@ bool runSetupWizard({
   String? Function(String)? prompt,
 }) {
   final ask = prompt ?? _stdinPrompt;
-  stdout.writeln('No ~/.tina/config found — this sets up a default '
-      'provider/model so launches become zero-arg.');
+  stdout.writeln(
+    'No ~/.tina/config found — this sets up a default '
+    'provider/model so launches become zero-arg.',
+  );
   stdout.writeln('Press Enter to skip a prompt, Ctrl-C to cancel.\n');
 
   final providerIds = registry.providerIds;
@@ -100,8 +102,12 @@ bool runSetupWizard({
     return false;
   }
   final modelOptions = registry.modelsFor(provider).map((m) => m.id).toList();
-  final model =
-      _pick(ask, 'Default model for $provider', modelOptions, allowArbitrary: true);
+  final model = _pick(
+    ask,
+    'Default model for $provider',
+    modelOptions,
+    allowArbitrary: true,
+  );
   if (model == null) {
     stdout.writeln('  (skipped — no default model chosen)\n');
     return false;
@@ -119,8 +125,10 @@ bool runSetupWizard({
   stdout.writeln('Writing ~/.tina/config:');
   stdout.writeln('  [default] $defaultProvider/$defaultModel');
   for (final id in keys.keys) {
-    stdout.writeln('  [providers.$id] api_key = '
-        '${keys[id]!.isEmpty ? "" : "…"}');
+    stdout.writeln(
+      '  [providers.$id] api_key = '
+      '${keys[id]!.isEmpty ? "" : "…"}',
+    );
   }
   final confirm = ask('Write this config? [Y/n] ');
   if (confirm != null && confirm.trim().toLowerCase() == 'n') {
@@ -141,8 +149,10 @@ bool runSetupWizard({
     );
   } on ConfigWriteException catch (e) {
     stderr.writeln('error: $e');
-    stderr.writeln('       (is the config on a read-only mount? '
-        'e.g. the sandbox binds ~/.tina/config as :ro)');
+    stderr.writeln(
+      '       (is the config on a read-only mount? '
+      'e.g. the sandbox binds ~/.tina/config as :ro)',
+    );
     return false;
   }
   stdout.writeln('Wrote $path');
@@ -178,6 +188,8 @@ String? _pick(
     if (n != null && n >= 1 && n <= options.length) return options[n - 1];
     if (allowArbitrary) return trimmed;
     if (options.contains(trimmed)) return trimmed;
-    stdout.writeln('  "$trimmed" is not an option; try again, or Enter to skip.');
+    stdout.writeln(
+      '  "$trimmed" is not an option; try again, or Enter to skip.',
+    );
   }
 }

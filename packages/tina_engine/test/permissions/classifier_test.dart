@@ -12,7 +12,11 @@ void main() {
       expect(await deny.allow('bash', const {'command': 'rm -rf /'}), isFalse);
     });
 
-    for (final answer in ['The call is safe. ALLOW', 'NOT ALLOW', 'ALLOW or DENY']) {
+    for (final answer in [
+      'The call is safe. ALLOW',
+      'NOT ALLOW',
+      'ALLOW or DENY'
+    ]) {
       test('ambiguous or non-verdict output falls back: $answer', () async {
         final c = PermissionClassifier(_ScriptedProvider(answer));
         expect(await c.allow('edit', const {}), isNull);
@@ -20,7 +24,8 @@ void main() {
     }
 
     test('stream error -> null', () async {
-      final c = PermissionClassifier(_ScriptedProvider('', error: StateError('boom')));
+      final c = PermissionClassifier(
+          _ScriptedProvider('', error: StateError('boom')));
       expect(await c.allow('write', const {}), isNull);
     });
 
@@ -55,8 +60,8 @@ void main() {
     });
 
     test('classify reports a stream error as the failure reason', () async {
-      final c =
-          PermissionClassifier(_ScriptedProvider('', error: StateError('boom')));
+      final c = PermissionClassifier(
+          _ScriptedProvider('', error: StateError('boom')));
       final outcome = await c.classify(PermissionPrompt('write', const {}));
       expect(outcome.allow, isNull);
       expect(outcome.failure, ClassifierFailure.streamError);
@@ -121,5 +126,6 @@ class _ThrowingProvider extends LlmProvider {
     required String system,
     required List<Message> messages,
     required List<ToolSchema> tools,
-  }) => throw StateError('no client');
+  }) =>
+      throw StateError('no client');
 }

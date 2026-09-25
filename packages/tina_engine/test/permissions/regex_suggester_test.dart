@@ -4,7 +4,8 @@ import 'package:test/test.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 void main() {
-  const prompt = PermissionPrompt('bash', {'command': 'git status --porcelain'});
+  const prompt =
+      PermissionPrompt('bash', {'command': 'git status --porcelain'});
 
   test('accepts a valid draft that matches the target', () async {
     final provider = _ScriptedProvider('git (status --porcelain|diff)');
@@ -16,7 +17,8 @@ void main() {
     expect(outcome.rule!.matches(prompt.target), isTrue);
   });
 
-  test('rejects a valid pattern that only partially covers the target', () async {
+  test('rejects a valid pattern that only partially covers the target',
+      () async {
     // `git status` is a prefix of the target but does not consume it; the
     // engine's end-of-input assertion must reject it.
     final outcome = await RegexSuggester(
@@ -34,7 +36,8 @@ void main() {
     expect(outcome.failure, RegexSuggestionFailure.invalid);
   });
 
-  test('rejects prose around the pattern instead of passing it through', () async {
+  test('rejects prose around the pattern instead of passing it through',
+      () async {
     final outcome = await RegexSuggester(
       _ScriptedProvider('Sure! Here is your regex: git (status|diff)'),
     ).suggest(prompt);
@@ -88,7 +91,8 @@ void main() {
     expect(calls.single['tools'], isEmpty);
     final system = calls.single['system'] as String;
     expect(system, contains('ONLY'));
-    final user = (calls.single['messages'] as List).single['content'].toString();
+    final user =
+        (calls.single['messages'] as List).single['content'].toString();
     expect(user, contains('bash'));
     expect(user, contains('git status --porcelain'));
   });

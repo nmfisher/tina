@@ -13,7 +13,6 @@ import '../helpers/fake_stdio.dart';
 /// change. A real terminal would show a blanked chat area as a flicker; this
 /// captures the same signal without rendering.
 class _RecordBackend implements TerminalBackend {
-
   // No retained damage model in this fake; refresh is a no-op.
   @override
   void refresh() {}
@@ -34,7 +33,8 @@ class _RecordBackend implements TerminalBackend {
   void moveCursor(int row, int col) {}
 
   @override
-  void eraseCells(int row, int col, int n) => erases.add((row: row, col: col, n: n));
+  void eraseCells(int row, int col, int n) =>
+      erases.add((row: row, col: col, n: n));
 
   @override
   void writeText(String text) {}
@@ -136,21 +136,30 @@ void main() {
       return backend.erases.any((e) => e.row >= top && e.row < bottom);
     }
 
-    test('re-activating an already-attached region does not blank the chat area',
-        () {
-      // Seed some history so the region is attached and has rendered content.
-      host.text('first turn\n');
-      host.text('second turn\n');
-      expect(screen.chat.isDetached, isFalse,
-          reason: 'primary chat starts attached and visible');
+    test(
+      're-activating an already-attached region does not blank the chat area',
+      () {
+        // Seed some history so the region is attached and has rendered content.
+        host.text('first turn\n');
+        host.text('second turn\n');
+        expect(
+          screen.chat.isDetached,
+          isFalse,
+          reason: 'primary chat starts attached and visible',
+        );
 
-      backend.clear(); // observe only the setActive repaint
-      host.setActive(true);
+        backend.clear(); // observe only the setActive repaint
+        host.setActive(true);
 
-      expect(erasedChatArea(), isFalse,
-          reason: 'focus returning to an already-visible main panel must not '
-              'erase its history — that erase frame is the flicker');
-    });
+        expect(
+          erasedChatArea(),
+          isFalse,
+          reason:
+              'focus returning to an already-visible main panel must not '
+              'erase its history — that erase frame is the flicker',
+        );
+      },
+    );
 
     test('re-activating a detached region still erases and re-attaches', () {
       // Seed history, then detach (as if a modal or single-panel deactivate hid
@@ -162,11 +171,18 @@ void main() {
       backend.clear();
       host.setActive(true);
 
-      expect(erasedChatArea(), isTrue,
-          reason: 'a region that was actually hidden must be erased and '
-              're-attached on activation so its saved rows repaint');
-      expect(screen.chat.isDetached, isFalse,
-          reason: 'attach() reattaches the region');
+      expect(
+        erasedChatArea(),
+        isTrue,
+        reason:
+            'a region that was actually hidden must be erased and '
+            're-attached on activation so its saved rows repaint',
+      );
+      expect(
+        screen.chat.isDetached,
+        isFalse,
+        reason: 'attach() reattaches the region',
+      );
     });
   });
 
@@ -194,8 +210,11 @@ void main() {
 
     test('agent text accumulates verbatim as segments close', () {
       host.text('**bold** and\n\n');
-      expect(host.lastRawMarkdown, '**bold** and\n\n',
-          reason: 'the raw ring keeps the model bytes, not the rendered form');
+      expect(
+        host.lastRawMarkdown,
+        '**bold** and\n\n',
+        reason: 'the raw ring keeps the model bytes, not the rendered form',
+      );
       host.text('more\n\n');
       expect(host.lastRawMarkdown, '**bold** and\n\nmore\n\n');
     });
@@ -210,9 +229,13 @@ void main() {
     test('a user message starts a fresh turn (the ring resets)', () {
       host.text('previous turn\n\n');
       host.showMessage('next question\n', style: HostMessageStyle.user);
-      expect(host.lastRawMarkdown, '',
-          reason: 'the raw viewer must not show the previous turn after the '
-              'user has moved on');
+      expect(
+        host.lastRawMarkdown,
+        '',
+        reason:
+            'the raw viewer must not show the previous turn after the '
+            'user has moved on',
+      );
       host.text('answer\n\n');
       expect(host.lastRawMarkdown, 'answer\n\n');
     });

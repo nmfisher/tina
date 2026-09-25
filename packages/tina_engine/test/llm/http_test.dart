@@ -60,7 +60,9 @@ void main() {
       );
     });
 
-    test('anonymous TimeoutException (message \'\') falls back to legacy phrase', () {
+    test(
+        'anonymous TimeoutException (message \'\') falls back to legacy phrase',
+        () {
       expect(
         humanizeException(TimeoutException('', const Duration(seconds: 30))),
         'Request timed out',
@@ -89,8 +91,7 @@ void main() {
       final body = jsonEncode({
         'error': {'message': 'bad request'},
       });
-      expect(humanizeHttpError('OpenAI', 400, body),
-          'OpenAI 400: bad request');
+      expect(humanizeHttpError('OpenAI', 400, body), 'OpenAI 400: bad request');
     });
 
     test('handles top-level message field', () {
@@ -176,7 +177,8 @@ void main() {
       sw.stop();
       expect(resp.statusCode, 200);
       expect(sw.elapsed, greaterThan(const Duration(milliseconds: 800)),
-          reason: 'expected to wait ≈1s per Retry-After, not the 250ms default');
+          reason:
+              'expected to wait ≈1s per Retry-After, not the 250ms default');
     });
 
     // #23b: timeout is TERMINAL — the retry loop must NOT burn the
@@ -289,12 +291,11 @@ void main() {
           _buildReq,
           requestTimeout: const Duration(milliseconds: 100),
         ),
-        throwsA(isA<TimeoutException>()
-            .having(
-              (e) => e.message,
-              'message',
-              contains('--request-timeout'),
-            )),
+        throwsA(isA<TimeoutException>().having(
+          (e) => e.message,
+          'message',
+          contains('--request-timeout'),
+        )),
       );
       expect(client.callCount, 1);
     });
@@ -333,8 +334,7 @@ void main() {
 // --- helpers --------------------------------------------------------------
 
 http.Request _buildReq() =>
-    http.Request('POST', Uri.parse('http://example.invalid/v1/x'))
-      ..body = '{}';
+    http.Request('POST', Uri.parse('http://example.invalid/v1/x'))..body = '{}';
 
 /// One scripted response per call. Each entry produces *one* outcome.
 class _FakeClient extends http.BaseClient {
@@ -385,7 +385,8 @@ class _ThrowOutcome implements _Outcome {
 
 class _HangOutcome implements _Outcome {
   @override
-  Future<http.StreamedResponse> produce() => Completer<http.StreamedResponse>().future;
+  Future<http.StreamedResponse> produce() =>
+      Completer<http.StreamedResponse>().future;
 }
 
 _Outcome _ok(String body) =>

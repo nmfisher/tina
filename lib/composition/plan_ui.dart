@@ -11,25 +11,16 @@ import '../tui/plan_status_renderer.dart';
 /// conversation a turn belongs to, so `buildAgent` mints them per
 /// conversation from the store it finds under [planStoreServiceKey].
 PluginDescriptor planUiPlugin({required PlanStore store}) => PluginDescriptor(
-      id: 'tina.plan',
-      provides: [planStoreServiceKey],
-      factory: FnPluginFactory((context) {
-        // The store instance is the plugin's root object; the runtime binds
-        // `provides` keys itself AFTER the factory returns. Do NOT also
-        // scope.provide(planStoreServiceKey) here — the second bind throws
-        // "already provided in scope execution" at activation.
-        context.register(
-          PlanStatusSource(store),
-          id: 'tina.plan.status',
-        );
-        context.register(
-          const PlanStatusRenderer(),
-          id: 'tina.plan.renderer',
-        );
-        context.register(
-          planCommand(store),
-          id: 'tina.plan.command',
-        );
-        return store;
-      }),
-    );
+  id: 'tina.plan',
+  provides: [planStoreServiceKey],
+  factory: FnPluginFactory((context) {
+    // The store instance is the plugin's root object; the runtime binds
+    // `provides` keys itself AFTER the factory returns. Do NOT also
+    // scope.provide(planStoreServiceKey) here — the second bind throws
+    // "already provided in scope execution" at activation.
+    context.register(PlanStatusSource(store), id: 'tina.plan.status');
+    context.register(const PlanStatusRenderer(), id: 'tina.plan.renderer');
+    context.register(planCommand(store), id: 'tina.plan.command');
+    return store;
+  }),
+);

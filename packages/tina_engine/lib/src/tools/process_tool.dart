@@ -212,7 +212,9 @@ abstract class ProcessTool implements Tool, SpawnsProcess {
     this.preparedRequest,
     Directory Function()? tempDirFactory,
   })  : environment = Map.unmodifiable(environment ??
-           (processRunner is SandboxedProcessRunner ? processRunner.environment : Platform.environment)),
+            (processRunner is SandboxedProcessRunner
+                ? processRunner.environment
+                : Platform.environment)),
         processRunner = processRunner ?? const IoProcessRunner(),
         tempDirFactory = tempDirFactory ?? (() => Directory.systemTemp);
 
@@ -228,7 +230,8 @@ abstract class ProcessTool implements Tool, SpawnsProcess {
   ProcessTool outsideSandbox() {
     final runner = processRunner;
     if (runner is! SandboxedProcessRunner || preparedRequest == null) {
-      throw StateError('Outside-sandbox retry requires a prepared sandboxed command');
+      throw StateError(
+          'Outside-sandbox retry requires a prepared sandboxed command');
     }
     return copyWith(runner: runner.outsideSandbox);
   }
@@ -526,12 +529,11 @@ abstract class ProcessTool implements Tool, SpawnsProcess {
         // agent), and "permission denied" text alone must not claim the
         // write branch below — that would advise granting a directory the
         // command never needed.
-        final agentSocket =
-            SandboxAgentSocketFailure.detect(output);
+        final agentSocket = SandboxAgentSocketFailure.detect(output);
         final writeGate = RegExp(
-                'read-only file system|operation not permitted',
-                caseSensitive: false)
-            .hasMatch(output) ||
+                    'read-only file system|operation not permitted',
+                    caseSensitive: false)
+                .hasMatch(output) ||
             // "Permission denied" only counts as write evidence when
             // SandboxWriteFailure can use it — i.e. next to an EROFS marker
             // or an absolute path it can attribute. Bare auth refusals fall

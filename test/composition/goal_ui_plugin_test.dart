@@ -37,12 +37,8 @@ void main() {
   });
 
   group('/goal command', () {
-    Future<(
-      GoalStore,
-      PluginRuntime,
-      CommandRegistry,
-      FakeHostInterface,
-    )> wired() async {
+    Future<(GoalStore, PluginRuntime, CommandRegistry, FakeHostInterface)>
+    wired() async {
       final store = GoalStore();
       final runtime = PluginRuntime(
         name: 'goal-command-test',
@@ -71,8 +67,11 @@ void main() {
       final (store, runtime, registry, host) = await wired();
       addTearDown(runtime.dispose);
 
-      await registry.dispatch('/goal write the docs', host: host,
-          conversationId: 'c1');
+      await registry.dispatch(
+        '/goal write the docs',
+        host: host,
+        conversationId: 'c1',
+      );
       await registry.dispatch('/goal', host: host, conversationId: 'c1');
       expect(host.messages.last, contains('write the docs'));
       expect(host.messages.last, contains('not judged yet'));
@@ -87,10 +86,12 @@ void main() {
       final (store, runtime, registry, host) = await wired();
       addTearDown(runtime.dispose);
 
-      await registry.dispatch('/goal a goal', host: host,
-          conversationId: 'c1');
-      final result = await registry
-          .dispatch('/goal check', host: host, conversationId: 'c1');
+      await registry.dispatch('/goal a goal', host: host, conversationId: 'c1');
+      final result = await registry.dispatch(
+        '/goal check',
+        host: host,
+        conversationId: 'c1',
+      );
       final handled = result as CmdHandled;
       expect(handled.failed, isTrue);
       expect(host.messages.last, contains('No goal judge is wired'));
@@ -98,27 +99,38 @@ void main() {
       store.dispose();
     });
 
-    test('/goal check runs the late-bound judge hook and records the verdict',
-        () async {
-      final (store, runtime, registry, host) = await wired();
-      addTearDown(runtime.dispose);
+    test(
+      '/goal check runs the late-bound judge hook and records the verdict',
+      () async {
+        final (store, runtime, registry, host) = await wired();
+        addTearDown(runtime.dispose);
 
-      store.judgeHook = (conversationId, {force = false}) async {
-        expect(force, isTrue);
-        store.recordVerdict(conversationId, GoalVerdict.achieved,
-            'the failing test now passes');
-        return GoalVerdict.achieved;
-      };
-      await registry.dispatch('/goal fix the bug', host: host,
-          conversationId: 'c1');
-      final result = await registry
-          .dispatch('/goal check', host: host, conversationId: 'c1');
-      expect(result, isA<CmdHandled>());
-      final echo = host.messages.last;
-      expect(echo, contains('ACHIEVED'));
-      expect(echo, contains('the failing test now passes'));
-      store.dispose();
-    });
+        store.judgeHook = (conversationId, {force = false}) async {
+          expect(force, isTrue);
+          store.recordVerdict(
+            conversationId,
+            GoalVerdict.achieved,
+            'the failing test now passes',
+          );
+          return GoalVerdict.achieved;
+        };
+        await registry.dispatch(
+          '/goal fix the bug',
+          host: host,
+          conversationId: 'c1',
+        );
+        final result = await registry.dispatch(
+          '/goal check',
+          host: host,
+          conversationId: 'c1',
+        );
+        expect(result, isA<CmdHandled>());
+        final echo = host.messages.last;
+        expect(echo, contains('ACHIEVED'));
+        expect(echo, contains('the failing test now passes'));
+        store.dispose();
+      },
+    );
 
     test('over-long goal text is rejected with a message', () async {
       final (store, runtime, registry, host) = await wired();
@@ -138,11 +150,11 @@ void main() {
 
   group('GoalMiddleware', () {
     AgentContext context() => AgentContext(
-          stage: AgentStage.request,
-          cwd: '/tmp',
-          loadWorkspaceContext: false,
-          model: 'test/model',
-        );
+      stage: AgentStage.request,
+      cwd: '/tmp',
+      loadWorkspaceContext: false,
+      model: 'test/model',
+    );
 
     final request = AgentRequest(
       system: 'base system',
@@ -150,25 +162,31 @@ void main() {
       tools: const [],
     );
 
-    test('appends the goal section to the system prompt at request stage',
-        () async {
-      final store = GoalStore()..set('c1', 'fix the login race');
-      final decision = await GoalMiddleware(store, 'c1')
-          .beforeRequest(context(), request);
-      final system = decision.value!.system;
-      expect(system, startsWith('base system'));
-      expect(system, contains('<current-goal>'));
-      expect(system, contains('Goal: fix the login race'));
-      expect(system, contains('</current-goal>'));
-      store.dispose();
-    });
+    test(
+      'appends the goal section to the system prompt at request stage',
+      () async {
+        final store = GoalStore()..set('c1', 'fix the login race');
+        final decision = await GoalMiddleware(
+          store,
+          'c1',
+        ).beforeRequest(context(), request);
+        final system = decision.value!.system;
+        expect(system, startsWith('base system'));
+        expect(system, contains('<current-goal>'));
+        expect(system, contains('Goal: fix the login race'));
+        expect(system, contains('</current-goal>'));
+        store.dispose();
+      },
+    );
 
     test('injects the last verdict alongside the goal', () async {
       final store = GoalStore()
         ..set('c1', 'fix the login race')
         ..recordVerdict('c1', GoalVerdict.achieved, 'regression test added');
-      final decision = await GoalMiddleware(store, 'c1')
-          .beforeRequest(context(), request);
+      final decision = await GoalMiddleware(
+        store,
+        'c1',
+      ).beforeRequest(context(), request);
       expect(decision.value!.system, contains('ACHIEVED'));
       expect(decision.value!.system, contains('regression test added'));
       store.dispose();
@@ -176,16 +194,20 @@ void main() {
 
     test('passes the request through untouched without a goal', () async {
       final store = GoalStore();
-      final decision = await GoalMiddleware(store, 'c1')
-          .beforeRequest(context(), request);
+      final decision = await GoalMiddleware(
+        store,
+        'c1',
+      ).beforeRequest(context(), request);
       expect(decision.value!.system, 'base system');
       store.dispose();
     });
 
     test('is conversation-scoped: another conversation sees no goal', () async {
       final store = GoalStore()..set('c1', 'c1 goal');
-      final decision = await GoalMiddleware(store, 'c2')
-          .beforeRequest(context(), request);
+      final decision = await GoalMiddleware(
+        store,
+        'c2',
+      ).beforeRequest(context(), request);
       expect(decision.value!.system, 'base system');
       store.dispose();
     });

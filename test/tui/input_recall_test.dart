@@ -10,10 +10,10 @@ import 'package:test/test.dart';
 /// field.
 void main() {
   Message _user(String text, {bool synthetic = false}) => Message(
-        role: Role.user,
-        isSynthetic: synthetic,
-        content: [TextBlock(text)],
-      );
+    role: Role.user,
+    isSynthetic: synthetic,
+    content: [TextBlock(text)],
+  );
 
   test('keeps every operator prompt', () {
     final lines = recallHistoryLines([
@@ -27,23 +27,32 @@ void main() {
   test('filters the permission-mode announcement', () {
     final lines = recallHistoryLines([
       _user('real prompt'),
-      _user('Runtime permission mode: ask. Actions follow the current '
-          'permission policy.', synthetic: true),
+      _user(
+        'Runtime permission mode: ask. Actions follow the current '
+        'permission policy.',
+        synthetic: true,
+      ),
     ]);
-    expect(lines, ['real prompt'],
-        reason: 'the mode announcement used to resurface on ↑ (tin-hist)');
+    expect(lines, [
+      'real prompt',
+    ], reason: 'the mode announcement used to resurface on ↑ (tin-hist)');
   });
 
   test('filters the budget nudge and compaction summary', () {
     final lines = recallHistoryLines([
-      _user('[budget] turn spend at 90% of the per-turn limit...',
-          synthetic: true),
-      _user('Prior conversation summary:\n\nlots of context here',
-          synthetic: true),
+      _user(
+        '[budget] turn spend at 90% of the per-turn limit...',
+        synthetic: true,
+      ),
+      _user(
+        'Prior conversation summary:\n\nlots of context here',
+        synthetic: true,
+      ),
       const Message(
-          role: Role.assistant,
-          isSynthetic: true,
-          content: [TextBlock('Got it — continuing from this summary.')]),
+        role: Role.assistant,
+        isSynthetic: true,
+        content: [TextBlock('Got it — continuing from this summary.')],
+      ),
       _user('next real prompt'),
     ]);
     expect(lines, ['next real prompt']);
@@ -59,7 +68,7 @@ void main() {
       Message.fromJson({
         'role': 'user',
         'content': [
-          {'type': 'text', 'text': 'an old typed prompt'}
+          {'type': 'text', 'text': 'an old typed prompt'},
         ],
       }),
     ];
@@ -69,16 +78,21 @@ void main() {
 
   test('tool-result batches and reasoning-only entries yield nothing', () {
     final lines = recallHistoryLines([
-      Message(role: Role.user, content: const [
-        ToolResultBlock(toolUseId: 't1', content: 'result text')
-      ]),
+      Message(
+        role: Role.user,
+        content: const [
+          ToolResultBlock(toolUseId: 't1', content: 'result text'),
+        ],
+      ),
       const Message(
-          role: Role.assistant,
-          content: [],
-          reasoning: [ReasoningBlock('thinking')]),
+        role: Role.assistant,
+        content: [],
+        reasoning: [ReasoningBlock('thinking')],
+      ),
     ]);
-    expect(lines, [''],
-        reason: 'blank entries are dropped later by addHistory');
+    expect(lines, [
+      '',
+    ], reason: 'blank entries are dropped later by addHistory');
   });
 
   test('returns a fresh list — callers cannot mutate the input', () {

@@ -66,9 +66,8 @@ void main() {
   });
 
   group('--resume optional id', () {
-    Config parse(List<String> args) => Config.parse(
-      args, env: const {}, registry: testRegistry(const {}),
-    );
+    Config parse(List<String> args) =>
+        Config.parse(args, env: const {}, registry: testRegistry(const {}));
 
     test('bare flag requests a startup picker', () {
       final cfg = parse(['--resume']);
@@ -83,7 +82,10 @@ void main() {
       expect(cfg.backend, BackendChoice.ansi);
     });
     test('explicit IDs preserve direct resume', () {
-      for (final args in [['--resume', 'saved'], ['--resume=saved']]) {
+      for (final args in [
+        ['--resume', 'saved'],
+        ['--resume=saved'],
+      ]) {
         final cfg = parse(args);
         expect(cfg.resumePicker, isFalse);
         expect(cfg.resumeSessionId, 'saved');
@@ -145,11 +147,13 @@ void main() {
           env: const {'ANTHROPIC_API_KEY': 'sk'},
           registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
         ),
-        throwsA(isA<FormatException>().having(
-          (e) => e.message,
-          'message',
-          contains('mutually exclusive'),
-        )),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('mutually exclusive'),
+          ),
+        ),
       );
     });
   });
@@ -159,16 +163,26 @@ void main() {
       final store = MemorySessionStore();
       // Create two sessions; the second is newer.
       final sid1 = await store.createSession(
-          providerId: 'anthropic', updatedAt: DateTime(2026, 1, 1));
+        providerId: 'anthropic',
+        updatedAt: DateTime(2026, 1, 1),
+      );
       final cid1 = await store.createConversation(sid1);
       await store.append(
-          sid1, cid1, Message(role: Role.user, content: [TextBlock('old')]));
+        sid1,
+        cid1,
+        Message(role: Role.user, content: [TextBlock('old')]),
+      );
 
       final sid2 = await store.createSession(
-          providerId: 'anthropic', updatedAt: DateTime(2026, 6, 1));
+        providerId: 'anthropic',
+        updatedAt: DateTime(2026, 6, 1),
+      );
       final cid2 = await store.createConversation(sid2);
       await store.append(
-          sid2, cid2, Message(role: Role.user, content: [TextBlock('recent')]));
+        sid2,
+        cid2,
+        Message(role: Role.user, content: [TextBlock('recent')]),
+      );
 
       final cfg = Config.parse(
         const ['--continue'],
@@ -180,8 +194,10 @@ void main() {
       expect(resolved.sessionId, sid2);
       expect(resolved.activeConversationId, cid2);
       expect(resolved.activeHistory, hasLength(1));
-      expect((resolved.activeHistory.first.content.first as TextBlock).text,
-          'recent');
+      expect(
+        (resolved.activeHistory.first.content.first as TextBlock).text,
+        'recent',
+      );
     });
 
     test('falls back to fresh session when no saved sessions exist', () async {
@@ -199,60 +215,80 @@ void main() {
       expect(resolved.activeHistory, isEmpty);
     });
 
-    test('scopes to the current folder (ignores newer sessions elsewhere)',
-        () async {
-      final here = Directory.current.path;
-      final store = MemorySessionStore();
-      // A session in THIS folder, older.
-      final hereSid = await store.createSession(
-          providerId: 'anthropic', cwd: here, updatedAt: DateTime(2026, 1, 1));
-      final hereCid = await store.createConversation(hereSid);
-      await store.append(hereSid, hereCid,
-          Message(role: Role.user, content: [TextBlock('here')]));
+    test(
+      'scopes to the current folder (ignores newer sessions elsewhere)',
+      () async {
+        final here = Directory.current.path;
+        final store = MemorySessionStore();
+        // A session in THIS folder, older.
+        final hereSid = await store.createSession(
+          providerId: 'anthropic',
+          cwd: here,
+          updatedAt: DateTime(2026, 1, 1),
+        );
+        final hereCid = await store.createConversation(hereSid);
+        await store.append(
+          hereSid,
+          hereCid,
+          Message(role: Role.user, content: [TextBlock('here')]),
+        );
 
-      // A session in ANOTHER folder, NEWER — must be ignored.
-      final awaySid = await store.createSession(
+        // A session in ANOTHER folder, NEWER — must be ignored.
+        final awaySid = await store.createSession(
           providerId: 'anthropic',
           cwd: '/some/other/folder',
-          updatedAt: DateTime(2026, 6, 1));
-      final awayCid = await store.createConversation(awaySid);
-      await store.append(awaySid, awayCid,
-          Message(role: Role.user, content: [TextBlock('away')]));
+          updatedAt: DateTime(2026, 6, 1),
+        );
+        final awayCid = await store.createConversation(awaySid);
+        await store.append(
+          awaySid,
+          awayCid,
+          Message(role: Role.user, content: [TextBlock('away')]),
+        );
 
-      final cfg = Config.parse(
-        const ['--continue'],
-        env: const {'ANTHROPIC_API_KEY': 'sk'},
-        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
-      );
+        final cfg = Config.parse(
+          const ['--continue'],
+          env: const {'ANTHROPIC_API_KEY': 'sk'},
+          registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
+        );
 
-      final resolved = await resolveSession(cfg, store);
-      expect(resolved.sessionId, hereSid);
-      expect((resolved.activeHistory.first.content.first as TextBlock).text,
-          'here');
-    });
+        final resolved = await resolveSession(cfg, store);
+        expect(resolved.sessionId, hereSid);
+        expect(
+          (resolved.activeHistory.first.content.first as TextBlock).text,
+          'here',
+        );
+      },
+    );
 
-    test('falls back to fresh when no session matches the current folder',
-        () async {
-      final store = MemorySessionStore();
-      // Only a session in another folder exists.
-      final awaySid = await store.createSession(
+    test(
+      'falls back to fresh when no session matches the current folder',
+      () async {
+        final store = MemorySessionStore();
+        // Only a session in another folder exists.
+        final awaySid = await store.createSession(
           providerId: 'anthropic',
           cwd: '/some/other/folder',
-          updatedAt: DateTime(2026, 6, 1));
-      final awayCid = await store.createConversation(awaySid);
-      await store.append(awaySid, awayCid,
-          Message(role: Role.user, content: [TextBlock('away')]));
+          updatedAt: DateTime(2026, 6, 1),
+        );
+        final awayCid = await store.createConversation(awaySid);
+        await store.append(
+          awaySid,
+          awayCid,
+          Message(role: Role.user, content: [TextBlock('away')]),
+        );
 
-      final cfg = Config.parse(
-        const ['--continue'],
-        env: const {'ANTHROPIC_API_KEY': 'sk'},
-        registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
-      );
+        final cfg = Config.parse(
+          const ['--continue'],
+          env: const {'ANTHROPIC_API_KEY': 'sk'},
+          registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
+        );
 
-      final resolved = await resolveSession(cfg, store);
-      expect(resolved.sessionId, isNot(awaySid));
-      expect(resolved.activeHistory, isEmpty);
-    });
+        final resolved = await resolveSession(cfg, store);
+        expect(resolved.sessionId, isNot(awaySid));
+        expect(resolved.activeHistory, isEmpty);
+      },
+    );
   });
 
   group('--force flag', () {
@@ -281,7 +317,10 @@ void main() {
       final sid = await store.createSession(providerId: 'anthropic');
       final cid = await store.createConversation(sid);
       await store.append(
-          sid, cid, Message(role: Role.user, content: [TextBlock('hello')]));
+        sid,
+        cid,
+        Message(role: Role.user, content: [TextBlock('hello')]),
+      );
 
       final cfg = Config.parse(
         ['--resume', sid],

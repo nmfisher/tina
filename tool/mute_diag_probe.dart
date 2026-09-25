@@ -32,15 +32,21 @@ const int _echo = 0x8;
 const int _icrnl = 0x100;
 
 final ffi.DynamicLibrary _libc = ffi.DynamicLibrary.process();
-final _tcgetattr = _libc.lookupFunction<
-    ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Uint8>),
-    int Function(int, ffi.Pointer<ffi.Uint8>)>('tcgetattr');
-final _poll = _libc.lookupFunction<
-    ffi.Int32 Function(ffi.Pointer<ffi.Uint8>, ffi.Uint64, ffi.Int32),
-    int Function(ffi.Pointer<ffi.Uint8>, int, int)>('poll');
-final _readFn = _libc.lookupFunction<
-    ffi.Int64 Function(ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Int64),
-    int Function(int, ffi.Pointer<ffi.Uint8>, int)>('read');
+final _tcgetattr = _libc
+    .lookupFunction<
+      ffi.Int32 Function(ffi.Int32, ffi.Pointer<ffi.Uint8>),
+      int Function(int, ffi.Pointer<ffi.Uint8>)
+    >('tcgetattr');
+final _poll = _libc
+    .lookupFunction<
+      ffi.Int32 Function(ffi.Pointer<ffi.Uint8>, ffi.Uint64, ffi.Int32),
+      int Function(ffi.Pointer<ffi.Uint8>, int, int)
+    >('poll');
+final _readFn = _libc
+    .lookupFunction<
+      ffi.Int64 Function(ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Int64),
+      int Function(int, ffi.Pointer<ffi.Uint8>, int)
+    >('read');
 
 /// poll(fd0, POLLIN, 0) — is there anything to read right now? Returns
 /// 'R' (readable), '.' (idle) or 'E' (poll errored).
@@ -66,7 +72,7 @@ int fd0DrainPeek() {
     final n = _readFn(0, buf, 256);
     if (n <= 0) return n == 0 ? 0 : -1;
     final hex = [
-      for (var i = 0; i < n; i++) buf[i].toRadixString(16)
+      for (var i = 0; i < n; i++) buf[i].toRadixString(16),
     ].join(' ');
     // ignore: avoid_print
     stderr.writeln('FD0PEEK read $n bytes: $hex');
@@ -75,23 +81,37 @@ int fd0DrainPeek() {
     _freeFn(buf.cast());
   }
 }
-final _mallocFn = _libc.lookupFunction<
-    ffi.Pointer<ffi.Void> Function(ffi.IntPtr),
-    ffi.Pointer<ffi.Void> Function(int)>('malloc');
-final _freeFn = _libc.lookupFunction<ffi.Void Function(ffi.Pointer<ffi.Void>),
-    void Function(ffi.Pointer<ffi.Void>)>('free');
-final _openFn = _libc.lookupFunction<
-    ffi.Int32 Function(ffi.Pointer<ffi.Uint8>, ffi.Int32),
-    int Function(ffi.Pointer<ffi.Uint8>, int)>('open');
-final _writeFn = _libc.lookupFunction<
-    ffi.Int64 Function(ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Int64),
-    int Function(int, ffi.Pointer<ffi.Uint8>, int)>('write');
-final _tcsetattr = _libc.lookupFunction<
-    ffi.Int32 Function(ffi.Int32, ffi.Int32, ffi.Pointer<ffi.Uint8>),
-    int Function(int, int, ffi.Pointer<ffi.Uint8>)>('tcsetattr');
-final _cfmakerawFn = _libc.lookupFunction<
-    ffi.Void Function(ffi.Pointer<ffi.Uint8>),
-    void Function(ffi.Pointer<ffi.Uint8>)>('cfmakeraw');
+
+final _mallocFn = _libc
+    .lookupFunction<
+      ffi.Pointer<ffi.Void> Function(ffi.IntPtr),
+      ffi.Pointer<ffi.Void> Function(int)
+    >('malloc');
+final _freeFn = _libc
+    .lookupFunction<
+      ffi.Void Function(ffi.Pointer<ffi.Void>),
+      void Function(ffi.Pointer<ffi.Void>)
+    >('free');
+final _openFn = _libc
+    .lookupFunction<
+      ffi.Int32 Function(ffi.Pointer<ffi.Uint8>, ffi.Int32),
+      int Function(ffi.Pointer<ffi.Uint8>, int)
+    >('open');
+final _writeFn = _libc
+    .lookupFunction<
+      ffi.Int64 Function(ffi.Int32, ffi.Pointer<ffi.Uint8>, ffi.Int64),
+      int Function(int, ffi.Pointer<ffi.Uint8>, int)
+    >('write');
+final _tcsetattr = _libc
+    .lookupFunction<
+      ffi.Int32 Function(ffi.Int32, ffi.Int32, ffi.Pointer<ffi.Uint8>),
+      int Function(int, int, ffi.Pointer<ffi.Uint8>)
+    >('tcsetattr');
+final _cfmakerawFn = _libc
+    .lookupFunction<
+      ffi.Void Function(ffi.Pointer<ffi.Uint8>),
+      void Function(ffi.Pointer<ffi.Uint8>)
+    >('cfmakeraw');
 
 /// One-line summary of fd 0's line discipline state.
 String termiosSummary() {
@@ -119,8 +139,7 @@ String termiosSummary() {
 }
 
 Future<void> main(List<String> args) async {
-  final logPath =
-      args.isNotEmpty ? args.first : '/tmp/mute_diag/probe.log';
+  final logPath = args.isNotEmpty ? args.first : '/tmp/mute_diag/probe.log';
   final diagPath = args.length > 1 ? args[1] : '/tmp/mute_diag/diag.log';
   // --nopump: diagnostic mode that never starts the input pump, so nothing
   // of ours drains notcurses' queue or its ready pipe. The heartbeat then
@@ -223,8 +242,10 @@ Future<void> main(List<String> args) async {
 
   diagLine('A boot: ${termiosSummary()} fd0t=${fd0Target()} | ${fdMap()}');
   final guard = TerminalReplyGuard(os: guardOs)..prepare();
-  diagLine('B prepared: armed=${guard.armed} | ${termiosSummary()} | '
-      '${fdMap()}');
+  diagLine(
+    'B prepared: armed=${guard.armed} | ${termiosSummary()} | '
+    '${fdMap()}',
+  );
 
   // --keepdetour: leave fd 0 on the detour pty for the whole session and
   // bridge the REAL tty (opened by name from fd 1's target, exactly as
@@ -235,10 +256,12 @@ Future<void> main(List<String> args) async {
 
   nc.NotCurses ncs;
   try {
-    ncs = nc.NotCurses(nc.CursesOptions(
-      loglevel: nc.LogLevel.silent,
-      flags: nc.OptionFlags.suppressBanners,
-    ));
+    ncs = nc.NotCurses(
+      nc.CursesOptions(
+        loglevel: nc.LogLevel.silent,
+        flags: nc.OptionFlags.suppressBanners,
+      ),
+    );
   } finally {
     if (!keepdetour) guard.finishInit();
   }
@@ -263,8 +286,10 @@ Future<void> main(List<String> args) async {
       _tcsetattr(realFd, 0, tio);
     }
     _freeFn(tio.cast());
-    diagLine('K keepdetour: realFd=$realFd ($realPath) master=$master '
-        'fd0t=${fd0Target()}');
+    diagLine(
+      'K keepdetour: realFd=$realFd ($realPath) master=$master '
+      'fd0t=${fd0Target()}',
+    );
     Timer.periodic(const Duration(milliseconds: 10), (_) {
       if (realFd < 0 || master < 0) return;
       final buf = _mallocFn(4096);
@@ -272,8 +297,8 @@ Future<void> main(List<String> args) async {
         final n = _readFn(realFd, buf.cast<ffi.Uint8>(), 4096);
         if (n > 0) {
           final hex = [
-            for (var i = 0; i < n; i++) buf.cast<ffi.Uint8>()[i]
-                .toRadixString(16)
+            for (var i = 0; i < n; i++)
+              buf.cast<ffi.Uint8>()[i].toRadixString(16),
           ].join(' ');
           stderr.writeln('BRIDGE2 moved $n: $hex');
           var off = 0;
@@ -293,12 +318,15 @@ Future<void> main(List<String> args) async {
   // map below shows the bridge's handiwork — saved real stdin + master —
   // and the heartbeat shows bytes moving.)
   diagLine(
-      'C post-init+restore: '
-      'readyFd=${readyFdTarget(ncs)} fd0t=${fd0Target()} | '
-      '${termiosSummary()}');
+    'C post-init+restore: '
+    'readyFd=${readyFdTarget(ncs)} fd0t=${fd0Target()} | '
+    '${termiosSummary()}',
+  );
   final dupsAtC = duplicateTtyFds();
-  diagLine('C2 dup-tty-fds=${dupsAtC.isEmpty ? "none" : dupsAtC.join(",")} '
-      '(${dupsAtC.map(fdInfoFlags).join(' | ')})');
+  diagLine(
+    'C2 dup-tty-fds=${dupsAtC.isEmpty ? "none" : dupsAtC.join(",")} '
+    '(${dupsAtC.map(fdInfoFlags).join(' | ')})',
+  );
 
   if (nobridge) {
     guard.shutdown();
@@ -322,15 +350,15 @@ Future<void> main(List<String> args) async {
     late final Timer hb;
     hb = Timer.periodic(const Duration(milliseconds: 100), (_) {
       beats++;
-      final dupState = dups
-          .map((f) => '$f=${fdReadableChar(f)}')
-          .join(' ');
+      final dupState = dups.map((f) => '$f=${fdReadableChar(f)}').join(' ');
       final direct = ncs.getNonBlocking();
       final directId = direct.value?.id;
       if (direct.value != null) direct.value!.destroy();
-      diagLine('nopump beat#$beats: fd0=${fdReadableChar(0)} '
-          'ready($readyFd)=${fdReadableChar(readyFd)} '
-          'dup[$dupState] direct=0x${(directId ?? 0).toRadixString(16)}');
+      diagLine(
+        'nopump beat#$beats: fd0=${fdReadableChar(0)} '
+        'ready($readyFd)=${fdReadableChar(readyFd)} '
+        'dup[$dupState] direct=0x${(directId ?? 0).toRadixString(16)}',
+      );
       if (directId == 0x71 && !quitSeen) {
         quitSeen = true;
         diagLine('G quit-key seen DIRECTLY');
@@ -393,8 +421,10 @@ Future<void> main(List<String> args) async {
   var beats = 0;
   final hb = Timer.periodic(const Duration(milliseconds: 500), (_) {
     beats++;
-    diagLine('beat#$beats: records=$records spinGarbage=$spinGarbage '
-        'fd0=${fd0Readable()} fd0t=${fd0Target()} | ${termiosSummary()}');
+    diagLine(
+      'beat#$beats: records=$records spinGarbage=$spinGarbage '
+      'fd0=${fd0Readable()} fd0t=${fd0Target()} | ${termiosSummary()}',
+    );
     // MASTERFEED: push 'x' (0x78) straight into the detour master, the pty
     // notcurses allegedly still decodes from. If records jumps afterwards,
     // everything from the detour slave through notcurses' queue through the
@@ -416,8 +446,10 @@ Future<void> main(List<String> args) async {
       final direct = ncs.getNonBlocking();
       if (direct.value != null && direct.result != 0) {
         // ignore: avoid_print
-        stderr.writeln('DIRECTGET id=0x'
-            '${direct.value!.id.toRadixString(16)}');
+        stderr.writeln(
+          'DIRECTGET id=0x'
+          '${direct.value!.id.toRadixString(16)}',
+        );
         direct.value!.destroy();
       }
     } catch (_) {}

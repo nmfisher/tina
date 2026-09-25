@@ -347,8 +347,7 @@ class InputParser {
     // Two-byte escape that isn't CSI/SS3.
     // If the second byte is a printable ASCII character, this is Alt+letter.
     if (second >= 0x20 && second < 0x7f) {
-      final lower =
-          (second >= 0x41 && second <= 0x5a) ? second + 0x20 : second;
+      final lower = (second >= 0x41 && second <= 0x5a) ? second + 0x20 : second;
       _pendingEvent = AltKey(lower);
     } else if (second == 0x7f) {
       // Alt+Backspace (ESC followed by DEL).
@@ -364,8 +363,7 @@ class InputParser {
     final alt = _altPrefix;
     _altPrefix = false;
     if (alt && event is ArrowKey && !event.hasAlt) {
-      return ArrowKey(event.direction,
-          hasCtrl: event.hasCtrl, hasAlt: true);
+      return ArrowKey(event.direction, hasCtrl: event.hasCtrl, hasAlt: true);
     }
     return event;
   }

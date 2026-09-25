@@ -18,7 +18,21 @@ Graph parseDot(String source) => _Parser(_tokenize(source)).parse();
 // Tokenizer
 // ---------------------------------------------------------------------------
 
-enum _TokType { ident, string, number, duration, lbrace, rbrace, lbrack, rbrack, comma, semi, eq, arrow, dot }
+enum _TokType {
+  ident,
+  string,
+  number,
+  duration,
+  lbrace,
+  rbrace,
+  lbrack,
+  rbrack,
+  comma,
+  semi,
+  eq,
+  arrow,
+  dot,
+}
 
 class _Tok {
   final _TokType type;
@@ -60,11 +74,13 @@ List<_Tok> _tokenize(String src) {
       while (i < src.length && src[i] != '"') {
         if (src[i] == r'\' && i + 1 < src.length) {
           final n = src[i + 1];
-          buf.write(n == 'n'
-              ? '\n'
-              : n == 't'
-                  ? '\t'
-                  : n); // \" \\ etc. — keep the escaped char verbatim.
+          buf.write(
+            n == 'n'
+                ? '\n'
+                : n == 't'
+                ? '\t'
+                : n,
+          ); // \" \\ etc. — keep the escaped char verbatim.
           i += 2;
         } else {
           buf.write(src[i]);
@@ -84,8 +100,10 @@ List<_Tok> _tokenize(String src) {
     if (c == '-') {
       // Could be a negative number or a stray dash (undirected '--' is rejected).
       if (peek(1) == '-') {
-        throw DotParseError('undirected edge "--" is not supported '
-            '(attractor uses directed "->" only)');
+        throw DotParseError(
+          'undirected edge "--" is not supported '
+          '(attractor uses directed "->" only)',
+        );
       }
       // otherwise fall through to number handling below (negative).
     }
@@ -157,8 +175,7 @@ List<_Tok> _tokenize(String src) {
           continue;
         }
       }
-      toks.add(_Tok(
-          isFloat ? _TokType.number : _TokType.number, numStr));
+      toks.add(_Tok(isFloat ? _TokType.number : _TokType.number, numStr));
       continue;
     }
     // Bareword: [A-Za-z_][A-Za-z0-9_:.-]*  (covers shape names, true/false,
@@ -172,8 +189,10 @@ List<_Tok> _tokenize(String src) {
       toks.add(_Tok(_TokType.ident, src.substring(start, i)));
       continue;
     }
-    throw DotParseError('unexpected character "${String.fromCharCode(c.codeUnitAt(0) & 0xFF)}" '
-        'at offset $i');
+    throw DotParseError(
+      'unexpected character "${String.fromCharCode(c.codeUnitAt(0) & 0xFF)}" '
+      'at offset $i',
+    );
   }
   return toks;
 }
@@ -183,8 +202,7 @@ bool _isAlpha(String c) =>
     (c.codeUnitAt(0) >= 65 && c.codeUnitAt(0) <= 90) ||
     (c.codeUnitAt(0) >= 97 && c.codeUnitAt(0) <= 122) ||
     c == '_';
-bool _isBareStart(String c) =>
-    _isAlpha(c);
+bool _isBareStart(String c) => _isAlpha(c);
 bool _isBarePart(String c) =>
     _isAlpha(c) || _isDigit(c) || c == '_' || c == '.' || c == ':' || c == '-';
 
@@ -216,8 +234,10 @@ class _Parser {
   _Tok _expect(_TokType t, [String? what]) {
     final tk = _peek;
     if (tk == null || tk.type != t) {
-      throw DotParseError('expected ${what ?? t.name}, '
-          'got ${tk == null ? 'end of input' : '"${tk.text}"'}');
+      throw DotParseError(
+        'expected ${what ?? t.name}, '
+        'got ${tk == null ? 'end of input' : '"${tk.text}"'}',
+      );
     }
     return _next();
   }
@@ -225,8 +245,10 @@ class _Parser {
   Graph parse() {
     final kw = _peek;
     if (kw == null || kw.type != _TokType.ident || kw.text != 'digraph') {
-      throw DotParseError('expected "digraph", '
-          'got ${kw == null ? 'end of input' : '"${kw.text}"'}');
+      throw DotParseError(
+        'expected "digraph", '
+        'got ${kw == null ? 'end of input' : '"${kw.text}"'}',
+      );
     }
     _next();
     final name = _is(_TokType.ident) ? _next().text : 'pipeline';
@@ -340,7 +362,10 @@ class _Parser {
   }
 
   void _ensureNode(
-      Map<String, PipelineNode> nodes, String id, Map<String, AttrValue>? attrs) {
+    Map<String, PipelineNode> nodes,
+    String id,
+    Map<String, AttrValue>? attrs,
+  ) {
     final existing = nodes[id];
     if (existing == null) {
       final base = <String, AttrValue>{..._nodeDefaults, ...?attrs};

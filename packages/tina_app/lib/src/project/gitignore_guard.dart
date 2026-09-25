@@ -124,8 +124,7 @@ class GitignoreAskStore {
     }
   }
 
-  bool isDeclined(String repoRoot) =>
-      _load().contains(_canonicalize(repoRoot));
+  bool isDeclined(String repoRoot) => _load().contains(_canonicalize(repoRoot));
 
   void setDeclined(String repoRoot, bool declined) {
     final set = _load();

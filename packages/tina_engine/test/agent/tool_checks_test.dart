@@ -198,9 +198,8 @@ void main() {
     await executor.execute(
       use: const ToolUseBlock(
           id: 'call', name: 'bash', input: {'command': 'dart test'}),
-      stepTools:
-          ToolRegistry([BashTool(workspaceRoot: dir.path, processRunner: runner)])
-              .forStep(),
+      stepTools: ToolRegistry(
+          [BashTool(workspaceRoot: dir.path, processRunner: runner)]).forStep(),
       step: 0,
       isCancelled: () => false,
     );

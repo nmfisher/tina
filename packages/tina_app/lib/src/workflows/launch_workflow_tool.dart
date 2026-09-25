@@ -23,42 +23,45 @@ class LaunchWorkflowTool implements Tool {
     required WorkflowSupervisor supervisor,
     required String conversationId,
     required AgentSink sink,
-  })  : _supervisor = supervisor,
-        _conversationId = conversationId,
-        _sink = sink;
+  }) : _supervisor = supervisor,
+       _conversationId = conversationId,
+       _sink = sink;
 
   @override
   ToolSchema get schema => const ToolSchema(
-        name: 'launch_workflow',
-        description: 'Launch a DOT workflow (a plan → review → parallel '
-            'execute → review pipeline) in the background. The preferred '
-            'way to handle substantial or multi-step work: the workflow '
-            'explores, plans, has the plan independently reviewed, executes '
-            'the chunks in parallel, and reviews the outcome. Node input and '
-            'output stream into a live run panel while it runs, and the chat '
-            'stays open — you get a follow-up turn with the outcome when the '
-            'run finishes. '
-            'Use this for anything that benefits from a plan, independent '
-            'review, or parallel execution; use the file tools directly for '
-            'small changes and `delegate` for a single focused sub-task. '
-            'Cancel a running launch with stop_workflow.',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'input': {
-              'type': 'string',
-              'description': 'The task to hand to the workflow. Put everything '
-                  'the workflow needs here — it flows in as \$input.',
-            },
-            'workflow': {
-              'type': 'string',
-              'description': 'The workflow (DOT file) to run, by name. '
-                  'Defaults to "default".',
-            },
-          },
-          'required': ['input'],
+    name: 'launch_workflow',
+    description:
+        'Launch a DOT workflow (a plan → review → parallel '
+        'execute → review pipeline) in the background. The preferred '
+        'way to handle substantial or multi-step work: the workflow '
+        'explores, plans, has the plan independently reviewed, executes '
+        'the chunks in parallel, and reviews the outcome. Node input and '
+        'output stream into a live run panel while it runs, and the chat '
+        'stays open — you get a follow-up turn with the outcome when the '
+        'run finishes. '
+        'Use this for anything that benefits from a plan, independent '
+        'review, or parallel execution; use the file tools directly for '
+        'small changes and `delegate` for a single focused sub-task. '
+        'Cancel a running launch with stop_workflow.',
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'input': {
+          'type': 'string',
+          'description':
+              'The task to hand to the workflow. Put everything '
+              'the workflow needs here — it flows in as \$input.',
         },
-      );
+        'workflow': {
+          'type': 'string',
+          'description':
+              'The workflow (DOT file) to run, by name. '
+              'Defaults to "default".',
+        },
+      },
+      'required': ['input'],
+    },
+  );
 
   @override
   Future<ToolResult> execute(
@@ -81,11 +84,13 @@ class LaunchWorkflowTool implements Tool {
       input: task,
     );
 
-    return ToolResult('Launched workflow "$workflow" in the background '
-        '(run ${run.id}). It runs to completion while the chat stays open; '
-        'node input/output streams into a live run panel, and I\'ll get a '
-        'follow-up turn with the outcome when it finishes. Cancel it with '
-        'stop_workflow if needed.');
+    return ToolResult(
+      'Launched workflow "$workflow" in the background '
+      '(run ${run.id}). It runs to completion while the chat stays open; '
+      'node input/output streams into a live run panel, and I\'ll get a '
+      'follow-up turn with the outcome when it finishes. Cancel it with '
+      'stop_workflow if needed.',
+    );
   }
 }
 
@@ -96,27 +101,29 @@ class StopWorkflowTool implements Tool {
   final WorkflowSupervisor _supervisor;
 
   StopWorkflowTool({required WorkflowSupervisor supervisor})
-      : _supervisor = supervisor;
+    : _supervisor = supervisor;
 
   @override
   ToolSchema get schema => const ToolSchema(
-        name: 'stop_workflow',
-        description: 'Cancel a running workflow launched with launch_workflow. '
-            'Pass run_id to stop a specific run; omit it to stop the most '
-            'recent running workflow. The run aborts at its next node '
-            'boundary and you get a completion turn reporting it cancelled.',
-        inputSchema: {
-          'type': 'object',
-          'properties': {
-            'run_id': {
-              'type': 'string',
-              'description': 'The id of the run to stop (from the '
-                  'launch_workflow result). Defaults to the most recent '
-                  'running workflow.',
-            },
-          },
+    name: 'stop_workflow',
+    description:
+        'Cancel a running workflow launched with launch_workflow. '
+        'Pass run_id to stop a specific run; omit it to stop the most '
+        'recent running workflow. The run aborts at its next node '
+        'boundary and you get a completion turn reporting it cancelled.',
+    inputSchema: {
+      'type': 'object',
+      'properties': {
+        'run_id': {
+          'type': 'string',
+          'description':
+              'The id of the run to stop (from the '
+              'launch_workflow result). Defaults to the most recent '
+              'running workflow.',
         },
-      );
+      },
+    },
+  );
 
   @override
   Future<ToolResult> execute(
@@ -131,14 +138,16 @@ class StopWorkflowTool implements Tool {
 
     if (target == null || !target.isRunning) {
       return ToolResult(
-          id == null
-              ? 'No running workflow to stop.'
-              : 'Run $id is not running (it may already have finished).');
+        id == null
+            ? 'No running workflow to stop.'
+            : 'Run $id is not running (it may already have finished).',
+      );
     }
 
     _supervisor.stop(target.id);
     return ToolResult(
-        'Stopped workflow "${target.workflowName}" (run ${target.id}). It '
-        'will abort at its next node boundary.');
+      'Stopped workflow "${target.workflowName}" (run ${target.id}). It '
+      'will abort at its next node boundary.',
+    );
   }
 }

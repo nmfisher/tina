@@ -275,11 +275,14 @@ class MenuBar implements Focusable {
         // Include the padding spaces inside the highlighting so text
         // doesn't shift columns.
         label = useColor
-            ? _screen.colorize(_screen.theme.menu.barHighlight, ' ${menu.label} ')
+            ? _screen.colorize(
+                _screen.theme.menu.barHighlight, ' ${menu.label} ')
             : '[${menu.label}]';
       } else if (_active) {
         // Dim unselected menus when bar is active.
-        label = useColor ? _screen.colorize(_screen.theme.menu.barDim, ' ${menu.label} ') : ' ${menu.label} ';
+        label = useColor
+            ? _screen.colorize(_screen.theme.menu.barDim, ' ${menu.label} ')
+            : ' ${menu.label} ';
       }
       parts.add(label);
     }
@@ -307,7 +310,8 @@ class MenuBar implements Focusable {
           i++;
           if (i < s.length && s[i] == '[') {
             i++;
-            while (i < s.length && (s.codeUnitAt(i) < 0x40 || s.codeUnitAt(i) > 0x7e)) {
+            while (i < s.length &&
+                (s.codeUnitAt(i) < 0x40 || s.codeUnitAt(i) > 0x7e)) {
               i++;
             }
             if (i < s.length) i++;
@@ -340,7 +344,8 @@ class MenuBar implements Focusable {
     var maxLabel = 0;
     for (final item in items) {
       if (item is MenuEntry) {
-        final w = item.label.length + (item.shortcutHint != null ? item.shortcutHint!.length + 2 : 0);
+        final w = item.label.length +
+            (item.shortcutHint != null ? item.shortcutHint!.length + 2 : 0);
         if (w > maxLabel) maxLabel = w;
       } else if (item is MenuSeparator) {
         if (3 > maxLabel) maxLabel = 3;
@@ -377,9 +382,13 @@ class MenuBar implements Focusable {
         if (line.length < inner) line += ' ' * (inner - line.length);
 
         if (!item.enabled) {
-          line = useColor ? _screen.colorize(_screen.theme.menu.dropdownDisabled, line) : line;
+          line = useColor
+              ? _screen.colorize(_screen.theme.menu.dropdownDisabled, line)
+              : line;
         } else if (selected) {
-          line = useColor ? _screen.colorize(_screen.theme.menu.dropdownSelected, line) : '>$line<';
+          line = useColor
+              ? _screen.colorize(_screen.theme.menu.dropdownSelected, line)
+              : '>$line<';
         }
         lines.add('│$line│');
       }

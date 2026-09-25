@@ -72,7 +72,8 @@ class Registration {
 
   /// Creates a registration that runs [onDispose] at most once, sharing one
   /// completion future across every caller.
-  factory Registration.create(String id, FutureOr<void> Function()? onDispose) =>
+  factory Registration.create(
+          String id, FutureOr<void> Function()? onDispose) =>
       Registration._(id, onDispose);
 
   /// True once [dispose] has been called (started, not necessarily
@@ -136,19 +137,19 @@ class ScopeResources {
   /// the first error with its original stack trace. Memoized: a second call
   /// returns the same future.
   Future<void> dispose() => _closing ??= Future<void>.microtask(() async {
-    Object? error;
-    StackTrace? stack;
-    for (final cleanup in _cleanup.reversed) {
-      try {
-        await cleanup();
-      } catch (e, st) {
-        error ??= e;
-        stack ??= st;
-      }
-    }
-    _cleanup.clear();
-    if (error != null) Error.throwWithStackTrace(error, stack!);
-  });
+        Object? error;
+        StackTrace? stack;
+        for (final cleanup in _cleanup.reversed) {
+          try {
+            await cleanup();
+          } catch (e, st) {
+            error ??= e;
+            stack ??= st;
+          }
+        }
+        _cleanup.clear();
+        if (error != null) Error.throwWithStackTrace(error, stack!);
+      });
 
   /// Retains a work failure if cleanup also fails.
   Future<T> run<T>(Future<T> Function() body) async {

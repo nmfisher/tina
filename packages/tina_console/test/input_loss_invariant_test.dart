@@ -98,13 +98,15 @@ void main() {
       input.emit(CharInput('!'));
       await _flush();
 
-      expect(ed.keyCount, 5, reason: '5 delivered events must tick keyCount 5×');
+      expect(ed.keyCount, 5,
+          reason: '5 delivered events must tick keyCount 5×');
       input.emit(ControlKey(ControlCode.enter));
       expect(await line, 'hi!');
       ed.close();
     });
 
-    test('events while no readLine is armed still advance keyCount '
+    test(
+        'events while no readLine is armed still advance keyCount '
         '(cancel monitor keeps the editor listening)', () async {
       final input = FakeInputBackend();
       final ed = _makeEditor(input);
@@ -194,7 +196,8 @@ void main() {
       ed.close();
     });
 
-    test('keys swallowed by the startup drain never tick keyCount; the '
+    test(
+        'keys swallowed by the startup drain never tick keyCount; the '
         'window is bounded', () async {
       final clock = _ManualStopwatch();
       final source = _FakeKeySource();

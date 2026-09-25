@@ -16,14 +16,13 @@ class TokenUsageRenderer extends Renderer<TokenUsageSummary> {
     final fraction = value.capFraction;
     if (value.tripped) {
       runs.add(RenderRun('SPEND LIMIT TRIPPED', theme.red));
-      return [
-        RenderLine(align: StatusAlign.right, runs: runs),
-      ];
+      return [RenderLine(align: StatusAlign.right, runs: runs)];
     }
     runs.add(RenderRun('Σ ${_format(value.totalTokens)}', theme.dim));
     if (value.estimatedTokens > 0) {
-      runs.add(RenderRun(
-          ' +~${_format(value.estimatedTokens)} est', theme.yellow));
+      runs.add(
+        RenderRun(' +~${_format(value.estimatedTokens)} est', theme.yellow),
+      );
     }
     final cap = value.cap;
     if (cap != null) {
@@ -31,9 +30,7 @@ class TokenUsageRenderer extends Renderer<TokenUsageSummary> {
       final color = _capColor(fraction, theme);
       runs.add(RenderRun(' / ${_format(cap)} · $pct%', color));
     }
-    return [
-      RenderLine(align: StatusAlign.right, runs: runs),
-    ];
+    return [RenderLine(align: StatusAlign.right, runs: runs)];
   }
 
   String _capColor(double? fraction, ChatTheme theme) {

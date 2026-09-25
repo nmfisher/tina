@@ -20,17 +20,16 @@ void main() {
       File('${tmp.path}/a.txt').writeAsStringSync('hello');
       final res = await LsTool().execute({'path': tmp.path});
       expect(res.isError, isFalse);
-      final subLine = res.content
-          .split('\n')
-          .firstWhere((l) => l.endsWith('sub'));
+      final subLine =
+          res.content.split('\n').firstWhere((l) => l.endsWith('sub'));
       expect(subLine, startsWith('d '));
-      final fileLine = res.content
-          .split('\n')
-          .firstWhere((l) => l.endsWith('a.txt'));
+      final fileLine =
+          res.content.split('\n').firstWhere((l) => l.endsWith('a.txt'));
       expect(fileLine, startsWith('- '));
       expect(fileLine, contains('5'));
       // Directories sort before files.
-      expect(res.content.indexOf('sub'), lessThan(res.content.indexOf('a.txt')));
+      expect(
+          res.content.indexOf('sub'), lessThan(res.content.indexOf('a.txt')));
     });
 
     test('hides dot-entries unless all is true', () async {
@@ -39,8 +38,7 @@ void main() {
       final withoutAll = await LsTool().execute({'path': tmp.path});
       expect(withoutAll.content, contains('visible.txt'));
       expect(withoutAll.content, isNot(contains('.hidden')));
-      final withAll =
-          await LsTool().execute({'path': tmp.path, 'all': true});
+      final withAll = await LsTool().execute({'path': tmp.path, 'all': true});
       expect(withAll.content, contains('.hidden'));
     });
 
@@ -54,8 +52,7 @@ void main() {
       for (var i = 0; i < 5; i++) {
         File('${tmp.path}/f$i.txt').writeAsStringSync('x');
       }
-      final res = await LsTool()
-          .execute({'path': tmp.path, 'maxResults': 2});
+      final res = await LsTool().execute({'path': tmp.path, 'maxResults': 2});
       expect(res.content, contains('f0.txt'));
       expect(res.content, contains('f1.txt'));
       expect(res.content, contains('3 more'));
@@ -81,7 +78,8 @@ void main() {
           workspaceRoot: tmp.path, tinaDir: tinaDir);
       final outside = Directory.systemTemp.createTempSync('tina_ls_out_');
       addTearDown(() => outside.deleteSync(recursive: true));
-      final res = await LsTool(sandbox: sandbox).execute({'path': outside.path});
+      final res =
+          await LsTool(sandbox: sandbox).execute({'path': outside.path});
       expect(res.isError, isTrue);
       expect(res.content, contains('escapes the project root'));
     });

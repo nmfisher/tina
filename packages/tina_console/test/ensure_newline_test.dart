@@ -59,8 +59,7 @@ void main() {
     });
   });
   group('row ownership across a pending approval', () {
-    test('background writer during a pending approval starts its own row',
-        () {
+    test('background writer during a pending approval starts its own row', () {
       final io = FakeStdio()..columns = 80;
       final backend = _RecordingBackend();
       final screen = Screen.withBackend(

@@ -45,7 +45,11 @@ class CodergenHandler implements NodeHandler {
     } catch (e) {
       final fail = Outcome.fail('codergen backend error: $e');
       await runStore.writeNode(
-          nodeId: node.id, outcome: fail, prompt: prompt, response: '');
+        nodeId: node.id,
+        outcome: fail,
+        prompt: prompt,
+        response: '',
+      );
       return fail;
     }
 
@@ -59,7 +63,11 @@ class CodergenHandler implements NodeHandler {
     if (result.outcome?.status == StageStatus.retry) {
       final retry = result.outcome!;
       await runStore.writeNode(
-          nodeId: node.id, outcome: retry, prompt: prompt, response: '');
+        nodeId: node.id,
+        outcome: retry,
+        prompt: prompt,
+        response: '',
+      );
       return retry;
     }
 
@@ -68,8 +76,7 @@ class CodergenHandler implements NodeHandler {
     //    `writes` keys (the shared-key pattern: a reviewer publishing the
     //    current plan under `plan`). Merge with any explicit outcome the
     //    backend returned (e.g. a verdict); its contextUpdates win on a clash.
-    final base = result.outcome ??
-        const Outcome.success();
+    final base = result.outcome ?? const Outcome.success();
     final updates = <String, String>{
       node.id: responseText,
       for (final w in {...node.writesKeys})
@@ -128,8 +135,9 @@ String expandTemplate(String template, Context context) {
     RegExp(r'\$([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)'),
     (m) {
       final key = m.group(1)!;
-      final value =
-          key == 'goal' ? context.getString('graph.goal') : context.getString(key);
+      final value = key == 'goal'
+          ? context.getString('graph.goal')
+          : context.getString(key);
       return value.isEmpty ? m.group(0)! : value;
     },
   );

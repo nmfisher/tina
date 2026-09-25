@@ -229,7 +229,10 @@ void main() {
       expect(notices, contains('Read-only file system'));
       expect(notices, contains('tests never started'));
       expect(notices, contains('The command is approved once'));
-      expect(io.written.toString(), contains('[a] allow these directories for this session'));
+      expect(
+        io.written.toString(),
+        contains('[a] allow these directories for this session'),
+      );
       expect(notices, isNot(contains('[d]eny always')));
       // The old deny-always shortcut must not silently install a command rule.
       io.feedBytes([0x64]);
@@ -377,13 +380,12 @@ void main() {
         expect(initial.join('\n'), contains('Enter confirm'));
         expect(initial[allow].indexOf('[y]'), screen.input.bounds.col + 4);
         final title = initial.firstWhere(
-            (row) => row.contains('┌ Run shell command'));
+          (row) => row.contains('┌ Run shell command'),
+        );
         expect(title.indexOf('┌'), screen.input.bounds.col);
         expect(initial.join('\n'), contains('cargo test'));
-        String selected(String label) => screen.colorize(
-          screen.theme.completion.selected,
-          '❯ $label',
-        );
+        String selected(String label) =>
+            screen.colorize(screen.theme.completion.selected, '❯ $label');
         expect(io.written.toString(), contains(selected('[y] allow once')));
         io.written.clear();
         editor.inject(ArrowKey(ArrowDirection.down));
@@ -542,7 +544,8 @@ void main() {
     // …the second ignored key gets none.
     io.feedBytes([0x78]); // 'x' — still not an answer ('r' opens regex review)
     await _flush();
-    final afterSecond = sink.notices.map((n) => n.message).join().split('…').length - 1;
+    final afterSecond =
+        sink.notices.map((n) => n.message).join().split('…').length - 1;
     expect(
       afterSecond,
       1,
@@ -607,10 +610,7 @@ void main() {
       );
       final ask2 = asker2.ask(_bashPrompt('ls'));
       await _flush();
-      expect(
-        stripAnsi(io2.written.toString()),
-        isNot(contains('[mode:')),
-      );
+      expect(stripAnsi(io2.written.toString()), isNot(contains('[mode:')));
       io2.feedBytes([0x6e]);
       await ask2.timeout(const Duration(seconds: 2));
     },

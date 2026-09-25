@@ -40,25 +40,23 @@ void main() {
   }
 
   Graph graphVia(List<PipelineEdge> edges) => Graph(
-        name: 'routing',
-        attrs: const {},
-        nodes: {
-          'start': PipelineNode(id: 'start', attrs: {'shape': 'Mdiamond'}),
-          'language':
-              PipelineNode(id: 'language', attrs: {'type': 'classify'}),
-          'details':
-              PipelineNode(id: 'details', attrs: {'type': 'classify'}),
-          'exit': PipelineNode(id: 'exit', attrs: {'shape': 'Msquare'}),
-        },
-        edges: edges,
-      );
+    name: 'routing',
+    attrs: const {},
+    nodes: {
+      'start': PipelineNode(id: 'start', attrs: {'shape': 'Mdiamond'}),
+      'language': PipelineNode(id: 'language', attrs: {'type': 'classify'}),
+      'details': PipelineNode(id: 'details', attrs: {'type': 'classify'}),
+      'exit': PipelineNode(id: 'exit', attrs: {'shape': 'Msquare'}),
+    },
+    edges: edges,
+  );
 
   ClassifyProgram custom(List<PipelineEdge> edges) => ClassifyProgram(
-        name: 'routing',
-        origin: 'test',
-        graph: graphVia(edges),
-        diagnostics: const [],
-      );
+    name: 'routing',
+    origin: 'test',
+    graph: graphVia(edges),
+    diagnostics: const [],
+  );
 
   test('the built-in program walks language, details, exit', () async {
     final (outcome, store) = await run(builtinIndexProgram());
@@ -66,10 +64,7 @@ void main() {
     expect(called, ['language', 'details']);
     expect(outcome.status, StageStatus.success);
     expect(store.finalStatus, StageStatus.success);
-    expect(
-      store.checkpoints.last.completed,
-      ['start', 'language', 'details'],
-    );
+    expect(store.checkpoints.last.completed, ['start', 'language', 'details']);
   });
 
   test('a failed language stage ends the run before details', () async {
@@ -88,8 +83,10 @@ void main() {
   });
 
   test('a language exception fails the run once (no silent retries)', () async {
-    final (outcome, store) =
-        await run(builtinIndexProgram(), runner: spy(throwOn: {'language'}));
+    final (outcome, store) = await run(
+      builtinIndexProgram(),
+      runner: spy(throwOn: {'language'}),
+    );
 
     expect(called, ['language'], reason: 'graph default_max_retries is 0');
     expect(outcome.status, StageStatus.fail);
@@ -138,18 +135,18 @@ void main() {
 
   group('published boolean context keys route stock conditions', () {
     List<PipelineEdge> conditionalEdges() => [
-          PipelineEdge(from: 'start', to: 'language'),
-          PipelineEdge(
-            from: 'language',
-            to: 'details',
-            condition: 'outcome.classified=true',
-          ),
-          PipelineEdge(
-            from: 'language',
-            to: 'exit',
-            condition: 'outcome.classified=false',
-          ),
-        ];
+      PipelineEdge(from: 'start', to: 'language'),
+      PipelineEdge(
+        from: 'language',
+        to: 'details',
+        condition: 'outcome.classified=true',
+      ),
+      PipelineEdge(
+        from: 'language',
+        to: 'exit',
+        condition: 'outcome.classified=false',
+      ),
+    ];
 
     test('classified=false takes the exit edge, skipping details', () async {
       results['language'] = const ClassifyStageResult(
@@ -174,10 +171,11 @@ void main() {
 
       expect(called, ['language', 'details']);
       expect(outcome.status, StageStatus.success);
-      expect(
-        store.checkpoints.last.completed,
-        ['start', 'language', 'details'],
-      );
+      expect(store.checkpoints.last.completed, [
+        'start',
+        'language',
+        'details',
+      ]);
     });
   });
 }

@@ -67,17 +67,18 @@ void main() {
     return c;
   }
 
-  List<String> messages(String needle) => records
-      .map((r) => r.message)
-      .where((m) => m.contains(needle))
-      .toList();
+  List<String> messages(String needle) =>
+      records.map((r) => r.message).where((m) => m.contains(needle)).toList();
 
   test('an idle screen is never reported', () {
     final c = check();
     now = now.add(const Duration(minutes: 10));
     c.checkNow();
-    expect(messages('nothing has been drawn'), isEmpty,
-        reason: 'a chat prompt waiting for input draws nothing and is healthy');
+    expect(
+      messages('nothing has been drawn'),
+      isEmpty,
+      reason: 'a chat prompt waiting for input draws nothing and is healthy',
+    );
   });
 
   test('a drawing screen is never reported', () {
@@ -96,43 +97,47 @@ void main() {
     expect(messages('nothing has been drawn'), isEmpty);
   });
 
-  test('keys arriving with nothing drawn is reported once, then recovery',
-      () async {
-    final c = check();
+  test(
+    'keys arriving with nothing drawn is reported once, then recovery',
+    () async {
+      final c = check();
 
-    // The freeze signature: a key reaches the editor while nothing owns the
-    // keyboard, so it is dropped and nothing is redrawn.
-    editor.beginCancelMonitor(() {});
-    editor.endCancelMonitor();
-    io.feedBytes(utf8.encode('x'));
-    await _settle();
-    expect(editor.keyCount, 1);
+      // The freeze signature: a key reaches the editor while nothing owns the
+      // keyboard, so it is dropped and nothing is redrawn.
+      editor.beginCancelMonitor(() {});
+      editor.endCancelMonitor();
+      io.feedBytes(utf8.encode('x'));
+      await _settle();
+      expect(editor.keyCount, 1);
 
-    now = now.add(const Duration(seconds: 31));
-    c.checkNow();
+      now = now.add(const Duration(seconds: 31));
+      c.checkNow();
 
-    final warnings = messages('keys are arriving but nothing has been drawn');
-    expect(warnings, hasLength(1));
-    expect(warnings.single, contains('31s'));
-    expect(warnings.single, contains('chat_prompt_open=false'));
+      final warnings = messages('keys are arriving but nothing has been drawn');
+      expect(warnings, hasLength(1));
+      expect(warnings.single, contains('31s'));
+      expect(warnings.single, contains('chat_prompt_open=false'));
 
-    // Still stuck: no second warning for the same episode.
-    now = now.add(const Duration(seconds: 10));
-    c.checkNow();
-    expect(messages('keys are arriving but nothing has been drawn'),
-        hasLength(1));
+      // Still stuck: no second warning for the same episode.
+      now = now.add(const Duration(seconds: 10));
+      c.checkNow();
+      expect(
+        messages('keys are arriving but nothing has been drawn'),
+        hasLength(1),
+      );
 
-    // Drawing resumes: the episode is closed off in the log.
-    screen.putAtAbsolute(
-      row: 0,
-      col: 0,
-      text: 'back',
-      maxCols: 4,
-      moveCursor: false,
-    );
-    c.checkNow();
-    expect(messages('the screen is drawing again'), hasLength(1));
-  });
+      // Drawing resumes: the episode is closed off in the log.
+      screen.putAtAbsolute(
+        row: 0,
+        col: 0,
+        text: 'back',
+        maxCols: 4,
+        moveCursor: false,
+      );
+      c.checkNow();
+      expect(messages('the screen is drawing again'), hasLength(1));
+    },
+  );
 
   test('a key typed before the stall window is not forgotten', () async {
     final c = check();
@@ -151,8 +156,10 @@ void main() {
     // The user stopped typing; the stall is now long enough. Still reported.
     now = now.add(const Duration(seconds: 25));
     c.checkNow();
-    expect(messages('keys are arriving but nothing has been drawn'),
-        hasLength(1));
+    expect(
+      messages('keys are arriving but nothing has been drawn'),
+      hasLength(1),
+    );
   });
 
   test('an agent that says it is busy with nothing drawn is reported', () {
@@ -230,15 +237,20 @@ void main() {
       final warnings = messages('keys are arriving but nothing has been drawn');
       expect(warnings, hasLength(1));
       expect(warnings.single, contains('forcing a full repaint'));
-      expect(backend.refreshes, 1,
-          reason: 'the heal re-emits the retained frame in full');
+      expect(
+        backend.refreshes,
+        1,
+        reason: 'the heal re-emits the retained frame in full',
+      );
 
       // Still stuck: the same episode is neither re-healed nor re-reported.
       now = now.add(const Duration(seconds: 10));
       c.checkNow();
       expect(backend.refreshes, 1);
-      expect(messages('keys are arriving but nothing has been drawn'),
-          hasLength(1));
+      expect(
+        messages('keys are arriving but nothing has been drawn'),
+        hasLength(1),
+      );
 
       // A real presentation after the heal closes the episode as usual.
       backend.presented++;
@@ -247,8 +259,7 @@ void main() {
       expect(backend.refreshes, 1, reason: 'recovery is not a second heal');
     });
 
-    test('heal: false reports the stall without touching the backend',
-        () async {
+    test('heal: false reports the stall without touching the backend', () async {
       final c = healCheck(heal: false);
       await keyWithNothingDrawn();
       now = now.add(const Duration(seconds: 31));
@@ -256,13 +267,19 @@ void main() {
 
       final warnings = messages('keys are arriving but nothing has been drawn');
       expect(warnings, hasLength(1));
-      expect(backend.refreshes, 0,
-          reason: 'detection-only checks must leave the backend alone');
+      expect(
+        backend.refreshes,
+        0,
+        reason: 'detection-only checks must leave the backend alone',
+      );
       // ...and the line must not claim otherwise. The log is the *only* product
       // in this mode, so a "forcing a full repaint" clause would be a false
       // report about the one thing a reader can check.
-      expect(warnings.single, isNot(contains('forcing a full repaint')),
-          reason: 'a log-only check must not advertise a heal it will not run');
+      expect(
+        warnings.single,
+        isNot(contains('forcing a full repaint')),
+        reason: 'a log-only check must not advertise a heal it will not run',
+      );
     });
   });
 }

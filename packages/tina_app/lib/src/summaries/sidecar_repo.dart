@@ -39,11 +39,9 @@ const _sidecarFallbackEmail = 'tina@localhost';
 /// deleted. This is the "only regenerate when code in *that* dir changes"
 /// guarantee — extended to uncommitted changes, which never touch HEAD.
 class SidecarSummaryRepo {
-  SidecarSummaryRepo({
-    required this.root,
-    required this.workspaceRoot,
-  })  : _summariesDir = Directory(p.join(root.path, 'summaries')),
-        manifestPath = p.join(root.path, 'summaries', 'manifest.json');
+  SidecarSummaryRepo({required this.root, required this.workspaceRoot})
+    : _summariesDir = Directory(p.join(root.path, 'summaries')),
+      manifestPath = p.join(root.path, 'summaries', 'manifest.json');
 
   /// The sidecar git repo root: `<workspaceRoot>/.tina/summaries`.
   final Directory root;
@@ -109,7 +107,8 @@ class SidecarSummaryRepo {
       for (final pkg in packagesDir.listSync(followLinks: false)) {
         if (pkg is! Directory) continue;
         final pkgName = p.basename(pkg.path);
-        if (pkgName.startsWith('.') || kDefaultPartitionSkip.contains(pkgName)) {
+        if (pkgName.startsWith('.') ||
+            kDefaultPartitionSkip.contains(pkgName)) {
           continue;
         }
         final lib = Directory(p.join(pkg.path, 'lib'));
@@ -169,7 +168,10 @@ class SidecarSummaryRepo {
         deleted.add(dir);
       }
     }
-    return StaleSet(toRegenerate: stale, deleted: deleted.toSet().toList()..sort());
+    return StaleSet(
+      toRegenerate: stale,
+      deleted: deleted.toSet().toList()..sort(),
+    );
   }
 
   /// The current main-repo HEAD commit sha. Used to stamp the manifest + the
@@ -301,11 +303,13 @@ class SidecarSummaryRepo {
     // Don't commit when there's nothing staged (avoids a noisy empty commit —
     // and an error, since unstaged runtime files like allocations.json would
     // otherwise make `status --porcelain` non-empty with an empty index).
-    final staged = Process.runSync(
-      'git',
-      ['-C', _summariesDir.path, 'diff', '--cached', '--name-only'],
-      runInShell: false,
-    );
+    final staged = Process.runSync('git', [
+      '-C',
+      _summariesDir.path,
+      'diff',
+      '--cached',
+      '--name-only',
+    ], runInShell: false);
     final hasStaged =
         staged.exitCode == 0 && (staged.stdout as String).trim().isNotEmpty;
     if (!hasStaged) return;
@@ -324,11 +328,12 @@ class SidecarSummaryRepo {
   /// `git rev-parse HEAD:<dir>` for [dir], or null when the dir is absent at
   /// HEAD (rev-parse fails on a missing path).
   String? _treeHashOrNull(String dir) {
-    final result = Process.runSync(
-      'git',
-      ['-C', workspaceRoot.path, 'rev-parse', 'HEAD:$dir'],
-      runInShell: false,
-    );
+    final result = Process.runSync('git', [
+      '-C',
+      workspaceRoot.path,
+      'rev-parse',
+      'HEAD:$dir',
+    ], runInShell: false);
     if (result.exitCode != 0) return null;
     final out = (result.stdout as String).trim();
     return out.isEmpty ? null : out;
@@ -341,33 +346,38 @@ class SidecarSummaryRepo {
   /// porcelain output (rather than a bool) also catches dirty content
   /// changing while the dir stays dirty.
   String _dirtyDigest(String dir) {
-    final result = Process.runSync(
-      'git',
-      ['-C', workspaceRoot.path, 'status', '--porcelain', '--', dir],
-      runInShell: false,
-    );
+    final result = Process.runSync('git', [
+      '-C',
+      workspaceRoot.path,
+      'status',
+      '--porcelain',
+      '--',
+      dir,
+    ], runInShell: false);
     if (result.exitCode != 0) return '';
     final out = (result.stdout as String).trim();
     return out.isEmpty ? '' : _fnv1a(out);
   }
 
   bool _isGitRoot(String path) {
-    final result = Process.runSync(
-      'git',
-      ['-C', path, 'rev-parse', '--show-prefix'],
-      runInShell: false,
-    );
+    final result = Process.runSync('git', [
+      '-C',
+      path,
+      'rev-parse',
+      '--show-prefix',
+    ], runInShell: false);
     // Being inside the parent project is insufficient: this must be the
     // root of its own repository, or summary commits would modify project HEAD.
     return result.exitCode == 0 && (result.stdout as String).trim().isEmpty;
   }
 
   String _gitIn(String dir, List<String> args) {
-    final result = Process.runSync(
-      'git',
-      ['-C', dir, ..._identityArgs(dir, args), ...args],
-      runInShell: false,
-    );
+    final result = Process.runSync('git', [
+      '-C',
+      dir,
+      ..._identityArgs(dir, args),
+      ...args,
+    ], runInShell: false);
     if (result.exitCode != 0) {
       final err = (result.stderr as String).trim();
       throw ProcessException(
@@ -390,11 +400,12 @@ class SidecarSummaryRepo {
   /// to what the sidecar records.
   List<String> _identityArgs(String dir, List<String> args) {
     if (args.isEmpty || args.first != 'commit') return const [];
-    final probe = Process.runSync(
-      'git',
-      ['-C', dir, 'var', 'GIT_AUTHOR_IDENT'],
-      runInShell: false,
-    );
+    final probe = Process.runSync('git', [
+      '-C',
+      dir,
+      'var',
+      'GIT_AUTHOR_IDENT',
+    ], runInShell: false);
     if (probe.exitCode == 0) return const [];
     return const [
       '-c',

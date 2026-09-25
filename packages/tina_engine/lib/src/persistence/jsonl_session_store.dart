@@ -459,9 +459,8 @@ class JsonlSessionStore
       String sessionId, String conversationId) async {
     await _ensureMaterialized(sessionId);
     final manifest = await _readManifest(sessionId);
-    final meta = manifest.conversations
-        .where((c) => c.id == conversationId)
-        .firstOrNull;
+    final meta =
+        manifest.conversations.where((c) => c.id == conversationId).firstOrNull;
     if (meta == null) {
       throw StateError(
           'Conversation not found in session: $sessionId/$conversationId');
@@ -470,8 +469,7 @@ class JsonlSessionStore
       // Panels (sub-agent / spawn / branch) are not resume targets: the
       // anchor decides what a resume reopens, and that is always a main
       // conversation.
-      throw StateError(
-          'cannot anchor ${meta.kind.name} conversation '
+      throw StateError('cannot anchor ${meta.kind.name} conversation '
           '$sessionId/$conversationId — only primaries anchor');
     }
     await _writeManifest(SessionManifest(
@@ -716,9 +714,9 @@ class JsonlSessionStore
       // primary remains (the next createConversationWithMeta anchors).
       final active = manifest.activeConversationId == conversationId
           ? remaining
-              .where((c) => c.kind == ConversationKind.primary)
-              .map((c) => c.id)
-              .firstOrNull ??
+                  .where((c) => c.kind == ConversationKind.primary)
+                  .map((c) => c.id)
+                  .firstOrNull ??
               ''
           : manifest.activeConversationId;
       await _writeManifest(SessionManifest(
@@ -946,7 +944,11 @@ class JsonlSessionStore
     }
     // A session with no typed prompt keeps a description from its first
     // assistant answer; legacy replay-only sessions fall back to the title.
-    return (count, title ?? assistantFallback, description ?? assistantFallback);
+    return (
+      count,
+      title ?? assistantFallback,
+      description ?? assistantFallback
+    );
   }
 
   /// User-readable one-liner for the picker: first line only, whitespace

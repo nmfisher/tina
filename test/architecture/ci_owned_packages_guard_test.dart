@@ -32,9 +32,7 @@ void main() {
     );
     final root = path.dirname(path.dirname(path.dirname(uri!.toFilePath())));
 
-    final policyFile = File(
-      path.join(root, 'tool/architecture/policy.json'),
-    );
+    final policyFile = File(path.join(root, 'tool/architecture/policy.json'));
     final policy =
         jsonDecode(policyFile.readAsStringSync()) as Map<String, dynamic>;
     final owned = (policy['ownedPackages'] as List).cast<String>();
@@ -44,7 +42,8 @@ void main() {
     expect(
       owned,
       isNotEmpty,
-      reason: 'tool/architecture/policy.json has no ownedPackages entries; '
+      reason:
+          'tool/architecture/policy.json has no ownedPackages entries; '
           'the guard has nothing to check and would pass for the wrong reason.',
     );
 
@@ -80,7 +79,8 @@ void main() {
     expect(
       missing,
       isEmpty,
-      reason: 'Owned packages with no CI job: $missing\n'
+      reason:
+          'Owned packages with no CI job: $missing\n'
           'Their tests would never run on CI, and nothing else would notice. '
           'Add a job for each in .github/workflows/ci.yml — copy the shape of '
           'attractor or fuzzy_ranker for a terminal-free package, engine or '

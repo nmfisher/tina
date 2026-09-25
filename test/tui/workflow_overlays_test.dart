@@ -39,10 +39,7 @@ void main() {
     // change it. Simplest: the role line is line 1; just save as-is, then
     // separately verify a typed change applies. Here we type into the prompt
     // tail (cursor starts at end) and save.
-    canned.events = [
-      CharInput(' X'),
-      ControlKey(ControlCode.ctrlS),
-    ];
+    canned.events = [CharInput(' X'), ControlKey(ControlCode.ctrlS)];
     final applied = await runNodeAttrEditor(
       screen: screen,
       editor: LineEditor(screen: screen),
@@ -54,46 +51,56 @@ void main() {
     expect(node.prompt, contains('X'));
   });
 
-  test('node-attr editor: ctrl-s with no edits round-trips context/writes',
-      () async {
-    final screen = fakeScreen(columns: 80, lines: 24);
-    final node = PipelineNode(id: 'plan', attrs: {
-      'label': 'Plan',
-      'context': 'intake',
-      'writes': 'plan',
-      'prompt': 'Write the plan.',
-    });
-    canned.events = [ControlKey(ControlCode.ctrlS)];
-    final applied = await runNodeAttrEditor(
-      screen: screen,
-      editor: LineEditor(screen: screen),
-      node: node,
-      readEvent: canned.readEvent,
-    ).timeout(overlayTimeout);
-    expect(applied, isTrue);
-    // The handoff contract survived the serialize -> apply round-trip.
-    expect(node.contextKeys, ['intake']);
-    expect(node.writesKeys, contains('plan'));
-    expect(node.prompt, 'Write the plan.');
-    expect(node.label, 'Plan');
-  });
+  test(
+    'node-attr editor: ctrl-s with no edits round-trips context/writes',
+    () async {
+      final screen = fakeScreen(columns: 80, lines: 24);
+      final node = PipelineNode(
+        id: 'plan',
+        attrs: {
+          'label': 'Plan',
+          'context': 'intake',
+          'writes': 'plan',
+          'prompt': 'Write the plan.',
+        },
+      );
+      canned.events = [ControlKey(ControlCode.ctrlS)];
+      final applied = await runNodeAttrEditor(
+        screen: screen,
+        editor: LineEditor(screen: screen),
+        node: node,
+        readEvent: canned.readEvent,
+      ).timeout(overlayTimeout);
+      expect(applied, isTrue);
+      // The handoff contract survived the serialize -> apply round-trip.
+      expect(node.contextKeys, ['intake']);
+      expect(node.writesKeys, contains('plan'));
+      expect(node.prompt, 'Write the plan.');
+      expect(node.label, 'Plan');
+    },
+  );
 
-  test('node-attr editor: an empty prompt never writes an empty attr key',
-      () async {
-    final screen = fakeScreen(columns: 80, lines: 24);
-    final node = PipelineNode(id: 'plan', attrs: {'label': 'Plan'});
-    canned.events = [ControlKey(ControlCode.ctrlS)];
-    final applied = await runNodeAttrEditor(
-      screen: screen,
-      editor: LineEditor(screen: screen),
-      node: node,
-      readEvent: canned.readEvent,
-    ).timeout(overlayTimeout);
-    expect(applied, isTrue);
-    expect(node.attrs.containsKey('prompt'), isFalse,
-        reason: 'an untouched empty prompt must not add prompt="" noise');
-    expect(node.attrs.containsKey('goal_gate'), isFalse);
-  });
+  test(
+    'node-attr editor: an empty prompt never writes an empty attr key',
+    () async {
+      final screen = fakeScreen(columns: 80, lines: 24);
+      final node = PipelineNode(id: 'plan', attrs: {'label': 'Plan'});
+      canned.events = [ControlKey(ControlCode.ctrlS)];
+      final applied = await runNodeAttrEditor(
+        screen: screen,
+        editor: LineEditor(screen: screen),
+        node: node,
+        readEvent: canned.readEvent,
+      ).timeout(overlayTimeout);
+      expect(applied, isTrue);
+      expect(
+        node.attrs.containsKey('prompt'),
+        isFalse,
+        reason: 'an untouched empty prompt must not add prompt="" noise',
+      );
+      expect(node.attrs.containsKey('goal_gate'), isFalse);
+    },
+  );
 
   test('graph viewer: open then Esc does not crash', () async {
     final screen = fakeScreen(columns: 80, lines: 24);
@@ -114,9 +121,11 @@ void main() {
     ).timeout(overlayTimeout);
   });
 
-  test('graph editor: open an existing graph then Esc (no changes) closes', () async {
-    final screen = fakeScreen(columns: 80, lines: 24);
-    final graph = parseDot('''
+  test(
+    'graph editor: open an existing graph then Esc (no changes) closes',
+    () async {
+      final screen = fakeScreen(columns: 80, lines: 24);
+      final graph = parseDot('''
       digraph E {
         start [shape=Mdiamond]
         done [shape=Msquare]
@@ -124,44 +133,54 @@ void main() {
         start -> a -> done
       }
     ''');
-    // dirty is false for a non-new edit, so Esc closes without a confirm prompt.
-    canned.events = [EscapeKey()];
-    final saved = await runWorkflowEditor(
-      screen: screen,
-      editor: LineEditor(screen: screen),
-      graph: graph,
-      name: 'e',
-      pipeline: defaultPipeline,
-      workflowsDir: Directory.systemTemp, // not written (no save)
-      isNew: false,
-      readEvent: canned.readEvent,
-    ).timeout(overlayTimeout);
-    expect(saved, isFalse);
-  });
+      // dirty is false for a non-new edit, so Esc closes without a confirm prompt.
+      canned.events = [EscapeKey()];
+      final saved = await runWorkflowEditor(
+        screen: screen,
+        editor: LineEditor(screen: screen),
+        graph: graph,
+        name: 'e',
+        pipeline: defaultPipeline,
+        workflowsDir: Directory.systemTemp, // not written (no save)
+        isNew: false,
+        readEvent: canned.readEvent,
+      ).timeout(overlayTimeout);
+      expect(saved, isFalse);
+    },
+  );
 
-  test('double-Esc exits a dirty workflow without reopening discard confirmation', () async {
-    final screen = fakeScreen();
-    final editor = LineEditor(screen: screen);
-    addTearDown(editor.close);
-    final pending = runWorkflowEditor(
-      screen: screen, editor: editor,
-      graph: parseDot('digraph E { start [shape=Mdiamond]; done [shape=Msquare]; start -> done }'),
-      name: null, pipeline: defaultPipeline,
-      workflowsDir: Directory.systemTemp, isNew: true,
-    );
-    await pumpEventQueue();
-    editor.inject(EscapeKey());
-    await pumpEventQueue(); // the ordinary Esc opens discard confirmation
-    expect(editor.isReadingKey, isTrue);
-    editor.inject(EscapeKey());
-    expect(await pending.timeout(overlayTimeout), isFalse);
-    expect(editor.isReadingKey, isFalse);
-  });
+  test(
+    'double-Esc exits a dirty workflow without reopening discard confirmation',
+    () async {
+      final screen = fakeScreen();
+      final editor = LineEditor(screen: screen);
+      addTearDown(editor.close);
+      final pending = runWorkflowEditor(
+        screen: screen,
+        editor: editor,
+        graph: parseDot(
+          'digraph E { start [shape=Mdiamond]; done [shape=Msquare]; start -> done }',
+        ),
+        name: null,
+        pipeline: defaultPipeline,
+        workflowsDir: Directory.systemTemp,
+        isNew: true,
+      );
+      await pumpEventQueue();
+      editor.inject(EscapeKey());
+      await pumpEventQueue(); // the ordinary Esc opens discard confirmation
+      expect(editor.isReadingKey, isTrue);
+      editor.inject(EscapeKey());
+      expect(await pending.timeout(overlayTimeout), isFalse);
+      expect(editor.isReadingKey, isFalse);
+    },
+  );
 
-  test('graph editor: Ctrl-C with unsaved changes asks before discarding',
-      () async {
-    final screen = fakeScreen(columns: 80, lines: 24);
-    final graph = parseDot('''
+  test(
+    'graph editor: Ctrl-C with unsaved changes asks before discarding',
+    () async {
+      final screen = fakeScreen(columns: 80, lines: 24);
+      final graph = parseDot('''
       digraph E {
         start [shape=Mdiamond]
         done [shape=Msquare]
@@ -169,36 +188,37 @@ void main() {
         start -> a -> done
       }
     ''');
-    // A wrapper that counts reads: if ctrl-C skipped the discard confirm (the
-    // old behavior) the editor would return after ONE event; going through the
-    // confirm modal consumes the follow-ups.
-    var reads = 0;
-    Future<InputEvent> read() {
-      reads++;
-      return canned.readEvent();
-    }
+      // A wrapper that counts reads: if ctrl-C skipped the discard confirm (the
+      // old behavior) the editor would return after ONE event; going through the
+      // confirm modal consumes the follow-ups.
+      var reads = 0;
+      Future<InputEvent> read() {
+        reads++;
+        return canned.readEvent();
+      }
 
-    // ctrl-C -> confirm opens; Esc answers No (keep editing); ctrl-C ->
-    // confirm opens again; Enter picks "Yes" -> discard + close.
-    canned.events = [
-      ControlKey(ControlCode.ctrlC),
-      EscapeKey(),
-      ControlKey(ControlCode.ctrlC),
-      ControlKey(ControlCode.enter),
-    ];
-    final saved = await runWorkflowEditor(
-      screen: screen,
-      editor: LineEditor(screen: screen),
-      graph: graph,
-      name: 'e',
-      pipeline: defaultPipeline,
-      workflowsDir: Directory.systemTemp, // not written (no save)
-      isNew: true, // dirty from the start
-      readEvent: read,
-    ).timeout(overlayTimeout);
-    expect(saved, isFalse);
-    // All four events were consumed: both ctrl-Cs opened the confirm (they did
-    // not close the editor outright), and the modal read the answers.
-    expect(reads, 4);
-  });
+      // ctrl-C -> confirm opens; Esc answers No (keep editing); ctrl-C ->
+      // confirm opens again; Enter picks "Yes" -> discard + close.
+      canned.events = [
+        ControlKey(ControlCode.ctrlC),
+        EscapeKey(),
+        ControlKey(ControlCode.ctrlC),
+        ControlKey(ControlCode.enter),
+      ];
+      final saved = await runWorkflowEditor(
+        screen: screen,
+        editor: LineEditor(screen: screen),
+        graph: graph,
+        name: 'e',
+        pipeline: defaultPipeline,
+        workflowsDir: Directory.systemTemp, // not written (no save)
+        isNew: true, // dirty from the start
+        readEvent: read,
+      ).timeout(overlayTimeout);
+      expect(saved, isFalse);
+      // All four events were consumed: both ctrl-Cs opened the confirm (they did
+      // not close the editor outright), and the modal read the answers.
+      expect(reads, 4);
+    },
+  );
 }

@@ -28,8 +28,7 @@ void main() {
 
   const ctrlX = [0x18];
 
-  test('ctrl+x fires the hook and is consumed when it returns true',
-      () async {
+  test('ctrl+x fires the hook and is consumed when it returns true', () async {
     var fired = 0;
     editor.onClosePanel = () {
       fired++;

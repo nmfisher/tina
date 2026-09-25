@@ -45,7 +45,8 @@ Future<bool> runWorkflowEditor({
 
 const _help1 = 'workflow editor — keys:';
 const _help2 = '  ↑↓←→ / Tab   move selection (or pan at the edge)';
-const _help3 = '  e / Enter    edit the selected node (label, prompt, context, writes, …)';
+const _help3 =
+    '  e / Enter    edit the selected node (label, prompt, context, writes, …)';
 const _help4 = '  n            new node';
 const _help5 = '  c            connect selected → another node';
 const _help6 = '  d            delete the selected node';
@@ -90,15 +91,16 @@ class _WorkflowEditor {
     this.originDir,
     required this.isNew,
     this.readEvent,
-  })  : currentName = name,
-        originalName = name,
-        dirty = isNew;
+  }) : currentName = name,
+       originalName = name,
+       dirty = isNew;
 
   Future<bool> run() async {
     var cancelled = false;
     editor.inputCancelled.then((_) => cancelled = true);
     final read = readEvent ?? editor.captureKeyReader();
-    selectedId = graph.findStartNode()?.id ??
+    selectedId =
+        graph.findStartNode()?.id ??
         (graph.nodes.keys.isNotEmpty ? graph.nodes.keys.first : null);
     layout = computeLayout(graph);
     final lr = screen.layout;
@@ -192,7 +194,10 @@ class _WorkflowEditor {
       if (c.col < panCol) panCol = c.col;
       if (c.col >= panCol + w) panCol = c.col - w + 1;
     }
-    panRow = panRow.clamp(0, (last.lines.length - contentRows).clamp(0, 1 << 30));
+    panRow = panRow.clamp(
+      0,
+      (last.lines.length - contentRows).clamp(0, 1 << 30),
+    );
     panCol = panCol.clamp(0, (_longest(last.lines) - w).clamp(0, 1 << 30));
   }
 
@@ -201,7 +206,9 @@ class _WorkflowEditor {
         ? 'new workflow'
         : (currentName ?? 'workflow');
     final titleSeg = ' $label${dirty ? " *" : ""} ';
-    final tFit = titleSeg.length > w - 2 ? titleSeg.substring(0, w - 2) : titleSeg;
+    final tFit = titleSeg.length > w - 2
+        ? titleSeg.substring(0, w - 2)
+        : titleSeg;
     final lines = <String>[
       '┌$tFit${'─' * (w - 2 - tFit.length)}┐',
       for (var r = 0; r < contentRows; r++)
@@ -214,7 +221,10 @@ class _WorkflowEditor {
   void moveSelection(ArrowDirection dir) {
     if (dir == ArrowDirection.pageUp || dir == ArrowDirection.pageDown) {
       panRow += dir == ArrowDirection.pageUp ? -contentRows : contentRows;
-      panRow = panRow.clamp(0, (last.lines.length - contentRows).clamp(0, 1 << 30));
+      panRow = panRow.clamp(
+        0,
+        (last.lines.length - contentRows).clamp(0, 1 << 30),
+      );
       return;
     }
     final cur = selectedId == null ? null : last.centers[selectedId];
@@ -249,13 +259,13 @@ class _WorkflowEditor {
       panCol += (dir == ArrowDirection.left)
           ? -4
           : (dir == ArrowDirection.right)
-              ? 4
-              : 0;
+          ? 4
+          : 0;
       panRow += (dir == ArrowDirection.up)
           ? -1
           : (dir == ArrowDirection.down)
-              ? 1
-              : 0;
+          ? 1
+          : 0;
       autoPan();
     }
   }
@@ -291,7 +301,10 @@ class _WorkflowEditor {
       await _inform('A node named "$safe" already exists.');
       return;
     }
-    graph.nodes[safe] = PipelineNode(id: safe, attrs: {'shape': 'box', 'label': safe});
+    graph.nodes[safe] = PipelineNode(
+      id: safe,
+      attrs: {'shape': 'box', 'label': safe},
+    );
     selectedId = safe;
     dirty = true;
     refresh();
@@ -323,8 +336,7 @@ class _WorkflowEditor {
   Future<void> _deleteNode() async {
     if (selectedId == null) return;
     final n = graph.node(selectedId!)!;
-    final hasEdges =
-        graph.edges.any((e) => e.from == n.id || e.to == n.id);
+    final hasEdges = graph.edges.any((e) => e.from == n.id || e.to == n.id);
     if (hasEdges) {
       final ok = await _confirm('Delete "$selectedId" and its edges?');
       if (!ok) return;
@@ -350,8 +362,10 @@ class _WorkflowEditor {
     final diags = validate(graph);
     final errors = diags.where((d) => d.severity == Severity.error).toList();
     if (errors.isNotEmpty) {
-      await _inform('Cannot save — ${errors.length} error(s):\n'
-          '${errors.take(5).map((d) => '  $d').join('\n')}');
+      await _inform(
+        'Cannot save — ${errors.length} error(s):\n'
+        '${errors.take(5).map((d) => '  $d').join('\n')}',
+      );
       return;
     }
     final saveDir = originDir ?? workflowsDir;
@@ -360,8 +374,9 @@ class _WorkflowEditor {
     // Saving under a name that already holds a DIFFERENT workflow (rename,
     // or a new workflow colliding) must not silently clobber it.
     if (file.existsSync() && file.path != _loadedPath) {
-      final overwrite =
-          await _confirm('"$currentName" already exists — overwrite it?');
+      final overwrite = await _confirm(
+        '"$currentName" already exists — overwrite it?',
+      );
       if (!overwrite) return;
     }
     await file.writeAsString(graphToDot(graph));
@@ -376,12 +391,17 @@ class _WorkflowEditor {
       : p.join((originDir ?? workflowsDir).path, '$originalName.dot');
 
   Future<void> _help() async => _inform(
-        [_help1, _help2, _help3, _help4, _help5, _help6, _help7, _help8].join('\n'));
+    [_help1, _help2, _help3, _help4, _help5, _help6, _help7, _help8].join('\n'),
+  );
 
   // -- Small input overlays --------------------------------------------------
 
-  Future<String?> _lineInput(String prompt) async =>
-      runTextInputOverlay(screen: screen, editor: editor, prompt: prompt, readEvent: readEvent);
+  Future<String?> _lineInput(String prompt) async => runTextInputOverlay(
+    screen: screen,
+    editor: editor,
+    prompt: prompt,
+    readEvent: readEvent,
+  );
 
   Future<bool> _confirm(String prompt) async {
     final entries = [
@@ -430,7 +450,9 @@ String _cropLine(List<String> lines, int row, int col, int w) {
   if (col >= src.length) {
     out = '';
   } else if (col < 0) {
-    out = ' ' * (-col).clamp(0, w) + src.substring(0, src.length.clamp(0, w + col));
+    out =
+        ' ' * (-col).clamp(0, w) +
+        src.substring(0, src.length.clamp(0, w + col));
   } else {
     out = src.substring(col);
   }
@@ -438,8 +460,11 @@ String _cropLine(List<String> lines, int row, int col, int w) {
 }
 
 String _footer(int w, String? selectedId, Graph graph) {
-  final left = ' e edit · n new · c connect · d delete · r relayout · s save · ? help · esc close ';
-  final sel = selectedId == null ? '' : '  [${graph.node(selectedId)?.label ?? selectedId}]';
+  final left =
+      ' e edit · n new · c connect · d delete · r relayout · s save · ? help · esc close ';
+  final sel = selectedId == null
+      ? ''
+      : '  [${graph.node(selectedId)?.label ?? selectedId}]';
   final s = '$left$sel';
   final inner = w - 2;
   final fit = s.length > inner ? s.substring(0, inner) : s;

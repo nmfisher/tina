@@ -15,8 +15,10 @@ void main() {
         client: captured.client,
       );
       final tools = const [
-        ToolSchema(name: 'a', description: 'a', inputSchema: {'type': 'object'}),
-        ToolSchema(name: 'b', description: 'b', inputSchema: {'type': 'object'}),
+        ToolSchema(
+            name: 'a', description: 'a', inputSchema: {'type': 'object'}),
+        ToolSchema(
+            name: 'b', description: 'b', inputSchema: {'type': 'object'}),
       ];
       final history = const [
         Message(role: Role.user, content: [TextBlock('first user turn')]),
@@ -42,8 +44,7 @@ void main() {
       final encodedTools = body['tools'] as List;
       expect(encodedTools, hasLength(2));
       expect((encodedTools[0] as Map).containsKey('cache_control'), isFalse);
-      expect(
-          (encodedTools[1] as Map)['cache_control'], {'type': 'ephemeral'});
+      expect((encodedTools[1] as Map)['cache_control'], {'type': 'ephemeral'});
 
       // Messages: cache_control on the last content block of history[len-2],
       // which is the assistant reply at index 1. The last message (the new
@@ -159,13 +160,14 @@ void main() {
         apiKey: 'sk-test',
         model: 'claude-test',
         client: ScriptedSseClient(
-          jsonEncode({'error': {'message': 'bad request'}}),
+          jsonEncode({
+            'error': {'message': 'bad request'}
+          }),
           status: 400,
         ),
       );
       final events = await provider
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+          .send(system: '', messages: const [], tools: const []).toList();
       expect(events.whereType<StreamError>().single.error,
           'Anthropic 400: bad request');
     });
@@ -181,8 +183,7 @@ void main() {
         client: ScriptedSseClient(sse),
       );
       final events = await provider
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+          .send(system: '', messages: const [], tools: const []).toList();
       expect(events.whereType<StreamError>().single.error,
           'Anthropic: overloaded_error: Overloaded');
     });
@@ -199,8 +200,7 @@ void main() {
         client: SilentSseClient(),
       );
       final events = await provider
-          .send(system: '', messages: const [], tools: const [])
-          .toList();
+          .send(system: '', messages: const [], tools: const []).toList();
       final err = events.whereType<StreamError>().single;
       expect(err.error, contains('no stream events for'));
       expect(err.error, contains('--stream-idle-timeout'));

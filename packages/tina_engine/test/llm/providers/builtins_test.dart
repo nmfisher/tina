@@ -47,10 +47,26 @@ void main() {
           isA<GeminiProvider>());
     });
 
-    test('the thirteen adapter-based providers build to OpenAiCompatibleAdapter', () {
+    test(
+        'the thirteen adapter-based providers build to OpenAiCompatibleAdapter',
+        () {
       final r = ProviderRegistry(env: {});
       registerBuiltins(r);
-      const adapterIds = ['cerebras', 'openai', 'openrouter', 'deepseek', 'glm', 'qwen', 'qwencloud', 'grok', 'longcat', 'mistral', 'nim', 'novita', 'hetzner'];
+      const adapterIds = [
+        'cerebras',
+        'openai',
+        'openrouter',
+        'deepseek',
+        'glm',
+        'qwen',
+        'qwencloud',
+        'grok',
+        'longcat',
+        'mistral',
+        'nim',
+        'novita',
+        'hetzner'
+      ];
       for (final id in adapterIds) {
         final model = r.modelsFor(id).first.id;
         final built = r.build('$id/$model', apiKeyOverride: 'k');

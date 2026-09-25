@@ -28,8 +28,10 @@ void main() {
       expect(g.nodes['start']!.shape, 'Mdiamond');
     });
 
-    test('exposes a node model from llm_model/llm_provider and defaults empty', () {
-      final g = parseDot('''
+    test(
+      'exposes a node model from llm_model/llm_provider and defaults empty',
+      () {
+        final g = parseDot('''
         digraph M {
           start [shape=Mdiamond]
           plan [shape=box, llm_model="deepseek-chat", llm_provider="deepseek"]
@@ -37,11 +39,12 @@ void main() {
           start -> plan -> exit
         }
       ''');
-      expect(g.node('plan')!.llmModel, 'deepseek-chat');
-      expect(g.node('plan')!.llmProvider, 'deepseek');
-      expect(g.node('plan')!.modelReference, 'deepseek/deepseek-chat');
-      expect(g.node('start')!.modelReference, '');
-    });
+        expect(g.node('plan')!.llmModel, 'deepseek-chat');
+        expect(g.node('plan')!.llmProvider, 'deepseek');
+        expect(g.node('plan')!.modelReference, 'deepseek/deepseek-chat');
+        expect(g.node('start')!.modelReference, '');
+      },
+    );
 
     test('parses typed attribute values', () {
       final g = parseDot('''
@@ -59,9 +62,10 @@ void main() {
       expect(n.attrs['ratio'], 0.5);
     });
 
-    test('parses context and writes key lists (comma, space, quoted, absent)',
-        () {
-      final g = parseDot('''
+    test(
+      'parses context and writes key lists (comma, space, quoted, absent)',
+      () {
+        final g = parseDot('''
         digraph C {
           start [shape=Mdiamond]
           a [shape=box]
@@ -74,17 +78,21 @@ void main() {
           start -> a -> b -> c -> d -> e -> f -> exit
         }
       ''');
-      expect(g.nodes['a']!.contextKeys, isEmpty);
-      expect(g.nodes['b']!.contextKeys, ['a']);
-      expect(g.nodes['c']!.contextKeys, ['a', 'b']);
-      // Whitespace- and comma-separated, trimmed, empties dropped.
-      expect(g.nodes['d']!.contextKeys, ['a', 'b', 'c']);
-      expect(g.nodes['e']!.writesKeys, ['shared']);
-      expect(g.nodes['f']!.writesKeys, ['x', 'y']);
-      expect(g.nodes['f']!.contextKeys, ['a']);
-      // A non-string attr value yields an empty list.
-      expect(PipelineNode(id: 'x', attrs: {'context': 5}).contextKeys, isEmpty);
-    });
+        expect(g.nodes['a']!.contextKeys, isEmpty);
+        expect(g.nodes['b']!.contextKeys, ['a']);
+        expect(g.nodes['c']!.contextKeys, ['a', 'b']);
+        // Whitespace- and comma-separated, trimmed, empties dropped.
+        expect(g.nodes['d']!.contextKeys, ['a', 'b', 'c']);
+        expect(g.nodes['e']!.writesKeys, ['shared']);
+        expect(g.nodes['f']!.writesKeys, ['x', 'y']);
+        expect(g.nodes['f']!.contextKeys, ['a']);
+        // A non-string attr value yields an empty list.
+        expect(
+          PipelineNode(id: 'x', attrs: {'context': 5}).contextKeys,
+          isEmpty,
+        );
+      },
+    );
 
     test('parses edges with condition + label + weight', () {
       final g = parseDot('''
@@ -141,11 +149,17 @@ void main() {
     });
 
     test('rejects undirected edges', () {
-      expect(() => parseDot('digraph X { a -- b }'), throwsA(isA<DotParseError>()));
+      expect(
+        () => parseDot('digraph X { a -- b }'),
+        throwsA(isA<DotParseError>()),
+      );
     });
 
     test('rejects missing digraph keyword', () {
-      expect(() => parseDot('graph X { a -> b }'), throwsA(isA<DotParseError>()));
+      expect(
+        () => parseDot('graph X { a -> b }'),
+        throwsA(isA<DotParseError>()),
+      );
     });
 
     test('concatenates adjacent quoted strings (DOT feature)', () {

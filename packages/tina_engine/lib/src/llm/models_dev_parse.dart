@@ -19,10 +19,9 @@ ModelInfo? modelsDevModelInfo(String id, Map<String, dynamic> json) {
   final context = limit is Map ? (limit['context'] as num?)?.toInt() : null;
   final output = limit is Map ? (limit['output'] as num?)?.toInt() : null;
   final mods = json['modalities'];
-  final inputs = (mods is Map
-          ? (mods['input'] as List?)?.cast<String>()
-          : null) ??
-      const <String>[];
+  final inputs =
+      (mods is Map ? (mods['input'] as List?)?.cast<String>() : null) ??
+          const <String>[];
   return ModelInfo(
     id: id,
     name: (json['name'] as String?) ?? id,
