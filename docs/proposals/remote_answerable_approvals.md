@@ -14,20 +14,17 @@ do with approvals). This document does not re-propose either of them.
 
 ## Summary
 
-I reviewed all 13 places tina asks a human to decide something, and asked
-whether each could be answered by plain text from a chat window, an HTTP
-client, or a queue, with no terminal attached. The engine is clean: it
-puts every question through one function type (`PermissionAsker`) and
-already runs unattended. The wiring is not: every asker a human answers
-is built inside `TuiCoordinator` against a local screen and keyboard,
-and no open question survives a restart. Two defects ship today — three
-unattended paths answer questions *for* the human, permissively, and
-automatic denials are audited as user denials. A daemon is not needed to
-fix this, but it is the right end goal. Six steps, in order: record who
-denied; store open questions on disk; add `/approve`, `/deny` and
-`/answer` commands; add answerability to posture; make unattended
-questions fail closed; then build `tina serve`, which is mostly glue by
-then.
+I reviewed all 13 places tina asks a human to decide, and asked whether
+plain text — a chat window, an HTTP client, a queue — could answer it
+with no terminal attached. The engine is clean: every question goes
+through one function type (`PermissionAsker`), and the core already runs
+unattended. The wiring is not: every asker a human answers is built
+inside `TuiCoordinator`, and no open question survives a restart. Two
+defects ship today: three unattended paths answer questions *for* the
+human, and automatic denials are audited as user denials. A daemon is
+not needed to fix this, but it is the right goal. Six steps, in order:
+record who denied; store open questions; add `/approve`-style commands;
+add answerability to posture; fail closed when unattended; `tina serve`.
 
 ## Terms used below
 
