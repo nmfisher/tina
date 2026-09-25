@@ -1,22 +1,23 @@
 # Handoff: split `tui_coordinator.dart`
 
-Status: ready for handoff. This document describes the next coordinator work.
-The work is a mechanical split of existing behavior. It is not a redesign of the
-TUI or the engine.
+Status: ready for handoff. This is revision 2. It replaces the earlier
+two-part plan with a ladder of eight small commits, shaped by the verified
+call graph (see "Why eight commits"). The work is a mechanical split of
+existing behavior — not a redesign of the TUI or the engine.
 
 ## Goal
 
 Reduce the size and responsibility of `lib/tui_coordinator.dart` without
 changing TUI behavior, persistence, focus rules, or panel lifecycle.
 
-The plan has two parts, landed as two separate commits:
+Rules for every commit:
 
-1. Move the small overlay and image handlers into one focused module.
-2. Move panel creation, spawned conversations, and workflow run panels into a
-   separate coordinator.
-
-Keep all existing public interfaces and user commands stable. Move code before
-changing code. Never combine the two parts in one commit.
+- One commit per step below. Never combine steps.
+- Move code before changing code. These commits only move; dedup ideas
+  (see "Explicitly out of scope") are not part of this work.
+- Keep all existing public interfaces and user commands stable.
+- After every commit: `dart analyze` clean and the focused suites (bottom
+  of this file) green. Run the full `dart test` before pushing.
 
 ## Current state
 
@@ -24,6 +25,10 @@ These extractions are already committed. Do not repeat them:
 
 - Rate-limit spacing policy is in
   `packages/tina_engine/lib/src/llm/provider_rate_limit.dart`.
+- History replay is in `packages/tina_engine/lib/src/host/history_replay.dart`.
+- Model curation (`disabledModelRefsFor`) and the spawn MRU are in
+  `lib/config/provider_selection.dart` and `lib/config/spawn_mru.dart`.
+- Generic tree ordering (`orderByTree`) is in `lib/tui/tree_order.dart`.
 - Settings application is in `lib/composition/settings_apply.dart`.
 - Input-state wiring is in `lib/tui/coordinator_input_handlers.dart`.
 - Transcript folding is in `lib/tui/transcript_fold.dart`.
@@ -34,29 +39,44 @@ These extractions are already committed. Do not repeat them:
   `lib/tui/conversation_panel_coordinator.dart`.
 - Run panels are built through `lib/tui/panel_host.dart` and
   `lib/tui/run_panel_host.dart`.
+- Provider-backed conversation creation (`spawn`, `branch`,
+  `ConversationOperationFailure`) is owned by `ConversationOperations` in
+  `packages/tina_app/lib/src/session/conversation_operations.dart`,
+  exported from `package:tina_app/tina_app.dart`.
 
 The rejected rate-limit ideas are also out of scope: retry-budget compounding,
 the `typesafe` HTTP path that bypasses the limiter, and held-permit release
 behavior.
 
-The code still inline in `lib/tui_coordinator.dart` (all inside
-`TuiCoordinator.create`):
+`HostMessageStyle` is defined in
+`packages/tina_engine/lib/src/host/host_interface.dart` and re-exported
+through `package:tina_engine/tina_engine.dart`.
 
-| Inline code | Verified location | Behavior |
-| --- | --- | --- |
-| `controller.openSessionPicker` | ~line 1178 | Builds live entries from `sessionManager.listSessions()` and disk entries from `store.listSessions()` (failure becomes an empty disk list), runs `runSessionPickerOverlay`, then switches (`controller.switchSession`) or resumes (`controller.resumeIntoActive` + `refreshSessionMenu`). |
-| `controller.openPrompts` | ~line 1302 | Runs `runPromptsOverlay` with `loadUserConfig`; catches `ConfigWriteException` as a warning; a write reports "restart tina to apply"; no write reports `(prompts unchanged)`. |
-| `renderImageToPanel` | ~line 1338 | Decodes the image, fits it to the focused panel's interior, and paints through `screen.renderImageAbsolute` onto `contentCoordinator.surfaceOf(panel.conversationId)`. Returns an error string or null. |
-| `controller.openImage` | ~line 1404 | Calls the shared renderer and reports errors through the active conversation host with `HostMessageStyle.error`. |
-| `pipeline.imageRenderer.coordinate(...)` | ~line 1415 | Registers the same renderer function for the `render_image` agent tool. Teardown resets it with `coordinate(null)`. |
-| `_makeSpawnedHost` | ~line 1596 | Builds a detached spawned `TuiConversationHost` (detached `ScrollingTextRegion`, disabled spinner, `active: false`, `primary: false`, role label, `..policy = policy`). |
-| `_buildSpawnPanel` | ~line 1631 | Records `tree.parentOf` and `tree.baseLabel`, splits the layout on the first panel (`initialHost.stayAttachedWhenInactive = true`, then `resizeCoordinator.handleResize`), binds through `contentCoordinator.bindSpawned`, then `panelManager.layout()` + `relayContent()`. |
-| `_closeRunPanel` / `_openRunPanel` | ~lines 1696–1731 | Opens a read-only run panel synchronously inside the supervisor's `onLaunch` hook (sink installed before the first event), wires stop/close, sets the busy cue, and `run.onFinished = opened.setFinished`. Close clears `onFinished` before teardown. Wired to `handleWorkflowLaunch`. |
-| `panelizeRestoredConversation` | ~line 1884 | Wraps a restored conversation in `_buildSpawnPanel` using `restoredLabelOf` and `parentId ?? initialConversationId`. Callers panelize first, then replay history. |
-| `pickSpawnedTarget` | ~line 1910 | The shared `/spawn` + `/branch` picker sequence: provider guard, `runSpawnOverlay` (with spawn MRU), then `runToolProfileOverlay`. Returns `(ref, profile)` or null. `pickTarget = spawnTargetPicker ?? pickSpawnedTarget`. |
-| `createSideConversation` | ~line 1974 | Builds a `ConversationTarget` from the active session, captures `sourceHost` before awaiting, calls `ConversationOperations.spawn`/`branch`, reports errors through `sourceHost`, keeps a saved conversation if presentation fails, replays branch history after attach, and focuses the new panel. Bound to `controller.openSpawn` / `controller.openBranch`. |
+## Why eight commits
 
-Line numbers will drift as the file is edited. Use the symbols, not the lines.
+The remaining inline code was checked for call edges. Result: the graph is
+nearly flat. Only `createSideConversation` calls other inline pieces
+(`pickTarget`, `operations`, `_buildSpawnPanel`). Everything else is
+independent and can move alone:
+
+| Inline code | Verified location | Calls (inline) | Called by (inline) |
+| --- | --- | --- | --- |
+| `controller.openSessionPicker` | ~1178 | — | — |
+| `controller.openPrompts` | ~1302 | — | — |
+| `renderImageToPanel` + `openImage` + `imageRenderer.coordinate` | ~1338–1415 | — | — |
+| `_makeSpawnedHost` | ~1596 | — | `ConversationOperations` `hostFactory`, `RunPanelHost.makeSinkHost`, the sub-agent factory (~1776) |
+| `_buildSpawnPanel` | ~1631 | — | sub-agent factory (~1777), `panelizeRestoredConversation`, `createSideConversation` (~2017) |
+| `_closeRunPanel` / `_openRunPanel` | ~1696–1731 | — | `handleWorkflowLaunch` (~1734), run panel close key |
+| `panelizeRestoredConversation` | ~1884 | `_buildSpawnPanel` | the restore loop (~1900) |
+| `pickSpawnedTarget` | ~1910 | — | `pickTarget` resolution (~1962) |
+| `createSideConversation` | ~1974 | `pickTarget`, `operations`, `_buildSpawnPanel` | `controller.openSpawn` / `openBranch` |
+
+Line numbers drift as the file is edited. Use the symbols, not the lines.
+
+`panelizeRestoredConversation` is a 12-line wrapper over `_buildSpawnPanel`
+plus restore-loop glue; it stays in the coordinator. `PanelHost` and
+`RunPanelHost` construction (~1681–1694) is composition glue, not logic;
+it stays too. What moves is only what the table lists.
 
 ## Non-negotiable behavior
 
@@ -64,13 +84,21 @@ Line numbers will drift as the file is edited. Use the symbols, not the lines.
   A disk session resumes through the controller, never by rebuilding state.
 - A failed disk listing is silent and yields an empty disk list.
 - Prompts are restart-only. A successful write must say Tina must restart.
-- Image paths resolve against `Directory.current.path`; absolute paths are kept.
+- Image paths resolve against `Directory.current.path`; absolute paths are
+  kept. A one-shot paint — streaming chat or `/clear` repaints over it.
+- `<3x3` interiors render nothing; an image taller than the interior anchors
+  at the interior top, not underflow.
+- `/image` and the `render_image` agent tool receive the same renderer
+  function; teardown resets the pipeline coordinate with `coordinate(null)`.
 - The first spawned panel sets `initialHost.stayAttachedWhenInactive` and then
-  runs the canonical resize sequence before the first frame binds.
+  runs the canonical resize sequence (`handleResize(split: true,
+  drawInfoFrame: false)`) before the first frame binds. The "first panel"
+  check reads `panelManager.hasSpawnedFrames` BEFORE adding.
 - The spawn tree stores `parentOf` and `baseLabel` for every spawned
   conversation. Keep the DFS ordering and label restoration.
-- A run panel must not steal input focus, and the run sink must be installed
-  before the first run event can arrive.
+- A run panel opens synchronously inside the supervisor's `onLaunch` hook —
+  the sink is installed before the first run event can arrive — and must not
+  steal input focus.
 - Closing a run panel clears `WorkflowRun.onFinished` before teardown.
 - Restored conversations are panelized before their history is replayed.
 - `/spawn` and `/branch` share the same target picker and profile picker.
@@ -82,215 +110,182 @@ Line numbers will drift as the file is edited. Use the symbols, not the lines.
   where it was created.
 - A branch replays its history only after the panel is attached.
 - The scheduler sub-agent persistence hook and `scheduler.subAgentSessionFactory`
-  are adjacent to this work but are not part of the first extraction. Do not
-  change their ordering or driver-resolution behavior.
+  are adjacent to this work but are not moved. Do not change their ordering or
+  driver-resolution behavior.
 
-## Part 1 — overlay and image handlers
+## The ladder
 
-### Goal
+Destination files (unchanged from revision 1; both already named in the plan):
 
-Move `openSessionPicker`, `openPrompts`, the shared image renderer, and
-`openImage` out of the `create()` closure without changing controller wiring.
+- `lib/tui/coordinator_overlay_handlers.dart` — steps 1–3
+- `lib/tui/panel_spawn_coordinator.dart` — steps 4–8
 
-### Proposed files
+Each step defines an explicit dependency object. Do not pass the whole
+coordinator. Start each deps type with only what that step's handlers use and
+extend it in later steps — never add something speculatively.
 
-- `lib/tui/coordinator_overlay_handlers.dart`
-- `test/tui/coordinator_overlay_handlers_test.dart`
+### Step 0 (optional, separate commit) — extract SpawnTree
 
-One file is enough: the three handlers share one boundary — prepare input, run
-an overlay, report through the current host. Split further only if the module
-becomes awkward.
+`SpawnTree` (lines ~80–129 of the coordinator) is a pure data structure:
+root id, `parentOf`, `baseLabel`, cycle-guarded `depthOf`, DFS `ordered()`.
+Its only panel taints are `relabelPanel` (touches `PanelFrame`) and
+`ordered()` reading `conversationId`.
 
-### Dependencies
+- Move `SpawnTree` + `lib/tui/tree_order.dart` into a shared module, with
+  direct unit tests (depth, cycle guard, pre-order, relabel bookkeeping).
+- Genericize `ordered()` over an id/parent accessor so it has no `PanelFrame`
+  import; keep a thin typed wrapper at the call sites if it reads better.
+- A standalone package (`fuzzy_ranker`-style) is possible but has no second
+  consumer today — a shared module captures the value; revisit packaging
+  later. This step can also be deferred past step 8 without blocking anything.
 
-Define a small explicit dependency object. Do not pass the whole coordinator.
-A starting shape:
+### Step 1 — image renderer
 
-```dart
-final class CoordinatorOverlayDeps {
-  final Screen screen;
-  final LineEditor editor;
-  final SessionManager sessionManager;
-  final SessionStore store;
-  final AppComposition app;
-  final FocusManager focusManager;
-  final PanelFrame primaryPanel;
-  final Future<BackendSurface?> Function(String conversationId) surfaceOf;
-  final void Function() refreshSessionMenu;
-}
-```
-
-Add nothing that a handler does not use. The image renderer also needs the
-`image`, `path`, and `dart:io` imports the coordinator holds today; move them
-with the implementation and remove them from `tui_coordinator.dart` only after
-analysis passes.
-
-### Wiring seam
-
-A proposed shape (names are not fixed):
+Move `renderImageToPanel` and the `openImage` wiring out of the closure.
+Split the fit math (aspect fit to the cell budget, `pxPerCell`, bottom-margin
+row, top-anchor rule) into a pure function in the new module so it gets unit
+tests without a fake screen; the moved handler keeps the decode + blit.
 
 ```dart
 typedef PanelImageRenderer = Future<String?> Function(String path);
 
-PanelImageRenderer wireCoordinatorOverlayHandlers(
-  SessionController controller,
-  CoordinatorOverlayDeps deps,
-) {
-  controller.openSessionPicker = () => openSessionPicker(deps);
-  controller.openPrompts = () => openPrompts(deps);
-  final renderImage = makePanelImageRenderer(deps);
-  controller.openImage = (path) async {
-    final error = await renderImage(path);
-    if (error != null) {
-      deps.sessionManager.activeConversation.host.showMessage(
-        '$error\n',
-        style: HostMessageStyle.error, // the real type name
-      );
-    }
-  };
-  return renderImage; // the coordinator keeps pipeline.imageRenderer.coordinate
-}
+PanelImageRenderer makePanelImageRenderer(CoordinatorOverlayDeps deps);
 ```
 
-Use the real `HostMessageStyle` enum (defined in
-`packages/tina_engine/lib/src/host/host_interface.dart`, re-exported through
-`package:tina_engine/tina_engine.dart`). Return the renderer function so
-the coordinator can hand the identical function to `controller.openImage` and
-`pipeline.imageRenderer.coordinate`, and so teardown can still reset it with
-`coordinate(null)`. Keep the pipeline coordinate in the coordinator unless the
-dependency boundary becomes clearly smaller.
+The coordinator keeps the wiring shape: it assigns
+`controller.openImage`, passes the identical function to
+`pipeline.imageRenderer.coordinate`, and resets with `coordinate(null)` at
+teardown. One renderer instance for both consumers.
 
-### Tests
+New deps (start of `CoordinatorOverlayDeps`): `screen`, `focusManager`,
+`primaryPanel`, `contentCoordinator.surfaceOf` as a function field.
 
-Direct unit tests for the new module, not only coordinator integration tests:
+Tests: missing file message; undecodable message; `<3x3` renders nothing;
+fit math outputs (width budget, height round, anchor row) as a pure table;
+normal render calls `renderImageAbsolute` with fitted size, position, and the
+panel's chat surface; taller-than-interior anchors at the top; errors reach
+the active host; `/image` and the agent tool share one function.
 
-- Live and disk entries reach the picker in the same order and shape.
-- A failed disk listing yields an empty disk list and does not throw.
-- Cancelling the picker leaves the active session unchanged.
-- A live pick calls `switchSession` with the selected id.
-- A disk pick calls `resumeIntoActive` and refreshes the menu.
-- Cancelling prompts leaves the host unchanged.
-- A prompts write shows the restart message.
-- No prompts write shows `(prompts unchanged)`.
-- A prompts write error shows a warning and no success message.
-- A missing image returns the existing missing-file message.
-- An undecodable image returns the existing decode-error message.
-- A panel smaller than 3x3 cells renders nothing.
-- A normal image calls `renderImageAbsolute` with the fitted width/height,
-  computed position, and the panel's chat surface.
-- An image taller than the interior anchors at the top.
-- Image errors reach the active conversation host.
-- `/image` and the agent tool receive the same renderer function.
+### Step 2 — session picker
 
-Use the existing fake screen, fake session store, and fake environment helpers.
-Do not boot the full interactive loop per test.
+Move `openSessionPicker`. Same deps object, extended with `sessionManager`,
+`store`, `editor`, `refreshSessionMenu`, and a `switchSession`/
+`resumeIntoActive` seam if direct controller capture reads worse than an
+explicit callback. Keep the wiring in the coordinator:
+`controller.openSessionPicker = () => openSessionPicker(deps)`.
 
-## Part 2 — panel and side-conversation coordination
+Tests: live and disk entries reach the picker in the same order and shape;
+failed disk listing yields an empty list without throwing; cancel leaves the
+active session unchanged; a live pick calls `switchSession`; a disk pick
+calls `resumeIntoActive` and refreshes the menu.
 
-### Goal
+### Step 3 — prompts
 
-Move `_makeSpawnedHost`, `_buildSpawnPanel`, `_openRunPanel`/`_closeRunPanel`,
-`panelizeRestoredConversation`, `pickSpawnedTarget`, and `createSideConversation`
-into a focused module. Keep `ConversationOperations` as the owner of
-provider-backed session creation (`spawn`, `branch`,
-`ConversationOperationFailure`), and keep `PanelManager` +
-`ConversationPanelCoordinator` + `PanelHost`/`RunPanelHost` as the lower-level
-owners.
+Move `openPrompts`. Deps additions: `app` (for `environment.env` and
+`loadUserConfig`), `pipeline`. Keep `HostMessageStyle` real — no invented
+type names; import it from `package:tina_engine/tina_engine.dart`.
 
-`ConversationOperations` lives in
-`packages/tina_app/lib/src/session/conversation_operations.dart` and is exported
-from `package:tina_app/tina_app.dart`.
+Tests: cancel leaves the host unchanged; a write shows the restart message;
+no write shows `(prompts unchanged)`; `ConfigWriteException` shows a warning
+and no success message.
 
-### Proposed files
+### Step 4 — spawned host factory
 
-- `lib/tui/panel_spawn_coordinator.dart`
-- `test/tui/panel_spawn_coordinator_test.dart`
-
-### Dependencies
-
-Explicit and small; callbacks over coordinator capture:
+Move `_makeSpawnedHost` as a top-level function over deps; update the three
+call sites (ConversationOperations `hostFactory`, `RunPanelHost`
+`makeSinkHost`, the sub-agent factory).
 
 ```dart
-final class PanelSpawnDeps {
-  final Screen screen;
-  final LineEditor editor;
-  final SpawnTree tree;
-  final PanelManager panelManager;
-  final ConversationPanelCoordinator contentCoordinator;
-  final ResizeCoordinator resizeCoordinator;
-  final FocusManager focusManager;
-  final TuiConversationHost initialHost;
-  final AppComposition app;
-  final UserConfig Function() loadConfig; // closes over app.environment.env
-  final Future<void> Function() reloadConfigProviders;
-  final void Function(ConversationCreated created)? sideConversationPresenter;
-  final Future<({String ref, ToolProfile profile})?> Function()?
-  spawnTargetPicker;
-}
+TuiConversationHost makeSpawnedHost(PanelSpawnDeps deps, String conversationId,
+    {String role = 'main'});
 ```
 
-The module needs the same collaborators the closure captures today:
-`policy`, `config.sandboxOffReason`, `app.regexSuggester`, `app.pluginScope`,
-`Renderers`, the scheduler registry/pickers for the overlay sequence, the
-`SessionStore`, `supervisor` for run panels, and `replayHistory`. Group them
-under `deps`; do not widen the type until a handler needs it.
+New deps (start of `PanelSpawnDeps`): `screen`, `editor`, `app`
+(`pluginScope`, `regexSuggester`), `config.sandboxOffReason`, `policy`,
+`_menuBarEnabled` as a bool field.
 
-### API sketch
+Tests: returns a detached, inactive, non-primary host with the given role
+label, disabled spinner, and the shared policy.
 
-```dart
-final class PanelSpawnCoordinator {
-  PanelSpawnCoordinator(this.deps);
+### Step 5 — spawn panel builder
 
-  TuiConversationHost makeSpawnedHost(String conversationId, {String role});
-  PanelFrame buildSpawnPanel({
-    required String conversationId,
-    required String parentConversationId,
-    required String label,
-    required TuiConversationHost sinkHost,
-  });
-  void openRunPanel(WorkflowRun run);   // assigned to handleWorkflowLaunch
-  void panelizeRestoredConversation(Conversation conv, {required String? parentId});
-  Future<void> createSideConversation({required bool branch});
-}
-```
+Move `_buildSpawnPanel` the same way. Deps additions: `tree`, `panelManager`,
+`contentCoordinator`, `resizeCoordinator`, `initialHost`.
 
-The coordinator keeps the wiring: `controller.openSpawn`/`openBranch` delegate
-to `createSideConversation`, `handleWorkflowLaunch` to `openRunPanel`, and
-`ConversationOperations(... hostFactory: coordinator.makeSpawnedHost ...)` stays
-constructed where it is today.
+Tests: first panel splits the layout and sets `stayAttachedWhenInactive`;
+a second panel does not split again; `parentOf`/`baseLabel` are recorded;
+the frame is bound, laid out, and content relayed.
 
-### Tests
+### Step 6 — run panels
 
-- `makeSpawnedHost` returns a detached, inactive host with the given role label
-  and the shared policy.
-- First `buildSpawnPanel` splits the layout and sets `stayAttachedWhenInactive`;
-  a second panel does not split again.
-- `buildSpawnPanel` records `parentOf`/`baseLabel`, binds the frame, lays out,
-  and relays content.
-- `openRunPanel` installs the run sink synchronously, sets the busy cue from
-  `run.isRunning`, and assigns `run.onFinished`.
-- Closing a run panel clears `WorkflowRun.onFinished` before teardown.
-- Stop (`s`) calls `supervisor.stop`; close (`x`) runs the full close path.
-- `panelizeRestoredConversation` builds the panel under
-  `parentId ?? initialConversationId` with the restored label.
-- `createSideConversation` reports creation failure through the captured source
-  host, even if the active session changed during the await.
-- A saved conversation survives a panel-attach failure, with the existing
-  message.
-- A conversation created in another session reports there and is not presented.
-- A branch replays history only after the panel attaches.
-- `/spawn` and `/branch` share one picker; an injected `spawnTargetPicker`
-  bypasses the overlays.
+Move `_openRunPanel`/`_closeRunPanel`. `PanelHost`/`RunPanelHost`
+construction stays in the coordinator and is passed in via deps
+(`runPanels`, `supervisor`); `handleWorkflowLaunch = openRunPanel` wiring
+stays in the coordinator too.
+
+Tests: the run sink is installed synchronously (before any run event); the
+busy cue is set from `run.isRunning`; `run.onFinished` is assigned; closing
+clears `onFinished` before teardown; `s` calls `supervisor.stop`; `x` runs
+the full close path.
+
+### Step 7 — target picker
+
+Move `pickSpawnedTarget`. The `pickTarget = spawnTargetPicker ??
+pickSpawnedTarget` resolution stays in the coordinator (it is the test
+injection seam). Deps additions: `scheduler.registry` access,
+`loadUserConfig`, `sessionManager` (already present from step 2's object —
+share one `PanelSpawnDeps`; do not fork a second deps type).
+
+Tests: no providers configured shows the `/settings` warning and returns
+null; MRU is seeded and recorded around the overlay; cancel at either
+overlay returns null; an injected `spawnTargetPicker` bypasses the overlays.
+
+### Step 8 — side conversation (last)
+
+Move `createSideConversation` and its `openSpawn`/`openBranch` wiring. This
+is the only step whose code calls other moved pieces (`pickTarget`,
+`operations`, `buildSpawnPanel`), which is why it is last. Deps additions:
+`operations`, `replayHistory`, `focusManager`, `loadConfig`,
+`reloadConfigProviders`, `sideConversationPresenter`, `spawnTargetPicker`.
+
+The coordinator keeps: constructing `ConversationOperations(... hostFactory:
+makeSpawnedHost ...)` where it is today, and assigning
+`controller.openSpawn`/`openBranch`.
+
+Tests: creation failure reports through the captured `sourceHost` even if
+the active session changed during the await; a saved conversation survives a
+panel-attach failure with the existing message; a conversation created in
+another session reports there and is not presented; a branch replays history
+only after attach; `/spawn` and `/branch` share one picker.
+
+### A note on the original Part-2 class
+
+Revision 1 sketched a `PanelSpawnCoordinator` class. With the graph this
+flat, a class is optional: top-level functions over `PanelSpawnDeps` are
+enough, and a small wiring function can replace the class entirely. Reintroduce
+the class only if a single hand-around object proves useful (for example as
+the `hostFactory` carrier).
+
+## Explicitly out of scope
+
+- The visible duplication between `pickSpawnedTarget` and `openModelPicker`
+  (~2038: same configured-provider guard, same `disabledModelRefsFor`
+  block). Tempting during step 7; do not touch it in this work.
+- The scheduler sub-agent persistence hook and `subAgentSessionFactory`.
+- Any behavior change, any renamed user command, any new abstraction beyond
+  the two deps types.
+- Packaging the image fit math: it is tina-specific heuristics (6 px/cell),
+  worth a pure function, not a package.
 
 ## Landing order
 
-1. Commit this plan.
-2. Part 1: extract the overlay/image module, add its tests, run the focused
-   suites below, commit alone.
-3. Part 2: extract the panel/spawn coordinator, add its tests, run the focused
-   suites below, commit alone.
+1. Commit this plan. (done — 4372081; this revision supersedes it)
+2. Optional step 0 (SpawnTree module), alone.
+3. Steps 1–4 in any order (they are mutually independent), each alone.
+4. Step 5, then 6, then 7, each alone.
+5. Step 8 last — it is the only step with intra-plan dependencies.
 
-Focused suites for both parts:
+Every commit: `dart analyze` clean, focused suites green:
 
 ```sh
 dart test test/tui_coordinator_test.dart \
@@ -298,4 +293,5 @@ dart test test/tui_coordinator_test.dart \
   test/tui/workflow_overlay_handlers_test.dart
 ```
 
-`dart analyze` must stay clean. Run the full `dart test` before pushing.
+Run the full `dart test` before pushing. Add each step's direct unit-test
+file under `test/tui/` in the same commit as the move.
