@@ -52,7 +52,12 @@ const defaultRequestTimeout = Duration(seconds: 120);
 /// Wall-clock between two consecutive SSE events before we treat the stream
 /// as dead. Generous enough for slow/long completions; tight enough that a
 /// silently-dropped connection doesn't hang the REPL forever.
-const defaultStreamIdleTimeout = Duration(seconds: 60);
+// 2026-09-24: 60s killed an unattended run of a reasoning model that was
+// silent ~300s between events while thinking (8 commits done, 1197
+// uncommitted lines lost). scaledStreamIdleTimeout adds only
+// body-proportional seconds — it cannot see thinking time — so the base
+// default is now 600s.
+const defaultStreamIdleTimeout = Duration(seconds: 600);
 
 /// Upper bound on any size-scaled timeout. Even a pathological payload gets
 /// at most 15 minutes per attempt before the operator must intervene
