@@ -381,16 +381,19 @@ class TuiCoordinator {
       // when it sees one, so a recurrence is diagnosable from the log instead
       // of from a live screen. Started below, once the screen is up.
       //
-      // Detection only: `heal: false` means a reported stall is logged and left
-      // alone rather than forcing a full repaint. The stall's root cause is
-      // fixed in the editor — a visible prompt row now outranks a focused
-      // panel's key claim, so keys reach the prompt that asks for the repaint —
-      // and that fix is what production relies on. Turning the repaint back on
-      // is a one-word change here if a stall ever recurs; until then the check
-      // observes instead of mutating, so a false positive costs a log line
-      // rather than an unexplained flash on the user's screen.
+      // Detection + repair: `heal: true` means a reported stall is logged and
+      // then healed with a full re-emission of the retained frame. The Linux
+      // field report (2026-09-25: most of the screen vanishes, comes back on
+      // resize, keystrokes stop rendering) is exactly the retention desync
+      // this heal exists to patch — the grid still matches the app's idea of
+      // the screen, so every damage-only redraw computes "no change" and the
+      // frame sits stale until the user resizes. Detection-only was the right
+      // posture while the suspected source was the editor's key routing (that
+      // is fixed); with the source unfixed on Linux, observing a stall and
+      // leaving the user's screen blank costs more than a rare false-positive
+      // repaint does.
       final stuckCheck =
-          StuckCheck(screen: screen, editor: editor, heal: false);
+          StuckCheck(screen: screen, editor: editor, heal: true);
       acquired.own(stuckCheck.stop);
       // The initial (active) session's spinner, bound to the shared status row.
       final spinner = Spinner(
