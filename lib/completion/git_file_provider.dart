@@ -46,13 +46,61 @@ class GitFileCompletionProvider implements CompletionProvider {
   @override
   Future<List<String>> complete(String query) async {
     final files = await _files();
-    if (query.isEmpty) {
-      return files.length <= maxResults ? files : files.sublist(0, maxResults);
-    }
+    if (query.isEmpty) return _pageFiles(files);
     final ranked = rankFuzzy(query, files);
     return ranked.length <= maxResults
         ? ranked
         : ranked.sublist(0, maxResults);
+  }
+
+  /// The unfiltered bare-`@` listing. A raw slice of the enumeration would
+  /// mirror `git ls-files` directory grouping — e.g. a repo whose first
+  /// tracked entries are hundreds of dotfiles would show nothing else — so
+  /// the page is spread across top-level directories instead: one file per
+  /// directory per round, source dirs before dot-dirs, then alphabetically.
+  /// A file at the root counts as its own "directory" so root files stay
+  /// reachable too.
+  List<String> _pageFiles(List<String> files) {
+    if (files.length <= maxResults) return files;
+    final buckets = <String, List<String>>{};
+    for (final f in files) {
+      final top = f.contains('/') ? f.split('/').first : '';
+      (buckets[top] ??= []).add(f);
+    }
+    final keys = buckets.keys.toList()..sort(_bucketOrder);
+    final page = <String>[];
+    var remaining = maxResults;
+    // Round-robin one file per bucket per round so a directory with
+    // thousands of entries cannot crowd out the rest of the page.
+    for (var round = 0; remaining > 0; round++) {
+      var served = 0;
+      for (final key in keys) {
+        if (remaining == 0) break;
+        final bucket = buckets[key]!;
+        if (round < bucket.length) {
+          page.add(bucket[round]);
+          remaining--;
+          served++;
+        }
+      }
+      if (served == 0) break; // every bucket exhausted
+    }
+    return page;
+  }
+
+  /// Sort key for the round-robin buckets: named source directories first
+  /// (alphabetical), then root files, then dot-dirs. Keeps the page biased
+  /// toward code a user is likely to @-mention.
+  static int _bucketOrder(String a, String b) {
+    int rank(String k) {
+      if (k.isEmpty) return 1; // root files
+      if (k.startsWith('.')) return 2; // dot dirs (.tickets, .github, ...)
+      return 0; // source dirs
+    }
+
+    final r = rank(a).compareTo(rank(b));
+    if (r != 0) return r;
+    return a.compareTo(b);
   }
 
   void invalidate() {

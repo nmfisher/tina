@@ -155,5 +155,98 @@ void main() {
       expect(results[0], results[1]);
       expect(results[0], contains('src/util.dart'));
     });
+
+    test('empty query page spreads across top-level directories', () async {
+      // Reproduces the bare-`@` bug: raw git order groups by directory, so a
+      // repo whose first tracked entries are hundreds of dotfiles served a
+      // page of nothing but dotfiles. One file per top-level dir per round
+      // keeps every directory reachable within the first 50.
+      final dir = Directory.systemTemp.createTempSync('git_file_spread_');
+      Process.runSync('git', ['init'], workingDirectory: dir.path);
+      try {
+        for (var i = 0; i < 120; i++) {
+          File('${dir.path}/.tickets/tin-$i.md')
+            ..parent.createSync(recursive: true)
+            ..writeAsStringSync('x');
+        }
+        for (final top in ['lib', 'packages', 'docs']) {
+          File('${dir.path}/$top/file.dart')
+            ..parent.createSync(recursive: true)
+            ..writeAsStringSync('x');
+        }
+        File('${dir.path}/README.md').writeAsStringSync('x');
+
+        final provider = GitFileCompletionProvider(workingDir: dir.path);
+        final page = await provider.complete('');
+
+        expect(page.length, provider.maxResults);
+        final tops = page
+            .map((f) => f.contains('/') ? f.split('/').first : '')
+            .toSet();
+        expect(tops, containsAll(['.tickets', 'lib', 'packages', 'docs', '']));
+        // Source dirs outrank the dot-dir, so the first .tickets entry lands
+        // after every seeded source file (docs, lib, packages in alpha order).
+        final libPos = page.indexOf('lib/file.dart');
+        expect(libPos, inInclusiveRange(0, 2));
+        expect(page.indexWhere((f) => f.startsWith('.tickets/')),
+            greaterThan(libPos));
+      } finally {
+        dir.deleteSync(recursive: true);
+      }
+    });
+
+    test('deep files are reachable via the empty-query page', () async {
+      // Nested paths bucket under their top-level dir, so a page slot is
+      // shared by the whole subtree — 51 files under one top-level dir would
+      // otherwise swallow a slot without showing anything deep.
+      final dir = Directory.systemTemp.createTempSync('git_file_deep_');
+      Process.runSync('git', ['init'], workingDirectory: dir.path);
+      try {
+        for (var i = 0; i < 51; i++) {
+          File('${dir.path}/pkg/sub/leaf$i.dart')
+            ..parent.createSync(recursive: true)
+            ..writeAsStringSync('x');
+        }
+        File('${dir.path}/src/root.dart')
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync('x');
+
+        final provider = GitFileCompletionProvider(workingDir: dir.path);
+        final page = await provider.complete('');
+        // Both buckets take a slot in round 0, so pkg fills 49 of the 50
+        // page slots and 2 of its 51 files are cut. Which leaves are cut
+        // depends on enumeration order, so only the count is asserted.
+        expect(page, contains('src/root.dart'));
+        final pkgOnPage = page.where((f) => f.startsWith('pkg/')).toSet();
+        expect(pkgOnPage.length, provider.maxResults - 1);
+        final allLeaves = {for (var i = 0; i < 51; i++) 'pkg/sub/leaf$i.dart'};
+        expect(allLeaves.difference(pkgOnPage).length, 2);
+      } finally {
+        dir.deleteSync(recursive: true);
+      }
+    });
+
+    test('filtered query still searches the full tree', () async {
+      // Ordering only applies to the empty-query page; a fuzzy query must
+      // rank every file regardless of which directory it lives in.
+      final dir = Directory.systemTemp.createTempSync('git_file_filter_');
+      Process.runSync('git', ['init'], workingDirectory: dir.path);
+      try {
+        for (var i = 0; i < 120; i++) {
+          File('${dir.path}/.tickets/tin-$i.md')
+            ..parent.createSync(recursive: true)
+            ..writeAsStringSync('x');
+        }
+        File('${dir.path}/lib/zzz_unique_target.dart')
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync('x');
+
+        final provider = GitFileCompletionProvider(workingDir: dir.path);
+        final hits = await provider.complete('unique_target');
+        expect(hits, contains('lib/zzz_unique_target.dart'));
+      } finally {
+        dir.deleteSync(recursive: true);
+      }
+    });
   });
 }
