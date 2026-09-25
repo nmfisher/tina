@@ -1,12 +1,13 @@
 # Sweep status
-Now:     Ticket sweep — no code changes. tin-k7f2 closed (Phase 1 landed
-         via PR #53; all six review defects fixed with regression tests,
-         verified on main). tin-1h8p, tin-80ll, tin-923l, tin-9x4m,
-         tin-f5xt, tin-k9q3 closed: all six were implemented and merged
-         weeks ago (PRs #31–#35, #52) but their frontmatter still read
-         the nonstandard `done` and this file still called them parked.
-         Every ticket now carries `open | start | closed` only; STATUS.md
-         no longer invents statuses.
+Now:     Docs pass — the two approval mechanisms and the core/plugin
+         boundary documented (tin-4m0q, closed): new
+         docs/features/plan_approval.md, ARCHITECTURE.md subsection under
+         the permissions section, plugin_architecture.md §11, cross-links
+         from permission_rules.md and plan_overlay.md. During the pass,
+         ARCHITECTURE.md's plan-approval section cites the
+         LocalControlTool shortcut that tin-p4wm's adjacent note flags —
+         the docs record it as designed behaviour for state-flip tools,
+         with tin-p4wm as the standing hardening decision.
 Next:    Pick up tin-p4wm item 3 (`/spawn`+`/branch` drop configured
          static rules — smallest, has a crisp acceptance test), then
          tin-w7dr (needs the live wheel repro first). tin-r6km resumes
@@ -15,13 +16,18 @@ Next:    Pick up tin-p4wm item 3 (`/spawn`+`/branch` drop configured
 Blocked: tin-r6km P8 is blocked on the review fixes; nothing else.
 Ask:     tin-p4wm item 2 needs a posture decision: declaring
          `explore_project` a project read flips its default ask → allow.
-Last checkpoint: 2026-09-22 — ticket sweep; STATUS.md rewritten.
-         Previous (2026-09-20): mode-selector pair closed (see git).
+Last checkpoint: 2026-09-25 — approvals docs pass (tin-4m0q); STATUS.md
+         rewritten. Previous (2026-09-22): ticket sweep.
 
 ## This session
 
-- Ticket sweep only. Frontmatter normalized (7 files), tin-k7f2's
-  REOPENED note resolved to closed-with-evidence, this file rewritten.
+- Docs only (branch asb/docs-approval-architecture): tin-4m0q filed and
+  closed with the four documents; every behavioural claim verified in
+  code with file+line cited. One tree-health code fix rode the same
+  branch, committed separately: AppComposition.startupModelFallback was
+  an undefined getter consumed by lib/tui_coordinator.dart:792 since
+  1f399ad (dart analyze red on main); the getter now exists with
+  last-build-wins semantics.
 
 ## Open
 
@@ -42,6 +48,7 @@ Last checkpoint: 2026-09-22 — ticket sweep; STATUS.md rewritten.
 
 ## Closed earlier
 
+- tin-4m0q (p2, 2026-09-25) — approvals/boundary docs; see Now above.
 - tin-k7f2 (p1) — PTY backend Phase 1, PR #53 (a3f008e, 2026-09-16) +
   six review-fix commits e9b7f64, cdab3d6, 14970de, 92758fd, 147c1f7,
   cf31087; regression tests in
