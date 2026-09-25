@@ -1,6 +1,6 @@
 # This file exists for exactly one purpose: keeping the dart_notcurses
-# submodule out of the parent tree's analysis context (TINA_IMPROVEMENTS_LOG
-# #40). The parent repo otherwise runs on pure SDK defaults — no lints
+# submodule out of the parent tree's analysis context. The parent repo
+# otherwise runs on pure SDK defaults — no lints
 # package, no custom rules — and gains none from this file.
 #
 # The submodule ships its own analysis_options.yaml whose first line

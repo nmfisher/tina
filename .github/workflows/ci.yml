@@ -19,7 +19,7 @@
 # back when the list was hand-written; the generated loop below is the fix.
 #
 # No dart format gate on purpose: the tree has format drift, and analyze +
-# test are the contract this repo actually tracks (TINA_IMPROVEMENTS_LOG.md).
+# test are the contract this repo actually tracks.
 #
 # Native library note: tina_console's FFI does NOT load a system libnotcurses
 # via findLibrary/DynamicLibrary.open for its bindings. dart_notcurses vendors

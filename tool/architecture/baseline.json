@@ -15,11 +15,6 @@
     "owner": "A07"
   },
   {
-    "key": "public-api|tool/mute_diag_probe.dart|tool/mute_diag_probe.dart|packages/tina_console/lib/src/backend/init_reply_guard.dart",
-    "reason": "Diagnostic probe tool intentionally reaches console internals",
-    "owner": "A07"
-  },
-  {
     "key": "public-api|tool/p8k2_repro.dart|tool/p8k2_repro.dart|packages/tina_console/lib/src/ansi_capable.dart",
     "reason": "Diagnostic probe tool intentionally reaches console internals",
     "owner": "A07"
