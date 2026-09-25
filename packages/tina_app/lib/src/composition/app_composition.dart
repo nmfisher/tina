@@ -75,13 +75,19 @@ class AppComposition {
   /// metered — fine for fakes.)
   final LlmProvider? startupProviderOverride;
 
-  /// Why the startup provider degraded to the config default because the
-  /// active conversation's persisted model ref could not be resolved (unknown
-  /// provider, missing descriptor). Null when the ref resolved — or when
-  /// [buildStartupProvider] has not run yet. Stderr stays the surface for
-  /// headless runs (no transcript to ride); transcript hosts read this and
-  /// show it as a dim footnote instead, where stderr is invisible behind the
-  /// alternate screen.
+  /// The fallback note from the most recent [buildStartupProvider] call:
+  /// why the persisted model ref was not used, when it could not be
+  /// resolved. Null when the last build resolved a ref normally or fell
+  /// through to the config default (nothing degraded).
+  ///
+  /// The same line goes to stderr, but stderr is invisible behind the TUI's
+  /// alternate screen — the exact condition of the 2026-09-24 "quit and
+  /// resume, it's on the default model now" bug. So the TUI coordinator
+  /// reads this right after its startup build and shows it as a dim
+  /// transcript message instead. Last build wins: each call resets it, so a
+  /// caller must read it immediately after its own build (the coordinator
+  /// does; the restore tear-off runs later and cannot clobber an
+  /// already-displayed note).
   String? _startupModelFallback;
 
   /// The degradation note from the most recent [buildStartupProvider] call.
@@ -150,9 +156,13 @@ class AppComposition {
   /// under the config default); otherwise the config default. Same resolution
   /// philosophy as the restore fallback (`_restoreProvider` in
   /// session_restore.dart): an unresolvable ref warns on stderr and degrades
-  /// to the config provider rather than failing the resume.
+  /// to the config provider rather than failing the resume. The warning is
+  /// also kept on [startupModelFallback] so a UI without a visible stderr
+  /// can surface it (read it right after your own call — the next build
+  /// resets it).
   LlmProvider buildStartupProvider() {
     if (_resources.isClosing) throw StateError('Runtime is closing');
+    _startupModelFallback = null;
     if (startupProviderOverride != null) return startupProviderOverride!;
     // The persisted ref applies only when the user did NOT pass --model.
     if (!config.modelExplicit) {
