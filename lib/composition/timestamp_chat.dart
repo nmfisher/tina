@@ -4,13 +4,13 @@ import 'package:tina_engine/tina_engine.dart';
 import '../chat/chat_renderer.dart';
 import '../chat/chat_transcript.dart';
 
-/// Optional plugin that stamps every painted transcript line with the time its
-/// block first appeared (`HH:mm:ss `, dim). Decorates rather than replaces the
-/// built-in look: because the first registered renderer that handles a
-/// `ChatBlock` wins, this descriptor's id sorts before `tina.chat-renderer`
-/// (plain namespace, per the override recipe in docs/features/renderers.md)
-/// and then delegates to [ChatRenderer] itself, so output matches the default
-/// row for row — only the gutter differs.
+/// Optional plugin that stamps each transcript block's first painted line with
+/// the time the block first appeared (`HH:mm:ss `, dim). Decorates rather than
+/// replaces the built-in look: because the first registered renderer that
+/// handles a `ChatBlock` wins, this descriptor's id sorts before
+/// `tina.chat-renderer` (plain namespace, per the override recipe in
+/// docs/features/renderers.md) and then delegates to [ChatRenderer] itself, so
+/// output matches the default row for row — only the gutter differs.
 ///
 /// Where the time comes from: neither `ChatBlock` nor `RenderContext` carries
 /// a clock, and `render` runs again on every resize, fold and repaint. The
@@ -62,25 +62,32 @@ class TimestampChatRenderer extends Renderer<ChatBlock> {
     }
 
     // Lay the block out in the columns left of the gutter, then prepend the
-    // stamp, so every row still fits `context.width`: renderers own their fit
-    // and the host reflows nothing.
+    // stamp to the FIRST non-blank line only: a message spanning several
+    // visual rows (explicit newlines or soft wrap) is one event — stamping
+    // every row both doubled the noise and misread continuation lines as
+    // separate messages. Blank separators stay blank either way, matching the
+    // transcript's rule.
     final inner = RenderContext(
       width: context.width - stampWidth,
       theme: context.theme,
       animationFrame: context.animationFrame,
     );
-    return [
-      for (final line in const ChatRenderer().render(value, inner))
-        if (line.isBlank)
-          line // blank separators stay blank, matching the transcript's rule
-        else
-          RenderLine(
-            bar: line.bar,
-            align: line.align,
-            animated: line.animated,
-            runs: [RenderRun(stamp, context.theme.chat.dim), ...line.runs],
-          ),
-    ];
+    final out = <RenderLine>[];
+    var stamped = false;
+    for (final line in const ChatRenderer().render(value, inner)) {
+      if (line.isBlank || stamped) {
+        out.add(line);
+      } else {
+        stamped = true;
+        out.add(RenderLine(
+          bar: line.bar,
+          align: line.align,
+          animated: line.animated,
+          runs: [RenderRun(stamp, context.theme.chat.dim), ...line.runs],
+        ));
+      }
+    }
+    return out;
   }
 
   static String _format(DateTime at) =>

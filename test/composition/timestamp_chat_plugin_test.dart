@@ -56,19 +56,21 @@ PluginRuntime _runtime({required DateTime Function() now}) {
 }
 
 void main() {
-  test('stamps every non-blank line and keeps the default content', () {
+  test('stamps the FIRST line only and keeps the default content', () {
     final runtime = _runtime(now: () => DateTime(2026, 1, 2, 3, 4, 5));
 
     final lines = _render(runtime, _prose(), 40);
     expect(lines, isNotEmpty);
-    for (final line in lines.where((l) => !l.isBlank)) {
-      expect(_text(line), startsWith(_stamp));
-      expect(_text(line), contains('hello'));
-    }
+    expect(_text(lines.first), startsWith(_stamp));
+    expect(_text(lines.first), contains('hello'));
+    // A single message is one event: continuation rows carry no stamp, so a
+    // multi-line message doesn't read as several messages (tin follow-up).
+    final stamped = lines.where((l) => !l.isBlank && _text(l).startsWith(_stamp));
+    expect(stamped, [lines.first]);
   });
 
-  test('delegating to the built-in keeps its row styles, only adding the gutter',
-      () {
+  test('delegating to the built-in keeps its row styles, adding only the '
+      'first-line gutter', () {
     final runtime = _runtime(now: () => DateTime(2026, 1, 2, 3, 4, 5));
 
     final lines = _render(runtime, _prose(), 40);
@@ -76,7 +78,10 @@ void main() {
     expect(lines.length, bare.length);
     for (var i = 0; i < lines.length; i++) {
       expect(lines[i].bar, bare[i].bar);
-      expect(_text(lines[i]).substring(_stamp.length), _text(bare[i]));
+      expect(_text(lines[i]), i == 0
+          ? '$_stamp${_text(bare[i])}'
+          : _text(bare[i]),
+          reason: 'only the first row carries the stamp');
     }
   });
 
@@ -124,7 +129,7 @@ void main() {
     }
   });
 
-  test('blank separator lines stay blank', () {
+  test('blank separator lines stay blank and unstamped', () {
     final runtime = _runtime(now: () => DateTime(2026, 1, 2, 3, 4, 5));
 
     final lines = _render(runtime, _twoParagraphs(), 40);
@@ -132,11 +137,23 @@ void main() {
     for (final line in lines.where((l) => l.isBlank)) {
       expect(line.runs, isEmpty);
     }
-    final stamped = lines.where((l) => !l.isBlank).toList();
-    expect(stamped.length, 2, reason: 'one stamp row per paragraph');
-    for (final line in stamped) {
-      expect(_text(line), startsWith(_stamp));
-    }
+    final stamped = lines.where((l) => !l.isBlank && _text(l).startsWith(_stamp));
+    expect(stamped, [lines.first],
+        reason: 'one stamp per block: the first line, never the paragraph '
+            'continuations');
+  });
+
+  test('a multi-line message is stamped once, on its first visual row', () {
+    final runtime = _runtime(now: () => DateTime(2026, 1, 2, 3, 4, 5));
+
+    final lines = _render(runtime, _twoParagraphs(), 40);
+    final withStamp =
+        lines.where((l) => !l.isBlank && _text(l).startsWith(_stamp)).length;
+    expect(withStamp, 1,
+        reason: 'the block is one message — the second paragraph must not '
+            'look like a second, later message');
+    expect(_text(lines[2]).trim(), 'second',
+        reason: 'content after the blank separator is untouched');
   });
 
   test('a width too narrow for the gutter degrades without overflowing', () {
