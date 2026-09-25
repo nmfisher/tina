@@ -366,7 +366,7 @@ kind, and keeping them apart is a decision, not an accident:
 | Granularity | per tool call | one value per conversation, in the `PlanStore` |
 | Blocking? | yes — the executor pauses the turn for a `PermissionResponse` | no — cooperative; the state is injected into the agent's context each request and the model is told to wait while a request pends |
 | Lifetime | the call, plus optional session rules | persistent; outlives the turn |
-| Governed by | `--allow`/`--deny`/`--yolo`, modes, session rules | nothing from the permission layer — see below |
+| Governed by | `--allow`/`--deny`/`--yolo`, modes, session rules | not the permission path — the plugin reads the yolo posture / host answerability directly (see below) |
 
 The plan state machine is `PlanApproval { none, requested, approved,
 rejected }` (`packages/tina_app/lib/src/plans/plan_store.dart`). The agent
@@ -396,15 +396,17 @@ change the question, the answer, or who answers. Plan approval is a plugin —
 but not purely: `planUiPlugin` provides the store, the status source, the
 renderer and the `/plan` command, while core `buildAgent` mints the
 per-conversation `update_plan` tool and request middleware from that store
-(`agent_composition.dart:191-203`), because a shared plugin scope cannot
+(`agent_composition.dart:198-220`), because a shared plugin scope cannot
 tell which conversation a turn belongs to. The decided boundary: **plan
 approval stays a plugin; core owns the permission decision; a plugin must
-not re-derive policy.** The intended shape is a single narrow read-only door
-from plugins into the decision — it does not exist yet, and until it does
-the plan gate and the permission posture simply run side by side. A
-checked-but-unmerged branch (`asb/plan-approval-yolo`) moves in the opposite
-order: the plugin itself re-derives the posture, which is the drift the door
-exists to prevent.
+not re-derive policy.** Since v0.8.30 (PR #61) the plan gate does consult
+the permission posture — yolo posture and host answerability — but through a
+helper the *plugin owns* (`PlanTool.resolveApprovalMode`,
+`packages/tina_app/lib/src/plans/plan_plugin.dart:142-149`): core wires the
+inputs, the plugin keeps the rule. That is the drift the boundary rules out,
+and the door that would correct it — one narrow read-only answer minted by
+core, which a plugin may only ask — is still unbuilt; the fix is proposed in
+[docs/proposals/plugin_posture_door.md](docs/proposals/plugin_posture_door.md).
 
 The plan mechanism itself — state machine, middleware, the
 fail-open/fail-closed polarity split, and the known gaps — is documented in
