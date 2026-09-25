@@ -176,8 +176,9 @@ claims are now false against `0037fb7`:
    documented in `ARCHITECTURE.md:155`, driven from
    `session_controller`'s capture-window path, covered by
    `ctrl_c_paths_test.dart:87-119`. This is the *second* time this claim
-   circulated: `TINA_IMPROVEMENTS_LOG.md:1755` records a prior
-   "grep-clean everywhere — false" incident. Deferred item §6
+   circulated: the recursive-improvement log (deleted; see git history)
+   records a prior "grep-clean everywhere — false" incident. Deferred
+   item §6
    "Removing or wiring the dead `beginCancelMonitor` queue-mode path"
    should be struck or rewritten.
 2. **Deferred item "Step-boundary queue drain" is superseded.** Cancel

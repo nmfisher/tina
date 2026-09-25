@@ -99,7 +99,7 @@ def main():
 
         print("[driver] probe rendered — init completed via guard detour")
         # Settle: let the input pump start and the bridge run a first tick
-        # before injecting (mirrors tool/syscall_diag_driver.py).
+        # before injecting.
         time.sleep(2.0)
         # Inject keys: plain b, then q to quit.
         os.write(master, b"b")
