@@ -705,6 +705,19 @@ class LineEditor {
   bool get _promptRowOwnsKeyboard =>
       _completer != null && !screen.input.bounds.isEmpty;
 
+  /// Whether [event] may bypass the armed prompt row and reach the focused
+  /// panel: the mouse wheel AND PgUp/PgDn page the *focused panel's*
+  /// scrollback, which stays useful while the prompt waits. Plain arrows stay
+  /// prompt-owned (history recall). Without the PgUp/PgDn exception a workflow
+  /// or sub-agent panel spawned behind the armed prompt leaves the page keys
+  /// dead — they fall into the editor's no-op pageUp/pageDown case and the
+  /// transcript never scrolls (tin-SCROLL-PANELS).
+  bool _scrollKeysBypassPrompt(InputEvent event) =>
+      event is ScrollEvent ||
+      (event is ArrowKey &&
+          (event.direction == ArrowDirection.pageUp ||
+              event.direction == ArrowDirection.pageDown));
+
   /// Hide editor-only overlays when a panel takes over the keyboard. Drafts
   /// and command history remain intact for the next conversation focus.
   void suspendSharedInput() {
@@ -893,10 +906,11 @@ class LineEditor {
     if (_cancelHandler != null) {
       if (_handleFocusRingKeys(event)) return KeyHandledBy.focusRing;
       // Same stand-down as everywhere else: with the visible prompt row on
-      // the keyboard the panel is off the input path (the wheel excepted) —
-      // its keys belong to the queue/cancel machinery below.
+      // the keyboard the panel is off the input path — except the scroll
+      // keys (wheel + PgUp/PgDn page the focused panel's transcript), whose
+      // keys belong to the queue/cancel machinery below.
       final panelMayTake =
-          !_promptRowOwnsKeyboard || event is ScrollEvent;
+          !_promptRowOwnsKeyboard || _scrollKeysBypassPrompt(event);
       if (panelMayTake &&
           (_focusManager?.focused?.handleEvent(event) ?? false)) {
         return KeyHandledBy.panel;
@@ -1148,12 +1162,14 @@ class LineEditor {
     //    owns the keyboard then, exactly as in [_routeExclusivePanelInput].
     //    Pre-fix, a panel left focused by an earlier overlay swallowed every
     //    character under the armed prompt (the field wedge: the screen is
-    //    back after a resize but typing goes nowhere). Wheel events stay
-    //    panel-owned — scrolling a read-only view while the prompt waits is
-    //    useful and harms nothing.
+    //    back after a resize but typing goes nowhere). Scroll keys stay
+    //    panel-owned — wheel AND PgUp/PgDn scroll the focused panel's
+    //    scrollback while the prompt waits (the editor's own page keys are a
+    //    no-op, so the old gate just dropped them: panels spawned behind an
+    //    armed prompt never scrolled).
     final focused = _focusManager?.focused;
     final panelMayTake =
-        !_promptRowOwnsKeyboard || event is ScrollEvent;
+        !_promptRowOwnsKeyboard || _scrollKeysBypassPrompt(event);
     if (panelMayTake && focused != null && focused.handleEvent(event)) {
       return KeyHandledBy.panel;
     }

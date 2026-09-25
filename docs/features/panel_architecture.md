@@ -32,6 +32,14 @@ and other keys. During Ctrl+G cycling, the focus manager owns navigation until
 Enter commits or Escape cancels. Prompts and modal overlays take priority over
 the panel; approval answer keys and character overflow cannot spill into it.
 
+Opening a panel never steals focus, so an armed chat prompt and a focused panel
+routinely coexist — a workflow launch or delegated sub-agent view spawning
+mid-turn, for example. In that state the visible prompt keeps characters and
+plain arrows (history recall), but scroll keys bypass it: the mouse wheel and
+PgUp/PgDn page the focused panel's scrollback instead of dropping into the
+editor's no-op page-key case (`_scrollKeysBypassPrompt` in the tina_console
+line editor; regression-tested in its `keyboard_ownership_recovery_test.dart`).
+
 The plan overlay (`[tui] plan_overlay`) joins the same ring while painted: it
 is focusable only when visible, Ctrl+G cycles highlight onto it (its chrome
 takes the cycling tint), and once focused it claims ↑/↓ for row selection and

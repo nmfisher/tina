@@ -196,6 +196,62 @@ void main() {
       ed.close();
     });
 
+    test('PgUp/PgDn scroll a panel spawned behind the armed prompt', () async {
+      // The workflow-launch wedge (tin-SCROLL-PANELS): a run panel (or
+      // delegated sub-agent view) spawns mid-turn WITHOUT stealing focus, so
+      // the chat prompt row is still armed and visible while the new panel
+      // holds focus. Pre-fix, the armed-prompt stand-down at dispatch step 6
+      // (and the exclusive-panel route) exempted only the wheel — PgUp/PgDn
+      // fell through into the editor's no-op pageUp/pageDown case and the
+      // panel transcript never scrolled.
+      final (ed, input, screen) = _rig();
+      final chat =
+          PanelFrame(screen: screen, label: 'Chat', conversationId: 'chat');
+      final run = PanelFrame(
+        screen: screen,
+        label: 'wf run',
+        conversationId: 'wf-run-1',
+        inputMode: PanelInputMode.readOnly,
+      );
+      var pages = 0;
+      run.onScroll = (deltaPages) => pages += deltaPages;
+      chat.setOuter(const Rect(row: 0, col: 0, width: 48, height: 24));
+      run.setOuter(const Rect(row: 0, col: 50, width: 48, height: 24));
+      final focus = FocusManager()
+        ..register(chat)
+        ..register(run)
+        ..home = chat;
+      ed.focusManager = focus;
+
+      // The spawn sequence: the prompt is armed first, THEN the panel takes
+      // focus (build panels never steal the draft).
+      final line = ed.readLine('> ');
+      await _flush();
+      focus.focusPanel(run);
+      await _flush();
+
+      input.emit(ArrowKey(ArrowDirection.pageUp));
+      await _flush();
+      expect(pages, -1,
+          reason: 'PgUp scrolls the focused panel while the prompt waits');
+      input.emit(ArrowKey(ArrowDirection.pageDown));
+      await _flush();
+      expect(pages, 0, reason: 'PgDn pages back toward the tail');
+      expect(ed.editState.buffer, isEmpty,
+          reason: 'the page keys never leak into the prompt draft');
+
+      // Plain arrows stay prompt-owned: command-history recall must survive.
+      input.emit(ArrowKey(ArrowDirection.up));
+      await _flush();
+      expect(pages, 0, reason: 'the up arrow is not a panel scroll');
+
+      input.emit(CharInput('o'));
+      input.emit(ControlKey(ControlCode.enter));
+      expect(await line, 'o',
+          reason: 'the prompt still submits normally');
+      ed.close();
+    });
+
     test('ctrlG is claimed by the focus ring before the cancel monitor',
         () async {
       final (ed, input, screen) = _rig();
