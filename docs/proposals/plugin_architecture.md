@@ -248,25 +248,27 @@ question, the answer, or who answers.
 (`lib/composition/plan_ui.dart`) provides the `PlanStore` service, the status
 strip, and the `/plan` command; core `buildAgent` mints the agent-facing
 pieces (the `update_plan` tool, the request middleware) per conversation from
-the plugin's store (`agent_composition.dart:191-203`), because a shared
+the plugin's store (`agent_composition.dart:198-220`), because a shared
 scope cannot tell which conversation a turn belongs to. Note what the tool
 does *not* travel: `update_plan` implements `LocalControlTool`, so the
 executor allows it without a permission ask
 (`tool_executor.dart:445-447`). The plan gate never reaches the permission
-path at all.
+path itself.
 
 **The decided boundary:** plan approval stays a plugin. Core owns the
 permission decision — a plugin must never re-derive policy: no plugin
 decides who answers an approval, what the answers mean, or what happens when
 nobody can answer. The intended shape is one narrow read-only door from a
 plugin into the decision: *"may I ask? and can anyone answer?"* The plugin
-asks; core decides. **That door does not exist yet** — it is the design
-destination, not present behaviour, and nothing in the current seams
-pretends otherwise. A checked-but-unmerged branch
-(`asb/plan-approval-yolo`) is a live warning here: it answers "can anyone
+asks; core decides. **That door does not exist yet** — and PR #61 (merged in
+v0.8.30 as `0a5ace6`) shows the cost of its absence: answering "can anyone
 answer" by re-deriving the posture inside the plugin's own tool and
-middleware, which is exactly the plugin-side policy re-derivation this
-boundary rules out, however practical the fix.
+middleware (`PlanTool.resolveApprovalMode`,
+`packages/tina_app/lib/src/plans/plan_plugin.dart:142-149`) — exactly the
+plugin-side policy re-derivation this boundary rules out, however practical
+the stall it fixed. The correction — a `PlanPosture` value minted by core,
+later generalised into a read-only scope key — is proposed in
+[the posture-door proposal](plugin_posture_door.md).
 
 ---
 
