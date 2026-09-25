@@ -9,8 +9,11 @@ import 'package:test/test.dart';
 /// An [http.Client] serving canned responses by URL path, so the checker's
 /// GitHub calls never touch the network.
 class _FakeClient extends http.BaseClient {
-  _FakeClient(this.routes);
+  _FakeClient(this.routes, {this.headersByPath = const {}});
   final Map<String, (int, String)> routes;
+
+  /// Per-path response headers (retry guidance tests).
+  final Map<String, Map<String, String>> headersByPath;
   final List<Uri> requests = [];
 
   @override
@@ -21,7 +24,10 @@ class _FakeClient extends http.BaseClient {
     return http.StreamedResponse(
       Stream.value(utf8.encode(body)),
       status,
-      headers: const {'content-type': 'application/json'},
+      headers: {
+        const {'content-type': 'application/json'},
+        headersByPath[request.url.path] ?? const {},
+      }.reduce((a, b) => {...a, ...b}),
     );
   }
 }
@@ -326,6 +332,145 @@ void main() {
 
       await checker.fetchLatest();
       expect(checker.lastMiss?.kind, MissKind.badPayload);
+    });
+  });
+
+  group('rate-limit backoff', () {
+    test('a 403 with x-ratelimit-reset defers probes until the reset',
+        () async {
+      final resetAt = DateTime.now().add(const Duration(minutes: 30));
+      final client = _FakeClient({
+        '/repos/nmfisher/tina/releases/latest': (403, 'rate limited'),
+      }, headersByPath: {
+        '/repos/nmfisher/tina/releases/latest': {
+          'x-ratelimit-reset':
+              (resetAt.millisecondsSinceEpoch ~/ 1000).toString(),
+        },
+      });
+      final checker = ReleaseChecker(env: env(), client: client);
+      addTearDown(checker.close);
+
+      expect(await checker.checkWithRevalidate(), isNull);
+      expect(checker.lastMiss?.rateLimited, isTrue);
+
+      // The window is recorded and open: a background check now probes
+      // nothing and falls back to the (empty) cache.
+      expect(checker.deferUntil, isNotNull);
+      final before = client.requests.length;
+      expect(await checker.checkWithRevalidate(), isNull);
+      expect(client.requests.length, before);
+    });
+
+    test('the recorded defer window survives a new checker (restart)',
+        () async {
+      final resetAt = DateTime.now().add(const Duration(minutes: 30));
+      final first = ReleaseChecker(
+          env: env(),
+          client: _FakeClient({
+            '/repos/nmfisher/tina/releases/latest': (403, 'rate limited'),
+          }, headersByPath: {
+            '/repos/nmfisher/tina/releases/latest': {
+              'x-ratelimit-reset':
+                  (resetAt.millisecondsSinceEpoch ~/ 1000).toString(),
+            },
+          }));
+      addTearDown(first.close);
+      expect(await first.checkWithRevalidate(), isNull);
+      expect(first.deferUntil, isNotNull);
+
+      // A brand-new checker — the restart shape — reads the same window.
+      final client2 = _FakeClient({});
+      final second = ReleaseChecker(env: env(), client: client2);
+      addTearDown(second.close);
+      expect(second.deferUntil, isNotNull,
+          reason: 'the defer window persists in the tina cache dir');
+      expect(await second.checkWithRevalidate(), isNull);
+      expect(client2.requests, isEmpty,
+          reason: 'a deferred background check must not touch the network');
+    });
+
+    test('retry-after is honored and capped at maxBackoff', () async {
+      final farFuture = DateTime.now().add(const Duration(days: 3));
+      final checker = ReleaseChecker(
+          env: env(),
+          client: _FakeClient({
+            '/repos/nmfisher/tina/releases/latest': (503, 'overloaded'),
+          }, headersByPath: {
+            '/repos/nmfisher/tina/releases/latest': {
+              'retry-after': '999999', // ~11.5 days, way past the cap.
+            },
+          }));
+      addTearDown(checker.close);
+
+      await checker.fetchLatest();
+      final until = checker.deferUntil!;
+      final capped = DateTime.now().add(ReleaseChecker.maxBackoff);
+      expect(until.isBefore(capped.add(const Duration(minutes: 1))), isTrue,
+          reason: 'a far-future retry-after is capped, not honored verbatim');
+      expect(until.isAfter(DateTime.now()), isTrue);
+      // Silence the unused warning for the far-future value; it documents
+      // what the server claimed.
+      expect(farFuture.isAfter(until), isTrue);
+    });
+
+    test('an expired window re-opens probing (window clears itself)',
+        () async {
+      final checker = ReleaseChecker(env: env(), client: _FakeClient({}));
+      addTearDown(checker.close);
+      await checker.deferUntilForTest(
+          DateTime.now().subtract(const Duration(minutes: 1)));
+
+      expect(checker.deferUntil, isNull,
+          reason: 'a past deadline reads as no window');
+      // No routes: if it probed it would 404-miss; either way it must not
+      // skip silently.
+      expect(await checker.checkWithRevalidate(), isNull);
+    });
+
+    test('a successful fetch clears the defer window', () async {
+      final checker = ReleaseChecker(env: env(), client: _FakeClient({}));
+      addTearDown(checker.close);
+      await checker
+          .deferUntilForTest(DateTime.now().add(const Duration(hours: 1)));
+      expect(checker.deferUntil, isNotNull);
+
+      // `/update` semantics: fetchLatest ignores the gate. The two checkers
+      // share the cache dir, so the success resolves the window for both —
+      // its premise (the network was failing) no longer holds. That is the
+      // point of persisting the window rather than keeping it in-memory.
+      final forced = ReleaseChecker(
+          env: env(),
+          client: _FakeClient({
+            '/repos/nmfisher/tina/releases/latest':
+                (200, _releaseBody('v0.2.0')),
+          }));
+      addTearDown(forced.close);
+      expect(await forced.fetchLatest(), isNotNull);
+      expect(checker.deferUntil, isNull,
+          reason: 'a success anywhere clears the shared window');
+      expect(forced.deferUntil, isNull);
+    });
+
+    test('a probe skipped by the window leaves lastMiss untouched', () async {
+      final resetAt = DateTime.now().add(const Duration(minutes: 30));
+      final checker = ReleaseChecker(
+          env: env(),
+          client: _FakeClient({
+            '/repos/nmfisher/tina/releases/latest': (403, 'rate limited'),
+          }, headersByPath: {
+            '/repos/nmfisher/tina/releases/latest': {
+              'x-ratelimit-reset':
+                  (resetAt.millisecondsSinceEpoch ~/ 1000).toString(),
+            },
+          }));
+      addTearDown(checker.close);
+      await checker.fetchLatest(); // records the miss + window
+      final miss = checker.lastMiss;
+      expect(miss, isNotNull);
+
+      expect(await checker.checkWithRevalidate(), isNull);
+      expect(checker.lastMiss, same(miss),
+          reason: 'the skipped probe fabricates no fresh failure');
     });
   });
 

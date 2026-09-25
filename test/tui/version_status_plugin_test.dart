@@ -103,4 +103,44 @@ void main() {
     expect(after, contains('/update'));
     expect(after, isNot(contains('update check failed')));
   });
+
+  test('a deferred check paints a quiet retry line, not an alarm', () async {
+    final runtime = PluginRuntime(
+      name: 'version-status-deferred-e2e',
+      plugins: [versionStatusPlugin(), versionStatusUiPlugin()],
+    )..activateSync();
+    addTearDown(runtime.dispose);
+    final status =
+        runtime.scope.lookup(versionStatusServiceKey) as VersionStatus;
+
+    final io = FakeStdio();
+    final screen = Screen(
+      io: io,
+      layout: ScreenLayout.fromSize(100, 24),
+      ansi: AnsiCapable.yes,
+    );
+    final strip = InputStatus(
+      screen: screen,
+      scope: runtime.scope,
+      conversationId: () => 'c1',
+    )..start();
+    addTearDown(strip.dispose);
+
+    status.deferred(DateTime.now().add(const Duration(minutes: 42)),
+        release: 'v0.8.32');
+    await Future<void>.delayed(Duration.zero);
+    final painted = io.written.toString();
+    expect(painted, contains('update check deferred'));
+    expect(painted, contains('retry '));
+    expect(painted, contains('last known v0.8.32'));
+    // Quiet state: no alert cue, no failure wording.
+    expect(painted, isNot(contains('/update')));
+    expect(painted, isNot(contains('failed')));
+
+    // A later finding still replaces it.
+    io.written.clear();
+    status.updateAvailable('v0.9.0');
+    await Future<void>.delayed(Duration.zero);
+    expect(io.written.toString(), contains('/update'));
+  });
 }

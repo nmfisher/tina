@@ -17,30 +17,50 @@ final versionStatusServiceKey = ServiceKey<VersionStatus>(
 /// a pure function of it. (No `idle` member: a null snapshot from
 /// [VersionStatus.read] means idle, which removes the line entirely.)
 /// [VersionPhase.miss] is the honest third answer — the check ran but could
-/// not reach GitHub, so "no alert" must not read as "up to date".
-enum VersionPhase { checking, updateAvailable, miss }
+/// not reach GitHub, so "no alert" must not read as "up to date";
+/// [VersionPhase.deferred] is the quiet fourth — the probe was skipped to
+/// respect a server-indicated retry window.
+enum VersionPhase { checking, updateAvailable, miss, deferred }
 
 class VersionSnapshot {
   final VersionPhase phase;
   final String? tag;
+  final String? why;
+
+  /// The last known release tag (`null` when nothing is cached) — the
+  /// miss/deferred suffix, e.g. `update check failed — HTTP 403 · last known
+  /// v0.8.32`.
+  final String? previousTag;
 
   const VersionSnapshot.checking()
       : phase = VersionPhase.checking,
         tag = null,
-        why = null;
+        why = null,
+        previousTag = null,
+        until = null;
   const VersionSnapshot.updateAvailable(this.tag)
       : phase = VersionPhase.updateAvailable,
         why = null,
+        previousTag = null,
+        until = null,
         assert(tag != null);
 
   /// [why] is a short human phrase, e.g. `HTTP 403 (likely rate-limited)` or
   /// `Connection refused`.
-  const VersionSnapshot.miss(this.why)
+  const VersionSnapshot.miss(this.why, {this.previousTag})
       : phase = VersionPhase.miss,
-        tag = null;
+        tag = null,
+        until = null;
 
-  /// Short human-readable reason the check could not reach GitHub.
-  final String? why;
+  /// [until] is the defer deadline; [previousTag] the last known release tag
+  /// when one is cached.
+  const VersionSnapshot.deferred({this.until, this.previousTag})
+      : phase = VersionPhase.deferred,
+        tag = null,
+        why = null;
+
+  /// Defer deadline ([VersionPhase.deferred] only).
+  final DateTime? until;
 }
 
 /// Live release-check state for the status strip, exposed as a [StatusSource]
@@ -74,8 +94,19 @@ class VersionStatus implements StatusSource {
   /// e.g. `HTTP 403 (likely rate-limited)`). Paints a dim miss line so the
   /// failure is visible; a yellow alert never hides behind it — a later
   /// check that finds a release replaces it via [updateAvailable].
-  void missed(String why) {
-    _snapshot = VersionSnapshot.miss(why);
+  /// [previousTag], when known, suffixes the line with the last known tag.
+  void missed(String why, {String? previousTag}) {
+    _snapshot = VersionSnapshot.miss(why, previousTag: previousTag);
+    _changes.add(null);
+  }
+
+  /// The background check was skipped: a previous session's failed fetch
+  /// recorded a defer window (rate limit / outage), and respecting it beats
+  /// burning the shared API budget. Strip-only state — no chat notice; the
+  /// failure already announced itself the session it happened.
+  void deferred(DateTime? until, {String? release}) {
+    _snapshot =
+        VersionSnapshot.deferred(until: until, previousTag: release);
     _changes.add(null);
   }
 

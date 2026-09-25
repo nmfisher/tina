@@ -40,15 +40,42 @@ class VersionStatusRenderer extends Renderer<VersionSnapshot> {
           ),
         ],
       // A failed check is visible but never alarm-colored: dim, one line, a
-      // short reason. `/update` remains the path to a definitive answer.
+      // short reason (plus the last known tag when one is cached, so the
+      // reader can gauge how stale "no news" is). `/update` remains the path
+      // to a definitive answer.
       VersionPhase.miss => [
           RenderLine(
             runs: [
               RenderRun('update check failed — ', context.theme.chat.dim),
               RenderRun(value.why ?? 'unknown reason', context.theme.chat.dim),
+              if (value.previousTag != null)
+                RenderRun(' · last known ${value.previousTag}',
+                    context.theme.chat.dim),
+            ],
+          ),
+        ],
+      // A skipped probe is the quietest state: dim, no alarm, no nag — the
+      // miss announced itself the session it happened. The strip line keeps
+      // the fact visible (deadline + last known tag) without repainting it
+      // into the chat transcript every launch.
+      VersionPhase.deferred => [
+          RenderLine(
+            runs: [
+              RenderRun('update check deferred', context.theme.chat.dim),
+              if (value.until != null)
+                RenderRun(
+                    ' · retry ${_shortTime(value.until!)}',
+                    context.theme.chat.dim),
+              if (value.previousTag != null)
+                RenderRun(' · last known ${value.previousTag}',
+                    context.theme.chat.dim),
             ],
           ),
         ],
     };
   }
+
+  /// `retry 14:05` — a defer deadline has no business spelling dates.
+  static String _shortTime(DateTime t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 }

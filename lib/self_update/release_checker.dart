@@ -71,22 +71,29 @@ List<int>? _parseSemver(String v) {
 /// callers can say *why* no update notice appeared, instead of leaving
 /// "check failed" to read as "up to date".
 class ReleaseMiss {
-  const ReleaseMiss.http(this.status)
+  const ReleaseMiss.http(this.status, {this.retryAt})
       : kind = MissKind.http,
         detail = 'HTTP $status';
   const ReleaseMiss.network(this.detail)
       : kind = MissKind.network,
-        status = null;
+        status = null,
+        retryAt = null;
   const ReleaseMiss.badPayload()
       : kind = MissKind.badPayload,
         status = null,
-        detail = 'unparsable release payload';
+        detail = 'unparsable release payload',
+        retryAt = null;
 
   final MissKind kind;
 
   /// HTTP status for [MissKind.http], null otherwise.
   final int? status;
   final String detail;
+
+  /// When the server says asking again is acceptable — from `retry-after`
+  /// or `x-ratelimit-reset` — or null when it said nothing (the checker
+  /// then applies its own default backoff window).
+  final DateTime? retryAt;
 
   /// GitHub's unauthenticated budget is 60 req/hr per IP, and a 403 is the
   /// shape rate limiting takes here — common on shared egress addresses.
@@ -111,17 +118,44 @@ class ReleaseChecker {
     this.apiBase = defaultApiBase,
     this.cacheTtl = const Duration(hours: 1),
     this.fetchTimeout = const Duration(seconds: 10),
+    this.deferWhile = defaultDeferWhile,
+    this.respectServerRetryAt = true,
   })  : _env = env,
         _client = client ?? http.Client();
 
   static const defaultApiBase = 'https://api.github.com/repos/nmfisher/tina';
   static const releasesPageUrl = 'https://github.com/nmfisher/tina/releases/latest';
 
+  /// Background probes defer while a recorded defer window is open. The
+  /// window comes from the server when it says one (`retry-after`,
+  /// `x-ratelimit-reset`), else these defaults by failure shape.
+  static const defaultDeferWhile = Duration(hours: 1);
+  static const defaultRateLimitBackoff = Duration(minutes: 10);
+  static const defaultServerErrorBackoff = Duration(minutes: 5);
+  static const defaultHttpBackoff = Duration(minutes: 2);
+
+  /// Connection-level failures say nothing about retry timing; a short
+  /// window keeps flaky-network blips from silencing the check without
+  /// hammering through an outage.
+  static const defaultNetworkBackoff = Duration(minutes: 1);
+
+  /// A far-future `retry-after`/`x-ratelimit-reset` is capped here so a
+  /// bogus header cannot silence the check for days. Past this, background
+  /// checks return to a normal cadence with their usual visibility.
+  static const maxBackoff = Duration(hours: 2);
+
   final Map<String, String> _env;
   final http.Client _client;
   final String apiBase;
   final Duration cacheTtl;
   final Duration fetchTimeout;
+
+  /// How long background checks defer once a defer window is recorded.
+  final Duration deferWhile;
+
+  /// Test seam: pretend the server said nothing even when it did, so the
+  /// default windows are exercisable without a wall clock.
+  final bool respectServerRetryAt;
 
   bool _closed = false;
 
@@ -147,10 +181,20 @@ class ReleaseChecker {
   /// the cached value is returned — it remains the best-known answer and an
   /// explicit `/update` always re-probes anyway. Null only when neither the
   /// cache nor the network knows.
+  ///
+  /// Background-only backoff: while a defer window is open (set by a
+  /// previous failed fetch — see [deferUntil]), the probe is skipped and
+  /// the cached answer (possibly null) returns unchanged; nothing logs and
+  /// no notice is minted, so a deferral is quiet. An explicit `/update`
+  /// bypasses the gate by calling [fetchLatest] directly.
   Future<ReleaseInfo?> checkWithRevalidate() async {
     final cache = _cacheFile();
     final cached = await _readCache(cache);
     if (cached != null && isNewer(cached.tag)) return cached;
+    if (deferUntil != null) {
+      _log.fine('release check deferred until $deferUntil');
+      return cached;
+    }
     final fresh = await fetchLatest();
     if (fresh != null) {
       await _writeCache(cache, fresh);
@@ -160,9 +204,13 @@ class ReleaseChecker {
   }
 
   /// Always hit the network (`/update` uses this so an explicit ask never
-  /// answers from a stale cache). Null on failure; the reason is on
-  /// [lastMiss] and in the log at INFO (a miss is a normal outcome, but it
-  /// must not read as "up to date").
+  /// answers from a stale cache, and is never deferred). Null on failure;
+  /// the reason is on [lastMiss] and in the log at INFO (a miss is a normal
+  /// outcome, but it must not read as "up to date"). A miss also persists a
+  /// defer window (server guidance from `retry-after`/`x-ratelimit-reset`
+  /// when offered, a short default otherwise) so subsequent *background*
+  /// checks back off instead of burning the shared 60 req/hr budget;
+  /// a success clears it.
   Future<ReleaseInfo?> fetchLatest() async {
     try {
       final resp = await _client
@@ -171,18 +219,78 @@ class ReleaseChecker {
             headers: const {'Accept': 'application/vnd.github+json'},
           )
           .timeout(fetchTimeout);
-      if (resp.statusCode != 200) {
-        _lastMiss = ReleaseMiss.http(resp.statusCode);
+      final status = resp.statusCode;
+      if (status != 200) {
+        final retryAt =
+            respectServerRetryAt ? _retryAt(resp.headers) : null;
+        _lastMiss = ReleaseMiss.http(status, retryAt: retryAt);
+        await _setBackoff(
+            DateTime.now().add(_deferWindow(status, retryAt)),
+            _lastMiss!.detail);
         _log.info('release check missed: $_lastMiss'
-            '${resp.statusCode == 403 ? ' (likely rate-limited)' : ''}');
+            '${status == 403 ? ' (likely rate-limited)' : ''}; '
+            'background probes deferred');
         return null;
       }
-      return _parse(resp.body);
+      final parsed = _parse(resp.body);
+      if (parsed == null) {
+        await _setBackoff(DateTime.now().add(defaultHttpBackoff),
+            _lastMiss!.detail);
+      } else {
+        await _setBackoff(null, null);
+      }
+      return parsed;
     } catch (e) {
       _lastMiss = ReleaseMiss.network('$e'.isEmpty ? 'network error' : '$e');
-      _log.info('release check missed: $_lastMiss');
+      await _setBackoff(
+          DateTime.now().add(defaultNetworkBackoff), _lastMiss!.detail);
+      _log.info('release check missed: $_lastMiss; background probes deferred');
       return null;
     }
+  }
+
+  /// Header-driven retry time for a failed response: `retry-after` (delay
+  /// seconds or HTTP-date) wins, then GitHub's `x-ratelimit-reset` (UTC
+  /// epoch seconds). Null when the server said nothing.
+  DateTime? _retryAt(Map<String, String> headers) {
+    final retryAfter = headers['retry-after']?.trim();
+    if (retryAfter != null && retryAfter.isNotEmpty) {
+      final seconds = int.tryParse(retryAfter);
+      if (seconds != null) {
+        return DateTime.now()
+            .add(Duration(seconds: seconds.clamp(0, maxBackoff.inSeconds)));
+      }
+      try {
+        return HttpDate.parse(retryAfter);
+      } catch (_) {
+        // Not a date either — fall through to the rate-limit header.
+      }
+    }
+    final reset = int.tryParse((headers['x-ratelimit-reset'] ?? '').trim());
+    if (reset != null) {
+      return DateTime.fromMillisecondsSinceEpoch(reset * 1000);
+    }
+    return null;
+  }
+
+  /// How long to defer background probes after a failed response with
+  /// [status]. Server guidance is honored but capped at [maxBackoff] so a
+  /// bogus far-future reset cannot silence the check for days; with no
+  /// guidance the window depends on the failure shape (a 403 is the shared
+  /// rate-limit budget, a 5xx is GitHub's trouble, anything else is likely
+  /// a persistent config problem and waits longest).
+  Duration _deferWindow(int status, DateTime? retryAt) {
+    final now = DateTime.now();
+    if (retryAt != null && retryAt.isAfter(now)) {
+      return retryAt.isBefore(now.add(maxBackoff))
+          ? retryAt.difference(now)
+          : maxBackoff;
+    }
+    return switch (status) {
+      403 => defaultRateLimitBackoff,
+      >= 500 => defaultServerErrorBackoff,
+      _ => defaultHttpBackoff,
+    };
   }
 
   /// Why the most recent [fetchLatest] failed, or null when it succeeded.
@@ -191,6 +299,52 @@ class ReleaseChecker {
   /// answer comes from the cache.
   ReleaseMiss? _lastMiss;
   ReleaseMiss? get lastMiss => _lastMiss;
+
+  /// Background probes defer until this instant, persisted under the tina
+  /// cache dir so a defer window survives restarts (the point is to stop
+  /// *the next launch* from re-probing into a rate limit). Null when no
+  /// window is open.
+  DateTime? get deferUntil => _readDeferUntil();
+
+  File _deferFile() =>
+      File(p.join(tinaDirFromEnv(_env).path, 'cache', 'release_check.defer'));
+
+  DateTime? _readDeferUntil() {
+    try {
+      final raw = _deferFile().readAsStringSync().trim();
+      if (raw.isEmpty) return null;
+      final epochMs = int.parse(raw);
+      final until = DateTime.fromMillisecondsSinceEpoch(epochMs);
+      return until.isAfter(DateTime.now()) ? until : null;
+    } catch (_) {
+      return null; // Absent, stale, or unreadable — no window open.
+    }
+  }
+
+  /// Records or clears the defer window. Best-effort like the release
+  /// cache: an unwritable cache dir simply loses the window (and the next
+  /// launch re-probes into the miss once — visible, and cheap).
+  Future<void> _setBackoff(DateTime? until, String? reason) async {
+    try {
+      final f = _deferFile();
+      if (until == null) {
+        if (f.existsSync()) await f.delete();
+      } else {
+        await f.parent.create(recursive: true);
+        await f.writeAsString(until.millisecondsSinceEpoch.toString());
+        if (reason != null) {
+          _log.info('background release checks deferred until $until ($reason)');
+        }
+      }
+    } catch (e) {
+      _log.fine('release defer write failed', e);
+    }
+  }
+
+  /// Forces a defer window until [until] (test hook; also the seam for a
+  /// future operator override). Persists like an automatic window.
+  Future<void> deferUntilForTest(DateTime until) =>
+      _setBackoff(until, 'forced by test');
 
   ReleaseInfo? _parse(String body) {
     try {

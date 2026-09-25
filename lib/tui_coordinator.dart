@@ -2404,12 +2404,18 @@ class TuiCoordinator {
             } else if (checker.lastMiss case final miss?) {
               // The check ran but could not reach GitHub. Say so — dimly,
               // once — so "no update notice" never reads as "up to date".
-              versionStatus?.missed(miss.detail);
+              versionStatus?.missed(miss.detail, previousTag: release?.tag);
               await Future<void>.delayed(const Duration(milliseconds: 50));
               initialHost.showMessage(
                 'update check failed (${miss.detail}); /update retries.\n',
                 style: HostMessageStyle.dim,
               );
+            } else if (checker.deferUntil case final until?) {
+              // A previous session's failed check recorded a defer window
+              // (rate limit, outage) and this background probe respected it
+              // without touching the network: strip-only, never chat. The
+              // user already saw the miss once; don't re-nag every launch.
+              versionStatus?.deferred(until, release: release?.tag);
             }
           } finally {
             // The found-update alert persists; only a check that ended
