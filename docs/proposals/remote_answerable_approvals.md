@@ -21,10 +21,10 @@ attached. The engine is already clean: the core puts its questions
 through one function type (`PermissionAsker`) and already runs unattended
 in sub-agents and headless runs. The wiring is not: every asker a human
 actually answers is built inside `TuiCoordinator` against a local screen
-and keyboard, and no open question survives a restart. Two defects ship
-today: three unattended paths answer human questions with *yes*, and
-automatic denials are written to the audit trail as if the user had
-denied them. A daemon is not required to fix this, but it is the right
+and keyboard, and no open question survives a restart. Two defects ship today: three
+unattended paths answer questions *for* the human, permissively
+(fail-open), and automatic denials are written to the audit trail as if
+the user had denied them. A daemon is not required to fix this, but it is the right
 end goal. I recommend six steps in order: record who denied; store open
 questions on disk; add `/approve`, `/deny` and `/answer` commands; add
 answerability to posture; make unattended questions fail closed; then
@@ -107,7 +107,7 @@ Legend for the table:
 | 12 | Sandbox-retry / outside-sandbox approval — the same modal as #1 (`packages/tina_engine/lib/src/permissions/prompt.dart:53-60`) | Extra claim rows on the card | Raw keys | TTY | **No** | No |
 | 13 | Startup session picker — `lib/session_commands/startup_session_picker.dart:7,31` | Numbered list plus a typed choice | A typed line, through an injected `readLine` (dependency-injected, covered by tests) | stdin | **Partly** — already plain text; the transport is the local stdin | No |
 
-Two surfaces the brief asked about are **not** decision points:
+Two surfaces that look like decision points but are not:
 `/classifier-review` (`command_families.dart:761`) is one-shot, read-only
 advice that never blocks, and the permission-mode *chip* is a display.
 
