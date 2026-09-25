@@ -77,38 +77,60 @@ void registerConfigProviders(
     }
     final existing = registry.descriptor(id);
     final wire = _normalizeWire(id, pc.wire, existing);
+    final noBaseUrl = pc.baseUrl == null || pc.baseUrl!.isEmpty;
 
-    // null wire = built-in id with no explicit wire → leave the built-in's
-    // wire, builder and auth alone, but still merge any `models = [...]` the
-    // config declared into its catalog: custom ids the compiled catalog
-    // predates (a renamed upstream model, a private deployment) must reach
-    // the pickers the same way they do for custom-wire providers.
-    if (wire == null) {
-      if (existing != null &&
-          ((pc.models?.isNotEmpty ?? false) || pc.maxOutput != null)) {
-        registry.register(ProviderDescriptor(
-          id: existing.id,
-          name: existing.name,
-          authSources: existing.authSources,
-          defaultBaseUrl: existing.defaultBaseUrl,
-          builder: existing.builder,
-          models: _configModels(id, pc, existing.models),
-          listsRemoteModels: existing.listsRemoteModels,
-          requestsPerMinute: existing.requestsPerMinute,
-          minRequestIntervalMs: pc.minRequestIntervalMs ?? existing.minRequestIntervalMs,
-          maxOutputOverride: pc.maxOutput ?? existing.maxOutputOverride,
-        ));
+    // No explicit `wire`: the block never builds a custom endpoint. It
+    // OVERRIDES an id the registry already serves — a compiled built-in or
+    // a models.dev-seeded provider: leave the existing wire, builder and
+    // auth alone and merge whatever the block curates (`models`,
+    // `max_output`) into the descriptor. /settings writes exactly such
+    // blocks for env-credentialed providers (no key, no base_url — both
+    // inherited), so skipping them would silently drop the user's model
+    // curation and print a bogus "no base_url" warning.
+    if (pc.wire == null) {
+      if (existing != null) {
+        if ((pc.models?.isNotEmpty ?? false) || pc.maxOutput != null) {
+          registry.register(ProviderDescriptor(
+            id: existing.id,
+            name: existing.name,
+            authSources: existing.authSources,
+            defaultBaseUrl: existing.defaultBaseUrl,
+            builder: existing.builder,
+            models: _configModels(id, pc, existing.models),
+            listsRemoteModels: existing.listsRemoteModels,
+            requestsPerMinute: existing.requestsPerMinute,
+            minRequestIntervalMs:
+                pc.minRequestIntervalMs ?? existing.minRequestIntervalMs,
+            maxOutputOverride: pc.maxOutput ?? existing.maxOutputOverride,
+          ));
+        }
+        continue;
       }
-      continue;
+      if (noBaseUrl &&
+          ((pc.models?.isNotEmpty ?? false) || pc.maxOutput != null)) {
+        // Curated id nobody serves: not compiled-in, not seeded from
+        // models.dev (that seed runs before this pass), and no base_url to
+        // build a custom provider from. The list is inert — warn plainly
+        // instead of the misleading no-base_url line the old path printed.
+        warnOut('warning: [providers.$id] curates models but no provider '
+            'serves "$id" yet (no base_url, not a built-in); the list '
+            'applies once the provider is registered.');
+        continue;
+      }
+      // else: a dangling custom provider (no wire, no base_url, nothing
+      // curated) — fall through to the warning below.
     }
 
-    if (pc.baseUrl == null || pc.baseUrl!.isEmpty) {
+    if (noBaseUrl) {
       stderr.writeln('warning: [providers.$id] defines a custom provider but has '
           'no base_url; skipping.');
       continue;
     }
     final catalog = _configModels(id, pc, existing?.models ?? const {});
-    _registerCustom(registry, id, pc, wire, catalog, baseUrl: pc.baseUrl);
+    // `wire` is non-null here: every pc.wire==null case above continued
+    // (merge, warn-and-continue, or fallthrough — the last implies
+    // existing==null, for which _normalizeWire returns 'openai').
+    _registerCustom(registry, id, pc, wire!, catalog, baseUrl: pc.baseUrl);
   }
   for (final entry in pools) {
     _registerPool(registry, entry.key, entry.value, userConfig, warnOut);

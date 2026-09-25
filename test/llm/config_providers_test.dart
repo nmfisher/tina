@@ -1,4 +1,6 @@
+import 'package:tina/config/provider_selection.dart';
 import 'package:tina/config/user_config.dart';
+import 'package:tina/composition/models_dev_seed.dart';
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina/composition/config_providers.dart';
 import 'package:test/test.dart';
@@ -133,6 +135,86 @@ void main() {
       final provider =
           registry.build('ollama/llama3', apiKeyOverride: '');
       expect(provider, isA<OpenAiCompatibleAdapter>());
+    });
+
+    test('wire-less block over a models.dev-seeded provider keeps its models '
+        'and merges the curated list (regression: xiaomi/mimo-v2.6-flash)',
+        () {
+      // /settings writes key-less, base_url-less blocks for env-credentialed
+      // seeded providers. The old path took the "custom provider, no
+      // base_url" skip, dropping `models` — the picker then showed only
+      // what the models.dev feeds knew.
+      final registry = builtinRegistry();
+      registerModelsDevProviders(
+        registry: registry,
+        providers: {
+          'xiaomi': ModelsDevProviderInfo(
+            key: 'xiaomi',
+            name: 'Xiaomi',
+            envVars: const ['XIAOMI_API_KEY'],
+            npm: '@ai-sdk/openai-compatible',
+            apiBase: 'https://api.xiaomimimo.com/v1',
+            models: const {
+              'mimo-v2.6-flash': ModelInfo(
+                id: 'mimo-v2.6-flash',
+                name: 'MiMo V2.6 Flash',
+                contextWindow: 262144,
+              ),
+            },
+          ),
+        },
+      );
+      // Startup order: seed first, then the config pass — so the wire-less
+      // block sees the seeded descriptor and merges into it.
+      registerConfigProviders(registry, const UserConfig(providers: {
+        'xiaomi': ProviderConfig(
+          disabledModels: {'mimo-v2-flash', 'mimo-v2-pro'},
+          models: [ProviderModelSpec(id: 'mimo-v2.6-flash')],
+        ),
+      }));
+      final ids = registry.modelsFor('xiaomi').map((m) => m.id);
+      expect(ids, contains('mimo-v2.6-flash'));
+      // The seeded endpoint survived (no wire/base_url replacement).
+      expect(registry.descriptor('xiaomi')!.defaultBaseUrl,
+          'https://api.xiaomimimo.com/v1');
+      // The seeded auth (models.dev's env var + the config-exported one).
+      expect(registry.descriptor('xiaomi')!.authSources.map((a) => a.envVar),
+          contains('XIAOMI_API_KEY'));
+      // And the block still curates: the disabled ids stay excluded.
+      final refs = disabledModelRefsFor(
+        const UserConfig(providers: {
+          'xiaomi': ProviderConfig(
+            disabledModels: {'mimo-v2-flash', 'mimo-v2-pro'},
+          ),
+        }),
+        ['xiaomi'],
+        (pid) => [for (final m in registry.modelsFor(pid)) m.id],
+      );
+      expect(refs, containsAll(['xiaomi/mimo-v2-flash', 'xiaomi/mimo-v2-pro']));
+      expect(refs, isNot(contains('xiaomi/mimo-v2.6-flash')));
+    });
+
+    test('wire-less curated block for an id nobody serves warns instead of '
+        'the misleading no-base_url line', () {
+      final warnings = <String>[];
+      final registry = builtinRegistry();
+      registerConfigProviders(
+        registry,
+        const UserConfig(providers: {
+          'nosuch': ProviderConfig(
+            models: [ProviderModelSpec(id: 'm-1')],
+          ),
+        }),
+        warn: warnings.add,
+      );
+      expect(registry.descriptor('nosuch'), isNull);
+      expect(warnings, hasLength(1));
+      expect(warnings.single, contains('curates models'));
+      expect(warnings.single, contains('serves "nosuch" yet'));
+      // The old path's misleading line was "defines a custom provider but
+      // has no base_url; skipping" — a curated-but-unserved block must not
+      // claim the block is being skipped.
+      expect(warnings.single, isNot(contains('skipping')));
     });
 
     test('new id with wire="openai" registers an OpenAI-compatible provider',

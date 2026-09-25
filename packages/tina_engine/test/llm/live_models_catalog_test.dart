@@ -190,6 +190,48 @@ void main() {
     expect(c.modelsFor(d).map((m) => m.id), ['cached/model']);
   });
 
+  test('a cache fetched from a different base URL is ignored', () async {
+    final d = desc();
+    final cacheDir = Directory('${tmp.path}/.tina/cache/provider_models')
+      ..createSync(recursive: true);
+    File('${cacheDir.path}/nim.json').writeAsStringSync(jsonEncode({
+      'fetchedAt': DateTime.now().toIso8601String(),
+      'baseUrl': 'https://old-endpoint.test/v1',
+      'models': ['stale/from-old-endpoint'],
+    }));
+    final http = client('{"data":[{"id":"fresh/model"}]}');
+
+    final c = catalog(env: {'NVIDIA_API_KEY': 'k'}, httpClient: http);
+    await c.load([d]);
+
+    // The foreign cache must not satisfy the load: refetch against the
+    // descriptor's current endpoint.
+    expect(http.requests.single.url.toString(), 'https://example.test/v1/models');
+    expect(c.modelsFor(d).map((m) => m.id), ['fresh/model']);
+  });
+
+  test('a base URL override invalidates a cache from the default endpoint',
+      () async {
+    final d = desc();
+    final cacheDir = Directory('${tmp.path}/.tina/cache/provider_models')
+      ..createSync(recursive: true);
+    File('${cacheDir.path}/nim.json').writeAsStringSync(jsonEncode({
+      'fetchedAt': DateTime.now().toIso8601String(),
+      'baseUrl': 'https://example.test',
+      'models': ['stale/model'],
+    }));
+    final http = client('{"data":[{"id":"proxy/model"}]}');
+
+    final c = catalog(
+      env: {'NVIDIA_API_KEY': 'k', 'NVIDIA_BASE_URL': 'https://proxy.test'},
+      httpClient: http,
+    );
+    await c.load([d]);
+
+    expect(http.requests.single.url.toString(), 'https://proxy.test/v1/models');
+    expect(c.modelsFor(d).map((m) => m.id), ['proxy/model']);
+  });
+
   test('an inner catalog (models.dev) supplies metadata for live ids',
       () async {
     final d = desc();

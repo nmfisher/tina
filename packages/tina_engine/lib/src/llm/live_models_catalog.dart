@@ -148,6 +148,19 @@ class LiveModelsCatalog implements ModelCatalog {
     return File(p.join(dir.path, '${desc.id}.json'));
   }
 
+  /// The base URL the cache/fetch path resolves for [desc] right now —
+  /// `<PREFIX>_BASE_URL` env override, else the descriptor's default,
+  /// trailing slashes stripped. The live-models cache is keyed by provider
+  /// id only, so a config block that re-points a provider's endpoint must
+  /// not be served ids fetched from the OLD endpoint.
+  String _baseUrlFor(ProviderDescriptor desc) {
+    var base = (_env[_baseUrlVar(desc)] ?? desc.defaultBaseUrl).trim();
+    while (base.endsWith('/')) {
+      base = base.substring(0, base.length - 1);
+    }
+    return base;
+  }
+
   Future<List<String>?> _cachedIds(ProviderDescriptor desc) async {
     final f = _cacheFile(desc);
     if (!f.existsSync()) return null;
@@ -157,6 +170,14 @@ class LiveModelsCatalog implements ModelCatalog {
       final raw = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
       final models = raw['models'];
       if (models is! List) return null;
+      final cachedBase = raw['baseUrl'];
+      if (cachedBase is String && cachedBase.trim() != _baseUrlFor(desc)) {
+        // Fetched from a different endpoint than the one configured now —
+        // stale by definition; force a refetch against the current base.
+        _log.fine('${desc.id} live-models cache is from another base URL; '
+            'refetching');
+        return null;
+      }
       return models.whereType<String>().toList();
     } catch (e) {
       _log.fine('${desc.id} live-models cache parse failed', e);
@@ -170,6 +191,7 @@ class LiveModelsCatalog implements ModelCatalog {
       await f.parent.create(recursive: true);
       await f.writeAsString(jsonEncode({
         'fetchedAt': DateTime.now().toIso8601String(),
+        'baseUrl': _baseUrlFor(desc),
         'models': ids,
       }));
     } catch (e) {

@@ -86,17 +86,20 @@ Future<void> _run(List<String> argv) async {
       final userConfig = loadUserConfig(env: environment.env);
       final mergedEnv = {...environment.env, ...buildEnvOverlay(userConfig)};
       final registry = builtinRegistry(env: mergedEnv);
-      registerConfigProviders(registry, userConfig);
       // Providers discovered from models.dev's api.json register BEFORE the
-      // catalogs attach: LiveModelsCatalog enumerates registry.descriptors at
-      // attach time, so a seeded provider must already be in the registry for
-      // its own GET /v1/models to refine the models.dev list. A config-declared
-      // id wins — registerConfigProviders ran first and the seed skips
-      // collisions (id, credential env var, base-URL host).
+      // config pass: registerConfigProviders must see the seeded descriptor
+      // so a wire-less `[providers.<id>]` block merges its `models` /
+      // `max_output` curation into it instead of being discarded as a
+      // custom provider with no base_url. Config-declared custom providers
+      // (explicit wire + base_url) still replace the seeded descriptor
+      // wholesale, and their key/base_url reach requests through the env
+      // overlay either way. The seed still runs before the catalogs attach:
+      // LiveModelsCatalog enumerates registry.descriptors at attach time.
       final providerCatalog = await _seedModelsDevProviders(
         registry,
         mergedEnv,
       );
+      registerConfigProviders(registry, userConfig);
       // mergedEnv (not the raw environment): a key configured in ~/.tina/config
       // rather than the shell must reach the live-models catalog too, or it
       // sees no credentials and silently skips that provider's /v1/models.

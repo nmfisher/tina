@@ -1845,3 +1845,62 @@ compiling anything. Working invocation recorded for this box: call the
 cached `dart-sdk/bin/dart` binary directly, add `--suppress-analytics`
 ($HOME is read-only too), put `TMPDIR` on the repo disk, and cap
 `--concurrency=4`.
+
+### Rate-limit-aware backoff for background release checks (2026-09-25)
+
+The miss-visibility work exposed the next layer: GitHub's unauth
+budget is 60 req/hr per IP and *every* background startup probe spent
+it, so on shared egress the strip read "update check failed" for
+reasons that were pure rate limiting. Landed as 9b39bf9: a failed
+fetch now records a defer window persisted in the shared cache dir
+(release_check.defer), honoring retry-after / x-ratelimit-reset
+(capped at 2h so a bogus far-future header cannot silence the check
+for days) with failure-shaped defaults (403 -> 10m, 5xx -> 5m, other
+HTTP -> 2m, network -> 1m). Success from any checker clears the
+window process-wide; an explicit /update never defers — ask twice,
+poll never. Strip-side the deferred state is a dim
+`update check deferred · retry HH:MM · last known <tag>`: no chat
+notice, and lastMiss is not fabricated for a skipped probe. Tests
++6 checker cases (reset-window defer, restart persistence, retry-after
+cap, expiry, success-clears, skip-leaves-lastMiss) plus a strip e2e
+for the deferred line; tui + coordinator + self_update +
+session_commands + architecture: 524 green.
+
+### /model picker: curated config models survive the models.dev overlay (2026-09-25)
+
+User report: `models = ["mimo-v2.6-flash"]` under
+`[providers.xiaomi]` — no key, no base_url, the usual /settings shape
+for env-credentialed providers — never appeared in the /model picker.
+Three cooperating defects, all fixed:
+
+1. `ModelsDevCatalog.modelsFor` *replaced* the descriptor's models
+   whenever the flat models.json overlay knew any for the provider —
+   the opposite of its documented "only adds, never removes" — and the
+   flat cache was older than the per-provider feed that already listed
+   2.6. It now unions: feed entries first, descriptor-only models
+   appended, feed metadata wins on collision; `findModel` unchanged.
+2. Startup registered config providers *before* the models.dev seed,
+   so xiaomi — not compiled-in, no wire — fell into the "custom
+   provider but has no base_url; skipping" branch: curation dropped,
+   bogus warning printed. The seed now runs first and a wire-less
+   block *merges* (`models`, `max_output`) into the serving
+   descriptor, wire/builder/auth untouched; curated-but-unserved ids
+   warn plainly instead of the misleading line. Miss caught by the
+   existing suites: the first draft of the unserved branch also
+   swallowed blocks that *did* carry a base_url (custom openai
+   providers) — "config models list becomes the descriptor catalog"
+   and the zai max_output case failed until the branch required a
+   missing base_url too.
+3. Latent: `LiveModelsCatalog` keyed its cache by provider id only,
+   so re-pointing a base URL served stale ids from the old endpoint;
+   entries now record the base URL they were fetched from and a
+   foreign-base cache is ignored (missing field = no check, so old
+   caches stay valid).
+
+Counts: engine catalog suite 16->20 (four union cases), config
+providers 42->44 (xiaomi merge regression + the unserved-curation
+warning), live catalog +2 cache-invalidation cases (17 green);
+user_config + architecture guards green; analyzer clean. The full
+root run passed 635 test bodies; 48 suites failed only to LOAD, all
+traced to a concurrent session's in-flight plan_plugin/plan_store
+edits — none of them this fix.

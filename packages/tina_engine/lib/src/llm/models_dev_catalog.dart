@@ -16,10 +16,11 @@ final _log = Logger('tina.llm.models_dev');
 /// Overlay catalog backed by [models.dev](https://models.dev/models.json).
 ///
 /// Fetched once at startup, cached to `~/.tina/cache/models.dev.json`,
-/// and layered on top of the compiled descriptor maps. Providers
-/// models.dev doesn't know about (Tencent MaaS, local Ollama, etc.) keep
-/// their hand-seeded maps as the source of truth — the overlay only adds,
-/// it never removes.
+/// and UNIONed with the compiled descriptor maps — a compiled/seeded
+/// model the feed doesn't know yet stays visible, and a feed model the
+/// compiled map predates is added. Providers models.dev doesn't know
+/// about (Tencent MaaS, local Ollama, etc.) keep their hand-seeded maps
+/// untouched.
 ///
 /// `load()` is idempotent and non-fatal: a network miss leaves the
 /// compiled maps intact. Set `COCOON_MODELS_DEV=0` to skip the fetch.
@@ -157,9 +158,20 @@ class ModelsDevCatalog implements ModelCatalog {
 
   @override
   List<ModelInfo> modelsFor(ProviderDescriptor desc) {
+    // UNION, not replacement: the flat models.dev feed lags the provider
+    // feed (and reality) — a model the feed doesn't know yet (e.g.
+    // xiaomi/mimo-v2.6-flash) must still reach the pickers from the
+    // descriptor (models.dev provider seed, config `models`, compiled
+    // seed). Catalog metadata wins on same-id collisions.
     final overlaid = _byTinaId[desc.id];
-    if (overlaid != null && overlaid.isNotEmpty) return overlaid;
-    return desc.models.values.toList();
+    if (overlaid == null || overlaid.isEmpty) {
+      return desc.models.values.toList();
+    }
+    if (desc.models.isEmpty) return overlaid;
+    return [
+      ...overlaid,
+      ...desc.models.values.where((m) => !_hasId(overlaid, m.id)),
+    ];
   }
 
   @override
@@ -171,6 +183,13 @@ class ModelsDevCatalog implements ModelCatalog {
       }
     }
     return desc.models[modelId];
+  }
+
+  bool _hasId(List<ModelInfo> models, String id) {
+    for (final m in models) {
+      if (m.id == id) return true;
+    }
+    return false;
   }
 
   @override
