@@ -10,7 +10,15 @@ import 'fake_agent_sink.dart';
 /// [FakeAgentSink]-based tests. Touches no terminal type, so tests using it
 /// need not import `tina_console`.
 class FakeHostInterface with HostLifecycleAdapter implements HostInterface {
-  FakeHostInterface({this.permissionResponse = PermissionResponse.denyOnce});
+  FakeHostInterface({
+    this.permissionResponse = PermissionResponse.denyOnce,
+    bool canAnswer = true,
+  }) : canAnswerQuestions = canAnswer;
+
+  /// Whether the fake host models an askable human. Tests drive plan-gate
+  /// posture through this (see `PlanApprovalMode`).
+  @override
+  bool canAnswerQuestions;
 
   /// Answer returned by [askPermission]. Tests override to drive allow/deny.
   PermissionResponse permissionResponse;

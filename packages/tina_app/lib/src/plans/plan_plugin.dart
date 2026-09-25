@@ -25,7 +25,18 @@ class PlanMiddleware extends AgentMiddleware {
   /// contributions cannot tell whose plan to inject — and two live
   /// conversations must not overwrite each other's context.
   final String conversationId;
-  PlanMiddleware(this.store, this.conversationId);
+
+  /// The same posture the conversation's [PlanTool] resolved (yolo posture /
+  /// host answerability): an auto-granted run must never be told to wait for
+  /// an approval nobody can give — that instruction is the 2026-09-24 stall.
+  final PlanApprovalMode approvalMode;
+
+  PlanMiddleware(
+    this.store,
+    this.conversationId, {
+    PermissionPolicy? policy,
+    HostInterface? host,
+  }) : approvalMode = PlanTool.resolveApprovalMode(policy, host);
 
   @override
   String get id => 'tina.plan.middleware';
@@ -42,12 +53,14 @@ class PlanMiddleware extends AgentMiddleware {
     final plan = store.read(conversationId);
     if (plan.isEmpty) return AgentDecision.next(request);
     return AgentDecision.next(
-      request.copyWith(system: '${request.system}\n${_section(plan)}'),
+      request.copyWith(
+        system: '${request.system}\n${_section(plan, approvalMode)}',
+      ),
     );
   }
 }
 
-String _section(Plan plan) {
+String _section(Plan plan, PlanApprovalMode approvalMode) {
   final buffer = StringBuffer(
     '<current-plan>\n'
     'This conversation maintains a task plan with the update_plan tool.\n'
@@ -57,6 +70,11 @@ String _section(Plan plan) {
   buffer.writeln(switch (plan.approval) {
     PlanApproval.none =>
       'Approval has not been requested for this plan.',
+    // An auto-granting run must never see "wait" — an unattended run would
+    // take the instruction literally and stall (2026-09-24).
+    PlanApproval.requested when approvalMode == PlanApprovalMode.autoGrant =>
+      'Approval was requested but this run has no user to answer: proceed '
+          'with the work.',
     PlanApproval.requested =>
       'You asked the user to approve this plan and they have not answered '
           'yet: wait for their approval before doing the planned work.',
@@ -80,11 +98,62 @@ String _section(Plan plan) {
 /// The agent's write surface. Implements [LocalControlTool]: it mutates only
 /// plugin-local orchestration state, so the executor allows it without an
 /// approval ask (tool_executor.dart short-circuits `is LocalControlTool`)
-/// while the guard chain still applies.
+/// while the guard chain applies.
+///
+/// The plan-approval dimension is a HUMAN gate — separate from the tool
+/// permission policy. When no human is in the loop, a request must not park
+/// the run (2026-09-24: an unattended `--yolo --prompt` run stalled forever
+/// waiting on an approval nobody could give), so the mode is resolved at
+/// construction and a `requested` ask auto-grants instead:
+///
+/// - `--yolo` (`PermissionPolicy.allowAllByDefault`): the flag documents
+///   "skip all permission prompts", and this is one.
+/// - The host has no answerable human ([HostInterface.canAnswerQuestions]
+///   is false — headless `--prompt`/`--workflow`): there is no `/plan` and
+///   no overlay to answer through.
+///
+/// Otherwise (interactive default) `requested` parks the plan exactly as
+/// before and the user answers via `/plan` or the overlay.
+enum PlanApprovalMode { interactive, autoGrant }
+
 class PlanTool extends LocalControlTool {
   final PlanStore store;
   final String conversationId;
-  PlanTool(this.store, this.conversationId);
+
+  /// The conversation's permission policy — read once for the `--yolo`
+  /// posture (`allowAllByDefault`). Null in tests/when no policy exists
+  /// (same as a non-yolo posture).
+  final PermissionPolicy? policy;
+
+  /// The conversation's host. Read once for answerability — a headless host
+  /// auto-grants even without `--yolo`, because nobody could ever answer.
+  final HostInterface? host;
+
+  /// Resolved once at construction: policy and answerability are fixed for
+  /// the conversation's lifetime (the policy's yolo posture is set at
+  /// startup and the host does not change mid-session).
+  final PlanApprovalMode approvalMode;
+
+  /// The shared mode resolver: `--yolo` posture (`allowAllByDefault`) or an
+  /// unanswerable host forces [PlanApprovalMode.autoGrant]; anything else
+  /// keeps the interactive gate. Static so [PlanMiddleware] resolves the
+  /// identical mode from the same two signals — the tool and the guidance
+  /// must never disagree about whether the run can wait.
+  static PlanApprovalMode resolveApprovalMode(
+    PermissionPolicy? policy,
+    HostInterface? host,
+  ) =>
+      (policy?.allowAllByDefault ?? false) ||
+              !(host?.canAnswerQuestions ?? true)
+          ? PlanApprovalMode.autoGrant
+          : PlanApprovalMode.interactive;
+
+  PlanTool(
+    this.store,
+    this.conversationId, {
+    this.policy,
+    this.host,
+  }) : approvalMode = resolveApprovalMode(policy, host);
 
   @override
   ToolSchema get schema => ToolSchema(
@@ -145,6 +214,13 @@ class PlanTool extends LocalControlTool {
       return ToolResult.error(
           'update_plan approval must be "requested" or "none"');
     }
+    // No human in the loop (yolo / unattended): a request must not park the
+    // run — auto-grant so the work proceeds (2026-09-24 plan stall).
+    final effectiveApproval =
+        approval == PlanApproval.requested &&
+                approvalMode == PlanApprovalMode.autoGrant
+            ? PlanApproval.approved
+            : approval;
     // Approval-only call: re-request on the unchanged plan, no items needed.
     if (rawItems == null) {
       if (approval != PlanApproval.requested) {
@@ -152,11 +228,23 @@ class PlanTool extends LocalControlTool {
             'update_plan requires an items array (or approval: "requested")');
       }
       try {
-        store.requestApproval(conversationId);
+        switch (effectiveApproval) {
+          case PlanApproval.approved:
+            store.approve(conversationId);
+          case PlanApproval.requested:
+            store.requestApproval(conversationId);
+          default:
+            throw StateError('no plan to approve');
+        }
       } on StateError {
         return ToolResult.error('no plan to approve');
       }
-      return ToolResult('Plan unchanged; approval requested.');
+      return ToolResult(switch (effectiveApproval) {
+        PlanApproval.approved =>
+          'Plan unchanged; proceeding (no user approval is possible or '
+              'required in this run).',
+        _ => 'Plan unchanged; approval requested.',
+      });
     }
     if (rawItems is! List) {
       return ToolResult.error('update_plan requires an items array');
@@ -178,7 +266,7 @@ class PlanTool extends LocalControlTool {
             },
           ),
       ];
-      store.update(conversationId, items, approval: approval);
+      store.update(conversationId, items, approval: effectiveApproval);
     } on ArgumentError catch (error) {
       return ToolResult.error(error.message?.toString() ?? 'invalid plan');
     }
@@ -189,6 +277,9 @@ class PlanTool extends LocalControlTool {
         'Plan updated; waiting for user approval (they will answer via '
             '/plan or the plan overlay; the plan in your context tells you '
             'the outcome).',
+      PlanApproval.approved when approvalMode == PlanApprovalMode.autoGrant =>
+        'Plan updated; approved automatically (no user approval is possible '
+            'or required in this run).',
       _ => 'Plan updated.',
     });
   }

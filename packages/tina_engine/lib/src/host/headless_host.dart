@@ -45,6 +45,12 @@ class HeadlessHost with HostLifecycleAdapter implements HostInterface {
   @override
   AgentEventBus get eventBus => _bus;
 
+  /// No interactive surface exists: no `/plan`, no question overlay, no
+  /// permission modal. Gates that would park the run waiting for a human
+  /// (plan approval, ask_user) must not park here — read before asking.
+  @override
+  bool get canAnswerQuestions => false;
+
   @override
   Future<PermissionResponse> askPermission(PermissionPrompt p) async {
     // Mirrors the pre-refactor non-interactive asker: a `ask` decision can't be
