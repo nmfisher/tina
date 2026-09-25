@@ -2,6 +2,18 @@ import 'package:test/test.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 void main() {
+  group('defaultStreamIdleTimeout pin', () {
+    test('is pinned at 600s (raised from 60s on 2026-09-24)', () {
+      // A reasoning model can sit silent for minutes between SSE events
+      // while thinking. 60s (then even an explicit 300s) aborted such runs
+      // mid-work. If this pin ever breaks, the default moved — update
+      // kDefaultStreamIdleTimeoutSeconds (lib/config.dart), the
+      // RuntimeConfig constructor default, and the --help text together,
+      // on purpose.
+      expect(defaultStreamIdleTimeout, const Duration(seconds: 600));
+    });
+  });
+
   group('scaledRequestTimeout (#23c)', () {
     test('0 bytes returns the exact base default', () {
       expect(scaledRequestTimeout(0), defaultRequestTimeout);

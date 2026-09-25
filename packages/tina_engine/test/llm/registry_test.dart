@@ -248,7 +248,17 @@ void main() {
         ..register(_desc('p', builder: _recording(captured)));
       r.build('p/model');
       expect(captured.single.maxTokens, ProviderRegistry.defaultMaxTokens);
-      expect(captured.single.streamIdleTimeout, const Duration(seconds: 60));
+      // Pinned at 600: raised from 60 on 2026-09-24 — reasoning models sit
+      // silent for minutes between SSE events. Must match
+      // kDefaultStreamIdleTimeoutSeconds (lib/config.dart) and the
+      // RuntimeConfig constructor default.
+      expect(captured.single.streamIdleTimeout, const Duration(seconds: 600));
+      // An explicit override still wins over the default.
+      final captured2 = <ProviderInstance>[];
+      final r2 = ProviderRegistry(env: {'TEST_KEY': 'k'})
+        ..register(_desc('p', builder: _recording(captured2)));
+      r2.build('p/model', streamIdleTimeout: const Duration(seconds: 42));
+      expect(captured2.single.streamIdleTimeout, const Duration(seconds: 42));
     });
 
     test("forwards the model's extraBody to the builder", () {
