@@ -206,6 +206,16 @@ Future<T?> runListOverlay<T>({
   /// quit (Ctrl+C → "Exit or detach?" → Ctrl+C used to mean "cancel/stay").
   T Function()? onCtrlC,
   T? Function(InputEvent event)? shortcut,
+
+  /// Opt-in type-to-search: typed characters filter the entries
+  /// (case-insensitive substring on the display text), Backspace edits and
+  /// Tab clears the filter. Off by default so pickers that double as
+  /// shortcut surfaces keep their keystrokes.
+  bool filterable = false,
+
+  /// Overrides the box width cap (60 columns by default). The session picker
+  /// raises it because `title — description (Nmsg)` rows need the room.
+  int? maxWidth,
 }) {
   final footerFn = footer is String Function(int)
       ? footer
@@ -220,6 +230,8 @@ Future<T?> runListOverlay<T>({
     body,
     onCtrlC,
     shortcut,
+    filterable,
+    maxWidth,
   ).run();
 }
 
@@ -234,6 +246,8 @@ class _ListPickerForm<T> {
     this._bodyText,
     this._onCtrlC,
     this._shortcut,
+    this._filterable,
+    this._maxWidth,
   );
 
   final Screen _screen;
@@ -245,6 +259,23 @@ class _ListPickerForm<T> {
   final String? _bodyText;
   final T Function()? _onCtrlC;
   final T? Function(InputEvent event)? _shortcut;
+  final bool _filterable;
+  final int? _maxWidth;
+
+  /// Type-to-search state, live only when [_filterable]. Filtering keeps the
+  /// original entry order (callers own ordering) and matches
+  /// case-insensitively on the display text.
+  String _query = '';
+
+  /// The entries matching [_query]; all of them when the filter is empty.
+  List<({String display, T value})> get _visible {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return _entries;
+    return [
+      for (final e in _entries)
+        if (e.display.toLowerCase().contains(q)) e,
+    ];
+  }
 
   late final OverlayRegion _overlay;
   late Rect _rect;
@@ -267,12 +298,14 @@ class _ListPickerForm<T> {
 
   int get _contentRows => (_rect.height - 4).clamp(1, _rect.height);
 
-  int get _entryRows => _entries.length.clamp(
-    0,
-    _bodyLines.isEmpty
-        ? _contentRows
-        : (_contentRows - 1).clamp(1, _contentRows),
-  );
+  int get _entryRows {
+    // A live filter spends the first interior row on the query line.
+    final rows = _filterable ? _contentRows - 1 : _contentRows;
+    return _visible.length.clamp(
+      0,
+      _bodyLines.isEmpty ? rows : (rows - 1).clamp(1, rows),
+    );
+  }
 
   int get _bodyScrollMax {
     if (_bodyLines.isEmpty) return 0;
@@ -283,9 +316,10 @@ class _ListPickerForm<T> {
   void _layout() {
     final layout = _screen.layout;
     // Margins and preferred minimums yield to the actual available space.
+    // [_maxWidth] raises the 60-column cap for pickers with wider rows.
     final w = (layout.width >= 44 ? layout.width - 4 : layout.width).clamp(
       1,
-      60,
+      _maxWidth ?? 60,
     );
     final innerW = (w - 4).clamp(1, w);
     final bodyText = _bodyText;
@@ -297,7 +331,7 @@ class _ListPickerForm<T> {
     final maxH = layout.height >= 16 ? layout.height - 4 : layout.height;
     final desired = bodyText == null
         ? layout.height ~/ 2
-        : _bodyLines.length + _entries.length + 4;
+        : _bodyLines.length + _visible.length + 4;
     final h = desired.clamp(12.clamp(1, maxH), maxH);
     _rect = Rect(
       row: (layout.height - h) ~/ 2,
@@ -350,8 +384,33 @@ class _ListPickerForm<T> {
 
   /// Returns true when the user made a selection.
   bool _dispatch(InputEvent ev) {
-    if (_entries.isEmpty) return false;
+    // Type-to-search (opt-in): chars build the query, Backspace edits, Tab
+    // clears; a change re-clamps focus into the new match list. All other
+    // keys keep their meaning so `shortcut` surfaces still work.
+    if (_filterable) {
+      if (ev is CharInput) {
+        _query += ev.text;
+        _refocus();
+        return false;
+      }
+      if (ev is ControlKey && ev.code == ControlCode.backspace) {
+        if (_query.isNotEmpty) {
+          _query = _query.substring(0, _query.length - 1);
+          _refocus();
+        }
+        return false;
+      }
+      if (ev is ControlKey && ev.code == ControlCode.tab) {
+        if (_query.isNotEmpty) {
+          _query = '';
+          _refocus();
+        }
+        return false;
+      }
+    }
 
+    final visible = _visible;
+    if (visible.isEmpty) return false;
     if (ev is ArrowKey) {
       final page = _entryRows;
       switch (ev.direction) {
@@ -361,24 +420,24 @@ class _ListPickerForm<T> {
           if (_bodyLines.isNotEmpty && _focus == 0 && _bodyScroll > 0) {
             _bodyScroll -= 1;
           } else {
-            _focus = (_focus - 1).clamp(0, _entries.length - 1);
+            _focus = (_focus - 1).clamp(0, visible.length - 1);
             _ensureFocusVisible();
           }
         case ArrowDirection.down:
           // At the bottom entry with body below: scroll the body.
           if (_bodyLines.isNotEmpty &&
-              _focus == _entries.length - 1 &&
+              _focus == visible.length - 1 &&
               _bodyScroll < _bodyScrollMax) {
             _bodyScroll += 1;
           } else {
-            _focus = (_focus + 1).clamp(0, _entries.length - 1);
+            _focus = (_focus + 1).clamp(0, visible.length - 1);
             _ensureFocusVisible();
           }
         case ArrowDirection.pageUp:
-          _focus = (_focus - page).clamp(0, _entries.length - 1);
+          _focus = (_focus - page).clamp(0, visible.length - 1);
           _ensureFocusVisible();
         case ArrowDirection.pageDown:
-          _focus = (_focus + page).clamp(0, _entries.length - 1);
+          _focus = (_focus + page).clamp(0, visible.length - 1);
           _ensureFocusVisible();
         case ArrowDirection.left:
         case ArrowDirection.right:
@@ -388,13 +447,22 @@ class _ListPickerForm<T> {
     }
 
     if (ev is ControlKey && ev.code == ControlCode.enter) {
-      if (_focus >= 0 && _focus < _entries.length) {
-        _selected = _entries[_focus].value;
+      if (_focus >= 0 && _focus < visible.length) {
+        _selected = visible[_focus].value;
         return true;
       }
     }
 
     return false;
+  }
+
+  /// Re-clamp after the filter changed: focus may point past the (new) match
+  /// list, and the view must scroll back to the focus.
+  void _refocus() {
+    final n = _visible.length;
+    if (_focus >= n) _focus = n == 0 ? 0 : n - 1;
+    if (_focus < 0) _focus = 0;
+    _ensureFocusVisible();
   }
 
   void _ensureFocusVisible() {
@@ -429,6 +497,13 @@ class _ListPickerForm<T> {
 
   List<String> _body() {
     final lines = <String>[];
+    if (_filterable) {
+      lines.add(
+        _query.isEmpty
+            ? '\x1b[2mfilter: (type to search — tab clears)\x1b[22m'
+            : 'filter: $_query',
+      );
+    }
     final bodyRows = _bodyRowsAvail;
     if (bodyRows > 0) {
       // Leave at least one actual text row when adding scroll indicators.
@@ -443,15 +518,19 @@ class _ListPickerForm<T> {
         lines.add('');
       }
     }
-    if (_entries.isEmpty) {
+    final visible = _visible;
+    if (visible.isEmpty) {
       if (lines.isEmpty) lines.add(_row(false, '(no items available)'));
+      if (_filterable) {
+        lines.add('\x1b[2mno entries match — tab clears\x1b[22m');
+      }
       return lines;
     }
     // Scroll the entry strip independently. Never replace the focused option
     // with an overflow indicator, especially when only one entry row fits.
-    final end = (_scrollOffset + _entryRows).clamp(0, _entries.length);
+    final end = (_scrollOffset + _entryRows).clamp(0, visible.length);
     for (var i = _scrollOffset; i < end; i++) {
-      lines.add(_row(i == _focus, _entries[i].display));
+      lines.add(_row(i == _focus, visible[i].display));
     }
     return lines;
   }

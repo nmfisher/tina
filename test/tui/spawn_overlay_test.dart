@@ -15,19 +15,20 @@ void main() {
 
   setUp(canned.clear);
 
-  Future<String?> run(Screen screen,
-          {Set<String> configured = const {'alpha', 'beta'},
-          Set<String> disabled = const {},
-          List<String> recentlyUsed = const []}) =>
-      runSpawnOverlay(
-        screen: screen,
-        editor: LineEditor(screen: screen),
-        registry: spawnRegistry(),
-        configuredProviders: configured,
-        disabledModelRefs: disabled,
-        recentlyUsed: recentlyUsed,
-        readEvent: canned.readEvent,
-      );
+  Future<String?> run(
+    Screen screen, {
+    Set<String> configured = const {'alpha', 'beta'},
+    Set<String> disabled = const {},
+    List<String> recentlyUsed = const [],
+  }) => runSpawnOverlay(
+    screen: screen,
+    editor: LineEditor(screen: screen),
+    registry: spawnRegistry(),
+    configuredProviders: configured,
+    disabledModelRefs: disabled,
+    recentlyUsed: recentlyUsed,
+    readEvent: canned.readEvent,
+  );
 
   // -- Tests ----------------------------------------------------------------
 
@@ -70,8 +71,10 @@ void main() {
       ArrowKey(ArrowDirection.down), // alpha/a2 → beta/b1
       ControlKey(ControlCode.enter), // select beta/b1
     ];
-    final result = await run(screen, configured: {'alpha', 'beta', 'gamma'})
-        .timeout(overlayTimeout);
+    final result = await run(
+      screen,
+      configured: {'alpha', 'beta', 'gamma'},
+    ).timeout(overlayTimeout);
     expect(result, 'beta/b1');
   });
 
@@ -87,19 +90,21 @@ void main() {
     canned.events = [
       // Canned events bypass the editor's quit gate and exercise the overlay's
       // own Ctrl+C branch directly; in the live TUI the editor intercepts it.
-      ControlKey(ControlCode.ctrlC)
+      ControlKey(ControlCode.ctrlC),
     ];
     final result = await run(screen).timeout(overlayTimeout);
     expect(result, isNull);
   });
 
-  test('no configured providers lists nothing but still cancels cleanly',
-      () async {
-    final screen = fakeScreen();
-    canned.events = [EscapeKey()];
-    final result = await run(screen, configured: {}).timeout(overlayTimeout);
-    expect(result, isNull);
-  });
+  test(
+    'no configured providers lists nothing but still cancels cleanly',
+    () async {
+      final screen = fakeScreen();
+      canned.events = [EscapeKey()];
+      final result = await run(screen, configured: {}).timeout(overlayTimeout);
+      expect(result, isNull);
+    },
+  );
 
   test('disabled models are filtered out of the list', () async {
     final screen = fakeScreen();
@@ -107,8 +112,10 @@ void main() {
     canned.events = [
       ControlKey(ControlCode.enter), // select alpha/a1
     ];
-    final result = await run(screen, disabled: {'alpha/a2', 'beta/b1'})
-        .timeout(overlayTimeout);
+    final result = await run(
+      screen,
+      disabled: {'alpha/a2', 'beta/b1'},
+    ).timeout(overlayTimeout);
     expect(result, 'alpha/a1');
   });
 
@@ -123,19 +130,23 @@ void main() {
     expect(result, 'alpha/a1');
   });
 
-  test('most-recently-used models are surfaced at the top, MRU order',
-      () async {
-    final screen = fakeScreen();
-    // Without MRU the list is [alpha/a1, alpha/a2, beta/b1]. With MRU
-    // [beta/b1, alpha/a2] (most recent first), it becomes
-    // [beta/b1, alpha/a2, alpha/a1] — so focus 0 selects beta/b1.
-    canned.events = [
-      ControlKey(ControlCode.enter), // select focus 0 → beta/b1
-    ];
-    final result = await run(screen, recentlyUsed: ['beta/b1', 'alpha/a2'])
-        .timeout(overlayTimeout);
-    expect(result, 'beta/b1');
-  });
+  test(
+    'most-recently-used models are surfaced at the top, MRU order',
+    () async {
+      final screen = fakeScreen();
+      // Without MRU the list is [alpha/a1, alpha/a2, beta/b1]. With MRU
+      // [beta/b1, alpha/a2] (most recent first), it becomes
+      // [beta/b1, alpha/a2, alpha/a1] — so focus 0 selects beta/b1.
+      canned.events = [
+        ControlKey(ControlCode.enter), // select focus 0 → beta/b1
+      ];
+      final result = await run(
+        screen,
+        recentlyUsed: ['beta/b1', 'alpha/a2'],
+      ).timeout(overlayTimeout);
+      expect(result, 'beta/b1');
+    },
+  );
 
   test('recent refs not in the available set are ignored', () async {
     final screen = fakeScreen();
@@ -144,8 +155,10 @@ void main() {
     canned.events = [
       ControlKey(ControlCode.enter), // focus 0 → alpha/a2
     ];
-    final result = await run(screen, recentlyUsed: ['gamma/g1', 'alpha/a2'])
-        .timeout(overlayTimeout);
+    final result = await run(
+      screen,
+      recentlyUsed: ['gamma/g1', 'alpha/a2'],
+    ).timeout(overlayTimeout);
     expect(result, 'alpha/a2');
   });
 
@@ -157,10 +170,16 @@ void main() {
     final screen = fakeScreen();
     // Registry with a catalog-less custom provider + a configured catalog one.
     final registry = ProviderRegistry(env: {})
-      ..register(fakeProviderDescriptor('alpha',
-          models: ['a1', 'a2'], authRequired: false))
-      ..register(fakeProviderDescriptor('stub',
-          models: const [], authRequired: false));
+      ..register(
+        fakeProviderDescriptor(
+          'alpha',
+          models: ['a1', 'a2'],
+          authRequired: false,
+        ),
+      )
+      ..register(
+        fakeProviderDescriptor('stub', models: const [], authRequired: false),
+      );
     canned.events = [
       ArrowKey(ArrowDirection.down), // alpha/a1 → alpha/a2
       ArrowKey(ArrowDirection.down), // alpha/a2 → stub/stub-1 (the seeded ref)
@@ -177,33 +196,42 @@ void main() {
     expect(result, 'stub/stub-1');
   });
 
-  test('seeding skips a provider the active model does not belong to',
-      () async {
-    final screen = fakeScreen();
-    final registry = ProviderRegistry(env: {})
-      ..register(fakeProviderDescriptor('alpha',
-          models: ['a1', 'a2'], authRequired: false))
-      ..register(fakeProviderDescriptor('stub',
-          models: const [], authRequired: false));
-    canned.events = [
-      ControlKey(ControlCode.enter), // focus 0 → alpha/a1 (no seed added)
-    ];
-    final result = await runSpawnOverlay(
-      screen: screen,
-      editor: LineEditor(screen: screen),
-      registry: registry,
-      configuredProviders: const {'alpha', 'stub'},
-      activeModelRef: 'alpha/a1',
-      readEvent: canned.readEvent,
-    ).timeout(overlayTimeout);
-    expect(result, 'alpha/a1');
-  });
+  test(
+    'seeding skips a provider the active model does not belong to',
+    () async {
+      final screen = fakeScreen();
+      final registry = ProviderRegistry(env: {})
+        ..register(
+          fakeProviderDescriptor(
+            'alpha',
+            models: ['a1', 'a2'],
+            authRequired: false,
+          ),
+        )
+        ..register(
+          fakeProviderDescriptor('stub', models: const [], authRequired: false),
+        );
+      canned.events = [
+        ControlKey(ControlCode.enter), // focus 0 → alpha/a1 (no seed added)
+      ];
+      final result = await runSpawnOverlay(
+        screen: screen,
+        editor: LineEditor(screen: screen),
+        registry: registry,
+        configuredProviders: const {'alpha', 'stub'},
+        activeModelRef: 'alpha/a1',
+        readEvent: canned.readEvent,
+      ).timeout(overlayTimeout);
+      expect(result, 'alpha/a1');
+    },
+  );
 
   test('a disabled active model is not seeded', () async {
     final screen = fakeScreen();
     final registry = ProviderRegistry(env: {})
-      ..register(fakeProviderDescriptor('stub',
-          models: const [], authRequired: false));
+      ..register(
+        fakeProviderDescriptor('stub', models: const [], authRequired: false),
+      );
     canned.events = [
       ControlKey(ControlCode.enter), // Enter on the empty list is a no-op…
       EscapeKey(), // …so cancel instead.
@@ -220,20 +248,23 @@ void main() {
     expect(result, isNull, reason: 'unchecked-in-/settings models stay hidden');
   });
 
-  test('no seeding without an active ref: empty list still cancels cleanly',
-      () async {
-    final screen = fakeScreen();
-    final registry = ProviderRegistry(env: {})
-      ..register(fakeProviderDescriptor('stub',
-          models: const [], authRequired: false));
-    canned.events = [EscapeKey()];
-    final result = await runSpawnOverlay(
-      screen: screen,
-      editor: LineEditor(screen: screen),
-      registry: registry,
-      configuredProviders: const {'stub'},
-      readEvent: canned.readEvent,
-    ).timeout(overlayTimeout);
-    expect(result, isNull);
-  });
+  test(
+    'no seeding without an active ref: empty list still cancels cleanly',
+    () async {
+      final screen = fakeScreen();
+      final registry = ProviderRegistry(env: {})
+        ..register(
+          fakeProviderDescriptor('stub', models: const [], authRequired: false),
+        );
+      canned.events = [EscapeKey()];
+      final result = await runSpawnOverlay(
+        screen: screen,
+        editor: LineEditor(screen: screen),
+        registry: registry,
+        configuredProviders: const {'stub'},
+        readEvent: canned.readEvent,
+      ).timeout(overlayTimeout);
+      expect(result, isNull);
+    },
+  );
 }

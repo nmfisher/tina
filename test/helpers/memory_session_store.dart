@@ -28,8 +28,7 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
   /// [SessionStore] interface, but useful for tests that assert on manifest
   /// structure.
   ConversationMeta? metaFor(String sessionId, String conversationId) =>
-      _manifests[sessionId]
-          ?.conversations
+      _manifests[sessionId]?.conversations
           .where((c) => c.id == conversationId)
           .firstOrNull;
 
@@ -77,12 +76,16 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
   @override
   Future<String> createConversation(String sessionId, {String? model}) =>
       createConversationWithMeta(
-          sessionId, ConversationMetaInput(model: model));
+        sessionId,
+        ConversationMetaInput(model: model),
+      );
 
   @override
   Future<String> createConversationWithMeta(
-      String sessionId, ConversationMetaInput input,
-      {String? conversationId}) async {
+    String sessionId,
+    ConversationMetaInput input, {
+    String? conversationId,
+  }) async {
     final manifest = _manifests[sessionId];
     if (manifest == null) throw StateError('Session not found: $sessionId');
     final id = conversationId ?? 'c${++_convCounter}';
@@ -119,7 +122,10 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
 
   @override
   Future<void> append(
-      String sessionId, String conversationId, Message message) async {
+    String sessionId,
+    String conversationId,
+    Message message,
+  ) async {
     _tick();
     (_conversations[conversationId] ??= <Message>[]).add(message);
     _conversationWrites[conversationId] = clock;
@@ -127,7 +133,10 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
 
   @override
   Future<void> replace(
-      String sessionId, String conversationId, List<Message> messages) async {
+    String sessionId,
+    String conversationId,
+    List<Message> messages,
+  ) async {
     _tick();
     _conversations[conversationId] = List<Message>.of(messages);
     _conversationWrites[conversationId] = clock;
@@ -135,7 +144,9 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
 
   @override
   Future<List<Message>> loadConversation(
-      String sessionId, String conversationId) async {
+    String sessionId,
+    String conversationId,
+  ) async {
     final messages = _conversations[conversationId];
     if (messages == null) {
       throw StateError('Conversation not found: $sessionId/$conversationId');
@@ -150,7 +161,9 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
 
   @override
   Future<void> setActiveConversation(
-      String sessionId, String conversationId) async {
+    String sessionId,
+    String conversationId,
+  ) async {
     final manifest = _manifests[sessionId];
     if (manifest == null) throw StateError('Session not found: $sessionId');
     final meta = manifest.conversations
@@ -197,9 +210,12 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
       _pointerWrites[sessionId] ?? DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
-  Future<void> updateConversationModel(String sessionId,
-      String conversationId,
-      {required String model, String? label}) async {
+  Future<void> updateConversationModel(
+    String sessionId,
+    String conversationId, {
+    required String model,
+    String? label,
+  }) async {
     final manifest = _manifests[sessionId];
     if (manifest == null) throw StateError('Session not found: $sessionId');
     var found = false;
@@ -229,7 +245,8 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
     ];
     if (!found) {
       throw StateError(
-          'Conversation not found in session: $sessionId/$conversationId');
+        'Conversation not found in session: $sessionId/$conversationId',
+      );
     }
     _manifests[sessionId] = SessionManifest(
       id: manifest.id,
@@ -243,10 +260,12 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
   }
 
   @override
-  Future<void> updateConversationTrackers(String sessionId,
-      String conversationId,
-      {required Map<String, dynamic>? goal,
-      required Map<String, dynamic>? plan}) async {
+  Future<void> updateConversationTrackers(
+    String sessionId,
+    String conversationId, {
+    required Map<String, dynamic>? goal,
+    required Map<String, dynamic>? plan,
+  }) async {
     final manifest = _manifests[sessionId];
     if (manifest == null) throw StateError('Session not found: $sessionId');
     var found = false;
@@ -273,7 +292,8 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
     ];
     if (!found) {
       throw StateError(
-          'Conversation not found in session: $sessionId/$conversationId');
+        'Conversation not found in session: $sessionId/$conversationId',
+      );
     }
     _manifests[sessionId] = SessionManifest(
       id: manifest.id,
@@ -312,15 +332,18 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
         totalCount += (_conversations[c.id]?.length ?? 0);
       }
       final updated = _updatedAt[sid]!;
-      out.add(SessionMeta(
-        id: sid,
-        title: '(test)',
-        createdAt: _createdAt[sid] ?? updated,
-        updatedAt: updated,
-        messageCount: totalCount,
-        conversationCount: manifest.conversations.length,
-        cwd: manifest.cwd,
-      ));
+      out.add(
+        SessionMeta(
+          id: sid,
+          title: '(test)',
+          createdAt: _createdAt[sid] ?? updated,
+          updatedAt: updated,
+          messageCount: totalCount,
+          conversationCount: manifest.conversations.length,
+          cwd: manifest.cwd,
+          description: _descriptionFor(manifest.activeConversationId),
+        ),
+      );
     }
     out.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return out;
@@ -333,14 +356,36 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
     _updatedAt.remove(sessionId);
   }
 
+  /// Mirrors the JSONL store's description: first non-synthetic user text,
+  /// with a first-assistant fallback.
+  String? _descriptionFor(String? conversationId) {
+    if (conversationId == null) return null;
+    String? assistantFallback;
+    for (final m in _conversations[conversationId] ?? const <Message>[]) {
+      if (m.isSynthetic) continue;
+      final texts = m.content.whereType<TextBlock>().toList();
+      if (texts.isEmpty) continue; // tool-result batch
+      final text = texts.map((b) => b.text).join(' ').trim();
+      if (text.isEmpty) continue;
+      if (m.role == Role.user) return text.split('\n').first.trim();
+      if (m.role == Role.assistant && assistantFallback == null) {
+        assistantFallback = text.split('\n').first.trim();
+      }
+    }
+    return assistantFallback;
+  }
+
   @override
   Future<void> deleteConversation(
-      String sessionId, String conversationId) async {
+    String sessionId,
+    String conversationId,
+  ) async {
     _conversations.remove(conversationId);
     final manifest = _manifests[sessionId];
     if (manifest == null) return;
-    final remaining =
-        manifest.conversations.where((c) => c.id != conversationId).toList();
+    final remaining = manifest.conversations
+        .where((c) => c.id != conversationId)
+        .toList();
     // Heal to another PRIMARY on anchor deletion (never a panel), or empty
     // when none remains — the next primary creation anchors.
     final active = manifest.activeConversationId == conversationId

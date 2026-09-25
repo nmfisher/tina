@@ -20,8 +20,8 @@ import 'package:tina/composition/version_status.dart';
 import 'package:tina/logging.dart';
 
 import 'package:tina/host/headless_watchdog.dart';
-import 'package:tina/session_commands/startup_session_picker.dart';
 import 'package:tina/session_commands/headless_commands.dart';
+import 'package:tina/session_commands/startup_session_picker_backend.dart';
 
 import 'package:tina_engine/tina_engine.dart';
 
@@ -181,8 +181,8 @@ Future<void> _run(List<String> argv) async {
       final launch = config.launch;
 
       // First-run seeding of the default DOT workflow (idempotent; also runs
-      // for interactive launches so `default.dot` exists before the agent may
-      // launch it via its launch_workflow tool).
+      // for interactive launches so `default.dot` exists for the user's
+      // /workflow commands).
       _seedDefaultWorkflowQuietly(environment.env);
 
       // The startup paths below need only a read-only view of saved
@@ -212,11 +212,7 @@ Future<void> _run(List<String> argv) async {
             exitCode = 64;
             return;
           }
-          final id = pickStartupSession(
-            await index.listSessions(),
-            readLine: stdin.readLineSync,
-            write: stdout.write,
-          );
+          final id = await pickStartupSessionId(await index.listSessions());
           if (id == null) return;
           resume = ResumeRequest(resumeSessionId: id);
         } finally {
@@ -477,7 +473,7 @@ void _seedDefaultWorkflowQuietly(Map<String, String> env) {
     if (seedDefaultWorkflow(_workflowsDir(env))) {
       stdout.writeln(
         'seeded ~/.tina/workflows/default.dot — the default '
-        'graph the agent launches via its launch_workflow tool. Edit with '
+        'graph for user-launched workflows (/workflow run). Edit with '
         '/workflow edit default; delete it (or set [default] workflow = '
         '"none") if you don\'t want a default workflow available.',
       );
@@ -900,7 +896,16 @@ Future<void> _listSessions(RuntimeConfig config) async {
   }
   for (final s in sessions) {
     final stamp = _shortStamp(s.updatedAt);
-    stdout.writeln('${s.id}  $stamp  ${s.messageCount}msg  ${s.title}');
+    // The description (first substantive prompt) is what makes the entries
+    // tell apart; stripped to one line like the pickers render it.
+    final desc = (s.description ?? '').replaceAll(
+      RegExp(r'[\x00-\x1f\x7f-\x9f]'),
+      ' ',
+    );
+    stdout.writeln(
+      '${s.id}  $stamp  ${s.messageCount}msg  ${s.title}'
+      '${desc.isEmpty ? '' : ' — $desc'}',
+    );
   }
 }
 

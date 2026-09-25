@@ -2,6 +2,10 @@ import 'package:tina_engine/tina_engine.dart' show SessionMeta;
 
 /// Select before building project context or entering the TUI. Synchronous
 /// line input leaves stdin available for the terminal's later input backend.
+///
+/// Superseded for the interactive CLI path by the keyboard overlay in
+/// [pickStartupSessionId] (startup_session_picker_backend.dart); kept for
+/// non-interactive tooling and its unit tests.
 String? pickStartupSession(
   List<SessionMeta> sessions, {
   required String? Function() readLine,

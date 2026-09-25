@@ -26,18 +26,17 @@ class SessionPickerEntry {
 /// (Escape / Ctrl-C). The caller switches or resumes based on [entry.live].
 ///
 /// Reuses [runListOverlay] — the same primitive the model/role pickers use — so
-/// navigation, theming, and modal focus hand-off are identical.
+/// navigation, theming, and modal focus hand-off are identical, with
+/// type-to-search enabled: typing filters both groups by their display text
+/// (case-insensitive), Backspace edits, Tab clears.
 Future<SessionPickerEntry?> runSessionPickerOverlay({
   required Screen screen,
   required LineEditor editor,
-  required List<({
-    String id,
-    String label,
-    bool isActive,
-    bool isRunning,
-    int unread
-  })> live,
-  List<({String id, String title, int messageCount})>? disk,
+  required List<
+    ({String id, String label, bool isActive, bool isRunning, int unread})
+  >
+  live,
+  List<({String id, String title, String description, int messageCount})>? disk,
   String title = 'Switch session',
   Future<InputEvent> Function()? readEvent,
 }) {
@@ -55,10 +54,15 @@ Future<SessionPickerEntry?> runSessionPickerOverlay({
             '${s.unread > 0 ? ' (${badge(s.unread)} new)' : ''}',
         value: SessionPickerEntry(id: s.id, live: true, display: s.label),
       ),
-    // Then saved-on-disk sessions that aren't open — resumable.
+    // Then saved-on-disk sessions that aren't open — resumable. The saved
+    // description (first substantive prompt) is what makes the entries
+    // tell apart; the message count stays as the size hint.
     for (final d in resumable)
       (
-        display: '↻ ${d.title}  (${d.messageCount}msg)',
+        display:
+            '↻ ${d.title}'
+            '${d.description.isEmpty ? '' : ' — ${d.description}'}'
+            '  (${d.messageCount}msg)',
         value: SessionPickerEntry(id: d.id, live: false, display: d.title),
       ),
   ];
@@ -68,8 +72,10 @@ Future<SessionPickerEntry?> runSessionPickerOverlay({
     editor: editor,
     entries: entries,
     title: title,
-    footer: '↑↓ move · enter select · esc cancel',
+    footer: '↑↓ move · type to search · enter select · esc cancel',
     readEvent: readEvent,
     accent: activeAccent(screen),
+    filterable: true,
+    maxWidth: 110,
   );
 }

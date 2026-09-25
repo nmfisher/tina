@@ -16,6 +16,14 @@ class SessionMeta {
   /// sessions. Used to scope `--continue` to the current folder.
   final String? cwd;
 
+  /// The first substantive typed prompt, or null when none was found (empty
+  /// session). Unlike [title] this skips system-authored user lines — summary
+  /// continuations (`synthetic: true`) and tool-result batches — so resumed
+  /// sessions show what the user actually asked instead of the top of an
+  /// injected summary. Falls back to the first substantive assistant text
+  /// when the session has no typed prompt at all.
+  final String? description;
+
   const SessionMeta({
     required this.id,
     required this.title,
@@ -24,6 +32,7 @@ class SessionMeta {
     required this.messageCount,
     required this.conversationCount,
     this.cwd,
+    this.description,
   });
 }
 
@@ -456,7 +465,8 @@ abstract class SessionStore {
   /// the session or conversation is unknown.
   Future<void> updateConversationTrackers(
       String sessionId, String conversationId,
-      {required Map<String, dynamic>? goal, required Map<String, dynamic>? plan});
+      {required Map<String, dynamic>? goal,
+      required Map<String, dynamic>? plan});
 
   /// Record [tokens] as the session's total spend (all agents + sub-agents +
   /// workflows), persisted so a resumed session restores the counter. Negative

@@ -307,6 +307,8 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
         messageCount: totalCount,
         conversationCount: manifest.conversations.length,
         cwd: manifest.cwd,
+        description:
+            _descriptionFor(manifest.activeConversationId),
       ));
     }
     out.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -318,6 +320,25 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
     _manifests.remove(sessionId);
     _createdAt.remove(sessionId);
     _updatedAt.remove(sessionId);
+  }
+
+  /// Mirrors the JSONL store's description: first non-synthetic user text,
+  /// with a first-assistant fallback.
+  String? _descriptionFor(String? conversationId) {
+    if (conversationId == null) return null;
+    String? assistantFallback;
+    for (final m in _conversations[conversationId] ?? const <Message>[]) {
+      if (m.isSynthetic) continue;
+      final texts = m.content.whereType<TextBlock>().toList();
+      if (texts.isEmpty) continue; // tool-result batch
+      final text = texts.map((b) => b.text).join(' ').trim();
+      if (text.isEmpty) continue;
+      if (m.role == Role.user) return text.split('\n').first.trim();
+      if (m.role == Role.assistant && assistantFallback == null) {
+        assistantFallback = text.split('\n').first.trim();
+      }
+    }
+    return assistantFallback;
   }
 
   @override

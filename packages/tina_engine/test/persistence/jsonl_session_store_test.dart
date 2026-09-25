@@ -155,6 +155,92 @@ void main() {
       expect(list.map((s) => s.id), isNot(contains(badSid)));
     });
 
+    group('description derivation', () {
+      Future<SessionMeta> singleMeta() async =>
+          (await store.listSessions()).single;
+
+      test('prefers the typed prompt over a synthetic summary continuation',
+          () async {
+        final (sid, cid) = await newConversation();
+        await store.append(
+            sid,
+            cid,
+            const Message(
+              role: Role.user,
+              isSynthetic: true,
+              content: [
+                TextBlock('Prior conversation summary:\n\n# Summary\n\nstuff')
+              ],
+            ));
+        await store.append(
+            sid,
+            cid,
+            const Message(
+                role: Role.user, content: [TextBlock('fix the resume picker')]));
+        final meta = await singleMeta();
+        expect(meta.description, 'fix the resume picker');
+        // Title skips injected content too when a real prompt exists later.
+        expect(meta.title, 'fix the resume picker');
+      });
+
+      test('skips tool-result batches before the first typed prompt',
+          () async {
+        final (sid, cid) = await newConversation();
+        await store.append(
+            sid,
+            cid,
+            const Message(role: Role.user, content: [
+              ToolResultBlock(toolUseId: 't1', content: 'file contents here')
+            ]));
+        await store.append(
+            sid,
+            cid,
+            const Message(
+                role: Role.user, content: [TextBlock('now make it faster')]));
+        expect((await singleMeta()).description, 'now make it faster');
+      });
+
+      test('falls back to the first assistant text when nothing was typed',
+          () async {
+        final (sid, cid) = await newConversation();
+        await store.append(
+            sid,
+            cid,
+            const Message(role: Role.assistant, content: [
+              TextBlock('Ran the full suite. All 45 tests pass.')
+            ]));
+        expect((await singleMeta()).description,
+            'Ran the full suite. All 45 tests pass.');
+      });
+
+      test('empty session has no description', () async {
+        await newConversation();
+        expect((await singleMeta()).description, isNull);
+      });
+
+      test('uses the first line only and truncates long prompts', () async {
+        final (sid, cid) = await newConversation();
+        await store.append(
+            sid,
+            cid,
+            const Message(
+                role: Role.user,
+                content: [TextBlock('first line\n\nsecond line')]));
+        expect((await singleMeta()).description, 'first line');
+
+        // Derivation stops at the first real prompt, so the truncation case
+        // gets its own session; address it by id (list order is by recency).
+        final long = 'x' * 200;
+        final (longSid, longCid) = await newConversation();
+        await store.append(longSid, longCid,
+            Message(role: Role.user, content: [TextBlock(long)]));
+        final longMeta =
+            (await store.listSessions()).firstWhere((m) => m.id == longSid);
+        expect(longMeta.description!.length, 121);
+        expect(longMeta.description!.endsWith('…'), isTrue);
+      });
+    });
+
     test('load skips a corrupt line rather than aborting', () async {
       final (sid, cid) = await newConversation();
       await store.append(sid, cid,

@@ -259,6 +259,7 @@ class InMemorySessionStore implements SessionStore, TimestampedSessionStore {
         messageCount: count,
         conversationCount: s.manifest.conversations.length,
         cwd: s.manifest.cwd,
+        description: _descriptionFor(s, s.manifest.activeConversationId),
       ));
     }
     metas.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -324,6 +325,27 @@ class InMemorySessionStore implements SessionStore, TimestampedSessionStore {
       }
     }
     return null;
+  }
+
+  /// Mirrors the JSONL store's description: first non-synthetic user text.
+  String? _descriptionFor(_MemSession s, String conversationId) {
+    String? assistantFallback;
+    for (final m in s.messages[conversationId] ?? const <Message>[]) {
+      if (m.isSynthetic) continue;
+      if (m.role == Role.user) {
+        final texts = m.content.whereType<TextBlock>().toList();
+        if (texts.isEmpty) continue; // tool-result batch
+        final text = texts.map((b) => b.text).join(' ').trim();
+        if (text.isNotEmpty) return text.split('\n').first.trim();
+      } else if (m.role == Role.assistant && assistantFallback == null) {
+        final texts = m.content.whereType<TextBlock>().toList();
+        if (texts.isNotEmpty) {
+          final text = texts.map((b) => b.text).join(' ').trim();
+          if (text.isNotEmpty) assistantFallback = text.split('\n').first.trim();
+        }
+      }
+    }
+    return assistantFallback;
   }
 
   static String _summarize(String text) {

@@ -39,8 +39,12 @@ final _log = Logger('tina.persistence');
 /// read in place by [listSessions] and materialized into the nested layout
 /// lazily — on the first [loadSession] (resume) or write — via copy-then-delete
 /// so an interrupted migration leaves both old and new and can be retried.
-class JsonlSessionStore implements SessionStore, SessionIndex,
-    LockableSessionStore, TimestampedSessionStore {
+class JsonlSessionStore
+    implements
+        SessionStore,
+        SessionIndex,
+        LockableSessionStore,
+        TimestampedSessionStore {
   final Directory root;
   static final _rng = Random.secure();
 
@@ -107,8 +111,8 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
           () => _updateConversationModel(sessionId, conversationId,
               model: model, label: label));
   @override
-  Future<void> updateConversationTrackers(String sessionId,
-          String conversationId,
+  Future<void> updateConversationTrackers(
+          String sessionId, String conversationId,
           {required Map<String, dynamic>? goal,
           required Map<String, dynamic>? plan}) =>
       _write(
@@ -184,8 +188,7 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
   /// [LockableSessionStore] (SP4): the session directory is the lock
   /// namespace.
   @override
-  String lockNamespaceFor(String sessionId) =>
-      directoryFor(sessionId).path;
+  String lockNamespaceFor(String sessionId) => directoryFor(sessionId).path;
 
   // -- Session / conversation creation -----------------------------------
 
@@ -529,8 +532,8 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
     ));
   }
 
-  Future<void> _updateConversationTrackers(String sessionId,
-      String conversationId,
+  Future<void> _updateConversationTrackers(
+      String sessionId, String conversationId,
       {required Map<String, dynamic>? goal,
       required Map<String, dynamic>? plan}) async {
     await _ensureMaterialized(sessionId);
@@ -614,10 +617,15 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
         }
         var totalCount = 0;
         String? title;
+        String? description;
         for (final c in manifest.conversations) {
-          final (count, cTitle) = await _countAndTitle(manifest, c.id);
+          final (count, cTitle, cDesc) =
+              await _countTitleDescription(manifest, c.id);
           totalCount += count;
-          if (c.id == manifest.activeConversationId) title = cTitle;
+          if (c.id == manifest.activeConversationId) {
+            title = cTitle;
+            description = cDesc;
+          }
         }
         out.add(SessionMeta(
           id: sid,
@@ -628,6 +636,7 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
           messageCount: totalCount,
           conversationCount: manifest.conversations.length,
           cwd: manifest.cwd,
+          description: description,
         ));
       } else if (entity is File && entity.path.endsWith('.jsonl')) {
         // Legacy flat file (pre-multi-conversation). Read in place without
@@ -642,7 +651,8 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
           _log.fine('session list: skipped legacy ${entity.path}', e);
           continue;
         }
-        final (count, title) = _countAndTitleFromLines(lines);
+        final (count, title, description) =
+            _countTitleDescriptionFromLines(lines);
         out.add(SessionMeta(
           id: sid,
           title: title ?? '(empty)',
@@ -650,6 +660,7 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
           updatedAt: stat.modified,
           messageCount: count,
           conversationCount: 1,
+          description: description,
         ));
       }
     }
@@ -735,8 +746,8 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
   /// Epoch in UTC: [FileStat.modified] is UTC-based, so the "never happened"
   /// sentinel must be the same instant in the same representation for
   /// [DateTime.isAfter] comparisons to line up regardless of local timezone.
-  static final DateTime _epoch = DateTime.fromMillisecondsSinceEpoch(0,
-      isUtc: true);
+  static final DateTime _epoch =
+      DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
 
   @override
   Future<SessionTimestamps> conversationTimestamps(String sessionId) async {
@@ -868,15 +879,16 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
     return out;
   }
 
-  /// Derive (non-blank-line count, first-user-message title) from a
-  /// conversation file. Returns (0, null) if the file can't be read.
-  Future<(int, String?)> _countAndTitle(
+  /// Derive display metadata from a conversation file. Returns
+  /// (non-blank-line count, title, description); (0, null, null) if the file
+  /// can't be read.
+  Future<(int, String?, String?)> _countTitleDescription(
       SessionManifest manifest, String cid) async {
     final f = await _findConversationFile(manifest, cid);
     try {
-      return _countAndTitleFromLines(await f.readAsLines());
+      return _countTitleDescriptionFromLines(await f.readAsLines());
     } on FileSystemException {
-      return (0, null);
+      return (0, null, null);
     }
   }
 
@@ -902,29 +914,51 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
     return newest;
   }
 
-  (int, String?) _countAndTitleFromLines(List<String> lines) {
+  (int, String?, String?) _countTitleDescriptionFromLines(List<String> lines) {
     var count = 0;
     String? title;
+    String? description;
+    String? assistantFallback;
     for (final line in lines) {
       if (line.trim().isEmpty) continue;
       count++;
-      if (title == null) {
-        try {
-          final m = Message.fromJson(jsonDecode(line) as Map<String, dynamic>);
-          if (m.role == Role.user) {
-            for (final b in m.content) {
-              if (b is TextBlock && b.text.trim().isNotEmpty) {
-                title = _summarize(b.text);
-                break;
-              }
-            }
-          }
-        } catch (e) {
-          _log.fine('title parse skipped corrupt line', e);
+      if (title != null) continue; // keep counting; text already known
+      try {
+        final m = Message.fromJson(jsonDecode(line) as Map<String, dynamic>);
+        // Tool batches (coalesced results) ride in user-role messages but are
+        // never authored by the user.
+        if (m.content.any((b) => b is! TextBlock)) continue;
+        final text =
+            m.content.cast<TextBlock>().map((b) => b.text).join(' ').trim();
+        if (text.isEmpty) continue;
+        if (m.role == Role.user) {
+          if (m.isSynthetic) continue; // summary continuations, injected text
+          title = _summarize(text);
+          description = _describe(text);
+        } else if (assistantFallback == null &&
+            m.role == Role.assistant &&
+            !m.isSynthetic) {
+          assistantFallback = _describe(text);
         }
+      } catch (e) {
+        _log.fine('title parse skipped corrupt line', e);
       }
     }
-    return (count, title);
+    // A session with no typed prompt keeps a description from its first
+    // assistant answer; legacy replay-only sessions fall back to the title.
+    return (count, title ?? assistantFallback, description ?? assistantFallback);
+  }
+
+  /// User-readable one-liner for the picker: first line only, whitespace
+  /// collapsed, control characters stripped.
+  static String _describe(String text) {
+    final firstLine = text.trim().split('\n').first;
+    final cleaned =
+        firstLine.replaceAll(RegExp(r'[\x00-\x1f\x7f-\x9f]'), ' ').trim();
+    final collapsed = cleaned.replaceAll(RegExp(r'\s+'), ' ');
+    return collapsed.length <= 120
+        ? collapsed
+        : '${collapsed.substring(0, 120)}…';
   }
 
   static String _newId() {

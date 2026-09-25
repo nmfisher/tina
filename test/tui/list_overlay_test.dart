@@ -54,7 +54,7 @@ void main() {
     'short body picker paints the selected option after scrolling and resize',
     () async {
       final io = FakeStdio();
-        final screen = Screen(io: io, layout: ScreenLayout.fromSize(80, 24));
+      final screen = Screen(io: io, layout: ScreenLayout.fromSize(80, 24));
       var reads = 0;
       final result = await runListOverlay<int>(
         screen: screen,
@@ -104,4 +104,89 @@ void main() {
       },
     );
   }
+
+  group('filterable list picker', () {
+    Future<String?> runFiltered(List<InputEvent> events) {
+      final screen = fakeScreen(columns: 80, lines: 24);
+      final events2 = CannedEvents()..events = events;
+      return runListOverlay<String>(
+        screen: screen,
+        editor: LineEditor(screen: screen),
+        entries: [
+          (display: 'alpha session', value: 'a'),
+          (display: 'beta thing', value: 'b'),
+        ],
+        title: 'Pick',
+        footer: 'enter select',
+        readEvent: events2.readEvent,
+        filterable: true,
+      ).timeout(overlayTimeout);
+    }
+
+    test('typing narrows and enter picks the match', () async {
+      expect(
+        await runFiltered([
+          CharInput('bet'),
+          ControlKey(ControlCode.enter),
+        ]),
+        'b',
+      );
+    });
+
+    test('filter matches case-insensitively', () async {
+      expect(
+        await runFiltered([
+          CharInput('BETA'),
+          ControlKey(ControlCode.enter),
+        ]),
+        'b',
+      );
+    });
+
+    test('a non-matching filter makes enter a no-op, tab clears', () async {
+      expect(
+        await runFiltered([
+          CharInput('zzz'),
+          ControlKey(ControlCode.enter), // no match → must not select
+          ControlKey(ControlCode.tab), // clear
+          ControlKey(ControlCode.enter),
+        ]),
+        'a',
+      );
+    });
+
+    test('backspace edits the filter', () async {
+      expect(
+        await runFiltered([
+          CharInput('alx'), // matches nothing
+          ControlKey(ControlCode.backspace), // → "al" → alpha
+          ControlKey(ControlCode.enter),
+        ]),
+        'a',
+      );
+    });
+
+    test('without filterable, typing is inert (picker still selects)', () async {
+      final screen = fakeScreen(columns: 80, lines: 24);
+      final events = CannedEvents()
+        ..events = [
+          CharInput('bet'), // must be ignored, not filtered
+          ControlKey(ControlCode.enter),
+        ];
+      expect(
+        await runListOverlay<String>(
+          screen: screen,
+          editor: LineEditor(screen: screen),
+          entries: [
+            (display: 'alpha session', value: 'a'),
+            (display: 'beta thing', value: 'b'),
+          ],
+          title: 'Pick',
+          footer: 'enter select',
+          readEvent: events.readEvent,
+        ).timeout(overlayTimeout),
+        'a', // focus never moved — typing did nothing
+      );
+    });
+  });
 }

@@ -389,8 +389,11 @@ class TuiCoordinator {
       // is a one-word change here if a stall ever recurs; until then the check
       // observes instead of mutating, so a false positive costs a log line
       // rather than an unexplained flash on the user's screen.
-      final stuckCheck =
-          StuckCheck(screen: screen, editor: editor, heal: false);
+      final stuckCheck = StuckCheck(
+        screen: screen,
+        editor: editor,
+        heal: false,
+      );
       acquired.own(stuckCheck.stop);
       // The initial (active) session's spinner, bound to the shared status row.
       final spinner = Spinner(
@@ -1207,12 +1210,18 @@ class TuiCoordinator {
               ),
             )
             .toList();
-        List<({String id, String title, int messageCount})> disk;
+        List<({String id, String title, String description, int messageCount})>
+        disk;
         try {
           final metas = await store.listSessions();
           disk = metas
               .map(
-                (m) => (id: m.id, title: m.title, messageCount: m.messageCount),
+                (m) => (
+                  id: m.id,
+                  title: m.title,
+                  description: m.description ?? '',
+                  messageCount: m.messageCount,
+                ),
               )
               .toList();
         } catch (_) {
@@ -2387,8 +2396,9 @@ class TuiCoordinator {
           // alert persists once a newer release is found, a miss paints its
           // dim failure line, and every exit path still clears a stuck
           // spinner — a failed check must never spin forever.
-          final versionStatus =
-              app.pluginScope?.lookup(versionStatusServiceKey);
+          final versionStatus = app.pluginScope?.lookup(
+            versionStatusServiceKey,
+          );
           versionStatus?.beginCheck();
           try {
             final release = await checker.checkWithRevalidate();
