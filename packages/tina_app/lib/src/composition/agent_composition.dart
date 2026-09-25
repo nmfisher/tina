@@ -199,8 +199,24 @@ AgentDriver buildAgent({
       scheduler.mountedScopeValue?.lookup(plans.planStoreServiceKey);
   AgentMiddleware? planMiddleware;
   if (planStore != null) {
-    tools.add(plans.PlanTool(planStore, conversationId));
-    planMiddleware = plans.PlanMiddleware(planStore, conversationId);
+    // The plan-approval gate is a human gate, so both per-conversation
+    // pieces read the same two signals: the policy's yolo posture
+    // (--yolo documents "skip all permission prompts") and whether the host
+    // has an answerable human (headless --prompt/--workflow has neither a
+    // /plan nor an overlay). Under either, a `requested` ask auto-grants
+    // instead of parking the run — the 2026-09-24 unattended stall.
+    tools.add(plans.PlanTool(
+      planStore,
+      conversationId,
+      policy: policy,
+      host: host,
+    ));
+    planMiddleware = plans.PlanMiddleware(
+      planStore,
+      conversationId,
+      policy: policy,
+      host: host,
+    );
   }
   // The plugin-scope goal store (when a goal plugin is mounted) contributes
   // only a request middleware that injects the conversation's goal — the goal

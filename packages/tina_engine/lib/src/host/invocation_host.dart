@@ -28,6 +28,9 @@ class InvocationHost extends InvocationSink implements HostInterface {
   }
 
   @override
+  bool get canAnswerQuestions => host.canAnswerQuestions;
+
+  @override
   void showPreview(List<PreviewEntry> preview) =>
       invocation!.output(() => host.showPreview(preview));
   @override

@@ -238,6 +238,9 @@ class TuiConversationHost with HostLifecycleAdapter implements HostInterface {
   // --- HostInterface ------------------------------------------------------
 
   @override
+  bool get canAnswerQuestions => true; // interactive terminal: askable
+
+  @override
   Future<PermissionResponse> askPermission(PermissionPrompt p) async {
     // A background conversation can't take over the terminal for a modal, so
     // refuse (with a dim note) — matching the old per-session asker. Policy

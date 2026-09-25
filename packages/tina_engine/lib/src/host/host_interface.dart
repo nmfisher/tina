@@ -38,6 +38,16 @@ abstract class HostInterface implements AgentSink {
   /// prompt (an interactive modal, an auto-deny) and returns the decision.
   Future<PermissionResponse> askPermission(PermissionPrompt prompt);
 
+  /// Whether a human can actually answer a question raised through this host
+  /// — approve a plan, answer a multiple-choice prompt. A terminal host has a
+  /// user on the other end (true, the default so existing implementations
+  /// keep it); [HeadlessHost] has no interactive surface: permission prompts
+  /// degrade to policy + auto-deny, and there is no `/plan` or question
+  /// overlay to answer through. Gates that would otherwise PARK the run until
+  /// a human acts read this instead of asking, so an unattended run proceeds
+  /// (or degrades) rather than blocking forever (2026-09-24 plan stall).
+  bool get canAnswerQuestions => true;
+
   /// Show a preview before a permission decision. A host that doesn't render
   /// previews implements this as a no-op.
   void showPreview(List<PreviewEntry> preview);
