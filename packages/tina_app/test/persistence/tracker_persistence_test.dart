@@ -63,7 +63,7 @@ void main() {
     test('a later plan mutation keeps the goal (paired write)', () async {
       goals.set(cid, 'ship it');
       await binder.flush();
-      plans.update(cid, [(text: 'step', state: PlanState.pending)]);
+      plans.update(cid, [PlanItem('step')]);
       await binder.flush();
       final meta = store.metaFor(sid, cid)!;
       expect(meta.goal!['text'], 'ship it');
@@ -72,7 +72,7 @@ void main() {
 
     test('clearing one tracker keeps the other', () async {
       goals.set(cid, 'ship it');
-      plans.update(cid, [(text: 'step', state: PlanState.pending)]);
+      plans.update(cid, [PlanItem('step')]);
       await binder.flush();
       goals.clear(cid);
       await binder.flush();
@@ -114,7 +114,7 @@ void main() {
 
     test('hydrate is authoritative: a null meta clears stale trackers', () {
       goals.set(cid, 'stale');
-      plans.update(cid, [(text: 'stale', state: PlanState.pending)]);
+      plans.update(cid, [PlanItem('stale')]);
       binder.hydrate(null, conversationId: cid);
       expect(goals.read(cid).isEmpty, isTrue);
       expect(plans.read(cid).isEmpty, isTrue);
@@ -155,7 +155,7 @@ void main() {
       doomedGoals.set(cid, 'doomed');
       await bad.flush(); // resolves despite the StateError inside
       expect(store.metaFor(sid, cid)!.goal, isNull);
-      doomedPlans.update(cid, [(text: 'x', state: PlanState.pending)]);
+      doomedPlans.update(cid, [PlanItem('x')]);
       await bad.flush(); // the chain still processes later writes
     });
 

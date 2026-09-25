@@ -31,7 +31,7 @@ void main() {
     addTearDown(runtime.dispose);
 
     final fromScope = runtime.scope.lookup(planStoreServiceKey)!;
-    fromScope.update('c1', [(text: 'a', state: PlanState.pending)]);
+    fromScope.update('c1', [PlanItem('a')]);
     expect(store.read('c1').items.single.text, 'a');
     expect(identical(fromScope, store), isTrue);
   });

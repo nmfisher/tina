@@ -56,7 +56,7 @@ void main() {
     });
 
     test('an empty list clears the plan', () async {
-      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      store.update('c1', [PlanItem('a')]);
       final r = await PlanTool(store, 'c1').execute({'items': []});
       expect(r.isError, isFalse);
       expect(r.content, 'Plan cleared.');
@@ -120,11 +120,106 @@ void main() {
     });
   });
 
+  group('PlanTool children (one nesting level)', () {
+    test('children decode into subtask items', () async {
+      final r = await PlanTool(store, 'c1').execute({
+        'items': [
+          {
+            'text': 'parent',
+            'state': 'in_progress',
+            'children': [
+              {'text': '  sub one  ', 'state': 'done'},
+              {'text': 'sub two', 'state': 'pending'},
+            ],
+          },
+        ],
+      });
+      expect(r.isError, isFalse);
+      final item = store.read('c1').items.single;
+      expect(item.text, 'parent');
+      expect(item.children.map((c) => (c.text, c.state)).toList(), [
+        ('sub one', PlanState.done),
+        ('sub two', PlanState.pending),
+      ]);
+      expect(store.read('c1').summary, 'parent · 1/3',
+          reason: 'the tool result counts span children');
+    });
+
+    test('children of children are rejected as tool errors', () async {
+      final r = await PlanTool(store, 'c1').execute({
+        'items': [
+          {
+            'text': 'parent',
+            'state': 'pending',
+            'children': [
+              {
+                'text': 'sub',
+                'state': 'pending',
+                'children': [
+                  {'text': 'grandchild', 'state': 'pending'},
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      expect(r.isError, isTrue);
+      expect(r.content, contains('one nesting level'));
+      expect(store.read('c1').isEmpty, isTrue);
+    });
+
+    test('non-array children are tool errors', () async {
+      final r = await PlanTool(store, 'c1').execute({
+        'items': [
+          {'text': 'parent', 'state': 'pending', 'children': 'soon'},
+        ],
+      });
+      expect(r.isError, isTrue);
+      expect(r.content, contains('children must be an array'));
+    });
+
+    test('two in-progress across a parent and its child is an error',
+        () async {
+      final r = await PlanTool(store, 'c1').execute({
+        'items': [
+          {
+            'text': 'parent',
+            'state': 'in_progress',
+            'children': [
+              {'text': 'sub', 'state': 'in_progress'},
+            ],
+          },
+        ],
+      });
+      expect(r.isError, isTrue);
+      expect(r.content, contains('at most one'));
+    });
+
+    test('the schema advertises children with a childless item shape', () {
+      final schema = PlanTool(store, 'c1').schema;
+      final items = (schema.inputSchema['properties'] as Map)['items'] as Map;
+      expect(items['type'], 'array');
+      expect(items['maxItems'], PlanStore.maxItems,
+          reason: 'the cap stays mirrored into the schema');
+      final itemProps = (items['items'] as Map)['properties'] as Map;
+      final children = itemProps['children'] as Map;
+      expect(children['type'], 'array');
+      expect((children['items'] as Map)['type'], 'object');
+      // One nesting level, enforced in the schema itself: the child item
+      // shape offers no `children` property.
+      expect(
+        ((children['items'] as Map)['properties'] as Map)
+            .containsKey('children'),
+        isFalse,
+      );
+    });
+  });
+
   group(PlanMiddleware, () {
     test('appends the plan section to the system prompt', () async {
       store.update('c1', [
-        (text: 'ship it', state: PlanState.inProgress),
-        (text: 'announce', state: PlanState.pending),
+        PlanItem('ship it', state: PlanState.inProgress),
+        PlanItem('announce'),
       ]);
       final req =
           await requestFor(PlanMiddleware(store, 'c1'), AgentStage.request);
@@ -137,6 +232,22 @@ void main() {
       expect(system, endsWith('</current-plan>\n'));
     });
 
+    test('children render indented under their parent', () async {
+      store.update('c1', [
+        PlanItem('parent', state: PlanState.inProgress, children: [
+          PlanItem('sub one', state: PlanState.done),
+          PlanItem('sub two'),
+        ]),
+      ]);
+      final system =
+          (await requestFor(PlanMiddleware(store, 'c1'), AgentStage.request))
+              .system;
+      expect(system, contains('[~] parent'));
+      expect(system, contains('  [x] sub one'),
+          reason: 'subtasks indent two spaces, mirroring the overlay');
+      expect(system, contains('  [ ] sub two'));
+    });
+
     test('an empty plan leaves the request untouched', () async {
       final system =
           await requestFor(PlanMiddleware(store, 'c1'), AgentStage.request);
@@ -145,8 +256,8 @@ void main() {
 
     test('injects the building conversation\'s plan, not another\'s',
         () async {
-      store.update('c1', [(text: 'mine', state: PlanState.pending)]);
-      store.update('c2', [(text: 'theirs', state: PlanState.pending)]);
+      store.update('c1', [PlanItem('mine')]);
+      store.update('c2', [PlanItem('theirs')]);
       final system =
           await requestFor(PlanMiddleware(store, 'c1'), AgentStage.request);
       expect(system.system, contains('[ ] mine'));
@@ -154,7 +265,7 @@ void main() {
     });
 
     test('non-request stages pass through', () async {
-      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      store.update('c1', [PlanItem('a')]);
       final middleware = PlanMiddleware(store, 'c1');
       for (final stage in [AgentStage.invocation, AgentStage.compact]) {
         expect((await requestFor(middleware, stage)).system, 'base');
@@ -164,7 +275,7 @@ void main() {
 
   group('plan approval lifecycle', () {
     test('request → approve → reject transitions and fires changes', () async {
-      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      store.update('c1', [PlanItem('a')]);
       var fired = 0;
       final sub = store.changes.listen((_) => fired++);
       store.requestApproval('c1');
@@ -184,7 +295,7 @@ void main() {
 
     test('re-approving an already-approved plan is a no-op event-wise',
         () async {
-      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      store.update('c1', [PlanItem('a')]);
       store.approve('c1');
       var fired = 0;
       final sub = store.changes.listen((_) => fired++);
@@ -199,34 +310,31 @@ void main() {
     });
 
     test('a state-only update preserves approval; an edit resets it', () {
-      store.update('c1', [
-        (text: 'a', state: PlanState.pending),
-        (text: 'b', state: PlanState.pending),
-      ]);
+      store.update('c1', [PlanItem('a'), PlanItem('b')]);
       store.approve('c1');
       // Same content, states flip: approval survives progress ticks.
       store.update('c1', [
-        (text: 'a', state: PlanState.done),
-        (text: 'b', state: PlanState.inProgress),
+        PlanItem('a', state: PlanState.done),
+        PlanItem('b', state: PlanState.inProgress),
       ]);
       expect(store.read('c1').isApproved, isTrue);
       // Any content change (add, reorder, edit) forces re-approval.
       store.update('c1', [
-        (text: 'a', state: PlanState.pending),
-        (text: 'b', state: PlanState.pending),
-        (text: 'c', state: PlanState.pending),
+        PlanItem('a'),
+        PlanItem('b'),
+        PlanItem('c'),
       ]);
       expect(store.read('c1').approval, PlanApproval.none);
     });
 
     test('summary flags a requested approval', () {
-      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      store.update('c1', [PlanItem('a')]);
       store.requestApproval('c1');
       expect(store.read('c1').summary, contains('needs approval'));
     });
 
     test('status source carries the approval to the strip view-model', () {
-      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      store.update('c1', [PlanItem('a')]);
       store.requestApproval('c1');
       final summary = PlanStatusSource(store).read('c1') as PlanSummary;
       expect(summary.needsApproval, isTrue);
@@ -248,7 +356,7 @@ void main() {
     });
 
     test('approval-only call re-requests on the unchanged plan', () async {
-      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      store.update('c1', [PlanItem('a')]);
       final r = await PlanTool(store, 'c1').execute({
         'approval': 'requested',
       });
@@ -266,7 +374,7 @@ void main() {
     });
 
     test('invalid approval values and shapes are tool errors', () async {
-      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      store.update('c1', [PlanItem('a')]);
       for (final input in [
         <String, dynamic>{'approval': 'urgent'},
         <String, dynamic>{},
@@ -292,9 +400,9 @@ void main() {
       final source = PlanStatusSource(store);
       expect(source.read('c1'), isNull);
       store.update('c1', [
-        (text: 'active work', state: PlanState.inProgress),
-        (text: 'later', state: PlanState.pending),
-        (text: 'finished', state: PlanState.done),
+        PlanItem('active work', state: PlanState.inProgress),
+        PlanItem('later'),
+        PlanItem('finished', state: PlanState.done),
       ]);
       final summary = source.read('c1') as PlanSummary;
       expect(summary.total, 3);
@@ -303,11 +411,25 @@ void main() {
       expect(source.read('c2'), isNull);
     });
 
+    test('counts span children', () {
+      store.update('c1', [
+        PlanItem('parent', state: PlanState.done, children: [
+          PlanItem('sub', state: PlanState.done),
+          PlanItem('open'),
+        ]),
+      ]);
+      final summary = PlanStatusSource(store).read('c1') as PlanSummary;
+      expect(summary.total, 3, reason: 'subtasks are plan work too');
+      expect(summary.done, 2);
+      expect(summary.active, isNull,
+          reason: 'nothing in progress anywhere in the plan');
+    });
+
     test('changes mirrors the store stream', () async {
       final source = PlanStatusSource(store);
       final fired = <int>[];
       final sub = source.changes.listen((_) => fired.add(fired.length + 1));
-      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      store.update('c1', [PlanItem('a')]);
       await Future<void>.delayed(Duration.zero);
       expect(fired, hasLength(1));
       await sub.cancel();
@@ -347,12 +469,24 @@ void main() {
 
     test('empty args list the current plan', () async {
       store.update('c1', [
-        (text: 'first', state: PlanState.done),
-        (text: 'second', state: PlanState.inProgress),
+        PlanItem('first', state: PlanState.done),
+        PlanItem('second', state: PlanState.inProgress),
       ]);
       await dispatch('/plan');
       expect(host.messages.last, contains('1. [x] first'));
       expect(host.messages.last, contains('2. [~] second'));
+    });
+
+    test('children list indented under their parent', () async {
+      store.update('c1', [
+        PlanItem('parent', children: [
+          PlanItem('sub', state: PlanState.done),
+        ]),
+      ]);
+      await dispatch('/plan');
+      expect(host.messages.last, contains('1. [ ] parent'));
+      expect(host.messages.last, contains('[x] sub'),
+          reason: 'subtasks show, indented and unnumbered');
     });
 
     test('add appends a pending item; free text does the same', () async {
@@ -374,6 +508,19 @@ void main() {
       expect(store.read('c1').items[0].state, PlanState.pending);
     });
 
+    test('toggling keeps a parent\'s children intact', () async {
+      store.update('c1', [
+        PlanItem('parent', children: [PlanItem('sub')]),
+      ]);
+      await dispatch('/plan done 1');
+      final parent = store.read('c1').items.single;
+      expect(parent.state, PlanState.done);
+      expect(parent.children.single.text, 'sub',
+          reason: 'the toggle rebuilds the item, not a flat copy');
+      expect(parent.children.single.state, PlanState.pending,
+          reason: 'parents and children tick independently');
+    });
+
     test('out-of-range toggles fail without mutating', () async {
       await dispatch('/plan done 7');
       expect(host.messages.last, contains('No plan item 7'));
@@ -381,14 +528,14 @@ void main() {
     });
 
     test('clear empties the plan', () async {
-      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      store.update('c1', [PlanItem('a')]);
       await dispatch('/plan clear');
       expect(store.read('c1').isEmpty, isTrue);
       expect(host.messages.last, contains('cleared'));
     });
 
     test('writes stay in the invoking conversation', () async {
-      store.update('c2', [(text: 'other', state: PlanState.pending)]);
+      store.update('c2', [PlanItem('other')]);
       await dispatch('/plan');
       expect(host.messages.last, isNot(contains('other')));
       expect(store.read('c2').items.single.text, 'other');
@@ -396,7 +543,7 @@ void main() {
 
     test('approve / reject / request-approval write the store and echo',
         () async {
-      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      store.update('c1', [PlanItem('a')]);
       await dispatch('/plan request-approval');
       expect(store.read('c1').needsApproval, isTrue);
       await dispatch('/plan approve');

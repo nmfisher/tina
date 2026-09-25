@@ -3,6 +3,112 @@ import 'dart:async';
 /// One item of a conversation's plan.
 enum PlanState { pending, inProgress, done }
 
+/// One row of a plan: its text, state, and optional subtasks. Exactly one
+/// nesting level is supported — [children] items must not carry children of
+/// their own ([PlanStore.update] rejects deeper shapes; [Plan.fromJson]
+/// drops them). Immutable value type with deep equality so plan snapshots
+/// compare structurally.
+class PlanItem {
+  final String text;
+  final PlanState state;
+
+  /// Subtasks of this item. Empty for a plain row. Children are full items
+  /// (text + state) but must be childless.
+  final List<PlanItem> children;
+
+  const PlanItem(
+    this.text, {
+    this.state = PlanState.pending,
+    this.children = const [],
+  });
+
+  /// Structural equality: text, state, and children (recursively).
+  @override
+  bool operator ==(Object other) =>
+      other is PlanItem &&
+      text == other.text &&
+      state == other.state &&
+      _listEquals(children, other.children);
+
+  @override
+  int get hashCode => Object.hash(text, state, Object.hashAll(children));
+
+  PlanItem copyWith(
+          {String? text, PlanState? state, List<PlanItem>? children}) =>
+      PlanItem(text ?? this.text,
+          state: state ?? this.state, children: children ?? this.children);
+
+  /// True when [other] holds the same content — same trimmed text and the
+  /// same child texts in the same order (states ignored). The store's
+  /// "did this update edit the plan" test for approval resets.
+  bool contentMatches(PlanItem other) {
+    if (text.trim() != other.text.trim()) return false;
+    if (children.length != other.children.length) return false;
+    for (var i = 0; i < children.length; i++) {
+      if (!children[i].contentMatches(other.children[i])) return false;
+    }
+    return true;
+  }
+
+  Map<String, dynamic> toJson() => {
+        'text': text,
+        'state': state.name,
+        // The key is omitted for childless rows so plans without subtasks
+        // persist byte-identically to pre-nesting blobs.
+        if (children.isNotEmpty)
+          'children': [for (final c in children) c.toJson()],
+      };
+
+  /// Lenient parse of one persisted item. Blank/junk entries are skipped
+  /// (returns null); unknown states fall back to pending; overlong text is
+  /// capped. When [allowChildren] is false (a child row) any nested
+  /// `children` payload is dropped — depth is capped at one. The at-most-one
+  /// in-progress invariant is re-enforced across the whole plan via
+  /// [seenInProgress] (first wins).
+  static PlanItem? fromJson(
+    Map<String, dynamic> raw, {
+    required bool allowChildren,
+    required _InProgressFlag seenInProgress,
+  }) {
+    var text = (raw['text'] is String ? raw['text'] as String : '').trim();
+    if (text.isEmpty) return null;
+    if (text.length > PlanStore.maxTextLength) {
+      text = text.substring(0, PlanStore.maxTextLength);
+    }
+    var state =
+        PlanState.values.asNameMap()[raw['state']] ?? PlanState.pending;
+    if (state == PlanState.inProgress) {
+      if (seenInProgress.value) state = PlanState.pending;
+      seenInProgress.value = true;
+    }
+    final children = <PlanItem>[];
+    final rawChildren = raw['children'];
+    if (allowChildren && rawChildren is List) {
+      for (final rawChild in rawChildren) {
+        if (rawChild is! Map<String, dynamic>) continue;
+        final child = PlanItem.fromJson(rawChild,
+            allowChildren: false, seenInProgress: seenInProgress);
+        if (child != null) children.add(child);
+      }
+    }
+    return PlanItem(text, state: state, children: children);
+  }
+}
+
+/// Mutable cell for [PlanItem.fromJson] to thread the "some item is already
+/// in progress" fact across top-level rows and their children.
+class _InProgressFlag {
+  bool value = false;
+}
+
+bool _listEquals(List<PlanItem> a, List<PlanItem> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
 /// The user-approval dimension of a conversation's plan. The agent moves a
 /// plan to [requested] (update_plan's `approval` field) when it wants sign-off
 /// before executing; only the user moves it to [approved]/[rejected]
@@ -14,7 +120,7 @@ enum PlanApproval { none, requested, approved, rejected }
 /// state, and the approval dimension. Immutable value; the [PlanStore]
 /// replaces plans wholesale.
 class Plan {
-  final List<({String text, PlanState state})> items;
+  final List<PlanItem> items;
 
   /// Reset to [PlanApproval.none] whenever an update changes item content
   /// (an edited plan must be re-approved); preserved for state-only flips
@@ -27,21 +133,18 @@ class Plan {
   bool get needsApproval => approval == PlanApproval.requested;
 
   /// True when [other] holds the same item content — same count, same
-  /// trimmed text in the same order (states ignored). The store's
-  /// "did this update edit the plan" test for approval resets.
-  bool contentMatches(List<({String text, PlanState state})> other) {
+  /// trimmed text in the same order, children included (states ignored).
+  /// The store's "did this update edit the plan" test for approval resets.
+  bool contentMatches(List<PlanItem> other) {
     if (items.length != other.length) return false;
     for (var i = 0; i < items.length; i++) {
-      if (items[i].text != other[i].text.trim()) return false;
+      if (!items[i].contentMatches(other[i])) return false;
     }
     return true;
   }
 
   Map<String, dynamic> toJson() => {
-        'items': [
-          for (final item in items)
-            {'text': item.text, 'state': item.state.name},
-        ],
+        'items': [for (final item in items) item.toJson()],
         'approval': approval.name,
       };
 
@@ -51,26 +154,19 @@ class Plan {
   /// pending, the item/text caps are re-applied, and the at-most-one
   /// in-progress invariant of [PlanStore.update] is re-enforced (first wins)
   /// so a corrupt manifest cannot smuggle an invalid plan past validation.
+  /// Depth is capped at one level of children; deeper payloads are dropped.
   /// An empty result carries no approval.
   factory Plan.fromJson(Map<String, dynamic> json) {
-    final items = <({String text, PlanState state})>[];
+    final items = <PlanItem>[];
+    final seenInProgress = _InProgressFlag();
     final rawItems = json['items'];
     if (rawItems is List) {
       for (final raw in rawItems) {
         if (items.length >= PlanStore.maxItems) break;
         if (raw is! Map<String, dynamic>) continue;
-        var text = (raw['text'] is String ? raw['text'] as String : '').trim();
-        if (text.isEmpty) continue;
-        if (text.length > PlanStore.maxTextLength) {
-          text = text.substring(0, PlanStore.maxTextLength);
-        }
-        var state =
-            PlanState.values.asNameMap()[raw['state']] ?? PlanState.pending;
-        if (state == PlanState.inProgress &&
-            items.any((i) => i.state == PlanState.inProgress)) {
-          state = PlanState.pending;
-        }
-        items.add((text: text, state: state));
+        final item = PlanItem.fromJson(raw,
+            allowChildren: true, seenInProgress: seenInProgress);
+        if (item != null) items.add(item);
       }
     }
     final approval =
@@ -78,16 +174,26 @@ class Plan {
     return Plan(items, approval: items.isEmpty ? PlanApproval.none : approval);
   }
 
+  /// Every item of the plan, top-level rows then their children — the
+  /// depth-first walk the done/total counts and in-progress checks use.
+  Iterable<PlanItem> get allItems sync* {
+    for (final item in items) {
+      yield item;
+      yield* item.children;
+    }
+  }
+
   /// Summary for the strip and tool results: the in-progress item (if any)
-  /// plus done/total counts, and the approval suffix when one is wanted.
+  /// plus done/total counts (children included), and the approval suffix
+  /// when one is wanted.
   String get summary {
     if (items.isEmpty) return '';
-    final done = items.where((i) => i.state == PlanState.done).length;
-    final active = items
+    final done = allItems.where((i) => i.state == PlanState.done).length;
+    final active = allItems
         .where((i) => i.state == PlanState.inProgress)
         .map((i) => i.text)
         .join(' · ');
-    final counts = '$done/${items.length}';
+    final counts = '$done/${allItems.length}';
     return [if (active.isNotEmpty) active, counts, if (needsApproval) 'needs approval']
         .join(' · ');
   }
@@ -119,22 +225,25 @@ class PlanStore {
   Plan read(String conversationId) => _plans[conversationId] ?? const Plan([]);
 
   /// Replace [conversationId]'s plan wholesale. Validates item text and the
-  /// at-most-one in-progress invariant; throws [ArgumentError] on violations
-  /// so a malformed model call surfaces as a tool error, not silent state.
+  /// at-most-one in-progress invariant (across top-level items *and* their
+  /// children); throws [ArgumentError] on violations so a malformed model
+  /// call surfaces as a tool error, not silent state. Children must be
+  /// childless — deeper nesting is rejected, not silently flattened.
   ///
-  /// Approval: an update that changes item *content* (order, text, count)
-  /// resets [PlanApproval.none] — an edited plan must be re-approved. A
-  /// state-only update (progress ticks) preserves the current approval.
+  /// Approval: an update that changes item *content* (order, text, count,
+  /// children) resets [PlanApproval.none] — an edited plan must be
+  /// re-approved. A state-only update (progress ticks) preserves the current
+  /// approval.
   void update(
     String conversationId,
-    List<({String text, PlanState state})> items, {
+    List<PlanItem> items, {
     PlanApproval approval = PlanApproval.none,
   }) {
     _ensureOpen();
     if (items.length > maxItems) {
       throw ArgumentError('plan exceeds $maxItems items');
     }
-    for (final item in items) {
+    void validate(PlanItem item, {required bool isChild}) {
       final text = item.text.trim();
       if (text.isEmpty) {
         throw ArgumentError('plan items must have non-empty text');
@@ -142,8 +251,21 @@ class PlanStore {
       if (text.length > maxTextLength) {
         throw ArgumentError('plan item text exceeds $maxTextLength chars');
       }
+      if (isChild && item.children.isNotEmpty) {
+        throw ArgumentError('plan supports one nesting level only '
+            '(children of children)');
+      }
+      for (final child in item.children) {
+        validate(child, isChild: true);
+      }
     }
-    final inProgress = items.where((i) => i.state == PlanState.inProgress);
+
+    for (final item in items) {
+      validate(item, isChild: false);
+    }
+    final inProgress = [
+      for (final item in items) ...[item, ...item.children],
+    ].where((i) => i.state == PlanState.inProgress);
     if (inProgress.length > 1) {
       throw ArgumentError('at most one plan item may be in progress');
     }
@@ -155,8 +277,11 @@ class PlanStore {
         : (previous != null && previous.contentMatches(items)
             ? previous.approval
             : PlanApproval.none);
+    PlanItem normalize(PlanItem item) => PlanItem(item.text.trim(),
+        state: item.state,
+        children: [for (final c in item.children) normalize(c)]);
     _plans[conversationId] = Plan([
-      for (final item in items) (text: item.text.trim(), state: item.state),
+      for (final item in items) normalize(item),
     ], approval: effectiveApproval);
     _changes.add(null);
     persistHook?.call(conversationId);
@@ -232,16 +357,7 @@ class PlanStore {
   }
 
   static bool _samePlan(Plan a, Plan b) {
-    if (a.approval != b.approval || a.items.length != b.items.length) {
-      return false;
-    }
-    for (var i = 0; i < a.items.length; i++) {
-      if (a.items[i].text != b.items[i].text ||
-          a.items[i].state != b.items[i].state) {
-        return false;
-      }
-    }
-    return true;
+    return a.approval == b.approval && _listEquals(a.items, b.items);
   }
 
   /// Fired after every successful mutation. Listeners must not throw.

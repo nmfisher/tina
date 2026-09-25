@@ -84,7 +84,7 @@ void main() {
     });
 
     test('--yolo auto-grants an approval-only re-request too', () async {
-      store.update('c1', [(text: 'a', state: PlanState.pending)]);
+      store.update('c1', [PlanItem('a', state: PlanState.pending)]);
       final tool = PlanTool(
         store,
         'c1',
@@ -161,7 +161,7 @@ void main() {
     test('--yolo never tells the agent to wait', () async {
       store.update(
         'c1',
-        [(text: 'step one', state: PlanState.inProgress)],
+        [PlanItem('step one', state: PlanState.inProgress)],
         approval: PlanApproval.approved,
       );
       final system = await section(middleware(yolo: true));
@@ -173,7 +173,7 @@ void main() {
     test('headless host never tells the agent to wait', () async {
       store.update(
         'c1',
-        [(text: 'step one', state: PlanState.inProgress)],
+        [PlanItem('step one', state: PlanState.inProgress)],
         approval: PlanApproval.approved,
       );
       final system = await section(middleware(host: FakeHeadlessHost()));
@@ -184,7 +184,7 @@ void main() {
         () async {
       store.update(
         'c1',
-        [(text: 'step one', state: PlanState.inProgress)],
+        [PlanItem('step one', state: PlanState.inProgress)],
         approval: PlanApproval.requested,
       );
       final system = await section(middleware());

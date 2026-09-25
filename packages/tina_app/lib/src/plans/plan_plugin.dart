@@ -90,6 +90,14 @@ String _section(Plan plan, PlanApprovalMode approvalMode) {
       PlanState.inProgress => '[~]',
       PlanState.done => '[x]',
     }} ${item.text}');
+    // Subtasks render indented under their parent, mirroring the overlay.
+    for (final child in item.children) {
+      buffer.writeln('  ${switch (child.state) {
+        PlanState.pending => '[ ]',
+        PlanState.inProgress => '[~]',
+        PlanState.done => '[x]',
+      }} ${child.text}');
+    }
   }
   buffer.writeln('</current-plan>');
   return buffer.toString();
@@ -160,14 +168,17 @@ class PlanTool extends LocalControlTool {
         name: 'update_plan',
         description:
             'Replace this conversation\'s task plan. Pass the complete item '
-            'list with each item\'s state (pending, in_progress, done). Keep '
-            'at most one item in_progress. Use it to track multi-step work '
-            'for the user; call it again whenever the plan changes. Pass '
-            'approval: "requested" to ask the user to approve the plan '
-            'before you execute it — they approve or reject via /plan, and '
-            'the plan you see in context tells you the outcome. You may also '
-            'call it with only approval: "requested" to (re-)request approval '
-            'for the unchanged plan.',
+            'list with each item\'s state (pending, in_progress, done). An '
+            'item may carry a flat `children` list of subtask items (one '
+            'nesting level; children must not have children). Keep at most '
+            'one item in_progress across the whole plan (children included). '
+            'Use it to track multi-step work for the user; call it again '
+            'whenever the plan changes. Pass approval: "requested" to ask '
+            'the user to approve the plan before you execute it — they '
+            'approve or reject via /plan, and the plan you see in context '
+            'tells you the outcome. You may also call it with only '
+            'approval: "requested" to (re-)request approval for the '
+            'unchanged plan.',
         inputSchema: {
           'type': 'object',
           'properties': {
@@ -181,22 +192,36 @@ class PlanTool extends LocalControlTool {
             'items': {
               'type': 'array',
               'maxItems': PlanStore.maxItems,
-              'items': {
-                'type': 'object',
-                'properties': {
-                  'text': {'type': 'string'},
-                  'state': {
-                    'type': 'string',
-                    'enum': ['pending', 'in_progress', 'done'],
-                  },
-                },
-                'required': ['text', 'state'],
-              },
+              // The per-item shape; one nesting level via its own `children`.
+              'items': _itemSchema(allowChildren: true),
             },
           },
           'required': ['items'],
         },
       );
+
+  /// The JSON schema of one plan item. Root rows may carry [children];
+  /// children must be childless (nesting is capped at one level), which the
+  /// child shape enforces structurally.
+  static Map<String, dynamic> _itemSchema({required bool allowChildren}) => {
+        'type': 'object',
+        'properties': {
+          'text': {'type': 'string'},
+          'state': {
+            'type': 'string',
+            'enum': ['pending', 'in_progress', 'done'],
+          },
+          if (allowChildren)
+            'children': {
+              'type': 'array',
+              'description':
+                  'Optional subtasks of this item. One nesting level: '
+                  'children must not carry children of their own.',
+              'items': _itemSchema(allowChildren: false),
+            },
+        },
+        'required': ['text', 'state'],
+      };
 
   @override
   Future<ToolResult> execute(
@@ -251,20 +276,7 @@ class PlanTool extends LocalControlTool {
     }
     try {
       final items = [
-        for (final raw in rawItems)
-          (
-            text: switch (raw) {
-              {'text': String text} => text,
-              _ => throw ArgumentError('plan item requires string text'),
-            },
-            state: switch (raw) {
-              {'state': 'pending'} => PlanState.pending,
-              {'state': 'in_progress'} => PlanState.inProgress,
-              {'state': 'done'} => PlanState.done,
-              _ => throw ArgumentError(
-                  'plan item state must be pending, in_progress or done'),
-            },
-          ),
+        for (final raw in rawItems) _decodeItem(raw, allowChildren: true),
       ];
       store.update(conversationId, items, approval: effectiveApproval);
     } on ArgumentError catch (error) {
@@ -282,6 +294,46 @@ class PlanTool extends LocalControlTool {
             'or required in this run).',
       _ => 'Plan updated.',
     });
+  }
+
+  /// Decode one model-supplied item into a [PlanItem], preserving its
+  /// existing strict decode contract: missing/junk text or state is a tool
+  /// error, unknown children entries are tool errors too. When
+  /// [allowChildren] is false (a child row) any nested `children` payload is
+  /// rejected — the tool surfaces one nesting level as an error instead of
+  /// silently flattening it.
+  static PlanItem _decodeItem(
+    dynamic raw, {
+    required bool allowChildren,
+  }) {
+    final text = switch (raw) {
+      {'text': String text} => text,
+      _ => throw ArgumentError('plan item requires string text'),
+    };
+    final state = switch (raw) {
+      {'state': 'pending'} => PlanState.pending,
+      {'state': 'in_progress'} => PlanState.inProgress,
+      {'state': 'done'} => PlanState.done,
+      _ => throw ArgumentError(
+          'plan item state must be pending, in_progress or done'),
+    };
+    final children = <PlanItem>[];
+    final rawChildren = switch (raw) {
+      {'children': final List rawChildren} => rawChildren,
+      // Present but not a list (null included) is a tool error; absent is
+      // simply no children.
+      {'children': _} =>
+        throw ArgumentError('plan item children must be an array'),
+      _ => const <dynamic>[],
+    };
+    if (rawChildren.isNotEmpty && !allowChildren) {
+      throw ArgumentError('plan supports one nesting level only '
+          '(children of children)');
+    }
+    for (final rawChild in rawChildren) {
+      children.add(_decodeItem(rawChild, allowChildren: false));
+    }
+    return PlanItem(text, state: state, children: children);
   }
 }
 
@@ -304,17 +356,26 @@ class PlanStatusSource implements StatusSource {
   Stream<void> get changes => store.changes;
 }
 
-/// Strip view-model: the item list, the approval dimension, and derived
-/// counts, kept value-shaped so the renderer stays a pure function.
+/// Strip view-model: the item list (parents with their children), the
+/// approval dimension, and derived counts, kept value-shaped so the renderer
+/// stays a pure function. The done/total counts span children: subtasks are
+/// plan work, so the strip reports all of it.
 class PlanSummary {
-  final List<({String text, PlanState state})> items;
+  final List<PlanItem> items;
   final PlanApproval approval;
   const PlanSummary(this.items, {this.approval = PlanApproval.none});
 
-  int get done => items.where((i) => i.state == PlanState.done).length;
-  int get total => items.length;
+  Iterable<PlanItem> get _all sync* {
+    for (final item in items) {
+      yield item;
+      yield* item.children;
+    }
+  }
+
+  int get done => _all.where((i) => i.state == PlanState.done).length;
+  int get total => _all.length;
   String? get active =>
-      items.where((i) => i.state == PlanState.inProgress).firstOrNull?.text;
+      _all.where((i) => i.state == PlanState.inProgress).firstOrNull?.text;
   bool get needsApproval => approval == PlanApproval.requested;
 }
 
@@ -369,6 +430,9 @@ Command planCommand(PlanStore store) => Command(
           final verb = toggle.group(1)!.toLowerCase();
           final index = int.parse(toggle.group(2)!) - 1;
           final plan = store.read(id);
+          // Deliberately top-level only: dotted child addressing
+          // (`/plan done 2.1`) is out of scope for v1 — the overlay's
+          // space key or a model update_plan call edits children.
           if (index < 0 || index >= plan.items.length) {
             call.write('No plan item ${index + 1}.\n');
             return const CmdHandled(failed: true);
@@ -376,12 +440,12 @@ Command planCommand(PlanStore store) => Command(
           try {
             store.update(id, [
               for (final (i, item) in plan.items.indexed)
-                (
-                  text: item.text,
-                  state: i == index
-                      ? (verb == 'done' ? PlanState.done : PlanState.pending)
-                      : item.state,
-                ),
+                i == index
+                    ? item.copyWith(
+                        state: verb == 'done'
+                            ? PlanState.done
+                            : PlanState.pending)
+                    : item,
             ]);
           } on ArgumentError catch (error) {
             call.write('${error.message}\n', style: HostMessageStyle.warning);
@@ -401,7 +465,7 @@ Command planCommand(PlanStore store) => Command(
 void _append(CommandCall call, String id, PlanStore store, String text) {
   final existing = store.read(id).items;
   try {
-    store.update(id, [...existing, (text: text, state: PlanState.pending)]);
+    store.update(id, [...existing, PlanItem(text, state: PlanState.pending)]);
   } on ArgumentError catch (error) {
     call.write('${error.message}\n', style: HostMessageStyle.warning);
     return;
@@ -427,6 +491,15 @@ void _show(CommandCall call, Plan plan) {
       PlanState.inProgress => '[~]',
       PlanState.done => '[x]',
     }} ${item.text}');
+    // Subtasks show indented and unnumbered: `/plan done <n>` addresses
+    // top-level items only (dotted addressing is out of scope for v1).
+    for (final child in item.children) {
+      buffer.writeln('      ${switch (child.state) {
+        PlanState.pending => '[ ]',
+        PlanState.inProgress => '[~]',
+        PlanState.done => '[x]',
+      }} ${child.text}');
+    }
   }
   call.write(buffer.toString());
 }

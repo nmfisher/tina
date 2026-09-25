@@ -22,9 +22,9 @@ void main() {
     final seen = <int>[];
     final sub = store.changes.listen((_) => seen.add(seen.length + 1));
     store.update('c1', [
-      (text: 'set up tests', state: PlanState.done),
-      (text: 'regex fix', state: PlanState.inProgress),
-      (text: 'ship it', state: PlanState.pending),
+      PlanItem('set up tests', state: PlanState.done),
+      PlanItem('regex fix', state: PlanState.inProgress),
+      PlanItem('ship it'),
     ]);
     final plan = store.read('c1');
     expect(plan.items.map((i) => i.text),
@@ -38,14 +38,14 @@ void main() {
   test('at most one in-progress item', () {
     expect(
       () => store.update('c1', [
-        (text: 'a', state: PlanState.inProgress),
-        (text: 'b', state: PlanState.inProgress),
+        PlanItem('a', state: PlanState.inProgress),
+        PlanItem('b', state: PlanState.inProgress),
       ]),
       throwsArgumentError,
     );
     // Whitespace-only text is empty after trim.
     expect(
-      () => store.update('c1', [(text: '   ', state: PlanState.pending)]),
+      () => store.update('c1', [PlanItem('   ')]),
       throwsArgumentError,
     );
     expect(store.read('c1').isEmpty, isTrue);
@@ -54,7 +54,7 @@ void main() {
   test('clear removes the plan and fires once only when present', () async {
     final seen = <int>[];
     final sub = store.changes.listen((_) => seen.add(seen.length + 1));
-    store.update('c1', [(text: 'a', state: PlanState.pending)]);
+    store.update('c1', [PlanItem('a')]);
     store.clear('c1');
     store.clear('c1');
     expect(store.read('c1').isEmpty, isTrue);
@@ -64,7 +64,7 @@ void main() {
   });
 
   test('conversations are isolated', () {
-    store.update('c1', [(text: 'a', state: PlanState.pending)]);
+    store.update('c1', [PlanItem('a')]);
     expect(store.read('c2').isEmpty, isTrue);
     store.clear('c2');
     expect(store.read('c1').items.single.text, 'a');
@@ -76,14 +76,14 @@ void main() {
         'c1',
         List.generate(
           PlanStore.maxItems + 1,
-          (i) => (text: 'item $i', state: PlanState.pending),
+          (i) => PlanItem('item $i'),
         ),
       ),
       throwsArgumentError,
     );
     expect(
       () => store.update('c1', [
-        (text: 'x' * (PlanStore.maxTextLength + 1), state: PlanState.pending),
+        PlanItem('x' * (PlanStore.maxTextLength + 1)),
       ]),
       throwsArgumentError,
     );
@@ -92,7 +92,7 @@ void main() {
   test('after dispose, mutations throw', () {
     store.dispose();
     expect(
-      () => store.update('c1', [(text: 'a', state: PlanState.pending)]),
+      () => store.update('c1', [PlanItem('a')]),
       throwsStateError,
     );
   });
@@ -100,8 +100,8 @@ void main() {
   group('Plan persistence (JSON + hydrate)', () {
     test('Plan JSON round-trips items, states and approval', () {
       final plan = Plan([
-        (text: 'set up tests', state: PlanState.done),
-        (text: 'regex fix', state: PlanState.inProgress),
+        PlanItem('set up tests', state: PlanState.done),
+        PlanItem('regex fix', state: PlanState.inProgress),
       ], approval: PlanApproval.requested);
       // Through an actual JSON encode/decode, like a manifest round-trip.
       final back = Plan.fromJson(
@@ -157,10 +157,10 @@ void main() {
       final hooked = <String>[];
       hooks.persistHook = hooked.add;
       expect(
-        () => hooks.update('c1', [(text: ' ', state: PlanState.pending)]),
+        () => hooks.update('c1', [PlanItem(' ')]),
         throwsArgumentError,
       );
-      hooks.update('c1', [(text: 'a', state: PlanState.pending)]);
+      hooks.update('c1', [PlanItem('a')]);
       hooks.approve('c1');
       hooks.approve('c1'); // unchanged approval → no mutation, no hook
       hooks.clear('c1');
@@ -210,6 +210,127 @@ void main() {
       expect(() => plans.hydrate('c1', blob), returnsNormally,
           reason: 'a disposed store must not break a resume');
       await sub.cancel();
+    });
+  });
+
+  group('children (one nesting level)', () {
+    test('update accepts children and normalizes their text', () {
+      store.update('c1', [
+        PlanItem('parent', state: PlanState.inProgress, children: [
+          PlanItem('  sub  ', state: PlanState.done),
+        ]),
+      ]);
+      final plan = store.read('c1');
+      expect(plan.items.single.text, 'parent');
+      expect(plan.items.single.children.single.text, 'sub');
+      expect(plan.items.single.children.single.state, PlanState.done);
+      expect(plan.summary, 'parent · 1/2',
+          reason: 'summary counts span children');
+    });
+
+    test('the at-most-one invariant spans children', () {
+      expect(
+        () => store.update('c1', [
+          PlanItem('a', state: PlanState.inProgress, children: [
+            PlanItem('sub', state: PlanState.inProgress),
+          ]),
+        ]),
+        throwsArgumentError,
+      );
+      expect(
+        () => store.update('c1', [
+          PlanItem('a', children: [
+            PlanItem('one', state: PlanState.inProgress),
+            PlanItem('two', state: PlanState.inProgress),
+          ]),
+        ]),
+        throwsArgumentError,
+      );
+      expect(store.read('c1').isEmpty, isTrue);
+    });
+
+    test('children must be childless', () {
+      expect(
+        () => store.update('c1', [
+          PlanItem('a', children: [
+            PlanItem('sub', children: [PlanItem('leaf')]),
+          ]),
+        ]),
+        throwsArgumentError,
+        reason: 'one nesting level: deeper shapes are rejected, not flattened',
+      );
+    });
+
+    test('childless plans serialize byte-identically to pre-nesting blobs',
+        () {
+      final plan = Plan([PlanItem('a', state: PlanState.done)]);
+      expect(
+        jsonEncode(plan.toJson()['items']),
+        jsonEncode([
+          {'text': 'a', 'state': 'done'},
+        ]),
+        reason: 'the children key is omitted when empty',
+      );
+    });
+
+    test('Plan JSON round-trips children (deep equality)', () {
+      final plan = Plan([
+        PlanItem('parent', state: PlanState.done, children: [
+          PlanItem('sub', state: PlanState.inProgress),
+          PlanItem('sub2'),
+        ]),
+        PlanItem('plain'),
+      ], approval: PlanApproval.approved);
+      final back = Plan.fromJson(
+          jsonDecode(jsonEncode(plan.toJson())) as Map<String, dynamic>);
+      expect(back.items, plan.items);
+      expect(back.approval, PlanApproval.approved);
+    });
+
+    test('fromJson is lenient with children: junk skipped, depth capped', () {
+      final plan = Plan.fromJson({
+        'items': [
+          {
+            'text': 'parent',
+            'state': 'done',
+            'children': [
+              {'text': 'kept', 'state': 'done'},
+              'junk',
+              {'text': '   '}, // blank → skipped
+              {
+                'text': 'deep',
+                'children': [
+                  {'text': 'grandchild'},
+                ],
+              }, // grandchild → dropped
+            ],
+          },
+        ],
+      });
+      final children = plan.items.single.children;
+      expect(children.map((c) => c.text), ['kept', 'deep']);
+      expect(children[1].children, isEmpty);
+    });
+
+    test('editing a child resets approval; a child state flip preserves it',
+        () {
+      store.update('c1', [
+        PlanItem('a', children: [PlanItem('sub')]),
+      ], approval: PlanApproval.approved);
+      expect(store.read('c1').isApproved, isTrue);
+
+      // Same content, child state only → approval preserved.
+      store.update('c1', [
+        PlanItem('a', children: [PlanItem('sub', state: PlanState.done)]),
+      ]);
+      expect(store.read('c1').isApproved, isTrue,
+          reason: 'progress ticks must not invalidate an approval');
+
+      // Child text edited → the plan changed → approval reset.
+      store.update('c1', [
+        PlanItem('a', children: [PlanItem('sub!')]),
+      ]);
+      expect(store.read('c1').approval, PlanApproval.none);
     });
   });
 }

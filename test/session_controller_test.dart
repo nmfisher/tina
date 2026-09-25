@@ -1311,8 +1311,8 @@ void main() {
 
       goals.set(cid, 'ship the release');
       plans.update(cid, [
-        (text: 'write tests', state: PlanState.inProgress),
-        (text: 'commit', state: PlanState.pending),
+        PlanItem('write tests', state: PlanState.inProgress),
+        PlanItem('commit'),
       ]);
       // The persist hook chains an async write; pump until both blobs land.
       await _pumpUntil(
@@ -1372,7 +1372,7 @@ void main() {
       final sid = await store.createSession(providerId: 'anthropic');
       final cid = await store.createConversation(sid);
       goals.set(cid, 'stale goal'); // pre-construction → no hook, no write
-      plans.update(cid, [(text: 'stale step', state: PlanState.pending)]);
+      plans.update(cid, [PlanItem('stale step')]);
       final controller = trackedController(store, sid, cid);
 
       expect(await controller.resumeIntoActive(sid), isTrue);

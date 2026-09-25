@@ -17,24 +17,36 @@ void main() {
 
   test('renders the active item plus done counts', () {
     final summary = PlanSummary([
-      (text: 'regex fix', state: PlanState.inProgress),
-      (text: 'later', state: PlanState.pending),
-      (text: 'setup', state: PlanState.done),
+      PlanItem('regex fix', state: PlanState.inProgress),
+      PlanItem('later'),
+      PlanItem('setup', state: PlanState.done),
     ]);
     expect(text(summary), 'plan: regex fix · 1/3 done');
   });
 
   test('without an active item, only the counts remain', () {
     final summary = PlanSummary([
-      (text: 'a', state: PlanState.done),
-      (text: 'b', state: PlanState.done),
+      PlanItem('a', state: PlanState.done),
+      PlanItem('b', state: PlanState.done),
     ]);
     expect(text(summary), 'plan: 2/2 done');
   });
 
+  test('counts span children', () {
+    final summary = PlanSummary([
+      PlanItem('parent', state: PlanState.inProgress, children: [
+        PlanItem('sub', state: PlanState.done),
+        PlanItem('open'),
+      ]),
+      PlanItem('done root', state: PlanState.done),
+    ]);
+    expect(text(summary), 'plan: parent · 2/4 done',
+        reason: 'subtasks are plan work: done/total covers them');
+  });
+
   test('the label run is dim and the body unstyled', () {
     final summary = PlanSummary([
-      (text: 'a', state: PlanState.inProgress),
+      PlanItem('a', state: PlanState.inProgress),
     ]);
     final runs = renderer.render(summary, context).expand((l) => l.runs);
     expect(runs.first.text, 'plan: ');
