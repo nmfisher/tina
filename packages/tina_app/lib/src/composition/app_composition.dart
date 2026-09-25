@@ -75,6 +75,18 @@ class AppComposition {
   /// metered — fine for fakes.)
   final LlmProvider? startupProviderOverride;
 
+  /// Why the startup provider degraded to the config default because the
+  /// active conversation's persisted model ref could not be resolved (unknown
+  /// provider, missing descriptor). Null when the ref resolved — or when
+  /// [buildStartupProvider] has not run yet. Stderr stays the surface for
+  /// headless runs (no transcript to ride); transcript hosts read this and
+  /// show it as a dim footnote instead, where stderr is invisible behind the
+  /// alternate screen.
+  String? _startupModelFallback;
+
+  /// The degradation note from the most recent [buildStartupProvider] call.
+  String? get startupModelFallback => _startupModelFallback;
+
   /// The "auto" permission mode's safety classifier, built from
   /// `[permissions] model` (or the main model). Null when no provider could
   /// be built — auto mode then falls back to the interactive prompt.
@@ -153,10 +165,14 @@ class AppComposition {
           ref != '${config.provider}/${config.model}') {
         final refProvider = refProviderForBuild(ref);
         if (refProvider == null || registry.descriptor(refProvider) == null) {
-          stderr.writeln(
-            'resume: conversation model "$ref" is no longer resolvable — '
-            'falling back to ${config.provider}/${config.model}.',
-          );
+          // Not only stderr: transcript hosts surface this note from
+          // [startupModelFallback] (stderr is invisible behind the alternate
+          // screen). Overwrite per call — each build reflects only its own
+          // resolution, never a stale one.
+          _startupModelFallback =
+              'resume: conversation model "$ref" is no longer resolvable — '
+              'falling back to ${config.provider}/${config.model}.';
+          stderr.writeln(_startupModelFallback!);
         } else {
           // The startup key/base URL apply only to the CONFIG provider; a
           // different provider resolves afresh from its descriptor + env (same
