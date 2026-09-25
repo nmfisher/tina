@@ -759,11 +759,18 @@ class SessionController {
       final manifest = await sessionStore!.loadSession(id);
       final anchor = manifest.activeConversationId;
       // Anchor first, then manifest order — same deduped candidate order
-      // startup uses.
+      // startup uses. Primaries only: the anchor names which MAIN
+      // conversation a resume reopens, so sub-agent / spawn / branch panels
+      // are never candidates (a legacy anchor naming a panel is skipped
+      // like an unreadable one — a primary is resumed instead).
+      final byId = {for (final c in manifest.conversations) c.id: c};
       final candidates = <String>{
         if (anchor.isNotEmpty) anchor,
         ...manifest.conversations.map((c) => c.id),
-      };
+      }.where((cid) =>
+          byId[cid]?.kind == ConversationKind.primary ||
+          (cid == anchor && byId[cid] == null) // corrupt manifest: try, then skip
+      ).toList();
       String? cid;
       List<Message>? history;
       for (final candidate in candidates) {

@@ -107,7 +107,9 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
       providerId: manifest.providerId,
       baseUrl: manifest.baseUrl,
       cwd: manifest.cwd,
-      activeConversationId: manifest.activeConversationId.isEmpty
+      // The first PRIMARY conversation auto-anchors; panels never do.
+      activeConversationId: manifest.activeConversationId.isEmpty &&
+              input.kind == ConversationKind.primary
           ? id
           : manifest.activeConversationId,
       conversations: conversations,
@@ -151,9 +153,20 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
       String sessionId, String conversationId) async {
     final manifest = _manifests[sessionId];
     if (manifest == null) throw StateError('Session not found: $sessionId');
-    if (!manifest.conversations.any((c) => c.id == conversationId)) {
+    final meta = manifest.conversations
+        .where((c) => c.id == conversationId)
+        .firstOrNull;
+    if (meta == null) {
       throw StateError(
-          'Conversation not found in session: $sessionId/$conversationId');
+        'Conversation not found in session: $sessionId/$conversationId',
+      );
+    }
+    if (meta.kind != ConversationKind.primary) {
+      // Mirrors the JSONL store: panels are not resume targets.
+      throw StateError(
+        'cannot anchor ${meta.kind.name} conversation '
+        '$sessionId/$conversationId — only primaries anchor',
+      );
     }
     _manifests[sessionId] = SessionManifest(
       id: manifest.id,
@@ -328,8 +341,14 @@ class MemorySessionStore implements SessionStore, TimestampedSessionStore {
     if (manifest == null) return;
     final remaining =
         manifest.conversations.where((c) => c.id != conversationId).toList();
+    // Heal to another PRIMARY on anchor deletion (never a panel), or empty
+    // when none remains — the next primary creation anchors.
     final active = manifest.activeConversationId == conversationId
-        ? (remaining.isEmpty ? '' : remaining.first.id)
+        ? remaining
+                .where((c) => c.kind == ConversationKind.primary)
+                .map((c) => c.id)
+                .firstOrNull ??
+            ''
         : manifest.activeConversationId;
     _manifests[sessionId] = SessionManifest(
       id: manifest.id,

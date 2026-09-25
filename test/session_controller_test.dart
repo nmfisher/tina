@@ -1435,6 +1435,10 @@ void main() {
       final second = await store.createConversation(sid);
       await store.append(sid, second,
           Message(role: Role.user, content: [TextBlock('second')]));
+      // Anchor second deliberately: only the FIRST conversation of a session
+      // auto-anchors, and resume reopens the anchor — the incident needs the
+      // stale in-memory controller (built on `first`) to disagree with disk.
+      await store.setActiveConversation(sid, second);
 
       final controller = _buildController(
         readLine: FakeReadLine(),

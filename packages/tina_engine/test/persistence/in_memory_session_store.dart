@@ -81,8 +81,10 @@ class InMemorySessionStore implements SessionStore, TimestampedSessionStore {
         parentConversationId: meta.parentConversationId,
       ),
     ]);
-    // The first conversation created in a session becomes the active one.
-    if (s.manifest.activeConversationId.isEmpty) {
+    // The first PRIMARY conversation created in a session becomes the
+    // active one; panels never anchor.
+    if (s.manifest.activeConversationId.isEmpty &&
+        meta.kind == ConversationKind.primary) {
       s.manifest = _manifestWith(s.manifest, activeConversationId: cid);
     }
     _touch(s);
@@ -129,8 +131,17 @@ class InMemorySessionStore implements SessionStore, TimestampedSessionStore {
   Future<void> setActiveConversation(
       String sessionId, String conversationId) async {
     final s = _require(sessionId);
-    if (!s.manifest.conversations.any((c) => c.id == conversationId)) {
+    final meta = s.manifest.conversations
+        .where((c) => c.id == conversationId)
+        .firstOrNull;
+    if (meta == null) {
       throw StateError('conversation not found: $sessionId/$conversationId');
+    }
+    if (meta.kind != ConversationKind.primary) {
+      // Mirrors the JSONL store: only primaries anchor.
+      throw StateError(
+          'cannot anchor ${meta.kind.name} conversation '
+          '$sessionId/$conversationId — only primaries anchor');
     }
     s.manifest =
         _manifestWith(s.manifest, activeConversationId: conversationId);
@@ -275,8 +286,14 @@ class InMemorySessionStore implements SessionStore, TimestampedSessionStore {
       for (final c in s.manifest.conversations)
         if (c.id != conversationId) c
     ];
-    var active = s.manifest.activeConversationId == conversationId
-        ? (remaining.isEmpty ? '' : remaining.first.id)
+    // Heal to another PRIMARY on anchor deletion (never a panel), or empty
+    // when none remains — the next primary creation anchors.
+    final active = s.manifest.activeConversationId == conversationId
+        ? remaining
+                .where((c) => c.kind == ConversationKind.primary)
+                .map((c) => c.id)
+                .firstOrNull ??
+            ''
         : s.manifest.activeConversationId;
     s.manifest = _manifestWith(s.manifest,
         conversations: remaining, activeConversationId: active);

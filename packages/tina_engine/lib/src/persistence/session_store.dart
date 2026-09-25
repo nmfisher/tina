@@ -434,8 +434,11 @@ abstract class SessionStore {
 
   /// Make [conversationId] the active conversation of [sessionId].
   ///
-  /// The conversation must already exist in the session. Throws [StateError]
-  /// if the session or conversation is unknown.
+  /// The conversation must already exist in the session, and must be a
+  /// [ConversationKind.primary]: the anchor names which main conversation a
+  /// resume reopens, and sub-agent / spawn / branch panels are never resume
+  /// targets. Throws [StateError] if the session or conversation is unknown,
+  /// or if the conversation is not a primary.
   Future<void> setActiveConversation(String sessionId, String conversationId);
 
   /// Update a conversation's persisted model ref (and label) — e.g. after a

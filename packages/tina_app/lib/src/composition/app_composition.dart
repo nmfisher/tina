@@ -495,11 +495,18 @@ Future<ResolvedSession?> _loadBestConversation(
 }) async {
   final anchor = manifest.activeConversationId;
   // Deduped, anchor-first candidate order; ties in the order the manifest
-  // lists them (creation order).
+  // lists them (creation order). Primaries only: the anchor names which MAIN
+  // conversation a resume reopens, so sub-agent / spawn / branch panels are
+  // never candidates (a legacy anchor naming a panel is skipped like an
+  // unreadable one — a primary is resumed instead).
+  final byId = {for (final c in manifest.conversations) c.id: c};
   final ids = <String>{
     if (anchor.isNotEmpty) anchor,
     ...manifest.conversations.map((c) => c.id),
-  }.toList();
+  }.where((cid) =>
+      byId[cid]?.kind == ConversationKind.primary ||
+      (cid == anchor && byId[cid] == null) // corrupt manifest: try, then skip
+  ).toList();
 
   // Which candidates actually read? Transcript files are project-local and
   // can vanish (fresh clone / git clean) while the manifest survives.

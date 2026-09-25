@@ -144,6 +144,57 @@ void sessionStoreContractSuite(
         expect(() => store.setActiveConversation(sid, 'does-not-exist'),
             throwsStateError);
       });
+
+      test('a panel (sub-agent / spawn / branch) never anchors', () async {
+        final sid = await store.createSession(providerId: 'anthropic');
+        final primary = await store.createConversation(sid);
+        const panel = ConversationMetaInput(
+          label: 'explorer',
+          kind: ConversationKind.spawn,
+        );
+        final spawned = await store.createConversationWithMeta(sid, panel);
+
+        await store.setActiveConversation(sid, primary);
+        expect(() => store.setActiveConversation(sid, spawned),
+            throwsStateError,
+            reason: 'panels are not resume targets');
+        expect((await store.loadSession(sid)).activeConversationId, primary,
+            reason: 'the rejected repoint leaves the anchor alone');
+      });
+
+      test('a panel never auto-anchors, even as the first conversation',
+          () async {
+        final sid = await store.createSession(providerId: 'anthropic');
+        await store.createConversationWithMeta(
+            sid,
+            const ConversationMetaInput(
+              label: 'explorer',
+              kind: ConversationKind.subAgent,
+            ));
+        expect((await store.loadSession(sid)).activeConversationId, isEmpty,
+            reason: 'only primaries anchor');
+        final primary = await store.createConversation(sid);
+        expect((await store.loadSession(sid)).activeConversationId, primary,
+            reason: 'the first PRIMARY takes the anchor');
+      });
+
+      test('deleting the anchored conversation heals to a primary, '
+          'never a panel', () async {
+        final sid = await store.createSession(providerId: 'anthropic');
+        final c1 = await store.createConversation(sid);
+        await store.createConversationWithMeta(
+            sid,
+            const ConversationMetaInput(
+              label: 'explorer',
+              kind: ConversationKind.spawn,
+            ));
+        final c2 = await store.createConversation(sid);
+
+        await store.deleteConversation(sid, c1);
+
+        expect((await store.loadSession(sid)).activeConversationId, c2,
+            reason: 'the heal skips the panel even though it lists first');
+      });
     });
 
     group('updateConversationModel (model-swap persistence)', () {

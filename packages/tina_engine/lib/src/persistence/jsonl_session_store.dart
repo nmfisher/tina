@@ -245,12 +245,16 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
       ...manifest.conversations,
       _metaFromInput(cid, input),
     ];
+    // The first PRIMARY conversation auto-anchors. Sub-agent / spawn /
+    // branch panels never take the pointer: it names which primary a
+    // resume reopens, and panels are not resume targets.
     await _writeManifest(SessionManifest(
       id: manifest.id,
       providerId: manifest.providerId,
       baseUrl: manifest.baseUrl,
       cwd: manifest.cwd,
-      activeConversationId: manifest.activeConversationId.isEmpty
+      activeConversationId: manifest.activeConversationId.isEmpty &&
+              input.kind == ConversationKind.primary
           ? cid
           : manifest.activeConversationId,
       conversations: conversations,
@@ -452,9 +456,20 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
       String sessionId, String conversationId) async {
     await _ensureMaterialized(sessionId);
     final manifest = await _readManifest(sessionId);
-    if (!manifest.conversations.any((c) => c.id == conversationId)) {
+    final meta = manifest.conversations
+        .where((c) => c.id == conversationId)
+        .firstOrNull;
+    if (meta == null) {
       throw StateError(
           'Conversation not found in session: $sessionId/$conversationId');
+    }
+    if (meta.kind != ConversationKind.primary) {
+      // Panels (sub-agent / spawn / branch) are not resume targets: the
+      // anchor decides what a resume reopens, and that is always a main
+      // conversation.
+      throw StateError(
+          'cannot anchor ${meta.kind.name} conversation '
+          '$sessionId/$conversationId — only primaries anchor');
     }
     await _writeManifest(SessionManifest(
       id: manifest.id,
@@ -685,8 +700,15 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
       final manifest = await _readManifest(sessionId);
       final remaining =
           manifest.conversations.where((c) => c.id != conversationId).toList();
+      // Heal to another PRIMARY (manifest order) when the anchored
+      // conversation was deleted; never to a panel, and empty when no
+      // primary remains (the next createConversationWithMeta anchors).
       final active = manifest.activeConversationId == conversationId
-          ? (remaining.isEmpty ? '' : remaining.first.id)
+          ? remaining
+              .where((c) => c.kind == ConversationKind.primary)
+              .map((c) => c.id)
+              .firstOrNull ??
+              ''
           : manifest.activeConversationId;
       await _writeManifest(SessionManifest(
         id: manifest.id,
