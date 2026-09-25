@@ -2376,16 +2376,17 @@ class TuiCoordinator {
       // Background update check (COCOON_UPDATE_CHECK=0 to disable): cache-first
       // GitHub probe (revalidated when the cached answer isn't newer) that
       // drops a single dim notice in the chat when a newer release is out.
-      // Fire-and-forget like the catalog fetch — a network miss never
-      // surfaces. Also sweeps any `<bundle>.old` a previous update left.
+      // A network miss is no longer silent: it paints a dim strip line and
+      // chat notice naming the reason (rate limit, timeout, …) once. Also
+      // sweeps any `<bundle>.old` a previous update left.
       if (app.environment.env['COCOON_UPDATE_CHECK'] != '0') {
         cleanupStaleOldBundle();
         unawaited(() async {
           final checker = ReleaseChecker(env: app.environment.env);
           // Strip indicator: `update check |` spins while the probe runs, the
-          // alert persists once a newer release is found, and every exit path
-          // (up-to-date, network miss, throw) clears the line — a failed
-          // check must never leave a stuck spinner.
+          // alert persists once a newer release is found, a miss paints its
+          // dim failure line, and every exit path still clears a stuck
+          // spinner — a failed check must never spin forever.
           final versionStatus =
               app.pluginScope?.lookup(versionStatusServiceKey);
           versionStatus?.beginCheck();
@@ -2398,6 +2399,15 @@ class TuiCoordinator {
               await Future<void>.delayed(const Duration(milliseconds: 50));
               initialHost.showMessage(
                 'tina ${release.tag} is available — /update to install\n',
+                style: HostMessageStyle.dim,
+              );
+            } else if (checker.lastMiss case final miss?) {
+              // The check ran but could not reach GitHub. Say so — dimly,
+              // once — so "no update notice" never reads as "up to date".
+              versionStatus?.missed(miss.detail);
+              await Future<void>.delayed(const Duration(milliseconds: 50));
+              initialHost.showMessage(
+                'update check failed (${miss.detail}); /update retries.\n',
                 style: HostMessageStyle.dim,
               );
             }

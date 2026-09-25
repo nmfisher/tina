@@ -91,8 +91,12 @@ class UpdateCommands {
       host.showMessage('checking for updates…\n', style: HostMessageStyle.dim);
       final release = await checker.fetchLatest();
       if (release == null) {
+        // Name the reason (rate limit, timeout, …) — "could not reach" alone
+        // invites reading the failure as "up to date".
+        final miss = checker.lastMiss;
         host.showMessage(
-          'could not reach GitHub for the release check.\n',
+          'could not reach GitHub for the release check'
+          '${miss == null ? '' : ' (${miss.detail})'}.\n',
           style: HostMessageStyle.warning,
         );
         return;

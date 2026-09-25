@@ -10,8 +10,8 @@ import '../helpers/fake_stdio.dart';
 /// renderer reach the strip with no host wiring beyond mounting the plugins —
 /// the check state from [versionStatusPlugin], exactly as bin/tina.dart's
 /// composition does. Idle shows nothing; the running check paints a spinner,
-/// a found update paints a persistent alert, and settling up-to-date (or a
-/// network miss, which reads the same) clears the line.
+/// a found update paints a persistent alert, settling up-to-date clears the
+/// line, and a miss paints a dim failure line that a later finding replaces.
 void main() {
   test('the plugin paints the release check and update alert on the strip', () async {
     final runtime = PluginRuntime(
@@ -60,5 +60,47 @@ void main() {
       reason: 'the line leaves the strip once the check settles idle',
     );
     expect(status.read('c1'), isNull);
+  });
+
+  test('a missed check paints a dim failure line, not silence', () async {
+    final runtime = PluginRuntime(
+      name: 'version-status-miss-e2e',
+      plugins: [versionStatusPlugin(), versionStatusUiPlugin()],
+    )..activateSync();
+    addTearDown(runtime.dispose);
+    final status =
+        runtime.scope.lookup(versionStatusServiceKey) as VersionStatus;
+
+    final io = FakeStdio();
+    final screen = Screen(
+      io: io,
+      layout: ScreenLayout.fromSize(100, 24),
+      ansi: AnsiCapable.yes,
+    );
+    final strip = InputStatus(
+      screen: screen,
+      scope: runtime.scope,
+      conversationId: () => 'c1',
+    )..start();
+    addTearDown(strip.dispose);
+
+    status.missed('HTTP 403 (likely rate-limited)');
+    await Future<void>.delayed(Duration.zero);
+    final painted = io.written.toString();
+    expect(painted, contains('update check failed'));
+    expect(painted, contains('HTTP 403 (likely rate-limited)'));
+    // A miss is dim, not alarm-colored: it must not borrow the alert's
+    // yellow or its `/update` cue.
+    expect(painted, isNot(contains('/update')));
+
+    // A later finding replaces the miss — the alert must be able to surface
+    // after a failed first attempt (e.g. `/update` succeeding).
+    io.written.clear();
+    status.updateAvailable('v0.9.0');
+    await Future<void>.delayed(Duration.zero);
+    final after = io.written.toString();
+    expect(after, contains('v0.9.0'));
+    expect(after, contains('/update'));
+    expect(after, isNot(contains('update check failed')));
   });
 }

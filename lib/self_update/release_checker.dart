@@ -65,10 +65,45 @@ List<int>? _parseSemver(String v) {
   return [major, minor, patch];
 }
 
+/// Why a release fetch failed. Not an exception — a miss is a normal,
+/// non-fatal outcome ("unknown", never an error) — but it is no longer
+/// invisible: [ReleaseChecker.lastMiss] carries the most recent one so
+/// callers can say *why* no update notice appeared, instead of leaving
+/// "check failed" to read as "up to date".
+class ReleaseMiss {
+  const ReleaseMiss.http(this.status)
+      : kind = MissKind.http,
+        detail = 'HTTP $status';
+  const ReleaseMiss.network(this.detail)
+      : kind = MissKind.network,
+        status = null;
+  const ReleaseMiss.badPayload()
+      : kind = MissKind.badPayload,
+        status = null,
+        detail = 'unparsable release payload';
+
+  final MissKind kind;
+
+  /// HTTP status for [MissKind.http], null otherwise.
+  final int? status;
+  final String detail;
+
+  /// GitHub's unauthenticated budget is 60 req/hr per IP, and a 403 is the
+  /// shape rate limiting takes here — common on shared egress addresses.
+  bool get rateLimited => kind == MissKind.http && status == 403;
+
+  @override
+  String toString() => detail;
+}
+
+enum MissKind { network, http, badPayload }
+
 /// Checks GitHub for the latest tina release, with a TTL cache under
 /// `~/.tina/cache/` so the startup check doesn't hit the API every launch
 /// (unauthenticated GitHub allows 60 req/hr). Modeled on [ModelsDevCatalog]:
-/// injectable [http.Client], non-fatal failures logged at FINE.
+/// injectable [http.Client], non-fatal failures logged at INFO with the
+/// reason (and mirrored on [ReleaseChecker.lastMiss]); a miss still returns
+/// null, never throws.
 class ReleaseChecker {
   ReleaseChecker({
     required Map<String, String> env,
@@ -125,29 +160,46 @@ class ReleaseChecker {
   }
 
   /// Always hit the network (`/update` uses this so an explicit ask never
-  /// answers from a stale cache).
+  /// answers from a stale cache). Null on failure; the reason is on
+  /// [lastMiss] and in the log at INFO (a miss is a normal outcome, but it
+  /// must not read as "up to date").
   Future<ReleaseInfo?> fetchLatest() async {
     try {
-      final resp = await _client.get(
-        Uri.parse('$apiBase/releases/latest'),
-        headers: const {'Accept': 'application/vnd.github+json'},
-      ).timeout(fetchTimeout);
+      final resp = await _client
+          .get(
+            Uri.parse('$apiBase/releases/latest'),
+            headers: const {'Accept': 'application/vnd.github+json'},
+          )
+          .timeout(fetchTimeout);
       if (resp.statusCode != 200) {
-        _log.fine('release check returned HTTP ${resp.statusCode}');
+        _lastMiss = ReleaseMiss.http(resp.statusCode);
+        _log.info('release check missed: $_lastMiss'
+            '${resp.statusCode == 403 ? ' (likely rate-limited)' : ''}');
         return null;
       }
       return _parse(resp.body);
     } catch (e) {
-      _log.fine('release check failed', e);
+      _lastMiss = ReleaseMiss.network('$e'.isEmpty ? 'network error' : '$e');
+      _log.info('release check missed: $_lastMiss');
       return null;
     }
   }
+
+  /// Why the most recent [fetchLatest] failed, or null when it succeeded.
+  /// A "stale answer" signal for callers: after a check that ends with this
+  /// set, any notice already on screen may be out of date and the best-known
+  /// answer comes from the cache.
+  ReleaseMiss? _lastMiss;
+  ReleaseMiss? get lastMiss => _lastMiss;
 
   ReleaseInfo? _parse(String body) {
     try {
       final raw = jsonDecode(body) as Map<String, dynamic>;
       final tag = raw['tag_name'] as String?;
-      if (tag == null || tag.isEmpty) return null;
+      if (tag == null || tag.isEmpty) {
+        _lastMiss = const ReleaseMiss.badPayload();
+        return null;
+      }
       final assets = <String, String>{};
       for (final a in (raw['assets'] as List? ?? const [])) {
         if (a is! Map) continue;
@@ -161,6 +213,7 @@ class ReleaseChecker {
         assetUrls: assets,
       );
     } catch (e) {
+      _lastMiss = const ReleaseMiss.badPayload();
       _log.fine('release payload parse failed', e);
       return null;
     }

@@ -1826,6 +1826,17 @@ suddenly had a `.git` ancestor) and one pre-existing typesafe
 disk-cache timing flake (green in isolation 3×). test/tui +
 tui_coordinator_test: 367 green. Analyzer clean on bin/lib/tina_app/test.
 
+Miss visibility — the flagged out-of-scope follow-up — landed the same
+day: fetchLatest failures were swallowed at FINE, so a rate-limited or
+timed-out check was indistinguishable from "up to date" (GitHub's
+unauth budget is 60 req/hr per IP; 403s are routine on shared egress).
+Now `ReleaseChecker.lastMiss` records why the last fetch failed
+(network / HTTP / badPayload), misses log at INFO, the strip paints a
+dim `update check failed — <reason>` line (`VersionPhase.miss`, never
+alarm-colored, replaced by a later finding), the startup block drops
+one dim chat notice, and `/update`'s "could not reach GitHub" warning
+names the reason too.
+
 Box lesson of the round: `/mnt/hdd_2tb` (flutter SDK home — `dart` on
 PATH is its wrapper) was remounted read-only mid-session and the shared
 12G /tmp tmpfs sat at 87–93% from other tenants, so `dart test` died in

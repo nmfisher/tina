@@ -16,7 +16,9 @@ final versionStatusServiceKey = ServiceKey<VersionStatus>(
 /// Strip view-model for the release check. Value-shaped so the renderer stays
 /// a pure function of it. (No `idle` member: a null snapshot from
 /// [VersionStatus.read] means idle, which removes the line entirely.)
-enum VersionPhase { checking, updateAvailable }
+/// [VersionPhase.miss] is the honest third answer — the check ran but could
+/// not reach GitHub, so "no alert" must not read as "up to date".
+enum VersionPhase { checking, updateAvailable, miss }
 
 class VersionSnapshot {
   final VersionPhase phase;
@@ -24,10 +26,21 @@ class VersionSnapshot {
 
   const VersionSnapshot.checking()
       : phase = VersionPhase.checking,
-        tag = null;
+        tag = null,
+        why = null;
   const VersionSnapshot.updateAvailable(this.tag)
       : phase = VersionPhase.updateAvailable,
+        why = null,
         assert(tag != null);
+
+  /// [why] is a short human phrase, e.g. `HTTP 403 (likely rate-limited)` or
+  /// `Connection refused`.
+  const VersionSnapshot.miss(this.why)
+      : phase = VersionPhase.miss,
+        tag = null;
+
+  /// Short human-readable reason the check could not reach GitHub.
+  final String? why;
 }
 
 /// Live release-check state for the status strip, exposed as a [StatusSource]
@@ -49,11 +62,20 @@ class VersionStatus implements StatusSource {
     _changes.add(null);
   }
 
-  /// The check settled on "up to date" (or failed — a network miss is silent
-  /// by design and reads as idle). The line leaves the strip.
+  /// The check settled on "up to date". The line leaves the strip — that is
+  /// the one outcome that should read as silence.
   void upToDate() {
     if (_snapshot == null) return;
     _snapshot = null;
+    _changes.add(null);
+  }
+
+  /// The check ran but could not reach GitHub ([why] is the short reason,
+  /// e.g. `HTTP 403 (likely rate-limited)`). Paints a dim miss line so the
+  /// failure is visible; a yellow alert never hides behind it — a later
+  /// check that finds a release replaces it via [updateAvailable].
+  void missed(String why) {
+    _snapshot = VersionSnapshot.miss(why);
     _changes.add(null);
   }
 

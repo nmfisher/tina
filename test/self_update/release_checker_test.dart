@@ -26,6 +26,15 @@ class _FakeClient extends http.BaseClient {
   }
 }
 
+/// An [http.Client] that always throws — the refused-connection / dead-DNS
+/// shape, exercising the checker's network-miss path.
+class _ThrowingClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    throw const SocketException('Connection refused');
+  }
+}
+
 String _releaseBody(String tag) => jsonEncode({
       'tag_name': tag,
       'html_url': 'https://github.com/nmfisher/tina/releases/tag/$tag',
@@ -246,6 +255,8 @@ void main() {
 
       expect((await checker.checkWithRevalidate())?.tag, 'v0.3.0',
           reason: 'the cached value stays the best-known answer');
+      expect(checker.lastMiss?.status, 500,
+          reason: 'the miss stays recorded — the fallback answer is stale');
     });
 
     test('neither cache nor network knows: null', () async {
@@ -256,6 +267,65 @@ void main() {
       addTearDown(checker.close);
 
       expect(await checker.checkWithRevalidate(), isNull);
+    });
+  });
+
+  group('miss visibility', () {
+    test('a 403 is recorded as a rate-limited miss', () async {
+      final client = _FakeClient({
+        '/repos/nmfisher/tina/releases/latest': (403, '{"message":"API rate limit exceeded"}'),
+      });
+      final checker = ReleaseChecker(env: env(), client: client);
+      addTearDown(checker.close);
+
+      expect(await checker.checkWithRevalidate(), isNull);
+      final miss = checker.lastMiss;
+      expect(miss, isNotNull);
+      expect(miss!.rateLimited, isTrue);
+      expect(miss.toString(), 'HTTP 403');
+    });
+
+    test('a timeout/connection failure is recorded as a network miss',
+        () async {
+      // A client that throws, the way a refused connection or a request
+      // past the timeout surfaces — not an HTTP status at all.
+      final checker = ReleaseChecker(
+        env: env(),
+        client: _ThrowingClient(),
+      );
+      addTearDown(checker.close);
+
+      expect(await checker.checkWithRevalidate(), isNull);
+      final miss = checker.lastMiss;
+      expect(miss, isNotNull);
+      expect(miss!.kind, MissKind.network);
+      expect(miss.rateLimited, isFalse);
+      expect(miss.detail, isNotEmpty);
+    });
+
+    test('a successful fetch clears the miss', () async {
+      final checker = ReleaseChecker(
+          env: env(),
+          client: _FakeClient({
+            '/repos/nmfisher/tina/releases/latest':
+                (200, _releaseBody('v0.2.0')),
+          }));
+      addTearDown(checker.close);
+
+      await checker.fetchLatest();
+      expect(checker.lastMiss, isNull);
+    });
+
+    test('a missing tag_name is a badPayload miss', () async {
+      final checker = ReleaseChecker(
+          env: env(),
+          client: _FakeClient({
+            '/repos/nmfisher/tina/releases/latest': (200, jsonEncode({'assets': []})),
+          }));
+      addTearDown(checker.close);
+
+      await checker.fetchLatest();
+      expect(checker.lastMiss?.kind, MissKind.badPayload);
     });
   });
 
