@@ -58,10 +58,11 @@ class MemorySessionStore implements SessionStore {
 
   @override
   Future<String> createConversationWithMeta(
-      String sessionId, ConversationMetaInput input) async {
+      String sessionId, ConversationMetaInput input,
+      {String? conversationId}) async {
     final manifest = _manifests[sessionId];
     if (manifest == null) throw StateError('Session not found: $sessionId');
-    final id = 'c${++_convCounter}';
+    final id = conversationId ?? 'c${++_convCounter}';
     _conversations[id] = <Message>[];
     final conversations = [
       ...manifest.conversations,

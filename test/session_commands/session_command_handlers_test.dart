@@ -662,6 +662,61 @@ Future<void> main() async {
     });
   });
 
+  group('SessionCommandHandlers /clear active-pointer (tin regression)', () {
+    late FakeHostInterface host;
+    late FakeProvider provider;
+    late Conversation conv;
+
+    setUp(() {
+      host = FakeHostInterface();
+      provider = FakeProvider.always(model: 'test-model');
+      conv = Conversation(
+        id: 'test-conv',
+        label: 'test-model',
+        agent: _fakeAgent(provider, host),
+        provider: provider,
+        host: host,
+        policy: PermissionPolicy(),
+      );
+    });
+
+    test('/clear repoints the manifest active pointer at the new conversation',
+        () async {
+      final store = MemorySessionStore();
+      await store.createSession(providerId: 'anthropic', sessionId: 's1');
+      final recorder = SessionRecorder(
+        store,
+        's1',
+        'c-live',
+        providerId: 'anthropic',
+      );
+      // Materialize the first conversation and give it history, as if the
+      // user had chatted before clearing.
+      await recorder.ensureRegistered();
+      await recorder.append(
+          Message(role: Role.user, content: [const TextBlock('before')]));
+      final recorded = Conversation(
+        id: conv.id,
+        label: conv.label,
+        agent: conv.agent,
+        provider: conv.provider,
+        host: conv.host,
+        policy: conv.policy,
+        recorder: recorder,
+      );
+
+      await SessionCommandHandlers(_FakeCtx(conversation: recorded))
+          .dispatch('/clear');
+
+      expect(recorder.conversationId, isNot('c-live'),
+          reason: 'startFresh minted a fresh conversation');
+      final manifest = await store.loadSession('s1');
+      expect(manifest.activeConversationId, recorder.conversationId,
+          reason: '--resume must reopen the live conversation, not the '
+              'cleared one');
+    });
+  });
+
   group('SessionCommandHandlers /detach (tin-f5xt)', () {
     late FakeHostInterface host;
     late FakeProvider provider;

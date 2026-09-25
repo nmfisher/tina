@@ -147,7 +147,8 @@ class _FakeStore implements SessionStore {
 
   @override
   Future<String> createConversationWithMeta(
-          String sessionId, ConversationMetaInput meta) =>
+          String sessionId, ConversationMetaInput meta,
+          {String? conversationId}) =>
       throw UnimplementedError();
 
   @override

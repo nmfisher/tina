@@ -389,8 +389,18 @@ abstract class SessionStore {
   /// [ConversationMeta] carrying the full agent identity so the conversation
   /// can be rebuilt on resume. The first conversation created in a session
   /// becomes the active one. Throws [StateError] if [sessionId] is unknown.
+  ///
+  /// [conversationId], when given, is used as the conversation's id instead of
+  /// a freshly minted one — for callers that pre-allocated the id and already
+  /// surfaced it to the UI (the startup composition mints the primary
+  /// conversation's id alongside the session's; a store-minted id here would
+  /// leave every panel and log line naming a conversation the store never
+  /// heard of). Implementations that can't honor a caller id may ignore it,
+  /// but then MUST return the id that was actually created so the caller can
+  /// correct itself.
   Future<String> createConversationWithMeta(
-      String sessionId, ConversationMetaInput meta);
+      String sessionId, ConversationMetaInput meta,
+      {String? conversationId});
 
   /// Legacy shape: create a conversation carrying only its model ref. Default
   /// implementation wraps the model in a [ConversationMetaInput]; the single
@@ -576,8 +586,12 @@ class SessionRecorder {
           sessionId: _sessionId);
       // Only create a conversation when the created the session too (brand-new
       // session). On resume/switchTo/attach the conversation already exists.
+      // Pass the pre-allocated id through and capture what landed: the store
+      // honors it (keeping the id the UI was already built around) and only
+      // mints a replacement on the rare collision.
       _conversationId = await store.createConversationWithMeta(
-          _sessionId, _meta ?? const ConversationMetaInput());
+          _sessionId, _meta ?? const ConversationMetaInput(),
+          conversationId: _conversationId);
     }
     _initialized = true;
   }

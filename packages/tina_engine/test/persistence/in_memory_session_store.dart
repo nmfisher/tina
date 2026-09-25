@@ -55,9 +55,11 @@ class InMemorySessionStore implements SessionStore {
 
   @override
   Future<String> createConversationWithMeta(
-      String sessionId, ConversationMetaInput meta) async {
+      String sessionId, ConversationMetaInput meta,
+      {String? conversationId}) async {
     final s = _require(sessionId);
-    final cid = 'c${s.manifest.conversations.length}-${_nextId++}';
+    final cid =
+        conversationId ?? 'c${s.manifest.conversations.length}-${_nextId++}';
     s.manifest = _manifestWith(s.manifest, conversations: [
       ...s.manifest.conversations,
       ConversationMeta(

@@ -159,7 +159,8 @@ class _FakeStore implements SessionStore {
       'c';
   @override
   Future<String> createConversationWithMeta(
-          String sessionId, ConversationMetaInput input) async =>
+          String sessionId, ConversationMetaInput input,
+          {String? conversationId}) async =>
       'c';
   @override
   Future<void> append(

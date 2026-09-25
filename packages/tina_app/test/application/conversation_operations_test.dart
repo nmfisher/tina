@@ -56,8 +56,9 @@ class _Store extends MemorySessionStore {
   @override
   Future<String> createConversationWithMeta(
     String id,
-    ConversationMetaInput meta,
-  ) async {
+    ConversationMetaInput meta, {
+    String? conversationId,
+  }) async {
     if (failCreate) throw StateError('create failed');
     await beforeCreate?.call();
     return super.createConversationWithMeta(id, meta);

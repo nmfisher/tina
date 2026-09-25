@@ -677,6 +677,10 @@ class HistoryCommands {
     final rec = s.recorder;
     if (rec != null && rec.isInitialized) {
       await rec.startFresh();
+      // startFresh minted a brand-new conversation; repoint the manifest's
+      // active pointer at it. Leaving the pointer on the cleared conversation
+      // made `--resume` reopen the dead transcript instead of the live one.
+      await rec.setActiveConversation(rec.conversationId);
     }
   }
 

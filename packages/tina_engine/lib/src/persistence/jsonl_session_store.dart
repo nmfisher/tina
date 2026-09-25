@@ -76,8 +76,12 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
 
   @override
   Future<String> createConversationWithMeta(
-          String sessionId, ConversationMetaInput input) =>
-      _write(sessionId, () => _createConversationWithMeta(sessionId, input));
+          String sessionId, ConversationMetaInput input,
+          {String? conversationId}) =>
+      _write(
+          sessionId,
+          () => _createConversationWithMeta(sessionId, input,
+              conversationId: conversationId));
   @override
   Future<void> append(
           String sessionId, String conversationId, Message message) =>
@@ -221,11 +225,19 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
           sessionId, ConversationMetaInput(model: model));
 
   Future<String> _createConversationWithMeta(
-      String sessionId, ConversationMetaInput input) async {
+      String sessionId, ConversationMetaInput input,
+      {String? conversationId}) async {
     await _ensureMaterialized(sessionId);
-    final cid = _newId();
-    // Register the conversation in the manifest; the first one becomes active.
     final manifest = await _readManifest(sessionId);
+    // Honor a caller pre-allocated id when no conversation already claims it
+    // (mirrors createSession); fall back to minting on the rare collision so
+    // creation can never fail here.
+    var cid = conversationId ?? _newId();
+    if (conversationId != null &&
+        manifest.conversations.any((c) => c.id == conversationId)) {
+      cid = _newId();
+    }
+    // Register the conversation in the manifest; the first one becomes active.
     final f = await _resolveConversationFile(manifest, cid);
     await f.parent.create(recursive: true);
     await f.create();

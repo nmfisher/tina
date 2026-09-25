@@ -45,6 +45,40 @@ void main() {
           isTrue);
     });
 
+    test('createConversationWithMeta honors a pre-allocated id', () async {
+      final sid = await store.createSession(providerId: 'anthropic');
+      const pre = '20260924-103234-f0b6';
+      final cid = await store.createConversationWithMeta(
+          sid, const ConversationMetaInput(label: 'main'),
+          conversationId: pre);
+      expect(cid, pre,
+          reason: 'the UI was already built around the pre-allocated id');
+      final manifest = await store.loadSession(sid);
+      expect(manifest.conversations.single.id, pre);
+      expect(manifest.activeConversationId, pre,
+          reason: 'the first conversation becomes active under its real id');
+      await store.append(
+          sid, pre, const Message(role: Role.user, content: [TextBlock('hi')]));
+      expect(
+          (await store.loadConversation(sid, pre)).single.content.single,
+          isA<TextBlock>().having((t) => t.text, 'text', 'hi'));
+    });
+
+    test('a pre-allocated id collision falls back to minting', () async {
+      final sid = await store.createSession(providerId: 'anthropic');
+      final first = await store.createConversationWithMeta(
+          sid, const ConversationMetaInput(),
+          conversationId: 'taken');
+      final second = await store.createConversationWithMeta(
+          sid, const ConversationMetaInput(),
+          conversationId: 'taken');
+      expect(second, isNot('taken'),
+          reason: 'creation must never fail on a collision');
+      final ids =
+          (await store.loadSession(sid)).conversations.map((c) => c.id);
+      expect(ids, containsAll([first, second]));
+    });
+
     test('replace atomically rewrites the conversation file', () async {
       final (sid, cid) = await newConversation();
       await store.append(
@@ -480,9 +514,11 @@ void main() {
     group('SessionRecorder', () {
       test('lazy-inits the store on first write', () async {
         // Create a recorder with placeholder IDs — no store entries yet.
-        // The session id was pre-allocated by the app (and may already have
-        // been surfaced to the user as the resume hint), so lazy init
-        // persists THAT id; only the conversation id is store-minted.
+        // Both ids were pre-allocated by the app: the session id (already
+        // surfaced to the user as the resume hint) and the conversation id
+        // (already built into every UI panel and log line). Lazy init
+        // persists BOTH; minting a replacement conversation id would leave
+        // the UI naming a conversation the store never heard of.
         final r = SessionRecorder(store, 's-placeholder', 'c-placeholder',
             providerId: 'anthropic');
         expect(r.isInitialized, isFalse);
@@ -494,10 +530,11 @@ void main() {
         final sid = r.sessionId;
         final cid = r.conversationId;
         expect(sid, 's-placeholder'); // pre-allocated id honored
-        expect(cid, isNot('c-placeholder')); // conversation id is minted
+        expect(cid, 'c-placeholder'); // pre-allocated id honored
 
         final manifest = await store.loadSession(sid);
         expect(manifest.conversations, hasLength(1));
+        expect(manifest.activeConversationId, 'c-placeholder');
         final loaded = await store.loadConversation(sid, cid);
         expect(loaded, hasLength(1));
       });

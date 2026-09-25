@@ -76,7 +76,8 @@ class _PlainStore implements SessionStore {
 
   @override
   Future<String> createConversationWithMeta(
-      String sessionId, ConversationMetaInput meta) async {
+      String sessionId, ConversationMetaInput meta,
+      {String? conversationId}) async {
     throw UnimplementedError();
   }
 
