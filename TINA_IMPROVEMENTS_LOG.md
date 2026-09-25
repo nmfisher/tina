@@ -1845,3 +1845,15 @@ compiling anything. Working invocation recorded for this box: call the
 cached `dart-sdk/bin/dart` binary directly, add `--suppress-analytics`
 ($HOME is read-only too), put `TMPDIR` on the repo disk, and cap
 `--concurrency=4`.
+
+### Coordinator modularization audit (2026-09-24)
+
+The rate-limit, settings-apply, input-state, transcript-folding, and workflow-overlay
+refactors are present and committed. The current coordinator still has three
+small inline handler groups (session picker, prompts, and image rendering) and
+the panel/spawn orchestration around `_makeSpawnedHost`, `_buildSpawnPanel`,
+run-panel lifecycle, restored-conversation panelization, and side-conversation
+creation. The existing `PanelManager`, `ConversationPanelCoordinator`,
+`PanelHost`, and `RunPanelHost` seams make the latter split viable, but no new
+extraction was started during this audit. Focused tests should be run before
+attempting that larger mechanical refactor.
