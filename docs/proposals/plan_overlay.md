@@ -3,6 +3,11 @@
 Status: implemented (stages 1–4: model/approval, Ctrl+P toggle, overlay panel, config + wiring)
 Tickets: —
 
+This proposal covers the *presentation* of the plan — the overlay panel, its
+keys, and its approval badge. The approval *mechanism* itself (the state
+machine, who may move it, and how it differs from tool approval) is
+documented in [Plan approval](../features/plan_approval.md).
+
 ## Problem
 
 The plan tracker exists end to end — `PlanStore` (`packages/tina_app/lib/src/plans/plan_store.dart`),

@@ -1,5 +1,11 @@
 # Permission rules
 
+This page covers **tool approval** — the per-call "may I run this?" gate in
+the engine's permission layer. It is one of two approval mechanisms: plan
+approval ("do you approve this plan of work?") is a separate, plugin-owned
+mechanism that no permission rule or flag can reach — see
+[Plan approval](plan_approval.md) for the contrast.
+
 Escape dismisses a pending tool approval and cancels the current turn. The
 draft is preserved; the model is not called again until you submit a message.
 Choosing **deny once** explicitly sends a denial and lets the agent continue.
