@@ -77,6 +77,16 @@ class ConversationMeta {
   /// UI nest/relink it on resume.
   final String? parentConversationId;
 
+  /// Opaque app-owned JSON for this conversation's `/goal` objective (text +
+  /// latest judge verdict), written by the app layer's goal store so a resume
+  /// restores it. Null when no goal is set (legacy sessions, cleared goals).
+  /// The engine never parses it — the shape belongs to the goal store.
+  final Map<String, dynamic>? goal;
+
+  /// Opaque app-owned JSON for this conversation's `/plan` items (states +
+  /// approval), same restore story as [goal]. Null when the plan is empty.
+  final Map<String, dynamic>? plan;
+
   const ConversationMeta({
     required this.id,
     this.model,
@@ -88,6 +98,8 @@ class ConversationMeta {
     this.promptOverride,
     this.policy,
     this.parentConversationId,
+    this.goal,
+    this.plan,
   });
 
   Map<String, dynamic> toJson() => {
@@ -102,6 +114,8 @@ class ConversationMeta {
         if (policy != null) 'policy': policy,
         if (parentConversationId != null)
           'parentConversationId': parentConversationId,
+        if (goal != null) 'goal': goal,
+        if (plan != null) 'plan': plan,
       };
 
   factory ConversationMeta.fromJson(Map<String, dynamic> j) {
@@ -130,6 +144,8 @@ class ConversationMeta {
       promptOverride: j['promptOverride'] as String?,
       policy: (j['policy'] as Map<String, dynamic>?),
       parentConversationId: j['parentConversationId'] as String?,
+      goal: (j['goal'] as Map<String, dynamic>?),
+      plan: (j['plan'] as Map<String, dynamic>?),
     );
   }
 }
@@ -418,6 +434,16 @@ abstract class SessionStore {
   /// the session or conversation is unknown.
   Future<void> updateConversationModel(String sessionId, String conversationId,
       {required String model, String? label});
+
+  /// Update a conversation's persisted tracker state — the `/goal` objective
+  /// and the `/plan` items — so a resume restores both. Both values are
+  /// opaque JSON owned by the app layer (the goal/plan stores own their
+  /// shapes); null clears a field, a map sets it, and BOTH fields are written
+  /// on every call (pass the pair's current state). Throws [StateError] if
+  /// the session or conversation is unknown.
+  Future<void> updateConversationTrackers(
+      String sessionId, String conversationId,
+      {required Map<String, dynamic>? goal, required Map<String, dynamic>? plan});
 
   /// Record [tokens] as the session's total spend (all agents + sub-agents +
   /// workflows), persisted so a resumed session restores the counter. Negative

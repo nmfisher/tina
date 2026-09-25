@@ -530,6 +530,29 @@ Future<void> _runNonInteractive(
       return;
     }
 
+    // Goal/plan persistence for headless runs: hydrate the stores from the
+    // startup manifest BEFORE command dispatch (so a headless `/goal` sees
+    // restored state), then install the persist hooks once the recorder
+    // exists (fixed sid/cid — a headless run has exactly one conversation).
+    // Fresh session: initialManifest is null → nothing to hydrate.
+    final headlessTrackers = (() {
+      final goals = app.pluginScope?.lookup(goalStoreServiceKey);
+      final plans = app.pluginScope?.lookup(planStoreServiceKey);
+      if (goals == null || plans == null) return null;
+      final binder = TrackerPersistence(
+        goalStore: goals,
+        planStore: plans,
+        store: app.store,
+      );
+      binder.hydrate(
+        app.initialManifest?.conversations
+            .where((c) => c.id == app.initialConversationId)
+            .firstOrNull,
+        conversationId: app.initialConversationId,
+      );
+      return binder;
+    })();
+
     final commandRuntime = headlessCommands(app);
     resources.own(commandRuntime.dispose);
     final commands = CommandRegistry(commandRuntime.scope);
@@ -595,6 +618,17 @@ Future<void> _runNonInteractive(
         policy: app.policy,
       ),
     );
+
+    // Install the tracker persist hooks now that the recorder exists (they
+    // need it for ensureRegistered). persistIfPresent captures any /goal or
+    // /plan mutation made during command dispatch above, which ran before the
+    // hooks were in place; it skips when both trackers are empty so a run
+    // that never touched them doesn't force-register a fresh session.
+    headlessTrackers?.install(
+      sessionIdFor: (_) => recorder.sessionId,
+      ensureRegisteredFor: (_) => recorder.ensureRegistered(),
+    );
+    headlessTrackers?.persistIfPresent(app.initialConversationId);
 
     // Write-through persistence (#25): the engine AWAITS these observers at the
     // moment each message is produced, so a mid-turn kill (SIGKILL, OOM, crash)
@@ -802,6 +836,8 @@ Future<void> _runNonInteractive(
           'session: ${recorder.sessionId}  (resume: tina --resume ${recorder.sessionId})',
         );
       }
+      // Drain any in-flight goal/plan manifest write before the process ends.
+      await headlessTrackers?.flush();
       await closeLogging();
     }
     if (aborted) exitCode = 2;

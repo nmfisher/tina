@@ -95,7 +95,11 @@ SessionController _buildController({
     recorder = null;
   }
   final session = Conversation(
-    id: 's1',
+    // The live conversation id follows the persisted one when the harness
+    // attaches to an on-disk conversation (goal/plan dispatch keys by
+    // ctx.active.id and must match the manifest's conversation id); tests
+    // without a store keep the historical 's1'.
+    id: conversationId ?? 's1',
     label: provider.model,
     agent: agent,
     provider: provider,
@@ -135,6 +139,7 @@ SessionController _buildController({
     pluginScope: pluginScope,
     sessionManager: sm,
     readLine: readLine.call,
+    sessionStore: store,
     onActiveFocusChanged: () {},
   );
   controller.workflowsDir = workflowsDir;
@@ -1261,6 +1266,159 @@ void main() {
         .join();
     expect(lastText,
         contains('[turn aborted: 402 payment required — no funds]'));
+  });
+
+  group('goal/plan persistence across /resume', () {
+    // The controller builds a TrackerPersistence binder when the scope
+    // provides BOTH tracker stores and a session store is wired: mutations
+    // in the stores land in the manifest, and a resume re-hydrates the stores
+    // from it (manifest authoritative — absent blobs clear).
+    late PluginScope scope;
+    late GoalStore goals;
+    late PlanStore plans;
+
+    setUp(() {
+      scope = PluginScope('plugin');
+      goals = GoalStore();
+      plans = PlanStore();
+      scope.provide(goalStoreServiceKey, goals);
+      scope.provide(planStoreServiceKey, plans);
+    });
+
+    tearDown(() async {
+      await scope.dispose();
+      goals.dispose();
+      plans.dispose();
+    });
+
+    SessionController trackedController(MemorySessionStore store, String sid,
+            String cid) =>
+        _buildController(
+          readLine: FakeReadLine(),
+          provider: FakeProvider.done(),
+          store: store,
+          sessionId: sid,
+          conversationId: cid,
+          pluginScope: scope,
+        );
+
+    test('a set goal/plan lands in the manifest; clearing one keeps the other',
+        () async {
+      final store = MemorySessionStore();
+      final sid = await store.createSession(providerId: 'anthropic');
+      final cid = await store.createConversation(sid);
+      final controller = trackedController(store, sid, cid);
+
+      goals.set(cid, 'ship the release');
+      plans.update(cid, [
+        (text: 'write tests', state: PlanState.inProgress),
+        (text: 'commit', state: PlanState.pending),
+      ]);
+      // The persist hook chains an async write; pump until both blobs land.
+      await _pumpUntil(
+          () =>
+              store.metaFor(sid, cid)?.goal != null &&
+              store.metaFor(sid, cid)?.plan != null,
+          reason: 'trackers persisted to the manifest');
+      var meta = store.metaFor(sid, cid)!;
+      expect(meta.goal!['text'], 'ship the release');
+      expect((meta.plan!['items'] as List), hasLength(2));
+      expect(meta.plan!['approval'], 'none');
+
+      goals.clear(cid); // null clears goal only, the plan survives
+      await _pumpUntil(() => store.metaFor(sid, cid)?.goal == null,
+          reason: 'cleared goal persisted');
+      meta = store.metaFor(sid, cid)!;
+      expect(meta.goal, isNull);
+      expect(meta.plan, isNotNull);
+
+      await controller.shutdown(); // flushes + uninstalls the binder
+      expect(store.metaFor(sid, cid)!.plan, isNotNull);
+    });
+
+    test('resumeIntoActive restores trackers from the manifest', () async {
+      final store = MemorySessionStore();
+      final sid = await store.createSession(providerId: 'anthropic');
+      final cid = await store.createConversation(sid);
+      await store.updateConversationTrackers(
+        sid,
+        cid,
+        goal: {'text': 'manifest goal'},
+        plan: {
+          'items': [
+            {'text': 'persisted step', 'state': 'done'}
+          ],
+          'approval': 'approved',
+        },
+      );
+      // Stale in-memory trackers from an earlier session in this process —
+      // set BEFORE the controller exists, so no persist hook can race the
+      // resume by writing them into the manifest.
+      goals.set(cid, 'stale goal');
+      final controller = trackedController(store, sid, cid);
+
+      expect(await controller.resumeIntoActive(sid), isTrue);
+      expect(goals.read(cid).text, 'manifest goal',
+          reason: 'the manifest wins over stale in-memory state');
+      expect(goals.read(cid).isEmpty, isFalse);
+      expect(plans.read(cid).items.single.text, 'persisted step');
+      expect(plans.read(cid).items.single.state, PlanState.done);
+      expect(plans.read(cid).approval, PlanApproval.approved);
+      await controller.shutdown();
+    });
+
+    test('resume clears trackers the manifest does not carry', () async {
+      final store = MemorySessionStore();
+      final sid = await store.createSession(providerId: 'anthropic');
+      final cid = await store.createConversation(sid);
+      goals.set(cid, 'stale goal'); // pre-construction → no hook, no write
+      plans.update(cid, [(text: 'stale step', state: PlanState.pending)]);
+      final controller = trackedController(store, sid, cid);
+
+      expect(await controller.resumeIntoActive(sid), isTrue);
+      expect(goals.read(cid).isEmpty, isTrue,
+          reason: 'absent goal blob clears authoritative over memory');
+      expect(plans.read(cid).isEmpty, isTrue);
+      await controller.shutdown();
+    });
+
+    test('hydrateTrackers restores a startup manifest (and clears stale)',
+        () async {
+      final store = MemorySessionStore();
+      final sid = await store.createSession(providerId: 'anthropic');
+      final cid = await store.createConversation(sid);
+      goals.set(cid, 'stale goal'); // pre-construction → no hook, no write
+      final controller = trackedController(store, sid, cid);
+
+      controller.hydrateTrackers([
+        ConversationMeta(
+          id: cid,
+          plan: {
+            'items': [
+              {'text': 'startup step', 'state': 'pending'}
+            ],
+          },
+          // no goal blob → the stale goal must be cleared
+        ),
+      ]);
+      expect(goals.read(cid).isEmpty, isTrue);
+      expect(plans.read(cid).items.single.text, 'startup step');
+      // Hydration wrote nothing back to the manifest.
+      expect(store.metaFor(sid, cid)!.plan, isNull);
+      await controller.shutdown();
+    });
+
+    test('mutations persist after construction; shutdown drains the write',
+        () async {
+      final store = MemorySessionStore();
+      final sid = await store.createSession(providerId: 'anthropic');
+      final cid = await store.createConversation(sid);
+      final controller = trackedController(store, sid, cid);
+
+      goals.set(cid, 'written on shutdown');
+      await controller.shutdown(); // awaits the chained tracker write
+      expect(store.metaFor(sid, cid)!.goal!['text'], 'written on shutdown');
+    });
   });
 
   group('handleExitIntent — the in-tmux exit decision (tin-f5xt)', () {

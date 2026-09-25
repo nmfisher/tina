@@ -173,6 +173,13 @@ class _FakeStore implements SessionStore {
       throw UnimplementedError();
 
   @override
+  Future<void> updateConversationTrackers(String sessionId,
+          String conversationId,
+          {required Map<String, dynamic>? goal,
+          required Map<String, dynamic>? plan}) =>
+      throw UnimplementedError();
+
+  @override
   Future<void> updateSessionUsage(String sessionId, int tokens) =>
       throw UnimplementedError();
 

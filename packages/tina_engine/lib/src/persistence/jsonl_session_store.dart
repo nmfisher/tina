@@ -103,6 +103,15 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
           () => _updateConversationModel(sessionId, conversationId,
               model: model, label: label));
   @override
+  Future<void> updateConversationTrackers(String sessionId,
+          String conversationId,
+          {required Map<String, dynamic>? goal,
+          required Map<String, dynamic>? plan}) =>
+      _write(
+          sessionId,
+          () => _updateConversationTrackers(sessionId, conversationId,
+              goal: goal, plan: plan));
+  @override
   Future<void> updateSessionUsage(String sessionId, int tokens) =>
       _write(sessionId, () => _updateSessionUsage(sessionId, tokens));
   @override
@@ -470,6 +479,54 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
             promptOverride: c.promptOverride,
             policy: c.policy,
             parentConversationId: c.parentConversationId,
+            // Trackers are unrelated to the model swap — carry them through,
+            // or a /model would silently wipe the conversation's goal/plan.
+            goal: c.goal,
+            plan: c.plan,
+          );
+        }(),
+    ];
+    if (!found) {
+      throw StateError(
+          'Conversation not found in session: $sessionId/$conversationId');
+    }
+    await _writeManifest(SessionManifest(
+      id: manifest.id,
+      providerId: manifest.providerId,
+      baseUrl: manifest.baseUrl,
+      cwd: manifest.cwd,
+      activeConversationId: manifest.activeConversationId,
+      conversations: updated,
+      usageTokens: manifest.usageTokens,
+      transcriptsLocal: manifest.transcriptsLocal,
+    ));
+  }
+
+  Future<void> _updateConversationTrackers(String sessionId,
+      String conversationId,
+      {required Map<String, dynamic>? goal,
+      required Map<String, dynamic>? plan}) async {
+    await _ensureMaterialized(sessionId);
+    final manifest = await _readManifest(sessionId);
+    var found = false;
+    final updated = [
+      for (final c in manifest.conversations)
+        () {
+          if (c.id != conversationId) return c;
+          found = true;
+          return ConversationMeta(
+            id: c.id,
+            model: c.model,
+            baseUrl: c.baseUrl,
+            providerId: c.providerId,
+            label: c.label,
+            kind: c.kind,
+            targetName: c.targetName,
+            promptOverride: c.promptOverride,
+            policy: c.policy,
+            parentConversationId: c.parentConversationId,
+            goal: goal,
+            plan: plan,
           );
         }(),
     ];

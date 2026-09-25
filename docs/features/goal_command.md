@@ -8,9 +8,11 @@ status-strip source, and a plugin-contributed command.
 
 The default execution profile mounts `goalUiPlugin(store: GoalStore())` in
 `bin/tina.dart`; `buildAgent` mints a per-conversation `GoalMiddleware` when
-the `tina.goal` service is present. The store is in-memory, like `PlanStore`:
-goals live as long as the process, and persistence across `/resume` is a
-possible follow-up, not a current behavior.
+the `tina.goal` service is present. The store is in-memory, like `PlanStore`,
+but both trackers persist: `TrackerPersistence`
+(`packages/tina_app/lib/src/persistence/tracker_persistence.dart`) hooks every
+goal/plan mutation into the session manifest so a `/resume` or restart restores
+them (see "Tracker persistence" below).
 
 ## Store
 
@@ -84,11 +86,42 @@ prefixes `✓` for achieved and `?` for uncertain. `GoalMiddleware` appends a
 text plus verdict guidance — so the model keeps working toward a goal it
 cannot see in scrollback.
 
+## Tracker persistence
+
+`ConversationMeta` carries two opaque app-owned blobs — `goal` and `plan` —
+that the engine never parses (same precedent as `policy`). The wiring:
+
+- **persist** — `TrackerPersistence.install` hooks `GoalStore.persistHook` and
+  `PlanStore.persistHook`. Every mutation (set, verdict, clear, plan update,
+  approval change) re-writes BOTH blobs through
+  `SessionStore.updateConversationTrackers` — null clears one field while the
+  other survives. Before each write the binder calls the host's
+  `ensureRegisteredFor` (the conversation's recorder), so a goal set ahead of
+  the transcript's first append still lands in a manifest a later `--resume`
+  can see. Writes are serialized on a chain and are best-effort: failures are
+  logged and swallowed, mirroring the spend ledger's flush.
+- **hydrate** — the coordinator calls `controller.hydrateTrackers(metas)` once
+  at startup, and `resumeIntoActive` re-hydrates the resumed conversation
+  (keyed by the live conversation id, blobs read from the manifest's active
+  conversation — they differ only under legacy re-keying). The manifest is
+  authoritative: an absent blob clears stale in-memory state. Hydration
+  sanitizes leniently (`Goal.fromJson`/`Plan.fromJson` re-apply every cap and
+  invariant) and never writes back. Headless runs hydrate before command
+  dispatch and catch up any dispatch-window mutation with
+  `persistIfPresent` once the recorder exists.
+
 ## Tests
 
 - `packages/tina_app/test/goals/goal_store_test.dart` — validation, verdict
-  reset on set, evidence cap, dedupe, the clear race.
+  reset on set, evidence cap, dedupe, the clear race, JSON round-trip +
+  hydrate.
 - `packages/tina_app/test/goals/goal_judge_test.dart` — digest caps, verdict
   parsing, transition-only announcements, abort skip, fail-closed paths.
+- `packages/tina_app/test/persistence/tracker_persistence_test.dart` — paired
+  blob writes, ensure-before-write ordering, authoritative hydrate, swallowed
+  failures.
+- `test/session_controller_test.dart` (`goal/plan persistence across /resume`)
+  — mutations land in the manifest; resume/startup hydration restores and
+  clears; shutdown drains the write.
 - `test/composition/goal_ui_plugin_test.dart` — plugin activation, command
   dispatch, middleware injection, status source.

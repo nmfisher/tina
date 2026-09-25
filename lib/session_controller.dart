@@ -221,6 +221,12 @@ class SessionController {
   /// used to persist usage into the active session's manifest.
   SpendLedger? spendLedger;
 
+  /// Binds the goal/plan stores to [sessionStore] so `/goal` and `/plan`
+  /// survive `/resume`. Built in the constructor when the composition mounted
+  /// both tracker stores AND persistence is on; null otherwise (tests, minimal
+  /// hosts) — every use below no-ops through `?.`.
+  TrackerPersistence? _trackers;
+
   final BackgroundJobSupervisor jobs = BackgroundJobSupervisor();
   late final ProjectBackgroundJobs background = ProjectBackgroundJobs(
     supervisor: jobs,
@@ -254,6 +260,8 @@ class SessionController {
       if (shutdownWorkflows != null) shutdownWorkflows!(),
     ]);
     await _flushUsage();
+    await _trackers?.flush();
+    _trackers?.uninstall();
     await _commands.dispose();
   }
 
@@ -270,7 +278,21 @@ class SessionController {
     int autoCompactThreshold = 0,
     this.autoCompactPreserveRecent = 2,
     this.environment = const PlatformEnvironment(),
-  }) : _autoCompactThreshold = autoCompactThreshold;
+  }) : _autoCompactThreshold = autoCompactThreshold {
+    final goals = pluginScope?.lookup(goalStoreServiceKey);
+    final plans = pluginScope?.lookup(planStoreServiceKey);
+    final store = sessionStore;
+    if (goals != null && plans != null && store != null) {
+      _trackers = TrackerPersistence(
+        goalStore: goals,
+        planStore: plans,
+        store: store,
+      )..install(
+          sessionIdFor: _sessionIdOf,
+          ensureRegisteredFor: _ensureConversationRegistered,
+        );
+    }
+  }
 
   Conversation get active => sessionManager.activeConversation;
 
@@ -604,6 +626,39 @@ class SessionController {
     return null;
   }
 
+  /// The session a tracker write should target for [conversationId], or null
+  /// when the conversation is gone (skip the write). Prefers the
+  /// conversation's RECORDER session id — after an in-session `/resume` the
+  /// recorder has switched to the resumed session, which is where the write
+  /// must land — and falls back to the owning session's id for conversations
+  /// whose recorder hasn't captured one yet.
+  String? _sessionIdOf(String conversationId) {
+    final recSid = _findConversation(conversationId)?.recorder?.sessionId;
+    if (recSid != null && recSid.isNotEmpty) return recSid;
+    for (final session in sessionManager.all) {
+      if (session.conversationById(conversationId) != null) return session.id;
+    }
+    return null;
+  }
+
+  /// Register the conversation on disk before a tracker write. A goal can be
+  /// set before the transcript's first append, when no manifest knows the
+  /// conversation yet — `updateConversationTrackers` would StateError on it.
+  /// No-op (never throws) when the conversation has no recorder.
+  Future<void> _ensureConversationRegistered(String conversationId) async {
+    final recorder = _findConversation(conversationId)?.recorder;
+    if (recorder != null) await recorder.ensureRegistered();
+  }
+
+  /// Restore `/goal` + `/plan` for every conversation of a startup manifest
+  /// into the tracker stores (keyed by meta.id — on the startup path the live
+  /// conversations are restored under exactly those ids). Keyed hydration
+  /// clears as well as sets: the manifest is authoritative, so a meta without
+  /// blobs wipes stale in-memory state (fresh sessions have no metas — a
+  /// no-op). Never throws; called once by the coordinator after construction.
+  void hydrateTrackers(Iterable<ConversationMeta> metas) =>
+      _trackers?.hydrateAll(metas);
+
   // -- Session management (also driven by the View menu) ------------------
 
   /// Create a new session and switch to it.
@@ -687,9 +742,13 @@ class SessionController {
     }
     final String activeCid;
     final List<Message> loaded;
+    final ConversationMeta? activeMeta;
     try {
       final manifest = await sessionStore!.loadSession(id);
       activeCid = manifest.activeConversationId;
+      activeMeta = manifest.conversations
+          .where((c) => c.id == activeCid)
+          .firstOrNull;
       loaded = await sessionStore!.loadConversation(id, activeCid);
     } catch (e) {
       s.host.showMessage('cannot resume: $e\n', style: HostMessageStyle.error);
@@ -701,6 +760,12 @@ class SessionController {
     rec.switchTo(id, activeCid);
     s.host.clear();
     replayHistory(s.host, loaded);
+    // Restore /goal + /plan for the resumed conversation: keyed by the LIVE
+    // conversation id (every dispatch path keys the tracker stores by
+    // ctx.active.id), blobs read from the manifest's active conversation —
+    // the ids differ only under legacy re-keying. An absent blob clears:
+    // after a resume the manifest is authoritative over stale in-memory state.
+    _trackers?.hydrate(activeMeta, conversationId: s.id);
     s.host.showMessage(
       'resumed: $id (${loaded.length} messages)\n',
       style: HostMessageStyle.dim,

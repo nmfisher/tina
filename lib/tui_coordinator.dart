@@ -1017,8 +1017,10 @@ class TuiCoordinator {
       // execution strips any ambient invocation — the judge fires as an
       // unawaited continuation of a COMPLETED turn, and runStandalone must
       // not mistake that finished invocation for its live parent.
-      Future<GoalVerdict?> judgeGoalFor(String conversationId,
-          {bool force = false}) {
+      Future<GoalVerdict?> judgeGoalFor(
+        String conversationId, {
+        bool force = false,
+      }) {
         final goalStore = app.pluginScope?.lookup(goalStoreServiceKey);
         if (goalStore == null) return Future.value(null);
         final conversation = sessionManager.all
@@ -1030,16 +1032,17 @@ class TuiCoordinator {
           conversation: conversation,
           force: force,
           runCheck: ({required systemPrompt, required task, required sink}) =>
-              Zone.root.run(() => app.scheduler.runStandalone(
-                    systemPrompt: systemPrompt,
-                    task: task,
-                    sink: sink,
-                    parentReference:
-                        '${app.config.provider}/${app.config.model}',
-                    originConversationId: conversationId,
-                    toolProfile: ToolProfile.readOnly,
-                    includeDelegate: false,
-                  )),
+              Zone.root.run(
+                () => app.scheduler.runStandalone(
+                  systemPrompt: systemPrompt,
+                  task: task,
+                  sink: sink,
+                  parentReference: '${app.config.provider}/${app.config.model}',
+                  originConversationId: conversationId,
+                  toolProfile: ToolProfile.readOnly,
+                  includeDelegate: false,
+                ),
+              ),
         );
       }
 
@@ -1066,6 +1069,12 @@ class TuiCoordinator {
         autoCompactThreshold: config.autoCompactThreshold,
         environment: app.environment,
       );
+      // Restore /goal + /plan from the startup manifest into the tracker
+      // stores, so a `--continue`/`--resume` launch shows the restored
+      // trackers immediately (fresh session: no manifest → no-op). The
+      // controller installed its persist hooks in its constructor; hydration
+      // bypasses them, so this reads the manifest without writing it back.
+      controller.hydrateTrackers(manifest?.conversations ?? const []);
       // Turn-end goal judging: after each goal-active turn completes cleanly,
       // run the judge as a detached continuation. `completed` is the
       // executor's own turn-quality signal (clean finish with a real answer),
@@ -1257,8 +1266,7 @@ class TuiCoordinator {
         final host = sessionManager.activeConversation.host;
         final applier = SettingsApplier(
           registry: scheduler.registry,
-          quotas:
-              scheduler.mountedScopeValue?.lookup(liveQuotasServiceKey),
+          quotas: scheduler.mountedScopeValue?.lookup(liveQuotasServiceKey),
         );
         UserConfig? wrote;
         try {
@@ -1280,7 +1288,9 @@ class TuiCoordinator {
         final report = applier.finish(wrote);
         host.showMessage(
           report.message,
-          style: report.changed ? HostMessageStyle.success : HostMessageStyle.dim,
+          style: report.changed
+              ? HostMessageStyle.success
+              : HostMessageStyle.dim,
         );
       };
 
@@ -1536,7 +1546,8 @@ class TuiCoordinator {
       // the plugin isn't mounted (lookup misses) or `[tui] plan_overlay` is
       // `off` — in both cases Ctrl+P is left unconsumed.
       final planStore = app.pluginScope?.lookup(planStoreServiceKey);
-      final planOverlay = (planStore == null ||
+      final planOverlay =
+          (planStore == null ||
               terminalConfig.planOverlay == PlanOverlayMode.off)
           ? null
           : PlanOverlay(

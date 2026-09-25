@@ -192,6 +192,11 @@ class _FakeStore implements SessionStore {
           String conversationId,
           {required String model, String? label}) async {}
   @override
+  Future<void> updateConversationTrackers(String sessionId,
+          String conversationId,
+          {required Map<String, dynamic>? goal,
+          required Map<String, dynamic>? plan}) async {}
+  @override
   Future<void> updateSessionUsage(String sessionId, int tokens) async {}
   @override
   Future<List<SessionMeta>> listSessions() async => const [];

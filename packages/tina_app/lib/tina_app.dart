@@ -23,6 +23,7 @@ export 'src/execution/project_background_jobs.dart';
 export 'src/execution/turn_executor.dart';
 export 'src/execution/input_routes.dart';
 export 'src/persistence/session_restore.dart';
+export 'src/persistence/tracker_persistence.dart';
 export 'src/platform/environment.dart';
 export 'src/project/gitignore_guard.dart';
 export 'src/project/project_trust.dart';

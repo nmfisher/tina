@@ -95,6 +95,106 @@ void main() {
     });
   });
 
+  group('GoalStore persistence (JSON + hydrate)', () {
+    test('Goal JSON round-trips text, verdict, evidence and timestamp', () {
+      final at = DateTime(2026, 9, 24, 12, 30, 15, 123);
+      final goal = Goal('ship the release',
+          status: GoalStatus(GoalVerdict.achieved,
+              evidence: 'tests pass', at: at));
+      final back = Goal.fromJson(goal.toJson());
+      expect(back.text, 'ship the release');
+      expect(back.status!.verdict, GoalVerdict.achieved);
+      expect(back.status!.evidence, 'tests pass');
+      expect(back.status!.at, at);
+    });
+
+    test('a fresh goal serializes without the status key', () {
+      expect(const Goal('plain').toJson(), {'text': 'plain'});
+    });
+
+    test('fromJson is lenient: garbage degrades, caps re-apply', () {
+      expect(Goal.fromJson(const {'text': 42}).isEmpty, isTrue);
+      expect(Goal.fromJson(const {'text': '  padded  '}).text, 'padded');
+      expect(
+          Goal.fromJson(const {
+            'text': 'x',
+            'status': {'verdict': 'banana', 'at': 'not-a-date'}
+          }).status,
+          isNull,
+          reason: 'an unknown verdict degrades to no status');
+      expect(
+          Goal.fromJson({
+            'text': 'g' * (GoalStore.maxTextLength + 50)
+          }).text.length,
+          GoalStore.maxTextLength);
+      final capped = Goal.fromJson({
+        'text': 'g',
+        'status': {
+          'verdict': 'achieved',
+          'evidence': 'e' * (GoalStore.maxEvidenceLength + 50),
+          'at': '2026-01-01T00:00:00.000Z'
+        }
+      });
+      expect(capped.status!.evidence.length, GoalStore.maxEvidenceLength);
+    });
+
+    test('persistHook fires on mutations, never on hydrate', () {
+      final store = GoalStore();
+      final hooked = <String>[];
+      store.persistHook = hooked.add;
+      expect(() => store.set('c2', '   '), throwsArgumentError);
+      store.set('c1', 'goal');
+      store.recordVerdict('c1', GoalVerdict.achieved, 'done');
+      store.clear('c1');
+      store.clear('c1'); // nothing existed → no mutation, no hook
+      expect(hooked, ['c1', 'c1', 'c1']);
+      store.hydrate('c1', {'text': 'restored'});
+      expect(hooked, ['c1', 'c1', 'c1'],
+          reason: 'hydration IS the restore; writing back would be an echo');
+      expect(store.read('c1').text, 'restored');
+      store.dispose();
+    });
+
+    test('hydrate restores, repaints once, clears authoritatively, never throws',
+        () async {
+      final store = GoalStore();
+      var changes = 0;
+      final sub = store.changes.listen((_) => changes++);
+      const blob = {
+        'text': 'restored',
+        'status': {
+          'verdict': 'uncertain',
+          'evidence': 'hm',
+          'at': '2026-09-01T10:00:00.000Z'
+        }
+      };
+
+      store.hydrate('c1', blob);
+      await Future<void>.delayed(Duration.zero);
+      expect(store.read('c1').text, 'restored');
+      expect(store.read('c1').status!.verdict, GoalVerdict.uncertain);
+      expect(store.read('c1').status!.evidence, 'hm');
+      expect(changes, 1);
+
+      store.hydrate('c1', blob); // identical → no spurious repaint
+      await Future<void>.delayed(Duration.zero);
+      expect(changes, 1);
+
+      store.hydrate('c1', null); // manifest authoritative → clear
+      await Future<void>.delayed(Duration.zero);
+      expect(store.read('c1').isEmpty, isTrue);
+      expect(changes, 2);
+
+      store.hydrate('c1', {'text': 123}); // corrupt → degrades to clear
+      expect(store.read('c1').isEmpty, isTrue);
+
+      store.dispose();
+      expect(() => store.hydrate('c1', {'text': 'x'}), returnsNormally,
+          reason: 'a disposed store must not break a resume');
+      await sub.cancel();
+    });
+  });
+
   group('GoalSummary', () {
     test('marks achieved and uncertain verdicts in the summary', () {
       const goal = Goal('ship it');

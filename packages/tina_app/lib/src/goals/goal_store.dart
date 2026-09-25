@@ -17,6 +17,33 @@ class GoalStatus {
 
   bool get isAchieved => verdict == GoalVerdict.achieved;
   bool get isUncertain => verdict == GoalVerdict.uncertain;
+
+  Map<String, dynamic> toJson() => {
+        'verdict': verdict.name,
+        'evidence': evidence,
+        'at': at.toIso8601String(),
+      };
+
+  /// Lenient parse of a persisted status blob: an unknown verdict name, a
+  /// missing/garbage `at`, or a non-map value all degrade (verdict → none →
+  /// null status, timestamp → epoch) instead of throwing. The evidence cap is
+  /// re-applied — an edited or hand-crafted manifest must not smuggle an
+  /// unbounded string back into the strip.
+  static GoalStatus? tryFromJson(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final verdict = GoalVerdict.values.asNameMap()[raw['verdict']];
+    if (verdict == null || verdict == GoalVerdict.none) return null;
+    var evidence = raw['evidence'] is String ? raw['evidence'] as String : '';
+    if (evidence.length > GoalStore.maxEvidenceLength) {
+      evidence = evidence.substring(0, GoalStore.maxEvidenceLength);
+    }
+    return GoalStatus(
+      verdict,
+      evidence: evidence,
+      at: DateTime.tryParse('${raw['at']}') ??
+          DateTime.fromMillisecondsSinceEpoch(0),
+    );
+  }
 }
 
 /// The conversation-scoped goal state: the objective text plus the latest
@@ -28,6 +55,25 @@ class Goal {
 
   bool get isEmpty => text.isEmpty;
   bool get hasVerdict => status != null && status!.verdict != GoalVerdict.none;
+
+  Map<String, dynamic> toJson() => {
+        'text': text,
+        if (status != null) 'status': status!.toJson(),
+      };
+
+  /// Lenient parse of a persisted goal blob (the session manifest's opaque
+  /// `goal` entry). Never throws: a non-string text degrades to empty (→
+  /// cleared on hydrate), an unusable status degrades to null, and the text
+  /// cap is re-applied so a corrupt manifest cannot bypass [GoalStore]'s
+  /// validation. The shape belongs to this store; the engine only carries it.
+  factory Goal.fromJson(Map<String, dynamic> json) {
+    var text = json['text'] is String ? json['text'] as String : '';
+    text = text.trim();
+    if (text.length > GoalStore.maxTextLength) {
+      text = text.substring(0, GoalStore.maxTextLength);
+    }
+    return Goal(text, status: GoalStatus.tryFromJson(json['status']));
+  }
 
   /// Summary for the strip and command echo: the goal text (truncated) and
   /// the verdict mark when one exists.
@@ -77,6 +123,15 @@ class GoalStore {
   /// reports that instead of pretending to judge).
   GoalJudgeHook? judgeHook;
 
+  /// Host-installed persistence hook: fired after every successful mutation
+  /// with the conversation id, so a goal survives `/resume` (the binder
+  /// mirrors it — together with the plan — into the session manifest). Null =
+  /// in-memory only (tests, unwired hosts). Implementations must not throw:
+  /// the hook is fire-and-forget, called right after the change event.
+  /// [hydrate] deliberately bypasses it — restoring from the manifest must
+  /// not write straight back.
+  void Function(String conversationId)? persistHook;
+
   Goal read(String conversationId) =>
       _goals[conversationId] ?? const Goal('');
 
@@ -95,11 +150,15 @@ class GoalStore {
     }
     _goals[conversationId] = Goal(trimmed);
     _changes.add(null);
+    persistHook?.call(conversationId);
   }
 
   void clear(String conversationId) {
     _ensureOpen();
-    if (_goals.remove(conversationId) != null) _changes.add(null);
+    if (_goals.remove(conversationId) != null) {
+      _changes.add(null);
+      persistHook?.call(conversationId);
+    }
   }
 
   /// Record a judge verdict for [conversationId]'s goal. Throws [StateError]
@@ -129,6 +188,45 @@ class GoalStore {
       return;
     }
     _goals[conversationId] = Goal(goal.text, status: next);
+    _changes.add(null);
+    persistHook?.call(conversationId);
+  }
+
+  /// Restore [conversationId]'s goal from persisted manifest JSON — the
+  /// startup and `/resume` path. [json] null (or a blob that parses to an
+  /// empty goal) CLEARS: the manifest is authoritative over stale in-memory
+  /// state. Sanitizing and total: unknown shapes degrade to "no goal", caps
+  /// are re-applied, and nothing throws — a corrupt blob must never break a
+  /// resume. Bypasses [persistHook] (reading the manifest only to write it
+  /// back would be a pointless echo) but does fire [changes] when the state
+  /// actually changed, so a mid-session `/resume` repaints the strip.
+  void hydrate(String conversationId, Map<String, dynamic>? json) {
+    if (!_open) return; // disposed: hydration is best-effort, never throws.
+    Goal? next;
+    if (json != null) {
+      try {
+        next = Goal.fromJson(json);
+      } catch (_) {
+        next = null; // fromJson is lenient by contract; belt-and-suspenders.
+      }
+      if (next != null && next.isEmpty) next = null;
+    }
+    final prev = _goals[conversationId];
+    if (next == null) {
+      if (prev != null) {
+        _goals.remove(conversationId);
+        _changes.add(null);
+      }
+      return;
+    }
+    if (prev != null &&
+        prev.text == next.text &&
+        prev.status?.verdict == next.status?.verdict &&
+        prev.status?.evidence == next.status?.evidence &&
+        prev.status?.at == next.status?.at) {
+      return; // unchanged: no spurious repaint, no echo write.
+    }
+    _goals[conversationId] = next;
     _changes.add(null);
   }
 

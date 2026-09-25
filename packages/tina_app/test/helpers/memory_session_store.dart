@@ -163,6 +163,53 @@ class MemorySessionStore implements SessionStore {
             promptOverride: c.promptOverride,
             policy: c.policy,
             parentConversationId: c.parentConversationId,
+            // Unrelated to the model swap — carried through, as on disk.
+            goal: c.goal,
+            plan: c.plan,
+          );
+        }(),
+    ];
+    if (!found) {
+      throw StateError(
+          'Conversation not found in session: $sessionId/$conversationId');
+    }
+    _manifests[sessionId] = SessionManifest(
+      id: manifest.id,
+      providerId: manifest.providerId,
+      baseUrl: manifest.baseUrl,
+      cwd: manifest.cwd,
+      activeConversationId: manifest.activeConversationId,
+      conversations: updated,
+      usageTokens: manifest.usageTokens,
+    );
+  }
+
+  @override
+  Future<void> updateConversationTrackers(String sessionId,
+      String conversationId,
+      {required Map<String, dynamic>? goal,
+      required Map<String, dynamic>? plan}) async {
+    final manifest = _manifests[sessionId];
+    if (manifest == null) throw StateError('Session not found: $sessionId');
+    var found = false;
+    final updated = [
+      for (final c in manifest.conversations)
+        () {
+          if (c.id != conversationId) return c;
+          found = true;
+          return ConversationMeta(
+            id: c.id,
+            model: c.model,
+            baseUrl: c.baseUrl,
+            providerId: c.providerId,
+            label: c.label,
+            kind: c.kind,
+            targetName: c.targetName,
+            promptOverride: c.promptOverride,
+            policy: c.policy,
+            parentConversationId: c.parentConversationId,
+            goal: goal,
+            plan: plan,
           );
         }(),
     ];

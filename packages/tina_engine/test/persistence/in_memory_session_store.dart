@@ -156,6 +156,43 @@ class InMemorySessionStore implements SessionStore {
             promptOverride: old.promptOverride,
             policy: old.policy,
             parentConversationId: old.parentConversationId,
+            // Unrelated to the model swap — carried through, as on disk.
+            goal: old.goal,
+            plan: old.plan,
+          )
+        else
+          c,
+    ]);
+    _touch(s);
+  }
+
+  @override
+  Future<void> updateConversationTrackers(String sessionId,
+      String conversationId,
+      {required Map<String, dynamic>? goal,
+      required Map<String, dynamic>? plan}) async {
+    final s = _require(sessionId);
+    final idx = s.manifest.conversations
+        .indexWhere((c) => c.id == conversationId);
+    if (idx < 0) {
+      throw StateError('conversation not found: $sessionId/$conversationId');
+    }
+    s.manifest = _manifestWith(s.manifest, conversations: [
+      for (final c in s.manifest.conversations)
+        if (c.id == conversationId)
+          ConversationMeta(
+            id: c.id,
+            model: c.model,
+            baseUrl: c.baseUrl,
+            providerId: c.providerId,
+            label: c.label,
+            kind: c.kind,
+            targetName: c.targetName,
+            promptOverride: c.promptOverride,
+            policy: c.policy,
+            parentConversationId: c.parentConversationId,
+            goal: goal,
+            plan: plan,
           )
         else
           c,

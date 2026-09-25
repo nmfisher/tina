@@ -67,6 +67,16 @@ metadata or racing over shared temporary files. Failed writes reach the caller
 without poisoning the queue. Lazy recorder initialization is shared by concurrent
 first writes. Session locks remain responsible for excluding other processes.
 
+Conversation manifests carry two opaque app-owned blobs per conversation,
+`goal` and `plan`, so `/goal` and `/plan` survive `/resume` and restarts. The
+engine stores them without parsing (like `policy`); the app layer reads and
+writes them through `updateConversationTrackers` (both fields, null clears)
+and restores them through `TrackerPersistence.hydrate*`, which treats the
+manifest as authoritative and never echoes a read back to disk. The contract —
+paired writes, null clears one field, round-trip through the manifest JSON —
+is pinned in the shared `session_store_contract_test.dart` suite for every
+backend.
+
 Approval prompts carry their turn's cancellation signal. Cancelling or shutting
 down releases approval waits and keyboard ownership, including prompts waiting
 behind another modal or an unfinished draft. A late approval cannot execute a

@@ -198,6 +198,70 @@ void sessionStoreContractSuite(
       });
     });
 
+    group('updateConversationTrackers (goal/plan persistence)', () {
+      test('persists both blobs and keeps them across a model swap', () async {
+        final sid = await store.createSession(providerId: 'anthropic');
+        final cid = await store.createConversationWithMeta(sid,
+            const ConversationMetaInput(model: 'anthropic/claude-sonnet-4-6'));
+
+        await store.updateConversationTrackers(sid, cid,
+            goal: {'text': 'ship it', 'verdict': 'inProgress'},
+            plan: {
+              'items': [
+                {'text': 'a', 'state': 'pending'}
+              ],
+            });
+
+        var meta = (await store.loadSession(sid))
+            .conversations
+            .firstWhere((c) => c.id == cid);
+        expect(meta.goal, {'text': 'ship it', 'verdict': 'inProgress'});
+        expect((meta.plan!['items'] as List), hasLength(1));
+        // Round-trips through the manifest JSON on disk.
+        expect(ConversationMeta.fromJson(meta.toJson()).goal, meta.goal);
+
+        // A model swap must not wipe the trackers (they're unrelated state).
+        await store.updateConversationModel(sid, cid, model: 'glm/glm-5');
+        meta = (await store.loadSession(sid))
+            .conversations
+            .firstWhere((c) => c.id == cid);
+        expect(meta.goal?['text'], 'ship it');
+        expect(meta.plan, isNotNull);
+      });
+
+      test('null clears one field while the other survives', () async {
+        final sid = await store.createSession(providerId: 'anthropic');
+        final cid = await store.createConversationWithMeta(
+            sid, const ConversationMetaInput());
+        await store.updateConversationTrackers(sid, cid,
+            goal: {'text': 'x'}, plan: {'items': <Object>[]});
+
+        await store.updateConversationTrackers(sid, cid,
+            goal: null, plan: {'items': <Object>[]});
+
+        final meta = (await store.loadSession(sid))
+            .conversations
+            .firstWhere((c) => c.id == cid);
+        expect(meta.goal, isNull);
+        expect(meta.plan, isNotNull);
+        expect(meta.toJson().containsKey('goal'), isFalse,
+            reason: 'a cleared tracker stays absent from the manifest JSON');
+      });
+
+      test('on unknown session or conversation throws StateError', () async {
+        final sid = await store.createSession(providerId: 'anthropic');
+        await store.createConversation(sid);
+        expect(
+            () => store.updateConversationTrackers('no-such-session', 'c1',
+                goal: null, plan: null),
+            throwsStateError);
+        expect(
+            () => store.updateConversationTrackers(sid, 'does-not-exist',
+                goal: null, plan: null),
+            throwsStateError);
+      });
+    });
+
     group('SessionRecorder.updateModel', () {
       test('rewrites the meta of an attached conversation', () async {
         final sid = await store.createSession(providerId: 'anthropic');
