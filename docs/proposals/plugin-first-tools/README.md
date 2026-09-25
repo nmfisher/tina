@@ -21,7 +21,8 @@ store travel the same way.
 
 What is still hand-wired is the **conversation-scoped surface**: `buildAgent`
 (`packages/tina_app/lib/src/composition/agent_composition.dart`) imperatively
-adds `launch_workflow`/`stop_workflow` (behind `config.enableWorkflow`), the
+adds `launch_workflow`/`stop_workflow` (now unmounted unconditionally —
+spawning_constraints Change 1; previously behind `config.enableWorkflow`), the
 seven region tools, `ask_user`, `render_image`, `explore_project`, and the
 delegate/channel wrapper — plus a hardcoded allow-table in `mainPolicy`
 naming those same tools. The plugin runtime activates once per process,

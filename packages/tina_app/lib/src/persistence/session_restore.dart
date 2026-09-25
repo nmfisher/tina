@@ -249,7 +249,6 @@ Future<Conversation> restoreConversation(
           overrides: ctx.config.promptOverrides,
           safeMode: ctx.config.safeMode,
           loadWorkspaceContext: ctx.pipeline.loadWorkspaceContext,
-          workflowEnabled: ctx.config.enableWorkflow,
         );
     var driver = _restoreDriver(
       meta: meta,

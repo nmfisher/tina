@@ -7,7 +7,6 @@ import 'package:tina_engine/tina_engine.dart';
 
 import 'package:tina/config.dart';
 
-
 import 'package:test/test.dart';
 
 import '../helpers/fake_host_interface.dart';
@@ -18,9 +17,9 @@ import '../helpers/memory_session_store.dart';
 /// Pins the composition wiring: `createScheduler` over the default pipeline,
 /// and `buildAgent`'s interactive/headless split. Both modes share the full
 /// file/shell tool set; interactive layers on delegate + channels + image
-/// rendering. The workflow surface (`launch_workflow` + `stop_workflow`) is
-/// added in either mode only when a [WorkflowSupervisor] is wired *and* the
-/// surface is enabled — it ships off (RuntimeConfig.enableWorkflow).
+/// rendering. The agent-facing workflow tools (`launch_workflow` +
+/// `stop_workflow`) are disabled — never mounted, even with a supervisor
+/// wired and the surface enabled (spawning_constraints Change 1).
 void main() {
   Config testConfig() => Config.parse(const ['--backend', 'ansi']);
 
@@ -35,9 +34,15 @@ void main() {
   // A run seam that never actually runs a workflow — the tool-set tests don't
   // invoke it; they only assert it lands in the registry.
   RunWorkflow noopRun({Outcome outcome = const Outcome.success()}) =>
-      ({required workflowName, required sink, required conversationId, input,
-          history, cancelSignal, onEvent}) async =>
-          PipelineRunResult(outcome: outcome, runDir: '');
+      ({
+        required workflowName,
+        required sink,
+        required conversationId,
+        input,
+        history,
+        cancelSignal,
+        onEvent,
+      }) async => PipelineRunResult(outcome: outcome, runDir: '');
 
   // A supervisor over the noop run; wired into buildAgent below.
   WorkflowSupervisor noopSupervisor() => WorkflowSupervisor(run: noopRun());
@@ -60,11 +65,25 @@ void main() {
         config: config, // withSubAgents defaults true
       );
       // Full file/shell tool set is now present in interactive mode too.
-      for (final t in ['read', 'write', 'edit', 'bash', 'search', 'grep', 'glob']) {
+      for (final t in [
+        'read',
+        'write',
+        'edit',
+        'bash',
+        'search',
+        'grep',
+        'glob',
+      ]) {
         expect(agent.tools[t], isNotNull, reason: t);
       }
       // Plus the orchestration surface.
-      for (final t in ['delegate', 'send', 'receive', 'close', 'render_image']) {
+      for (final t in [
+        'delegate',
+        'send',
+        'receive',
+        'close',
+        'render_image',
+      ]) {
         expect(agent.tools[t], isNotNull, reason: t);
       }
       // No supervisor wired → no workflow surface.
@@ -72,26 +91,42 @@ void main() {
       expect(agent.tools['stop_workflow'], isNull);
     });
 
-    test('main policy follows live mode while the tool catalog stays stable', () async {
-      final config = testConfig();
-      final scheduler = createScheduler(config: config,
-          registry: ProviderRegistry(env: {}), pipeline: defaultPipeline);
-      addTearDown(scheduler.dispose);
-      final policy = config.buildPolicy();
-      final driver = buildAgent(pipeline: defaultPipeline, scheduler: scheduler,
-          conversationId: 'main', provider: FakeProvider(const []),
-          host: FakeHostInterface(), policy: policy, config: config);
-      String schemas(ToolRegistry tools) => jsonEncode([
-        for (final t in tools.schemas)
-          {'name': t.name, 'description': t.description, 'input_schema': t.inputSchema},
-      ]);
-      final before = schemas(driver.tools);
-      policy.mode = PermissionMode.readAll;
-      expect(policy.check('bash', {}), PermissionDecision.deny);
-      policy.mode = PermissionMode.ask;
-      expect(policy.check('bash', {}), PermissionDecision.ask);
-      expect(schemas(driver.tools), before);
-    });
+    test(
+      'main policy follows live mode while the tool catalog stays stable',
+      () async {
+        final config = testConfig();
+        final scheduler = createScheduler(
+          config: config,
+          registry: ProviderRegistry(env: {}),
+          pipeline: defaultPipeline,
+        );
+        addTearDown(scheduler.dispose);
+        final policy = config.buildPolicy();
+        final driver = buildAgent(
+          pipeline: defaultPipeline,
+          scheduler: scheduler,
+          conversationId: 'main',
+          provider: FakeProvider(const []),
+          host: FakeHostInterface(),
+          policy: policy,
+          config: config,
+        );
+        String schemas(ToolRegistry tools) => jsonEncode([
+          for (final t in tools.schemas)
+            {
+              'name': t.name,
+              'description': t.description,
+              'input_schema': t.inputSchema,
+            },
+        ]);
+        final before = schemas(driver.tools);
+        policy.mode = PermissionMode.readAll;
+        expect(policy.check('bash', {}), PermissionDecision.deny);
+        policy.mode = PermissionMode.ask;
+        expect(policy.check('bash', {}), PermissionDecision.ask);
+        expect(schemas(driver.tools), before);
+      },
+    );
 
     test('headless main gets the full base set, no delegate/channels', () {
       final config = testConfig();
@@ -110,7 +145,15 @@ void main() {
         config: config,
         withSubAgents: false,
       );
-      for (final t in ['read', 'write', 'edit', 'bash', 'search', 'grep', 'glob']) {
+      for (final t in [
+        'read',
+        'write',
+        'edit',
+        'bash',
+        'search',
+        'grep',
+        'glob',
+      ]) {
         expect(driver.tools[t], isNotNull, reason: t);
       }
       expect(driver.tools['delegate'], isNull);
@@ -129,37 +172,38 @@ void main() {
       );
       Agent build(Config c, {int? attempts}) =>
           ((attempts == null
-                  ? buildAgent(
-                      // Omitting the parameter entirely: the composition must
-                      // not silently opt anyone in.
-                      pipeline: defaultPipeline,
-                      scheduler: scheduler,
-                      conversationId: 'c1',
-                      provider: FakeProvider(const [], model: 'm'),
-                      host: FakeHostInterface(),
-                      policy: c.buildPolicy(),
-                      config: c,
-                      withSubAgents: false,
-                    )
-                  : buildAgent(
-                      pipeline: defaultPipeline,
-                      scheduler: scheduler,
-                      conversationId: 'c1',
-                      provider: FakeProvider(const [], model: 'm'),
-                      host: FakeHostInterface(),
-                      policy: c.buildPolicy(),
-                      config: c,
-                      withSubAgents: false,
-                      transportRetryAttempts: attempts,
-                    )) as AgentDriverAdapter)
+                      ? buildAgent(
+                          // Omitting the parameter entirely: the composition must
+                          // not silently opt anyone in.
+                          pipeline: defaultPipeline,
+                          scheduler: scheduler,
+                          conversationId: 'c1',
+                          provider: FakeProvider(const [], model: 'm'),
+                          host: FakeHostInterface(),
+                          policy: c.buildPolicy(),
+                          config: c,
+                          withSubAgents: false,
+                        )
+                      : buildAgent(
+                          pipeline: defaultPipeline,
+                          scheduler: scheduler,
+                          conversationId: 'c1',
+                          provider: FakeProvider(const [], model: 'm'),
+                          host: FakeHostInterface(),
+                          policy: c.buildPolicy(),
+                          config: c,
+                          withSubAgents: false,
+                          transportRetryAttempts: attempts,
+                        ))
+                  as AgentDriverAdapter)
               .agent;
-      expect(build(testConfig()).transportRetryAttempts, 0,
-          reason: 'composition must not silently opt anyone in');
       expect(
-        build(
-          testConfig(),
-          attempts: 3,
-        ).transportRetryAttempts,
+        build(testConfig()).transportRetryAttempts,
+        0,
+        reason: 'composition must not silently opt anyone in',
+      );
+      expect(
+        build(testConfig(), attempts: 3).transportRetryAttempts,
         3,
         reason: 'the headless runner forwards config.transportRetryAttempts',
       );
@@ -173,21 +217,23 @@ void main() {
         registry: ProviderRegistry(env: {}),
         pipeline: defaultPipeline,
       );
-      AgentDriver build({Future<List<Answer>> Function(List<Question>)? askUser}) =>
-          buildAgent(
-            pipeline: defaultPipeline,
-            scheduler: scheduler,
-            conversationId: 'c1',
-            provider: FakeProvider(const [], model: 'm'),
-            host: FakeHostInterface(),
-            policy: config.buildPolicy(),
-            config: config,
-            askUser: askUser,
-          );
+      AgentDriver build({
+        Future<List<Answer>> Function(List<Question>)? askUser,
+      }) => buildAgent(
+        pipeline: defaultPipeline,
+        scheduler: scheduler,
+        conversationId: 'c1',
+        provider: FakeProvider(const [], model: 'm'),
+        host: FakeHostInterface(),
+        policy: config.buildPolicy(),
+        config: config,
+        askUser: askUser,
+      );
       expect(build().tools['ask_user'], isNull);
       expect(
-          build(askUser: (questions) async => const []).tools['ask_user'],
-          isNotNull);
+        build(askUser: (questions) async => const []).tools['ask_user'],
+        isNotNull,
+      );
     });
 
     test('the auto-compact threshold flows from config into the agent', () {
@@ -203,35 +249,50 @@ void main() {
           pipeline: defaultPipeline,
         );
         return (buildAgent(
-          pipeline: defaultPipeline,
-          scheduler: scheduler,
-          conversationId: 'c1',
-          provider: FakeProvider(const [], model: 'm'),
-          host: FakeHostInterface(),
-          policy: config.buildPolicy(),
-          config: config,
-          withSubAgents: false,
-        ) as AgentDriverAdapter).agent;
+                  pipeline: defaultPipeline,
+                  scheduler: scheduler,
+                  conversationId: 'c1',
+                  provider: FakeProvider(const [], model: 'm'),
+                  host: FakeHostInterface(),
+                  policy: config.buildPolicy(),
+                  config: config,
+                  withSubAgents: false,
+                )
+                as AgentDriverAdapter)
+            .agent;
       }
 
-      expect(buildWith(const ['--backend', 'ansi']).autoCompactThreshold,
-          120000);
       expect(
-          buildWith(const ['--backend', 'ansi', '--auto-compact-threshold',
-              '5000']).autoCompactThreshold,
-          5000);
+        buildWith(const ['--backend', 'ansi']).autoCompactThreshold,
+        120000,
+      );
       expect(
-          buildWith(const ['--backend', 'ansi', '--auto-compact-threshold',
-              '0']).autoCompactThreshold,
-          0);
+        buildWith(const [
+          '--backend',
+          'ansi',
+          '--auto-compact-threshold',
+          '5000',
+        ]).autoCompactThreshold,
+        5000,
+      );
+      expect(
+        buildWith(const [
+          '--backend',
+          'ansi',
+          '--auto-compact-threshold',
+          '0',
+        ]).autoCompactThreshold,
+        0,
+      );
     });
 
-    test('the workflow surface mounts only when it is enabled', () {
-      // The surface ships off (RuntimeConfig.enableWorkflow): even with a
-      // supervisor wired, an agent gets neither launch_workflow nor
-      // stop_workflow, so it cannot start a run whose panel the user asked
-      // not to see. --enable-workflow / [features] workflow = true restores
-      // both, in interactive and headless mode alike.
+    test('the workflow surface never mounts for agents', () {
+      // The agent-facing workflow tools are disabled (spawning_constraints
+      // Change 1): even with a supervisor wired AND --enable-workflow set,
+      // an agent gets neither launch_workflow nor stop_workflow, so the main
+      // agent cannot start a background run. The supervisor stays mounted
+      // for the user-facing /workflow commands; the tool classes stay in the
+      // tree for a later revisit.
       AgentDriver build(Config config, String id, {bool withSubAgents = true}) {
         final scheduler = createScheduler(
           config: config,
@@ -252,21 +313,26 @@ void main() {
       }
 
       final off = testConfig();
-      expect(off.enableWorkflow, isFalse,
-          reason: 'the workflow surface must be off by default');
+      expect(
+        off.enableWorkflow,
+        isFalse,
+        reason: 'the workflow surface must be off by default',
+      );
       expect(build(off, 'c1').tools['launch_workflow'], isNull);
       expect(build(off, 'c1').tools['stop_workflow'], isNull);
-      expect(build(off, 'c2', withSubAgents: false).tools['launch_workflow'],
-          isNull);
 
       final on = workflowConfig();
       expect(on.enableWorkflow, isTrue);
-      expect(build(on, 'c1').tools['launch_workflow'], isNotNull);
-      expect(build(on, 'c1').tools['stop_workflow'], isNotNull);
-      expect(build(on, 'c2', withSubAgents: false).tools['launch_workflow'],
-          isNotNull);
-      expect(build(on, 'c2', withSubAgents: false).tools['stop_workflow'],
-          isNotNull);
+      expect(build(on, 'c1').tools['launch_workflow'], isNull);
+      expect(build(on, 'c1').tools['stop_workflow'], isNull);
+      expect(
+        build(on, 'c2', withSubAgents: false).tools['launch_workflow'],
+        isNull,
+      );
+      expect(
+        build(on, 'c2', withSubAgents: false).tools['stop_workflow'],
+        isNull,
+      );
     });
 
     test('every tool schema is a wire-valid JSON-Schema object', () {
@@ -300,10 +366,16 @@ void main() {
         // The sweep is actually sweeping — not vacuously passing over one tool.
         expect(schemas.length, greaterThan(10));
         for (final s in schemas) {
-          expect(s.inputSchema['type'], 'object',
-              reason: '${s.name} must declare type: object');
-          expect(s.inputSchema['properties'], isA<Map>(),
-              reason: '${s.name} must declare a properties map');
+          expect(
+            s.inputSchema['type'],
+            'object',
+            reason: '${s.name} must declare type: object',
+          );
+          expect(
+            s.inputSchema['properties'],
+            isA<Map>(),
+            reason: '${s.name} must declare a properties map',
+          );
         }
       } finally {
         tmp.deleteSync(recursive: true);
@@ -343,19 +415,27 @@ void main() {
         );
         // The composition builds through the default factory, so unwrap its
         // adapter to reach the policy that actually gates the mounted tools.
-        final policy =
-            driver is AgentDriverAdapter ? driver.agent.policy : null;
-        expect(policy, isNotNull,
-            reason: 'the default driver must expose the policy that gates it');
+        final policy = driver is AgentDriverAdapter
+            ? driver.agent.policy
+            : null;
+        expect(
+          policy,
+          isNotNull,
+          reason: 'the default driver must expose the policy that gates it',
+        );
         final mounted = {for (final t in driver.tools.all) t.schema.name: t};
         final known = policy!.defaults.keys.toSet();
         final required = {...mounted.keys, ...known};
 
         // 1. Every tool needs a sample call here, so a new tool has to be
         //    considered rather than slipping through unnoticed.
-        expect(_sampleCalls.keys.toSet(), required,
-            reason: 'add the new tool to _sampleCalls (or drop the stale '
-                'entry) so its approval identity is checked');
+        expect(
+          _sampleCalls.keys.toSet(),
+          required,
+          reason:
+              'add the new tool to _sampleCalls (or drop the stale '
+              'entry) so its approval identity is checked',
+        );
 
         for (final entry in _sampleCalls.entries) {
           final name = entry.key;
@@ -364,7 +444,8 @@ void main() {
           // policy is consulted, so it never reaches a prompt whatever the
           // policy would say. Only tools that can actually ask are held to the
           // approval-identity invariants.
-          final canPrompt = mounted[name] is! LocalControlTool &&
+          final canPrompt =
+              mounted[name] is! LocalControlTool &&
               policy.check(name, input) == PermissionDecision.ask;
           if (!canPrompt) continue;
 
@@ -400,8 +481,11 @@ void main() {
       final target = PermissionPolicy.targetFor('write', input);
       expect(target.label, '/foo.txt');
       expect(target.remember, '/foo.txt');
-      expect(globMatch(target.remember, target.label), isTrue,
-          reason: 'the remembered rule must authorize the call it came from');
+      expect(
+        globMatch(target.remember, target.label),
+        isTrue,
+        reason: 'the remembered rule must authorize the call it came from',
+      );
     });
 
     test('the sandbox wraps the shell tools, not every subprocess', () {
@@ -434,8 +518,11 @@ void main() {
           _ => null,
         };
         if (runner == null) continue;
-        expect(runner, isA<IoProcessRunner>(),
-            reason: '$name spawns its own process; the sandbox does not cover it');
+        expect(
+          runner,
+          isA<IoProcessRunner>(),
+          reason: '$name spawns its own process; the sandbox does not cover it',
+        );
       }
     });
 
@@ -443,8 +530,12 @@ void main() {
       // A rule naming an unavailable tool can never match, so it silently
       // enforces nothing — a typo (`--deny 'bashh:rm *'`) must not look like a
       // working deny. The composition reports it once, at build time.
-      final config =
-          Config.parse(const ['--backend', 'ansi', '--deny', 'bashh:rm *']);
+      final config = Config.parse(const [
+        '--backend',
+        'ansi',
+        '--deny',
+        'bashh:rm *',
+      ]);
       final scheduler = createScheduler(
         config: config,
         registry: ProviderRegistry(env: {}),
@@ -462,18 +553,25 @@ void main() {
         supervisor: noopSupervisor(),
       );
 
-      expect(host.messages.any((m) => m.contains('bashh:rm *')), isTrue,
-          reason: 'the inert rule is named, so the typo is visible');
       expect(
-          host.styledMessages
-              .any((m) => m.style == HostMessageStyle.warning),
-          isTrue,
-          reason: 'and it is a warning, not a dim aside');
+        host.messages.any((m) => m.contains('bashh:rm *')),
+        isTrue,
+        reason: 'the inert rule is named, so the typo is visible',
+      );
+      expect(
+        host.styledMessages.any((m) => m.style == HostMessageStyle.warning),
+        isTrue,
+        reason: 'and it is a warning, not a dim aside',
+      );
     });
 
     test('a rule for a mounted tool is not reported', () {
-      final config =
-          Config.parse(const ['--backend', 'ansi', '--deny', 'bash:rm *']);
+      final config = Config.parse(const [
+        '--backend',
+        'ansi',
+        '--deny',
+        'bash:rm *',
+      ]);
       final scheduler = createScheduler(
         config: config,
         registry: ProviderRegistry(env: {}),
@@ -491,8 +589,11 @@ void main() {
         supervisor: noopSupervisor(),
       );
 
-      expect(host.messages.any((m) => m.contains('can never match')), isFalse,
-          reason: 'bash is mounted, so this rule is doing real work');
+      expect(
+        host.messages.any((m) => m.contains('can never match')),
+        isFalse,
+        reason: 'bash is mounted, so this rule is doing real work',
+      );
     });
   });
 
@@ -516,8 +617,11 @@ void main() {
         guards: [factory.guard],
       );
       addTearDown(scheduler.dispose);
-      expect(scheduler.driverFactory, same(factory),
-          reason: 'precondition: the factory is mounted on the scheduler');
+      expect(
+        scheduler.driverFactory,
+        same(factory),
+        reason: 'precondition: the factory is mounted on the scheduler',
+      );
 
       final driver = buildAgent(
         pipeline: defaultPipeline,
@@ -532,11 +636,18 @@ void main() {
       // unwrapped out of it.
       expect(driver, same(builtDriver));
 
-      expect(factoryCalls, 1,
-          reason: 'main-agent construction must go through the resolved '
-              'factory, exactly like a delegated build');
-      expect(scheduler.scopeGuards, contains(factory.guard),
-          reason: 'the mounted guard rode the main build request');
+      expect(
+        factoryCalls,
+        1,
+        reason:
+            'main-agent construction must go through the resolved '
+            'factory, exactly like a delegated build',
+      );
+      expect(
+        scheduler.scopeGuards,
+        contains(factory.guard),
+        reason: 'the mounted guard rode the main build request',
+      );
       // The guard probe: the built agent's executor chain includes the
       // mounted guard — visible through the request the factory captured.
       final request = builtDriver!.request;
@@ -548,18 +659,30 @@ void main() {
         [
           MessageComplete(
             content: [
-              ToolUseBlock(id: 't1', name: 'bash', input: {'command': 'echo hi'})
+              ToolUseBlock(
+                id: 't1',
+                name: 'bash',
+                input: {'command': 'echo hi'},
+              ),
             ],
             stopReason: 'tool_use',
           ),
         ],
-        [MessageComplete(content: [TextBlock('done')], stopReason: 'end_turn')],
+        [
+          MessageComplete(content: [TextBlock('done')], stopReason: 'end_turn'),
+        ],
       ], model: 'm');
-      final history = <Message>[Message(role: Role.user, content: [TextBlock('hi')])];
+      final history = <Message>[
+        Message(role: Role.user, content: [TextBlock('hi')]),
+      ];
       await driver2.run(history: history, userInput: 'hi');
-      expect(guardChecks, greaterThanOrEqualTo(1),
-          reason: 'the mounted guard must be consulted by the main agent\'s '
-              'tool dispatch, not just present in a list');
+      expect(
+        guardChecks,
+        greaterThanOrEqualTo(1),
+        reason:
+            'the mounted guard must be consulted by the main agent\'s '
+            'tool dispatch, not just present in a list',
+      );
     });
 
     test('the default path still builds a working agent through the '
@@ -576,68 +699,82 @@ void main() {
         scheduler: scheduler,
         conversationId: 'c1',
         provider: FakeProvider(const [
-          [MessageComplete(content: [TextBlock('ok')], stopReason: 'end_turn')
+          [
+            MessageComplete(content: [TextBlock('ok')], stopReason: 'end_turn'),
           ],
         ], model: 'm'),
         host: FakeHostInterface(),
         policy: config.buildPolicy(),
         config: config,
       );
-      expect(driver, isA<AgentDriverAdapter>(),
-          reason: 'no factory mounted: the adapter over the plain build');
-      expect(driver.tools['read'], isNotNull,
-          reason: 'the tool set survives the seam unchanged');
-      final history = <Message>[Message(role: Role.user, content: [TextBlock('go')])];
+      expect(
+        driver,
+        isA<AgentDriverAdapter>(),
+        reason: 'no factory mounted: the adapter over the plain build',
+      );
+      expect(
+        driver.tools['read'],
+        isNotNull,
+        reason: 'the tool set survives the seam unchanged',
+      );
+      final history = <Message>[
+        Message(role: Role.user, content: [TextBlock('go')]),
+      ];
       await driver.run(history: history, userInput: 'go');
       expect(history.last.role, Role.assistant);
     });
   });
   group('tool scope is owned per composition', () {
-    test('compositions own independent tools unless explicitly borrowed', () async {
-      final temp = Directory.systemTemp.createTempSync('tina-app-scopes-');
-      addTearDown(() => temp.deleteSync(recursive: true));
-      final first = Directory('${temp.path}/first')..createSync();
-      final second = Directory('${temp.path}/second')..createSync();
-      final environment = FakeEnvironment(env: {'HOME': '${temp.path}/home'});
-      final config = Config.parse(const ['--no-sandbox'], env: const {});
+    test(
+      'compositions own independent tools unless explicitly borrowed',
+      () async {
+        final temp = Directory.systemTemp.createTempSync('tina-app-scopes-');
+        addTearDown(() => temp.deleteSync(recursive: true));
+        final first = Directory('${temp.path}/first')..createSync();
+        final second = Directory('${temp.path}/second')..createSync();
+        final environment = FakeEnvironment(env: {'HOME': '${temp.path}/home'});
+        final config = Config.parse(const ['--no-sandbox'], env: const {});
 
-      Future<AppComposition> build(
-        String root, {
-        WorkspaceToolScope? tools,
-        PromptContext? context,
-        bool? trusted,
-      }) async {
-        final app = await buildAppComposition(
-          config: config,
-          registry: ProviderRegistry(env: const {}),
-          provider: FakeProvider.done(),
-          store: MemorySessionStore(),
-          environment: environment,
-          workspaceRoot: root,
-          toolScope: tools,
-          promptContext: context,
-          loadWorkspaceContext: trusted,
+        Future<AppComposition> build(
+          String root, {
+          WorkspaceToolScope? tools,
+          PromptContext? context,
+          bool? trusted,
+        }) async {
+          final app = await buildAppComposition(
+            config: config,
+            registry: ProviderRegistry(env: const {}),
+            provider: FakeProvider.done(),
+            store: MemorySessionStore(),
+            environment: environment,
+            workspaceRoot: root,
+            toolScope: tools,
+            promptContext: context,
+            loadWorkspaceContext: trusted,
+          );
+          addTearDown(() async {
+            await app.scheduler.dispose();
+            await app.store.close();
+            app.startupProviderOverride!.close();
+          });
+          return app;
+        }
+
+        File('${first.path}/AGENTS.md').writeAsStringSync('FIRST PROJECT');
+        File('${second.path}/AGENTS.md').writeAsStringSync('SECOND PROJECT');
+        final a = await build(first.path, trusted: false);
+        final originalWrite = a.pipeline.tools.buildTools()['write'];
+        final b = await build(second.path);
+        final background = await build(
+          first.path,
+          tools: a.pipeline.tools,
+          context: a.pipeline.promptContext,
         );
-        addTearDown(() async {
-          await app.scheduler.dispose();
-          await app.store.close();
-          app.startupProviderOverride!.close();
-        });
-        return app;
-      }
-
-      File('${first.path}/AGENTS.md').writeAsStringSync('FIRST PROJECT');
-      File('${second.path}/AGENTS.md').writeAsStringSync('SECOND PROJECT');
-      final a = await build(first.path, trusted: false);
-      final originalWrite = a.pipeline.tools.buildTools()['write'];
-      final b = await build(second.path);
-      final background = await build(
-        first.path,
-        tools: a.pipeline.tools,
-        context: a.pipeline.promptContext,
-      );
-      expect(background.pipeline.promptContext, same(a.pipeline.promptContext));
-      Future<String> requestSystem(AppComposition app) async {
+        expect(
+          background.pipeline.promptContext,
+          same(a.pipeline.promptContext),
+        );
+        Future<String> requestSystem(AppComposition app) async {
           final prompts = app.pipeline.promptContext;
           final context = AgentContext(
             stage: AgentStage.request,
@@ -669,30 +806,31 @@ void main() {
         );
         expect(await requestSystem(b), contains('SECOND PROJECT'));
         expect(resolveMainPrompt(a.pipeline), contains('cwd: ${first.path}'));
-      await expectLater(
-        build(second.path, context: a.pipeline.promptContext),
-        throwsArgumentError,
-      );
-      await expectLater(
-        build(first.path, context: a.pipeline.promptContext, trusted: true),
-        throwsArgumentError,
-      );
+        await expectLater(
+          build(second.path, context: a.pipeline.promptContext),
+          throwsArgumentError,
+        );
+        await expectLater(
+          build(first.path, context: a.pipeline.promptContext, trusted: true),
+          throwsArgumentError,
+        );
 
-      expect(a.pipeline, isNot(same(b.pipeline)));
-      expect(a.pipeline.tools, isNot(same(b.pipeline.tools)));
-      expect(a.pipeline.tools.buildTools()['write'], same(originalWrite));
-      expect(background.pipeline.tools, same(a.pipeline.tools));
-      expect(background.scheduler.pipeline.tools, same(a.pipeline.tools));
-      expect(a.scheduler.pipeline.tools, same(a.pipeline.tools));
-      expect(b.scheduler.pipeline.tools, same(b.pipeline.tools));
+        expect(a.pipeline, isNot(same(b.pipeline)));
+        expect(a.pipeline.tools, isNot(same(b.pipeline.tools)));
+        expect(a.pipeline.tools.buildTools()['write'], same(originalWrite));
+        expect(background.pipeline.tools, same(a.pipeline.tools));
+        expect(background.scheduler.pipeline.tools, same(a.pipeline.tools));
+        expect(a.scheduler.pipeline.tools, same(a.pipeline.tools));
+        expect(b.scheduler.pipeline.tools, same(b.pipeline.tools));
 
-      // A caller cannot accidentally use a borrowed lock/tool set for a different
-      // project. The mismatch fails before composition acquires resources.
-      await expectLater(
-        build(second.path, tools: a.pipeline.tools),
-        throwsArgumentError,
-      );
-    });
+        // A caller cannot accidentally use a borrowed lock/tool set for a different
+        // project. The mismatch fails before composition acquires resources.
+        await expectLater(
+          build(second.path, tools: a.pipeline.tools),
+          throwsArgumentError,
+        );
+      },
+    );
   });
 }
 
@@ -757,16 +895,15 @@ class _CapturingDriver implements AgentDriver {
     ToolRegistry? turnTools,
     HistoryAppendObserver? onHistoryAppend,
     HistoryReplaceObserver? onHistoryReplace,
-  }) =>
-      AgentDriverAdapter(_agent).run(
-        onHistoryAppend: onHistoryAppend,
-        onHistoryReplace: onHistoryReplace,
-        history: history,
-        userInput: userInput,
-        cancelSignal: cancelSignal,
-        toolInterruptSignal: toolInterruptSignal,
-        turnTools: turnTools,
-      );
+  }) => AgentDriverAdapter(_agent).run(
+    onHistoryAppend: onHistoryAppend,
+    onHistoryReplace: onHistoryReplace,
+    history: history,
+    userInput: userInput,
+    cancelSignal: cancelSignal,
+    toolInterruptSignal: toolInterruptSignal,
+    turnTools: turnTools,
+  );
 
   @override
   String? get abortedReason => _agent.abortedReason;
@@ -792,13 +929,12 @@ class _CapturingDriver implements AgentDriver {
     int preserveRecent = 0,
     int preserveRecentMessages = 0,
     Future<void>? cancelSignal,
-  }) =>
-      _agent.compact(
-        history,
-        preserveRecent: preserveRecent,
-        preserveRecentMessages: preserveRecentMessages,
-        cancelSignal: cancelSignal,
-      );
+  }) => _agent.compact(
+    history,
+    preserveRecent: preserveRecent,
+    preserveRecentMessages: preserveRecentMessages,
+    cancelSignal: cancelSignal,
+  );
 }
 
 /// One representative call per tool this build can mount, plus the built-in
@@ -812,12 +948,15 @@ class _CapturingDriver implements AgentDriver {
 const _sampleCalls = <String, Map<String, dynamic>>{
   // Can prompt — checked in detail.
   'bash': {'command': 'git status --short'},
-  'exec': {'executable': 'dart', 'args': ['test'], 'cwd': '/p'},
+  'exec': {
+    'executable': 'dart',
+    'args': ['test'],
+    'cwd': '/p',
+  },
   'write': {'filePath': '/p/lib/a.dart', 'content': 'x'},
   'edit': {'filePath': '/p/lib/a.dart', 'oldString': 'a', 'newString': 'b'},
   'fetch': {'url': 'https://example.com/page'},
   'web_search': {'query': 'dart glob semantics'},
-  'launch_workflow': {'workflow': 'lint', 'input': 'run the linter'},
   'broadcast_region': {'task': 'what does this region do?'},
   'forget_region': {'dir': 'lib/tui'},
   // Never prompts: read-only default, orchestration, or a local-control tool
@@ -841,7 +980,6 @@ const _sampleCalls = <String, Map<String, dynamic>>{
   'search': {'query': 'approval'},
   'send': {'channel': 'team', 'message': 'hi'},
   'stat': {'filePath': '/p/lib/a.dart'},
-  'stop_workflow': <String, dynamic>{},
   'which': {'command': 'dart'},
   'write_summary': {'filePath': '/p/lib/a.dart'},
 };

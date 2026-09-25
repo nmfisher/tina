@@ -169,6 +169,10 @@ String _buildAgentPrompt({
 /// told to prefer launching one. A `[prompts.main]` override is the user's own
 /// prose and is never rewritten.
 ///
+/// The workflow surface is currently disabled for every agent build — no
+/// build mounts `launch_workflow` — so this defaults to false and no caller
+/// passes true. Set it only if the agent-facing tools return.
+///
 /// This is the root identity the whole fleet descends from — a delegated
 /// sub-agent inherits its parent's *resolved* prompt verbatim, so overriding
 /// `main` here changes every agent that inherits it.
@@ -182,7 +186,7 @@ String resolveMainPrompt(
   bool safeMode = false,
   bool? loadWorkspaceContext,
   PluginScope? scope,
-  bool workflowEnabled = true,
+  bool workflowEnabled = false,
 }) {
   final override = overrides?['main'];
   final identity = (override != null && override.isNotEmpty)

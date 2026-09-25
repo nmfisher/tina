@@ -56,7 +56,7 @@ final contributed = [
 
 | Plugin id | Contributes | Gate |
 | --- | --- | --- |
-| `tina.tools.workflow` | `launch_workflow`, `stop_workflow` | supervisor wired AND `[features] workflow` |
+| `tina.tools.workflow` | `launch_workflow`, `stop_workflow` | unmounted unconditionally today (spawning_constraints Change 1); was: supervisor wired AND `[features] workflow` |
 | `tina.tools.regions` | the seven region tools (`allocate`/`forget` only when the summary index rides the context) | regions registry wired |
 | `tina.tools.ask-user` | `ask_user` | asker wired |
 | `tina.tools.render-image` | `render_image` | image renderer wired |

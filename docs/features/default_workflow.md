@@ -9,6 +9,11 @@
 > to completion, no TUI) is a deliberate one-shot and is unaffected by the
 > setting. Everything below describes the graph as it exists when the surface is
 > enabled.
+>
+> **Update 2026-09-25:** the agent-facing tools are now disabled
+> *unconditionally* (spawning_constraints Change 1) — `--enable-workflow` no
+> longer mounts `launch_workflow`/`stop_workflow` on any agent. The supervisor,
+> run panels, and user `/workflow` commands still work.
 
 > **Routing model changed.** As of the manager-loop work, normal chat turns no
 > longer route through this graph. The main agent runs **outside** the workflow;

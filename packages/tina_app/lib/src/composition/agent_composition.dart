@@ -8,7 +8,6 @@ import 'package:tina_engine/tina_engine.dart';
 
 import 'package:tina_app/src/config/runtime_config.dart';
 import 'package:tina_app/src/workflows/ask_user_tool.dart';
-import 'package:tina_app/src/workflows/launch_workflow_tool.dart';
 import 'package:tina_app/src/workflows/workflow_supervisor.dart';
 import 'package:tina_app/src/regions/region_registry.dart';
 import 'package:tina_app/src/regions/region_tools.dart';
@@ -168,7 +167,6 @@ AgentDriver buildAgent({
         safeMode: config.safeMode,
         loadWorkspaceContext: pipeline.loadWorkspaceContext,
         scope: scheduler.mountedScopeValue,
-        workflowEnabled: config.enableWorkflow,
       );
 
   // Base registry both modes share: the full file/shell tool set (write/edit/
@@ -229,27 +227,13 @@ AgentDriver buildAgent({
   if (goalStore != null) {
     goalMiddleware = goals.GoalMiddleware(goalStore, conversationId);
   }
-  // The workflow surface, when the host provides a supervisor: launch a DOT
-  // workflow in the background (the run's input/output streams into a live run
-  // panel; the chat keeps the launch + completion notices) and stop a running
-  // launch. The completion turn is injected by the supervisor's onComplete
-  // hook — not returned by the tool.
-  //
-  // Off unless `[features] workflow = true` / `--enable-workflow`: the surface
-  // ships disabled (see [RuntimeConfig.enableWorkflow]), so the tools simply do
-  // not exist for the agent. Gating here — not at the supervisor's
-  // construction — keeps this the single place a tool set is decided, so the
-  // headless path and every later session inherit the same answer.
-  if (supervisor != null && config.enableWorkflow) {
-    tools.add(
-      LaunchWorkflowTool(
-        supervisor: supervisor,
-        conversationId: conversationId,
-        sink: host,
-      ),
-    );
-    tools.add(StopWorkflowTool(supervisor: supervisor));
-  }
+  // The workflow surface is DISABLED for agents: neither interactive nor
+  // headless builds mount `launch_workflow`/`stop_workflow`, so the main
+  // agent cannot start a background run (decision revisited later). The
+  // classes and the supervisor stay mounted for the user-facing `/workflow`
+  // commands; see docs/proposals/spawning_constraints.md (Change 1). The
+  // identity prompt is stripped to match (resolveMainPrompt always strips
+  // the workflow guidance now).
   // The region surface, when the coordinator wired a registry: discover /
   // query subfolder-scoped agents primed from the summary sidecar. The query
   // tools run one-shot read-only agents via the scheduler; allocate/forget
@@ -300,11 +284,9 @@ AgentDriver buildAgent({
         // render_image is a pure view-side-effect (paint a local image into the
         // panel); allow it without prompting, like the channel tools.
         'render_image': PermissionDecision.allow,
-        // Cancelling a workflow is harmless and time-sensitive (the agent calls
-        // it mid-run, often on the user's request) — no modal. launch_workflow
-        // itself stays on the default `ask` (a heavyweight autonomous run
-        // deserves the user's approval).
-        'stop_workflow': PermissionDecision.allow,
+        // No `stop_workflow` entry here: the workflow tools are not mounted
+        // for agents (see the disabled-surface note above), and a default for
+        // an unmounted tool is inert-rule noise.
         // Region discovery + a single region query are cheap one-shot reads —
         // same class as `delegate`, no modal. Allocating is a cheap partition
         // write (the fleet runs only when the user approves at `/index`), so

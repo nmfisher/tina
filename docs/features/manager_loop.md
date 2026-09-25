@@ -1,7 +1,16 @@
 # The manager loop — the main agent launches workflows as child runs
 
-**Status:** Implemented (this branch)
+**Status:** Implemented (this branch); **agent surface disabled 2026-09-25**
+(see Current state below).
 **Date:** 2026-08-08
+
+## Current state (2026-09-25)
+
+The agent-facing workflow surface (`launch_workflow` / `stop_workflow`) is
+**disabled**: the main agent cannot launch or stop a run — the tools are not
+mounted on any agent build, and the identity prompt carries no workflow
+guidance. The mechanism below remains the design record for re-enabling it.
+The supervisor, run panels, and `/workflow` user commands still work.
 
 ## 1. The change in one paragraph
 
@@ -156,7 +165,7 @@ the runner, the engine, and the parallel handler are unchanged.
 | Area | Change |
 |---|---|
 | `lib/pipeline/workflow_supervisor.dart` | **Restored + adapted.** `WorkflowSupervisor`/`WorkflowRun`/`RunWorkflow`. Fire-and-forget `launch` (now with `conversationId`); `stop`/`stopAll`; completion classification + report notice + `onComplete` hook. |
-| `lib/pipeline/launch_workflow_tool.dart` | `LaunchWorkflowTool` rewritten non-blocking (launches via the supervisor, returns immediately) + new `StopWorkflowTool` (agent-callable cancel). |
+| `lib/pipeline/launch_workflow_tool.dart` | `LaunchWorkflowTool` non-blocking (launches via the supervisor, returns immediately) + `StopWorkflowTool` (agent-callable cancel). **Not mounted today** — the agent surface is disabled (see Current state above). |
 | `lib/composition/agent_composition.dart` | `buildAgent` now takes a `WorkflowSupervisor` and wires both `launch_workflow` + `stop_workflow` into the shared tool set in both modes; `stop_workflow` allowed without prompting. |
 | `packages/tina_engine/lib/src/agent/agent_pipeline.dart` | `_mainIdentity` rewritten: non-blocking launch — the run churns in the background, completion injects a follow-up turn; `stop_workflow` cancels; direct file tools for small changes; `delegate` for a single focused sub-task. |
 | `lib/tui_coordinator.dart` | Builds the `WorkflowSupervisor` (over `buildRunner().run`) and wires both `buildAgent` call sites; `onComplete` → `controller.injectWorkflowResult` via a late `handleWorkflowComplete` field. |
