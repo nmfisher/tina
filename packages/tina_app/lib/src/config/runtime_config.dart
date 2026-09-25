@@ -189,7 +189,10 @@ class RuntimeConfig {
     this.autoCompactThreshold = 120000,
     this.maxSteps = 500,
     this.watchdogSeconds = 300,
-    this.streamIdleTimeout = const Duration(seconds: 60),
+    // 2026-09-24: raised 60 → 600 to match kDefaultStreamIdleTimeoutSeconds in
+    // lib/config.dart — a reasoning model can sit silent for minutes between
+    // SSE events while thinking; 60s aborted such runs mid-work.
+    this.streamIdleTimeout = const Duration(seconds: 600),
     this.requestTimeout = const Duration(seconds: 120),
     Map<String, String> promptOverrides = const {},
     this.safeMode = false,
