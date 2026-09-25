@@ -68,12 +68,24 @@ void main() {
           }, notice: notices.add,
         );
         final response = await asker(request);
-        expect(response.decision, answer == 'ALLOW' ? PermissionDecision.allow : PermissionDecision.deny);
-        expect(fallbackCalls, answer == 'unclear' ? 1 : 0);
-        expect(response.remember, answer != 'unclear');
-        if (answer != 'unclear') {
+        expect(response.decision,
+            answer == 'ALLOW' ? PermissionDecision.allow : PermissionDecision.deny);
+        expect(fallbackCalls, answer == 'ALLOW' ? 0 : 1,
+            reason: answer == 'DENY'
+                ? 'a classifier DENY is a recommendation — the user decides'
+                : 'a classifier failure asks the user');
+        expect(response.remember, answer == 'ALLOW',
+            reason: 'only an ALLOW verdict is filed as a session rule; a '
+                'denied call asks once and the user answer governs');
+        if (answer == 'ALLOW') {
           expect(response.decidedBy, 'classifier');
           expect(notices.single, contains('outside sandbox'));
+        } else {
+          expect(response.decidedBy, isNot('classifier'));
+        }
+        if (answer == 'DENY') {
+          expect(notices.single, contains('denied by classifier'));
+          expect(notices.single, contains('asking you'));
         }
         final sent = provider.calls.single['messages'].toString();
         expect(sent, contains('"outsideSandbox":true'));
@@ -130,23 +142,45 @@ void main() {
       expect(notices.single, contains('allowed by classifier'));
     });
 
-    test('auto + classifier deny returns denyAlways and notices', () async {
+    test('auto + classifier deny asks the user instead of refusing', () async {
       final policy = PermissionPolicy(mode: PermissionMode.auto);
       final classifier = PermissionClassifier(_ScriptedProvider('DENY'));
+      var fallbackCalls = 0;
       final notices = <String>[];
       final asker = modeAwareAsker(
         policy: policy,
         classifier: classifier,
-        fallback: (_) async => fail('fallback must not run'),
+        fallback: (_) async {
+          fallbackCalls++;
+          return PermissionResponse.denyOnce;
+        },
         notice: notices.add,
       );
 
       final resp = await asker(prompt);
+      expect(fallbackCalls, 1,
+          reason: 'a classifier DENY is a recommendation — the user decides');
       expect(resp.decision, PermissionDecision.deny);
-      expect(resp.remember, isTrue,
-          reason: 'a deny verdict is remembered like a manual d');
-      expect(resp.decidedBy, 'classifier');
+      expect(resp.remember, isFalse,
+          reason: 'the fallback answered once; the classifier verdict is not '
+              'filed as a session rule');
+      expect(resp.decidedBy, 'user');
       expect(notices.single, contains('denied by classifier'));
+      expect(notices.single, contains('asking you'));
+    });
+
+    test('auto + classifier deny + user allow lets the call through',
+        () async {
+      final policy = PermissionPolicy(mode: PermissionMode.auto);
+      final classifier = PermissionClassifier(_ScriptedProvider('DENY'));
+      final asker = modeAwareAsker(
+        policy: policy,
+        classifier: classifier,
+        fallback: (_) async => PermissionResponse.allowOnce,
+      );
+
+      expect((await asker(prompt)).decision, PermissionDecision.allow,
+          reason: 'only the user can deny in auto mode');
     });
 
     test('auto + undecidable classifier falls back to the interactive ask',
@@ -325,7 +359,7 @@ void main() {
 
     test('auto mode keeps the base prompt with no read-only directive',
         () async {
-      final provider = _ScriptedProvider('DENY');
+      final provider = _ScriptedProvider('ALLOW');
       final asker = modeAwareAsker(
         policy: PermissionPolicy(mode: PermissionMode.auto),
         classifier: PermissionClassifier(provider),

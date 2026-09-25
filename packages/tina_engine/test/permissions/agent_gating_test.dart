@@ -282,7 +282,9 @@ void main() {
       // The classifier's provider answers per call: ls -> ALLOW, rm -> DENY.
       final classifierProvider = _PerCallProvider(['ALLOW', 'DENY']);
       final classifier = PermissionClassifier(classifierProvider);
-      final asker = _RecordingAsker([]);
+      // The user scripts one answer because one arrives: the classifier's
+      // DENY routes the rm call to the user, who declines it once.
+      final asker = _RecordingAsker([PermissionResponse.denyOnce]);
 
       final agent = Agent(
         provider: provider,
@@ -302,9 +304,12 @@ void main() {
         userInput: 'run two commands',
       );
 
-      expect(asker.prompts, isEmpty, reason: 'classifier decided both');
+      expect(asker.prompts.length, 1,
+          reason: 'ls is classifier-approved without a prompt; the denied rm '
+              'is handed to the user, who declines');
+      expect(asker.prompts.single.key, contains('rm -rf /'));
       expect(fakeBash.calls.map((c) => c['command']), ['ls'],
-          reason: 'the denied rm never reaches execute');
+          reason: 'the user-declined rm never reaches execute');
       // The deny surfaces to the model as an error tool_result.
       final results = history
           .lastWhere((m) => m.role == Role.user)
@@ -321,8 +326,9 @@ void main() {
     // The agent-level consumer contract (agent.dart's check → ask →
     // `policy.remember(name, prompt.alwaysPattern, decision)` when
     // `resp.remember`), driven through the modeAwareAsker seam so a change in
-    // either half breaks here: the classifier's verdict lands in the policy
-    // as a session rule exactly like a manual a/d.
+    // either half breaks here: an ALLOW verdict lands in the policy as a
+    // session rule exactly like a manual a. A DENY verdict never lands — it
+    // routes to the user, and only the user's remembered answer does.
     Future<PermissionDecision> decide(
       PermissionPolicy policy,
       PermissionAsker asker,
@@ -369,26 +375,46 @@ void main() {
       expect(text, contains('git status'));
     });
 
-    test('a denied verdict is remembered the same way', () async {
+    test('a denied verdict routes to the user instead of the agent',
+        () async {
       final llmCalls = <Map<String, dynamic>>[];
       final policy = PermissionPolicy(mode: PermissionMode.auto);
       final classifier =
           PermissionClassifier(_ClassifierProvider('DENY', llmCalls));
+      final user = _RecordingAsker([
+        PermissionResponse.denyOnce,
+        PermissionResponse.denyAlways,
+      ]);
       final asker = modeAwareAsker(
         policy: policy,
         classifier: classifier,
-        fallback: (_) async => fail('no interactive ask expected'),
+        fallback: user.ask,
       );
 
       const input = {'command': 'rm -rf /'};
       expect(
           await decide(policy, asker, 'bash', input), PermissionDecision.deny);
-      expect(llmCalls.length, 1);
-      expect(policy.check('bash', input), PermissionDecision.deny,
-          reason: 'a deny verdict is remembered like a manual d');
+      expect(llmCalls.length, 1, reason: 'the classifier judged first');
+      expect(user.prompts.length, 1,
+          reason: 'the user, not the agent, receives the call');
+      expect(policy.check('bash', input), PermissionDecision.ask,
+          reason: 'the classifier deny remembers nothing');
+
+      // A user "deny always" is the user's own answer, so it still files a
+      // rule and short-circuits both the classifier and the user prompt.
       expect(
           await decide(policy, asker, 'bash', input), PermissionDecision.deny);
-      expect(llmCalls.length, 1,
+      expect(user.prompts.length, 2);
+      expect(policy.check('bash', input), PermissionDecision.deny,
+          reason: 'the remembered deny came from the user');
+      expect(llmCalls.length, 2,
+          reason: 'a deny-once remembers nothing, so the next call '
+              're-classifies; only the user deny-always short-circuits');
+      expect(await decide(policy, asker, 'bash', input),
+          PermissionDecision.deny);
+      expect(user.prompts.length, 2,
+          reason: 'the remembered deny ends the prompts');
+      expect(llmCalls.length, 2,
           reason: 'the remembered deny short-circuits the classifier');
     });
 
@@ -434,10 +460,11 @@ void main() {
       );
       final classifier =
           PermissionClassifier(_ClassifierProvider('DENY', llmCalls));
+      final user = _RecordingAsker([PermissionResponse.denyOnce]);
       final asker = modeAwareAsker(
         policy: policy,
         classifier: classifier,
-        fallback: (_) async => fail('no interactive ask expected'),
+        fallback: user.ask,
       );
 
       // `git status` matches the static rule — allow, and the classifier
@@ -446,11 +473,13 @@ void main() {
           PermissionDecision.allow);
       expect(llmCalls, isEmpty, reason: 'explicit rules beat the classifier');
 
-      // ...but an UNmatched command still routes to the classifier (which
-      // here denies it) — precedence, not bypass.
+      // ...but an UNmatched command still routes to the classifier (whose
+      // deny here hands the decision to the user) — precedence, not bypass.
       expect(await decide(policy, asker, 'bash', {'command': 'curl x'}),
           PermissionDecision.deny);
       expect(llmCalls.length, 1);
+      expect(user.prompts.length, 1,
+          reason: 'the user decides what the classifier refused');
     });
 
     test('yolo defaults bypass the classifier entirely', () async {

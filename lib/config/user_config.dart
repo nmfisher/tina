@@ -1190,7 +1190,8 @@ api_key = "sk-ant-..."
 # Permission mode: how tool calls are gated. `ask` (default) prompts for
 # mutating tools; `read_all` also auto-approves network reads; `allow_edits`
 # auto-approves file edits too (bash still prompts); `auto` lets a small
-# classifier model decide each call, falling back to a prompt on any doubt.
+# classifier model approve each call — a refusal, doubt or classifier failure
+# falls back to a prompt, so only you can deny a call.
 # `model` is the classifier's "provider/model" for auto mode; omit it to
 # inherit the main agent's model.
 # [permissions]

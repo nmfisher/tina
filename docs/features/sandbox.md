@@ -140,7 +140,9 @@ same frozen executable, arguments, cwd and environment with the host runner,
 outside filesystem and network confinement, as the current OS user. It does not
 provide root privileges. Denial, cancellation, or a change to read-all blocks the
 retry. Ordinary command approvals and `--yolo` do not satisfy this separate
-approval. In Auto mode, the permission classifier can approve or deny the retry.
+approval. In Auto mode, the permission classifier judges the retry: an approval grants
+it directly, while a refusal, doubt or classifier failure is handed to the
+human prompt — only a person can deny the retry.
 It receives the sandbox failure, prepared command and cwd, and whether network
 isolation will be removed. Routine toolchain/cache writes outside the project
 can be approved. A classifier approval remembers the exact invocation for the

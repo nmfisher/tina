@@ -21,10 +21,13 @@ const _readOnlyDirective =
 /// running:
 ///
 /// * [PermissionMode.auto] — the judge decides every call that reaches this
-///   asker. Any classifier failure (error, timeout, unparseable answer)
-///   falls back to [fallback] — the normal y/n prompt — never silently
-///   allows; the failure is announced through [notice] so the ask that
-///   appears never looks like auto mode ignoring itself.
+///   asker. A failure (error, timeout, unparseable answer) falls back to
+///   [fallback] — the normal y/n prompt — never silently allows; the failure
+///   is announced through [notice] so the ask that appears never looks like
+///   auto mode ignoring itself. A DENY verdict is a recommendation, not a
+///   decision: it is announced and also routed to [fallback], so only a
+///   human can refuse a call in auto mode — an ALLOW verdict executes
+///   without a prompt, remembered like a manual answer.
 /// * [PermissionMode.readAll] — the fail-closed twin. The policy routes
 ///   bash here as an `ask` (see [PermissionPolicy.classifierGatesShell]);
 ///   this wrapper judges it under [_readOnlyDirective] and answers any
@@ -40,16 +43,17 @@ const _readOnlyDirective =
 /// wrapper cannot drift apart; policy copies spread the flag to keep the
 /// route alive for sub-agents and new conversations.
 ///
-/// A classifier verdict is remembered like a manual a/d: allow carries the
-/// same `remember` flag the user's `a` would (and deny the `d` equivalent),
-/// so the agent installs the same session rule — exact bash command,
-/// parent-dir glob — with `decidedBy: 'classifier'` recording that no human
-/// answered. Identical calls short-circuit the rule cascade before ever
-/// re-classifying — a fan-out of 30 identical bash calls pays one classifier
-/// round-trip, not 30. Outside-sandbox approvals use the same exact session
-/// grant as a human approval, and include the execution boundary in the
-/// classifier request. Extra writable-directory grants still require the
-/// interactive asker.
+/// An ALLOW verdict is remembered like a manual `a`: it carries the same
+/// `remember` flag the user's `a` would, so the agent installs the same
+/// session rule — exact bash command, parent-dir glob — with
+/// `decidedBy: 'classifier'` recording that no human answered. Identical
+/// calls short-circuit the rule cascade before ever re-classifying — a
+/// fan-out of 30 identical bash calls pays one classifier round-trip, not
+/// 30. A DENY verdict remembers nothing in auto (the user owns that call);
+/// read-all keeps its fail-closed deny. Outside-sandbox approvals use the
+/// same exact session grant as a human approval, and include the execution
+/// boundary in the classifier request. Extra writable-directory grants
+/// still require the interactive asker.
 PermissionAsker modeAwareAsker({
   required PermissionPolicy policy,
   required PermissionClassifier classifier,
@@ -127,6 +131,17 @@ PermissionAsker modeAwareAsker({
           '  ${prompt.toolName} classifier ${outcome.failure!.phrase(timeout: classifier.timeout)} — asking instead: ${prompt.key}\n');
       return fallback(prompt);
     }
-    return decide(verdict);
+    if (!verdict) {
+      // The classifier's DENY is a recommendation, not a decision: the model
+      // must never be told "no" by another model. Surface the judgment and
+      // put the call to the user — only the user's own denial returns to the
+      // agent. (Read-all above keeps its fail-closed classifier deny; there
+      // the mode promised no prompts at all.)
+      final boundary = prompt.outsideSandbox ? ' outside sandbox' : '';
+      notice?.call(
+          '  ${prompt.toolName} denied by classifier$boundary — asking you: ${prompt.key}\n');
+      return fallback(prompt);
+    }
+    return decide(true);
   };
 }
