@@ -162,4 +162,79 @@ void main() {
             .any((m) => m.content.any((b) => b is TextBlock && b.text.contains('first'))),
         isTrue);
   });
+
+  group('staleness guard: a readable anchor can still be left behind', () {
+    // The quit/resume incident 2026-09-23: the anchor READ fine but a newer
+    // primary had been written after the pointer was last deliberately set,
+    // so the user landed in the wrong conversation. Only primaries compete —
+    // late sub-agent/panel writes are normal and must not hijack the slot.
+    test('resume picks the newest-written primary over the stale anchor '
+        'and heals the pointer', () async {
+      final sid = await seedSession('anchor conversation');
+      final anchor = (await store.loadSession(sid)).activeConversationId;
+      final newer = await store.createConversationWithMeta(
+          sid, const ConversationMetaInput(label: 'newer primary'));
+      // Creating a conversation rewrites the manifest (bumping the pointer
+      // mtime); sleep so the append below is unambiguously AFTER it.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await store.append(sid, newer, msg('newer primary body'));
+      // Anchor written last but pointer deliberately set BEFORE that — the
+      // leave-me-hanging shape.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await store.append(sid, anchor, msg('anchor grows after the pointer'));
+
+      final resolved =
+          await resolveSession(Config.parse(['--resume', sid]), store);
+      expect(resolved.activeConversationId, newer,
+          reason: 'the newer primary was written after the last deliberate '
+              'switch — the anchor was left behind');
+      expect(
+          resolved.activeHistory.any((m) => m.content
+              .any((b) => b is TextBlock && b.text.contains('newer primary'))),
+          isTrue);
+      expect((await store.loadSession(sid)).activeConversationId, newer,
+          reason: 'the pointer is healed so the next resume skips the dance');
+    });
+
+    test('keeps the anchor when the pointer is newer than every primary '
+        '(deliberate resume-back)', () async {
+      final sid = await seedSession('anchor conversation');
+      final anchor = (await store.loadSession(sid)).activeConversationId;
+      final older = await store.createConversation(sid);
+      await store.append(sid, older, msg('older sibling'));
+      // Deliberate switch back to the anchor AFTER the sibling's last write.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await store.setActiveConversation(sid, anchor);
+
+      final resolved =
+          await resolveSession(Config.parse(['--resume', sid]), store);
+      expect(resolved.activeConversationId, anchor,
+          reason: 'the pointer was set after every primary write — a '
+              'deliberate resume-back is honored');
+    });
+
+    test('a newer sub-agent or panel write never hijacks the slot',
+        () async {
+      final sid = await seedSession('anchor conversation');
+      final panel = await store.createConversationWithMeta(
+          sid,
+          const ConversationMetaInput(
+              label: 'panel',
+              kind: ConversationKind.spawn,
+              targetName: 'scout'));
+      // Creation rewrites the manifest (bumping the pointer mtime); sleep so
+      // the appends land unambiguously after it.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await store.append(sid, panel, msg('panel work'));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      // The panel keeps streaming after the pointer was set.
+      await store.append(sid, panel, msg('panel keeps going'));
+
+      final resolved =
+          await resolveSession(Config.parse(['--resume', sid]), store);
+      expect(resolved.activeConversationId,
+          (await store.loadSession(sid)).activeConversationId,
+          reason: 'only primaries compete for the resume slot');
+    });
+  });
 }

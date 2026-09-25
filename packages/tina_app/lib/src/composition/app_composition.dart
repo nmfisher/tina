@@ -478,39 +478,119 @@ Future<ResolvedSession> resolveSession(
 /// `activeConversationId` then names a file that no longer exists anywhere.
 /// Startup must degrade — pick what still reads — instead of crashing before
 /// the REPL draws.
+///
+/// Staleness guard (quit/resume incident 2026-09-23): a readable anchor is
+/// not always the conversation the user was last IN. When a primary sibling's
+/// transcript was written AFTER the pointer was last deliberately set
+/// (persistSelection), the anchor was left behind — resume the newest-written
+/// readable primary instead, say why, and heal the pointer on disk. Ties and
+/// deliberately-resumed-back anchors (pointer written after every primary's
+/// last write) keep the anchor. Stores without the recency capability (and
+/// any probe failure) keep today's anchor-first behavior.
 Future<ResolvedSession?> _loadBestConversation(
   SessionStore store,
   String sid,
   SessionManifest manifest, {
   required String why,
 }) async {
-  // Deduped, active-first candidate order.
+  final anchor = manifest.activeConversationId;
+  // Deduped, anchor-first candidate order; ties in the order the manifest
+  // lists them (creation order).
   final ids = <String>{
-    if (manifest.activeConversationId.isNotEmpty) manifest.activeConversationId,
+    if (anchor.isNotEmpty) anchor,
     ...manifest.conversations.map((c) => c.id),
   }.toList();
-  String? picked;
-  List<Message>? history;
+
+  // Which candidates actually read? Transcript files are project-local and
+  // can vanish (fresh clone / git clean) while the manifest survives.
+  final readable = <String>[];
+  final histories = <String, List<Message>>{};
   for (final id in ids) {
     try {
-      history = await store.loadConversation(sid, id);
-      picked = id;
-      break;
+      histories[id] = await store.loadConversation(sid, id);
+      readable.add(id);
     } on StateError {
       continue; // transcript missing/unreadable — try the next candidate
     }
   }
-  if (picked == null) return null;
-  if (picked != manifest.activeConversationId) {
-    stderr.writeln(
-      '$why: active conversation ${manifest.activeConversationId} is '
-      'unreadable — falling back to $picked',
-    );
+  if (readable.isEmpty) return null;
+
+  // Staleness guard: prefer the newest-written READABLE PRIMARY over a
+  // left-behind anchor. Only primaries compete — a late sub-agent or
+  // `/spawn` panel write is normal (panels outlive focus) and must not
+  // hijack the resume slot.
+  String picked = readable.first; // the anchor when it reads, else first read
+  var whyPicked = '';
+  if (store is TimestampedSessionStore) {
+    try {
+      final stamps = await store.conversationTimestamps(sid);
+      final pointerAt = await store.activePointerUpdatedAt(sid);
+      final epoch = DateTime.fromMillisecondsSinceEpoch(0);
+      DateTime written(String id) {
+        final i = manifest.conversations.indexWhere((c) => c.id == id);
+        return (i >= 0 && i < stamps.conversationUpdatedAt.length)
+            ? stamps.conversationUpdatedAt[i]
+            : epoch;
+      }
+
+      final pointerIsNewest = readable.every((id) =>
+          id == anchor || !written(id).isAfter(pointerAt));
+      if (!pointerIsNewest) {
+        bool isPrimary(String id) {
+          for (final c in manifest.conversations) {
+            if (c.id == id) return c.kind == ConversationKind.primary;
+          }
+          return false;
+        }
+
+        final newerPrimaries = readable
+            .where((id) =>
+                id != anchor &&
+                written(id).isAfter(pointerAt) &&
+                isPrimary(id))
+            .toList();
+        if (newerPrimaries.isNotEmpty) {
+          // Newest write wins; the anchor wins a tie so a re-pointed
+          // (deliberately resumed) anchor is never displaced by an equal
+          // timestamp.
+          var best = newerPrimaries.first;
+          for (final id in newerPrimaries) {
+            if (written(id).isAfter(written(best))) best = id;
+          }
+          picked = best;
+          whyPicked =
+              'was written after the last deliberate conversation switch — '
+              'resuming it instead of the stale anchor';
+        }
+      }
+    } on StateError {
+      // Session vanished or probes unsupported mid-flight — anchor stands.
+    } on FileSystemException {
+      // mtime unreadable — anchor stands.
+    }
+  }
+
+  if (picked != anchor && anchor.isNotEmpty) {
+    // Two distinct reasons to leave the anchor behind — say which:
+    // (a) its transcript is gone (the old crash guard), or (b) it reads but a
+    // primary was written after the last deliberate switch (staleness).
+    final note = whyPicked.isEmpty
+        ? '$why: active conversation $anchor is unreadable — falling back '
+            'to $picked'
+        : '$why: primary conversation $picked $whyPicked ($anchor was left '
+            'behind)';
+    stderr.writeln(note);
+    // Heal the pointer so the next resume skips this dance.
+    try {
+      await store.setActiveConversation(sid, picked);
+    } on StateError {
+      // Session/conversation gone mid-flight — nothing to heal.
+    }
   }
   return ResolvedSession(
     sessionId: sid,
     activeConversationId: picked,
-    activeHistory: history ?? <Message>[],
+    activeHistory: histories[picked] ?? <Message>[],
     manifest: manifest,
   );
 }

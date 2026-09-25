@@ -498,6 +498,43 @@ abstract interface class LockableSessionStore implements SessionStore {
   String lockNamespaceFor(String sessionId);
 }
 
+/// Per-conversation write recency for one session, in manifest order.
+///
+/// Index [i] corresponds to `loadSession(sid).conversations[i]`. The values
+/// are the store's honest last-write times for each conversation's transcript
+/// (file mtimes on disk) — [ConversationMeta] deliberately carries no
+/// timestamps, and message ids don't order writes, so this is the only
+/// backend-neutral way to ask "which conversation was written last?".
+class SessionTimestamps {
+  final List<DateTime> conversationUpdatedAt;
+
+  const SessionTimestamps(this.conversationUpdatedAt);
+}
+
+/// Backends that can answer write-recency questions (SP3's staleness guard).
+///
+/// A capability, not a type identity — like [LockableSessionStore]. Startup
+/// uses it to notice when the persisted active pointer names an older
+/// conversation while a newer primary has been written since (the
+/// quit/resume lands-in-wrong-conversation bug): the anchor wins ties and a
+/// freshly-repointed pointer, and a store without the capability simply keeps
+/// today's anchor-first behavior.
+abstract interface class TimestampedSessionStore implements SessionStore {
+  /// Read-only recency probe for [sessionId]'s conversations. Throws
+  /// [StateError] if the session is unknown. Missing/unreadable transcript
+  /// files are NOT errors — they report the epoch, matching how
+  /// `loadConversation` treats them as absent for fallback purposes.
+  Future<SessionTimestamps> conversationTimestamps(String sessionId);
+
+  /// When the session manifest's `activeConversationId` was last written.
+  /// Every `setActiveConversation` rewrites the manifest, so this is exactly
+  /// "when the pointer was last deliberately set" — the guard compares it
+  /// against a conversation's [conversationTimestamps] to tell a stale anchor
+  /// from a deliberate resume-back-to-an-older-conversation. Epoch when
+  /// unknown (session exists but was never re-pointed).
+  Future<DateTime> activePointerUpdatedAt(String sessionId);
+}
+
 /// REPL-side wrapper that knows the active (sessionId, conversationId).
 /// Holding this in the REPL keeps those details out of the store interface —
 /// swapping the backend only requires re-implementing [SessionStore].

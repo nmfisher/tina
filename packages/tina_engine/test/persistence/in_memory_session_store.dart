@@ -22,9 +22,15 @@ import 'package:tina_engine/src/persistence/session_store.dart';
 ///   text block (same derivation as the JSONL store: whitespace normalized,
 ///   truncated at 60 with an ellipsis), counts non-empty messages summed
 ///   across conversations, and sorts most-recently-updated first.
-class InMemorySessionStore implements SessionStore {
+class InMemorySessionStore implements SessionStore, TimestampedSessionStore {
   final _sessions = <String, _MemSession>{};
   int _nextId = 0;
+
+  /// Deterministic clock: bumped by every write, so tests can order
+  /// appends/re-points without sleeping.
+  DateTime clock = DateTime.fromMillisecondsSinceEpoch(1000000);
+
+  void _tick() => clock = clock.add(const Duration(milliseconds: 10));
 
   @override
   Future<String> createSession({
@@ -94,7 +100,7 @@ class InMemorySessionStore implements SessionStore {
     final s = _require(sessionId);
     s.messages.putIfAbsent(conversationId, () => []);
     s.messages[conversationId]!.add(message);
-    _touch(s);
+    s.writes[conversationId] = _tickTime();
   }
 
   @override
@@ -102,7 +108,7 @@ class InMemorySessionStore implements SessionStore {
       List<Message> messages) async {
     final s = _require(sessionId);
     s.messages[conversationId] = List.of(messages);
-    _touch(s);
+    s.writes[conversationId] = _tickTime();
   }
 
   @override
@@ -128,8 +134,22 @@ class InMemorySessionStore implements SessionStore {
     }
     s.manifest =
         _manifestWith(s.manifest, activeConversationId: conversationId);
-    _touch(s);
+    s.pointerWrite = _tickTime();
   }
+
+  @override
+  Future<SessionTimestamps> conversationTimestamps(String sessionId) async {
+    final s = _require(sessionId);
+    final epoch = DateTime.fromMillisecondsSinceEpoch(0);
+    return SessionTimestamps([
+      for (final c in s.manifest.conversations) s.writes[c.id] ?? epoch,
+    ]);
+  }
+
+  @override
+  Future<DateTime> activePointerUpdatedAt(String sessionId) async =>
+      _require(sessionId).pointerWrite ??
+      DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   Future<void> updateConversationModel(String sessionId,
@@ -266,6 +286,11 @@ class InMemorySessionStore implements SessionStore {
   @override
   Future<void> close() async {} // no-op: nothing held
 
+  DateTime _tickTime() {
+    _tick();
+    return clock;
+  }
+
   void _touch(_MemSession s) => s.updatedAt = DateTime.now();
 
   _MemSession _require(String sessionId) {
@@ -311,6 +336,11 @@ class _MemSession {
   final DateTime createdAt;
   DateTime updatedAt;
   final messages = <String, List<Message>>{};
+
+  /// Per-conversation last-write times (TimestampedSessionStore) and the last
+  /// time the active pointer was deliberately set.
+  final writes = <String, DateTime>{};
+  DateTime? pointerWrite;
 
   _MemSession({
     required this.manifest,

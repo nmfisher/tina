@@ -1421,6 +1421,95 @@ void main() {
     });
   });
 
+  group('resumeIntoActive persists the pointer (quit/resume incident '
+      '2026-09-23)', () {
+    // `switchTo` is in-memory only; quitting after a mid-session `/resume`
+    // used to reopen the PRE-resume conversation because the manifest anchor
+    // was never moved. The deliberate switch must persist.
+    test('/resume persists the anchor at the resumed conversation', () async {
+      final store = MemorySessionStore();
+      final sid = await store.createSession(providerId: 'anthropic');
+      final first = await store.createConversation(sid);
+      await store.append(
+          sid, first, Message(role: Role.user, content: [TextBlock('first')]));
+      final second = await store.createConversation(sid);
+      await store.append(sid, second,
+          Message(role: Role.user, content: [TextBlock('second')]));
+
+      final controller = _buildController(
+        readLine: FakeReadLine(),
+        provider: FakeProvider.done(),
+        store: store,
+        sessionId: sid,
+        conversationId: first,
+      );
+      expect(await controller.resumeIntoActive(sid), isTrue);
+      expect((await store.loadSession(sid)).activeConversationId, second,
+          reason: 'the deliberate /resume must repoint the on-disk anchor — '
+              'switchTo alone is in-memory');
+      expect(store.pointerWriteAt(sid), isNotNull,
+          reason: 'the repoint went through setActiveConversation, not just '
+              'the in-memory switch');
+      await controller.shutdown();
+    });
+
+    test('/resume falls back to a readable sibling when the anchor '
+        'transcript is gone (and repoints there)', () async {
+      final store = MemorySessionStore();
+      final sid = await store.createSession(providerId: 'anthropic');
+      final first = await store.createConversation(sid);
+      await store.append(
+          sid, first, Message(role: Role.user, content: [TextBlock('first')]));
+      final second = await store.createConversation(sid);
+      await store.append(sid, second,
+          Message(role: Role.user, content: [TextBlock('second')]));
+      await store.setActiveConversation(sid, second);
+
+      final controller = _buildController(
+        readLine: FakeReadLine(),
+        provider: FakeProvider.done(),
+        store: store,
+        sessionId: sid,
+        conversationId: first,
+      );
+      // Simulate a vanished transcript: drop the anchor's messages. (The
+      // memory store throws StateError from loadConversation for it.)
+      store.dropConversation(second);
+
+      expect(await controller.resumeIntoActive(sid), isTrue,
+          reason: '/resume must degrade, not fail outright');
+      final host = controller.active.host as FakeHostInterface;
+      expect(host.messages.join('\n'), contains('unreadable'),
+          reason: 'the fallback says why');
+      expect((await store.loadSession(sid)).activeConversationId, first,
+          reason: 'the healed pointer names the conversation actually '
+              'resumed');
+      await controller.shutdown();
+    });
+
+    test('/resume says why when nothing in the session reads', () async {
+      final store = MemorySessionStore();
+      final sid = await store.createSession(providerId: 'anthropic');
+      final cid = await store.createConversation(sid);
+      await store.append(
+          sid, cid, Message(role: Role.user, content: [TextBlock('gone')]));
+      store.dropConversation(cid);
+
+      final controller = _buildController(
+        readLine: FakeReadLine(),
+        provider: FakeProvider.done(),
+        store: store,
+        sessionId: sid,
+        conversationId: cid,
+      );
+      expect(await controller.resumeIntoActive(sid), isFalse);
+      expect(
+          (controller.active.host as FakeHostInterface).messages.join('\n'),
+          contains('no readable'));
+      await controller.shutdown();
+    });
+  });
+
   group('handleExitIntent — the in-tmux exit decision (tin-f5xt)', () {
     // The controller consults two seams: onTmuxExit (the Detach/Exit/Cancel
     // dialog) and detachTmux (the tmux spawn). Both are null outside tmux and

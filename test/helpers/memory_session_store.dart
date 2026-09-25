@@ -6,11 +6,21 @@ import 'package:tina_engine/tina_engine.dart';
 /// The first conversation created in a session becomes the active one;
 /// [deleteConversation] falls back the active pointer to another conversation
 /// (or clears it when the last conversation is removed).
-class MemorySessionStore implements SessionStore {
+class MemorySessionStore implements SessionStore, TimestampedSessionStore {
   final Map<String, SessionManifest> _manifests = {};
   final Map<String, List<Message>> _conversations = {};
   final Map<String, DateTime> _createdAt = {};
   final Map<String, DateTime> _updatedAt = {};
+  final Map<String, DateTime> _conversationWrites = {};
+  final Map<String, DateTime> _pointerWrites = {};
+
+  /// Deterministic clock: bumped by every write, so tests can order
+  /// appends/re-points without sleeping. Also directly writable for
+  /// timestamp-driven tests.
+  DateTime clock = DateTime.fromMillisecondsSinceEpoch(1000000);
+
+  void _tick() => clock = clock.add(const Duration(milliseconds: 10));
+
   int _sessionCounter = 0;
   int _convCounter = 0;
 
@@ -22,6 +32,19 @@ class MemorySessionStore implements SessionStore {
           ?.conversations
           .where((c) => c.id == conversationId)
           .firstOrNull;
+
+  /// Simulate a vanished project-local transcript: the manifest entry stays
+  /// (a fresh clone keeps the global manifest) but [loadConversation] now
+  /// throws, exercising the fallback paths.
+  void dropConversation(String conversationId) {
+    _conversations.remove(conversationId);
+    _conversationWrites.remove(conversationId);
+  }
+
+  /// When the active pointer was last deliberately persisted (null = never),
+  /// for tests that assert the write happened rather than just reading the
+  /// manifest back.
+  DateTime? pointerWriteAt(String sessionId) => _pointerWrites[sessionId];
 
   @override
   Future<String> createSession({
@@ -95,13 +118,17 @@ class MemorySessionStore implements SessionStore {
   @override
   Future<void> append(
       String sessionId, String conversationId, Message message) async {
+    _tick();
     (_conversations[conversationId] ??= <Message>[]).add(message);
+    _conversationWrites[conversationId] = clock;
   }
 
   @override
   Future<void> replace(
       String sessionId, String conversationId, List<Message> messages) async {
+    _tick();
     _conversations[conversationId] = List<Message>.of(messages);
+    _conversationWrites[conversationId] = clock;
   }
 
   @override
@@ -137,7 +164,24 @@ class MemorySessionStore implements SessionStore {
       conversations: manifest.conversations,
       usageTokens: manifest.usageTokens,
     );
+    _tick();
+    _pointerWrites[sessionId] = clock;
   }
+
+  @override
+  Future<SessionTimestamps> conversationTimestamps(String sessionId) async {
+    final manifest = _manifests[sessionId];
+    if (manifest == null) throw StateError('Session not found: $sessionId');
+    final epoch = DateTime.fromMillisecondsSinceEpoch(0);
+    return SessionTimestamps([
+      for (final c in manifest.conversations)
+        _conversationWrites[c.id] ?? epoch,
+    ]);
+  }
+
+  @override
+  Future<DateTime> activePointerUpdatedAt(String sessionId) async =>
+      _pointerWrites[sessionId] ?? DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   Future<void> updateConversationModel(String sessionId,

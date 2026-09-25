@@ -841,4 +841,75 @@ void main() {
       expect(m.providerId, 'anthropic');
     });
   });
+
+  group('TimestampedSessionStore (write recency)', () {
+    test('reports each conversation\u2019s last-write time in manifest order',
+        () async {
+      final sid = await store.createSession(providerId: 'anthropic');
+      final c1 = await store.createConversation(sid);
+      await store.append(sid, c1,
+          const Message(role: Role.user, content: [TextBlock('one')]));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      final c2 = await store.createConversation(sid);
+      await store.append(sid, c2,
+          const Message(role: Role.user, content: [TextBlock('two')]));
+
+      final stamps = await store.conversationTimestamps(sid);
+      final manifest = await store.loadSession(sid);
+      expect(stamps.conversationUpdatedAt, hasLength(2));
+      final i1 = manifest.conversations.indexWhere((c) => c.id == c1);
+      final i2 = manifest.conversations.indexWhere((c) => c.id == c2);
+      expect(
+          stamps.conversationUpdatedAt[i2].isAfter(
+              stamps.conversationUpdatedAt[i1]),
+          isTrue,
+          reason: 'c2 was written after c1');
+    });
+
+    test('deleted transcript reports epoch, not an error', () async {
+      final (sid, cid) = await newConversation();
+      await store.append(sid, cid,
+          const Message(role: Role.user, content: [TextBlock('x')]));
+      final f = File(p.join(tmp.path, sid, '$cid.jsonl'));
+      await f.delete();
+
+      final stamps = await store.conversationTimestamps(sid);
+      final epoch = DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+      expect(stamps.conversationUpdatedAt.single, epoch,
+          reason: 'a missing transcript reads as never-written, mirroring '
+              'loadConversation\u2019s StateError for fallback purposes');
+    });
+
+    test('activePointerUpdatedAt tracks deliberate re-points, not transcript '
+        'writes', () async {
+      final sid = await store.createSession(providerId: 'anthropic');
+      final c1 = await store.createConversation(sid);
+      final before = await store.activePointerUpdatedAt(sid);
+      // Creation rewrites the manifest (first-conversation activation), so
+      // the probe is honest only in its RELATIVE ordering:
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await store.append(sid, c1,
+          const Message(role: Role.user, content: [TextBlock('grow')]));
+      final afterAppend = await store.activePointerUpdatedAt(sid);
+      expect(afterAppend, before,
+          reason: 'a transcript append must NOT refresh the pointer stamp — '
+              'an unrelated manifest write would deaden the staleness guard');
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await store.setActiveConversation(sid, c1);
+      final afterRepoint = await store.activePointerUpdatedAt(sid);
+      expect(afterRepoint.isAfter(afterAppend), isTrue);
+      // Unknown session: epoch, not a throw.
+      expect(await store.activePointerUpdatedAt('nope'),
+          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true));
+    });
+
+    test('conversationTimestamps throws StateError for an unknown session',
+        () async {
+      await expectLater(
+        store.conversationTimestamps('nope'),
+        throwsA(isA<StateError>()),
+      );
+    });
+  });
 }

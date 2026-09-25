@@ -40,7 +40,7 @@ final _log = Logger('tina.persistence');
 /// lazily — on the first [loadSession] (resume) or write — via copy-then-delete
 /// so an interrupted migration leaves both old and new and can be retried.
 class JsonlSessionStore implements SessionStore, SessionIndex,
-    LockableSessionStore {
+    LockableSessionStore, TimestampedSessionStore {
   final Directory root;
   static final _rng = Random.secure();
 
@@ -706,6 +706,50 @@ class JsonlSessionStore implements SessionStore, SessionIndex,
   @override
   Future<void> close() async {
     await Future.wait(_writes.values.toList());
+  }
+
+  // -- Write recency (TimestampedSessionStore) ----------------------------
+
+  /// Epoch in UTC: [FileStat.modified] is UTC-based, so the "never happened"
+  /// sentinel must be the same instant in the same representation for
+  /// [DateTime.isAfter] comparisons to line up regardless of local timezone.
+  static final DateTime _epoch = DateTime.fromMillisecondsSinceEpoch(0,
+      isUtc: true);
+
+  @override
+  Future<SessionTimestamps> conversationTimestamps(String sessionId) async {
+    final SessionManifest manifest;
+    try {
+      manifest = await _readManifest(sessionId);
+    } on PathNotFoundException {
+      // Match loadSession's contract for an unknown session.
+      throw StateError('Session not found: $sessionId');
+    }
+    final out = <DateTime>[];
+    for (final c in manifest.conversations) {
+      var modified = _epoch;
+      try {
+        final f = await _findConversationFile(manifest, c.id);
+        modified = (await f.stat()).modified;
+      } on FileSystemException {
+        // Missing/unreadable transcript: report the epoch, mirroring how
+        // loadConversation treats it as absent for fallback purposes.
+      }
+      out.add(modified);
+    }
+    return SessionTimestamps(out);
+  }
+
+  @override
+  Future<DateTime> activePointerUpdatedAt(String sessionId) async {
+    try {
+      final stat = await _manifestFile(sessionId).stat();
+      return stat.modified;
+    } on FileSystemException {
+      // No manifest yet (session never reached disk / never re-pointed) —
+      // epoch, per the interface contract.
+      return _epoch;
+    }
   }
 
   // -- Migration ---------------------------------------------------------

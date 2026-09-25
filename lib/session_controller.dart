@@ -729,7 +729,19 @@ class SessionController {
   /// Load a saved session [id] from disk into the active conversation,
   /// replacing its history and replaying it onto the host. Returns true on
   /// success, false (with a host message) when persistence is disabled, the id
-  /// is unknown, or the load fails. Shared by `/resume` and the session picker.
+  /// is unknown, or nothing readable loads. Shared by `/resume` and the
+  /// session picker.
+  ///
+  /// Mirrors startup's crash guard (`_loadBestConversation`): the manifest's
+  /// anchor is tried first, then its readable siblings, so `/resume` degrades
+  /// instead of failing outright when a transcript went missing (project-local
+  /// files + fresh clone / git clean).
+  ///
+  /// Persists the pointer on success (`setActiveConversation`) — `switchTo`
+  /// alone is in-memory, so quitting after a mid-session `/resume` used to
+  /// reopen the PRE-resume conversation (quit/resume incident 2026-09-23).
+  /// Already-persisted selection via `persistSelection` is the panel-focus
+  /// path; this is the deliberate user-level switch.
   Future<bool> resumeIntoActive(String id) async {
     final s = active;
     final rec = s.recorder;
@@ -745,11 +757,43 @@ class SessionController {
     final ConversationMeta? activeMeta;
     try {
       final manifest = await sessionStore!.loadSession(id);
-      activeCid = manifest.activeConversationId;
+      final anchor = manifest.activeConversationId;
+      // Anchor first, then manifest order — same deduped candidate order
+      // startup uses.
+      final candidates = <String>{
+        if (anchor.isNotEmpty) anchor,
+        ...manifest.conversations.map((c) => c.id),
+      };
+      String? cid;
+      List<Message>? history;
+      for (final candidate in candidates) {
+        try {
+          history = await sessionStore!.loadConversation(id, candidate);
+          cid = candidate;
+          break;
+        } on StateError {
+          continue; // transcript missing/unreadable — try the next candidate
+        }
+      }
+      if (cid == null || history == null) {
+        s.host.showMessage(
+          'cannot resume: no readable transcript in $id '
+          '(transcripts are project-local; fresh clone or git clean?)\n',
+          style: HostMessageStyle.error,
+        );
+        return false;
+      }
+      activeCid = cid;
+      loaded = history;
       activeMeta = manifest.conversations
           .where((c) => c.id == activeCid)
           .firstOrNull;
-      loaded = await sessionStore!.loadConversation(id, activeCid);
+      if (activeCid != anchor) {
+        s.host.showMessage(
+          'anchor $anchor is unreadable — resumed sibling $activeCid instead\n',
+          style: HostMessageStyle.warning,
+        );
+      }
     } catch (e) {
       s.host.showMessage('cannot resume: $e\n', style: HostMessageStyle.error);
       return false;
@@ -758,6 +802,11 @@ class SessionController {
       ..clear()
       ..addAll(loaded);
     rec.switchTo(id, activeCid);
+    // Deliberate user-level switch: persist the anchor so a quit/resume
+    // reopens THIS conversation. In-memory-only used to strand the pointer on
+    // the pre-/resume conversation. Side-panel focus must NOT come through
+    // here (persistSelection already gates that by `isPrimary`).
+    await rec.setActiveConversation(activeCid);
     s.host.clear();
     replayHistory(s.host, loaded);
     // Restore /goal + /plan for the resumed conversation: keyed by the LIVE
