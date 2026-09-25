@@ -40,9 +40,7 @@ import 'package:meta/meta.dart';
 /// matter what fd 0 points at afterwards. Swapping fd 0 back to the real
 /// stdin splits the input path — the thread *reads* the real tty while its
 /// poll still waits on the detour — and every keystroke is lost (the
-/// DEAD-KEYBOARD of [tool/mute_pty_driver.py]; proven with
-/// [tool/mute_diag_probe.dart] under [tool/syscall_diag_driver.py], which
-/// decodes the thread's pollfd out of process memory). Instead the real
+/// DEAD-KEYBOARD of [tool/mute_pty_driver.py]). Instead the real
 /// stdin keeps flowing into the detour master via [StdinBridge], so poll
 /// target and read target agree on one pty. The owner of the guard
 /// (NotcursesBackend) must call [TerminalReplyGuard.shutdown] before it
