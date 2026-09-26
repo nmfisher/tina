@@ -1,5 +1,5 @@
 // The eight required scenarios, one `group` each. The scripted provider
-// plays back responses; tests assert on the recorded requests.
+// plays back stream events; tests assert on the recorded requests.
 //
 // Run: dart test
 library;
@@ -8,12 +8,14 @@ import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import '../example/example_plugins.dart';
 
-Tool _tool(String name) =>
-    Tool(name, 'test tool $name', {'type': 'object', 'properties': {}});
+ToolSchema _tool(String name) => ToolSchema(
+    name: name,
+    description: 'test tool $name',
+    inputSchema: {'type': 'object', 'properties': {}});
 
 AgentPlugin _plugin(String id,
         {int order = 100,
-        List<Tool> tools = const [],
+        List<ToolSchema> tools = const [],
         String? Function(Context)? section}) =>
     _P(id, order, tools, section);
 
@@ -24,20 +26,31 @@ final class _P extends AgentPlugin {
   @override
   final int order;
   @override
-  final List<Tool> tools;
+  final List<ToolSchema> tools;
   final String? Function(Context)? section;
   @override
   String? systemSection(Context c) => section?.call(c);
 }
 
+/// A user-role message whose content is all tool results.
+bool _isResult(Message m) =>
+    m.role == Role.user &&
+    m.content.isNotEmpty &&
+    m.content.every((b) => b is ToolResultBlock);
+
+ToolResultBlock _result(Message m) => m.content.whereType<ToolResultBlock>().single;
+
+String _text(Message m) =>
+    [for (final b in m.content.whereType<TextBlock>()) b.text].join();
+
 void main() {
   group('1. single input -> tool call -> result -> completion', () {
     test('appends user, reply, result, final reply; stops complete', () async {
       final provider = ScriptedProvider([
-        ProviderResponse(toolCalls: [
-          ToolCall('c1', 'echo', {'text': 'hi'})
+        scriptedReply('', calls: [
+          ToolUseBlock(id: 'c1', name: 'echo', input: {'text': 'hi'})
         ]),
-        ProviderResponse(text: 'all done'),
+        scriptedReply('all done'),
       ]);
       final loop = AgentLoop(
           provider: provider, plugins: [const ToolProviderPlugin()]);
@@ -49,27 +62,31 @@ void main() {
       expect(outcome.stopReason, StopReason.complete);
       expect(outcome.detail, 'all done');
       expect(provider.callCount, 2);
-      final kinds = [for (final m in outcome.messages) m.kind];
-      expect(kinds, [
-        MessageKind.user,
-        MessageKind.assistant,
-        MessageKind.toolResult,
-        MessageKind.assistant
-      ]);
-      expect(outcome.messages[2].result!.callId, 'c1');
-      expect(outcome.messages[2].result!.ok, isTrue);
+      final shapes = [
+        for (final m in outcome.messages)
+          m.role == Role.assistant && m.content.any((b) => b is ToolUseBlock)
+              ? 'assistant:calls'
+              : m.role == Role.assistant
+                  ? 'assistant'
+                  : _isResult(m)
+                      ? 'toolResult'
+                      : 'user'
+      ];
+      expect(shapes, ['user', 'assistant:calls', 'toolResult', 'assistant']);
+      expect(_result(outcome.messages[2]).toolUseId, 'c1');
+      expect(_result(outcome.messages[2]).isError, isFalse);
       // Pairing visible in the second request: user, reply, result.
       final second = provider.requests[1];
-      expect(second.messages[2].kind, MessageKind.toolResult);
+      expect(_isResult(second.messages[2]), isTrue);
     });
   });
 
   group('2. multi-step: two tool rounds then stop', () {
     test('loops until the model asks for no tools', () async {
       final provider = ScriptedProvider([
-        ProviderResponse(toolCalls: [ToolCall('c1', 't1', {})]),
-        ProviderResponse(toolCalls: [ToolCall('c2', 't2', {})]),
-        ProviderResponse(text: 'finished'),
+        scriptedReply('', calls: [ToolUseBlock(id: 'c1', name: 't1', input: {})]),
+        scriptedReply('', calls: [ToolUseBlock(id: 'c2', name: 't2', input: {})]),
+        scriptedReply('finished'),
       ]);
       final loop = AgentLoop(provider: provider, plugins: [
         _plugin('a', tools: [_tool('t1')]),
@@ -83,18 +100,20 @@ void main() {
 
       expect(outcome.stopReason, StopReason.complete);
       expect(provider.callCount, 3);
-      final results = [
+      final executed = [
         for (final m in outcome.messages)
-          if (m.kind == MessageKind.toolResult) m.result!
+          for (final b in m.content.whereType<ToolUseBlock>()) b.name
       ];
-      expect([for (final r in results) r.toolName], ['t1', 't2']);
+      expect(executed, ['t1', 't2']);
+      expect([for (final m in outcome.messages) if (_isResult(m)) _result(m).toolUseId],
+          ['c1', 'c2']);
     });
   });
 
   group('3. ordering: sections and transforms run in order', () {
     test('sections ascending by (order, id), core joins with blank lines',
         () async {
-      final provider = ScriptedProvider([ProviderResponse(text: 'ok')]);
+      final provider = ScriptedProvider([scriptedReply('ok')]);
       final loop = AgentLoop(provider: provider, plugins: [
         _plugin('b.late', section: (_) => 'LATE'),
         _plugin('a.early', section: (_) => 'EARLY'),
@@ -112,7 +131,7 @@ void main() {
     });
 
     test('request transforms run in order and compose', () async {
-      final provider = ScriptedProvider([ProviderResponse(text: 'ok')]);
+      final provider = ScriptedProvider([scriptedReply('ok')]);
       final loop = AgentLoop(provider: provider, plugins: [
         const RequestTransformerPlugin(suffix: '|2nd', /* order 300 */),
         _T('z.first-transform', order: 1, mark: '|1st'),
@@ -127,8 +146,8 @@ void main() {
   group('4. guard: deny blocks execution, result recorded', () {
     test('denied call never runs; pairing kept; reason recorded', () async {
       final provider = ScriptedProvider([
-        ProviderResponse(toolCalls: [ToolCall('c1', 'rm_rf', {})]),
-        ProviderResponse(text: 'fine'),
+        scriptedReply('', calls: [ToolUseBlock(id: 'c1', name: 'rm_rf', input: {})]),
+        scriptedReply('fine'),
       ]);
       final ran = <String>[];
       final loop = AgentLoop(
@@ -146,19 +165,18 @@ void main() {
 
       expect(ran, isEmpty);
       expect(outcome.stopReason, StopReason.complete);
-      final result = outcome.messages
-          .firstWhere((m) => m.kind == MessageKind.toolResult)
-          .result!;
-      expect(result.ok, isFalse);
+      final result = _result(
+          outcome.messages.firstWhere(_isResult));
+      expect(result.isError, isTrue);
       expect(result.content, contains('denied'));
-      expect(result.meta['deniedBy'], 'example.guard');
+      expect(result.content, contains('example.guard'));
     });
 
     test('ask with no UI resolves to deny, recorded as ask-unresolved',
         () async {
       final provider = ScriptedProvider([
-        ProviderResponse(toolCalls: [ToolCall('c1', 't', {})]),
-        ProviderResponse(text: 'ok'),
+        scriptedReply('', calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
+        scriptedReply('ok'),
       ]);
       final ran = <String>[];
       final loop = AgentLoop(provider: provider, plugins: [
@@ -173,18 +191,17 @@ void main() {
       final outcome = await loop.runTurn(const Input('x', id: 'i4b'));
 
       expect(ran, isEmpty);
-      final result = outcome.messages
-          .firstWhere((m) => m.kind == MessageKind.toolResult)
-          .result!;
-      expect(result.meta['denied'], 'ask-unresolved');
+      final result =
+          _result(outcome.messages.firstWhere(_isResult));
+      expect(result.content, contains('ask-unresolved'));
     });
   });
 
   group('5. plugin throws: turn continues, contribution absent', () {
     test('throwing guard is ignored; tool runs; section omitted', () async {
       final provider = ScriptedProvider([
-        ProviderResponse(toolCalls: [ToolCall('c1', 't', {})]),
-        ProviderResponse(text: 'done'),
+        scriptedReply('', calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
+        scriptedReply('done'),
       ]);
       final loop = AgentLoop(provider: provider, plugins: [
         _Throw('bad.guard', throwIn: 'beforeTool'),
@@ -196,16 +213,15 @@ void main() {
       final outcome = await loop.runTurn(const Input('x', id: 'i5'));
 
       expect(outcome.stopReason, StopReason.complete);
-      final result = outcome.messages
-          .firstWhere((m) => m.kind == MessageKind.toolResult)
-          .result!;
-      expect(result.ok, isTrue);
+      final result =
+          _result(outcome.messages.firstWhere(_isResult));
+      expect(result.isError, isFalse);
       expect(provider.requests.first.systemPrompt, isNot(contains('BOOM')));
     });
 
     test('throwing beforeInvocation / beforeRequest / onTurnEnd isolated',
         () async {
-      final provider = ScriptedProvider([ProviderResponse(text: 'done')]);
+      final provider = ScriptedProvider([scriptedReply('done')]);
       final loop = AgentLoop(provider: provider, plugins: [
         _Throw('bad.invocation', throwIn: 'beforeInvocation'),
         _Throw('bad.request', throwIn: 'beforeRequest'),
@@ -214,7 +230,7 @@ void main() {
       final outcome = await loop.runTurn(const Input('original', id: 'i5b'));
 
       expect(outcome.stopReason, StopReason.complete);
-      expect(outcome.messages.first.text, 'original');
+      expect(_text(outcome.messages.first), 'original');
       expect(provider.requests.first.systemPrompt, isNot(contains('|BOOM')));
     });
   });
@@ -235,8 +251,8 @@ void main() {
     test('cancel from a plugin mid-turn -> stops before next model call',
         () async {
       final provider = ScriptedProvider([
-        ProviderResponse(toolCalls: [ToolCall('c1', 't', {})]),
-        ProviderResponse(text: 'never reached'),
+        scriptedReply('', calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
+        scriptedReply('never reached'),
       ]);
       final loop = AgentLoop(provider: provider, plugins: [
         _CancelFromTool('canceller'),
@@ -255,8 +271,8 @@ void main() {
   group('7. plugin removal: pending call skipped, turn continues', () {
     test('removed plugin tool -> skipped result, then completion', () async {
       final provider = ScriptedProvider([
-        ProviderResponse(toolCalls: [ToolCall('c1', 't', {})]),
-        ProviderResponse(text: 'done'),
+        scriptedReply('', calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
+        scriptedReply('done'),
       ]);
       final loop = AgentLoop(provider: provider, plugins: [
         _plugin('vanishing', tools: [_tool('t')]),
@@ -265,16 +281,15 @@ void main() {
       // Remove from a hook, mid-turn — the brief's liveness rule is about a
       // plugin leaving while its pending call is in flight. The remover has
       // order 1, so it removes before the vanishing tool runs.
-      loop.addPlugin(_Remover('remover', order: 1, loop: loop,
-          target: 'vanishing'));
+      loop.addPlugin(
+          _Remover('remover', order: 1, loop: loop, target: 'vanishing'));
 
       final outcome = await loop.runTurn(const Input('x', id: 'i7'));
 
       expect(outcome.stopReason, StopReason.complete);
-      final result = outcome.messages
-          .firstWhere((m) => m.kind == MessageKind.toolResult)
-          .result!;
-      expect(result.ok, isFalse);
+      final result =
+          _result(outcome.messages.firstWhere(_isResult));
+      expect(result.isError, isTrue);
       expect(result.content, contains('plugin vanishing left'));
     });
   });
@@ -282,23 +297,23 @@ void main() {
   group('8. invariants: snapshots, pairing, pinning, duplicate ids', () {
     test('plugin mutation of a snapshot does not touch the transcript',
         () async {
-      final provider = ScriptedProvider([ProviderResponse(text: 'ok')]);
+      final provider = ScriptedProvider([scriptedReply('ok')]);
       final loop = AgentLoop(provider: provider, plugins: [_Mutate('mutator')]);
       await loop.runTurn(const Input('keep me', id: 'i8a'));
 
       final seen = provider.requests.first.messages;
-      expect(seen.first.text, 'keep me');
-      expect(seen.first.kind, MessageKind.user);
+      expect(_text(seen.first), 'keep me');
+      expect(seen.first.role, Role.user);
     });
 
     test('every tool_use gets a matching tool_result, denied included',
         () async {
       final provider = ScriptedProvider([
-        ProviderResponse(toolCalls: [
-          ToolCall('c1', 'denied-tool', {}),
-          ToolCall('c2', 'good', {}),
+        scriptedReply('', calls: [
+          ToolUseBlock(id: 'c1', name: 'denied-tool', input: {}),
+          ToolUseBlock(id: 'c2', name: 'good', input: {}),
         ]),
-        ProviderResponse(text: 'done'),
+        scriptedReply('done'),
       ]);
       final loop = AgentLoop(provider: provider, plugins: [
         const GuardPlugin('denied-tool'),
@@ -308,22 +323,22 @@ void main() {
 
       final outcome = await loop.runTurn(const Input('x', id: 'i8b'));
 
-      final calls = provider.requests.first.tools;
-      expect([for (final t in calls) t.name], containsAll(['denied-tool']));
+      final advertised = provider.requests.first.tools;
+      expect([for (final t in advertised) t.name], containsAll(['denied-tool']));
       final results = [
         for (final m in outcome.messages)
-          if (m.kind == MessageKind.toolResult) m.result!
+          if (_isResult(m)) _result(m)
       ];
-      expect([for (final r in results) r.callId], ['c1', 'c2']);
-      expect(results[0].ok, isFalse);
-      expect(results[1].ok, isTrue);
+      expect([for (final r in results) r.toolUseId], ['c1', 'c2']);
+      expect(results[0].isError, isTrue);
+      expect(results[1].isError, isFalse);
     });
 
     test('pinned tools stay stable; mid-turn change rejects the turn',
         () async {
       final provider = ScriptedProvider([
-        ProviderResponse(toolCalls: [ToolCall('c1', 't', {})]),
-        ProviderResponse(text: 'done'),
+        scriptedReply('', calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
+        scriptedReply('done'),
       ]);
       final shifter = _Shift('shifter');
       final loop = AgentLoop(provider: provider, plugins: [
@@ -355,7 +370,7 @@ final class _Ask extends AgentPlugin {
   @override
   final String id;
   @override
-  Decision beforeTool(Context c, ToolCall call) => Decision.ask('unsure');
+  Decision beforeTool(Context c, ToolUse call) => Decision.ask('unsure');
 }
 
 /// Throws in one chosen hook.
@@ -373,9 +388,9 @@ final class _Throw extends AgentPlugin {
       throwIn == 'systemSection' ? boom() : null;
   @override
   Request? beforeRequest(Context c, Request request) =>
-      throwIn == 'beforeRequest' ? boom() : Request(systemPrompt: '', messages: [], tools: []);
+      throwIn == 'beforeRequest' ? boom() : null;
   @override
-  Decision beforeTool(Context c, ToolCall call) =>
+  Decision beforeTool(Context c, ToolUse call) =>
       throwIn == 'beforeTool' ? boom() : const Decision.allow();
   @override
   void onTurnEnd(Context c, Outcome outcome) {
@@ -419,7 +434,7 @@ final class _Mutate extends AgentPlugin {
   final String id;
   @override
   Request? beforeRequest(Context c, Request request) {
-    request.messages.clear(); // must throw: read-only
+    request.messages.clear(); // must not touch the transcript
     return null;
   }
 }
@@ -431,7 +446,7 @@ final class _Shift extends AgentPlugin {
   final String id;
   bool shiftFromHook = false;
   @override
-  List<Tool> get tools => shiftFromHook
+  List<ToolSchema> get tools => shiftFromHook
       ? [_tool('t'), _tool('late-tool')]
       : [_tool('t')];
 }
@@ -443,7 +458,7 @@ final class _ShiftOnCall extends AgentPlugin {
   final String id;
   final _Shift shifter;
   @override
-  Decision beforeTool(Context c, ToolCall call) {
+  Decision beforeTool(Context c, ToolUse call) {
     shifter.shiftFromHook = true;
     return const Decision.allow();
   }

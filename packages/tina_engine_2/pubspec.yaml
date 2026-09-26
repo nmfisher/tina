@@ -1,10 +1,14 @@
 name: tina_engine_2
 description: >-
-  A standalone review artifact: one agent loop, one plugin interface, one
-  scripted provider. Not wired into tina. Dart standard library only.
+  An agent loop and plugin interface built on tina_core's value types and
+  streaming LlmProvider. A review artifact; still not wired into the tina
+  app.
 publish_to: none
 version: 0.1.0
 environment:
   sdk: ^3.6.0
+dependencies:
+  tina_core:
+    path: ../tina_core
 dev_dependencies:
   test: ^1.25.0

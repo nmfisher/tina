@@ -4,7 +4,7 @@ library;
 
 import 'dart:collection';
 
-import 'model.dart';
+import 'package:tina_core/tina_core.dart';
 
 /// The one cancellation path. Set once; there is no unset. The loop checks
 /// it before every model call and before every tool.
@@ -30,7 +30,7 @@ final class CancelToken {
 final class Context {
   Context({
     required List<Message> transcript,
-    required List<Tool> tools,
+    required List<ToolSchema> tools,
     required bool Function(String pluginId) isLive,
     required Map<String, Object> services,
     required Map<String, Object?> turnState,
@@ -47,7 +47,7 @@ final class Context {
   final List<Message> transcript;
 
   /// The tools pinned at the turn boundary, for the whole turn.
-  final List<Tool> tools;
+  final List<ToolSchema> tools;
 
   final bool Function(String pluginId) _isLive;
   final Map<String, Object> _services;

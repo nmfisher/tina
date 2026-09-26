@@ -38,7 +38,7 @@ final class GuardPlugin extends AgentPlugin {
   int get order => 50;
 
   @override
-  Decision beforeTool(Context c, ToolCall call) =>
+  Decision beforeTool(Context c, ToolUse call) =>
       call.name == toolName ? Decision.deny(reason) : const Decision.allow();
 }
 
@@ -51,9 +51,15 @@ final class ToolProviderPlugin extends AgentPlugin {
   String get id => 'example.tool-provider';
 
   @override
-  List<Tool> get tools => const [
-        Tool('echo', 'Echo its input back.',
-            {'type': 'object', 'properties': {'text': {'type': 'string'}}}),
+  List<ToolSchema> get tools => [
+        ToolSchema(
+          name: 'echo',
+          description: 'Echo its input back.',
+          inputSchema: {
+            'type': 'object',
+            'properties': {'text': {'type': 'string'}}
+          },
+        ),
       ];
 }
 

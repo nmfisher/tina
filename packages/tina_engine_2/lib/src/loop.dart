@@ -12,19 +12,24 @@
 /// the prompt join, pinning, dispatch and turn bookkeeping all live here —
 /// each is a few lines, and pulling any of them out would make a reader
 /// jump between files to follow one turn.
+///
+/// Value types (Message, ToolSchema, ToolUse, ToolResult, stream events)
+/// come from `tina_core`; the model boundary is its streaming
+/// `LlmProvider.send`.
 library;
 
 import 'dart:collection';
 
+import 'package:tina_core/tina_core.dart';
+
 import 'context.dart';
 import 'model.dart';
 import 'plugin.dart';
-import 'provider.dart';
 
 /// The agent loop.
 final class AgentLoop {
   AgentLoop({
-    required Provider provider,
+    required LlmProvider provider,
     required List<AgentPlugin> plugins,
     Map<String, Object> services = const {},
     this.maxStepsPerTurn = 16,
@@ -35,7 +40,7 @@ final class AgentLoop {
     }
   }
 
-  final Provider _provider;
+  final LlmProvider _provider;
   final Map<String, Object> _services;
   final int maxStepsPerTurn;
 
@@ -66,7 +71,7 @@ final class AgentLoop {
   /// Remove a plugin. Dispatch re-checks liveness.
   void removePlugin(String id) => _byId.remove(id);
 
-  /// Give a tool its executor. Executors are not part of [Tool].
+  /// Give a tool its executor. Executors are not part of [ToolSchema].
   void registerExecutor(
           String tool, Future<String> Function(Map<String, Object?>) exec) =>
       _executors[tool] = exec;
@@ -78,7 +83,7 @@ final class AgentLoop {
 
   /// What a plugin sees right now: transcript up to now, the tools pinned
   /// for this turn, read-only registries, the shared cancel token.
-  Context _snap(List<Tool> pinned) => Context(
+  Context _snap(List<ToolSchema> pinned) => Context(
       transcript: List.of(_transcript),
       tools: List.of(pinned),
       isLive: _byId.containsKey,
@@ -100,7 +105,7 @@ final class AgentLoop {
   /// The system prompt: the core's header, then one section per plugin in
   /// order, joined by a blank line. A plugin returns a section, never a
   /// whole prompt; a throwing plugin's section is absent.
-  String _prompt(List<Tool> pinned,
+  String _prompt(List<ToolSchema> pinned,
       {String header = 'You are tina, a terminal coding agent.'}) {
     final sections = <String>[header];
     for (final p in _inOrder()) {
@@ -140,9 +145,9 @@ final class AgentLoop {
     Outcome finish(StopReason reason, String detail) {
       final outcome = Outcome(
           stopReason: reason,
-          messages: [for (final m in appended) m.copy()],
+          messages: List.of(appended),
           modelRequests: [for (final r in requests) r.snapshot()],
-          modelResponses: [for (final m in responses) m.copy()],
+          modelResponses: List.of(responses),
           usage: responses.length,
           detail: detail,
           changedBy: changedBy);
@@ -165,7 +170,7 @@ final class AgentLoop {
         changedBy = p.id; // the last rewrite is recorded
       }
     }
-    final user = Message.user(input.text);
+    final user = Message(role: Role.user, content: [TextBlock(input.text)]);
     _transcript.add(user);
     appended.add(user);
 
@@ -183,48 +188,81 @@ final class AgentLoop {
       var request = Request(
           systemPrompt: _prompt(pinned),
           messages: List.of(_transcript),
-          tools: [for (final tool in pinned) tool.snapshot()]);
+          tools: List.of(pinned));
       for (final p in _inOrder()) {
         final replacement = _runHook(
             () => p.beforeRequest(_snap(pinned), request.snapshot()));
         if (replacement != null) request = replacement;
       }
 
-      // Step 3: call the model.
-      final response = await _provider.call(request);
+      // Step 3: call the model. The provider streams: [ToolCallStart]
+      // announces each call the model asks for, the text deltas accumulate
+      // the answer, and [MessageComplete] carries the final blocks — the
+      // tool-use inputs come from there, keyed by the started ids. A
+      // [StreamError] ends the turn as StopReason.error, recorded.
+      final starts = <ToolCallStart>[];
+      final blocksById = <String, ToolUseBlock>{};
+      final deltaText = StringBuffer();
+      MessageComplete? completion;
+      StreamError? failure;
+      await for (final event in _provider.send(
+          system: request.systemPrompt,
+          messages: request.messages,
+          tools: request.tools)) {
+        if (event is ToolCallStart) {
+          starts.add(event);
+        } else if (event is TextDelta) {
+          deltaText.write(event.text);
+        } else if (event is MessageComplete) {
+          completion = event;
+          for (final b in event.content.whereType<ToolUseBlock>()) {
+            blocksById[b.id] = b;
+          }
+        } else if (event is StreamError) {
+          failure = event;
+          break;
+        }
+        // Reasoning deltas and stream notices carry no transcript state.
+      }
+      if (failure != null) {
+        return finish(StopReason.error, 'provider error: ${failure.error}');
+      }
+      final blocks = completion?.content ??
+          [if (deltaText.isNotEmpty) TextBlock(deltaText.toString())];
+      final toolCalls = [
+        for (final s in starts)
+          ToolUse(
+              id: s.id,
+              name: s.name,
+              input: blocksById[s.id]?.input ?? const {}),
+      ];
+      final replyText = [
+        for (final b in blocks.whereType<TextBlock>()) b.text
+      ].join();
       requests.add(request.snapshot());
-      final reply = Message.assistant(response.text,
-          toolCalls: [for (final c in response.toolCalls) c.snapshot()]);
+      final reply = Message(role: Role.assistant, content: blocks);
       _transcript.add(reply);
       appended.add(reply);
       responses.add(reply);
-      if (response.toolCalls.isEmpty) {
-        return finish(StopReason.complete, response.text);
+      if (toolCalls.isEmpty) {
+        return finish(StopReason.complete, replyText);
       }
 
       // Step 4: run the tool calls. Liveness first: a plugin that left
       // mid-turn has its call skipped, not crashed on. Then guards, in
       // order — all must pass; `ask` with no UI resolves to deny. Then
       // the executor; then `afterTool`, in order, which may replace the
-      // result the core records.
-      for (final call in response.toolCalls) {
+      // result the core records. Attribution (who denied, why) travels in
+      // the result's content: the model reads exactly this string.
+      for (final call in toolCalls) {
         ToolResult result;
         if (_cancel.cancelled) {
-          result = ToolResult(
-              callId: call.id,
-              toolName: call.name,
-              ok: false,
-              content: 'cancelled: ${_cancel.reason}',
-              meta: {'cancelled': _cancel.reason});
+          result = ToolResult('cancelled: ${_cancel.reason}', isError: true);
         } else {
           final owner = ownerOf[call.name];
           if (owner != null && !_byId.containsKey(owner)) {
-            result = ToolResult(
-                callId: call.id,
-                toolName: call.name,
-                ok: false,
-                content: 'skipped: plugin $owner left',
-                meta: {'skipped': 'plugin-left'});
+            result =
+                ToolResult('skipped: plugin $owner left', isError: true);
           } else {
             ToolResult? denied;
             for (final p in _inOrder()) {
@@ -234,15 +272,10 @@ final class AgentLoop {
               if (decision.kind != DecisionKind.allow) {
                 denied = decision.replacement ??
                     ToolResult(
-                        callId: call.id,
-                        toolName: call.name,
-                        ok: false,
-                        content: 'denied: ${decision.reason}',
-                        meta: {
-                          'deniedBy': p.id,
-                          if (decision.kind == DecisionKind.ask)
-                            'denied': 'ask-unresolved'
-                        });
+                        'denied by ${p.id}'
+                        '${decision.kind == DecisionKind.ask ? ' (ask-unresolved)' : ''}'
+                        ': ${decision.reason}',
+                        isError: true);
                 break;
               }
             }
@@ -250,33 +283,20 @@ final class AgentLoop {
             if (denied != null) {
               result = denied;
             } else if (exec == null) {
-              result = ToolResult(
-                  callId: call.id,
-                  toolName: call.name,
-                  ok: false,
-                  content: 'no executor for ${call.name}',
-                  meta: {'error': 'no-executor'});
+              result = ToolResult('no executor for ${call.name}',
+                  isError: true);
             } else {
               try {
-                final content = await exec(call.arguments);
-                var ok = ToolResult(
-                    callId: call.id,
-                    toolName: call.name,
-                    ok: true,
-                    content: content);
+                final content = await exec(call.input);
+                var recorded = ToolResult(content);
                 for (final p in _inOrder()) {
                   final replacement = _runHook(
-                      () => p.afterTool(_snap(pinned), ok)) as ToolResult?;
-                  if (replacement != null) ok = replacement.snapshot();
+                      () => p.afterTool(_snap(pinned), recorded)) as ToolResult?;
+                  if (replacement != null) recorded = replacement;
                 }
-                result = ok;
+                result = recorded;
               } catch (e) {
-                result = ToolResult(
-                    callId: call.id,
-                    toolName: call.name,
-                    ok: false,
-                    content: 'tool threw: $e',
-                    meta: {'error': 'threw'});
+                result = ToolResult('tool threw: $e', isError: true);
               }
             }
           }
@@ -284,7 +304,14 @@ final class AgentLoop {
 
         // Step 5: append the result. Pairing holds even for a cancelled,
         // denied or skipped call: the core writes a result that says so.
-        final message = Message.toolResult(result);
+        final message = Message(
+            role: Role.user,
+            content: [
+              ToolResultBlock(
+                  toolUseId: call.id,
+                  content: result.content,
+                  isError: result.isError),
+            ]);
         _transcript.add(message);
         appended.add(message);
       }

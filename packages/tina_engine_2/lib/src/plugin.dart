@@ -2,6 +2,8 @@
 /// plugin implements only what it needs.
 library;
 
+import 'package:tina_core/tina_core.dart';
+
 import 'context.dart';
 import 'model.dart';
 
@@ -20,7 +22,7 @@ abstract class AgentPlugin {
   int get order => 100;
 
   /// Tools contributed to the loop. Snapshotted once per turn.
-  List<Tool> get tools => const [];
+  List<ToolSchema> get tools => const [];
 
   /// A prompt section, or null for none. Called once per turn, in order.
   /// The core owns the join; a plugin returns one section, never a prompt.
@@ -34,7 +36,7 @@ abstract class AgentPlugin {
   Request? beforeRequest(Context c, Request request) => null;
 
   /// The guard. All guards must pass; [order] decides who reports first.
-  Decision beforeTool(Context c, ToolCall call) => const Decision.allow();
+  Decision beforeTool(Context c, ToolUse call) => const Decision.allow();
 
   /// After a tool result exists. Return a replacement to record it instead,
   /// or null to observe only.
