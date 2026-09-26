@@ -914,7 +914,7 @@ Future<void> main() async {
       // nothing here, but arms/cancel/list behavior is what /timers exercises.
       final factory = _FakeTimerFactory();
       timers = TimerService(
-        onFire: (_, _) {},
+        onFire: (fire) {},
         onNotice: (_, {required warning}) {},
         timerFactory: factory.call,
       );

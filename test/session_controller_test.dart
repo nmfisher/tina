@@ -2589,6 +2589,10 @@ void main() {
   });
 
   group('timer failures (§7.3, §8, §11)', () {
+    /// Fires the service delivered during the current test — the ack
+    /// credentials tests pass back now that acks bind to an exact fire.
+    final firesByTest = <TimerFireId>[];
+    setUp(firesByTest.clear);
     test('ESC-cancelled fire counts toward suspension (§8 at 6)', () async {
       final rl = FakeReadLine();
       final controller = _buildController(
@@ -2731,7 +2735,8 @@ void main() {
       'a dropped fire (empty instruction) never touches the service',
       () async {
         final (timers, controller, rl, factory) = wired();
-        controller.fireTimer('never-was', 1); // no such timer → dropped
+        controller.fireTimer(const TimerFireId(
+          name: 'never-was', generation: 0, fireNumber: 1)); // no such timer → dropped
         expect(factory.timers, isEmpty, reason: 'nothing was ever armed');
         expect(
           hostOf(controller).messages,
@@ -2773,6 +2778,11 @@ void main() {
   });
 
   group('timer resume (§10, §11)', () {
+    /// Fires the service delivered during the current test — the ack
+    /// credentials tests pass back now that acks bind to an exact fire.
+    final firesByTest = <TimerFireId>[];
+    setUp(firesByTest.clear);
+
     final suspendFactory = _FakeTimerFactory();
     late Directory tmp;
     late JsonlSessionStore store;
@@ -2826,13 +2836,35 @@ void main() {
     }) {
       final f = factory ?? _FakeTimerFactory();
       final timers = TimerService(
-        onFire: controller.fireTimer,
+        onFire: (fire) {
+          firesByTest.add(fire);
+          controller.fireTimer(fire);
+        },
         onNotice: (_, {required warning}) {},
+        // Production wiring (the coordinator): every durable mutation marks
+        // the affected sessions' sidecars stale so the next flush rewrites
+        // them — including sessions whose export became empty.
+        onMutation: (sessionIds) {
+          for (final sid in sessionIds) {
+            controller.markTimerSessionDirty(sid);
+          }
+        },
         timerFactory: f,
       );
       controller.timers = timers;
       addTearDown(timers.dispose);
       return timers;
+    }
+
+    /// The service's last delivered fire for [name] — the ack credential
+    /// tests pass back now that acks bind to an exact fire. The service does
+    /// not expose delivered ids; tests capture them through [attachTimers].
+    TimerFireId _lastFire(TimerService timers, String name) {
+      final fire = firesByTest.lastWhere(
+        (f) => f.name == name,
+        orElse: () => throw StateError('no fire delivered for "$name"'),
+      );
+      return fire;
     }
 
     Map<String, Object?> record({
@@ -3139,8 +3171,8 @@ void main() {
         // fire-turn's own end-ack (that one no-ops on the closed window) —
         // six consecutive aborted fires → §8 suspension.
         suspendFactory.last.fire();
-        timers.ackStarted('held');
-        timers.ackFinished('held', aborted: true);
+        timers.ackStarted(_lastFire(timers, 'held'));
+        timers.ackFinished(_lastFire(timers, 'held'), aborted: true);
       }
       expect(timers.list().single.suspended, isTrue);
       await controller.flushTimerState();

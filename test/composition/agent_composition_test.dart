@@ -416,7 +416,7 @@ void main() {
         pipeline: defaultPipeline,
       );
       final timers = TimerService(
-        onFire: (_, _) {},
+        onFire: (fire) {},
         onNotice: (_, {required warning}) {},
       );
       addTearDown(timers.dispose);

@@ -241,10 +241,12 @@ class TimerService {
 
   /// Called after every state change that alters durable state — the same
   /// moments that bump [revision] (set, cancel, replace, expiry/suspension
-  /// inside [ackFinished], [restoreState], [cancelActiveFires]). The app
+  /// inside [ackFinished], [restoreState]) — with the ids of the sessions
+  /// whose saved-timer set changed (the app marks those sessions' sidecars
+  /// for rewrite; null-owner entries are unplaceable and skipped). The app
   /// wires this to write-through persistence (§10 leg 2) so a sidecar flush
   /// follows every mutation instead of only timer fires.
-  final void Function()? onMutation;
+  final void Function(Set<String> sessionIds)? onMutation;
 
   /// Monotonic mutation counter (leg-2, §10 write-through): bumped by every
   /// state change that changes durable state — set, cancel, expiry or
@@ -306,7 +308,9 @@ class TimerService {
     }
     _arm(_entries[spec.name]!, now);
     revision++;
-    onMutation?.call();
+    onMutation?.call({
+      if (_entries[spec.name]!.sessionId case final String owner) owner,
+    });
     return replaced ? const TimerSetReplaced() : const TimerSetCreated();
   }
 
@@ -319,7 +323,9 @@ class TimerService {
     if (entry == null) return false;
     _disarm(entry);
     revision++;
-    onMutation?.call();
+    onMutation?.call({
+      if (entry.sessionId case final String owner) owner,
+    });
     return true;
   }
 
@@ -370,7 +376,9 @@ class TimerService {
       entry.suspended = true;
       _disarm(entry);
       revision++;
-      onMutation?.call();
+      onMutation?.call({
+        if (entry.sessionId case final String owner) owner,
+      });
       onNotice(
         '[timer ${entry.name} suspended after $kMaxTimerFiresBeforeSuspend '
         'consecutive failed checks — /timers cancel ${entry.name}, or ask the '
@@ -384,14 +392,29 @@ class TimerService {
       _disarm(entry);
       _entries.remove(entry.name);
       revision++;
-      onMutation?.call();
+      onMutation?.call({
+        if (entry.sessionId case final String owner) owner,
+      });
       return;
     }
     _advanceAndArm(entry, now);
   }
 
-  /// Detaches every in-flight fire (queued or running) from live entries:
-  /// their [TimerFireId]s stop acking, and their id/name pairs are returned
+  /// Detaches one in-flight fire: its [TimerFireId] stops acking and the
+  /// entry returns to [TimerEntryState.idle] without an abort counted (the
+  /// operator discarded the fire; the check itself didn't fail). No-op when
+  /// [fire] is not the entry's current window. The app calls this — via
+  /// [cancelActiveFires]' return value — for enqueued fire prompts it
+  /// discards, so no timer is left queued forever (§7).
+  void cancelFire(TimerFireId fire) {
+    final entry = _entries[fire.name];
+    if (entry == null || entry.currentFire != fire) return;
+    entry.currentFire = null;
+    entry.state = TimerEntryState.idle;
+  }
+
+  /// Detaches every in-flight fire (queued or running): their
+  /// [TimerFireId]s stop acking, and their id/instruction pairs are returned
   /// so the app can settle the already-enqueued turn prompts (tell the user
   /// the timer is gone) instead of stranding them as queued turns (§7).
   /// Called from [dispose] and by the app when the TUI tears down while a
@@ -422,6 +445,7 @@ class TimerService {
   /// suspended (state is truth, §10) and stay disarmed.
   List<String> restoreState(List<Map<String, Object?>> saved) {
     final notRestored = <String>[];
+    final restored = <_TimerEntry>[];
     for (final record in saved) {
       final entry = _entryFromRecord(record);
       if (entry == null) continue;
@@ -434,13 +458,17 @@ class TimerService {
       // lifecycle's in-flight fire under the same name.
       entry.generation = _nextRestoreGeneration++;
       _entries[entry.name] = entry;
+      restored.add(entry);
       // Anchor as saved; the past-tick rule collapses missed grid points, so
       // the first fire lands on the first FUTURE grid point (§10 step 4).
       if (!entry.suspended) _advanceAndArm(entry, _clock());
     }
-    if (notRestored.length < saved.length) {
+    if (restored.isNotEmpty) {
       revision++;
-      onMutation?.call();
+      onMutation?.call({
+        for (final entry in restored)
+          if (entry.sessionId case final String owner) owner,
+      });
     }
     return notRestored;
   }

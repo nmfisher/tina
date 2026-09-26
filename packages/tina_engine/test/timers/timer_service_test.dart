@@ -65,7 +65,7 @@ class Harness {
       onFire: (fire) => fires.add(fire),
       onNotice: (text, {required bool warning}) =>
           warning ? warnings.add(text) : notices.add(text),
-      onMutation: () => mutations++,
+      onMutation: (sessionIds) => mutations++,
       timerFactory: factory.call,
       clock: () => clockNow,
       currentSessionId: () => sessionId,
