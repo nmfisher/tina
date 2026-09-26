@@ -41,8 +41,7 @@ String _schedulePhrase(TimerSpec spec) {
 
 /// Builds the three tools over [timers]. Registered app-side (leg 2);
 /// `ToolRegistry` is last-wins and the names are new, so no collisions.
-List<Tool> timerToolsFor(TimerService timers, {DateTime Function()? clock}) =>
-    [
+List<Tool> timerToolsFor(TimerService timers, {DateTime Function()? clock}) => [
       SetTimerTool(timers),
       CancelTimerTool(timers),
       ListTimersTool(timers, clock: clock),
@@ -76,19 +75,19 @@ class SetTimerTool implements Tool {
               'type': 'string',
               'description':
                   'Timer name: starts alphanumeric; then letters, digits, '
-                  'dot, underscore, hyphen; 1-64 chars total.',
+                      'dot, underscore, hyphen; 1-64 chars total.',
             },
             'every': {
               'type': 'string',
               'description':
                   'Interval, e.g. 90s, 5m, 1h30m. Clamped to 30s minimum '
-                  'and 24h maximum.',
+                      'and 24h maximum.',
             },
             'instruction': {
               'type': 'string',
               'description':
                   'Self-contained check instruction, replayed verbatim as '
-                  'the turn prompt each fire.',
+                      'the turn prompt each fire.',
             },
             'once': {
               'type': 'boolean',
@@ -320,13 +319,13 @@ class ListTimersTool implements Tool {
               : 'recurring';
       String status;
       if (s.suspended) {
-        status =
-            'SUSPENDED (after ${s.consecutiveAbortedFires} failed fires)';
+        status = 'SUSPENDED (after ${s.consecutiveAbortedFires} failed fires)';
       } else if (s.state == TimerEntryState.queued ||
           s.state == TimerEntryState.running) {
         status = 'next in flight';
       } else if (s.nextFireAt != null) {
-        status = 'next in ${formatHumanDuration(s.nextFireAt!.difference(now))}';
+        status =
+            'next in ${formatHumanDuration(s.nextFireAt!.difference(now))}';
       } else {
         status = 'next unknown';
       }

@@ -14,7 +14,8 @@ import 'dart:async';
 
 /// Creates the underlying one-shot `Timer`. Production passes nothing (real
 /// `Timer`); tests inject a fake that never sleeps.
-typedef TimerFactory = Timer Function(Duration duration, void Function() callback);
+typedef TimerFactory = Timer Function(
+    Duration duration, void Function() callback);
 
 /// Called when a timer's tick lands while the timer is [TimerEntryState.idle]:
 /// the app wires this to the controller seam that starts a real agent turn
@@ -24,7 +25,8 @@ typedef TimerFireCallback = void Function(String name, int fireNumber);
 /// Called for operator-visible notices: suspension warnings (§8, `warning`
 /// true) and busy-collapse skip lines (§4.4, `warning` false). The app wires
 /// this to `host.showMessage`.
-typedef TimerNoticeCallback = void Function(String text, {required bool warning});
+typedef TimerNoticeCallback = void Function(String text,
+    {required bool warning});
 
 /// Active-timer cap, runtime-wide (§4.4 step 5). Suspended timers hold their
 /// slot; replacing an existing name never double-counts.
@@ -278,7 +280,8 @@ class TimerService {
     final now = _clock();
     entry.state = TimerEntryState.idle;
     entry.collapseNoticeShown = false;
-    entry.consecutiveAbortedFires = aborted ? entry.consecutiveAbortedFires + 1 : 0;
+    entry.consecutiveAbortedFires =
+        aborted ? entry.consecutiveAbortedFires + 1 : 0;
     if (!entry.suspended &&
         entry.consecutiveAbortedFires >= kMaxTimerFiresBeforeSuspend) {
       entry.suspended = true;
@@ -319,7 +322,8 @@ class TimerService {
     for (final record in saved) {
       final entry = _entryFromRecord(record);
       if (entry == null) continue;
-      if (_entries.containsKey(entry.name) || _entries.length >= kMaxActiveTimers) {
+      if (_entries.containsKey(entry.name) ||
+          _entries.length >= kMaxActiveTimers) {
         notRestored.add(entry.name);
         continue;
       }
@@ -343,7 +347,8 @@ class TimerService {
 
   // -- internals -----------------------------------------------------------
 
-  static Timer _defaultTimerFactory(Duration duration, void Function() callback) =>
+  static Timer _defaultTimerFactory(
+          Duration duration, void Function() callback) =>
       Timer(duration, callback);
 
   void _disarm(_TimerEntry entry) {
@@ -411,10 +416,11 @@ class TimerService {
         suspended: entry.suspended,
         consecutiveAbortedFires: entry.consecutiveAbortedFires,
         state: entry.state,
-        nextFireAt:
-            (entry.state == TimerEntryState.idle && !entry.suspended && entry.timer != null)
-                ? entry.nextAnchor
-                : null,
+        nextFireAt: (entry.state == TimerEntryState.idle &&
+                !entry.suspended &&
+                entry.timer != null)
+            ? entry.nextAnchor
+            : null,
       );
 
   /// Sidecar record shape (§10): the schema fields, `interval` as `everyMs`,
@@ -453,12 +459,14 @@ class TimerService {
     if (once is! bool) return null;
     if (maxFires != null && (maxFires is! int || maxFires < 1)) return null;
     if (fireCount is! int || fireCount < 0) return null;
-    if (consecutiveAbortedFires is! int || consecutiveAbortedFires < 0) return null;
+    if (consecutiveAbortedFires is! int || consecutiveAbortedFires < 0)
+      return null;
     if (suspended is! bool) return null;
     if (anchorEpochMs is! int) return null;
     return _TimerEntry(
       name: name,
-      sessionId: record['sessionId'] is String ? record['sessionId'] as String : null,
+      sessionId:
+          record['sessionId'] is String ? record['sessionId'] as String : null,
       interval: Duration(milliseconds: everyMs),
       instruction: instruction,
       once: once,

@@ -144,7 +144,8 @@ class TimerSidecarStore {
       for (final entry in timers)
         if (entry is Map<String, dynamic>)
           Map<String, Object?>.of(entry)
-        else ...<Map<String, Object?>>[],
+        else
+          ...<Map<String, Object?>>[],
     ];
   }
 

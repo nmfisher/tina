@@ -35,8 +35,16 @@ class ParsedInterval {
 }
 
 bool _isDigit(String ch) =>
-    ch == '0' || ch == '1' || ch == '2' || ch == '3' || ch == '4' ||
-    ch == '5' || ch == '6' || ch == '7' || ch == '8' || ch == '9';
+    ch == '0' ||
+    ch == '1' ||
+    ch == '2' ||
+    ch == '3' ||
+    ch == '4' ||
+    ch == '5' ||
+    ch == '6' ||
+    ch == '7' ||
+    ch == '8' ||
+    ch == '9';
 
 int? _unitSeconds(String ch) {
   switch (ch) {
@@ -65,7 +73,8 @@ ParsedInterval? parseInterval(String input) {
   var anyPair = false;
 
   void skipWhitespace() {
-    while (i < n && (input.codeUnitAt(i) == 0x20 || input.codeUnitAt(i) == 0x09)) {
+    while (
+        i < n && (input.codeUnitAt(i) == 0x20 || input.codeUnitAt(i) == 0x09)) {
       i++;
     }
   }
