@@ -19,6 +19,7 @@ export 'src/composition/runtime_plugins.dart';
 export 'src/config/runtime_config.dart';
 export 'src/config/startup_options.dart';
 export 'src/execution/background_job_supervisor.dart';
+export 'src/execution/goal_loop.dart';
 export 'src/execution/project_background_jobs.dart';
 export 'src/execution/turn_executor.dart';
 export 'src/execution/input_routes.dart';

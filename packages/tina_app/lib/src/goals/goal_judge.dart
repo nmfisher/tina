@@ -69,6 +69,65 @@ class GoalJudgeDigest {
       .join('\n');
 }
 
+/// The judge's fixed system prompt: one VERDICT line over a goal + transcript
+/// digest, no tools. Shared verbatim by the TUI host and the headless loop so
+/// both judgments rest on the same contract.
+const String goalJudgeSystemPrompt =
+    'You judge whether a conversation has achieved its stated session '
+    'goal. You receive the goal and a digest of the recent transcript '
+    '(user asks, assistant work, tool activity). You have no tools and '
+    'you do not run anything — you only read the digest.\n'
+    'Answer with EXACTLY one line in this format:\n'
+    'VERDICT: <yes|no|unclear> — <one-sentence evidence from the '
+    'transcript>\n'
+    'yes = the transcript shows the goal was fully met. no = the '
+    'transcript shows it was not yet met (or the work visibly continues). '
+    'unclear = the digest does not contain enough evidence either way.';
+
+/// The judge task for [goalText] against a prebuilt [digest].
+String goalJudgeTask(String goalText, String digest) =>
+    'GOAL: $goalText\n\nRECENT TRANSCRIPT:\n$digest';
+
+/// One judge assessment over a prebuilt digest — the shared core under the
+/// TUI's [judgeGoal] and the headless goal loop. Both callers own a goal text
+/// and a transcript digest; everything host-specific (resolving the
+/// conversation, recording the verdict, announcing transitions) stays with
+/// them.
+///
+/// Returns null when nothing could be judged: the check call failed, or its
+/// answer did not parse as a verdict line. Never throws.
+Future<({GoalVerdict verdict, String evidence})?> judgeGoalCore({
+  required String goalText,
+  required String digest,
+  required Future<RunAgentResult> Function({
+    required String systemPrompt,
+    required String task,
+    required AgentSink sink,
+  })
+  runCheck,
+}) async {
+  try {
+    final result = await runCheck(
+      systemPrompt: goalJudgeSystemPrompt,
+      task: goalJudgeTask(goalText, digest),
+      sink: const _SilentSink(),
+    );
+    if (result.isError) {
+      _log.warning('goal judge call failed: ${result.text}');
+      return null;
+    }
+    final parsed = _parseVerdict(result.text);
+    if (parsed == null) {
+      _log.warning('goal judge answer did not parse as a verdict line');
+      return null;
+    }
+    return parsed;
+  } catch (error, stackTrace) {
+    _log.warning('goal judge call threw', error, stackTrace);
+    return null;
+  }
+}
+
 /// The host-installed judge: resolves the conversation, digests its
 /// transcript, runs a one-shot read-only agent call (same seam the region
 /// queries use — any configured provider, no panel, no session, no tool
@@ -97,36 +156,12 @@ Future<GoalVerdict?> judgeGoal({
     return null;
   }
   try {
-    final digest = GoalJudgeDigest.build(conversation.history);
-    const systemPrompt =
-        'You judge whether a conversation has achieved its stated session '
-        'goal. You receive the goal and a digest of the recent transcript '
-        '(user asks, assistant work, tool activity). You have no tools and '
-        'you do not run anything — you only read the digest.\n'
-        'Answer with EXACTLY one line in this format:\n'
-        'VERDICT: <yes|no|unclear> — <one-sentence evidence from the '
-        'transcript>\n'
-        'yes = the transcript shows the goal was fully met. no = the '
-        'transcript shows it was not yet met (or the work visibly continues). '
-        'unclear = the digest does not contain enough evidence either way.';
-    final task =
-        'GOAL: ${goal.text}\n\n'
-        'RECENT TRANSCRIPT:\n$digest';
-
-    final result = await runCheck(
-      systemPrompt: systemPrompt,
-      task: task,
-      sink: const _SilentSink(),
+    final parsed = await judgeGoalCore(
+      goalText: goal.text,
+      digest: GoalJudgeDigest.build(conversation.history),
+      runCheck: runCheck,
     );
-    if (result.isError) {
-      _log.warning('goal judge call failed: ${result.text}');
-      return null;
-    }
-    final parsed = _parseVerdict(result.text);
-    if (parsed == null) {
-      _log.warning('goal judge answer did not parse as a verdict line');
-      return null;
-    }
+    if (parsed == null) return null;
     final previous = store.read(id).status?.verdict ?? GoalVerdict.none;
     try {
       store.recordVerdict(id, parsed.verdict, parsed.evidence);

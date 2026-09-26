@@ -27,11 +27,13 @@ class HeadlessHost with HostLifecycleAdapter implements HostInterface {
     void Function(Object? object)? write,
     void Function(Object? object)? writeErr,
     bool permissionHints = true,
+    void Function(PermissionPrompt ask)? onPermissionAsk,
   })  : _write = write ?? stdout.write,
         // `write` (not `writeln`): agent notices/tool chunks carry their own
         // newlines, so an auto-appended one would double-space the output.
         _writeErr = writeErr ?? stderr.write,
-        _permissionHints = permissionHints;
+        _permissionHints = permissionHints,
+        _onPermissionAsk = onPermissionAsk;
 
   final void Function(Object?) _write;
   final void Function(Object?) _writeErr;
@@ -40,6 +42,14 @@ class HeadlessHost with HostLifecycleAdapter implements HostInterface {
   /// an active `--yolo` run: the hint tells the operator to pass a flag they
   /// already passed, so it is noise (see the yolo regression, asb/yolo-fix).
   final bool _permissionHints;
+
+  /// Observer fired on every permission ask, BEFORE the ask is denied — the
+  /// denial below is unchanged, so `--prompt` runs keep their
+  /// deny-with-hint behavior. The goal loop (`--goal`) uses it to diagnose
+  /// the abort: an approval block is not a model failure, it is the run
+  /// proving it lacks permission, and deserves its own exit code (3) instead
+  /// of the model burning its step budget on rephrased retries.
+  final void Function(PermissionPrompt ask)? _onPermissionAsk;
   final AgentEventBus _bus = AgentEventBus();
 
   @override
@@ -60,6 +70,7 @@ class HeadlessHost with HostLifecycleAdapter implements HostInterface {
     // The stderr hint above is for the OPERATOR; `note` is the model-facing
     // twin (#27) — it rides on the denied tool result so the model itself
     // learns why and stops rephrasing the same refused shape.
+    _onPermissionAsk?.call(p);
     const note = 'Non-interactive run: permission asks are auto-refused — '
         'rephrasing will not change this. Proceed without this tool or answer '
         'from what you have.';

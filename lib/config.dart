@@ -29,6 +29,11 @@ const int kDefaultTransportRetryAttempts = 5;
 const int kDefaultMaxSubAgentConcurrency = 6;
 const String kDefaultAutoCompactThreshold = '120000';
 
+/// Goal mode (`--goal`): how many agent turns the loop may run before giving
+/// up with exit 1. 0 means unlimited — the operator accepts an unattended run
+/// that only the watchdog or an approval ask can stop.
+const int defaultMaxGoalTurns = 25;
+
 const _reasoningEfforts = [
   'auto',
   'none',
@@ -50,6 +55,8 @@ class Config extends RuntimeConfig implements ResumeRequest {
   final String? models;
   final bool showVersion;
   final String? prompt;
+  final String? goal;
+  final int maxGoalTurns;
   final String? resumeSessionId;
   final bool continueLatest;
   final bool listSessions;
@@ -78,6 +85,8 @@ class Config extends RuntimeConfig implements ResumeRequest {
     required this.showHelp,
     this.showVersion = false,
     required this.prompt,
+    this.goal,
+    this.maxGoalTurns = defaultMaxGoalTurns,
     required super.permissionRules,
     required this.resumeSessionId,
     required this.continueLatest,
@@ -185,6 +194,8 @@ class Config extends RuntimeConfig implements ResumeRequest {
     models: models,
     showVersion: showVersion,
     prompt: prompt,
+    goal: goal,
+    maxGoalTurns: maxGoalTurns,
     listSessions: listSessions,
     resumePicker: resumePicker,
     workflow: workflow,
@@ -201,7 +212,11 @@ class Config extends RuntimeConfig implements ResumeRequest {
   ResolvedLaunch get launch =>
       ResolvedLaunch(runtime: runtime, terminal: terminal, startup: startup);
 
-  bool get nonInteractive => prompt != null || workflow != null;
+  bool get nonInteractive => prompt != null || workflow != null || goal != null;
+
+  /// Goal mode (`--goal`): headless loop-to-achieved. Distinct from
+  /// [nonInteractive] so bin/ can route it to its own runner.
+  bool get goalMode => goal != null;
 
   static final _parser = ArgParser()
     ..addOption('base-url')
@@ -221,6 +236,21 @@ class Config extends RuntimeConfig implements ResumeRequest {
     ..addOption(
       'prompt',
       help: 'Run a single prompt non-interactively and exit.',
+    )
+    ..addOption(
+      'goal',
+      valueHelp: 'text',
+      help: 'Run non-interactively in GOAL MODE: seed the goal tracker with '
+          'the text, loop agent turns until the goal judge rules the goal '
+          'achieved, then exit 0. Not achieved when the turn cap hits, or '
+          'exit 3 when an approval ask proves the run lacks permission '
+          '(pass --yolo or --allow). Implies headless; mutually exclusive '
+          'with --prompt/--workflow.',
+    )
+    ..addOption(
+      'max-goal-turns',
+      help: 'Goal-mode turn cap before giving up with exit 1 '
+          '(default: 25; 0 = unlimited).',
     )
     ..addMultiOption(
       'allow',
@@ -751,10 +781,30 @@ class Config extends RuntimeConfig implements ResumeRequest {
       );
     }
 
-    if (resumePicker && (res['prompt'] != null || res['workflow'] != null)) {
+    if (resumePicker &&
+        (res['prompt'] != null ||
+            res['workflow'] != null ||
+            res['goal'] != null)) {
       throw const FormatException(
-        'Use --resume <id> with --prompt or --workflow. '
+        'Use --resume <id> with --prompt, --goal or --workflow. '
         'Use --list to see saved sessions.',
+      );
+    }
+
+    final goal = (res['goal'] as String?)?.trim();
+    if (goal != null && goal.isEmpty) {
+      throw const FormatException('--goal needs a non-empty goal text.');
+    }
+    if (goal != null && res['prompt'] != null) {
+      throw const FormatException(
+        '--goal and --prompt are mutually exclusive: --goal loops until the '
+        'judge rules the goal achieved; --prompt runs exactly one turn.',
+      );
+    }
+    if (goal != null && res['workflow'] != null) {
+      throw const FormatException(
+        '--goal and --workflow are mutually exclusive: a workflow owns its '
+        'own run-to-completion scheduler.',
       );
     }
 
@@ -776,6 +826,16 @@ class Config extends RuntimeConfig implements ResumeRequest {
         throw FormatException('--$name must be a positive integer; got "$raw"');
       }
       return n;
+    }
+
+    // Goal-mode validation (the mutually-exclusive checks above ran before
+    // these helpers existed). The cap only parses when a goal was actually
+    // given — a stray `--max-goal-turns` without `--goal` is a typo, not a
+    // silent no-op.
+    if (res.wasParsed('max-goal-turns') && res['goal'] == null) {
+      throw const FormatException(
+        '--max-goal-turns only means something with --goal.',
+      );
     }
 
     // Resolve a `[limits]` scalar with CLI > file > built-in-default precedence.
@@ -842,6 +902,10 @@ class Config extends RuntimeConfig implements ResumeRequest {
       showHelp: false,
       showVersion: false,
       prompt: res['prompt'] as String?,
+      goal: goal,
+      maxGoalTurns: goal == null
+          ? defaultMaxGoalTurns
+          : parseBudget('max-goal-turns', '$defaultMaxGoalTurns'),
       models: res['models'] as String?,
       permissionRules: rules,
       resumeSessionId: resumeId,

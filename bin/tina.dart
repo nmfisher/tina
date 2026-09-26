@@ -495,8 +495,32 @@ Future<void> _runNonInteractive(
   return resources.run(() async {
     // `permissionHints: false` under --yolo: a refusal must not suggest a
     // flag that is already in effect.
-    final host = HeadlessHost(permissionHints: !startup.yolo);
+    // Permission asks surfaced headless (auto-denied). The `--goal` loop
+    // reads this list: any new entry during a turn means the run needed an
+    // approval no one can grant → exit 3. Other headless paths ignore it.
+    final permissionAsks = <String>[];
+    final host = HeadlessHost(
+      permissionHints: !startup.yolo,
+      onPermissionAsk: (ask) =>
+          permissionAsks.add('${ask.toolName}:${ask.key}'),
+    );
     resources.own(host.dispose);
+
+    // `--goal <text>` headless: loop turns (no user present) until the goal
+    // judge rules the goal achieved or a cap trips. Shares the setup below
+    // (tracker hydration, provider, recorder, driver, watchdog) with the
+    // --prompt path and diverges only at turn-running. Goal mode itself never
+    // widens permissions — `--goal` and `--yolo` are different paradigms.
+    // Without --yolo every ask is auto-denied and the first denial ends the
+    // run (exit 3); with --yolo the policy is pre-widened by composition, so
+    // asks never surface at all (identical to a --prompt run's posture). The
+    // judge reads only a digest of the transcript, never raw tool output.
+    // Exit codes: 0 achieved; 1 cap reached or judge repeatedly unavailable;
+    // 2 aborted; 3 permission block.
+    final goalText = startup.goal;
+    final goalStore = goalText == null
+        ? null
+        : app.pluginScope?.lookup(goalStoreServiceKey);
 
     // `--workflow <name>` headless: run a DOT pipeline to completion. Each `box`
     // node runs as a real agent turn via the scheduler (headless auto-approves at
@@ -559,30 +583,35 @@ Future<void> _runNonInteractive(
     resources.own(commandRuntime.dispose);
     final commands = CommandRegistry(commandRuntime.scope);
     var rawPrompt = startup.prompt!;
-    final commandCancel = Completer<void>();
-    final commandSignal = ProcessSignal.sigint.watch().listen((_) {
-      if (!commandCancel.isCompleted) commandCancel.complete();
-    });
-    CmdResult commandResult;
-    try {
-      commandResult = await commands.dispatch(
-        rawPrompt,
-        host: host,
-        conversationId: app.initialConversationId,
-        cancelSignal: commandCancel.future,
-      );
-    } finally {
-      await commandSignal.cancel();
-    }
-    if (commandResult is CmdHandled || commandResult is CmdExit) {
-      if ((commandResult is CmdHandled && commandResult.failed) ||
-          commandCancel.isCompleted) {
-        exitCode = 1;
+    if (!startup.goalMode) {
+      // `--goal` skips command dispatch: it is a user-input surface and goal
+      // mode has no user — the seeded goal is delivered to the agent verbatim
+      // via the goal middleware.
+      final commandCancel = Completer<void>();
+      final commandSignal = ProcessSignal.sigint.watch().listen((_) {
+        if (!commandCancel.isCompleted) commandCancel.complete();
+      });
+      CmdResult commandResult;
+      try {
+        commandResult = await commands.dispatch(
+          rawPrompt,
+          host: host,
+          conversationId: app.initialConversationId,
+          cancelSignal: commandCancel.future,
+        );
+      } finally {
+        await commandSignal.cancel();
       }
-      await closeLogging();
-      return;
+      if (commandResult is CmdHandled || commandResult is CmdExit) {
+        if ((commandResult is CmdHandled && commandResult.failed) ||
+            commandCancel.isCompleted) {
+          exitCode = 1;
+        }
+        await closeLogging();
+        return;
+      }
+      if (commandResult case CmdRun(:final prompt)) rawPrompt = prompt;
     }
-    if (commandResult case CmdRun(:final prompt)) rawPrompt = prompt;
 
     // Normal headless turns run the plain agent. Workflows are launched on demand
     // (use `--workflow <name>` for an explicit, run-to-completion pipeline);
@@ -631,6 +660,14 @@ Future<void> _runNonInteractive(
       ensureRegisteredFor: (_) => recorder.ensureRegistered(),
     );
     headlessTrackers?.persistIfPresent(app.initialConversationId);
+
+    // `--goal`: seed the store only after the tracker hooks exist, so the
+    // mutate→persist-hook chain registers the conversation in the manifest
+    // (same posture as a TUI `/goal`; a store seeded before the hooks would
+    // never reach disk).
+    if (goalStore != null && goalText != null) {
+      goalStore.set(app.initialConversationId, goalText);
+    }
 
     // Write-through persistence (#25): the engine AWAITS these observers at the
     // moment each message is produced, so a mid-turn kill (SIGKILL, OOM, crash)
@@ -693,13 +730,17 @@ Future<void> _runNonInteractive(
     // read-only run that framing invites an edit-refusal spiral (Run A burned
     // 12 steps on refused edits), so wrapTreeHealth appends a do-not-try line
     // and the model answers with read-only tools instead.
+    // Goal mode shares the verdict: its first turn gets the same prefix (the
+    // --prompt path applies it via inputPrefix below).
+    var treeHealthPrefix = '';
     if (File('pubspec.yaml').existsSync()) {
       final notice = await DartAnalyzeVerifier().projectCheck();
       if (notice != null) {
-        inputPrefix =
+        treeHealthPrefix =
             '<tree-health>\n'
             '${DartAnalyzeVerifier.wrapTreeHealth(notice, editActionable: DartAnalyzeVerifier.editActionable(app.policy))}'
             '\n</tree-health>\n\n';
+        inputPrefix = treeHealthPrefix;
         userInput = '$inputPrefix$userInput';
       }
     }
@@ -785,42 +826,86 @@ Future<void> _runNonInteractive(
       cancelInput.future,
     ]);
     try {
-      final prepared = await app.inputRoutes?.prepare(
-        text: rawPrompt,
-        conversationId: app.initialConversationId,
-        history: history,
-        cancelSignal: cancelTurn,
-      );
-      final outcome = prepared == null
-          ? InputOutcome.pass
-          : await app.inputRoutes!.deliver(
-              prepared,
-              history: history,
-              cancelSignal: cancelTurn,
-              host: host,
-              recorder: recorder,
-            );
-      if (prepared != null) {
-        userInput =
-            '$inputPrefix${prepared.text}\n'
-            '${HeadlessHost.kHeadlessSummaryInstruction}';
-        cancelTurn.then((_) => prepared.cancel());
-      }
-      if (outcome == InputOutcome.pass) {
-        await driver.run(
+      if (goalStore != null && goalText != null) {
+        // `--goal` mode: loop turns until the judge says achieved or a cap
+        // trips. Shares the watchdog + cancel machinery above with --prompt.
+        final outcome = await _runGoalTurns(
+          app: app,
+          driver: driver,
           history: history,
-          userInput: userInput,
+          goalStore: goalStore,
+          goalText: goalText,
+          maxTurns: startup.maxGoalTurns,
+          cancelSignal: cancelTurn,
+          permissionAsks: permissionAsks,
+          treeHealthPrefix: treeHealthPrefix,
+        );
+        switch (outcome) {
+          case GoalLoopOutcome.achieved:
+            stderr.writeln('goal achieved');
+          case GoalLoopOutcome.capReached:
+            exitCode = 1;
+            stderr.writeln(
+              'goal not verified within $startup.maxGoalTurns '
+              'turn(s) — exiting 1',
+            );
+          case GoalLoopOutcome.judgeUnavailable:
+            exitCode = 1;
+            stderr.writeln(
+              'goal judge repeatedly failed to produce a verdict — '
+              'exiting 1 (a goal that cannot be verified must not loop '
+              'forever)',
+            );
+          case GoalLoopOutcome.permissionBlocked:
+            exitCode = 3;
+            final ask = permissionAsks.lastOrNull;
+            stderr.writeln(
+              'goal blocked on a permission ask${ask == null ? '' : ' ($ask)'} '
+              '— no user is present to approve it. Goal mode never widens '
+              'permissions: grant the rule via config, or run --yolo '
+              'separately if you accept the risk. Exiting 3.',
+            );
+          case GoalLoopOutcome.aborted:
+            aborted = true; // shares the --prompt exit-2 posture below
+        }
+      } else {
+        final prepared = await app.inputRoutes?.prepare(
+          text: rawPrompt,
+          conversationId: app.initialConversationId,
+          history: history,
           cancelSignal: cancelTurn,
         );
-        aborted =
-            driver.abortedReason != null ||
-            (watchdog?.fired ?? false) ||
-            cancelInput.isCompleted;
-      } else {
-        aborted =
-            outcome != InputOutcome.handled ||
-            (watchdog?.fired ?? false) ||
-            cancelInput.isCompleted;
+        final outcome = prepared == null
+            ? InputOutcome.pass
+            : await app.inputRoutes!.deliver(
+                prepared,
+                history: history,
+                cancelSignal: cancelTurn,
+                host: host,
+                recorder: recorder,
+              );
+        if (prepared != null) {
+          userInput =
+              '$inputPrefix${prepared.text}\n'
+              '${HeadlessHost.kHeadlessSummaryInstruction}';
+          cancelTurn.then((_) => prepared.cancel());
+        }
+        if (outcome == InputOutcome.pass) {
+          await driver.run(
+            history: history,
+            userInput: userInput,
+            cancelSignal: cancelTurn,
+          );
+          aborted =
+              driver.abortedReason != null ||
+              (watchdog?.fired ?? false) ||
+              cancelInput.isCompleted;
+        } else {
+          aborted =
+              outcome != InputOutcome.handled ||
+              (watchdog?.fired ?? false) ||
+              cancelInput.isCompleted;
+        }
       }
     } finally {
       await inputSignal.cancel();
@@ -846,6 +931,101 @@ Future<void> _runNonInteractive(
   });
 }
 
+/// The `--goal` turn loop adapter: turns + digest-based judging, per the pure
+/// [GoalLoopRunner]. Each turn runs on the same [AgentDriver] a `--prompt`
+/// run uses — the driver appends the user message itself. Judging reads a
+/// digest of the transcript, never raw tool output.
+///
+/// Permission posture: the [HeadlessHost] auto-denies every ask headless and
+/// reports it through [permissionAsks]; the first ask ends the run via the
+/// runner's [GoalTurnAborted.permissionAsk] detection. Goal mode never
+/// widens permissions, regardless of `--yolo`.
+Future<GoalLoopOutcome> _runGoalTurns({
+  required AppComposition app,
+  required AgentDriver driver,
+  required List<Message> history,
+  required GoalStore goalStore,
+  required String goalText,
+  required int maxTurns,
+  required Future<void>? cancelSignal,
+  required List<String> permissionAsks,
+  required String treeHealthPrefix,
+}) async {
+  var asksAtTurnStart = 0;
+  var turn = 0;
+  Future<RunAgentResult> runCheck({
+    required String systemPrompt,
+    required String task,
+    required AgentSink sink,
+  }) {
+    // Zone.root: the judge is not part of any live invocation — strip any
+    // ambient one so the standalone call does not mistake a finished turn
+    // for its parent (same contract as the TUI's judge closure).
+    return Zone.root.run(
+      () => app.scheduler.runStandalone(
+        systemPrompt: systemPrompt,
+        task: task,
+        sink: sink,
+        parentReference: '${app.config.provider}/${app.config.model}',
+        toolProfile: ToolProfile.readOnly,
+        includeDelegate: false,
+      ),
+    );
+  }
+
+  final runner = GoalLoopRunner(
+    goalText: goalText,
+    maxTurns: maxTurns,
+    runTurn: (userInput) async {
+      asksAtTurnStart = permissionAsks.length;
+      stderr.writeln('[goal] turn $turn/${maxTurns == 0 ? '∞' : maxTurns}');
+      // Same two decorations the --prompt path applies: the headless summary
+      // instruction on every turn, and the startup tree-health notice on the
+      // first (a --goal run that must fix the tree deserves the same "the
+      // tree is already broken" context a --prompt run gets). Later turns
+      // carry the judge's continuation nudge instead of re-stating the goal.
+      final decorated = turn == 1
+          ? '$treeHealthPrefix$userInput\n${HeadlessHost.kHeadlessSummaryInstruction}'
+          : '$userInput\n${HeadlessHost.kHeadlessSummaryInstruction}';
+      await driver.run(
+        history: history,
+        userInput: decorated,
+        cancelSignal: cancelSignal,
+      );
+      // Checked after the run: an ask raised late in the turn is just as
+      // fatal as one raised early — the host denied it, and no one can
+      // answer it.
+      if (permissionAsks.length > asksAtTurnStart) {
+        return GoalTurnAborted(permissionAsk: permissionAsks.last);
+      }
+      if (driver.abortedReason != null) {
+        // A watchdog fire or SIGINT completes the cancel signal, the driver
+        // aborts with a reason, and the loop stops here; the watcher in
+        // [_runNonInteractive] still runs its grace/hard-exit posture.
+        return const GoalTurnAborted();
+      }
+      return const GoalTurnComplete();
+    },
+    judge: ({required goalText, required digest}) async {
+      final verdict = await judgeGoalCore(
+        goalText: goalText,
+        digest: digest,
+        runCheck: runCheck,
+      );
+      if (verdict != null) {
+        goalStore.recordVerdict(
+          app.initialConversationId,
+          verdict.verdict,
+          verdict.evidence,
+        );
+      }
+      return verdict;
+    },
+    buildDigest: () => GoalJudgeDigest.build(history),
+    onTurn: (n) => turn = n,
+  );
+  return runner.run();
+}
 /// Whether to run the first-run setup wizard over **stdin** — the non-tty
 /// (piped/CI) path. A real terminal is handled by the in-TUI overlay instead
 /// (see the `setupMode` branch in `main`). `--help` / `--init-config` /
@@ -858,6 +1038,8 @@ bool _shouldRunStdinSetup(List<String> argv, Environment environment) {
     (a) =>
         a == '--prompt' ||
         a.startsWith('--prompt=') ||
+        a == '--goal' ||
+        a.startsWith('--goal=') ||
         a == '--workflow' ||
         a.startsWith('--workflow=') ||
         a == '--help' ||

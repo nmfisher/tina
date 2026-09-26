@@ -41,6 +41,33 @@ void main() {
       expect(host.askPermission, isA<PermissionAsker>());
     });
 
+    test('onPermissionAsk fires before the denial and leaves it unchanged',
+        () async {
+      final err = StringBuffer();
+      final asks = <PermissionPrompt>[];
+      final host = HeadlessHost(
+        writeErr: err.write,
+        onPermissionAsk: asks.add,
+      );
+      final response = await host.askPermission(const PermissionPrompt(
+          'bash', {'command': 'dart test'}));
+      expect(asks, hasLength(1));
+      expect(asks.single.toolName, 'bash');
+      // The goal loop reads toolName + key to build its exit-3 diagnosis; the
+      // denial itself must be untouched (goal mode never widens permissions).
+      expect(response.decision, PermissionDecision.deny);
+      expect(err.toString(), contains('refused'));
+    });
+
+    test('no onPermissionAsk hook is the default deny-only posture', () async {
+      final err = StringBuffer();
+      final host = HeadlessHost(writeErr: err.write);
+      final response = await host.askPermission(const PermissionPrompt(
+          'write', {'filePath': '/tmp/x'}));
+      expect(response.decision, PermissionDecision.deny);
+      expect(err.toString(), contains('refused'));
+    });
+
     test('text() writes the delta to stdout and emits it on the bus', () async {
       final out = StringBuffer();
       final host = HeadlessHost(write: out.write);

@@ -6,6 +6,9 @@ turn and announces when the goal is achieved. The feature mirrors the plan
 tracker's shape: a store service, a middleware that keeps the model aware, a
 status-strip source, and a plugin-contributed command.
 
+The headless, no-user-present loop built on the same store and judge is
+`--goal` — see [goal_mode.md](goal_mode.md).
+
 The default execution profile mounts `goalUiPlugin(store: GoalStore())` in
 `bin/tina.dart`; `buildAgent` mints a per-conversation `GoalMiddleware` when
 the `tina.goal` service is present. The store is in-memory, like `PlanStore`,
