@@ -1,5 +1,9 @@
 # Internal extension seams — refactor plan (pre-`plugin_architecture`)
 
+Historical proposal. Current scope, decisions, and implementation sequencing are
+consolidated in [Plugin architecture and lifecycle](plugin_runtime.md). The
+scope restrictions below describe the earlier proposal.
+
 **Status:** Proposal only — no code or test changes. **Revised 2026-08-29** after
 owner scope correction: this is a **refactor/restructure plan**, not a plugin
 system.

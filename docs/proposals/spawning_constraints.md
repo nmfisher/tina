@@ -1,6 +1,7 @@
 # Proposal: constrain spawning — no workflows, 3 subagents, render-only panels, main-panel approvals
 
-Status: proposal, not implemented. Scope decision: workflow launching is
+Status: IMPLEMENTED — Changes 1–5 are on `main` (commits `b5ef421`,
+`d5471e3`, `9499b9c`, `2c4aa1c`). Scope decision: workflow launching is
 turned OFF for the main agent (revisit later); subagent delegation stays.
 Handoff brief — an implementer should be able to execute it without further
 design decisions.

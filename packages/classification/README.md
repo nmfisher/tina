@@ -256,3 +256,41 @@ Stores may implement `CheckpointStore` to publish a record and its reference in
 one transaction and retire task references directly. The orchestrator uses this
 interface when available instead of rewriting the full manifest per checkpoint.
 Tina's SQLite adapter implements it; the core classifier has no database dependency.
+
+## Libraries
+
+The package splits into four import surfaces:
+
+- `classification.dart` — the typed source/classification pipeline described
+  above (contracts, orchestrator, stores, trees). Depends on `judgments.dart`.
+- `judgments.dart` — pure question/answer models, request budgeting, and batch
+  execution. No chat providers, no agent execution, no `dart:io`.
+- `typesafe_classifier.dart` — the network-bound Typesafe transport
+  (`TypeSafeService`, `TypeSafeConfig`). Import this only when you need to
+  talk to the Typesafe endpoint; judgment consumers can otherwise stay free
+  of `package:http`.
+- `exploration.dart` — repository exploration: evidence models, ranking,
+  chunking, caching, snapshotting, and the judgment-driven exploration
+  workflow (rank → chunk → judge → synthesize). Depends on `judgments.dart`
+  only; any `JudgmentService` implementation can drive it.
+
+A `LocalClassifier` + `LocalExecutor` runs a deterministic function instead of
+model calls — same validation, scheduling and cache machinery, zero tokens.
+
+## Where tina uses it
+
+- `tina.intent` (in `tina_app`) — classifies the latest user input: project
+  question vs. agent instruction vs. unclear. A `JudgmentClassifier` run per
+  admitted message; the status strip shows the result.
+- `explore_project` (in `tina_app/exploration`) — the repo exploration tool
+  the agent gets as a workspace plugin; region summaries come from the
+  exploration workflow, metered through the agent's spend ledger.
+- Project classification — the git/dir composition that labels a workspace
+  at startup.
+
+(The "auto" permission-mode judge is separate: `PermissionClassifier` in
+`tina_engine/permissions` talks to a model provider directly, not through
+this package.)
+
+The hierarchical-classifier design notes live in
+`docs/proposals/hierarchical_classifiers.md`.
