@@ -362,16 +362,13 @@ void main() {
           reason: 'success appends the adoptable program fragment',
         );
         expect(f.host.messages.join(), contains('digraph index'));
-        expect(
-          f.host.notices,
-          ['--- classifier review: 2 messages ---\n'],
-          reason: 'start marker only — the fragment rides on showMessage',
-        );
-        expect(
-          f.host.activitySignals,
-          [true, false],
-          reason: 'the activity cue lifts on start and drops on every exit',
-        );
+        expect(f.host.notices, [
+          '--- classifier review: 2 messages ---\n',
+        ], reason: 'start marker only — the fragment rides on showMessage');
+        expect(f.host.activitySignals, [
+          true,
+          false,
+        ], reason: 'the activity cue lifts on start and drops on every exit');
       },
     );
 
@@ -430,11 +427,10 @@ void main() {
         expect(f.host.sink.texts.join(), 'partial ');
         expect(f.host.notices.last, 'classifier review failed: boom\n');
         expect(f.host.sink.notices.last.kind, NoticeKind.error);
-        expect(
-          f.host.activitySignals,
-          [true, false],
-          reason: 'the activity cue drops on the error path too',
-        );
+        expect(f.host.activitySignals, [
+          true,
+          false,
+        ], reason: 'the activity cue drops on the error path too');
       },
     );
 
@@ -456,11 +452,10 @@ void main() {
           hasLength(2),
           reason: 'review never mutates history, cancelled or not',
         );
-        expect(
-          f.host.activitySignals,
-          [true, false],
-          reason: 'the activity cue drops on the cancel path too',
-        );
+        expect(f.host.activitySignals, [
+          true,
+          false,
+        ], reason: 'the activity cue drops on the cancel path too');
       },
     );
   });

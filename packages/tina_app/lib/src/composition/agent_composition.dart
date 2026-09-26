@@ -153,6 +153,10 @@ AgentDriver buildAgent({
   /// overrides/disables it); every other caller keeps the engine default of 0
   /// (a mid-stream transport error aborts the turn, pre-#28 behavior).
   int transportRetryAttempts = 0,
+
+  /// The runtime-wide timer service (§5). Non-null registers exactly the
+  /// three timer tools on the agent; null (headless, tests) registers none.
+  TimerService? timers,
 }) {
   // The entry agent's resolved system prompt — also the identity a delegated
   // sub-agent inherits. Resolved once so the agent and the delegation context
@@ -187,6 +191,11 @@ AgentDriver buildAgent({
     ...pipeline.tools.buildTools(safeMode: config.safeMode).all,
     if (exploreProject != null) exploreProject,
   ];
+  // The timer surface (§5): exactly the three tools, only when a service is
+  // wired. Headless builds no service — the agent never sees these.
+  if (timers != null) {
+    tools.addAll(timerToolsFor(timers));
+  }
   // The plugin-scope plan store (when a plan plugin is mounted) contributes a
   // per-conversation update_plan tool (LocalControlTool: no approval ask) and
   // a request middleware that injects the conversation's plan as agent

@@ -77,3 +77,13 @@ abstract interface class WorkflowCapabilities {
   Future<void> Function(String name)? get openWorkflowViewer;
   Future<void> Function({String? name, bool isNew})? get openWorkflowEditor;
 }
+
+/// The timer-surface capability (`/timers`, §9): the runtime-wide service when
+/// the interactive runtime wired one; null in headless, where `/timers`
+/// reports its absent-service line.
+mixin TimersCapabilities {
+  /// The runtime-wide timer service (§9), wired by the TUI bootstrap; null in
+  /// headless, which never constructs timers (`/timers` reports its
+  /// absent-service line and `buildAgent` registers no timer tools).
+  TimerService? get timers => null;
+}

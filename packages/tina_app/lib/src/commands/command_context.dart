@@ -58,7 +58,8 @@ abstract class CommandContext
         PermissionsCapabilities,
         IndexCapabilities,
         DispatchCapabilities,
-        WorkflowCapabilities {
+        WorkflowCapabilities,
+        TimersCapabilities {
   /// The active conversation — handlers read/write its history, host, policy,
   /// recorder, and provider.
   Conversation get active;

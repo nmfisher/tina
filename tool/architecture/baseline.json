@@ -1,5 +1,140 @@
 [
   {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_backend.dart|lib/session_commands/startup_session_picker_backend.dart|packages/tina_console/lib/src/backend/ansi_input_backend.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_backend.dart|lib/session_commands/startup_session_picker_backend.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_backend.dart|lib/session_commands/startup_session_picker_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_backend.dart|lib/tui/model_search_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_backend.dart|lib/tui/prompts.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_backend.dart|lib/tui/settings_panel.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_backend.dart|lib/tui/spawn_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_overlay.dart|lib/session_commands/startup_session_picker_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_overlay.dart|lib/tui/model_search_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_overlay.dart|lib/tui/prompts.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_overlay.dart|lib/tui/settings_panel.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_overlay.dart|lib/tui/spawn_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_fixture.dart|lib/session_commands/startup_session_picker_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_fixture.dart|lib/tui/model_search_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_fixture.dart|lib/tui/prompts.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_fixture.dart|lib/tui/settings_panel.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_fixture.dart|lib/tui/spawn_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|lib/session_commands/startup_session_picker_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|lib/tui/model_search_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|lib/tui/prompts.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|lib/tui/settings_panel.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|lib/tui/spawn_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|test/helpers/fake_stdio.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|test/helpers/overlay_fixtures.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|test/session_commands/startup_picker_overlay_test.dart|packages/tina_console/lib/testing.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|test/session_commands/startup_picker_overlay_test.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
+    "key": "public-api|lib/session_commands/startup_session_picker_backend.dart|lib/session_commands/startup_session_picker_backend.dart|packages/tina_console/lib/src/backend/ansi_input_backend.dart",
+    "reason": "pre-existing A06 boundary path; the startup session picker entry points live beside the runtime shell, not inside the terminal package",
+    "owner": "A06"
+  },
+  {
     "key": "public-api|lib/tui_coordinator.dart|lib/tui_coordinator.dart|packages/tina_console/lib/src/backend/notcurses_backend.dart",
     "reason": "TUI constructs the notcurses backend directly; A07-spec exception until a public console factory/capability exists",
     "owner": "A07"
