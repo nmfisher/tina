@@ -19,9 +19,11 @@ I reviewed all 13 places tina asks a human to decide, and asked whether
 plain text — a chat window, an HTTP client, a queue — could answer it
 with no terminal attached. Permission asks — the dangerous kind — all
 go through one function type (`PermissionAsker`), and the core already
-runs unattended. The other ask kinds have their own seams: `ask_user`
-uses the attractor `Interviewer` (`Question`/`Answer` values,
-`packages/attractor/lib/src/interviewer.dart:31,57`), and plan
+runs unattended. The other ask kinds have their own seams: workflow
+gates use the attractor `Interviewer` (`Question`/`Answer` values,
+`packages/attractor/lib/src/interviewer.dart:31,57`), `ask_user`
+takes its own batch callback returning `List<Answer>`
+(`ask_user_tool.dart:15`), and plan
 approvals persist a `requested` flag in `PlanStore`
 (`plan_store.dart:169`) — the model waits on guidance in the tool
 description (`plan_plugin.dart:161-170`), not on a suspended
@@ -612,7 +614,8 @@ end on the same seams. Start it after the recommendations above exist.
 Honest pricing (per the external review): "mostly glue" was an
 overstatement. The daemon is small *next to a core rewrite*, but it
 still writes real adapters per ask seam (`PermissionAsker`,
-`Interviewer`/`Question`/`Answer`, the plan store's `requested` flag),
+the gates' `Interviewer`, `ask_user`'s `List<Answer>` callback, the
+plan store's `requested` flag),
 plus transport serialization, routing, cancellation, and reconnect
 behavior. What "no core rewrite" promises is exactly that: new host +
 adapters, not a new engine.
@@ -673,7 +676,8 @@ puts correctness first, then proves the remote path with the
    one hard duty is ingress: approval and cancellation must stay
    reachable while a turn waits. This step is what establishes the real
    contracts: adapters per ask seam (`PermissionAsker`,
-   `Interviewer`/`Question`/`Answer`, the plan store's `requested`
+   the gates' `Interviewer`, `ask_user`'s `List<Answer>` callback, the
+   plan store's `requested`
    flag), transport serialization, routing, cancellation, reconnect.
    Fail-open gaps found here feed straight back into step 2's flags.
 4. Recommendation 3's commands, dispatchable from both TUI and headless.
