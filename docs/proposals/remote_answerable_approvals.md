@@ -6,7 +6,8 @@ claim in them was checked in the source at `9aae45a` (v0.8.32, branch
 Everything from Part 3 on — the daemon verdict, the six recommendations,
 the migration order, the alternatives, the acceptance list — is a
 proposal. None of it is implemented on main.
-Date: 2026-09-25.
+Date: 2026-09-25; revised 2026-09-26 after an external design review
+(see "Corrections after external review" at the end).
 Builds on: [`plugin_posture_door.md`](plugin_posture_door.md) (posture as
 a value the core creates) and
 [`plugin_architecture.md`](plugin_architecture.md) §11 (what plugins may
@@ -16,15 +17,26 @@ do with approvals). This document does not re-propose either of them.
 
 I reviewed all 13 places tina asks a human to decide, and asked whether
 plain text — a chat window, an HTTP client, a queue — could answer it
-with no terminal attached. The engine is clean: every question goes
-through one function type (`PermissionAsker`), and the core already runs
-unattended. The wiring is not: every asker a human answers is built
-inside `TuiCoordinator`, and no open question survives a restart. Two
-defects ship today: three unattended paths answer questions *for* the
-human, and automatic denials are audited as user denials. A daemon is
-not needed to fix this, but it is the right goal. Six steps, in order:
-record who denied; store open questions; add `/approve`-style commands;
-add answerability to posture; fail closed when unattended; `tina serve`.
+with no terminal attached. Permission asks — the dangerous kind — all
+go through one function type (`PermissionAsker`), and the core already
+runs unattended. The other ask kinds have their own seams: `ask_user`
+uses the attractor `Interviewer` (`Question`/`Answer` values,
+`packages/attractor/lib/src/interviewer.dart:31,57`), and plan
+approvals persist a `requested` flag in `PlanStore`
+(`plan_store.dart:169`) — the model waits on guidance in the tool
+description (`plan_plugin.dart:161-170`), not on a suspended
+permission call. A remote front end therefore writes one adapter per
+seam, and adds transport serialization, routing, cancellation and
+reconnect on top. The wiring is still the problem: every asker a human
+answers is built inside `TuiCoordinator`, and no open question survives
+a restart. Two defects ship today: three unattended paths answer
+questions *for* the human, and automatic denials are audited as user
+denials. A daemon is not needed to fix this, but it is the right goal.
+Six steps, in order: record who denied; fail closed when unattended;
+park open questions in a store; add `/approve`-style commands; add
+answerability to posture; `tina serve`. (This summary and the migration
+order were revised on 2026-09-26 after an external design review — see
+"Corrections after external review" at the end.)
 
 ## Terms used below
 
@@ -54,7 +66,12 @@ queue? Typing `/approve` in a chat window must work as well as pressing
 `a` in the TUI. Two facts about text channels drive the design:
 
 1. **A chat answer arrives late.** Minutes, sometimes hours. A blocking
-   `await` on a prompt cannot wait that long inside one process.
+   `await` on a prompt cannot wait that long inside one *turn* — the
+   agent turn must be allowed to end while the question is open. (The
+   *process* can hold a pending `Future` for hours without blocking the
+   event loop — a point the external review made, which is why a live
+   daemon can carry in-memory pending asks, and why durability is a
+   separate requirement from remoteness.)
 2. **The ask must survive a restart.** If the process dies while a
    question is open, the answer must still land somewhere useful.
 
@@ -454,12 +471,35 @@ an answer that arrives for an expired ask gets an explicit "too late"
 rather than silence. Nothing blocks by default. The TUI path is
 untouched.
 
-Costs: one new store contract plus one engine type.
+Costs: the ask record and store contract for parking, plus — if late
+answers must actually resume paused work — a suspension/resume design
+in the turn loop (see the correction of record below; the earlier
+"one new store contract plus one engine type" estimate was wrong).
 Risks: replay confusion. Mitigated by ids and status, and by making
 expiry deny once (matching the existing "proceed without this tool"
 notes, `headless_host.dart:88`).
-Unlocks: asks survive restart; block-or-park becomes a choice each host
-makes.
+Unlocks: asks survive restart as *records*; block-or-park becomes a
+choice each host makes.
+
+**What parking does not do — correction of record (2026-09-26).** An
+earlier version of this section claimed the store plus a record type
+buys restart-surviving approvals. An external review caught the error,
+and the code confirms it: parking stores the *question*, but nothing in
+today's engine suspends the *work*. When an asker denies, the executor
+returns a completed, failed tool result and the turn moves on
+(`tool_executor.dart:620-649`) — the model is told the command was not
+executed, and it proceeds. A later `/approve <id>` has no paused
+operation to land on. For a late answer to resume the original call,
+the engine needs explicit execution state (running / awaiting-decision
+/ settled), correlation from ask id to `toolUseId`, preserved sealed
+arguments (the snapshot the executor already takes before
+authorization, `tool_executor.dart:613-616`), revalidation of the
+decision against current policy and phase when the answer arrives, and
+duplicate-answer handling (two `/approve` lines for one id; an answer
+for an expired ask). That is a turn-loop design, priced as its own
+piece of work. This recommendation keeps the ask record — routing,
+display, and the audit trail need it — but no longer claims it makes
+execution resumable.
 
 ### 3. A text route in for answers (small; immediately useful)
 
@@ -520,8 +560,15 @@ A headless host whose `HostInterface` is a transport — HTTP or stdio
 first; Signal is a client, not a core concern — composed from
 recommendations 2–5: the ask store for durability, the command ingress
 for answers, the posture for honesty. The TUI remains a separate front
-end on the same seams. Start it only after 2–5 exist, because the
-daemon is then mostly glue.
+end on the same seams. Start it after the recommendations above exist.
+
+Honest pricing (per the external review): "mostly glue" was an
+overstatement. The daemon is small *next to a core rewrite*, but it
+still writes real adapters per ask seam (`PermissionAsker`,
+`Interviewer`/`Question`/`Answer`, the plan store's `requested` flag),
+plus transport serialization, routing, cancellation, and reconnect
+behavior. What "no core rewrite" promises is exactly that: new host +
+adapters, not a new engine.
 
 Does not fix: focus shared across front ends (two hosts, one
 conversation — who is foregrounded?). Deliberately deferred; that is a
@@ -529,10 +576,18 @@ product question, not a seam problem.
 
 ### What should stay terminal-only
 
-- **The mid-stream approval modal** (y/n/a/d/r with regex rewrite). A
-  security-sensitive decision wants the fastest surface there is, shows
-  exactly what is about to run, and takes one-key answers. A chat
-  round-trip is slower for the human, and keeping it local is safer.
+The split is **presentation vs authorization**. What stays terminal-only
+is the *presentation* of the fast, synchronous decisions — not the
+underlying decision itself. A decision that must be reachable from a
+chat window stays reachable; only its keyboard-first rendering is local.
+
+- **The mid-stream approval modal as a widget** (y/n/a/d keys, regex
+  rewrite, one-key answers). It is the fastest surface for a person at
+  the keyboard and shows exactly what is about to run. The *decision*
+  behind it must stay remote-answerable — "approve a blocked operation
+  while away" is the point of this whole proposal — so the modal is one
+  front end over the same ask record, not the only route to the
+  decision.
 - **The mode wheel, plan overlay, and inline diff preview.** Arrow-key
   selection over rendered diffs is what a TUI is good at. Reproducing
   it in text is a downgrade for the person sitting at the keyboard.
@@ -542,27 +597,51 @@ product question, not a seam problem.
   exists, so a remote channel has nothing to attach to yet.
 
 Remote channels take the *async* decisions: long-running workflows,
-plan approvals, `ask_user` questions, unattended-run notifications. The
-terminal keeps the *synchronous* ones. That split is the design. Making
-everything generic would make the common case worse.
+plan approvals, `ask_user` questions, unattended-run notifications —
+and, through the parked-ask route, the permission decisions too when no
+one is at the keyboard. The terminal keeps the *synchronous,
+keyboard-first presentation* of its own decisions. That split is the
+design. Making every widget generic would make the common case worse
+without making any decision safer.
 
 ---
 
 ## Migration
 
+Revised 2026-09-26 after the external design review (previous order:
+store → commands → posture → fail-closed → daemon; the correction and
+the reason are in "Corrections after external review"). The new order
+puts correctness first, then proves the remote path with the
+*interfaces that already exist*, and only then adds durability:
+
 1. Recommendation 1 alone (one commit, one architecture test).
 2. Recommendation 5 alone (the flag, plus tests for both surfaces).
-3. Recommendation 2's store, following the plan-store precedent; askers
-   adopt parking one host at a time (`HeadlessHost` first — it already
-   has the note-and-deny shape).
+3. **A narrow remote-host implementation on the existing async
+   interfaces** — a `DaemonHost`-shaped `HostInterface` over stdio or
+   HTTP whose askers `await` the incoming answer. A Dart `Future` may
+   stay pending for hours without blocking the event loop, and one
+   service can hold many pending questions, so a *live* remote front
+   end needs no store at all. This step is what establishes the real
+   contracts: adapters per ask seam (`PermissionAsker`,
+   `Interviewer`/`Question`/`Answer`, the plan store's `requested`
+   flag), transport serialization, routing, cancellation, reconnect.
+   Fail-open gaps found here feed straight back into step 2's flags.
 4. Recommendation 3's commands, dispatchable from both TUI and headless.
-5. Posture door steps 1–3, then the answerability dimension
+5. Recommendation 2's ask store, following the plan-store precedent;
+   askers adopt parking one host at a time (`HeadlessHost` first — it
+   already has the note-and-deny shape). Durable *records* land here.
+6. Posture door steps 1–3, then the answerability dimension
    (recommendation 4).
-6. `tina serve` (recommendation 6) once 2–5 have shipped and the seams
-   have users.
+7. Durable *suspension and recovery* — the turn-loop work from the
+   correction of record — only once a live remote host has shown which
+   parts of it are actually needed.
+8. `tina serve` (recommendation 6), composed from the pieces above.
 
 Steps 1, 2 and 3 are independent of each other. Step 4 depends on step
-3. Step 5 depends on the posture door. Step 6 depends on all of them.
+3. Step 5 is where restart durability enters — as a requirement for
+*records*, kept separate from the live-host path. Step 7 depends on 3
+and 5. Step 8 depends on all of them. PTY packaging stays a separate
+cleanup (tin-7b7k), unrelated to this order.
 
 ## Alternatives considered
 
@@ -575,8 +654,12 @@ Steps 1, 2 and 3 are independent of each other. Step 4 depends on step
   shows how unattended denials already get misread, and approvals are
   the one surface where "nobody answered" must not mean "yes".
 - **Make `PermissionAsker` async-with-callbacks now, with no store.**
-  Rejected: a `Future` cannot outlive the process. The store is the
-  actual requirement, and the typedef can stay exactly as it is.
+  Rejected *for restart durability*: a `Future` cannot outlive the
+  process. The review's ordering point stands, though — for a *live*
+  remote host, futures over the existing async interfaces are exactly
+  right, and that path needs no store (see migration step 3). The store
+  earns its place when asks must survive restarts or outlive the host
+  that asked.
 - **Skip the posture work and have the daemon host read policy
   fields.** Rejected: that is the exact duplication
   `plugin_posture_door.md` exists to remove. A second consumer — the
@@ -589,8 +672,14 @@ Steps 1, 2 and 3 are independent of each other. Step 4 depends on step
   architecture test fails when an asker with no human path returns
   `decidedBy: 'user'` (recommendation 1).
 - Kill -9 a run with a parked ask. Restart. Deliver the answer. The
-  tool result and the audit line show the decision, with
-  `decidedBy: 'user'` and the ask id (recommendation 2).
+  *record* resolves: the audit line shows the decision, with
+  `decidedBy: 'user'` and the ask id, and the UI/transport that asked
+  learns the outcome (recommendation 2). This is a record-level
+  criterion. Resuming the paused *tool call* itself is deliberately
+  **not** claimed here — see the correction of record in
+  recommendation 2: on main today a denial completes the tool result,
+  and building real suspension/resume is separate future work with its
+  own acceptance tests.
 - `/approve <id>` works from a plain stdin-driven session — no TUI
   component in the stack (recommendation 3).
 - With an async host, a plan stays *awaiting answer* across a restart
@@ -604,3 +693,65 @@ Steps 1, 2 and 3 are independent of each other. Step 4 depends on step
   `stdioType`/`hasTerminal`/focus checks outside `bin/tina.dart`, the
   TUI package, and `TuiConversationHost` (the last only for its own
   modal).
+
+---
+
+## Corrections after external review
+
+An external design review of commit `bc6cbe5` checked this document's
+claims against the source. Its verdict: the central findings hold (the
+asker seam is real; unattended paths auto-answer; automatic denials are
+audited as user denials; a daemon is not required to fix them). Four
+claims were wrong, and the proposed ordering was too rigid. Each
+correction is applied above at the place that makes the claim; this
+section records what changed and why. Corrections were verified in the
+source before being applied.
+
+1. **"Store the ask, return a denial" does not make execution
+   resumable.** The earlier text (recommendation 2) said parking plus a
+   record type bought restart-surviving approvals, priced at "one new
+   store contract plus one engine type." Wrong: when an asker denies,
+   `tool_executor.dart:620-649` returns a completed, failed tool
+   result — the turn ends, the model proceeds, and a later approval has
+   no suspended operation to resume. Real resumption needs execution
+   state, ask-id → `toolUseId` correlation, preserved sealed arguments
+   (`tool_executor.dart:613-616`), revalidation at answer time, and
+   duplicate-answer handling — a turn-loop design, priced as its own
+   work. Applied in recommendation 2 (correction of record) and the
+   acceptance list.
+
+2. **The engine is not one seam, and "every question goes through
+   `PermissionAsker`" was false.** The summary said so; it does not.
+   Permission asks do. `ask_user` answers
+   `Question`/`Answer` values through the attractor `Interviewer`
+   (`interviewer.dart:31,57,90-91`); workflow gates use the same
+   `Interviewer`; plan approval persists a `requested` flag in
+   `PlanStore` (`plan_store.dart:169`) and the model's waiting is
+   guidance in the `update_plan` tool description
+   (`plan_plugin.dart:161-170`), not a suspended permission call. A
+   remote front end writes one adapter per seam, plus transport
+   serialization, routing, cancellation, and reconnect. "No core
+   rewrite" stands; "no protocol invention" and "mostly glue" did not
+   survive the review. Applied in the summary and recommendation 6.
+
+3. **"What should stay terminal-only" conflated presentation with
+   authorization.** The earlier text kept the *decision* local along
+   with the modal — which forbids the motivating case, approving a
+   blocked operation while away. The split is now stated as
+   presentation vs authorization: the modal, wheel, overlays, and diff
+   preview stay TUI-only as presentation; the underlying decisions stay
+   answerable remotely. Applied in "What should stay terminal-only."
+
+4. **The ordering treated restart durability as a prerequisite for
+   remoteness.** It is not: a pending `Future` blocks nothing, so a
+   live daemon can carry in-memory pending asks, and one service can
+   hold many. Durability is a separate requirement for a separate
+   property (surviving restart). The migration now proves the remote
+   path on the existing async interfaces first (new step 3), and moves
+   the store to step 5 and real suspension/resume to step 7. Applied
+   in "Two facts" (fact 1), "Alternatives", and "Migration".
+
+Not corrected (checked, holds): the four central findings listed at the
+top; the who-denied evidence; the fail-open evidence; the daemon
+ingredient table's "already exists?" column; the rejected-shapes list,
+with the futures nuance added to the third entry.

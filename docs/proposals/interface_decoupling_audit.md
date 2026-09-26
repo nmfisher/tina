@@ -40,12 +40,17 @@ and the review says so rather than pretending a seam exists.
 
 **Recommendation.** Land the three already-proposed approval steps (durable
 ask store, `/approve`-style commands, answerability in posture), then build
-`tina serve` as a `HostInterface` implementation — the audit confirms the
-daemon recipe in `docs/proposals/remote_answerable_approvals.md` Part 3 is correct. A second
+`tina serve` as a `HostInterface` implementation. A second
 front end should reuse `CommandRegistry.dispatch` + `InputRoutes` and provide
 its own `FrontendCapabilities`; it must not be wired through the TUI
 coordinator. One engine-side cleanup (the PTY stack and process registry)
-reduces what a non-terminal host must carry.
+reduces what a non-terminal host must carry. Revised 2026-09-26 after an
+external design review: the ordering above is provenance and unattended
+defaults first, then a narrow remote host on the existing async interfaces,
+then durable records, then suspension/resume if the live host shows it is
+needed; the PTY packaging stays a separate cleanup. The review also
+corrected four claims in these two documents — the audit's own log is at
+"Corrections after external review" at the end of this file.
 
 ## Interface inventory — every surface a front end touches
 
@@ -87,13 +92,23 @@ types (`packages/tina_app/lib/src/commands/command_registry.dart:139-145`) — a
 same command contributions by design (`lib/session_commands/headless_commands.dart:6-8`).
 
 This is the single most important fact for the audit: **a second front end
-does not need to invent a protocol.** It implements `HostInterface` +
+does not need to rewrite the core.** It implements `HostInterface` +
 `AgentSink`, supplies a `PermissionAsker`, mounts commands, and drives
 `TurnExecutor.submit` with strings. Every one of those types is in the engine
 or app layer and terminal-free.
 
-**Cost.** None — this finding is the reason the effort estimates above are
-"Medium" rather than "Large".
+**Cost.** None for the seam itself — this finding is the reason the effort
+estimates above are "Medium" rather than "Large". It is not the whole cost:
+the seams do not cover everything a remote front end must build. `ask_user`
+speaks `Question`/`Answer` through the attractor `Interviewer`
+(`packages/attractor/lib/src/interviewer.dart:31,57,90-91`), not
+`PermissionAsker`; plan approvals are persisted `requested` state in
+`PlanStore` (`packages/tina_app/lib/src/plans/plan_store.dart:169`) whose
+waiting is model guidance in the `update_plan` description
+(`plan_plugin.dart:161-170`), not a suspended permission call; and the
+transport itself needs serialization, routing, cancellation, and reconnect
+behavior on top. One adapter per seam, then the protocol work — the seams
+remove the rewrite, not the protocol.
 
 ### Finding 2 — Every interactive asker is TUI-shaped; null asker = auto-answer
 
@@ -206,11 +221,25 @@ package, which the one-way dependency arrow already suggests). Do extract
 `packages/tina_engine/lib/src/tools/process_tree.dart` into a small `tina_process`
 package (two files; consumers: the engine's process runner, the PTY runner, and
 root's exit funnel) — opportunistic, alongside either the PTY move or the first
-daemon work, since a daemon is a second process-owning host. And move the
-three build deps out of `dependencies` when the PTY question settles — the
-cheapest hygiene fix in this document. All of this must keep
-`dart run tool/check_architecture.dart` and `dart test test/architecture/`
+daemon work, since a daemon is a second process-owning host. All of this must
+keep `dart run tool/check_architecture.dart` and `dart test test/architecture/`
 green (they pass today: 912 files / 27 exceptions; 22 tests).
+
+**Correction on the build deps (2026-09-26, external review).** This
+finding previously recommended moving `code_assets`/`hooks`/
+`native_toolchain_c` to `dev_dependencies` as "the cheapest hygiene fix
+in this document". That was wrong while the hook stays in the engine.
+Dart's rule: a package imported from anything outside `test`/`example`
+must be a regular dependency — and these three are imported by
+`hook/build.dart` (`packages/tina_engine/hook/build.dart:8-10`), which
+every consumer *executes* when it builds the engine. In a consumer's
+resolution this package's dev dependencies are ignored (dart.dev,
+"Dependencies > Dev dependencies"), so the move could break downstream
+builds. The lockfile weight is real, but the only clean way to remove
+it is to **extract the PTY stack together with its hook and these three
+dependencies into a separate package** — no dependency-entry move can
+do it. Supersedes recommendation 4 in tin-7b7k and acceptance item 5
+below.
 
 ### Finding 6 — The wasm/browser paths are re-platforms, not front ends
 
@@ -232,9 +261,9 @@ can say "not this seam" honestly instead of omitting the rows.
 | # | Recommendation | Status | Cost | Unblocks |
 |---|---|---|---|---|
 | 1 | Build `tina serve` as a `HostInterface` + asker-parking host, per `docs/proposals/remote_answerable_approvals.md` Part 3 | Proposal (owned there) | Medium | Web + bot front ends |
-| 2 | Land durable ask store + `/approve`-family commands + answerability-in-posture before any transport work | Proposal (tin-3i3l steps 1–3) | Small–medium | Every async-answer front end |
+| 2 | Land provenance + unattended-default fixes first (tin-3i3l steps 1+5); then a narrow remote host on the existing async interfaces; durable ask store, `/approve`-family commands and answerability-in-posture follow (tin-3i3l steps 2–4, revised order) | Proposal (tin-3i3l, revised 2026-09-26) | Small–medium | Every async-answer front end |
 | 3 | Second front end = new `CommandContext`/capabilities impl + `InputRoutes` reuse; never wired through `TuiCoordinator` | Proposal | Medium | Clean coexistence of TUI and remote |
-| 4 | Extract `process_registry`+`process_tree` → `tina_process`; park PTY (baseline exception or `tina_pty` at panel time); move build deps out of `dependencies` | Proposal (tin-7b7k) | Small | Leaner non-terminal hosts; daemon process ownership |
+| 4 | Extract `process_registry`+`process_tree` → `tina_process`; park PTY (baseline exception or `tina_pty` at panel time). Build deps: keep in `dependencies` while the hook is here; only extracting PTY + hook + deps together removes them from consumers' lockfiles | Proposal (tin-7b7k, revised) | Small | Leaner non-terminal hosts; daemon process ownership |
 | 5 | Treat the session lock as a front-end policy decision (one live front end per session, documented) | Proposal | Trivial (docs) | Multi-front-end expectations |
 | 6 | Do not pursue wasm/browser as a "front end"; keep it a separate track with its own gates | Standing | None | Honesty in the roadmap |
 
@@ -243,18 +272,29 @@ can say "not this seam" honestly instead of omitting the rows.
 1. A `tina serve` process can host a conversation with no `tina_console`/
    `dart_notcurses` import in its closure — verified the same way the persisted
    config is pinned today (`test/architecture/import_boundary_test.dart:109`).
-2. An ask issued in a served session, with the process restarted before the
-   answer, is still answerable after restart (depends: durable ask store).
+2. An ask *record* issued in a served session survives restart and its
+   answer lands on the stored record (audit line, `decidedBy: 'user'`,
+   ask id). Resuming the paused tool call itself is *not* claimed — see
+   the correction of record in `remote_answerable_approvals.md`
+   recommendation 2: on today's executor a denial completes the tool
+   result (`tool_executor.dart:620-649`), and suspension/resume is
+   separate future work.
 3. A gate (`hexagon`) and an `ask_user` in a served session park rather than
    auto-approve/auto-select; the audit record names the front end, never
    `'user'`, for machine-chosen answers.
 4. `/help`, `/sessions`, `/model`, `/permissions` dispatch identically from a
    served front end and the TUI (same `CommandRegistry` contributions); UI-only
    commands report "not available on this front end" instead of no-op.
-5. After Recommendation 4: `packages/tina_engine/pubspec.yaml` `dependencies`
-   contains no `code_assets`/`hooks`/`native_toolchain_c`, and
-   `dart run tool/check_architecture.dart` + `dart test test/architecture/`
-   remain green.
+5. ~~After Recommendation 4: `packages/tina_engine/pubspec.yaml`
+   `dependencies` contains no `code_assets`/`hooks`/`native_toolchain_c`.~~
+   Withdrawn 2026-09-26 (external review): with the build hook in the
+   engine, these must stay regular dependencies — consumers execute
+   `hook/build.dart`, and dev dependencies are ignored in a consumer's
+   resolution. Replacement criterion: if and when the PTY stack is
+   extracted together with its hook and deps, the *remaining* engine
+   package's `dependencies` drops them — and
+   `dart run tool/check_architecture.dart` + `dart test
+   test/architecture/` remain green throughout.
 6. Nothing in this audit changes `terminalPackages`, the engine barrel, or any
    public engine API.
 
@@ -301,3 +341,61 @@ can say "not this seam" honestly instead of omitting the rows.
   ("terminal ownership and child-process reaping remain process-owned"),
   `docs/features/terminal_panel_plan.md` (panel placement),
   `spikes/dart_wasm_worker/README.md` (workerd verdict).
+
+## Corrections after external review
+
+An external design review checked commit `bc6cbe5` against the source.
+Its verdict: the central findings of this audit hold — the seams are
+real (`HostInterface`, `AgentSink`/`AgentEventBus`,
+`CommandRegistry.dispatch`, `InputRoutes`, `TurnExecutor`,
+`SessionStore`/`SessionIndex`); unattended questions auto-answer;
+automatic denials are attributed to the user; fixing the three gaps
+does not require a daemon; wasm/browser is a separate port. Four claims
+were corrected, each verified in the source before the edit:
+
+1. **"A second front end does not need to invent a protocol" → softened.**
+   The seams remove the *core rewrite*, not the protocol. `ask_user`
+   answers `Question`/`Answer` via the attractor `Interviewer`
+   (`packages/attractor/lib/src/interviewer.dart:31,57,90-91`) — not
+   `PermissionAsker`; plan approval is persisted `requested` state in
+   `PlanStore` (`plan_store.dart:169`) whose waiting is model guidance
+   in the `update_plan` description (`plan_plugin.dart:161-170`). A
+   remote front end writes one adapter per seam, plus transport
+   serialization, routing, cancellation, reconnect. Applied in Finding
+   1 ("Cost") and the ticket.
+
+2. **"Move the build deps out of `dependencies`" → withdrawn.** While
+   `hook/build.dart` stays in the engine, `code_assets`/`hooks`/
+   `native_toolchain_c` must be regular dependencies: consumers execute
+   the hook, and Dart ignores a dependency's dev dependencies in their
+   resolution — the move could break downstream builds
+   (`hook/build.dart:8-10`; dart.dev, "Dev dependencies"). Only
+   extracting the PTY stack together with its hook and these deps
+   removes the lockfile weight. Applied in Finding 5, roadmap row 4,
+   and acceptance item 5 (now withdrawn with a replacement).
+
+3. **"Nothing persists an open ask, so a late answer is dropped" —
+   true, but the earlier companion-proposal claim that a store alone
+   fixes it was not.** Parking stores the question; on today's
+   executor a denial is a completed, failed tool result
+   (`tool_executor.dart:620-649`) and the turn moves on, so a later
+   approval has nothing to resume. Suspension/resume needs execution
+   state, ask-id → `toolUseId` correlation, preserved sealed arguments
+   (`tool_executor.dart:613-616`), revalidation, and duplicate-answer
+   handling. Applied in acceptance item 2 and Finding 1's cost note.
+
+4. **Ordering relaxed.** Restart durability was listed as a
+   prerequisite for any transport work (roadmap row 2). It is not: a
+   pending `Future` blocks nothing, so a live remote host on the
+   existing async interfaces needs no store. New order: provenance +
+   unattended defaults → narrow remote host on existing async
+   interfaces (establishes the real contracts) → durable records →
+   suspension/resume if the live host shows it is needed. PTY
+   packaging stays a separate cleanup. Applied in the Summary and
+   roadmap row 2.
+
+Terminal-only framing: this audit never claimed permission *decisions*
+must stay local, and the companion proposal's "what should stay
+terminal-only" section was corrected there to split presentation (the
+modal, wheel, overlays — TUI-only) from authorization (the decision —
+remote-answerable).
