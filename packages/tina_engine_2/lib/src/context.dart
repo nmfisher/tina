@@ -1,4 +1,5 @@
 /// The per-turn snapshot plugins receive, and the one cancellation token.
+/// Plugin-facing types: every hook takes a [Context].
 library;
 
 import 'dart:collection';

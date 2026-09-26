@@ -13,16 +13,11 @@ No persistence. The point is to judge the design, not the coverage.
 
 ```
 lib/tina_engine_2.dart     barrel export
+lib/src/loop.dart          the loop. One file. Five steps, top to bottom.
 lib/src/model.dart         the value types (immutable)
 lib/src/plugin.dart        AgentPlugin: one interface, every hook optional
-lib/src/registry.dart      plugin registry: ids, removal, stable run order
-lib/src/loop.dart          the loop. One file. Five steps. (<150 lines)
-lib/src/prompt.dart        prompt assembly: the core owns the join
-lib/src/pin.dart           the tool set pinned at the turn boundary
-lib/src/dispatch.dart      tool dispatch: liveness, guards, executors
-lib/src/turn.dart          turn bookkeeping and the onTurnEnd fan-out
+lib/src/context.dart       the per-turn snapshot plugins receive + the cancel token
 lib/src/provider.dart      the provider interface + the scripted provider
-lib/src/context.dart       the per-turn snapshot plugins receive
 example/example_plugins.dart  four small plugins, hooks in use
 test/engine_2_test.dart    the eight required scenarios
 ```
@@ -48,9 +43,10 @@ Everything else in this file follows from those two lines.
 5. append results, go to 3 until the model asks for no tools
 ```
 
-That is all `loop.dart` does — it is 149 lines including comments.
-Budgets, retries, compaction, pruning, checkpoints are deliberately not in
-it. See "Left out on purpose".
+That is all `loop.dart` does — one file, read top to bottom: take the
+input, build the request, call the model, run the tool calls, append the
+results and repeat. Budgets, retries, compaction, pruning, checkpoints are
+deliberately not in it. See "Left out on purpose".
 
 ## The model
 
@@ -113,8 +109,8 @@ changed it.
 **`beforeRequest`** — runs before every model call, not once per turn, so a
 plugin can transform each request as the conversation grows. Gets a full
 `Request` snapshot; returns a new `Request` or null. Runs in `order`. This
-is where a pruning or redaction plugin would live — outside the loop, which
-is why the loop file stays short.
+is where a pruning or redaction plugin would live — the loop itself never
+rewrites what the model is about to see.
 
 **`beforeTool`** — the guard. Called before each tool executes, in `order`.
 Returns `Decision.allow`, `Decision.deny`, or `Decision.ask`. All guards
