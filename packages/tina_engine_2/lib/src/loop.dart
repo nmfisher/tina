@@ -31,17 +31,14 @@ final class AgentLoop {
   AgentLoop({
     required LlmProvider provider,
     required List<AgentPlugin> plugins,
-    Map<String, Object> services = const {},
     this.maxStepsPerTurn = 16,
-  })  : _provider = provider,
-        _services = Map.of(services) {
+  }) : _provider = provider {
     for (final p in plugins) {
       addPlugin(p);
     }
   }
 
   final LlmProvider _provider;
-  final Map<String, Object> _services;
   final int maxStepsPerTurn;
 
   /// Plugins in registration order. A duplicate id throws here.
@@ -81,16 +78,8 @@ final class AgentLoop {
   /// The one cancellation path.
   void cancel(String why) => _cancel.cancel(why);
 
-  /// What a plugin sees right now: transcript up to now, the tools pinned
-  /// for this turn, read-only registries, the shared cancel token.
-  Context _snap(List<ToolSchema> pinned) => Context(
-      transcript: List.of(_transcript),
-      tools: List.of(pinned),
-      isLive: _byId.containsKey,
-      services: _services,
-      turnState: _turn,
-      cancel: _cancel);
-  final Map<String, Object?> _turn = {};
+  /// What a hook run hands the plugin: the shared cancel path.
+  Context _snap() => Context(_cancel);
 
   /// One plugin hook, isolated: a plugin that throws has its contribution
   /// treated as absent and the turn continues.
@@ -110,7 +99,7 @@ final class AgentLoop {
     final sections = <String>[header];
     for (final p in _inOrder()) {
       try {
-        final section = p.systemSection(_snap(pinned));
+        final section = p.systemSection(_snap());
         if (section != null && section.isNotEmpty) sections.add(section);
       } catch (_) {
         // one bad plugin must not break every prompt
@@ -125,7 +114,6 @@ final class AgentLoop {
     // Step 1: take the input. Plugins may rewrite it, in order; the last
     // rewrite is the one the outcome records.
     // ------------------------------------------------------------------
-    _turn.clear();
     final pinnedMap = {
       for (final p in _inOrder())
         for (final t in p.tools) t.name: t
@@ -153,7 +141,7 @@ final class AgentLoop {
           changedBy: changedBy);
       for (final p in _inOrder()) {
         try {
-          p.onTurnEnd(_snap(pinned), outcome);
+          p.onTurnEnd(_snap(), outcome);
         } catch (_) {
           // one bad plugin must not break the turn end
         }
@@ -164,7 +152,7 @@ final class AgentLoop {
     var input = raw;
     for (final p in _inOrder()) {
       final replacement =
-          _runHook(() => p.beforeInvocation(_snap(const []), input));
+          _runHook(() => p.beforeInvocation(_snap(), input));
       if (replacement != null) {
         input = replacement;
         changedBy = p.id; // the last rewrite is recorded
@@ -191,7 +179,7 @@ final class AgentLoop {
           tools: List.of(pinned));
       for (final p in _inOrder()) {
         final replacement = _runHook(
-            () => p.beforeRequest(_snap(pinned), request.snapshot()));
+            () => p.beforeRequest(_snap(), request.snapshot()));
         if (replacement != null) request = replacement;
       }
 
@@ -267,7 +255,7 @@ final class AgentLoop {
             ToolResult? denied;
             for (final p in _inOrder()) {
               final decision =
-                      _runHook(() => p.beforeTool(_snap(pinned), call)) ??
+                      _runHook(() => p.beforeTool(_snap(), call)) ??
                   const Decision.allow();
               if (decision.kind != DecisionKind.allow) {
                 denied = decision.replacement ??
@@ -291,7 +279,7 @@ final class AgentLoop {
                 var recorded = ToolResult(content);
                 for (final p in _inOrder()) {
                   final replacement = _runHook(
-                      () => p.afterTool(_snap(pinned), recorded)) as ToolResult?;
+                      () => p.afterTool(_snap(), recorded)) as ToolResult?;
                   if (replacement != null) recorded = replacement;
                 }
                 result = recorded;
