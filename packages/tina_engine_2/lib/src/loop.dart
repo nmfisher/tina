@@ -134,8 +134,8 @@ final class AgentLoop {
           messages: List.of(_transcript),
           tools: [for (final t in pinnedTools) t.snapshot()]);
       for (final p in plugins) {
-        final replacement =
-            _isolate(() => p.beforeRequest(_snap(pinnedTools), request));
+        final replacement = _isolate(
+            () => p.beforeRequest(_snap(pinnedTools), request.snapshot()));
         if (replacement != null) request = replacement;
       }
       final response = await _provider.call(request);
@@ -160,11 +160,19 @@ final class AgentLoop {
         _transcript.add(Message.toolResult(result));
         appended.add(Message.toolResult(result));
       }
+      // Pinning. A plugin that left is not a change — its tools simply
+      // became undispatchable, which the liveness check above handles. Any
+      // other difference (a live plugin added or removed a tool, a new
+      // plugin appeared) rejects the turn.
+      final livePinned = {
+        for (final name in pinned.keys)
+          if (_registry.containsKey(owners[name])) name
+      };
       final now = {
         for (final p in plugins)
           for (final t in p.tools) t.name
       };
-      if (now.length != pinned.length || !now.containsAll(pinned.keys)) {
+      if (now.length != livePinned.length || !now.containsAll(livePinned)) {
         return finish(StopReason.error, 'tools-changed mid-turn');
       }
     }

@@ -10,6 +10,9 @@ import 'model.dart';
 /// All hooks are sync. The loop runs them in ascending [order], breaking
 /// ties by [id], so the sequence is the same every run.
 abstract class AgentPlugin {
+  /// Const: plugins are value-like config and can be const-constructed.
+  const AgentPlugin();
+
   /// Unique. Registering a duplicate id throws. Tie-breaker for [order].
   String get id;
 

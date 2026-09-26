@@ -96,7 +96,7 @@ text. The core calls it once per turn when the prompt is assembled, in
 ascending `order`. It returns one section. The core owns the join: it puts
 the newlines between sections, so no plugin can hand back a whole prompt.
 Stable sections first, volatile ones last — by convention the core's own
-header is order 0, so anything above ~500 lands at the end.
+header is first, so anything with a high `order` lands at the end.
 
 **`beforeInvocation`** — first hook of a turn. Gets the user `Input` and a
 context snapshot. Returns a new `Input` (rewritten text, new id) or null to
@@ -143,7 +143,9 @@ ignored. A place for metrics or logging, not for mutation.
 5. **Liveness.** A plugin can be removed mid-turn. Before dispatching a
    tool, the loop re-checks that the owning plugin is still registered. If
    it is gone, the call is skipped: a `tool_result` is written saying the
-   plugin left, and the turn continues. No crash.
+   plugin left, and the turn continues. No crash. The check is at dispatch:
+   a removal inside the guard loop for the same call does not undo it (see
+   open question 8).
 6. **Isolation.** A plugin that throws in a hook must not break the turn.
    Its contribution is treated as absent and the turn continues. (Brief
    ordering rules; enforced for every hook, including lifecycle hooks.)
@@ -243,8 +245,13 @@ or is out of scope for a review artifact.
    sequential and easy to reason about. If a hook ever needs I/O, either
    the hook goes async or the plugin precomputes. Not decided here.
 7. **Error taxonomy.** Stop reasons are a small enum plus a free-form
-   `error` string. A richer typed error channel might be needed once a
+   `detail` string. A richer typed error channel might be needed once a
    second consumer exists. One consumer now; not built.
+8. **Guard-loop removals.** The liveness check runs once, at dispatch. A
+   guard that removes the owning plugin during the same call's guard loop
+   does not stop the executor that dispatch just approved. Re-checking
+   after every guard would close that window but re-reads the registry
+   per guard; not settled.
 
 ## What "done" means here
 
