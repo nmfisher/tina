@@ -292,11 +292,21 @@ void main() {
       );
     });
 
-    test('--stream-idle-timeout defaults to 60s', () {
-      expect(_parse([]).streamIdleTimeout, const Duration(seconds: 60));
+    test('--stream-idle-timeout defaults to 600s', () {
+      // Pinned at 600: raised from 60 on 2026-09-24 after a high-reasoning
+      // run sat silent ~300s between stream events and was aborted. If this
+      // expectation ever fails, someone moved the default — update the
+      // --help text and lib/config.dart together on purpose.
+      expect(_parse([]).streamIdleTimeout, const Duration(seconds: 600));
       expect(
         _parse(['--stream-idle-timeout', '5']).streamIdleTimeout,
         const Duration(seconds: 5),
+      );
+      // 0 is not a valid idle timeout (unlike the watchdog): a stream that
+      // never emits is dead, so parsePositive demands a positive integer.
+      expect(
+        () => _parse(['--stream-idle-timeout', '0']),
+        throwsFormatException,
       );
     });
 

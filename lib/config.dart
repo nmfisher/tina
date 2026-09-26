@@ -19,7 +19,11 @@ export 'config/resolved_launch.dart';
 // Default values for CLI flags and config options.
 const int kDefaultMaxSteps = 500;
 const int kDefaultWatchdogSeconds = 300;
-const int kDefaultStreamIdleTimeoutSeconds = 180;
+// 2026-09-24: raised 180 → 600. The old value aborted an unattended run of a
+// high-reasoning model that sat silent for 300s between stream events while
+// thinking, losing ~1200 uncommitted lines. Reasoning models can be quiet for
+// minutes; 600s rides that out without hanging a dead stream for long.
+const int kDefaultStreamIdleTimeoutSeconds = 600;
 const int kDefaultRequestTimeoutSeconds = 120;
 const int kDefaultTransportRetryAttempts = 5;
 const int kDefaultMaxSubAgentConcurrency = 6;
@@ -450,10 +454,14 @@ class Config extends RuntimeConfig implements ResumeRequest {
     )
     ..addOption(
       'stream-idle-timeout',
-      defaultsTo: '60',
+      // No defaultsTo: when the flag is absent, res[name] is null and
+      // parsePositive falls through to kDefaultStreamIdleTimeoutSeconds —
+      // a single source of truth. (A defaultsTo placeholder would itself
+      // become the effective default, shadowing the constant.)
       help:
           'Seconds to wait between SSE events before declaring the '
-          'stream dead. Bump for very slow models.',
+          'stream dead (default ${kDefaultStreamIdleTimeoutSeconds}s). '
+          'Bump for very slow models.',
     )
     ..addOption(
       'request-timeout',
