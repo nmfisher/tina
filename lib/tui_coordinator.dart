@@ -843,6 +843,10 @@ class TuiCoordinator {
       // and wrapped in a right-column panel once the panel infra (spawnedPanels,
       // focusManager, layout closure) is set up below. Empty on a fresh start.
       final restoredPanels = <Conversation>[];
+      // Render-only panels (spawning_constraints Change 3): subAgent-kind
+      // conversations restore as watch-only panels, keyed by id. /spawn and
+      // /branch panels stay interactive.
+      final restoredReadOnly = <String>{};
       // Each restored panel's parent conversation id (from its meta), so the
       // layout can nest it under its spawner. Mirrors the live /spawn edge.
       final restoredParentOf = <String, String?>{};
@@ -875,6 +879,9 @@ class TuiCoordinator {
             sessionManager.active.addConversation(conv);
             if (meta.kind != ConversationKind.primary) {
               restoredPanels.add(conv);
+              if (meta.kind == ConversationKind.subAgent) {
+                restoredReadOnly.add(conv.id);
+              }
               restoredParentOf[conv.id] = meta.parentConversationId;
               restoredLabelOf[conv.id] = panelLabel(
                 role: meta.targetName ?? 'main',
@@ -1659,11 +1666,17 @@ class TuiCoordinator {
       /// spawnedPanels/focusManager/tree, split the layout on the first one, and
       /// relayout. Shared by restore (`panelizeRestoredConversation`) and live
       /// delegated-sub-agent panelization (the persistence hook). Returns the panel.
+      ///
+      /// [readOnly] (spawning_constraints Change 3): render-only — focus
+      /// highlights and scrolls, the shared editor stays on the primary, and
+      /// text keys are consumed with a dim notice. See
+      /// [ConversationPanelCoordinator.bindSpawned].
       PanelFrame _buildSpawnPanel({
         required String conversationId,
         required String parentConversationId,
         required String label,
         required TuiConversationHost sinkHost,
+        bool readOnly = false,
       }) {
         // Record the tree edge so the layout nests this panel under its parent
         // (the primary when it was a direct spawn, else its spawner) and indents
@@ -1688,6 +1701,7 @@ class TuiCoordinator {
         final panel = contentCoordinator.bindSpawned(
           host: sinkHost,
           label: label,
+          readOnly: readOnly,
         );
         panelManager.layout();
         contentCoordinator.relayContent();
@@ -1829,19 +1843,26 @@ class TuiCoordinator {
         if (conversationId.isNotEmpty) {
           final role = meta.targetName ?? job.label;
           final host = _makeSpawnedHost(conversationId, role: role);
-          final panel = _buildSpawnPanel(
+          _buildSpawnPanel(
             conversationId: conversationId,
             parentConversationId: parentConversationId,
             label: panelLabel(role: role, model: model),
             sinkHost: host,
+            // Render-only (spawning_constraints Change 3): the user watches
+            // the sub-agent work but can never type into it. Focusing keeps
+            // the shared editor on the primary and consumes text keys with a
+            // dim notice.
+            readOnly: true,
           );
-          // Stash the host (as the abstract HostInterface) so the scheduler can
-          // build its sub-agent Conversation against it. Focus is already wired by
-          // [ConversationPanelCoordinator.bindSpawned] (resolved by conversationId
-          // at focus time), but the engine reads [SubAgentJob.wirePanelFocus] as
-          // non-null — keep it assigned (never invoked) to satisfy that contract.
+          // Stash the host (as the abstract HostInterface) so the scheduler
+          // can stream the run into it. The panel is render-only now, so it
+          // must never become the active conversation: [wirePanelFocus] is
+          // the engine's contract hook for that — satisfy it with a no-op so
+          // the scheduler's session-factory branch still runs (the run keeps
+          // its panel host, sink, and activity cue) without ever repointing
+          // input focus.
           job.panelHost = host;
-          job.wirePanelFocus = (onFocus) => panel.onFocus = onFocus;
+          job.wirePanelFocus = (_) {};
           // Wrap the panel host in a BusSink so the sub-agent streams into the
           // panel AND keeps emitting to job._bus (parent's «label: → …» progress
           // + read() both stay working).
@@ -1850,17 +1871,14 @@ class TuiCoordinator {
         return (conversationId, recorder);
       };
 
-      // Phase 3 — full unification: a live-panelized delegated sub-agent becomes a
-      // first-class session. The factory builds the panel driver through the
-      // composition's driver seam — the same [driverFactory] every other
-      // delegated build consults — behind an agent that carries the panel
-      // host's asker (so tool calls on the focused panel surface permission
-      // prompts), and registers a real Conversation around that driver. The
-      // panel's focus was already wired by
-      // [ConversationPanelCoordinator.bindSpawned] in the persistence hook (resolved
-      // by id at focus time), so focusing the panel makes it the active input
-      // target — exactly like a /spawn panel. Returns the driver for the
-      // scheduler's loop.
+      // Phase 3 — a live-panelized delegated sub-agent runs through the
+      // composition's driver seam (the same [driverFactory] every other
+      // delegated build consults) but is NOT a first-class session anymore
+      // (spawning_constraints Change 3): no Conversation is registered, so
+      // the panel can never become the active input target. The asker here
+      // becomes moot for prompting (no focusable surface) and is superseded
+      // by the inherited main-panel asker in Change 4. Returns the driver for
+      // the scheduler's loop.
       scheduler.subAgentSessionFactory =
           (
             scheduler,
@@ -1908,22 +1926,8 @@ class TuiCoordinator {
                 system: agent.system,
               ),
             );
-            final conv = Conversation(
-              id: conversationId,
-              label: label,
-              driver: driver,
-              provider: provider,
-              host: host,
-              policy: policy,
-              modelReference: job.modelReference,
-              recorder: recorder,
-            );
-            sessionManager.active.addConversation(conv);
-            // The panel's focus was already wired by
-            // [ConversationPanelCoordinator.bindSpawned] when the panel was built in
-            // the persistence hook — it resolves to this conversation (by id) at focus
-            // time, so the old placeholder-then-repoint dance is obsolete. The
-            // [wirePanelFocus] param is part of the engine contract but unused here.
+            // Render-only: no Conversation is registered with the session
+            // (Change 3), so focusing the panel can never route input here.
             return driver;
           };
 
@@ -1946,6 +1950,9 @@ class TuiCoordinator {
           parentConversationId: parentId ?? initialConversationId,
           label: restoredLabelOf[conv.id] ?? conv.label,
           sinkHost: host,
+          // A restored subAgent-kind conversation is watch-only (Change 3);
+          // /spawn and /branch panels stay interactive.
+          readOnly: restoredReadOnly.contains(conv.id),
         );
       }
 

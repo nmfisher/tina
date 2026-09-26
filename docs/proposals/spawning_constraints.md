@@ -61,6 +61,15 @@ threads through `AgentQuota(maxLive:)` and `createScheduler`; nothing else to
 change. Update tests that assert the default 6; keep any that pass an explicit
 quota.
 
+**Landed 2026-09-25 (`306837c`).** Reality check: production never uses the
+scheduler's constructor default — `execution_runtime.dart` builds the quota
+from `config.maxSubAgentConcurrency`, so the real cap is the config chain
+(CLI default → `parseLimit` file override → `RuntimeConfig`). All six
+defaults moved together: `lib/config.dart` (CLI default, `parseLimit`
+fallback, help `defaultsTo`), `RuntimeConfig`, `AgentQuota`, the scheduler
+constructor. `[limits] max_sub_agent_concurrency` in the user config still
+overrides; `--yolo` still lifts the cap entirely.
+
 ## Change 3 — subagent panels are render-only
 
 The panel keeps: the streamed transcript, the busy cue, the done cue, PgUp/

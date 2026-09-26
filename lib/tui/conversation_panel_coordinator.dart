@@ -179,9 +179,16 @@ class ConversationPanelCoordinator {
   /// only identity available up-front. The binding is keyed by
   /// [TuiConversationHost.conversationId], which matches the conversation id set
   /// later.
+  ///
+  /// [readOnly] (spawning_constraints Change 3): the panel renders and scrolls
+  /// but never takes input — focusing it highlights and scrolls, keeps the
+  /// shared editor on the primary, and consumes text keystrokes with a dim
+  /// notice (see [_wireReadOnlyInput]). Used for delegated sub-agent panels:
+  /// the user can watch the work but never type into it.
   PanelFrame bindSpawned({
     required TuiConversationHost host,
     required String label,
+    bool readOnly = false,
   }) {
     final frame = PanelFrame(
       screen: panelManager.screen,
@@ -201,7 +208,24 @@ class ConversationPanelCoordinator {
     frame.setReservesInput(true);
     // The coordinator owns onFocus (see class doc). Sub-agent panels re-point
     // this later via a focus rebind once their Conversation is minted.
-    frame.onFocus = () => onFrameFocused(frame);
+    if (readOnly) {
+      // Render-only focus: highlight + reveal, keep the editor on the
+      // primary, and arm the text-consuming read-only key handler. Mirrors
+      // the host-only branch of [onFrameFocused] — a read-only panel behaves
+      // like one regardless of whether a Conversation is ever registered.
+      frame.onFocus = () {
+        _scrollIntoView(frame);
+        panelManager.refreshSidebar();
+        _wireReadOnlyInput(frame, binding);
+        if (panelManager.sidebar != null) {
+          panelManager.screen.input.setBoundsOverride(Rect.empty);
+        } else {
+          panelManager.relocateInput(panelManager.primaryFrame);
+        }
+      };
+    } else {
+      frame.onFocus = () => onFrameFocused(frame);
+    }
     // The cycling highlight scrolls the column before focus commits, so a
     // panel beyond the visible window is revealed the moment the user cycles
     // onto it — not only after Enter.

@@ -505,6 +505,93 @@ void main() {
       );
       frame.dispose();
     });
+
+    test('focusing a read-only sub-agent panel keeps input on the primary',
+        () {
+      // Change 3 of the spawning constraints: live and restored sub-agent
+      // panels bind with readOnly: true. Focus must highlight + reveal only —
+      // no conversation switch, no editor relocation — and consume
+      // text-bearing keys against a single dim notice, even though a
+      // Conversation IS registered here (unlike the environment panel above).
+      final host = _RecordingHost('sub-agent');
+      final conv = Conversation(
+        id: 'sub-agent',
+        label: sideLabel('sub-agent'),
+        driver: _agentBuilder(
+          conversationId: 'sub-agent',
+          provider: FakeProvider.done(),
+          host: host,
+          policy: PermissionPolicy(),
+        ),
+        provider: FakeProvider.done(),
+        host: host,
+        policy: PermissionPolicy(),
+      );
+      sessionManager.register(conv);
+      final frame = coordinator.bindSpawned(
+        host: host,
+        label: 'sub-agent (watch)',
+        readOnly: true,
+      );
+      panelManager.layout();
+
+      frame.onFocus!();
+
+      expect(
+        sessionManager.switchCalls,
+        isEmpty,
+        reason: 'a read-only panel never becomes the active conversation',
+      );
+      expect(
+        sessionManager.active.activeConversationId,
+        'primary',
+        reason: 'the shared editor stays on the primary chat',
+      );
+
+      // Text-bearing keystrokes are consumed — never routed to the shared
+      // editor, which would silently type into the main panel.
+      expect(frame.handleEvent(CharInput('h')), isTrue);
+      expect(frame.handleEvent(CharInput('i')), isTrue);
+      expect(frame.handleEvent(PasteInput('pasted')), isTrue);
+      expect(frame.handleEvent(ControlKey(ControlCode.enter)), isTrue);
+      expect(
+        host.messages.length,
+        1,
+        reason: 'the notice is shown once per focus gain, not per key',
+      );
+      expect(host.messages.single, contains('input disabled'));
+      expect(host.messages.single, contains('read-only'));
+
+      // Navigation keys keep working exactly like the host-only panel: PgUp
+      // and the wheel scroll the transcript; Esc (cancel turn), Ctrl+C and
+      // Alt+letter fall through untouched.
+      expect(
+        frame.handleEvent(ArrowKey(ArrowDirection.pageUp)),
+        isTrue,
+        reason: 'PgUp still scrolls the panel\'s transcript',
+      );
+      expect(
+        frame.handleEvent(ScrollEvent(up: true)),
+        isTrue,
+        reason: 'the wheel still scrolls the panel\'s transcript',
+      );
+      expect(
+        frame.handleEvent(EscapeKey()),
+        isFalse,
+        reason: 'Esc still falls through to cancel the active turn',
+      );
+      expect(
+        frame.handleEvent(ControlKey(ControlCode.ctrlC)),
+        isFalse,
+        reason: 'Ctrl+C still falls through to the editor (exit path)',
+      );
+      expect(
+        host.messages.length,
+        1,
+        reason: 'navigation keys never post the input-disabled notice',
+      );
+      frame.dispose();
+    });
   });
 
   group('surfaceOf', () {
@@ -583,18 +670,17 @@ void main() {
         );
         await coordinator.controller.turns.whenIdle(main.id);
 
-        // One delegated child became a live panel — a first-class session.
+        // One delegated child became a live panel — render-only now, NOT a
+        // first-class session (spawning constraints Change 3): it is never
+        // registered in the session, so the count stays at the main chat.
         expect(coordinator.spawnedPanels, hasLength(1));
-        expect(coordinator.sessionManager.active.conversationCount, 2);
-
-        // The panel conversation exists and its driver is the scripted one.
-        final conversations = coordinator.sessionManager.active.conversations;
-        final panel = conversations.firstWhere((c) => c.id != main.id);
         expect(
-          panel.driver,
-          isA<_PanelScriptedDriver>(),
-          reason: 'the panel session runs the replacement driver',
+          coordinator.sessionManager.active.conversationCount,
+          1,
+          reason: 'delegated panels are watch-only, not sessions',
         );
+
+        // The panel build still consulted the driver seam...
         expect(
           factory.created,
           hasLength(1),
@@ -606,15 +692,15 @@ void main() {
           reason: 'main agent build + delegated panel build',
         );
 
-        // The scripted driver actually owned the delegated turn.
-        final scripted = panel.driver as _PanelScriptedDriver;
+        // ...and the scripted driver actually owned the delegated turn.
+        final scripted = factory.created.single;
         expect(scripted.runInputs, contains('probe the seam'));
 
-        // Focus wiring still works: the spawned panel can become the active
-        // conversation (the bindSpawned contract).
+        // Focus wiring: a read-only panel highlights + reveals but never
+        // becomes the active conversation — the shared editor stays put.
         final frame = coordinator.spawnedPanels.single;
         coordinator.focusManager.focusPanel(frame);
-        expect(coordinator.sessionManager.activeConversation, same(panel));
+        expect(coordinator.sessionManager.activeConversation, same(main));
       },
     );
   });
@@ -806,11 +892,12 @@ class _PlainContent implements PanelContent {
 /// PR #49 regression: a live-panelized delegated sub-agent session must run
 /// through the composition's driver seam. The coordinator's
 /// [SubAgentSessionFactory] resolves its panel build through
-/// [SubAgentScheduler.driverFor] and registers the panel [Conversation]
-/// around the resulting driver, so a replacement [AgentDriverFactory] drives
-/// the session's turns and surfaces as the conversation's driver. Before the
-/// fix the factory built a bare [Agent] and the conversation defaulted to the
-/// plain adapter — the scripted driver never saw the panel turn.
+/// [SubAgentScheduler.driverFor]. Since the spawning-constraints change the
+/// panel is render-only and its [Conversation] is no longer registered as a
+/// first-class session, but a replacement [AgentDriverFactory] must still
+/// drive the delegated turn as the panel's driver. Before the fix the
+/// factory built a bare [Agent] and the conversation defaulted to the plain
+/// adapter — the scripted driver never saw the panel turn.
 
 class _PanelCountingFactory implements AgentDriverFactory {
   final created = <_PanelScriptedDriver>[];
