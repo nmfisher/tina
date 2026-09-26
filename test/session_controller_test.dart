@@ -2849,6 +2849,8 @@ void main() {
             controller.markTimerSessionDirty(sid);
           }
         },
+        // Production wiring: new entries tag with the live session id.
+        currentSessionId: () => sid,
         timerFactory: f,
       );
       controller.timers = timers;
@@ -3240,6 +3242,244 @@ void main() {
             'after the declined ask, §10 step 4)',
       );
       expect(receivedAsks.last, contains('via-resume'));
+    });
+
+    test('P1 mutation flush: a set_timer turn reaches the sidecar at the '
+        'mutation (onMutation), not at the next fire', () async {
+      final controller = await make(yes: true);
+      final timers = attachTimers(controller);
+      await controller.restoreTimerStateForResume();
+
+      // What a set_timer turn's service call does: the onMutation hook (the
+      // production wiring in attachTimers) marks the session dirty; the
+      // mutation flush writes the sidecar without any fire in between.
+      expect(
+        timers.set(TimerSpec(
+          name: 'fresh',
+          interval: const Duration(minutes: 5),
+          instruction: 'check the thing',
+        )),
+        isA<TimerSetCreated>(),
+      );
+      await controller.flushTimerState();
+      final onDisk = await readSidecar();
+      expect(
+        onDisk!.map((t) => t['name']),
+        contains('fresh'),
+        reason: 'set_timer is durable at the mutation (§10 leg 2)',
+      );
+
+      // Same for cancel: the timer vanishes from disk immediately.
+      expect(timers.cancel('fresh'), isTrue);
+      await controller.flushTimerState();
+      expect(
+        (await readSidecar()) ?? [],
+        isEmpty,
+        reason: 'cancel_timer is durable at the mutation (file emptied)',
+      );
+    });
+
+    test('P2 stale sidecar: cancelling the last timer rewrites the sidecar '
+        'to EMPTY — nothing resurrects on resume', () async {
+      final future = DateTime.now().add(const Duration(hours: 1));
+      await writeSidecar([
+        record(name: 'only', anchorEpochMs: future.millisecondsSinceEpoch),
+      ]);
+      final controller = await make(yes: true);
+      final timers = attachTimers(controller);
+      await controller.restoreTimerStateForResume();
+      expect(timers.list().single.name, 'only');
+
+      // Cancel the ONLY timer, then flush: the dirty-session rewrite must
+      // produce an empty sidecar (the old grouping-by-export code skipped
+      // the write and left the cancelled timer on disk).
+      expect(timers.cancel('only'), isTrue);
+      expect(timers.exportState(), isEmpty);
+      await controller.flushTimerState();
+
+      final onDisk = await readSidecar();
+      expect(
+        onDisk ?? [],
+        isEmpty,
+        reason: 'an empty export REWRITES the sidecar (deleted/empty) — the '
+            'cancelled timer must not resurrect on the next resume',
+      );
+
+      // The next resume stays silent: nothing left to offer.
+      final controller2 = await make(yes: true);
+      attachTimers(controller2);
+      await controller2.restoreTimerStateForResume();
+      expect(
+        receivedAsks,
+        isEmpty,
+        reason: 'no saved timers → no restore ask',
+      );
+    });
+
+    test('P2 name-only ack: a completion from a REPLACED lifecycle never '
+        'settles the new timer', () async {
+      final controller = await make(yes: true);
+      await controller.restoreTimerStateForResume();
+      final factory = _FakeTimerFactory();
+      final timers2 = TimerService(
+        onFire: (fire) {
+          firesByTest.add(fire);
+          controller.fireTimer(fire);
+        },
+        onNotice: (_, {required warning}) {},
+        onMutation: (sessionIds) => controller.markTimerSessionDirty(),
+        timerFactory: factory,
+      );
+      // Swap the harness service for one whose factory we can tick.
+      controller.timers = timers2;
+      addTearDown(timers2.dispose);
+      expect(
+        timers2.set(TimerSpec(
+          name: 'churn',
+          interval: const Duration(minutes: 5),
+          instruction: 'first incarnation',
+        )),
+        isA<TimerSetCreated>(),
+      );
+
+      // Lifecycle #1 fires; the turn is still in flight when the operator
+      // re-sets the same name (replacement resets counters, generation +1).
+      factory.last.fire();
+      await _pumpUntil(
+        () => controller.active.isRunning,
+        reason: 'the fire turn started',
+      );
+      expect(
+        timers2.list().single.state,
+        TimerEntryState.running,
+      );
+
+      // REPLACE mid-flight.
+      expect(
+        timers2.set(TimerSpec(
+          name: 'churn',
+          interval: const Duration(minutes: 2),
+          instruction: 'second incarnation',
+        )),
+        isA<TimerSetReplaced>(),
+      );
+      expect(
+        timers2.list().single.state,
+        TimerEntryState.idle,
+        reason: 'replacement resets the entry to idle (§4.4 step 6)',
+      );
+
+      // Drain the abandoned turn. Its end-ack (the OLD fire id) must be a
+      // tolerated no-op: no counters move on the new lifecycle, nothing
+      // suspends or exhausts it.
+      await _pumpUntil(
+        () => !controller.active.isRunning,
+        reason: 'the stale fire turn ended',
+      );
+      final after = timers2.list().single;
+      expect(after.state, TimerEntryState.idle);
+      expect(
+        after.consecutiveAbortedFires,
+        0,
+        reason: 'the stale completion was rejected — the NEW lifecycle is '
+            'untouched (a name-only ack would have counted an abort here)',
+      );
+      expect(hostOf(controller).messages.join(), isNot(contains('suspended')));
+
+      // And the new lifecycle still fires on its own grid.
+      firesByTest.clear();
+      factory.last.fire();
+      expect(firesByTest.single.name, 'churn');
+      expect(firesByTest.single.generation, 1,
+          reason: 'the replacement bumped the generation');
+    });
+
+    test('P2 stranded fires: a fire queued behind a busy turn settles when '
+        'the queue is discarded (emergency stop), not stuck forever',
+        () async {
+      final controller = await make(yes: true);
+      final factory = _FakeTimerFactory();
+      final timers = TimerService(
+        onFire: (fire) {
+          firesByTest.add(fire);
+          controller.fireTimer(fire);
+        },
+        onNotice: (_, {required warning}) {},
+        onMutation: (sessionIds) => controller.markTimerSessionDirty(),
+        timerFactory: factory,
+      );
+      controller.timers = timers;
+      addTearDown(timers.dispose);
+      expect(
+        timers.set(TimerSpec(
+          name: 'queued-one',
+          interval: const Duration(minutes: 5),
+          instruction: 'queued check',
+        )),
+        isA<TimerSetCreated>(),
+      );
+
+      // Fire #1 opens a window and becomes the live turn.
+      factory.last.fire();
+      await _pumpUntil(
+        () => controller.active.isRunning,
+        reason: 'fire #1 became the live turn',
+      );
+
+      // While busy, fire #2 lands: the service queues it and the prompt
+      // joins the conversation's message queue.
+      factory.last.fire();
+      expect(
+        timers.list().single.state,
+        TimerEntryState.running,
+        reason: 'fire #2 collapsed onto the in-flight window (§4.4 step 2)',
+      );
+      // The queued prompt case: the FIRST window runs long and a fire waits
+      // in the message queue behind it. Simulate exactly that by enqueueing
+      // fire #1's prompt clone — the controller's fireTimer queue path —
+      // and then discarding it via emergency stop.
+      final first = firesByTest.single;
+      controller.active.messageQueue.enqueue(
+        '[timer queued-one #${first.fireNumber + 1}] scheduled check. '
+        'Instruction: queued check\n'
+        '(Report concisely; if there is nothing to report, say so in '
+        'one line.)',
+      );
+      // Register the queued prompt as a live fire the way fireTimer does.
+      controller.fireTimer(TimerFireId(
+        name: 'queued-one',
+        generation: first.generation,
+        fireNumber: first.fireNumber + 1,
+      ));
+      expect(controller.active.messageQueue, isNotEmpty);
+
+      // Emergency stop discards the queue: the queued window must settle.
+      expect(controller.cancelNow(), isTrue);
+      expect(
+        controller.active.messageQueue,
+        isEmpty,
+        reason: 'emergency stop cleared the queue',
+      );
+      await _pumpUntil(
+        () => !controller.active.isRunning,
+        reason: 'the in-flight turn unwound',
+      );
+      final after = timers.list().single;
+      expect(
+        after.state,
+        TimerEntryState.idle,
+        reason: 'the queued fire window settled — not stranded queued',
+      );
+      expect(
+        after.consecutiveAbortedFires,
+        0,
+        reason: 'an operator discard is not a failed check (no §8 credit)',
+      );
+      expect(
+        hostOf(controller).messages.join(),
+        contains('cancelled before it could run'),
+        reason: 'the operator sees what happened to the queued check',
+      );
     });
   });
 }

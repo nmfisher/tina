@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:tina_engine/tina_engine.dart';
+import 'package:meta/meta.dart';
 
 import 'session_commands/session_command_handlers.dart';
 
@@ -967,6 +968,13 @@ class SessionController {
   /// beside it) — the project-local `.tina/sessions/<id>` when the manifest
   /// says so and the recorded cwd still exists, else the global per-session
   /// directory under the store root. Null when neither is derivable.
+  /// Visible for tests (the integration harness reads the sidecar through
+  /// this exact resolution); production callers go through
+  /// [flushTimerState] / [restoreTimerStateForResume].
+  @visibleForTesting
+  Future<String?> timerSidecarDir(String sessionId) =>
+      _timerSidecarDirFor(sessionId);
+
   Future<String?> _timerSidecarDirFor(String sessionId) async {
     final store = sessionStore;
     if (store is! JsonlSessionStore) return null;
