@@ -17,8 +17,10 @@ real** — (a) every human-input surface outside the main TUI conversation is
 "null in headless" stubs where it should inherit contracts; (b) two gates
 auto-answer (`HeadlessInterviewer` auto-yes, `AskUserTool` auto-first-option),
 so a second front end that naively reuses the headless path answers its own
-questions; (c) nothing persists an open ask, so an answer arriving after the
-process exits is dropped. None of these requires redesign — they are the same
+questions; (c) an answer arriving after the process exits is dropped; a *live*
+front end can hold open asks in memory, but nothing today does, and
+nothing survives the process. None of these requires redesign — they
+are the same
 three facts the remote-answerable-approvals review
 (`docs/proposals/remote_answerable_approvals.md`) found from the approvals
 side; this audit reaches them from the front-end side and adds the
@@ -30,7 +32,7 @@ non-terminal host must carry.
 | Front end | Blocking gaps | Effort after tin-3i3l steps 1–3 | Verdict |
 |---|---|---|---|
 | Web (HTTP/WS, local or remote) | ask durability + ingress; no `HttpServer` anywhere in prod code today | Medium — `tina serve` = one `HostInterface` impl + transport | **Feasible** |
-| Signal / Telegram / WhatsApp bot | same, plus async answer latency (a bot reply can be minutes later) | Medium — same daemon, bot API instead of HTTP | **Feasible**, gated on ask records surviving the wait |
+| Signal / Telegram / WhatsApp bot | same, plus async answer latency (a bot reply can be minutes later) | Medium — same daemon, bot API instead of HTTP | **Feasible** live on in-memory asks; durability only when the answer must survive a restart |
 | WebAssembly in a browser tab | `dart:io` throughout the engine (44 files), FFI PTY, `Process.run` tools | Large — a different port, not a front end | **Not this seam** |
 | Cloudflare Workers (edge) | wasm constraints; spike exists (`spikes/dart_wasm_worker`) | Large | **Not this seam** — spike verdict: "it runs", but no `dart:io` |
 
@@ -38,19 +40,21 @@ The first two rows are the same daemon with different transports. The last
 two are not front ends in the sense this audit means — they are re-platforms,
 and the review says so rather than pretending a seam exists.
 
-**Recommendation.** Land the three already-proposed approval steps (durable
-ask store, `/approve`-style commands, answerability in posture), then build
-`tina serve` as a `HostInterface` implementation. A second
+**Recommendation.** Land the two approval steps that make answers safe
+and routable (who-denied provenance, fail-closed unattended defaults),
+then build `tina serve` as a `HostInterface` implementation. A second
 front end should reuse `CommandRegistry.dispatch` + `InputRoutes` and provide
 its own `FrontendCapabilities`; it must not be wired through the TUI
 coordinator. One engine-side cleanup (the PTY stack and process registry)
 reduces what a non-terminal host must carry. Revised 2026-09-26 after an
-external design review: the ordering above is provenance and unattended
-defaults first, then a narrow remote host on the existing async interfaces,
-then durable records, then suspension/resume if the live host shows it is
-needed; the PTY packaging stays a separate cleanup. The review also
-corrected four claims in these two documents — the audit's own log is at
-"Corrections after external review" at the end of this file.
+external design review: the ordering is provenance and unattended
+defaults first, then a narrow remote host on the existing async
+interfaces — a live front end needs no durable store, because pending
+futures block nothing — then durable records for restart recovery, then
+suspension/resume if the live host shows it is needed. The PTY
+packaging stays a separate cleanup. The review also corrected four
+claims in these two documents — the audit's own log is at "Corrections
+after external review" at the end of this file.
 
 ## Interface inventory — every surface a front end touches
 
@@ -100,9 +104,12 @@ or app layer and terminal-free.
 **Cost.** None for the seam itself — this finding is the reason the effort
 estimates above are "Medium" rather than "Large". It is not the whole cost:
 the seams do not cover everything a remote front end must build. `ask_user`
-speaks `Question`/`Answer` through the attractor `Interviewer`
-(`packages/attractor/lib/src/interviewer.dart:31,57,90-91`), not
-`PermissionAsker`; plan approvals are persisted `requested` state in
+shares the workflow `Question`/`Answer` vocabulary but takes its own batch
+callback — `Future<List<Answer>> Function(List<Question>)?`
+(`packages/tina_app/lib/src/workflows/ask_user_tool.dart:15`) — not the
+attractor `Interviewer` (`packages/attractor/lib/src/interviewer.dart:31,57,90-91`,
+which the `wait.human` gates use via `HumanGateHandler`); plan approvals are
+persisted `requested` state in
 `PlanStore` (`packages/tina_app/lib/src/plans/plan_store.dart:169`) whose
 waiting is model guidance in the `update_plan` description
 (`plan_plugin.dart:161-170`), not a suspended permission call; and the
@@ -136,8 +143,10 @@ auto-deny asker therefore records user denials).
 **Cost.** This is exactly `docs/proposals/remote_answerable_approvals.md`'s territory; this
 audit adds only the front-end consequence: **a web/bot front end cannot be
 built on the headless path**, because the headless path answers its own
-questions. It must supply askers that park the ask and wait — which needs
-Finding 4's durable ask store first.
+questions. It must supply askers that hold the question open and wait —
+which for *live* operation needs only askers that await the answer over
+the transport (no store); a durable ask store enters when the answer
+must survive a restart (tin-3i3l step 5, after the live host exists).
 
 ### Finding 3 — The command layer is front-end-ready; the controller wiring is not
 
@@ -145,7 +154,7 @@ Finding 4's durable ask store first.
 aggregate of nine capability interfaces (`packages/tina_app/lib/src/commands/command_capabilities.dart:10-73`),
 built precisely so "handlers live in their own module and be exercised against
 a fake, without standing up the input loop or a host"
-(`packages/tina_app/lib/src/commands/command_context.dart:45-47`). `FrontendCapabilities`
+(`packages/tina_app/lib/src/commands/command_context.dart:46-48`). `FrontendCapabilities`
 (`packages/tina_app/lib/src/commands/command_capabilities.dart:20`) is the overlay surface — every member
 nullable, so a front end with no overlays supplies nulls and the commands
 degrade, not crash.
@@ -177,12 +186,23 @@ resumes as history.
 
 This is the third gap the approvals review identified (its Part 4: a durable
 ask record + store is "**New**"). From the front-end side it is the same
-finding seen from the other side: without persisted asks, a bot front end must
-keep a process alive per open question — the exact anti-pattern the daemon
-recipe avoids.
+finding seen from the other side — split by the property each half needs:
 
-**Cost.** Owned by `docs/proposals/remote_answerable_approvals.md` steps 1–3. This audit
-depends on it; it does not re-specify it.
+- **While the process is up**, a front end can hold any number of open
+  asks in memory: one pending `Future` blocks nothing, and the
+  turn stays in flight across the ask
+  (`host_interface.dart:76`). A *live* remote host therefore needs no
+  store — it needs askers that await the transport and keep approval
+  and cancellation ingress reachable (tin-3i3l migration step 3).
+- **Across a restart**, memory is not enough: a pending future dies
+  with the process, so recovery needs the durable ask record (tin-3i3l
+  step 5). The *restarted* front end resumes the session via the
+  advisory lock, but today the in-flight turn comes back as history —
+  the ask record is what would let it come back as a question.
+
+**Cost.** Owned by `docs/proposals/remote_answerable_approvals.md`, in that
+order: the live host first (its step 3), the store for recovery second
+(its step 5). This audit depends on both; it does not re-specify them.
 
 ### Finding 5 — Engine terminal placement: a PTY stack with no consumer, and build deps that ride along
 
@@ -260,7 +280,7 @@ can say "not this seam" honestly instead of omitting the rows.
 
 | # | Recommendation | Status | Cost | Unblocks |
 |---|---|---|---|---|
-| 1 | Build `tina serve` as a `HostInterface` + asker-parking host, per `docs/proposals/remote_answerable_approvals.md` Part 3 | Proposal (owned there) | Medium | Web + bot front ends |
+| 1 | Build `tina serve` as a `HostInterface` host whose askers await the live transport (in-memory pending asks; the durable store is restart recovery, not a prerequisite), per `docs/proposals/remote_answerable_approvals.md` Part 3 | Proposal (owned there) | Medium | Web + bot front ends |
 | 2 | Land provenance + unattended-default fixes first (tin-3i3l steps 1+5); then a narrow remote host on the existing async interfaces; durable ask store, `/approve`-family commands and answerability-in-posture follow (tin-3i3l steps 2–4, revised order) | Proposal (tin-3i3l, revised 2026-09-26) | Small–medium | Every async-answer front end |
 | 3 | Second front end = new `CommandContext`/capabilities impl + `InputRoutes` reuse; never wired through `TuiCoordinator` | Proposal | Medium | Clean coexistence of TUI and remote |
 | 4 | Extract `process_registry`+`process_tree` → `tina_process`; park PTY (baseline exception or `tina_pty` at panel time). Build deps: keep in `dependencies` while the hook is here; only extracting PTY + hook + deps together removes them from consumers' lockfiles | Proposal (tin-7b7k, revised) | Small | Leaner non-terminal hosts; daemon process ownership |
@@ -355,14 +375,16 @@ were corrected, each verified in the source before the edit:
 
 1. **"A second front end does not need to invent a protocol" → softened.**
    The seams remove the *core rewrite*, not the protocol. `ask_user`
-   answers `Question`/`Answer` via the attractor `Interviewer`
-   (`packages/attractor/lib/src/interviewer.dart:31,57,90-91`) — not
-   `PermissionAsker`; plan approval is persisted `requested` state in
-   `PlanStore` (`plan_store.dart:169`) whose waiting is model guidance
-   in the `update_plan` description (`plan_plugin.dart:161-170`). A
-   remote front end writes one adapter per seam, plus transport
-   serialization, routing, cancellation, reconnect. Applied in Finding
-   1 ("Cost") and the ticket.
+   shares the `Question`/`Answer` vocabulary but takes its own batch
+   callback returning `List<Answer>`
+   (`ask_user_tool.dart:15`) — it does **not** consume the attractor
+   `Interviewer` (`packages/attractor/lib/src/interviewer.dart:31,57,90-91`,
+   which the `wait.human` gates use); plan approval is persisted
+   `requested` state in `PlanStore` (`plan_store.dart:169`) whose
+   waiting is model guidance in the `update_plan` description
+   (`plan_plugin.dart:161-170`). A remote front end writes one adapter
+   per seam, plus transport serialization, routing, cancellation,
+   reconnect. Applied in Finding 1 ("Cost") and the ticket.
 
 2. **"Move the build deps out of `dependencies`" → withdrawn.** While
    `hook/build.dart` stays in the engine, `code_assets`/`hooks`/
@@ -394,8 +416,30 @@ were corrected, each verified in the source before the edit:
    packaging stays a separate cleanup. Applied in the Summary and
    roadmap row 2.
 
+   *Sharpened in the second review of `fa2d20f`*: the same two passes
+   left two stale claims in this document — Finding 2 said a waiting
+   front end "needs the durable ask store first", and Finding 4 said
+   memory-bound asks mean "a process alive per open question". Both
+   contradicted the revised ordering; both now state the split the
+   ordering rests on — live remote operation holds asks in memory and
+   needs no store, restart recovery is what durability buys — and the
+   verdict table no longer gates the bot row on durability. Applied in
+   the Summary, the verdict table, Finding 2 ("Cost"), Finding 4, and
+   the Summary's recommendation paragraph.
+
 Terminal-only framing: this audit never claimed permission *decisions*
 must stay local, and the companion proposal's "what should stay
 terminal-only" section was corrected there to split presentation (the
 modal, wheel, overlays — TUI-only) from authorization (the decision —
 remote-answerable).
+
+Second pass (`fa2d20f`, reviewed 2026-09-26): the companion proposal's
+turn-end claim was corrected there (ending the turn is a choice; the
+requirement is reachable ingress, `host_interface.dart:74-78`), and
+the two stale claims named in item 4 above — "needs the durable ask
+store first" and "a process alive per open question" — are fixed in
+this document. The answer route in both documents is now specified
+per ask kind (permission → `PermissionResponse`, questions →
+`Answer`, plan → `PlanStore`), and `ask_user` is described as what it
+is: a batch callback returning `List<Answer>` (`ask_user_tool.dart:15`),
+not an `Interviewer` consumer.

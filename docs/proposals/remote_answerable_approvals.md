@@ -774,10 +774,12 @@ source before being applied.
 
 2. **The engine is not one seam, and "every question goes through
    `PermissionAsker`" was false.** The summary said so; it does not.
-   Permission asks do. `ask_user` answers
-   `Question`/`Answer` values through the attractor `Interviewer`
-   (`interviewer.dart:31,57,90-91`); workflow gates use the same
-   `Interviewer`; plan approval persists a `requested` flag in
+   Permission asks do. `ask_user` accepts a batch callback returning
+   `List<Answer>` (`ask_user_tool.dart:15`) — it shares the workflow
+   question vocabulary but does not consume the attractor
+   `Interviewer`, which the workflow gates use
+   (`interviewer.dart:31,57,90-91`); plan approval persists a
+   `requested` flag in
    `PlanStore` (`plan_store.dart:169`) and the model's waiting is
    guidance in the `update_plan` tool description
    (`plan_plugin.dart:161-170`), not a suspended permission call. A
