@@ -1,6 +1,7 @@
-/// The model-provider interface, copied verbatim from
+/// The model-provider interface, copied from
 /// `packages/tina_engine/lib/src/llm/provider.dart` — same signature, same
-/// members. The event and usage types it streams live in `stream.dart`.
+/// members, with one deliberate difference: `model` is immutable here (see
+/// below). The event and usage types it streams live in `stream.dart`.
 library;
 
 import 'message.dart';
@@ -8,8 +9,9 @@ import 'stream.dart';
 import 'tools.dart';
 
 abstract class LlmProvider {
-  /// Mutable so `/model <name>` can switch the active model mid-session.
-  String model;
+  /// The model this provider serves. The provider never changes it;
+  /// choosing or switching providers is the loop's job.
+  final String model;
   LlmProvider(this.model);
 
   Stream<StreamEvent> send({
