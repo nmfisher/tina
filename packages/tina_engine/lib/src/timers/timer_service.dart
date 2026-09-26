@@ -130,6 +130,10 @@ class TimerSnapshot {
   final int consecutiveAbortedFires;
   final TimerEntryState state;
 
+  /// Lifecycle version: 0 for a fresh entry, +1 on every replacement, fresh
+  /// (large) after a restore. Rides on every [TimerFireId] this entry mints.
+  final int generation;
+
   /// Next grid point, or null while a fire is in flight (queued/running —
   /// the anchor still advances underneath) or while suspended (disarmed).
   final DateTime? nextFireAt;
@@ -144,6 +148,7 @@ class TimerSnapshot {
     required this.suspended,
     required this.consecutiveAbortedFires,
     required this.state,
+    required this.generation,
     required this.nextFireAt,
   });
 }
@@ -475,12 +480,14 @@ class TimerService {
 
   /// Cancels every armed timer (§4.3). Called on TUI teardown; afterwards the
   /// service arms nothing new (in-flight acks settle without re-arming).
-  void dispose() {
+  /// Returns [cancelActiveFires]' (fire, instruction) pairs so the app can
+  /// settle the already-enqueued turn prompts.
+  List<(TimerFireId, String)> dispose() {
     _disposed = true;
     for (final entry in _entries.values) {
       _disarm(entry);
     }
-    cancelActiveFires();
+    return cancelActiveFires();
   }
 
   // -- internals -----------------------------------------------------------
@@ -560,6 +567,7 @@ class TimerService {
         suspended: entry.suspended,
         consecutiveAbortedFires: entry.consecutiveAbortedFires,
         state: entry.state,
+        generation: entry.generation,
         nextFireAt: (entry.state == TimerEntryState.idle &&
                 !entry.suspended &&
                 entry.timer != null)

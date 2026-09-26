@@ -80,6 +80,13 @@ class Harness {
     return fire;
   }
 
+  /// Exposes the entry's lifecycle generation (not on the public snapshot;
+  /// tests verify replacement/restore bump it).
+  int generationOf(String name) {
+    final entry = service.list().firstWhere((t) => t.name == name);
+    return entry.generation;
+  }
+
   FakeTimer get lastTimer => factory.last;
 }
 
@@ -511,6 +518,244 @@ void main() {
       expect(tA.isActive, isFalse);
       expect(tB.isActive, isFalse);
       expect(h.service.list(), hasLength(2));
+    });
+
+    test('dispose detaches an in-flight fire and returns it for settling',
+        () {
+      final h = Harness();
+      h.service.set(spec('a', instruction: 'the check'));
+      h.lastTimer.fire(); // queued
+      final fire = h.fires.single;
+      h.service.ackStarted(fire); // running
+      final cancelled = h.service.dispose();
+      expect(cancelled, hasLength(1));
+      expect(cancelled.single.$1, fire);
+      expect(cancelled.single.$2, 'the check');
+      // The stale end-ack after dispose is a no-op: no resurrection, and
+      // `list()` still shows the entry idle (not suspended).
+      h.service.ackFinished(fire, aborted: false);
+      final listed = h.service.list().single;
+      expect(listed.state, TimerEntryState.idle);
+      expect(listed.consecutiveAbortedFires, 0);
+      expect(h.fires, hasLength(1));
+    });
+  });
+
+  group('fire identity (generation acks)', () {
+    test('onFire delivers a structured id; acks bind to it exactly', () {
+      final h = Harness();
+      h.service.set(spec('a'));
+      h.lastTimer.fire();
+      final fire = h.fires.single;
+      expect(fire.name, 'a');
+      expect(fire.generation, 0);
+      expect(fire.fireNumber, 1);
+      // A made-up id under the same name never acks.
+      h.service.ackFinished(
+          const TimerFireId(name: 'a', generation: 9, fireNumber: 1),
+          aborted: true);
+      expect(h.service.list().single.state, TimerEntryState.queued);
+      // The real one does.
+      h.service.ackFinished(fire, aborted: true);
+      expect(h.service.list().single.state, TimerEntryState.idle);
+      expect(h.service.list().single.consecutiveAbortedFires, 1);
+    });
+
+    test('replacement bumps the generation: the OLD fire cannot settle the '
+        'new lifecycle under the same name', () {
+      final h = Harness();
+      h.service.set(spec('a', every: const Duration(minutes: 5)));
+      h.lastTimer.fire(); // fire #1, generation 0
+      final stale = h.fires.single;
+      h.service.ackStarted(stale);
+
+      // Replace mid-flight (§4.4 step 6): fresh counters, generation +1.
+      expect(
+        h.service.set(spec('a', every: const Duration(minutes: 2))),
+        isA<TimerSetReplaced>(),
+      );
+      expect(h.service.list().single.state, TimerEntryState.idle);
+      expect(h.generationOf('a'), 1);
+
+      // The abandoned check completes — aborted. Name-only acks would have
+      // credited the abort to the NEW lifecycle (five more and it
+      // suspends); the generation check rejects it outright.
+      h.service.ackFinished(stale, aborted: true);
+      expect(h.service.list().single.consecutiveAbortedFires, 0);
+      expect(h.service.list().single.suspended, isFalse);
+
+      // The new lifecycle fires under its own generation and acks fine.
+      h.lastTimer.fire();
+      final fresh = h.fires.last;
+      expect(fresh.generation, 1);
+      expect(fresh.fireNumber, 1, reason: 'counters restarted');
+      h.service.ackFinished(fresh, aborted: false);
+      expect(h.service.list().single.consecutiveAbortedFires, 0);
+    });
+
+    test('restore assigns a fresh generation (no collision with set)', () {
+      final h = Harness();
+      h.service.set(spec('a'));
+      final armed = h.lastTimer;
+      armed.fire();
+      final stale = h.fires.single;
+      h.service.cancel('a');
+
+      h.service.restoreState([
+        {
+          'name': 'a',
+          'everyMs': 300000,
+          'instruction': 'check it',
+          'once': false,
+          'maxFires': null,
+          'fireCount': 0,
+          'consecutiveAbortedFires': 0,
+          'suspended': false,
+          'anchorEpochMs': clockNow.add(const Duration(minutes: 5))
+              .millisecondsSinceEpoch,
+        },
+      ]);
+      // The restored entry armed its own one-shot on the fake factory.
+      h.lastTimer.fire();
+      final restored = h.fires.last;
+      expect(restored.generation, isNot(stale.generation));
+      // The pre-cancel fire still cannot ack into the restored entry.
+      h.service.ackFinished(stale, aborted: true);
+      expect(h.service.list().single.consecutiveAbortedFires, 0);
+    });
+  });
+
+  group('onMutation (persistence hook)', () {
+    test('fires on set/cancel/replace with the owning sessions', () {
+      final mutations = <Set<String>>[];
+      final h = Harness();
+      h.service = TimerService(
+        onFire: h.fires.add,
+        onNotice: (text, {required bool warning}) {},
+        onMutation: mutations.add,
+        timerFactory: h.factory.call,
+        clock: () => clockNow,
+        currentSessionId: () => h.sessionId,
+      );
+      h.sessionId = 's1';
+      h.service.set(spec('a')); // created, owner s1
+      expect(mutations.last, {'s1'});
+      h.service.set(spec('a', every: const Duration(minutes: 9))); // replaced
+      expect(mutations.last, {'s1'});
+      h.service.cancel('a');
+      expect(mutations.last, {'s1'});
+      expect(mutations, hasLength(3));
+    });
+
+    test('does NOT fire on plain ticks or resume-in-flight acks', () {
+      final mutations = <Set<String>>[];
+      final h = Harness();
+      h.service = TimerService(
+        onFire: h.fires.add,
+        onNotice: (text, {required bool warning}) {},
+        onMutation: mutations.add,
+        timerFactory: h.factory.call,
+        clock: () => clockNow,
+      );
+      h.service.set(spec('a'));
+      mutations.clear();
+      h.lastTimer.fire(); // a tick: state change, not durable
+      expect(mutations, isEmpty);
+      h.service.ackFinished(h.fires.single, aborted: false); // resumes arm
+      expect(mutations, isEmpty);
+    });
+
+    test('fires on expiry, suspension, and restore', () {
+      final mutations = <Set<String>>[];
+      final h = Harness();
+      h.service = TimerService(
+        onFire: h.fires.add,
+        onNotice: (text, {required bool warning}) {},
+        onMutation: mutations.add,
+        timerFactory: h.factory.call,
+        clock: () => clockNow,
+        currentSessionId: () => 'own',
+      );
+      h.service.set(spec('a', once: true));
+      mutations.clear();
+      h.lastTimer.fire();
+      h.service.ackFinished(h.fires.single, aborted: false); // cap → removed
+      expect(mutations, hasLength(1), reason: 'expiry is durable');
+      expect(mutations.single, {'own'});
+
+      h.service.restoreState([
+        {
+          'name': 'b',
+          'everyMs': 60000,
+          'instruction': 'i',
+          'once': false,
+          'maxFires': null,
+          'fireCount': 0,
+          'consecutiveAbortedFires': 0,
+          'suspended': false,
+          'anchorEpochMs': clockNow.add(const Duration(minutes: 1))
+              .millisecondsSinceEpoch,
+          'sessionId': 'resumed-sid',
+        },
+      ]);
+      expect(mutations.last, {'resumed-sid'},
+          reason: 'restore reports the restored owners');
+    });
+  });
+
+  group('cancelFire / cancelActiveFires (stranded-fire settle)', () {
+    test('cancelActiveFires returns every in-flight window and detaches it',
+        () {
+      final h = Harness();
+      h.service.set(spec('a', instruction: 'check-a'));
+      h.service.set(spec('b', instruction: 'check-b'));
+      h.factory.timers[0].fire();
+      h.factory.timers[1].fire();
+      expect(h.service.list().every((t) => t.state == TimerEntryState.queued),
+          isTrue);
+      final cancelled = h.service.cancelActiveFires();
+      expect(cancelled.map((c) => c.$1.name), unorderedEquals(['a', 'b']));
+      expect(
+        cancelled.map((c) => c.$2),
+        unorderedEquals(['check-a', 'check-b']),
+      );
+      expect(
+        h.service.list().every((t) => t.state == TimerEntryState.idle),
+        isTrue,
+      );
+      // Detached fires stop acking.
+      for (final (fire, _) in cancelled) {
+        h.service.ackFinished(fire, aborted: false);
+      }
+      expect(
+        h.service.list().every((t) => t.consecutiveAbortedFires == 0),
+        isTrue,
+      );
+    });
+
+    test('cancelFire detaches exactly one window; the entry re-arms', () {
+      final h = Harness();
+      h.service.set(spec('a'));
+      h.lastTimer.fire();
+      final fire = h.fires.single;
+      h.service.cancelFire(fire);
+      expect(h.service.list().single.state, TimerEntryState.idle);
+      // Re-armed: the next grid tick opens a NEW window.
+      h.lastTimer.fire();
+      expect(h.fires.last.fireNumber, 2);
+    });
+
+    test('cancelFire of an unknown/stale fire is a no-op', () {
+      final h = Harness();
+      h.service.set(spec('a'));
+      h.service.cancelFire(
+          const TimerFireId(name: 'a', generation: 5, fireNumber: 1));
+      expect(h.service.list().single.state, TimerEntryState.idle);
+      h.lastTimer.fire();
+      final fire = h.fires.single;
+      h.service.cancelFire(fire);
+      h.service.cancelFire(fire); // second settle: nothing left
+      expect(h.service.list().single.state, TimerEntryState.idle);
     });
   });
 }
