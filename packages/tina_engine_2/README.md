@@ -1,12 +1,14 @@
 # tina_engine_2
 
 A standalone review artifact: one agent loop, one plugin interface, one
-scripted provider. Small enough to read in one sitting.
+scripted provider. Small enough to read in one sitting. Built on
+`tina_core` — its value types (messages, tools, tool calls, results) and
+its streaming `LlmProvider` are the ones used here.
 
-It is **not** wired into tina. Nothing depends on it. Nothing here replaces
-`packages/tina_engine`.
+It is **not** wired into the tina app. Nothing depends on it. Nothing here
+replaces `packages/tina_engine`.
 
-Dart standard library only (`dart:async`, `dart:collection`). No network.
+Dart standard library only, plus `tina_core` (path dependency). No network.
 No persistence. The point is to judge the design, not the coverage.
 
 ## Layout
@@ -50,18 +52,23 @@ deliberately not in it. See "Left out on purpose".
 
 ## The model
 
-All types are immutable. Snapshots are copies, never live views.
+Value types come from `tina_core` and are immutable. Snapshots are copies,
+never live views.
 
 | Type | What it is |
 | --- | --- |
-| `Input` | one user input: text + an id. Enters the loop once. |
-| `Message` | one transcript entry: `user`, `assistant`, `tool_result`. |
-| `Tool` | name + description + JSON schema map. No executor inside. |
-| `ToolCall` | a `tool_use` from the model: id, name, arguments. |
+| `Message` | one transcript entry: `Role` + content blocks (`TextBlock`, `ToolUseBlock`, `ToolResultBlock`). |
+| `ToolSchema` | name + description + JSON schema map. No executor inside. |
+| `ToolUse` | a `tool_use` from the model: id, name, input. |
 | `ToolResult` | the matching `tool_result` the core writes. |
+| `Input` | one user input: text + an id. Enters the loop once. |
 | `Request` | one model request: system prompt, messages, tools. Immutable. |
 | `Outcome` | what a turn produced: messages appended, stop reason, usage. |
 | `Context` | what a plugin sees: transcript snapshot + read-only registries. |
+
+`Input`, `Request`, `Outcome`, `StopReason`, `Decision` and `DecisionKind`
+are loop-only types, defined in `lib/src/model.dart`. They are not shared
+value types and do not belong in `tina_core`.
 
 ## The plugin interface
 
@@ -72,11 +79,11 @@ implements only what it needs.
 abstract class AgentPlugin {
   String get id;                                  // required, unique
   int get order => 100;                           // ordering, one integer
-  List<Tool> get tools => const [];               // tools contributed
+  List<ToolSchema> get tools => const [];         // tools contributed
   String? systemSection(Context c) => null;       // a prompt section
   Input? beforeInvocation(Context c, Input i) => null;  // rewrite input
   Request? beforeRequest(Context c, Request r) => null; // rewrite request
-  Decision beforeTool(Context c, ToolCall call) => Decision.allow;
+  Decision beforeTool(Context c, ToolUse call) => Decision.allow;
   Object? afterTool(Context c, ToolResult r) => null;   // observe/transform
   void onTurnEnd(Context c, Outcome o) {}         // the turn ended
 }
@@ -168,18 +175,31 @@ so the sequence is the same every run — byte order is reproducible.
 
 ## The provider
 
+`tina_core`'s streaming interface, re-exported by the barrel:
+
 ```dart
-abstract class Provider {
-  Future<ProviderResponse> call(Request request);
+abstract class LlmProvider {
+  final String model;
+  LlmProvider(this.model);
+  Stream<StreamEvent> send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+  });
+  void close() {}
 }
 ```
 
-Tiny. One method. The loop takes whatever implements it.
+The loop consumes that stream: `ToolCallStart` announces each tool call the
+model asks for, text deltas accumulate the answer, and `MessageComplete`
+carries the final content blocks the transcript records. A `StreamError`
+ends the turn as `error` with the failure recorded.
 
 The **scripted provider** ships in the same package for tests. It plays
-back a queue of scripted responses and records the requests it saw. No
-network, no API. Tests assert on the recorded requests, which is how the
-invariants get pinned: pairing, pinning, ordering, isolation.
+back scripted event streams — one per request — and records every request
+it received. No network, no API. Tests assert on the recorded requests,
+which is how the invariants get pinned: pairing, pinning, ordering,
+isolation.
 
 ## Left out on purpose
 
