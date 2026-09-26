@@ -31,6 +31,7 @@ class DelegateTool extends DelegationToolBase {
         originConversationId: ctx.originConversationId,
         depth: ctx.depth,
         parentSystemPrompt: ctx.parentSystemPrompt,
+        inheritedAsker: ctx.inheritedAsker,
         maxToolProfile: ToolProfile.readOnly,
       ));
 

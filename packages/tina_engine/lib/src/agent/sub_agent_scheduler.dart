@@ -93,6 +93,15 @@ class AgentToolContext {
   /// the scheduler builds the sub-agent without re-resolving it.
   final String parentSystemPrompt;
 
+  /// The parent conversation's resolved permission asker — already wrapped for
+  /// the interactive mode (modeAwareAsker under auto, the y/n modal otherwise).
+  /// Spawning tools hand it to every job they create so a delegated turn's
+  /// asks ride the main panel instead of auto-denying in a background
+  /// conversation (spawning-constraints Change 4). Null when the spawning
+  /// context has no asker to share — headless and test builds — leaving the
+  /// scheduler's auto-deny in charge.
+  final PermissionAsker? inheritedAsker;
+
   const AgentToolContext({
     required this.scheduler,
     required this.pipeline,
@@ -101,6 +110,7 @@ class AgentToolContext {
     required this.originConversationId,
     required this.depth,
     required this.parentSystemPrompt,
+    this.inheritedAsker,
     this.maxToolProfile = ToolProfile.full,
   });
 }
@@ -179,6 +189,14 @@ class SubAgentJob {
   final PermissionPolicy parentPolicy;
   final int depth;
 
+  /// The spawning conversation's resolved asker. When the delegated turn hits
+  /// a policy `ask`, `_runAgent` re-tags the prompt with this job's label
+  /// ([PermissionPrompt.withOriginLabel]) and routes it here, so the ask
+  /// surfaces on the main panel with the `[sub-agent: <label>]` card prefix
+  /// (Changes 4+5). Null = no asker to inherit (headless, tests) — the
+  /// scheduler's auto-deny answers.
+  final PermissionAsker? inheritedAsker;
+
   Completer<DelegationResult> _result;
   AgentEventBus _bus;
   Completer<void> _cancel;
@@ -214,6 +232,7 @@ class SubAgentJob {
     required this.parentReference,
     required this.parentPolicy,
     required this.depth,
+    this.inheritedAsker,
     required Completer<DelegationResult> result,
     required AgentEventBus bus,
     required Completer<void> cancel,
@@ -569,6 +588,7 @@ class SubAgentScheduler {
     required String originConversationId,
     String? modelReference,
     int depth = 0,
+    PermissionAsker? inheritedAsker,
     Future<void>? sessionCancelSignal,
     List<Message>? seedHistory,
     String? label,
@@ -597,6 +617,7 @@ class SubAgentScheduler {
       parentReference: parentReference,
       parentPolicy: parentPolicy,
       depth: depth,
+      inheritedAsker: inheritedAsker,
       result: Completer<DelegationResult>(),
       bus: AgentEventBus(),
       cancel: Completer<void>(),
@@ -803,7 +824,9 @@ class SubAgentScheduler {
       // is derived from its tool profile (plus `delegate` when nesting is wired),
       // so a sub-agent may use exactly what its profile grants — never the
       // parent's allow-list. The sub-agent inherits the parent's identity
-      // ([parentSystemPrompt]) via the nested context.
+      // ([parentSystemPrompt]) via the nested context, and the parent's
+      // resolved asker ([inheritedAsker]) so a nested spawn keeps asking on
+      // the main panel.
       final ctx = AgentToolContext(
         scheduler: this,
         pipeline: pipeline,
@@ -812,6 +835,7 @@ class SubAgentScheduler {
         parentPolicy: _policyForProfile(job.toolProfile, job.parentPolicy),
         originConversationId: job.originConversationId,
         depth: job.depth,
+        inheritedAsker: job.inheritedAsker,
       );
       final tools = _toolsForProfile(job.toolProfile, ctx, job.depth);
       // A panelized job has its sink supplied by the coordinator (a BusSink over
@@ -853,12 +877,19 @@ class SubAgentScheduler {
             pauseGate: pauseGate,
             wirePanelFocus: job.wirePanelFocus!);
       } else {
+        // Telemetry-only branch: an inherited asker still applies — a
+        // background job's policy `ask` rides the parent's panel with the
+        // job label on the card. Without one (headless), auto-deny stands.
+        final inherited = job.inheritedAsker;
         driver = driverFor(AgentDriverRequest(
           provider: provider,
           tools: tools,
           sink: sink,
           policy: ctx.parentPolicy,
-          asker: _autoDenyAsker,
+          asker: inherited == null
+              ? _autoDenyAsker
+              : (prompt) =>
+                  inherited(prompt.withOriginLabel(job.label)),
           maxSteps: defaultMaxSteps,
           budget: _newBudget(),
           pauseGate: pauseGate,

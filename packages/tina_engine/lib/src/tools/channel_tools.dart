@@ -78,7 +78,8 @@ class SendTool implements Tool {
     }
 
     // Otherwise open a new read-only channel: `text` is the task, `target` the
-    // label. The sub-agent inherits the parent's identity.
+    // label. The sub-agent inherits the parent's identity and asker — its
+    // asks ride the parent's panel (Change 4).
     final newJob = scheduler.spawn(
       task: text,
       toolProfile: ToolProfile.readOnly,
@@ -87,6 +88,7 @@ class SendTool implements Tool {
       parentPolicy: ctx.parentPolicy,
       originConversationId: ctx.originConversationId,
       depth: ctx.depth,
+      inheritedAsker: ctx.inheritedAsker,
       label: target,
     );
     return ToolResult(

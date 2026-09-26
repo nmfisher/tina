@@ -1875,10 +1875,10 @@ class TuiCoordinator {
       // composition's driver seam (the same [driverFactory] every other
       // delegated build consults) but is NOT a first-class session anymore
       // (spawning_constraints Change 3): no Conversation is registered, so
-      // the panel can never become the active input target. The asker here
-      // becomes moot for prompting (no focusable surface) and is superseded
-      // by the inherited main-panel asker in Change 4. Returns the driver for
-      // the scheduler's loop.
+      // the panel can never become the active input target. The asker is
+      // the job's INHERITED main-panel asker (Change 4) — the panel host's
+      // own asker would auto-deny, since a background conversation can't
+      // own the terminal.
       scheduler.subAgentSessionFactory =
           (
             scheduler,
@@ -1902,7 +1902,10 @@ class TuiCoordinator {
               tools: tools,
               sink: sink,
               policy: policy,
-              asker: host.askPermission,
+              asker: job.inheritedAsker == null
+                  ? host.askPermission
+                  : (prompt) => job.inheritedAsker!(
+                      prompt.withOriginLabel(job.label)),
               maxSteps: maxSteps ?? scheduler.defaultMaxSteps,
               budget: budget,
               pauseGate: pauseGate,

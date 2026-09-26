@@ -268,6 +268,14 @@ AgentDriver buildAgent({
 
   final ToolRegistry agentTools;
   final PermissionPolicy effectivePolicy;
+  // The resolved asker, wrapped for permission mode "auto" when a classifier
+  // is wired: the wrapper consults the branch's policy mode per call, so
+  // runtime `/permissions <mode>` switches apply with no rebuild. Computed
+  // per-branch (each knows its effective policy) and shared by the main
+  // driver AND — via AgentToolContext.inheritedAsker — by every delegated
+  // job, so a sub-agent's asks ride the main panel instead of auto-denying
+  // in a background conversation (spawning-constraints Change 4).
+  var resolvedAsker = asker ?? host.askPermission;
   if (withSubAgents) {
     // Interactive main: widen the policy to allow `delegate`, the channel
     // surface (send/receive/close), and image rendering on top of the config
@@ -311,6 +319,14 @@ AgentDriver buildAgent({
       // wrapped below, modeAwareAsker sets the flag itself.
       classifierGatesShell: policy.classifierGatesShell,
     );
+    if (classifier != null) {
+      resolvedAsker = modeAwareAsker(
+        policy: mainPolicy,
+        classifier: classifier,
+        fallback: resolvedAsker,
+        notice: (line) => host.showMessage(line, style: HostMessageStyle.dim),
+      );
+    }
     final ctx = AgentToolContext(
       scheduler: scheduler,
       pipeline: pipeline,
@@ -320,6 +336,8 @@ AgentDriver buildAgent({
       depth: 0,
       // A sub-agent main delegates to inherits this identity verbatim.
       parentSystemPrompt: resolvedSystem,
+      // Sub-agents ask through the main conversation's (mode-wrapped) asker.
+      inheritedAsker: resolvedAsker,
     );
     // Interactive main renders images, delegates, and talks on channels, on top
     // of the file tools + workflow launcher shared with headless.
@@ -333,6 +351,14 @@ AgentDriver buildAgent({
   } else {
     // Headless --prompt: main runs as a direct worker with the base set (+ the
     // workflow surface when wired) and the un-widened policy.
+    if (classifier != null) {
+      resolvedAsker = modeAwareAsker(
+        policy: policy,
+        classifier: classifier,
+        fallback: resolvedAsker,
+        notice: (line) => host.showMessage(line, style: HostMessageStyle.dim),
+      );
+    }
     agentTools = ToolRegistry(tools);
     effectivePolicy = policy;
   }
@@ -359,18 +385,7 @@ AgentDriver buildAgent({
     }
   }
 
-  // The resolved asker, wrapped for permission mode "auto" when a classifier
-  // is wired: the wrapper consults effectivePolicy.mode per call, so runtime
-  // `/permissions <mode>` switches apply with no rebuild.
-  var resolvedAsker = asker ?? host.askPermission;
-  if (classifier != null) {
-    resolvedAsker = modeAwareAsker(
-      policy: effectivePolicy,
-      classifier: classifier,
-      fallback: resolvedAsker,
-      notice: (line) => host.showMessage(line, style: HostMessageStyle.dim),
-    );
-  }
+  // (The resolved asker was wrapped per branch above — see resolvedAsker.)
 
   // Fix (P1): main-agent construction goes through the SAME resolved
   // dependencies delegated agents use — the scope-selected driver factory and

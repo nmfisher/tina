@@ -61,6 +61,33 @@ class PermissionPrompt {
 
   /// Settle the prompt and release any keyboard ownership when its turn stops.
   final Future<void>? cancelSignal;
+
+  /// The sub-agent panel an approval came from, when this prompt was raised by
+  /// a delegated job that inherited its parent's asker (see [withOriginLabel]).
+  /// The TUI's approval card prefixes its title with it, so a prompt surfacing
+  /// on the main panel is never mistaken for the main agent's own call. Null
+  /// for main-agent prompts.
+  final String? originLabel;
+
+  /// A copy of this prompt tagged as coming from the sub-agent [label]. The
+  /// scheduler wraps an inherited asker with this once per job, so the ask a
+  /// delegated turn raised is visibly the panel's, not the main agent's.
+  /// Re-tagging overwrites: for a nested job the innermost — the panel
+  /// actually asking — wins.
+  PermissionPrompt withOriginLabel(String label) => PermissionPrompt(
+        toolName,
+        input,
+        sandboxAccess: sandboxAccess,
+        retryExplanation: retryExplanation,
+        retrySafety: retrySafety,
+        execution: execution,
+        preparedEdit: preparedEdit,
+        outsideSandbox: outsideSandbox,
+        sandboxNetworkIsolated: sandboxNetworkIsolated,
+        cancelSignal: cancelSignal,
+        originLabel: label,
+      );
+
   const PermissionPrompt(this.toolName, this.input,
       {this.sandboxAccess,
       this.retryExplanation,
@@ -69,7 +96,8 @@ class PermissionPrompt {
       this.preparedEdit,
       this.outsideSandbox = false,
       this.sandboxNetworkIsolated = false,
-      this.cancelSignal});
+      this.cancelSignal,
+      this.originLabel});
 
   /// The answers this prompt offers, in the order the row shows them: each key,
   /// what it says, and what answering it means.

@@ -172,7 +172,8 @@ abstract class DelegationToolBase implements Tool {
   }
 
   /// Spawns one job per delegation on the context's scheduler, returning them
-  /// in order. Shared by every delegation tool.
+  /// in order. Shared by every delegation tool. Each job inherits the
+  /// context's asker, so its asks ride the parent's panel (Change 4).
   List<SubAgentJob> spawnAll(List<Delegation> delegations) {
     return delegations
         .map((d) => scheduler.spawn(
@@ -184,6 +185,7 @@ abstract class DelegationToolBase implements Tool {
               parentPolicy: ctx.parentPolicy,
               originConversationId: ctx.originConversationId,
               depth: ctx.depth,
+              inheritedAsker: ctx.inheritedAsker,
               label: d.label,
             ))
         .toList();

@@ -44,6 +44,12 @@ Future<PermissionResponse> runPermissionApproval({
   ApprovalChoice? answer;
   RegexReview? rewrite;
   PermissionResponse? rewrittenAnswer;
+  // A delegated sub-agent's ask rides the main panel via its inherited
+  // asker; the scheduler tags the prompt with the job label (Change 4), and
+  // the card + settled record prefix it so the ask is never mistaken for the
+  // main agent's own call. Null for main-agent and workflow-run prompts.
+  final origin =
+      prompt.originLabel == null ? '' : '[sub-agent: ${prompt.originLabel}] ';
 
   ApprovalCard card() => ApprovalCard(
     prompt: prompt,
@@ -122,8 +128,11 @@ Future<PermissionResponse> runPermissionApproval({
     final count = content.length > pageSize
         ? 'Preview ${offset + 1}–$end/${content.length} · PgUp/PgDn or wheel'
         : '';
+    // A delegated sub-agent's ask rides the main panel via its inherited
+    // asker; the card prefixes it so the modal is never mistaken for the
+    // main agent's own call. Null for main-agent and workflow-run prompts.
     final lines = [
-      '┌ ${rewrite == null ? card().title : 'Review regex rule'} · ${prompt.outsideSandbox ? 'outside sandbox · ' : ''}awaiting approval',
+      '┌ $origin${rewrite == null ? card().title : 'Review regex rule'} · ${prompt.outsideSandbox ? 'outside sandbox · ' : ''}awaiting approval',
       for (final row in content.skip(offset).take(pageSize)) '│ $row',
       '│ ${style(count, screen.theme.completion.dim)}',
       for (final row in actions) '│ $row',
@@ -255,8 +264,8 @@ Future<PermissionResponse> runPermissionApproval({
       : approvalChoiceLabel(answer);
   final response = rewrittenAnswer ?? answer?.response;
   final line = response?.decision == PermissionDecision.allow
-      ? '${card().title} · $result'
-      : '${describeToolCall(prompt.toolName, prompt.input)} · $result';
+      ? '${origin}${card().title} · $result'
+      : '${origin}${describeToolCall(prompt.toolName, prompt.input)} · $result';
   // A record is one line however many the command spanned.
   final record = '  ${line.replaceAll(RegExp(r'\s+'), ' ')}\n';
   if (onSettled != null) {
