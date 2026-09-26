@@ -160,12 +160,16 @@ class ConversationOperations {
     final owned = RuntimeResources();
     String? allocatedId;
     try {
-      // Preserve the existing side-conversation tuning (512 output tokens,
-      // registry-default stream idle timeout, runtime request timeout).
+      // Match the main conversation's tuning: config max output tokens
+      // (`--max-output-tokens`, registry-default when unset), registry-default
+      // stream idle timeout, runtime request timeout. The historical hard
+      // pin of 512 output tokens starved spawned panels' agents mid
+      // tool_call, surfacing as "model reached its output token limit" only
+      // in panels.
       final provider = providers.build(
         request.modelReference,
         apiKeyOverride: request.apiKeyOverride,
-        maxTokens: 512,
+        maxTokens: config.maxTokens,
         requestTimeout: config.requestTimeout,
       );
       owned.own(provider.close);

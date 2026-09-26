@@ -192,7 +192,7 @@ void main() {
       );
       final created = await operations.spawn(request());
       final conv = created.conversation;
-      expect(factory.seenMaxTokens, 512);
+      expect(factory.seenMaxTokens, RuntimeConfig().maxTokens);
       expect(factory.seenIdleTimeout, isNull);
       expect(conv.history, isEmpty);
       expect(conv.agent.system, contains('CURRENT IDENTITY'));
