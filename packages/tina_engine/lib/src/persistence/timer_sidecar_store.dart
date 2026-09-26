@@ -32,6 +32,38 @@ enum TimerSidecarClassification {
   restorable,
 }
 
+/// Classifies one saved timer at [now] (§10 restore flow, step 2). Pure
+/// function over the record map — no I/O — so the resume funnel can warn,
+/// prune, and ask from one verdict. A malformed record (wrong/missing
+/// fields) classifies as [TimerSidecarClassification.restorable]: the
+/// service's own [TimerService.restoreState] drops it when restoring, and
+/// the next write-through prunes it from disk.
+TimerSidecarClassification classifySavedTimer(
+  Map<String, Object?> record,
+  DateTime now,
+) {
+  // EXPIRED: a one-off whose anchor has arrived (anchor == now counts —
+  // it was due this instant, and the session was closed).
+  final anchor = record['anchorEpochMs'];
+  final once = record['once'];
+  if (once is bool &&
+      once &&
+      anchor is int &&
+      anchor <= now.millisecondsSinceEpoch) {
+    return TimerSidecarClassification.expired;
+  }
+  // COMPLETED: a capped timer whose fire count is used up (`once` with an
+  // explicit maxFires arrives here too; an anchor-past `once` already
+  // returned above).
+  final maxFires = record['maxFires'];
+  final fireCount = record['fireCount'];
+  if (maxFires is int && fireCount is int && fireCount >= maxFires) {
+    return TimerSidecarClassification.completed;
+  }
+  // Everything else: recurring always; a future one-off; malformed records.
+  return TimerSidecarClassification.restorable;
+}
+
 /// Reads and writes one session's `<session-id>.timers.json`. All I/O goes
 /// through the injected [FileSystem] so tests run against a memory FS; pass
 /// nothing (or `IoFileSystem`) for real disk.

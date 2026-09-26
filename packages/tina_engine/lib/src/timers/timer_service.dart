@@ -177,6 +177,13 @@ class TimerService {
   final Map<String, _TimerEntry> _entries = {};
   bool _disposed = false;
 
+  /// Monotonic mutation counter (leg-2, §10 write-through): bumped by every
+  /// state change that changes durable state — set, cancel, expiry or
+  /// suspension inside [ackFinished], and [restoreState] — never by plain
+  /// ticks. The app compares it against its last-flushed value to decide
+  /// whether a sidecar rewrite is due.
+  int revision = 0;
+
   TimerService({
     required this.onFire,
     required this.onNotice,
@@ -226,6 +233,7 @@ class TimerService {
       );
     }
     _arm(_entries[spec.name]!, now);
+    revision++;
     return replaced ? const TimerSetReplaced() : const TimerSetCreated();
   }
 
@@ -234,6 +242,7 @@ class TimerService {
     final entry = _entries.remove(name);
     if (entry == null) return false;
     _disarm(entry);
+    revision++;
     return true;
   }
 
@@ -274,6 +283,7 @@ class TimerService {
         entry.consecutiveAbortedFires >= kMaxTimerFiresBeforeSuspend) {
       entry.suspended = true;
       _disarm(entry);
+      revision++;
       onNotice(
         '[timer ${entry.name} suspended after $kMaxTimerFiresBeforeSuspend '
         'consecutive failed checks — /timers cancel ${entry.name}, or ask the '
@@ -286,6 +296,7 @@ class TimerService {
         (entry.maxFires != null && entry.fireCount >= entry.maxFires!)) {
       _disarm(entry);
       _entries.remove(entry.name);
+      revision++;
       return;
     }
     _advanceAndArm(entry, now);
@@ -317,6 +328,7 @@ class TimerService {
       // the first fire lands on the first FUTURE grid point (§10 step 4).
       if (!entry.suspended) _advanceAndArm(entry, _clock());
     }
+    if (notRestored.length < saved.length) revision++;
     return notRestored;
   }
 

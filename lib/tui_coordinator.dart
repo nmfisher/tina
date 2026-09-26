@@ -392,11 +392,7 @@ class TuiCoordinator {
       // is fixed); with the source unfixed on Linux, observing a stall and
       // leaving the user's screen blank costs more than a rare false-positive
       // repaint does.
-      final stuckCheck = StuckCheck(
-        screen: screen,
-        editor: editor,
-        heal: true,
-      );
+      final stuckCheck = StuckCheck(screen: screen, editor: editor, heal: true);
       acquired.own(stuckCheck.stop);
       // The initial (active) session's spinner, bound to the shared status row.
       final spinner = Spinner(
@@ -621,6 +617,23 @@ class TuiCoordinator {
 
       // Region agents + the summary index: built once per session from the live
       // composition. The registry primes regions from the sidecar at session
+      // The runtime-wide timer service (§10): constructed on the interactive
+      // path only, wired onFire → the controller's fire seam (a turn on the
+      // ACTIVE conversation — `controller` is late-final, assigned below;
+      // every fire happens long after create() returns) and onNotice → the
+      // active host (suspension warnings in warning style, busy-collapse
+      // skips dim). `sessionManager` is likewise assigned below, before any
+      // fire can land.
+      final timers = TimerService(
+        onFire: (name, fireNumber) => controller.fireTimer(name, fireNumber),
+        onNotice: (text, {required warning}) =>
+            controller.active.host.showMessage(
+              '$text\n',
+              style: warning ? HostMessageStyle.warning : HostMessageStyle.dim,
+            ),
+        currentSessionId: () => sessionManager.activeId,
+      );
+
       // start (pure file/git reads — zero LLM calls); the index runs the fleet
       // (allocate_region's background refresh + `/index`). Both are wired into
       // the main agent's tool set below and at the agentBuilder.
@@ -734,6 +747,7 @@ class TuiCoordinator {
         askUser: askUser,
         classifier: classifier,
         system: initialSystem,
+        timers: timers,
       );
       final initialConversation = Conversation(
         id: initialConversationId,
@@ -783,6 +797,7 @@ class TuiCoordinator {
               summaryIndex: summaryIndex,
               askUser: askUser,
               classifier: classifier,
+              timers: timers,
             ),
         sessionStore: store,
       );
@@ -2535,6 +2550,15 @@ class TuiCoordinator {
           style: HostMessageStyle.warning,
         );
       };
+      // §9 timers: hand the service to the controller so turns can ack, fire
+      // prompts enqueue on the message queue, and state flushes to the
+      // sidecar at each turn end. Same object the agent's `timers` tool
+      // group uses.
+      controller.timers = timers;
+      // The §10 consent seam: the restore summary (header + one line per
+      // timer + `Restore them? [y/N]`) renders as the shared Yes/No confirm
+      // overlay, defaulting No.
+      controller.timerRestorePrompt = (summary) => controller.confirm!(summary);
       // /exit + Ctrl+C×2 inside tmux: Detach / Exit / Cancel. Null (no dialog)
       // outside tmux — exiting stays immediate there.
       controller.onTmuxExit = tmux.inTmux ? _runTmuxExitDialog : null;
@@ -2675,6 +2699,12 @@ class TuiCoordinator {
     if (conv.history.isNotEmpty) {
       replayHistory(conv.host, conv.history);
     }
+
+    // §10 restore hook, boot entry points: after the loaded history is on
+    // screen, before the first turn — the same flow `resumeIntoActive` runs
+    // for the `/resume` path (expired/completed warnings, then the consent
+    // ask). A fresh session has no sidecar and this is a silent no-op.
+    await controller.restoreTimerStateForResume();
 
     // ESC cancels the active conversation's in-flight turn. The controller is
     // UI-agnostic and never touches the editor, so the TUI owns this wiring.
@@ -2827,6 +2857,10 @@ class TuiCoordinator {
       })
       ..own(app.dispose)
       ..own(sessionManager.closeAll)
+      // §10 dispose: disarm every timer. Write-through has already flushed
+      // durable state at each turn end; the service arms nothing after this
+      // (in-flight acks settle without re-arming).
+      ..own(() => controller.timers?.dispose())
       ..own(_contentCoordinator.dispose)
       ..own(panelManager.dispose)
       ..own(() => _panelHost?.dispose())
