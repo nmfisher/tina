@@ -22,7 +22,10 @@ seam analysis, and the proposal:
 `9aae45a`).
 
 The engine keeps terminal specifics out (the `PermissionAsker` typedef,
-`prompt.dart:306`; UI-neutral `PermissionPrompt` data), and large parts
+`prompt.dart:306`; UI-neutral `PermissionPrompt` data — the seam for
+*permission* asks; `ask_user`/workflow gates use the attractor
+`Interviewer` with `Question`/`Answer`, `interviewer.dart:90`, and plan
+approval is persisted `PlanStore.requested` state), and large parts
 already run unattended (scheduler auto-deny `sub_agent_scheduler.dart:1352`,
 headless host `headless_host.dart:69-88`). The wiring does not: every
 interactive asker is built inside `TuiCoordinator` against a local
@@ -47,14 +50,28 @@ Six ordered steps in the linked document. The headline pieces:
 1. Fix who-denied records (three one-line changes + an architecture
    test).
 2. A durable pending-ask record + `AskStore`, plugin-provided like
-   `PlanStore`; askers gain the option to park instead of block.
+   `PlanStore`; askers gain the option to park instead of block. The
+   record survives restart (routing, display, audit trail). Resuming the
+   paused tool call itself is separate, larger work — on today's executor
+   a denial completes the tool result (`tool_executor.dart:620-649`) —
+   see the document's correction of record.
 3. A text route in for answers: `/approve`, `/deny`, `/answer` commands
    (the session command registry is already transport-neutral).
 4. Answerability as a posture dimension (builds on the posture door).
 5. Fail-closed defaults for unattended questions; auto-answer only
    behind an explicit flag.
 6. `tina serve` — a headless host whose `HostInterface` is a transport —
-   only after 1–5, at which point it is mostly glue.
+   after the steps above. Small next to a core rewrite, but not glue:
+   it writes one adapter per ask seam (`PermissionAsker`,
+   `Interviewer`/`Question`/`Answer`, the plan store's `requested`
+   flag) plus transport serialization, routing, cancellation, and
+   reconnect (2026-09-26, external review).
+
+Order revised 2026-09-26 (external review): 1 then 5 as below; then a
+narrow remote host on the existing async interfaces — a pending Future
+blocks nothing, so a live host needs no store — to establish the real
+contracts; then 2's durable records; then 7 the turn-loop
+suspension/resume work only if the live host shows it is needed.
 
 Terminal-only by design: the mid-stream approval modal, mode wheel, plan
 overlay, inline diff preview.
