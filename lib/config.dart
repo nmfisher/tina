@@ -413,7 +413,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     )
     ..addOption(
       'max-sub-agent-concurrency',
-      defaultsTo: '6',
+      defaultsTo: '3',
       help:
           'Maximum number of sub-agents allowed to run concurrently. '
           'Extra spawns queue until a slot frees. Overrides the [limits] '
@@ -584,7 +584,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
     maxGlobalTokens: 0,
     maxSubAgentTokens: 0,
     maxSubAgentDepth: 3,
-    maxSubAgentConcurrency: 6,
+    maxSubAgentConcurrency: 3,
     requestsPerMinute: 0,
     autoCompactThreshold: 0,
     maxSteps: 50,
@@ -883,7 +883,7 @@ class Config extends RuntimeConfig implements ResumeRequest {
       maxSubAgentConcurrency: parseLimit(
         'max-sub-agent-concurrency',
         fileLimits?.maxSubAgentConcurrency,
-        6,
+        3,
       ),
       requestsPerMinute: parseLimit(
         'requests-per-minute',

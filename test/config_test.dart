@@ -434,7 +434,7 @@ void main() {
           registry: testRegistry(const {'ANTHROPIC_API_KEY': 'sk'}),
         );
         expect(cfg.maxSubAgentDepth, 3);
-        expect(cfg.maxSubAgentConcurrency, 6);
+        expect(cfg.maxSubAgentConcurrency, 3);
       },
     );
 

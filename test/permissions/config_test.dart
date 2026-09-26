@@ -229,7 +229,7 @@ void main() {
       expect(c.maxGlobalTokens, 50000000);
       expect(c.maxSubAgentTokens, 2000000);
       expect(c.maxSubAgentDepth, 3);
-      expect(c.maxSubAgentConcurrency, 6);
+      expect(c.maxSubAgentConcurrency, 3);
       expect(c.requestsPerMinute, 0); // rpm off by default, not a yolo value
       expect(c.maxSteps, 500);
     });

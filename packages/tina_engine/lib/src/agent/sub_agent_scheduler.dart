@@ -461,7 +461,10 @@ class SubAgentScheduler {
     required this.streamIdleTimeout,
     required this.requestTimeout,
     AgentQuota? quota,
-    int maxConcurrent = 6,
+    // Default 3 (spawning_constraints Change 2). Production rides the config
+    // chain (lib/config.dart → RuntimeConfig → AgentQuota); these constructor
+    // and AgentQuota defaults are the engine-side fallbacks, kept equal.
+    int maxConcurrent = 3,
     int maxDepth = 3,
     this.promptOverrides = const <String, String>{},
     this.defaultMaxSteps = 25,

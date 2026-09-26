@@ -22,7 +22,7 @@ class AgentQuota {
 
   final _Semaphore _sem;
 
-  AgentQuota({this.maxDepth = 3, this.maxLive = 6})
+  AgentQuota({this.maxDepth = 3, this.maxLive = 3})
       : _sem = _Semaphore(maxLive > 0 ? maxLive : null);
 
   /// True when a spawn at [depth] is allowed.

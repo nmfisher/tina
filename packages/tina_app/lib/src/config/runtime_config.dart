@@ -184,7 +184,7 @@ class RuntimeConfig {
     this.maxGlobalTokens = 50000000,
     this.maxSubAgentTokens = 2000000,
     this.maxSubAgentDepth = 3,
-    this.maxSubAgentConcurrency = 6,
+    this.maxSubAgentConcurrency = 3,
     this.requestsPerMinute = 0,
     this.autoCompactThreshold = 120000,
     this.maxSteps = 500,
