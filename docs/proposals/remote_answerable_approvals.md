@@ -65,13 +65,19 @@ from a plain text channel instead — a Signal message, an HTTP request, a
 queue? Typing `/approve` in a chat window must work as well as pressing
 `a` in the TUI. Two facts about text channels drive the design:
 
-1. **A chat answer arrives late.** Minutes, sometimes hours. A blocking
-   `await` on a prompt cannot wait that long inside one *turn* — the
-   agent turn must be allowed to end while the question is open. (The
-   *process* can hold a pending `Future` for hours without blocking the
-   event loop — a point the external review made, which is why a live
-   daemon can carry in-memory pending asks, and why durability is a
-   separate requirement from remoteness.)
+1. **A chat answer arrives late.** Minutes, sometimes hours. The turn
+   that asked does not have to end while it waits: the executor already
+   holds a turn in flight across the ask — awaiting a permission
+   response is one of the states that count as busy
+   (`host_interface.dart:74-78`) — and one pending `Future` blocks
+   nothing, so other conversations and the event loop stay responsive.
+   Ending the turn is therefore an *optional design choice*, not a
+   technical requirement. The real requirement for a long wait is
+   different: **approval and cancellation ingress must stay reachable
+   while the turn waits** — some path other than the blocked turn must
+   be able to deliver the answer (and a cancel) into it. Durability is
+   a separate requirement again: a pending `Future` dies with the
+   process, so surviving a restart needs records, not a longer await.
 2. **The ask must survive a restart.** If the process dies while a
    question is open, the answer must still land somewhere useful.
 
@@ -373,14 +379,24 @@ and manifests. It has no concept of an open question.
 
 ## Part 3 — the daemon question
 
-**Is a daemon required to answer approvals remotely? No.** The missing
-pieces are a durable ask record, a text route in for answers, and finer
-answerability than one boolean. None of those needs a long-running
-service. A `--prompt` run that hits an ask could park it in the session
-store, post "approve? `tina approve <id>`" to a webhook, and exit
-non-zero. The answer lands on the next run. That is ugly but honest,
-and it would prove the hard parts — durability and ingress — before any
-server exists.
+**Is a daemon required to answer approvals remotely? No.** Two
+questions hide in that one, and they have different prerequisites:
+
+- **Live remote operation** — a service (or a `--prompt` run that stays
+  up) holds the open ask in memory, a text route delivers the answer,
+  and the waiting turn resolves. The prerequisites are a text route in
+  and answerability finer than one boolean; no store is needed, because
+  a pending `Future` blocks nothing.
+- **Restart recovery** — the answer arrives after the process died.
+  That is what needs a durable ask record: the ask must be written
+  somewhere the next run reads.
+
+Durability is a requirement of recovery, not of remoteness. Even the
+no-daemon shape works live-or-late: a `--prompt` run that hits an ask
+can park the record, post "approve? `tina approve <id>`" to a webhook,
+and exit non-zero; the answer lands on the next run. That is ugly but
+honest, and it would prove the hard parts — ingress, and durability for
+the recovery case — before any server exists.
 
 **Is a daemon still the right goal? Yes — but assembled from pieces
 that are each useful on their own, not written as a rewrite.** A service
@@ -402,7 +418,7 @@ What the daemon would be, concretely — and how little is new:
 | A host for the transport to talk to | `HostInterface` + the asker seam (Part 2.1); a `DaemonHost` implements both |
 | State that survives a restart | `SessionStore` (plugin-provided since SP1–SP5) — but it holds no asks |
 | A place for open asks | **New** — a small ask record + store (Part 4) |
-| A route in for answers | **New, small** — three session commands (`/approve`, `/deny`, `/answer`) |
+| A route in for answers | **New, small** — three session commands (`/approve`, `/deny`, `/answer`), dispatched by ask kind: permission decisions resolve the asker's future, questions deliver `Answer` values, plan decisions update `PlanStore` |
 | A posture an async host can declare | Posture door steps 1–3 (`plugin_posture_door.md`), extended with answerability |
 | Focus/attention shared across front ends | **New** — but only if TUI and remote share one session; not required for v1 |
 
@@ -436,10 +452,12 @@ lands in the plugin-runtime program, not here.
 
 ## Part 4 — recommendations, in order
 
-Each one lands green on its own. Recommendations 1–2 are prerequisites
-for calling anything remote-answerable. Recommendations 3–4 make it
-true. Recommendation 5 is the safety gate. Recommendation 6 is the
-payoff.
+Each one lands green on its own. Recommendation 1 is the correctness
+prerequisite. A *live* remote host on the existing async interfaces
+(migration step 3) does not wait for recommendation 2 — in-memory asks
+suffice while the process is up. Recommendation 2 is what restart
+recovery needs. Recommendations 3–4 make answers routable and honest
+at scale, 5 is the safety gate, and 6 is the payoff.
 
 ### 1. Fix who-denied records (correctness; hours)
 
@@ -456,7 +474,7 @@ Unlocks: an audit trail you can trust, for every later step. Fixes a
 live misattribution that exists on main today.
 Does not fix: anything remote.
 
-### 2. Make the ask durable (core; the keystone)
+### 2. Make the ask durable (core; the keystone for restart recovery)
 
 Introduce a pending-ask record: id, conversation id, kind (permission /
 plan / question / gate), the prompt data (the card is already plain
@@ -501,6 +519,16 @@ piece of work. This recommendation keeps the ask record — routing,
 display, and the audit trail need it — but no longer claims it makes
 execution resumable.
 
+The same review's second pass sharpened one more point: ending the
+turn after a denial is a *choice*, not a law. The executor can hold
+the turn in flight awaiting permission (`host_interface.dart:74-78`
+says so in the activity contract), and a pending future blocks
+nothing. What a host must actually guarantee when it keeps a turn
+waiting is ingress: approval and cancellation stay reachable from
+outside the blocked turn for as long as the wait lasts. Ending the
+turn and settling for the deny-and-move-on path is the right default
+for hosts that cannot promise that; it is not the only option.
+
 ### 3. A text route in for answers (small; immediately useful)
 
 Add `/approve <id> [note]`, `/deny <id> [note]`, and
@@ -510,9 +538,27 @@ already typed, transport-neutral, and dependency-injected
 `command_families.dart:905-941` is the template). Route the commands in
 headless dispatch too, and teach `setPermissionMode`'s missing switcher
 to degrade with the same message instead of being TUI-only
-(`command_families.dart:937-941`). Answers map onto
-`PermissionResponse` with `decidedBy: 'user'` — it really was a user,
-at a distance.
+(`command_families.dart:937-941`).
+
+Dispatch is **by ask kind**, because the three ask seams have three
+different answer contracts:
+
+- **Permission decisions** (`/approve`, `/deny`) resolve the waiting
+  asker's `Future` with a `PermissionResponse` carrying
+  `decidedBy: 'user'` — it really was a user, at a distance.
+- **Questions** (`ask_user`, workflow gates) deliver an `Answer` value
+  (the selected option key or free text) to whatever waits on that
+  question — `ask_user`'s asker is a batch callback,
+  `Future<List<Answer>> Function(List<Question>)`
+  (`ask_user_tool.dart:15`), and gates go through the `Interviewer`
+  (`human_gate_handler.dart:59`).
+- **Plan decisions** (`/plan approve|reject`) update the persisted
+  `requested` flag in `PlanStore` (`plan_store.dart:169`) — there is no
+  suspended call to resolve; the model reads the new state.
+
+One `/answer <id> <n>` front door can accept all three; it routes by
+the ask record's `kind` field to the right contract instead of forcing
+every answer through `PermissionResponse`.
 
 Costs: the commands plus dispatch.
 Risks: an answer channel is a security surface. Authentication belongs
@@ -528,8 +574,9 @@ the plan gate. Either re-define `canAnswerQuestions` as "a human can
 eventually answer" (it stays, it has one consumer, it gets documented),
 or retire it behind the posture once the door lands. The plan gate's
 rule becomes: `none` → auto-grant (today's behaviour, unchanged);
-`modal` → overlay; `async` → park via the ask store and keep waiting,
-with the strip badge showing *awaiting answer*.
+`modal` → overlay; `async` → park via the ask store and keep waiting —
+the turn stays in flight, with approval and cancellation ingress kept
+reachable — and the strip badge shows *awaiting answer*.
 
 Costs: small, and it removes duplication the posture door already
 targets.
@@ -619,9 +666,12 @@ puts correctness first, then proves the remote path with the
 3. **A narrow remote-host implementation on the existing async
    interfaces** — a `DaemonHost`-shaped `HostInterface` over stdio or
    HTTP whose askers `await` the incoming answer. A Dart `Future` may
-   stay pending for hours without blocking the event loop, and one
-   service can hold many pending questions, so a *live* remote front
-   end needs no store at all. This step is what establishes the real
+   stay pending for hours without blocking the event loop, the executor
+   already holds a turn in flight across the ask
+   (`host_interface.dart:74-78`), and one service can hold many pending
+   questions — so a *live* remote front end needs no store at all. Its
+   one hard duty is ingress: approval and cancellation must stay
+   reachable while a turn waits. This step is what establishes the real
    contracts: adapters per ask seam (`PermissionAsker`,
    `Interviewer`/`Question`/`Answer`, the plan store's `requested`
    flag), transport serialization, routing, cancellation, reconnect.
@@ -634,7 +684,9 @@ puts correctness first, then proves the remote path with the
    (recommendation 4).
 7. Durable *suspension and recovery* — the turn-loop work from the
    correction of record — only once a live remote host has shown which
-   parts of it are actually needed.
+   parts of it are actually needed. This is also where "keep the turn
+   waiting across a restart" would land, if it is ever wanted: the
+   live host already keeps turns waiting in memory without it.
 8. `tina serve` (recommendation 6), composed from the pieces above.
 
 Steps 1, 2 and 3 are independent of each other. Step 4 depends on step
@@ -751,7 +803,23 @@ source before being applied.
    the store to step 5 and real suspension/resume to step 7. Applied
    in "Two facts" (fact 1), "Alternatives", and "Migration".
 
+5. **"The turn must end while the question is open" — corrected after
+   a second review of `fa2d20f`.** The first revision replaced the old
+   phrasing with a different error: it said an `await` cannot remain
+   pending inside one turn, so the turn must be allowed to end. The
+   code says otherwise — awaiting a permission response is one of the
+   states in which the turn stays in flight
+   (`host_interface.dart:74-78`), and one pending future blocks
+   nothing. Ending the turn is a host's design choice, not a technical
+   requirement. The stated requirement is now ingress: approval and
+   cancellation must stay reachable while the turn waits. Applied in
+   "Two facts" (fact 1), recommendation 2 (correction of record),
+   recommendation 4, migration step 3, and step 7.
+
 Not corrected (checked, holds): the four central findings listed at the
 top; the who-denied evidence; the fail-open evidence; the daemon
 ingredient table's "already exists?" column; the rejected-shapes list,
-with the futures nuance added to the third entry.
+with the futures nuance added to the third entry. Second pass
+(`fa2d20f`, reviewed 2026-09-26): the turn-end claim in the first
+revision was wrong and is corrected above (item 5); the answer route is
+now specified per ask kind.
