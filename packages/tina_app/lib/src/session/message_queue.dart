@@ -39,6 +39,11 @@ class MessageQueue {
   bool get isNotEmpty => _queue.isNotEmpty;
   bool get isEmpty => _queue.isEmpty;
   int get length => _queue.length;
+
+  /// A snapshot of the queued inputs, first (next to run) last. Callers that
+  /// are about to [clear] the queue use this to settle what they discard.
+  List<QueuedInput> toList() => List.of(_queue);
+
   void clear() {
     for (final input in _queue) {
       input.prepared?.cancel();

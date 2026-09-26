@@ -211,6 +211,16 @@ class TurnExecutor {
     return true;
   }
 
+  /// Every queued input this executor is holding in a drain queue, across
+  /// all conversations — text the executor will discard wholesale on close.
+  /// [cancelNow] settles the timer-fire prompts among these instead of
+  /// stranding their windows queued forever (§7).
+  List<String> queuedTexts() => [
+        for (final slot in _slots.values)
+          for (final input in slot.conversation.messageQueue.toList())
+            input.text,
+      ];
+
   bool cancel(String id) {
     final slot = _slots[id];
     if (slot == null) {

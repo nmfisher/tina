@@ -1071,3 +1071,153 @@ class IndexCommands {
     return const CmdHandled();
   }
 }
+
+/// The `/timers` family (§9). Lives with the other command families and reads
+/// the service through the timer capability, so a session without a wired
+/// service gets the absent-service line instead of a crash.
+class TimerCommands {
+  // The host comes off the dispatch view (a [CommandContext] in every wired
+  // runtime); the timer capability itself only supplies the service.
+  final DispatchCapabilities _dispatch;
+  final TimersCapabilities ctx;
+  TimerCommands(this._dispatch, this.ctx);
+
+  /// The active conversation's host — all `/timers` output goes through it.
+  /// Typed as the conversation's [HostInterface] field; the narrow dispatch
+  /// view exposes the whole [Conversation].
+  HostInterface get _host => _dispatch.active.host;
+
+  /// `/timers` — list; `/timers show <name>` — full detail; `/timers cancel
+  /// <name>` — cancel without asking the agent (§9). Every output goes through
+  /// `host.showMessage` (list rows dim); absent service → the §9 message.
+  Future<void> _handleTimers(String line) async {
+    final host = _host;
+    final timers = ctx.timers;
+    if (timers == null) {
+      host.showMessage(
+        '/timers: timer system not available in this session.\n',
+        style: HostMessageStyle.warning,
+      );
+      return;
+    }
+    final parts = line.trim().split(RegExp(r'\s+'));
+    final sub = parts.length > 1 ? parts[1] : '';
+    if (sub == 'show' || sub == 'cancel') {
+      if (parts.length < 3 || parts[2].isEmpty) {
+        host.showMessage(
+          'usage: /timers ${sub} <name>\n',
+          style: HostMessageStyle.warning,
+        );
+        return;
+      }
+      final name = parts.sublist(2).join(' ');
+      if (sub == 'show') return _showTimer(timers, name);
+      return _cancelTimer(timers, name);
+    }
+    if (sub.isNotEmpty) {
+      host.showMessage(
+        'usage: /timers [show <name>|cancel <name>]\n',
+        style: HostMessageStyle.warning,
+      );
+      return;
+    }
+    _listTimers(timers);
+  }
+
+  /// `/timers` — one dim row per active timer (§9's indicative shape):
+  /// name, `every <interval>`, `next in …` (or `—` while disarmed), fire
+  /// count, state. Footer points at `/timers show <name>` for full text.
+  void _listTimers(TimerService timers) {
+    final host = _host;
+    final all = timers.list();
+    if (all.isEmpty) {
+      host.showMessage('no active timers.\n');
+      return;
+    }
+    host.showMessage('timers: ${all.length}/$kMaxActiveTimers active\n');
+    for (final t in all) {
+      final next = t.nextFireAt == null
+          ? '—'
+          : 'next in ${formatHumanDuration(t.nextFireAt!.difference(DateTime.now()))}';
+      final state = t.suspended
+          ? 'SUSPENDED (after ${t.consecutiveAbortedFires} failed fires)'
+          : '${t.state.name}';
+      host.showMessage(
+        '${t.name.padRight(16)}every ${formatEvery(t.interval)}'
+        '${''.padRight(3)}$next${''.padRight(3)}'
+        'fired ${t.fireCount}x${''.padRight(2)}$state\n',
+        style: HostMessageStyle.dim,
+      );
+    }
+    host.showMessage(
+      'instructions truncated; /timers show <name> for the full text\n',
+      style: HostMessageStyle.dim,
+    );
+  }
+
+  /// `/timers show <name>` — full instruction, fire count, last-outcome line,
+  /// suspended state, next fire time (§9).
+  void _showTimer(TimerService timers, String name) {
+    final host = _host;
+    final matches = timers.list().where((t) => t.name == name).toList();
+    if (matches.isEmpty) {
+      host.showMessage(
+        "no timer named '$name'.\n",
+        style: HostMessageStyle.warning,
+      );
+      return;
+    }
+    final t = matches.first;
+    host.showMessage('${t.name}: every ${formatEvery(t.interval)}\n');
+    host.showMessage(
+      'fires: ${t.fireCount}'
+      '${t.maxFires == null ? '' : '/${t.maxFires}'}\n',
+    );
+    if (t.suspended) {
+      host.showMessage(
+        'state: SUSPENDED (after ${t.consecutiveAbortedFires} failed '
+        'fires)\n',
+        style: HostMessageStyle.warning,
+      );
+    } else if (t.nextFireAt != null) {
+      host.showMessage(
+        'state: ${t.state.name}, next fire '
+        '${formatHumanDuration(t.nextFireAt!.difference(DateTime.now()))} '
+        'from now\n',
+      );
+    } else {
+      host.showMessage('state: ${t.state.name}\n');
+    }
+    host.showMessage(
+      'instruction: ${t.instruction}\n',
+      style: HostMessageStyle.dim,
+    );
+  }
+
+  /// `/timers cancel <name>` — cancels the schedule without asking the agent;
+  /// a running fire turn is not killed (§9 sub-decision d). Unknown name →
+  /// the active list.
+  void _cancelTimer(TimerService timers, String name) {
+    final host = _host;
+    if (timers.cancel(name)) {
+      host.showMessage("cancelled timer '$name'\n");
+      return;
+    }
+    host.showMessage(
+      "no timer named '$name'.\n",
+      style: HostMessageStyle.warning,
+    );
+    _listTimers(timers);
+  }
+}
+
+/// Capability stub handed to [TimerCommands] when a caller built the handler
+/// set from narrow capabilities and supplied no [TimersCapabilities] view: its
+/// `timers` is always null, so every `/timers` invocation reports the
+/// "not available here" message instead of crashing.
+class _NoTimers implements TimersCapabilities {
+  const _NoTimers();
+
+  @override
+  TimerService? get timers => null;
+}

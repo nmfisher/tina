@@ -86,6 +86,8 @@ void main() {
           'them headless\n'
           '  /session       list live sessions; new/switch/close\n'
           '  /resume <id>   load a saved session into the active session\n'
+          '  /timers [show|cancel <name>] list this session\'s scheduled '
+          'checks; show or cancel one\n'
           '  /save <path>   export this session as a markdown transcript\n'
           '  /settings      configure providers, models and live quotas '
           '(theme needs restart)\n'
@@ -95,12 +97,12 @@ void main() {
           '  /exit          quit (inside tmux: Detach / Exit / Cancel)\n'
           '  /detach        return to the shell, keep the agent running '
           '(tmux; also Alt+D)\n'
-          '  /explore <implementation question> locate code using Typesafe scouts (no direct filesystem tools)\n'
           '  /blocks        list the transcript blocks that can fold, numbered\n'
           '  /show <n|all>  reveal a folded block (a tool call\'s output, a '
           'thought)\n'
           '  /hide <n|all>  collapse a block back to its one-line form\n'
           '  /classifier-review [focus] review this session for Typesafe question ideas (fresh context)\n'
+          '  /explore <implementation question> locate code using Typesafe scouts (no direct filesystem tools)\n'
           'ESC cancels the active session\'s in-flight response.\n';
 
       // Dispatch echoes the trimmed line, then a separator, then the block.
@@ -134,6 +136,7 @@ void main() {
         '/sessions',
         '/session',
         '/resume',
+        '/timers',
         '/save',
         '/model',
         '/settings',
@@ -342,6 +345,7 @@ String _goldenHelpBody() =>
     'them headless\n'
     '  /session       list live sessions; new/switch/close\n'
     '  /resume <id>   load a saved session into the active session\n'
+    '  /timers [show|cancel <name>] list this session\'s scheduled checks; show or cancel one\n'
     '  /save <path>   export this session as a markdown transcript\n'
     '  /settings      configure providers, models and live quotas '
     '(theme needs restart)\n'
@@ -351,10 +355,10 @@ String _goldenHelpBody() =>
     '  /exit          quit (inside tmux: Detach / Exit / Cancel)\n'
     '  /detach        return to the shell, keep the agent running '
     '(tmux; also Alt+D)\n'
-    '  /explore <implementation question> locate code using Typesafe scouts (no direct filesystem tools)\n'
     '  /blocks        list the transcript blocks that can fold, numbered\n'
     '  /show <n|all>  reveal a folded block (a tool call\'s output, a '
     'thought)\n'
     '  /hide <n|all>  collapse a block back to its one-line form\n'
     '  /classifier-review [focus] review this session for Typesafe question ideas (fresh context)\n'
+    '  /explore <implementation question> locate code using Typesafe scouts (no direct filesystem tools)\n'
     "ESC cancels the active session's in-flight response.\n";

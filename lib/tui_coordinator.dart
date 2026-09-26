@@ -284,6 +284,12 @@ class TuiCoordinator {
     // closures capture the in-scope [pickSpawnedTarget] helper; tests pass a
     // canned (ref, profile) to drive the live fork body without the overlays.
     Future<({String ref, ToolProfile profile})?> Function()? spawnTargetPicker,
+    // Injectable one-shot timer factory (§4.3) for tests: production passes
+    // nothing (real `Timer`); a test injects a fake that fires on demand so
+    // the REAL service — armed by the REAL create() wiring — can be ticked
+    // deterministically. The callback receives the factory to hand the
+    // service and keeps the handles.
+    TimerFactory? timerFactoryOverride,
   }) async {
     final config = app.config;
     final terminalConfig =
@@ -392,11 +398,7 @@ class TuiCoordinator {
       // is fixed); with the source unfixed on Linux, observing a stall and
       // leaving the user's screen blank costs more than a rare false-positive
       // repaint does.
-      final stuckCheck = StuckCheck(
-        screen: screen,
-        editor: editor,
-        heal: true,
-      );
+      final stuckCheck = StuckCheck(screen: screen, editor: editor, heal: true);
       acquired.own(stuckCheck.stop);
       // The initial (active) session's spinner, bound to the shared status row.
       final spinner = Spinner(
@@ -621,6 +623,36 @@ class TuiCoordinator {
 
       // Region agents + the summary index: built once per session from the live
       // composition. The registry primes regions from the sidecar at session
+      // The runtime-wide timer service (§10): constructed on the interactive
+      // path only, wired onFire → the controller's fire seam (a turn on the
+      // ACTIVE conversation — `controller` is late-final, assigned below;
+      // every fire happens long after create() returns) and onNotice → the
+      // active host (suspension warnings in warning style, busy-collapse
+      // skips dim). `sessionManager` is likewise assigned below, before any
+      // fire can land.
+      final timers = TimerService(
+        onFire: (fire) => controller.fireTimer(fire),
+        onNotice: (text, {required warning}) =>
+            controller.active.host.showMessage(
+              '$text\n',
+              style: warning ? HostMessageStyle.warning : HostMessageStyle.dim,
+            ),
+        // Persistence is driven by mutations (§10 write-through): every
+        // set/cancel/replace/expiry/suspension/restore marks the affected
+        // sessions' sidecars stale and flushes — a `set_timer` or
+        // `cancel_timer` turn reaches disk at the mutation, not at the next
+        // fire, and a cancelled last timer empties its sidecar instead of
+        // resurrecting on resume.
+        onMutation: (sessionIds) {
+          for (final sid in sessionIds) {
+            controller.markTimerSessionDirty(sid);
+          }
+          unawaited(controller.flushTimerState());
+        },
+        timerFactory: timerFactoryOverride,
+        currentSessionId: () => sessionManager.activeId,
+      );
+
       // start (pure file/git reads — zero LLM calls); the index runs the fleet
       // (allocate_region's background refresh + `/index`). Both are wired into
       // the main agent's tool set below and at the agentBuilder.
@@ -734,6 +766,7 @@ class TuiCoordinator {
         askUser: askUser,
         classifier: classifier,
         system: initialSystem,
+        timers: timers,
       );
       final initialConversation = Conversation(
         id: initialConversationId,
@@ -783,6 +816,7 @@ class TuiCoordinator {
               summaryIndex: summaryIndex,
               askUser: askUser,
               classifier: classifier,
+              timers: timers,
             ),
         sessionStore: store,
       );
@@ -1118,13 +1152,31 @@ class TuiCoordinator {
       // guard. Unawaited by design: the judge must never delay the next turn
       // or the input loop; transitions announce in the transcript when it
       // lands.
+      //
+      // COMPOSED, not wholesale-assigned: the controller installed its timer
+      // ack hook (§7.2/§7.3) on this same seam at construction, and replacing
+      // the field here erased it — every timer fire turn ran without ever
+      // acking, so its entry stayed `queued` forever and the schedule
+      // collapsed into busy-skip notices. Whatever is installed now (timer
+      // hook) or later (other features) keeps running alongside the judge.
+      final previousTurnHook = controller.turns.onTurnStarted;
       controller.turns.onTurnStarted = (conversation, prompt) {
         final id = conversation.id;
-        return (completed) {
-          if (!completed) return;
+        Future<void> judge() async {
           final goalStore = app.pluginScope?.lookup(goalStoreServiceKey);
           if (goalStore == null || goalStore.read(id).isEmpty) return;
-          unawaited(judgeGoalFor(id));
+          await judgeGoalFor(id);
+        }
+
+        final previous = previousTurnHook?.call(conversation, prompt);
+        if (previous == null) {
+          return (completed) {
+            if (completed) unawaited(judge());
+          };
+        }
+        return (completed) {
+          previous(completed);
+          if (completed) unawaited(judge());
         };
       };
       final interrupts = app.pluginScope?.lookup(interruptsServiceKey);
@@ -2545,6 +2597,33 @@ class TuiCoordinator {
           style: HostMessageStyle.warning,
         );
       };
+      // §9 timers: hand the service to the controller so turns can ack, fire
+      // prompts enqueue on the message queue, and state flushes to the
+      // sidecar at each turn end. Same object the agent's `timers` tool
+      // group uses.
+      controller.timers = timers;
+      // The §10 consent seam: the restore summary (header + one line per
+      // timer + `Restore them? [y/N]`) renders as the picker overlay below.
+      // §10 step 4: the restore ask defaults to NO. The generic confirm
+      // dialog focuses Yes first, which is the wrong default for restoring
+      // autonomous timers — an Enter-mashed prompt would silently re-arm
+      // them. A focused No (Enter = leave timers on disk), Esc/Ctrl+C
+      // = also No, matches the `[y/N]` suffix the summary carries.
+      controller.timerRestorePrompt = (summary) async {
+        final choice = await runListOverlay<bool>(
+          screen: screen,
+          editor: editor,
+          entries: const [
+            (display: 'No — leave timers saved on disk', value: false),
+            (display: 'Yes — restore and arm them', value: true),
+          ],
+          title: 'Restore saved timers?',
+          body: summary,
+          footer: '↑↓ move · enter select · esc cancel',
+          accent: 'cyan',
+        );
+        return choice == true;
+      };
       // /exit + Ctrl+C×2 inside tmux: Detach / Exit / Cancel. Null (no dialog)
       // outside tmux — exiting stays immediate there.
       controller.onTmuxExit = tmux.inTmux ? _runTmuxExitDialog : null;
@@ -2686,6 +2765,12 @@ class TuiCoordinator {
       replayHistory(conv.host, conv.history);
     }
 
+    // §10 restore hook, boot entry points: after the loaded history is on
+    // screen, before the first turn — the same flow `resumeIntoActive` runs
+    // for the `/resume` path (expired/completed warnings, then the consent
+    // ask). A fresh session has no sidecar and this is a silent no-op.
+    await controller.restoreTimerStateForResume();
+
     // ESC cancels the active conversation's in-flight turn. The controller is
     // UI-agnostic and never touches the editor, so the TUI owns this wiring.
     editor.onEscape = controller.cancelActiveTurn;
@@ -2776,6 +2861,12 @@ class TuiCoordinator {
     _exitStarted ??= DateTime.now();
     final ctx = _captureExitContext();
     try {
+      // Flush any un-persisted timer state BEFORE the service is disposed:
+      // a set/cancel that mutated memory but not yet the sidecar (crash-gap
+      // fix) and any fire windows this teardown is about to cancel.
+      try {
+        await controller.flushTimerState();
+      } catch (_) {}
       await _teardownUi();
       // Fire (don't await) the session/turn/agent shutdown now that the
       // terminal is already restored. On the normal REPL exit path
@@ -2837,6 +2928,12 @@ class TuiCoordinator {
       })
       ..own(app.dispose)
       ..own(sessionManager.closeAll)
+      // §10 dispose: settle every in-flight fire window (queued fire prompts
+      // can no longer ack into the service), tell the operator which queued
+      // checks were dropped, and flush the final state. Write-through has
+      // already flushed durable state above; the service arms nothing after
+      // this.
+      ..own(() => controller.settleAllTimerFires(host: controller.active.host))
       ..own(_contentCoordinator.dispose)
       ..own(panelManager.dispose)
       ..own(() => _panelHost?.dispose())

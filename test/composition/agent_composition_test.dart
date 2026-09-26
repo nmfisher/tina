@@ -383,6 +383,63 @@ void main() {
     });
   });
 
+  group('buildAgent timer tools (§5, §11)', () {
+    Config configFor() => Config.parse(const ['--backend', 'ansi']);
+
+    test('timers: null registers no timer tools (headless shape)', () {
+      final config = configFor();
+      final scheduler = createScheduler(
+        config: config,
+        registry: ProviderRegistry(env: {}),
+        pipeline: defaultPipeline,
+      );
+      final driver = buildAgent(
+        pipeline: defaultPipeline,
+        scheduler: scheduler,
+        conversationId: 'c1',
+        provider: FakeProvider(const [], model: 'm'),
+        host: FakeHostInterface(),
+        policy: config.buildPolicy(),
+        config: config,
+      );
+      final tools = {for (final t in driver.tools.all) t.schema.name: t};
+      for (final t in ['set_timer', 'cancel_timer', 'list_timers']) {
+        expect(tools[t], isNull, reason: t);
+      }
+    });
+
+    test('timers: non-null registers exactly the three timer tools', () {
+      final config = configFor();
+      final scheduler = createScheduler(
+        config: config,
+        registry: ProviderRegistry(env: {}),
+        pipeline: defaultPipeline,
+      );
+      final timers = TimerService(
+        onFire: (fire) {},
+        onNotice: (_, {required warning}) {},
+      );
+      addTearDown(timers.dispose);
+      final driver = buildAgent(
+        pipeline: defaultPipeline,
+        scheduler: scheduler,
+        conversationId: 'c1',
+        provider: FakeProvider(const [], model: 'm'),
+        host: FakeHostInterface(),
+        policy: config.buildPolicy(),
+        config: config,
+        timers: timers,
+      );
+      final tools = {for (final t in driver.tools.all) t.schema.name: t};
+      for (final t in ['set_timer', 'cancel_timer', 'list_timers']) {
+        expect(tools[t], isNotNull, reason: t);
+      }
+      // No timer tool leaks beyond the three-spec surface (§5).
+      final timerNamed = tools.keys.where((n) => n.contains('timer')).toSet();
+      expect(timerNamed, {'set_timer', 'cancel_timer', 'list_timers'});
+    });
+  });
+
   group('approval identity', () {
     test('every tool this build knows about can be approved knowingly', () {
       // The sibling of the schema sweep above: a tool is not "wired" just

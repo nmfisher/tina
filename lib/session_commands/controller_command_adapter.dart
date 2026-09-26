@@ -53,6 +53,8 @@ class ControllerCommandAdapter implements CommandContext {
   @override
   Future<bool> Function(String prompt)? get confirm => controller.confirm;
   @override
+  TimerService? get timers => controller.timers;
+  @override
   Future<void> newSession({String? providerId, String? model}) =>
       controller.newSession(providerId: providerId, model: model);
   @override

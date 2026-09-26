@@ -71,6 +71,7 @@ export 'src/persistence/session_lock.dart';
 export 'src/persistence/session_store.dart';
 export 'src/persistence/session_index.dart';
 export 'src/persistence/session_store_plugin.dart';
+export 'src/persistence/timer_sidecar_store.dart';
 export 'src/platform/paths.dart';
 export 'src/tools/atomic_write.dart';
 export 'src/tools/git_file_enumerator.dart';
@@ -134,3 +135,8 @@ export 'src/agent/tool_checks.dart';
 
 export 'src/agent/agent_middleware.dart';
 export 'src/agent/agents_instructions.dart';
+
+export 'src/timers/interval_parser.dart';
+export 'src/timers/timer_service.dart';
+export 'src/timers/timer_tools.dart';
+export 'src/timers/timers.dart';

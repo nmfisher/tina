@@ -30,6 +30,7 @@ class SessionCommandHandlers {
   final UpdateCommands update;
   final FrontendCommands frontend;
   final SessionsCommands sessions;
+  final TimerCommands timers;
   final HistoryCommands history;
   final PermissionsCommands permissions;
   final IndexCommands index;
@@ -84,6 +85,7 @@ class SessionCommandHandlers {
       void Function(String line) notice,
     )?
     prepareUpdateOverride,
+    TimersCapabilities? timersCapabilities,
   }) : ctx = dispatch,
        usage = UsageCommands(usage),
        update = UpdateCommands(
@@ -93,6 +95,16 @@ class SessionCommandHandlers {
        ),
        frontend = FrontendCommands(frontend),
        sessions = SessionsCommands(sessions),
+       // The timer family reads only the timer capability; the aggregate
+       // [CommandContext] path satisfies it, and a narrow caller may pass a
+       // separate TimersCapabilities view via [timersCapabilities].
+       timers = TimerCommands(
+         dispatch,
+         timersCapabilities ??
+             (dispatch is TimersCapabilities
+                 ? dispatch as TimersCapabilities
+                 : const _NoTimers()),
+       ),
        history = HistoryCommands(history),
        permissions = PermissionsCommands(permissions),
        index = IndexCommands(index);

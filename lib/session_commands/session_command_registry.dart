@@ -79,7 +79,9 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     names: const ['/explore'],
     argsHint: '<implementation question>',
     summary: 'locate code using Typesafe scouts (no direct filesystem tools)',
-    helpOrder: 20,
+    // Timers pushed the visible /detach 19 -> 20; this hidden entry keeps its
+    // sort slot after /classifier-review (24) so no two entries share an order.
+    helpOrder: 25,
     handler: (h, line) async {
       final question = line.substring('/explore'.length).trim();
       if (question.isEmpty || question.length > 2000) {
@@ -96,7 +98,7 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     names: const ['/exit', '/quit'],
     argsHint: '',
     summary: 'quit (inside tmux: Detach / Exit / Cancel)',
-    helpOrder: 18,
+    helpOrder: 19,
     handler: (_, _) async => const CmdExit(),
   ),
   SessionCommandEntry(
@@ -157,10 +159,20 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     handler: (h, t) => _handled(() => h.sessions._handleResume(t)),
   ),
   SessionCommandEntry(
+    names: const ['/timers'],
+    argsHint: '[show|cancel <name>]',
+    summary: "list this session's scheduled checks; show or cancel one",
+    // Sits between /resume and /save (§9: "helpOrder next to the session
+    // commands" — the /resume / /timers / /save block).
+    helpOrder: 14,
+    handler: (h, t) => _handled(() => h.timers._handleTimers(t)),
+  ),
+  SessionCommandEntry(
     names: const ['/save'],
     argsHint: '<path>',
     summary: 'export this session as a markdown transcript',
-    helpOrder: 14,
+    // Timers pushed /save from 14 to 15 (the §9 /resume / /timers / /save block).
+    helpOrder: 15,
     handler: (h, t) => _handled(() => h.sessions._handleSave(t)),
   ),
   SessionCommandEntry(
@@ -175,14 +187,14 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     argsHint: '',
     summary:
         'configure providers, models and live quotas (theme needs restart)',
-    helpOrder: 15,
+    helpOrder: 16,
     handler: (h, _) => _handled(h.frontend._handleSettings),
   ),
   SessionCommandEntry(
     names: const ['/prompts'],
     argsHint: '',
     summary: "edit each agent role's system prompt (applies on restart)",
-    helpOrder: 17,
+    helpOrder: 18,
     handler: (h, _) => _handled(h.frontend._handlePrompts),
   ),
   SessionCommandEntry(
@@ -262,14 +274,14 @@ final List<SessionCommandEntry> _kSessionCommandEntries = [
     names: const ['/update'],
     argsHint: '',
     summary: 'check GitHub for a newer release and install it',
-    helpOrder: 16,
+    helpOrder: 17,
     handler: (h, _) => _handled(h.update._handleUpdate),
   ),
   SessionCommandEntry(
     names: const ['/detach'],
     argsHint: '',
     summary: 'return to the shell, keep the agent running (tmux; also Alt+D)',
-    helpOrder: 19,
+    helpOrder: 20,
     handler: (h, _) => _handled(h.frontend._handleDetach),
   ),
   SessionCommandEntry(

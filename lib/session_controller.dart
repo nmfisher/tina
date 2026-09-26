@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:tina_engine/tina_engine.dart';
+import 'package:meta/meta.dart';
 
 import 'session_commands/session_command_handlers.dart';
 
@@ -120,6 +121,47 @@ class SessionController {
   /// rendered inside the box under the title. Wired by the TUI via the shared
   /// line editor; null in headless.
   Future<bool> Function(String prompt, {String? body})? confirm;
+
+  /// The runtime-wide timer service (§7, §10). Wired by the TUI bootstrap;
+  /// null in headless, which never constructs timers. Exposed to the command
+  /// handlers (`/timers`) through the [CommandContext] seam.
+  TimerService? timers;
+
+  /// Consent seam for the resume restore (§10): receives a one-line-per-timer
+  /// summary and answers the `Restore them? [y/N]` ask. Wired by the TUI
+  /// coordinator to the same overlay-backed confirm primitive as [confirm];
+  /// null (tests, non-interactive resume) → nothing is restored and a dim
+  /// notice says the timers are kept on disk.
+  Future<bool> Function(String summary)? timerRestorePrompt;
+
+  /// The [TimerService.revision] value at the last sidecar flush (§10
+  /// write-through). A gap means a mutation (set/cancel/expiry/suspension/
+  /// restore) happened since — rewrite the sidecars at the next turn end.
+  int _timerFlushedRevision = -1;
+
+  /// Sessions whose saved-timer set changed since the last sidecar flush
+  /// (§10 write-through, per-session sidecars): set_timer tags new entries
+  /// with the active session, cancel_timer / expiry lose one, restore adds
+  /// some back. [flushTimerState] rewrites every session listed here —
+  /// including sessions whose export has become EMPTY, so a cancelled last
+  /// timer actually leaves the sidecar instead of resurrecting on resume.
+  /// Cleared as each session's file lands; a failed session stays listed and
+  /// is retried on the next flush.
+  final Set<String> _timerDirtySessions = {};
+
+  /// Marks [sessionId]'s sidecar stale (default: the active session — every
+  /// timer mutation happens on the active conversation's turn or command).
+  /// Called by the persistence path right before [flushTimerState]; see
+  /// [flushTimerState].
+  void markTimerSessionDirty([String? sessionId]) =>
+      _timerDirtySessions.add(sessionId ?? sessionManager.activeId);
+
+  /// Fire prompts this controller enqueued whose turn never ran to the
+  /// end-ack: the queue was cleared (shutdown / emergency stop) or the
+  /// admission was discarded before the turn started. Kept so any late
+  /// end-ack for them is recognized as stale and dropped instead of acking a
+  /// window that was already cancelled.
+  final Set<String> _orphanedTimerFirePrompts = {};
 
   /// Detach the tmux client (`/detach`, Alt+D). Wired by the TUI coordinator,
   /// which owns the tmux process seam and all the messaging (detached notice,
@@ -290,6 +332,7 @@ class SessionController {
               ensureRegisteredFor: _ensureConversationRegistered,
             );
     }
+    installTimerTurnHook();
   }
 
   Conversation get active => sessionManager.activeConversation;
@@ -546,9 +589,21 @@ class SessionController {
     // Cancel all job kinds, including ones added in the future.
     hit = jobs.hasActiveJobs || hit;
     jobs.cancelAll();
+    // Fire prompts sitting in any drain queue (the active conversation's)
+    // never re-enter the per-conversation loop below; settle them here.
+    settleTimerFires(turns.queuedTexts(), host: active.host);
     for (final session in sessionManager.all) {
       for (final conversation in session.conversations) {
         hit = conversation.messageQueue.isNotEmpty || hit;
+        // Emergency stop discards queued fire turns: settle their windows
+        // first so no timer is left queued forever (§7).
+        settleTimerFires(
+          [
+            for (final input in conversation.messageQueue.toList())
+              input.text,
+          ],
+          host: conversation.host,
+        );
         conversation.messageQueue.clear();
         hit = turns.cancelInputs(conversation.id) || hit;
         if (turns.cancel(conversation.id)) hit = true;
@@ -560,6 +615,56 @@ class SessionController {
       }
     }
     return hit;
+  }
+
+  /// Settles fire prompts that will never run as turns — the queue was
+  /// cleared (emergency stop), the admission was discarded (conversation
+  /// closed mid-wait), or the runtime is tearing down. Tells the service the
+  /// window is over (without counting an abort against the runaway guard —
+  /// the operator discarded the fire, the check didn't fail), tells the user
+  /// what happened to each, and drops the attribution entries so a late
+  /// end-ack is recognized as orphaned instead of double-acking.
+  void settleTimerFires(Iterable<String> prompts, {HostInterface? host}) {
+    if (prompts.isEmpty) return;
+    final timers = this.timers;
+    final cancelled = <TimerFireId, String>{
+      for (final fire in timers?.cancelActiveFires() ?? const [])
+        fire.$1: fire.$2,
+    };
+    var notified = false;
+    for (final prompt in prompts) {
+      if (!_liveTimerFirePrompts.contains(prompt)) continue;
+      final m = _timerFirePromptRe.firstMatch(prompt);
+      final name = m?.group(1) ?? 'timer';
+      _liveTimerFirePrompts.remove(prompt);
+      final fire = _liveTimerFires.remove(prompt);
+      // Only the service knows whether this prompt's id is still its
+      // in-flight window (vs. already consumed or superseded); passing the
+      // matching id is a tolerated no-op otherwise.
+      if (timers != null && fire != null && cancelled.containsKey(fire)) {
+        timers.cancelFire(fire);
+      }
+      host?.showMessage(
+        "[timer $name — cancelled before it could run; it'll fire again "
+        'on schedule]\n',
+        style: HostMessageStyle.dim,
+      );
+      notified = true;
+    }
+    if (notified) unawaited(flushTimerState());
+  }
+
+  /// Teardown variant of [settleTimerFires]: cancels every in-flight window
+  /// in the service, then settles every prompt this controller ever handed
+  /// to a conversation — none of them can run to an end-ack once the runtime
+  /// starts closing. Returns the trailing flush so a teardown that awaits it
+  /// doesn't race process exit.
+  Future<void> settleAllTimerFires({HostInterface? host}) {
+    final timers = this.timers;
+    if (timers != null) timers.cancelActiveFires();
+    final prompts = List.of(_liveTimerFirePrompts);
+    settleTimerFires(prompts, host: host);
+    return flushTimerState();
   }
 
   // -- Turn execution facade ----------------------------------------------
@@ -646,6 +751,380 @@ class SessionController {
   Future<void> _ensureConversationRegistered(String conversationId) async {
     final recorder = _findConversation(conversationId)?.recorder;
     if (recorder != null) await recorder.ensureRegistered();
+  }
+
+  // -- Timer system (§7, docs/proposals/timer_system.md) -------------------
+
+  /// The TUI bootstrap wires [TimerService.onFire] here (§7.1): a timer fire
+  /// becomes a REAL user message on the ACTIVE conversation — starting a turn
+  /// when idle, or joining the queue behind typed work when busy. Exactly the
+  /// submit seam (`/index` prompts take the same branch), so fires are FIFO
+  /// with everything else. The instruction is read off the live snapshot —
+  /// the entry cannot have changed between the service's synchronous fire
+  /// callback and this call; an empty instruction means the entry vanished
+  /// (cancelled in the same event-loop turn) and the fire is dropped.
+  /// Turn-start/end timer bookkeeping (§7.2, §7.3), installed on the
+  /// [TurnExecutor] seam: a REAL fire (its exact prompt is in the set handed
+  /// out by [fireTimer]) acks its in-flight window when its turn actually
+  /// starts — after any queue wait, so the end-ack below lands on the right
+  /// timer — and shows its dim origin line. A typed look-alike is never in
+  /// the set and passes untouched. The prompt stays in the set (peeked, not
+  /// removed) until the turn's end-ack consumes it: the end-ack is keyed on
+  /// membership, so removing it here would leave every fire un-acked (§7.3
+  /// counters never move). The returned finish callback fires when that turn
+  /// ends, whether it ran clean, aborted, or was cancelled — the exact spot
+  /// the old monolithic turn loop acked from. Must be installed before the
+  /// coordinator's goal-judge hook (which replaces this field wholesale);
+  /// [installTimerTurnHook] composes instead.
+  void Function(bool completed)? timerTurnHook(
+    Conversation conversation,
+    String prompt,
+  ) {
+    if (!_liveTimerFirePrompts.contains(prompt)) return null;
+    final timers = this.timers;
+    final m = _timerFirePromptRe.firstMatch(prompt);
+    if (timers == null || m == null) return null;
+    // Attribution is the exact fire this controller minted for the prompt
+    // (§7.2): the id is the ack credential, so a fire queued behind a long
+    // turn still lands on ITS entry even if the timer was re-set (new
+    // generation) or cancelled-and-restored meanwhile — and a completion
+    // from an older lifecycle can never ack a newer timer under the same
+    // name. An unknown/stale fire means the window was cancelled or
+    // superseded: the turn still shows its origin line, but the end-ack is
+    // dropped as stale inside the service.
+    final fire = _liveTimerFires[prompt];
+    if (fire != null) timers.ackStarted(fire);
+    conversation.host.showMessage(
+      '[timer ${m.group(1)} #${m.group(2)} fired]\n',
+      style: HostMessageStyle.dim,
+    );
+    return (bool completed) {
+      // §7.3: a REAL fire turn acks its end — aborted when the operator
+      // cancelled it or the agent aborted — which is where the service
+      // applies expiry, cap removal, and the §8 suspension. Attribution is
+      // the exact prompt set + the minted fire id: a typed look-alike never
+      // acks, and a fire whose window was cancelled (teardown, re-set) is a
+      // tolerated no-op inside the service.
+      if (_liveTimerFirePrompts.remove(prompt)) {
+        if (fire != null) {
+          timers.ackFinished(
+            fire,
+            aborted: !completed || conversation.driver.abortedReason != null,
+          );
+        }
+        _liveTimerFires.remove(prompt);
+      } else if (_orphanedTimerFirePrompts.remove(prompt)) {
+        conversation.host.showMessage(
+          '[timer ${m.group(1)} — window cancelled, result discarded]\n',
+          style: HostMessageStyle.dim,
+        );
+      }
+      // Write-through (§10): cheap when nothing changed — the flush compares
+      // revisions and returns. Runs on every timer-fire turn end so
+      // tool-driven set/cancel mutations reach disk without waiting for a
+      // fire.
+      unawaited(flushTimerState());
+    };
+  }
+
+  /// Chains [timerTurnHook] onto the executor's current
+  /// [TurnExecutor.onTurnStarted], preserving whatever hook is already
+  /// installed (the coordinator composes the goal judge the same way). Safe
+  /// to call once at construction, before any turn runs.
+  void installTimerTurnHook() {
+    final previous = turns.onTurnStarted;
+    turns.onTurnStarted = (conversation, prompt) {
+      final mine = timerTurnHook(conversation, prompt);
+      final theirs = previous?.call(conversation, prompt);
+      if (mine == null) return theirs;
+      if (theirs == null) return mine;
+      return (bool completed) {
+        theirs(completed);
+        mine(completed);
+      };
+    };
+  }
+
+  void fireTimer(TimerFireId fire) {
+    final timers = this.timers;
+    if (timers == null) return;
+    final snapshot = timers.list().cast<TimerSnapshot?>().firstWhere(
+          (t) => t!.name == fire.name,
+          orElse: () => null,
+        );
+    final instruction = snapshot?.instruction ?? '';
+    if (instruction.isEmpty) return;
+    final s = active;
+    // §7.1 VERBATIM prompt (including the #<n> and the parenthetical
+    // steering line) — it becomes the persisted user message of the fire
+    // turn, and its exact bytes are the attribution key (§7.2).
+    final prompt =
+        '[timer ${fire.name} #${fire.fireNumber}] scheduled check. '
+        'Instruction: $instruction\n'
+        '(Report concisely; if there is nothing to report, say so in '
+        'one line.)';
+    _liveTimerFirePrompts.add(prompt);
+    _liveTimerFires[prompt] = fire;
+    if (s.isRunning) {
+      s.messageQueue.enqueue(prompt);
+      s.host.showMessage(
+        '$prompt  [queued — ${s.messageQueue.length} pending]\n',
+        style: HostMessageStyle.dim,
+      );
+    } else {
+      _startTurn(s, prompt);
+    }
+  }
+
+  /// Matches a fire prompt (§7.1) at the start of a turn's input, capturing
+  /// the timer name and the 1-based fire number.
+  static final RegExp _timerFirePromptRe = RegExp(
+    r'^\[timer (.+) #(\d+)\] scheduled check\. Instruction: ',
+  );
+
+  /// Exact fire prompts this controller handed to a conversation (§7.2
+  /// attribution): added by [fireTimer], consumed by the turn's end-ack. A
+  /// typed look-alike is never in the set — it gets no origin line, no
+  /// ackStarted, and its turn end never acks a timer window, so a wrong
+  /// `#<n>` cannot touch the service's counters.
+  final Set<String> _liveTimerFirePrompts = {};
+
+  /// The [TimerFireId] minted for each prompt in [_liveTimerFirePrompts]:
+  /// the ack credential handed back to the service (§7.2/§7.3). Keyed by the
+  /// prompt so the turn-start hook and the end-ack find the same id even
+  /// when the entry underneath was replaced (new generation) or removed
+  /// meanwhile — the service decides staleness from the id, not the name.
+  final Map<String, TimerFireId> _liveTimerFires = {};
+
+  /// Persist every session's saved timers when durable state changed since
+  /// the last flush (§10 write-through): set/cancel/expiry/suspension/
+  /// restore bump [TimerService.revision]; counter-only ticks don't. The
+  /// onMutation hook calls this right after every such mutation, so a
+  /// `set_timer` or `cancel_timer` turn reaches disk without waiting for a
+  /// fire.
+  ///
+  /// Sessions whose saved set changed (tracked in [_timerDirtySessions] by
+  /// [flushTimerState] callers below) are rewritten from the live export —
+  /// including sessions whose export is now EMPTY, so a cancelled last timer
+  /// leaves its sidecar instead of resurrecting on the next resume. Entries
+  /// whose session id can't be resolved to a sidecar directory are reported
+  /// and kept in memory. Best-effort: I/O failures warn and never break the
+  /// turn; a failed session stays dirty and is retried on the next flush.
+  Future<void> flushTimerState() async {
+    final timers = this.timers;
+    final store = sessionStore;
+    if (timers == null || store is! JsonlSessionStore) return;
+    final revision = timers.revision;
+    if (_timerDirtySessions.isEmpty && revision == _timerFlushedRevision) {
+      return;
+    }
+    _timerFlushedRevision = revision;
+    if (_timerDirtySessions.isEmpty) return;
+    final groups = <String, List<Map<String, Object?>>>{};
+    for (final record in timers.exportState()) {
+      final sid = record['sessionId'];
+      if (sid is String && sid.isNotEmpty) {
+        groups.putIfAbsent(sid, () => []).add(record);
+      }
+      // Records with no usable session id are unreachable for the per-
+      // session sidecar write below; they stay in memory (as before) and
+      // their absence from disk is only observable on resume-without-write.
+    }
+    final targets = <String>{..._timerDirtySessions, ...groups.keys};
+    // A session created before any transcript write may not resolve to a
+    // directory yet: keep it dirty so the next flush retries, but still
+    // write the sessions that did resolve (a cancelled timer must not
+    // resurrect just because another session's manifest is unreadable).
+    final failed = <String>[];
+    for (final sessionId in targets) {
+      final dir = await _timerSidecarDirFor(sessionId);
+      if (dir == null) {
+        failed.add(sessionId);
+        continue;
+      }
+      try {
+        await Directory(dir).create(recursive: true);
+        await TimerSidecarStore().write(
+          TimerSidecarStore.sidecarPathFor(
+            '$dir/$sessionId.jsonl',
+            sessionId,
+          ),
+          sessionId,
+          groups[sessionId] ?? const [],
+        );
+        _timerDirtySessions.remove(sessionId);
+      } catch (e) {
+        failed.add(sessionId);
+        active.host.showMessage(
+          'timer save failed: $e\n',
+          style: HostMessageStyle.warning,
+        );
+      }
+    }
+    _timerDirtySessions.addAll(failed);
+  }
+
+  /// The directory holding [sessionId]'s transcript (§10: the sidecar lives
+  /// beside it) — the project-local `.tina/sessions/<id>` when the manifest
+  /// says so and the recorded cwd still exists, else the global per-session
+  /// directory under the store root. Null when neither is derivable.
+  /// Visible for tests (the integration harness reads the sidecar through
+  /// this exact resolution); production callers go through
+  /// [flushTimerState] / [restoreTimerStateForResume].
+  @visibleForTesting
+  Future<String?> timerSidecarDir(String sessionId) =>
+      _timerSidecarDirFor(sessionId);
+
+  Future<String?> _timerSidecarDirFor(String sessionId) async {
+    final store = sessionStore;
+    if (store is! JsonlSessionStore) return null;
+    try {
+      final manifest = await store.loadSession(sessionId);
+      final cwd = manifest.cwd;
+      if (manifest.transcriptsLocal &&
+          cwd != null &&
+          cwd.isNotEmpty &&
+          Directory(cwd).existsSync()) {
+        return '$cwd/.tina/sessions/$sessionId';
+      }
+      return store.directoryFor(sessionId).path;
+    } catch (_) {
+      return null; // unknown session or unreadable manifest
+    }
+  }
+
+  /// The resume restore flow (§10). Called by [resumeIntoActive] after the
+  /// transcript loads, and by the TUI boot path after `--resume`/`--continue`
+  /// seed history — both before the first turn. Missing sidecar → silent
+  /// no-op; expired/completed timers warn once and are pruned immediately;
+  /// the rest are offered via [timerRestorePrompt] (null seam → dim notice,
+  /// timers kept on disk).
+  Future<void> restoreTimerStateForResume() async {
+    final timers = this.timers;
+    if (timers == null) return;
+    final store = sessionStore;
+    if (store is! JsonlSessionStore) return;
+    // The RESUMED session's id, not the manager's active one: `/resume <id>`
+    // loads another session into the active conversation by swapping the
+    // recorder only, so activeId still names the session the process started
+    // with — its sidecar would be read here instead of the resumed one.
+    final sessionId = active.recorder?.sessionId ?? '';
+    if (sessionId.isEmpty) return;
+    final host = active.host;
+    final String path;
+    try {
+      final dir = await _timerSidecarDirFor(sessionId);
+      if (dir == null) return;
+      path = TimerSidecarStore.sidecarPathFor(
+        '$dir/$sessionId.jsonl',
+        sessionId,
+      );
+    } catch (_) {
+      return; // unreadable manifest: nothing to restore, stay silent
+    }
+    final List<Map<String, Object?>>? saved;
+    try {
+      saved = await TimerSidecarStore().read(path, sessionId);
+    } catch (_) {
+      return;
+    }
+    if (saved == null || saved.isEmpty) return;
+    final now = DateTime.now();
+    final restorable = <Map<String, Object?>>[];
+    for (final record in saved) {
+      switch (classifySavedTimer(record, now)) {
+        case TimerSidecarClassification.expired:
+          final anchor = record['anchorEpochMs'];
+          final due = anchor is int
+              ? _timerStamp(DateTime.fromMillisecondsSinceEpoch(anchor))
+              : 'unknown time';
+          host.showMessage(
+            "timer '${record['name']}' (one-off, due $due) expired while "
+            'the session was closed — discarded.\n',
+            style: HostMessageStyle.warning,
+          );
+        case TimerSidecarClassification.completed:
+          host.showMessage(
+            "timer '${record['name']}' completed its "
+            "${record['fireCount']} fires — discarded.\n",
+            style: HostMessageStyle.warning,
+          );
+        case TimerSidecarClassification.restorable:
+          restorable.add(record);
+      }
+    }
+    if (restorable.length != saved.length) {
+      // Prune the discards immediately so each warning fires exactly once.
+      try {
+        await Directory(
+          path.substring(0, path.lastIndexOf('/')),
+        ).create(recursive: true);
+        await TimerSidecarStore().write(path, sessionId, restorable);
+        _timerFlushedRevision = timers.revision;
+      } catch (e) {
+        host.showMessage(
+          'timer save failed: $e\n',
+          style: HostMessageStyle.warning,
+        );
+      }
+    }
+    if (restorable.isEmpty) return;
+    final summary = _timerRestoreSummary(restorable);
+    final ask = timerRestorePrompt;
+    bool yes = false;
+    if (ask == null) {
+      host.showMessage(
+        'timers saved for this session — restore unavailable here; '
+        'they are kept on disk\n',
+        style: HostMessageStyle.dim,
+      );
+    } else {
+      yes = await ask(summary);
+    }
+    if (!yes) return; // sidecar left untouched — asked again next resume
+    // Tag each restored entry with ITS session (§10 sub-decision a): the
+    // sidecar schema carries no tag, so without this the write-through
+    // flush could not regroup restored timers back to this sidecar.
+    for (final r in restorable) {
+      r['sessionId'] = sessionId;
+    }
+    final notRestored = timers.restoreState(restorable);
+    _timerFlushedRevision =
+        timers.revision; // restore bumped it; state is flushed
+    for (final name in notRestored) {
+      host.showMessage(
+        "timer '$name' not restored — 8-timer limit reached.\n",
+        style: HostMessageStyle.warning,
+      );
+    }
+  }
+
+  /// The consent ask text (§10 step 4, VERBATIM shape): one header, one line
+  /// per timer (`  <name> every <every><, suspended><, <M>/<K> fires used>`),
+  /// then the question. Passed whole to [timerRestorePrompt].
+  String _timerRestoreSummary(List<Map<String, Object?>> saved) {
+    final b = StringBuffer('This session has ${saved.length} saved timer(s):');
+    for (final r in saved) {
+      final everyMs = r['everyMs'];
+      final every = everyMs is int
+          ? formatEvery(Duration(milliseconds: everyMs))
+          : '?';
+      final suspended = r['suspended'] == true ? ', suspended' : '';
+      final maxFires = r['maxFires'];
+      final used = maxFires is int
+          ? ', ${r['fireCount']}/$maxFires fires used'
+          : '';
+      b.write('\n  ${r['name']} every $every$suspended$used');
+    }
+    b.write('\nRestore them? [y/N]');
+    return b.toString();
+  }
+
+  String _timerStamp(DateTime t) {
+    final l = t.toLocal();
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${l.year}-${two(l.month)}-${two(l.day)} '
+        '${two(l.hour)}:${two(l.minute)}';
   }
 
   /// Restore `/goal` + `/plan` for every conversation of a startup manifest
@@ -830,6 +1309,8 @@ class SessionController {
       'model: ${s.provider.model} (unchanged by /resume)\n',
       style: HostMessageStyle.dim,
     );
+    // §10 restore flow: after the transcript loads, before the first turn.
+    await restoreTimerStateForResume();
     return true;
   }
 
