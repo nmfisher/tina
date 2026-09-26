@@ -23,9 +23,10 @@ seam analysis, and the proposal:
 
 The engine keeps terminal specifics out (the `PermissionAsker` typedef,
 `prompt.dart:306`; UI-neutral `PermissionPrompt` data — the seam for
-*permission* asks; `ask_user`/workflow gates use the attractor
-`Interviewer` with `Question`/`Answer`, `interviewer.dart:90`, and plan
-approval is persisted `PlanStore.requested` state), and large parts
+*permission* asks; workflow gates use the attractor `Interviewer` with
+`Question`/`Answer`, `interviewer.dart:90`, `ask_user` takes its own
+batch callback returning `List<Answer>` (`ask_user_tool.dart:15`), and
+plan approval is persisted `PlanStore.requested` state), and large parts
 already run unattended (scheduler auto-deny `sub_agent_scheduler.dart:1352`,
 headless host `headless_host.dart:69-88`). The wiring does not: every
 interactive asker is built inside `TuiCoordinator` against a local
@@ -50,13 +51,22 @@ Six ordered steps in the linked document. The headline pieces:
 1. Fix who-denied records (three one-line changes + an architecture
    test).
 2. A durable pending-ask record + `AskStore`, plugin-provided like
-   `PlanStore`; askers gain the option to park instead of block. The
-   record survives restart (routing, display, audit trail). Resuming the
-   paused tool call itself is separate, larger work — on today's executor
-   a denial completes the tool result (`tool_executor.dart:620-649`) —
-   see the document's correction of record.
+   `PlanStore`; askers gain the option to park instead of block. Scoped
+   to *restart recovery*: a live remote host holds asks in memory
+   (pending futures block nothing) and needs no store. The record
+   survives restart (routing, display, audit trail). Resuming the
+   paused tool call itself is separate, larger work — on today's
+   executor a denial completes the tool result
+   (`tool_executor.dart:620-649`) — see the document's correction of
+   record. The executor *can* keep a turn in flight awaiting permission
+   (`host_interface.dart:74-78`); ending the turn is a host's choice,
+   and the real requirement while waiting is reachable approval +
+   cancellation ingress.
 3. A text route in for answers: `/approve`, `/deny`, `/answer` commands
-   (the session command registry is already transport-neutral).
+   (the session command registry is already transport-neutral),
+   dispatched by ask kind — permission decisions resolve the asker's
+   future with `PermissionResponse`; questions deliver `Answer` values;
+   plan decisions update `PlanStore`.
 4. Answerability as a posture dimension (builds on the posture door).
 5. Fail-closed defaults for unattended questions; auto-answer only
    behind an explicit flag.

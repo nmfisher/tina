@@ -28,8 +28,10 @@ The audit's two-part answer:
   proof these seams work: it mounts the same command contributions the TUI
   does. A web or bot front end is one more `HostInterface` implementation —
   no core rewrite. (Revised 2026-09-26, external review: the seams remove
-  the rewrite, not the protocol — `ask_user`/workflow gates speak
-  `Question`/`Answer` via the attractor `Interviewer`, plan approval is
+  the rewrite, not the protocol — workflow gates speak
+  `Question`/`Answer` via the attractor `Interviewer`, ask_user takes
+  its own batch callback returning `List<Answer>`
+  (`ask_user_tool.dart:15`), plan approval is
   persisted `PlanStore.requested` state, and the transport still needs
   serialization, routing, cancellation and reconnect. One adapter per seam,
   plus protocol work.)
@@ -37,8 +39,10 @@ The audit's two-part answer:
   the approvals side: every interactive asker is TUI-shaped (key reads,
   overlays, editors); the null-asker paths auto-answer (workflow gates
   auto-yes, ask_user auto-first-option — fail-open); no open ask survives
-  the process. tin-3i3l steps 1–3 are the prerequisite; this audit does not
-  re-specify them.
+  the process. A live front end can hold asks in memory (pending futures
+  block nothing — no store needed); restart recovery is what the durable
+  ask record buys. tin-3i3l steps 1–3 are the prerequisite; this audit
+  does not re-specify them.
 
 Engine-side findings unique to this audit:
 
