@@ -32,13 +32,13 @@ class FakeTimer implements Timer {
 
 class Harness {
   late final TimerService service;
-  final List<String> fires = [];
+  final List<TimerFireId> fires = [];
   final List<String> warnings = [];
   final List<FakeTimer> timers = [];
 
   Harness({DateTime Function()? clock}) {
     service = TimerService(
-      onFire: (name, n) => fires.add('$name#$n'),
+      onFire: (fire) => fires.add(fire),
       onNotice: (text, {required bool warning}) {
         if (warning) warnings.add(text);
       },
@@ -50,6 +50,14 @@ class Harness {
       },
       clock: clock,
     );
+  }
+
+  /// The last fire the service delivered for [name] (see the service test
+  /// harness): acks bind to the exact fire they belong to.
+  TimerFireId _lastFireOrThrow(String name) {
+    final fire = fires.lastWhere((f) => f.name == name,
+        orElse: () => throw StateError('no fire for "$name"'));
+    return fire;
   }
 }
 
@@ -405,8 +413,8 @@ void main() {
         'max_fires': 4,
       });
       h.timers.last.fire();
-      h.service.ackStarted('a');
-      h.service.ackFinished('a', aborted: false);
+      h.service.ackStarted(h._lastFireOrThrow('a'));
+      h.service.ackFinished(h._lastFireOrThrow('a'), aborted: false);
       final r = await tools[2].execute({});
       expect(r.content, 'a: every 5m, max 4 fires, fired 1x, next in 5m');
     });
@@ -422,8 +430,8 @@ void main() {
       await tools[0].execute({'name': 'a', 'every': '5m', 'instruction': 'i'});
       for (var i = 0; i < kMaxTimerFiresBeforeSuspend; i++) {
         h.timers.last.fire();
-        h.service.ackStarted('a');
-        h.service.ackFinished('a', aborted: true);
+        h.service.ackStarted(h._lastFireOrThrow('a'));
+        h.service.ackFinished(h._lastFireOrThrow('a'), aborted: true);
       }
       final r = await tools[2].execute({});
       expect(

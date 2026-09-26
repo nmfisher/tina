@@ -17,10 +17,49 @@ import 'dart:async';
 typedef TimerFactory = Timer Function(
     Duration duration, void Function() callback);
 
+/// Identifies one fire of one timer across the entry's lifecycle (§7).
+///
+/// Acks carry the id they were issued for: every `set` replacement bumps the
+/// entry's generation, and every restore assigns a fresh one, so a completion
+/// from an old lifecycle can never ack (or be acked as) a newer timer with
+/// the same name, and a stale in-flight fire can never attach to a
+/// replacement.
+class TimerFireId {
+  final String name;
+
+  /// Lifecycle of the entry this fire belongs to: 0 for a freshly `set`
+  /// entry, bumped on every replace, fresh (unique) after each restore.
+  final int generation;
+
+  /// 1-based fire number within the generation (matches `fireCount` at the
+  /// moment of the tick).
+  final int fireNumber;
+
+  const TimerFireId({
+    required this.name,
+    required this.generation,
+    required this.fireNumber,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is TimerFireId &&
+      other.name == name &&
+      other.generation == generation &&
+      other.fireNumber == fireNumber;
+
+  @override
+  int get hashCode => Object.hash(name, generation, fireNumber);
+
+  @override
+  String toString() => '$name#$generation/$fireNumber';
+}
+
 /// Called when a timer's tick lands while the timer is [TimerEntryState.idle]:
 /// the app wires this to the controller seam that starts a real agent turn
-/// (§7). [fireNumber] is 1-based for this entry (resets on replace/restore).
-typedef TimerFireCallback = void Function(String name, int fireNumber);
+/// (§7). The app must pass [TimerFireId] back to [TimerService.ackStarted] /
+/// [TimerService.ackFinished] so the ack binds to this exact lifecycle.
+typedef TimerFireCallback = void Function(TimerFireId fire);
 
 /// Called for operator-visible notices: suspension warnings (§8, `warning`
 /// true) and busy-collapse skip lines (§4.4, `warning` false). The app wires
@@ -146,6 +185,17 @@ class _TimerEntry {
   bool suspended = false;
   TimerEntryState state = TimerEntryState.idle;
 
+  /// Lifecycle version of this entry: 0 when first `set`, +1 on every
+  /// replacement. Rides on every [TimerFireId] so an ack from an older
+  /// lifecycle (a check still running when the name was re-set) can never
+  /// complete a newer timer under the same name.
+  int generation = 0;
+
+  /// The in-flight fire this entry is queued/running for, if any. Acks that
+  /// do not match it exactly are ignored — a stale turn's completion cannot
+  /// settle (or suspend, or exhaust) a fire it does not belong to.
+  TimerFireId? currentFire;
+
   /// The fixed-grid schedule position. Advances from the PREVIOUS anchor,
   /// never from actual execution time (§4.4) — a slow check cannot drift it.
   DateTime nextAnchor;
@@ -156,6 +206,12 @@ class _TimerEntry {
   /// Whether the busy-collapse notice already fired for the current in-flight
   /// window (from fire to ackFinished, at most one skip line — §4.4 step 2).
   bool collapseNoticeShown = false;
+
+  /// The fire number this entry's [currentFire] was issued for, or null when
+  /// [currentFire] is null / doesn't match this generation. Guards
+  /// [TimerService.ackFinished] against settling a stale fire.
+  int? fireNumberFor(TimerFireId fire) =>
+      currentFire == fire ? fire.fireNumber : null;
 
   _TimerEntry({
     required this.name,
@@ -179,6 +235,17 @@ class TimerService {
   final Map<String, _TimerEntry> _entries = {};
   bool _disposed = false;
 
+  /// Source of fresh generations for restored entries (unique across the
+  /// service's lifetime, never colliding with `set`-installed generations).
+  int _nextRestoreGeneration = 1 << 30;
+
+  /// Called after every state change that alters durable state — the same
+  /// moments that bump [revision] (set, cancel, replace, expiry/suspension
+  /// inside [ackFinished], [restoreState], [cancelActiveFires]). The app
+  /// wires this to write-through persistence (§10 leg 2) so a sidecar flush
+  /// follows every mutation instead of only timer fires.
+  final void Function()? onMutation;
+
   /// Monotonic mutation counter (leg-2, §10 write-through): bumped by every
   /// state change that changes durable state — set, cancel, expiry or
   /// suspension inside [ackFinished], and [restoreState] — never by plain
@@ -189,6 +256,7 @@ class TimerService {
   TimerService({
     required this.onFire,
     required this.onNotice,
+    this.onMutation,
     TimerFactory? timerFactory,
     DateTime Function()? clock,
     String? Function()? currentSessionId,
@@ -222,6 +290,8 @@ class TimerService {
         ..suspended = false
         ..state = TimerEntryState.idle
         ..collapseNoticeShown = false
+        ..currentFire = null
+        ..generation += 1
         ..nextAnchor = now.add(spec.interval);
     } else {
       _entries[spec.name] = _TimerEntry(
@@ -236,15 +306,20 @@ class TimerService {
     }
     _arm(_entries[spec.name]!, now);
     revision++;
+    onMutation?.call();
     return replaced ? const TimerSetReplaced() : const TimerSetCreated();
   }
 
-  /// Disarms and removes a timer. False when the name is unknown.
+  /// Disarms and removes a timer. False when the name is unknown. Any fire
+  /// already delivered for this name is detached: the app calls
+  /// [cancelActiveFires] at teardown so an in-flight prompt is told not to
+  /// run (and cannot ack back into a dead entry).
   bool cancel(String name) {
     final entry = _entries.remove(name);
     if (entry == null) return false;
     _disarm(entry);
     revision++;
+    onMutation?.call();
     return true;
   }
 
@@ -253,11 +328,12 @@ class TimerService {
   List<TimerSnapshot> list() =>
       [for (final e in _entries.values) _snapshotOf(e)];
 
-  /// The app acks a fire-turn's start (§7.2). No-op in any state but
-  /// `queued` — defensive against a mis-attributed turn.
-  void ackStarted(String name) {
-    final entry = _entries[name];
-    if (entry == null) return;
+  /// The app acks a fire-turn's start (§7.2). No-op unless [fire] is the
+  /// entry's current in-flight fire — defensive against a stale or
+  /// mis-attributed turn.
+  void ackStarted(TimerFireId fire) {
+    final entry = _entries[fire.name];
+    if (entry == null || entry.currentFire != fire) return;
     if (entry.state == TimerEntryState.queued) {
       entry.state = TimerEntryState.running;
     }
@@ -266,17 +342,24 @@ class TimerService {
   /// The app acks a fire-turn's end (§7.3). [aborted] = the turn was
   /// ESC-cancelled or aborted (provider, transport, budget, steps).
   ///
+  /// No-op unless [fire] is the entry's current in-flight fire: a completion
+  /// from an older lifecycle (the name was re-set or restored meanwhile) or a
+  /// duplicate can never settle — let alone suspend or exhaust — a newer
+  /// timer that happens to share the name.
+  ///
   /// Counts consecutive aborts and suspends at [kMaxTimerFiresBeforeSuspend]
   /// (§8); removes the entry when its fire cap is used up (`once` or
   /// `fireCount == maxFires`); otherwise re-arms on the grid (§4.4 steps 3-5).
   /// Tolerated no-op for unknown names and states not in flight.
-  void ackFinished(String name, {required bool aborted}) {
-    final entry = _entries[name];
-    if (entry == null) return;
+  void ackFinished(TimerFireId fire, {required bool aborted}) {
+    final entry = _entries[fire.name];
+    if (entry == null || entry.currentFire != fire) return;
+    if (entry.fireNumberFor(fire) == null) return;
     if (entry.state != TimerEntryState.queued &&
         entry.state != TimerEntryState.running) {
       return;
     }
+    entry.currentFire = null;
     final now = _clock();
     entry.state = TimerEntryState.idle;
     entry.collapseNoticeShown = false;
@@ -287,6 +370,7 @@ class TimerService {
       entry.suspended = true;
       _disarm(entry);
       revision++;
+      onMutation?.call();
       onNotice(
         '[timer ${entry.name} suspended after $kMaxTimerFiresBeforeSuspend '
         'consecutive failed checks — /timers cancel ${entry.name}, or ask the '
@@ -300,9 +384,28 @@ class TimerService {
       _disarm(entry);
       _entries.remove(entry.name);
       revision++;
+      onMutation?.call();
       return;
     }
     _advanceAndArm(entry, now);
+  }
+
+  /// Detaches every in-flight fire (queued or running) from live entries:
+  /// their [TimerFireId]s stop acking, and their id/name pairs are returned
+  /// so the app can settle the already-enqueued turn prompts (tell the user
+  /// the timer is gone) instead of stranding them as queued turns (§7).
+  /// Called from [dispose] and by the app when the TUI tears down while a
+  /// fire turn is still queued behind an active turn.
+  List<(TimerFireId, String)> cancelActiveFires() {
+    final cancelled = <(TimerFireId, String)>[];
+    for (final entry in _entries.values) {
+      final fire = entry.currentFire;
+      if (fire == null) continue;
+      entry.currentFire = null;
+      entry.state = TimerEntryState.idle;
+      cancelled.add((fire, entry.instruction));
+    }
+    return cancelled;
   }
 
   /// Serializes every entry for the per-session sidecar (§10): counters and
@@ -327,12 +430,18 @@ class TimerService {
         notRestored.add(entry.name);
         continue;
       }
+      // Fresh generation: restored entries never collide with an older
+      // lifecycle's in-flight fire under the same name.
+      entry.generation = _nextRestoreGeneration++;
       _entries[entry.name] = entry;
       // Anchor as saved; the past-tick rule collapses missed grid points, so
       // the first fire lands on the first FUTURE grid point (§10 step 4).
       if (!entry.suspended) _advanceAndArm(entry, _clock());
     }
-    if (notRestored.length < saved.length) revision++;
+    if (notRestored.length < saved.length) {
+      revision++;
+      onMutation?.call();
+    }
     return notRestored;
   }
 
@@ -343,6 +452,7 @@ class TimerService {
     for (final entry in _entries.values) {
       _disarm(entry);
     }
+    cancelActiveFires();
   }
 
   // -- internals -----------------------------------------------------------
@@ -389,7 +499,13 @@ class TimerService {
         entry.fireCount += 1;
         entry.collapseNoticeShown = false;
         entry.state = TimerEntryState.queued;
-        onFire(entry.name, entry.fireCount);
+        final fire = TimerFireId(
+          name: entry.name,
+          generation: entry.generation,
+          fireNumber: entry.fireCount,
+        );
+        entry.currentFire = fire;
+        onFire(fire);
       case TimerEntryState.queued:
       case TimerEntryState.running:
         // COLLAPSE: at most one fire per timer in flight; the skip notice

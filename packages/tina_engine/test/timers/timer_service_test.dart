@@ -54,20 +54,30 @@ class FakeFactory {
 class Harness {
   late TimerService service;
   final FakeFactory factory = FakeFactory();
-  final List<String> fires = [];
+  final List<TimerFireId> fires = [];
   final List<String> notices = [];
   final List<String> warnings = [];
   String? sessionId;
+  int mutations = 0;
 
   Harness() {
     service = TimerService(
-      onFire: (name, n) => fires.add('$name#$n'),
+      onFire: (fire) => fires.add(fire),
       onNotice: (text, {required bool warning}) =>
           warning ? warnings.add(text) : notices.add(text),
+      onMutation: () => mutations++,
       timerFactory: factory.call,
       clock: () => clockNow,
       currentSessionId: () => sessionId,
     );
+  }
+
+  /// The last fire the service delivered, checked against [name] so an ack
+  /// can't silently attach to the wrong entry after a test refactor.
+  TimerFireId _lastFireOrThrow(String name) {
+    final fire = fires.lastWhere((f) => f.name == name,
+        orElse: () => throw StateError('no fire for "$name"'));
+    return fire;
   }
 
   FakeTimer get lastTimer => factory.last;
@@ -112,8 +122,8 @@ void main() {
       final h = Harness();
       h.service.set(spec('a'));
       h.lastTimer.fire();
-      h.service.ackStarted('a');
-      h.service.ackFinished('a', aborted: true);
+      h.service.ackStarted(h._lastFireOrThrow('a'));
+      h.service.ackFinished(h._lastFireOrThrow('a'), aborted: true);
       final outcome =
           h.service.set(spec('a', every: const Duration(minutes: 7)));
       expect(outcome, isA<TimerSetReplaced>());
@@ -174,8 +184,8 @@ void main() {
       h.service.set(spec('a'));
       for (var i = 0; i < kMaxTimerFiresBeforeSuspend; i++) {
         h.lastTimer.fire();
-        h.service.ackStarted('a');
-        h.service.ackFinished('a', aborted: true);
+        h.service.ackStarted(h._lastFireOrThrow('a'));
+        h.service.ackFinished(h._lastFireOrThrow('a'), aborted: true);
       }
       expect(h.service.list(), hasLength(1));
       expect(h.service.list().single.suspended, isTrue);
@@ -187,7 +197,7 @@ void main() {
       final h = Harness();
       h.service.set(spec('a'));
       h.lastTimer.fire();
-      expect(h.fires, ['a#1']);
+      expect(h.fires.map((f) => f.toString()), ['a#0/1']);
       expect(h.service.list().single.state, TimerEntryState.queued);
     });
 
@@ -196,14 +206,14 @@ void main() {
       h.service.set(spec('a', every: const Duration(seconds: 30)));
       h.lastTimer.fire(); // fire #1 -> queued
       h.lastTimer.fire(); // collapse #1: notice
-      expect(h.fires, ['a#1']);
+      expect(h.fires.map((f) => f.toString()), ['a#0/1']);
       expect(h.notices, hasLength(1));
       h.lastTimer.fire(); // collapse #2: no second notice
-      expect(h.fires, ['a#1']);
+      expect(h.fires.map((f) => f.toString()), ['a#0/1']);
       expect(h.notices, hasLength(1));
-      h.service.ackFinished('a', aborted: false); // window closes
+      h.service.ackFinished(h._lastFireOrThrow('a'), aborted: false); // window closes
       h.lastTimer.fire(); // new window: fires, notice flag reset
-      expect(h.fires, ['a#1', 'a#2']);
+      expect(h.fires.map((f) => f.toString()), ['a#0/1', 'a#0/2']);
       expect(h.notices, hasLength(1));
     });
 
@@ -212,10 +222,10 @@ void main() {
       h.service.set(spec('a', every: const Duration(seconds: 30)));
       h.lastTimer.fire();
       h.lastTimer.fire(); // notice 1
-      h.service.ackFinished('a', aborted: false);
+      h.service.ackFinished(h._lastFireOrThrow('a'), aborted: false);
       h.lastTimer.fire(); // fire #2
       h.lastTimer.fire(); // notice 2 (new window)
-      expect(h.fires, ['a#1', 'a#2']);
+      expect(h.fires.map((f) => f.toString()), ['a#0/1', 'a#0/2']);
       expect(h.notices, hasLength(2));
     });
 
@@ -223,22 +233,26 @@ void main() {
       final h = Harness();
       h.service.set(spec('a'));
       h.lastTimer.fire();
-      h.service.ackStarted('a');
+      h.service.ackStarted(h._lastFireOrThrow('a'));
       expect(h.service.list().single.state, TimerEntryState.running);
-      h.service.ackFinished('a', aborted: false);
+      h.service.ackFinished(h._lastFireOrThrow('a'), aborted: false);
       expect(h.service.list().single.state, TimerEntryState.idle);
     });
 
     test('acks tolerated no-ops in wrong states (§4.4 step 4)', () {
       final h = Harness();
       h.service.set(spec('a'));
-      h.service.ackStarted('a'); // idle: no-op
+      // No fire delivered yet: a made-up id is a no-op.
+      h.service.ackStarted(const TimerFireId(
+          name: 'a', generation: 0, fireNumber: 1)); // idle: no-op
       expect(h.service.list().single.state, TimerEntryState.idle);
-      h.service.ackFinished('a', aborted: true); // idle: no-op
+      h.service.ackFinished(
+          const TimerFireId(name: 'a', generation: 0, fireNumber: 1),
+          aborted: true); // idle: no-op
       expect(h.fires, isEmpty);
       h.lastTimer.fire();
-      h.service.ackStarted('a');
-      h.service.ackStarted('a'); // running: no-op
+      h.service.ackStarted(h._lastFireOrThrow('a'));
+      h.service.ackStarted(h._lastFireOrThrow('a')); // running: no-op
       expect(h.service.list().single.state, TimerEntryState.running);
     });
 
@@ -248,7 +262,7 @@ void main() {
       final anchor1 = clockNow.add(const Duration(minutes: 5));
       h.lastTimer.fire(); // fires exactly at anchor1; anchor -> anchor2
       clockNow = clockNow.add(const Duration(minutes: 5, seconds: 20));
-      h.service.ackFinished('a', aborted: false);
+      h.service.ackFinished(h._lastFireOrThrow('a'), aborted: false);
       // anchor2 = anchor1 + 5m = T0+10m fell in the past during the check,
       // so the re-arm landed on anchor2 + 5m = T0+15m (not now + 5m).
       expect(h.service.list().single.nextFireAt,
@@ -260,30 +274,30 @@ void main() {
       h.service.set(spec('a'));
       h.lastTimer.fire(); // fire #1 at T0+5m
       clockNow = clockNow.add(const Duration(minutes: 12)); // check ran 12m
-      h.service.ackFinished('a', aborted: false);
+      h.service.ackFinished(h._lastFireOrThrow('a'), aborted: false);
       // Grid points T0+10m (past) skipped; next is T0+15m -> 3m from now.
       expect(h.service.list().single.nextFireAt,
           clockNow.add(const Duration(minutes: 3)));
       h.lastTimer.fire();
-      expect(h.fires, ['a#1', 'a#2']);
+      expect(h.fires.map((f) => f.toString()), ['a#0/1', 'a#0/2']);
     });
 
     test('zero-delay arm is safe: immediate tick collapses when busy', () {
       final h = Harness();
       h.service.set(spec('a', every: const Duration(seconds: 30)));
       h.lastTimer.fire(); // queued
-      h.service.ackFinished('a', aborted: false);
+      h.service.ackFinished(h._lastFireOrThrow('a'), aborted: false);
       // ackFinished re-armed at the anchor in the past -> delay 0.
       h.lastTimer.fire(); // fresh fire (window closed) — fine.
-      expect(h.fires, ['a#1', 'a#2']);
+      expect(h.fires.map((f) => f.toString()), ['a#0/1', 'a#0/2']);
     });
 
     test('once removes the entry after its single fire', () {
       final h = Harness();
       h.service.set(spec('a', once: true));
       h.lastTimer.fire();
-      h.service.ackStarted('a');
-      h.service.ackFinished('a', aborted: false);
+      h.service.ackStarted(h._lastFireOrThrow('a'));
+      h.service.ackFinished(h._lastFireOrThrow('a'), aborted: false);
       expect(h.service.list(), isEmpty);
     });
 
@@ -292,23 +306,23 @@ void main() {
       h.service.set(spec('a', maxFires: 2));
       for (var i = 0; i < 2; i++) {
         h.lastTimer.fire();
-        h.service.ackStarted('a');
-        h.service.ackFinished('a', aborted: false);
+        h.service.ackStarted(h._lastFireOrThrow('a'));
+        h.service.ackFinished(h._lastFireOrThrow('a'), aborted: false);
       }
       expect(h.service.list(), isEmpty);
-      expect(h.fires, ['a#1', 'a#2']);
+      expect(h.fires.map((f) => f.toString()), ['a#0/1', 'a#0/2']);
     });
 
     test('abort increments the streak; clean fire resets it', () {
       final h = Harness();
       h.service.set(spec('a'));
       h.lastTimer.fire();
-      h.service.ackStarted('a');
-      h.service.ackFinished('a', aborted: true);
+      h.service.ackStarted(h._lastFireOrThrow('a'));
+      h.service.ackFinished(h._lastFireOrThrow('a'), aborted: true);
       expect(h.service.list().single.consecutiveAbortedFires, 1);
       h.lastTimer.fire();
-      h.service.ackStarted('a');
-      h.service.ackFinished('a', aborted: false);
+      h.service.ackStarted(h._lastFireOrThrow('a'));
+      h.service.ackFinished(h._lastFireOrThrow('a'), aborted: false);
       expect(h.service.list().single.consecutiveAbortedFires, 0);
     });
 
@@ -327,8 +341,8 @@ void main() {
       h.service.set(spec('a'));
       for (var i = 0; i < kMaxTimerFiresBeforeSuspend; i++) {
         h.lastTimer.fire();
-        h.service.ackStarted('a');
-        h.service.ackFinished('a', aborted: true);
+        h.service.ackStarted(h._lastFireOrThrow('a'));
+        h.service.ackFinished(h._lastFireOrThrow('a'), aborted: true);
       }
       expect(h.service.list().single.suspended, isTrue);
       expect(h.warnings, hasLength(1));
@@ -344,8 +358,8 @@ void main() {
       h.service.set(spec('a'));
       for (var i = 0; i < kMaxTimerFiresBeforeSuspend; i++) {
         h.lastTimer.fire();
-        h.service.ackStarted('a');
-        h.service.ackFinished('a', aborted: true);
+        h.service.ackStarted(h._lastFireOrThrow('a'));
+        h.service.ackFinished(h._lastFireOrThrow('a'), aborted: true);
       }
       expect(h.lastTimer.isActive, isFalse);
       expect(h.service.list(), hasLength(1));
@@ -356,8 +370,8 @@ void main() {
       h.service.set(spec('a'));
       for (var i = 0; i < kMaxTimerFiresBeforeSuspend - 1; i++) {
         h.lastTimer.fire();
-        h.service.ackStarted('a');
-        h.service.ackFinished('a', aborted: true);
+        h.service.ackStarted(h._lastFireOrThrow('a'));
+        h.service.ackFinished(h._lastFireOrThrow('a'), aborted: true);
       }
       expect(h.service.list().single.suspended, isFalse);
       expect(h.warnings, isEmpty);
@@ -368,8 +382,8 @@ void main() {
       h.service.set(spec('a'));
       for (var i = 0; i < kMaxTimerFiresBeforeSuspend; i++) {
         h.lastTimer.fire();
-        h.service.ackStarted('a');
-        h.service.ackFinished('a', aborted: true);
+        h.service.ackStarted(h._lastFireOrThrow('a'));
+        h.service.ackFinished(h._lastFireOrThrow('a'), aborted: true);
       }
       expect(h.service.set(spec('a')), isA<TimerSetReplaced>());
       final s = h.service.list().single;
@@ -383,11 +397,11 @@ void main() {
       h.service.set(spec('a'));
       for (var i = 0; i < kMaxTimerFiresBeforeSuspend; i++) {
         h.lastTimer.fire();
-        h.service.ackStarted('a');
-        h.service.ackFinished('a', aborted: true);
+        h.service.ackStarted(h._lastFireOrThrow('a'));
+        h.service.ackFinished(h._lastFireOrThrow('a'), aborted: true);
       }
-      h.service.ackStarted('a'); // suspended, idle: no-op
-      h.service.ackFinished('a', aborted: true); // idle: no-op
+      h.service.ackStarted(h._lastFireOrThrow('a')); // suspended, idle: no-op
+      h.service.ackFinished(h._lastFireOrThrow('a'), aborted: true); // idle: no-op
       expect(h.warnings, hasLength(1));
       expect(h.service.list().single.consecutiveAbortedFires,
           kMaxTimerFiresBeforeSuspend);
@@ -418,7 +432,7 @@ void main() {
       final h = Harness();
       h.service.set(spec('a'));
       h.lastTimer.fire(); // queued
-      h.service.ackStarted('a'); // running
+      h.service.ackStarted(h._lastFireOrThrow('a')); // running
       final exported = h.service.exportState();
       expect(exported.single.containsKey('state'), isFalse);
       final h2 = Harness();
@@ -448,8 +462,8 @@ void main() {
       h.service.set(spec('a'));
       for (var i = 0; i < kMaxTimerFiresBeforeSuspend; i++) {
         h.lastTimer.fire();
-        h.service.ackStarted('a');
-        h.service.ackFinished('a', aborted: true);
+        h.service.ackStarted(h._lastFireOrThrow('a'));
+        h.service.ackFinished(h._lastFireOrThrow('a'), aborted: true);
       }
       final exported = h.service.exportState();
       final h2 = Harness();
