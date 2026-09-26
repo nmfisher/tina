@@ -1,19 +1,24 @@
 /// The loop. One file. Five steps: take one input, build the request, call
 /// the provider, run the tool calls, append the results and go back to step
 /// 2 until the model asks for no tools.
+///
+/// The core owns truth: this file is the only writer of the transcript.
+/// Plugins own decisions, returned through hooks. Bookkeeping lives in
+/// [TurnRecorder], pinning in [PinnedTools], prompts in [PromptBuilder],
+/// dispatch in [Dispatcher], registration in [PluginRegistry].
 library;
 
-import 'dart:collection';
-
 import 'context.dart';
+import 'dispatch.dart';
 import 'model.dart';
+import 'pin.dart';
 import 'plugin.dart';
+import 'prompt.dart';
 import 'provider.dart';
+import 'registry.dart';
+import 'turn.dart';
 
-/// The agent loop. The core owns truth: the transcript, the requests, the
-/// results — it is the only writer. Plugins own decisions and return them
-/// through hooks. A plugin that throws is isolated; its contribution is
-/// treated as absent and the turn continues.
+/// The agent loop.
 final class AgentLoop {
   AgentLoop({
     required Provider provider,
@@ -23,226 +28,122 @@ final class AgentLoop {
   })  : _provider = provider,
         _services = Map.of(services) {
     for (final p in plugins) {
-      addPlugin(p);
+      _registry.add(p);
     }
   }
 
   final Provider _provider;
   final Map<String, Object> _services;
   final int maxStepsPerTurn;
-  final LinkedHashMap<String, AgentPlugin> _registry = LinkedHashMap();
-  final Map<String, Future<String> Function(Map<String, Object?>)> _execs = {};
+  final PluginRegistry _registry = PluginRegistry();
   final CancelToken _cancel = CancelToken();
   final List<Message> _transcript = [];
   final Map<String, Object?> _turn = {};
+  late final Dispatcher _dispatch = Dispatcher(
+      pluginsInOrder: _registry.inOrder,
+      transcriptSnapshot: () => List.of(_transcript),
+      isLive: _registry.contains,
+      services: _services,
+      turnState: _turn,
+      cancel: _cancel);
 
-  /// Plugins in run order: ascending order, ties broken by id.
-  List<AgentPlugin> get plugins => _registry.values.toList()
-    ..sort((a, b) => a.order != b.order
-        ? a.order.compareTo(b.order)
-        : a.id.compareTo(b.id));
+  /// Register a plugin. A duplicate id throws.
+  void addPlugin(AgentPlugin plugin) => _registry.add(plugin);
 
-  /// Register a plugin. A duplicate id is a programming error: throw.
-  void addPlugin(AgentPlugin plugin) {
-    if (_registry.containsKey(plugin.id)) {
-      throw ArgumentError('duplicate plugin id: ${plugin.id}');
-    }
-    _registry[plugin.id] = plugin;
-  }
-
-  /// Remove a plugin. Liveness: dispatch re-checks registration, so a
-  /// removed plugin's pending tool call is skipped, not crashed on.
+  /// Remove a plugin. Dispatch re-checks liveness.
   void removePlugin(String id) => _registry.remove(id);
 
-  /// Give a tool its executor. Executors live here, not inside [Tool].
+  /// Give a tool its executor. Executors live on the dispatcher.
   void registerExecutor(
           String tool, Future<String> Function(Map<String, Object?>) exec) =>
-      _execs[tool] = exec;
+      _dispatch.registerExecutor(tool, exec);
 
-  /// The one cancellation path. Checked before the model call and before
-  /// each tool.
+  /// The one cancellation path.
   void cancel(String why) => _cancel.cancel(why);
 
   Context _snap(List<Tool> pinned) => Context(
       transcript: List.of(_transcript),
       tools: List.of(pinned),
-      isLive: _registry.containsKey,
+      isLive: _registry.contains,
       services: _services,
       turnState: _turn,
       cancel: _cancel);
 
-  T? _isolate<T>(T? Function() hook) {
-    try {
-      return hook();
-    } catch (_) {
-      return null; // one bad plugin must not break the turn
-    }
-  }
+  String _prompt(List<Tool> pinned) =>
+      PromptBuilder(pluginsInOrder: _registry.inOrder, snapshot: _snap)
+          .build(pinned);
 
+  /// Step 1: take one input. Steps 2–5 run in [_step2to5].
   Future<Outcome> runTurn(Input raw) async {
     _turn.clear();
-    final appended = <Message>[];
-    String? changedBy;
+    final recorder = TurnRecorder([], _snap, _registry.inOrder);
     var input = raw;
-    for (final p in plugins) {
+    for (final p in _registry.inOrder()) {
       final replacement =
-          _isolate(() => p.beforeInvocation(_snap(const []), input));
+          runHook(() => p.beforeInvocation(_snap(const []), input));
       if (replacement != null) {
         input = replacement;
-        changedBy = p.id; // sequential rewrites; the last one is recorded
+        recorder.changedBy = p.id; // the last rewrite is recorded
       }
     }
     final user = Message.user(input.text);
     _transcript.add(user);
-    appended.add(user);
-    final pinned = {
-      for (final p in plugins)
-        for (final t in p.tools) t.name: t
-    };
-    final owners = {
-      for (final p in plugins)
-        for (final t in p.tools) t.name: p.id
-    };
-    final pinnedTools = pinned.values.toList();
-    final requests = <Request>[];
-    final responses = <Message>[];
+    recorder.appended.add(user);
+    return _step2to5(recorder);
+  }
 
-    Outcome finish(StopReason reason, String detail) {
-      final outcome = Outcome(
-          stopReason: reason,
-          messages: [for (final m in appended) m.copy()],
-          modelRequests: [for (final r in requests) r.snapshot()],
-          modelResponses: [for (final m in responses) m.copy()],
-          usage: responses.length,
-          detail: detail,
-          changedBy: changedBy);
-      for (final p in plugins) {
-        _isolate(() {
-          p.onTurnEnd(_snap(pinnedTools), outcome);
-          return null;
-        });
-      }
-      return outcome;
-    }
-
+  /// Steps 2–5. The loop body. Nothing else lives here.
+  Future<Outcome> _step2to5(TurnRecorder t) async {
+    final pinned = PinnedTools(_registry.inOrder());
     for (var step = 0; step < maxStepsPerTurn; step++) {
       if (_cancel.cancelled) {
-        return finish(StopReason.cancelled, 'cancelled: ${_cancel.reason}');
+        return t.finish(
+            StopReason.cancelled, 'cancelled: ${_cancel.reason}', _cancel);
       }
+      // Step 2: build the request.
       var request = Request(
-          systemPrompt: _systemPrompt(pinnedTools),
+          systemPrompt: _prompt(pinned.list),
           messages: List.of(_transcript),
-          tools: [for (final t in pinnedTools) t.snapshot()]);
-      for (final p in plugins) {
-        final replacement = _isolate(
-            () => p.beforeRequest(_snap(pinnedTools), request.snapshot()));
+          tools: [for (final tool in pinned.list) tool.snapshot()]);
+      for (final p in _registry.inOrder()) {
+        final replacement = runHook(
+            () => p.beforeRequest(_snap(pinned.list), request.snapshot()));
         if (replacement != null) request = replacement;
       }
+      // Step 3: call the provider.
       final response = await _provider.call(request);
-      requests.add(request.snapshot());
+      t.requests.add(request.snapshot());
       final reply = Message.assistant(response.text,
           toolCalls: [for (final c in response.toolCalls) c.snapshot()]);
       _transcript.add(reply);
-      appended.add(reply);
-      responses.add(reply);
+      t.appended.add(reply);
+      t.responses.add(reply);
       if (response.toolCalls.isEmpty) {
-        return finish(StopReason.complete, response.text);
+        return t.finish(StopReason.complete, response.text, _cancel);
       }
+      // Step 4: run the tool calls.
       for (final call in response.toolCalls) {
-        var result = _cancel.cancelled
+        final result = _cancel.cancelled
             ? ToolResult(
                 callId: call.id,
                 toolName: call.name,
                 ok: false,
                 content: 'cancelled: ${_cancel.reason}',
                 meta: {'cancelled': _cancel.reason})
-            : await _runOne(call, pinnedTools, owners);
-        _transcript.add(Message.toolResult(result));
-        appended.add(Message.toolResult(result));
+            : await _dispatch.runOne(call, pinned.list, pinned.ownerOf);
+        // Step 5: append the results. Pairing holds even for a denied
+        // call: the core writes a result that says so.
+        final message = Message.toolResult(result);
+        _transcript.add(message);
+        t.appended.add(message);
       }
-      // Pinning. A plugin that left is not a change — its tools simply
-      // became undispatchable, which the liveness check above handles. Any
-      // other difference (a live plugin added or removed a tool, a new
-      // plugin appeared) rejects the turn.
-      final livePinned = {
-        for (final name in pinned.keys)
-          if (_registry.containsKey(owners[name])) name
-      };
-      final now = {
-        for (final p in plugins)
-          for (final t in p.tools) t.name
-      };
-      if (now.length != livePinned.length || !now.containsAll(livePinned)) {
-        return finish(StopReason.error, 'tools-changed mid-turn');
+      if (!pinned.stillValid(
+          pluginsInOrder: _registry.inOrder,
+          isLive: _registry.contains)) {
+        return t.finish(StopReason.error, 'tools-changed mid-turn', _cancel);
       }
     }
-    return finish(StopReason.error, 'max-steps ($maxStepsPerTurn) exceeded');
-  }
-
-  String _systemPrompt(List<Tool> pinned) {
-    final sections = <String>['You are tina, a terminal coding agent.'];
-    for (final p in plugins) {
-      final section = _isolate(() => p.systemSection(_snap(pinned)));
-      if (section != null && section.isNotEmpty) sections.add(section);
-    }
-    return sections.join('\n\n');
-  }
-
-  Future<ToolResult> _runOne(
-      ToolCall call, List<Tool> pinned, Map<String, String> owners) async {
-    final owner = owners[call.name];
-    if (owner != null && !_registry.containsKey(owner)) {
-      return ToolResult(
-          callId: call.id,
-          toolName: call.name,
-          ok: false,
-          content: 'skipped: plugin $owner left',
-          meta: {'skipped': 'plugin-left'});
-    }
-    for (final p in plugins) {
-      final decision =
-          _isolate(() => p.beforeTool(_snap(pinned), call)) ??
-              const Decision.allow();
-      if (decision.kind != DecisionKind.allow) {
-        return decision.replacement ??
-            ToolResult(
-                callId: call.id,
-                toolName: call.name,
-                ok: false,
-                content: 'denied: ${decision.reason}',
-                meta: {
-                  'deniedBy': p.id,
-                  if (decision.kind == DecisionKind.ask)
-                    'denied': 'ask-unresolved'
-                });
-      }
-    }
-    final exec = _execs[call.name];
-    if (exec == null) {
-      return ToolResult(
-          callId: call.id,
-          toolName: call.name,
-          ok: false,
-          content: 'no executor for ${call.name}',
-          meta: {'error': 'no-executor'});
-    }
-    try {
-      final content = await exec(call.arguments);
-      var result = ToolResult(
-          callId: call.id, toolName: call.name, ok: true, content: content);
-      for (final p in plugins) {
-        final replacement =
-            _isolate(() => p.afterTool(_snap(pinned), result)) as ToolResult?;
-        if (replacement != null) result = replacement.snapshot();
-      }
-      return result;
-    } catch (e) {
-      return ToolResult(
-          callId: call.id,
-          toolName: call.name,
-          ok: false,
-          content: 'tool threw: $e',
-          meta: {'error': 'threw'});
-    }
+    return t.finish(
+        StopReason.error, 'max-steps ($maxStepsPerTurn) exceeded', _cancel);
   }
 }

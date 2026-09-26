@@ -15,7 +15,12 @@ No persistence. The point is to judge the design, not the coverage.
 lib/tina_engine_2.dart     barrel export
 lib/src/model.dart         the value types (immutable)
 lib/src/plugin.dart        AgentPlugin: one interface, every hook optional
-lib/src/loop.dart          the loop. One file. Five steps.
+lib/src/registry.dart      plugin registry: ids, removal, stable run order
+lib/src/loop.dart          the loop. One file. Five steps. (<150 lines)
+lib/src/prompt.dart        prompt assembly: the core owns the join
+lib/src/pin.dart           the tool set pinned at the turn boundary
+lib/src/dispatch.dart      tool dispatch: liveness, guards, executors
+lib/src/turn.dart          turn bookkeeping and the onTurnEnd fan-out
 lib/src/provider.dart      the provider interface + the scripted provider
 lib/src/context.dart       the per-turn snapshot plugins receive
 example/example_plugins.dart  four small plugins, hooks in use
@@ -43,8 +48,9 @@ Everything else in this file follows from those two lines.
 5. append results, go to 3 until the model asks for no tools
 ```
 
-That is all `loop.dart` does. Budgets, retries, compaction, pruning,
-checkpoints are deliberately not in it. See "Left out on purpose".
+That is all `loop.dart` does — it is 149 lines including comments.
+Budgets, retries, compaction, pruning, checkpoints are deliberately not in
+it. See "Left out on purpose".
 
 ## The model
 

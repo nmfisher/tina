@@ -3,6 +3,7 @@
 library;
 
 export 'src/context.dart';
+export 'src/dispatch.dart';
 export 'src/loop.dart';
 export 'src/model.dart';
 export 'src/plugin.dart';
