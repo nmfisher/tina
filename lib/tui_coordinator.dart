@@ -284,6 +284,12 @@ class TuiCoordinator {
     // closures capture the in-scope [pickSpawnedTarget] helper; tests pass a
     // canned (ref, profile) to drive the live fork body without the overlays.
     Future<({String ref, ToolProfile profile})?> Function()? spawnTargetPicker,
+    // Injectable one-shot timer factory (§4.3) for tests: production passes
+    // nothing (real `Timer`); a test injects a fake that fires on demand so
+    // the REAL service — armed by the REAL create() wiring — can be ticked
+    // deterministically. The callback receives the factory to hand the
+    // service and keeps the handles.
+    TimerFactory? timerFactoryOverride,
   }) async {
     final config = app.config;
     final terminalConfig =
@@ -643,6 +649,7 @@ class TuiCoordinator {
           }
           unawaited(controller.flushTimerState());
         },
+        timerFactory: timerFactoryOverride,
         currentSessionId: () => sessionManager.activeId,
       );
 
