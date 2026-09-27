@@ -292,7 +292,14 @@ class DependencyGraph {
         values.addAll(directive.configurations.map((c) => c.uri.stringValue));
       for (final value in values) {
         if (value == null || value.isEmpty) {
-          problem('invalid-uri', file, '$value', line, 'literal URI required');
+          // Generated FFI bindings in external packages (package:sqlite3's
+          // ffigen output) declare `import '' as self;`. The analyzer accepts
+          // it, and the file is pub-cache content no tina package owns, so it
+          // records nothing here — the traversal still walks the file to
+          // build diagnostic paths. Owned sources keep the full judgment.
+          if (owner(file)?.owned ?? false) {
+            problem('invalid-uri', file, '$value', line, 'literal URI required');
+          }
           continue;
         }
         try {

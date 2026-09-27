@@ -198,6 +198,73 @@ void main() {
     expect(f.check().where((v) => v.rule == 'invalid-uri'), hasLength(2));
   });
 
+  test(
+    'an empty directive URI is judged for owned sources, not external ones',
+    () {
+      // package:sqlite3's generated FFI bindings carry `import '' as
+      // self;`. The analyzer accepts it, and the file is pub-cache content
+      // no tina package owns, so the walker reads it for diagnostic paths
+      // but records nothing from it. Gating works as it did for the
+      // tina_cli parity test: an owned file reaches the terminal barrel
+      // directly, and the traversal continues through foreign files.
+      Directory(p.join(f.root, 'packages/foreign/lib')).createSync(
+        recursive: true,
+      );
+      File(
+        p.join(f.root, 'packages/foreign/pubspec.yaml'),
+      ).writeAsStringSync('name: foreign\n');
+      f.packages['foreign'] = PackageRoot(
+        'foreign',
+        p.join(f.root, 'packages/foreign'),
+        p.join(f.root, 'packages/foreign/lib'),
+        owned: false,
+      );
+      f.write('packages/console/lib/console.dart', '');
+      f.write('packages/console/lib/inner.dart', '');
+      f.write('packages/foreign/lib/g.dart', "import '' as self;");
+      f.write('packages/foreign/lib/mid.dart', "import 'mid2.dart';");
+      f.write(
+        'packages/foreign/lib/mid2.dart',
+        "export 'package:console/inner.dart';",
+      );
+      f.write('lib/a.dart', "import 'package:foreign/mid.dart';");
+      f.write('lib/empty_uri.dart', "import '';");
+
+      // The workspace check scans policy source roots — owned packages
+      // only — so the foreign package's files are never owned files, and
+      // their empty-URI lines are never judged.
+      final graph = f.graph(
+        roots: {
+          'tina': ['lib'],
+          'engine': ['lib'],
+          'console': ['lib'],
+        },
+      );
+      final all = f.policy().check(graph);
+      final bad = all.where((v) => v.rule == 'invalid-uri').toList();
+      expect(bad, hasLength(1), reason: '$all');
+      expect(bad.single.origin, 'lib/empty_uri.dart');
+      expect(bad.single.detail, 'literal URI required');
+      expect(graph.problems.where((v) => v.rule == 'invalid-uri'), bad);
+
+      // The foreign files are still walked to build diagnostic paths: the
+      // owned file that reaches console only through them reports, with
+      // the foreign hops in the path.
+      final reached = graph.forbidden(
+        canonical(p.join(f.root, 'lib/a.dart')),
+        'frontend-exclusion',
+        (file) => 'console' == graph.owner(file)?.name,
+      );
+      expect(reached, hasLength(1));
+      expect(reached.single.path, [
+        'lib/a.dart',
+        'packages/foreign/lib/mid.dart',
+        'packages/foreign/lib/mid2.dart',
+        'packages/console/lib/inner.dart',
+      ]);
+    },
+  );
+
   test('private libraries are allowed within their package only', () {
     f.write('packages/engine/lib/src/private.dart', '');
     f.write('packages/engine/lib/engine.dart', "export 'src/private.dart';");
