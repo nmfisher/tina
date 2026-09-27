@@ -33,6 +33,108 @@ enum TurnStopReason { complete, cancelled, error }
 /// falls back to — an edited plan must be re-approved.
 enum PlanApproval { none, requested, approved, rejected }
 
+/// The goal judge's verdict on whether the session's goal has been met.
+/// [none] is the fresh-goal default (never judged); [achieved] and
+/// [uncertain] come from a post-turn judge check; [inProgress] is
+/// recorded explicitly too, so a flip (achieved → inProgress) reads as a
+/// re-opened goal, not a stale label.
+enum GoalVerdict { none, inProgress, achieved, uncertain }
+
+/// The session's goal changed: the user's stated objective plus the
+/// latest judge verdict. One goal per session; the latest entry wins,
+/// and an entry with an empty text clears the goal. Like the plan, the
+/// entry **is** the state — the words as typed and the verdict with its
+/// evidence are not derivable from anything else in the log.
+final class GoalChangedEntry extends SessionEntry {
+  static const kindName = 'goal_changed';
+
+  /// The objective as the user typed it (trimmed). Empty = cleared.
+  final String text;
+
+  /// The latest verdict. [GoalVerdict.none] = not judged yet (a new goal
+  /// always starts here — a new goal is not yet judged).
+  final GoalVerdict verdict;
+
+  /// The verdict's one-line evidence, as the judge phrased it.
+  final String evidence;
+
+  final String at;
+
+  const GoalChangedEntry({
+    required this.text,
+    this.verdict = GoalVerdict.none,
+    this.evidence = '',
+    this.at = '',
+    super.seq = 0,
+  });
+
+  @override
+  GoalChangedEntry withSeq(int newSeq) => GoalChangedEntry(
+        text: text,
+        verdict: verdict,
+        evidence: evidence,
+        at: at,
+        seq: newSeq,
+      );
+
+  @override
+  String get kind => kindName;
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...super.toJson(),
+        'text': text,
+        'verdict': verdict.name,
+        'evidence': evidence,
+        if (at.isNotEmpty) 'at': at,
+      };
+
+  /// Strict decode: the text must be a string and the verdict word one
+  /// the enum spells. A cleared goal is `text: ''` — a row without
+  /// `text` at all is a corrupt row, not an empty goal.
+  static GoalChangedEntry fromJson(
+    Map<String, dynamic> j,
+    String at,
+    int seq,
+  ) {
+    final text = j['text'];
+    final verdictName = j['verdict'];
+    if (text is! String) {
+      throw const FormatException('goal_changed requires text');
+    }
+    final verdict = verdictName == null
+        ? GoalVerdict.none
+        : GoalVerdict.values.asNameMap()[verdictName] ??
+            (throw FormatException('unknown goal verdict: $verdictName'));
+    final evidence = j['evidence'];
+    if (evidence != null && evidence is! String) {
+      throw const FormatException('goal_changed evidence must be a string');
+    }
+    return GoalChangedEntry(
+      text: text,
+      verdict: verdict,
+      evidence: evidence as String? ?? '',
+      at: at,
+    ).withSeq(seq);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is GoalChangedEntry &&
+      text == other.text &&
+      verdict == other.verdict &&
+      evidence == other.evidence &&
+      at == other.at;
+
+  @override
+  int get hashCode => Object.hash(kindName, text, verdict, evidence, at);
+
+  @override
+  String toString() =>
+      'GoalChanged(${text.isEmpty ? '<cleared>' : text.length.toString() + ' chars'}, '
+      '${verdict.name})';
+}
+
 /// One item of the session's plan, as the log carries it: the text and
 /// the state word. One nesting level — children must be childless; the
 /// writers validate that before appending, and [PlanChangedEntry.fromJson]
@@ -359,6 +461,8 @@ sealed class SessionEntry {
         ).withSeq(stamped);
       case PlanChangedEntry.kindName:
         return PlanChangedEntry.fromJson(j, at, stamped);
+      case GoalChangedEntry.kindName:
+        return GoalChangedEntry.fromJson(j, at, stamped);
       default:
         throw FormatException('Unknown session entry type: $type');
     }
@@ -670,6 +774,41 @@ final class SessionPlan {
       'approval ${approval.name})';
 }
 
+/// The goal as a derivation reports it: the objective, the latest
+/// verdict and its evidence. Value type; [GoalChangedEntry] is the
+/// truth, this is its reading.
+final class SessionGoal {
+  final String text;
+  final GoalVerdict verdict;
+  final String evidence;
+
+  const SessionGoal({
+    required this.text,
+    this.verdict = GoalVerdict.none,
+    this.evidence = '',
+  });
+
+  bool get hasVerdict => verdict != GoalVerdict.none;
+
+  bool get isAchieved => verdict == GoalVerdict.achieved;
+
+  bool get isUncertain => verdict == GoalVerdict.uncertain;
+
+  @override
+  bool operator ==(Object other) =>
+      other is SessionGoal &&
+      text == other.text &&
+      verdict == other.verdict &&
+      evidence == other.evidence;
+
+  @override
+  int get hashCode => Object.hash(text, verdict, evidence);
+
+  @override
+  String toString() =>
+      'SessionGoal(${text.length} chars, ${verdict.name})';
+}
+
 /// The permission mode moved. It moves outside the loop — a slash
 /// command, an operator key — so nothing about a turn recomputes it; the
 /// log records it and derive reports the latest value in
@@ -819,6 +958,7 @@ final class DerivedSession {
     required this.entriesConsumed,
     this.pendingTurnId,
     this.plan,
+    this.goal,
   });
 
   /// The conversation the provider should see, oldest first.
@@ -844,6 +984,10 @@ final class DerivedSession {
   /// null when the log carries none. Like the mode, it is replayed from
   /// the log — the running session and a resume read the same fact.
   final SessionPlan? plan;
+
+  /// The session's goal now: the latest [GoalChangedEntry]'s state, or
+  /// null when no goal is set (or the last entry cleared it).
+  final SessionGoal? goal;
 
   @override
   String toString() =>
@@ -894,6 +1038,9 @@ DerivedSession deriveSession(
   /// the whole plan, so the last one wins.
   SessionPlan? plan;
 
+  /// The latest goal state, same rule; null when none is set.
+  SessionGoal? goal;
+
   for (final e in log) {
     switch (e) {
       case ModeChangedEntry(mode: final newMode):
@@ -916,6 +1063,17 @@ DerivedSession deriveSession(
       case PlanChangedEntry(items: final items, approval: final approval):
         plan = SessionPlan(
             items: List.unmodifiable(items), approval: approval);
+      case GoalChangedEntry(
+          :final text,
+          :final verdict,
+          :final evidence
+        ):
+        goal = text.isEmpty
+            ? null
+            : SessionGoal(
+                text: text,
+                verdict: verdict,
+                evidence: evidence);
     }
   }
   // A turn that started but never ended — a crash mid-turn, or an
@@ -938,6 +1096,7 @@ DerivedSession deriveSession(
     entriesConsumed: log.length,
     pendingTurnId: pendingTurnId,
     plan: plan,
+    goal: goal,
   );
 }
 
