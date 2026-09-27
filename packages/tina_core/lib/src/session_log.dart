@@ -463,6 +463,8 @@ sealed class SessionEntry {
         return PlanChangedEntry.fromJson(j, at, stamped);
       case GoalChangedEntry.kindName:
         return GoalChangedEntry.fromJson(j, at, stamped);
+      case WorkflowRunEntry.kindName:
+        return WorkflowRunEntry.fromJson(j, at, stamped);
       default:
         throw FormatException('Unknown session entry type: $type');
     }
@@ -915,6 +917,197 @@ final class CompactedEntry extends SessionEntry {
       'Compacted($replacedFrom..$replacedTo, ${summary.length} chars)';
 }
 
+/// A workflow run as a derivation reports it: the workflow's name, how it
+/// ended, its final text and the nodes that executed. Value type;
+/// [WorkflowRunEntry] is the truth, this is its reading.
+final class SessionWorkflowRun {
+  /// How the run ended, as [WorkflowRunEntry] spells it.
+  final String status;
+
+  /// The workflow's name — the catalog name it launched under.
+  final String workflow;
+
+  /// The run's final output: the last node's response on success, the
+  /// failure reason otherwise. Empty when the run produced neither.
+  final String detail;
+
+  /// The node ids that executed, in execution order.
+  final List<String> nodes;
+
+  const SessionWorkflowRun({
+    required this.workflow,
+    required this.status,
+    this.detail = '',
+    this.nodes = const [],
+  });
+
+  bool get isSuccess => status == WorkflowRunEntry.statusSuccess;
+
+  @override
+  bool operator ==(Object other) =>
+      other is SessionWorkflowRun &&
+      workflow == other.workflow &&
+      status == other.status &&
+      detail == other.detail &&
+      _stringListEquals(nodes, other.nodes);
+
+  @override
+  int get hashCode => Object.hash(workflow, status, detail, Object.hashAll(nodes));
+
+  @override
+  String toString() =>
+      'SessionWorkflowRun($workflow, $status, ${nodes.length} nodes)';
+}
+
+bool _stringListEquals(List<String> a, List<String> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
+/// One workflow run ended. The run itself is not part of the
+/// conversation — a node's work is real turns in the log, and that is
+/// where its content lives — but the run's **outcome** is a whole-state
+/// fact no later log reading can recompute (which graph traversal
+/// produced these turns, and how the traversal ended). Like
+/// [PlanChangedEntry] and [GoalChangedEntry], the entry **is** the
+/// state: the latest one wins in a derive, so a resume sees the same
+/// last-run summary the running session did.
+///
+/// The node list is an audit trail, capped by the writer; a run that
+/// failed before any node executed records an empty list.
+final class WorkflowRunEntry extends SessionEntry {
+  static const kindName = 'workflow_run';
+
+  /// The only status words an entry carries.
+  static const statusSuccess = 'success';
+  static const statusFailed = 'failed';
+
+  /// The workflow's name — the catalog name it launched under.
+  final String workflow;
+
+  /// How the run ended: [statusSuccess] or [statusFailed].
+  final String status;
+
+  /// The run's final output: the last node's response on success, the
+  /// failure reason otherwise.
+  final String detail;
+
+  /// The node ids that executed, in execution order.
+  final List<String> nodes;
+
+  final String at;
+
+  const WorkflowRunEntry({
+    required this.workflow,
+    required this.status,
+    this.detail = '',
+    this.nodes = const [],
+    this.at = '',
+    super.seq = 0,
+  });
+
+  /// The writer's constructor: validates the status word and rejects an
+  /// empty workflow name, so a bad append throws at the writer instead
+  /// of decoding into a run nobody launched.
+  factory WorkflowRunEntry.record({
+    required String workflow,
+    required String status,
+    String detail = '',
+    List<String> nodes = const [],
+    String at = '',
+  }) {
+    if (workflow.isEmpty) {
+      throw const FormatException('workflow_run requires a workflow name');
+    }
+    if (status != statusSuccess && status != statusFailed) {
+      throw FormatException(
+          'workflow_run status must be "$statusSuccess" or "$statusFailed"');
+    }
+    return WorkflowRunEntry(
+      workflow: workflow,
+      status: status,
+      detail: detail,
+      nodes: List.of(nodes),
+      at: at,
+    );
+  }
+
+  @override
+  WorkflowRunEntry withSeq(int newSeq) => WorkflowRunEntry(
+        workflow: workflow,
+        status: status,
+        detail: detail,
+        nodes: nodes,
+        at: at,
+        seq: newSeq,
+      );
+
+  @override
+  String get kind => kindName;
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...super.toJson(),
+        'workflow': workflow,
+        'status': status,
+        'detail': detail,
+        'nodes': [...nodes],
+        if (at.isNotEmpty) 'at': at,
+      };
+
+  /// Strict decode: the status word is validated (a corrupt row is a
+  /// reader error, not a successful run) and the workflow name must be
+  /// there. The node cap matches the writer's — see the plugin.
+  static WorkflowRunEntry fromJson(
+    Map<String, dynamic> j,
+    String at,
+    int seq,
+  ) {
+    final workflow = j['workflow'];
+    final status = j['status'];
+    if (workflow is! String || workflow.isEmpty) {
+      throw const FormatException('workflow_run requires a workflow name');
+    }
+    if (status != statusSuccess && status != statusFailed) {
+      throw FormatException(
+          'workflow_run status must be "$statusSuccess" or "$statusFailed"');
+    }
+    final rawNodes = j['nodes'];
+    if (rawNodes != null && rawNodes is! List) {
+      throw const FormatException('workflow_run nodes must be an array');
+    }
+    return WorkflowRunEntry(
+      workflow: workflow,
+      status: status,
+      detail: (j['detail'] as String?) ?? '',
+      nodes: [
+        for (final n in (rawNodes as List?) ?? const []) n as String,
+      ],
+      at: at,
+    ).withSeq(seq);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is WorkflowRunEntry &&
+      workflow == other.workflow &&
+      status == other.status &&
+      detail == other.detail &&
+      _stringListEquals(nodes, other.nodes) &&
+      at == other.at;
+
+  @override
+  int get hashCode =>
+      Object.hash(workflow, status, detail, Object.hashAll(nodes), at);
+
+  @override
+  String toString() =>
+      'WorkflowRun($workflow, $status, ${nodes.length} nodes)';
+}
+
 /// The per-session settings derive consults. Plain strings — the core
 /// owns no mode vocabulary and no prompt text. A session restarts these;
 /// the log does not carry them.
@@ -959,6 +1152,7 @@ final class DerivedSession {
     this.pendingTurnId,
     this.plan,
     this.goal,
+    this.workflowRun,
   });
 
   /// The conversation the provider should see, oldest first.
@@ -988,6 +1182,10 @@ final class DerivedSession {
   /// The session's goal now: the latest [GoalChangedEntry]'s state, or
   /// null when no goal is set (or the last entry cleared it).
   final SessionGoal? goal;
+
+  /// The last workflow run's outcome: the latest [WorkflowRunEntry]'s
+  /// state, or null when the log carries none.
+  final SessionWorkflowRun? workflowRun;
 
   @override
   String toString() =>
@@ -1041,6 +1239,10 @@ DerivedSession deriveSession(
   /// The latest goal state, same rule; null when none is set.
   SessionGoal? goal;
 
+  /// The latest workflow-run outcome, same rule; null when the log
+  /// carries no run.
+  SessionWorkflowRun? workflowRun;
+
   for (final e in log) {
     switch (e) {
       case ModeChangedEntry(mode: final newMode):
@@ -1074,6 +1276,14 @@ DerivedSession deriveSession(
                 text: text,
                 verdict: verdict,
                 evidence: evidence);
+      case WorkflowRunEntry(
+          :final workflow,
+          :final status,
+          :final detail,
+          :final nodes
+        ):
+        workflowRun = SessionWorkflowRun(
+            workflow: workflow, status: status, detail: detail, nodes: nodes);
     }
   }
   // A turn that started but never ended — a crash mid-turn, or an
@@ -1097,6 +1307,7 @@ DerivedSession deriveSession(
     pendingTurnId: pendingTurnId,
     plan: plan,
     goal: goal,
+    workflowRun: workflowRun,
   );
 }
 

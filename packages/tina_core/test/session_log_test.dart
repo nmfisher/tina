@@ -50,6 +50,12 @@ void main() {
         const ModeChangedEntry(mode: 'read-only', at: 'a'),
         const CompactedEntry(
             replacedFrom: 0, replacedTo: 3, summary: 'earlier stuff', at: 'a'),
+        WorkflowRunEntry.record(
+            workflow: 'default',
+            status: WorkflowRunEntry.statusSuccess,
+            detail: 'the last node said so',
+            nodes: ['start', 'intake', 'done'],
+            at: 'a'),
       ];
       for (final e in entries) {
         final again = roundTrip(e);
@@ -240,6 +246,78 @@ void main() {
       expect(jsonEncode(a.messages.map((m) => m.toJson()).toList()),
           jsonEncode(b.messages.map((m) => m.toJson()).toList()));
       expect(a.mode, b.mode);
+    });
+
+    test('the latest workflow_run wins in a derive; earlier runs are history',
+        () {
+      final log = <SessionEntry>[
+        WorkflowRunEntry.record(
+            workflow: 'default', status: WorkflowRunEntry.statusFailed),
+        const TurnStartedEntry(turnId: 't1'),
+        const InputRecordedEntry(turnId: 't1', text: 'go'),
+        const TurnEndedEntry(turnId: 't1', reason: TurnStopReason.complete),
+        WorkflowRunEntry.record(
+            workflow: 'default',
+            status: WorkflowRunEntry.statusSuccess,
+            detail: 'plan approved and built',
+            nodes: ['intake', 'plan', 'done']),
+      ];
+      final d = deriveSession(log, const SessionSettings());
+      expect(d.workflowRun, isNotNull);
+      expect(d.workflowRun!.workflow, 'default');
+      expect(d.workflowRun!.status, WorkflowRunEntry.statusSuccess);
+      expect(d.workflowRun!.detail, 'plan approved and built');
+      expect(d.workflowRun!.nodes, ['intake', 'plan', 'done']);
+      expect(d.workflowRun!.isSuccess, isTrue);
+      // No entry, no run.
+      final empty = deriveSession(
+          const [
+            TurnStartedEntry(turnId: 't1'),
+            TurnEndedEntry(turnId: 't1', reason: TurnStopReason.complete),
+          ],
+          const SessionSettings());
+      expect(empty.workflowRun, isNull);
+    });
+
+    test('workflow_run survives a store round trip and derives the same',
+        () {
+      final entry = WorkflowRunEntry.record(
+          workflow: 'review',
+          status: WorkflowRunEntry.statusFailed,
+          detail: 'workflow "review" is invalid: no start node',
+          nodes: ['start']);
+      final decoded =
+          SessionEntry.fromJson(jsonDecode(jsonEncode(entry.toJson()))
+              as Map<String, dynamic>) as WorkflowRunEntry;
+      expect(decoded, entry);
+      final d = deriveSession(
+          [decoded, const TurnStartedEntry(turnId: 't1')],
+          const SessionSettings());
+      expect(d.workflowRun!.status, WorkflowRunEntry.statusFailed);
+    });
+
+    test('workflow_run rejects a bogus status and a missing workflow name',
+        () {
+      expect(
+        () => WorkflowRunEntry.record(
+            workflow: '', status: WorkflowRunEntry.statusSuccess),
+        throwsFormatException,
+      );
+      expect(
+        () => WorkflowRunEntry.record(
+            workflow: 'default', status: 'aborted'),
+        throwsFormatException,
+      );
+      expect(
+        () => SessionEntry.fromJson(
+            {'type': 'workflow_run', 'workflow': 'w', 'status': 'weird'}),
+        throwsFormatException,
+      );
+      expect(
+        () => SessionEntry.fromJson(
+            {'type': 'workflow_run', 'status': 'success'}),
+        throwsFormatException,
+      );
     });
   });
 }
