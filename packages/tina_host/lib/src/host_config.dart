@@ -1,12 +1,13 @@
 /// The values a host decides up front: which provider to build, the model
-/// label, the working directory, and the session mode. A value object —
-/// nothing here touches a store, a terminal, or tina's old config format.
+/// label, the working directory, and the plugins to mount. A value object
+/// — nothing here touches a store, a terminal, or tina's old config
+/// format — and **no permission mode**: that concept belongs to the
+/// enforcement boundary in `tina_tools`, and only its plugin-mounting
+/// owner handles the value.
 library;
 
-import 'dart:io';
-
 import 'package:tina_core/tina_core.dart';
-import 'package:tina_tools/tina_tools.dart' show PermissionMode;
+import 'package:tina_engine_2/tina_engine_2.dart' show AgentPlugin;
 
 /// Builds one provider. Called **once per session, by that session's
 /// host** — never store a shared instance: a provider owns its connection
@@ -23,8 +24,7 @@ final class HostConfig {
     required this.providerFactory,
     this.model = 'scripted',
     required this.workingDirectory,
-    this.mode = PermissionMode.normal,
-    this.tinaDir,
+    this.plugins = const [],
   });
 
   /// Builds the provider for **one** session. Called once per
@@ -34,21 +34,11 @@ final class HostConfig {
   /// The model label, handed to the factory.
   final String model;
 
-  /// The directory the session works in: the sandbox's project root and
-  /// the root the file tools resolve relative paths against.
+  /// The directory the session works in.
   final String workingDirectory;
 
-  /// The mode the session starts in. Consulted **per call** afterwards —
-  /// switching it mid-session takes effect on the next call, and this
-  /// starting value is not baked into anything but the sandbox's initial
-  /// state.
-  final PermissionMode mode;
-
-  /// The Tina data tree the sandbox denies. Defaults to the real
-  /// `~/.tina`; tests pass a temp directory.
-  final Directory? tinaDir;
-
-  /// The Tina data dir for a session: [tinaDir] or `~/.tina`.
-  Directory get effectiveTinaDir =>
-      tinaDir ?? Directory('${Platform.environment['HOME'] ?? '/tmp'}/.tina');
+  /// The plugins to mount on the loop, in registration order. The tool
+  /// set is just one of them ([ToolsPlugin]); whatever permissions concept
+  /// a session needs lives inside its plugin, never here.
+  final List<AgentPlugin> plugins;
 }

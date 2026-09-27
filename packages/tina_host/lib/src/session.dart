@@ -1,19 +1,19 @@
-/// One session: its id, its conversation, its mode.
+/// One session: its id and its conversation.
 ///
 /// The conversation truth is the loop's — it is the only writer of the
-/// transcript — so the session holds the loop and the few things a host
-/// needs beside it. One host owns one session; there is no registry.
+/// transcript — so the session holds the loop and records the turns. One
+/// host owns one session; there is no registry. The session carries no
+/// permission mode: that value lives with the plugin that owns the
+/// enforcement boundary, never here.
 library;
 
 import 'package:tina_engine_2/tina_engine_2.dart';
-import 'package:tina_tools/tina_tools.dart' show PermissionMode;
 
 /// One session, owned by one [Host].
 final class Session {
   Session({
     required this.id,
     required this.loop,
-    required this.mode,
   });
 
   /// Unique within the process. Two hosts never share a session.
@@ -22,10 +22,6 @@ final class Session {
   /// The conversation: transcript, requests, responses. Nothing else in
   /// the host appends to it.
   final AgentLoop loop;
-
-  /// The mode the session started in. The live value is the sandbox's —
-  /// this records the starting point only.
-  final PermissionMode mode;
 
   /// Every finished turn, oldest first. In memory only; persistence is a
   /// later slice.
