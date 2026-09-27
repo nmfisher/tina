@@ -18,6 +18,8 @@
 /// asker the filesystem takes. **No asker wired means deny** — fail closed.
 library;
 
+import 'dart:io' show Platform;
+
 import 'glob.dart' show fileGlobMatch;
 import 'permissions.dart';
 import 'process_runner.dart';
@@ -43,6 +45,11 @@ enum CommandRule {
   /// The command might touch something outside the writable set, or needs
   /// network while network is off — the asker decides.
   outsideSession,
+
+  /// A single collapsed shell string (`/bin/sh -c <string>`, the bash-tool
+  /// shape). What the string does cannot be proven from argv, so it never
+  /// rides the writable set — it asks, always.
+  shellString,
 }
 
 /// Why the table landed where it did, in one plain phrase — the string a UI
@@ -60,6 +67,9 @@ String commandReason(CommandRule rule, ProcessRequest request) =>
       CommandRule.outsideSession =>
         'allow command outside the session\'s writable set '
             '(${request.command})?',
+      CommandRule.shellString =>
+        'allow a shell command string? what it runs cannot be checked '
+            'against the writable set (${request.arguments.join(' ')})',
     };
 
 /// Session-scoped "always" answers for commands, remembered as exact command
@@ -230,6 +240,16 @@ CommandDecision decideCommand(
       reason: commandReason(CommandRule.sessionGrant, request),
     );
   }
+  // A single unbreakable string (`sh -c <string>`, the bash-tool shape) can
+  // redirect, read, or reach the network without anything in argv saying so,
+  // so it is never certified by the writable set — it asks, the way every
+  // unprovable command does. Literal argv keeps the quiet path.
+  if (argumentsCollapsed(request)) {
+    return (
+      verdict: ToolVerdict.ask,
+      reason: commandReason(CommandRule.shellString, request),
+    );
+  }
   if (writableSet.covers(request) && !(networkOff && needsNetwork(request))) {
     return (
       verdict: ToolVerdict.allow,
@@ -244,6 +264,28 @@ CommandDecision decideCommand(
 
 /// The verdict plus the reason — same shape as `FileDecision`.
 typedef CommandDecision = ({ToolVerdict verdict, String reason});
+
+/// True when a request collapses a shell command into one argv element —
+/// the `command: <shell>, arguments: ['-c', <string>]` shape every bash tool
+/// produces. What the string runs cannot be proven from argv: redirects,
+/// backticks, and newlines mean the writable set can say nothing about it.
+/// Such requests never ride the writable set; they ask (or refuse in
+/// read-only mode).
+///
+/// Shape test: the basename of [ProcessRequest.command] is a known shell and
+/// the shell's flag is followed by a payload — i.e. there is at least one
+/// argument that is not the flag itself. Flags carrying the string as their
+/// value (`-c` on BSD, `-c` on Windows) are matched by name, not position,
+/// so any arguments list containing `-c` with something after it counts.
+bool argumentsCollapsed(ProcessRequest request) {
+  final shell = request.command.split(Platform.pathSeparator).last;
+  if (!_shells.contains(shell)) return false;
+  // `-c <string>`: the payload argument exists whenever the args list holds
+  // anything besides the flag tokens themselves.
+  return request.arguments.any((a) => a != '-c' && a != '--command');
+}
+
+const _shells = {'sh', 'bash', 'dash', 'ash', 'zsh', 'ksh', 'bash5'};
 
 /// The session's writable set, and the one heuristic that keeps the table
 /// honest: which requests provably stay inside it.

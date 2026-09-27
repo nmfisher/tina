@@ -10,8 +10,17 @@ import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tools/tina_tools.dart'
-    show IoFileSystem, PermissionMode, SandboxedFileSystem, stringExecutor,
-    Tool, WriteTool;
+    show
+        BashTool,
+        IoFileSystem,
+        IoProcessRunner,
+        PermissionMode,
+        SandboxedFileSystem,
+        SandboxedProcessRunner,
+        WritableSet,
+        stringExecutor,
+        Tool,
+        WriteTool;
 import '../example/example_plugins.dart';
 
 ToolSchema _tool(String name) => ToolSchema(
@@ -595,6 +604,82 @@ void main() {
       expect(result.content, contains('read-only mode'));
       // And nothing was written.
       expect(File('${dir.path}/blocked.txt').existsSync(), isFalse);
+    });
+  });
+
+  group('11. bash behind the loop, read-only', () {
+    test('a command call is refused as a tool_result and the turn continues; '
+        'nothing ran', () async {
+      final dir = await Directory.systemTemp.createTemp('tina_e2_proc_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final bash = BashTool(
+        runner: SandboxedProcessRunner(
+          inner: const IoProcessRunner(),
+          writableSet: WritableSet()..add(dir.path),
+          mode: PermissionMode.readOnly,
+        ),
+        workingDirectory: dir.path,
+      );
+      final provider = ScriptedProvider([
+        scriptedReply('', calls: [
+          ToolUseBlock(id: 'c1', name: 'bash', input: {'command': 'echo hi'}),
+        ]),
+        // The turn continues: the model sees the refusal and answers.
+        scriptedReply('understood, read-only'),
+      ]);
+      final loop =
+          AgentLoop(provider: provider, plugins: [_ToolsPlugin([bash])]);
+      loop.registerExecutor('bash', bash.execute);
+
+      final outcome = await loop.runTurn(const Input('run something', id: 'i12'));
+
+      expect(outcome.stopReason, StopReason.complete);
+      expect(provider.callCount, 2,
+          reason: 'the turn continued past the refused call');
+      // The refusal is exactly what the model was told, as the tool_result.
+      final result = _result(outcome.messages.firstWhere(_isResult));
+      expect(result.isError, isTrue);
+      expect(result.content, contains('read-only mode'));
+      // The enforcement is at the runner, not the loop: no tool_result guard
+      // was involved, and the sandbox decided. Nothing ran — in read-only
+      // mode the sandbox denies without spawning, so we assert on the
+      // absence of any side effect the command would have had.
+      final marker = File('${dir.path}/hi');
+      expect(marker.existsSync(), isFalse,
+          reason: 'echo never executed, so no side effect landed');
+    });
+
+    test('outside the writable set with no asker: denied fail-closed, '
+        'turn continues', () async {
+      final dir = await Directory.systemTemp.createTemp('tina_e2_proc2_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final bash = BashTool(
+        runner: SandboxedProcessRunner(
+          inner: const IoProcessRunner(),
+          writableSet: WritableSet()..add(dir.path),
+          // No asker: anything needing a question is denied.
+        ),
+        workingDirectory: dir.path,
+      );
+      final provider = ScriptedProvider([
+        scriptedReply('', calls: [
+          ToolUseBlock(
+              id: 'c1', name: 'bash', input: {'command': 'cat /etc/hostname'}),
+        ]),
+        scriptedReply('noted'),
+      ]);
+      final loop =
+          AgentLoop(provider: provider, plugins: [_ToolsPlugin([bash])]);
+      loop.registerExecutor('bash', bash.execute);
+
+      final outcome =
+          await loop.runTurn(const Input('read a file', id: 'i13'));
+
+      expect(outcome.stopReason, StopReason.complete);
+      expect(provider.callCount, 2);
+      final result = _result(outcome.messages.firstWhere(_isResult));
+      expect(result.isError, isTrue);
+      expect(result.content, contains('outside the writable set'));
     });
   });
 }

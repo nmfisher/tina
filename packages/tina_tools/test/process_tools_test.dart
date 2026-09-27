@@ -31,6 +31,23 @@ void main() {
       expect(res.content, contains('read-only mode'));
     });
 
+    test('a shell string is never certified silently: it asks, and an '
+        'approval runs it', () async {
+      final asker = _ApprovingAsker();
+      final inner = _RecordingRunner(_done(0, 'ran', ''));
+      final tool = BashTool(
+        runner: SandboxedProcessRunner(
+          inner: inner,
+          writableSet: WritableSet()..add('/'),
+          asker: asker.call,
+        ),
+      );
+      final res = await tool.execute({'command': 'echo hi > /tmp/ws/out'});
+      expect(res.isError, isFalse);
+      expect(asker.asked, 1, reason: 'the string itself triggered the ask');
+      expect(inner.command, '/bin/sh');
+    });
+
     test('missing command is a validation error', () async {
       final tool = BashTool(runner: _RecordingRunner(_done(0, '', '')));
       final res = await tool.execute({});
@@ -39,10 +56,12 @@ void main() {
     });
 
     test('a non-zero exit is a normal result, not an error', () async {
+      final asker = _ApprovingAsker();
       final tool = BashTool(
         runner: SandboxedProcessRunner(
           inner: _RecordingRunner(_done(2, '', 'boom')),
           writableSet: WritableSet()..add('/'),
+          asker: asker.call,
         ),
       );
       final res = await tool.execute({'command': 'false'});
@@ -52,10 +71,12 @@ void main() {
     });
 
     test('end-to-end on the real runner: stdout captured', () async {
+      final asker = _ApprovingAsker();
       final tool = BashTool(
         runner: SandboxedProcessRunner(
           inner: const IoProcessRunner(),
           writableSet: WritableSet()..add('/'),
+          asker: asker.call,
         ),
       );
       final res = await tool.execute({'command': 'echo roundtrip'});
@@ -168,9 +189,11 @@ void main() {
     test('the same BashTool and ExecTool flip with the runner\'s mode',
         () async {
       final inner = _RecordingRunner(_done(0, '', ''));
+      final asker = _ApprovingAsker();
       final sandbox = SandboxedProcessRunner(
         inner: inner,
         writableSet: WritableSet()..add('/'),
+        asker: asker.call,
       );
       final bash = BashTool(runner: sandbox);
       final exec = ExecTool(runner: sandbox);
@@ -190,6 +213,14 @@ void main() {
       expect(execRefused.content, contains('read-only mode'));
     });
   });
+}
+
+final class _ApprovingAsker {
+  int asked = 0;
+  Future<FileAskAnswer> call(FileOperation op, String reason) async {
+    asked++;
+    return FileAskAnswer.yes;
+  }
 }
 
 CommandCompleted _done(int code, String out, String err) =>

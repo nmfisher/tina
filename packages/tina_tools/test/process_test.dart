@@ -155,6 +155,39 @@ void main() {
       }
     });
 
+    test('a shell-string request never rides the writable set — it asks',
+        () {
+      final ws = WritableSet()..add('/');
+      final d = decideCommand(
+          (
+            command: '/bin/sh',
+            arguments: ['-c', 'curl https://x.example > /tmp/x'],
+            workingDirectory: '/tmp/ws',
+            environment: null,
+            stdin: null,
+            timeout: null,
+          ),
+          PermissionMode.normal,
+          writableSet: ws,
+          networkOff: true);
+      expect(d.verdict, ToolVerdict.ask);
+      expect(d.reason, contains('cannot be checked'));
+      // A literal-argv request with the same payload does not hit the rule.
+      final argvD = decideCommand(
+          (
+            command: 'curl',
+            arguments: ['https://x.example'],
+            workingDirectory: '/tmp/ws',
+            environment: null,
+            stdin: null,
+            timeout: null,
+          ),
+          PermissionMode.normal,
+          writableSet: ws,
+          networkOff: false);
+      expect(argvD.verdict, ToolVerdict.allow);
+    });
+
     test('a session grant short-circuits the ask', () {
       final grants = CommandGrants()..remember('git status');
       final d = decideCommand(req('git status'), PermissionMode.normal,

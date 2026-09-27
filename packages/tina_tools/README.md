@@ -30,6 +30,14 @@ never asks twice.
 | readOnly | deny, never asked               | deny, never asked                 |
 | normal   | allow                           | ask (deny if refused / no asker)  |
 
+One shape is exempted from the quiet path regardless of its arguments: a
+request whose argv collapses a shell command into a single string
+(`/bin/sh -c <string>` — the `bash`-tool shape). What the string runs
+cannot be proven from argv, so it **always asks** in `normal` (and denies
+in `readOnly`); only an explicit session grant covers it silently.
+`argumentsCollapsed()` is that test; literal argv (`exec`) keeps the table
+above.
+
 There is **no classifier** and no "statically read-only command" route: a
 command string is not statically decidable, so `readOnly` refuses every
 command outright and nobody is asked. In `normal`, a command runs without
