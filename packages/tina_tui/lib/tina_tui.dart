@@ -1,34 +1,35 @@
-/// tina's terminal views, layered on `tina_console` (the generic toolkit)
-/// and `tina_core` (the value types). Nothing here opens a terminal: every
-/// type is a pure value-to-rows rendering or a state holder fed by events,
-/// testable headless.
+/// tina_tui — the TUI package: the full-screen front end, the headless
+/// assembly it drives, and the widgets it renders with.
 ///
-/// Layering (see README.md):
-/// `dart_notcurses → tina_console → tina_tui → bin/tina.dart`.
+/// The assembly (`src/assembly.dart`) is front-end-free: it wires engine,
+/// host, services and the session loop against an injected provider
+/// factory and an [AssemblyWriter], so a daemon or a test can run the
+/// whole app with no renderer initialised. The entry point
+/// (`bin/tina_tui.dart`) is the terminal front end that drives it — the
+/// only place a `Terminal` service is registered for real.
 ///
-/// - [ChatView]: a settled `tina_core.Message` to chip rows.
-/// - [StreamView]: accumulates `StreamEvent`s into the same rows live.
-/// - [ToolChipView] / [toolChipRows]: one tool call + result as one line.
-/// - [statusStripRows]: a small status value to strip rows, layout swappable.
-/// - [ApprovalDialog]: a pending [ToolUse] plus a key source to a decision.
-/// - [DialogApprover]: the same dialog answering the sandbox's `Approver`
-///   questions — vocabulary adapter, fail-closed both sides; queueing in
-///   [QueuedDialogAsker].
-/// - [TuiTerminal]: the `Terminal` a TUI session contributes — a text
-///   sink into the conversation and a queued answer for asks.
-/// - [dispatchLine]/[commandListRows]: the command front end — a pure
-///   dispatch decision over the shared `Commands` registry, and its
-///   presentation; no command name appears in this package.
-/// - [TuiSession]: the session wiring — the same host the shell drives,
-///   the same services, the TUI's terminal in the slot.
+/// Exposed here:
+/// - [TuiAssembly], `AssemblyOptions`, [AssemblyWriter],
+///   [SinkAssemblyWriter] — the app, buildable and drivable headless;
+/// - [TuiSession] — the front end's wrapper: the assembly with the TUI's
+///   terminal in the slot;
+/// - [configModelReference], `loadTinaConfig`, `TinaConfigError`,
+///   `TinaConfigFile` — the config reader the entry point calls first;
+/// - [providerForDescriptor], [builtinDescriptors], [descriptorByIdFor] —
+///   the descriptor table and the seam a test factory overrides;
+/// - [listSessions] — the session listing the `--sessions` flag prints;
+/// - the TUI pieces: terminal, command dispatch, approval dialog and
+///   approver, chat/stream/tool-chip/status views.
 library;
 
+export 'src/approval_approver.dart';
+export 'src/approval_dialog.dart';
+export 'src/assembly.dart';
+export 'src/assembly_config.dart';
 export 'src/chat_view.dart';
+export 'src/status_strip.dart';
 export 'src/stream_view.dart';
 export 'src/tool_chip_view.dart';
-export 'src/status_strip.dart';
-export 'src/approval_dialog.dart';
-export 'src/approval_approver.dart';
-export 'src/tui_terminal.dart';
 export 'src/tui_commands.dart';
 export 'src/tui_session.dart';
+export 'src/tui_terminal.dart';

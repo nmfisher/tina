@@ -1,9 +1,10 @@
 name: tina_tui
 description: >-
-  tina's terminal views, built on tina_console's generic toolkit and
-  tina_core's value types: chat transcript, live stream, tool chips, status
-  strip, and the approval dialog. Renderer-first — the loop's wiring comes
-  later.
+  tina's terminal app: the full-screen front end and the headless assembly
+  it drives — engine, host, services and the session loop wired against an
+  injected provider factory and a captured writer, so a daemon or a test
+  runs the whole app with no renderer. Views, terminal, commands and the
+  approval dialog are the front end's pieces.
 publish_to: none
 version: 0.1.0
 environment:
@@ -14,18 +15,20 @@ dependencies:
   tina_console:
     path: ../tina_console
   # The Terminal and Commands contracts a TUI session contributes and
-  # reads, plus the session wiring: the same host the shell drives,
-  # mounted with the same plugins. All non-terminal, acyclic.
+  # reads. All non-terminal, acyclic.
   tina_services:
     path: ../tina_services
+  # The assembly: the app itself, moved here when tina_cli died. The
+  # host-free renderer tests and the headless assembly tests both hold.
+  tina_engine_2:
+    path: ../tina_engine_2
   tina_host:
     path: ../tina_host
+  tina_llm:
+    path: ../tina_llm
   tina_tools:
     path: ../tina_tools
 dev_dependencies:
+  # The approval-approver tests build sandbox temp directories.
+  path: ^1.9.0
   test: ^1.25.0
-  # The parity tests: a TUI run and a shell run of the same input must
-  # produce the same log. Dev-only — the TUI never imports the shell in
-  # production code, and the shell keeps no TUI dependency at all.
-  tina_cli:
-    path: ../tina_cli

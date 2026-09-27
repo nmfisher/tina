@@ -63,22 +63,26 @@ final class ModeCommandPlugin extends AgentPlugin {
       );
 
   void _switch(String argument) {
-    final terminal = _locator.get<Terminal>();
+    // The tell is best-effort; the flip is substance. With no terminal
+    // in the slot (a headless session — a daemon, a test drive) the mode
+    // still changes and the tell is dropped. An ask, by contrast, is
+    // loud with no terminal: nothing here asks.
+    final terminal = _locator.maybe<Terminal>();
     final word = argument.trim();
     if (word.isEmpty) {
       // No argument: show the mode, change nothing.
-      terminal.writeln('mode: ${wordFor(_locator.get<ModeControl>().mode)}');
+      terminal?.writeln('mode: ${wordFor(_locator.get<ModeControl>().mode)}');
       return;
     }
     final mode = parseMode(word);
     if (mode == null) {
-      terminal.writeln('no mode named $word');
+      terminal?.writeln('no mode named $word');
       return;
     }
     // Resolved at use: the boundary may have mounted after this plugin
     // was constructed — that is the locator's whole point.
     _locator.get<ModeControl>().mode = mode;
-    terminal.writeln('mode: $word');
+    terminal?.writeln('mode: $word');
   }
 
   /// Publish the command into the session's registry. Idempotent: the

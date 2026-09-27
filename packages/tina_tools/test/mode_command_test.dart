@@ -108,6 +108,26 @@ void main() {
             handler: (_) {},
           )), throwsA(isA<StateError>()));
     });
+
+    test('headless — no terminal registered — the flip is substance, the '
+        'tell is dropped', () {
+      final services = Services();
+      final fake = _FakeControl();
+      services
+        ..put<Commands>(Commands())
+        ..put<ModeControl>(fake.control);
+      ModeCommandPlugin(services).register();
+
+      // Every argument shape runs: bare, junk, a real word. None asks —
+      // nothing here ever asks — and none throws for the missing
+      // terminal.
+      final handler = services.get<Commands>()['mode']!.handler;
+      expect(() => handler(''), returnsNormally);
+      expect(() => handler('sideways'), returnsNormally);
+      expect(() => handler('read-only'), returnsNormally);
+      expect(fake.control.mode, PermissionMode.readOnly,
+          reason: 'the flip still happened');
+    });
   });
 }
 

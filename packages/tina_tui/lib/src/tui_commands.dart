@@ -1,5 +1,5 @@
-/// The TUI's command front end: the same registry the shell dispatches
-/// through, presented the TUI's way.
+/// The TUI's command front end: the registry the assembly publishes
+/// into, presented the TUI's way.
 ///
 /// The split this file exists for: **deciding** what a line means is a
 /// pure function — [dispatchLine], strings and the registry in, a
@@ -9,9 +9,9 @@
 /// carries. The TUI never hardcodes a command name: whatever a plugin
 /// published into `Commands` is exactly what runs.
 ///
-/// Registration is the session's job, before anything reads: the locator
-/// receives the [Terminal] and the [Commands] the same way the shell
-/// registers its own (`services..put<Terminal>(t)..put<Commands>(c)…`),
+/// Registration is the assembly's job, before anything reads: the locator
+/// receives the [Terminal] and the [Commands] together
+/// (`services..put<Terminal>(t)..put<Commands>(c)…`),
 /// so a plugin resolving at use always finds both.
 library;
 
@@ -39,7 +39,8 @@ final class UnknownCommand extends CommandDecision {
   final String name;
   const UnknownCommand(this.name);
 
-  /// The same refusal the shell prints, through the TUI's terminal.
+  /// The same refusal the assembly's writer prints, through the TUI's
+  /// terminal.
   void report(void Function(String line) writeln) =>
       writeln('unknown command: /$name');
 }
@@ -59,11 +60,11 @@ final class PlainLine extends CommandDecision {
 
 /// The pure dispatch decision: which command does [line] mean, if any?
 ///
-/// The rules are the shell's, kept identical so a TUI run and a shell
-/// run dispatch the same line the same way: trim; a leading `/` splits
-/// into the first word (the command) and the rest (the argument,
-/// trimmed); a published word runs, an unpublished one is unknown;
-/// anything else is a plain line.
+/// The rules are the assembly's, so a rendered run and a headless run
+/// dispatch the same line the same way: trim; a leading `/` splits into
+/// the first word (the command) and the rest (the argument, trimmed); a
+/// published word runs, an unpublished one is unknown; anything else is
+/// a plain line.
 CommandDecision dispatchLine(Commands commands, String line) {
   final trimmed = line.trim();
   if (!trimmed.startsWith('/')) {

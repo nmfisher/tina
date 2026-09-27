@@ -1,133 +1,91 @@
-// The TUI session: the shell's assembly, the TUI's terminal in the slot.
-// A plugin-registered command is found and dispatched with no TUI code
-// naming it; the mode command flips the boundary's mode; a turn runs
-// through the host and its lines land in the conversation.
+// The TUI session wrapper: the assembly's wiring with the TUI terminal
+// in the slot. A scripted provider drives a full turn; the dispatch
+// refuses an unknown /word through the terminal, never as a turn; /quit
+// flags the loop to stop; /mode flips the assembly's mode service — the
+// mode enum never appears in this package's logic.
 //
 // Run: dart test
 library;
 
-import 'dart:async';
 import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
-import 'package:tina_host/tina_host.dart';
-import 'package:tina_services/tina_services.dart';
-import 'package:tina_tools/tina_tools.dart';
+import 'package:tina_tools/tina_tools.dart'
+    show ModeCommandPlugin, ModeControl;
 import 'package:tina_tui/tina_tui.dart';
 
-/// A provider that plays one scripted turn: echoes the input as the
-/// reply. Records what it was asked, so tests can assert the turn ran.
-class _EchoProvider implements LlmProvider {
-  final List<Request> requests = [];
-  @override
-  String get model => 'scripted';
-  @override
-  Stream<StreamEvent> send({
-    required String system,
-    required List<Message> messages,
-    required List<ToolSchema> tools,
-  }) async* {
-    requests.add(Request(
-        systemPrompt: system,
-        messages: List.of(messages),
-        tools: List.of(tools)));
-    yield const TextDelta('echo');
-    yield const MessageComplete(
-        content: [TextBlock('echo')], stopReason: 'end_turn');
-  }
-
-  @override
-  void close() {}
-}
-
 void main() {
-  late Directory tmp;
+  late Directory ws;
+  late TuiSession tui;
   setUp(() async {
-    tmp = await Directory.systemTemp.createTemp('tina_tui_session_');
+    ws = await Directory.systemTemp.createTemp('tina_tui_session_');
+    tui = TuiSession.start(
+      providerFactory: (_) => ScriptedProvider([scriptedReply('echo reply')]),
+      workingDirectory: ws.path,
+    );
   });
   tearDown(() {
-    tmp.deleteSync(recursive: true);
+    tui.close();
+    ws.deleteSync(recursive: true);
   });
 
-  TuiSession session(ProviderFactory factory, {TuiTerminal? terminal}) =>
-      TuiSession.start(
-        providerFactory: factory,
-        workingDirectory: tmp.path,
-        terminal: terminal,
-      );
-
-  test('the locator holds the TUI terminal before anything reads it', () {
-    final tui = TuiTerminal();
-    final s = session((model) => _EchoProvider(), terminal: tui);
-    expect(identical(s.services.get<Terminal>(), tui), isTrue);
-    expect(s.services.get<Commands>(), isNotNull);
-    expect(identical(s.terminal, tui), isTrue);
-    s.close();
-  });
-
-  test('a command registered by a plugin is published, listed, dispatched',
-      () {
-    final s = session((model) => _EchoProvider());
-    // `/mode` exists because ModeCommandPlugin published it — no TUI
-    // source names it; the list is whatever the registry holds.
-    expect(s.commands['mode'], isNotNull);
-    expect(commandListRows(s.commands).join('\n'), contains('/mode — '));
-    // Dispatch through the pure decision; the handler runs.
-    final d = dispatchLine(s.commands, '/mode') as RunCommand;
-    d.run();
-    expect(s.terminal.lines.last.text, 'mode: normal');
-    s.close();
-  });
-
-  test('the mode command flips the boundary the same way it does anywhere',
-      () {
-    final s = session((model) => _EchoProvider());
-    (dispatchLine(s.commands, '/mode read-only') as RunCommand)
-        .run(); // handlers run through the decision
-    final control = s.services.get<ModeControl>();
-    expect(control.mode, PermissionMode.readOnly);
-    expect(s.terminal.lines.last.text, 'mode: read-only');
-    s.close();
-  });
-
-  test('an unknown /word is reported through the terminal, never a turn',
+  test('a full turn through the assembly\u2019s host, echoed to the terminal',
       () async {
-    final s = session((model) => _EchoProvider());
-    await s.runLine('/definitely-not-a-command');
-    expect(s.terminal.lines.last.text,
-        'unknown command: /definitely-not-a-command');
-    expect(s.host.session.turns, isEmpty, reason: 'no turn was run');
-    s.close();
+    await tui.runLine('hello');
+    expect(tui.host.session.lastReply, 'echo reply');
+    expect(tui.terminal.lines.map((l) => l.text).join("\n"), contains('echo reply'));
+    expect(tui.host.session.loop.log.length, greaterThanOrEqualTo(3),
+        reason: 'input, response, stop — the same log a headless run keeps');
   });
 
-  test('a plain line runs one host turn; the reply lands in the view',
-      () async {
-    final s = session((model) => _EchoProvider());
-    await s.runLine('hello tina');
-    expect(s.host.session.turns, hasLength(1));
-    expect(s.terminal.lines.any((l) => l.text == 'echo'), isTrue,
-        reason: 'the reply is in the conversation');
-    // The user's words are the input the loop recorded.
-    final inputs = s.host.session.loop.log
-        .whereType<InputRecordedEntry>()
-        .toList(growable: false);
-    expect(inputs.single.text, 'hello tina');
-    s.close();
+  test('an unknown /word is refused through the terminal, no turn', () async {
+    await tui.runLine('/frobnicate');
+    expect(tui.terminal.lines.map((l) => l.text).join("\n"), contains('unknown command: /frobnicate'));
+    expect(tui.host.session.loop.log, isEmpty,
+        reason: 'the refusal is not a turn');
   });
 
-  test('an empty line runs nothing at all', () async {
-    final s = session((model) => _EchoProvider());
-    await s.runLine('   ');
-    expect(s.host.session.turns, isEmpty);
-    expect(s.terminal.lines, isEmpty);
-    s.close();
+  test('/quit flags the loop to stop', () async {
+    expect(await tui.runLine('/quit'), isTrue);
+    expect(tui.assembly.quitRequested, isTrue);
   });
 
-  test('close resolves a pending ask with the empty answer', () async {
-    final s = session((model) => _EchoProvider());
-    final pending = s.terminal.ask('still there?');
-    s.close();
-    expect(await pending, '');
+  test('an empty line is no turn and no output', () async {
+    final before = tui.host.session.loop.log.length;
+    await tui.runLine('   ');
+    expect(tui.host.session.loop.log.length, before);
+    expect(tui.terminal.lines.map((l) => l.text).join("\n"), isEmpty);
+  });
+
+  test('/mode flips the assembly\u2019s mode service by word', () async {
+    await tui.runLine('/mode read-only');
+    expect(
+        ModeCommandPlugin.wordFor(tui.services.get<ModeControl>().mode),
+        'read-only');
+    expect(tui.terminal.lines.map((l) => l.text).join("\n"), contains('mode: read-only'));
+    // And back, by the same word.
+    await tui.runLine('/mode normal');
+    expect(ModeCommandPlugin.wordFor(tui.services.get<ModeControl>().mode),
+        'normal');
+  });
+
+  test('a handed-in terminal is used; a default one is built otherwise',
+      () {
+    final handed = TuiTerminal();
+    final t = TuiSession.start(
+      providerFactory: (_) => ScriptedProvider(const []),
+      workingDirectory: ws.path,
+      terminal: handed,
+    );
+    expect(t.terminal, same(handed));
+    t.close();
+
+    final fresh = TuiSession.start(
+      providerFactory: (_) => ScriptedProvider(const []),
+      workingDirectory: ws.path,
+    );
+    expect(fresh.terminal, isNot(same(handed)));
+    fresh.close();
   });
 }
