@@ -10,7 +10,11 @@ environment:
 dependencies:
   tina_core:
     path: ../tina_core
+dev_dependencies:
+  # Demo-only: the "a tina_tools tool mounted on the loop" group. The
+  # dependency points this way — engine demoing tools — and only in dev;
+  # tina_tools itself depends on these contracts for real, and the
+  # architecture guard refuses the reciprocal manifest edge.
   tina_tools:
     path: ../tina_tools
-dev_dependencies:
   test: ^1.25.0
