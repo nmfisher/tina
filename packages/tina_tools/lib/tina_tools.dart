@@ -15,6 +15,7 @@ export 'src/glob_tool.dart';
 export 'src/io_file_system.dart';
 export 'src/ls_tool.dart';
 export 'src/memory_file_system.dart';
+export 'src/permissions.dart';
 export 'src/read_tool.dart';
 export 'src/sandboxed_file_system.dart';
 export 'src/stat_tool.dart';
