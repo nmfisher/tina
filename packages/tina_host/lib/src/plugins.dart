@@ -7,6 +7,14 @@
 /// holds the handle to change it ([mode] / [setMode]), and tells the model
 /// what the mode currently allows in its prompt section. The host itself
 /// never asks what the mode is and never branches on it.
+///
+/// Process execution is layered, innermost last:
+/// `IoProcessRunner` (the real spawn) → `OsSandboxRunner` (the jail) →
+/// `SandboxedProcessRunner` (the gate, outermost). The gate stays the
+/// outermost layer so refusals never reach the OS; the jail catches what
+/// argument inspection cannot see. The plan is built **once**
+/// ([ToolsPlugin.osPlan]) and drives both the jail's layout and the gate's
+/// writable directories, so approval and confinement cannot disagree.
 library;
 
 import 'dart:io';
@@ -24,18 +32,44 @@ abstract interface class MountsTools {
 
 /// The plugin that contributes the session's tools and owns the mode.
 final class ToolsPlugin extends AgentPlugin implements MountsTools {
+  /// Whether the OS jail layer was requested. The layer itself decides per
+  /// host whether a backend exists ([OsSandboxRunner.backend]); this flag
+  /// records the host's decision to have the layer at all — `false` is a
+  /// deliberate disable, `true` a degradation when no backend exists.
+  final bool osSandbox;
+
   ToolsPlugin({
     this.id = 'tools',
     this.order = 10,
     required String workspaceRoot,
     required Directory tinaDir,
     PermissionMode mode = PermissionMode.normal,
-  })  : sandbox = SandboxedFileSystem(
+    this.osSandbox = true,
+    UnavailableBehaviour osUnavailable = UnavailableBehaviour.allow,
+    bool osIsolateNetwork = true,
+  })  : osPlan = SandboxPlan(
+          workspaceRoot: workspaceRoot,
+          tinaDir: tinaDir.path,
+          isolateNetwork: osIsolateNetwork,
+        ),
+        sandbox = SandboxedFileSystem(
           const IoFileSystem(),
           workspaceRoot: workspaceRoot,
           tinaDir: tinaDir,
           mode: mode,
         ) {
+    final writable = WritableDirectories(osPlan.writableLayout());
+    final osRunner = OsSandboxRunner(
+      inner: const IoProcessRunner(),
+      plan: osPlan,
+      unavailableBehaviour: osUnavailable,
+      onWarn: (message) => stderr.writeln('tina: $message'),
+    );
+    final gated = SandboxedProcessRunner(
+      inner: osRunner,
+      mode: mode,
+      writableDirectories: writable,
+    );
     toolList = [
       LsTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
       ReadTool(fs: sandbox, workspaceRoot: workspaceRoot),
@@ -43,10 +77,17 @@ final class ToolsPlugin extends AgentPlugin implements MountsTools {
       EditTool(fs: sandbox, workspaceRoot: workspaceRoot),
       GlobTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
       StatTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
+      BashTool(runner: gated),
+      ExecTool(runner: gated),
     ];
     workingDirectory = workspaceRoot;
     prompt = HostPromptSection(workingDirectory, () => sandbox.mode);
   }
+
+  /// The one configuration behind both the OS layout and the gate's
+  /// writable directories. Exposed so a session report can name the plan;
+  /// the plugin owns it, the host never touches it.
+  final SandboxPlan osPlan;
 
   /// The session id for this plugin on the loop.
   @override

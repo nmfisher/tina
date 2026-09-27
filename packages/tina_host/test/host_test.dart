@@ -77,7 +77,9 @@ void main() {
 
       final outcome = await host.send('make a file');
 
-      // The provider was offered exactly the six tools.
+      // The provider was offered exactly the six file tools plus the two
+      // process tools (bash, exec), which run through the OS sandbox and
+      // the permission gate.
       final offered = host
           .session.turns.last.modelRequests.first.tools
           .map((t) => t.name)
@@ -87,7 +89,7 @@ void main() {
           containsAll([
             'ls', 'read', 'write', 'edit', 'glob', 'stat',
           ]));
-      expect(offered, hasLength(6));
+      expect(offered, hasLength(8));
       // The advertised tool's executor ran: the file landed in the
       // session's working directory.
       expect(File('${ws.path}/made.txt').readAsStringSync(),
