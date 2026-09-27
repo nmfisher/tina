@@ -51,6 +51,10 @@ sealed class ShellConfigResult {
         ShellConfigOk(:final resolved) => resolved,
         ShellConfigProblem(:final resolved) => resolved,
       };
+
+  /// One status line for the shell's banner, or null when nothing was
+  /// read (a missing config file is silent).
+  String? get note;
 }
 
 /// The file was read (or was absent) and a model was resolved.

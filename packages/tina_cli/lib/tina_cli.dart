@@ -6,4 +6,5 @@
 /// and an injected writer, so tests drive it with no terminal.
 library;
 
+export 'src/shell.dart';
 export 'src/shell_config.dart';
