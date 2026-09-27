@@ -207,13 +207,16 @@ void main() {
           scriptedReply('noted'),
         ]),
         workingDirectory: ws.path,
-        plugins: [ToolsPlugin(workspaceRoot: ws.path, tinaDir: tina)],
+        plugins: [
+          const PersonaPlugin(),
+          ToolsPlugin(workspaceRoot: ws.path, tinaDir: tina),
+        ],
       ));
 
       await host.send('hello');
 
-      // The loop hands the provider the system prompt; the plugin's
-      // section must be inside it, under the core header.
+      // The loop hands the provider the system prompt; the persona plugin
+      // leads it and the tools plugin's section is inside it, under it.
       final request = built!.requests.single;
       expect(request.systemPrompt,
           startsWith('You are tina, a terminal coding agent.'));
