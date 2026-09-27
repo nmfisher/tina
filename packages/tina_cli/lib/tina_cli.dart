@@ -7,4 +7,3 @@
 library;
 
 export 'src/shell_config.dart';
-export 'src/shell.dart';
