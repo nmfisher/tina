@@ -76,7 +76,13 @@ class ReasoningDelta extends ReasoningEvent {
 
 class ReasoningEnd extends ReasoningEvent {
   final bool complete;
-  const ReasoningEnd({this.complete = true});
+
+  /// The provider's signature over the just-closed thinking block, when
+  /// the wire delivers one (Anthropic `signature_delta`). Consumers build
+  /// the stored [ReasoningBlock] from this; a block saved without its
+  /// signature cannot be sent back.
+  final String? signature;
+  const ReasoningEnd({this.complete = true, this.signature});
 }
 
 /// A status notice emitted mid-stream by the policy layer (retry ladders,
