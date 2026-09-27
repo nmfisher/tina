@@ -12,6 +12,8 @@ import 'dart:convert';
 
 import 'package:tina_core/tina_core.dart';
 
+import 'streaming.dart';
+
 /// Accumulates bytes, splits them into SSE frames, and hands each data
 /// payload to [onFrame] as it completes. Feed chunks as they arrive; call
 /// [finish] at end-of-body so a trailing frame without its blank line is
@@ -66,6 +68,12 @@ final class SseParser {
     }
     if (dataLines.isEmpty) return;
     final payload = dataLines.join('\n');
+    // The OpenAI wire's end sentinel is not JSON. Hand it through as a
+    // one-key frame so the wire itself decides what it means.
+    if (payload.trim() == '[DONE]') {
+      onFrame(const {'done': true});
+      return;
+    }
     try {
       final decoded = jsonDecode(payload);
       if (decoded is Map<String, dynamic>) {
@@ -84,7 +92,7 @@ final class SseParser {
 /// the final [MessageComplete] can carry the blocks, the stop reason, and
 /// the usage in one place. Text and reasoning deltas stream straight
 /// through; the completion is assembled at `message_stop`.
-final class ResponseBuilder {
+final class ResponseBuilder with WireBuilderState {
   final List<ContentBlock> content = [];
 
   /// Accumulated answer text (the `text_delta` events, so far).
@@ -100,17 +108,10 @@ final class ResponseBuilder {
   final Map<int, StringBuffer> toolJson = {};
   final Map<int, ({String id, String name})> toolMeta = {};
 
+
   /// From `message_delta`.
   String? stopReason;
   TokenUsage? usage;
-
-  /// A malformed or failed frame's first complaint, to carry as a stream
-  /// error if the body never completes.
-  String? badFrame;
-
-  /// True once an error frame was seen: the response ended in the
-  /// provider's eyes, and no completion may be fabricated after it.
-  bool errored = false;
 
   /// The completion, once `message_stop` (or end of stream) arrives.
   MessageComplete? build() {
@@ -229,10 +230,11 @@ bool applyFrame(Map<String, dynamic> frame, ResponseBuilder builder,
 
     case 'error':
       final err = frame['error'] as Map<String, dynamic>?;
-      events.add(StreamError(
+      final event = StreamError(
         err?['message'] as String? ?? 'provider sent an error frame',
         providerCode: err?['type'] as String?,
-      ));
+      );
+      events.add(event);
       // The response is over: no completion is fabricated after an error.
       builder.errored = true;
       return true;

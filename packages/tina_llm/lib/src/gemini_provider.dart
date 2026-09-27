@@ -125,15 +125,12 @@ final class _GeminiCall {
 /// Accumulates the SSE envelopes of one response: answer text, tool
 /// calls (each complete on arrival), finish reason, usage. Deltas pass
 /// straight through; this holds only what the final message needs.
-final class GeminiBuilder {
+final class GeminiBuilder with WireBuilderState {
   final StringBuffer text = StringBuffer();
   final List<_GeminiCall> calls = [];
   String finishReason = 'STOP';
   int inputTokens = 0;
   int outputTokens = 0;
-
-  /// First malformed-frame complaint, to surface as a stream error.
-  String? badFrame;
 
   /// True once the envelope closing the response arrived — `finishReason`
   /// set, or `usageMetadata` after it. Gemini has no explicit
@@ -150,10 +147,13 @@ final class GeminiBuilder {
           (usage['candidatesTokenCount'] as num?)?.toInt() ?? outputTokens;
       if (evt['candidates'] == null) sawStop = true; // trailing usage-only
     }
+    // An empty candidates list is a legal heartbeat envelope — not a
+    // stop, not an error. Only `finishReason` (or trailing usage after
+    // it) ends the response.
     final candidates = evt['candidates'];
-    if (candidates is! List || candidates.isEmpty) return sawStop;
+    if (candidates is! List || candidates.isEmpty) return false;
     final cand = candidates.first;
-    if (cand is! Map<String, dynamic>) return sawStop;
+    if (cand is! Map<String, dynamic>) return false;
     final content = cand['content'];
     if (content is Map<String, dynamic>) {
       final parts = content['parts'];

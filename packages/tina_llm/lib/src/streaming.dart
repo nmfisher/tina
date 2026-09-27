@@ -46,6 +46,19 @@ final class PumpFlag {
   bool stalled = false;
 }
 
+/// The end-state every wire builder reports to [pumpSse]: a malformed
+/// frame's first complaint and whether the provider ended the response
+/// with an error frame. Wires mix this in so the pump can read it
+/// without knowing the builder's own shape.
+mixin WireBuilderState {
+  String? badFrame;
+
+  /// True once an error frame was seen: the response ended in the
+  /// provider's eyes, the error was already yielded, and no completion
+  /// may be fabricated after it.
+  bool errored = false;
+}
+
 /// Pump [body] through an [SseParser] mapping frames with [protocol],
 /// yielding events as they arrive, and yield the completion last when
 /// the wire ended cleanly. Errors are stream events; nothing throws.
@@ -65,7 +78,7 @@ Stream<StreamEvent> pumpSse(
       }
     },
     onBadFrame: (problem) {
-      final b = builder as dynamic;
+      final b = builder as WireBuilderState;
       b.badFrame ??= problem;
     },
   );
@@ -102,26 +115,36 @@ Stream<StreamEvent> pumpSse(
         mapped.clear();
         if (flag.value) break; // end-of-response seen inside onFrame
       }
+      // A final frame can flip the end flag during finish(); map its
+      // events before deciding how the body ended.
+      for (final e in mapped) {
+        queue.add(e);
+      }
+      mapped.clear();
       parser.finish();
+      for (final e in mapped) {
+        queue.add(e);
+      }
+      mapped.clear();
       watchdog?.cancel();
       // How the body ended decides what completes the stream.
       if (flag.stalled) {
         // The watchdog already delivered the stall error.
         return;
       }
-      final b = builder as dynamic;
+      final b = builder as WireBuilderState;
       if (b.badFrame != null) {
         // A bad frame surfaces no matter how the body ended — a clean
         // end followed by junk still gets reported.
         queue.add(StreamError('bad frame in stream: ${b.badFrame}'));
         return;
       }
-      if (flag.sawStop && !(b.errored ?? false)) {
+      if (flag.sawStop && !b.errored) {
         final completion = protocol.build(builder);
         if (completion != null) completions.add(completion);
         return;
       }
-      if (b.errored ?? false) {
+      if (b.errored) {
         // The provider ended the response with an error frame; it was
         // already yielded. No completion is fabricated after it.
         return;

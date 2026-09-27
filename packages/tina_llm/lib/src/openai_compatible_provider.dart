@@ -37,6 +37,7 @@ String chatCompletionsPath(String baseUrl) {
 final class _PartialCall {
   String id = '';
   String name = '';
+  bool announced = false;
   final StringBuffer args = StringBuffer();
 }
 
@@ -44,7 +45,7 @@ final class _PartialCall {
 /// completion: answer text, reasoning text, tool calls by index, stop
 /// reason, and usage. Deltas pass straight through to the caller; this
 /// holds only what the final message needs.
-final class ChatCompletionsBuilder {
+final class ChatCompletionsBuilder with WireBuilderState {
   final StringBuffer text = StringBuffer();
 
   /// Reasoning text, from `delta.reasoning_content` when a server sends it.
@@ -121,7 +122,10 @@ final class ChatCompletionsBuilder {
               final args = fn['arguments'];
               if (args is String) call.args.write(args);
             }
-            if (call.id.isNotEmpty && call.name.isNotEmpty) {
+            // Announce the call once, when its identity is complete —
+            // argument deltas for an announced call are not new calls.
+            if (!call.announced && call.id.isNotEmpty && call.name.isNotEmpty) {
+              call.announced = true;
               out.add(ToolCallStart(id: call.id, name: call.name));
             }
           }
